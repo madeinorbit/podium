@@ -652,40 +652,40 @@
       "file": "apps/mobile/src/lib/transcript-feed.ts",
       "holder": "indexedTranscript/result",
       "rule": "helper-consumer",
-      "tokens": "fc311807560da19b6985e02b07f506bdef64819c56ed4b56fc00bcf7bf0ea595",
+      "tokens": "779cba78cc7c30aa1581bf15733b4e81a5e108ab204c0e9a6a8a4fd305c8288c",
       "gate": [
         "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
       ],
       "origin": [
         "f72fdf68e43ec41083b5a1d5680fa0760f555000bb6b221f47c98ce7205a2970"
       ],
-      "fingerprint": "73f9eab78613384cc26f354aecbfdc0962985d6a44e871ceb1ce1c21fced1174",
+      "fingerprint": "86955a93f5a79ebfdba91c33843425c9d14734b55f9b5b2625e00bbbf1cfcb60",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of indexedTranscript/result",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 7cbbbedcaf4b88c50679be915f4b52ea4218e3fe687eea571635514a811b4283.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 7cbbbedcaf4b88c50679be915f4b52ea4218e3fe687eea571635514a811b4283. Murmur changes quiet-row grouping within the same per-snapshot compute; the cache trigger and full-snapshot debt are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/mobile/src/lib/transcript-feed.ts",
       "holder": "indexedTranscript/result",
       "rule": "helper-consumer",
-      "tokens": "fc311807560da19b6985e02b07f506bdef64819c56ed4b56fc00bcf7bf0ea595",
+      "tokens": "779cba78cc7c30aa1581bf15733b4e81a5e108ab204c0e9a6a8a4fd305c8288c",
       "gate": [
         "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
       ],
       "origin": [
         "0dfee297d24adb2924db9fd93d111ecabce26fa26e2c98dd39da87c70299a5cf"
       ],
-      "fingerprint": "b416cce12bd4dd26c4e37cf13b9d75e8eb45ccdd8c2c53d5d98b0c58d46897b2",
+      "fingerprint": "46d732347082a183086288bc93bde372b16df7a559343194cb9c5bb7775a7cd6",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of indexedTranscript/result",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 1099e6cb6f3b5be5fd9863308e2a039990ea5d3d2d075f9d8b40a8cbdf635ca5.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 1099e6cb6f3b5be5fd9863308e2a039990ea5d3d2d075f9d8b40a8cbdf635ca5. Murmur changes quiet-row grouping within the same per-snapshot compute; the cache trigger and full-snapshot debt are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -13522,72 +13522,72 @@
       "file": "packages/client-core/src/conversation/transcript-graph.ts",
       "holder": "TranscriptGraph/reset",
       "rule": "consume:forEach",
-      "tokens": "6bfcc2abee0171c62a7f38cb4366e1a6f168b9fa5c620b2231b40ffdd284339b",
+      "tokens": "80d4b7f375e44e5b912acc597ae9cdec2e6aeb3dfa8b203a57834ddd56fcae96",
       "gate": [],
       "origin": [
         "3ed4953e6673c6f70560dd7e1d93f842526e821ec554750f403bfe9ec65de148"
       ],
-      "fingerprint": "168163e8eca76c12955fec88100958ca5f738178e360f8c25e1adf5db2c4ac3b",
+      "fingerprint": "a70f461d4d1fe67d044b70582bf1bf20cbe627c408844c0614e22f0e732496d9",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5629",
       "trigger": "Initial hydration, authoritative replacement, or exceptional pairing/order topology repair.",
       "bound": "The supplied replacement transcript is processed once to initialize source-owned membership and search indexes.",
-      "reason": "Cold graph initialization is an ingestion boundary. Warm stream, append, prepend, query and verbosity use sparse changes; exceptional identity/order edits still perform a complete rebuild and are not claimed bounded.",
+      "reason": "Cold graph initialization is an ingestion boundary. Warm stream, append, prepend, query and verbosity use sparse changes; exceptional identity/order edits still perform a complete rebuild and are not claimed bounded. Biome normalization changes this fingerprint without changing the replacement-ingestion work.",
       "guard": "Exact fingerprint and multiplicity. Retained web and quiet-run work probes cover ordinary warm changes; semantic oracle covers replacement/topology behavior."
     },
     {
       "file": "packages/client-core/src/conversation/transcript-graph.ts",
       "holder": "TranscriptGraph/reset",
       "rule": "consume:map",
-      "tokens": "61e6ff8aa60e1592dd968bd0d171d102a6301071aff9e01a66ccf3bab9ca5c94",
+      "tokens": "a67e650e81ee87f862ce12639ed032fc8862902d20e50ca25f903f542b0d7b65",
       "gate": [],
       "origin": [
         "3ed4953e6673c6f70560dd7e1d93f842526e821ec554750f403bfe9ec65de148"
       ],
-      "fingerprint": "7e529a35a61717ee52c249dc199f86e2948d65e1c0a4a421b1a8dfa4fd04d5e5",
+      "fingerprint": "10c64047a3954b1ed2be1d91271e18158f329bfe4865ccd0e0446abeac12703c",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5629",
       "trigger": "Initial hydration, authoritative replacement, or exceptional pairing/order topology repair.",
       "bound": "The supplied replacement transcript is processed once to initialize source-owned membership and search indexes.",
-      "reason": "Cold graph initialization is an ingestion boundary. Warm stream, append, prepend, query and verbosity use sparse changes; exceptional identity/order edits still perform a complete rebuild and are not claimed bounded.",
+      "reason": "Cold graph initialization is an ingestion boundary. Warm stream, append, prepend, query and verbosity use sparse changes; exceptional identity/order edits still perform a complete rebuild and are not claimed bounded. Biome normalization changes this fingerprint without changing the replacement-ingestion work.",
       "guard": "Exact fingerprint and multiplicity. Retained web and quiet-run work probes cover ordinary warm changes; semantic oracle covers replacement/topology behavior."
     },
     {
       "file": "packages/client-core/src/conversation/transcript-graph.ts",
       "holder": "TranscriptGraph/reset",
       "rule": "consume:map",
-      "tokens": "22f9ec2a160b5056431d3405d923c374b363eeb2cdd24ac8f01373226fc02e7c",
+      "tokens": "7bd1307a8ddd8c2fa34e94fe301125a32c175a966629b5108fd8fead4d004382",
       "gate": [],
       "origin": [
         "3ed4953e6673c6f70560dd7e1d93f842526e821ec554750f403bfe9ec65de148"
       ],
-      "fingerprint": "c890ae5aa19b51706f76d351faaf7ffa001b99229c34bffcf8552997143adfec",
+      "fingerprint": "be6b24ed5484c4d5dcd7205026f60641a378132a45a74b3dac359ff3e7b867f3",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5629",
       "trigger": "Initial hydration, authoritative replacement, or exceptional pairing/order topology repair.",
       "bound": "The supplied replacement transcript is processed once to initialize source-owned membership and search indexes.",
-      "reason": "Cold graph initialization is an ingestion boundary. Warm stream, append, prepend, query and verbosity use sparse changes; exceptional identity/order edits still perform a complete rebuild and are not claimed bounded.",
+      "reason": "Cold graph initialization is an ingestion boundary. Warm stream, append, prepend, query and verbosity use sparse changes; exceptional identity/order edits still perform a complete rebuild and are not claimed bounded. Biome normalization changes this fingerprint without changing the replacement-ingestion work.",
       "guard": "Exact fingerprint and multiplicity. Retained web and quiet-run work probes cover ordinary warm changes; semantic oracle covers replacement/topology behavior."
     },
     {
       "file": "packages/client-core/src/conversation/transcript-graph.ts",
       "holder": "TranscriptGraph/reset",
       "rule": "enumerate:forEach",
-      "tokens": "6bfcc2abee0171c62a7f38cb4366e1a6f168b9fa5c620b2231b40ffdd284339b",
+      "tokens": "80d4b7f375e44e5b912acc597ae9cdec2e6aeb3dfa8b203a57834ddd56fcae96",
       "gate": [],
       "origin": [
-        "01b46fe5bebbaeb60e5247456f6454db78157fc013ff9c8fa28644ca7ee4813a"
+        "3abf53d46017f64d685f5e94c5eb21f83551b896b2bc6cbb81b11dd84a7dfc09"
       ],
-      "fingerprint": "ea4b20218d2ee50c340afb9f42b9adf0056af9c707db3ffb5404c4ebed01928b",
+      "fingerprint": "147058b578299045c5ccdc00040ea8ccd3be71ec42985fc07f6ad9526d9b79ee",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5629",
       "trigger": "Initial hydration, authoritative replacement, or exceptional pairing/order topology repair.",
       "bound": "The supplied replacement transcript is processed once to initialize source-owned membership and search indexes.",
-      "reason": "Cold graph initialization is an ingestion boundary. Warm stream, append, prepend, query and verbosity use sparse changes; exceptional identity/order edits still perform a complete rebuild and are not claimed bounded.",
+      "reason": "Cold graph initialization is an ingestion boundary. Warm stream, append, prepend, query and verbosity use sparse changes; exceptional identity/order edits still perform a complete rebuild and are not claimed bounded. Biome normalization changes this fingerprint without changing the replacement-ingestion work.",
       "guard": "Exact fingerprint and multiplicity. Retained web and quiet-run work probes cover ordinary warm changes; semantic oracle covers replacement/topology behavior."
     },
     {
@@ -35304,21 +35304,39 @@
     },
     {
       "file": "apps/web/src/features/chat/MessageEnvelopeGroup.tsx",
-      "holder": "PointerEnvelopeItem/mail",
+      "holder": "PointerEnvelopeBody/mail",
       "rule": "reader-summary",
-      "tokens": "aeb91e84acd77f9eefc772ec2d401f04cc9b7e80f63da69aaebae46e98b44c75",
+      "tokens": "9aa47bb37031480314d298f4b593f172f71e13a0cc2ac863bbec44a0333812cd",
       "gate": [],
       "origin": [
         "29ef4a25e89fc8a2714d1c07bf2d8d0156c909359bcfd147f07eedde65ca5b42"
       ],
-      "fingerprint": "b8b6266c6777ad5e3b974d6cc1f6c24db49a4024d359a0b8cb96a2e08abe3ceb",
+      "fingerprint": "df16705d8b8fce3a78daf98b1c259d7e823a4fa6ea741765e3759280a5ce12f4",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2143",
       "trigger": "The reader opens a chat mail note whose message reached the agent as an inbox pointer.",
       "bound": "One addressed message id per opened pointer item; at most 50 bodies are kept per store handle, so a reopen does not query again.",
-      "reason": "The messages value is the TRPC mail API, not message rows. useMailBody calls messages.show for one id and enumerates no records.",
+      "reason": "The messages value is the TRPC mail API, not message rows. useMailBody calls messages.show for one id and enumerates no records. PointerEnvelopeBody now mounts only for an opened note, inside or outside a stretch.",
       "guard": "ChatBlockView.envelope.test.tsx proves the body is requested only after the note opens, by the pointer id; legacy pointers request nothing."
+    },
+    {
+      "file": "apps/web/src/features/chat/MessageEnvelopeGroup.tsx",
+      "holder": "PointerEnvelopeBody/fetched",
+      "rule": "reader-summary",
+      "tokens": "478ae571469630e064181b2035357d6812ee96f20ecee1125c42da6ac2d7207d",
+      "gate": [],
+      "origin": [
+        "29ef4a25e89fc8a2714d1c07bf2d8d0156c909359bcfd147f07eedde65ca5b42"
+      ],
+      "fingerprint": "099afdeff7dfb7a3b726b8a8249c56236e0ba3e3321052d598abaabe032e6639",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2287",
+      "trigger": "An opened note's addressed body has loaded or supplied its preview.",
+      "bound": "One body string for envelope.id, never a message table or session catalogue.",
+      "reason": "Splits the already addressed body into its subject and remainder to avoid rendering the subject twice. It enumerates no records and makes no request.",
+      "guard": "ChatBlockView.envelope.test.tsx covers deferred fetch by message id, denial/retry and fetched subject omission; ToolBatchView.test.tsx covers search disclosure and automatic-open windowing."
     },
     {
       "file": "apps/web/src/features/tips/tip-log-source.ts",

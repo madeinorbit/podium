@@ -76,6 +76,7 @@ function mount(
   live = false,
   waiting?: { label: string; detail?: string },
   run?: TranscriptToolRun,
+  forceOpen = false,
 ): void {
   act(() => {
     root.render(
@@ -85,7 +86,7 @@ function mount(
         index={0}
         highlighted={false}
         dimmed={false}
-        forceOpen={false}
+        forceOpen={forceOpen}
         live={live}
         waiting={waiting}
         sessionId={asSessionId('s1')}
@@ -113,7 +114,7 @@ it('observes retained failure and count facts while folded, then shows current c
     graph.apply({ changed: [call({ id: 'c', toolUseId: 'c' })], insertions: [{ id: 'c' }] }),
   )
   // POD-2076: no count badge; the count rides the summary and the label.
-  expect(host.querySelector('.work-line-row')?.getAttribute('aria-label')).toContain('3 calls')
+  expect(host.querySelector('.work-line-row')?.getAttribute('aria-label')).toContain('3 events')
   expect(host.querySelector('.work-line-list')).toBeNull()
   act(() => host.querySelector<HTMLButtonElement>('.work-line-row')!.click())
   expect(host.querySelector('.work-line-list')?.textContent).toContain('failed')
@@ -186,7 +187,7 @@ describe('ToolBatchView — the work line', () => {
     const line = host.querySelector('[data-testid="work-line"]')!
     expect(line.getAttribute('data-state')).toBe('live')
     expect(line.querySelector('.work-line-phrase')?.textContent).toBe('Editing ChatView.tsx')
-    expect(line.querySelector('.work-line-row')?.getAttribute('aria-label')).toContain('2 calls')
+    expect(line.querySelector('.work-line-row')?.getAttribute('aria-label')).toContain('2 events')
     // Counted from the FIRST call, not the latest one.
     expect(line.querySelector('.work-line-time')?.textContent).toBe('0:07')
   })
@@ -201,11 +202,11 @@ describe('ToolBatchView — the work line', () => {
     const line = host.querySelector('[data-testid="work-line"]')!
     expect(line.getAttribute('data-state')).toBe('done')
     expect(line.querySelector('.work-line-phrase')?.textContent).toBe('Read a file, ran a command')
-    expect(line.querySelector('.work-line-time')?.textContent).toBe('0:09')
+    expect(line.querySelector('.work-line-time')?.textContent).toMatch(/^\d{2}:\d{2}–\d{2}:\d{2}$/)
   })
 
-  // POD-2286: the folded face names its subjects, as the tooltip does.
-  it('folds to the named title', () => {
+  // Multi-event stretches count work; the tooltip keeps named subjects.
+  it('folds to counts and preserves the named title', () => {
     mount(
       batchOf([
         call({ id: 'a', toolName: 'Edit', toolPaths: ['/r/apps/web/src/ChatView.tsx'] }),
@@ -213,9 +214,7 @@ describe('ToolBatchView — the work line', () => {
       ]),
     )
     const row = host.querySelector('.work-line-row')!
-    expect(row.querySelector('.work-line-phrase')?.textContent).toBe(
-      'Edited ChatView.tsx, OfferBar.tsx',
-    )
+    expect(row.querySelector('.work-line-phrase')?.textContent).toBe('Edited 2 files')
     expect(row.getAttribute('title')).toContain('ChatView.tsx')
   })
 
@@ -238,7 +237,7 @@ describe('ToolBatchView — the work line', () => {
     expect(line.getAttribute('data-state')).toBe('wait')
     expect(line.querySelector('.work-line-phrase')?.textContent).toBe('Waiting on shell · tests')
     expect(line.querySelector('.pod-mark')).toBeNull()
-    expect(line.querySelector('.work-line-glyph')?.textContent).toBe('◇')
+    expect(line.querySelector('.work-line-glyph svg')).not.toBeNull()
   })
 
   it('keeps a failure on the collapsed row', () => {
@@ -255,7 +254,7 @@ describe('ToolBatchView — the work line', () => {
     expect(line.querySelector('.work-line-fail')?.textContent).toContain('1 failed')
     expect(line.querySelector('.work-line-glyph')?.className).toContain('work-line-glyph--err')
     expect(line.querySelector('.work-line-row')?.getAttribute('aria-label')).toBe(
-      'Read a file, ran a command. 2 calls. 1 failed.',
+      'Read a file, ran a command. 2 events. 1 failed.',
     )
   })
 
@@ -287,12 +286,14 @@ describe('ToolBatchView — the work line', () => {
     // NOTHING ON THE FIRST LAYER (POD-993 round 3). The unfolded run names the
     // calls and stops: no magnitude, no preview of what each one returned.
     expect(line.querySelector('.tool-out-line')).toBeNull()
-    expect(line.querySelector('.tool-row')?.textContent).toContain('Edit')
-    expect(line.querySelector('.tool-subject')?.textContent).toBe('ChatView.tsx')
+    expect(line.querySelector('.tool-block > .work-line-row')?.textContent).toContain('Edit')
+    expect(line.querySelector('.tool-block .work-line-phrase')?.textContent).toBe(
+      'Edited ChatView.tsx',
+    )
     // A file edit opens the run's diff SHEET rather than an inline diff cramped
     // into a work line inside a transcript row.
     act(() => {
-      line.querySelector<HTMLButtonElement>('.tool-row')!.click()
+      line.querySelector<HTMLButtonElement>('.tool-block > .work-line-row')!.click()
     })
     expect(line.querySelector('[data-testid="tool-edit-diff"]')).toBeNull()
     // AND IT SHOWS THE RUN'S OWN DIFF. `git diff` would answer "what does this
@@ -318,16 +319,16 @@ describe('ToolBatchView — the work line', () => {
       line.querySelector<HTMLButtonElement>('.work-line-row')!.click()
     })
     expect(line.getAttribute('data-open')).toBe('true')
-    expect(line.querySelectorAll('.work-line-list .tool-row')).toHaveLength(2)
-    expect(line.querySelector('.tool-subject')?.textContent).toBe('a.ts')
+    expect(line.querySelectorAll('.work-line-list .tool-block > .work-line-row')).toHaveLength(2)
+    expect(line.querySelector('.tool-block .work-line-phrase')?.textContent).toBe('Read a.ts')
     // The call's own output is one more click away, on the call.
     expect(line.querySelector('.tool-out-line')).toBeNull()
     act(() => {
-      line.querySelector<HTMLButtonElement>('.tool-row')!.click()
+      line.querySelector<HTMLButtonElement>('.tool-block > .work-line-row')!.click()
     })
     expect(line.querySelector('.tool-result-full')?.textContent).toBe('ok')
     act(() => {
-      line.querySelector<HTMLButtonElement>('.tool-row')!.click()
+      line.querySelector<HTMLButtonElement>('.tool-block > .work-line-row')!.click()
     })
     act(() => {
       line.querySelector<HTMLButtonElement>('.work-line-row')!.click()
@@ -424,7 +425,9 @@ describe('ToolBatchView — the diff rail lists edits, not everything touched', 
     act(() => {
       line.querySelector<HTMLButtonElement>('.work-line-row')!.click()
     })
-    const openable = host.querySelector<HTMLButtonElement>('.tool-row[title^="Open "]')!
+    const openable = host.querySelector<HTMLButtonElement>(
+      '.tool-block > .work-line-row[title^="Open "]',
+    )!
     act(() => {
       openable.click()
     })
@@ -499,7 +502,7 @@ describe('ToolBatchView — the diff rail lists edits, not everything touched', 
       line.querySelector<HTMLButtonElement>('.work-line-row')!.click()
     })
     // The row unfolds in place instead — a read has nothing to diff.
-    expect(line.querySelector('.tool-row[title^="Open "]')).toBeNull()
+    expect(line.querySelector('.tool-block > .work-line-row[title^="Open "]')).toBeNull()
   })
 })
 
@@ -548,7 +551,7 @@ describe('ToolBatchView — lazy collapsed tool diffs', () => {
 
     // Opening the file builds once and shows the recorded change, not git.
     act(() => {
-      line.querySelector<HTMLButtonElement>('.tool-row[title^="Open "]')!.click()
+      line.querySelector<HTMLButtonElement>('.tool-block > .work-line-row[title^="Open "]')!.click()
     })
     await waitForDiffSheet('const a = 1', 'const a = 2')
     expect(diffBuilds.count).toBeGreaterThan(0)
@@ -572,7 +575,7 @@ describe('ToolBatchView — lazy collapsed tool diffs', () => {
       line.querySelector<HTMLButtonElement>('.work-line-row')!.click()
     })
     act(() => {
-      line.querySelector<HTMLButtonElement>('.tool-row[title^="Open "]')!.click()
+      line.querySelector<HTMLButtonElement>('.tool-block > .work-line-row[title^="Open "]')!.click()
     })
     await waitForDiffSheet('one', 'ONE')
     const built = diffBuilds.count
@@ -640,4 +643,79 @@ it('defers folded batch edit reads with retained and snapshot rows during stream
     }
   }
   console.log('[folded batch edit-body work]', JSON.stringify(samples))
+})
+
+it('opens mixed activity without extra feed rows and reveals note bodies for search', () => {
+  const note: TranscriptItem = {
+    id: 'note',
+    role: 'user',
+    ts: '2026-10-28T17:15:00Z',
+    text: '[podium message msg_n · from system:steward · to issue:POD-2287]\nMerge lock released\nneedle in the body\n[end podium message msg_n]',
+  }
+  const row = batchOf([
+    call({ id: 'cmd', toolName: 'Bash', toolInput: 'git status', toolResult: 'clean' }),
+    note,
+  ])
+  row.blocks.push({
+    item: call({ id: 'sent', toolName: 'Bash' }),
+    mail: { op: 'note', to: 'POD-2242', preview: 'Sent subject\nSent body' },
+  })
+  row.blockIndices.push(2)
+  row.summary = undefined
+  mount(row)
+  expect(host.querySelector('.work-line-phrase')?.textContent).toContain('read a note')
+  expect(host.textContent).not.toContain('needle')
+  act(() => host.querySelector<HTMLButtonElement>('[data-transcript-run-toggle]')!.click())
+  expect(host.querySelectorAll('[data-block]')).toHaveLength(1)
+  expect(host.querySelector('.work-line-list')?.textContent).toContain(
+    'steward  Merge lock released',
+  )
+  expect(host.querySelector('.work-line-list')?.textContent).toContain('To POD-2242  Sent subject')
+  expect(host.querySelector('.tool-row')).toBeNull()
+  expect(host.querySelectorAll('.quiet-time')).toHaveLength(1)
+  expect(host.querySelector('.work-line-list')?.textContent).not.toContain('needle')
+  mount(row, false, undefined, undefined, true)
+  expect(host.querySelector('.mail-item-body')?.textContent?.trim()).toBe('needle in the body')
+  expect(host.querySelector('.work-line-list')?.textContent).toContain('Sent body')
+  expect(host.querySelector('.tool-result-full')?.textContent).toBe('clean')
+  expect(host.querySelectorAll('[data-block]')).toHaveLength(1)
+})
+
+it('lets windowing release automatically opened search rows and retains deliberate note disclosure', () => {
+  const row = batchOf([
+    call({ id: 'cmd', toolResult: 'ok' }),
+    {
+      id: 'note',
+      role: 'user',
+      text: '[podium message msg_w · from system:steward · to issue:POD-2287]\nStatus\nneedle\n[end podium message msg_w]',
+    },
+  ])
+  mount(row, false, undefined, undefined, true)
+  expect(host.textContent).toContain('needle')
+  expect(host.querySelector('[data-transcript-retain]')).toBeNull()
+  expect(host.querySelector('[aria-expanded="true"]:not([data-transcript-run-toggle])')).toBeNull()
+  expect(host.querySelector('[data-open="true"]:not([data-transcript-run-view])')).toBeNull()
+  act(() => host.querySelector<HTMLButtonElement>('.mail-item-head')!.click())
+  expect(host.querySelector('.mail-item[data-transcript-retain]')).not.toBeNull()
+})
+
+it('reveals a search hit in an edit receipt as well as the recorded diff', () => {
+  const row = batchOf([
+    call({
+      id: 'edit',
+      toolName: 'Edit',
+      toolResult: 'needle only in the receipt',
+      toolInputJson: JSON.stringify({
+        kind: 'file-edit',
+        path: 'a.ts',
+        mode: 'replace',
+        hunks: [{ oldText: 'before', newText: 'after' }],
+        added: 1,
+        removed: 1,
+      }),
+    }),
+  ])
+  mount(row, false, undefined, undefined, true)
+  expect(host.querySelector('[data-testid="tool-edit-diff"]')).not.toBeNull()
+  expect(host.querySelector('.tool-result-full')?.textContent).toBe('needle only in the receipt')
 })

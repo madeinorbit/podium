@@ -84,7 +84,10 @@ export interface MobileRowOptions {
 }
 
 /** Shape one addressed paired row, including its envelope slots. */
-export function shapeMobileChatRow(chatRow: ChatRow, options: MobileRowOptions = {}): MobileTranscriptRow[] {
+export function shapeMobileChatRow(
+  chatRow: ChatRow,
+  options: MobileRowOptions = {},
+): MobileTranscriptRow[] {
   const rows: MobileTranscriptRow[] = []
   const append = (row: MobileTranscriptRow) => rows.push(row)
   const blockIndices = chatRow.kind === 'tools' ? chatRow.blockIndices : [chatRow.blockIndex]
@@ -92,6 +95,12 @@ export function shapeMobileChatRow(chatRow: ChatRow, options: MobileRowOptions =
   if (chatRow.kind === 'tools') {
     const first = chatRow.blocks[0]
     if (!first) return rows
+    if (chatRow.blocks.length === 1 && first.item.role === 'user') {
+      return shapeMobileChatRow(
+        { kind: 'block', block: first, blockIndex: blockIndices[0] ?? -1 },
+        options,
+      )
+    }
     append({
       key: transcriptItemKey(first.item),
       kind: 'tools',

@@ -1,3 +1,5 @@
+import './test-support/no-message-attachments'
+import type { HeadlessOverlay } from '@podium/client-core/conversation'
 import type { RenderableRow } from '@podium/client-core/values'
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import { act } from 'react'
@@ -5,7 +7,6 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { buildChatRows, pairToolResults } from './chat'
 import { TranscriptFeed } from './TranscriptFeed'
-import type { HeadlessOverlay } from '@podium/client-core/conversation'
 
 // FEED MOTION (POD-423), end to end through the feed: which rows carry
 // `.transcript-arrive` when, and whether in-progress text carries its caret.
@@ -235,4 +236,30 @@ describe('TranscriptFeed — boundary states', () => {
     expect(host.querySelector('.transcript-pager')?.textContent).toContain('loading')
     expect(host.querySelector('.transcript-pager .pod-mark')).toBeNull()
   })
+})
+
+it('keeps a lone note addressed by its own key and gives a mixed stretch just one feed tick', () => {
+  const note: TranscriptItem = {
+    id: 'note',
+    role: 'user',
+    text: '[podium message msg_key · from system:steward · to issue:POD-2287]\nStatus\nDetail\n[end podium message msg_key]',
+  }
+  render([note])
+  expect(host.querySelectorAll('[data-block]')).toHaveLength(1)
+  expect(host.querySelector('[data-row-key="note"]')).not.toBeNull()
+  expect(host.querySelector('[data-transcript-run-view]')).toBeNull()
+  const command: TranscriptItem = {
+    id: 'cmd',
+    role: 'tool',
+    text: '',
+    toolName: 'Bash',
+    toolInput: 'git status',
+    toolResult: 'clean',
+  }
+  render([command, note])
+  expect(host.querySelectorAll('[data-block]')).toHaveLength(1)
+  expect(host.querySelector('[data-row-key="cmd"]')).not.toBeNull()
+  expect(
+    JSON.parse(host.querySelector('[data-row-aliases]')?.getAttribute('data-row-aliases') ?? '[]'),
+  ).toEqual(['cmd', 'note'])
 })

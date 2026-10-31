@@ -1,3 +1,4 @@
+import './test-support/no-message-attachments'
 import type { ChatActivity, RenderableRow, SessionIssueOutcome } from '@podium/client-core/values'
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import { act } from 'react'
@@ -152,7 +153,7 @@ describe('the tail stands in a slot of constant height', () => {
 
     render(working, [prose, tool()])
     const line = (): HTMLElement | null => host.querySelector('[data-testid="work-line"]')
-    expect(line()?.dataset.state).toBe('handoff')
+    expect(line()?.dataset.state).toBe('live')
     expect(line()?.querySelector('.pod-mark')).toBeNull()
     expect(tailRow()?.dataset.tail).toBe('working')
     expect(host.querySelectorAll('.pod-mark')).toHaveLength(1)

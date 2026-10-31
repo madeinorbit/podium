@@ -8,7 +8,7 @@ import {
 } from '@podium/commands/mail-command'
 import type { MessageRecordWire, TranscriptItem } from '@podium/model'
 import { machinePathBasename } from '@podium/model'
-import { parseEnvelopeBatch, principalShortName } from './message-envelope'
+import { isOperatorQuestion, parseEnvelopeBatch, principalShortName } from './message-envelope'
 
 /**
  * Presentation-pure helpers for the chat surface, shared between the web
@@ -241,9 +241,8 @@ export function isBatchableTool(item: TranscriptItem): boolean {
 }
 
 /**
- * Notes that arrived and ask nothing of the reader (POD-2286): Podium's own
- * mail, with no human text behind it and no question in it. A question keeps a
- * row of its own, outside any fold.
+ * Podium mail with no human text and no question addressed to the operator.
+ * Questions between agents stay with the other quiet activity.
  */
 export function isQuietNote(item: TranscriptItem): boolean {
   if (item.role !== 'user') return false
@@ -252,7 +251,7 @@ export function isQuietNote(item: TranscriptItem): boolean {
     batch !== null &&
     batch.operatorText === '' &&
     batch.envelopes.length > 0 &&
-    !batch.envelopes.some((e) => e.question)
+    !batch.envelopes.some(isOperatorQuestion)
   )
 }
 
@@ -453,6 +452,11 @@ export interface SingleRow {
 }
 export type ChatRow = SingleRow | ToolBatchRow
 
+/** One delivered transcript item can hold several notes. Count the notes. */
+export function toolActivityCount(item: TranscriptItem): number {
+  return item.role === 'user' ? (parseEnvelopeBatch(item.text)?.envelopes.length ?? 1) : 1
+}
+
 /**
  * Group the flat block stream into renderable rows. Maximal runs of consecutive
  * quiet tool calls (no intervening text/prompt) collapse into one summarized
@@ -491,7 +495,8 @@ export function buildChatRows(blocks: ChatBlock[]): ChatRow[] {
 export function toolCategory(item: TranscriptItem): { verb: string; noun: string } {
   if (item.role === 'user') return { verb: 'Read', noun: 'note' }
   const mail = toolMailCommand(item)
-  if (mail) return mail.op === 'inbox' ? { verb: 'Checked', noun: 'inbox' } : { verb: 'Sent', noun: 'note' }
+  if (mail)
+    return mail.op === 'inbox' ? { verb: 'Checked', noun: 'inbox' } : { verb: 'Sent', noun: 'note' }
   switch (item.toolName) {
     case 'Read':
     case 'NotebookRead':
@@ -666,12 +671,13 @@ export function toolBatchTitles(blocks: ChatBlock[]): { title: string; summary: 
     const { verb, noun } = toolCategory(b.item)
     const key = `${verb}|${noun}`
     const subject = toolSubject(b.item)
+    const count = toolActivityCount(b.item)
     const entry = tally.get(key)
     if (entry) {
-      entry.count++
+      entry.count += count
       if (subject) entry.subjects.push(subject)
     } else {
-      tally.set(key, { verb, noun, subjects: subject ? [subject] : [], count: 1 })
+      tally.set(key, { verb, noun, subjects: subject ? [subject] : [], count })
       order.push(key)
     }
   }

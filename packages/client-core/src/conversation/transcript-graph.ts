@@ -1,17 +1,33 @@
-import type { TranscriptItem } from '@podium/model'
-import { action, compareShallow, observable, type IObservableArray } from 'mobx'
 import { companion, lazy } from '@podium/mobx-helpers'
+import type { TranscriptItem } from '@podium/model'
+import { action, compareShallow, type IObservableArray, observable } from 'mobx'
 import { LatestTranscriptId } from '../transcript/merge'
-import { isCodexAsyncQuestion, isInterviewQuestion, isPendingAskQuestion } from '../values/ask-question'
 import {
-  foldsIntoCompaction, isCompactionPart, isStretchItem, isUserMediaMarker, pairToolResults,
+  isCodexAsyncQuestion,
+  isInterviewQuestion,
+  isPendingAskQuestion,
+} from '../values/ask-question'
+import {
+  type ChatBlock,
+  type ChatRow,
+  foldsIntoCompaction,
+  isCompactionPart,
+  isStretchItem,
+  isUserMediaMarker,
+  pairToolResults,
   presentToolBlock,
-  type ChatBlock, type ChatRow,
 } from '../values/chat'
-import { rowSurvivesSummary, type ChatVerbosity } from '../values/chat-verbosity'
-import { isOperatorPrompt, type LastAnswer, type TranscriptSearchState } from '../values/compose/chat'
+import { type ChatVerbosity, rowSurvivesSummary } from '../values/chat-verbosity'
+import {
+  isOperatorPrompt,
+  type LastAnswer,
+  type TranscriptSearchState,
+} from '../values/compose/chat'
 import { parseEnvelopeBatch } from '../values/message-envelope'
-import { promptsBeforeTheirReplies, type TranscriptComputeResult } from '../values/transcript-compute'
+import {
+  promptsBeforeTheirReplies,
+  type TranscriptComputeResult,
+} from '../values/transcript-compute'
 import { TranscriptSearchIndex } from './transcript-search-index'
 import { TranscriptToolRun } from './transcript-tool-run'
 
@@ -33,11 +49,14 @@ export interface TranscriptRowPublication {
   readonly removed: readonly string[]
 }
 
-interface ToolMembers { calls: string[]; results: string[] }
+interface ToolMembers {
+  calls: string[]
+  results: string[]
+}
 
 function relationship(item: TranscriptItem): string {
   const marker = isUserMediaMarker(item)
-  const fileOnly = marker && !!item.tags?.length && item.tags.every(tag => tag.kind === 'file')
+  const fileOnly = marker && !!item.tags?.length && item.tags.every((tag) => tag.kind === 'file')
   return `${item.role}\0${item.toolUseId ?? ''}\0${item.toolResult !== undefined}\0${marker}\0${fileOnly}\0${item.event ?? ''}\0${item.ts ?? ''}`
 }
 
@@ -62,8 +81,12 @@ export class TranscriptGraph {
   /** Whether each item folds into a run, decided once when it is set: telling
    *  the agent's own mail apart (POD-2146) reads its command. */
   private readonly batchable = observable.map<string, boolean>(undefined, { deep: false })
-  private readonly children = observable.map<string, IObservableArray<string>>(undefined, { deep: false })
-  private readonly effectChildren = observable.map<string, IObservableArray<string>>(undefined, { deep: false })
+  private readonly children = observable.map<string, IObservableArray<string>>(undefined, {
+    deep: false,
+  })
+  private readonly effectChildren = observable.map<string, IObservableArray<string>>(undefined, {
+    deep: false,
+  })
   private readonly rowMembers = observable.map<string, string[]>(undefined, { deep: false })
   private readonly runs = observable.map<string, TranscriptToolRun>(undefined, { deep: false })
   private readonly skeletons = observable.map<string, ChatRow>(undefined, { deep: false })
@@ -77,7 +100,9 @@ export class TranscriptGraph {
   private readonly toolMembers = new Map<string, ToolMembers>()
   /** Transcript identity index; companions follow records without owning them. */
   private readonly records = observable.map<string, TranscriptRecord>(undefined, { deep: false })
-  readonly presentation = companion((record: TranscriptRecord) => new TranscriptRecordPresentation(record, this))
+  readonly presentation = companion(
+    (record: TranscriptRecord) => new TranscriptRecordPresentation(record, this),
+  )
   /** The last source mutation's row membership/content journal. */
   rowPublication: TranscriptRowPublication = { reset: true, changed: [], removed: [] }
   private applyDepth = 0
@@ -93,14 +118,14 @@ export class TranscriptGraph {
   private readonly operatorIds = [[], []] as [string[], string[]]
   private readonly cursorMembers = new Map<string, string[]>()
   private readonly aliasById = new Map<string, string>()
-  private readonly answers = new LatestTranscriptId(id => this.rank(id))
-  private readonly assistants = new LatestTranscriptId(id => this.rank(id))
-  private readonly questions = new LatestTranscriptId(id => this.rank(id))
-  private readonly interviews = new LatestTranscriptId(id => this.rank(id))
+  private readonly answers = new LatestTranscriptId((id) => this.rank(id))
+  private readonly assistants = new LatestTranscriptId((id) => this.rank(id))
+  private readonly questions = new LatestTranscriptId((id) => this.rank(id))
+  private readonly interviews = new LatestTranscriptId((id) => this.rank(id))
   @observable accessor latestAnswerId: string | undefined = undefined
   @observable accessor latestAssistantId: string | undefined = undefined
   @observable accessor pendingQuestionId: string | undefined = undefined
-  readonly searchIndex = new TranscriptSearchIndex(id => this.rank(id))
+  readonly searchIndex = new TranscriptSearchIndex((id) => this.rank(id))
 
   constructor(items: readonly TranscriptItem[] = []) {
     this.reset(items)
@@ -108,16 +133,24 @@ export class TranscriptGraph {
 
   /** Stable list metadata. Content is read through block(id) or row(id). */
   @lazy({ equals: compareShallow }) get structuralRows(): ChatRow[] {
-    return this.rowIds.map(id => this.skeletons.get(id)!)
+    return this.rowIds.map((id) => this.skeletons.get(id)!)
   }
 
-  @lazy({ equals: compareShallow }) get structuralBlocks(): ChatBlock[] { return this.blockIds.map(id => this.blockSkeletons.get(id)!) }
-  get version(): number { return this.orderVersion }
-  structuralRow(id: string): ChatRow | undefined { return this.skeletons.get(id) }
-  run(id: string): TranscriptToolRun | undefined { return this.runs.get(id) }
+  @lazy({ equals: compareShallow }) get structuralBlocks(): ChatBlock[] {
+    return this.blockIds.map((id) => this.blockSkeletons.get(id)!)
+  }
+  get version(): number {
+    return this.orderVersion
+  }
+  structuralRow(id: string): ChatRow | undefined {
+    return this.skeletons.get(id)
+  }
+  run(id: string): TranscriptToolRun | undefined {
+    return this.runs.get(id)
+  }
   @lazy({ equals: compareShallow }) get lastAnswer(): LastAnswer {
     const answer = this.latestAnswerId
-    return { blockIndex: answer === undefined ? -1 : this.blockPosition(answer) ?? -1 }
+    return { blockIndex: answer === undefined ? -1 : (this.blockPosition(answer) ?? -1) }
   }
 
   operatorBefore(rowIndex: number, collapseContext: boolean): string | undefined {
@@ -136,7 +169,9 @@ export class TranscriptGraph {
     return row === undefined ? undefined : this.rowPosition(row)
   }
 
-  record(id: string): TranscriptRecord | undefined { return this.records.get(id) }
+  record(id: string): TranscriptRecord | undefined {
+    return this.records.get(id)
+  }
   block(id: string): ChatBlock | undefined {
     const record = this.record(id)
     return record === undefined ? undefined : this.presentation(record).block
@@ -147,42 +182,54 @@ export class TranscriptGraph {
   }
 
   deriveBlock(id: string): ChatBlock | undefined {
-        const item = this.items.get(id)
-        if (!item) return undefined
-        const children = this.children.get(id)
-        if (!children?.length) return presentToolBlock({ item })
-        if (item.role === 'tool' && item.toolUseId) {
-          const result = this.items.get(children.at(-1)!)?.toolResult
-          const effectId = this.effectChildren.get(id)?.at(-1)
-          const effects = effectId === undefined ? undefined : this.items.get(effectId)?.toolEffects
-          return presentToolBlock({ item: effects ? { ...item, toolEffects: effects } : item, result })
-        }
-        const related = [item]
-        for (const child of children) {
-          const item = this.items.get(child)
-          if (item) related.push(item)
-        }
-        return pairToolResults(related)[0]
+    const item = this.items.get(id)
+    if (!item) return undefined
+    const children = this.children.get(id)
+    if (!children?.length) return presentToolBlock({ item })
+    if (item.role === 'tool' && item.toolUseId) {
+      const result = this.items.get(children.at(-1)!)?.toolResult
+      const effectId = this.effectChildren.get(id)?.at(-1)
+      const effects = effectId === undefined ? undefined : this.items.get(effectId)?.toolEffects
+      return presentToolBlock({ item: effects ? { ...item, toolEffects: effects } : item, result })
+    }
+    const related = [item]
+    for (const child of children) {
+      const item = this.items.get(child)
+      if (item) related.push(item)
+    }
+    return pairToolResults(related)[0]
   }
   deriveRow(id: string): ChatRow | undefined {
-        const members = this.rowMembers.get(id)
-        if (!members?.length) return undefined
-        const first = this.block(members[0]!)
-        if (!first) return undefined
-        const graph = this
-        if (!this.isBatchable(first.item.id)) return {
-          kind: 'block', block: first,
-          get blockIndex() { return graph.blockPosition(first.item.id) ?? -1 },
-        }
-        const run = this.runs.get(id)
-        if (!run) return undefined
-        return {
-          kind: 'tools',
-          get blocks() { return run.blocks },
-          get title() { return run.title },
-          get summary() { return run.summary },
-          get blockIndices() { return members.map(member => graph.blockPosition(member) ?? -1) },
-        }
+    const members = this.rowMembers.get(id)
+    if (!members?.length) return undefined
+    const first = this.block(members[0]!)
+    if (!first) return undefined
+    const graph = this
+    if (!this.isBatchable(first.item.id))
+      return {
+        kind: 'block',
+        block: first,
+        get blockIndex() {
+          return graph.blockPosition(first.item.id) ?? -1
+        },
+      }
+    const run = this.runs.get(id)
+    if (!run) return undefined
+    return {
+      kind: 'tools',
+      get blocks() {
+        return run.blocks
+      },
+      get title() {
+        return run.title
+      },
+      get summary() {
+        return run.summary
+      },
+      get blockIndices() {
+        return members.map((member) => graph.blockPosition(member) ?? -1)
+      },
+    }
   }
 
   itemPosition(id: string): number {
@@ -215,32 +262,45 @@ export class TranscriptGraph {
     return this.searchIndex.find(key)
   }
 
-  search(query: string, cursor: number, verbosity: ChatVerbosity = 'normal'): TranscriptSearchState {
+  search(
+    query: string,
+    cursor: number,
+    verbosity: ChatVerbosity = 'normal',
+  ): TranscriptSearchState {
     return this.positionSearch(this.matches(query), cursor, query.trim() !== '', verbosity)
   }
 
-  positionSearch(ids: readonly string[], cursor: number, filtering: boolean, verbosity: ChatVerbosity = 'normal'): TranscriptSearchState {
+  positionSearch(
+    ids: readonly string[],
+    cursor: number,
+    filtering: boolean,
+    verbosity: ChatVerbosity = 'normal',
+  ): TranscriptSearchState {
     const total = ids.length
     const selected = total ? ((cursor % total) + total) % total : -1
     const activeId = ids[selected]
     const rowId = activeId === undefined ? undefined : this.rowIdForBlock(activeId)
     const activeRow = rowId === undefined ? undefined : this.rowPosition(rowId, verbosity)
     return {
-      matches: ids.map(id => this.blockPosition(id)!),
+      matches: ids.map((id) => this.blockPosition(id)!),
       activeMatch: activeId === undefined ? undefined : this.blockPosition(activeId),
-      activeRow, position: selected + 1, total, filtering,
+      activeRow,
+      position: selected + 1,
+      total,
+      filtering,
     }
   }
 
   /** An intentionally complete data reader, for exports and semantic oracles. */
   snapshot(verbosity: ChatVerbosity = 'normal'): TranscriptComputeResult {
-    const blocks = this.blockIds.map(id => this.block(id)!)
+    const blocks = this.blockIds.map((id) => this.block(id)!)
     const rows: ChatRow[] = []
     for (const id of verbosity === 'summary' ? this.summaryRowIds : this.rowIds) {
       const row = this.row(id)
-      if (row) rows.push(row.kind === 'tools'
-        ? { ...row, blockIndices: [...row.blockIndices] }
-        : { ...row })
+      if (row)
+        rows.push(
+          row.kind === 'tools' ? { ...row, blockIndices: [...row.blockIndices] } : { ...row },
+        )
     }
     return { blocks, rows, search: this.search('', 0) }
   }
@@ -271,14 +331,17 @@ export class TranscriptGraph {
     this.questions.clear()
     this.interviews.clear()
     this.searchIndex.clear()
-    this.fileIds = items.map(item => item.id)
+    this.fileIds = items.map((item) => item.id)
     const ordered = promptsBeforeTheirReplies([...items])
-    this.orderedIds = ordered.map(item => item.id)
+    this.orderedIds = ordered.map((item) => item.id)
     this.offset = 0
     this.blockIds.clear()
     this.rowIds.clear()
     this.summaryRowIds.clear()
-    ordered.forEach((item, at) => { this.setItem(item.id, item); this.ranks.set(item.id, at) })
+    ordered.forEach((item, at) => {
+      this.setItem(item.id, item)
+      this.ranks.set(item.id, at)
+    })
     for (const item of ordered) this.ingestIdentity(item.id)
     const dirty = new Set(this.blockIds)
     for (const id of dirty) this.indexBlock(id)
@@ -296,20 +359,26 @@ export class TranscriptGraph {
       this.publishedRows.clear()
       this.removedRows.clear()
     }
-    try { this.applyChange(change) }
-    finally {
+    try {
+      this.applyChange(change)
+    } finally {
       this.applyDepth--
-      if (outer) this.rowPublication = { reset: this.resetRows,
-        changed: [...this.publishedRows], removed: [...this.removedRows] }
+      if (outer)
+        this.rowPublication = {
+          reset: this.resetRows,
+          changed: [...this.publishedRows],
+          removed: [...this.removedRows],
+        }
     }
   }
 
   private applyChange(change: TranscriptGraphChange): void {
     const insertions = change.insertions ?? []
     const removed = change.removed ?? []
-    const beforeHead = insertions.length > 0 && insertions.every(insertion => insertion.before === this.fileIds[0])
-    const append = insertions.every(insertion => insertion.before === undefined)
-    const identityChanged = change.changed.some(item => {
+    const beforeHead =
+      insertions.length > 0 && insertions.every((insertion) => insertion.before === this.fileIds[0])
+    const append = insertions.every((insertion) => insertion.before === undefined)
+    const identityChanged = change.changed.some((item) => {
       const held = this.items.get(item.id)
       return held !== undefined && relationship(held) !== relationship(item)
     })
@@ -323,19 +392,21 @@ export class TranscriptGraph {
         else groups.push([insertion])
       }
       let head = this.fileIds[0]
-      const oneSided = groups.every(group => {
+      const oneSided = groups.every((group) => {
         const before = group[0]!.before
         if (before !== undefined && before !== head) return false
         if (before !== undefined || head === undefined) head = group[0]!.id
         return true
       })
       if (groups.length > 1 && oneSided) {
-        const inserted = new Set(insertions.map(insertion => insertion.id))
-        const values = new Map(change.changed.map(item => [item.id, item]))
-        this.apply({ changed: change.changed.filter(item => !inserted.has(item.id)) })
-        for (const group of groups) this.apply({
-          changed: group.map(insertion => values.get(insertion.id)!), insertions: group,
-        })
+        const inserted = new Set(insertions.map((insertion) => insertion.id))
+        const values = new Map(change.changed.map((item) => [item.id, item]))
+        this.apply({ changed: change.changed.filter((item) => !inserted.has(item.id)) })
+        for (const group of groups)
+          this.apply({
+            changed: group.map((insertion) => values.get(insertion.id)!),
+            insertions: group,
+          })
         return
       }
     }
@@ -345,12 +416,12 @@ export class TranscriptGraph {
       const items = new Map(this.items)
       for (const item of change.changed) items.set(item.id, item)
       const removedIds = new Set(removed)
-      const order = this.fileIds.filter(id => !removedIds.has(id))
+      const order = this.fileIds.filter((id) => !removedIds.has(id))
       for (const insertion of insertions) {
         const at = insertion.before === undefined ? order.length : order.indexOf(insertion.before)
         order.splice(at < 0 ? order.length : at, 0, insertion.id)
       }
-      this.reset(order.map(id => items.get(id)!))
+      this.reset(order.map((id) => items.get(id)!))
       return
     }
     const dirty = new Set<string>()
@@ -361,22 +432,26 @@ export class TranscriptGraph {
       dirty.add(owner)
     }
     if (insertions.length) {
-      const ids = insertions.map(insertion => insertion.id)
-      const ordered = promptsBeforeTheirReplies(ids.map(id => this.items.get(id)!))
+      const ids = insertions.map((insertion) => insertion.id)
+      const ordered = promptsBeforeTheirReplies(ids.map((id) => this.items.get(id)!))
       if (beforeHead) {
         this.fileIds.unshift(...ids)
-        this.orderedIds.unshift(...ordered.map(item => item.id))
+        this.orderedIds.unshift(...ordered.map((item) => item.id))
         this.offset += ordered.length
-        ordered.forEach((item, at) => this.ranks.set(item.id, at - this.offset))
+        ordered.forEach((item, at) => {
+          this.ranks.set(item.id, at - this.offset)
+        })
       } else {
         this.fileIds.push(...ids)
         const start = this.orderedIds.length
-        this.orderedIds.push(...ordered.map(item => item.id))
-        ordered.forEach((item, at) => this.ranks.set(item.id, start + at - this.offset))
+        this.orderedIds.push(...ordered.map((item) => item.id))
+        ordered.forEach((item, at) => {
+          this.ranks.set(item.id, start + at - this.offset)
+        })
       }
       // Timestamp repair at the seam can move a prompt through the adjacent
       // reply span. Re-index only that span, rather than sorting the transcript.
-      const prompts = ordered.filter(item => item.role === 'user').map(item => item.id)
+      const prompts = ordered.filter((item) => item.role === 'user').map((item) => item.id)
       if (beforeHead) {
         let at = ordered.length
         while (at < this.orderedIds.length && this.items.get(this.orderedIds[at]!)?.role === 'user')
@@ -403,7 +478,10 @@ export class TranscriptGraph {
     const rowsToRepair = new Set<string>()
     for (const id of dirty) {
       const block = this.block(id)
-      if (!block || !this.isEmitted(id)) { this.searchIndex.remove(id); continue }
+      if (!block || !this.isEmitted(id)) {
+        this.searchIndex.remove(id)
+        continue
+      }
       if (this.shapes.get(id) !== shape(block, this.isBatchable(id))) {
         const at = this.insertionPoint(this.blockIds, id)
         for (const neighbor of [this.blockIds[at - 1], id, this.blockIds[at + 1]])
@@ -431,11 +509,14 @@ export class TranscriptGraph {
     this.publishFacts()
   }
 
-  private rank(id: string): number { return (this.ranks.get(id) ?? Infinity) + this.offset }
+  private rank(id: string): number {
+    return (this.ranks.get(id) ?? Infinity) + this.offset
+  }
 
   private insertionPoint(ids: readonly string[], id: string): number {
     const rank = this.rank(id)
-    let low = 0, high = ids.length
+    let low = 0,
+      high = ids.length
     while (low < high) {
       const middle = (low + high) >>> 1
       if (this.rank(ids[middle]!) < rank) low = middle + 1
@@ -486,7 +567,10 @@ export class TranscriptGraph {
     }
     if (owner) {
       let ids = this.children.get(owner)
-      if (!ids) { ids = observable.array<string>([], { deep: false }); this.children.set(owner, ids) }
+      if (!ids) {
+        ids = observable.array<string>([], { deep: false })
+        this.children.set(owner, ids)
+      }
       ids.splice(this.insertionPoint(ids, child), 0, child)
       this.indexChildEffects(child, owner)
       this.owners.set(child, owner)
@@ -495,10 +579,17 @@ export class TranscriptGraph {
     this.emit(child, owner === undefined, dirty)
   }
 
-  private indexChildEffects(child: string, owner: string, enabled = !!this.items.get(child)?.toolEffects): void {
+  private indexChildEffects(
+    child: string,
+    owner: string,
+    enabled = !!this.items.get(child)?.toolEffects,
+  ): void {
     let ids = this.effectChildren.get(owner)
     if (!ids && !enabled) return
-    if (!ids) { ids = observable.array<string>([], { deep: false }); this.effectChildren.set(owner, ids) }
+    if (!ids) {
+      ids = observable.array<string>([], { deep: false })
+      this.effectChildren.set(owner, ids)
+    }
     const at = this.insertionPoint(ids, child)
     const held = ids[at] === child
     if (held && !enabled) ids.splice(at, 1)
@@ -507,11 +598,23 @@ export class TranscriptGraph {
 
   private ingestIdentity(id: string, dirty = new Set<string>()): void {
     const item = this.items.get(id)!
-    if (isUserMediaMarker(item)) { this.ingestMedia(id, dirty); return }
-    if (isCompactionPart(item)) { this.ingestCompaction(id, dirty); return }
-    if (item.role !== 'tool' || !item.toolUseId) { this.emit(id, true, dirty); return }
+    if (isUserMediaMarker(item)) {
+      this.ingestMedia(id, dirty)
+      return
+    }
+    if (isCompactionPart(item)) {
+      this.ingestCompaction(id, dirty)
+      return
+    }
+    if (item.role !== 'tool' || !item.toolUseId) {
+      this.emit(id, true, dirty)
+      return
+    }
     let members = this.toolMembers.get(item.toolUseId)
-    if (!members) { members = { calls: [], results: [] }; this.toolMembers.set(item.toolUseId, members) }
+    if (!members) {
+      members = { calls: [], results: [] }
+      this.toolMembers.set(item.toolUseId, members)
+    }
     if (item.toolResult !== undefined) {
       members.results.splice(this.insertionPoint(members.results, id), 0, id)
       const at = this.insertionPoint(members.calls, id)
@@ -539,7 +642,7 @@ export class TranscriptGraph {
     this.attach(id, owner, dirty)
     if (!owner) {
       const tags = item.tags ?? []
-      this.emit(id, !(tags.length > 0 && tags.every(tag => tag.kind === 'file')), dirty)
+      this.emit(id, !(tags.length > 0 && tags.every((tag) => tag.kind === 'file')), dirty)
     }
   }
 
@@ -552,8 +655,8 @@ export class TranscriptGraph {
     let owner: string | undefined
     if (previous !== undefined && isCompactionPart(this.items.get(previous)!)) {
       const related = [previous, ...(this.children.get(previous) ?? [])]
-        .filter(member => member !== id)
-        .map(member => this.items.get(member)!)
+        .filter((member) => member !== id)
+        .map((member) => this.items.get(member)!)
       const note = pairToolResults(related)[0]?.item
       if (note && foldsIntoCompaction(note, this.items.get(id)!)) owner = previous
     }
@@ -593,8 +696,8 @@ export class TranscriptGraph {
     const broken = new Set<TranscriptToolRun>()
     for (const id of dirty) {
       const owner = this.rowByBlock.get(id)
-      if (owner && typeof owner !== 'string' &&
-        (!this.isEmitted(id) || !this.isBatchable(id))) broken.add(owner)
+      if (owner && typeof owner !== 'string' && (!this.isEmitted(id) || !this.isBatchable(id)))
+        broken.add(owner)
     }
     for (const id of dirty) {
       if (this.repairToolRow(id, broken)) continue
@@ -608,27 +711,46 @@ export class TranscriptGraph {
         oldRows.add(row)
         for (const member of this.rowMembers.get(row) ?? []) {
           const at = this.insertionPoint(this.blockIds, member)
-          if (this.blockIds[at] === member) { start = Math.min(start, at); end = Math.max(end, at + 1) }
+          if (this.blockIds[at] === member) {
+            start = Math.min(start, at)
+            end = Math.max(end, at + 1)
+          }
         }
       }
       addOld(this.rowOwner(id))
       // Closing over the previous and current run boundaries handles a split,
       // merge or newly paired orphan. Only this affected run is rebuilt.
-      let previousStart = -1, previousEnd = -1
+      let previousStart = -1,
+        previousEnd = -1
       while (start !== previousStart || end !== previousEnd) {
-        previousStart = start; previousEnd = end
-        while (start > 0 && this.isBatchable(this.blockIds[start]!) &&
-          this.isBatchable(this.blockIds[start - 1]!)) start--
-        while (end < this.blockIds.length && this.isBatchable(this.blockIds[end - 1]!) &&
-          this.isBatchable(this.blockIds[end]!)) end++
+        previousStart = start
+        previousEnd = end
+        while (
+          start > 0 &&
+          this.isBatchable(this.blockIds[start]!) &&
+          this.isBatchable(this.blockIds[start - 1]!)
+        )
+          start--
+        while (
+          end < this.blockIds.length &&
+          this.isBatchable(this.blockIds[end - 1]!) &&
+          this.isBatchable(this.blockIds[end]!)
+        )
+          end++
         for (let at = start; at < end; at++) addOld(this.rowOwner(this.blockIds[at]!))
       }
       const members = this.blockIds.slice(start, end)
       const first = members[0]!
       const previous = this.rowMembers.get(first)
       const oldShapes = this.rowShapes.get(first)
-      if (oldRows.size === 1 && oldRows.has(first) && previous?.length === members.length &&
-        members.every((member, at) => previous[at] === member && oldShapes?.[at] === this.shapes.get(member)))
+      if (
+        oldRows.size === 1 &&
+        oldRows.has(first) &&
+        previous?.length === members.length &&
+        members.every(
+          (member, at) => previous[at] === member && oldShapes?.[at] === this.shapes.get(member),
+        )
+      )
         continue
       for (const old of oldRows) {
         this.removedRows.add(old)
@@ -651,11 +773,20 @@ export class TranscriptGraph {
         if (tools) while (end < members.length && this.isBatchable(members[end]!)) end++
         const ownedMembers = observable.array<string>(members.slice(at, end), { deep: false })
         this.rowMembers.set(first, ownedMembers)
-        this.rowShapes.set(first, ownedMembers.map(member => this.shapes.get(member)!))
+        this.rowShapes.set(
+          first,
+          ownedMembers.map((member) => this.shapes.get(member)!),
+        )
         let failures = 0
         for (const member of ownedMembers) if (this.failed.has(member)) failures++
         this.failuresByRow.set(first, failures)
-        const run = tools ? new TranscriptToolRun(ownedMembers, id => this.block(id), id => this.rank(id)) : undefined
+        const run = tools
+          ? new TranscriptToolRun(
+              ownedMembers,
+              (id) => this.block(id),
+              (id) => this.rank(id),
+            )
+          : undefined
         if (run) this.runs.set(first, run)
         for (const member of ownedMembers) this.rowByBlock.set(member, run ?? first)
         this.skeletons.set(first, run ? this.toolSkeleton(run) : this.row(first)!)
@@ -673,9 +804,11 @@ export class TranscriptGraph {
     const first = members?.[0] === undefined ? undefined : this.block(members[0])
     const at = this.insertionPoint(this.summaryRowIds, id)
     const held = this.summaryRowIds[at] === id
-    const kept = first !== undefined && (this.isBatchable(first.item.id)
-      ? (this.failuresByRow.get(id) ?? 0) > 0
-      : rowSurvivesSummary({ kind: 'block', block: first, blockIndex: 0 }))
+    const kept =
+      first !== undefined &&
+      (this.isBatchable(first.item.id)
+        ? (this.failuresByRow.get(id) ?? 0) > 0
+        : rowSurvivesSummary({ kind: 'block', block: first, blockIndex: 0 }))
     if (held && !kept) this.summaryRowIds.splice(at, 1)
     else if (!held && kept) this.summaryRowIds.splice(at, 0, id)
   }
@@ -686,9 +819,19 @@ export class TranscriptGraph {
     const signature = shape(block, this.isBatchable(id))
     if (this.shapes.get(id) !== signature) this.blockSkeletons.set(id, block)
     this.shapes.set(id, signature)
-    this.setFailure(id, rowSurvivesSummary({ kind: 'tools', blocks: [block], blockIndices: [0], title: '' }))
-    this.searchIndex.set(id, [block.item.text, block.item.toolName ?? '', block.item.toolInput ?? '',
-      block.result ?? block.item.toolResult ?? ''].join('\n'))
+    this.setFailure(
+      id,
+      rowSurvivesSummary({ kind: 'tools', blocks: [block], blockIndices: [0], title: '' }),
+    )
+    this.searchIndex.set(
+      id,
+      [
+        block.item.text,
+        block.item.toolName ?? '',
+        block.item.toolInput ?? '',
+        block.result ?? block.item.toolResult ?? '',
+      ].join('\n'),
+    )
     this.answers.set(id, block.item.role === 'assistant' && block.item.answer === true)
     this.assistants.set(id, block.item.role === 'assistant')
     this.questions.set(id, isPendingAskQuestion(block))
@@ -706,24 +849,35 @@ export class TranscriptGraph {
     // Async interviews can be answered in ordinary chat or superseded without
     // a correlated result. Do not resurrect them after the next human prompt
     // or interview. The existing native-menu question rules stay unchanged.
-    const superseded = question !== undefined && isCodexAsyncQuestion(this.items.get(question)!) &&
+    const superseded =
+      question !== undefined &&
+      isCodexAsyncQuestion(this.items.get(question)!) &&
       [this.operatorIds[1].at(-1), this.interviews.latest()].some(
-        id => id !== undefined && this.rank(id) > this.rank(question),
+        (id) => id !== undefined && this.rank(id) > this.rank(question),
       )
     this.pendingQuestionId = superseded ? undefined : question
   }
 
   private indexOperators(id: string, item: TranscriptItem | undefined): void {
-    const operatorText = item?.role === 'user' ? parseEnvelopeBatch(item.text)?.operatorText : undefined
+    const operatorText =
+      item?.role === 'user' ? parseEnvelopeBatch(item.text)?.operatorText : undefined
     for (const collapse of [false, true]) {
       const ids = this.operatorIds[collapse ? 1 : 0]
       const at = this.insertionPoint(ids, id)
       const held = ids[at] === id
-      const next = item !== undefined && isOperatorPrompt(item, {
-        collapseMachineContext: collapse, operatorTextOf: () => operatorText,
-      })
-      if (held && !next) { ids.splice(at, 1); this.operatorVersion++ }
-      else if (!held && next) { ids.splice(at, 0, id); this.operatorVersion++ }
+      const next =
+        item !== undefined &&
+        isOperatorPrompt(item, {
+          collapseMachineContext: collapse,
+          operatorTextOf: () => operatorText,
+        })
+      if (held && !next) {
+        ids.splice(at, 1)
+        this.operatorVersion++
+      } else if (!held && next) {
+        ids.splice(at, 0, id)
+        this.operatorVersion++
+      }
     }
   }
 
@@ -739,7 +893,10 @@ export class TranscriptGraph {
     if (alias === undefined) this.aliasById.delete(id)
     else {
       let ids = this.cursorMembers.get(alias)
-      if (!ids) { ids = []; this.cursorMembers.set(alias, ids) }
+      if (!ids) {
+        ids = []
+        this.cursorMembers.set(alias, ids)
+      }
       ids.splice(this.insertionPoint(ids, id), 0, id)
       this.aliasById.set(id, alias)
     }
@@ -760,14 +917,26 @@ export class TranscriptGraph {
     return typeof owner === 'string' ? owner : owner?.ids[0]
   }
 
-  private toolSkeleton(run: TranscriptToolRun, blocks = observable.array<ChatBlock>(
-    run.ids.map(id => this.blockSkeletons.get(id)!), { deep: false },
-  )): ChatRow {
+  private toolSkeleton(
+    run: TranscriptToolRun,
+    blocks = observable.array<ChatBlock>(
+      run.ids.map((id) => this.blockSkeletons.get(id)!),
+      { deep: false },
+    ),
+  ): ChatRow {
     const graph = this
-    return { kind: 'tools', blocks,
-      get title() { return run.title },
-      get summary() { return run.summary },
-      get blockIndices() { return run.ids.map(id => graph.blockPosition(id) ?? -1) },
+    return {
+      kind: 'tools',
+      blocks,
+      get title() {
+        return run.title
+      },
+      get summary() {
+        return run.summary
+      },
+      get blockIndices() {
+        return run.ids.map((id) => graph.blockPosition(id) ?? -1)
+      },
     }
   }
 
@@ -802,7 +971,8 @@ export class TranscriptGraph {
       signatures.splice(at, 0, this.shapes.get(id)!)
       this.rowByBlock.set(id, run)
       run.update(id, this.block(id)!)
-      if (this.failed.has(id)) this.failuresByRow.set(before, (this.failuresByRow.get(before) ?? 0) + 1)
+      if (this.failed.has(id))
+        this.failuresByRow.set(before, (this.failuresByRow.get(before) ?? 0) + 1)
     } else {
       blocks[at] = this.blockSkeletons.get(id)!
       signatures[at] = this.shapes.get(id)!
@@ -852,7 +1022,14 @@ export class TranscriptRecord {
 }
 
 export class TranscriptRecordPresentation {
-  constructor(readonly record: TranscriptRecord, private readonly graph: TranscriptGraph) {}
-  @lazy get block(): ChatBlock | undefined { return this.graph.deriveBlock(this.record.id) }
-  @lazy get row(): ChatRow | undefined { return this.graph.deriveRow(this.record.id) }
+  constructor(
+    readonly record: TranscriptRecord,
+    private readonly graph: TranscriptGraph,
+  ) {}
+  @lazy get block(): ChatBlock | undefined {
+    return this.graph.deriveBlock(this.record.id)
+  }
+  @lazy get row(): ChatRow | undefined {
+    return this.graph.deriveRow(this.record.id)
+  }
 }

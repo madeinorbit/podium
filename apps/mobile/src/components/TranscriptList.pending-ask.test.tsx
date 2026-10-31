@@ -690,23 +690,46 @@ it('reveals the first streamed text through the existing row observer', async ()
   transcript.dispose()
 })
 
-
 it('renders retained phone rows through stream, Find, envelope reshaping and paging without rebuilding history', async () => {
   const { MobileConversation } = await import('../lib/mobile-conversation')
   const { DraftStore } = await import('@podium/client-core/conversation')
   const { asSessionId } = await import('@podium/model')
-  const drafts = new DraftStore({ storage: { get: () => null, set: () => {} },
-    hub: { on: () => () => {}, sendDraftEdit: () => true, connectionHealth: () => ({ status: 'ok', rttMs: null, since: 0 }) } })
-  const seed: TranscriptItem = { id: 'answer', role: 'assistant', text: 'Settled answer', cursor: 'seed-cursor' }
+  const drafts = new DraftStore({
+    storage: { get: () => null, set: () => {} },
+    hub: {
+      on: () => () => {},
+      sendDraftEdit: () => true,
+      connectionHealth: () => ({ status: 'ok', rttMs: null, since: 0 }),
+    },
+  })
+  const seed: TranscriptItem = {
+    id: 'answer',
+    role: 'assistant',
+    text: 'Settled answer',
+    cursor: 'seed-cursor',
+  }
   let page = { items: [seed], head: 'seed-cursor', hasMore: true }
-  const conversation = new MobileConversation({ sessionId: asSessionId('retained-phone'), drafts,
-    transcript: { source: { read: async () => page, subscribe: () => () => {} }, retainHistory: () => true },
-    sends: { createDeliveryId: () => 'delivery', deliver: async () => ({ state: 'sent' as const }) },
+  const conversation = new MobileConversation({
+    sessionId: asSessionId('retained-phone'),
+    drafts,
+    transcript: {
+      source: { read: async () => page, subscribe: () => () => {} },
+      retainHistory: () => true,
+    },
+    sends: {
+      createDeliveryId: () => 'delivery',
+      deliver: async () => ({ state: 'sent' as const }),
+    },
   })
   try {
     await conversation.start()
-    const props = { transcript: conversation.transcript, presentation: conversation.presentation,
-      transcriptQuestion: null, live: false, onAnswer: async () => {} }
+    const props = {
+      transcript: conversation.transcript,
+      presentation: conversation.presentation,
+      transcriptQuestion: null,
+      live: false,
+      onAnswer: async () => {},
+    }
     const view = render(<TranscriptList {...props} />)
     const data = viewportData.at(-1)
     expect(transcriptBuilds).not.toHaveBeenCalled()
@@ -716,12 +739,56 @@ it('renders retained phone rows through stream, Find, envelope reshaping and pag
     view.rerender(<TranscriptList {...props} findRequest={1} />)
     fireEvent.change(screen.getByLabelText('Find in transcript'), { target: { value: 'needle' } })
     expect(screen.getByText('1/1')).toBeTruthy()
-    act(() => conversation.transcript.merge([{ id: 'message', role: 'user', text:
-      '[podium message msg_one · from system:auto-continue · to your session]\nEnvelope needle\n[end podium message msg_one]' }]))
+    act(() =>
+      conversation.transcript.merge([
+        {
+          id: 'message',
+          role: 'user',
+          text: '[podium message msg_one · from system:auto-continue · to your session]\nEnvelope needle\n[end podium message msg_one]',
+        },
+      ]),
+    )
     expect(screen.getByText('Envelope needle')).toBeTruthy()
-    page = { items: [{ id: 'older', role: 'user', text: 'Older page', cursor: 'older-cursor' }], head: 'older-cursor', hasMore: false }
+    page = {
+      items: [{ id: 'older', role: 'user', text: 'Older page', cursor: 'older-cursor' }],
+      head: 'older-cursor',
+      hasMore: false,
+    }
     await act(async () => conversation.transcript.loadOlder())
     expect(conversation.presentation.positionOfKey('answer')).toBe(1)
     expect(transcriptBuilds).not.toHaveBeenCalled()
-  } finally { conversation.dispose(); drafts.dispose() }
+  } finally {
+    conversation.dispose()
+    drafts.dispose()
+  }
+})
+
+it('discloses note members of a mixed stretch on the phone', () => {
+  const items: TranscriptItem[] = [
+    {
+      id: 'cmd',
+      role: 'tool',
+      text: '',
+      toolName: 'Bash',
+      toolInput: 'git status',
+      toolResult: 'clean',
+    },
+    {
+      id: 'note',
+      role: 'user',
+      text: '[podium message msg_mix · from system:steward · to issue:POD-2287]\nStatus\nneedle in the note\n[end podium message msg_mix]',
+    },
+  ]
+  render(
+    <TranscriptList
+      items={items}
+      live={false}
+      transcriptQuestion={null}
+      onAnswer={async () => {}}
+    />,
+  )
+  expect(screen.queryByText(/needle in the note/)).toBeNull()
+  fireEvent.click(screen.getByLabelText(/Expand work run: Ran a command, read a note/))
+  expect(screen.getByText(/needle in the note/)).toBeTruthy()
+  expect(screen.getByText('Internal')).toBeTruthy()
 })

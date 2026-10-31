@@ -5,15 +5,15 @@ import {
   isInteractiveTool,
   isInterviewQuestion,
   MACHINE_CONTEXT_RE,
-  messageAttachmentText,
   mcpLabel,
+  messageAttachmentText,
   parseEnvelopeBatch,
+  principalShortName,
   type TranscriptAttribution,
 } from '@podium/client-core/values'
 import { codexQuestionReplyText } from '@podium/harness/browser'
 import { machinePathBasename, resolveMachinePath } from '@podium/model'
 import type { SessionId, TranscriptItem } from '@podium/model/browser'
-import { observer } from 'mobx-react-lite'
 import {
   ChevronRight,
   Clock,
@@ -22,6 +22,7 @@ import {
   Layers2,
   MessageCircleQuestion,
 } from 'lucide-react'
+import { observer } from 'mobx-react-lite'
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { memo, useCallback, useId, useMemo, useRef, useState } from 'react'
 import { assetUrl } from '@/lib/asset-url'
@@ -248,6 +249,8 @@ export const StableMarkdown = memo(function StableMarkdown({
     [cwd, openFile, sessionId],
   )
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: delegated clicks activate semantic links in the sanitized markdown.
+    // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard users activate those anchors natively.
     <div
       className={className}
       onClick={onClick}
@@ -693,6 +696,7 @@ export const ChatBlockView = observer(function ChatBlockView({
         blockIndex={index}
         rowKey={item.id}
         ts={item.ts}
+        forceOpen={highlighted}
       />
     )
   // Ordinary tool calls render inside a collapsed ToolBatchView, so they don't
@@ -737,12 +741,22 @@ export const ChatBlockView = observer(function ChatBlockView({
       envelopes={envelopeBatch.envelopes}
       className={cn(nonStickyRowClass, turnClass(turn))}
       blockIndex={envelopeBatch.operatorText === '' ? index : undefined}
+      rowKey={envelopeBatch.operatorText === '' ? item.id : undefined}
       markdownHtml={markdownHtml}
       ts={item.ts}
       onBodyClick={(e: ReactMouseEvent) => {
         handleChatMdClick(e, sessionId, cwd, openFile)
       }}
       forceOpen={highlighted}
+      onReply={
+        onQuote
+          ? (envelope) =>
+              onQuote({
+                text: envelope.body,
+                source: `question from ${principalShortName(envelope.from)}`,
+              })
+          : undefined
+      }
     />
   )
 

@@ -74,7 +74,7 @@ export function trailingRunIsLive(
 ): boolean {
   if (activity?.tone !== 'working' || lastRow?.kind !== 'tools') return false
   const last = lastRow.blocks[lastRow.blocks.length - 1]
-  if (!last) return false
+  if (last?.item.role !== 'tool') return false
   return last.result === undefined && last.item.toolResult === undefined
 }
 

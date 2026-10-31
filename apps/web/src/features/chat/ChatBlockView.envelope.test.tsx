@@ -7,7 +7,10 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { setKnownRefPrefixes } from '@/lib/markdown-references'
+import type { QuoteInput } from '@/lib/quote/quote-sinks'
 import { ChatBlockView } from './ChatBlockView'
+
+;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 // The envelope block renders standalone — no hub/tRPC — so this suite mounts
 // ChatBlockView directly instead of going through the ChatView harness.
@@ -49,6 +52,7 @@ function mount(
   highlighted = false,
   markdownHtml?: ReadonlyMap<string, string>,
   result?: string,
+  onQuote?: (quote: QuoteInput) => void,
 ): void {
   act(() => {
     root.render(
@@ -67,6 +71,7 @@ function mount(
         onAnswerAsk={async () => {}}
         stickyOperator={stickyOperator}
         markdownHtml={markdownHtml}
+        onQuote={onQuote}
       />,
     )
   })
@@ -110,7 +115,7 @@ describe('podium mail', () => {
     )
     expect(host.querySelectorAll('.mail-group')).toHaveLength(1)
     // POD-2076, POD-2286: one quiet line naming the sender and what it said.
-    expect(host.textContent).toContain('auto-continue · continue')
+    expect(host.textContent).toContain('auto-continue  continue')
     expect(host.textContent).not.toContain('[podium message')
   })
 
@@ -120,14 +125,14 @@ describe('podium mail', () => {
   it('arrives folded to a single counted line, and opens on a click of it', () => {
     mount(userItem(frame('msg_5', 'issue:POD-84', 'your session', 'background noise')))
     expect(group()?.getAttribute('data-open')).toBe('false')
-    expect(host.textContent).toContain('POD-84 · background noise')
+    expect(host.textContent).toContain('POD-84  background noise')
     // No message id on the fold line (POD-2076).
     expect(toggle()?.textContent).not.toContain('msg_5')
     expect(toggle()?.getAttribute('aria-expanded')).toBe('false')
-    expect(host.querySelector('.mail-card')).toBeNull()
+    expect(host.querySelector('.mail-item-detail')).toBeNull()
     click(toggle())
     expect(group()?.getAttribute('data-open')).toBe('true')
-    expect(host.querySelector('.mail-card')).not.toBeNull()
+    expect(host.querySelector('.mail-item-detail')).not.toBeNull()
   })
 
   it('folds a burst of frames into one object with one row per note', () => {
@@ -139,7 +144,7 @@ describe('podium mail', () => {
     )
     // One group, one fold line, one count — not two rows.
     expect(host.querySelectorAll('.mail-group')).toHaveLength(1)
-    expect(host.textContent).toContain('2 notes from POD-84 · POD-90')
+    expect(host.textContent).toContain('Read 2 notes')
     click(toggle())
     expect(host.querySelectorAll('[data-testid="mail-item"]')).toHaveLength(2)
     expect(host.textContent).toContain('Worktree synced')
@@ -148,7 +153,7 @@ describe('podium mail', () => {
 
   // POD-2070: the ask binds the RECEIVING AGENT, not the reader, so it is a word
   // on the fold line rather than a reason to open the card.
-  it('stays folded when a frame in the burst asks something, and flags it on the line', () => {
+  it('keeps agent reply requests inside the fold', () => {
     mount(
       userItem(
         frame('msg_a', 'issue:POD-84', 'your session', 'background noise') +
@@ -162,15 +167,15 @@ describe('podium mail', () => {
       ),
     )
     expect(group()?.getAttribute('data-open')).toBe('false')
-    expect(host.querySelector('.mail-fold-flag')?.textContent).toBe('· reply asked')
+    expect(host.querySelector('.quiet-ask')).toBeNull()
     click(toggle())
     // The frame that asked says so, on its own item, and names the reply target.
-    expect(host.querySelector('.mail-item-reply')?.textContent).toContain('msg_6')
+    expect(host.querySelectorAll('.mail-item-head')).toHaveLength(2)
   })
 
   // A burst GROWS: the next poll can extend the same block with a frame that
   // asks something. The line picks the flag up; the group stays folded.
-  it('flags a later frame that asks something without opening the group', () => {
+  it('keeps a later agent reply request folded', () => {
     const background = frame('msg_a', 'issue:POD-84', 'your session', 'background noise')
     mount(userItem(background))
     expect(group()?.getAttribute('data-open')).toBe('false')
@@ -187,7 +192,7 @@ describe('podium mail', () => {
       ),
     )
     expect(group()?.getAttribute('data-open')).toBe('false')
-    expect(host.querySelector('.mail-fold-flag')?.textContent).toBe('· reply asked')
+    expect(host.querySelector('.quiet-ask')).toBeNull()
   })
 
   it('keeps an opened mail body DOM-stable across an unrelated markdown cache update', () => {
@@ -196,7 +201,6 @@ describe('podium mail', () => {
     const html = '<p>Worktree synced</p><p>Selection stays here.</p>'
     mount(item, false, false, new Map([[body, html]]))
     click(toggle())
-    click(host.querySelector('.mail-item-head'))
     const node = host.querySelector('.mail-item-body')?.firstChild
     expect(node).toBeDefined()
 
@@ -245,7 +249,7 @@ describe('podium mail', () => {
     expect(activations).toEqual(['POD-84'])
   })
 
-  it('previews two lines and opens the full frame on a click of the subject', () => {
+  it('discloses the body once without repeating its subject', () => {
     mount(
       userItem(
         frame(
@@ -256,10 +260,8 @@ describe('podium mail', () => {
         ),
       ),
     )
-    click(toggle())
     const item = host.querySelector('[data-testid="mail-item"]')
-    // Folded: a plain-text preview, no rendered markdown and so no live refs.
-    expect(item?.querySelector('.mail-item-preview')?.textContent).toContain('Rebased onto main')
+    expect(item?.querySelector('.mail-item-detail')).toBeNull()
     expect(item?.querySelector('.chat-md')).toBeNull()
     click(item?.querySelector('.mail-item-head'))
     // Opened: the real markdown, with its refs live.
@@ -276,7 +278,7 @@ describe('podium mail', () => {
     expect(env?.querySelector('a.ref-link')).toBeNull()
   })
 
-  it('badges a question frame and keeps the binding rule out of the body', () => {
+  it('shows an agent reply request in the route without the binding rule', () => {
     mount(
       userItem(
         frame(
@@ -290,7 +292,8 @@ describe('podium mail', () => {
     )
     click(toggle())
     const env = host.querySelector('[data-testid="message-envelope"]')
-    expect(env?.textContent).toContain('reply · msg_3')
+    expect(env?.textContent).toContain('reply requested')
+    expect(env?.querySelector('.mail-item-badge')).toBeNull()
     expect(env?.textContent).not.toContain('a response was requested')
   })
 
@@ -307,12 +310,11 @@ describe('podium mail', () => {
       ),
     )
     click(toggle())
-    click(host.querySelector('.mail-item-head'))
     const env = host.querySelector('[data-testid="message-envelope"]')
     expect(env?.querySelector('.mail-item-note')?.textContent).toContain(
       'this agent runs on machine "vmi123"',
     )
-    expect(env?.querySelector('.chat-md')?.textContent).not.toContain('runs on machine')
+    expect(env?.querySelector('.chat-md')?.textContent ?? '').not.toContain('runs on machine')
   })
 
   it('separates a coalesced internal frame from the operator follow-up', () => {
@@ -395,7 +397,6 @@ describe('inbox pointer notes (POD-2143)', () => {
     click(toggle())
     expect(bodyRequests).toContain('msg_big')
     expect(host.textContent).toContain('Long review notes')
-    click(host.querySelector('.mail-item-head'))
     expect(host.querySelector('.mail-item-body')?.textContent).toContain('full body of msg_big')
   })
 
@@ -452,7 +453,7 @@ describe('mail the agent sent', () => {
 
   it('folds a send to "Note to" and fetches its body only when opened', () => {
     mount(send, false, false, undefined, 'sent msg_9 to POD-2128 (delivered)')
-    expect(toggle()?.textContent).toContain('Note to POD-2128')
+    expect(toggle()?.textContent).toContain('To POD-2128  Ready for review')
     expect(host.textContent).not.toContain('podium mail send')
     expect(bodyRequests).toEqual([])
     click(toggle())
@@ -465,7 +466,7 @@ describe('mail the agent sent', () => {
     bodyAnswer = () => ({ status: 'loading' })
     mount(send, false, false, undefined, 'sent msg_9 to POD-2128 (delivered)')
     click(toggle())
-    expect(host.querySelector('.mail-item-subject')?.textContent).toBe('Ready for review')
+    expect(host.querySelector('.work-line-phrase')?.textContent).toContain('Ready for review')
     bodyAnswer = (id) => ({ status: 'ready', body: `Long review notes\nfull body of ${id}` })
   })
 
@@ -477,7 +478,7 @@ describe('mail the agent sent', () => {
       undefined,
       'replied msg_4 to issue:POD-3 (acked msg_1)',
     )
-    expect(toggle()?.textContent).toContain('Note to POD-3')
+    expect(toggle()?.textContent).toContain('To POD-3  done')
   })
 
   it('keeps a failed send as an error tool row', () => {
@@ -511,4 +512,51 @@ describe('reference activation across transcript kinds', () => {
     click(chip)
     expect(activations).toEqual(['POD-84'])
   })
+})
+
+it('keeps an operator question visible outside the note fold and puts Reply in the composer', () => {
+  const quote = vi.fn()
+  const text =
+    frame('background', 'system:steward', 'issue:POD-2287', 'Status\nAll checks pass') +
+    frame(
+      'ask',
+      'issue:POD-2242',
+      'the operator',
+      'whether inbox reads keep their own row\nWhich would you prefer?',
+      '[this is a question: answer the sender]\n',
+    )
+  mount(userItem(text), false, false, undefined, undefined, quote)
+  expect(host.querySelector('.quiet-ask')?.textContent).toContain(
+    'POD-2242 asks whether inbox reads keep their own row',
+  )
+  expect(host.querySelector('.quiet-ask')?.closest('.work-line')).toBeNull()
+  expect(host.querySelector('.mail-item-badge')).toBeNull()
+  expect(host.querySelectorAll('[data-block]')).toHaveLength(1)
+  expect(host.querySelector('[data-row-key]')?.getAttribute('data-row-key')).toBe('i1')
+  click(host.querySelector('.quiet-ask-reply'))
+  expect(quote).toHaveBeenCalledWith({
+    text: 'whether inbox reads keep their own row\nWhich would you prefer?',
+    source: 'question from POD-2242',
+  })
+  expect(host.textContent).toContain('Which would you prefer?')
+})
+
+it('omits a fetched sent note subject already shown on its line', () => {
+  bodyAnswer = () => ({ status: 'ready', body: 'Ready for review\nThe checks passed.' })
+  mount(
+    {
+      id: 'sent',
+      role: 'tool',
+      text: '',
+      toolName: 'Bash',
+      toolInput: "podium mail send --to POD-2242 --body 'Ready for review'",
+    },
+    false,
+    false,
+    undefined,
+    'sent msg_review to POD-2242 (delivered)',
+  )
+  click(toggle())
+  expect(host.querySelector('.work-line-phrase')?.textContent).toContain('Ready for review')
+  expect(host.querySelector('.mail-item-body')?.textContent?.trim()).toBe('The checks passed.')
 })

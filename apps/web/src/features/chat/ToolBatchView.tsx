@@ -1,8 +1,10 @@
 import type { TranscriptToolRun } from '@podium/client-core/conversation'
 import {
   formatClock,
+  parseEnvelopeBatch,
   resolveToolEdit,
   type ToolEditView,
+  toolBatchTitles,
   toolEditDiffKey,
   toolEditHasDiff,
   toolEditUnifiedDiff,
@@ -13,13 +15,12 @@ import {
   machinePathRelativeToRoot,
   resolveMachinePath,
 } from '@podium/model/browser'
-import { ChevronDown } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
-import type { JSX, ReactNode } from 'react'
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { useAgeNow } from '@/lib/clock-hooks'
-import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { cn } from '@/lib/utils'
 import { type ProcessPosition, processClass, type TurnPosition, turnClass } from './ChatBlockView'
 import {
@@ -29,9 +30,13 @@ import {
   toolRunElapsedMs,
   toolRunFailures,
   toolSubject,
-  toolVerdict,
 } from './chat'
-import { ToolBlock, toolCallLabel } from './ToolBlock'
+import { handleChatMdClick } from './chat-md-click'
+import { InboxReadRow, SentNoteRow } from './MailCommandRow'
+import { MessageEnvelopeGroup } from './MessageEnvelopeGroup'
+import { ToolBlock } from './ToolBlock'
+import { clockLabel, parseTs } from './transcript-time'
+import { WorkGlyph } from './WorkGlyph'
 
 /** While a run is live the timer ticks; a settled row's span never changes, so
  *  it only needs an interval slow enough to cost nothing. */
@@ -49,10 +54,6 @@ const EMPTY_BLOCKS: ChatBlock[] = []
  *  lines because it was 280px wide; the sheet is a reading surface and matches
  *  the cap its own parser already enforces. */
 const SHEET_LINE_CAP = 2500
-
-/** A settled span shorter than this is noise on the row — the count already says
- *  the run happened. (The span is a lower bound: see toolRunElapsedMs.) */
-const MIN_SETTLED_SPAN_MS = 1500
 
 /** How long the settle morph runs. Matches the `work-line-settle` keyframe. */
 const SETTLE_MS = 300
@@ -109,32 +110,9 @@ function usePushFlash(count: number): boolean {
   return pushing
 }
 
-/**
- * The work line (POD-364): a run of consecutive tool calls rendered as ONE
- * progress object rather than N log entries.
- *
- * While the agent works, the row mutates in place — the braille spinner, the
- * call in flight ("Editing ChatView.tsx"), a counting timer, and a count that
- * ticks per call. Nothing below it moves, because the row's height never
- * changes and the count is mono `tabular-nums`, so digits can't shift width.
- * Once the run settles the spinner becomes a verdict glyph and the phrase
- * becomes the past-tense summary ("Read 2 files, ran a command").
- *
- * Behind the collapsed row, two hairline tiers fan out — carved into the field,
- * not lifted off it — so a folded run reads as a stack without costing the
- * height of one. Click anywhere on the row to unfold the individual calls.
- * Failure is never hidden by the fold: the count of failed calls stays on the
- * collapsed line. One [data-block] row → one minimap tick, so a forty-call turn
- * reads as one beat of activity. Search auto-expands it via `forceOpen`.
- *
- * POD-423 gave the fold two softeners: a hover panel previewing the calls a
- * folded run holds, and a settle when a live run resolves rather than a silent
- * swap from spinner to verdict. The settle stays (see useSettleFlash). The
- * panel is gone — POD-993 round 7, at the operator's call: unfolding answers
- * "which four" perfectly well and is the gesture a reader reaches for anyway,
- * while the panel had to be positioned, collision-bounded and height-capped
- * against a feed it floated over. Its short-form text moved to the unfolded
- * rows, which is where it was wanted (see ToolBlock).
+/** A stretch of commands and notes owns one feed row and minimap tick.
+ * Folded it counts the events; opened it keeps each member's own disclosure.
+ * Search expands both layers so a match in a body or result stays visible.
  */
 export const ToolBatchView = observer(function ToolBatchView({
   row,
@@ -186,6 +164,12 @@ export const ToolBatchView = observer(function ToolBatchView({
   openFile: (sessionId: SessionId, path: string) => void
 }): JSX.Element {
   const [open, setOpen] = useState(false)
+  const onBodyClick = useCallback(
+    (e: ReactMouseEvent) => {
+      handleChatMdClick(e, sessionId, cwd, openFile)
+    },
+    [sessionId, cwd, openFile],
+  )
   /**
    * THE RUN'S OWN FILES, IN THE BIG DIFF SHEET (POD-993 round 3).
    *
@@ -323,17 +307,18 @@ export const ToolBatchView = observer(function ToolBatchView({
   // One interval per work line, and only a live one ticks — a settled
   // transcript full of them must not re-render every second.
   const activeWaiting = ownsTail ? waiting : undefined
-  const active = live && ownsTail
-  const computing = active && !activeWaiting
   // A tools row always folds ≥1 block, so the last one exists.
   const lastItem = (run?.lastBlock ?? row.blocks[count - 1]!).item
   const title = run?.title ?? row.title
-  // The folded face names what happened ("Ran pnpm check", "Read chat.ts,
-  // ToolBlock.tsx +2"), not only how much (POD-2286): with no box around it, the
-  // line is all a reader sees of the run, and a bare count ("Ran a command")
-  // made every folded run look the same.
-  const summary = title
-  const settling = useSettleFlash(computing)
+  const firstItem = (run?.firstBlock ?? row.blocks[0]!).item
+  const singleCommand = count === 1 && firstItem.toolName === 'Bash'
+  const summary =
+    count > 1
+      ? (run?.summary ?? row.summary ?? toolBatchTitles(row.blocks).summary)
+      : singleCommand
+        ? (toolSubject(firstItem, Infinity) ?? title)
+        : title
+  const settling = useSettleFlash(live)
   const pushing = usePushFlash(count)
   const phrase = activeWaiting
     ? `${activeWaiting.label}${activeWaiting.detail ? ` · ${activeWaiting.detail}` : ''}`
@@ -341,7 +326,7 @@ export const ToolBatchView = observer(function ToolBatchView({
       ? toolCallPhrase(lastItem)
       : summary
   const accessibleSummary =
-    `${phrase}. ${count} ${count === 1 ? 'call' : 'calls'}` +
+    `${phrase}. ${count} ${count === 1 ? 'event' : 'events'}` +
     `${failed > 0 ? `. ${failed} failed` : ''}.`
   const face: ReactNode = (
     <>
@@ -349,20 +334,16 @@ export const ToolBatchView = observer(function ToolBatchView({
         className={cn('work-line-glyph', failed > 0 && !live && 'work-line-glyph--err')}
         aria-hidden="true"
       >
-        {computing ? (
-          <WorkingMark size={15} />
-        ) : activeWaiting ? (
-          '◇'
-        ) : live ? null : failed > 0 ? (
-          '✕'
-        ) : (
-          '✓'
-        )}
+        <WorkGlyph item={firstItem} stretch={count > 1} />
       </span>
-      <span className="work-line-phrase">{phrase}</span>
+      <span className={cn('work-line-phrase', singleCommand && !live && 'work-line-code')}>
+        {phrase}
+      </span>
       {failed > 0 && <span className="work-line-fail">✕ {failed} failed</span>}
-      <ToolElapsed run={run} blocks={row.blocks} active={active} live={live} count={count} />
-      <ChevronDown className="work-line-chev" size={11} aria-hidden="true" />
+      {count > 1 && (
+        <ChevronRight className="work-line-chev" size={12} strokeWidth={1.5} aria-hidden="true" />
+      )}
+      <ToolElapsed run={run} blocks={row.blocks} live={live} count={count} />
     </>
   )
   const toggle = (): void => setOpen((v) => !v)
@@ -382,7 +363,8 @@ export const ToolBatchView = observer(function ToolBatchView({
       <div className="transcript-body">
         <div
           className="work-line"
-          data-state={activeWaiting ? 'wait' : active ? 'live' : live ? 'handoff' : 'done'}
+          data-state={activeWaiting ? 'wait' : live ? 'live' : 'done'}
+          data-verdict={failed > 0 ? 'err' : undefined}
           data-transcript-run-view=""
           data-open={expanded ? 'true' : 'false'}
           data-single={count === 1 ? 'true' : undefined}
@@ -415,10 +397,12 @@ export const ToolBatchView = observer(function ToolBatchView({
           {expanded && (
             <div className="work-line-list work-line-list--timed">
               {blocks.map((b) => (
-                <ToolBlock
+                <StretchMember
                   key={b.item.id}
                   block={b}
                   timed
+                  forceOpen={forceOpen}
+                  onBodyClick={onBodyClick}
                   sessionId={sessionId}
                   cwd={cwd}
                   openFile={openFile}
@@ -453,22 +437,75 @@ export const ToolBatchView = observer(function ToolBatchView({
 const ToolElapsed = observer(function ToolElapsed({
   run,
   blocks,
-  active,
   live,
   count,
 }: {
   run?: TranscriptToolRun
   blocks: ChatBlock[]
-  active: boolean
   live: boolean
   count: number
 }) {
   const first = run?.firstBlock ?? blocks[0]
-  const now = useAgeNow(first?.item.ts ?? '', 0, active)
-  const elapsedMs = run
-    ? run.elapsed(active ? now : undefined)
-    : toolRunElapsedMs(blocks, active ? now : undefined)
-  const show =
-    elapsedMs !== undefined && (active || (!live && count > 1 && elapsedMs >= MIN_SETTLED_SPAN_MS))
-  return show ? <span className="work-line-time">{formatClock(elapsedMs)}</span> : null
+  const now = useAgeNow(first?.item.ts ?? '', 0, live)
+  const elapsedMs =
+    !live && count === 1
+      ? first?.item.durationMs
+      : run
+        ? run.elapsed(live ? now : undefined)
+        : toolRunElapsedMs(blocks, live ? now : undefined)
+  const last = run?.lastBlock ?? blocks.at(-1)
+  const start = parseTs(first?.item.ts)
+  const end = parseTs(last?.item.ts)
+  const figure =
+    !live && count > 1 && start && end
+      ? `${clockLabel(start)}–${clockLabel(end)}`
+      : elapsedMs === undefined
+        ? undefined
+        : formatClock(elapsedMs)
+  return figure ? <span className="work-line-time">{figure}</span> : null
 })
+
+function StretchMember({
+  block,
+  onBodyClick,
+  forceOpen,
+  ...toolProps
+}: Parameters<typeof ToolBlock>[0] & {
+  onBodyClick: (e: ReactMouseEvent) => void
+  forceOpen: boolean
+}) {
+  const batch = block.item.role === 'user' ? parseEnvelopeBatch(block.item.text) : null
+  if (batch)
+    return (
+      <MessageEnvelopeGroup
+        bare
+        envelopes={batch.envelopes}
+        ts={block.item.ts}
+        onBodyClick={onBodyClick}
+        forceOpen={forceOpen}
+      />
+    )
+  if (block.mail?.op === 'note')
+    return (
+      <SentNoteRow
+        bare
+        note={block.mail}
+        fallbackId={block.item.id}
+        ts={block.item.ts}
+        onBodyClick={onBodyClick}
+        forceOpen={forceOpen}
+      />
+    )
+  if (block.mail?.op === 'inbox')
+    return (
+      <InboxReadRow
+        bare
+        notes={block.mail.notes}
+        result={block.result ?? block.item.toolResult}
+        rowKey={block.item.id}
+        ts={block.item.ts}
+        forceOpen={forceOpen}
+      />
+    )
+  return <ToolBlock block={block} forceOpen={forceOpen} {...toolProps} />
+}

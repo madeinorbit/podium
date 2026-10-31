@@ -1,48 +1,101 @@
-/**
- * NOTES BESIDE TOOL RUNS, PHOTOGRAPHED (POD-2234, POD-2286).
- *
- * Mail rows and tool runs are both quiet rows in the feed, and whether they read
- * as one family — and how tightly a run of them packs — is entirely CSS that
- * jsdom never applies. This mounts the shipping `MessageEnvelopeGroup` and
- * `InboxReadRow` between static work lines (the markup `ToolBatchView` renders,
- * without its run model) inside the transcript window's row shells, so the
- * sibling spacing rules see the same DOM as the feed.
- */
-import type { ParsedEnvelope } from '@podium/client-core/values'
-import type { TranscriptItem } from '@podium/model/browser'
-import { ChevronDown } from 'lucide-react'
-import type { JSX, ReactNode } from 'react'
+/** Murmur review scenes using the shipping row builder and activity renderers. */
+import {
+  buildChatRows,
+  type ChatRow,
+  pairToolResults,
+  parseEnvelopeBatch,
+} from '@podium/client-core/values'
+import { asSessionId, type TranscriptItem } from '@podium/model/browser'
+import { type JSX, type ReactNode, useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
-import { ThemeProvider } from '@/app/theme'
-import type { ChatBlock } from '@/features/chat/chat'
-import { InboxReadRow } from '@/features/chat/MailCommandRow'
 import { MessageEnvelopeGroup } from '@/features/chat/MessageEnvelopeGroup'
-import { ToolBlock } from '@/features/chat/ToolBlock'
+import { ToolBatchView } from '@/features/chat/ToolBatchView'
 import '@/index.css'
 import '@/styles.css'
 
-const note = (id: string, from: string, body: string, extra: Partial<ParsedEnvelope> = {}) =>
-  ({
-    id,
-    from,
-    to: 'issue:PIPP-380',
-    body,
-    question: false,
-    expectsReply: false,
-    ...extra,
-  }) satisfies ParsedEnvelope
-
-const READY = note(
-  'msg_1',
-  'issue:PIPP-386',
-  'Settings UI (PIPP-386) ready for integration.\nBranch issue/386-agent-connections-settings-page, on top of 5d840849: c0ea3d98 (page), 85d1b445 (contract defaults), 787468e9 (interface-review fixes + 384 API details), and a follow-up for the empty state.',
-)
+const sessionId = asSessionId('murmur-harness')
+const noop = (): void => {}
+const clock = (time: string): string => `2026-10-28T${time}:00Z`
+const command = (
+  id: string,
+  input: string,
+  time: string,
+  result = 'ok',
+  durationMs?: number,
+): TranscriptItem => ({
+  id,
+  role: 'tool',
+  text: '',
+  toolName: 'Bash',
+  toolInput: input,
+  ts: clock(time),
+  toolResult: result,
+  durationMs,
+})
+const note = (
+  id: string,
+  from: string,
+  body: string,
+  time: string,
+  question = false,
+  to = 'issue:POD-2287',
+): TranscriptItem => ({
+  id,
+  role: 'user',
+  ts: clock(time),
+  text: `[podium message ${id} · from ${from} · to ${to}]\n${body}\n${question ? '[this is a question: answer the sender]\n' : ''}[end podium message ${id}]`,
+})
+const RUN: TranscriptItem[] = [
+  command('show', 'podium issue show POD-2242', '17:14'),
+  note(
+    'merged',
+    'system:steward',
+    'Merge lock released\nmain is free again. POD-2240 landed at 6563204.',
+    '17:15',
+  ),
+  note(
+    'review',
+    'system:steward',
+    'Review requested on POD-2242\nThe fold change is ready.',
+    '17:15',
+  ),
+  command('rebase', 'git rebase main', '17:16'),
+  {
+    id: 'file',
+    role: 'tool',
+    text: '',
+    toolName: 'Read',
+    toolPaths: ['apps/web/src/styles.css'],
+    ts: clock('17:16'),
+    toolResult: '.work-line { margin: 2px 0; }',
+  },
+  note('green', 'system:steward', 'CI is green on main\nThe parent branch is ready.', '17:16'),
+  command(
+    'test',
+    'bun run test',
+    '17:17',
+    'typecheck   ✓ cached\nstatic      ✓\nboot        4 passed\n\nlean gate green in 2m 08s',
+    128000,
+  ),
+  note(
+    'ready',
+    'issue:POD-2242',
+    'Rebased and ready to land\nTip is 98aad23. Can you take the merge lock?',
+    '17:18',
+    true,
+  ),
+  command('lock', 'podium merge-lock acquire main', '17:18'),
+  command('land', 'podium issue action --kind merge', '17:18'),
+]
 const ASK = note(
-  'msg_2',
-  'issue:PIPP-384',
-  'Should the API details panel default to collapsed?\nThe 384 contract leaves it open; the settings page assumes closed.',
-  { question: true },
+  'ask',
+  'issue:POD-2242',
+  'whether inbox reads keep their own row\nThe current draft folds them with the surrounding commands. Which would you prefer?',
+  '17:18',
+  true,
+  'the operator',
 )
+const rows = buildChatRows(pairToolResults([...RUN, ASK]))
 
 function Shell({ children }: { children: ReactNode }): JSX.Element {
   return (
@@ -51,154 +104,182 @@ function Shell({ children }: { children: ReactNode }): JSX.Element {
     </div>
   )
 }
-
-function Prose({ text }: { text: string }): JSX.Element {
-  return (
-    <Shell>
-      <div className="transcript-row">
-        <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
-        <div className="transcript-body">
-          <div className="chat-md">
-            <p>{text}</p>
-          </div>
-        </div>
-      </div>
-    </Shell>
-  )
-}
-
-function Tools({ phrase, time }: { phrase: string; time?: string }): JSX.Element {
-  return (
-    <Shell>
-      <div className="transcript-row">
-        <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
-        <div className="transcript-body">
-          <div className="work-line" data-state="done" data-open="false">
-            <button data-pressable type="button" className="work-line-row">
-              <span className="work-line-glyph" aria-hidden="true">
-                ✓
-              </span>
-              <span className="work-line-phrase">{phrase}</span>
-              {time && <span className="work-line-time">{time}</span>}
-              <ChevronDown className="work-line-chev" size={11} aria-hidden="true" />
-            </button>
-          </div>
-        </div>
-      </div>
-    </Shell>
-  )
-}
-
-function Notes({
-  envelopes,
-  ts,
-  open = false,
+function Prose({
+  children,
+  answer = false,
 }: {
-  envelopes: ParsedEnvelope[]
-  ts: string
-  open?: boolean
+  children: ReactNode
+  answer?: boolean
 }): JSX.Element {
   return (
     <Shell>
-      <MessageEnvelopeGroup
-        envelopes={envelopes}
-        className="transcript-row"
-        ts={ts}
-        onBodyClick={() => {}}
-        forceOpen={open}
-      />
-    </Shell>
-  )
-}
-
-const bash = (id: string, command: string, ts: string, result: string): ChatBlock =>
-  ({
-    item: { id, role: 'tool', toolName: 'Bash', toolInput: command, ts, toolResult: result },
-    result,
-  }) as unknown as ChatBlock & { item: TranscriptItem }
-
-/** An opened run: the list `ToolBatchView` renders under its line. */
-function OpenTools({ phrase, blocks }: { phrase: string; blocks: ChatBlock[] }): JSX.Element {
-  return (
-    <Shell>
-      <div className="transcript-row">
-        <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
-        <div className="transcript-body">
-          <div className="work-line" data-state="done" data-open="true">
-            <button data-pressable type="button" className="work-line-row">
-              <span className="work-line-glyph" aria-hidden="true">
-                ✓
-              </span>
-              <span className="work-line-phrase">{phrase}</span>
-              <span className="work-line-time">2:11</span>
-              <ChevronDown className="work-line-chev" size={11} aria-hidden="true" />
-            </button>
-            <div className="work-line-list work-line-list--timed">
-              {blocks.map((b) => (
-                <ToolBlock
-                  key={b.item.id}
-                  block={b}
-                  timed
-                  sessionId={'s' as never}
-                  cwd="/r"
-                  openFile={() => {}}
-                />
-              ))}
-            </div>
+      <div className={`transcript-row${answer ? '' : ' transcript-process-row'}`}>
+        <div className={`transcript-body${answer ? ' transcript-answer' : ''}`}>
+          <div className="chat-md">
+            <p>{children}</p>
           </div>
         </div>
       </div>
     </Shell>
   )
 }
-
-const MERGED = note('msg_3', 'system:steward', 'Merge lock released\nmain is free again.')
-const REVIEW = note(
-  'msg_4',
-  'system:steward',
-  'Review requested on POD-2242\nThe fold change is ready.',
-)
-const REBASED = note('msg_5', 'issue:POD-2242', 'Rebased and ready to land\nTip is 98aad23.')
-
-function Harness(): JSX.Element {
+function Activity({ row, index }: { row: ChatRow; index: number }): JSX.Element {
+  const lone =
+    row.kind === 'tools' && row.blocks.length === 1
+      ? row.blocks[0]
+      : row.kind === 'block'
+        ? row.block
+        : undefined
+  const batch = lone?.item.role === 'user' ? parseEnvelopeBatch(lone.item.text) : null
   return (
-    <ThemeProvider>
-      <div className="bg-background p-6" data-testid="feed">
-        <div className="mx-auto max-w-[720px]">
-          <Prose text="On it. I'll rebase, run the checks and take the merge lock." />
-          <Tools phrase="Ran podium issue show POD-2242" />
-          <Notes envelopes={[MERGED]} ts="2026-10-28T17:15:00Z" />
-          <Notes envelopes={[REVIEW]} ts="2026-10-28T17:15:00Z" />
-          <Tools phrase="Ran git rebase main" />
-          <Notes envelopes={[REBASED]} ts="2026-10-28T17:16:00Z" />
-          <OpenTools
-            phrase="Ran pnpm check, podium merge-lock acquire main +1"
-            blocks={[
-              bash('b1', 'pnpm check', '2026-10-28T17:16:10Z', 'All checks passed in 2m 08s'),
-              bash('b2', 'podium merge-lock acquire main', '2026-10-28T17:18:20Z', 'acquired'),
-              bash('b3', 'podium issue action --kind merge', '2026-10-28T17:18:31Z', 'Landed'),
-            ]}
-          />
-          <Prose text="POD-2242 is on main. Two notes came in meanwhile." />
-          <Notes envelopes={[READY, ASK]} ts="2026-10-28T22:17:00Z" open />
-          <Notes envelopes={[ASK]} ts="2026-10-28T22:18:00Z" />
-          <Shell>
-            <InboxReadRow
-              notes={2}
-              result="msg_1 from PIPP-386\nmsg_2 from PIPP-384"
-              className="transcript-row"
-              blockIndex={0}
-              rowKey="inbox"
-              ts="2026-10-28T22:18:30Z"
-            />
-          </Shell>
-          <Tools phrase="Ran 2 commands" time="0:14" />
-          <Prose text="Both branches are in; merging now." />
-        </div>
-      </div>
-    </ThemeProvider>
+    <Shell>
+      {batch ? (
+        <MessageEnvelopeGroup
+          envelopes={batch.envelopes}
+          className="transcript-row"
+          rowKey={lone?.item.id}
+          blockIndex={index}
+          ts={lone?.item.ts}
+          onBodyClick={noop}
+        />
+      ) : row.kind === 'tools' ? (
+        <ToolBatchView
+          row={row}
+          index={index}
+          highlighted={false}
+          dimmed={false}
+          forceOpen={false}
+          sessionId={sessionId}
+          cwd="/repo"
+          openFile={noop}
+        />
+      ) : null}
+    </Shell>
   )
 }
-
+function Pane({ scene, narrow = false }: { scene: string; narrow?: boolean }): JSX.Element {
+  const pane = useRef<HTMLElement>(null)
+  useEffect(() => {
+    if (scene !== 'opened' && scene !== 'narrow') return
+    let details = 0
+    const frame = requestAnimationFrame(() => {
+      pane.current
+        ?.querySelector<HTMLButtonElement>('[data-transcript-run-toggle][aria-expanded="false"]')
+        ?.click()
+      details = requestAnimationFrame(() => {
+        if (scene === 'opened')
+          pane.current
+            ?.querySelector<HTMLButtonElement>('.mail-item-head[aria-expanded="false"]')
+            ?.click()
+        const command = [
+          ...(pane.current?.querySelectorAll<HTMLButtonElement>('.tool-block > .work-line-row') ??
+            []),
+        ].find((button) => button.textContent?.includes('bun run test'))
+        if (command?.getAttribute('aria-expanded') === 'false') command.click()
+      })
+    })
+    return () => {
+      cancelAnimationFrame(frame)
+      cancelAnimationFrame(details)
+    }
+  }, [scene])
+  return (
+    <section
+      ref={pane}
+      data-scenario={scene}
+      style={{ width: narrow ? 360 : 960, maxWidth: '100%' }}
+    >
+      <div style={{ marginBottom: 14, font: '11px var(--font-mono)', color: 'var(--text-dim)' }}>
+        {scene === 'between'
+          ? 'Between messages'
+          : scene === 'narrow'
+            ? 'Narrow pane · 360px'
+            : `Busy stretch · ${scene}`}
+      </div>
+      <div
+        data-feed-container=""
+        style={{
+          background: 'var(--chat-face)',
+          border: '1px solid var(--border-strong)',
+          borderRadius: 10,
+        }}
+      >
+        <div
+          className="feed-column"
+          style={{ padding: '28px max(32px, calc((100% - 41rem) / 2)) 32px' }}
+        >
+          {scene !== 'opened' && scene !== 'narrow' && (
+            <Shell>
+              <div className="transcript-row transcript-you">
+                <div className="transcript-you-bubble">
+                  <div className="chat-md">
+                    <p>Land POD-2242 once its checks pass.</p>
+                  </div>
+                </div>
+              </div>
+            </Shell>
+          )}
+          {scene === 'between' ? (
+            <>
+              <Prose>On it. First I'll check where it stands.</Prose>
+              <Activity row={buildChatRows(pairToolResults([RUN[0]!]))[0]!} index={0} />
+              <Prose>It's in review and based on main. Rebasing and running the checks now.</Prose>
+              <Activity row={buildChatRows(pairToolResults([RUN[6]!]))[0]!} index={1} />
+              <Activity row={buildChatRows(pairToolResults([RUN[1]!]))[0]!} index={2} />
+              <Prose>Checks pass and the merge lock is free, so I'm landing it.</Prose>
+            </>
+          ) : (
+            <>
+              <Prose>On it. I'll rebase, run the checks and take the merge lock.</Prose>
+              {(narrow ? buildChatRows(pairToolResults([...RUN.slice(5), ASK])) : rows).map(
+                (row, index) => (
+                  <Activity
+                    key={row.kind === 'tools' ? row.blocks[0]!.item.id : row.block.item.id}
+                    row={row}
+                    index={index}
+                  />
+                ),
+              )}
+              <Prose answer>
+                {narrow
+                  ? 'Landed as 98aad23.'
+                  : 'POD-2242 is on main as 98aad23. It left one question for you, about the inbox rows.'}
+              </Prose>
+            </>
+          )}
+        </div>
+      </div>
+    </section>
+  )
+}
+const params = new URLSearchParams(location.search)
+document.documentElement.dataset.theme = 'podium'
+document.documentElement.classList.toggle('dark', params.get('theme') !== 'light')
+const state = params.get('state')
+function Harness(): JSX.Element {
+  return (
+    <main
+      style={{
+        minHeight: '100vh',
+        background: 'var(--background)',
+        padding: '32px',
+        display: 'grid',
+        justifyItems: 'center',
+        gap: 28,
+      }}
+    >
+      {state ? (
+        <Pane scene={state} narrow={state === 'narrow'} />
+      ) : (
+        <>
+          <Pane scene="between" />
+          <Pane scene="folded" />
+          <Pane scene="opened" />
+          <Pane scene="narrow" narrow />
+        </>
+      )}
+    </main>
+  )
+}
 const root = document.getElementById('root')
 if (root) createRoot(root).render(<Harness />)
