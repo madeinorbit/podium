@@ -1,4 +1,6 @@
+import { useActivityDisclosure } from '@podium/client-core/react'
 import {
+  type ActivityDisclosureProps,
   envelopePrincipal,
   isOperatorQuestion,
   type ParsedEnvelope,
@@ -7,7 +9,7 @@ import {
 } from '@podium/client-core/values'
 import { ChevronRight } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
-import { memo, useMemo, useState } from 'react'
+import { memo, useMemo } from 'react'
 import { renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
 import { isKnownRefPrefix } from '@/lib/markdown-references'
 import { useKnownRefPrefixesVersion } from '@/lib/use-known-ref-prefixes'
@@ -112,20 +114,19 @@ function EnvelopeItem({
   timed: boolean
   markdownHtml?: ReadonlyMap<string, string> | undefined
   onReply?: ((envelope: ParsedEnvelope) => void) | undefined
-  onOpenChange?: ((open: boolean) => void) | undefined
-}): JSX.Element {
-  const [opened, setOpened] = useState(false)
-  const full = opened || forceOpen
+} & ActivityDisclosureProps): JSX.Element {
+  const {
+    userOpen: opened,
+    open: full,
+    setOpen,
+    toggle,
+  } = useActivityDisclosure({ forceOpen, onOpenChange })
   // The opened line keeps its byline; the full markdown below owns all of the
   // message, including the first paragraph used as the folded preview.
   const subject = useMemo(() => noteSubject(envelope.body), [envelope.body])
   const ask = isOperatorQuestion(envelope)
   const who = principalShortName(direction === 'from' ? envelope.from : envelope.to)
   const stamp = timed ? parseTs(ts) : undefined
-  const toggle = (): void => {
-    setOpened(!opened)
-    onOpenChange?.(!opened)
-  }
   const byline = direction === 'from' ? who : `To ${who}`
   const phrase = subject
     ? `${byline} ${subject}`
@@ -165,8 +166,7 @@ function EnvelopeItem({
             type="button"
             className="quiet-ask-reply"
             onClick={() => {
-              setOpened(true)
-              onOpenChange?.(true)
+              setOpen(true)
               onReply?.(envelope)
             }}
           >
@@ -264,10 +264,8 @@ export function MessageEnvelopeGroup({
   direction?: 'from' | 'to'
   bare?: boolean
   onReply?: ((envelope: ParsedEnvelope) => void) | undefined
-  onOpenChange?: ((open: boolean) => void) | undefined
-}): JSX.Element {
-  const [userOpen, setUserOpen] = useState(false)
-  const open = userOpen || forceOpen
+} & ActivityDisclosureProps): JSX.Element {
+  const { userOpen, open, toggle } = useActivityDisclosure({ forceOpen, onOpenChange })
   const notes = envelopes.filter((e) => !isOperatorQuestion(e))
   const questions = envelopes.filter(isOperatorQuestion)
   const item = (envelope: ParsedEnvelope, i: number, timed: boolean): ReactNode => (
@@ -301,10 +299,7 @@ export function MessageEnvelopeGroup({
             data-testid="message-envelope-toggle"
             aria-expanded={open}
             aria-label={`${open ? 'Fold' : 'Unfold'} these notes`}
-            onClick={() => {
-              setUserOpen(!userOpen)
-              onOpenChange?.(!userOpen)
-            }}
+            onClick={toggle}
           >
             <span className="work-line-glyph" aria-hidden="true">
               <WorkGlyph stretch />

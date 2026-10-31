@@ -29,7 +29,7 @@ import {
   type TranscriptComputeResult,
 } from '../values/transcript-compute'
 import { TranscriptSearchIndex } from './transcript-search-index'
-import { TranscriptToolRun } from './transcript-tool-run'
+import { TranscriptActivityRun } from './transcript-tool-run'
 
 export interface TranscriptGraphInsertion {
   readonly id: string
@@ -88,7 +88,7 @@ export class TranscriptGraph {
     deep: false,
   })
   private readonly rowMembers = observable.map<string, string[]>(undefined, { deep: false })
-  private readonly runs = observable.map<string, TranscriptToolRun>(undefined, { deep: false })
+  private readonly runs = observable.map<string, TranscriptActivityRun>(undefined, { deep: false })
   private readonly skeletons = observable.map<string, ChatRow>(undefined, { deep: false })
   private readonly blockSkeletons = observable.map<string, ChatBlock>(undefined, { deep: false })
   private readonly shapes = new Map<string, string>()
@@ -96,7 +96,7 @@ export class TranscriptGraph {
   private readonly failed = new Set<string>()
   private readonly failuresByRow = new Map<string, number>()
   private readonly owners = new Map<string, string>()
-  private readonly rowByBlock = new Map<string, string | TranscriptToolRun>()
+  private readonly rowByBlock = new Map<string, string | TranscriptActivityRun>()
   private readonly toolMembers = new Map<string, ToolMembers>()
   /** Transcript identity index; companions follow records without owning them. */
   private readonly records = observable.map<string, TranscriptRecord>(undefined, { deep: false })
@@ -145,7 +145,7 @@ export class TranscriptGraph {
   structuralRow(id: string): ChatRow | undefined {
     return this.skeletons.get(id)
   }
-  run(id: string): TranscriptToolRun | undefined {
+  run(id: string): TranscriptActivityRun | undefined {
     return this.runs.get(id)
   }
   @lazy({ equals: compareShallow }) get lastAnswer(): LastAnswer {
@@ -693,7 +693,7 @@ export class TranscriptGraph {
   }
 
   private repairRows(dirty: ReadonlySet<string>): void {
-    const broken = new Set<TranscriptToolRun>()
+    const broken = new Set<TranscriptActivityRun>()
     for (const id of dirty) {
       const owner = this.rowByBlock.get(id)
       if (owner && typeof owner !== 'string' && (!this.isEmitted(id) || !this.isBatchable(id)))
@@ -781,7 +781,7 @@ export class TranscriptGraph {
         for (const member of ownedMembers) if (this.failed.has(member)) failures++
         this.failuresByRow.set(first, failures)
         const run = tools
-          ? new TranscriptToolRun(
+          ? new TranscriptActivityRun(
               ownedMembers,
               (id) => this.block(id),
               (id) => this.rank(id),
@@ -918,7 +918,7 @@ export class TranscriptGraph {
   }
 
   private toolSkeleton(
-    run: TranscriptToolRun,
+    run: TranscriptActivityRun,
     blocks = observable.array<ChatBlock>(
       run.ids.map((id) => this.blockSkeletons.get(id)!),
       { deep: false },
@@ -941,13 +941,13 @@ export class TranscriptGraph {
   }
 
   /** Add/change one child of an existing quiet run without walking its members. */
-  private repairToolRow(id: string, broken: ReadonlySet<TranscriptToolRun>): boolean {
+  private repairToolRow(id: string, broken: ReadonlySet<TranscriptActivityRun>): boolean {
     const item = this.items.get(id)
     if (!item || !this.isBatchable(id) || !this.isEmitted(id)) return false
     const own = this.rowByBlock.get(id)
     if (typeof own === 'string') return false
     const point = this.insertionPoint(this.blockIds, id)
-    const groups = new Set<TranscriptToolRun>()
+    const groups = new Set<TranscriptActivityRun>()
     for (const neighbor of [this.blockIds[point - 1], id, this.blockIds[point + 1]]) {
       if (!neighbor || !this.isBatchable(neighbor)) continue
       const group = this.rowByBlock.get(neighbor)

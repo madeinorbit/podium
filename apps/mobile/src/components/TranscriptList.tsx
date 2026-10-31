@@ -1,5 +1,7 @@
-import type { TranscriptLog, TranscriptToolRun } from '@podium/client-core/conversation'
+import type { TranscriptActivityRun, TranscriptLog } from '@podium/client-core/conversation'
+import { useActivityDisclosure } from '@podium/client-core/react'
 import {
+  activitySingletonDisplay,
   type ChatBlock,
   failLine,
   formatChurn,
@@ -9,7 +11,6 @@ import {
   toolBatchTitles,
   toolRunFailures,
   toolVerdict,
-  transcriptActivityFacts,
 } from '@podium/client-core/values'
 import type { TranscriptItem } from '@podium/model'
 import * as Clipboard from 'expo-clipboard'
@@ -281,12 +282,11 @@ const ToolsRun = observer(function ToolsRun({
   onRefPress,
 }: {
   blocks?: ChatBlock[]
-  run?: TranscriptToolRun
+  run?: TranscriptActivityRun
   forceOpen?: boolean
   onRefPress?: (ref: string) => void
 }) {
-  const [opened, setExpanded] = useState(false)
-  const expanded = opened || forceOpen
+  const { open: expanded, toggle } = useActivityDisclosure({ forceOpen })
   const failures = run?.failures ?? toolRunFailures(blocks)
   const durationMs =
     run?.durationMs ?? blocks.reduce((total, block) => total + (block.item.durationMs ?? 0), 0)
@@ -302,7 +302,7 @@ const ToolsRun = observer(function ToolsRun({
         accessibilityLabel={`${expanded ? 'Collapse' : 'Expand'} work run: ${title}`}
         accessibilityState={{ expanded }}
         aria-expanded={expanded}
-        onPress={() => setExpanded((value) => !value)}
+        onPress={toggle}
         style={({ pressed }) => [styles.workLine, pressed && styles.workLinePressed]}
       >
         <Text style={[styles.workDisclosure, failures > 0 && styles.workDisclosureFailed]}>
@@ -317,29 +317,33 @@ const ToolsRun = observer(function ToolsRun({
       {expanded
         ? (run?.blocks ?? blocks).map((b) => {
             const { item } = b
-            const batch = item.role === 'user' ? transcriptActivityFacts(item).envelopes : null
-            if (batch)
+            const display = activitySingletonDisplay(b)
+            if (display.kind === 'received-notes')
               return (
                 <View key={item.id}>
-                  {batch.envelopes.map((envelope) => (
+                  {display.batch.envelopes.map((envelope) => (
                     <EnvelopeRow key={envelope.id} envelope={envelope} onRefPress={onRefPress} />
                   ))}
                 </View>
               )
-            if (b.mail)
+            const mail =
+              display.kind === 'sent-note' || display.kind === 'inbox-read'
+                ? display.mail
+                : undefined
+            if (mail)
               return (
                 <View key={item.id}>
                   <Text style={styles.toolPreview}>
-                    {b.mail.op === 'note'
-                      ? `Note to ${b.mail.to}`
-                      : b.mail.notes === undefined
+                    {mail.op === 'note'
+                      ? `Note to ${mail.to}`
+                      : mail.notes === undefined
                         ? 'Read notes'
-                        : `Read ${b.mail.notes} notes`}
+                        : `Read ${mail.notes} notes`}
                   </Text>
                   <RichMarkdown
                     text={
-                      b.mail.op === 'note'
-                        ? (b.mail.preview ?? 'Sent')
+                      mail.op === 'note'
+                        ? (mail.preview ?? 'Sent')
                         : (b.result ?? item.toolResult ?? '')
                     }
                     onRefPress={onRefPress}

@@ -8,9 +8,10 @@
  * "Read 3 notes" line with the raw listing behind it. The compute path decides
  * all of it (`presentToolBlock`); these rows only read the block's `mail`.
  */
-import type { ParsedEnvelope, ToolMail } from '@podium/client-core/values'
+import { useActivityDisclosure } from '@podium/client-core/react'
+import type { ActivityDisclosureProps, ParsedEnvelope, ToolMail } from '@podium/client-core/values'
 import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { MessageEnvelopeGroup } from './MessageEnvelopeGroup'
 import { clockLabel, fullTimeLabel, parseTs } from './transcript-time'
 import { WorkGlyph } from './WorkGlyph'
@@ -33,10 +34,8 @@ export function SentNoteRow({
   blockIndex?: number
   ts: string | undefined
   onBodyClick: (e: ReactMouseEvent) => void
-  forceOpen: boolean
   bare?: boolean
-  onOpenChange?: ((open: boolean) => void) | undefined
-}): JSX.Element {
+} & ActivityDisclosureProps): JSX.Element {
   const envelopes = useMemo(
     (): ParsedEnvelope[] => [
       {
@@ -88,11 +87,8 @@ export function InboxReadRow({
   rowKey: string
   ts: string | undefined
   bare?: boolean
-  forceOpen?: boolean
-  onOpenChange?: ((open: boolean) => void) | undefined
-}): JSX.Element {
-  const [userOpen, setOpen] = useState(false)
-  const open = userOpen || forceOpen
+} & ActivityDisclosureProps): JSX.Element {
+  const { userOpen, open, toggle } = useActivityDisclosure({ forceOpen, onOpenChange })
   const label =
     notes === undefined ? 'Read notes' : `Read ${notes === 1 ? '1 note' : `${notes} notes`}`
   const stamp = bare ? parseTs(ts) : undefined
@@ -114,10 +110,7 @@ export function InboxReadRow({
         className="work-line-row mail-fold"
         data-transcript-run-toggle={forceOpen && !userOpen ? '' : undefined}
         aria-expanded={open}
-        onClick={() => {
-          setOpen(!userOpen)
-          onOpenChange?.(!userOpen)
-        }}
+        onClick={toggle}
       >
         <span className="work-line-glyph" aria-hidden="true">
           <WorkGlyph mail />

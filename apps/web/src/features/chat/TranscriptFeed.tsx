@@ -10,7 +10,12 @@ import type {
   TranscriptPhase,
   TranscriptSearchState,
 } from '@podium/client-core/values'
-import { attributionForRole, isInteractiveTool, sessionWaking } from '@podium/client-core/values'
+import {
+  activityRowSingletonDisplay,
+  attributionForRole,
+  isInteractiveTool,
+  sessionWaking,
+} from '@podium/client-core/values'
 import type { SessionModel } from '@podium/client-graph/models'
 import { MESSAGE_ACCEPTED_LINE } from '@podium/model'
 import type { SessionId } from '@podium/model/browser'
@@ -31,7 +36,7 @@ import {
   type TurnPosition,
 } from './ChatBlockView'
 import { ChatUploadThumb } from './ChatUploadThumb'
-import { isBatchableTool, type PendingItem } from './chat'
+import type { PendingItem } from './chat'
 import { IssueOutcomeCard } from './IssueOutcomeCard'
 import { MetaGlyph } from './MetaGlyph'
 import { ToolBatchView } from './ToolBatchView'
@@ -1012,13 +1017,10 @@ const TranscriptRow = observer(function TranscriptRow({
   // A LONE NOTE KEEPS ITS OWN ROW (POD-2286). Notes and mail fold into a
   // stretch with the calls around them; on its own, a note reads better as the
   // sender and subject than as "Read a note".
-  const lone =
-    base.kind === 'tools' && (run?.count ?? base.blocks.length) === 1
-      ? (run?.firstBlock ?? base.blocks[0])
-      : undefined
+  const singleton = base.kind === 'tools' ? activityRowSingletonDisplay(base, run) : undefined
   const displayRow: ChatRow =
-    base.kind === 'tools' && lone && !isBatchableTool(lone.item)
-      ? { kind: 'block', block: lone, blockIndex: base.blockIndices[0] ?? -1 }
+    base.kind === 'tools' && singleton?.asBlock
+      ? { kind: 'block', block: singleton.block, blockIndex: base.blockIndices[0] ?? -1 }
       : base
   // One component owns a stretch from its first note onward. Only the display
   // treatment changes when a neighbour arrives, preserving opened note DOM.

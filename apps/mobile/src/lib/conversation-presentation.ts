@@ -1,4 +1,4 @@
-import type { TranscriptGraph, TranscriptToolRun } from '@podium/client-core/conversation'
+import type { TranscriptActivityRun, TranscriptGraph } from '@podium/client-core/conversation'
 import { type ChatRow, isAskUserQuestion } from '@podium/client-core/values'
 import { companion, lazy } from '@podium/mobx-helpers'
 import { action, actionBound, compareShallow, observable, observableRef } from 'mobx'
@@ -9,7 +9,9 @@ import {
   positionMobileTranscriptSearch,
 } from './transcript-feed'
 
-export type RetainedMobileTranscriptRow = MobileTranscriptRow & { readonly run?: TranscriptToolRun }
+export type RetainedMobileTranscriptRow = MobileTranscriptRow & {
+  readonly run?: TranscriptActivityRun
+}
 export interface MobileRowOptions {
   collapseContext?: boolean
   hiddenQuestionId?: string | null
@@ -170,7 +172,7 @@ export class MobileConversationPresentation {
     if (run) {
       const first = run.firstBlock
       if (!first) return []
-      if (run.count === 1 && first.item.role === 'user') {
+      if (run.singletonDisplay?.kind === 'received-notes') {
         return this.shapeRow(
           { kind: 'block', block: first, blockIndex: this.graph.blockPosition(id) ?? -1 },
           { collapseContext: this.options.collapseContext, includeEmpty: true },

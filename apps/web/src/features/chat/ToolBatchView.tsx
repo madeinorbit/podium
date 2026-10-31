@@ -1,5 +1,8 @@
-import type { TranscriptToolRun } from '@podium/client-core/conversation'
+import type { TranscriptActivityRun } from '@podium/client-core/conversation'
+import { useActivityDisclosure } from '@podium/client-core/react'
 import {
+  activityRowSingletonDisplay,
+  activitySingletonDisplay,
   formatClock,
   resolveToolEdit,
   type ToolEditView,
@@ -7,7 +10,6 @@ import {
   toolEditDiffKey,
   toolEditHasDiff,
   toolEditUnifiedDiff,
-  transcriptActivityFacts,
 } from '@podium/client-core/values'
 import type { SessionId } from '@podium/model/browser'
 import {
@@ -24,8 +26,8 @@ import { useAgeNow } from '@/lib/clock-hooks'
 import { cn } from '@/lib/utils'
 import { type ProcessPosition, processClass, type TurnPosition, turnClass } from './ChatBlockView'
 import {
+  type ActivityStretchRow,
   type ChatBlock,
-  type ToolBatchRow,
   toolCallPhrase,
   toolRunElapsedMs,
   toolRunFailures,
@@ -132,8 +134,8 @@ export const ToolBatchView = observer(function ToolBatchView({
   cwd,
   openFile,
 }: {
-  row: ToolBatchRow
-  run?: TranscriptToolRun
+  row: ActivityStretchRow
+  run?: TranscriptActivityRun
   index: number
   highlighted: boolean
   dimmed: boolean
@@ -162,20 +164,17 @@ export const ToolBatchView = observer(function ToolBatchView({
   cwd: string
   openFile: (sessionId: SessionId, path: string) => void
 }): JSX.Element {
-  const [open, setOpen] = useState(false)
+  const { userOpen: open, open: expanded, setOpen, toggle } = useActivityDisclosure({ forceOpen })
   const count = run?.count ?? row.blocks.length
   const first = run?.firstBlock ?? row.blocks[0]!
-  const noteCount =
-    count === 1 && first.item.role === 'user'
-      ? (transcriptActivityFacts(first.item).envelopes?.envelopes.length ?? 0)
-      : 0
-  const singleMember = count === 1 && (first.mail !== undefined || noteCount === 1)
-  const multiple = count > 1 || noteCount > 1
+  const singleton = activityRowSingletonDisplay(row, run)
+  const singleMember = singleton?.inline ?? false
+  const multiple = count > 1 || (singleton?.multiple ?? false)
   const onMemberOpenChange = useCallback(
     (opened: boolean) => {
       if (singleMember || opened) setOpen(opened)
     },
-    [singleMember],
+    [singleMember, setOpen],
   )
   const onBodyClick = useCallback(
     (e: ReactMouseEvent) => {
@@ -221,7 +220,6 @@ export const ToolBatchView = observer(function ToolBatchView({
    * row whose whole subject was a change.
    */
   const [diffPath, setDiffPath] = useState<string | null>(null)
-  const expanded = open || forceOpen
   const blocks =
     expanded || singleMember || diffPath !== null ? (run?.blocks ?? row.blocks) : EMPTY_BLOCKS
   // Edit metadata belongs to the disclosed rows and sheet, so even snapshot
@@ -365,7 +363,6 @@ export const ToolBatchView = observer(function ToolBatchView({
       )}
     </>
   )
-  const toggle = (): void => setOpen((v) => !v)
   return (
     <div
       className={rowClass}
@@ -466,7 +463,7 @@ const ToolElapsed = observer(function ToolElapsed({
   live,
   count,
 }: {
-  run?: TranscriptToolRun
+  run?: TranscriptActivityRun
   blocks: ChatBlock[]
   live: boolean
   count: number
@@ -501,23 +498,23 @@ function StretchMember({
   onBodyClick: (e: ReactMouseEvent) => void
   forceOpen: boolean
 }) {
-  const batch = transcriptActivityFacts(block.item).envelopes
-  if (batch)
+  const display = activitySingletonDisplay(block)
+  if (display.kind === 'received-notes')
     return (
       <MessageEnvelopeGroup
         bare
-        envelopes={batch.envelopes}
+        envelopes={display.batch.envelopes}
         ts={block.item.ts}
         onBodyClick={onBodyClick}
         forceOpen={forceOpen}
         onOpenChange={onOpenChange}
       />
     )
-  if (block.mail?.op === 'note')
+  if (display.kind === 'sent-note')
     return (
       <SentNoteRow
         bare
-        note={block.mail}
+        note={display.mail}
         fallbackId={block.item.id}
         ts={block.item.ts}
         onBodyClick={onBodyClick}
@@ -525,11 +522,11 @@ function StretchMember({
         onOpenChange={onOpenChange}
       />
     )
-  if (block.mail?.op === 'inbox')
+  if (display.kind === 'inbox-read')
     return (
       <InboxReadRow
         bare
-        notes={block.mail.notes}
+        notes={display.mail.notes}
         result={block.result ?? block.item.toolResult}
         rowKey={block.item.id}
         ts={block.item.ts}

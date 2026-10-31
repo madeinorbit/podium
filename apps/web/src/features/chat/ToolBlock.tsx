@@ -1,8 +1,14 @@
 import { highlightCode } from '@podium/client-core/code-highlight'
-import { formatClock, resolveToolEdit, toolCategory } from '@podium/client-core/values'
+import { useActivityDisclosure } from '@podium/client-core/react'
+import {
+  type ActivityDisclosureProps,
+  formatClock,
+  resolveToolEdit,
+  toolCategory,
+} from '@podium/client-core/values'
 import type { SessionId, TranscriptItem } from '@podium/model/browser'
 import type { JSX } from 'react'
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { cn } from '@/lib/utils'
 import { type ChatBlock, failLine, mcpLabel, toolSubject, toolVerdict } from './chat'
 import { ToolEditDiff } from './ToolEditDiff'
@@ -102,11 +108,8 @@ export function ToolBlock({
   diffPath?: string | undefined
   /** The call's clock time goes in the opened run's gutter (POD-2286). */
   timed?: boolean
-  forceOpen?: boolean
-  onOpenChange?: ((open: boolean) => void) | undefined
-}): JSX.Element {
-  const [userOpen, setOpen] = useState(false)
-  const open = userOpen || forceOpen
+} & ActivityDisclosureProps): JSX.Element {
+  const { userOpen, open, toggle } = useActivityDisclosure({ forceOpen, onOpenChange })
   const { item } = block
   const stamp = timed ? parseTs(item.ts) : undefined
   const result = block.result ?? item.toolResult
@@ -156,10 +159,7 @@ export function ToolBlock({
   const openable = onOpenDiff && diffPath && !item.toolEffects?.length ? diffPath : undefined
   const activate = (): void => {
     if (openable && onOpenDiff) onOpenDiff(openable)
-    else {
-      setOpen(!userOpen)
-      onOpenChange?.(!userOpen)
-    }
+    else toggle()
   }
   return (
     <div

@@ -4,6 +4,7 @@
 // was deleted; POD-333 moved the call sites and deleted the republication. What
 // remains below is this package's own viewmodel surface.
 
+export * from './activity-display'
 export * from './agent-capability'
 export * from './agent-launch'
 export * from './agent-readiness'

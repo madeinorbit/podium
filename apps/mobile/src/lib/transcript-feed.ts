@@ -1,5 +1,6 @@
-import type { TranscriptToolRun } from '@podium/client-core/conversation'
+import type { TranscriptActivityRun } from '@podium/client-core/conversation'
 import {
+  activityRowSingletonDisplay,
   type ChatBlock,
   type ChatRow,
   computeTranscript,
@@ -39,7 +40,7 @@ export interface MobileTranscriptRow {
     | 'context'
   item: TranscriptItem
   blocks?: ChatBlock[]
-  readonly run?: TranscriptToolRun
+  readonly run?: TranscriptActivityRun
   blockIndices: number[]
   envelope?: ParsedEnvelope
   quietText?: string
@@ -95,7 +96,7 @@ export function shapeMobileChatRow(
   if (chatRow.kind === 'tools') {
     const first = chatRow.blocks[0]
     if (!first) return rows
-    if (chatRow.blocks.length === 1 && first.item.role === 'user') {
+    if (activityRowSingletonDisplay(chatRow)?.kind === 'received-notes') {
       return shapeMobileChatRow(
         { kind: 'block', block: first, blockIndex: blockIndices[0] ?? -1 },
         options,

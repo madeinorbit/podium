@@ -504,8 +504,8 @@ export function mcpLabel(toolName: string): string | null {
   return `${server} · ${parts.tool.replace(/_/g, ' ')}`
 }
 
-/** A run of consecutive tool calls, shown collapsed under one summary title. */
-export interface ToolBatchRow {
+/** A stretch of neighbouring commands and notes, folded under one summary. */
+export interface ActivityStretchRow {
   kind: 'tools'
   blocks: ChatBlock[]
   /** Each child's index in the flat ChatBlock[] — lets search map a hit to its row. */
@@ -514,13 +514,15 @@ export interface ToolBatchRow {
   /** The folded face's count-only line ("Ran 4 commands"); `title` names subjects. */
   summary?: string
 }
+/** Source compatibility for consumers of the existing tools-row API. */
+export type ToolBatchRow = ActivityStretchRow
 /** Anything that isn't a quiet tool call: prose, prompts, the AskUserQuestion card. */
 export interface SingleRow {
   kind: 'block'
   block: ChatBlock
   blockIndex: number
 }
-export type ChatRow = SingleRow | ToolBatchRow
+export type ChatRow = SingleRow | ActivityStretchRow
 
 /** One delivered transcript item can hold several notes. Count the notes. */
 export function toolActivityCount(item: TranscriptItem): number {

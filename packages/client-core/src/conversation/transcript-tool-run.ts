@@ -1,5 +1,6 @@
 import { lazy } from '@podium/mobx-helpers'
 import { action, compareShallow, observable } from 'mobx'
+import { type ActivitySingletonDisplay, activitySingletonDisplay } from '../values/activity-display'
 import {
   type ChatBlock,
   type ToolTitleClause,
@@ -29,7 +30,7 @@ interface Membership {
 }
 
 /** The run owns category/subject membership; collapsed readers demand a title. */
-export class TranscriptToolRun {
+export class TranscriptActivityRun {
   private readonly categories = observable.map<string, Category>(undefined, { deep: false })
   private readonly categoryOrder = observable.array<string>([], { deep: false })
   private readonly entries = new Map<string, Membership>()
@@ -62,6 +63,11 @@ export class TranscriptToolRun {
   @lazy get lastBlock(): ChatBlock | undefined {
     const id = this.ids.at(-1)
     return id === undefined ? undefined : this.readBlock(id)
+  }
+  @lazy get singletonDisplay(): ActivitySingletonDisplay | undefined {
+    if (this.count !== 1) return undefined
+    const block = this.firstBlock
+    return block ? activitySingletonDisplay(block) : undefined
   }
   /** Only an unfolded run or a complete snapshot demands all children. */
   @lazy({ equals: compareShallow }) get blocks(): ChatBlock[] {
@@ -215,3 +221,6 @@ export class TranscriptToolRun {
     })
   }
 }
+
+/** Source compatibility for the existing run API. */
+export { TranscriptActivityRun as TranscriptToolRun }
