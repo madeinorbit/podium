@@ -46,7 +46,7 @@ import { InboxReadRow, SentNoteRow } from './MailCommandRow'
 import { MessageEnvelopeGroup } from './MessageEnvelopeGroup'
 import { MetaGlyph } from './MetaGlyph'
 import type { MailReply } from './mail-reply'
-import { NarrowMessageActions } from './message-actions-layout'
+import { NarrowMessageActions, useMessageActionFocus } from './message-actions-layout'
 import { SendUserFileBlock } from './SendUserFileBlock'
 import { ToolBlock } from './ToolBlock'
 import { clockLabel, fullTimeLabel, parseTs } from './transcript-time'
@@ -119,6 +119,7 @@ function MessageActions({
   children?: ReactNode
 }): JSX.Element | null {
   const narrow = useContext(NarrowMessageActions)
+  const focus = useMessageActionFocus(narrow && side === 'left')
   const [copied, setCopied] = useState(false)
   const ack = useRef<ReturnType<typeof setTimeout> | null>(null)
   const copy = useCallback(() => {
@@ -137,7 +138,14 @@ function MessageActions({
   if (empty && !children && !ts) return null
   return (
     <>
-      <div className="msg-foot" data-side={side} data-testid="message-actions">
+      <div
+        className="msg-foot"
+        data-side={side}
+        data-testid="message-actions"
+        ref={focus.wide}
+        onFocusCapture={focus.onFocusCapture}
+        onBlurCapture={focus.onBlurCapture}
+      >
         {ts && <BlockClock ts={ts} />}
         {children}
         {!empty && (
@@ -146,6 +154,7 @@ function MessageActions({
               data-pressable
               type="button"
               className="msg-action"
+              data-message-action="copy"
               onClick={copy}
               title="Copy message"
               aria-label={copied ? 'Message copied' : 'Copy message'}
@@ -157,6 +166,7 @@ function MessageActions({
                 data-pressable
                 type="button"
                 className="msg-action"
+                data-message-action="quote"
                 onClick={quote}
                 title="Add to chat"
                 aria-label="Add to chat"
@@ -168,29 +178,41 @@ function MessageActions({
         )}
       </div>
       {narrow && side === 'left' && !empty && (
-        <span className="msg-narrow-actions">
+        <span
+          className="msg-narrow-actions"
+          onFocusCapture={focus.onFocusCapture}
+          onBlurCapture={focus.onBlurCapture}
+        >
           <DropdownMenu>
             <DropdownMenuTrigger
               data-pressable
               className="msg-action"
               aria-label="Message actions"
               title="Message actions"
+              ref={focus.trigger}
             >
               <MoreHorizontal size={15} aria-hidden="true" />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" sideOffset={4}>
+            <DropdownMenuContent
+              align="end"
+              sideOffset={4}
+              ref={focus.popup}
+              finalFocus={focus.finalFocus}
+              onFocusCapture={focus.onFocusCapture}
+              onBlurCapture={focus.onBlurCapture}
+            >
               {(ts || children) && (
                 <div className="msg-menu-meta">
                   {ts && <BlockClock ts={ts} />}
                   {children}
                 </div>
               )}
-              <DropdownMenuItem onClick={copy}>
+              <DropdownMenuItem onClick={copy} data-message-action="copy">
                 <MetaGlyph name={copied ? 'check' : 'copy'} />
                 {copied ? 'Message copied' : 'Copy message'}
               </DropdownMenuItem>
               {onQuote && (
-                <DropdownMenuItem onClick={quote}>
+                <DropdownMenuItem onClick={quote} data-message-action="quote">
                   <MetaGlyph name="quote" />
                   Add to chat
                 </DropdownMenuItem>

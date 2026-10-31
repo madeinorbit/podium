@@ -1,4 +1,12 @@
-import { createContext, type RefObject, useLayoutEffect, useState } from 'react'
+import {
+  createContext,
+  type FocusEvent,
+  type RefObject,
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
 
 export const NarrowMessageActions = createContext(false)
 
@@ -16,4 +24,66 @@ export function useNarrowMessageActions(scroller: RefObject<HTMLDivElement | nul
     return () => observer.disconnect()
   }, [scroller])
   return narrow
+}
+
+/** Focus belongs to the message, including its portalled popup. CSS can hide
+ * the old control before the pane measurement commits the replacement. */
+export function useMessageActionFocus(narrow: boolean) {
+  const wide = useRef<HTMLDivElement>(null)
+  const trigger = useRef<HTMLButtonElement>(null)
+  const popup = useRef<HTMLDivElement>(null)
+  const focus = useRef({ owned: false, action: 'copy', narrow })
+  const contains = useCallback(
+    (target: EventTarget | null) =>
+      target instanceof Node &&
+      [wide.current, trigger.current, popup.current].some((node) => node?.contains(target)),
+    [],
+  )
+  const wideTarget = useCallback(
+    () =>
+      wide.current?.querySelector<HTMLButtonElement>(
+        `[data-message-action="${focus.current.action}"]`,
+      ) ?? wide.current?.querySelector<HTMLButtonElement>('[data-message-action="copy"]'),
+    [],
+  )
+  const onFocusCapture = useCallback((event: FocusEvent<HTMLElement>) => {
+    focus.current.owned = true
+    const action = event.target.getAttribute('data-message-action')
+    if (action === 'copy' || action === 'quote') focus.current.action = action
+  }, [])
+  const onBlurCapture = useCallback(
+    (event: FocusEvent<HTMLElement>) => {
+      if (contains(event.relatedTarget)) return
+      const doc = event.currentTarget.ownerDocument
+      const elsewhere = event.relatedTarget && event.relatedTarget !== doc.body
+      const switching = (wide.current?.getClientRects().length === 0) !== narrow
+      // A CSS-hidden control blurs to BODY before React can replace it. An
+      // open popup can still be visible while its trigger's layout changes.
+      if (!elsewhere && (switching || event.target.getClientRects().length === 0)) return
+      focus.current.owned = false
+    },
+    [contains, narrow],
+  )
+  const finalFocus = useCallback(() => {
+    const doc = wide.current?.ownerDocument
+    // Resolve after popup teardown, when the surviving control and any new
+    // composer focus are committed. Never restore onto the removed trigger.
+    queueMicrotask(() => {
+      const active = doc?.activeElement
+      if (active && active !== doc?.body && !contains(active)) return
+      const triggerNode = trigger.current
+      const target =
+        triggerNode?.isConnected && triggerNode.getClientRects().length ? triggerNode : wideTarget()
+      if (target?.isConnected && target !== active) target.focus({ preventScroll: true })
+    })
+    return false
+  }, [contains, wideTarget])
+  useLayoutEffect(() => {
+    if (focus.current.narrow === narrow) return
+    focus.current.narrow = narrow
+    if (!focus.current.owned) return
+    const target = narrow ? trigger.current : wideTarget()
+    target?.focus({ preventScroll: true })
+  }, [narrow, wideTarget])
+  return { wide, trigger, popup, onFocusCapture, onBlurCapture, finalFocus }
 }
