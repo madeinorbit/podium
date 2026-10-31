@@ -289,9 +289,9 @@ describe('IssuesRepository: the projections (executed, never named)', () => {
     const rows = await store.issues.worktreeOwnerCandidates(['/wt/b/src'])
 
     expect(rows).toEqual([
-      { id: 'iss_a1', repoPath: '/a', seq: 1, worktreePath: '/wt', archived: false },
-      { id: 'iss_b1', repoPath: '/b', seq: 1, worktreePath: '/wt/b', archived: true },
-      { id: 'iss_b2', repoPath: '/b', seq: 2, worktreePath: '/wt/b', archived: false },
+      { id: 'iss_a1', repoPath: '/a', seq: 1, worktreePath: '/wt', archived: false, machineId: null },
+      { id: 'iss_b1', repoPath: '/b', seq: 1, worktreePath: '/wt/b', archived: true, machineId: null },
+      { id: 'iss_b2', repoPath: '/b', seq: 2, worktreePath: '/wt/b', archived: false, machineId: null },
     ])
     await store.close()
   })
