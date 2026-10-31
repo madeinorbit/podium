@@ -27,6 +27,7 @@ interface Membership {
   category: string
   subject: string | undefined
   count: number
+  call: boolean
 }
 
 /** The run owns category/subject membership; collapsed readers demand a title. */
@@ -34,6 +35,7 @@ export class TranscriptActivityRun {
   private readonly categories = observable.map<string, Category>(undefined, { deep: false })
   private readonly categoryOrder = observable.array<string>([], { deep: false })
   private readonly entries = new Map<string, Membership>()
+  private readonly calls = observable.array<string>([], { deep: false })
   private readonly failed = new Set<string>()
   @observable private accessor failedCount = 0
   private readonly durations = new Map<string, number>()
@@ -55,6 +57,24 @@ export class TranscriptActivityRun {
   }
   @lazy get failures(): number {
     return this.failedCount
+  }
+  @lazy get toolCount(): number {
+    return this.calls.length
+  }
+  @lazy get firstTool(): ChatBlock | undefined {
+    const id = this.calls[0]
+    return id === undefined ? undefined : this.readBlock(id)
+  }
+  @lazy get lastTool(): ChatBlock | undefined {
+    const id = this.calls.at(-1)
+    return id === undefined ? undefined : this.readBlock(id)
+  }
+  @lazy get leadingNotes(): number {
+    const id = this.calls[0]
+    return id === undefined ? this.count : this.insertion(this.ids, id)
+  }
+  @lazy({ equals: compareShallow }) get summaryClauses(): readonly ToolTitleClause[] {
+    return [...this.clauses(false)]
   }
   @lazy get firstBlock(): ChatBlock | undefined {
     const id = this.ids[0]
@@ -78,7 +98,7 @@ export class TranscriptActivityRun {
   }
   /** Count-only face for the folded row; see `toolBatchTitles`. */
   @lazy get summary(): string {
-    return toolBatchTitleFromClauses(this.clauses(false))
+    return toolBatchTitleFromClauses(this.summaryClauses)
   }
   elapsed(now?: number): number | undefined {
     const first = this.firstBlock,
@@ -103,7 +123,18 @@ export class TranscriptActivityRun {
     const subject = toolSubject(block.item)
     const count = toolActivityCount(block.item)
     const previous = this.entries.get(id)
-    if (previous?.category === key && previous.subject === subject && previous.count === count)
+    const call = block.item.role === 'tool'
+    if (call !== (previous?.call ?? false)) {
+      const at = this.insertion(this.calls, id)
+      if (call) this.calls.splice(at, 0, id)
+      else if (this.calls[at] === id) this.calls.splice(at, 1)
+    }
+    if (
+      previous?.category === key &&
+      previous.subject === subject &&
+      previous.count === count &&
+      previous.call === call
+    )
       return
     if (previous) this.removeMembership(id, previous)
     let category = this.categories.get(key)
@@ -124,7 +155,7 @@ export class TranscriptActivityRun {
           members.splice(this.insertion(members, id), 0, id)
         })
     })
-    this.entries.set(id, { category: key, subject, count })
+    this.entries.set(id, { category: key, subject, count, call })
   }
 
   @action remove(id: string): void {
@@ -132,6 +163,10 @@ export class TranscriptActivityRun {
     this.durations.delete(id)
     const previous = this.entries.get(id)
     if (previous) this.removeMembership(id, previous)
+    if (previous?.call) {
+      const at = this.insertion(this.calls, id)
+      if (this.calls[at] === id) this.calls.splice(at, 1)
+    }
     this.entries.delete(id)
     if (this.failed.delete(id)) this.failedCount--
   }

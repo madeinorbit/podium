@@ -5,8 +5,9 @@ import type { ActivityDisclosureProps } from '../values/activity-display'
 export function useActivityDisclosure({
   forceOpen = false,
   onOpenChange,
+  initialOpen = false,
 }: ActivityDisclosureProps = {}) {
-  const [userOpen, setUserOpen] = useState(false)
+  const [userOpen, setUserOpen] = useState(initialOpen)
   const setOpen = useCallback(
     (open: boolean) => {
       setUserOpen(open)

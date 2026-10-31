@@ -4838,6 +4838,236 @@ button.pane-branch:hover {
 .work-line-list .work-line {
   margin: 0;
 }
+
+/* POD-2304: a turn starts closed, so nothing ever folds away under the reader. */
+.turn-line-row > .transcript-body {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+/* Ask rows keep their place outside the line even when hidden member shells
+   sit between the two owners in the window. */
+.turn-line-row[data-has-ask] {
+  padding-bottom: 0;
+}
+.turn-line-row[data-has-ask] > .transcript-body > .work-line {
+  margin-bottom: 0;
+}
+.turn-external-ask > .transcript-row {
+  padding-top: 0;
+}
+.turn-external-ask .quiet-ask {
+  margin-top: 2px;
+}
+.turn-line[data-state="live"] > .work-line-row {
+  color: var(--quiet-ink-hover);
+}
+.tl-mark {
+  display: grid;
+  flex: none;
+  width: 15px;
+  height: 15px;
+  color: var(--quiet-mark);
+}
+.tl-mark > span {
+  grid-area: 1 / 1;
+  display: grid;
+  place-items: center;
+  transition: opacity 200ms;
+}
+.tl-spin {
+  color: var(--live);
+  opacity: 0;
+}
+.turn-line[data-state="live"] .tl-spin {
+  opacity: 1;
+}
+.turn-line[data-state="live"] .tl-stack {
+  opacity: 0;
+}
+.turn-line[data-state="failed"] .tl-stack {
+  color: var(--destructive);
+}
+.tl-phrase {
+  position: relative;
+  height: 30px;
+}
+.tl-current {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tl-phrase > .leaving {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  animation: tl-leave 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.tl-meta {
+  display: flex;
+  flex: none;
+  gap: 10px;
+  align-items: center;
+  margin-left: auto;
+  font: 11.5px / 30px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--quiet-mark);
+  opacity: 0;
+  transition: opacity 160ms;
+}
+.turn-line:is([data-state="live"], [data-state="paused"], [data-open="true"])
+  > .work-line-row
+  .tl-meta,
+.turn-line > .work-line-row:is(:hover, :focus-visible) .tl-meta,
+.tl-meta:has(.tl-hits) {
+  opacity: 1;
+}
+.tl-now {
+  max-width: 22ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--quiet-ink);
+}
+.tl-now:empty {
+  display: none;
+}
+.tl-counts {
+  color: var(--quiet-mark-hover);
+}
+.tl-phrase-hit {
+  color: var(--foreground);
+  background: var(--hit);
+  border-radius: 2px;
+}
+.tl-bad {
+  color: color-mix(in oklab, var(--destructive) 85%, var(--quiet-ink));
+}
+.tl-hits {
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: var(--hit);
+  font-size: 11px;
+  line-height: 18px;
+}
+.turn-entry {
+  position: relative;
+  min-width: 0;
+}
+.tl-say {
+  padding: 4px 0 5px;
+  font-size: 13.5px;
+  line-height: 21px;
+  color: var(--muted-foreground);
+}
+.tl-say .chat-md {
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+}
+.tl-say .chat-md > :first-child {
+  margin-top: 0;
+}
+.tl-say .chat-md > :last-child {
+  margin-bottom: 0;
+}
+.tl-say .quiet-time {
+  top: -1px;
+  line-height: 30px;
+}
+.turn-entry.is-new {
+  animation: tl-in 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.turn-entry-context .transcript-row {
+  display: block;
+  padding: 0;
+}
+.turn-entry-context .transcript-rail {
+  display: none;
+}
+.turn-entry-context .transcript-body {
+  padding: 0;
+}
+.turn-single-detail > .turn-entry > .work-line > .work-line-row,
+.turn-single-detail .quiet-time {
+  display: none;
+}
+.turn-single-detail {
+  margin-left: 0;
+  padding-left: 0;
+  border-left: 0;
+}
+.tl-answer {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 280ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.tl-answer > div {
+  min-height: 0;
+  overflow: hidden;
+}
+.tl-answer.is-new .chat-md {
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity 220ms 60ms,
+    transform 220ms 60ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@starting-style {
+  .tl-answer.is-new {
+    grid-template-rows: 0fr;
+  }
+  .tl-answer.is-new .chat-md {
+    opacity: 0;
+    transform: translateY(-14px);
+  }
+}
+.feed-tail-slot--inline {
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+}
+@keyframes tl-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes tl-leave {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-7px);
+  }
+}
+@container feed (max-width: 519px) {
+  .tl-counts,
+  .tl-now {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tl-mark > span,
+  .tl-meta,
+  .tl-answer,
+  .tl-answer.is-new .chat-md,
+  .turn-entry.is-new,
+  .tl-phrase > .leaving,
+  .turn-line .work-line-chev,
+  .turn-line .work-line-list {
+    transition: none;
+    animation: none;
+    transform: none;
+  }
+}
 .work-line-members .work-line {
   margin: 0;
 }

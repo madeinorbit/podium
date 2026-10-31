@@ -18,11 +18,14 @@ import { isAgentComputing, isMachineOfflineForLiveTerminal } from '@podium/model
 import { actionBound, compareShallow, compareStructural, observable, observableRef } from 'mobx'
 import type { PendingItem } from './chat'
 import { ConversationPresentation } from './conversation-presentation'
+import { buildTurnPreviewMembers } from './turn-line-model'
 import type { WebConversation } from './use-conversation'
 
 /** One mounted reader. Shared transcript and send facts stay on Conversation. */
 export class ChatViewModel {
-  readonly presentation = new ConversationPresentation()
+  readonly presentation = new ConversationPresentation(undefined, (row) =>
+    this.isOperatorPromptRow(row),
+  )
   @observable accessor active = true
   @observable accessor stickyPrompts = false
   @observable accessor ctxSeq: number | null = null
@@ -62,6 +65,23 @@ export class ChatViewModel {
   }
   @lazy get preview() {
     return this.conversation.preview
+  }
+  /** Only preview identity affects row structure. Streaming characters are
+   * read by the line and entry leaves, never by the feed's row layout. */
+  @lazy({ equals: compareStructural }) get previewSeed() {
+    const first = this.previewMembers[0]
+    return first
+      ? { id: first.key, role: first.block.item.role, toolName: first.block.item.toolName }
+      : null
+  }
+  @lazy({ equals: compareShallow }) get previewMembers() {
+    return buildTurnPreviewMembers(this.conversation.sessionId, this.preview, this.overlay)
+  }
+  @lazy private get previewByKey() {
+    return new Map(this.previewMembers.map((member) => [member.key, member]))
+  }
+  previewMember(key: string) {
+    return this.previewByKey.get(key)
   }
   @lazy get overlay() {
     return this.headless ? this.conversation.headless : null

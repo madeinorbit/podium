@@ -78,6 +78,9 @@ export function activityRowSingletonDisplay(
  * emits a callback. Explicit toggles and opens report user intent, even while
  * forceOpen pins the member open. Closing a member need not close its stretch. */
 export interface ActivityDisclosureProps {
+  /** A deliberate owner gesture may open a singleton's well on first mount.
+   * Later prop changes never overwrite that member's own intent. */
+  readonly initialOpen?: boolean | undefined
   readonly forceOpen?: boolean | undefined
   readonly onOpenChange?: ((open: boolean) => void) | undefined
 }

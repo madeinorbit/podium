@@ -29,6 +29,8 @@ export interface UseDomTranscriptScrollResult {
   scrollToBlock: (index: number, opts?: { instant?: boolean }) => void
   scrollToOffset: (offset: number) => void
   scrollBy: (delta: number) => void
+  /** Hold the reading window before a folded target grows into view. */
+  releaseFollow: () => void
 }
 
 interface ReadingAnchor {
@@ -621,5 +623,6 @@ export function useDomTranscriptScroll(
     scrollToBlock,
     scrollToOffset,
     scrollBy,
+    releaseFollow,
   }
 }

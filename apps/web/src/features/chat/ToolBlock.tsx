@@ -9,6 +9,8 @@ import {
 import type { SessionId, TranscriptItem } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { useMemo } from 'react'
+import { useAgeNow } from '@/lib/clock-hooks'
+import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { cn } from '@/lib/utils'
 import { type ChatBlock, failLine, mcpLabel, toolSubject, toolVerdict } from './chat'
 import { ToolEditDiff } from './ToolEditDiff'
@@ -92,8 +94,11 @@ export function ToolBlock({
   timed = false,
   forceOpen = false,
   onOpenChange,
+  live = false,
+  initialOpen,
 }: {
   block: ChatBlock
+  live?: boolean
   sessionId: SessionId
   cwd: string
   openFile: (sessionId: SessionId, path: string) => void
@@ -109,7 +114,7 @@ export function ToolBlock({
   /** The call's clock time goes in the opened run's gutter (POD-2286). */
   timed?: boolean
 } & ActivityDisclosureProps): JSX.Element {
-  const { userOpen, open, toggle } = useActivityDisclosure({ forceOpen, onOpenChange })
+  const { userOpen, open, toggle } = useActivityDisclosure({ forceOpen, onOpenChange, initialOpen })
   const { item } = block
   const stamp = timed ? parseTs(item.ts) : undefined
   const result = block.result ?? item.toolResult
@@ -165,6 +170,7 @@ export function ToolBlock({
     <div
       className="work-line tool-block min-w-0"
       data-verdict={verdict}
+      data-state={live ? 'live' : undefined}
       data-open={open ? 'true' : 'false'}
       data-transcript-retain={userOpen ? '' : undefined}
       data-transcript-run-view={forceOpen && !userOpen ? '' : undefined}
@@ -186,13 +192,17 @@ export function ToolBlock({
           className={cn('work-line-glyph', verdict === 'err' && 'work-line-glyph--err')}
           aria-hidden="true"
         >
-          <WorkGlyph item={item} />
+          {live ? <WorkingMark size={15} /> : <WorkGlyph item={item} />}
         </span>
         <span className={cn('work-line-phrase', isCommand && 'work-line-code')}>
           {subject ? (isCommand ? subject : `${toolCategory(item).verb} ${subject}`) : label}
         </span>
-        {item.durationMs !== undefined && (
-          <span className="work-line-time">{formatClock(item.durationMs)}</span>
+        {live ? (
+          <ToolLiveTimer since={item.ts} />
+        ) : (
+          item.durationMs !== undefined && (
+            <span className="work-line-time">{formatClock(item.durationMs)}</span>
+          )
         )}
       </button>
       {/* NOTHING ON THE FIRST LAYER (POD-993 round 3). An unfolded run used to
@@ -282,4 +292,13 @@ export function ToolBlock({
       )}
     </div>
   )
+}
+
+function ToolLiveTimer({ since }: { since: string | undefined }) {
+  const started = since ? Date.parse(since) : Number.NaN
+  const known = Number.isFinite(started)
+  const now = useAgeNow(started, 0, known)
+  return known ? (
+    <span className="work-line-time">{formatClock(Math.max(0, now - started))}</span>
+  ) : null
 }

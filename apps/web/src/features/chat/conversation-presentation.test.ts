@@ -1,11 +1,20 @@
-import { TranscriptLog, type TranscriptGraphChange } from '@podium/client-core/conversation'
+import { type TranscriptGraphChange, TranscriptLog } from '@podium/client-core/conversation'
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import { autorun } from 'mobx'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { ConversationPresentation } from './conversation-presentation'
-import type { TranscriptComputeOptions, TranscriptGraphSource, WebTranscriptGraphResult } from './transcript-compute-client'
+import type {
+  TranscriptComputeOptions,
+  TranscriptGraphSource,
+  WebTranscriptGraphResult,
+} from './transcript-compute-client'
 
-const worker = vi.hoisted(() => ({ usesWorker: true, computeGraph: vi.fn(), computeGraphOnMain: vi.fn(), forgetGraph: vi.fn() }))
+const worker = vi.hoisted(() => ({
+  usesWorker: true,
+  computeGraph: vi.fn(),
+  computeGraphOnMain: vi.fn(),
+  forgetGraph: vi.fn(),
+}))
 vi.mock('./transcript-compute-client', () => ({ transcriptComputeClient: () => worker }))
 const requests: {
   source: TranscriptGraphSource
@@ -18,8 +27,14 @@ const requests: {
   reject(error: Error): void
 }[] = []
 const stops: (() => void)[] = []
-const main = (source: TranscriptGraphSource, query: string, cursor: number): WebTranscriptGraphResult =>
-  ({ search: source.graph.search(query, cursor), markdownHtml: new Map() })
+const main = (
+  source: TranscriptGraphSource,
+  query: string,
+  cursor: number,
+): WebTranscriptGraphResult => ({
+  search: source.graph.search(query, cursor),
+  markdownHtml: new Map(),
+})
 beforeEach(() => {
   requests.length = 0
   worker.usesWorker = true
@@ -27,15 +42,25 @@ beforeEach(() => {
     const cold = source.needsReset
     const delta = source.pending()
     source.sent()
-    return new Promise((resolve, reject) => requests.push({ source, query, cursor, cold, delta, options, resolve, reject }))
+    return new Promise((resolve, reject) =>
+      requests.push({ source, query, cursor, cold, delta, options, resolve, reject }),
+    )
   })
   worker.computeGraphOnMain.mockImplementation((source, query, cursor) => {
     source.sent()
     return main(source, query, cursor)
   })
 })
-afterEach(() => { for (const stop of stops.splice(0)) stop(); vi.clearAllMocks() })
-const item = (id: string, text = id): TranscriptItem => ({ id, role: 'assistant', answer: true, text })
+afterEach(() => {
+  for (const stop of stops.splice(0)) stop()
+  vi.clearAllMocks()
+})
+const item = (id: string, text = id): TranscriptItem => ({
+  id,
+  role: 'assistant',
+  answer: true,
+  text,
+})
 function fixture(items: TranscriptItem[] = [item('a')]) {
   const presentation = new ConversationPresentation()
   const log: TranscriptLog = new TranscriptLog({
@@ -43,10 +68,13 @@ function fixture(items: TranscriptItem[] = [item('a')]) {
     source: { read: async () => ({ items: log.items, hasMore: false }), subscribe: () => () => {} },
     cache: { read: () => ({ items, savedAt: 1 }), write: () => {} },
     retainHistory: () => presentation.retainHistory,
-    onChange: change => presentation.changed(change),
+    onChange: (change) => presentation.changed(change),
   })
   presentation.bind(log)
-  stops.push(() => { presentation.dispose(); log.dispose() })
+  stops.push(() => {
+    presentation.dispose()
+    log.dispose()
+  })
   return { presentation, log }
 }
 function resolve(at = requests.length - 1) {
@@ -54,10 +82,58 @@ function resolve(at = requests.length - 1) {
   request.resolve(main(request.source, request.query, request.cursor))
 }
 
+it('reads streaming narration and update presence from live blocks without rebuilding nonempty turn structure', () => {
+  worker.usesWorker = false
+  const intro: TranscriptItem = { id: 'intro', role: 'assistant', text: '' }
+  const { presentation, log } = fixture([{ id: 'prompt', role: 'user', text: 'Check' }, intro])
+  const row = presentation.rows[1]!
+  const model = presentation.turn(row)
+  const values: string[] = []
+  stops.push(autorun(() => values.push(`${model.narration}:${model.fold?.updates}`)))
+  expect(values.at(-1)).toBe(':0')
+  log.merge([{ ...intro, text: 'Checking now.' }])
+  expect(presentation.rows[1]).toBe(row)
+  expect(values.at(-1)).toBe('Checking now.:1')
+  const structure = presentation.turnFolds
+  log.merge([{ ...intro, text: 'Checking the next file.' }])
+  expect(presentation.turnFolds).toBe(structure)
+  expect(values.at(-1)).toBe('Checking the next file.:1')
+})
+
+it('uses retained category facts and boundary calls without materializing a collapsed turn run', () => {
+  worker.usesWorker = false
+  const calls: TranscriptItem[] = Array.from({ length: 512 }, (_, n) => ({
+    id: `call-${n}`,
+    role: 'tool',
+    text: '',
+    toolName: 'Read',
+    toolInput: `/file-${n}.ts`,
+  }))
+  const { presentation } = fixture(calls)
+  const row = presentation.rows[0]!
+  const run = presentation.run('call-0')!
+  Object.defineProperty(run, 'blocks', {
+    get() {
+      throw new Error('collapsed turn materialized members')
+    },
+  })
+  const model = presentation.turn(row)
+  expect(model.eventCount).toBe(512)
+  expect(model.summary).toBe('read 512 files')
+  expect(model.currentTool?.item.id).toBe('call-511')
+  expect(model.firstEvent?.item.id).toBe('call-0')
+})
+
 it('keeps empty structural fallbacks stable while the first result is pending', () => {
   const { presentation } = fixture()
-  const blocks = presentation.blocks, rows = presentation.rows
-  stops.push(autorun(() => { expect(presentation.blocks).toBe(blocks); expect(presentation.rows).toBe(rows) }))
+  const blocks = presentation.blocks,
+    rows = presentation.rows
+  stops.push(
+    autorun(() => {
+      expect(presentation.blocks).toBe(blocks)
+      expect(presentation.rows).toBe(rows)
+    }),
+  )
   expect(presentation.computeReady).toBe(false)
   expect(requests).toHaveLength(1)
 })
@@ -81,10 +157,27 @@ it('a streamed item changes its observed block without changing the list or anot
   const { presentation, log } = fixture([item('a'), item('b')])
   resolve(0)
   await Promise.resolve()
-  let frames = 0, rowA = 0, rowB = 0
-  stops.push(autorun(() => { presentation.rows; frames++ }))
-  stops.push(autorun(() => { presentation.block('a'); rowA++ }))
-  stops.push(autorun(() => { presentation.block('b'); rowB++ }))
+  let frames = 0,
+    rowA = 0,
+    rowB = 0
+  stops.push(
+    autorun(() => {
+      presentation.rows
+      frames++
+    }),
+  )
+  stops.push(
+    autorun(() => {
+      presentation.block('a')
+      rowA++
+    }),
+  )
+  stops.push(
+    autorun(() => {
+      presentation.block('b')
+      rowB++
+    }),
+  )
   frames = rowA = rowB = 0
   log.merge([item('b', 'streamed')])
   expect({ frames, rowA, rowB }).toEqual({ frames: 0, rowA: 0, rowB: 1 })
@@ -131,7 +224,10 @@ it('query and cursor requests carry no history and use maintained block-to-row m
 
 it('keeps the held window and preceding operator prompt addressed across an older page', async () => {
   worker.usesWorker = false
-  const history = [ { ...item('prompt'), role: 'user' as const }, ...Array.from({ length: 330 }, (_, at) => item('row-' + at)) ]
+  const history = [
+    { ...item('prompt'), role: 'user' as const },
+    ...Array.from({ length: 330 }, (_, at) => item('row-' + at)),
+  ]
   const { presentation } = fixture(history)
   expect(presentation.visibleRows).toHaveLength(300)
   const rendered = presentation.renderRows(true, false)

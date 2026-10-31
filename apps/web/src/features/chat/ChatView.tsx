@@ -645,6 +645,8 @@ const ReadingRail = observer(function ReadingRail({
       scrollToOffset={chat.scroll.scrollToOffset}
       matches={chat.view.presentation.search.matches}
       activeMatch={chat.view.presentation.search.activeMatch}
+      closedFolds={chat.view.presentation.closedFolds}
+      revealRow={chat.revealFoldedRow}
       findOpen={findOpen}
       onFind={onFind}
     />

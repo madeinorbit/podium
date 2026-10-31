@@ -2,12 +2,14 @@ import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 import {
+  type BlockOffset,
   type ChatRow,
   type MinimapTick,
   measureBlockOffsets,
   rowTickMeta,
   ticksFromOffsets,
 } from './chat'
+import { FOLD_GEOMETRY_EVENT } from './turn-fold'
 
 /**
  * THE TRANSCRIPT MAP (POD-413) — a barcode that now says what its bars are.
@@ -85,6 +87,36 @@ function snippet(text: string, max = 68): string {
   return `${(space > max * 0.6 ? cut.slice(0, space) : cut).trimEnd()}…`
 }
 
+export interface ClosedFold {
+  first: number
+  anchor: number
+}
+const NO_CLOSED_FOLDS: readonly ClosedFold[] = []
+/** A closed fold's line, about this tall, sits at the top of its anchor row. */
+const FOLD_LINE_PX = 32
+
+/**
+ * One band per closed fold. A mounted line measures itself (it carries the
+ * first hidden row's `data-block`); a virtualized one does not exist, so its
+ * band is cut from the top of its anchor row's shell, which holds the line.
+ */
+export function withFoldBands(
+  offsets: BlockOffset[],
+  folds: readonly ClosedFold[],
+  total: number,
+): BlockOffset[] {
+  if (folds.length === 0) return offsets
+  const byIndex = new Map(offsets.map((o) => [o.index, o]))
+  for (const { first, anchor } of folds) {
+    const shell = byIndex.get(anchor)
+    if (byIndex.has(first) || !shell) continue
+    const height = Math.min(shell.height / 2, FOLD_LINE_PX / total)
+    byIndex.set(first, { index: first, top: shell.top, height })
+    byIndex.set(anchor, { index: anchor, top: shell.top + height, height: shell.height - height })
+  }
+  return [...byIndex.values()]
+}
+
 export function Minimap({
   rows,
   baseIndex,
@@ -93,6 +125,8 @@ export function Minimap({
   scrollToOffset,
   matches = [],
   activeMatch,
+  closedFolds = NO_CLOSED_FOLDS,
+  revealRow,
 }: {
   rows: ChatRow[]
   /** The ABSOLUTE row index of `rows[0]` — the feed's `renderStart`. Needed to
@@ -108,6 +142,12 @@ export function Minimap({
   matches?: readonly number[]
   /** The block index under the match cursor, marked more strongly. */
   activeMatch?: number | undefined
+  /** Closed folds (POD-2285), by ABSOLUTE first hidden row and the row their
+   *  line sits above. Each gets one band, whether or not its line is mounted. */
+  closedFolds?: readonly ClosedFold[]
+  /** Land on an ABSOLUTE row the map cannot simply scroll to — one inside a
+   *  closed fold. Returns whether it took the jump. */
+  revealRow?: (index: number) => boolean
 }): JSX.Element | null {
   const [ticks, setTicks] = useState<MinimapTick[]>([])
   const [viewport, setViewport] = useState({ top: 0, height: 1 })
@@ -146,7 +186,8 @@ export function Minimap({
       // Blocks below the base are dropped rather than rebased: the continuation is
       // a REPEAT of a row the map already covers further down, and giving it a band
       // would draw the same prompt twice.
-      const offsets = measureBlockOffsets(el)
+      const measured = measureBlockOffsets(el)
+      const offsets = withFoldBands(measured, closedFolds, total)
         .filter((o) => o.index >= baseIndex)
         .map((o) => ({ ...o, index: o.index - baseIndex }))
       setTicks(ticksFromOffsets(rows.map(rowTickMeta), offsets))
@@ -161,12 +202,17 @@ export function Minimap({
     el.addEventListener('scroll', schedMeasure, { passive: true })
     const ro = new ResizeObserver(schedMeasure)
     ro.observe(el)
+    // The content column too: a fold opening or closing (POD-2285) moves every
+    // band below it without changing the scrollport or the row list.
+    if (el.firstElementChild) ro.observe(el.firstElementChild)
+    el.addEventListener(FOLD_GEOMETRY_EVENT, schedMeasure)
     return () => {
       if (rafId !== undefined) cancelAnimationFrame(rafId)
       el.removeEventListener('scroll', schedMeasure)
+      el.removeEventListener(FOLD_GEOMETRY_EVENT, schedMeasure)
       ro.disconnect()
     }
-  }, [scrollerRef, rows, baseIndex])
+  }, [scrollerRef, rows, baseIndex, closedFolds])
 
   // Ticks are STATE measured from the DOM a frame behind the rows they describe,
   // so a commit that SHORTENS `rows` renders the new list against the old, longer
@@ -208,6 +254,17 @@ export function Minimap({
     }
     const hit = liveTicks.find((t) => f >= t.top && f <= t.top + t.height) ?? found
     setHover(hit ? { row: hit.index, at: f } : null)
+  }
+
+  // A closed fold's work is one band (POD-2285). Releasing the pointer on it —
+  // after a click or at the end of a drag — hands the row to `revealRow`, which
+  // opens the fold and lands on its work. On release rather than on every band
+  // a drag crosses, so a scrub does not open each fold it passes over.
+  const revealAt = (clientY: number) => {
+    const f = ratioAt(clientY)
+    const tick = f === null ? undefined : liveTicks.find((t) => f >= t.top && f <= t.top + t.height)
+    if (tick && closedFolds.some((fold) => fold.first === baseIndex + tick.index))
+      revealRow?.(baseIndex + tick.index)
   }
 
   if (rows.length < 2) return null
@@ -270,7 +327,8 @@ export function Minimap({
           bandAt(e.clientY)
         }}
         onPointerLeave={() => setHover(null)}
-        onPointerUp={() => {
+        onPointerUp={(e) => {
+          if (dragging.current) revealAt(e.clientY)
           dragging.current = false
         }}
         onPointerCancel={() => {

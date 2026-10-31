@@ -23,7 +23,7 @@ let host: HTMLDivElement
 let root: Root
 
 const say = (id: string, text: string): TranscriptItem =>
-  ({ id, role: 'assistant', text }) as TranscriptItem
+  ({ id, role: 'assistant', text, answer: true }) as TranscriptItem
 
 function rowsFor(items: TranscriptItem[]): RenderableRow[] {
   return buildChatRows(pairToolResults(items)).map((row, index) => ({
@@ -166,7 +166,8 @@ describe('TranscriptFeed — the streaming caret', () => {
 
   it('marks in-progress text so it can carry a caret', () => {
     render([say('a', 'one')], { text: 'half a thou' })
-    expect(streaming()?.className).toContain('chat-md--streaming')
+    act(() => host.querySelector<HTMLButtonElement>('[data-testid="turn-line"] > button')!.click())
+    expect(streaming()?.querySelector('.chat-md')?.className).toContain('chat-md--streaming')
   })
 
   it('leaves settled transcript text unmarked — only the overlay is in progress', () => {
@@ -329,9 +330,11 @@ it.each([
   body,
 }) => {
   render([item])
+  const turn = host.querySelector<HTMLButtonElement>('[data-testid="turn-line"] > button')
+  if (turn) act(() => turn.click())
   const original = host.querySelector(`[data-row-key="${item.id}"]`)
   const toggle = host.querySelector<HTMLButtonElement>(button)!
-  act(() => toggle.click())
+  if (!host.querySelector(body)) act(() => toggle.click())
   const content = host.querySelector<HTMLElement>(body)!
   expect(content.textContent).toContain('I am reading this body.')
   const text = document.createTreeWalker(content, NodeFilter.SHOW_TEXT).nextNode()!
@@ -347,7 +350,7 @@ it.each([
     expect(document.getSelection()!.toString()).toBe(selected)
     expect(host.querySelector(button)).toBe(toggle)
     expect(host.querySelector('[data-transcript-run-toggle]')?.getAttribute('aria-expanded')).toBe(
-      'true',
+      item.role === 'user' ? 'false' : 'true',
     )
     render([item])
     expect(host.querySelector(body)).toBe(content)

@@ -106,6 +106,8 @@ function EnvelopeItem({
   markdownHtml,
   onReply,
   onOpenChange,
+  ordinary,
+  initialOpen,
 }: {
   envelope: ParsedEnvelope
   forceOpen: boolean
@@ -114,17 +116,18 @@ function EnvelopeItem({
   timed: boolean
   markdownHtml?: ReadonlyMap<string, string> | undefined
   onReply?: ((envelope: ParsedEnvelope) => void) | undefined
+  ordinary?: boolean
 } & ActivityDisclosureProps): JSX.Element {
   const {
     userOpen: opened,
     open: full,
     setOpen,
     toggle,
-  } = useActivityDisclosure({ forceOpen, onOpenChange })
+  } = useActivityDisclosure({ forceOpen, onOpenChange, initialOpen })
   // The opened line keeps its byline; the full markdown below owns all of the
   // message, including the first paragraph used as the folded preview.
   const subject = useMemo(() => noteSubject(envelope.body), [envelope.body])
-  const ask = isOperatorQuestion(envelope)
+  const ask = !ordinary && isOperatorQuestion(envelope)
   const who = principalShortName(direction === 'from' ? envelope.from : envelope.to)
   const stamp = timed ? parseTs(ts) : undefined
   const byline = direction === 'from' ? who : `To ${who}`
@@ -252,6 +255,8 @@ export function MessageEnvelopeGroup({
   bare = false,
   onReply,
   onOpenChange,
+  ordinary = false,
+  initialOpen,
 }: {
   envelopes: readonly ParsedEnvelope[]
   className?: string
@@ -263,11 +268,12 @@ export function MessageEnvelopeGroup({
   forceOpen?: boolean
   direction?: 'from' | 'to'
   bare?: boolean
+  ordinary?: boolean
   onReply?: ((envelope: ParsedEnvelope) => void) | undefined
 } & ActivityDisclosureProps): JSX.Element {
-  const { userOpen, open, toggle } = useActivityDisclosure({ forceOpen, onOpenChange })
-  const notes = envelopes.filter((e) => !isOperatorQuestion(e))
-  const questions = envelopes.filter(isOperatorQuestion)
+  const { userOpen, open, toggle } = useActivityDisclosure({ forceOpen, onOpenChange, initialOpen })
+  const notes = ordinary ? envelopes : envelopes.filter((e) => !isOperatorQuestion(e))
+  const questions = ordinary ? [] : envelopes.filter(isOperatorQuestion)
   const item = (envelope: ParsedEnvelope, i: number, timed: boolean): ReactNode => (
     <EnvelopeItem
       key={envelope.id}
@@ -279,6 +285,8 @@ export function MessageEnvelopeGroup({
       markdownHtml={markdownHtml}
       onReply={onReply}
       onOpenChange={onOpenChange}
+      ordinary={ordinary}
+      initialOpen={initialOpen}
     />
   )
   const content = (

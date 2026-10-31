@@ -26,6 +26,7 @@ export function SentNoteRow({
   forceOpen,
   bare = false,
   onOpenChange,
+  initialOpen,
 }: {
   note: Extract<ToolMail, { op: 'note' }>
   /** Keys the item while the send is still running and has no id. */
@@ -64,6 +65,7 @@ export function SentNoteRow({
       direction="to"
       bare={bare}
       onOpenChange={onOpenChange}
+      initialOpen={initialOpen}
     />
   )
 }
@@ -78,6 +80,7 @@ export function InboxReadRow({
   bare = false,
   forceOpen = false,
   onOpenChange,
+  initialOpen,
 }: {
   /** How many notes the read listed, when its output said. */
   notes: number | undefined
@@ -88,7 +91,7 @@ export function InboxReadRow({
   ts: string | undefined
   bare?: boolean
 } & ActivityDisclosureProps): JSX.Element {
-  const { userOpen, open, toggle } = useActivityDisclosure({ forceOpen, onOpenChange })
+  const { userOpen, open, toggle } = useActivityDisclosure({ forceOpen, onOpenChange, initialOpen })
   const label =
     notes === undefined ? 'Read notes' : `Read ${notes === 1 ? '1 note' : `${notes} notes`}`
   const stamp = bare ? parseTs(ts) : undefined

@@ -83,6 +83,18 @@ afterEach(() => {
   host.remove()
 })
 
+it.each(
+  members,
+)('%s preserves an owner-opened singleton well as ordinary member intent', (_name, member) => {
+  act(() => root.render(member({ initialOpen: true })))
+  const body = host.querySelector('.mail-item-body, .tool-result-full')
+  expect(body).not.toBeNull()
+  act(() => root.render(member({ initialOpen: false })))
+  expect(host.querySelector('.mail-item-body, .tool-result-full')).toBe(body)
+  act(() => host.querySelector<HTMLButtonElement>('button')!.click())
+  expect(host.querySelector<HTMLElement>('[data-open]')?.dataset.open).toBe('false')
+})
+
 it.each(members)('%s shares temporary force-open and retained user disclosure', (_name, member) => {
   const changes: boolean[] = []
   const render = (forceOpen: boolean) =>

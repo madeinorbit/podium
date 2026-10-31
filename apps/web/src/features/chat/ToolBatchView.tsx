@@ -488,15 +488,18 @@ const ToolElapsed = observer(function ToolElapsed({
   return figure ? <span className="work-line-time">{figure}</span> : null
 })
 
-function StretchMember({
+export function StretchMember({
   block,
   onBodyClick,
   forceOpen,
+  ordinary = false,
+  initialOpen,
   onOpenChange,
   ...toolProps
 }: Parameters<typeof ToolBlock>[0] & {
   onBodyClick: (e: ReactMouseEvent) => void
   forceOpen: boolean
+  ordinary?: boolean
 }) {
   const display = activitySingletonDisplay(block)
   if (display.kind === 'received-notes')
@@ -508,6 +511,8 @@ function StretchMember({
         onBodyClick={onBodyClick}
         forceOpen={forceOpen}
         onOpenChange={onOpenChange}
+        ordinary={ordinary}
+        initialOpen={initialOpen}
       />
     )
   if (display.kind === 'sent-note')
@@ -516,6 +521,7 @@ function StretchMember({
         bare
         note={display.mail}
         fallbackId={block.item.id}
+        initialOpen={initialOpen}
         ts={block.item.ts}
         onBodyClick={onBodyClick}
         forceOpen={forceOpen}
@@ -529,12 +535,19 @@ function StretchMember({
         notes={display.mail.notes}
         result={block.result ?? block.item.toolResult}
         rowKey={block.item.id}
+        initialOpen={initialOpen}
         ts={block.item.ts}
         forceOpen={forceOpen}
         onOpenChange={onOpenChange}
       />
     )
   return (
-    <ToolBlock block={block} forceOpen={forceOpen} onOpenChange={onOpenChange} {...toolProps} />
+    <ToolBlock
+      block={block}
+      forceOpen={forceOpen}
+      onOpenChange={onOpenChange}
+      initialOpen={initialOpen}
+      {...toolProps}
+    />
   )
 }
