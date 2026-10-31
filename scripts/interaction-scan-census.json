@@ -446,14 +446,14 @@
       "file": "apps/mobile/src/components/SessionConversation.tsx",
       "holder": "SessionConversation/model/useConversation:callback/sends/messageRecords/ingest/callback",
       "rule": "helper-consumer",
-      "tokens": "04548263be4e0b6f21d32790fe3109f5f2275ad5fdc736e1e8968c046e91bc23",
+      "tokens": "ab6891182f7e4db36eab2156ba049f14cdfda72ab32a8f98c738adadf6bf2f87",
       "gate": [
         "then:986f690ce3c4f8741f4341d67936aa814b16cd92511eb5fce83f5e04a025a80b"
       ],
       "origin": [
         "9a9140ec798ba5ed9accfdce3a66537d4a2e589273a5eb95b0ed545355592641"
       ],
-      "fingerprint": "826137dae0fa9ad01e0023e12b266a0acdd3d35702fcab9166f46195b79f3f2c",
+      "fingerprint": "cc6668bcee355a550b6c18a2760d162c9eec548a638dbfa8fcdd6da5e9d66f0f",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5869",
@@ -3973,14 +3973,14 @@
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "createWebConversation/sends/messageRecords/ingest/callback",
       "rule": "helper-consumer",
-      "tokens": "13011b5281c4f430ca395cfe6bb57635b0485a60c7284cc5d1286d4fc94641e4",
+      "tokens": "b4084ea12feaeceddd5527e35f55c3862fc7c3c4395dab2211839bd59b92578d",
       "gate": [
         "else:b324373e6dc9a92f7b216cd4c94e835a9b0a35fb5d91fe38a7e84bd9c31844c2"
       ],
       "origin": [
         "f35ca1ac5b529731036a460163188e2ea02ab9db6a795d238e8e7b30973ae32f"
       ],
-      "fingerprint": "403f581e5dd2088896dc934c1d1c0d3e9dbd4004198fb9b9eeffc87781a5909f",
+      "fingerprint": "728ea134251c7ebee30dd075431f740136329f66f773b213e5e2046b51d69d98",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5869",
@@ -30303,12 +30303,12 @@
       "file": "packages/client-graph/src/message-models.ts",
       "holder": "ingestLedgerMessages/rows",
       "rule": "consume:map",
-      "tokens": "1183da4686d7ffb309df5fa788e41861731ce5a43e0e9ea4c06f6cfc4a95cead",
+      "tokens": "a8a13b4c6621cc68a5dbe268669e8d702525598d3c83bf28bc0850810108d5e3",
       "gate": [],
       "origin": [
         "941a92bea6641b258fb3548bb38edde5775c9e40808a80bd8559f7b98f03d738"
       ],
-      "fingerprint": "1ebe3725c6dd38472d7b143bd7c6316c5243b95453d102904a0bbc9e7b291cdd",
+      "fingerprint": "258546b5eac05714c4fe1c7620b1acc0960b970fd8eaaf155e96ccf90b6d5767",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5869",
@@ -30321,14 +30321,14 @@
       "file": "packages/client-graph/src/message-models.ts",
       "holder": "ingestLedgerMessages/rows/map:callback/value",
       "rule": "helper-consumer",
-      "tokens": "4c2847fed447687455ad32cb9814859b46b42c80c2e7cbc07459beb484159499",
+      "tokens": "abdf6d760bfaec777e80df84a573e5c42e4e68ca0bdee77ba9a581bbcd11df8e",
       "gate": [
         "then:0bafa83631820767cb67c4fdb0b93c38edec86a9de6d4fe0967c10416ce2ed3a"
       ],
       "origin": [
         "59ec6dd8313e5da8c941aed4e3c9b8ed2530e9036250410c2c682bddfcf7daaf"
       ],
-      "fingerprint": "ea0ef163d76d6a8a8e02e28ed9a181d7adebd667723ffb5ac3f3f1cfb19ac4d0",
+      "fingerprint": "199cb6b8a7bfec95fa474408dc4b2d9da555461e8404e709783790eb6e01a5e5",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5869",
@@ -30341,14 +30341,14 @@
       "file": "packages/client-graph/src/message-models.ts",
       "holder": "ingestLedgerMessages/rows/map:callback/value",
       "rule": "reader-summary",
-      "tokens": "20b81995d20b76417a22bd3f675acaa05993ca715ccd7137fe6bca8a94256f29",
+      "tokens": "48b178eaa6d73a036e1e5bed1457eb7bf15256f4af57293fac3e9b80dba498b7",
       "gate": [
         "then:0bafa83631820767cb67c4fdb0b93c38edec86a9de6d4fe0967c10416ce2ed3a"
       ],
       "origin": [
         "59ec6dd8313e5da8c941aed4e3c9b8ed2530e9036250410c2c682bddfcf7daaf"
       ],
-      "fingerprint": "228d7bc0ac054d41d1a71be90b45b104c380bc976b824c4cfdfe9a7940fffeca",
+      "fingerprint": "607178e7b0eb8f7e9688a8339b5b0d39a42fec608a970884137b7ed7002c5be0",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5869",
@@ -30361,12 +30361,12 @@
       "file": "packages/client-graph/src/message-models.ts",
       "holder": "ingestMessageRecords/rows",
       "rule": "consume:map",
-      "tokens": "238fa0b70726a90f356ace005ec8f09fecef35606cc61ae9c9bddcf31f066e99",
+      "tokens": "9e091c4b95a0d0bbbc9ea3f17198c95a7ded0bdd1d424ef0c323eec6965cdca6",
       "gate": [],
       "origin": [
         "b4f389fb2fd51e16a14d49a16f879e0daaddccaa8389f2e2ac664e328cd2b9dd"
       ],
-      "fingerprint": "4459f3b9fb5e5770a73db32d0d1387742456c85a315cbc7db4b7643efa2b7368",
+      "fingerprint": "991ea481a9b8f2d01ff6af14a05e42c80bd28c92616d3975a6e9cf069f2e726b",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5869",
@@ -35518,12 +35518,12 @@
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "createWebConversation/transcript/source/read/callback",
       "rule": "loop",
-      "tokens": "053853cf636ff61a2b753713577e92fe5d8e5d1611012e578da7919c4888e377",
+      "tokens": "4da1670526449ca93fa330ad3029ad932635c9983d4f8812a3d4c9048fd839d2",
       "gate": [],
       "origin": [
         "28c4bcdcd718357a75d6b774f6d18e3aaf564e6281b93722bd9761d814eba91c"
       ],
-      "fingerprint": "6c291d86ecaf4673caf9f1164e3087287e2cd5bbf9da23bdd9b0924330208219",
+      "fingerprint": "5d1fd017e8f71f2982f503c47940e248b0239905169cda4306fd2daeb735b3f2",
       "count": 1,
       "owner": "POD-2256",
       "classification": "ingest",
@@ -35632,14 +35632,14 @@
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "createWebConversation/transcript/source/read/callback/then:callback",
       "rule": "helper-consumer",
-      "tokens": "74552dd71749d3331c9e68dab24212c9e7b50a2dded06ceba2c1883d6a45cb92",
+      "tokens": "48fc27588b7b43a45458dfd79c1bbeacfc18da71148bfa28ac3d4f0b8480271f",
       "gate": [
         "loop:441d7a2823007b94457873037aabe003eeb6d910f3faee16c00ffecbe67478b3"
       ],
       "origin": [
         "a1fc014805eff8197c2cfbf8c3943a8a0ad26cebbcae96266980f0cef377b090"
       ],
-      "fingerprint": "d2839874904e1f6ad3e715185110296e50deb5017f7dd71c5997c9943f792988",
+      "fingerprint": "bbc8f1d6e3d01f189729a0a2d32171c976d30358eaf3b566f6a7e2b848b10e6a",
       "count": 1,
       "owner": "POD-2256",
       "classification": "ingest",

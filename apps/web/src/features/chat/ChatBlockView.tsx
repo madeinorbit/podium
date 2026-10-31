@@ -7,7 +7,6 @@ import {
   MACHINE_CONTEXT_RE,
   mcpLabel,
   messageAttachmentText,
-  principalShortName,
   type TranscriptAttribution,
   transcriptActivityFacts,
 } from '@podium/client-core/values'
@@ -39,6 +38,7 @@ import { MachineContextRow } from './MachineContextRow'
 import { InboxReadRow, SentNoteRow } from './MailCommandRow'
 import { MessageEnvelopeGroup } from './MessageEnvelopeGroup'
 import { MetaGlyph } from './MetaGlyph'
+import type { MailReply } from './mail-reply'
 import { SendUserFileBlock } from './SendUserFileBlock'
 import { ToolBlock } from './ToolBlock'
 import { clockLabel, fullTimeLabel, parseTs } from './transcript-time'
@@ -390,6 +390,7 @@ export const ChatBlockView = observer(function ChatBlockView({
   process,
   arrived = false,
   onQuote,
+  mailReply,
   markdownHtml,
 }: {
   block: ChatBlock
@@ -432,6 +433,7 @@ export const ChatBlockView = observer(function ChatBlockView({
   arrived?: boolean
   /** Quote this message into the composer. Absent → no Quote action. */
   onQuote?: ((quote: QuoteInput) => void) | undefined
+  mailReply?: MailReply | undefined
   /** Unsafe HTML produced off-thread; sanitation and link policy stay here. */
   markdownHtml?: ReadonlyMap<string, string>
 }): JSX.Element | null {
@@ -735,15 +737,8 @@ export const ChatBlockView = observer(function ChatBlockView({
         handleChatMdClick(e, sessionId, cwd, openFile)
       }}
       forceOpen={highlighted}
-      onReply={
-        onQuote
-          ? (envelope) =>
-              onQuote({
-                text: envelope.body,
-                source: `question from ${principalShortName(envelope.from)}`,
-              })
-          : undefined
-      }
+      mailReply={mailReply}
+      onQuote={onQuote}
     />
   )
 

@@ -11,6 +11,7 @@ import {
   transcriptPhase,
 } from '@podium/client-core/values'
 import { here, omitGone } from '@podium/client-graph/lookup'
+import { currentMessageRecord } from '@podium/client-graph/message-models'
 import type { SessionModel } from '@podium/client-graph/models'
 import { lazy } from '@podium/mobx-helpers'
 import type { MachineWire } from '@podium/model/browser'
@@ -18,6 +19,7 @@ import { isAgentComputing, isMachineOfflineForLiveTerminal } from '@podium/model
 import { actionBound, compareShallow, compareStructural, observable, observableRef } from 'mobx'
 import type { PendingItem } from './chat'
 import { ConversationPresentation } from './conversation-presentation'
+import { MailReply } from './mail-reply'
 import { buildTurnPreviewMembers } from './turn-line-model'
 import type { WebConversation } from './use-conversation'
 
@@ -34,6 +36,7 @@ export class ChatViewModel {
     effort?: string
     agentKind?: string | null
   } = {}
+  readonly reply: MailReply
   private release: (() => void) | undefined
 
   constructor(
@@ -41,12 +44,22 @@ export class ChatViewModel {
     readonly compact: boolean,
     readonly superThread: SuperThreadRef | undefined,
     private readonly clearAttachedSession: () => void,
-  ) {}
+  ) {
+    this.reply = new MailReply(
+      conversation.pool,
+      {
+        show: (id) => conversation.runtime.access.trpc.messages.show.query({ id }),
+        reply: (id, body) => conversation.runtime.access.trpc.messages.reply.mutate({ id, body }),
+      },
+      (id) => currentMessageRecord(conversation.pool, conversation.runtime.access.replica, id),
+    )
+  }
 
   open(): void {
     this.release = this.conversation.addView(this.presentation)
   }
   close(): void {
+    this.reply.cancel()
     this.release?.()
     this.release = undefined
   }
@@ -58,10 +71,13 @@ export class ChatViewModel {
     return this.conversation.session
   }
   @lazy get draft(): string {
-    return this.conversation.pool.sessionObject(this.conversation.sessionId).messageDraft
+    return this.reply.active
+      ? this.reply.draft
+      : this.conversation.pool.sessionObject(this.conversation.sessionId).messageDraft
   }
   @actionBound setDraft(text: string): void {
-    this.conversation.pool.sessionObject(this.conversation.sessionId).setMessageDraft(text)
+    if (this.reply.active) this.reply.setDraft(text)
+    else this.conversation.pool.sessionObject(this.conversation.sessionId).setMessageDraft(text)
   }
   @lazy get preview() {
     return this.conversation.preview

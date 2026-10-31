@@ -1,6 +1,7 @@
 import { isSwitchTraced, markSwitch } from '@podium/client-core/perf'
 import {
   issueClosedPlaceholder,
+  principalShortName,
   type SessionIssueOutcome,
   type SuperThreadRef,
 } from '@podium/client-core/values'
@@ -51,7 +52,7 @@ type QuoteDraftRef = MutableRefObject<((quote: QuoteInput) => void) | null>
 
 /** Keep draft keystrokes in the composer leaf rather than re-running the whole
  * transcript/rail shell for every character. */
-const ScopedChatComposer = observer(function ScopedChatComposer({
+export const ScopedChatComposer = observer(function ScopedChatComposer({
   sessionId,
   superThread,
   compact,
@@ -76,7 +77,11 @@ const ScopedChatComposer = observer(function ScopedChatComposer({
   const draft = chat.view.draft
   const setDraft = chat.setDraft
   const voice = useVoiceInput((text) => setDraft(draft ? `${draft} ${text}` : text))
-  const quotes = useQuotes(sessionId)
+  const reply = chat.view.reply
+  const promptQuotes = useQuotes(sessionId)
+  const replyQuotes = useQuotes(`${sessionId}:mail:${reply.target?.id ?? ''}`, false)
+  const quotes = reply.active ? replyQuotes : promptQuotes
+  const composerKey = reply.active ? `${sessionId}:mail:${reply.target?.id}` : sessionId
   const { taRef } = chat
   // Where the operator last left the caret, read off their own keys and clicks.
   // The field's live selection is no witness: making the selection that is
@@ -85,9 +90,9 @@ const ScopedChatComposer = observer(function ScopedChatComposer({
   // collapses to its end, and a position inside a token (text that moved since)
   // steps past it.
   const chosenCaret = useRef<number | null>(null)
-  const caretOwner = useRef(sessionId)
-  if (caretOwner.current !== sessionId) {
-    caretOwner.current = sessionId
+  const caretOwner = useRef(composerKey)
+  if (caretOwner.current !== composerKey) {
+    caretOwner.current = composerKey
     chosenCaret.current = null
   }
   const addQuote = useCallback(
@@ -157,6 +162,12 @@ const ScopedChatComposer = observer(function ScopedChatComposer({
   // Each quote token reaches the agent as its passage, a Markdown blockquote in
   // place (`serializeDraft`), so the send path below never learns quotes exist.
   const submit = useCallback(() => {
+    if (reply.active) {
+      void reply.send(serializeDraft(draft, replyQuotes.quotes)).then((consumed) => {
+        if (consumed) replyQuotes.clear()
+      })
+      return
+    }
     if (findTokens(draft).length === 0) {
       chat.submitDraft(draft)
       // Passages whose tokens were deleted before sending go with the send.
@@ -166,7 +177,7 @@ const ScopedChatComposer = observer(function ScopedChatComposer({
     if (chat.attachments.uploading) return
     chat.submitDraft(serializeDraft(draft, quotes.quotes))
     quotes.clear()
-  }, [chat.submitDraft, chat.attachments.uploading, draft, quotes])
+  }, [chat.submitDraft, chat.attachments.uploading, draft, quotes, reply, replyQuotes])
   const interrupt = useCallback(() => chat.interrupt(draft), [chat.interrupt, draft])
   // First Flights (POD-2198): an example lands in the box as a draft, never
   // sent, after whatever the box holds when it is clicked.
@@ -191,9 +202,14 @@ const ScopedChatComposer = observer(function ScopedChatComposer({
         taRef={chat.taRef}
         draft={draft}
         onDraftChange={setDraft}
-        deliverable={chat.view.composer.deliverable}
+        deliverable={reply.active ? !reply.sending : chat.view.composer.deliverable}
+        reply={reply}
         placeholder={
-          issueClosed ? issueClosedPlaceholder(chat.view.composer) : chat.view.composer.placeholder
+          reply.active
+            ? `Reply to ${principalShortName(reply.target?.from ?? '')}…`
+            : issueClosed
+              ? issueClosedPlaceholder(chat.view.composer)
+              : chat.view.composer.placeholder
         }
         compact={compact}
         isMobile={chat.isMobile}
@@ -213,7 +229,7 @@ const ScopedChatComposer = observer(function ScopedChatComposer({
         transcriptFreshness={chat.view.transcriptFreshness}
         offlineAsOf={chat.view.offlineAsOf}
         attached={chat.view.attached}
-        autoFocusKey={sessionId}
+        autoFocusKey={composerKey}
         tipAnchor={askAnythingAnchor(sessionId)}
         transcriptSettled={chat.view.phase !== 'loading'}
         {...(superThread
@@ -399,7 +415,7 @@ const ConversationChatView = observer(function ConversationChatView({
       // lightbox (z-100), so releasing a file over a full-screen image attached
       // it silently, with nothing on screen having offered to. Standing down
       // hands the drag to `useFileDropGuard`, which swallows it harmlessly.
-      {...(chat.lightbox === null ? chat.attachments.dropHandlers : {})}
+      {...(chat.lightbox === null && !chat.view.reply.active ? chat.attachments.dropHandlers : {})}
     >
       <ChatLifecycle chat={chat} sessionId={sessionId} active={active} onLeave={onLeave} />
       {/* `offer-lift-region`: an opened offer fold pushes the whole transcript

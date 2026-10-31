@@ -14510,3 +14510,45 @@ button.waterfall-fold:hover {
   font-size: 13px;
   color: var(--text-dim);
 }
+
+/* The destination belongs next to the field, throughout a mail reply. */
+.composer-reply-mode {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 4px 8px;
+  color: var(--quiet-ink-hover);
+  font-size: 12px;
+}
+.composer-reply-mode strong {
+  color: var(--foreground);
+  font-weight: 500;
+}
+.composer-reply-mode button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted-foreground);
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+.composer-reply-mode button:hover {
+  color: var(--foreground);
+  background: var(--chip);
+}
+.quiet-ask-answered {
+  flex: none;
+  color: var(--quiet-ink);
+  font-size: 12px;
+}
+
+.mail-item-quote {
+  display: block;
+  font-size: 12px;
+  color: var(--quiet-ink);
+  padding: 4px 0;
+}
+.mail-item-quote:hover {
+  color: var(--quiet-ink-hover);
+}

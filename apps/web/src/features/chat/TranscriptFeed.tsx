@@ -49,6 +49,7 @@ import { ChatUploadThumb } from './ChatUploadThumb'
 import type { PendingItem } from './chat'
 import { IssueOutcomeCard } from './IssueOutcomeCard'
 import { MetaGlyph } from './MetaGlyph'
+import type { MailReply } from './mail-reply'
 import { ToolBatchView } from './ToolBatchView'
 import { TranscriptCold } from './TranscriptCold'
 import { TranscriptStandby } from './TranscriptStandby'
@@ -372,6 +373,7 @@ export interface TranscriptFeedProps {
   /** Quote a message into the composer (POD-376 per-message actions). Absent →
    *  the Quote action is not offered, which is what a host without a composer
    *  should get rather than a button that does nothing. */
+  mailReply?: MailReply | undefined
   onQuote?: (quote: QuoteInput) => void
   /** How the session's issue ended, drawn as the feed's last row (POD-2151). */
   outcome?: SessionIssueOutcome | null
@@ -1266,6 +1268,7 @@ const TranscriptRow = observer(function TranscriptRow({
         process={process}
         arrived={arrived}
         onQuote={onQuote}
+        mailReply={props.chat?.view.reply ?? props.mailReply}
       />
     )
   return (

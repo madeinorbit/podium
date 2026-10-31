@@ -8,12 +8,15 @@ import {
   principalShortName,
 } from '@podium/client-core/values'
 import { ChevronRight } from 'lucide-react'
+import { observer } from 'mobx-react-lite'
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
-import { memo, useMemo } from 'react'
+import { memo, useEffect, useMemo } from 'react'
 import { renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
 import { isKnownRefPrefix } from '@/lib/markdown-references'
+import type { QuoteInput } from '@/lib/quote/quote-sinks'
 import { useKnownRefPrefixesVersion } from '@/lib/use-known-ref-prefixes'
 import { useMailBody } from './mail-body'
+import type { MailReply } from './mail-reply'
 import { clockLabel, fullTimeLabel, parseTs } from './transcript-time'
 import { WorkGlyph } from './WorkGlyph'
 
@@ -97,7 +100,7 @@ function PointerEnvelopeBody({ envelope }: { envelope: ParsedEnvelope }): JSX.El
   )
 }
 
-function EnvelopeItem({
+const EnvelopeItem = observer(function EnvelopeItem({
   envelope,
   forceOpen,
   direction,
@@ -105,6 +108,8 @@ function EnvelopeItem({
   timed,
   markdownHtml,
   onReply,
+  mailReply,
+  onQuote,
   onOpenChange,
   ordinary,
   initialOpen,
@@ -116,6 +121,8 @@ function EnvelopeItem({
   timed: boolean
   markdownHtml?: ReadonlyMap<string, string> | undefined
   onReply?: ((envelope: ParsedEnvelope) => void) | undefined
+  mailReply?: MailReply | undefined
+  onQuote?: ((quote: QuoteInput) => void) | undefined
   ordinary?: boolean
 } & ActivityDisclosureProps): JSX.Element {
   const {
@@ -128,6 +135,10 @@ function EnvelopeItem({
   // message, including the first paragraph used as the folded preview.
   const subject = useMemo(() => noteSubject(envelope.body), [envelope.body])
   const ask = !ordinary && isOperatorQuestion(envelope)
+  const answered = ask && mailReply?.message(envelope.id)?.answered === true
+  useEffect(() => {
+    if (ask) void mailReply?.load(envelope.id).catch(() => {})
+  }, [ask, mailReply, envelope.id])
   const who = principalShortName(direction === 'from' ? envelope.from : envelope.to)
   const stamp = timed ? parseTs(ts) : undefined
   const byline = direction === 'from' ? who : `To ${who}`
@@ -161,20 +172,28 @@ function EnvelopeItem({
             aria-expanded={full}
             onClick={toggle}
           >
-            <b>{principalShortName(envelope.from)}</b> asks{' '}
+            <b>{principalShortName(envelope.from)}</b> {answered ? 'asked' : 'asks'}{' '}
             {full ? 'a question' : subject || 'a question'}
           </button>
-          <button
-            data-pressable
-            type="button"
-            className="quiet-ask-reply"
-            onClick={() => {
-              setOpen(true)
-              onReply?.(envelope)
-            }}
-          >
-            Reply
-          </button>
+          {answered ? (
+            <span className="quiet-ask-answered" role="status">
+              Answered
+            </span>
+          ) : (
+            <button
+              data-pressable
+              type="button"
+              className="quiet-ask-reply"
+              disabled={!onReply && !mailReply}
+              onClick={() => {
+                setOpen(true)
+                if (onReply) onReply(envelope)
+                else mailReply?.start(envelope)
+              }}
+            >
+              Reply
+            </button>
+          )}
         </div>
       ) : (
         <button
@@ -220,6 +239,21 @@ function EnvelopeItem({
               markdownHtml={markdownHtml}
             />
           )}
+          {ask && onQuote && (
+            <button
+              type="button"
+              data-pressable
+              className="mail-item-quote"
+              onClick={() =>
+                onQuote({
+                  text: envelope.body,
+                  source: `question from ${principalShortName(envelope.from)}`,
+                })
+              }
+            >
+              Quote
+            </button>
+          )}
           {envelope.machineNote && <span className="mail-item-note">{envelope.machineNote}</span>}
           <span className="mail-item-route">
             {direction === 'from' ? (
@@ -239,7 +273,7 @@ function EnvelopeItem({
       )}
     </div>
   )
-}
+})
 
 /** Notes render bare inside a stretch; only the owning row has feed identity. */
 export function MessageEnvelopeGroup({
@@ -254,6 +288,8 @@ export function MessageEnvelopeGroup({
   direction = 'from',
   bare = false,
   onReply,
+  mailReply,
+  onQuote,
   onOpenChange,
   ordinary = false,
   initialOpen,
@@ -270,6 +306,8 @@ export function MessageEnvelopeGroup({
   bare?: boolean
   ordinary?: boolean
   onReply?: ((envelope: ParsedEnvelope) => void) | undefined
+  mailReply?: MailReply | undefined
+  onQuote?: ((quote: QuoteInput) => void) | undefined
 } & ActivityDisclosureProps): JSX.Element {
   const { userOpen, open, toggle } = useActivityDisclosure({ forceOpen, onOpenChange, initialOpen })
   const notes = ordinary ? envelopes : envelopes.filter((e) => !isOperatorQuestion(e))
@@ -284,6 +322,8 @@ export function MessageEnvelopeGroup({
       timed={timed}
       markdownHtml={markdownHtml}
       onReply={onReply}
+      mailReply={mailReply}
+      onQuote={onQuote}
       onOpenChange={onOpenChange}
       ordinary={ordinary}
       initialOpen={initialOpen}

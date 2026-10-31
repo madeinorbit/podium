@@ -1,3 +1,5 @@
+import { MobxPool } from '@podium/client-graph'
+import { MailReply } from './mail-reply'
 import './test-support/no-message-attachments'
 import { presentToolBlock } from '@podium/client-core/values'
 import { renderMailPointer } from '@podium/commands/mail-pointer-nudge'
@@ -55,6 +57,7 @@ function mount(
   markdownHtml?: ReadonlyMap<string, string>,
   result?: string,
   onQuote?: (quote: QuoteInput) => void,
+  mailReply?: MailReply,
 ): void {
   act(() => {
     root.render(
@@ -74,6 +77,7 @@ function mount(
         stickyOperator={stickyOperator}
         markdownHtml={markdownHtml}
         onQuote={onQuote}
+        mailReply={mailReply}
       />,
     )
   })
@@ -517,7 +521,13 @@ describe('reference activation across transcript kinds', () => {
   })
 })
 
-it('keeps an operator question visible outside the note fold and puts Reply in the composer', () => {
+it('routes Reply to the mail composer and keeps Quote as a separate action', () => {
+  const reply = new MailReply(new MobxPool({ coarseNow: 0, selectedIssueId: null }), {
+    show: async () => {
+      throw new Error('offline fixture')
+    },
+    reply: async () => null,
+  })
   const quote = vi.fn()
   const text =
     frame('background', 'system:steward', 'issue:POD-2287', 'Status\nAll checks pass') +
@@ -528,7 +538,7 @@ it('keeps an operator question visible outside the note fold and puts Reply in t
       'whether inbox reads keep their own row\nWhich would you prefer?',
       '[this is a question: answer the sender]\n',
     )
-  mount(userItem(text), false, false, undefined, undefined, quote)
+  mount(userItem(text), false, false, undefined, undefined, quote, reply)
   expect(host.querySelector('.quiet-ask')?.textContent).toContain(
     'POD-2242 asks whether inbox reads keep their own row',
   )
@@ -537,6 +547,10 @@ it('keeps an operator question visible outside the note fold and puts Reply in t
   expect(host.querySelectorAll('[data-block]')).toHaveLength(1)
   expect(host.querySelector('[data-row-key]')?.getAttribute('data-row-key')).toBe('i1')
   click(host.querySelector('.quiet-ask-reply'))
+  expect(quote).not.toHaveBeenCalled()
+  expect(reply.active).toBe(true)
+  expect(reply.target).toEqual({ id: 'ask', from: 'issue:POD-2242' })
+  click(host.querySelector('.mail-item-quote'))
   expect(quote).toHaveBeenCalledWith({
     text: 'whether inbox reads keep their own row\nWhich would you prefer?',
     source: 'question from POD-2242',

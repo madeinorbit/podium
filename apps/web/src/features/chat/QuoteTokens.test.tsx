@@ -8,14 +8,17 @@ import { type UseQuotesResult, useQuotes } from './QuoteTokens'
 // Staged passages (POD-2207): kept per session across an unmount and a reload,
 // pruned to the tokens still in the draft, gone on clear and on account erase.
 
-function mountHook(key: { current: string }): {
+function mountHook(
+  key: { current: string },
+  persist = true,
+): {
   get: () => UseQuotesResult
   rerender: () => void
   unmount: () => void
 } {
   let latest: UseQuotesResult | null = null
   function Probe(): null {
-    latest = useQuotes(key.current)
+    latest = useQuotes(key.current, persist)
     return null
   }
   const host = document.createElement('div')
@@ -96,4 +99,21 @@ describe('useQuotes', () => {
     eraseAllQuotes()
     expect(loadQuotes('session-f')).toEqual([])
   })
+})
+
+it('keeps mail quotes local and separate from the normal prompt bank', () => {
+  const prompt = mountHook({ current: 'normal' })
+  const mailKey = { current: 'mail:ask' }
+  const mail = mountHook(mailKey, false)
+  act(() => {
+    prompt.get().add({ text: 'normal quote', source: 's' }, '')
+    mail.get().add({ text: 'mail quote', source: 's' }, '')
+  })
+  expect(loadQuotes('normal').map((q) => q.text)).toEqual(['normal quote'])
+  expect(loadQuotes('mail:ask')).toEqual([])
+  expect(mail.get().quotes.map((q) => q.text)).toEqual(['mail quote'])
+  act(() => mail.get().clear())
+  expect(prompt.get().quotes.map((q) => q.text)).toEqual(['normal quote'])
+  mail.unmount()
+  prompt.unmount()
 })
