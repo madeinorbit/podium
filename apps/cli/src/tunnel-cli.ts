@@ -35,9 +35,13 @@ import {
   enableSystemdUnits,
   hasSystemctl,
   hasUserSystemd,
+  type InspectUserServiceDeps,
+  inspectUserService,
   reloadUserSystemd,
   renderTunnelUnit,
   restartSystemdUnits,
+  type SystemdServiceCheck,
+  userUnitDefinition,
   userUnitDir,
   writeUserUnit,
 } from './cli-systemd'
@@ -191,7 +195,7 @@ export interface TunnelCliIo {
   err(line: string): void
 }
 
-export interface TunnelCliDeps {
+export interface TunnelCliDeps extends Pick<InspectUserServiceDeps, 'unitActive' | 'unitEnabled'> {
   io?: TunnelCliIo
   env?: EnvSource
   config?: PodiumConfig
@@ -199,6 +203,8 @@ export interface TunnelCliDeps {
   fileExists?: (path: string) => boolean
   hasSystemctl?: () => boolean
   hasUserSystemd?: () => boolean
+  unitDir?: () => string
+  readUnit?: (path: string) => string
   writeUnit?: (unit: string, body: string) => void
   enableAndStart?: (unit: string) => void
   disableAndRemove?: (unit: string) => void
@@ -229,10 +235,11 @@ export function tunnelCliMain(args: string[], deps: TunnelCliDeps = {}): number 
 export type EnableTunnelResult = { ok: true; unit: string } | { ok: false; reason: string }
 
 /**
- * Install and start the tunnel unit. The step both `podium tunnel enable` and
- * `podium setup` take; every refusal is a sentence for the operator.
+ * The platform preflight and desired definition shared by setup, tunnel enable and doctor.
  */
-export function enableTunnel(deps: Omit<TunnelCliDeps, 'io'> = {}): EnableTunnelResult {
+function tunnelServicePlan(
+  deps: Omit<TunnelCliDeps, 'io'>,
+): { ok: true; unit: string; body: string } | { ok: false; reason: string } {
   const env = deps.env ?? process.env
   const preflight = tunnelPreflight({
     config: deps.config ?? loadConfig(),
@@ -261,6 +268,26 @@ export function enableTunnel(deps: Omit<TunnelCliDeps, 'io'> = {}): EnableTunnel
     socket,
     cloudflared: preflight.cloudflared,
   })
+  return { ok: true, unit, body }
+}
+
+/** Read-only version of setup's opt-in, platform checks and exact tunnel unit rendering. */
+export function inspectTunnel(deps: Omit<TunnelCliDeps, 'io'> = {}): SystemdServiceCheck {
+  const plan = tunnelServicePlan(deps)
+  if (!plan.ok) return { ok: false, detail: plan.reason }
+  return inspectUserService(
+    () => userUnitDefinition(plan.unit, () => plan.body, deps),
+    'Tunnel',
+    deps,
+    false,
+  )
+}
+
+/** Install and start the same tunnel service that setup and doctor inspect. */
+export function enableTunnel(deps: Omit<TunnelCliDeps, 'io'> = {}): EnableTunnelResult {
+  const plan = tunnelServicePlan(deps)
+  if (!plan.ok) return plan
+  const { unit, body } = plan
   try {
     ;(deps.writeUnit ?? ((name, text) => void writeUserUnit(name, text)))(unit, body)
     ;(

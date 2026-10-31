@@ -24,13 +24,8 @@ import { listLive, logDir, type RunRecord } from '@podium/runtime/run-registry'
 import { httpOriginOf, resolveLocatorRecord } from '@podium/runtime/server-follow'
 import { serverControlSocketPath } from '@podium/runtime/user-socket'
 import { declareFlags, parseFlags } from './argv'
-import {
-  installSystemd,
-  parentUnitRenderOptions,
-  restartSystemdUnits,
-  userUnitDir,
-} from './cli-systemd'
-import { downloadCloudflared, enableTunnel, resolveCloudflared } from './tunnel-cli'
+import { inspectSystemd, installSystemd, restartSystemdUnits } from './cli-systemd'
+import { downloadCloudflared, enableTunnel, inspectTunnel, resolveCloudflared } from './tunnel-cli'
 
 export const PROBE_TIMEOUT_MS = 1_500
 export type Link = 'service' | 'server' | 'tunnel' | 'cloudflared' | 'public' | 'connect'
@@ -144,7 +139,14 @@ export interface DiagnoseDeps {
   env?: NodeJS.ProcessEnv
   live?: RunRecord[]
   version?: typeof probeVersion
-  unit?: (unit: string) => Promise<boolean>
+  tunnel?: (
+    config: PodiumConfig,
+    env: NodeJS.ProcessEnv,
+  ) => ReturnType<typeof inspectTunnel> | Promise<ReturnType<typeof inspectTunnel>>
+  systemd?: (
+    port: number,
+    instance: string,
+  ) => ReturnType<typeof inspectSystemd> | Promise<ReturnType<typeof inspectSystemd>>
   cloudflared?: () => string | undefined
   control?: typeof controlRequest
   locator?: typeof resolveLocatorRecord
@@ -160,37 +162,42 @@ export async function diagnose(deps: DiagnoseDeps = {}): Promise<Diagnosis> {
   const add = (link: Link, name: string, ok: boolean, detail: string, remedy = fix): void => {
     checks.push({ link, name, ok, detail, fix: remedy })
   }
-  const host = ['server', 'all-in-one'].includes(resolveSetting('mode', config, env).value ?? '')
+  const mode = resolveSetting('mode', config, env).value
+  const host = mode === 'server' || mode === 'all-in-one'
   const managed = config.networkOption === 'cloudflare-tunnel' && host
   const port = resolvePort(config, env)
   const publicUrl = host ? resolvePublicUrl(config, env) : undefined
   const origin = publicUrl ? httpOriginOf(publicUrl) : undefined
   const version = deps.version ?? probeVersion
-  const unit =
-    deps.unit ??
-    (async (name) => (await capture('systemctl', ['--user', 'is-active', name])) === 'active')
   const live = deps.live ?? listLive()
   const serviceTask =
-    config.persistence === 'systemd'
-      ? unit(instanceServiceName('parent', instance))
-      : Promise.resolve(
-          live.some(
-            (r) =>
-              r.role === 'parent' ||
-              r.role === 'all-in-one' ||
-              r.role === (host ? 'server' : 'daemon'),
-          ),
-        )
+    mode === 'client'
+      ? Promise.resolve({ ok: true, detail: 'Client mode does not run a local service.' })
+      : config.persistence === 'systemd' && env.PODIUM_DESKTOP_SUPERVISED !== '1'
+        ? Promise.resolve().then(() => (deps.systemd ?? inspectSystemd)(port, instance))
+        : Promise.resolve(
+            live.some(
+              (r) =>
+                r.role === 'parent' ||
+                r.role === 'all-in-one' ||
+                r.role === (host ? 'server' : 'daemon'),
+            ),
+          ).then((ok) => ({ ok, detail: ok ? 'Running.' : 'Podium is stopped.' }))
+  const tunnelTask: Promise<ReturnType<typeof inspectTunnel>> = managed
+    ? Promise.resolve().then(() =>
+        deps.tunnel ? deps.tunnel(config, env) : inspectTunnel({ config, env }),
+      )
+    : Promise.resolve({ ok: true, detail: '' })
   // Every independent request begins together. Connect's read depends only on the local identity.
   const [service, health, local, tunnel, publicVersion, diagnostics] = await Promise.all([
     serviceTask,
     host ? version(`http://127.0.0.1:${port}/health`) : undefined,
     host ? version(`http://127.0.0.1:${port}/version`) : undefined,
-    managed ? unit(instanceServiceName('tunnel', instance)) : true,
+    tunnelTask,
     origin ? version(`${origin}/version`) : undefined,
     host ? (deps.control ?? controlRequest)('/v1/diagnostics').catch(() => undefined) : undefined,
   ])
-  add('service', 'Podium service', service, service ? 'Running.' : 'Podium is stopped.')
+  add('service', 'Podium service', service.ok, service.detail)
   if (!host) return { checks, serverHealthy: false }
   const validVersion = (v: Record<string, unknown> | undefined): boolean =>
     typeof v?.wireVersion === 'number' && typeof v.appVersion === 'string'
@@ -203,7 +210,7 @@ export async function diagnose(deps: DiagnoseDeps = {}): Promise<Diagnosis> {
   )
   const cloudflared = managed ? (deps.cloudflared ?? (() => resolveCloudflared(env)))() : undefined
   if (managed) {
-    add('tunnel', 'Tunnel service', tunnel, tunnel ? 'Running.' : 'The tunnel is stopped.')
+    add('tunnel', 'Tunnel service', tunnel.ok, tunnel.detail)
     add(
       'cloudflared',
       'cloudflared',
@@ -214,7 +221,10 @@ export async function diagnose(deps: DiagnoseDeps = {}): Promise<Diagnosis> {
   const sameServer =
     !local?.installationId || publicVersion?.installationId === local.installationId
   const publicOk =
-    !!origin && validVersion(publicVersion) && sameServer && (!managed || (tunnel && !!cloudflared))
+    !!origin &&
+    validVersion(publicVersion) &&
+    sameServer &&
+    (!managed || ((tunnel.active ?? tunnel.ok) && !!cloudflared))
   add(
     'public',
     'Public address',
@@ -272,41 +282,55 @@ export function renderChecks(checks: LinkCheck[]): string {
     .join('\n')
 }
 
-export async function repairLink(link: Link): Promise<string | undefined> {
+export interface RepairLinkDeps {
+  config?: PodiumConfig
+  env?: NodeJS.ProcessEnv
+  install?: typeof installSystemd
+  restart?: typeof restartSystemdUnits
+  waitForHealth?: typeof import('./cli-spawn').waitForHealth
+  restartDetached?: () => Promise<void>
+  enableTunnel?: typeof enableTunnel
+  cloudflared?: () => string | undefined
+  downloadCloudflared?: typeof downloadCloudflared
+}
+
+export async function repairLink(
+  link: Link,
+  deps: RepairLinkDeps = {},
+): Promise<string | undefined> {
   forgetConfig()
-  const config = loadConfig()
-  const mode = resolveSetting('mode', config).value
+  const config = deps.config ?? loadConfig()
+  const env = deps.env ?? process.env
+  const mode = resolveSetting('mode', config, env).value
   if (link === 'service' || link === 'server') {
+    if (!mode || mode === 'client')
+      return 'Choose a server or machine mode with podium setup first.'
+    if (env.PODIUM_DESKTOP_SUPERVISED === '1')
+      return 'Open the Podium desktop app to start its services.'
     if (config.persistence === 'systemd') {
-      const instance = resolveInstanceId()
-      let renderOptions: ReturnType<typeof parentUnitRenderOptions> | undefined
-      try {
-        renderOptions = parentUnitRenderOptions(
-          readFileSync(join(userUnitDir(), instanceServiceName('parent', instance)), 'utf8'),
-        )
-      } catch {
-        /* Fresh install. */
-      }
-      const installed = installSystemd(mode, resolvePort(config), instance, {
-        ...(renderOptions ? { renderOptions } : {}),
-      })
-      if (!installed.ok) throw new Error(installed.reason)
-      restartSystemdUnits([instanceServiceName('parent', resolveInstanceId())])
-      const { waitForHealth } = await import('./cli-spawn')
+      const instance = resolveInstanceId(env)
+      const port = resolvePort(config, env)
+      const installed = (deps.install ?? installSystemd)(mode, port, instance)
+      if (!installed.ok)
+        throw new Error([installed.reason, installed.remedy].filter(Boolean).join('. '))
+      ;(deps.restart ?? restartSystemdUnits)([instanceServiceName('parent', instance)])
       if (mode === 'server' || mode === 'all-in-one') {
-        await waitForHealth(resolvePort(config), config.bindHost)
+        const wait = deps.waitForHealth ?? (await import('./cli-spawn')).waitForHealth
+        if (!(await wait(port, config.bindHost)))
+          throw new Error('The server did not answer after repair.')
       }
       if (installed.lingerRemedy) return installed.lingerRemedy
     } else {
-      const { restartCommand } = await import('./cli-lifecycle')
-      await restartCommand()
+      const restart = deps.restartDetached ?? (await import('./cli-lifecycle')).restartCommand
+      await restart()
     }
   } else if (
     (link === 'cloudflared' || link === 'tunnel' || link === 'public') &&
     config.networkOption === 'cloudflare-tunnel'
   ) {
-    if (!resolveCloudflared()) await downloadCloudflared()
-    const result = enableTunnel({ config })
+    if (!(deps.cloudflared ?? (() => resolveCloudflared(env)))())
+      await (deps.downloadCloudflared ?? downloadCloudflared)(env)
+    const result = (deps.enableTunnel ?? enableTunnel)({ config, env })
     if (!result.ok) throw new Error(result.reason)
     return 'The tunnel is starting. A new address can take a minute to answer.'
   } else if (link === 'connect') {

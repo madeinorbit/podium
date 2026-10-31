@@ -7,40 +7,39 @@
  * once THAT parent reports healthy, retires leftover units. Signal handlers
  * stay the parent's job, installed before it spawns anything (POD-2505).
  */
-import { readdirSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { readdirSync } from 'node:fs'
 import type { MachineServiceReport } from '@podium/model'
 import { loadConfig, type PodiumConfig, resolvePort } from '@podium/runtime/config'
 import { resolveInstanceId } from '@podium/runtime/instance'
-import { liveRecord, listLive, reclaim } from '@podium/runtime/run-registry'
+import { listLive, liveRecord, reclaim } from '@podium/runtime/run-registry'
 import {
   armedIfKilled,
   desiredParentUnit,
   enabledLegacyUnits,
   leftoverParentUnit,
   legacyUnitNames,
+  type PersistenceShape,
   planMigration,
   presentLegacyUnits,
-  type PersistenceShape,
   type TopologyObservation,
 } from '@podium/runtime/topology-migration'
 import { spawnDetached } from './cli-spawn'
 import {
-  GENERATED_UNIT_NOTICE,
-  hasUserSystemd,
-  userSystemdUnavailable,
-  reloadUserSystemd,
-  type InstallResult,
   disarmSystemdUnits,
   enableSystemdUnits,
+  hasUserSystemd,
+  type InstallResult,
   maskSystemdUnitsRuntime,
+  parentUnitDefinition,
+  reloadUserSystemd,
   removeUserUnits,
-  parentUnitRenderOptions,
   renderParentUnit,
   startSystemdUnits,
   systemdUnitActive,
+  systemdUnitEnabled,
   systemdUnitManaged,
   unmaskSystemdUnits,
+  userSystemdUnavailable,
   userUnitDir,
   writeUserUnit,
 } from './cli-systemd'
@@ -117,12 +116,16 @@ function defaultListUnitFiles(dir: string): string[] {
 export function observeTopology(deps: TopologyReconcileDeps = {}): TopologyObservation {
   const env = deps.env ?? process.env
   const config = deps.config ?? loadConfig()
-  const instanceId = deps.instanceId ?? resolveInstanceId()
+  const instanceId = deps.instanceId ?? resolveInstanceId(env)
   const dir = (deps.unitDir ?? userUnitDir)()
   const installed = (deps.listUnitFiles ?? defaultListUnitFiles)(dir)
   const unitActive = deps.unitActive ?? systemdUnitActive
-  const unitEnabled = deps.unitEnabled ?? systemdUnitManaged
   const desired = desiredParentUnit(instanceId)
+  // Active legacy services still need masking during takeover. The canonical parent,
+  // however, must actually be enabled on disk to satisfy the reboot contract.
+  const unitEnabled =
+    deps.unitEnabled ??
+    ((name: string) => (name === desired ? systemdUnitEnabled(name) : systemdUnitManaged(name)))
   const enabled = installed.filter((name) => {
     try {
       return unitEnabled(name)
@@ -137,9 +140,7 @@ export function observeTopology(deps: TopologyReconcileDeps = {}): TopologyObser
       return false
     }
   })
-  const masked = (deps.unitMasked ? installed.filter((name) => deps.unitMasked!(name)) : []).filter(
-    Boolean,
-  )
+  const masked = installed.filter((name) => deps.unitMasked?.(name))
   const live = listLive()
   const parentLive = Boolean(liveRecord('parent'))
   return {
@@ -178,8 +179,8 @@ export async function reconcileSupervision(
 ): Promise<ReconcileResult> {
   const env = deps.env ?? process.env
   const config = deps.config ?? loadConfig()
-  const instanceId = deps.instanceId ?? resolveInstanceId()
-  const port = resolvePort(config)
+  const instanceId = deps.instanceId ?? resolveInstanceId(env)
+  const port = resolvePort(config, env)
   const maxSteps = deps.maxSteps ?? 12
   const actions: string[] = []
   let obs = observeTopology(deps)
@@ -189,12 +190,9 @@ export async function reconcileSupervision(
     return { actions, armed: armedIfKilled(obs), observation: obs, problem }
   }
   if (obs.persistence === 'systemd' && obs.parentUnitPresent) {
-    const path = join((deps.unitDir ?? userUnitDir)(), desiredParentUnit(instanceId))
-    const current = (deps.readUnit ?? ((path) => readFileSync(path, 'utf8')))(path)
-    // Same profile as the unit on disk: a dev host's unit stays a dev unit.
-    const desired = renderParentUnit({ ...parentUnitRenderOptions(current), instanceId, port })
-    if (current.startsWith(GENERATED_UNIT_NOTICE) && current !== desired) {
-      ;(deps.writeUnit ?? writeUserUnit)(desiredParentUnit(instanceId), desired)
+    const definition = parentUnitDefinition(port, instanceId, deps)
+    if (definition.needsWrite) {
+      ;(deps.writeUnit ?? writeUserUnit)(definition.unit, definition.desired)
       ;(deps.reloadUnits ?? reloadUserSystemd)()
       actions.push('refresh-parent')
     }

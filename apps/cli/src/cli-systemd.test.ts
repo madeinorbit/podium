@@ -13,8 +13,38 @@ import {
   renderServerUnit,
   renderSystemdFiles,
   renderTunnelUnit,
+  systemdUnitEnabled,
+  systemdUnitManaged,
   userUnitDir,
 } from './cli-systemd'
+import { fakeSystemctl } from './test-support/systemctl'
+
+describe.skipIf(process.platform === 'win32')('persistent systemd enablement', () => {
+  const cleanups: Array<() => void> = []
+  afterEach(() => {
+    for (const cleanup of cleanups.splice(0)) cleanup()
+  })
+
+  it.each([
+    'enabled',
+    'enabled-runtime',
+    'static',
+    'indirect',
+    'alias',
+    'linked',
+    'disabled',
+    'masked',
+  ])('requires enabled on disk rather than the successful %s exit status', (state) => {
+    cleanups.push(fakeSystemctl(state))
+    expect(systemdUnitEnabled('podium-blue.service')).toBe(state === 'enabled')
+  })
+
+  it('keeps active-but-disabled units managed for role demotion, without calling them enabled', () => {
+    cleanups.push(fakeSystemctl())
+    expect(systemdUnitManaged('podium.service')).toBe(true)
+    expect(systemdUnitEnabled('podium.service')).toBe(false)
+  })
+})
 
 describe('renderServerUnit', () => {
   it('is a Type=notify, watchdog, Restart=always user unit calling podium server', () => {

@@ -1,16 +1,19 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
-import { saveConfig, loadConfig, resolvePort } from '@podium/runtime/config'
+import { loadConfig, resolvePort, saveConfig } from '@podium/runtime/config'
 import { writeRecord } from '@podium/runtime/run-registry'
+import { afterEach, describe, expect, it } from 'vitest'
 import { renderParentUnit } from './cli-systemd'
+import { fakeSystemctl } from './test-support/systemctl'
 import { machineTopologyReport, reconcileSupervision } from './topology-reconcile'
 
 const previousStateDir = process.env.PODIUM_STATE_DIR
 const dirs: string[] = []
+const cleanups: Array<() => void> = []
 
 afterEach(() => {
+  for (const cleanup of cleanups.splice(0)) cleanup()
   if (previousStateDir === undefined) delete process.env.PODIUM_STATE_DIR
   else process.env.PODIUM_STATE_DIR = previousStateDir
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
@@ -94,6 +97,25 @@ function fixture() {
 }
 
 describe('reconcileSupervision', () => {
+  it.skipIf(process.platform === 'win32')(
+    'enables an active-but-disabled canonical parent before declaring it armed',
+    async () => {
+      const { deps, installed, commands } = fixture()
+      installed.clear()
+      installed.add('podium.service')
+      cleanups.push(fakeSystemctl())
+      const result = await reconcileSupervision({
+        ...deps,
+        unitEnabled: undefined,
+        unitActive: () => true,
+        parentHealthy: () => true,
+      })
+      expect(commands).toEqual(['enable:podium.service'])
+      expect(result.actions).toEqual(['enable-parent', 'noop'])
+      expect(result.armed).toBe('new')
+    },
+  )
+
   it('plans write-parent on a legacy daemon-only host with systemd desired state', async () => {
     const { deps, installed } = fixture()
     installed.clear()
@@ -110,9 +132,20 @@ describe('reconcileSupervision', () => {
     const { deps, installed } = fixture()
     installed.clear()
     installed.add('podium-daemon.service')
-    writeRecord({ role: 'parent', pid: process.pid, mode: 'systemd', startedAt: new Date().toISOString() })
+    writeRecord({
+      role: 'parent',
+      pid: process.pid,
+      mode: 'systemd',
+      startedAt: new Date().toISOString(),
+    })
     const result = await reconcileSupervision(deps)
-    expect(result.actions).toEqual(['write-parent', 'enable-parent', 'mask-legacy', 'start-parent', 'await-healthy'])
+    expect(result.actions).toEqual([
+      'write-parent',
+      'enable-parent',
+      'mask-legacy',
+      'start-parent',
+      'await-healthy',
+    ])
     expect(installed.has('podium-daemon.service')).toBe(true)
   })
 

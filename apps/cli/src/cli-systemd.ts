@@ -3,7 +3,7 @@
 // one source (including the CPU/IO tiers from e4660620 and the health backstop from 54d60a8b).
 // Design: docs/internal/superpowers/specs/2026-07-06-headless-process-model-design.md
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { userInfo } from 'node:os'
 import { join } from 'node:path'
 import type { PodiumConfig } from '@podium/runtime/config'
@@ -264,6 +264,57 @@ export function renderParentUnit(opts: SystemdRenderOptions = {}): string {
   return generatedUnit(c.profile === 'dev' ? renderDevParent(c) : renderPackagedParent(c))
 }
 
+export interface UserUnitDefinition {
+  unit: string
+  path: string
+  current?: string
+  desired: string
+  needsWrite: boolean
+}
+
+/** Install and diagnostics share the refresh policy, including operator-owned definitions. */
+export function userUnitDefinition(
+  unit: string,
+  render: (current: string | undefined) => string,
+  deps: Pick<InstallSystemdDeps, 'unitDir' | 'readUnit'> = {},
+): UserUnitDefinition {
+  const path = join((deps.unitDir ?? userUnitDir)(), unit)
+  let current: string | undefined
+  try {
+    current = (deps.readUnit ?? ((path) => readFileSync(path, 'utf8')))(path)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  const desired = render(current)
+  return {
+    unit,
+    path,
+    current,
+    desired,
+    needsWrite:
+      current === undefined || (current.startsWith(GENERATED_UNIT_NOTICE) && current !== desired),
+  }
+}
+
+/** Recover a generated development unit's profile for install, boot reconciliation and doctor. */
+export function parentUnitDefinition(
+  port: number,
+  instanceId: string = resolveInstanceId(),
+  deps: Pick<InstallSystemdDeps, 'unitDir' | 'readUnit' | 'renderOptions'> = {},
+): UserUnitDefinition {
+  return userUnitDefinition(
+    instanceServiceName('parent', instanceId),
+    (current) =>
+      renderParentUnit({
+        ...parentUnitRenderOptions(current ?? ''),
+        ...deps.renderOptions,
+        instanceId,
+        port,
+      }),
+    deps,
+  )
+}
+
 function renderPackagedDaemon(c: RenderContext, opts: DaemonRenderOptions): string {
   // `--local` = the split daemon on a host box; `--server` pins the URL. The join case passes
   // neither, so bare `podium daemon` resolves serverUrl from config.
@@ -465,7 +516,7 @@ function run(cmd: string, args: string[]): void {
 
 export function hasSystemctl(): boolean {
   try {
-    execFileSync('systemctl', ['--version'], { stdio: 'ignore' })
+    execFileSync('systemctl', ['--version'], { stdio: 'ignore', timeout: 1_500 })
     return true
   } catch {
     return false
@@ -473,7 +524,7 @@ export function hasSystemctl(): boolean {
 }
 function systemctlSucceeds(args: string[]): boolean {
   try {
-    execFileSync('systemctl', ['--user', ...args], { stdio: 'ignore' })
+    execFileSync('systemctl', ['--user', ...args], { stdio: 'ignore', timeout: 1_500 })
     return true
   } catch {
     return false
@@ -483,6 +534,21 @@ function systemctlSucceeds(args: string[]): boolean {
 /** True only while systemd considers the user unit active. */
 export function systemdUnitActive(unit: string): boolean {
   return systemctlSucceeds(['is-active', '--quiet', unit])
+}
+
+/** Persistent enablement only. is-enabled's exit code also accepts static and runtime units. */
+export function systemdUnitEnabled(unit: string): boolean {
+  try {
+    return (
+      execFileSync('systemctl', ['--user', 'is-enabled', unit], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 1_500,
+      }).trim() === 'enabled'
+    )
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -503,7 +569,7 @@ export function systemdUnitManaged(unit: string): boolean {
  */
 export function hasUserSystemd(): boolean {
   try {
-    execFileSync('systemctl', ['--user', 'show-environment'], { stdio: 'ignore' })
+    execFileSync('systemctl', ['--user', 'show-environment'], { stdio: 'ignore', timeout: 1_500 })
     return true
   } catch {
     return false
@@ -538,12 +604,13 @@ export interface InstallResult {
 }
 
 export interface InstallSystemdDeps {
-  /** Preserve the profile of an existing generated unit when doctor rewrites it. */
+  /** Override the profile; otherwise recover it from the installed generated unit. */
   renderOptions?: SystemdRenderOptions
 
   hasSystemctl?: () => boolean
   hasUserSystemd?: () => boolean
   unitDir?: () => string
+  readUnit?: (path: string) => string
   run?: (cmd: string, args: string[]) => void
   /** Whether logind will keep this user's manager running without a session. */
   lingerEnabled?: (user: string) => boolean
@@ -552,6 +619,81 @@ export interface InstallSystemdDeps {
 /** logind records linger as a file per user; reading it needs no privilege and no bus. */
 function lingerEnabled(user: string): boolean {
   return existsSync(join('/var/lib/systemd/linger', user))
+}
+
+function lingerRemedy(user: string): string {
+  return `Run \`sudo loginctl enable-linger ${user}\` once to keep it running.`
+}
+
+function systemdUnavailable(deps: InstallSystemdDeps): InstallResult | undefined {
+  if (!(deps.hasSystemctl ?? hasSystemctl)())
+    return {
+      ok: false,
+      reason: 'systemd is not installed on this host',
+      remedy: 'To start it at boot, add an "@reboot" entry with `crontab -e`.',
+    }
+  if (!(deps.hasUserSystemd ?? hasUserSystemd)()) return userSystemdUnavailable()
+  return undefined
+}
+
+export interface SystemdServiceCheck {
+  ok: boolean
+  detail: string
+  /** Current reachability is independent of whether this service will return after reboot. */
+  active?: boolean
+}
+
+export interface InspectUserServiceDeps {
+  unitActive?: (unit: string) => boolean
+  unitEnabled?: (unit: string) => boolean
+  lingerEnabled?: (user: string) => boolean
+}
+
+/** Shared read-only requirements for services installed by setup. */
+export function inspectUserService(
+  definition: () => UserUnitDefinition,
+  label: string,
+  deps: InspectUserServiceDeps = {},
+  requireLinger = true,
+): SystemdServiceCheck {
+  try {
+    const unit = definition()
+    const problems: string[] = []
+    if (unit.current === undefined) problems.push(`${label} service definition is missing.`)
+    else if (unit.needsWrite) problems.push(`${label} service definition is out of date.`)
+    const active = (deps.unitActive ?? systemdUnitActive)(unit.unit)
+    if (!active) problems.push(`${label} is stopped.`)
+    if (!(deps.unitEnabled ?? systemdUnitEnabled)(unit.unit))
+      problems.push(`${label} service is not enabled for reboot.`)
+    const user = userInfo().username
+    if (requireLinger && !(deps.lingerEnabled ?? lingerEnabled)(user))
+      problems.push(`The service stops at logout. ${lingerRemedy(user)}`)
+    return {
+      ok: problems.length === 0,
+      active,
+      detail: problems.length
+        ? problems.join(' ')
+        : requireLinger
+          ? 'Running; survives logout and reboot.'
+          : 'Running; enabled for reboot.',
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      detail: `Could not inspect the ${label} service: ${(error as Error).message}`,
+    }
+  }
+}
+
+/** Read-only inspection of the state installSystemd promises, including logout/reboot survival. */
+export function inspectSystemd(
+  port: number,
+  instanceId: string = resolveInstanceId(),
+  deps: Omit<InstallSystemdDeps, 'run'> & InspectUserServiceDeps = {},
+): SystemdServiceCheck {
+  const unavailable = systemdUnavailable(deps)
+  if (unavailable) return { ok: false, detail: `${unavailable.reason}. ${unavailable.remedy}` }
+  return inspectUserService(() => parentUnitDefinition(port, instanceId, deps), 'Podium', deps)
 }
 
 /**
@@ -585,26 +727,17 @@ export function installSystemd(
   instanceId: string = resolveInstanceId(),
   deps: InstallSystemdDeps = {},
 ): InstallResult {
-  if (!(deps.hasSystemctl ?? hasSystemctl)())
-    return {
-      ok: false,
-      reason: 'systemd is not installed on this host',
-      remedy: 'To start it at boot, add an "@reboot" entry with `crontab -e`.',
-    }
-  if (!(deps.hasUserSystemd ?? hasUserSystemd)()) return userSystemdUnavailable()
+  if (mode === 'client') return { ok: false, reason: 'client mode has no supervised unit' }
+  const unavailable = systemdUnavailable(deps)
+  if (unavailable) return unavailable
   const dir = (deps.unitDir ?? userUnitDir)()
   const runCommand = deps.run ?? run
-  const parentUnit = instanceServiceName('parent', instanceId)
-  if (mode === 'client') {
-    return { ok: false, reason: 'client mode has no supervised unit' }
-  }
   try {
+    const definition = parentUnitDefinition(port, instanceId, deps)
+    const parentUnit = definition.unit
     mkdirSync(dir, { recursive: true })
     removeLegacyUpdateTimer(dir, instanceId, runCommand)
-    writeFileSync(
-      join(dir, parentUnit),
-      renderParentUnit({ ...deps.renderOptions, instanceId, port }),
-    )
+    if (definition.needsWrite) writeFileSync(definition.path, definition.desired)
     runCommand('systemctl', ['--user', 'daemon-reload'])
     // Linger so the units run without an active login session (headless VPS over SSH).
     const user = userInfo().username
@@ -618,7 +751,7 @@ export function installSystemd(
     if (!(deps.lingerEnabled ?? lingerEnabled)(user))
       return {
         ok: true,
-        lingerRemedy: `Run \`sudo loginctl enable-linger ${user}\` once to keep it running.`,
+        lingerRemedy: lingerRemedy(user),
       }
     return { ok: true }
   } catch (e) {
