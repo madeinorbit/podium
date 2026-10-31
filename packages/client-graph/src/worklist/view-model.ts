@@ -9,6 +9,7 @@ import { WorklistIssue } from './issue'
 import { WorklistSession } from './session'
 import { SidebarIndex, type SidebarState } from './sidebar'
 import { MobileSectionsView } from './mobile'
+import { PhoneWorklist } from './phone'
 import { LOADING, type RollupInputs, type RollupParts } from './rollup'
 
 /** One view of the worklist, drawn by the desktop sidebar and phone Work tab. */
@@ -38,11 +39,13 @@ export class Worklist {
     spinOffIds: id => this.pool.rollupInputs.spinOffIds(id),
   }
   readonly mobileSectionsView: MobileSectionsView
+  readonly phone: PhoneWorklist
 
   constructor(readonly pool: MobxPool) {
     this.host = pool
     this.desktop = new SidebarIndex(this)
     this.mobileSectionsView = new MobileSectionsView(pool)
+    this.phone = new PhoneWorklist(this)
   }
 
   @action select(id: string | null): void {

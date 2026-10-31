@@ -43,6 +43,7 @@ const ISSUE_PAINT_FIELDS: ReadonlySet<string> = new Set([
   'title', 'audience', 'pinned', 'linearIdentifier', 'seq', 'acceptance',
   'stage', 'closedReason', 'blocked', 'branch', 'gitState', 'parentBranch',
   'landedAt', 'landedSha',
+  'updatedAt', 'closedAt', 'tuckedAt',
 ])
 
 /** What a model reads from its pool. */

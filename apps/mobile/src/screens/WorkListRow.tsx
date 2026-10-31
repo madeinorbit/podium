@@ -1,32 +1,30 @@
-/** Native work-row paint from one addressed pool projection. */
+/** The desktop's calm two-line row, with touch targets for the phone web app. */
+
+import { relativeTime } from '@podium/client-core/focus'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import { useWorklistModel } from '@podium/client-graph/react'
 import type { WorklistIssue } from '@podium/client-graph/worklist/issue'
 import type { MobileWorkRef } from '@podium/client-graph/worklist/mobile'
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
+import type { PhoneWorkLane } from '@podium/client-graph/worklist/phone'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
-import type { IssueGitState, SessionId } from '@podium/model'
+import type { RowTone } from '@podium/client-graph/worklist/voice'
+import type { SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { observer } from 'mobx-react-lite'
 import { memo, useCallback, useEffect, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 import { useMobilePool } from '../client/mobile-pool'
-import { Icon } from '../components/Icon'
-import { AlarmClock, ArrowDownToLine, Pin } from '../components/icons'
 import { NotSavedMark } from '../components/NotSavedMark'
 import { PressableScale } from '../components/PressableScale'
 import { WorkingMark } from '../components/WorkingMark'
-import { FleetSummary, GitStampLine, RowProgressMeter } from '../components/WorkRowParts'
 import { useAgeNow } from '../lib/clock-hooks'
-import { mobileRowStamp, worklistRowStatus } from '../lib/work-sections'
+import { mobileRowStamp } from '../lib/work-sections'
 import { alpha } from '../theme/mix'
-import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
+import { color, mono, sans } from '../theme/theme'
+import { workRowMenuEvents } from './work-row-menu-events'
 
-/** Standard delay-before-show for the row's open loader: below this an open
- *  reads as instant and a spinner would only be a flash. */
 export const NAV_LOADER_DELAY_MS = 150
-
-/** True once `active` has held for `delayMs`; false the moment it drops. */
 export function useDelayedFlag(active: boolean, delayMs: number): boolean {
   const [on, setOn] = useState(false)
   useEffect(() => {
@@ -40,10 +38,9 @@ export function useDelayedFlag(active: boolean, delayMs: number): boolean {
   return on
 }
 
-/** A row paints only the addressed pool projection. Gesture targets are read
- * from the same reader at the moment of the press. */
 export interface WorkListRowProps {
   row: WorklistIssue
+  lane?: PhoneWorkLane
   onTuck?: () => void
   navPending: boolean
   onOpen: () => void
@@ -52,359 +49,167 @@ export interface WorkListRowProps {
 
 export const WorkRow = observer(function WorkRow({
   row,
-  onTuck,
+  lane = 'open',
   navPending,
   onOpen,
   onLongPress,
 }: WorkListRowProps) {
   const navLoader = useDelayedFlag(navPending, NAV_LOADER_DELAY_MS)
   if (typeof row.ready === 'symbol') return <View accessibilityLabel="Loading work" />
-  if (!row.ready) return null
-  const issue = row.issue
-  const ref = issueDisplayRef(issue)
-  const internal = issue.audience === 'agent'
-  const pinned = issue.pinned === true
-  const label = row.title
-  const progressValue = row.progress
-  const progress = typeof progressValue !== 'symbol' && progressValue.total >= 2 ? progressValue : null
-  const originSeq = row.origin?.seq ?? null
-  const statusLine = worklistRowStatus(row)
-  const snoozed = issue.deferred === true
-  const unsnoozed = row.returnedFromDefer
-  const phase = row.timing.phase, working = row.visibleWorking, waiting = row.waitingCount
-  const decision = row.decision
+  if (row.ready !== 'ready') return null
+  const ref = issueDisplayRef(row.issue)
+  const voice = row.voice
+  const word =
+    lane === 'snoozed'
+      ? row.snoozeLabel
+      : lane === 'closed'
+        ? voice.word === 'Landed'
+          ? 'Landed'
+          : 'Closed'
+        : voice.word
+  const tone =
+    lane === 'snoozed'
+      ? 'idle'
+      : lane === 'closed'
+        ? word === 'Landed'
+          ? 'done'
+          : 'closed'
+        : voice.tone
   const unread = row.emphasizeUnread
-  const draftOnly = row.sessionOnlyDraft
-  const attention = waiting > 0
-
   return (
-    <View
-      style={[
+    <PressableScale
+      {...workRowMenuEvents(onLongPress)}
+      accessibilityRole="button"
+      accessibilityLabel={`${ref} ${row.title}`}
+      accessibilityValue={{ text: `${word}${unread ? ' · Unread' : ''}` }}
+      accessibilityHint="Open task. Long press for actions."
+      onPress={onOpen}
+      onLongPress={onLongPress}
+      delayLongPress={450}
+      scaleTo={1}
+      style={({ pressed }) => [
         rowStyles.row,
-        attention ? rowStyles.rowAttention : null,
-        phase === 'queued' && rowStyles.rowQueued,
-        phase === 'done' && !onTuck && rowStyles.rowDone,
-        internal && rowStyles.rowInternal,
+        row.selected && rowStyles.selected,
+        pressed && rowStyles.pressed,
       ]}
     >
-      <PressableScale
-        accessibilityRole="button"
-        accessibilityLabel={`${ref} ${label}`}
-        onPress={onOpen}
-        onLongPress={onLongPress}
-        delayLongPress={350}
-        scaleTo={0.99}
-        style={({ pressed }) => [
-          rowStyles.rowMain,
-          attention && rowStyles.rowMainAttention,
-          pressed && rowStyles.pressed,
-        ]}
-      >
-        <View style={rowStyles.rowText}>
-          <View style={rowStyles.rowTitleLine}>
-            <Text
-              style={[
-                rowStyles.rowTitle,
-                unread && rowStyles.rowTitleUnread,
-              ]}
-              numberOfLines={1}
-            >
-              {label}
-            </Text>
-            {unread ? <View style={rowStyles.unreadDot} /> : null}
-            {internal ? <Text style={rowStyles.internal}>internal</Text> : null}
-            {snoozed ? <Icon as={AlarmClock} size={10} color={color.textMicro} /> : null}
-            {unsnoozed ? <Text style={rowStyles.unsnoozed}>Unsnoozed</Text> : null}
-          </View>
-          <View style={rowStyles.rowStatusLine}>
-            <NotSavedMark kind="issue" id={row.id} />
-            <Text style={rowStyles.rowRef}>{ref}</Text>
-            {attention ? <Text style={rowStyles.rowWaitCount}>{waiting}</Text> : null}
-            {pinned ? <Icon as={Pin} size={9} color={color.textMicro} /> : null}
-            {draftOnly ? null : <FleetSummary display={row.visibleFleet} />}
-            <Text
-              style={[
-                rowStyles.status,
-                decision ? rowStyles.statusDecision : null,
-                !decision && phase === 'working' ? rowStyles.statusWorking : null,
-                !decision && phase === 'done' ? rowStyles.statusDone : null,
-              ]}
-              numberOfLines={1}
-            >
-              {statusLine}
-            </Text>
-            {originSeq !== null ? <Text style={rowStyles.origin}>{`⤷ ${originSeq}`}</Text> : null}
-            <GitStampLine branch={issue.branch} git={issue.gitState as IssueGitState | undefined} suppressAhead={decision === 'merge'} />
-            <View style={rowStyles.spacer} />
-            <View style={rowStyles.rowDatum}>
-              {navLoader ? (
-                <ActivityIndicator
-                  accessibilityLabel="Opening"
-                  size="small"
-                  color={color.textDim}
-                />
-              ) : (
-                <>
-                  {working ? <WorkingMark size={11} /> : null}
-                  <WorkStamp row={row} />
-                </>
-              )}
-            </View>
-          </View>
-          {progress ? <RowProgressMeter progress={progress} working={working} /> : null}
-        </View>
-      </PressableScale>
-      {attention ? (
-        <PressableScale
-          accessibilityRole="button"
-          accessibilityLabel={`${decision ? 'Review' : 'Answer'} ${ref}`}
-          onPress={onOpen}
-          style={({ pressed }) => [
-            rowStyles.attentionAction,
-            decision ? rowStyles.reviewAction : rowStyles.answerAction,
-            pressed && rowStyles.pressed,
+      <View style={rowStyles.titleLine}>
+        <Text
+          style={[
+            rowStyles.title,
+            unread && rowStyles.unread,
+            lane === 'closed' && rowStyles.closed,
           ]}
+          numberOfLines={1}
         >
-          <Text style={[rowStyles.actionText, decision && rowStyles.reviewActionText]}>
-            {decision ? 'Review' : 'Answer'}
+          {row.title}
+        </Text>
+        {unread ? <View style={rowStyles.unreadDot} /> : null}
+        {navLoader ? (
+          <ActivityIndicator accessibilityLabel="Opening" size="small" color={color.textDim} />
+        ) : (
+          <WorkStamp row={row} lane={lane} />
+        )}
+      </View>
+      <View style={rowStyles.statusLine}>
+        <StatusMark tone={tone} />
+        <Text
+          style={[
+            rowStyles.status,
+            tone === 'needs' && rowStyles.needs,
+            tone === 'error' && rowStyles.error,
+          ]}
+          numberOfLines={1}
+        >
+          {word}
+        </Text>
+        {lane === 'open' && voice.sub ? (
+          <Text style={rowStyles.fact} numberOfLines={1}>
+            {voice.sub}
           </Text>
-        </PressableScale>
-      ) : null}
-      {onTuck ? (
-        <PressableScale
-          accessibilityRole="button"
-          accessibilityLabel={`Tuck ${label} into Closed`}
-          onPress={onTuck}
-          style={({ pressed }) => [rowStyles.tuck, pressed && rowStyles.pressed]}
-        >
-          <Icon as={ArrowDownToLine} size={11} color={color.textMicro} />
-          <Text style={rowStyles.tuckText}>Tuck</Text>
-        </PressableScale>
-      ) : null}
-    </View>
+        ) : null}
+        <NotSavedMark kind="issue" id={row.id} />
+        <View style={rowStyles.spacer} />
+        <Text style={rowStyles.ref}>{ref}</Text>
+      </View>
+    </PressableScale>
   )
 })
 
-/**
- * The row's own geometry and ink, moved with the row (POD-4421). `pressed`
- * stays paired with the screen's copy (same value, same name) because the
- * folded rows there still read it.
- */
+export function StatusMark({ tone }: { tone: RowTone }) {
+  if (tone === 'working') return <WorkingMark size={10} />
+  if (tone === 'done' || tone === 'closed')
+    return (
+      <Text
+        accessibilityElementsHidden
+        style={[rowStyles.markText, tone === 'done' && rowStyles.blue]}
+      >
+        {tone === 'done' ? '✓' : '−'}
+      </Text>
+    )
+  return (
+    <View
+      accessibilityElementsHidden
+      style={[
+        rowStyles.mark,
+        tone === 'active' && rowStyles.activeMark,
+        tone === 'needs' && rowStyles.needsMark,
+        tone === 'error' && rowStyles.errorMark,
+        tone === 'settled' && rowStyles.settledMark,
+        tone === 'draft' && rowStyles.draftMark,
+      ]}
+    />
+  )
+}
+
 const rowStyles = StyleSheet.create({
   row: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    minHeight: 62,
-    backgroundColor: color.engraved,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: color.hairline,
-    overflow: 'hidden',
-  },
-  rowAttention: {
-    minHeight: 68,
-    backgroundColor: alpha(color.needsYou, 0.05),
-    // The stock hairline DISAPPEARS on this tint: #24272d composites to about
-    // 1.06:1 against the bisque-washed ground (vs 1.16:1 on plain engraved).
-    // Deriving the seam from the tint itself — 16% bisque — lands it at about
-    // 1.4:1 on that ground, clearly above the plain list's own separator.
-    borderBottomColor: alpha(color.needsYou, 0.16),
-  },
-  rowQueued: {
-    opacity: 0.72,
-  },
-  rowDone: {
-    opacity: 0.75,
-  },
-  rowInternal: {
-    opacity: 0.8,
-  },
-  rowMain: {
-    flex: 1,
-    minHeight: 62,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 9,
-    paddingLeft: space.lg,
-    paddingRight: space.md,
-    paddingVertical: 9,
-  },
-  rowMainAttention: {
-    minHeight: 68,
-  },
-  rowText: {
-    flex: 1,
-    minWidth: 0,
-    gap: 2,
-  },
-  rowTitleLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  rowTitle: {
-    ...sans(600),
-    flexShrink: 1,
-    color: color.body,
-    fontSize: 15,
-  },
-  rowTitleUnread: {
-    ...sans(600),
-    color: color.text,
-  },
-  unreadDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: color.info,
-    flexShrink: 0,
-  },
-  internal: {
-    ...monoLabel(9),
-    color: color.textMicro,
-    paddingHorizontal: 3,
-    paddingVertical: 1,
-    borderRadius: radius.xs,
-    overflow: 'hidden',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: alpha(color.textMicro, 0.5),
-  },
-  unsnoozed: {
-    ...monoLabel(9),
-    color: color.accentTint,
-    paddingHorizontal: 3,
-    paddingVertical: 1,
-    borderRadius: radius.xs,
-    overflow: 'hidden',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.accentBorder,
-  },
-  rowStatusLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    minHeight: 56,
+    paddingLeft: 32,
+    paddingRight: 16,
+    paddingVertical: 10,
     gap: 5,
+    backgroundColor: color.bgSunken,
   },
-  rowDatum: {
-    width: 58,
-    flexShrink: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    gap: 4,
-  },
-  rowRef: {
-    ...mono(600),
-    flexShrink: 0,
-    color: color.textMicro,
-    fontSize: font.micro,
-  },
-  rowWaitCount: {
-    ...mono(600),
-    minWidth: 18,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    overflow: 'hidden',
-    borderRadius: radius.full,
-    backgroundColor: color.needsYou,
-    color: color.onAccent,
-    fontSize: font.micro,
-    textAlign: 'center',
-  },
-  spacer: {
-    flex: 1,
-    minWidth: 4,
-  },
-  status: {
-    ...mono(500),
-    flexShrink: 1,
-    color: color.textFaint,
-    fontSize: font.tiny,
-  },
-  statusDecision: {
-    ...mono(600),
-    color: color.needsYouText,
-  },
-  statusWorking: {
-    color: color.workingText,
-  },
-  statusDone: {
-    color: color.textMicro,
-  },
-  origin: {
-    ...mono(400),
-    color: color.textMicro,
-    fontSize: font.micro,
-  },
-  // The clock never wraps: `12m ago` breaking onto a second line pushed the
-  // meter down and made two adjacent rows different heights.
-  stamp: {
-    ...mono(400),
-    flexShrink: 0,
-    color: color.textMicro,
-    fontSize: font.micro,
-  },
-  attentionAction: {
-    alignSelf: 'center',
-    minWidth: 58,
-    height: 34,
-    marginRight: space.lg,
-    paddingHorizontal: space.sm + 2,
-    borderRadius: radius.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  answerAction: {
-    backgroundColor: color.needsYou,
-  },
-  reviewAction: {
-    backgroundColor: color.surfaceHigh,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.borderStrong,
-  },
-  actionText: {
-    ...sans(700),
-    color: color.onAccent,
-    fontSize: font.tiny,
-  },
-  reviewActionText: {
-    color: color.body,
-  },
-  // A chip, not a slab (desktop POD-293): the control is a quiet right-edge
-  // action on a finished row, so it must not out-weigh the row it dismisses.
-  tuck: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'center',
-    gap: 4,
-    height: 26,
-    marginRight: 6,
-    paddingHorizontal: 8,
-    borderRadius: radius.sm,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.border,
-    backgroundColor: color.surfaceHigh,
-  },
-  tuckText: {
-    ...mono(400),
-    color: color.textFaint,
-    fontSize: font.micro,
-    letterSpacing: 0.2,
-  },
-  pressed: {
-    opacity: 0.65,
-  },
+  selected: { backgroundColor: alpha(color.body, 0.045) },
+  pressed: { backgroundColor: alpha(color.body, 0.07) },
+  titleLine: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  title: { ...sans(400), flex: 1, minWidth: 0, color: color.body, fontSize: 15 },
+  unread: { ...sans(600) },
+  closed: { color: color.textFaint },
+  unreadDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: color.info },
+  statusLine: { flexDirection: 'row', alignItems: 'center', minWidth: 0, gap: 5 },
+  status: { ...sans(400), flexShrink: 1, color: color.textDim, fontSize: 12 },
+  needs: { color: color.needsYouText },
+  error: { color: color.dangerText },
+  fact: { ...sans(400), color: color.textFaint, fontSize: 11, flexShrink: 1 },
+  spacer: { flex: 1 },
+  ref: { ...mono(400), color: color.textMicro, fontSize: 10 },
+  stamp: { ...mono(400), color: color.textFaint, fontSize: 10 },
+  workingStamp: { color: color.workingText },
+  mark: { width: 6, height: 6, borderRadius: 3, borderWidth: 1, borderColor: color.textMicro },
+  activeMark: { borderColor: color.workingText },
+  needsMark: { backgroundColor: color.needsYouText, borderColor: color.needsYouText },
+  errorMark: { backgroundColor: color.dangerText, borderColor: color.dangerText },
+  settledMark: { backgroundColor: color.textFaint, borderColor: color.textFaint },
+  draftMark: { borderStyle: 'dashed' },
+  markText: { width: 9, fontSize: 10, color: color.textMicro, lineHeight: 12 },
+  blue: { color: color.info },
 })
 
 export const PoolWorkRowSlot = memo(
   observer(function PoolWorkRowSlot({
     item,
     onTuck,
+    lane = 'open',
     ...callbacks
   }: {
     item: MobileWorkRef
+    lane?: PhoneWorkLane
     navPending: boolean
     onOpenIssue: (issue: IssueNavigationModel) => void
     onOpenSession: (sessionId: SessionId, rowKey: string) => void
-    onLongPress: (issue: IssueNavigationModel) => void
+    onLongPress: (issue: IssueNavigationModel, lane?: 'live' | 'snoozed' | 'closed') => void
     onTuck: (id: string) => void
   }) {
     const pool = useMobilePool()
@@ -424,13 +229,17 @@ export const PoolWorkRowSlot = memo(
     const longPress = useCallback(() => {
       const current = reader?.mobileRow(item.id)
       if (current && typeof current !== 'symbol')
-        callbacks.onLongPress(current.issue as unknown as IssueNavigationModel)
-    }, [callbacks.onLongPress, item.id, reader])
+        callbacks.onLongPress(
+          current.issue as unknown as IssueNavigationModel,
+          lane === 'open' ? 'live' : lane,
+        )
+    }, [callbacks.onLongPress, item.id, lane, reader])
     if (!pool || typeof value === 'symbol') return <View accessibilityLabel="Loading work" />
     if (!row || !value) return null
     return (
       <WorkRow
         row={row}
+        lane={lane}
         navPending={callbacks.navPending}
         onOpen={openRow}
         onLongPress={longPress}
@@ -439,6 +248,7 @@ export const PoolWorkRowSlot = memo(
     )
   }),
   (a, b) =>
+    a.lane === b.lane &&
     a.item.id === b.item.id &&
     a.item.listKey === b.item.listKey &&
     a.navPending === b.navPending &&
@@ -448,9 +258,30 @@ export const PoolWorkRowSlot = memo(
     a.onLongPress === b.onLongPress,
 )
 
-const WorkStamp = observer(function WorkStamp({ row }: { row: WorklistIssue }) {
+const WorkStamp = observer(function WorkStamp({
+  row,
+  lane,
+}: {
+  row: WorklistIssue
+  lane: PhoneWorkLane
+}) {
   const timing = row.timing
-  const now = useAgeNow(timing.sinceMs, timing.baseMs ?? 0, timing.phase === 'working' || timing.phase === 'waiting')
-  const stamp = mobileRowStamp(timing, now)
-  return stamp ? <Text style={rowStyles.stamp} numberOfLines={1}>{stamp}</Text> : null
+  const updated =
+    lane === 'closed'
+      ? (row.issue.tuckedAt ?? row.issue.closedAt ?? row.issue.updatedAt)
+      : row.issue.updatedAt
+  const age = Date.parse(updated)
+  const live = lane === 'open' && (timing.phase === 'working' || timing.phase === 'waiting')
+  const now = useAgeNow(live ? timing.sinceMs : age, live ? (timing.baseMs ?? 0) : 0)
+  const stamp = (live ? mobileRowStamp(timing, now) : relativeTime(updated, now))
+    ?.replace(/ ago$/, '')
+    .replace('just now', 'now')
+  return stamp ? (
+    <Text
+      style={[rowStyles.stamp, live && timing.phase === 'working' && rowStyles.workingStamp]}
+      numberOfLines={1}
+    >
+      {stamp}
+    </Text>
+  ) : null
 })

@@ -17,11 +17,13 @@
       "baseUrl": "/mobile"
     },
     "ios": {
+      "userInterfaceStyle": "automatic",
       "bundleIdentifier": "dev.podium.mobile",
       "appleTeamId": "Z5A2ZC8STN",
       "buildNumber": "14",
       "supportsTablet": false,
       "infoPlist": {
+        "UIUserInterfaceStyle": "Automatic",
         "ITSAppUsesNonExemptEncryption": false,
         "MinimumOSVersion": "16.4",
         "CADisableMinimumFrameDurationOnPhone": true,

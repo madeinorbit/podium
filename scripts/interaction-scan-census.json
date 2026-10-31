@@ -33165,6 +33165,47 @@
       "reason": "The section owner forwards the declared non-asking subset maintained from each record, replacing the whole-group filter. Incremental updates visit changed records and consumed output positions. First demand still seeds group membership without a cardinality cap; this entry retains that collection debt. Predecessor: 1d62be3a76ec865a81e7e2150662596a228cd80801b756317261580478ccdaef."
     },
     {
+      "file": "packages/client-graph/src/worklist/phone.ts",
+      "holder": "PhoneWorkSection/ids",
+      "rule": "consume:filter",
+      "tokens": "ba0fbb505460b38e5c0a50842bcec4889c7e7c2eaad6ab8d9239ebff638fe5a4",
+      "gate": [
+        "then:97626fe8d89d8a57f9c043cb6b64198017bd68782e63b847fd7ca7a649bb440d"
+      ],
+      "origin": [
+        "209d37110de0ff9f14b47a1b3312519a6c5c872c9d9cef7d522dedf99dd58033"
+      ],
+      "fingerprint": "08fffb3e98ba4ce351c73aadca68845de61b294dfe958f845086af2c9687894e",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2303",
+      "trigger": "A nonempty phone Work filter, or a searchable change within that project lane.",
+      "bound": "Only the current project section's filed desktop lane IDs and pinned lifecycle exceptions. Cost is O(W_project), the current working set, on explicit search; archived history is absent from the source.",
+      "reason": "The phone filters the existing desktop membership rather than acquiring a second catalogue. Per-section lazy equality preserves untouched list boundaries.",
+      "guard": "packages/client-graph/src/worklist/phone.test.ts: keeps search reads inside the working set as unrelated archived history grows; equal knownRow calls at 1x/4x archived history and no historical IDs. WorkScreen.pool.test.tsx checks active-search boundary identity at both scales."
+    },
+    {
+      "file": "packages/client-graph/src/worklist/phone.ts",
+      "holder": "PhoneWorkSection/label",
+      "rule": "reader-summary",
+      "tokens": "921c1fb9f6865ee3c855854dbeb279f8bbc1170c3940558e1aa700c85bfa7be8",
+      "gate": [
+        "exit:then:7534792804bb24e97eab17c6370e21427aa86cb5d1eb80b09e2872530b3027f4",
+        "exit:then:ff53c4f1580436c49355e477e638f3bb93c5c7dc6a726b5c3bc15522b3d60534"
+      ],
+      "origin": [
+        "c6528658720395c716d44dc2defe29f6a510c5791f5344e9cc337f8fbe24270f"
+      ],
+      "fingerprint": "3112dae8184f7a092250bf6f4b68ba9c05ff28ec9c16f04a0aa65218f0b0ed39",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2303",
+      "trigger": "Rendering an unregistered project whose only tasks are pinned in Snoozed or Closed.",
+      "bound": "One explicitly indexed member (allIds[0]) of the current project section supplies its canonical repoPath. The label does not enumerate or search the issue catalogue.",
+      "reason": "Registered sections borrow their existing desktop band label. The fallback addresses one task only when that band is absent.",
+      "guard": "packages/client-graph/src/worklist/phone.test.ts: labels an unregistered pinned-only project with one addressed task read; knownRow is called exactly once with nap."
+    },
+    {
       "file": "packages/client-graph/src/worklist/seat-verdicts.ts",
       "holder": "SeatVerdicts/reset",
       "rule": "loop:for-of",

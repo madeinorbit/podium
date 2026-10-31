@@ -28,13 +28,14 @@ import { PromptSheet } from './task-detail/PromptSheet'
 
 export type { WorkIssueMenuTarget } from '../lib/work-menu'
 
-type MenuSheet =
+export type WorkMenuSheet =
   | null
   | { kind: 'menu' }
   | { kind: 'rename' }
   | { kind: 'status' }
   | { kind: 'confirm-delete' }
   | { kind: 'confirm-close'; reason: IssueCloseReason }
+type MenuSheet = WorkMenuSheet
 
 /**
  * Work's long-press surface. Once the desktop sidebar vocabulary in full, and
@@ -46,17 +47,19 @@ type MenuSheet =
 export const WorkIssueMenu = observer(function WorkIssueMenu({
   target,
   onClose,
+  initialSheet,
 }: {
   target: WorkIssueMenuTarget
   /** Unread: the menu reads its issue's facts from the shared issue. */
   issues?: readonly IssueViewModel[]
   sessions?: readonly SessionView[]
   onClose: () => void
+  initialSheet?: WorkMenuSheet
 }) {
   // Actions retain their owner; displayed facts follow the shared issue.
   const store = useStoreActions()
   const hasCloseBlockers = useIssueCloseGuard()
-  const [sheet, setSheet] = useState<MenuSheet>({ kind: 'menu' })
+  const [sheet, setSheet] = useState<MenuSheet>(initialSheet ?? { kind: 'menu' })
   const issue = target.issue
   const pool = useMobilePool()
   const unread = pool ? pool.issueObject(issue.id).unread : issue.unread
@@ -158,7 +161,6 @@ export const WorkIssueMenu = observer(function WorkIssueMenu({
         onConfirm={(reason) => finish(store.closeIssue(issue.id, reason))}
         onClose={closeIf('confirm-close')}
       />
-
     </>
   )
 

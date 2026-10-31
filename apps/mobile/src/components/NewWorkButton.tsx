@@ -27,7 +27,7 @@ import {
 import type { AgentKind, MachineId, MachineWire } from '@podium/model'
 import { machinePathsEqual } from '@podium/model/browser'
 import { usePathname, useRouter } from 'expo-router'
-import { type Dispatch, type SetStateAction, useCallback, useMemo, useState, useLayoutEffect, useRef } from 'react'
+import { type Dispatch, type ReactNode, type SetStateAction, useCallback, useMemo, useState, useLayoutEffect, useRef } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
 import { useStoreActions, useUiState } from '../client/hooks'
 import { useMobilePool, useMobilePoolProjection } from '../client/mobile-pool'
@@ -132,16 +132,16 @@ function readNewWorkDraft(pool: MobxPool): {
  * {@link useModelCatalog}; until reported, the menu offers Auto. Tracked tasks are still created from the Tasks tab — this sheet only
  * starts an agent.
  */
-export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
+export function NewWorkButton({ size = 28, renderTrigger }: { size?: 28 | 32 | 34; renderTrigger?: (open: () => void) => ReactNode }) {
   const [step, setStep] = useState<PickerStep>(null)
   // The prompt survives dismissal and an optimistic launch settling while the
   // launcher is unmounted. Persisted choices live in the existing UI state.
   const [prompt, setPrompt] = useState('')
   return (
     <>
-      <HeaderButton label="New work" onPress={() => setStep('launch')} size={size}>
+      {renderTrigger ? renderTrigger(() => setStep('launch')) : <HeaderButton label="New work" onPress={() => setStep('launch')} size={size}>
         <Icon as={Plus} size={19} color={color.text} />
-      </HeaderButton>
+      </HeaderButton>}
       {step !== null ? (
         <NewWorkLauncher step={step} setStep={setStep} prompt={prompt} setPrompt={setPrompt} />
       ) : null}
