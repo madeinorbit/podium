@@ -10676,18 +10676,18 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "fixtureSidebarSections",
       "rule": "loop:for-of",
-      "tokens": "7dc04b31be2ce5e92a2262ae4a8d2cf14b2e08c5e925490c9f178f0d86497300",
+      "tokens": "bf80d609dbd8ad598eaf2216598a6c8f771fbdf232f358845479f8a040ceac66",
       "gate": [],
       "origin": [
         "4bed1838542c1263d86af04d8f60231a7891b8bcb42ec58e87a88aef7c00c3a7"
       ],
-      "fingerprint": "6f9c18cc3d55049c4aef05ec5df8ffd53ec2fdae65222f6b6691e3209642c48f",
+      "fingerprint": "cc78ab0165d9aa558ef42d8cf26ccbdb2cbccade0ffb40f024f7f49f1aad964e",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Fixture sidebar projection over normalized synthetic issues (POD-5566)",
       "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
-      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path. Predecessor: 6f9c18cc3d55049c4aef05ec5df8ffd53ec2fdae65222f6b6691e3209642c48f.",
       "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
     },
     {
@@ -12033,7 +12033,7 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/pool/sidebar/row/callback",
       "rule": "helper-consumer",
-      "tokens": "38a91581fe2f0382e0a4da02c6ba7a77e1bff5ef9c5dc1a03afb56edf228a76e",
+      "tokens": "c5d5928d8bdc48c382ae26e71c5430985518f3750e35890cd5354c7acc2da6ca",
       "gate": [
         "exit:then:2b4f18499c8215cdd61f2462bac62beed1908aa8157f047393ee49214db8ff66"
       ],
@@ -12042,13 +12042,13 @@
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "14cd9a018f1857b34d9448a14b34101ac44306c2efbd8f78ca96dec2a836af18",
+      "fingerprint": "3920a1733ac0cc71d2a50deef3dd30dc2b59e3d5663d0ab9b961fc06dd58e45a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Fixture sidebar projection over normalized synthetic issues (POD-5566)",
       "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
-      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path. Session execution, presence and timestamp predicates now borrow shared model facts; the same collection and demand bounds remain. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced. POD-2239 removes progress compatibility fields; this retained path keeps its collection demand and classification. Predecessor: b00bdaef43c2b434d5a5ff46cc016086300043e14109a25220a18c660e17d3ce. Rebased onto tf.dev while retaining its fixture unread and historical-attachment behavior; the combined callback replaces parent fingerprint 781cf84c14c8452b4e325035e9d9c7abfb304dbcfa59c488a8c7d2fb34420a8d.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path. Session execution, presence and timestamp predicates now borrow shared model facts; the same collection and demand bounds remain. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced. POD-2239 removes progress compatibility fields; this retained path keeps its collection demand and classification. Predecessor: b00bdaef43c2b434d5a5ff46cc016086300043e14109a25220a18c660e17d3ce. Rebased onto tf.dev while retaining its fixture unread and historical-attachment behavior; the combined callback replaces parent fingerprint 781cf84c14c8452b4e325035e9d9c7abfb304dbcfa59c488a8c7d2fb34420a8d. Predecessor: 14cd9a018f1857b34d9448a14b34101ac44306c2efbd8f78ca96dec2a836af18.",
       "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
     },
     {
@@ -12134,19 +12134,19 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/pool/sidebar/sections/callback",
       "rule": "helper-consumer",
-      "tokens": "bdf4d2287f94422a621abc3c627433286b19cd7c491a01b97b4e30b4d9ffb475",
+      "tokens": "8477270ec6cdc6f78ef3717d98b330c30449318c58071e177bd1c9ee605ce120",
       "gate": [],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25"
       ],
-      "fingerprint": "798c370550ef74700fa321d90c6da96e0f2a530b789c0d78f64670037f7b2140",
+      "fingerprint": "cd73214a8d37a96d3bbe11e9d98aa91c9e851bc4567166b876a17f61d343fee2",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Fixture sidebar projection over normalized synthetic issues (POD-5566)",
       "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
-      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path. Predecessor: 075946d00f5f9088579d5738e8ecdf00347f80fd1b93d75a3ba157a271839635.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path. Predecessor: 075946d00f5f9088579d5738e8ecdf00347f80fd1b93d75a3ba157a271839635. Predecessor: 798c370550ef74700fa321d90c6da96e0f2a530b789c0d78f64670037f7b2140.",
       "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
     },
     {
