@@ -1,4 +1,5 @@
 // Standalone sidebar layout with synthetic pool data and no PWA service worker.
+import { realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { defineConfig, type PluginOption } from 'vite'
 import base from './vite.config'
@@ -8,6 +9,9 @@ const REAL_DESCRIPTORS = fileURLToPath(
 )
 const REAL_CATALOG = fileURLToPath(new URL('./src/lib/use-model-catalog.ts', import.meta.url))
 const STUB_CATALOG = fileURLToPath(new URL('./harness/sidebar-catalog-stub.ts', import.meta.url))
+const FONT_ASSET_ROOTS = ['geist', 'geist-mono'].map((font) =>
+  realpathSync(new URL(`./node_modules/@fontsource-variable/${font}/files`, import.meta.url)),
+)
 
 export default defineConfig(async (env) => {
   const real = await (base as unknown as (e: typeof env) => Promise<Record<string, unknown>>)(env)
@@ -55,9 +59,14 @@ export default defineConfig(async (env) => {
     server: {
       port: 55597,
       strictPort: true,
-      // Geist lives in the ROOT node_modules, outside this worktree, and the
-      // default allow list refuses it — silently, as a fallback face.
-      fs: { allow: [fileURLToPath(new URL('../..', import.meta.url)), '/home/podium/podium'] },
+      // Bun can link font assets outside the worktree. Allow only their files directories.
+      fs: {
+        allow: [
+          fileURLToPath(new URL('../..', import.meta.url)),
+          '/home/podium/podium',
+          ...FONT_ASSET_ROOTS,
+        ],
+      },
     },
   }
 })
