@@ -66,6 +66,8 @@ export const UI_STATE_KEYS = {
   workspaces: 'podium.workspaces',
   /** The open file tabs the layouts above hold ids for (POD-1247). */
   fileTabs: 'podium.fileTabs',
+  /** File preview/editor scroll offsets on this screen. */
+  fileScroll: 'podium.fileScroll',
   superOpen: 'podium.superOpen.v2',
   panelMode: 'podium.panelMode',
   panelModeDefault: 'podium.panelModeDefault',
@@ -187,6 +189,10 @@ export const UI_STATE_ROUTES = {
     // The paths are also this device's reachability, exactly like recent files.
     reason: 'Open file buffers are the other half of this screen\u2019s tab layout.',
   },
+  [UI_STATE_KEYS.fileScroll]: {
+    home: 'device-local',
+    reason: 'File scroll offsets depend on this screen\u2019s viewport and tab layout.',
+  },
   [UI_STATE_KEYS.superOpen]: {
     home: 'per-user-replicated',
     reason: 'The personal superagent column is part of the user shell layout.',
@@ -247,6 +253,7 @@ export const UI_STATE_ROUTES = {
  * Each is deliberately local: transient chrome, device capability/preferences,
  * screen geometry, or a cursor describing what this screen displayed. */
 export const CLIENT_DEVICE_LOCAL_UI_KEYS = [
+  UI_STATE_KEYS.fileScroll,
   'podium.chat.stickyPrompts',
   /** How much of a transcript the chat feed renders (POD-376) — a reading
    *  preference belonging to the screen you read on, not to the session. */
@@ -594,6 +601,47 @@ export function writeFilePanelMode(
     delete map[stale]
   }
   ui.set(mapKey, JSON.stringify(map))
+}
+
+export interface FileScrollPosition {
+  top: number
+  left: number
+}
+
+export const FILE_SCROLL_MAP_CAP = 200
+
+function readFileScrollMap(ui: Pick<UiState, 'get'>): Record<string, FileScrollPosition> {
+  return parseRecord(ui.get(UI_STATE_KEYS.fileScroll), (value): value is FileScrollPosition => {
+    if (!value || typeof value !== 'object') return false
+    const { top, left } = value as FileScrollPosition
+    return Number.isFinite(top) && top >= 0 && Number.isFinite(left) && left >= 0
+  })
+}
+
+export function readFileScrollPosition(
+  ui: Pick<UiState, 'get'>,
+  tabId: string,
+  view: 'preview' | 'source',
+): FileScrollPosition | undefined {
+  return readFileScrollMap(ui)[`${view}:${tabId}`]
+}
+
+/** Save each viewport separately, bounded to the most recently written positions. */
+export function writeFileScrollPosition(
+  ui: Pick<UiState, 'get' | 'set'>,
+  tabId: string,
+  view: 'preview' | 'source',
+  position: FileScrollPosition,
+): void {
+  const map = readFileScrollMap(ui)
+  const id = `${view}:${tabId}`
+  if (map[id]?.top === position.top && map[id]?.left === position.left) return
+  delete map[id]
+  map[id] = position
+  const keys = Object.keys(map)
+  for (const stale of keys.slice(0, Math.max(0, keys.length - FILE_SCROLL_MAP_CAP)))
+    delete map[stale]
+  ui.set(UI_STATE_KEYS.fileScroll, JSON.stringify(map))
 }
 
 /** Debug / diagnostics flag stored in the principal-scoped ui-state collection. */

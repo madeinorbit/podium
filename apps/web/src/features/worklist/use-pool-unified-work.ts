@@ -1,7 +1,7 @@
 import { beginSwitch } from '@podium/client-core/perf'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
-import { pickPaneSession } from '@podium/client-core/values'
+import { allTabIds, pickPaneSession, workspaceKeyFor } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { LOADING } from '@podium/client-graph/loading'
 import { omitGone } from '@podium/client-graph/lookup'
@@ -10,13 +10,7 @@ import { missionView, readMissionActionInputs } from '@podium/client-graph/missi
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { allowImperativeRead } from '@podium/mobx-helpers'
-import {
-  asIssueId,
-  asSessionId,
-  type IssueId,
-  machinePathsEqual,
-  type SessionId,
-} from '@podium/model/browser'
+import { asIssueId, asSessionId, type IssueId, type SessionId } from '@podium/model/browser'
 import { useMemo, useRef } from 'react'
 import { useOperatorFocus } from '@/app/operator-focus'
 import { readIssueMenuOrigins } from '@/features/issues/issue-menu-readers'
@@ -116,9 +110,13 @@ function sessionMembership(
   // A scoped question orders only its related resident slots. The unscoped
   // compatibility menu caller is retired by the separate menu-demand fix.
   const candidates = retained
-    ? [...retained].filter(id => pool.tables.session.has(id)).sort((a, b) =>
-      (pool.queries.residentInsertionOrder('session', a) ?? Infinity) -
-      (pool.queries.residentInsertionOrder('session', b) ?? Infinity))
+    ? [...retained]
+        .filter((id) => pool.tables.session.has(id))
+        .sort(
+          (a, b) =>
+            (pool.queries.residentInsertionOrder('session', a) ?? Infinity) -
+            (pool.queries.residentInsertionOrder('session', b) ?? Infinity),
+        )
     : pool.tables.session.keys()
   for (const id of candidates) {
     const session = omitGone(pool.row('session', id)) as SessionView | typeof LOADING | undefined
@@ -168,9 +166,7 @@ export function createPoolWorkActions(
 ) {
   let lastIssueNavigation: string | null = null
   const batch = (fn: () => void) =>
-    (runtime.access as unknown as { batchGesture: (fn: () => void) => void }).batchGesture(
-      fn,
-    )
+    (runtime.access as unknown as { batchGesture: (fn: () => void) => void }).batchGesture(fn)
   const trace = (target: SessionId | null, issueId: IssueId | null) => {
     if (target && target !== runtime.access.paneA && !target.startsWith('file:'))
       beginSwitch({ sessionId: asSessionId(target), issueId })
@@ -188,9 +184,13 @@ export function createPoolWorkActions(
     // R2 already applies resume collapse. Headless provenance remains raw;
     // it never participates in collapse or supplies a workspace pane.
     const sessions = sessionMembership(pool, issueIds)
-    const orderedMembers = [...issueIds].filter(member => pool.tables.issue.has(member)).sort((a, b) =>
-      (pool.queries.residentInsertionOrder('issue', a) ?? Infinity) -
-      (pool.queries.residentInsertionOrder('issue', b) ?? Infinity))
+    const orderedMembers = [...issueIds]
+      .filter((member) => pool.tables.issue.has(member))
+      .sort(
+        (a, b) =>
+          (pool.queries.residentInsertionOrder('issue', a) ?? Infinity) -
+          (pool.queries.residentInsertionOrder('issue', b) ?? Infinity),
+      )
     for (const member of orderedMembers) {
       // The app's issue membership summary comes from session.issueId and
       // excludes dock shells. Cwd-only seats can draw a row but do not become
@@ -200,10 +200,8 @@ export function createPoolWorkActions(
           members.set(session.sessionId, session)
       }
     }
-    const worktreePath = clicked.issue.worktreePath
-    const files = worktreePath
-      ? store.fileTabs.filter((f) => machinePathsEqual(f.worktreePath, worktreePath)).map((f) => f.id)
-      : []
+    const layout = store.workspaces?.[workspaceKeyFor({ missionRootId: rootId })]
+    const restoreLayout = layout !== undefined && allTabIds(layout).length > 0
     // POD-2034: with no remembered pane, the clicked task's coordinator wins,
     // then the mission root's, before falling back to the most recent agent.
     const coordinatorOf = (issueId: string) => {
@@ -212,11 +210,18 @@ export function createPoolWorkActions(
     }
     const target =
       paneSession ??
-      pickPaneSession([...members.values()], store.paneA, files, [
-        coordinatorOf(id),
-        coordinatorOf(rootId),
-      ])
-    trace(target, asIssueId(id))
+      (restoreLayout
+        ? null
+        : pickPaneSession(
+            [...members.values()],
+            null,
+            [],
+            [coordinatorOf(id), coordinatorOf(rootId)],
+          ))
+    // A task click restores its whole layout. Opening a fallback session here
+    // would replace its saved artifact selection or move focus between panes.
+    const remembered = layout?.panes[layout.focusedPaneId]?.activeTabId
+    trace(target ?? (remembered ? asSessionId(remembered) : null), asIssueId(id))
     batch(() => {
       const changed = store.navigateWorkspace({
         selectedIssueId: asIssueId(rootId),
@@ -234,8 +239,10 @@ export function createPoolWorkActions(
     focus(id)
   }
   return {
-    selectIssue: (id: string, paneSession?: SessionId) => allowImperativeRead(() => selectIssue(id, paneSession)),
-    selectPanelForIssue: (id: string, sessionId: SessionId) => allowImperativeRead(() => selectIssue(id, sessionId)),
+    selectIssue: (id: string, paneSession?: SessionId) =>
+      allowImperativeRead(() => selectIssue(id, paneSession)),
+    selectPanelForIssue: (id: string, sessionId: SessionId) =>
+      allowImperativeRead(() => selectIssue(id, sessionId)),
     openIssuePage: (id: IssueId) => {
       const store = runtime.access
       store.setOpenIssueId(id)
@@ -268,19 +275,19 @@ export function createPoolWorkActions(
     applySortPatches: (patches: { id: string; sortKey: string; pinned?: boolean }[]) =>
       Promise.all(patches.map(({ id, ...patch }) => runtime.access.updateIssue(id, patch))),
     undeferIssue: (id: string) => runtime.access.undeferIssue(id),
-    setIssueTucked: (id: string, tucked: boolean) =>
-      runtime.access.setIssueTucked(id, tucked),
-    resolveMenuData: (id: string): UnifiedIssueRowMenuData => allowImperativeRead(() => {
-      const inputs = readMissionActionInputs(missionView(pool), [id])
-      if (inputs === LOADING) return { single: [], all: [], poolInputs: LOADING }
-      // The menu displays child/cascade totals and one handoff sender, never
-      // the sidebar's hidden attachment roster or its child IDs.
-      const single = inputs.issues
-      // Placement needs only the direct origin's label. Catalog choices are
-      // requested by the menu after their submenu becomes visible.
-      const all = readIssueMenuOrigins(pool, single)
-      return { single, all, poolInputs: inputs }
-    }),
+    setIssueTucked: (id: string, tucked: boolean) => runtime.access.setIssueTucked(id, tucked),
+    resolveMenuData: (id: string): UnifiedIssueRowMenuData =>
+      allowImperativeRead(() => {
+        const inputs = readMissionActionInputs(missionView(pool), [id])
+        if (inputs === LOADING) return { single: [], all: [], poolInputs: LOADING }
+        // The menu displays child/cascade totals and one handoff sender, never
+        // the sidebar's hidden attachment roster or its child IDs.
+        const single = inputs.issues
+        // Placement needs only the direct origin's label. Catalog choices are
+        // requested by the menu after their submenu becomes visible.
+        const all = readIssueMenuOrigins(pool, single)
+        return { single, all, poolInputs: inputs }
+      }),
   }
 }
 

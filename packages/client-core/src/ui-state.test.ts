@@ -5,6 +5,7 @@ import {
   createMemoryRouterWindow,
   createRoutedUiState,
   createRouterUiState,
+  FILE_SCROLL_MAP_CAP,
   FLIGHT_DECK_BRIEF_CUTOFF_KEY,
   FLIGHT_DECK_DISPLAY_KEY,
   FLIGHT_DECK_EXPANDED_WIDTH_KEY,
@@ -12,12 +13,14 @@ import {
   FLIGHT_DECK_FULL_DISPLAY_KEY,
   FLIGHT_DECK_FULL_EXPANDED_WIDTH_KEY,
   type ReplicatedUiStatePort,
+  readFileScrollPosition,
   readStoredDensity,
   requireReplicatedLayoutKey,
   SHELL_DENSITY_KEY,
   UI_STATE_KEYS,
   UI_STATE_ROUTES,
   uiStateRoute,
+  writeFileScrollPosition,
 } from './ui-state'
 
 function memoryUi(seed: Record<string, string> = {}): UiState & { data: Map<string, string> } {
@@ -49,6 +52,42 @@ function replicatedUi(seed: Record<string, unknown> = {}): ReplicatedUiStatePort
     subscribe: () => () => {},
   }
 }
+
+describe('file reading positions', () => {
+  it('routes offsets to this device and keeps preview and source separate', () => {
+    const local = memoryUi()
+    const replicated = replicatedUi()
+    const ui = createRoutedUiState({ local, replicated })
+    writeFileScrollPosition(ui, 'file:report', 'preview', { top: 640, left: 0 })
+    writeFileScrollPosition(ui, 'file:report', 'source', { top: 320, left: 24 })
+    expect(readFileScrollPosition(ui, 'file:report', 'preview')).toEqual({ top: 640, left: 0 })
+    expect(readFileScrollPosition(ui, 'file:report', 'source')).toEqual({ top: 320, left: 24 })
+    expect(local.data.has(UI_STATE_KEYS.fileScroll)).toBe(true)
+    expect(replicated.data.size).toBe(0)
+  })
+
+  it('discards corrupt offsets and bounds the saved history', () => {
+    const ui = memoryUi({
+      [UI_STATE_KEYS.fileScroll]: JSON.stringify({
+        'preview:negative': { top: -5, left: 0 },
+        'source:invalid': { top: '640', left: 0 },
+        'preview:missing': { top: 640 },
+      }),
+    })
+    expect(readFileScrollPosition(ui, 'negative', 'preview')).toBeUndefined()
+    expect(readFileScrollPosition(ui, 'invalid', 'source')).toBeUndefined()
+    expect(readFileScrollPosition(ui, 'missing', 'preview')).toBeUndefined()
+    for (let i = 0; i <= FILE_SCROLL_MAP_CAP; i++)
+      writeFileScrollPosition(ui, `file:${i}`, 'preview', { top: i * 10, left: 0 })
+    expect(readFileScrollPosition(ui, 'file:0', 'preview')).toBeUndefined()
+    expect(readFileScrollPosition(ui, `file:${FILE_SCROLL_MAP_CAP}`, 'preview')?.top).toBe(
+      FILE_SCROLL_MAP_CAP * 10,
+    )
+    expect(Object.keys(JSON.parse(ui.get(UI_STATE_KEYS.fileScroll)!))).toHaveLength(
+      FILE_SCROLL_MAP_CAP,
+    )
+  })
+})
 
 describe('workspace ui-state routing', () => {
   it('routes independent tip moments and the switch to account state only', () => {

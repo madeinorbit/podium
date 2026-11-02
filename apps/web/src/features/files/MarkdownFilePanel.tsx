@@ -24,6 +24,7 @@ import { MarkdownPreview } from './MarkdownPreview'
 import { OpenInBrowserButton } from './OpenInBrowserButton'
 import { SourceEditor } from './SourceEditor'
 import { type BlockPos, lineForTop, topForLine } from './scroll-sync'
+import { useFileScrollPosition } from './use-file-scroll-position'
 import { useFileDocument } from './useFileDocument'
 
 type Mode = 'preview' | 'source' | 'split'
@@ -73,6 +74,25 @@ export function MarkdownFilePanel({
   )
   const viewRef = useRef<EditorView | null>(null)
   const previewScrollRef = useRef<HTMLDivElement | null>(null)
+  const showSource = !md || mode === 'source' || mode === 'split'
+  const showPreview = md && (mode === 'preview' || mode === 'split')
+  const sourceScroll = useFileScrollPosition(tabId, 'source', doc.status === 'ready' && showSource)
+  const previewScroll = useFileScrollPosition(
+    tabId,
+    'preview',
+    doc.status === 'ready' && showPreview,
+  )
+  const onSourceReady = useCallback(
+    (view: EditorView) => sourceScroll(view.scrollDOM),
+    [sourceScroll],
+  )
+  const onPreviewReady = useCallback(
+    (node: HTMLDivElement | null) => {
+      previewScrollRef.current = node
+      previewScroll(node)
+    },
+    [previewScroll],
+  )
 
   // Collapse split → source on mobile (no room for two panes).
   useEffect(() => {
@@ -132,8 +152,6 @@ export function MarkdownFilePanel({
     onClose()
   }
 
-  const showSource = !md || mode === 'source' || mode === 'split'
-  const showPreview = md && (mode === 'preview' || mode === 'split')
   const fileKey = `${scopeKey(scope)}:${path}:${doc.reloadNonce}`
 
   return (
@@ -233,6 +251,7 @@ export function MarkdownFilePanel({
                 onChange={doc.setContent}
                 onSave={() => void doc.save()}
                 viewRef={viewRef}
+                onViewReady={onSourceReady}
               />
             </div>
           )}
@@ -243,7 +262,7 @@ export function MarkdownFilePanel({
                 {...(worktree ? { worktree } : {})}
                 path={path}
                 content={doc.content}
-                scrollRef={previewScrollRef}
+                scrollRef={onPreviewReady}
               />
             </div>
           )}

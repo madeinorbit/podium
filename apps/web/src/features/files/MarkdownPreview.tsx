@@ -3,7 +3,7 @@ import { machinePathDirname, resolveMachinePath } from '@podium/model'
 
 import { useStoreHandle } from '@podium/client-core/react'
 import type { MachineId, SessionId } from '@podium/model/browser'
-import { type JSX, useMemo } from 'react'
+import { type JSX, type Ref, useMemo } from 'react'
 import { assetUrl } from '@/lib/asset-url'
 import { handleCodeCopyClick } from '@/lib/code-copy'
 import { linkedFilePath } from '@/lib/markdown-file-link'
@@ -27,7 +27,7 @@ export function MarkdownPreview({
   worktree?: { root: string; machineId?: MachineId }
   path: string
   content: string
-  scrollRef?: React.MutableRefObject<HTMLDivElement | null>
+  scrollRef?: Ref<HTMLDivElement>
   className?: string
 }): JSX.Element {
   const { httpOrigin, openFile, openFileInWorktree } = useStoreHandle().access
@@ -72,9 +72,7 @@ export function MarkdownPreview({
 
   return (
     <div
-      ref={(el) => {
-        if (scrollRef) scrollRef.current = el
-      }}
+      ref={scrollRef}
       // Reading typography (measure, leading, padding) lives entirely in
       // `.markdown-preview` in styles.css — no utility sizing here to fight it.
       className={cn('markdown-preview min-h-0 flex-1 overflow-auto', className)}
