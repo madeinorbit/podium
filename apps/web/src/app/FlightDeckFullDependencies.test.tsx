@@ -195,6 +195,8 @@ async function open(rows = fixture(), sessions: Row[] = []) {
 it('continuously draws only scheduling links in expanded Full and limits dimming to the hovered phase', async () => {
   const f = await open()
   await waitFor(() => expect(f.edges()).toHaveLength(2))
+  // Lines live in their own strip right of the rows, never over text.
+  expect(f.ui.getByTestId('flight-deck-full-groups').dataset.edgeGutter).toBe('true')
   expect(f.edges().map((e) => [e.dataset.dependencySource, e.dataset.dependencyTarget])).toEqual([
     ['source', 'dependent'],
     ['source', 'cross'],
@@ -290,6 +292,8 @@ it('drops folded, filtered and searched endpoints and retains external refs only
   await waitFor(() => expect(f.row('dependent')).not.toBeNull())
   expect(f.row('source')).toBeNull()
   await waitFor(() => expect(f.edges()).toHaveLength(0))
+  // With no link left to draw, the rows take the gutter back.
+  expect(f.ui.getByTestId('flight-deck-full-groups').dataset.edgeGutter).toBeUndefined()
 })
 
 it('remeasures scroll, resize and zoom and omits offscreen mounted endpoints', async () => {
@@ -297,7 +301,7 @@ it('remeasures scroll, resize and zoom and omits offscreen mounted endpoints', a
   const f = await open()
   await waitFor(() => expect(f.edges()).toHaveLength(2))
   const circle = f.edges()[0]!.querySelector('circle')!
-  expect(circle.getAttribute('cx')).toBe('875')
+  expect(circle.getAttribute('cx')).toBe('903')
   positions.set('source', 1000)
   fireEvent.scroll(f.scrollRef.current!)
   await waitFor(() => expect(f.edges()).toHaveLength(0))

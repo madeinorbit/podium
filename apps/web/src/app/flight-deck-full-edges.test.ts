@@ -25,28 +25,28 @@ it('paints stored dependent -> dependency links with the dot at dependency and a
   expect(edge).toMatchObject({
     sourceY: 80,
     targetY: 160,
-    x: 875,
+    x: 903,
     highlighted: false,
-    path: 'M875 80 C884 80, 884 160, 875 160',
+    path: 'M903 80 C912 80, 912 160, 903 160',
     // Aimed along the curve's last 6px (down and left), not flat: a flat
     // arrowhead laid one arm across the line coming in from above.
-    arrow: 'M874.7 155 L875 160 L879.7 158.3',
+    arrow: 'M902.7 155 L903 160 L907.7 158.3',
   })
   // A dependency below its dependent reverses only y, never the semantics.
   expect(dependencyHook(points.get('dependent')!, points.get('dependency')!, 0)).toMatchObject({
     sourceY: 160,
     targetY: 80,
-    arrow: 'M879.7 81.7 L875 80 L874.7 85',
+    arrow: 'M907.7 81.7 L903 80 L902.7 85',
   })
 })
 
-it('staggers hooks 9/14/19px inside the reserved 28px gutter even at different depths', () => {
+it('staggers hooks 9/14/19px inside the reserved 28px gutter, starting 3px past the row even at different depths', () => {
   const source = { right: 860, y: 0 },
     target = { right: 900, y: 100 }
   expect([0, 1, 2, 3].map((i) => dependencyHook(source, target, i).hook)).toEqual([9, 14, 19, 9])
   expect(dependencyHook(source, target, 2)).toMatchObject({
-    x: 875,
-    path: 'M875 0 C894 0, 894 100, 875 100',
+    x: 903,
+    path: 'M903 0 C922 0, 922 100, 903 100',
   })
 })
 

@@ -14234,6 +14234,12 @@ button.waterfall-fold:hover {
 .flight-full-groups {
   position: relative;
 }
+/* The blocker lines' own strip (FULL_EDGE_GUTTER, 28px from the row's right
+   edge: this 24px plus the rows' 4px padding). Reserved whenever the deck has
+   a link to draw, at every width, since narrow decks draw them on hover. */
+.flight-full-groups[data-edge-gutter="true"] {
+  padding-right: 24px;
+}
 .flight-full-dependency-edges {
   position: absolute;
   left: 0;

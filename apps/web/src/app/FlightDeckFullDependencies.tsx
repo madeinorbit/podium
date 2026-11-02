@@ -235,6 +235,14 @@ export const FlightDeckFullDependencies = observer(function FlightDeckFullDepend
         for (const dependencyId of dependencies) links.push({ dependentId: id, dependencyId })
     }
   const currentIds = new Set(Array.isArray(rowIds) ? rowIds : [])
+  // The gutter follows the links that exist, not the ones measured on screen:
+  // measuring depends on the gutter, so it must not decide it.
+  const gutter =
+    Array.isArray(rowIds) &&
+    rowIds.some((id) => {
+      const dependencies = settled(() => full.task(id).blockedByIds)
+      return Array.isArray(dependencies) && dependencies.some((dep) => currentIds.has(dep))
+    })
   const points = new Map([...layout.points].filter(([id]) => currentIds.has(id)))
   const edges = dependencyEdges(links, points, layout.expanded, interaction.activeId)
   return (
@@ -243,6 +251,7 @@ export const FlightDeckFullDependencies = observer(function FlightDeckFullDepend
         ref={root}
         className="flight-full-groups"
         data-testid="flight-deck-full-groups"
+        data-edge-gutter={gutter || undefined}
         onPointerOver={(event) => interaction.hover(rowId(event.target))}
         onPointerMove={(event) => interaction.hover(rowId(event.target))}
         onPointerOut={(event) => interaction.hover(rowId(event.relatedTarget))}

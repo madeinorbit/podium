@@ -2,6 +2,10 @@
  * order; the painted direction is dependency dot -> dependent arrowhead. */
 export type DependencyPoint = { right: number; y: number }
 export type DependencyLink = { dependentId: string; dependencyId: string }
+/** The strip right of the rows that the lines live in (POD-6245): the rows
+ * end this far before the panel edge whenever the deck draws any link, so a
+ * line never crosses text. Hooks of 9/14/19px start 3px past the row. The CSS
+ * reserves the same width (`.flight-full-groups[data-edge-gutter]`). */
 export const FULL_EDGE_GUTTER = 28
 
 export function dependencyPoint(
@@ -20,7 +24,7 @@ export function dependencyHook(
   dependent: DependencyPoint,
   index: number,
 ) {
-  const x = Math.max(dependency.right, dependent.right) - FULL_EDGE_GUTTER + 3
+  const x = Math.max(dependency.right, dependent.right) + 3
   const hook = 9 + (index % 3) * 5
   return {
     x,
