@@ -86,8 +86,7 @@ const MovedConversation = observer(function MovedConversation({
           Your conversation moved to {continuation.short}
         </h2>
         <p className="mt-2 text-[13.5px] leading-[1.6] text-pretty text-muted-foreground">
-          Your follow-up became its own task{target ? `, ${target.title},` : ''} and the agent took
-          the chat with it.
+          Your follow-up became its own task and the agent took the chat with it.
         </p>
         {findings && <Findings text={findings} />}
         {target && (
