@@ -30,6 +30,8 @@ import {
   machineUseDecision,
   machineVerbsFor,
   ownershipFromMachines as ownershipFromGrantEdges,
+  ownershipLoaderFromMachines,
+  type AsyncMachineRowSource,
   type MachineRowSource,
 } from './machine-access'
 import { machinesForPrincipal } from './modules/sessions/command-ctx'
@@ -723,5 +725,84 @@ describe('offline is reachability, never authorization', () => {
       sbx: 'unauthorized',
       'theirs-offline': 'unauthorized',
     })
+  })
+})
+
+describe('the per-command ownership loader reads only what the command asks about (POD-6252)', () => {
+  const A = asMachineId('mach_a')
+  const B = asMachineId('mach_b')
+  const owner = user(OWNER)
+
+  function source() {
+    const reads: string[] = []
+    const rows = new Map([
+      [A, { id: A, name: 'A', revokedAt: null, daemonAssigned: true, daemonAvailable: true }],
+      [B, { id: B, name: 'B', revokedAt: null, daemonAssigned: true, daemonAvailable: true }],
+    ])
+    const grants = new Map<string, { grantee: string; verb: string; custody?: boolean }[]>([
+      [A, [{ grantee: OWNER, verb: 'manage', custody: true }, { grantee: OWNER, verb: 'use' }]],
+      [B, [{ grantee: OWNER, verb: 'manage', custody: true }, { grantee: OWNER, verb: 'use' }]],
+    ])
+    const machines: AsyncMachineRowSource = {
+      ownershipRows: async () => { reads.push('rows'); return [...rows.values()] },
+      ownershipRow: async (id) => { reads.push(`row:${id}`); return rows.get(id) },
+      grantsForMachine: async (id) => { reads.push(`grants:${id}`); return grants.get(id) ?? [] },
+      grantsForMachines: async (ids) => { reads.push('grants:*'); return new Map(ids.map((id) => [id, grants.get(id) ?? []])) },
+    }
+    return { reads, rows, grants, machines }
+  }
+
+  it('reads nothing until asked', () => {
+    const s = source()
+    ownershipLoaderFromMachines(s.machines)
+    expect(s.reads).toEqual([])
+  })
+
+  it('answers one machine with a point read of its row and its grants, once', async () => {
+    const s = source()
+    const loader = ownershipLoaderFromMachines(s.machines)
+    expect(machineUseDecision(owner, A, await loader.forMachine(A))).toBe('granted')
+    expect(machineUseDecision(owner, A, await loader.forMachine(A))).toBe('granted')
+    expect(s.reads).toEqual([`row:${A}`, `grants:${A}`])
+    // A machine it was never asked about has no row: the index fails closed.
+    expect(machineUseDecision(owner, B, await loader.forMachine(A))).toBe('denied')
+  })
+
+  it('an absent machine is absent, from the point read', async () => {
+    const s = source()
+    const ghost = asMachineId('mach_ghost')
+    const loader = ownershipLoaderFromMachines(s.machines)
+    expect(checkMachineUse(owner, ghost, await loader.forMachine(ghost))).toBe('absent')
+    expect(s.reads).toEqual([`row:${ghost}`])
+  })
+
+  it('the fleet is one grouped read, and a later point question reads nothing more', async () => {
+    const s = source()
+    const loader = ownershipLoaderFromMachines(s.machines)
+    const fleet = await loader.fleet()
+    expect(machineUseDecision(owner, A, fleet)).toBe('granted')
+    expect(machineUseDecision(owner, B, fleet)).toBe('granted')
+    await loader.forMachine(B)
+    await loader.forMachine(asMachineId('mach_ghost'))
+    expect(s.reads).toEqual(['rows', 'grants:*'])
+  })
+
+  it('a machine read before the fleet keeps that answer: one command sees one state per machine', async () => {
+    const s = source()
+    const loader = ownershipLoaderFromMachines(s.machines)
+    expect(machineUseDecision(owner, A, await loader.forMachine(A))).toBe('granted')
+    // The share is revoked between the two reads of the same command.
+    s.grants.set(A, [{ grantee: OWNER, verb: 'manage', custody: true }])
+    expect(machineUseDecision(owner, A, await loader.fleet())).toBe('granted')
+    // A fresh loader (the next command) sees the revocation.
+    expect(machineUseDecision(owner, A, await ownershipLoaderFromMachines(s.machines).forMachine(A))).toBe('denied')
+  })
+
+  it('a source without the point read answers from its rows', async () => {
+    const s = source()
+    const { ownershipRow: _omit, ...rest } = s.machines
+    const loader = ownershipLoaderFromMachines(rest)
+    expect(machineUseDecision(owner, A, await loader.forMachine(A))).toBe('granted')
+    expect(s.reads).toEqual(['rows', `grants:${A}`])
   })
 })

@@ -29,7 +29,7 @@ import {
   firstAdminMemberId,
 } from '../../command-principal'
 import type { MachineOwnershipIndex, MachineOwnershipRow } from '../../machine-access'
-import { ownershipSnapshotFromMachines } from '../../machine-access'
+import { fixedOwnershipLoader, ownershipLoaderFromMachines } from '../../machine-access'
 import { machinesForPrincipal, sessionCommandServices, usableRepos } from './command-ctx'
 import {
   bindingPrincipalFor,
@@ -158,7 +158,7 @@ async function ctxFor(
       ...(opts.visibility ? { visibility: opts.visibility } : {}),
     },
     rpc: () => modules.rpc,
-    ownership: opts.ownership ?? (await ownershipSnapshotFromMachines(modules.machines)),
+    ownership: opts.ownership ? fixedOwnershipLoader(opts.ownership) : ownershipLoaderFromMachines(modules.machines),
     mutations: modules.mutations,
   }
   return new SessionCommandCtx(deps, principal)
@@ -1418,7 +1418,7 @@ describe('session id prefix (POD-4536)', () => {
         issueOwner: async () => undefined,
         access,
         rpc: () => ({}) as never,
-        ownership: { rowFor: () => undefined, delegatedMachines: () => undefined },
+        ownership: fixedOwnershipLoader({ rowFor: () => undefined, delegatedMachines: () => undefined }),
         mutations: { once: async (_id: never, _proc: never, fn: () => unknown) => await fn() } as never,
       },
       principal,

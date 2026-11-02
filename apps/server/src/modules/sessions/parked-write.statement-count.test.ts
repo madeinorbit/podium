@@ -9,10 +9,10 @@
  * through the real tRPC procedure, one operation (`trpc.ts` `oneOperation`), at
  * 5 and 200 parked sessions.
  *
- * 19 statements, by what they are for:
- * - access: the machines and their grants for the caller's machine-use
- *   snapshot (2), the session's row (1) through the operation's session
- *   loader, its grants (1) through the operation's grant loader;
+ * 17 statements, by what they are for:
+ * - access: the session's row (1) through the operation's session loader, its
+ *   grants (1) through the operation's grant loader. Before POD-6252 the
+ *   command context also read every machine and the fleet's grants (2);
  * - the restore for the lease: the row again from the same loader (0), then its
  *   satellites, one read per table (6: offers, draft times, observation
  *   checkpoint, runtime turn state, runtime transcript presence, conversation
@@ -148,7 +148,7 @@ describe('a write to a parked session: constant statements', () => {
         },
         teardown: async (f) => await f.reg.dispose(),
       },
-      19,
+      17,
     )
   })
 })

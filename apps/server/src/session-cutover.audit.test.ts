@@ -59,7 +59,7 @@ import {
 } from './command-principal'
 
 import type { MachineOwnershipIndex, MachineOwnershipRow } from './machine-access'
-import { ownershipSnapshotFromMachines } from './machine-access'
+import { fixedOwnershipLoader, ownershipLoaderFromMachines } from './machine-access'
 import { sessionCommandCtx, sessionCommandServices } from './modules/sessions/command-ctx'
 import {
   dispatchSessionCommand,
@@ -197,7 +197,7 @@ async function ctxFor(
       issues: asyncSessionIssueAccess(modules.issues),
       ...(opts.visibility ? { visibility: opts.visibility } : {}),
     },
-    ownership: opts.ownership ?? (await ownershipSnapshotFromMachines(modules.machines)),
+    ownership: opts.ownership ? fixedOwnershipLoader(opts.ownership) : ownershipLoaderFromMachines(modules.machines),
     mutations: modules.mutations,
   }
   return new SessionCommandCtx(deps, principal)

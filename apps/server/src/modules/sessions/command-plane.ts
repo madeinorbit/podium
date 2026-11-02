@@ -68,7 +68,7 @@ import type { CommandPrincipal } from '../../command-principal'
 import { attributionOf } from '../../command-principal'
 import {
   checkMachineUse,
-  type MachineOwnershipIndex,
+  type MachineOwnershipLoader,
   machineAccessMessage,
   machineUseDecision,
 } from '../../machine-access'
@@ -198,7 +198,12 @@ export interface SessionCommandDeps {
   /** The legacy daemon control leg for pre-contract and cold-start uploads. */
   rpc(): SessionDaemonRpc
   access: SessionAccessDeps
-  ownership: MachineOwnershipIndex
+  /**
+   * Machine ownership, read on demand for this one command (POD-6252): the
+   * machine it acts on by a point read, the whole fleet only for implicit
+   * placement. A command that consults no machine reads none.
+   */
+  ownership: MachineOwnershipLoader
   /**
    * FRAMEWORK IDEMPOTENCY (POD-382) — applied by {@link dispatchSessionCommand}
    * for EVERY command in the table, after its gates and before its handler.
@@ -228,9 +233,12 @@ export class SessionCommandCtx {
    * threads into `agentCapabilityRejection`. Passing it is what stops the
    * IMPLICIT placement path from picking a machine the principal may not
    * execute on (readiness §3.1.4 M5, "must not offer").
+   *
+   * Placement may pick any machine, so this reads the whole fleet's ownership.
    */
-  get machineUse(): MachineUseResolver {
-    return (machineId) => machineUseDecision(this.principal, machineId, this.deps.ownership)
+  async machineUse(): Promise<MachineUseResolver> {
+    const ownership = await this.deps.ownership.fleet()
+    return (machineId) => machineUseDecision(this.principal, machineId, ownership)
   }
 
   /**
@@ -241,16 +249,17 @@ export class SessionCommandCtx {
    * so a re-check at apply time reads as the re-authorization it is rather than
    * as a repeat.
    */
-  assertMachineUse(machineId: MachineId): void {
+  async assertMachineUse(machineId: MachineId): Promise<void> {
     // No sentinel exemption here: `machine-access.ts` resolves the local
     // sentinels to a SYNTHESIZED host row owned by the instance owner, so they
     // go through the same rules as any other machine. An early return here
     // would have been an exemption, and M4 is precisely the case where the host
     // machine must NOT be ambient team compute.
-    const failure = checkMachineUse(this.principal, machineId, this.deps.ownership)
+    const ownership = await this.deps.ownership.forMachine(machineId)
+    const failure = checkMachineUse(this.principal, machineId, ownership)
     if (!failure) return
     throw new Error(
-      machineAccessMessage(failure, machineId, this.deps.ownership.rowFor(machineId)?.name),
+      machineAccessMessage(failure, machineId, ownership.rowFor(machineId)?.name),
     )
   }
 
@@ -280,7 +289,7 @@ export class SessionCommandCtx {
     )
     const row = await this.sessions.sessionById(resolved.session.sessionId)
     // Commanding an existing session is execution on the machine it lives on.
-    if (row?.machineId !== undefined) this.assertMachineUse(row.machineId)
+    if (row?.machineId !== undefined) await this.assertMachineUse(row.machineId)
     return row ?? resolved.session
   }
 }
@@ -668,8 +677,11 @@ export const SESSION_COMMAND_HANDLERS = {
     // Explicit placement is gated BEFORE the target is prepared, because
     // preparing may clone a repository onto the target machine — a side effect
     // a denied principal must never cause.
-    if (rest.machineId !== undefined) ctx.assertMachineUse(rest.machineId)
-    const target = await ctx.sessions.workspace.prepareTarget({ ...rest, use: ctx.machineUse })
+    // Placement judges the fleet, so read it first: the explicit gate is then
+    // answered from the same read, with no second one (POD-6252).
+    const use = await ctx.machineUse()
+    if (rest.machineId !== undefined) await ctx.assertMachineUse(rest.machineId)
+    const target = await ctx.sessions.workspace.prepareTarget({ ...rest, use })
     const ownership = createdOwnership(
       ctx.principal,
       rest.issueId
@@ -706,7 +718,7 @@ export const SESSION_COMMAND_HANDLERS = {
         ...target,
         ...(issueId ? { issueId } : {}),
         ...(attachments?.length ? { initialAttachments: attachments } : {}),
-        use: ctx.machineUse,
+        use,
         spawnedBy: spawnedByFor(ctx.principal),
         ownerUserId: ownership.owner as import('@podium/model').UserId,
         binding: {
@@ -728,7 +740,8 @@ export const SESSION_COMMAND_HANDLERS = {
   },
 
   resume: async (ctx: SessionCommandCtx, input: ResumeInput) => {
-    if (input.machineId !== undefined) ctx.assertMachineUse(input.machineId)
+    const use = await ctx.machineUse()
+    if (input.machineId !== undefined) await ctx.assertMachineUse(input.machineId)
     const ownership = createdOwnership(ctx.principal, undefined)
     if (!ownership.owner) throw new Error('session resume requires an accountable human owner')
     // A resume landing on an EXISTING row keeps that row's provenance; the stamp
@@ -736,7 +749,7 @@ export const SESSION_COMMAND_HANDLERS = {
     return await ctx.sessions.resumeSession({
       ...input,
       resume: input.resume as ResumeInput['resume'] & { kind: string; value: string },
-      use: ctx.machineUse,
+      use,
       spawnedBy: spawnedByFor(ctx.principal),
       ownerUserId: ownership.owner as import('@podium/model').UserId,
     })
@@ -873,7 +886,7 @@ export const SESSION_COMMAND_HANDLERS = {
   ) => {
     const row = await ctx.sessions.sessionById(input.sessionId)
     const machineId = row?.machineId ?? input.machineId
-    if (machineId !== undefined) ctx.assertMachineUse(machineId)
+    if (machineId !== undefined) await ctx.assertMachineUse(machineId)
     // HELD ON THE SERVER (POD-2148): an agent session's upload, and one for a
     // task not created yet, wait here for the send or create that claims them;
     // the agent's machine gets the file when the message is delivered. The ref

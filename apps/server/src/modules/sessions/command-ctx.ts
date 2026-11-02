@@ -18,6 +18,7 @@ import {
   type MachineOwnershipIndex,
   machineUseDecision,
   machineVerbsFor,
+  ownershipLoaderFromMachines,
   ownershipSnapshotFromMachines,
 } from '../../machine-access'
 import { asSessionId, spawnedByParentSessionId } from '@podium/model'
@@ -125,7 +126,8 @@ export async function sessionCommandCtx(
       // POD-1075 supplies the owner/grant answer; today one account sees all.
     },
     rpc: () => modules.rpc,
-    ownership: await ownershipSnapshotFromMachines(modules.machines),
+    // Read when a command asks, for the machine it asks about (POD-6252).
+    ownership: ownershipLoaderFromMachines(modules.machines),
     // THE composition root's ledger (POD-382), never a fresh one: two ledgers over
     // one durable table have two in-flight maps, and a replay arriving on the other
     // transport while the original is still running would apply twice.

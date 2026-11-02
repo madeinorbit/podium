@@ -17,7 +17,7 @@ import { systemPrincipal } from '../../command-principal'
 import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
-import { machineUseDecision, ownershipSnapshotFromMachines } from '../../machine-access'
+import { machineUseDecision, ownershipForMachine } from '../../machine-access'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachineListing, MachinesService } from '../machines/service'
 import { authorReattachBinding } from './binding-mint'
@@ -33,7 +33,7 @@ export interface SessionClientPlanePorts {
   clients: any
   headless: any
   machineReconciler: SessionMachineReconciler
-  machines: Pick<MachinesService, 'ownershipRows' | 'grantsForMachine' | 'toMachine'>
+  machines: Pick<MachinesService, 'ownershipRows' | 'ownershipRow' | 'grantsForMachine' | 'toMachine'>
   repository: any
   rpc: Pick<DaemonRpcService, 'transcriptPathHint'>
   state: any
@@ -59,7 +59,8 @@ export class SessionClientPlane {
   /**
    * The reattach control message for one survivor session.
    *
-   * Resolve the repository-backed ownership before constructing the probe.
+   * Resolve the repository-backed ownership before constructing the probe:
+   * this machine's row and grants only, by a point read (POD-6252).
    */
   async reattachMessageFor(session: Session, machineId: MachineId): Promise<ControlMessage> {
     const observationLease = await this.ports.terminalProof.fence(session)
@@ -76,7 +77,7 @@ export class SessionClientPlane {
       machineUseDecision(
         systemPrincipal('session-rebind'),
         machineId,
-        await ownershipSnapshotFromMachines(this.ports.machines),
+        await ownershipForMachine(this.ports.machines, machineId),
       ) === 'granted'
         ? 'allowed'
         : 'denied'

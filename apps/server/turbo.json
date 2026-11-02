@@ -2321,6 +2321,7 @@
         "src/server.update-adoption.test.ts",
         "src/server.version.test.ts",
         "src/session-by-id-scaling.test.ts",
+        "src/session-command-ownership.statement-count.test.ts",
         "src/session-companions.test.ts",
         "src/session-create.statement-count.test.ts",
         "src/session-cutover.audit.test.ts",

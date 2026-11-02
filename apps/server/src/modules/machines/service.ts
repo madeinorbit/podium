@@ -1566,6 +1566,20 @@ export class MachinesService {
   }
 
   /**
+   * {@link ownershipRows} for ONE machine: a point read of its row (POD-6252),
+   * for a decision about the machine a command acts on. `undefined` = no row.
+   */
+  async ownershipRow(machineId: MachineId): Promise<{ id: MachineId; name: string; revokedAt: string | null; daemonAssigned: boolean; daemonAvailable: boolean } | undefined> {
+    const m = await this.deps.store.machines.getMachine(machineId)
+    if (!m) return undefined
+    return {
+      id: m.id, revokedAt: m.revokedAt, name: m.name,
+      daemonAssigned: m.serviceAssignment.agentExecution,
+      daemonAvailable: this.daemons.has(m.id),
+    }
+  }
+
+  /**
    * The grant edges on one machine, read from the table (POD-1079, POD-6155).
    *
    * Never served from a cache: caching a grant would reintroduce the exact

@@ -1331,12 +1331,13 @@ describe('SessionRegistry', () => {
     await store.sessions.upsertSession(exitedRow(id))
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
-    const rows = await reg.modules.machines.ownershipRows()
+    // The reattach reads its machine's ownership by a point read (POD-6252).
+    const rows = await reg.modules.machines.ownershipRow(reg.sessionStore.hostMachineId)
     let release!: (value: typeof rows) => void
     const pendingRows = new Promise<typeof rows>((resolve) => {
       release = resolve
     })
-    const read = vi.spyOn(reg.modules.machines, 'ownershipRows').mockReturnValue(pendingRows)
+    const read = vi.spyOn(reg.modules.machines, 'ownershipRow').mockReturnValue(pendingRows)
     const attached = reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     // LET THE PENDING ATTACH REACH THE OWNERSHIP READ. attachDaemon awaits
     // machines.attach first -- that is what writes the machine's daemon component,

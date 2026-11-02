@@ -85,7 +85,18 @@ export interface AsyncMachineRowSource {
   grantsForMachines?(
     machineIds: readonly MachineId[],
   ): Promise<ReadonlyMap<string, readonly { grantee: string; verb: string; custody?: boolean }[]>>
+  /**
+   * ONE machine's row by its primary key, `undefined` when there is none
+   * (POD-6252). A source without it answers from {@link ownershipRows}, so a
+   * test double keeps working; the repository-backed source has it, and the
+   * statement-count pins hold it to a point read.
+   */
+  ownershipRow?(machineId: MachineId): Promise<OwnershipSourceRow | undefined>
 }
+
+/** The machine-row half of the ownership facts, as a source returns it. */
+type OwnershipSourceRow = { id: MachineId; name?: string; revokedAt?: string | null; daemonAssigned?: boolean; daemonAvailable?: boolean }
+type OwnershipSourceEdge = { grantee: string; verb: string; custody?: boolean }
 
 /** The verbs a machine grant can carry, as a runtime membership test. A stored
  *  verb this build does not know (`read`/`write` belong to other classes, and a
@@ -125,29 +136,117 @@ export function ownershipFromMachines(machines: MachineRowSource): MachineOwners
   }
 }
 
+/** One machine's facts from its stored row and its grant edges. */
+function ownershipRowOf(row: OwnershipSourceRow, grants: readonly OwnershipSourceEdge[]): MachineOwnershipRow {
+  const edges = grants
+    .filter((edge) => MACHINE_VERBS.includes(edge.verb))
+    .map((edge) => ({ subject: edge.grantee as UserId, verb: edge.verb as MachineVerb, custody: edge.custody === true }))
+  return {
+    machine: row.id, owner: machineCustodian(edges), grants: edges,
+    daemonAssigned: row.daemonAssigned === true,
+    daemonAvailable: row.daemonAvailable === true,
+    revokedAt: row.revokedAt,
+    ...(row.name === undefined ? {} : { name: row.name }),
+  }
+}
+
+async function fleetOwnershipRows(machines: AsyncMachineRowSource): Promise<MachineOwnershipRow[]> {
+  const rows = await machines.ownershipRows()
+  // One grouped read for the fleet when the source offers it (rule 2).
+  const grouped = machines.grantsForMachines ? await machines.grantsForMachines(rows.map((row) => row.id)) : undefined
+  return await Promise.all(
+    rows.map(async (row) =>
+      ownershipRowOf(row, (grouped ? grouped.get(row.id) : await machines.grantsForMachine?.(row.id)) ?? [])),
+  )
+}
+
 /** Resolve repository-backed ownership once before a non-yielding policy pass. */
 export async function ownershipSnapshotFromMachines(
   machines: AsyncMachineRowSource,
 ): Promise<MachineOwnershipIndex> {
-  const rows = await machines.ownershipRows()
-  // One grouped read for the fleet when the source offers it (rule 2).
-  const grouped = machines.grantsForMachines ? await machines.grantsForMachines(rows.map((row) => row.id)) : undefined
-  const resolved = await Promise.all(
-    rows.map(async (row): Promise<MachineOwnershipRow> => {
-      const edges = ((grouped ? grouped.get(row.id) : await machines.grantsForMachine?.(row.id)) ?? [])
-        .filter((edge) => MACHINE_VERBS.includes(edge.verb))
-        .map((edge) => ({ subject: edge.grantee as UserId, verb: edge.verb as MachineVerb, custody: edge.custody === true }))
-      return {
-        machine: row.id, owner: machineCustodian(edges), grants: edges,
-        daemonAssigned: row.daemonAssigned === true,
-        daemonAvailable: row.daemonAvailable === true,
-        revokedAt: row.revokedAt,
-        ...(row.name === undefined ? {} : { name: row.name }),
-      }
-    }),
-  )
-  const byId = new Map(resolved.map((row) => [row.machine, row]))
+  const byId = new Map((await fleetOwnershipRows(machines)).map((row) => [row.machine, row]))
   return { rowFor: (machineId) => byId.get(machineId) }
+}
+
+/**
+ * Ownership read on demand, for ONE command (POD-6252).
+ *
+ * A session command almost always asks about one machine, the one its session
+ * runs on, and many ask about none. Reading the whole fleet and every grant on
+ * it up front made each command pay for every machine; this reads what the
+ * command asks for and nothing else.
+ *
+ *  - {@link forMachine} is a point read of that machine's row and its grants;
+ *  - {@link fleet} is the fleet-wide read, for implicit placement, which must
+ *    judge every machine it could pick.
+ *
+ * Each machine is read at most once per loader, and a row already read wins
+ * over the fleet read, so one command never sees a machine in two states (the
+ * one-pass reading of spec rule 46). A machine that was never asked for has no
+ * row in the returned index, which denies: the index fails closed.
+ *
+ * Not a cache: the loader lives for one command and is dropped with it, so a
+ * revoked grant stops the next command (ADR 9 D2 rule 4).
+ */
+export interface MachineOwnershipLoader {
+  forMachine(machineId: MachineId): Promise<MachineOwnershipIndex>
+  fleet(): Promise<MachineOwnershipIndex>
+}
+
+/** The loader over a repository-backed source. */
+export function ownershipLoaderFromMachines(machines: AsyncMachineRowSource): MachineOwnershipLoader {
+  // `settled` is what the index answers from; an id first answered stays answered.
+  const settled = new Map<MachineId, MachineOwnershipRow | undefined>()
+  const pending = new Map<MachineId, Promise<void>>()
+  const index: MachineOwnershipIndex = { rowFor: (machineId) => settled.get(machineId) }
+  let fleetRead: Promise<void> | undefined
+  let fleetDone = false
+  const pointRead = async (machineId: MachineId): Promise<MachineOwnershipRow | undefined> => {
+    const row = machines.ownershipRow
+      ? await machines.ownershipRow(machineId)
+      : (await machines.ownershipRows()).find((candidate) => candidate.id === machineId)
+    if (!row) return undefined
+    return ownershipRowOf(row, (await machines.grantsForMachine?.(row.id)) ?? [])
+  }
+  const load = (machineId: MachineId): Promise<void> => {
+    const read = pointRead(machineId).then((row) => {
+      if (!settled.has(machineId)) settled.set(machineId, row)
+    })
+    pending.set(machineId, read)
+    return read
+  }
+  return {
+    async forMachine(machineId) {
+      if (fleetRead) await fleetRead
+      // After the fleet read an id it did not return is absent, with no read.
+      if (!settled.has(machineId) && !fleetDone) await (pending.get(machineId) ?? load(machineId))
+      return index
+    },
+    async fleet() {
+      fleetRead ??= (async () => {
+        const whole = await fleetOwnershipRows(machines)
+        // A machine a point read already answered keeps that answer.
+        await Promise.all(pending.values())
+        for (const row of whole) if (!settled.has(row.machine)) settled.set(row.machine, row)
+        fleetDone = true
+      })()
+      await fleetRead
+      return index
+    },
+  }
+}
+
+/** A loader over an index that is already resolved (a test's fixed table). */
+export function fixedOwnershipLoader(index: MachineOwnershipIndex): MachineOwnershipLoader {
+  return { forMachine: async () => index, fleet: async () => index }
+}
+
+/** One machine's ownership, by a point read: for a path that asks about one machine. */
+export async function ownershipForMachine(
+  machines: AsyncMachineRowSource,
+  machineId: MachineId,
+): Promise<MachineOwnershipIndex> {
+  return await ownershipLoaderFromMachines(machines).forMachine(machineId)
 }
 
 const ownershipByPassSlot = readScopeSlot(

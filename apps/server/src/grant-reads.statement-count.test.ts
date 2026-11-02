@@ -13,9 +13,9 @@
  * covers every kind (`GrantsRepository.loadForResourcesOfKinds`).
  *
  * Grant reads per operation, for a running session on an issue, before -> now:
- * - `sessions.rename` over tRPC: 3 -> 2 (the caller's machine grants, which
- *   the machine-use snapshot reads directly, and the issue's and the session's
- *   grants in one read at the access check);
+ * - `sessions.rename` over tRPC: 3 -> 2 -> 1 (the issue's and the session's
+ *   grants in one read at the access check; since POD-6252 the command reads no
+ *   machine ownership, so the fleet's machine grants are gone too);
  * - `issues.update` over tRPC: 2 -> 1 (the issue's and its session's grants,
  *   one read per kind in the visibility pass, now one);
  * - an `agentObservation` daemon frame: 2 -> 1 (the projection pass reads the
@@ -165,7 +165,7 @@ const observation = (sessionId: SessionId): AgentObservation => ({
 })
 
 describe('grant reads per change, a running session on an issue: pinned at 5 and 200', () => {
-  it('sessions.rename reads the machine grants and both of the session\'s grant sets once', async () => {
+  it('sessions.rename reads both of the session\'s grant sets once, and no machine grants', async () => {
     const counts = await expectConstantStatements(
       pin(
         'sessions.rename (on an issue)',
@@ -174,7 +174,7 @@ describe('grant reads per change, a running session on an issue: pinned at 5 and
       ),
       RENAME,
     )
-    expectGrantReads(counts, 2)
+    expectGrantReads(counts, 1)
   })
 
   it('issues.update reads the issue\'s and its session\'s grants in one statement', async () => {
@@ -210,6 +210,8 @@ describe('grant reads per change, a running session on an issue: pinned at 5 and
 // POD-6219: the session write's delivery trigger counted the session's and its
 // issue's pending mail (two statements); the flush now asks for both in one: -1.
 // POD-6218: the earliest admin is one statement, once per operation: issues.update -1.
-const RENAME = 12
+// POD-6252: a session command reads machine ownership only when it consults a
+// machine, and rename does not: the machine list and the fleet's grants, -2.
+const RENAME = 10
 const ISSUE_UPDATE = 27 // was 28 until POD-6150 put the earliest admin in a declared cache
 const OBSERVATION = 12
