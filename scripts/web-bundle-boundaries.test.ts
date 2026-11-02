@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { eagerClientGraphSources, eagerJsFiles } from '../apps/web/test/web-bundle-boundaries'
+import {
+  browserHostileSources,
+  eagerClientGraphSources,
+  eagerJsFiles,
+} from '../apps/web/test/web-bundle-boundaries'
 
 describe('pool startup bundle boundary', () => {
   const graph = {
@@ -30,7 +34,9 @@ describe('pool startup bundle boundary', () => {
 
   it('rejects a planted static optional-screen import even when HTML does not preload it', () => {
     const planted = { ...graph, shared: { ...graph.shared, imports: ['loading', 'pool'] } }
-    expect(check(planted)).toEqual(['../../../../packages/client-graph/src/issue-board-projection.ts'])
+    expect(check(planted)).toEqual([
+      '../../../../packages/client-graph/src/issue-board-projection.ts',
+    ])
   })
 
   it('refuses an incomplete manifest instead of hiding an eager dependency', () => {
@@ -45,21 +51,23 @@ describe('pool startup bundle boundary', () => {
     // POD-5582: the old off-switch contract predates removal of the legacy
     // store. These are required on the first screen now. This does not permit
     // board, settings UI or palette implementation code to become eager.
-    expect(eagerClientGraphSources([
-      'packages/client-graph/src/pool.ts',
-      'packages/client-graph/src/host/pool-host.ts',
-      'packages/client-graph/src/worklist/sidebar.ts',
-      'packages/client-graph/src/shared/session-questions.ts',
-      'packages/client-graph/src/shared/joined-fields.ts',
-      'packages/client-graph/src/shared/session-reference.ts',
-      'packages/client-graph/src/shared/feed-diagnostics.ts',
-      'packages/client-graph/src/shared/predicates.ts',
-      'packages/client-graph/src/header-repositories.ts',
-      'packages/client-graph/src/requested-record-source.ts',
-      'packages/client-graph/src/settings-schema.ts',
-      'packages/client-graph/src/command-launch-schema.ts',
-      'packages/client-graph/src/loading.ts',
-    ])).toEqual([])
+    expect(
+      eagerClientGraphSources([
+        'packages/client-graph/src/pool.ts',
+        'packages/client-graph/src/host/pool-host.ts',
+        'packages/client-graph/src/worklist/sidebar.ts',
+        'packages/client-graph/src/shared/session-questions.ts',
+        'packages/client-graph/src/shared/joined-fields.ts',
+        'packages/client-graph/src/shared/session-reference.ts',
+        'packages/client-graph/src/shared/feed-diagnostics.ts',
+        'packages/client-graph/src/shared/predicates.ts',
+        'packages/client-graph/src/header-repositories.ts',
+        'packages/client-graph/src/requested-record-source.ts',
+        'packages/client-graph/src/settings-schema.ts',
+        'packages/client-graph/src/command-launch-schema.ts',
+        'packages/client-graph/src/loading.ts',
+      ]),
+    ).toEqual([])
     expect(
       eagerClientGraphSources([
         'packages/client-graph/src/loading.ts',
@@ -84,5 +92,48 @@ describe('pool startup bundle boundary', () => {
       'visible-request',
     ].map((module) => `packages/client-graph/src/${module}.ts`)
     expect(eagerClientGraphSources(optional)).toEqual(optional)
+  })
+
+  it('allows shared read observations and worklist companions without allowing phone screens', () => {
+    const startup = [
+      '../../../../packages/client-graph/src/read-observation.ts',
+      '/repo/node_modules/@podium/client-graph/src/worklist/phone.ts',
+      'C:\\repo\\packages\\client-graph\\src\\worklist\\voice.ts',
+    ]
+    const optional = [
+      'packages/client-graph/src/mobile-settings.ts',
+      'packages/client-graph/src/worklist/phone-screen.ts',
+      'packages/client-graph/src/worklist/voice-settings.ts',
+    ]
+    expect(eagerClientGraphSources([...startup, ...optional])).toEqual(optional)
+  })
+})
+
+describe('browser bundle boundary', () => {
+  it('allows the declared browser entrypoint and its pure cursor dependency chain', () => {
+    expect(
+      browserHostileSources([
+        '../../../../packages/harness/src/browser.ts',
+        '../../../../packages/harness/src/store/stream-identity.ts',
+        '../../../../packages/harness/src/store/cursor-codec.ts',
+        '../../../../packages/harness/src/transcript-types.ts',
+        'C:\\repo\\packages\\harness\\src\\transcript-types.ts',
+      ]),
+    ).toEqual([])
+  })
+
+  it('still rejects host modules, unknown harness leaves and names extending an exception', () => {
+    const hostile = [
+      'packages/harness/src/metadata.ts',
+      'packages/harness/src/store/source.ts',
+      'packages/harness/src/driver/families/terminal/runtime.ts',
+      'packages/harness/src/transcript-reader.ts',
+      'packages/harness/src/transcript-types.ts.host.ts',
+      'C:\\repo\\packages\\runtime\\src\\sqlite\\database.ts',
+      'apps/web/src/file-viewer-replay.ts',
+    ]
+    expect(
+      browserHostileSources([...hostile, ...hostile, 'packages/model/src/browser.ts']),
+    ).toEqual([...hostile].sort())
   })
 })

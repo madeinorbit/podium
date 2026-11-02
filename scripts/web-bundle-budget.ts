@@ -26,6 +26,7 @@ import { fileURLToPath } from 'node:url'
 import { brotliCompressSync, constants, gzipSync } from 'node:zlib'
 import {
   type BuildManifest,
+  browserHostileSources,
   eagerClientGraphSources,
   eagerJsFiles,
 } from '../apps/web/test/web-bundle-boundaries'
@@ -185,73 +186,6 @@ const POST_PAINT_VENDOR_PACKAGES = [
   '@xterm/addon-fit',
   'dompurify',
   'marked',
-] as const
-
-/**
- * MODULES A BROWSER CANNOT EVALUATE (POD-2206), as opposed to merely large ones.
- *
- * The byte ceilings below are a judgement about cost. This is not: every source
- * matched here evaluates `createRequire(import.meta.url)` at MODULE SCOPE, or
- * reaches something that does, and in a browser `node:module` is a stub. A chunk
- * carrying one does not render slowly — it throws `createRequire is not a
- * function` while it is still being evaluated, and the route is simply gone.
- *
- * That is POD-2176, and it was a whole-pane crash reachable from a one-line
- * import: `sections/shared.tsx` took `harnessSupportsNoTools` from
- * `@podium/harness/metadata`, which re-exports the registry, which holds all
- * five manifests and their sqlite closure. It survived because the two gates
- * that could see it both answered in a currency nobody reads at the time: the
- * size budgets went red (they were already red), and `lint:architecture` named
- * the file exactly — in a lane red for four unrelated reasons since before it
- * landed. Neither said "the settings pane is gone in every real build".
- *
- * So this check exists to say THAT, in the build command, in bytes-free terms.
- * `@podium/harness/browser` is the declared exception because it is the half
- * with no runtime import at all — the split those two modules exist to keep.
- */
-const BROWSER_HOSTILE_SOURCES = [
-  // Operator replay reads local credentials and must never be a product import.
-  'file-viewer-replay.ts',
-  'packages/runtime/src/sqlite/',
-  'packages/harness/src/',
-] as const
-
-/** Exact source files admitted through declared, transitively audited browser
- * entrypoints. Keep this narrower than a directory: `manifest-browser-reach`
- * proves these modules' complete closure remains Node-free, while this build
- * check continues to reject every parser, pager and tailer in the store, every
- * driver family behind `/driver/host`, and the manifests' sqlite closure.
- * (POD-4469 dissolved `packages/transcript` into `packages/harness/src/store`,
- * so the old transcript exceptions moved with their modules; the composer-sync
- * port is the harness-free typed subset both sync consumers share (POD-4477),
- * audited through its own browser entrypoint.) */
-const BROWSER_HOSTILE_EXCEPTIONS = [
-  'packages/harness/src/browser.ts',
-  'packages/harness/src/store/cursor-codec.ts',
-  'packages/harness/src/store/stream-identity.ts',
-  'packages/harness/src/driver/families/terminal/composer-sync.ts',
-  // Browser-safe adapter SECTIONS (spec rev 2 §4.1/§4.5, ADR 10 Decision D). The
-  // composer rules moved into adapters/<h>/composer.ts (POD-4477) and the bundled
-  // descriptor fallback into adapters/bundled-descriptors.generated.ts
-  // (POD-4538/4541); all four are imported by src/browser.ts, a declared entrypoint
-  // whose full closure `audit:browser-reach` bundles for the browser and proves
-  // Node-free. They were never added here, so every web build — and therefore every
-  // integration suite, which builds the clients first — failed from POD-4477 on.
-  'packages/harness/src/adapters/bundled-descriptors.generated.ts',
-  'packages/harness/src/adapters/shared/composer.ts',
-  'packages/harness/src/adapters/claude-code/composer.ts',
-  'packages/harness/src/adapters/codex/composer.ts',
-  // Codex interview cards (POD-2061): interview.ts imports only json-util.ts,
-  // which has no imports. Both are pure JSON/string helpers reached through
-  // src/browser.ts and covered by its browser-reach closure audit.
-  'packages/harness/src/adapters/codex/interview.ts',
-  'packages/harness/src/adapters/shared/json-util.ts',
-  // Version floors (POD-4084): pure data + string parsing, zero imports,
-  // re-exported by src/browser.ts on purpose (see its boundary-checker note).
-  // In a browser chunk only via that declared entrypoint, whose full closure
-  // `audit:browser-reach` proves Node-free. Without this line every web build —
-  // and therefore every integration suite, which builds the clients first — fails.
-  'packages/harness/src/version-policy.ts',
 ] as const
 
 /**
@@ -491,11 +425,7 @@ const report = {
     unusedDuplicateAcceptances: duplicates.unusedAcceptances,
     illegalDuplicateAcceptances: duplicates.illegalAcceptances,
     ownershipMatrixSources: matchingSources(allChunks, 'packages/model/src/annotations/matrix.ts'),
-    browserHostileSources: BROWSER_HOSTILE_SOURCES.flatMap((fragment) =>
-      matchingSources(allChunks, fragment).filter(
-        (source) => !BROWSER_HOSTILE_EXCEPTIONS.some((allowed) => source.includes(allowed)),
-      ),
-    ).sort(),
+    browserHostileSources: browserHostileSources(allChunks.flatMap((chunk) => chunk.sources)),
   },
 }
 
@@ -851,8 +781,8 @@ if (checkBudget) {
     )
 
   // Deliberately phrased as a crash, not as weight: this is the one check here
-  // whose breach means a route does not render at all. See
-  // BROWSER_HOSTILE_SOURCES.
+  // whose breach means a route does not render at all. The source boundary
+  // lives with the other pure bundle checks in web-bundle-boundaries.ts.
   if (report.allBrowserChunks.browserHostileSources.length > 0) {
     const { browserHostileSources: hostile } = report.allBrowserChunks
     errors.push(
