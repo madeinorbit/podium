@@ -1,9 +1,10 @@
 # Server data access and caching — design
 
-POD-6140, agreed with the operator on 2026-10-15. Status (2026-10-18): built on the integration branch; every
+POD-6140, agreed with the operator on 2026-10-15. Status (2026-11-02): built on the integration branch; every
 memory copy in section 6 is removed; measured twice (docs/measurements/pod-6140-result.md §1-§5); the measured
-hot paths are fixed. Open: three items deferred to the operator (F6, F12, E2) and the live measurement after a
-deploy. See section 11.
+hot paths are fixed; merged to dev/mw at 407e8a7ff9 on 2026-11-02 (E2 and F19 landed after, on the integration
+branch rebase/6140-onto-devmw). Open: F6 deferred to the operator and the live measurement after a deploy. See
+section 11.
 Evidence behind every claim: [pod-6140-research.md](../../pod-6140-research.md).
 
 ## 1. Goal and scope
@@ -236,9 +237,11 @@ Prefix letters are phases, numbers the order inside a phase. Blocking edges in t
 | F16 | Phase recorders' event appends grouped in one commit | POD-6233 | done, e940c71503 |
 | F17 | Session upsert sets only changed indexed columns (declared single-writer write hint) | POD-6234 | done, 7e7f069650, f5ebb16524 |
 | F18 | Restart storm test: awaited frames and grouped appends (test-only) | POD-6235 | done, 1bcb8143b8 |
-| E2 | Cache interface (deferred until a measured need) | POD-6150 | deferred; no lane measured a need |
+| F19 | Session commands read machine ownership on demand (one machine, or none) | POD-6252 | done, 6bc139d681 |
+| E2 | Cache layer (store/cache) and its first cache, the earliest admin, chosen by profile ranking | POD-6150 | done, 3881474d7f..c8a75a8f67 |
+| R1 | Replay onto dev/mw fc4068b9e4, migrations regenerated; dev/mw fast-forwarded to 407e8a7ff9 (2026-11-02) | POD-6250 | done, 407e8a7ff9 |
 
-D4 to D10 and F1 to F18 were found while building or measuring; each was filed with its evidence and landed on its
+D4 to D10 and F1 to F19 were found while building or measuring; each was filed with its evidence and landed on its
 own.
 dev/mw holds the integration branch up to 0c37f9eb50 (D2f); everything after it waits for the
 operator's go-ahead.
