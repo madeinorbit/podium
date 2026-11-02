@@ -61,7 +61,11 @@ export class PaneSession {
     const issue = omitGone(this.pool.model('issue', issueId))
     if (!issue || issue === LOADING) return null
     const outcome = sessionIssueOutcome(this.session as unknown as SessionView, issue as unknown as OutcomeIssueFacts)
-    return outcome && { ...outcome, issueId }
+    if (!outcome) return null
+    // The sidebar row's own tuck verdicts (POD-2293): Tuck is offered exactly
+    // where the row's tuck chip is, and shown done where it can be brought back.
+    const row = worklistView(this.pool).knownRow(issueId)
+    return { ...outcome, issueId, tuckable: row?.canTuck === true, tucked: row?.canBringBack === true }
   }
 
   private loadedIssue(id: string): Loaded<IssueModel> {

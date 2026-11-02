@@ -155,16 +155,27 @@ it('reads the issue outcome through real pool models, whose fields are prototype
   try {
     const closed = { stage: 'done', closedAt: '2026-10-01T00:00:10Z', parentBranch: 'tf.dev' }
     pool.apply({ type: 'replace', rows: [
-      issue('landed', null, { ...closed, closedReason: 'done', landedAt: '2026-10-01T00:00:09Z', landedSha: 'fcd1385aa9e0' }),
-      issue('cancelled', null, { ...closed, closedReason: 'cancelled' }),
+      issue('landed', null, { ...closed, audience: 'human', closedReason: 'done', landedAt: '2026-10-01T00:00:09Z', landedSha: 'fcd1385aa9e0' }),
+      issue('cancelled', null, { ...closed, audience: 'human', closedReason: 'cancelled' }),
+      // Human audience, so only the parent rule can refuse the tuck.
+      issue('sub', null, { ...closed, audience: 'human', parentId: 'landed', closedReason: 'done' }),
+      issue('tucked', null, { ...closed, audience: 'human', closedReason: 'done', tuckedAt: '2026-10-01T00:00:12Z' }),
+      // Still wants the human: the sidebar keeps the row, so a tuck would fold nothing.
+      issue('asks', null, { ...closed, audience: 'human', closedReason: 'done', needsHuman: true }),
     ].map(row => ({ kind: 'issue', id: row.id, value: row as never })) })
     const stopped = { ...sessionPaneFixture()[0]!, status: 'hibernated', stopReason: 'parent', stoppedAt: '2026-10-01T00:00:11Z' } as SessionView
     const outcome = (issueId: string) => {
       pool.apply({ type: 'update', rows: [{ kind: 'session', id: stopped.sessionId, value: { ...stopped, issueId } as never }] })
       return sessionPaneView(pool).loaded(stopped.sessionId)?.issueOutcome
     }
-    expect(outcome('landed')).toEqual({ kind: 'landed', at: '2026-10-01T00:00:09Z', branch: 'tf.dev', sha: 'fcd1385', issueId: 'landed' })
-    expect(outcome('cancelled')).toEqual({ kind: 'closed', at: '2026-10-01T00:00:10Z', reason: 'cancelled', issueId: 'cancelled' })
+    expect(outcome('landed')).toEqual({ kind: 'landed', at: '2026-10-01T00:00:09Z', branch: 'tf.dev', sha: 'fcd1385', issueId: 'landed', tuckable: true, tucked: false })
+    expect(outcome('cancelled')).toEqual({ kind: 'closed', at: '2026-10-01T00:00:10Z', reason: 'cancelled', issueId: 'cancelled', tuckable: false, tucked: false })
+    // The card reads the sidebar row's own tuck verdicts (POD-2293). A cancelled
+    // row folds by itself, so no tuck is offered; a sub-task has no row to fold.
+    expect(outcome('sub')).toMatchObject({ kind: 'closed', issueId: 'sub', tuckable: false })
+    // Already tucked: the card shows it as done rather than offering it again.
+    expect(outcome('tucked')).toMatchObject({ kind: 'closed', issueId: 'tucked', tuckable: false, tucked: true })
+    expect(outcome('asks')).toMatchObject({ kind: 'closed', issueId: 'asks', tuckable: false })
   } finally { pool.dispose() }
 })
 

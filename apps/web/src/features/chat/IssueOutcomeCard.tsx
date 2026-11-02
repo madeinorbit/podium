@@ -39,7 +39,13 @@ export function IssueOutcomeCard({ outcome }: { outcome: SessionIssueOutcome }):
               {outcome.sha && ' · '}issue closed as done
             </span>
           )}
-          {outcome.issueId && <IssueOutcomeActions issueId={outcome.issueId} />}
+          {outcome.issueId && (
+            <IssueOutcomeActions
+              issueId={outcome.issueId}
+              tuckable={outcome.tuckable === true}
+              tucked={outcome.tucked === true}
+            />
+          )}
         </div>
       </div>
     </div>
@@ -53,7 +59,17 @@ export function IssueOutcomeCard({ outcome }: { outcome: SessionIssueOutcome }):
  * are the outboxed ones the sidebar uses; the issue is already finished, so
  * the tuck needs no close first (compare `useMissionEndings`).
  */
-function IssueOutcomeActions({ issueId }: { issueId: string }): JSX.Element {
+function IssueOutcomeActions({
+  issueId,
+  tuckable,
+  tucked,
+}: {
+  issueId: string
+  /** Only a row the sidebar folds can be tucked away (POD-2293). */
+  tuckable: boolean
+  /** Read from the issue, optimistic tuck included: a refused tuck clears it. */
+  tucked: boolean
+}): JSX.Element {
   const { setIssueTucked, updateIssue } = useRuntimeSelector(
     (store) => ({
       setIssueTucked: store.setIssueTucked,
@@ -61,16 +77,17 @@ function IssueOutcomeActions({ issueId }: { issueId: string }): JSX.Element {
     }),
     shallowEqual,
   )
-  const [tucked, setTucked] = useState(false)
   const fail = (error: unknown): void => {
     toast.error(error instanceof Error ? error.message : String(error))
   }
+  // Held from the click until the write settles, so a fast second click
+  // cannot send a second tuck before the optimistic Tucked paints.
+  const [tucking, setTucking] = useState(false)
   const tuck = (): void => {
-    setTucked(true)
-    void setIssueTucked(issueId, true).catch((error: unknown) => {
-      setTucked(false)
-      fail(error)
-    })
+    setTucking(true)
+    void setIssueTucked(issueId, true)
+      .catch(fail)
+      .finally(() => setTucking(false))
   }
   // The toggle `issues.update`, not the one-way `issues.archive`, so Undo can
   // put it back. Its sessions are already stopped: nothing else to warn about.
@@ -88,10 +105,12 @@ function IssueOutcomeActions({ issueId }: { issueId: string }): JSX.Element {
   }
   return (
     <span className="issue-outcome-actions">
-      <Button variant="ghost" size="xs" onClick={tuck} disabled={tucked}>
-        {tucked ? <Check aria-hidden="true" /> : <ArrowDownToLine aria-hidden="true" />}
-        {tucked ? 'Tucked' : 'Tuck'}
-      </Button>
+      {(tuckable || tucked) && (
+        <Button variant="ghost" size="xs" onClick={tuck} disabled={tucked || tucking}>
+          {tucked ? <Check aria-hidden="true" /> : <ArrowDownToLine aria-hidden="true" />}
+          {tucked ? 'Tucked' : 'Tuck'}
+        </Button>
+      )}
       <Button variant="ghost" size="xs" onClick={archive}>
         <Archive aria-hidden="true" />
         Archive

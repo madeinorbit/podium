@@ -13,6 +13,13 @@ export type SessionIssueOutcome = (
 ) & {
   /** The issue that ended, when the reader knows it: the card files it away. */
   issueId?: string
+  /**
+   * The sidebar row offers its tuck chip: the same verdict, so the card offers
+   * Tuck exactly where the sidebar does (POD-2293). Archive is always offered.
+   */
+  tuckable?: boolean
+  /** The row is tucked and can be brought back (optimistic tuck included). */
+  tucked?: boolean
 }
 
 export interface OutcomeIssueFacts {

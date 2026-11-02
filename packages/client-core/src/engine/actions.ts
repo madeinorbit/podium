@@ -19,7 +19,7 @@ import type {
   SessionId,
   ThreadId,
   WorkState} from '@podium/model'
-import { asThreadId } from '@podium/model'
+import { asIssueId, asThreadId } from '@podium/model'
 import {
   isSessionIdPrefix,
   resolveSessionIdentifier,
@@ -52,7 +52,8 @@ import {
   reposToViews,
   resizeSplit,
   splitPane,
-  tabIdFor} from '../values'
+  tabIdFor,
+  workspaceKeyFor} from '../values'
 import type { SuperThreadView } from '../values/compose/superagent'
 import {
   discardChatThroughOutbox,
@@ -1078,7 +1079,42 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       rt.state().navigation.readIntent?.('issue', id, false)
       return rt.write('issueMarkUnread', { id })
     },
-    setIssueTucked: async (id, tucked) => rt.write('issueSetTucked', { id, tucked }),
+    /**
+     * TUCKING THE TASK ON SCREEN LEAVES IT (POD-2293).
+     *
+     * A tucked task folds out of the sidebar, so staying on it would leave the
+     * operator looking at finished work that no row points back to. Tucking
+     * the selected task's mission root therefore clears the selection right
+     * after the tuck is enqueued, and the workspace shows the cold deck.
+     *
+     * Optimistic, like the fold: the row folds and the operator leaves at once.
+     * A refused tuck brings the row back to the sidebar; nothing was closed, so
+     * nothing else needs undoing. Workspaces are kept per task, so its tabs,
+     * files and sessions are there again on a bring-back.
+     *
+     * Only the selected task clears. The worktree stays, as every other way back
+     * to the composer keeps it: clearing it hands the selection to the worktree
+     * fallback, which shows another worktree's tabs. The view is kept too.
+     *
+     * The operator's own click is the only trigger. A tuck from the phone,
+     * another window or the CLI folds the row here but does not move this
+     * screen. Tucking a sub-task never moves it either: the strip on screen
+     * belongs to the mission, not the sub-task. A selection still loading
+     * cannot be matched and stays put.
+     */
+    setIssueTucked: async (id, tucked) => {
+      const written = rt.write('issueSetTucked', { id, tucked })
+      // "The task on screen" is the workspace the selection resolves to, the
+      // same key the strip is filed under.
+      const shown = tucked ? resolvedWorkspaceKey(rt.state()) : null
+      const own =
+        shown === workspaceKeyFor({ missionRootId: id }) ||
+        shown === workspaceKeyFor({ issueId: asIssueId(id) })
+      // The tuck is the newest gesture, so like any click it replaces one still
+      // on its way (a pending navigation, session jump or pane link).
+      if (own) rt.navigate({ view: rt.router.current().view, selectedIssueId: null })
+      return written
+    },
     // The curation writes (POD-781). Nothing here but the enqueue: the queued
     // entry IS the optimistic apply (#263), so there is no local mirror to keep
     // and no rollback to write — the overlay retires itself on covering truth or
