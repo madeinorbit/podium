@@ -153,19 +153,22 @@ describe('session create: pinned statement counts at 5 and 200', () => {
   // with their machine (dc09092a07); over tRPC 29 -> 51, the draft task the
   // create now makes (5677f213d2, POD-2156): the issue, its ref letters, event,
   // projection, its feed window eviction and their visibility reads.
+  // POD-6150: the earliest admin comes from a declared cache, so no `users` read
+  // is left: draft 34 -> 30 (in process each ask was a live read, outside any
+  // operation), on an issue 37 -> 34, over tRPC 51 -> 50.
   it('in process, a draft session in a repo', async () => {
-    await expectConstantStatements(draft, 34)
+    await expectConstantStatements(draft, 30)
   })
 
   it('in-process pin is armed', async () => {
-    await expectArmed(draft, 34, plantPerSession)
+    await expectArmed(draft, 30, plantPerSession)
   })
 
   it('in process, a session on an issue', async () => {
     await expectConstantStatements(
       pin('createSession (on an issue)', async (f) =>
         await f.reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/repo/w0', issueId: f.issueId })),
-      37,
+      34,
     )
   })
 
@@ -173,10 +176,10 @@ describe('session create: pinned statement counts at 5 and 200', () => {
     await f.call.sessions.create({ agentKind: 'codex', cwd: '/repo/new' }))
 
   it('over tRPC', async () => {
-    await expectConstantStatements(trpc, 51)
+    await expectConstantStatements(trpc, 50)
   })
 
   it('tRPC pin is armed', async () => {
-    await expectArmed(trpc, 51, plantPerSession)
+    await expectArmed(trpc, 50, plantPerSession)
   })
 })
