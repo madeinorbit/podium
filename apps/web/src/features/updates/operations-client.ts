@@ -139,9 +139,65 @@ function startOutcome(answer: unknown): StartUpdateOutcome {
   }
 }
 
-export async function startUpdate(trpc: Trpc, surface?: string): Promise<StartUpdateOutcome> {
+/**
+ * HOW LONG "UPDATE" OR "TRY AGAIN" WAITS FOR THE SERVER TO ANSWER (POD-6240).
+ *
+ * The mutation used to have no deadline: a request whose answer never came
+ * left the button saying "Trying again…" forever. Starting an operation is a
+ * few reads and one write, so thirty seconds without an answer means the answer
+ * is lost, not slow. The caller then treats it like any other lost answer: it
+ * polls for the operation the server may already have created, and only after
+ * that says the update could not be confirmed.
+ */
+export const UPDATE_REQUEST_TIMEOUT_MS = 30_000
+
+/** The start or retry request got no answer within {@link UPDATE_REQUEST_TIMEOUT_MS}. */
+export class UpdateRequestTimeoutError extends Error {
+  constructor(action: 'start' | 'retry', timeoutMs: number, cause: unknown) {
+    super(`The server did not answer the update ${action} within ${timeoutMs / 1000}s.`, {
+      cause,
+    })
+    this.name = 'UpdateRequestTimeoutError'
+  }
+}
+
+export function isUpdateRequestTimeout(error: unknown): boolean {
+  return error instanceof UpdateRequestTimeoutError
+}
+
+/** Run one start/retry mutation under {@link UPDATE_REQUEST_TIMEOUT_MS}. */
+async function withAnswerDeadline<T>(
+  action: 'start' | 'retry',
+  call: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number = UPDATE_REQUEST_TIMEOUT_MS,
+): Promise<T> {
+  const controller = new AbortController()
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, timeoutMs)
   try {
-    const answer = await trpc.updates.start.mutate(surface ? { surface } : undefined)
+    return await call(controller.signal)
+  } catch (error) {
+    if (timedOut) throw new UpdateRequestTimeoutError(action, timeoutMs, error)
+    throw error
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+export async function startUpdate(
+  trpc: Trpc,
+  surface?: string,
+  timeoutMs?: number,
+): Promise<StartUpdateOutcome> {
+  try {
+    const answer = await withAnswerDeadline(
+      'start',
+      (signal) => trpc.updates.start.mutate(surface ? { surface } : undefined, { signal }),
+      timeoutMs,
+    )
     noteStartAnswer('start', answer)
     return startOutcome(answer)
   } catch (error) {
@@ -186,15 +242,23 @@ function noteStartAnswer(action: 'start' | 'retry', answer: unknown): void {
   })
 }
 
-export async function retryUpdate(trpc: Trpc, operationId?: string): Promise<StartUpdateOutcome> {
+export async function retryUpdate(
+  trpc: Trpc,
+  operationId?: string,
+  timeoutMs?: number,
+): Promise<StartUpdateOutcome> {
   // Nothing to retry the remainder OF: start a fresh operation instead of
   // asking the server about an id we do not have.
   if (!operationId) {
     updatesLog.info('retry had no operation to retry; starting a fresh one', {})
-    return startUpdate(trpc)
+    return startUpdate(trpc, undefined, timeoutMs)
   }
   try {
-    const answer = await trpc.updates.retry.mutate({ id: operationId })
+    const answer = await withAnswerDeadline(
+      'retry',
+      (signal) => trpc.updates.retry.mutate({ id: operationId }, { signal }),
+      timeoutMs,
+    )
     noteStartAnswer('retry', answer)
     return startOutcome(answer)
   } catch (error) {
@@ -202,7 +266,7 @@ export async function retryUpdate(trpc: Trpc, operationId?: string): Promise<Sta
     updatesLog.info('this server has no updates.retry; starting a fresh operation', {
       operationId,
     })
-    return startUpdate(trpc)
+    return startUpdate(trpc, undefined, timeoutMs)
   }
 }
 

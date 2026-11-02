@@ -22,6 +22,7 @@ import {
   targetPlatforms,
 } from '@podium/protocol'
 import {
+  DEFAULT_DOWNLOAD_STALL_TIMEOUT_MS,
   DEFAULT_DOWNLOAD_TIMEOUT_MS,
   PROGRESS_REPORT_INTERVAL_MS,
 } from '@podium/runtime/update-delivery'
@@ -1513,48 +1514,42 @@ export const STEP_HEARTBEAT_INTERVAL_MS = 15_000
  * The numbers here nest, and the nesting is the point — it is asserted in
  * `operation.test.ts` rather than left to whoever edits one of them next:
  *
- *  - a daemon's own download timeout (5 min) and its git convergence budget
- *    (8 min) must expire BEFORE the coordinator gives up on that machine, so a
- *    failure arrives with the machine's own reason attached instead of being
- *    guessed from silence;
- *  - the machines step's silence budget must therefore outlast the longest
- *    legitimate quiet stretch any supported daemon can produce, which is the git
- *    budget — not the heartbeat cadence;
+ *  - a daemon's own no-data deadline for a download (1 min) must expire BEFORE
+ *    the coordinator gives up on that machine, so a failure arrives with the
+ *    machine's own reason attached instead of being guessed from silence;
+ *  - the machines step's silence budget is that bound plus a margin, and
+ *    nothing longer: every delivery is a feed download that heartbeats every two
+ *    seconds while bytes arrive, so a machine that has said nothing for two
+ *    minutes is stuck, not slow;
  *  - and every silence budget must be shorter than its step's total, or the
  *    total would be the only deadline that could ever fire.
  *
- * WHY NOT NINETY SECONDS, which this issue's plan proposed for a download: a
- * daemon that predates `percent` reports `downloading` once and then works in
- * silence for up to its whole download timeout. A 90 s step deadline would stall
- * and re-grant it mid-transfer, every time — the plan's own acceptance list
- * requires those daemons to converge. Ninety seconds is the right number for a
- * heartbeat that IS being sent (the panel's staleness line renders it from
- * `lastProgressAt` and needs nothing from us); it is the wrong number for the
- * deadline that fails a machine.
+ * WHY NOT THE TOTAL DOWNLOAD DEADLINE (POD-6240): the silence budget used to be
+ * the daemon's whole five-minute download timeout plus two minutes, and the
+ * engine's one stall retry doubled it, so a dead transfer held the update for
+ * fourteen minutes before anyone was told. Silence is about the LAST BYTE, not
+ * the whole transfer, so it derives from the stall bound. A long download that
+ * keeps reporting progress is still healthy; the step total bounds it.
  */
 export const UPDATE_BUDGETS = {
   /** `DEFAULT_DOWNLOAD_TIMEOUT_MS` in `@podium/runtime/update-delivery`. */
   downloadTimeoutMs: DEFAULT_DOWNLOAD_TIMEOUT_MS,
+  /** `DEFAULT_DOWNLOAD_STALL_TIMEOUT_MS` in `@podium/runtime/update-delivery`. */
+  downloadStallTimeoutMs: DEFAULT_DOWNLOAD_STALL_TIMEOUT_MS,
   /**
-   * THE LONGEST A HEALTHY MACHINE MAY SAY NOTHING, and where that number comes
-   * from now that git convergence is retired (spec disposition 5).
-   *
-   * It used to be `GIT_CONVERGENCE_BUDGET_MS`: a git convergence had no byte
-   * count to report against, so its whole run was one silence and the server
-   * had to out-wait it. Every delivery is now a feed download, which heartbeats
-   * every two seconds — so the bound that matters is the daemon's own hard
-   * deadline for a download that has stalled. Deriving it from the SAME
+   * THE LONGEST A HEALTHY MACHINE MAY SAY NOTHING: the daemon's own deadline
+   * for a download that has stopped receiving data. Deriving it from the SAME
    * constant the daemon enforces is what keeps the daemon failing first; a
    * server that gives up earlier would age a machine into `stuck` while it was
    * still working.
    */
-  machineDeliverySilenceMs: DEFAULT_DOWNLOAD_TIMEOUT_MS,
+  machineDeliverySilenceMs: DEFAULT_DOWNLOAD_STALL_TIMEOUT_MS,
   /** The daemon's download heartbeat cadence, `PROGRESS_REPORT_INTERVAL_MS`. */
   downloadHeartbeatMs: PROGRESS_REPORT_INTERVAL_MS,
   /** This server's own heartbeat cadence for steps it is watching. */
   stepHeartbeatMs: STEP_HEARTBEAT_INTERVAL_MS,
   /** Margin between a daemon's longest silence and the step giving up on it. */
-  machineSilenceMarginMs: 2 * 60_000,
+  machineSilenceMarginMs: 60_000,
 } as const
 
 /**

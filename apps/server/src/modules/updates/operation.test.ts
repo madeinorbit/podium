@@ -15,6 +15,7 @@ import {
 } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { HTTP_IDLE_TIMEOUT_S } from '../../gateway/ws-server'
 import { runDrizzleMigrations } from '../../migrations'
 import { DRIZZLE_MIGRATIONS } from '../../migrations/drizzle-manifest.generated'
 import { syncQueriesOver } from '../../store/executor/sync-drizzle'
@@ -3708,18 +3709,32 @@ describe('the budgets nest', () => {
   it('lets a daemon fail on its OWN deadline before the coordinator gives up on it', async () => {
     // Otherwise the machine's real reason — a dead remote, a refused checkout —
     // is replaced by the coordinator's guess that it went quiet.
-    expect(UPDATE_BUDGETS.downloadTimeoutMs).toBeLessThan(machines?.silenceMs ?? 0)
+    expect(UPDATE_BUDGETS.downloadStallTimeoutMs).toBeLessThan(machines?.silenceMs ?? 0)
     expect(UPDATE_BUDGETS.machineDeliverySilenceMs).toBeLessThan(machines?.silenceMs ?? 0)
   })
 
-  it('measures the wave against the LONGEST legitimate silence, not the cadence', async () => {
-    // A daemon that predates `percent` reports `downloading` once and works in
-    // silence for its whole budget. Judging the step on the heartbeat cadence
-    // would stall and re-grant that machine mid-transfer, every time.
+  it('measures the wave against the daemon stall bound, not the cadence', async () => {
+    // Judging the step on the heartbeat cadence would stall and re-grant a
+    // machine mid-transfer over one lost tick; judging it on the whole download
+    // deadline held a dead transfer for fourteen minutes (POD-6240).
     expect(machines?.silenceMs).toBe(
       UPDATE_BUDGETS.machineDeliverySilenceMs + UPDATE_BUDGETS.machineSilenceMarginMs,
     )
+    expect(UPDATE_BUDGETS.machineDeliverySilenceMs).toBe(UPDATE_BUDGETS.downloadStallTimeoutMs)
     expect(UPDATE_BUDGETS.downloadHeartbeatMs).toBeLessThan(machines?.silenceMs ?? 0)
+  })
+
+  it('keeps the server HTTP idle limit above the daemon stall bound', async () => {
+    // Otherwise the server cuts a paused download before the machine can name
+    // the stall itself, and the operator reads a socket error (POD-6240).
+    expect(HTTP_IDLE_TIMEOUT_S * 1000).toBeGreaterThan(UPDATE_BUDGETS.downloadStallTimeoutMs)
+  })
+
+  it('fails a quiet machine within a few minutes, its one retry included', async () => {
+    // The engine re-grants once after the first silence, so a machine that
+    // never answers is failed after two budgets. Before POD-6240 that was
+    // fourteen minutes of a stuck update.
+    expect(2 * (machines?.silenceMs ?? Number.POSITIVE_INFINITY)).toBeLessThanOrEqual(5 * 60_000)
   })
 
   it('keeps every silence budget inside its own step total', async () => {

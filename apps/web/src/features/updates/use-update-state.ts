@@ -70,6 +70,7 @@ import {
   errorDetail,
   errorMessage,
   isMissingProcedure,
+  isUpdateRequestTimeout,
   readActiveOperation,
   readLatestOperation,
   retryUpdate,
@@ -1147,14 +1148,30 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
         // EVERY rejection lands here. This is the catch the old `runAction`
         // never had: a refused `installUpdate` used to stop a spinner and say
         // nothing at all.
-        if ((kind === 'start' || kind === 'retry') && isServerUnavailable(error)) {
+        if (
+          (kind === 'start' || kind === 'retry') &&
+          (isServerUnavailable(error) || isUpdateRequestTimeout(error))
+        ) {
           // THE EXPECTED HANDOFF, named as such. This branch is the reason a
           // cut `start` does not paint a failure, and reading it as an error is
           // the mistake every reviewer of this file has had to be talked out of.
-          updatesLog.info('update action lost its answer to the restart it asked for', {
-            action: kind,
-            elapsedMs: clock() - startedAt,
-          })
+          //
+          // A request that got NO answer within its deadline (POD-6240) takes
+          // the same path: the server may have created the operation before the
+          // answer was lost, so the panel looks for it rather than replaying
+          // the write, and the observation wait below names the failure if
+          // nothing appears.
+          if (isUpdateRequestTimeout(error)) {
+            updatesLog.warn('update action got no answer in time; looking for its operation', {
+              action: kind,
+              elapsedMs: clock() - startedAt,
+            })
+          } else {
+            updatesLog.info('update action lost its answer to the restart it asked for', {
+              action: kind,
+              elapsedMs: clock() - startedAt,
+            })
+          }
           /**
            * Starting an update can cut its own mutation response: the durable
            * operation has already requested the server restart. Never replay

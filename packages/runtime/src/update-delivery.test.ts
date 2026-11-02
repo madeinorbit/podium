@@ -133,7 +133,7 @@ describe('fetchArtifact progress', () => {
     expect(seen.map((p) => p.receivedBytes)).toEqual([10, 20, 30])
   })
 
-  it('takes the one-shot path, unchanged, when nobody is listening', async () => {
+  it('returns the same bytes when nobody is listening for progress', async () => {
     const chunks = [chunk(7, 8)]
     const artifact = artifactOf(chunks)
     const { bytes } = await fetchArtifact(artifact, {
@@ -177,6 +177,50 @@ describe('fetchArtifact progress', () => {
     ).rejects.toThrow(
       'artifact address unreachable: https://missing.example/a.tgz — fetch failed — connect ECONNREFUSED',
     )
+  })
+
+  it('fails a download that stops receiving data, naming the stall (POD-6240)', async () => {
+    const artifact = artifactOf([chunk(1, 8), chunk(2, 8)])
+    // One chunk, then nothing: the shape of a transfer whose link went quiet.
+    // Like a real fetch body, it errors when the request's signal aborts.
+    const hangingFetch = (async (_url: string, init?: RequestInit) => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(chunk(1, 8))
+          init?.signal?.addEventListener('abort', () =>
+            controller.error(new DOMException('aborted', 'AbortError')),
+          )
+        },
+      })
+      return new Response(stream, { status: 200 })
+    }) as unknown as typeof fetch
+    await expect(
+      fetchArtifact(artifact, { fetch: hangingFetch, pubkey, downloadStallTimeoutMs: 40 }),
+    ).rejects.toThrow(/^artifact download stalled: no data received for /)
+  })
+
+  it('lets a slow transfer that keeps delivering outlive the stall bound', async () => {
+    const chunks = [chunk(1, 8), chunk(2, 8), chunk(3, 8), chunk(4, 8), chunk(5, 8)]
+    const artifact = artifactOf(chunks)
+    // Each chunk arrives inside the bound; the whole transfer takes longer than it.
+    const slowFetch = (async () => {
+      const stream = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          for (const c of chunks) {
+            await new Promise((resolve) => setTimeout(resolve, 30))
+            controller.enqueue(c)
+          }
+          controller.close()
+        },
+      })
+      return new Response(stream, { status: 200 })
+    }) as unknown as typeof fetch
+    const { bytes } = await fetchArtifact(artifact, {
+      fetch: slowFetch,
+      pubkey,
+      downloadStallTimeoutMs: 100,
+    })
+    expect(Array.from(bytes)).toEqual(Array.from(artifact.bytes))
   })
 
   it('keeps truncated and timed-out transfers retryable', () => {

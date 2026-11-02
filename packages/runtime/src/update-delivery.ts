@@ -61,6 +61,11 @@ export interface DeliveryDeps {
    * that could never fail.
    */
   downloadTimeoutMs?: number
+  /**
+   * How long the download may go without receiving a single byte before it is
+   * failed as stalled. Defaults to {@link DEFAULT_DOWNLOAD_STALL_TIMEOUT_MS}.
+   */
+  downloadStallTimeoutMs?: number
   /** Raised when a newer grant supersedes the one being delivered. */
   signal?: AbortSignal
   /**
@@ -92,6 +97,19 @@ export interface DeliveryProgress {
 
 /** Long enough for a slow link, short enough that a hung socket still fails. */
 export const DEFAULT_DOWNLOAD_TIMEOUT_MS = 5 * 60_000
+
+/**
+ * A DOWNLOAD THAT RECEIVES NOTHING FOR A MINUTE HAS STALLED (POD-6240).
+ *
+ * The total deadline above is the wrong bound for a hung transfer: it let a
+ * machine sit in `downloading` for five minutes after its last byte, and the
+ * coordinator's silence budget had to outwait it. A healthy transfer delivers
+ * bytes continuously, so a short no-data bound fails the dead case quickly and
+ * with the machine's own reason. It stays below the server's HTTP idle limit
+ * (`HTTP_IDLE_TIMEOUT_S`), so the daemon names the stall before the server cuts
+ * the connection.
+ */
+export const DEFAULT_DOWNLOAD_STALL_TIMEOUT_MS = 60_000
 
 /** At most one report every two seconds… */
 export const PROGRESS_REPORT_INTERVAL_MS = 2_000
@@ -222,13 +240,18 @@ function declaredLength(res: {
  * the fleet ever had were "started" and "finished". Streaming the body is what
  * makes the middle observable.
  *
- * With no reporter attached — the CLI's self-update, every existing test — this
- * takes the same one-shot path it always did. Progress reporting costs the
- * chunk loop only where someone is listening.
+ * The body is streamed even with no reporter attached (the CLI's self-update):
+ * every chunk is what proves the transfer is alive, and `onBytes` is how the
+ * stall deadline hears it (POD-6240). Only a response without a body stream
+ * falls back to the one-shot read.
  */
-async function readArtifact(res: Response, deps: DeliveryDeps): Promise<Uint8Array> {
+async function readArtifact(
+  res: Response,
+  deps: DeliveryDeps,
+  onBytes: () => void,
+): Promise<Uint8Array> {
   const body = res.body
-  if (!deps.onProgress || !body) return new Uint8Array(await res.arrayBuffer())
+  if (!body) return new Uint8Array(await res.arrayBuffer())
 
   const onProgress = deps.onProgress
   const now = deps.now ?? Date.now
@@ -245,6 +268,8 @@ async function readArtifact(res: Response, deps: DeliveryDeps): Promise<Uint8Arr
     if (!value) continue
     chunks.push(value)
     receivedBytes += value.byteLength
+    onBytes()
+    if (!onProgress) continue
     // Clamped: a body longer than its own declared length is a server bug, not
     // a reason to report 104%.
     const percent =
@@ -298,6 +323,20 @@ export async function fetchArtifact(
   if (deps.signal?.aborted) abort.abort()
   const timer = setTimeout(() => abort.abort(), timeoutMs)
   ;(timer as { unref?: () => void }).unref?.()
+  // The no-data deadline: armed before the request (a server that never
+  // answers is stalled too) and re-armed by every chunk that arrives.
+  const stallMs = deps.downloadStallTimeoutMs ?? DEFAULT_DOWNLOAD_STALL_TIMEOUT_MS
+  let stalled = false
+  let stallTimer: ReturnType<typeof setTimeout> | undefined
+  const armStall = (): void => {
+    if (stallTimer !== undefined) clearTimeout(stallTimer)
+    stallTimer = setTimeout(() => {
+      stalled = true
+      abort.abort()
+    }, stallMs)
+    ;(stallTimer as { unref?: () => void }).unref?.()
+  }
+  armStall()
   let bytes: Uint8Array
   try {
     const res = await deps.fetch(asset.url, { signal: abort.signal })
@@ -311,9 +350,14 @@ export async function fetchArtifact(
       }
       throw new Error(`artifact download returned ${res.status}`)
     }
-    bytes = await readArtifact(res, deps)
+    bytes = await readArtifact(res, deps, armStall)
   } catch (error) {
     if (deps.signal?.aborted) throw new Error('artifact download was superseded by a newer grant')
+    if (stalled) {
+      throw new Error(
+        `artifact download stalled: no data received for ${Math.round(stallMs / 1000)}s`,
+      )
+    }
     if (abort.signal.aborted) {
       throw new Error(`artifact download timed out after ${Math.round(timeoutMs / 1000)}s`)
     }
@@ -325,6 +369,7 @@ export async function fetchArtifact(
     throw error
   } finally {
     clearTimeout(timer)
+    if (stallTimer !== undefined) clearTimeout(stallTimer)
     deps.signal?.removeEventListener('abort', onCallerAbort)
   }
 

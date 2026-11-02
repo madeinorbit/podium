@@ -45,9 +45,28 @@ export interface NativeWebSocketHandler<T> {
   close(socket: NativeServerWebSocket<T>): void
 }
 
+/**
+ * HOW LONG AN HTTP CONNECTION MAY MOVE NO DATA BEFORE BUN CLOSES IT (POD-6240).
+ *
+ * Bun's default is ten seconds, and it counts a response the client is not
+ * reading fast enough as idle. A fleet machine downloading the ~264 MB update
+ * artifact over a tailnet link that paused for ten seconds had its connection
+ * closed mid-body ("The socket connection was closed unexpectedly"), which
+ * failed the whole update. Measured on Bun 1.4.2: a 15 s reader pause is cut at
+ * the default; with 120 s a 30 s pause completes. Per-request
+ * `server.timeout(request, n)` does NOT extend the response phase, so this is
+ * the server-wide value.
+ *
+ * Kept above the daemon's own no-data deadline (`DEFAULT_DOWNLOAD_STALL_TIMEOUT_MS`,
+ * 60 s) so a really dead transfer is named by the machine first.
+ */
+export const HTTP_IDLE_TIMEOUT_S = 120
+
 export interface NativeServeOptions<T> {
   port: number
   hostname: string
+  /** Seconds; see {@link HTTP_IDLE_TIMEOUT_S}. Bun's maximum is 255. */
+  idleTimeout?: number
   tls?: { key: string; cert: string }
   websocket: NativeWebSocketHandler<T>
   fetch(

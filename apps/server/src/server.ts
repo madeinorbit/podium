@@ -111,7 +111,12 @@ import {
   prepareDaemonFrame,
   recordHelloBuild,
 } from './gateway/peer-handshake'
-import { attachWebSockets, type NativeServer, serveNative } from './gateway/ws-server'
+import {
+  attachWebSockets,
+  HTTP_IDLE_TIMEOUT_S,
+  type NativeServer,
+  serveNative,
+} from './gateway/ws-server'
 import { podiumCors } from './http-cors'
 import { PairingManager } from './hub/pairing'
 import { adoptStagedFirstAdminPassword, applyEnvFirstAdminPassword } from './first-admin-password'
@@ -2058,6 +2063,7 @@ export async function startServer(
       server = serveNative({
         port: requestedPort,
         hostname: host,
+        idleTimeout: HTTP_IDLE_TIMEOUT_S,
         ...(tls ? { tls } : {}),
         websocket: ws.websocket,
         async fetch(request, nativeServer) {
