@@ -285,7 +285,7 @@ export function decideAdaptiveConcurrency(env: { cores: number; availableMb: num
  * since the async flip (POD-3516), and scripts/ before it (POD-3508).
  *
  * "always" rather than "dependencies-successful", because a typecheck task consumes no
- * artifact from the task it depends on: every package runs `tsgo --noEmit` and declares
+ * artifact from the task it depends on: every package runs `bun check` and declares
  * no outputs, and workspace imports resolve to a dependency's SOURCE. `^typecheck` is an
  * ordering edge, so a red dependency does not make a dependent's own errors any less
  * true — and under "dependencies-successful" a single red package near the root of the

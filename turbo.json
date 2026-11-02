@@ -147,17 +147,17 @@
     },
     "@podium/api-types#typecheck": {
       "dependsOn": ["build", "^typecheck"],
-      "outputs": ["*.tsbuildinfo"]
+      "outputs": []
     },
     "typecheck": {
       "dependsOn": ["^typecheck"],
       "inputs": ["$TURBO_DEFAULT$"],
-      "outputs": ["*.tsbuildinfo"]
+      "outputs": []
     },
     "@podium/model#typecheck": {
       "dependsOn": [],
       "inputs": ["$TURBO_DEFAULT$"],
-      "outputs": ["*.tsbuildinfo"]
+      "outputs": []
     },
     "@podium/client-core#typecheck": {
       "dependsOn": ["^typecheck"],
@@ -169,7 +169,7 @@
         "$TURBO_ROOT$/tests/worklist/harness/src/mobx-trap.ts",
         "$TURBO_ROOT$/tests/worklist/harness/src/work-meter.ts"
       ],
-      "outputs": ["*.tsbuildinfo"]
+      "outputs": []
     },
     "@podium/terminal-client#typecheck": {
       "dependsOn": ["^typecheck"],
@@ -179,7 +179,7 @@
         "$TURBO_ROOT$/apps/server/src/gateway/client-registry.ts",
         "$TURBO_ROOT$/apps/server/src/modules/sessions/terminal.ts"
       ],
-      "outputs": ["*.tsbuildinfo"]
+      "outputs": []
     },
     "@podium/client-graph#typecheck": {
       "dependsOn": ["^typecheck"],
@@ -196,7 +196,7 @@
         "$TURBO_ROOT$/apps/web/src/lib/issueColors.ts",
         "$TURBO_ROOT$/apps/web/node_modules/vite/dist/node/index.js"
       ],
-      "outputs": ["*.tsbuildinfo"]
+      "outputs": []
     },
     "@podium/worklist-tests#test": {
       "dependsOn": [],
@@ -226,7 +226,7 @@
         "$TURBO_ROOT$/apps/web/src/features/worklist/pool-row-data.ts",
         "$TURBO_ROOT$/apps/web/src/lib/issueColors.ts"
       ],
-      "outputs": ["*.tsbuildinfo"]
+      "outputs": []
     },
     "@podium/scripts#typecheck": {
       "dependsOn": ["^typecheck"],
@@ -241,7 +241,7 @@
         "$TURBO_ROOT$/vitest.agent-smoke.config.ts",
         "$TURBO_ROOT$/vitest.integration.config.ts"
       ],
-      "outputs": ["*.tsbuildinfo"]
+      "outputs": []
     },
     "@podium/e2e#typecheck": {
       "dependsOn": ["^typecheck"],
@@ -254,12 +254,12 @@
         "$TURBO_ROOT$/tests/**",
         "!$TURBO_ROOT$/**/.turbo/**"
       ],
-      "outputs": ["*.tsbuildinfo"]
+      "outputs": []
     },
     "@podium/daemon#typecheck": {
       "dependsOn": ["^typecheck"],
       "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/apps/server/src/**"],
-      "outputs": ["*.tsbuildinfo"]
+      "outputs": []
     },
     "@podium/server#typecheck": {
       "dependsOn": ["^typecheck"],
@@ -273,7 +273,7 @@
         "$TURBO_ROOT$/packages/client-core/package.json",
         "$TURBO_ROOT$/packages/client-core/src/**"
       ],
-      "outputs": ["*.tsbuildinfo"]
+      "outputs": []
     },
     "@podium/web#typecheck": {
       "dependsOn": ["^typecheck"],
@@ -296,7 +296,7 @@
         "!$TURBO_ROOT$/tests/worklist/node_modules/**",
         "!$TURBO_ROOT$/**/.turbo/**"
       ],
-      "outputs": ["*.tsbuildinfo"]
+      "outputs": []
     },
     "@podium/mobile#typecheck": {
       "dependsOn": ["^typecheck"],
@@ -323,7 +323,7 @@
         "$TURBO_ROOT$/tests/worklist/harness/src/work-meter.ts",
         "$TURBO_ROOT$/tests/worklist/shared/src/scenarios.ts"
       ],
-      "outputs": ["*.tsbuildinfo"]
+      "outputs": []
     },
     "@podium/web#test": {
       "dependsOn": [],

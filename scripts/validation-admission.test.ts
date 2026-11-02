@@ -472,7 +472,7 @@ describe('focused/typecheck slot pool', () => {
   it('charges a typecheck its compiler: two do not fit a budget that holds one', async () => {
     // Four slot FILES, but a budget of one compiler plus change. Uncharged, both
     // typechecks would take a file each and run together; charged, the second
-    // has to wait for the first to give its 3000MB back.
+    // has to wait for the first to give its charge back.
     const { env, dir, events } = pool('4', String(VALIDATION_COST_MB.typecheck + 500))
     await Promise.all([
       slotRun(events, 'a', env, { rendezvous: 2, waitTicks: 50, validationClass: 'typecheck' }),
@@ -566,7 +566,10 @@ describe('default pool across task temporary directories', () => {
     writeFileSync(
       mutant,
       original
-        .replace("'./bun-toolchain'", JSON.stringify(fileURLToPath(new URL('./bun-toolchain.ts', import.meta.url))))
+        .replace(
+          "'./bun-toolchain'",
+          JSON.stringify(fileURLToPath(new URL('./bun-toolchain.ts', import.meta.url))),
+        )
         .replace(
           'availableParallelism, homedir, hostname',
           'availableParallelism, homedir, hostname, tmpdir',

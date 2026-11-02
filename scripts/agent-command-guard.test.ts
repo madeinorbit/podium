@@ -26,6 +26,8 @@ describe('agent command guard', () => {
       'git status && tsc --noEmit',
       'tsc --noEmit | tail -5',
       'time tsgo --noEmit',
+      'bun check',
+      'cd apps/web && bun check -p tsconfig.json',
     ]) {
       expect(blocked(command), command).toBeTruthy()
     }

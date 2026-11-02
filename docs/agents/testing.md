@@ -80,7 +80,7 @@ a reason to add a lane.
 ## Only the wrappers reach the compiler and the runners
 
 Every agent harness this repository is driven from refuses a shell command that calls `tsc`,
-`tsgo`, `vitest`, `bun test`, `playwright` or `turbo` directly, in any spelling (`bunx`, `npx`,
+`tsgo`, `bun check`, `vitest`, `bun test`, `playwright` or `turbo` directly, in any spelling (`bunx`, `npx`,
 `bun x`, a path into `node_modules`), and refuses `bun run typecheck` / `bun run test*` from
 inside a package directory. The refusal names the lane to use instead. The judgement lives in
 `scripts/agent-command-guard.ts` and is wired as a PreToolUse hook in `.claude/settings.json`
@@ -92,10 +92,14 @@ The hook is the early message, not the enforcement. `scripts/typecheck-project.t
 package `test*` script takes admission itself, so a bypass that slips past a rule file still
 cannot skip the slot budget, the install fingerprint, or the forced flags.
 
-Typecheck is TypeScript 7 (the Go compiler) everywhere, `--incremental` forced on the command
-line, with each project's `*.tsbuildinfo` declared as a Turbo output so a cache hit in a fresh
-worktree restores it. Packages that need TypeScript's JavaScript API for AST audits still
-declare TypeScript 6 as a library; it does not typecheck the repository.
+Typecheck is `bun check` everywhere (POD-6251): the TypeScript 7 checker built into the Bun pinned
+in `mise.toml`, run per project with `--no-script` forced. It keeps no incremental state and writes
+nothing, so Turbo's cache of the task result is the only cache; a full project check is as fast as
+`tsc`'s no-change incremental rerun was (all 30 projects in ~28 s on a 7-core box, 0.73 GB peak,
+against ~225 s and 5.2 GB for a cold `tsc`). The root `typescript` package is pinned to the exact
+version Bun checks with, because editors run it; `scripts/typecheck-project.ts` refuses when the two
+differ. Packages that need TypeScript's JavaScript API for AST audits still declare TypeScript 6 as
+a library; it does not typecheck the repository.
 
 ## Caches, the span-effect lint, and runs that die
 
@@ -261,10 +265,10 @@ Three admission classes, and the shape of each follows what it is protecting:
   memory ceiling the process lives under — the tightest cgroup `memory.max` on its ancestry
   (a Podium session on a systemd host is inside `podium-sessions.slice`), else physical RAM —
   and `PODIUM_VALIDATION_BUDGET_MB` sets it outright. Each admitted run is charged its class's
-  cost (a typecheck is one 3GB compiler, a focused lane 1GB; see `VALIDATION_COST_MB`), and a
+  cost (a typecheck is one 1GB checker, a focused lane 1GB; see `VALIDATION_COST_MB`), and a
   run whose cost would push the live holders over the budget waits even when a slot file is
-  free. So on an 8-core box with a 16GB slice the pool has four slots but admits two
-  typechecks, not four. A run that finds no room **queues** and prints one line to
+  free. So on an 8-core box with a 4GB slice the pool has four slots but admits two
+  runs, not four. A run that finds no room **queues** and prints one line to
   stderr; it is never refused. The slots are files under
   `~/.cache/podium/<hostname>/validation-slots` (override with
   `PODIUM_VALIDATION_SLOT_DIR` for deliberate isolation), independent of task `TMPDIR`. The

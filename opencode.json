@@ -20,6 +20,8 @@
       "npx vitest*": "deny",
       "npx playwright*": "deny",
       "bun test *": "deny",
+      "bun check*": "deny",
+      "* && bun check*": "deny",
       "bun --bun vitest*": "deny",
       "*node_modules/vitest/vitest.mjs*": "deny",
       "*node_modules/.bin/tsc*": "deny",

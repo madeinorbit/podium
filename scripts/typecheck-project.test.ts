@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { compilerArgs, resolveCompiler, turboRefusal } from './typecheck-project'
+import { checkerArgs, resolveChecker, turboRefusal } from './typecheck-project'
 
 const roots: string[] = []
 afterEach(() => {
@@ -30,28 +30,43 @@ describe('typecheck-project', () => {
     expect(refusal).toContain('validation slot')
   })
 
-  it('resolves the root TypeScript 7 binary by path and refuses anything else', () => {
-    const seven = resolveCompiler(fakeRoot('7.0.2'))
-    expect(seven.error).toBeNull()
-    expect(seven.compiler?.bin).toMatch(/node_modules\/typescript\/bin\/tsc$/)
+  const bun7 = { bin: '/pinned/bun', typescript: '7.0.2' }
 
-    const stale = resolveCompiler(fakeRoot('6.0.3')).error
-    expect(stale).toContain('not the 7.x Go compiler')
-    // setup:worktree cannot repair this: a frozen reconcile never prunes the dangling
-    // .bin/tsserver the 6.x install leaves, and that is what the topology census refuses.
-    expect(stale).toContain('deps:repair')
-    expect(stale).not.toMatch(/run `bun run setup:worktree`/)
-    expect(resolveCompiler(fakeRoot(null)).error).toContain('deps:repair')
+  it("runs the running Bun's own checker when it matches the editor's TypeScript", () => {
+    const ok = resolveChecker(fakeRoot('7.0.2'), bun7)
+    expect(ok.error).toBeNull()
+    expect(ok.checker).toEqual({ bin: '/pinned/bun', version: '7.0.2' })
   })
 
-  it('forces --noEmit and --incremental ahead of whatever the manifest passes', () => {
-    expect(compilerArgs([])).toEqual(['--noEmit', '--incremental'])
-    expect(compilerArgs(['-p', 'tsconfig.node.json'])).toEqual([
-      '--noEmit',
-      '--incremental',
+  it('refuses a Bun without a TypeScript 7 checker and names the pin', () => {
+    for (const typescript of [undefined, '6.0.3']) {
+      const refused = resolveChecker(fakeRoot('7.0.2'), { bin: '/old/bun', typescript }).error
+      expect(refused).toContain('no TypeScript 7 checker')
+      expect(refused).toContain('mise install bun')
+    }
+  })
+
+  it("refuses when the editor's TypeScript is not the version bun check implements", () => {
+    const drift = resolveChecker(fakeRoot('7.0.3'), bun7).error
+    expect(drift).toContain('implements TypeScript 7.0.2')
+    expect(drift).toContain('is 7.0.3')
+    // setup:worktree cannot repair a stale install: a frozen reconcile never prunes the
+    // dangling .bin/tsserver an old install leaves, and that is what the topology census refuses.
+    const stale = resolveChecker(fakeRoot('6.0.3'), bun7).error
+    expect(stale).toContain('deps:repair')
+    expect(stale).not.toMatch(/run `bun run setup:worktree`/)
+    expect(resolveChecker(fakeRoot(null), bun7).error).toContain('deps:repair')
+  })
+
+  it('runs `bun check --no-script` ahead of whatever the manifest passes', () => {
+    expect(checkerArgs([])).toEqual(['check', '--no-script'])
+    expect(checkerArgs(['-p', 'tsconfig.node.json'])).toEqual([
+      'check',
+      '--no-script',
       '-p',
       'tsconfig.node.json',
     ])
-    expect(compilerArgs(['--incremental', '--noEmit'])).toEqual(['--noEmit', '--incremental'])
+    // the tsc-era flags are dropped: bun check never emits and keeps no incremental state
+    expect(checkerArgs(['--incremental', '--noEmit'])).toEqual(['check', '--no-script'])
   })
 })

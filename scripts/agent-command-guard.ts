@@ -32,7 +32,7 @@ export const SANCTIONED = `\
 Typecheck and tests run only through the repository's wrappers, which take the
 host's validation slots, key the shared cache on the install, and force the flags:
 
-  bun run typecheck                          every project, cached (TypeScript 7, incremental)
+  bun run typecheck                          every project, cached (bun check, TypeScript 7)
   bun run typecheck -- --filter <package>    one project and its dependencies
   bun run test                               the lean end-of-task gate
   bun run test:file -- <test files...>       exactly those files, right config, any vitest args
@@ -114,6 +114,11 @@ function judgeWords(tokens: string[], inPackageDir: boolean): Verdict | null {
         offender: 'bun test',
         hint: 'bun run test:file -- <file.bun.test.ts> (or test:bun:unit)',
       }
+    }
+    if (program === 'bun' && verb === 'check') {
+      // `bun check` is the checker `bun run typecheck` runs (POD-6251); bare, it skips
+      // the slot, the cache and the per-project accounting just as a bare tsc did.
+      return { offender: 'bun check', hint: 'bun run typecheck [-- --filter <package>]' }
     }
     if (program === 'bun' && verb === 'run') {
       // `bun run [flags] <script>`: the flags sit AFTER the verb.

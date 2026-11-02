@@ -79,16 +79,16 @@ export const VALIDATION_BUDGET_MB_ENV = 'PODIUM_VALIDATION_BUDGET_MB'
  * What one admitted run COSTS, in MB of peak RSS. The pool is sized and charged
  * in this unit because RAM, not CPU, is what runs out first on a shared box.
  *
- * typecheck: one `tsgo --noEmit` on apps/server or apps/web peaks at 2.6GB cold
- * in the main checkout and 4.1GB in a fresh worktree (measured 2026-09-11; the
- * 817MB figure from 2026-07 was stale by a factor of three). scripts/typecheck.ts
- * pins turbo to one compiler per run, so a run costs one compiler.
+ * typecheck: one `bun check` peaks at 0.73GB on apps/server, the largest project
+ * (all 30 projects measured 2026-11-02, POD-6251; the tsc it replaced peaked at
+ * 5.2GB cold). 1000 keeps headroom for project growth. scripts/typecheck.ts pins
+ * turbo to one checker per run, so a run costs one checker.
  *
  * focused: one vitest lane with the single worker the pool pins it to (below).
  * apps/server lanes are the expensive ones — transform and import of the server
  * graph dominates — and were measured at ~1.3GB with two workers.
  */
-export const VALIDATION_COST_MB = { typecheck: 3000, focused: 1000 } as const
+export const VALIDATION_COST_MB = { typecheck: 1000, focused: 1000 } as const
 
 /** The share of the host's memory ceiling the pool may spend. The other half is
  *  for what the tests are being run AGAINST: the server, the daemon, and the
@@ -202,7 +202,10 @@ export function resolveValidationSlots(
  *  Include the hostname because a home directory may be shared between hosts.
  *  The explicit override is reserved for deliberate pool isolation. */
 function slotDirectory(env: Record<string, string | undefined>): string {
-  return env[VALIDATION_SLOT_DIR_ENV] || join(homedir(), '.cache', 'podium', hostname(), 'validation-slots')
+  return (
+    env[VALIDATION_SLOT_DIR_ENV] ||
+    join(homedir(), '.cache', 'podium', hostname(), 'validation-slots')
+  )
 }
 
 function processIsAlive(pid: number): boolean {
@@ -537,7 +540,10 @@ async function runWithLease(
       renewalTimer = setInterval(() => {
         renewalPromise = renewalPromise.then(async () => {
           if (renewalFailed) return
-          const code = await runProcess(['podium', 'lock', 'renew', name, '--ttl', LEASE_TTL], options)
+          const code = await runProcess(
+            ['podium', 'lock', 'renew', name, '--ttl', LEASE_TTL],
+            options,
+          )
           if (code === 0) return
           renewalFailed = true
           console.error(`validation stopped: could not renew '${name}'`)
