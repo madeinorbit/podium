@@ -21,6 +21,7 @@ export const FlightDeckFullControls = observer(function FlightDeckFullControls({
   const ready = full.ready
   const screen = full.screen
   const counts = ready ? full.counts : null
+  if (ready && !full.filterable) return null
   return (
     <div className="flight-full-controls">
       <div className="flight-full-filter-bar" aria-busy={!ready}>

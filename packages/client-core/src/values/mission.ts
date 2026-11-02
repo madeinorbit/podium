@@ -2183,7 +2183,9 @@ export function presenceNote(
     return { kind: 'done', text, attention: false }
   }
   if (issue.stage === 'review') {
-    return { kind: 'review', text: 'Review ready · session ended', attention: false }
+    // An issue another session moved to review never had an agent of its own to end (POD-2313).
+    const text = sessions.length ? 'Review ready · session ended' : 'Review ready · no agent on it'
+    return { kind: 'review', text, attention: false }
   }
   if (issue.stage === 'shipping') {
     return { kind: 'shipping', text: 'Shipping service has custody', attention: false }

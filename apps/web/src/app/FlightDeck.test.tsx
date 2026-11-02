@@ -557,7 +557,8 @@ describe('the cold deck (POD-1112)', () => {
     harness.selectedIssueId = 'v1'
     await deck()
     expect(screen.queryByTestId('flight-settling')).toBeNull()
-    expect(screen.getByRole('group', { name: 'Task filters' })).toBeTruthy()
+    // A lone mission has no filter bar (POD-2313); its header gauge is the drawn deck.
+    expect(screen.getByTestId('mission-gauge')).toBeTruthy()
   })
 
   it('names an unnamed mission from the shared draft fallback, not the harness title', async () => {

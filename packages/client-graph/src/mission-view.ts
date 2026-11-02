@@ -1176,7 +1176,8 @@ export class MissionViewReader {
     const waiting = this.waitingLabel(issue)
     if (waiting) return { kind: 'waiting', text: waiting, attention: false }
     if (this.facts(issue.id).finished) return { kind: 'done', text: issueAbandoned(issue) ? 'Cancelled · session retired' : 'Completed · session retired', attention: false }
-    if (issue.stage === 'review') return { kind: 'review', text: 'Review ready · session ended', attention: false }
+    // An issue another session moved to review never had an agent of its own to end (POD-2313).
+    if (issue.stage === 'review') return { kind: 'review', text: sessions.length ? 'Review ready · session ended' : 'Review ready · no agent on it', attention: false }
     if (issue.stage === 'shipping') return { kind: 'shipping', text: 'Shipping service has custody', attention: false }
     if (issue.stage === 'planning' || issue.stage === 'backlog') return { kind: 'ready', text: 'Ready to start', attention: false }
     if (issue.stage === 'in_progress') return { kind: 'attention', text: 'Agent left · choose a handoff', attention: true }

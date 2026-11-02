@@ -1495,11 +1495,12 @@ export const FlightDeckContent = observer(function FlightDeckContent({
           {fullReady &&
             screen.full.rowIds.length === 0 &&
             proposedRows.length === 0 &&
-            (query ? (
+            // A lone mission draws no filter bar, so neither can narrow it.
+            (query && screen.full.filterable ? (
               <p className="shell-type-secondary px-4 py-6 text-text-dim">
                 Nothing in this mission matches that.
               </p>
-            ) : screen.full.filter !== 'all' ? (
+            ) : screen.full.filter !== 'all' && screen.full.filterable ? (
               <p className="shell-type-secondary px-4 py-6 text-text-dim">
                 No tasks match this filter.
               </p>

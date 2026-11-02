@@ -2624,11 +2624,19 @@ describe('presenceNote', () => {
       'Cancelled · session retired',
     ],
     [
-      'work in review',
+      'work in review whose agent ended',
+      issue('a', { stage: 'review' }),
+      [sess('s', { issueId: 'a', status: 'exited' })],
+      'review',
+      'Review ready · session ended',
+    ],
+    [
+      // Another session moved it to review (POD-2313): no agent of its own ended.
+      'work in review that never had an agent',
       issue('a', { stage: 'review' }),
       [],
       'review',
-      'Review ready · session ended',
+      'Review ready · no agent on it',
     ],
     ['planned work', issue('a', { stage: 'planning' }), [], 'ready', 'Ready to start'],
     ['backlogged work', issue('a', { stage: 'backlog' }), [], 'ready', 'Ready to start'],

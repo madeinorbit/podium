@@ -393,6 +393,12 @@ export class FullDeck {
       done: this.buckets.done,
     }
   }
+  /** The filters, Show done and search sort the rows under the root. A
+   * mission that is its only issue has none, so its tabs could only count a
+   * task the list never draws (POD-2313); the gauge still counts it. */
+  @lazy get filterable(): boolean {
+    return this.root.childIds.length > 0
+  }
   /** Needs you reads red when anything it lists has errored, else amber. The
    * tab lists a parent by its own word, whatever its leaves read, so the
    * tone reads every row the filter would match, not only the leaf tally
