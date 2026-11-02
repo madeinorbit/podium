@@ -16,7 +16,7 @@ import { allIssueViewModels } from '../../../../tests/worklist/diagnostics/refer
 import { type SessionView, sessionViews } from '@podium/client-core/session-values'
 import { buildFlightDeckRows, missionIssueIds } from '@podium/client-core/values'
 
-import { act, cleanup, fireEvent, render, screen, waitFor, } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DockIssueProvider } from '@/features/issues/dock-issue'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
@@ -1122,6 +1122,46 @@ describe('flight deck sections (POD-710 §4.3, §4.4)', () => {
     fireEvent.click(screen.getByRole('button', { name: /Close anyway/ }))
     expect(harness.closeIssue).toHaveBeenCalledWith('root', 'done')
     await waitFor(() => expect(harness.setIssueTucked).toHaveBeenCalledWith('root', true))
+  })
+
+  /** POD-2313 — a review nobody is on says whose turn it is and offers it. */
+  it('turns a review with no agent into a card that opens or closes the task', async () => {
+    harness.issues = [issue('root', { stage: 'review', title: 'Shared rules' })]
+    harness.sessions = []
+    await deck()
+
+    const card = screen.getByTestId('flight-review')
+    expect(card.textContent).toContain('Waiting for your review.')
+    expect(card.textContent).toContain('No agent is on it.')
+    expect(screen.queryByText(/session ended/)).toBeNull()
+
+    fireEvent.click(within(card).getByRole('button', { name: /Close as done/ }))
+    expect(harness.closeIssue).toHaveBeenCalledWith('root', 'done')
+    // Closing is the decision; the finished card offers the tuck afterwards.
+    expect(harness.setIssueTucked).not.toHaveBeenCalled()
+  })
+
+  it('keeps the review card beside a stopped agent and guards unlanded commits', async () => {
+    harness.issues = [
+      issue('root', {
+        stage: 'review',
+        parentBranch: 'main',
+        gitState: { shared: false, ahead: 2, merged: false, dirtyFiles: 0, dirtyOwn: 0 },
+      }),
+    ]
+    harness.sessions = [session('s-old', { issueId: 'root', status: 'exited' })]
+    await deck()
+
+    const card = screen.getByTestId('flight-review')
+    expect(card.textContent).toContain('Its agent has stopped.')
+    fireEvent.click(within(card).getByRole('button', { name: /Close as done/ }))
+    expect(harness.closeIssue).not.toHaveBeenCalled()
+    expect((await screen.findByTestId('issue-close-concerns')).textContent).toContain(
+      '2 commits awaiting delivery',
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Close anyway/ }))
+    expect(harness.closeIssue).toHaveBeenCalledWith('root', 'done')
+    expect(harness.setIssueTucked).not.toHaveBeenCalled()
   })
 
   it('turns a hopscotch-empty origin into a signpost to the live tip', async () => {

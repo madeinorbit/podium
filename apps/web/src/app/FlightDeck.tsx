@@ -29,6 +29,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronUp,
+  Eye,
   Maximize2,
   Minimize2,
   UserPlus,
@@ -663,6 +664,51 @@ export function RetiredSignpost({
 }
 
 /**
+ * A REVIEW NOBODY IS ON (POD-2313). The grey caption "Review ready · session
+ * ended" left the operator to work out that the next move was theirs, and
+ * named a session that, for an issue another session moved to review, never
+ * existed. The card says whose turn it is and offers the two ways forward:
+ * check the work, or record it done through the same close guard every close
+ * path raises (it names unlanded commits). Sending an agent back is the
+ * header's Add agent.
+ */
+export function ReviewSignpost({
+  hadAgent,
+  onOpen,
+  onClose,
+}: {
+  hadAgent: boolean
+  onOpen: () => void
+  onClose: () => void
+}): JSX.Element {
+  return (
+    <SignpostBox
+      testId="flight-review"
+      icon={<Eye size={12} aria-hidden="true" />}
+      headline="Waiting for your review."
+      detail={`${hadAgent ? 'Its agent has stopped.' : 'No agent is on it.'} Check the work, then close the task or add an agent to continue.`}
+      actions={
+        <>
+          <Button type="button" variant="outline" size="sm" className="h-[26px]" onClick={onOpen}>
+            <ArrowUpRight size={12} aria-hidden="true" /> Open task
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-[26px]"
+            title="Close this task as done. If it has commits that have not landed, you are asked first."
+            onClick={onClose}
+          >
+            <Check size={12} aria-hidden="true" /> Close as done
+          </Button>
+        </>
+      }
+    />
+  )
+}
+
+/**
  * THE DECK WHILE ITS MISSION IS STILL ARRIVING (POD-1139).
  *
  * A LOAD, NOT A STATE — and therefore WORDLESS. The session already carries an
@@ -1282,7 +1328,12 @@ export const FlightDeckContent = observer(function FlightDeckContent({
     }
     setView('workspace')
   }
-  const { openDeparture, tuckResolvedRoot, dialog: rootCloseDialog } = useMissionEndings(screen)
+  const {
+    openDeparture,
+    tuckResolvedRoot,
+    closeReviewedRoot,
+    dialog: rootCloseDialog,
+  } = useMissionEndings(screen)
   /**
    * THE TASK MENU, HOSTED ONCE (POD-771).
    *
@@ -1506,7 +1557,17 @@ export const FlightDeckContent = observer(function FlightDeckContent({
               </p>
             ) : // A vacated root is not an empty spine — the region below says
             // where the work went, and it says it once.
-            rootContinuation || rootSessions.length > 0 ? null : rootRetired ? (
+            // A review nobody is working on asks the operator even with its
+            // stopped agents listed above, so it comes before that test.
+            rootContinuation ? null : rootEmptyNote?.kind === 'review' && rootRow ? (
+              <div className="py-4 pr-2" style={{ paddingLeft: GUTTER }}>
+                <ReviewSignpost
+                  hadAgent={rootRow.sessions.length > 0}
+                  onOpen={() => selectIssue(rootRow, true)}
+                  onClose={closeReviewedRoot}
+                />
+              </div>
+            ) : rootSessions.length > 0 ? null : rootRetired ? (
               // THE MISSION ENDED HERE — a card, not a caption (POD-1268).
               <div className="py-4 pr-2" style={{ paddingLeft: GUTTER }}>
                 <RetiredSignpost abandoned={screen.rootAbandoned} onTuck={tuckResolvedRoot} />

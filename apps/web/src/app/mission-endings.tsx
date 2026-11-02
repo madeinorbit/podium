@@ -20,6 +20,7 @@ import { useRuntimeSelector } from './store'
 export function useMissionEndings(screen: MissionScreen): {
   openDeparture: (issue: IssueNavigationModel) => void
   tuckResolvedRoot: () => void
+  closeReviewedRoot: () => void
   dialog: JSX.Element | null
 } {
   const {
@@ -97,15 +98,27 @@ export function useMissionEndings(screen: MissionScreen): {
    * stop to report none: the button already says what it will do, and a dialog
    * that rises to answer "nothing found" is a tax on the ordinary case.
    */
-  const [closing, setClosing] = useState(false)
+  // What the confirmed guard runs: the signpost's close-and-tuck, or the
+  // review card's plain close (POD-2313), which leaves the finished card to tuck.
+  const [closing, setClosing] = useState<'tuck' | 'close' | null>(null)
   const needsCloseGuard = useIssueCloseGuard()
-  const closeAndTuckRoot = (): void => {
-    setClosing(false)
+  const closeRoot = (tuck: boolean): void => {
+    setClosing(null)
     void closeIssue(rootId, 'done')
-      .then(() => setIssueTucked(rootId, true))
+      .then(() => (tuck ? setIssueTucked(rootId, true) : undefined))
       .catch((error: unknown) =>
         toast.error(error instanceof Error ? error.message : String(error)),
       )
+  }
+  const guardedClose = (tuck: boolean): void => {
+    // The same question every close path now asks before raising the guard
+    // (POD-1278) — the deck has asked it since POD-1212.
+    const rootIssue = screen.reader.issue(rootId)
+    if (rootIssue && rootIssue !== LOADING && needsCloseGuard(rootIssue)) {
+      setClosing(tuck ? 'tuck' : 'close')
+      return
+    }
+    closeRoot(tuck)
   }
   const tuckResolvedRoot = (): void => {
     if (!screen.continuation && !screen.rootFinished) return
@@ -113,22 +126,22 @@ export function useMissionEndings(screen: MissionScreen): {
       void setIssueTucked(rootId, true)
       return
     }
-    // The same question every close path now asks before raising the guard
-    // (POD-1278) — the deck has asked it since POD-1212.
-    const rootIssue = screen.reader.issue(rootId)
-    if (rootIssue && rootIssue !== LOADING && needsCloseGuard(rootIssue)) {
-      setClosing(true)
-      return
-    }
-    closeAndTuckRoot()
+    guardedClose(true)
   }
+  /** A review nobody is on: the user checked it and records it done. */
+  const closeReviewedRoot = (): void => guardedClose(false)
   return {
     openDeparture,
     tuckResolvedRoot,
+    closeReviewedRoot,
     // The SAME guard every other close path raises (POD-1129), mounted for the
     // one close these surfaces can start: "Done & tuck".
     dialog: closing ? (
-      <RootCloseDialog screen={screen} onOpenChange={setClosing} onConfirm={closeAndTuckRoot} />
+      <RootCloseDialog
+        screen={screen}
+        onOpenChange={(open) => !open && setClosing(null)}
+        onConfirm={() => closeRoot(closing === 'tuck')}
+      />
     ) : null,
   }
 }

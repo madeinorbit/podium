@@ -2183,8 +2183,10 @@ export function presenceNote(
     return { kind: 'done', text, attention: false }
   }
   if (issue.stage === 'review') {
-    // An issue another session moved to review never had an agent of its own to end (POD-2313).
-    const text = sessions.length ? 'Review ready · session ended' : 'Review ready · no agent on it'
+    // An issue another session moved to review never had an agent of its own to stop (POD-2313).
+    const text = sessions.length
+      ? 'Waiting for your review · agent stopped'
+      : 'Waiting for your review · no agent on it'
     return { kind: 'review', text, attention: false }
   }
   if (issue.stage === 'shipping') {

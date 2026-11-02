@@ -2628,7 +2628,7 @@ describe('presenceNote', () => {
       issue('a', { stage: 'review' }),
       [sess('s', { issueId: 'a', status: 'exited' })],
       'review',
-      'Review ready · session ended',
+      'Waiting for your review · agent stopped',
     ],
     [
       // Another session moved it to review (POD-2313): no agent of its own ended.
@@ -2636,7 +2636,7 @@ describe('presenceNote', () => {
       issue('a', { stage: 'review' }),
       [],
       'review',
-      'Review ready · no agent on it',
+      'Waiting for your review · no agent on it',
     ],
     ['planned work', issue('a', { stage: 'planning' }), [], 'ready', 'Ready to start'],
     ['backlogged work', issue('a', { stage: 'backlog' }), [], 'ready', 'Ready to start'],
