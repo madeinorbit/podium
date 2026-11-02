@@ -285,6 +285,72 @@ const MISSIONS = {
     state.paneA = 'lead2'
   },
   /** The filed case, verbatim. */
+  /**
+   * THE BLOCKER KNOT (POD-6245): one sign-off blocks six tasks and a cleanup
+   * waits on seven, as in the operator's screenshot. The lines that draw these
+   * links live in their own gutter right of the rows.
+   */
+  blockers: () => {
+    const waits = (id: string) => ({ id, type: 'blocked-by' as const })
+    const task = (id: string, title: string, deps: string[], extra = {}) =>
+      issue(id, {
+        parentId: 'root',
+        displayRef: `POD-${id.slice(1)}`,
+        title,
+        stage: 'backlog',
+        deps: deps.map(waits),
+        ...extra,
+      })
+    state.issues = [
+      issue('root', {
+        id: 'root',
+        displayRef: 'POD-5790',
+        title: 'Client state rewrite',
+        stage: 'in_progress',
+        memberSessionIds: [],
+      }),
+      task('t5795', 'Client state designs sign-off', [], {
+        stage: 'review',
+        memberSessionIds: ['ask'],
+      }),
+      task('t5797', 'Device screen state store', ['t5795']),
+      task('t5798', 'Live server values', ['t5795']),
+      task('t5799', 'Client services and reactions', ['t5795']),
+      task('t5800', 'One subscribe path', ['t5795']),
+      task('t5801', 'Chat history on disk', [], {
+        stage: 'in_progress',
+        memberSessionIds: ['idle'],
+      }),
+      task('t5802', 'Server data into sync', ['t5795']),
+      task('t5803', 'Delete the old client store', [
+        't5795',
+        't5797',
+        't5798',
+        't5799',
+        't5800',
+        't5801',
+        't5802',
+      ]),
+    ]
+    state.sessions = [
+      session('ask', {
+        issueId: 't5795',
+        displayRef: 'POD-5795-A',
+        name: 'Design review',
+        title: 'Design review',
+        agentState: { phase: 'needs_user', since: '2026-01-01T00:00:00.000Z' },
+      }),
+      session('idle', {
+        issueId: 't5801',
+        displayRef: 'POD-5801-A',
+        name: 'Chat history',
+        title: 'Chat history',
+        agentState: { phase: 'idle', since: '2026-01-01T00:00:00.000Z' },
+      }),
+    ]
+    state.selectedIssueId = 'root'
+    state.paneA = null
+  },
   asking: () => {
     state.issues = [
       issue('root', {
