@@ -9398,11 +9398,12 @@
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
+        "55b5dd66415715360f9a6a47e15be4f5c82c7034671e0b278bddc9218bc76d2e",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf",
         "f47c0c702e2d9828f78f1dcf167a8adc130ab6e27dc0430f356eee1d89ec20f8"
       ],
-      "fingerprint": "df64b887444680c286ea3c2c30da52e04d03374d5e81368344c45bec40553dd8",
+      "fingerprint": "ea62c97d169ff3a57b0f28ea7147eb07ddea1823a84b31c7d092761de0600768",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -9751,121 +9752,6 @@
     },
     {
       "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
-      "holder": "createPoolWorkActions/selectIssue/callback",
-      "rule": "helper-consumer",
-      "tokens": "ba36d92d2b78ededc29a99e1ab4c96adfdaf2b325215393f99a3e6915532ad3a",
-      "gate": [
-        "exit:then:f29179a7c8a940bd92d9e6a387ceadc1785ff834756e7cfa567d181fc43436c1",
-        "exit:then:a3bceb8f05d18723105bc3d9455f8cb526ed83e9ebe3494b370706bb67790d11",
-        "exit:then:ca117cd6cc76b7e7e9208de279628faac1c4a3b89e8d9616bc2a0a2b0efdae5b"
-      ],
-      "origin": [
-        "274575087436e0ee70f29952ed3e0dad2325a7f1c0dc6adc973a6d57588e0169"
-      ],
-      "fingerprint": "1619d03d90abd0bd539e10c952014b31f15e52a11249be514e38a2d40eca0383",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createPoolWorkActions/selectIssue/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
-      "holder": "createPoolWorkActions/selectIssue/callback/files",
-      "rule": "consume:filter",
-      "tokens": "96f9aee827d261b4738a74eb9f02d2f937b72fda651077e5291fda09707ad49b",
-      "gate": [
-        "exit:then:f29179a7c8a940bd92d9e6a387ceadc1785ff834756e7cfa567d181fc43436c1",
-        "exit:then:a3bceb8f05d18723105bc3d9455f8cb526ed83e9ebe3494b370706bb67790d11",
-        "exit:then:ca117cd6cc76b7e7e9208de279628faac1c4a3b89e8d9616bc2a0a2b0efdae5b",
-        "then:3aa19248bca3e0b651f945d814713df765b6add90d8d2db4639a5dddaa38b758"
-      ],
-      "origin": [
-        "f7105fcc1e6be5410a146bcf7fbcf78e3013536bd96680d39101d99eb2458ebe"
-      ],
-      "fingerprint": "fb932d93b88687ba873a15159b26481f2d24b41d58973b76c60fa7a9a1100dc4",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createPoolWorkActions/selectIssue/callback/files",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
-      "holder": "createPoolWorkActions/selectIssue/callback/files",
-      "rule": "consume:map",
-      "tokens": "c22da762312ccb528d9b1e9360224b9730349952a71e805ef27b0f94d525c801",
-      "gate": [
-        "exit:then:f29179a7c8a940bd92d9e6a387ceadc1785ff834756e7cfa567d181fc43436c1",
-        "exit:then:a3bceb8f05d18723105bc3d9455f8cb526ed83e9ebe3494b370706bb67790d11",
-        "exit:then:ca117cd6cc76b7e7e9208de279628faac1c4a3b89e8d9616bc2a0a2b0efdae5b",
-        "then:3aa19248bca3e0b651f945d814713df765b6add90d8d2db4639a5dddaa38b758"
-      ],
-      "origin": [
-        "f7105fcc1e6be5410a146bcf7fbcf78e3013536bd96680d39101d99eb2458ebe"
-      ],
-      "fingerprint": "3804bf7043ffb0a61dc26608efc8bd3917c2ca23b9f790c2a234d11fc4d3566e",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createPoolWorkActions/selectIssue/callback/files",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
-      "holder": "createPoolWorkActions/selectIssue/callback/target",
-      "rule": "helper-consumer",
-      "tokens": "0a8d4c002d4b2d7e5b8acf636c6b25977364128c8ec5ef63bc705be01560b3ad",
-      "gate": [
-        "exit:then:f29179a7c8a940bd92d9e6a387ceadc1785ff834756e7cfa567d181fc43436c1",
-        "exit:then:a3bceb8f05d18723105bc3d9455f8cb526ed83e9ebe3494b370706bb67790d11",
-        "exit:then:ca117cd6cc76b7e7e9208de279628faac1c4a3b89e8d9616bc2a0a2b0efdae5b",
-        "??:65d5b0508f60bc490f5c53669e38b9c59be5458e319c3ff7e956871fa9d2814f"
-      ],
-      "origin": [
-        "274575087436e0ee70f29952ed3e0dad2325a7f1c0dc6adc973a6d57588e0169",
-        "f7105fcc1e6be5410a146bcf7fbcf78e3013536bd96680d39101d99eb2458ebe"
-      ],
-      "fingerprint": "c1ef54b1924a7a26bdc37edacbe347e14871e9de3b619a82a45f6706b2d6fbdc",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createPoolWorkActions/selectIssue/callback/target",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
-      "holder": "createPoolWorkActions/selectIssue/callback/target",
-      "rule": "reader-summary",
-      "tokens": "474db981ff4bbd38da5d6ccea2491234fa36471e9000c1b752ad1fc30ccc3608",
-      "gate": [
-        "exit:then:f29179a7c8a940bd92d9e6a387ceadc1785ff834756e7cfa567d181fc43436c1",
-        "exit:then:a3bceb8f05d18723105bc3d9455f8cb526ed83e9ebe3494b370706bb67790d11",
-        "exit:then:ca117cd6cc76b7e7e9208de279628faac1c4a3b89e8d9616bc2a0a2b0efdae5b",
-        "??:65d5b0508f60bc490f5c53669e38b9c59be5458e319c3ff7e956871fa9d2814f"
-      ],
-      "origin": [
-        "274575087436e0ee70f29952ed3e0dad2325a7f1c0dc6adc973a6d57588e0169"
-      ],
-      "fingerprint": "7fc378a123406cf409977ff6117ad23a37775adb6973a3dbe4a5f617fe65b144",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createPoolWorkActions/selectIssue/callback/target",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
       "holder": "sessionMembership",
       "rule": "loop:for-of",
       "tokens": "d5f731892769a812a3f6a7c526e44b6d0290c50a01e2a4fdfecce5170fd857e3",
@@ -9980,6 +9866,51 @@
       "bound": "Gesture-local roots and their captured cascade IDs; no cardinality cap.",
       "reason": "POD-2106: the view reads local enqueue completion and pending root archive commands to disable Undo until receipts arrive. Batch membership has no cardinality cap. No receipt waiter or deferred restore is retained. Predecessor: bb6eb58301dbc5df2ee83298bad5f62e95deeb0d214d3702f66e9e572f1d7a6e.",
       "guard": "Exact fingerprint and multiplicity only. This entry documents debt and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
+      "holder": "createPoolWorkActions/selectIssue/callback",
+      "rule": "helper-consumer",
+      "tokens": "bd54e1d85e0ed7fcb81aeb8fb95a2b65daa03bd8f5486cbc95eb208942a3daeb",
+      "gate": [
+        "exit:then:f29179a7c8a940bd92d9e6a387ceadc1785ff834756e7cfa567d181fc43436c1",
+        "exit:then:a3bceb8f05d18723105bc3d9455f8cb526ed83e9ebe3494b370706bb67790d11",
+        "exit:then:ca117cd6cc76b7e7e9208de279628faac1c4a3b89e8d9616bc2a0a2b0efdae5b"
+      ],
+      "origin": [
+        "f8684447c173def87df8fbe53bb8d26b431fb7ca55434a1398ee3a30380b2ef1"
+      ],
+      "fingerprint": "642843e93946a7f12abbacb3e4db13e6d9e13bb792f15225c52e4d168361c646",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2324",
+      "trigger": "One task-selection gesture restoring its saved workspace.",
+      "bound": "Only the panes and tabs in the destination workspace, obtained by its mission key; no enumeration of other workspaces or the global file-tab catalogue.",
+      "reason": "The caller asks whether one saved layout has tabs, then reads its focused tab for navigation tracing. Existing mission membership work is unchanged; the old global file-tab filter and map are removed.",
+      "guard": "SidebarUnified.pool-actions.test.tsx covers Markdown artifacts with and without worktrees, the Artifacts index, saved split focus and explicit session selection."
+    },
+    {
+      "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
+      "holder": "createPoolWorkActions/selectIssue/callback/restoreLayout",
+      "rule": "helper-consumer",
+      "tokens": "3d3121ddbbfa7f998e80239c23e925ca3ae315af294aa43fbeb298b0b06d7456",
+      "gate": [
+        "exit:then:f29179a7c8a940bd92d9e6a387ceadc1785ff834756e7cfa567d181fc43436c1",
+        "exit:then:a3bceb8f05d18723105bc3d9455f8cb526ed83e9ebe3494b370706bb67790d11",
+        "exit:then:ca117cd6cc76b7e7e9208de279628faac1c4a3b89e8d9616bc2a0a2b0efdae5b",
+        "&&:6213bdbdc184c5f75e66e230faccd6f711ba4a69b32c77323fed62df20c7e619"
+      ],
+      "origin": [
+        "f8684447c173def87df8fbe53bb8d26b431fb7ca55434a1398ee3a30380b2ef1"
+      ],
+      "fingerprint": "436545a6183b0fbdec9dd4417c22c8eaefbb477cb90416795715a7d914c58065",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2324",
+      "trigger": "One task-selection gesture restoring its saved workspace.",
+      "bound": "Only the panes and tabs in the destination workspace, obtained by its mission key; no enumeration of other workspaces or the global file-tab catalogue.",
+      "reason": "The caller asks whether one saved layout has tabs, then reads its focused tab for navigation tracing. Existing mission membership work is unchanged; the old global file-tab filter and map are removed.",
+      "guard": "SidebarUnified.pool-actions.test.tsx covers Markdown artifacts with and without worktrees, the Artifacts index, saved split focus and explicit session selection."
     },
     {
       "file": "apps/web/src/features/worklist/useRowDrag.ts",
@@ -27445,6 +27376,134 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "allTabIds",
+      "rule": "helper-consumer",
+      "tokens": "38e42c0180fe088d14d2e08bc9fae38dce97956109117b08505cd6e0308b157c",
+      "gate": [],
+      "origin": [
+        "f8684447c173def87df8fbe53bb8d26b431fb7ca55434a1398ee3a30380b2ef1"
+      ],
+      "fingerprint": "07c91edafd67e72bf9196b3276cc9f4ea057d93eb44c74c230dd249fed59cba7",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2324",
+      "trigger": "One task-selection gesture restoring its saved workspace.",
+      "bound": "Only the panes and tabs in the destination workspace, obtained by its mission key; no enumeration of other workspaces or the global file-tab catalogue.",
+      "reason": "The caller asks whether one saved layout has tabs, then reads its focused tab for navigation tracing. Existing mission membership work is unchanged; the old global file-tab filter and map are removed.",
+      "guard": "SidebarUnified.pool-actions.test.tsx covers Markdown artifacts with and without worktrees, the Artifacts index, saved split focus and explicit session selection."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "allTabIds",
+      "rule": "reader-summary",
+      "tokens": "4892cccc34ad16cf4bddc9e3f2814293bb56ceba9b3e0f96a334fbb69d0d5dbb",
+      "gate": [],
+      "origin": [
+        "f8684447c173def87df8fbe53bb8d26b431fb7ca55434a1398ee3a30380b2ef1"
+      ],
+      "fingerprint": "3818c0c487a9aefd09e5fa7dba2df4eebbb50e91a53accde59e886280990d1d0",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2324",
+      "trigger": "One task-selection gesture restoring its saved workspace.",
+      "bound": "Only the panes and tabs in the destination workspace, obtained by its mission key; no enumeration of other workspaces or the global file-tab catalogue.",
+      "reason": "The caller asks whether one saved layout has tabs, then reads its focused tab for navigation tracing. Existing mission membership work is unchanged; the old global file-tab filter and map are removed.",
+      "guard": "SidebarUnified.pool-actions.test.tsx covers Markdown artifacts with and without worktrees, the Artifacts index, saved split focus and explicit session selection."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "allTabIds",
+      "rule": "consume:flatMap",
+      "tokens": "0a12d4529120e5bea3bce85847e0e2173e60448b5fec8290249635c1ee519490",
+      "gate": [],
+      "origin": [
+        "f8684447c173def87df8fbe53bb8d26b431fb7ca55434a1398ee3a30380b2ef1"
+      ],
+      "fingerprint": "d58f02f03826d747cdb94a3673e66048a79eff6f987ec4f5186d60ea663f0775",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2324",
+      "trigger": "One task-selection gesture restoring its saved workspace.",
+      "bound": "Only the panes and tabs in the destination workspace, obtained by its mission key; no enumeration of other workspaces or the global file-tab catalogue.",
+      "reason": "The caller asks whether one saved layout has tabs, then reads its focused tab for navigation tracing. Existing mission membership work is unchanged; the old global file-tab filter and map are removed.",
+      "guard": "SidebarUnified.pool-actions.test.tsx covers Markdown artifacts with and without worktrees, the Artifacts index, saved split focus and explicit session selection."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "leafPaneIds",
+      "rule": "consume:flatMap",
+      "tokens": "d03d8ce012ea12a025eb9995f0180ce97b080098d64f71af97a10b5eab408ec0",
+      "gate": [
+        "else:0bb208a19a17f7bf48506d8b05e73ed02e132a1bd20879b4caf8a48f6029cc77"
+      ],
+      "origin": [
+        "f8684447c173def87df8fbe53bb8d26b431fb7ca55434a1398ee3a30380b2ef1"
+      ],
+      "fingerprint": "18e18be6ca90679f806fa01e7c42615023b44f3f786c25f42f6375c74fb50e19",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2324",
+      "trigger": "One task-selection gesture restoring its saved workspace.",
+      "bound": "Only the panes and tabs in the destination workspace, obtained by its mission key; no enumeration of other workspaces or the global file-tab catalogue.",
+      "reason": "The caller asks whether one saved layout has tabs, then reads its focused tab for navigation tracing. Existing mission membership work is unchanged; the old global file-tab filter and map are removed.",
+      "guard": "SidebarUnified.pool-actions.test.tsx covers Markdown artifacts with and without worktrees, the Artifacts index, saved split focus and explicit session selection."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "orderedPanes",
+      "rule": "consume:flatMap",
+      "tokens": "d9b309239cbd2cfb9921fae273ee7558b755927c506518857cc482d4ca114696",
+      "gate": [],
+      "origin": [
+        "f8684447c173def87df8fbe53bb8d26b431fb7ca55434a1398ee3a30380b2ef1"
+      ],
+      "fingerprint": "6f55aad1087c97a8d87b74eea419ac8398265c8bdb14714fd2c216548f975d0e",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2324",
+      "trigger": "One task-selection gesture restoring its saved workspace.",
+      "bound": "Only the panes and tabs in the destination workspace, obtained by its mission key; no enumeration of other workspaces or the global file-tab catalogue.",
+      "reason": "The caller asks whether one saved layout has tabs, then reads its focused tab for navigation tracing. Existing mission membership work is unchanged; the old global file-tab filter and map are removed.",
+      "guard": "SidebarUnified.pool-actions.test.tsx covers Markdown artifacts with and without worktrees, the Artifacts index, saved split focus and explicit session selection."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "orderedPanes",
+      "rule": "helper-consumer",
+      "tokens": "d8e3cc9d2df5e24e4459c75fcec80a5f0fd42d9edfa7d60e4b5fefe9c7c2597c",
+      "gate": [],
+      "origin": [
+        "f8684447c173def87df8fbe53bb8d26b431fb7ca55434a1398ee3a30380b2ef1"
+      ],
+      "fingerprint": "86b3f1f2496b73e9162880083b36044e2dcf26eec55de5db2a648d4cab362860",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2324",
+      "trigger": "One task-selection gesture restoring its saved workspace.",
+      "bound": "Only the panes and tabs in the destination workspace, obtained by its mission key; no enumeration of other workspaces or the global file-tab catalogue.",
+      "reason": "The caller asks whether one saved layout has tabs, then reads its focused tab for navigation tracing. Existing mission membership work is unchanged; the old global file-tab filter and map are removed.",
+      "guard": "SidebarUnified.pool-actions.test.tsx covers Markdown artifacts with and without worktrees, the Artifacts index, saved split focus and explicit session selection."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "orderedPanes",
+      "rule": "reader-summary",
+      "tokens": "27447ef075a9afa6e6de67b598c08cda41b662ec6d9ef9d9f7bd1d7f6586278c",
+      "gate": [],
+      "origin": [
+        "f8684447c173def87df8fbe53bb8d26b431fb7ca55434a1398ee3a30380b2ef1"
+      ],
+      "fingerprint": "e278a5348ec6549d2995efe94cd05fa2bedbb055bc710f6a4c2d1b5d4ee1a507",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2324",
+      "trigger": "One task-selection gesture restoring its saved workspace.",
+      "bound": "Only the panes and tabs in the destination workspace, obtained by its mission key; no enumeration of other workspaces or the global file-tab catalogue.",
+      "reason": "The caller asks whether one saved layout has tabs, then reads its focused tab for navigation tracing. Existing mission membership work is unchanged; the old global file-tab filter and map are removed.",
+      "guard": "SidebarUnified.pool-actions.test.tsx covers Markdown artifacts with and without worktrees, the Artifacts index, saved split focus and explicit session selection."
     },
     {
       "file": "packages/client-graph/src/automation-source.ts",
