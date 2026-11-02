@@ -1,8 +1,8 @@
-import { observer } from '@podium/client-graph/react'
 import { settled } from '@podium/client-graph/mission-view'
+import { observer } from '@podium/client-graph/react'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import type { JSX, RefCallback, RefObject } from 'react'
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 
 export const DECK_OVERSCAN = 3
@@ -198,9 +198,21 @@ export function useFlightDeckWindow(
     })
   }, [readViewport])
 
+  // The deck's scroller belongs to an ANCESTOR component. On the commit that
+  // mounts both, React attaches the ancestor's ref only after this hook's
+  // layout effects have run, so `scrollRef.current` is still null there. A
+  // listener attached from that effect never attached at all: scrolling showed
+  // placeholders until an unrelated re-render (a click) read the viewport
+  // again. A passive effect runs after every ref of the commit is attached;
+  // it records the element, and the listener follows that element, including
+  // when the scroller is replaced.
+  const [scroller, setScroller] = useState<HTMLElement | null>(null)
+  useEffect(() => {
+    if (scrollRef.current !== scroller) setScroller(scrollRef.current)
+  })
   useLayoutEffect(() => {
-    const scroll = scrollRef.current
-    if (!scroll || !containerRef.current) return
+    const scroll = scroller
+    if (!scroll || scroll !== scrollRef.current || !containerRef.current) return
     readViewport()
     scroll.addEventListener('scroll', scheduleViewport, { passive: true })
     document.addEventListener('selectionchange', captureFind)
@@ -219,7 +231,7 @@ export function useFlightDeckWindow(
       if (frame.current !== null) cancelAnimationFrame(frame.current)
       frame.current = null
     }
-  }, [scope, scrollRef, containerRef, readViewport, scheduleViewport, captureFind, finishFind])
+  }, [scroller, scrollRef, containerRef, readViewport, scheduleViewport, captureFind, finishFind])
 
   // Retain the same row and pixel after a fold, filter or addressed update.
   // Only the deck scroller is adjusted: transcript scroll/anchor belongs to its
@@ -351,7 +363,9 @@ export function useFlightDeckWindow(
       viewport.height > 0
         ? Math.min(
             rows.length,
-            rowAt(layout.ends, Math.max(0, viewport.top + viewport.height + buffer)) + DECK_OVERSCAN + 1,
+            rowAt(layout.ends, Math.max(0, viewport.top + viewport.height + buffer)) +
+              DECK_OVERSCAN +
+              1,
           )
         : Math.min(rows.length, first + INITIAL_ROWS)
     if (

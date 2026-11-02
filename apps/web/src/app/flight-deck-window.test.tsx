@@ -1,17 +1,18 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
-import { useMemo, useRef } from 'react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
 import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { type RefObject, useMemo, useRef } from 'react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  type DeckWindowRow,
-  DeckRowPlaceholder,
   DECK_OVERSCAN,
+  DeckRowPlaceholder,
+  type DeckWindowRow,
   useFlightDeckWindow,
 } from './flight-deck-window'
 
 const height = 560
-const windowBudget = Math.ceil(3 * height / 32) + 2 * DECK_OVERSCAN + 1
+const windowBudget = Math.ceil((3 * height) / 32) + 2 * DECK_OVERSCAN + 1
 const observers = new Set<ResizeObserverCallback>()
 class Observer {
   constructor(private callback: ResizeObserverCallback) {
@@ -96,6 +97,39 @@ function Fixture({ values, scope = 'mission' }: { values: DeckWindowRow[]; scope
     </div>
   )
 }
+/** The deck's real shape: the scroller is an ANCESTOR component's element. On
+ * the mount commit React attaches that ancestor's ref only after this list's
+ * layout effects have run, so the hook cannot see the scroller there. */
+function ParentScroller({ values }: { values: DeckWindowRow[] }) {
+  const scroll = useRef<HTMLDivElement | null>(null)
+  return (
+    <div data-window-scroller="true" ref={scroll}>
+      <div className="deck-chrome" style={{ height: 80 }} />
+      <ChildList values={values} scroll={scroll} />
+    </div>
+  )
+}
+function ChildList({
+  values,
+  scroll,
+}: {
+  values: DeckWindowRow[]
+  scroll: RefObject<HTMLDivElement | null>
+}) {
+  const list = useRef<HTMLDivElement | null>(null)
+  const window = useFlightDeckWindow(values, scroll, list, 'mission')
+  return (
+    <div data-window-container="true" ref={list}>
+      {values.map((row) =>
+        window.contains(row.key) ? (
+          <div key={row.key} data-mounted-row={row.key} style={{ height: window.size(row.key) }} />
+        ) : (
+          <DeckRowPlaceholder key={row.key} row={row} window={window} />
+        ),
+      )}
+    </div>
+  )
+}
 async function scrollTo(container: HTMLElement, top: number) {
   const scroll = container.querySelector<HTMLElement>('[data-window-scroller]')!
   act(() => {
@@ -130,11 +164,37 @@ describe('mission row window', () => {
     expect(mounted(current.container).length).toBeLessThanOrEqual(windowBudget)
   })
 
+  it('follows scrolling when the scroller belongs to a parent component', async () => {
+    const current = render(<ParentScroller values={rows(406)} />)
+    await act(async () => {
+      await new Promise((resolve) => requestAnimationFrame(resolve))
+    })
+    await scrollTo(current.container, 2000)
+    // Scrolling alone, with no click or data change, must fill the new rows.
+    expect(current.container.querySelector('[data-mounted-row="row:50"]')).not.toBeNull()
+    expect(current.container.querySelector('[data-mounted-row="row:0"]')).toBeNull()
+    expect(mounted(current.container).length).toBeLessThanOrEqual(windowBudget)
+  })
+
   it('attaches native Find when a cold placeholder gains searchable text', () => {
     let loaded = false
-    const row = { key: 'cold', size: 32, get text() { if (!loaded) throw LOADING; return 'Arrived task' } }
-    const window = { enabled: true, contains: () => false, size: () => 32, text: () => undefined,
-      measure: () => () => {}, reveal: vi.fn(), beginFind: vi.fn() }
+    const row = {
+      key: 'cold',
+      size: 32,
+      get text() {
+        if (!loaded) throw LOADING
+        return 'Arrived task'
+      },
+    }
+    const window = {
+      enabled: true,
+      contains: () => false,
+      size: () => 32,
+      text: () => undefined,
+      measure: () => () => {},
+      reveal: vi.fn(),
+      beginFind: vi.fn(),
+    }
     const current = render(<DeckRowPlaceholder row={row} window={window} />)
     expect(current.container.querySelector('[hidden]')).toBeNull()
     loaded = true
