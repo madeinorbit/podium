@@ -130,7 +130,7 @@ const MovedConversation = observer(function MovedConversation({
           )}
         </div>
         <p className="mt-3 text-[12px] text-text-faint @max-[480px]:text-center">
-          Closing keeps what this task found.
+          Tucking away keeps this note.
         </p>
       </div>
       {dialog}
@@ -153,7 +153,7 @@ function PaneSection({ label, children }: { label: string; children: ReactNode }
 function Findings({ text }: { text: string }): JSX.Element {
   const [open, setOpen] = useState(false)
   return (
-    <PaneSection label="What this task found">
+    <PaneSection label="Where it left off">
       <div className="rounded-[12px] border border-border bg-muted/40 px-4 py-3.5">
         <p
           className={cn(
