@@ -43,6 +43,7 @@ const ISSUE_PAINT_FIELDS: ReadonlySet<string> = new Set([
   'title', 'audience', 'pinned', 'linearIdentifier', 'seq', 'acceptance',
   'stage', 'closedReason', 'blocked', 'branch', 'gitState', 'parentBranch',
   'landedAt', 'landedSha',
+  'updatedAt', 'closedAt', 'tuckedAt',
 ])
 
 /** What a model reads from its pool. */
@@ -478,6 +479,15 @@ export class IssueModel extends EntityModel {
   @lazy get originRef(): string | null { return originRefPartOf(this.host.inputs, this.id) }
   @lazy get parentRef(): string | null { return this.readFacts()?.parentId || null }
   get formalParent(): string | null { return this.host.formalParent(this.id) }
+  /** The parent is archived or deleted, read from its declared summary (`CloseFacts.parentGone`). */
+  @lazy get parentGone(): boolean {
+    const parentId = this.parentRef
+    if (parentId === null) return false
+    const parent = omitGone(this.host.row('issue', parentId, 'summary-fields'))
+    if (parent === LOADING || parent === undefined) return false
+    const { archived, deletedAt } = parent as Pick<SliceIssue, 'archived' | 'deletedAt'>
+    return archived === true || deletedAt != null
+  }
 
   private readOwnFacts(): OwnFacts { return ownFactsOf(this.host.rollupInputs.loadedIssue(this.id)) }
 

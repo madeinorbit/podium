@@ -1,30 +1,29 @@
 import type { SessionId, TranscriptItem } from '@podium/model'
 import { action, observable, observableRef } from 'mobx'
-import { isAskUserQuestion } from '../values/ask-question'
-import { MACHINE_CONTEXT_RE } from '../values/chat'
-import type { HandoffTranscriptPair } from '../values/handoff'
-import { cursorInsertionIndex } from '../values/cursor-order'
-import { parseEnvelopeBatch } from '../values/message-envelope'
 import type {
-  TranscriptSourceOptions,
+  TranscriptActivity,
   TranscriptFreshness,
   TranscriptPage,
   TranscriptRefreshOptions,
+  TranscriptSourceOptions,
   TranscriptState,
-  TranscriptActivity,
 } from '../transcript/contracts'
 import {
   TRANSCRIPT_ACTIVITY_SETTLE_MS,
   TRANSCRIPT_LIVE_HEARTBEAT_MS,
 } from '../transcript/contracts'
 import {
+  freshOlderTranscriptPage,
   LatestTranscriptId,
   mergeTranscriptFrame,
   reconcileTranscriptSnapshot,
-  freshOlderTranscriptPage,
   sameTranscriptItem,
   sameTranscriptItems,
 } from '../transcript/merge'
+import { isAskUserQuestion } from '../values/ask-question'
+import { MACHINE_CONTEXT_RE, transcriptActivityFacts } from '../values/chat'
+import { cursorInsertionIndex } from '../values/cursor-order'
+import type { HandoffTranscriptPair } from '../values/handoff'
 import { freezePlain } from './frozen'
 import type { TranscriptGraphChange, TranscriptGraphInsertion } from './transcript-graph'
 
@@ -133,7 +132,8 @@ export class TranscriptLog {
 
   /** Materialization seam for the existing transcript worker. Rows observe byId. */
   get items(): TranscriptItem[] {
-    return (this.snapshotItems ??= this.orderedItems.slice())
+    this.snapshotItems ??= this.orderedItems.slice()
+    return this.snapshotItems
   }
 
   getItem(id: string | undefined): TranscriptItem | undefined {
@@ -205,7 +205,7 @@ export class TranscriptLog {
       const machineSeed =
         this.options.collapseMachineContext === true && MACHINE_CONTEXT_RE.test(item.text)
       if (!machineSeed) {
-        const operatorText = parseEnvelopeBatch(item.text)?.operatorText
+        const operatorText = transcriptActivityFacts(item).envelopes?.operatorText
         prompt = operatorText === undefined || operatorText !== ''
         if (prompt) this.handoffOperatorText.set(item.id, operatorText)
         else this.handoffOperatorText.delete(item.id)
@@ -220,10 +220,7 @@ export class TranscriptLog {
     if (marked) this.handoffMarkedAnswers.add(item.id)
     else this.handoffMarkedAnswers.delete(item.id)
     this.handoffAnswers.set(item.id, marked)
-    this.handoffAssistants.set(
-      item.id,
-      item.role === 'assistant' && item.text.trim().length > 0,
-    )
+    this.handoffAssistants.set(item.id, item.role === 'assistant' && item.text.trim().length > 0)
   }
 
   async start(): Promise<void> {
@@ -277,11 +274,15 @@ export class TranscriptLog {
         limit: this.initialLimit,
       })
       if (!this.accepts(generation, serial)) return false
+      const boundary = this.options.retainFrom?.()
+      const retainsBoundary =
+        boundary !== undefined &&
+        this.byId.has(boundary) &&
+        (this.initialLoaded || page.items.some((item) => this.byId.has(item.id)))
       const retainHistory =
         !page.reset &&
-        this.initialLoaded &&
         this.orderedItems.length > 0 &&
-        this.options.retainHistory?.() === true
+        ((this.initialLoaded && this.options.retainHistory?.() === true) || retainsBoundary)
       if (!retainHistory) this.windowEpoch += 1
       this.reconciledSignal = signal ?? this.activity?.signal ?? null
       if (!retainHistory) this.pagedBack = false
@@ -549,7 +550,10 @@ export class TranscriptLog {
     this.applyFrame(frame)
   }
 
-  @action private applyFrame(frame: readonly TranscriptItem[], status?: Partial<TranscriptState>): void {
+  @action private applyFrame(
+    frame: readonly TranscriptItem[],
+    status?: Partial<TranscriptState>,
+  ): void {
     const changed: TranscriptItem[] = []
     const added: TranscriptItem[] = []
     const insertions: TranscriptGraphInsertion[] = []
@@ -589,9 +593,11 @@ export class TranscriptLog {
     let trimmed = false
     const removed: string[] = []
     if (!retainHistory && !this.loadingOlder && this.orderedItems.length > limit) {
-      const drop = this.orderedItems.length - limit
+      const keep = this.options.retainFrom?.()
+      const boundary = keep === undefined ? undefined : this.position(keep)
+      const drop = Math.min(this.orderedItems.length - limit, boundary ?? Infinity)
       const head = this.orderedItems[drop]?.cursor
-      if (head) {
+      if (drop > 0 && head) {
         for (const item of this.orderedItems.splice(0, drop)) {
           removed.push(item.id)
           this.removeFacts(item.id)
@@ -611,7 +617,7 @@ export class TranscriptLog {
       added.filter((item) => this.byId.has(item.id)),
       false,
       added.length > 0 || trimmed,
-      insertions.filter(insertion => this.byId.has(insertion.id)),
+      insertions.filter((insertion) => this.byId.has(insertion.id)),
       removed,
     )
     this.writeCache()
@@ -745,7 +751,13 @@ export class TranscriptLog {
     })
     this.ids.splice(0, 0, ...fresh.map((item) => item.id))
     this.patch(status)
-    this.publishChanges(fresh, fresh, false, true, fresh.map(item => ({ id: item.id, before })))
+    this.publishChanges(
+      fresh,
+      fresh,
+      false,
+      true,
+      fresh.map((item) => ({ id: item.id, before })),
+    )
   }
 
   private boundFollowingWindow(items: TranscriptItem[]): {
@@ -755,7 +767,11 @@ export class TranscriptLog {
     const retainHistory = this.options.retainHistory ? this.options.retainHistory() : this.pagedBack
     const limit = this.initialLimit * 2
     if (retainHistory || this.loadingOlder || items.length <= limit) return { items }
-    const tail = items.slice(-limit)
+    const keep = this.options.retainFrom?.()
+    const boundary = keep === undefined ? -1 : items.findIndex((item) => item.id === keep)
+    const drop = Math.min(items.length - limit, boundary < 0 ? Infinity : boundary)
+    if (drop === 0) return { items }
+    const tail = items.slice(drop)
     // Store readers accept the native item cursor as their opaque anchor. Keep
     // the authority's original page head until an actual trim, then page from
     // the first retained item so the omitted prefix remains recoverable.

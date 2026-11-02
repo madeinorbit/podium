@@ -1,6 +1,7 @@
 import { issueAgentKind, issueDefaultAgentKind } from '@podium/client-core/agent-models'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { TranscriptFreshness } from '@podium/client-core/transcript'
+import { principalShortName } from '@podium/client-core/values'
 import type { useVoiceInput } from '@podium/terminal-client-react'
 import {
   ArrowUp,
@@ -33,6 +34,7 @@ import { useNativeDraftText } from '@/lib/use-native-draft-text'
 import { usePromptAutoGrow } from '@/lib/use-prompt-auto-grow'
 import { cn } from '@/lib/utils'
 import { AttachmentStrip } from './AttachmentStrip'
+import type { MailReply } from './mail-reply'
 import { OfferBar } from './OfferBar'
 import { QuoteOverlay, type UseQuotesResult } from './QuoteTokens'
 import type { UseAttachmentsResult } from './use-attachments'
@@ -169,7 +171,9 @@ export const ChatComposer = observer(function ChatComposer({
   backend,
   onBackendModelChange,
   onBackendEffortChange,
+  reply,
 }: {
+  reply?: MailReply
   taRef: RefObject<HTMLTextAreaElement | null>
   draft: string
   onDraftChange: (text: string) => void
@@ -356,8 +360,12 @@ export const ChatComposer = observer(function ChatComposer({
   const options = useMemo(() => [...issueOptions, ...fileOptions], [issueOptions, fileOptions])
   const mention = useAtMenu({ trigger, taRef, value: draft, onChange: onDraftChange, options })
 
+  const replying = reply?.active === true
   const sendDisabled =
-    !deliverable || (!draft.trim() && attachments.attachments.length === 0) || attachments.uploading
+    !deliverable ||
+    (replying
+      ? !draft.trim() || reply.sending
+      : (!draft.trim() && attachments.attachments.length === 0) || attachments.uploading)
   // The keyboard's send. The textarea is never disabled, so Enter reaches this
   // handler in every state and the send gate has to be applied here — the
   // button gets it for free from its `disabled` attribute.
@@ -431,7 +439,7 @@ export const ChatComposer = observer(function ChatComposer({
           stoppable — the server sends its harness's abort key — and gating the
           button on `headless` left the double-Escape chord as the ONLY way to
           stop a claude/codex session from chat, which is a chord nobody can see. */}
-      {turnRunning && canInterrupt && (
+      {!replying && turnRunning && canInterrupt && (
         <Button
           type="button"
           variant="ghost"
@@ -453,24 +461,26 @@ export const ChatComposer = observer(function ChatComposer({
           <Square size={16} aria-hidden="true" />
         </Button>
       )}
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className={cn(
-          // One idiom across the cluster: the mic and the stop square sit either
-          // side of this one, and three hover treatments in a 72px row is what
-          // made the box read as assembled rather than designed.
-          'text-text-dim hover:bg-chip hover:text-text-strong',
-          compact
-            ? "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3.5"
-            : "size-7 rounded-[8px] [&_svg:not([class*='size-'])]:size-4",
-        )}
-        title="Attach a file"
-        onClick={attachments.openFilePicker}
-      >
-        <Paperclip size={16} aria-hidden="true" />
-      </Button>
+      {!replying && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className={cn(
+            // One idiom across the cluster: the mic and the stop square sit either
+            // side of this one, and three hover treatments in a 72px row is what
+            // made the box read as assembled rather than designed.
+            'text-text-dim hover:bg-chip hover:text-text-strong',
+            compact
+              ? "size-6 rounded-md [&_svg:not([class*='size-'])]:size-3.5"
+              : "size-7 rounded-[8px] [&_svg:not([class*='size-'])]:size-4",
+          )}
+          title="Attach a file"
+          onClick={attachments.openFilePicker}
+        >
+          <Paperclip size={16} aria-hidden="true" />
+        </Button>
+      )}
       <VoiceButton voice={voice} />
       {/* THE ARMED SEND. Compact matches the empty-thread box exactly: a quiet
           glyph in Dim ink while there is nothing to send — legible without
@@ -505,7 +515,12 @@ export const ChatComposer = observer(function ChatComposer({
               ),
         )}
         disabled={sendDisabled}
-        title="Send (Enter)"
+        title={
+          replying
+            ? `Send reply to ${principalShortName(reply.target?.from ?? '')}`
+            : 'Send (Enter)'
+        }
+        aria-label={replying ? 'Send reply' : 'Send'}
         onClick={onSend}
       >
         <ArrowUp size={16} aria-hidden="true" />
@@ -552,6 +567,14 @@ export const ChatComposer = observer(function ChatComposer({
             ),
       )}
       ref={setRootEl}
+      onKeyDownCapture={(e) => {
+        if (replying && e.key === 'Escape' && !e.nativeEvent.isComposing) {
+          e.preventDefault()
+          e.stopPropagation()
+          reply.cancel()
+          taRef.current?.focus()
+        }
+      }}
       // NO DROP HANDLERS HERE ANY MORE (POD-1595) — ChatView mounts them on the
       // whole chat surface instead. They lived on this dock, which is a ~70px
       // strip at the bottom of the pane, so "drag a file into the conversation"
@@ -568,7 +591,7 @@ export const ChatComposer = observer(function ChatComposer({
           actions, shown only while an offer exists for this session. The
           message sits above compact buttons; a click sends the button's
           predefined prompt as a normal turn (and clears the offer). */}
-      {offer && (
+      {!replying && offer && (
         <div className="mb-2">
           <OfferBar
             offer={offer}
@@ -656,6 +679,27 @@ export const ChatComposer = observer(function ChatComposer({
           )}
         </div>
       )}
+      {replying && (
+        <div className="composer-reply-mode" role="status">
+          <span>
+            Reply to <strong>{principalShortName(reply.target?.from ?? '')}</strong>
+          </span>
+          <button
+            type="button"
+            data-pressable
+            aria-label="Cancel mail reply"
+            onClick={reply.cancel}
+          >
+            Cancel <X size={12} aria-hidden="true" />
+          </button>
+        </div>
+      )}
+      {replying && reply.error && (
+        <div className="composer-notice composer-notice--error" role="alert">
+          <strong>Reply not sent</strong>
+          <span>{reply.error}</span>
+        </div>
+      )}
       {/* THE FIELD. Under `compact` it is `.prompt-well`: grooved into the
           pane with the same --well-* bevel the command bar's wells use, and
           lifting a step on focus. Carved, not floated — and no yellow focus
@@ -679,7 +723,7 @@ export const ChatComposer = observer(function ChatComposer({
             follows its corner, so it reads as the field lighting up rather than
             a second box laid over it, and takes no pointer events: an overlay
             that did would fire dragleave against itself the frame it appeared. */}
-        {attachments.dragOver && (
+        {!replying && attachments.dragOver && (
           <div
             className={cn(
               'pointer-events-none absolute inset-0 z-10 flex items-center justify-center gap-2 border-2 border-dashed border-primary bg-primary/5',
@@ -693,13 +737,15 @@ export const ChatComposer = observer(function ChatComposer({
           </div>
         )}
         <AtMentionMenu mention={mention} hint="↑↓ to move · ↵ to insert · esc to dismiss" />
-        <input
-          ref={attachments.fileInputRef}
-          type="file"
-          multiple
-          className="hidden"
-          onChange={attachments.onFileInputChange}
-        />
+        {!replying && (
+          <input
+            ref={attachments.fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={attachments.onFileInputChange}
+          />
+        )}
         <div className={cn('flex min-w-0 flex-col gap-0.5', compact && 'flex-1')}>
           <div className={cn('flex gap-2', compact ? 'items-start' : 'items-end')}>
             {/* The field's box, shared with the quote pills painted behind it. */}
@@ -738,6 +784,10 @@ export const ChatComposer = observer(function ChatComposer({
                       // above it, so what you type looks like what you sent.
                       '[field-sizing:content] placeholder-shown:[field-sizing:fixed] block min-h-[1lh] max-h-[150px] w-full overflow-y-auto p-0 text-[14px] leading-6 transition-[height] duration-200 ease-[cubic-bezier(0.25,1,0.35,1)] placeholder:text-text-faint motion-reduce:transition-none',
                 )}
+                readOnly={replying && reply.sending}
+                aria-label={
+                  replying ? `Reply to ${principalShortName(reply.target?.from ?? '')}` : undefined
+                }
                 defaultValue={initialDraft.current}
                 onChange={(e) => {
                   const ta = e.target
@@ -825,7 +875,7 @@ export const ChatComposer = observer(function ChatComposer({
                     sendFromKeyboard()
                   }
                 }}
-                onPaste={attachments.onPaste}
+                onPaste={replying ? undefined : attachments.onPaste}
               />
             </div>
             {!compact && !isMobile && (
@@ -848,7 +898,9 @@ export const ChatComposer = observer(function ChatComposer({
                 line as the field grows. */}
             {actionCluster}
           </div>
-          <AttachmentStrip attachments={attachments.attachments} onRemove={attachments.remove} />
+          {!replying && (
+            <AttachmentStrip attachments={attachments.attachments} onRemove={attachments.remove} />
+          )}
         </div>
       </div>
       {/* The field's ref must attach before sync, then sizing reads the adopted
@@ -856,7 +908,7 @@ export const ChatComposer = observer(function ChatComposer({
           this component's layout effect. */}
       <SyncComposerDraft taRef={taRef} draft={draft} owner={autoFocusKey} />
       {compact && <PromptAutoGrow taRef={taRef} value={draft} />}
-      {backend && onBackendModelChange && onBackendEffortChange && (
+      {!replying && backend && onBackendModelChange && onBackendEffortChange && (
         <BackendRail
           backend={backend}
           machineId={session?.machineId}

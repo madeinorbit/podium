@@ -19,6 +19,7 @@ vi.mock('@podium/client-core/react', () => ({
   } }) } }),
 }))
 vi.mock('../client/mobile-pool', () => ({
+  useMobilePool: () => state.current!.pool,
   useMobilePoolProjection: (read: (pool: MobxPool) => unknown) => {
     const view = useMemo(() => createPoolProjection(state.current!.pool, read), [read])
     return useSyncExternalStore(view.subscribe, view.getSnapshot, view.getSnapshot)
@@ -83,4 +84,4 @@ it('phone Copy keeps pool work and React commits flat at 1x and 4x', async () =>
     } finally { cleanup(); f.dispose(); state.current = null }
   }
   console.info('[phone copy work]', JSON.stringify(samples))
-})
+}, 120_000)

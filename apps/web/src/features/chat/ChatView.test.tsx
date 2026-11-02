@@ -1,3 +1,5 @@
+import { encodeCursor } from '@podium/harness/browser'
+import { claudePromptTextMatches, transcriptRecordMapperFor } from '@podium/harness/metadata'
 import {
   asSessionId,
   type MessageRecordWire,
@@ -6,15 +8,14 @@ import {
   type SessionMetaInput,
   type TranscriptItem,
 } from '@podium/model'
-import { encodeCursor } from '@podium/harness/browser'
-import { claudePromptTextMatches, transcriptRecordMapperFor } from '@podium/harness/metadata'
-import measured283 from '../../../../../docs/measurements/pod-4982-claude-pasted-content/claude-2.1.283-gate-on.jsonl?raw'
-import measured285 from '../../../../../docs/measurements/pod-4982-claude-pasted-content/claude-2.1.285-gate-on-boundaries.jsonl?raw'
-import queued283 from '../../../../../docs/measurements/pod-4982-claude-pasted-content/claude-2.1.283-gate-on-queued.jsonl?raw'
-import queued285 from '../../../../../docs/measurements/pod-4982-claude-pasted-content/claude-2.1.285-gate-on-queued.jsonl?raw'
+import { fireEvent } from '@testing-library/react'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import measured283 from '../../../../../docs/measurements/pod-4982-claude-pasted-content/claude-2.1.283-gate-on.jsonl?raw'
+import queued283 from '../../../../../docs/measurements/pod-4982-claude-pasted-content/claude-2.1.283-gate-on-queued.jsonl?raw'
+import measured285 from '../../../../../docs/measurements/pod-4982-claude-pasted-content/claude-2.1.285-gate-on-boundaries.jsonl?raw'
+import queued285 from '../../../../../docs/measurements/pod-4982-claude-pasted-content/claude-2.1.285-gate-on-queued.jsonl?raw'
 import './test-support/client-core-mock'
 import { resetFakeStore, setFakeStore } from './test-support/fake-store-handle'
 import { outboxChatSendActions } from './test-support/outbox-chat-send'
@@ -209,7 +210,7 @@ function meta(over: Partial<SessionMetaInput>): SessionMeta {
 }
 
 function item(id: string, cursor: string, text: string): TranscriptItem {
-  return { id, cursor, role: 'assistant', text }
+  return { id, cursor, role: 'assistant', text, answer: true }
 }
 
 function providerItem(
@@ -221,6 +222,7 @@ function providerItem(
   return {
     id,
     role,
+    answer: role === 'assistant',
     text,
     cursor: encodeCursor({ fileId: 'headless-thread', offset, uuid: id, sub: 0 }),
   }
@@ -254,7 +256,11 @@ afterEach(() => {
 })
 
 /** A synced record of a message sent into s1 (POD-4764). */
-function sentRecord(id: string, body: string, over: Partial<MessageRecordWire> = {}): MessageRecordWire {
+function sentRecord(
+  id: string,
+  body: string,
+  over: Partial<MessageRecordWire> = {},
+): MessageRecordWire {
   return {
     id,
     sessionId: asSessionId('s1'),
@@ -274,7 +280,7 @@ async function flush(): Promise<void> {
     // an earlier case having warmed that module before this helper settles.
     await vi.dynamicImportSettled()
     await Promise.resolve()
-    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
 }
 
@@ -606,8 +612,8 @@ This is agent mail, not the operator's latest prompt.
     expect(userRow.className).not.toContain('sticky')
     expect(container.querySelector('[data-testid="sticky-user-message"]')).toBeNull()
 
-    const mailRow = [...container.querySelectorAll<HTMLElement>('.transcript-row')].find((el) =>
-      el.querySelector('.mail-group') !== null,
+    const mailRow = [...container.querySelectorAll<HTMLElement>('.transcript-row')].find(
+      (el) => el.querySelector('.mail-group') !== null,
     )
     expect(mailRow).toBeDefined()
     expect(mailRow?.dataset.operatorPrompt).toBeUndefined()
@@ -686,8 +692,12 @@ This is agent mail, not the operator's latest prompt.
       clientHeight: { configurable: true, value: 600 },
       scrollHeight: { configurable: true, value: 900 },
     })
-    const viewportRect = vi.spyOn(scroller, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 100, 800, 600))
-    const promptRect = vi.spyOn(prompt, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 800, 40))
+    const viewportRect = vi
+      .spyOn(scroller, 'getBoundingClientRect')
+      .mockReturnValue(new DOMRect(0, 100, 800, 600))
+    const promptRect = vi
+      .spyOn(prompt, 'getBoundingClientRect')
+      .mockReturnValue(new DOMRect(0, 0, 800, 40))
     act(() => scroller.dispatchEvent(new Event('scroll', { bubbles: true })))
     await flush()
     const shelf = container.querySelector('[data-testid="pinned-brief"]')
@@ -701,7 +711,8 @@ This is agent mail, not the operator's latest prompt.
     expect(shelf.compareDocumentPosition(scroller) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     )
-    viewportRect.mockRestore(); promptRect.mockRestore()
+    viewportRect.mockRestore()
+    promptRect.mockRestore()
     // The reported symptom: nothing after the feed tail may repeat the prompt.
     const tail = container.querySelector('[data-testid="feed-tail-slot"]')
     expect(tail).not.toBeNull()
@@ -722,101 +733,129 @@ This is agent mail, not the operator's latest prompt.
 })
 
 describe('ChatView composer', () => {
-  it.each(['2.1.283', '2.1.285'])(
-    'shows Claude %s pasted content once, without recorder tags, after confirmation',
-    async (version) => {
-      const raw = version === '2.1.283' ? measured283 : measured285
-      const measured = raw.trim().split('\n')
-        .map((line) => JSON.parse(line) as {
-          case: string; input: string; record: { uuid: string; message: { content: string } }
-        }).find((row) => row.case === 'mixed-inline')
-      if (!measured) throw new Error('missing measured mixed prompt')
-      expect(measured.record.message.content).toContain('<pasted_content id=')
-      const toItems = transcriptRecordMapperFor('claude-code')
-      if (!toItems) throw new Error('no Claude reader')
-      const entry = toItems(measured.record)[0]
-      if (!entry) throw new Error('no prompt entry')
-      entry.cursor = encodeCursor({ fileId: 'claude-paste', offset: 100, uuid: entry.id, sub: 0 })
-      const id = 'msg-person-paste'
-      fakeUiValues.set('podium.chat.stickyPrompts', 'false')
-      setFakeStore({ messageRecords: [sentRecord(id, measured.input, { status: 'typed' })] })
-      act(() => root.render(<ChatView sessionId={asSessionId('s1')} />))
-      await act(async () => reads[0]?.resolve({ items: [], hasMore: false }))
-      await flush()
-      // Control: the bubble exists before the receipt and history entry arrive.
-      expect(container.querySelectorAll('.transcript-pending')).toHaveLength(1)
+  it.each([
+    '2.1.283',
+    '2.1.285',
+  ])('shows Claude %s pasted content once, without recorder tags, after confirmation', async (version) => {
+    const raw = version === '2.1.283' ? measured283 : measured285
+    const measured = raw
+      .trim()
+      .split('\n')
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            case: string
+            input: string
+            record: { uuid: string; message: { content: string } }
+          },
+      )
+      .find((row) => row.case === 'mixed-inline')
+    if (!measured) throw new Error('missing measured mixed prompt')
+    expect(measured.record.message.content).toContain('<pasted_content id=')
+    const toItems = transcriptRecordMapperFor('claude-code')
+    if (!toItems) throw new Error('no Claude reader')
+    const entry = toItems(measured.record)[0]
+    if (!entry) throw new Error('no prompt entry')
+    entry.cursor = encodeCursor({ fileId: 'claude-paste', offset: 100, uuid: entry.id, sub: 0 })
+    const id = 'msg-person-paste'
+    fakeUiValues.set('podium.chat.stickyPrompts', 'false')
+    setFakeStore({ messageRecords: [sentRecord(id, measured.input, { status: 'typed' })] })
+    act(() => root.render(<ChatView sessionId={asSessionId('s1')} />))
+    await act(async () => reads[0]?.resolve({ items: [], hasMore: false }))
+    await flush()
+    // Control: the bubble exists before the receipt and history entry arrive.
+    expect(container.querySelectorAll('.transcript-pending')).toHaveLength(1)
 
-      // The terminal regression proves the order window. Its real text matcher
-      // decides whether this recorded entry can name the send's confirmation.
-      const confirmed = claudePromptTextMatches(measured.input, entry.text)
-      setFakeStore({ messageRecords: [sentRecord(id, measured.input, {
-        status: confirmed ? 'confirmed' : 'unknown',
-        ...(confirmed ? { transcriptItem: { id: entry.id, cursor: entry.cursor } } : {}),
-      })] })
-      act(() => {
-        for (const sub of fakeHub.subscribes) sub.cb([entry], { reset: false })
-      })
-      await flush()
-      expect(container.querySelectorAll('.transcript-pending')).toHaveLength(0)
-      const prompts = container.querySelectorAll<HTMLElement>('.transcript-row[data-operator-prompt="true"]')
-      expect(prompts).toHaveLength(1)
-      expect(prompts[0]?.textContent).toContain(measured.input)
-      expect(container.textContent).not.toContain('pasted_content')
-      expect(entry.id).toBe(measured.record.uuid)
-    },
-  )
+    // The terminal regression proves the order window. Its real text matcher
+    // decides whether this recorded entry can name the send's confirmation.
+    const confirmed = claudePromptTextMatches(measured.input, entry.text)
+    setFakeStore({
+      messageRecords: [
+        sentRecord(id, measured.input, {
+          status: confirmed ? 'confirmed' : 'unknown',
+          ...(confirmed ? { transcriptItem: { id: entry.id, cursor: entry.cursor } } : {}),
+        }),
+      ],
+    })
+    act(() => {
+      for (const sub of fakeHub.subscribes) sub.cb([entry], { reset: false })
+    })
+    await flush()
+    expect(container.querySelectorAll('.transcript-pending')).toHaveLength(0)
+    const prompts = container.querySelectorAll<HTMLElement>(
+      '.transcript-row[data-operator-prompt="true"]',
+    )
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]?.textContent).toContain(measured.input)
+    expect(container.textContent).not.toContain('pasted_content')
+    expect(entry.id).toBe(measured.record.uuid)
+  })
 
-  it.each(['2.1.283', '2.1.285'])(
-    'shows Claude %s queued pasted content once, without recorder tags, after confirmation',
-    async (version) => {
-      const raw = version === '2.1.283' ? queued283 : queued285
-      const measured = raw.trim().split('\n')
-        .map((line) => JSON.parse(line) as {
-          case: string; input: string; record: { uuid: string; message: { content: string } }
-        }).find((row) => row.case === 'queued-paste-944')
-      if (!measured) throw new Error('missing measured queued prompt')
-      expect(measured.record.message.content).toContain('<pasted_content id=')
-      // Queued form is trimmed: no leading/trailing separators (POD-5269).
-      expect(measured.record.message.content.startsWith('<pasted_content')).toBe(true)
-      const toItems = transcriptRecordMapperFor('claude-code')
-      if (!toItems) throw new Error('no Claude reader')
-      const entry = toItems(measured.record)[0]
-      if (!entry) throw new Error('no prompt entry')
-      entry.cursor = encodeCursor({ fileId: 'claude-paste-queued', offset: 100, uuid: entry.id, sub: 0 })
-      const id = 'msg-person-queued-paste'
-      fakeUiValues.set('podium.chat.stickyPrompts', 'false')
-      setFakeStore({ messageRecords: [sentRecord(id, measured.input, { status: 'typed' })] })
-      act(() => root.render(<ChatView sessionId={asSessionId('s1')} />))
-      await act(async () => reads[0]?.resolve({ items: [], hasMore: false }))
-      await flush()
-      expect(container.querySelectorAll('.transcript-pending')).toHaveLength(1)
+  it.each([
+    '2.1.283',
+    '2.1.285',
+  ])('shows Claude %s queued pasted content once, without recorder tags, after confirmation', async (version) => {
+    const raw = version === '2.1.283' ? queued283 : queued285
+    const measured = raw
+      .trim()
+      .split('\n')
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            case: string
+            input: string
+            record: { uuid: string; message: { content: string } }
+          },
+      )
+      .find((row) => row.case === 'queued-paste-944')
+    if (!measured) throw new Error('missing measured queued prompt')
+    expect(measured.record.message.content).toContain('<pasted_content id=')
+    // Queued form is trimmed: no leading/trailing separators (POD-5269).
+    expect(measured.record.message.content.startsWith('<pasted_content')).toBe(true)
+    const toItems = transcriptRecordMapperFor('claude-code')
+    if (!toItems) throw new Error('no Claude reader')
+    const entry = toItems(measured.record)[0]
+    if (!entry) throw new Error('no prompt entry')
+    entry.cursor = encodeCursor({
+      fileId: 'claude-paste-queued',
+      offset: 100,
+      uuid: entry.id,
+      sub: 0,
+    })
+    const id = 'msg-person-queued-paste'
+    fakeUiValues.set('podium.chat.stickyPrompts', 'false')
+    setFakeStore({ messageRecords: [sentRecord(id, measured.input, { status: 'typed' })] })
+    act(() => root.render(<ChatView sessionId={asSessionId('s1')} />))
+    await act(async () => reads[0]?.resolve({ items: [], hasMore: false }))
+    await flush()
+    expect(container.querySelectorAll('.transcript-pending')).toHaveLength(1)
 
-      const confirmed = claudePromptTextMatches(measured.input, entry.text)
-      setFakeStore({ messageRecords: [sentRecord(id, measured.input, {
-        status: confirmed ? 'confirmed' : 'unknown',
-        ...(confirmed ? { transcriptItem: { id: entry.id, cursor: entry.cursor } } : {}),
-      })] })
-      act(() => {
-        for (const sub of fakeHub.subscribes) sub.cb([entry], { reset: false })
-      })
-      await flush()
-      expect(container.querySelectorAll('.transcript-pending')).toHaveLength(0)
-      const prompts = container.querySelectorAll<HTMLElement>('.transcript-row[data-operator-prompt="true"]')
-      expect(prompts).toHaveLength(1)
-      expect(prompts[0]?.textContent).toContain(measured.input.slice(0, 40))
-      expect(container.textContent).not.toContain('pasted_content')
-      expect(entry.id).toBe(measured.record.uuid)
-    },
-  )
+    const confirmed = claudePromptTextMatches(measured.input, entry.text)
+    setFakeStore({
+      messageRecords: [
+        sentRecord(id, measured.input, {
+          status: confirmed ? 'confirmed' : 'unknown',
+          ...(confirmed ? { transcriptItem: { id: entry.id, cursor: entry.cursor } } : {}),
+        }),
+      ],
+    })
+    act(() => {
+      for (const sub of fakeHub.subscribes) sub.cb([entry], { reset: false })
+    })
+    await flush()
+    expect(container.querySelectorAll('.transcript-pending')).toHaveLength(0)
+    const prompts = container.querySelectorAll<HTMLElement>(
+      '.transcript-row[data-operator-prompt="true"]',
+    )
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]?.textContent).toContain(measured.input.slice(0, 40))
+    expect(container.textContent).not.toContain('pasted_content')
+    expect(entry.id).toBe(measured.record.uuid)
+  })
 
   it('releases the composer before a busy-session send is confirmed', async () => {
     let confirmSend:
-      | ((result: {
-          ok: true
-          queued: true
-          disposition: 'queued'
-          position: number
-        }) => void)
+      | ((result: { ok: true; queued: true; disposition: 'queued'; position: number }) => void)
       | undefined
     let sendConfirmed = false
     const confirmation = new Promise<{
@@ -955,7 +994,10 @@ describe('ChatView composer', () => {
   it('shows a message the server says did not arrive with its reason, and "send again" puts its words back', async () => {
     setFakeStore({
       messageRecords: [
-        sentRecord('msg_failed', 'please try this again', { status: 'failed', reason: 'never-live' }),
+        sentRecord('msg_failed', 'please try this again', {
+          status: 'failed',
+          reason: 'never-live',
+        }),
         sentRecord('msg_other_session', 'do not show this here', {
           sessionId: asSessionId('s2'),
           status: 'failed',
@@ -1003,8 +1045,6 @@ describe('ChatView composer', () => {
     expect(fakeTrpc.messages.dismissNotice.mutate).toHaveBeenCalledWith({ id: 'msg_failed' })
     expect(fakeTrpc.sessions.sendText.mutate).not.toHaveBeenCalled()
   })
-
-
 
   /**
    * "NOT SENT — RETRY" (POD-4762). Every send rides the outbox under the id the
@@ -1068,9 +1108,7 @@ describe('ChatView composer', () => {
       fakeTrpc.sessions.sendText.mutate.mockReset()
       fakeTrpc.sessions.sendText.mutate.mockResolvedValue({ disposition: 'delivered' })
       await act(async () => {
-        container
-          .querySelector<HTMLButtonElement>('[aria-label="Retry sending message"]')
-          ?.click()
+        container.querySelector<HTMLButtonElement>('[aria-label="Retry sending message"]')?.click()
         await vi.advanceTimersByTimeAsync(0)
       })
 
@@ -1587,9 +1625,13 @@ describe('ChatView ask-anything tip (POD-2222)', () => {
     document.body.appendChild(card)
     const cardRoot = createRoot(card)
     act(() => cardRoot.render(engine.current?.card.extra))
-    const chip = [...card.querySelectorAll('button')].find((b) => b.textContent === ASK_ANYTHING_EXAMPLES[0])
+    const chip = [...card.querySelectorAll('button')].find(
+      (b) => b.textContent === ASK_ANYTHING_EXAMPLES[0],
+    )
     act(() => chip?.click())
-    expect(textarea.value).toBe(`a paragraph typed after the tip opened\n${ASK_ANYTHING_EXAMPLES[0]}`)
+    expect(textarea.value).toBe(
+      `a paragraph typed after the tip opened\n${ASK_ANYTHING_EXAMPLES[0]}`,
+    )
     act(() => cardRoot.unmount())
     card.remove()
     disconnect()
@@ -1614,4 +1656,68 @@ describe('ChatView ask-anything tip (POD-2222)', () => {
     expect(await publish({ phase: 'idle', since, workingMsTotal: 2_000 })).toBeGreaterThan(floor)
     disconnect()
   })
+})
+
+it('scrolls again when search moves between commands in the same run', async () => {
+  act(() => root.render(<ChatView sessionId={asSessionId('s1')} />))
+  await act(async () =>
+    reads[0]!.resolve({
+      items: [
+        { id: 'find-prompt', role: 'user', text: 'Check' },
+        { id: 'find-intro', role: 'assistant', text: 'Checking.' },
+        {
+          id: 'find-one',
+          role: 'tool',
+          text: '',
+          toolName: 'Bash',
+          toolInput: 'first',
+          toolResult: 'needle first',
+        },
+        {
+          id: 'find-two',
+          role: 'tool',
+          text: '',
+          toolName: 'Bash',
+          toolInput: 'second',
+          toolResult: 'needle second',
+        },
+        { id: 'find-answer', role: 'assistant', text: 'Done.', answer: true },
+      ],
+      hasMore: false,
+    }),
+  )
+  await flush()
+  const scroller = container.querySelector<HTMLElement>('[data-feed-scroller]')!
+  const scrollTo = vi.fn()
+  scroller.scrollTo = scrollTo
+  Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 400 })
+  const original = HTMLElement.prototype.getBoundingClientRect
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    const top =
+      this.dataset.transcriptMemberKey === 'find-one'
+        ? 500
+        : this.dataset.transcriptMemberKey === 'find-two'
+          ? 900
+          : undefined
+    return top === undefined
+      ? original.call(this)
+      : ({ ...original.call(this).toJSON(), top, bottom: top + 30, height: 30 } as DOMRect)
+  })
+  act(() =>
+    container.querySelector<HTMLButtonElement>('button[aria-label="Find in transcript"]')!.click(),
+  )
+  const input = container.querySelector<HTMLInputElement>('input[aria-label="Find in transcript"]')!
+  act(() => fireEvent.change(input, { target: { value: 'needle' } }))
+  await flush()
+  expect(scrollTo.mock.calls.some(([options]) => options.top === 315)).toBe(true)
+  scrollTo.mockClear()
+  act(() => fireEvent.keyDown(input, { key: 'Enter' }))
+  await flush()
+  expect(scrollTo.mock.calls.some(([options]) => options.top === 715)).toBe(true)
+  expect(
+    container.querySelector('[data-row-key="find-two"] .tool-result-full')?.textContent,
+  ).toContain('needle second')
+  vi.restoreAllMocks()
 })

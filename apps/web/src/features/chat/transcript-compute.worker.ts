@@ -2,14 +2,14 @@ import { highlightCode } from '@podium/client-core/code-highlight'
 import { TranscriptGraph, type TranscriptGraphChange } from '@podium/client-core/conversation'
 import {
   computeTranscript,
-  parseEnvelopeBatch,
   type TranscriptComputeInput,
   type TranscriptComputeResult,
-  transcriptSearchState,
   type TranscriptSearchState,
+  transcriptActivityFacts,
+  transcriptSearchState,
 } from '@podium/client-core/values'
+import { autorun, type IObservableValue, observable, runInAction } from 'mobx'
 import { createMarkdownRenderer } from '@/lib/markdown-renderer'
-import { autorun, observable, runInAction, type IObservableValue } from 'mobx'
 
 const renderMarkdownUnsafe = createMarkdownRenderer(highlightCode)
 
@@ -117,12 +117,15 @@ interface TranscriptWorkerScope {
 const scope = self as unknown as TranscriptWorkerScope
 const MARKDOWN_CACHE_LIMIT = 2_048
 const markdownCache = new Map<string, string>()
-const models = new Map<number, {
-  indexKey: number
-  graph: TranscriptGraph
-  query: IObservableValue<string>
-  stopSearch: () => void
-}>()
+const models = new Map<
+  number,
+  {
+    indexKey: number
+    graph: TranscriptGraph
+    query: IObservableValue<string>
+    stopSearch: () => void
+  }
+>()
 let indexed:
   | {
       indexKey: number
@@ -157,7 +160,7 @@ function markdownSources(input: TranscriptComputeInput): string[] {
       if (/^(?:→|->)\s*next:/i.test(last)) sources.add(lines.slice(0, -1).join('\n'))
     }
     if (item.role !== 'user') continue
-    const batch = parseEnvelopeBatch(item.text)
+    const batch = transcriptActivityFacts(item).envelopes
     if (!batch) continue
     if (batch.operatorText) sources.add(batch.operatorText)
     for (const envelope of batch.envelopes) {
@@ -185,7 +188,9 @@ scope.onmessage = (event: MessageEvent<TranscriptComputeWorkerRequest>) => {
         const query = observable.box('')
         // A model owns the worker's search demand, just as the UI owns it on
         // the main thread. Empty search observes no n-gram postings.
-        const stopSearch = autorun(() => { graph.matches(query.get()) })
+        const stopSearch = autorun(() => {
+          graph.matches(query.get())
+        })
         model = { indexKey: request.indexKey, graph, query, stopSearch }
         models.set(request.ownerKey, model)
       } else {
@@ -195,16 +200,26 @@ scope.onmessage = (event: MessageEvent<TranscriptComputeWorkerRequest>) => {
         model.indexKey = request.indexKey
       }
       const query = model.query
-      runInAction(() => { query.set(request.query) })
+      runInAction(() => {
+        query.set(request.query)
+      })
       const markdown: Array<[string, string]> = []
       const changed = request.items ?? request.change?.changed ?? []
-      for (const text of markdownSources({ items: changed, verbosity: request.verbosity, query: '', cursor: 0 })) {
+      for (const text of markdownSources({
+        items: changed,
+        verbosity: request.verbosity,
+        query: '',
+        cursor: 0,
+      })) {
         const rendered = renderCachedMarkdown(text)
         if (rendered.rendered) markdown.push([text, rendered.html])
       }
       scope.postMessage({
-        id: request.id, kind: 'model', ok: true,
-        search: model.graph.search(request.query, request.cursor, request.verbosity), markdown,
+        id: request.id,
+        kind: 'model',
+        ok: true,
+        search: model.graph.search(request.query, request.cursor, request.verbosity),
+        markdown,
       } satisfies TranscriptModelWorkerResponse)
       return
     }
@@ -279,7 +294,12 @@ scope.onmessage = (event: MessageEvent<TranscriptComputeWorkerRequest>) => {
   } catch (error) {
     scope.postMessage({
       id: request.id,
-      kind: request.kind === 'markdown' ? 'markdown' : request.kind === 'model' ? 'model' : 'transcript',
+      kind:
+        request.kind === 'markdown'
+          ? 'markdown'
+          : request.kind === 'model'
+            ? 'model'
+            : 'transcript',
       ok: false,
       error: error instanceof Error ? error.message : String(error),
     } satisfies TranscriptComputeWorkerError)

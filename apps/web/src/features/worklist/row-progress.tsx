@@ -73,9 +73,9 @@ export function RowProgressMeter({
         // on every dark surface (#6f9dff), and its legible counterpart on paper
         // — the same token the spinner and the counting timer already wear.
         className={cn(segment, 'relative overflow-hidden bg-live')}
-        style={{ width: pct(progress.run) }}
+        style={{ width: pct(progress.working) }}
       >
-        {working && progress.run > 0 && (
+        {working && progress.working > 0 && (
           <span ref={observeRowProgressSweep} className="row-progress-sweep" aria-hidden="true" />
         )}
       </span>

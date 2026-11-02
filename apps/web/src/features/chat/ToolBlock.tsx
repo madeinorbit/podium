@@ -1,11 +1,19 @@
 import { highlightCode } from '@podium/client-core/code-highlight'
-import { resolveToolEdit } from '@podium/client-core/values'
+import { useActivityDisclosure } from '@podium/client-core/react'
+import {
+  type ActivityDisclosureProps,
+  resolveToolEdit,
+  toolCategory,
+} from '@podium/client-core/values'
 import type { SessionId, TranscriptItem } from '@podium/model/browser'
 import type { JSX } from 'react'
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
+import { useAgeNow } from '@/lib/clock-hooks'
 import { cn } from '@/lib/utils'
 import { type ChatBlock, failLine, mcpLabel, toolSubject, toolVerdict } from './chat'
 import { ToolEditDiff } from './ToolEditDiff'
+import { clockLabel, formatWorkDuration, fullTimeLabel, parseTs } from './transcript-time'
+import { WorkGlyph } from './WorkGlyph'
 
 /** How a call NAMES ITSELF in a list: the tool that ran, in the operator's
  *  words rather than the wire's. Shared with the folded run's hover preview
@@ -81,8 +89,14 @@ export function ToolBlock({
   block,
   onOpenDiff,
   diffPath,
+  timed = false,
+  forceOpen = false,
+  onOpenChange,
+  live = false,
+  initialOpen,
 }: {
   block: ChatBlock
+  live?: boolean
   sessionId: SessionId
   cwd: string
   openFile: (sessionId: SessionId, path: string) => void
@@ -95,9 +109,12 @@ export function ToolBlock({
    *  the row unfolds instead. Deciding this here rather than in the row is what
    *  keeps the rail and the rows describing the same set of files. */
   diffPath?: string | undefined
-}): JSX.Element {
-  const [open, setOpen] = useState(false)
+  /** The call's clock time goes in the opened run's gutter (POD-2286). */
+  timed?: boolean
+} & ActivityDisclosureProps): JSX.Element {
+  const { userOpen, open, toggle } = useActivityDisclosure({ forceOpen, onOpenChange, initialOpen })
   const { item } = block
+  const stamp = timed ? parseTs(item.ts) : undefined
   const result = block.result ?? item.toolResult
   const abnormal = item.toolEffects?.some(
     (effect) =>
@@ -145,37 +162,45 @@ export function ToolBlock({
   const openable = onOpenDiff && diffPath && !item.toolEffects?.length ? diffPath : undefined
   const activate = (): void => {
     if (openable && onOpenDiff) onOpenDiff(openable)
-    else setOpen((v) => !v)
+    else toggle()
   }
   return (
-    <div className="tool-block min-w-0" data-verdict={verdict}>
+    <div
+      className="work-line tool-block min-w-0"
+      data-verdict={verdict}
+      data-state={live ? 'live' : undefined}
+      data-open={open ? 'true' : 'false'}
+      data-transcript-retain={userOpen ? '' : undefined}
+      data-transcript-run-view={forceOpen && !userOpen ? '' : undefined}
+    >
+      {stamp && (
+        <time className="quiet-time" dateTime={item.ts} title={fullTimeLabel(stamp)}>
+          {clockLabel(stamp)}
+        </time>
+      )}
       <button
         data-pressable
         type="button"
-        className="tool-row cursor-pointer py-0.5 text-left hover:text-foreground"
+        className="work-line-row"
+        data-transcript-run-toggle={forceOpen && !userOpen ? '' : undefined}
         onClick={activate}
         {...(openable ? { title: `Open ${openable}` } : { 'aria-expanded': open })}
       >
         <span
-          className={cn(
-            'tool-glyph',
-            verdict === 'ok' && 'tool-glyph--ok',
-            verdict === 'err' && 'tool-glyph--err',
-          )}
+          className={cn('work-line-glyph', verdict === 'err' && 'work-line-glyph--err')}
           aria-hidden="true"
         >
-          {verdict === 'err' ? '✕' : verdict === 'ok' ? '✓' : '·'}
+          <WorkGlyph item={item} />
         </span>
-        {/* A floor, not a cap: short names share one column so the targets line
-            up to a single left edge; a long one (NotebookEdit) still shows in
-            full rather than truncating to nothing. */}
-        <span className="tool-name">{label}</span>
-        {subject && (
-          <span className={cn('min-w-0 truncate', isCommand ? 'tool-cmd' : 'tool-subject')}>
-            {/* Keep ALL inline tokens inside the single shrinking flex child:
-                putting token spans directly in tool-row breaks its ellipsis. */}
-            {isCommand && item.toolInput ? <BashCommand command={subject} /> : subject}
-          </span>
+        <span className={cn('work-line-phrase', isCommand && 'work-line-code')}>
+          {subject ? (isCommand ? subject : `${toolCategory(item).verb} ${subject}`) : label}
+        </span>
+        {live ? (
+          <ToolLiveTimer since={item.ts} />
+        ) : (
+          item.durationMs !== undefined && (
+            <span className="work-line-time">{formatWorkDuration(item.durationMs)}</span>
+          )
         )}
       </button>
       {/* NOTHING ON THE FIRST LAYER (POD-993 round 3). An unfolded run used to
@@ -189,7 +214,7 @@ export function ToolBlock({
           The exception is a FAILURE, which is not detail — it is the verdict,
           and a reader who has to click to discover that something broke has been
           told the wrong thing by the row above it. */}
-      {expanded?.command !== undefined && (
+      {expanded?.command !== undefined && (expanded.command !== subject || expanded.truncated) && (
         <>
           <pre className="tool-result-full tool-cmd">
             <BashCommand command={expanded.command} />
@@ -204,15 +229,12 @@ export function ToolBlock({
         <ul className="tool-script-calls">
           {calls.map((call, index) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: a script's call list never reorders
-            <li key={index} className="tool-row min-w-0">
-              <span className="tool-name">{call.tool}</span>
-              <span
-                className={cn(
-                  'min-w-0 truncate',
-                  call.tool === 'Bash' ? 'tool-cmd' : 'tool-subject',
-                )}
-              >
-                {call.tool === 'Bash' ? <BashCommand command={call.input} /> : call.input}
+            <li key={index} className="work-line-row">
+              <span className="work-line-glyph">
+                <WorkGlyph item={{ ...item, toolName: call.tool }} mail={call.tool === 'Mail'} />
+              </span>
+              <span className={cn('work-line-phrase', call.tool === 'Bash' && 'work-line-code')}>
+                {call.input}
               </span>
             </li>
           ))}
@@ -260,12 +282,21 @@ export function ToolBlock({
           ) : null
         })}
       {open && edit && <ToolEditDiff edit={edit} />}
-      {open && (!edit || isCommand) && (
+      {open && (!edit || isCommand || forceOpen) && (
         <pre className="tool-result-full">{result ?? '(no result captured)'}</pre>
       )}
-      {open && edit && !isCommand && verdict === 'err' && result && (
+      {open && edit && !isCommand && !forceOpen && verdict === 'err' && result && (
         <pre className="tool-result-full">{result}</pre>
       )}
     </div>
   )
+}
+
+function ToolLiveTimer({ since }: { since: string | undefined }) {
+  const started = since ? Date.parse(since) : Number.NaN
+  const known = Number.isFinite(started)
+  const now = useAgeNow(started, 0, known)
+  return known ? (
+    <span className="work-line-time">{formatWorkDuration(Math.max(0, now - started))}</span>
+  ) : null
 }

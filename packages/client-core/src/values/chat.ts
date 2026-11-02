@@ -8,7 +8,12 @@ import {
 } from '@podium/commands/mail-command'
 import type { MessageRecordWire, TranscriptItem } from '@podium/model'
 import { machinePathBasename } from '@podium/model'
-import { principalShortName } from './message-envelope'
+import {
+  isOperatorQuestion,
+  type ParsedEnvelopeBatch,
+  parseEnvelopeBatch,
+  principalShortName,
+} from './message-envelope'
 
 /**
  * Presentation-pure helpers for the chat surface, shared between the web
@@ -232,12 +237,98 @@ export function isInteractiveTool(item: TranscriptItem): boolean {
   return INTERACTIVE_TOOL_RE.test(mcpParts(name)?.tool ?? name)
 }
 
+/** Shared classification of one transcript item revision. Display mail still
+ * depends on the paired result, so only the parsed command belongs here. */
+export interface TranscriptActivityFacts {
+  readonly envelopes: ParsedEnvelopeBatch | null
+  readonly mailCommand: MailCommand | null
+  readonly quietNote: boolean
+  readonly stretch: boolean
+  readonly eventCount: number
+}
+
+type ActivityInputs = Pick<
+  TranscriptItem,
+  'role' | 'text' | 'toolName' | 'toolInput' | 'toolInputJson'
+>
+interface ActivityRevision extends ActivityInputs {
+  readonly facts: TranscriptActivityFacts
+}
+
+// Keys are item revisions, never IDs: released records and old revisions are
+// collectible. The input guard also invalidates callers that edit an item in place.
+const activityRevisions = new WeakMap<TranscriptItem, ActivityRevision>()
+const NO_ACTIVITY: TranscriptActivityFacts = {
+  envelopes: null,
+  mailCommand: null,
+  quietNote: false,
+  stretch: false,
+  eventCount: 1,
+}
+const TOOL_ACTIVITY: TranscriptActivityFacts = { ...NO_ACTIVITY, stretch: true }
+
+export function transcriptActivityFacts(item: TranscriptItem): TranscriptActivityFacts {
+  if (item.role !== 'user' && (item.role !== 'tool' || item.toolName !== 'Bash'))
+    return item.role === 'tool' && !isInteractiveTool(item) ? TOOL_ACTIVITY : NO_ACTIVITY
+  const held = activityRevisions.get(item)
+  if (
+    held &&
+    held.role === item.role &&
+    held.text === item.text &&
+    held.toolName === item.toolName &&
+    held.toolInput === item.toolInput &&
+    held.toolInputJson === item.toolInputJson
+  )
+    return held.facts
+  const envelopes = item.role === 'user' ? parseEnvelopeBatch(item.text) : null
+  const mailCommand = readToolMailCommand(item)
+  const quietNote =
+    envelopes !== null &&
+    envelopes.operatorText === '' &&
+    envelopes.envelopes.length > 0 &&
+    !envelopes.envelopes.some(isOperatorQuestion)
+  const facts: TranscriptActivityFacts = {
+    envelopes,
+    mailCommand,
+    quietNote,
+    stretch: (item.role === 'tool' && !isInteractiveTool(item)) || quietNote,
+    eventCount: envelopes?.envelopes.length ?? 1,
+  }
+  activityRevisions.set(item, {
+    role: item.role,
+    text: item.text,
+    toolName: item.toolName,
+    toolInput: item.toolInput,
+    toolInputJson: item.toolInputJson,
+    facts,
+  })
+  return facts
+}
+
 /**
  * A tool call quiet enough to fold into a batch — i.e. anything that isn't
  * addressing the human, and isn't the agent's own mail (POD-2146).
  */
 export function isBatchableTool(item: TranscriptItem): boolean {
   return item.role === 'tool' && !isInteractiveTool(item) && toolMailCommand(item) === null
+}
+
+/**
+ * Podium mail with no human text and no question addressed to the operator.
+ * Questions between agents stay with the other quiet activity.
+ */
+export function isQuietNote(item: TranscriptItem): boolean {
+  return transcriptActivityFacts(item).quietNote
+}
+
+/**
+ * ONE STRETCH OF QUIET ACTIVITY (POD-2286). Neighbouring tool calls, the
+ * agent's own mail and the notes it received fold into one line ("Ran 5
+ * commands, read 6 notes"), so a busy stretch takes one line between two
+ * messages instead of a column of them.
+ */
+export function isStretchItem(item: TranscriptItem): boolean {
+  return transcriptActivityFacts(item).stretch
 }
 
 /**
@@ -248,6 +339,10 @@ export function isBatchableTool(item: TranscriptItem): boolean {
  * item, {@link presentToolBlock} when it builds a block).
  */
 export function toolMailCommand(item: TranscriptItem): MailCommand | null {
+  return transcriptActivityFacts(item).mailCommand
+}
+
+function readToolMailCommand(item: TranscriptItem): MailCommand | null {
   if (item.role !== 'tool' || item.toolName !== 'Bash') return null
   const text = item.toolInputJson ?? item.toolInput ?? ''
   if (!text.includes('podium') || !text.includes('mail')) return null
@@ -409,8 +504,8 @@ export function mcpLabel(toolName: string): string | null {
   return `${server} · ${parts.tool.replace(/_/g, ' ')}`
 }
 
-/** A run of consecutive tool calls, shown collapsed under one summary title. */
-export interface ToolBatchRow {
+/** A stretch of neighbouring commands and notes, folded under one summary. */
+export interface ActivityStretchRow {
   kind: 'tools'
   blocks: ChatBlock[]
   /** Each child's index in the flat ChatBlock[] — lets search map a hit to its row. */
@@ -419,13 +514,20 @@ export interface ToolBatchRow {
   /** The folded face's count-only line ("Ran 4 commands"); `title` names subjects. */
   summary?: string
 }
+/** Source compatibility for consumers of the existing tools-row API. */
+export type ToolBatchRow = ActivityStretchRow
 /** Anything that isn't a quiet tool call: prose, prompts, the AskUserQuestion card. */
 export interface SingleRow {
   kind: 'block'
   block: ChatBlock
   blockIndex: number
 }
-export type ChatRow = SingleRow | ToolBatchRow
+export type ChatRow = SingleRow | ActivityStretchRow
+
+/** One delivered transcript item can hold several notes. Count the notes. */
+export function toolActivityCount(item: TranscriptItem): number {
+  return transcriptActivityFacts(item).eventCount
+}
 
 /**
  * Group the flat block stream into renderable rows. Maximal runs of consecutive
@@ -447,7 +549,7 @@ export function buildChatRows(blocks: ChatBlock[]): ChatRow[] {
     run = null
   }
   blocks.forEach((block, i) => {
-    if (isBatchableTool(block.item)) {
+    if (isStretchItem(block.item)) {
       run ??= { blocks: [], indices: [] }
       run.blocks.push(block)
       run.indices.push(i)
@@ -463,6 +565,10 @@ export function buildChatRows(blocks: ChatBlock[]): ChatRow[] {
 // Tool → the verb/noun the summary counts it under. Past tense to read as a log
 // of what happened ("Read 3 files", "Created 4 files", "Ran 5 commands").
 export function toolCategory(item: TranscriptItem): { verb: string; noun: string } {
+  if (item.role === 'user') return { verb: 'Read', noun: 'note' }
+  const mail = toolMailCommand(item)
+  if (mail)
+    return mail.op === 'inbox' ? { verb: 'Checked', noun: 'inbox' } : { verb: 'Sent', noun: 'note' }
   switch (item.toolName) {
     case 'Read':
     case 'NotebookRead':
@@ -527,6 +633,8 @@ export function toolSubject(item: TranscriptItem, max: number = SUBJECT_MAX): st
   // room. Batch titles pack several subjects onto one line and cap each;
   // live work lines and unfolded rows pass Infinity so CSS clips only at the
   // actual column edge.
+  // A note is counted, not named: its sender and subject are its own row's.
+  if (item.role === 'user' || toolMailCommand(item)) return undefined
   const name = item.toolName
   // A path-bearing call is named by its file, always — the basename, since the
   // full path is one disclosure away in the expanded row.
@@ -594,7 +702,11 @@ const pluralizeNoun = (noun: string): string =>
 const articleFor = (noun: string): string => (/^[aeiou]/i.test(noun) ? 'an' : 'a')
 const lowerFirst = (s: string): string => s.charAt(0).toLowerCase() + s.slice(1)
 const clauseFor = (verb: string, noun: string, count: number): string =>
-  count === 1 ? `${verb} ${articleFor(noun)} ${noun}` : `${verb} ${count} ${pluralizeNoun(noun)}`
+  noun === 'inbox'
+    ? `${verb} the inbox${count > 1 ? ` ${count} times` : ''}`
+    : count === 1
+      ? `${verb} ${articleFor(noun)} ${noun}`
+      : `${verb} ${count} ${pluralizeNoun(noun)}`
 
 /**
  * Smart one-line summary for a tool batch — clauses per tool kind in first-
@@ -631,12 +743,13 @@ export function toolBatchTitles(blocks: ChatBlock[]): { title: string; summary: 
     const { verb, noun } = toolCategory(b.item)
     const key = `${verb}|${noun}`
     const subject = toolSubject(b.item)
+    const count = toolActivityCount(b.item)
     const entry = tally.get(key)
     if (entry) {
-      entry.count++
+      entry.count += count
       if (subject) entry.subjects.push(subject)
     } else {
-      tally.set(key, { verb, noun, subjects: subject ? [subject] : [], count: 1 })
+      tally.set(key, { verb, noun, subjects: subject ? [subject] : [], count })
       order.push(key)
     }
   }

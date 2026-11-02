@@ -9,14 +9,14 @@ import {
   writeFilePanelMode,
 } from '@podium/client-core/ui-state'
 import { type FileScope, scopeKey } from '@podium/client-core/values'
-import { asSessionId, type MachineId, type SessionId } from '@podium/model/browser'
+import { asSessionId } from '@podium/model/browser'
 import { Columns2, Eye, Flower2, Pencil, Save, X } from 'lucide-react'
 import { type JSX, useCallback, useEffect, useId, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui/button'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { modChord } from '@/lib/mod-chord'
 import { usePersistedUiValue } from '@/lib/use-persisted-ui-state'
+import { CalmMarkdownReader } from './CalmMarkdownReader'
 import { DownloadFileButton } from './DownloadFileButton'
 import { canSave } from './editor-save'
 import { isMarkdownPath } from './file-kind'
@@ -24,6 +24,7 @@ import { MarkdownPreview } from './MarkdownPreview'
 import { OpenInBrowserButton } from './OpenInBrowserButton'
 import { SourceEditor } from './SourceEditor'
 import { type BlockPos, lineForTop, topForLine } from './scroll-sync'
+import { useFileScrollPosition } from './use-file-scroll-position'
 import { useFileDocument } from './useFileDocument'
 
 type Mode = 'preview' | 'source' | 'split'
@@ -73,6 +74,25 @@ export function MarkdownFilePanel({
   )
   const viewRef = useRef<EditorView | null>(null)
   const previewScrollRef = useRef<HTMLDivElement | null>(null)
+  const showSource = !md || mode === 'source' || mode === 'split'
+  const showPreview = md && (mode === 'preview' || mode === 'split')
+  const sourceScroll = useFileScrollPosition(tabId, 'source', doc.status === 'ready' && showSource)
+  const previewScroll = useFileScrollPosition(
+    tabId,
+    'preview',
+    doc.status === 'ready' && showPreview,
+  )
+  const onSourceReady = useCallback(
+    (view: EditorView) => sourceScroll(view.scrollDOM),
+    [sourceScroll],
+  )
+  const onPreviewReady = useCallback(
+    (node: HTMLDivElement | null) => {
+      previewScrollRef.current = node
+      previewScroll(node)
+    },
+    [previewScroll],
+  )
 
   // Collapse split → source on mobile (no room for two panes).
   useEffect(() => {
@@ -132,8 +152,6 @@ export function MarkdownFilePanel({
     onClose()
   }
 
-  const showSource = !md || mode === 'source' || mode === 'split'
-  const showPreview = md && (mode === 'preview' || mode === 'split')
   const fileKey = `${scopeKey(scope)}:${path}:${doc.reloadNonce}`
 
   return (
@@ -233,6 +251,7 @@ export function MarkdownFilePanel({
                 onChange={doc.setContent}
                 onSave={() => void doc.save()}
                 viewRef={viewRef}
+                onViewReady={onSourceReady}
               />
             </div>
           )}
@@ -243,7 +262,7 @@ export function MarkdownFilePanel({
                 {...(worktree ? { worktree } : {})}
                 path={path}
                 content={doc.content}
-                scrollRef={previewScrollRef}
+                scrollRef={onPreviewReady}
               />
             </div>
           )}
@@ -259,83 +278,6 @@ export function MarkdownFilePanel({
         />
       )}
     </div>
-  )
-}
-
-/** A temporary reading surface above the live workspace. The shell remains visible
- *  through the subdued backdrop, preserving place while attention moves to the text. */
-function CalmMarkdownReader({
-  sessionId,
-  worktree,
-  path,
-  content,
-  onClose,
-}: {
-  sessionId: SessionId
-  worktree?: { root: string; machineId?: MachineId }
-  path: string
-  content: string
-  onClose: () => void
-}): JSX.Element {
-  const readerRef = useRef<HTMLElement | null>(null)
-
-  useEffect(() => {
-    const previousFocus = document.activeElement as HTMLElement | null
-    readerRef.current?.focus({ preventScroll: true })
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape' || event.defaultPrevented) return
-      event.stopPropagation()
-      onClose()
-    }
-    window.addEventListener('keydown', onKeyDown, true)
-    return () => {
-      window.removeEventListener('keydown', onKeyDown, true)
-      previousFocus?.focus({ preventScroll: true })
-    }
-  }, [onClose])
-
-  return createPortal(
-    // biome-ignore lint/a11y/noStaticElementInteractions: backdrop click is a pointer convenience; Escape and the explicit button are keyboard routes
-    <div className="calm-reader-layer" role="presentation" onClick={onClose}>
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: keeps document interaction from reaching the backdrop */}
-      <section
-        ref={readerRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Calm reading: ${path}`}
-        tabIndex={-1}
-        className="calm-reader-sheet"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <header className="calm-reader-header">
-          <div className="calm-reader-heading">
-            <Flower2 size={15} aria-hidden="true" />
-            <span>Calm reading</span>
-          </div>
-          <span className="calm-reader-path" title={path}>
-            {path}
-          </span>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            onClick={onClose}
-            aria-label="Leave calm reading mode"
-            title="Leave calm reading mode — Esc"
-          >
-            <Flower2 size={15} aria-hidden="true" />
-          </Button>
-        </header>
-        <MarkdownPreview
-          sessionId={sessionId}
-          {...(worktree ? { worktree } : {})}
-          path={path}
-          content={content}
-          className="calm-reader-document"
-        />
-      </section>
-    </div>,
-    document.body,
   )
 }
 

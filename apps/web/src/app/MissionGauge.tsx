@@ -15,14 +15,13 @@ export const MissionGauge = observer(function MissionGauge({
   working = 0,
 }: MissionGaugeProps): JSX.Element {
   const computing = full ? full.computing : working > 0
-  const counts = full?.buckets
-  const total = counts ? counts.total : progress!.total
-  const done = counts ? counts.done : progress!.done
+  const counts = full ? full.buckets : progress!
+  const { total, done } = counts
   const bands = [
     ['done', 'done', done],
-    ['working', 'working', counts ? counts.working : progress!.run],
-    ['waiting', 'waiting', counts ? counts.waiting : progress!.stall],
-    ['todo', 'to do', counts ? counts.todo : progress!.wait],
+    ['working', 'working', counts.working],
+    ['waiting', 'waiting', counts.waiting],
+    ['todo', 'to do', counts.todo],
   ] as const
   const reading = `${done} of ${total} tasks done, ${bands
     .slice(1)

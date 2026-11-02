@@ -20,7 +20,6 @@ import {
   type MissionDeparture,
   type MissionProgress,
   tallyMissionBuckets,
-  missionProgressFromBuckets,
   type PresenceNote,
   panelLabel,
   subtreeUnread,
@@ -529,7 +528,7 @@ const progress = ((deck: MissionDeckModel): MissionProgress | typeof LOADING => 
     const facts = view.facts(id)
     return facts.visible && (facts.live || (view.tipIds(id, true).length === 0 && !view.hasSpinOffDependent(id)))
   })
-  return missionProgressFromBuckets(tallyMissionBuckets(units, (id) => view.facts(id).missionBucket))
+  return tallyMissionBuckets(units, (id) => view.facts(id).missionBucket)
 }))
 
 // The header is mounted only after its own references and scalar rollups have
@@ -1177,7 +1176,8 @@ export class MissionViewReader {
     const waiting = this.waitingLabel(issue)
     if (waiting) return { kind: 'waiting', text: waiting, attention: false }
     if (this.facts(issue.id).finished) return { kind: 'done', text: issueAbandoned(issue) ? 'Cancelled · session retired' : 'Completed · session retired', attention: false }
-    if (issue.stage === 'review') return { kind: 'review', text: 'Review ready · session ended', attention: false }
+    // An issue another session moved to review never had an agent of its own to stop (POD-2313).
+    if (issue.stage === 'review') return { kind: 'review', text: sessions.length ? 'Waiting for your review · agent stopped' : 'Waiting for your review · no agent on it', attention: false }
     if (issue.stage === 'shipping') return { kind: 'shipping', text: 'Shipping service has custody', attention: false }
     if (issue.stage === 'planning' || issue.stage === 'backlog') return { kind: 'ready', text: 'Ready to start', attention: false }
     if (issue.stage === 'in_progress') return { kind: 'attention', text: 'Agent left · choose a handoff', attention: true }

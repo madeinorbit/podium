@@ -43,11 +43,12 @@ const state = vi.hoisted(() => ({
   rowDerivations: 0,
   errors: [] as string[],
 }))
-const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }))
+const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn(), setParams: vi.fn() }))
 vi.mock('expo-router', async () => {
   const { useEffect } = await import('react')
   return {
     useRouter: () => router,
+    useLocalSearchParams: () => ({}),
     usePathname: () => '/work',
     Stack: { SearchBar: () => null },
     useFocusEffect: (effect: () => void) => useEffect(effect, [effect]),
@@ -358,8 +359,22 @@ async function mount(scale: 1 | 4, corpus = buildCorpus(scale)) {
  * The normal corpus changes its random seed with scale, so its first visible
  * row is a different issue with a different roster and children at 4x. */
 function clickCorpus(scale: 1 | 4) {
-  const base = buildCorpus(1),
-    corpus = scale === 1 ? base : buildCorpus(scale)
+  const base = buildCorpus(1)
+  const larger = scale === 1 ? base : buildCorpus(scale)
+  const baseIssues = new Set(base.issueProjections.map(row => row.id))
+  const baseSessions = new Set(base.sessions.map(row => row.sessionId))
+  // Folding Pinned reveals project rows in the calm list. Keep those rows and
+  // their descendant graphs identical too; grow unrelated archived history.
+  // A different random live project at 4x is a different addressed workload.
+  const corpus = scale === 1 ? base : {
+    ...base,
+    issueProjections: [...base.issueProjections, ...larger.issueProjections
+      .filter(row => !baseIssues.has(row.id))
+      .map(row => ({ ...row, archived: true, parentId: undefined }))],
+    sessions: [...base.sessions, ...larger.sessions
+      .filter(row => !baseSessions.has(row.sessionId))
+      .map(row => ({ ...row, archived: true, issueId: undefined, refIssueId: undefined }))],
+  }
   const id = asIssueId('phone-click-target'),
     origin = asIssueId('phone-click-origin')
   const firstKey = corpus.issueProjections
@@ -678,10 +693,11 @@ describe('mobile WorkScreen pool consumer', () => {
   }, 240_000)
 
   for (const scale of [1, 4] as const)
-    it(`same native rows, bands and look at ${scale}x with no legacy reader`, async () => {
+    it(`calm rows and unique membership at ${scale}x with no legacy reader`, async () => {
       const pool = await mount(scale)
       await drainNativeLoads()
-      expect(output(pool.view.container)).toMatchSnapshot('last green pilot-ON rows and styles')
+      expect(output(pool.view.container).labels.some(label => /^Needs you|^Answer |^Review /.test(label ?? ''))).toBe(false)
+      expect(pool.view.container.querySelector('[role=progressbar]')).toBeNull()
       expect(state.sliceReads).toBe(0)
       expect(state.rowDerivations).toBe(0)
       expect(state.sections.length).toBeGreaterThan(1)

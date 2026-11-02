@@ -6,14 +6,23 @@ import {
 import { beginSwitch } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
-import { missionIssueIds, missionRootFor, pickPaneSession, planReorderKeys, sessionsForIssueNav } from '@podium/client-core/values'
+import {
+  emptyWorkspace,
+  missionIssueIds,
+  missionRootFor,
+  openTab,
+  pickPaneSession,
+  planReorderKeys,
+  sessionsForIssueNav,
+  workspaceKeyFor,
+} from '@podium/client-core/values'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { spreadSortKeys } from '@podium/model'
-import { asIssueId, asSessionId, asUserId } from '@podium/model/browser'
+import { asArtifactId, asIssueId, asSessionId, asUserId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -278,17 +287,84 @@ afterEach(() => {
 })
 
 describe('pool navigation uses the existing gesture semantics', () => {
+  it.each([
+    { path: 'notes.md', artifactId: 'saved-markdown', worktreePath: ROOT },
+    { path: 'notes.md', artifactId: 'saved-markdown', worktreePath: null },
+    { path: 'Artifacts', artifactId: '@artifacts', worktreePath: ROOT },
+  ])('restores $path when returning to a task with worktree $worktreePath', async ({
+    path,
+    artifactId,
+    worktreePath,
+  }) => {
+    await mount((fixture) => {
+      patchIssue(fixture, 'synthetic-1', {
+        worktreePath,
+        coordinatorSessionId: 'synthetic-session-1',
+      })
+      patchIssue(fixture, 'synthetic-3', { worktreePath })
+      patchIssue(fixture, 'synthetic-6', { parentId: null, startedBySession: null })
+    })
+    await act(async () => actions.selectIssue('synthetic-3'))
+    await settle()
+    await act(async () => {
+      runtime.access.openArtifact({
+        issueId: asIssueId('synthetic-3'),
+        artifactId: asArtifactId(artifactId),
+        path,
+        ...(worktreePath ? { worktreePath } : {}),
+      })
+    })
+    await waitFor(() => expect(runtime.access.paneA).toMatch(/^file:/))
+    const artifactTabId = runtime.access.paneA
+    const saved = runtime.access.workspaces[runtime.access.workspaceKey()]
+    await act(async () => actions.selectIssue('synthetic-6'))
+    expect(runtime.access.selectedIssueId).toBe('synthetic-6')
+    expect(runtime.access.paneA).not.toBe(artifactTabId)
+    await act(async () => actions.selectIssue('synthetic-3'))
+    expect(runtime.access.paneA).toBe(artifactTabId)
+    expect(runtime.access.workspaces[runtime.access.workspaceKey()]).toEqual(saved)
+    // An explicit agent click still replaces the selected artifact.
+    await act(async () =>
+      actions.selectPanelForIssue('synthetic-3', asSessionId('synthetic-session-3')),
+    )
+    expect(runtime.access.paneA).toBe('synthetic-session-3')
+  })
+
+  it('restores the selected session and focused split pane across task switches', async () => {
+    await mount((fixture) => {
+      patchIssue(fixture, 'synthetic-6', { parentId: null, startedBySession: null })
+    })
+    await act(async () => {
+      actions.selectPanelForIssue('synthetic-3', asSessionId('synthetic-session-3'))
+      const layout = runtime.access.workspaces[runtime.access.workspaceKey()]!
+      runtime.access.openSessionTab(asSessionId('synthetic-session-4'))
+      runtime.access.splitWorkspacePane(layout.focusedPaneId, 'row')
+      runtime.access.openSessionTab(asSessionId('synthetic-session-1'))
+    })
+    const saved = runtime.access.workspaces[runtime.access.workspaceKey()]
+    await act(async () => actions.selectIssue('synthetic-6'))
+    await act(async () => actions.selectIssue('synthetic-3'))
+    expect(runtime.access.workspaces[runtime.access.workspaceKey()]).toEqual(saved)
+    expect(runtime.access.focusedPane).toBe('B')
+  })
+
   it('borrows immutable full drag order across heartbeat and selection changes', async () => {
     const fixture = await mount()
-    const band = sidebarView(pool!).sections().bands.find((band) => band.rowIds.includes(TARGET))!
+    const band = sidebarView(pool!)
+      .sections()
+      .bands.find((band) => band.rowIds.includes(TARGET))!
     const scope = `group:${band.key}`
     const order = drag.options!.virtualOrder!(scope)
     expect(order).toBe(band.rowIds)
     await act(async () => {
-      fixture.patch('session', value().firstSessionId!, { lastActiveAt: new Date(NOW + 1000).toISOString() })
+      fixture.patch('session', value().firstSessionId!, {
+        lastActiveAt: new Date(NOW + 1000).toISOString(),
+      })
     })
     expect(drag.options!.virtualOrder!(scope)).toBe(order)
-    await act(async () => { actions.selectIssue(TARGET) })
+    await act(async () => {
+      actions.selectIssue(TARGET)
+    })
     expect(drag.options!.virtualOrder!(scope)).toBe(order)
   })
   it('selects the mission root, traces the explicit pane and batches read/defer before focus once', async () => {
@@ -471,9 +547,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
         'synthetic-8',
       )
       expect(pool!.row('issue', 'synthetic-8')).not.toBe(LOADING)
-      expect(pool!.issueObject('synthetic-8').memberSessionIds).toEqual([
-        'synthetic-session-8',
-      ])
+      expect(pool!.issueObject('synthetic-8').memberSessionIds).toEqual(['synthetic-session-8'])
       expect(pool!.row('session', 'synthetic-session-8')).toMatchObject({
         lastActiveAt: new Date(NOW - 10).toISOString(),
       })
@@ -489,10 +563,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
         mission: [...mission],
         issueKeys: [...pool!.tables.issue.keys()],
         members: [...members.keys()],
-        issueSessions: [...mission].map((id) => [
-          id,
-          pool!.issueObject(id).memberSessionIds,
-        ]),
+        issueSessions: [...mission].map((id) => [id, pool!.issueObject(id).memberSessionIds]),
         reads: [...pool!.tables.session.keys()].map((id) => pool!.row('session', id)),
       }),
     ).toBe(expected)
@@ -518,9 +589,11 @@ describe('pool navigation uses the existing gesture semantics', () => {
   it('keeps a mission file pane, avoids redundant/file traces, and still focuses a sessionless child', async () => {
     await mount((fixture) => fixture.patch('session', 'synthetic-session-3', { archived: true }))
     const file = asSessionId('file:synthetic')
+    const key = workspaceKeyFor({ missionRootId: 'synthetic-1' })
     const store = {
       ...referenceState(runtime),
       paneA: file,
+      workspaces: { [key]: openTab(emptyWorkspace(key), file, { permanent: true }) },
       fileTabs: [
         {
           id: file,
@@ -534,13 +607,9 @@ describe('pool navigation uses the existing gesture semantics', () => {
       markIssueRead: vi.fn(async () => {}),
     }
     const focus = vi.fn()
-    const work = createPoolWorkActions(
-      pool!,
-      { ...runtime, access: store },
-      focus,
-    )
+    const work = createPoolWorkActions(pool!, { ...runtime, access: store }, focus)
     work.selectIssue('synthetic-3')
-    expect(store.navigateWorkspace).toHaveBeenCalledWith(expect.objectContaining({ tabId: file }))
+    expect(store.navigateWorkspace).toHaveBeenCalledWith(expect.objectContaining({ tabId: null }))
     expect(focus).toHaveBeenCalledWith('synthetic-3')
     expect(store.markIssueRead).toHaveBeenCalledWith('synthetic-3')
     expect(beginSwitch).not.toHaveBeenCalled()
@@ -729,7 +798,15 @@ describe('real pool row mutations and receipts', () => {
     await settle()
     await refuse(second)
     expect(value().title).toBe('Accepted title')
-    expect((runtime as unknown as { poolWriter: import('@podium/client-graph/write/transactions').PoolTransactions }).poolWriter.pending.byRow('issueProjections').has(TARGET)).toBe(false)
+    expect(
+      (
+        runtime as unknown as {
+          poolWriter: import('@podium/client-graph/write/transactions').PoolTransactions
+        }
+      ).poolWriter.pending
+        .byRow('issueProjections')
+        .has(TARGET),
+    ).toBe(false)
   })
 
   it('cancels Escape and whitespace edits; menu Rename uses the same editor', async () => {

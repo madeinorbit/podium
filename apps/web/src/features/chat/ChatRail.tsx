@@ -2,7 +2,7 @@ import type { ChatRow } from '@podium/client-core/values'
 import { Search } from 'lucide-react'
 import type { JSX } from 'react'
 import { cn } from '@/lib/utils'
-import { Minimap } from './Minimap'
+import { type ClosedFold, Minimap } from './Minimap'
 
 /**
  * THE READING RAIL (POD-413) — the chat's chrome, moved out of the reading line.
@@ -39,6 +39,8 @@ export function ChatRail({
   scrollToOffset,
   matches,
   activeMatch,
+  closedFolds,
+  revealRow,
   onFind,
   findOpen,
 }: {
@@ -51,6 +53,8 @@ export function ChatRail({
   scrollToOffset: (offset: number) => void
   matches: readonly number[]
   activeMatch: number | undefined
+  closedFolds?: readonly ClosedFold[]
+  revealRow?: (index: number) => boolean
   onFind: () => void
   findOpen: boolean
 }): JSX.Element {
@@ -77,6 +81,8 @@ export function ChatRail({
         scrollToOffset={scrollToOffset}
         matches={matches}
         activeMatch={activeMatch}
+        closedFolds={closedFolds}
+        revealRow={revealRow}
       />
     </div>
   )

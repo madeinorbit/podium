@@ -1,5 +1,16 @@
 import type { ChatRow } from '@podium/client-core/values'
 
+/** Work durations use units, with a stable two-digit seconds column after minutes. */
+export function formatWorkDuration(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000))
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const seconds = total % 60
+  if (hours) return `${hours}h ${String(minutes).padStart(2, '0')}m`
+  if (minutes) return `${minutes}m ${String(seconds).padStart(2, '0')}s`
+  return `${seconds}s`
+}
+
 /**
  * WHEN A ROW HAPPENED (POD-701).
  *

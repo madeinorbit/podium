@@ -1,10 +1,12 @@
-import { fireEvent, screen } from '@testing-library/react'
 import { createDraftLedger } from '@podium/client-core'
+import { MobxPool } from '@podium/client-graph'
 import { asSessionId } from '@podium/model/browser'
 import type { useVoiceInput } from '@podium/terminal-client-react'
+import { fireEvent, screen } from '@testing-library/react'
 import { act, type ComponentProps, createRef } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { MailReply } from './mail-reply'
 import '@/test-support/model-catalog-mock'
 import { DraftStore } from '@podium/client-core/conversation'
 import { observer } from 'mobx-react-lite'
@@ -37,13 +39,22 @@ let container: HTMLDivElement
 let root: Root
 let sizingStyles: HTMLStyleElement
 
-const RuntimeDraftComposer = observer(function RuntimeDraftComposer(props: ComponentProps<typeof ChatComposer>) {
+const RuntimeDraftComposer = observer(function RuntimeDraftComposer(
+  props: ComponentProps<typeof ChatComposer>,
+) {
   const draft = draftFixture.drafts!.get(asSessionId(props.autoFocusKey))
   return <ChatComposer {...props} draft={draft} />
 })
 
 function makeDraftStore(values: Record<string, string>) {
-  const drafts = new DraftStore({ storage: { get: () => null, set: () => {} }, hub: { on: () => () => {}, sendDraftEdit: () => {}, connectionHealth: () => ({ status: 'ok' }) } as never })
+  const drafts = new DraftStore({
+    storage: { get: () => null, set: () => {} },
+    hub: {
+      on: () => () => {},
+      sendDraftEdit: () => {},
+      connectionHealth: () => ({ status: 'ok' }),
+    } as never,
+  })
   for (const [id, text] of Object.entries(values)) drafts.values.set(asSessionId(id), text)
   return drafts
 }
@@ -73,6 +84,7 @@ const silentVoice = {
 async function mount(
   opts: {
     compact: boolean
+    reply?: MailReply
     visible?: boolean
     draft?: string
     onSend?: () => void
@@ -97,6 +109,7 @@ async function mount(
       <PanelVisible visible={opts.visible ?? true}>
         <Composer
           taRef={taRef}
+          reply={opts.reply}
           draft={opts.draft ?? ''}
           onDraftChange={opts.onDraftChange ?? (() => {})}
           deliverable={opts.deliverable ?? true}
@@ -212,7 +225,7 @@ describe.each([false, true])('draft selection, compact=%s', (compact) => {
       expect(state.drafts[id]).toBe('')
     } finally {
       draftFixture.drafts?.dispose()
-  draftFixture.drafts = undefined
+      draftFixture.drafts = undefined
     }
   })
 
@@ -794,13 +807,61 @@ describe('native composer sizing', () => {
   })
 })
 
-
 it('offers no Use option in the chat backend menu and preserves an inert stored effort', async () => {
   await mount({ compact: true, backend: { agentKind: undefined, model: 'auto', effort: 'high' } })
   const effort = screen.getByRole('button', { name: 'Effort' }) as HTMLButtonElement
   expect(effort.disabled).toBe(true)
   expect(effort.textContent).toContain('High')
   fireEvent.click(screen.getByRole('button', { name: 'Model' }))
-  fireEvent.change(await screen.findByPlaceholderText('Filter…'), { target: { value: 'my-custom-model' } })
+  fireEvent.change(await screen.findByPlaceholderText('Filter…'), {
+    target: { value: 'my-custom-model' },
+  })
   expect(screen.queryByRole('menuitem', { name: /Use / })).toBeNull()
+})
+
+it.each([
+  false,
+  true,
+])('shows a mail destination and isolates attachment/interrupt controls, compact=%s', async (compact) => {
+  const reply = new MailReply(new MobxPool({ coarseNow: 0, selectedIssueId: null }), {
+    show: async () => null,
+    reply: async () => null,
+  })
+  reply.start({
+    id: 'note',
+    from: 'issue:POD-2242',
+    to: 'operator',
+    body: 'Question',
+    question: true,
+    expectsReply: false,
+  })
+  const send = vi.fn(),
+    interrupt = vi.fn(),
+    paste = vi.fn()
+  const { ta } = await mount({
+    compact,
+    reply,
+    draft: 'My answer',
+    onSend: send,
+    canInterrupt: true,
+    turnRunning: true,
+    onInterrupt: interrupt,
+    attachments: { ...noopAttachments, uploading: true, onPaste: paste },
+  })
+  expect(container.textContent).toContain('Reply to POD-2242')
+  expect(ta.getAttribute('aria-label')).toBe('Reply to POD-2242')
+  expect(container.querySelector('button[title="Attach a file"]')).toBeNull()
+  expect(container.querySelector('input[type="file"]')).toBeNull()
+  expect(container.querySelector('[data-testid="composer-stop"]')).toBeNull()
+  const button = screen.getByRole('button', { name: 'Send reply' }) as HTMLButtonElement
+  expect(button.disabled).toBe(false)
+  fireEvent.paste(ta)
+  expect(paste).not.toHaveBeenCalled()
+  fireEvent.keyDown(ta, { key: 'Enter' })
+  expect(send).toHaveBeenCalledTimes(1)
+  fireEvent.keyDown(ta, { key: 'Escape' })
+  expect(reply.active).toBe(false)
+  expect(interrupt).not.toHaveBeenCalled()
+  expect(container.querySelector('.composer-reply-mode')).toBeNull()
+  expect(container.querySelector('button[title="Attach a file"]')).not.toBeNull()
 })

@@ -5,15 +5,14 @@ import {
   isInteractiveTool,
   isInterviewQuestion,
   MACHINE_CONTEXT_RE,
-  messageAttachmentText,
   mcpLabel,
-  parseEnvelopeBatch,
+  messageAttachmentText,
   type TranscriptAttribution,
+  transcriptActivityFacts,
 } from '@podium/client-core/values'
 import { codexQuestionReplyText } from '@podium/harness/browser'
 import { machinePathBasename, resolveMachinePath } from '@podium/model'
 import type { SessionId, TranscriptItem } from '@podium/model/browser'
-import { observer } from 'mobx-react-lite'
 import {
   ChevronRight,
   Clock,
@@ -21,9 +20,17 @@ import {
   FileText,
   Layers2,
   MessageCircleQuestion,
+  MoreHorizontal,
 } from 'lucide-react'
+import { observer } from 'mobx-react-lite'
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
-import { memo, useCallback, useId, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useContext, useId, useMemo, useRef, useState } from 'react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { assetUrl } from '@/lib/asset-url'
 import { renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
 import type { QuoteInput } from '@/lib/quote/quote-sinks'
@@ -38,6 +45,8 @@ import { MachineContextRow } from './MachineContextRow'
 import { InboxReadRow, SentNoteRow } from './MailCommandRow'
 import { MessageEnvelopeGroup } from './MessageEnvelopeGroup'
 import { MetaGlyph } from './MetaGlyph'
+import type { MailReply } from './mail-reply'
+import { NarrowMessageActions, useMessageActionFocus } from './message-actions-layout'
 import { SendUserFileBlock } from './SendUserFileBlock'
 import { ToolBlock } from './ToolBlock'
 import { clockLabel, fullTimeLabel, parseTs } from './transcript-time'
@@ -83,18 +92,10 @@ const COPY_ACK_MS = 1400
  * Quote hands the composer a blockquote so a reply can point at the line it is
  * answering.
  *
- * THE FOOT (POD-993). The actions used to be a floating chip over the top-right
- * corner of the message, and the time lived in an eyebrow above it — so a row's
- * metadata was in two places, one of them covering the first line of the words
- * it belonged to. They are one line now, in flow, directly UNDER the message and
- * hanging from the message's own edge: right under the human's card, left under
- * everything the machine says. Reading order gets what it wants (the words
- * first, their provenance after), and the two facts a reader wants about a
- * message — when, and take-a-copy — are in the same place for every voice.
- *
- * It is always present and always the same height, so nothing reflows when the
- * pointer crosses a row; what changes is ink, in two registers — see `.msg-foot`
- * in styles.css for why the clock and the buttons rest differently.
+ * The foot follows the words in reading order. On agent prose its hover
+ * controls sit beside the prose, in a gutter menu on narrow panes, so controls
+ * do not widen the transcript's 12px beat. Human prompts keep their foot below
+ * the bubble and their turn seam.
  */
 function MessageActions({
   text,
@@ -111,13 +112,14 @@ function MessageActions({
   /** The row's own instant. Every voice now carries one here — see the foot's
    *  note below for why the clock left the label rows. */
   ts?: string | undefined
-  /** Which edge the foot hangs from: the human's turn reads right, everything
-   *  the machine says reads left, both directly under their own words. */
+  /** Alignment of metadata within the footer. */
   side: 'left' | 'right'
   /** Row-specific controls that belong with the metadata rather than with the
    *  message — the queued turn's Retract is the only one today. */
   children?: ReactNode
 }): JSX.Element | null {
+  const narrow = useContext(NarrowMessageActions)
+  const focus = useMessageActionFocus(narrow && side === 'left')
   const [copied, setCopied] = useState(false)
   const ack = useRef<ReturnType<typeof setTimeout> | null>(null)
   const copy = useCallback(() => {
@@ -135,36 +137,94 @@ function MessageActions({
   const empty = !text.trim()
   if (empty && !children && !ts) return null
   return (
-    <div className="msg-foot" data-side={side} data-testid="message-actions">
-      {ts && <BlockClock ts={ts} />}
-      {children}
-      {!empty && (
-        <span className="msg-tools">
-          <button
-            data-pressable
-            type="button"
-            className="msg-action"
-            onClick={copy}
-            title="Copy message"
-            aria-label={copied ? 'Message copied' : 'Copy message'}
-          >
-            <MetaGlyph name={copied ? 'check' : 'copy'} />
-          </button>
-          {onQuote && (
+    <>
+      <div
+        className="msg-foot"
+        data-side={side}
+        data-testid="message-actions"
+        ref={focus.wide}
+        onFocusCapture={focus.onFocusCapture}
+        onBlurCapture={focus.onBlurCapture}
+      >
+        {ts && <BlockClock ts={ts} />}
+        {children}
+        {!empty && (
+          <span className="msg-tools">
             <button
               data-pressable
               type="button"
               className="msg-action"
-              onClick={quote}
-              title="Add to chat"
-              aria-label="Add to chat"
+              data-message-action="copy"
+              onClick={copy}
+              title="Copy message"
+              aria-label={copied ? 'Message copied' : 'Copy message'}
             >
-              <MetaGlyph name="quote" />
+              <MetaGlyph name={copied ? 'check' : 'copy'} />
             </button>
-          )}
+            {onQuote && (
+              <button
+                data-pressable
+                type="button"
+                className="msg-action"
+                data-message-action="quote"
+                onClick={quote}
+                title="Add to chat"
+                aria-label="Add to chat"
+              >
+                <MetaGlyph name="quote" />
+              </button>
+            )}
+          </span>
+        )}
+      </div>
+      {narrow && side === 'left' && !empty && (
+        <span
+          className="msg-narrow-actions"
+          onFocusCapture={focus.onFocusCapture}
+          onBlurCapture={focus.onBlurCapture}
+        >
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              data-pressable
+              className="msg-action"
+              aria-label="Message actions"
+              title="Message actions"
+              ref={focus.trigger}
+            >
+              <MoreHorizontal size={15} aria-hidden="true" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              sideOffset={4}
+              ref={focus.popup}
+              finalFocus={focus.finalFocus}
+              onFocusCapture={focus.onFocusCapture}
+              onBlurCapture={focus.onBlurCapture}
+            >
+              {(ts || children) && (
+                <div className="msg-menu-meta">
+                  {ts && <BlockClock ts={ts} />}
+                  {children}
+                </div>
+              )}
+              <DropdownMenuItem onClick={copy} data-message-action="copy">
+                <MetaGlyph name={copied ? 'check' : 'copy'} />
+                {copied ? 'Message copied' : 'Copy message'}
+              </DropdownMenuItem>
+              {onQuote && (
+                <DropdownMenuItem
+                  onClick={() => focus.runAfterClose(quote)}
+                  data-message-action="quote"
+                >
+                  <MetaGlyph name="quote" />
+                  Add to chat
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </span>
       )}
-    </div>
+    </>
   )
 }
 
@@ -248,6 +308,8 @@ export const StableMarkdown = memo(function StableMarkdown({
     [cwd, openFile, sessionId],
   )
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: delegated clicks activate semantic links in the sanitized markdown.
+    // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard users activate those anchors natively.
     <div
       className={className}
       onClick={onClick}
@@ -397,6 +459,7 @@ export const ChatBlockView = observer(function ChatBlockView({
   process,
   arrived = false,
   onQuote,
+  mailReply,
   markdownHtml,
 }: {
   block: ChatBlock
@@ -439,6 +502,7 @@ export const ChatBlockView = observer(function ChatBlockView({
   arrived?: boolean
   /** Quote this message into the composer. Absent → no Quote action. */
   onQuote?: ((quote: QuoteInput) => void) | undefined
+  mailReply?: MailReply | undefined
   /** Unsafe HTML produced off-thread; sanitation and link policy stay here. */
   markdownHtml?: ReadonlyMap<string, string>
 }): JSX.Element | null {
@@ -451,10 +515,7 @@ export const ChatBlockView = observer(function ChatBlockView({
   // in a "user" turn — render it as a distinct framed block, never a "You"
   // bubble. Operator messages arrive unwrapped and fall through to the
   // ordinary user rendering (unwrapped = the human).
-  const envelopeBatch = useMemo(
-    () => (item.role === 'user' ? parseEnvelopeBatch(item.text) : null),
-    [item.role, item.text],
-  )
+  const envelopeBatch = transcriptActivityFacts(item).envelopes
   // The agent's own mail (POD-2146), as the compute path read it: a send or
   // reply that went out is a note, an inbox read a quiet line. A mail call that
   // failed carries no `mail` and stays its tool row.
@@ -664,7 +725,11 @@ export const ChatBlockView = observer(function ChatBlockView({
             {(item.toolTitle ?? item.toolInput) && (
               <div className="asked-you-body">{item.toolTitle ?? item.toolInput}</div>
             )}
-            <ToolBlock block={block} sessionId={sessionId} cwd={cwd} openFile={openFile} />
+            {(block.result ?? item.toolResult) !== undefined && (
+              <pre className="tool-result-full asked-you-result">
+                {block.result ?? item.toolResult}
+              </pre>
+            )}
           </div>
         </div>
       </div>
@@ -693,6 +758,7 @@ export const ChatBlockView = observer(function ChatBlockView({
         blockIndex={index}
         rowKey={item.id}
         ts={item.ts}
+        forceOpen={highlighted}
       />
     )
   // Ordinary tool calls render inside a collapsed ToolBatchView, so they don't
@@ -737,12 +803,15 @@ export const ChatBlockView = observer(function ChatBlockView({
       envelopes={envelopeBatch.envelopes}
       className={cn(nonStickyRowClass, turnClass(turn))}
       blockIndex={envelopeBatch.operatorText === '' ? index : undefined}
+      rowKey={envelopeBatch.operatorText === '' ? item.id : undefined}
       markdownHtml={markdownHtml}
       ts={item.ts}
       onBodyClick={(e: ReactMouseEvent) => {
         handleChatMdClick(e, sessionId, cwd, openFile)
       }}
       forceOpen={highlighted}
+      mailReply={mailReply}
+      onQuote={onQuote}
     />
   )
 
@@ -839,6 +908,7 @@ export const ChatBlockView = observer(function ChatBlockView({
         <div
           className={cn(
             'transcript-body',
+            item.role === 'assistant' && 'transcript-prose',
             isUser && 'transcript-you',
             isAnswer && 'transcript-answer',
           )}
@@ -868,9 +938,8 @@ export const ChatBlockView = observer(function ChatBlockView({
               full width (see `.transcript-you` in styles.css) — at that width an
               indented bubble is a column of ragged offcuts. */}
           {isUser ? <PromptBubble>{turnBody}</PromptBubble> : turnBody}
-          {/* The foot: when, copy, quote — under the words, on the speaker's own
-              side. Machine activity is excluded; a work line is a summary of
-              rows that each have their own affordances. */}
+          {/* Message controls follow the words in reading order. Activity
+              members carry their own disclosures instead. */}
           <MessageActions
             text={displayText}
             onQuote={onQuote}

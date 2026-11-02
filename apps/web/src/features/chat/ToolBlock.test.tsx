@@ -57,32 +57,23 @@ function unfold(): void {
 }
 
 describe('Bash tool command colouring', () => {
-  it('keeps long command tokens inside one truncating flex child without clipping the source', () => {
+  it('keeps the full command in one quiet mono line with no tool-name column', () => {
     const command = `echo "$HOME" ${'"a long argument" '.repeat(40)}# final comment`
     mount({ toolInput: command })
-    const row = host.querySelector('.tool-row')
-    const commandCell = host.querySelector('.tool-cmd')
+    const row = host.querySelector('.work-line-row')
+    const commandCell = host.querySelector('.work-line-code')
     expect(commandCell?.parentElement).toBe(row)
-    expect(commandCell?.classList.contains('min-w-0')).toBe(true)
-    expect(commandCell?.classList.contains('truncate')).toBe(true)
+    expect(commandCell?.classList.contains('work-line-phrase')).toBe(true)
     expect(commandCell?.textContent).toBe(command)
-    expect(row?.querySelectorAll(':scope > .tool-cmd')).toHaveLength(1)
-    expect(row?.querySelectorAll(':scope > [class^="hljs-"]')).toHaveLength(0)
-    expect(commandCell?.querySelector('.hljs-string')).not.toBeNull()
-    expect(commandCell?.querySelector('.hljs-variable')).not.toBeNull()
-    expect(commandCell?.querySelector('.hljs-comment')).not.toBeNull()
-    // Inline leaves share the parent's line box; no block/flex wrapper per token.
-    for (const leaf of commandCell?.children ?? []) {
-      expect(leaf.tagName).toBe('SPAN')
-      expect(leaf.getAttribute('style')).toBeNull()
-      expect(leaf.className).toMatch(/^(hljs-[\w-]+)?$/)
-    }
+    expect(row?.querySelectorAll(':scope > .work-line-code')).toHaveLength(1)
+    expect(row?.querySelector('[class^="hljs-"]')).toBeNull()
+    expect(row?.querySelector('.tool-name')).toBeNull()
   })
 
   it('unfolds and highlights the exact captured multiline command, leaving output plain', () => {
     const command = 'echo "$HOME"\nprintf "%s" "<script>alert(1)</script>"'
     mount({ toolInput: command, toolResult: '<b>plain output</b>' })
-    expect(host.querySelector('.tool-cmd')?.textContent).toBe('echo "$HOME"')
+    expect(host.querySelector('.work-line-code')?.textContent).toBe('echo "$HOME"')
     unfold()
     const full = host.querySelector('pre.tool-cmd')
     expect(full?.textContent).toBe(command)
@@ -98,11 +89,12 @@ describe('Bash tool command colouring', () => {
     mount({ toolName: 'Read', toolInput: '"file.txt"' })
     expect(host.querySelector('[class^="hljs-"]')).toBeNull()
     mount({ toolInput: 'echo "first"' })
-    expect(host.querySelector('.hljs-string')?.textContent).toBe('"first"')
+    expect(host.querySelector('.work-line-code')?.textContent).toBe('echo "first"')
     mount({ toolInput: 'echo "second"' })
-    expect(host.querySelector('.hljs-string')?.textContent).toBe('"second"')
+    expect(host.querySelector('.work-line-code')?.textContent).toBe('echo "second"')
     unfold()
-    expect(host.querySelector('pre.tool-cmd')?.textContent).toBe('echo "second"')
+    expect(host.querySelector('.work-line-code')?.textContent).toBe('echo "second"')
+    expect(host.querySelector('pre.tool-cmd')).toBeNull()
   })
 })
 
@@ -175,7 +167,7 @@ it('renders the real recorded Bash edit with identical path, hunk lines and coun
   expect(command.length).toBeGreaterThan(160)
   expect(block.item.toolInput).toBe(`${command.slice(0, 160)}…`)
   mount({ ...block.item, toolResult: block.result })
-  const collapsed = host.querySelector('.tool-row .tool-cmd')?.textContent ?? ''
+  const collapsed = host.querySelector('.work-line-row .work-line-code')?.textContent ?? ''
   // The existing subject formatter also hides the leading cwd change.
   expect(collapsed).toMatch(/^cp .*…$/)
   expect(collapsed.length).toBeLessThanOrEqual(161)
@@ -232,7 +224,7 @@ describe('retained Bash command disclosure', () => {
   ])('explicitly falls back to the legacy command for unusable payload %s', (toolInputJson) => {
     mount({ toolInput: 'echo legacy', ...(toolInputJson === undefined ? {} : { toolInputJson }) })
     unfold()
-    expect(host.querySelector('pre.tool-cmd')?.textContent).toBe('echo legacy')
+    expect(host.querySelector('.work-line-code')?.textContent).toBe('echo legacy')
     expect(host.textContent).not.toContain('Command truncated')
   })
 
@@ -261,7 +253,7 @@ describe('retained Bash command disclosure', () => {
     expect(payload.truncated).toBe(true)
     mount(item)
     expect(host.textContent).not.toContain('Command truncated')
-    expect(host.querySelector('.tool-row .tool-cmd')?.textContent).toBe(item.toolInput)
+    expect(host.querySelector('.work-line-row .work-line-code')?.textContent).toBe(item.toolInput)
     unfold()
     expect(host.querySelector('pre.tool-cmd')?.textContent).toBe(payload.command)
     expect(host.textContent).toContain('Command truncated — remaining text was not retained.')
@@ -336,21 +328,15 @@ describe('Codex script rows', () => {
       }),
       toolResult: 'Script completed\nOutput:\n 1 file changed',
     })
-    expect(host.querySelector('.tool-name')?.textContent).toBe('Script')
-    expect(host.querySelector('.tool-subject')?.textContent).toBe('2 actions')
+    expect(host.querySelector('.work-line-phrase')?.textContent).toBe('Ran 2 actions')
     expect(host.querySelector('.tool-script-calls')).toBeNull()
 
     unfold()
-    const lines = [...host.querySelectorAll('.tool-script-calls li')].map((line) =>
-      [...line.children].map((part) => part.textContent),
-    )
-    expect(lines).toEqual([
-      ['Bash', 'git diff --stat'],
-      ['Edit', 'src/a.ts'],
+    const lines = [...host.querySelectorAll('.tool-script-calls li')].map((line) => [
+      line.querySelector('.work-line-phrase')?.textContent,
     ])
-    expect(
-      host.querySelector('.tool-script-calls .hljs-built_in, .tool-script-calls .tool-cmd'),
-    ).not.toBeNull()
+    expect(lines).toEqual([['git diff --stat'], ['src/a.ts']])
+    expect(host.querySelector('.tool-script-calls .work-line-code')).not.toBeNull()
     expect(host.querySelector('pre.tool-result-full')?.textContent).toBe(
       'Script completed\nOutput:\n 1 file changed',
     )
@@ -371,10 +357,10 @@ describe('Codex script rows', () => {
       }),
       toolResult,
     })
-    const lines = (): (string | null)[][] =>
-      [...host.querySelectorAll('.tool-script-calls li')].map((line) =>
-        [...line.children].map((part) => part.textContent),
-      )
+    const lines = (): (string | null | undefined)[][] =>
+      [...host.querySelectorAll('.tool-script-calls li')].map((line) => [
+        line.querySelector('.work-line-phrase')?.textContent,
+      ])
 
     it('names the note when the output carries its receipt', () => {
       mount(
@@ -384,9 +370,9 @@ describe('Codex script rows', () => {
       )
       unfold()
       expect(lines()).toEqual([
-        ['Bash', 'git status'],
-        ['Mail', 'Note to POD-2128 · Ready for review'],
-        ['Bash', 'podium issue mail inbox'],
+        ['git status'],
+        ['Note to POD-2128 · Ready for review'],
+        ['podium issue mail inbox'],
       ])
     })
 
@@ -397,7 +383,7 @@ describe('Codex script rows', () => {
       ]) {
         mount(script(result))
         unfold()
-        expect(lines()[1], result).toEqual(['Bash', send])
+        expect(lines()[1], result).toEqual([send])
         act(() => root.render(null))
       }
     })

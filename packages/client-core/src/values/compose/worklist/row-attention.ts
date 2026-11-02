@@ -221,12 +221,13 @@ export function rowErrorLine(row: UnifiedWorkRow): string | null {
 function childTaskStatusLine(row: UnifiedIssueRow): string | null {
   const rollup = row.missionRollup
   if (!rollup?.fromChildren) return null
-  const { total, done, run, stall, wait } = rollup.progress
+  const { total, done, working, waiting, todo } = rollup.progress
   if (total === 0) return 'no active subtasks'
   const noun = total === 1 ? 'subtask' : 'subtasks'
   const progress = `${done}/${total} ${noun} done`
   if (done === total) return progress
-  const next = run > 0 ? `${run} working` : stall > 0 ? `${stall} waiting` : wait > 0 ? `${wait} to do` : null
+  const next =
+    working > 0 ? `${working} working` : waiting > 0 ? `${waiting} waiting` : todo > 0 ? `${todo} to do` : null
   return next ? `${progress} · ${next}` : progress
 }
 
@@ -259,7 +260,7 @@ export function rowStatusLine(
     if (row.issue.blocked) return 'blocked'
     return issueStatusLabel(row.issue).toLowerCase()
   }
-  let head = sessions.length > 1 ? `${sessions.length} agents · ` : ''
+  const head = sessions.length > 1 ? `${sessions.length} agents · ` : ''
   if (phase === 'waiting') {
     const urgent = mostUrgentSession(
       sessions.filter((s) => motionPhase(s) === 'waiting'),

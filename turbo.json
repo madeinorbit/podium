@@ -61,10 +61,12 @@
         "$TURBO_ROOT$/packages/terminal-client-react/src/**",
         "$TURBO_ROOT$/packages/terminal-client/package.json",
         "$TURBO_ROOT$/packages/terminal-client/src/**",
+        "$TURBO_ROOT$/packages/working-mark/package.json",
+        "$TURBO_ROOT$/packages/working-mark/src/**",
         "$TURBO_ROOT$/scripts/archive-web-sourcemaps.ts",
         "$TURBO_ROOT$/scripts/precompress-dist.ts",
         "$TURBO_ROOT$/scripts/web-bundle-budget.ts",
-        "$TURBO_ROOT$/scripts/web-bundle-boundaries.ts",
+        "$TURBO_ROOT$/apps/web/test/web-bundle-boundaries.ts",
         "$TURBO_ROOT$/scripts/write-web-build-stamp.ts"
       ],
       "outputs": ["dist/**"]
@@ -102,6 +104,8 @@
         "$TURBO_ROOT$/packages/terminal-client-react/src/**",
         "$TURBO_ROOT$/packages/terminal-client/package.json",
         "$TURBO_ROOT$/packages/terminal-client/src/**",
+        "$TURBO_ROOT$/packages/working-mark/package.json",
+        "$TURBO_ROOT$/packages/working-mark/src/**",
         "$TURBO_ROOT$/scripts/precompress-dist.ts",
         "$TURBO_ROOT$/scripts/write-web-build-stamp.ts"
       ],

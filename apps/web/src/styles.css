@@ -3199,9 +3199,13 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
   --chat-reading-measure: 41rem;
   --chat-face: var(--tabstrip);
   --chat-rule: var(--border);
+  --quiet-ink: var(--text-dim);
+  --quiet-ink-hover: var(--muted-foreground);
+  --quiet-who: var(--muted-foreground);
+  --quiet-mark: color-mix(in oklab, var(--text-faint) 70%, var(--chat-face));
+  --quiet-mark-hover: var(--text-dim);
+  --quiet-well: color-mix(in oklab, var(--ink) 4%, transparent);
   --chat-rim: var(--border-strong);
-  --chat-tool-border: var(--hairline-soft, var(--chat-rule));
-  --chat-tool-border-hover: var(--chat-rim);
   --chat-bubble: var(--engraved);
   --chat-bubble-rim: var(--border-strong);
   --chat-chip: var(--muted);
@@ -3213,14 +3217,12 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
   --chat-mail-bg: color-mix(in srgb, var(--live) 3.5%, transparent);
 }
 .dark {
-  /* Match the offer card's rim; a small hover lift keeps disclosures distinct. */
-  --chat-tool-border: var(--border-strong);
-  --chat-tool-border-hover: color-mix(in srgb, var(--border-strong) 88%, var(--foreground));
   /* On a dark ground the plain hairline disappears against the tab-strip face a
      work line is drawn on — the two are four steps apart — so the rule is mixed
      one notch toward the strong border. On paper the hairline already reads,
      and mixing would make a grid out of the document. */
   --chat-rule: color-mix(in oklab, var(--border) 72%, var(--border-strong));
+  --quiet-well: rgb(0 0 0 / 0.24);
   /* One step OFF the sheet in each direction: on a dark ground the card lifts,
      on a light one it settles. Same role, opposite arithmetic. */
   --chat-bubble: var(--accent);
@@ -3249,18 +3251,20 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
   padding-bottom: 6px;
 }
 
-/* THE VISIBLE PROCESS REGION, MUTED (POD-2076). This is the agent's public
-   narration and tool activity, not hidden reasoning, and every word stays in
-   the reading flow. It no longer carries a rule or a PROCESS register: it
-   simply speaks a step smaller and in muted ink, so the answer — full size,
-   normal ink — is what the eye lands on. */
-.transcript-process-start {
+/* Keep the existing seam after the operator's bubble. Other process starts
+   share prose's ordinary beat, including a stretch after an answer. */
+:where(
+    [data-transcript-row]:has(> .transcript-row[data-operator-prompt="true"])
+      + [data-transcript-row]
+  )
+  > .transcript-process-start {
   padding-top: 10px;
 }
+/* Narration shares prose's full ink; activity uses the quiet register. */
 .transcript-process-row > .transcript-body > .chat-md {
-  font-size: 13.5px;
-  line-height: 21px;
-  color: var(--muted-foreground);
+  font-size: 14.5px;
+  line-height: 23px;
+  color: var(--foreground);
 }
 
 /* Flat Field (POD-159): the rails are gone — agent output lies flat on the
@@ -3590,7 +3594,7 @@ html[data-density="compact"] .brief-shelf {
 /* The final answer is a typographic step, not an attention state. Yellow is
    withheld until the operator is actually asked to act. */
 .transcript-answer {
-  padding-top: 10px;
+  padding-top: 0;
 }
 /* Narration remains compact enough to read as progress. The conclusion is the
    document a reader came for, so it steps to 16px with relaxed leading while
@@ -3711,9 +3715,10 @@ html[data-density="compact"] .brief-shelf {
   min-width: 0;
   width: 100%;
   font-family: var(--font-mono, ui-monospace, monospace);
-  /* DESIGN.md's mono size — the bottom of the feed's type band (POD-376). */
-  font-size: 10.5px;
-  line-height: 1.75;
+  /* A step up from DESIGN.md's 10.5px mono (POD-2286): the list is now the only
+     structure an opened run has, so its lines carry a 24px rhythm. */
+  font-size: 11.5px;
+  line-height: 24px;
   color: var(--text-dim, var(--muted-foreground));
 }
 .tool-glyph {
@@ -3728,7 +3733,7 @@ html[data-density="compact"] .brief-shelf {
 .tool-name {
   flex: none;
   min-width: 42px;
-  color: var(--text-strong, var(--foreground));
+  color: var(--text-faint, var(--muted-foreground));
 }
 .tool-glyph--ok {
   color: var(--text-faint);
@@ -3750,22 +3755,21 @@ html[data-density="compact"] .brief-shelf {
 
 .tool-result-full {
   max-height: 280px;
-  margin: 4px 0 5px 21px;
+  margin: 2px 0 10px;
   overflow: auto;
-  padding: 6px 9px;
-  border: 1px solid color-mix(in oklab, var(--border) 75%, transparent);
-  border-left: 2px solid var(--hairline-soft, var(--border));
-  border-radius: 0 6px 6px 0;
-  background: color-mix(in oklab, var(--background) 88%, black);
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--quiet-well);
   color: var(--muted-foreground);
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10.5px;
+  font-size: 11.5px;
+  line-height: 1.65;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 .tool-block[data-verdict="err"] .tool-result-full {
-  border-left-color: color-mix(in oklab, var(--destructive) 60%, var(--border));
-  background: color-mix(in oklab, var(--destructive) 4%, var(--background));
+  background: color-mix(in oklab, var(--destructive) 6%, transparent);
 }
 
 /* File-edit unfold (same box as .tool-result-full). Blue adds / red removes —
@@ -4267,167 +4271,101 @@ button.pane-branch:hover {
   background: var(--hairline-soft, var(--chat-rule));
 }
 
-/* ── PODIUM'S OWN MAIL (POD-993, POD-2234) ──────────────────────────────────
-   Mail is machine provenance, not a card asking the operator to choose. A burst
-   of frames folds into ONE object, and that object is a quiet row of the same
-   family as a run of tool calls: the `.work-line` box, glyph slot, trailing
-   time and chevron, opening into the same seamed list. What tells a note from a
-   run is its mail glyph in place of the verdict, in dim ink rather than the
-   live hue — a note did not succeed or fail, it arrived. The row itself is the
-   only toggle: no close button, no card header repeating the line above it.
-   ─────────────────────────────────────────────────────────────────────────── */
-.work-line-glyph.mail-fold-glyph {
-  color: var(--text-dim, var(--muted-foreground));
-}
-/* The ask an agent-mail frame carries is the receiving agent's, so it is a
-   word on the line, not a reason to open the card (POD-2070). */
-.mail-fold-flag {
-  margin-left: 5px;
-  color: var(--text-faint);
-}
-/* OPENED, THE BOX HOLDS THE NOTE. A run of calls hangs its list below its
-   row; a note is one object, so opening it grows the row's box around the
-   text instead. The border moves from the row to the group, and the list sits
-   inside it, its seam under the glyph and its text under the phrase. */
-.work-line.mail-group[data-open="true"] {
-  border: 1px solid var(--chat-tool-border);
-  border-radius: 7px;
-  transition: border-color 160ms ease;
-}
-.work-line.mail-group[data-open="true"]:has(> .work-line-row:hover) {
-  border-color: var(--chat-tool-border-hover);
-}
-.work-line.mail-group[data-open="true"] > .work-line-row {
-  /* The group's border replaces the row's, so the row keeps its folded
-     geometry: same glyph inset, same height. */
-  min-height: 30px;
-  border-width: 0;
-}
-.work-line.mail-group[data-open="true"] > .work-line-list {
-  margin: 0 12px 10px 17px;
-  padding: 0 0 0 16px;
-}
-/* BOUNDED, NOT TRUNCATED. Six or seven notes is a plausible burst and the list
-   holds four of them at rest; past that it scrolls INSIDE the list, so the
-   transcript underneath never has to move to accommodate somebody else's inbox. */
-.mail-card {
-  max-height: 220px;
-  overflow-y: auto;
+/* Notes use the same lines as commands, with bodies disclosed on demand. */
+.mail-members {
+  display: contents;
 }
 .mail-item {
-  display: flex;
-  flex-direction: column;
   min-width: 0;
-  padding: 6px 8px 7px 0;
 }
-.mail-item + .mail-item {
-  border-top: 1px solid var(--chat-rule);
+.mail-item-detail {
+  margin-bottom: 12px;
 }
-/* The route the card header used to carry, on each note: who sent it and to
-   whom, in machine voice under the text it labels. */
 .mail-item-route {
-  margin-top: 3px;
+  display: block;
+  margin-top: 4px;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10.5px;
+  font-size: 11px;
   line-height: 16px;
-  color: var(--text-faint);
+  color: var(--quiet-mark);
 }
 .mail-item-arrow {
   padding: 0 6px;
-  color: color-mix(in oklab, var(--muted-foreground) 40%, transparent);
-}
-.mail-item-head {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  width: 100%;
-  min-width: 0;
-  text-align: left;
-  cursor: pointer;
-}
-.mail-item-subject {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  font-size: 12.5px;
-  line-height: 18px;
-  font-weight: 500;
-  color: var(--text-strong, var(--foreground));
-}
-.mail-item-badge {
-  flex: none;
-  padding: 1px 5px;
-  border: 1px solid var(--chat-rule);
-  border-radius: 4px;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: var(--shell-type-micro);
-  line-height: 1.4;
-  color: var(--text-dim, var(--muted-foreground));
-}
-/* Two lines and a click for the rest. The preview is plain text on purpose: a
-   markdown paragraph clamped mid-list arrives with half a code fence and a
-   dangling bullet, and the point of a preview is to be scannable. */
-.mail-item-preview {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  margin-top: 2px;
-  font-size: 12.5px;
-  line-height: 19px;
-  color: var(--text-dim, var(--muted-foreground));
 }
 .mail-item-body.chat-md {
-  margin-top: 4px;
-  font-size: 12.5px;
-  line-height: 19px;
-  color: var(--foreground);
-}
-.mail-item-note {
-  margin-top: 7px;
-  padding-top: 6px;
-  border-top: 1px solid var(--chat-rule);
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: var(--shell-type-micro);
+  margin: 0 0 12px;
+  font-size: 13.5px;
+  line-height: 21px;
   color: var(--muted-foreground);
 }
-/* A pointer whose body failed to load (POD-2143): asking again is the one
-   thing the reader can do about it. */
+.mail-item-note {
+  display: block;
+  margin-top: 7px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  color: var(--quiet-mark);
+}
 .mail-item-retry {
-  align-self: flex-start;
   margin-top: 7px;
   padding: 2px 7px;
   border: 1px solid var(--chat-rule);
   border-radius: 5px;
-  font-size: var(--shell-type-micro);
-  line-height: 1.6;
+  font-size: 11px;
   color: var(--muted-foreground);
 }
 .mail-item-retry:hover {
   color: var(--foreground);
 }
-/* The one frame in a burst that is asking for something says so, in the live
-   hue, at the bottom of its own item — where a reader has just finished reading
-   what it is asking about. */
-.mail-item-reply {
-  align-self: flex-start;
-  display: inline-flex;
+.quiet-ask {
+  display: flex;
   align-items: center;
-  gap: 5px;
-  margin-top: 7px;
-  padding: 2px 7px;
-  border: 1px solid var(--chat-mail);
-  border-radius: 5px;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: var(--shell-type-micro);
-  line-height: 1.6;
-  color: var(--live, var(--info));
+  gap: 12px;
+  min-height: 30px;
+  margin-top: 6px;
+  font-size: 13.5px;
+  color: var(--muted-foreground);
+}
+.quiet-ask-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-inline: 4.5px 0.5px;
+  border-radius: 50%;
+  background: var(--attention);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--attention) 16%, transparent);
+}
+.quiet-ask-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+  cursor: pointer;
+}
+.quiet-ask-text b {
+  font-weight: 500;
+  color: var(--foreground);
+}
+.quiet-ask-reply {
+  flex: none;
+  margin-left: auto;
+  padding: 4px 2px;
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--attention);
+}
+.quiet-ask-reply:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.quiet-ask :is(button):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 6px;
 }
 
 /* THE ISSUE OUTCOME (POD-2151): the last row of a transcript whose session its
@@ -4700,22 +4638,16 @@ button.pane-branch:hover {
    mutates in place (spinner, the call in flight, a counting timer, a ticking
    count); when it settles the glyph becomes a verdict and the phrase becomes
    the past-tense summary. */
+/* Query the full pane, before the scroller's reading-measure padding. */
+[data-feed-container] {
+  container: feed / inline-size;
+}
 .work-line {
   position: relative;
   container-type: inline-size;
   container-name: work-line;
-  /* A RUN IS A SOLID (POD-993 round 2). Prose either side of it gets the feed's
-     12px beat; this needs more, because it is a box with an edge and the line of
-     text above would otherwise land on that edge. */
-  margin: 6px 0;
+  margin: 2px 0;
 }
-/* A RUN OF QUIET ROWS PACKS (POD-2234). Tool runs and notes are each a solid
-   with air of their own, which is right against prose and wrong between two of
-   them: three notes and a run of calls read as four separate events, 24px
-   apart, when they are one stretch of background activity. A quiet row that
-   follows another sits 4px under it; the full air stays where the stretch meets
-   prose. The rows live in the transcript window's shells, so adjacency is the
-   shells'. */
 [data-transcript-row]:has(> .transcript-row > .transcript-body > .work-line):has(
     + [data-transcript-row] > .transcript-row > .transcript-body > .work-line
   )
@@ -4740,97 +4672,412 @@ button.pane-branch:hover {
   > .transcript-row
   > .transcript-body
   > .work-line {
-  margin-top: 4px;
+  margin-top: 2px;
 }
-/* ONE HAIRLINE ROW (POD-2076): a folded run is a quiet line in the document —
-   no carve, no fanned deck, no count badge. The summary says how much
-   happened; the time and the chevron trail it. */
+[data-transcript-row]:has(+ [data-transcript-row] .quiet-ask)
+  > .transcript-row:has(> .transcript-body > .work-line) {
+  padding-bottom: 0;
+}
+[data-transcript-row]:has(+ [data-transcript-row] .quiet-ask)
+  > .transcript-row
+  > .transcript-body
+  > .work-line {
+  margin-bottom: 0;
+}
+[data-transcript-row]:has(> .transcript-row > .transcript-body > .work-line)
+  + [data-transcript-row]
+  > .transcript-row:has(.quiet-ask) {
+  padding-top: 0;
+}
 .work-line-row {
   position: relative;
   z-index: 1;
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   width: 100%;
-  min-height: 32px;
-  padding: 0 12px;
-  border: 1px solid var(--chat-tool-border);
-  border-radius: 7px;
+  min-height: 30px;
+  padding: 0;
+  border: 0;
   background: transparent;
   text-align: left;
   cursor: pointer;
-  transition: border-color 160ms ease;
+  color: var(--quiet-ink);
+  transition: color 160ms ease;
 }
-.work-line-row:hover {
-  border-color: var(--chat-tool-border-hover);
+.work-line-row:hover,
+.work-line[data-open="true"] > .work-line-row {
+  color: var(--quiet-ink-hover);
+}
+.work-line-row:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 6px;
 }
 .work-line-glyph {
   display: flex;
   flex: none;
   align-items: center;
   justify-content: center;
-  width: 13px;
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 11px;
-  color: var(--live, var(--info));
+  width: 15px;
+  height: 15px;
+  color: var(--quiet-mark);
+  transition: color 160ms ease;
 }
+.work-line-row:hover .work-line-glyph,
+.work-line[data-open="true"] > .work-line-row .work-line-glyph {
+  color: var(--quiet-mark-hover);
+}
+.work-line[data-state="live"] > .work-line-row .work-line-glyph {
+  color: var(--live);
+}
+.work-line[data-verdict="err"] > .work-line-row .work-line-glyph,
 .work-line-glyph--err {
   color: var(--destructive);
 }
 .work-line-phrase {
-  flex: 1 1 auto;
-  align-self: baseline;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
-  /* Machine voice, a step below prose (POD-376 type scale). The full-height
-     line box is the time's baseline partner — see `.work-line-time`. */
-  font-size: 12px;
+  font-size: 13px;
   line-height: 30px;
   white-space: nowrap;
   text-overflow: ellipsis;
-  color: var(--muted-foreground);
+  color: inherit;
+}
+.work-line-code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  color: inherit;
+}
+.work-line-who {
+  font-weight: 500;
+  color: var(--quiet-who);
+}
+.work-line-row:hover .work-line-who,
+.work-line[data-open="true"] > .work-line-row .work-line-who {
+  color: var(--foreground);
 }
 .work-line-fail {
   flex: none;
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: color-mix(in oklab, var(--destructive) 12%, transparent);
   color: var(--destructive);
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: var(--shell-type-micro);
-  font-weight: 600;
+  font-size: 11px;
 }
-/* Machine voice, tabular: the timer must not change width as it ticks, or the
-   row — and everything under it — jitters once a second. */
 .work-line-time {
   flex: none;
-  /* ONE BASELINE WITH THE PHRASE. Centred as boxes, 10.5px mono digits ride
-     visibly above the 12px words beside them. Both join one baseline group,
-     each with a line box the row's full height, so the pair stays centred in
-     the row while sharing the text's baseline on any font. The smaller face
-     takes a shorter box so the shift baseline alignment gives it stays
-     inside the row rather than growing it. */
-  align-self: baseline;
-  line-height: 26px;
+  line-height: 30px;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10.5px;
+  font-size: 11.5px;
   font-variant-numeric: tabular-nums;
-  color: var(--text-faint, var(--muted-foreground));
+  color: var(--quiet-mark);
+  opacity: 0;
+  transition: opacity 160ms ease;
 }
 .work-line-chev {
   flex: none;
-  color: color-mix(in oklab, var(--muted-foreground) 65%, transparent);
-  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  width: 12px;
+  height: 12px;
+  margin-left: -4px;
+  color: var(--quiet-mark);
+  transform: rotate(0deg);
+  transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-.work-line[data-open="true"] .work-line-chev {
-  transform: rotate(180deg);
+.work-line[data-open="true"] > .work-line-row .work-line-chev {
+  transform: rotate(90deg);
+}
+.work-line-row:is(:hover, :focus-visible) .work-line-time,
+.work-line[data-open="true"] > .work-line-row .work-line-time,
+.work-line:is([data-state="live"], [data-state="wait"]) > .work-line-row .work-line-time {
+  opacity: 1;
+}
+.work-line-list {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  margin: 2px 0 6px 7px;
+  padding-left: 18px;
+  border-left: 1px solid var(--chat-rule);
+  animation: work-line-unfold 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.work-line-list .work-line {
+  margin: 0;
 }
 
-/* THE NARROW RUN'S LADDER (POD-1370). Transcript panes can become much
-   narrower than their nominal column at strong zoom. The line keeps its glyph
-   and status phrase, then progressively spends lower-value chrome to protect
-   them: elapsed time first, count second, disclosure last. Each rung also
-   takes a little air out of the row rather than making the phrase pay for it. */
+/* POD-2304: a turn starts closed, so nothing ever folds away under the reader. */
+.turn-line-row > .transcript-body {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+/* Ask rows keep their place outside the line even when hidden member shells
+   sit between the two owners in the window. */
+.turn-line-row[data-has-ask] {
+  padding-bottom: 0;
+}
+.turn-line-row[data-has-ask] > .transcript-body > .work-line {
+  margin-bottom: 0;
+}
+.turn-external-ask > .transcript-row {
+  padding-top: 0;
+}
+.turn-external-ask .quiet-ask {
+  margin-top: 2px;
+}
+.turn-line[data-state="live"] > .work-line-row {
+  color: var(--quiet-ink-hover);
+}
+.tl-mark {
+  display: grid;
+  flex: none;
+  width: 15px;
+  height: 15px;
+  color: var(--quiet-mark);
+}
+.tl-mark > span {
+  grid-area: 1 / 1;
+  display: grid;
+  place-items: center;
+  transition: opacity 200ms;
+}
+.tl-spin {
+  color: var(--live);
+  opacity: 0;
+}
+.turn-line[data-state="live"] .tl-spin {
+  opacity: 1;
+}
+.turn-line[data-state="live"] .tl-stack {
+  opacity: 0;
+}
+.turn-line[data-state="failed"] .tl-stack {
+  color: var(--destructive);
+}
+.tl-phrase {
+  position: relative;
+  height: 30px;
+}
+.tl-current {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tl-phrase > .leaving {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  animation: tl-leave 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.tl-meta {
+  display: flex;
+  flex: none;
+  gap: 10px;
+  align-items: center;
+  margin-left: auto;
+  font: 11.5px / 30px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--quiet-mark);
+  opacity: 0;
+  transition: opacity 160ms;
+}
+.turn-line:is([data-state="live"], [data-state="paused"], [data-open="true"])
+  > .work-line-row
+  .tl-meta,
+.turn-line > .work-line-row:is(:hover, :focus-visible) .tl-meta,
+.tl-meta:has(.tl-hits) {
+  opacity: 1;
+}
+.tl-now {
+  max-width: 22ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--quiet-ink);
+}
+.tl-now:empty {
+  display: none;
+}
+.tl-counts {
+  color: var(--quiet-mark-hover);
+}
+.tl-phrase-hit {
+  color: var(--foreground);
+  background: var(--hit);
+  border-radius: 2px;
+}
+.tl-bad {
+  color: color-mix(in oklab, var(--destructive) 85%, var(--quiet-ink));
+}
+.tl-hits {
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: var(--hit);
+  font-size: 11px;
+  line-height: 18px;
+}
+.turn-entry {
+  position: relative;
+  min-width: 0;
+}
+.turn-entry .tool-block > .work-line-row > .work-line-time {
+  margin-left: auto;
+}
+.tl-say {
+  padding: 4px 0 5px;
+  font-size: 13.5px;
+  line-height: 21px;
+  color: var(--muted-foreground);
+}
+.tl-say .chat-md {
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+}
+.tl-say .chat-md > :first-child {
+  margin-top: 0;
+}
+.tl-say .chat-md > :last-child {
+  margin-bottom: 0;
+}
+.tl-say .quiet-time {
+  top: -1px;
+  line-height: 30px;
+}
+.turn-entry.is-new {
+  animation: tl-in 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.turn-entry-context .transcript-row {
+  display: block;
+  padding: 0;
+}
+.turn-entry-context .transcript-rail {
+  display: none;
+}
+.turn-entry-context .transcript-body {
+  padding: 0;
+}
+.turn-single-detail > .turn-entry > .work-line > .work-line-row,
+.turn-single-detail .quiet-time {
+  display: none;
+}
+.turn-single-detail {
+  margin-left: 0;
+  padding-left: 0;
+  border-left: 0;
+}
+.tl-answer {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 280ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.tl-answer > div {
+  min-height: 0;
+  min-width: 0;
+  /* Clip the height reveal without creating a horizontal scroller that pans
+     the prose when its gutter action receives keyboard focus. */
+  overflow-y: clip;
+}
+.tl-answer.is-new .chat-md {
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity 220ms 60ms,
+    transform 220ms 60ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@starting-style {
+  .tl-answer.is-new {
+    grid-template-rows: 0fr;
+  }
+  .tl-answer.is-new .chat-md {
+    opacity: 0;
+    transform: translateY(-14px);
+  }
+}
+.feed-tail-slot--inline {
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+}
+@keyframes tl-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes tl-leave {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-7px);
+  }
+}
+@container feed (max-width: 519px) {
+  .tl-counts,
+  .tl-now {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tl-mark > span,
+  .tl-meta,
+  .tl-answer,
+  .tl-answer.is-new .chat-md,
+  .turn-entry.is-new,
+  .tl-phrase > .leaving,
+  .turn-line .work-line-chev,
+  .turn-line .work-line-list {
+    transition: none;
+    animation: none;
+    transform: none;
+  }
+}
+.work-line-members .work-line {
+  margin: 0;
+}
+.quiet-time {
+  display: none;
+  position: absolute;
+  top: 0;
+  right: calc(100% + 39px);
+  width: 40px;
+  text-align: right;
+  white-space: nowrap;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  line-height: 30px;
+  font-variant-numeric: tabular-nums;
+  color: var(--quiet-mark);
+}
+@container feed (min-width: 784px) {
+  .work-line-list--timed .quiet-time {
+    display: block;
+  }
+}
+@container feed (max-width: 420px) {
+  .work-line-list {
+    padding-left: 14px;
+  }
+  .tool-result-full {
+    padding: 10px 12px;
+    border-radius: 8px;
+    white-space: pre;
+  }
+  .work-line-row > .work-line-chev ~ .work-line-time {
+    display: none;
+  }
+  .quiet-ask {
+    gap: 10px;
+  }
+}
+/* Preserve the existing narrow-pane ladder. */
 @container work-line (max-width: 280px) {
   .work-line-time,
   .file-change-time {
@@ -4848,15 +5095,10 @@ button.pane-branch:hover {
     display: none;
   }
 }
-
-/* The unfolded run: one hairline seam holds the calls to the row above. */
-.work-line-list {
-  display: flex;
-  flex-direction: column;
-  margin: 4px 0 0 15px;
-  padding: 2px 0 1px 12px;
-  border-left: 1px solid var(--chat-rule);
-  animation: work-line-unfold 220ms cubic-bezier(0.22, 1, 0.36, 1);
+@media (hover: none) {
+  .work-line[data-open="true"] > .work-line-row .work-line-time {
+    opacity: 1;
+  }
 }
 @keyframes work-line-unfold {
   from {
@@ -4882,7 +5124,9 @@ button.pane-branch:hover {
 .work-line-phrase,
 .work-line-time,
 .work-line-glyph {
-  transition: color 320ms ease;
+  transition:
+    color 320ms ease,
+    opacity 160ms ease;
 }
 @media (prefers-reduced-motion: no-preference) {
   .work-line[data-settle="true"] .work-line-glyph {
@@ -5816,6 +6060,81 @@ button.pane-branch:hover {
 .msg-foot[data-side="right"] {
   justify-content: flex-end;
   padding-right: 2px;
+}
+/* Reserve a separate column for controls so they cannot cover words or links,
+   including while transparent. This keeps the vertical prose beat unchanged. */
+.transcript-prose {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  column-gap: 12px;
+}
+.transcript-prose > :not(.msg-foot) {
+  grid-column: 1;
+}
+.transcript-prose > .msg-foot {
+  grid-column: 2;
+  /* Span the compact answer's label and prose without stretching its label. */
+  grid-row: 1 / span 2;
+  align-self: start;
+  margin-top: 0;
+}
+.msg-narrow-actions {
+  display: none;
+}
+.msg-menu-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 240px;
+  padding: 4px 8px;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+/* The existing 32px gutter fits one menu trigger. Full-width narrow prose
+   keeps its 12px beat, with no transparent controls covering words or links. */
+@container feed (max-width: 519px) {
+  .transcript-prose {
+    display: block;
+  }
+  .transcript-prose > .msg-foot {
+    display: none;
+  }
+  .transcript-prose > .msg-narrow-actions {
+    display: block;
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline-start: calc(100% + 5px);
+    opacity: 0;
+  }
+  .transcript-row:hover .msg-narrow-actions,
+  .msg-narrow-actions:focus-within {
+    opacity: 1;
+  }
+  /* The compact feed has a 14px gutter. Reserve the remaining 12px beside
+     prose so the 21px trigger stays inside the pane without covering text. */
+  [data-feed-container][data-compact] .transcript-prose > :is(.chat-md, .transcript-answer-label) {
+    padding-inline-end: 12px;
+  }
+  [data-feed-container][data-compact] .transcript-prose > .msg-narrow-actions {
+    inset-inline-start: calc(100% - 10px);
+  }
+}
+@media (hover: none) {
+  .transcript-prose > .msg-narrow-actions {
+    opacity: 1;
+  }
+}
+/* Wide panes have room for the controls beside the reading column. */
+@container feed (min-width: 900px) {
+  .transcript-prose {
+    display: block;
+  }
+  .transcript-prose > .msg-foot {
+    position: absolute;
+    inset-block-end: 0;
+    inset-inline-start: calc(100% + 12px);
+    width: max-content;
+  }
 }
 /* NOT EVERYTHING IN THE FOOT IS METADATA, AND THE REST MUST NOT FADE WITH IT.
    Two things ride here that are not "when and take-a-copy":
@@ -6941,10 +7260,14 @@ html[data-density="compact"] .chat-md {
   font-size: 13px;
   line-height: 21px;
 }
-.chat-md > :first-child {
+/* Paragraph and heading margins space the inside of a message. The row owns
+   the gap outside it, including the answer's larger paragraph margins. */
+.chat-md > :first-child,
+.transcript-answer > .chat-md > :first-child {
   margin-top: 0;
 }
-.chat-md > :last-child {
+.chat-md > :last-child,
+.transcript-answer > .chat-md > :last-child {
   margin-bottom: 0;
 }
 /* A turn is paragraphs, not a wall. 0.55em put barely half a line between two
@@ -7661,39 +7984,51 @@ a.ref-link--session::before {
   accent-color: var(--muted-foreground);
 }
 
-/* Calm reading lifts a Markdown document without replacing the workspace. The
-   shell remains barely legible behind it as place-memory, while blur, low
-   saturation and a neutral scrim stop its live data from competing with prose. */
+/* Calm reading lifts a Markdown document out of the workspace without
+   replacing it (POD-2322). The document gets a full-height column at reading
+   width and a reading step of its own (18.5px/1.7 against the panel's 15/1.75),
+   so it reads as a different mode rather than the same preview in a box. The
+   shell stays behind it as place-memory, dimmed and blurred enough that its
+   live data cannot compete with the prose.
+
+   On a window wide enough for the margins to hold something (1100px), the left
+   one carries the document's outline and the right one the time left. They sit
+   on the scrim, which is dark in both themes, so their ink is a fixed light
+   rather than a theme token. Narrower, they drop out and a hairline under the
+   header carries the progress instead. */
 .calm-reader-layer {
+  --calm-column: 48rem;
+  --calm-margin-gap: 2rem;
+  --calm-margin-ink: rgb(255 255 255 / 70%);
+  --calm-margin-strong: #ffffff;
+  --calm-margin-track: rgb(255 255 255 / 18%);
   position: fixed;
   inset: 0;
   z-index: 100;
   display: flex;
-  align-items: center;
   justify-content: center;
-  padding: clamp(0.75rem, 3vw, 2.5rem);
-  background: color-mix(in oklab, black 54%, transparent);
-  backdrop-filter: blur(3px) saturate(0.62);
+  background: color-mix(in oklab, black 62%, transparent);
+  backdrop-filter: blur(7px) saturate(0.4);
+  outline: none;
   animation: calm-reader-fade 180ms ease-out both;
 }
 
 .calm-reader-sheet {
   display: flex;
-  width: 100%;
-  height: min(90vh, 58rem);
+  width: min(100%, var(--calm-column));
+  height: 100%;
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
   color: var(--foreground);
   background: color-mix(in oklab, var(--background) 97%, var(--muted));
-  border: 1px solid color-mix(in oklab, var(--border) 78%, transparent);
-  border-radius: 12px;
-  box-shadow: 0 24px 80px rgb(0 0 0 / 34%);
-  outline: none;
+  border-inline: 1px solid color-mix(in oklab, var(--border) 78%, transparent);
+  box-shadow: 0 0 120px rgb(0 0 0 / 40%);
   animation: calm-reader-arrive 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .calm-reader-header {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(max-content, 1fr) minmax(0, auto) minmax(max-content, 1fr);
   align-items: center;
@@ -7728,16 +8063,145 @@ a.ref-link--session::before {
   white-space: nowrap;
 }
 
-.calm-reader-header > :last-child {
+.calm-reader-header > :nth-child(3) {
   justify-self: end;
 }
 
+.calm-reader-hairline {
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  width: var(--calm-progress, 0%);
+  height: 2px;
+  background: color-mix(in oklab, var(--primary) 80%, transparent);
+}
+
+/* The measure lives on `.md-block` and is written in em, so it tracks the
+   larger size: 35em is about 68 characters of Geist here. */
 .calm-reader-document {
-  --md-measure: 42em;
-  font-size: 16px;
-  line-height: 1.8;
-  padding-top: clamp(2.5rem, 7vh, 5rem);
-  padding-bottom: 6rem;
+  --md-measure: 35em;
+  font-size: 18.5px;
+  line-height: 1.7;
+  padding: clamp(2.5rem, 7vh, 3.5rem) clamp(1.25rem, 7%, 3.75rem) 30vh;
+}
+
+/* Focused on open, and a heading on an outline jump, so the keyboard pages on
+   from there. Neither is a control the reader chose, so neither draws a ring;
+   the outline's own highlight shows where the jump landed. */
+.calm-reader-document:focus,
+.calm-reader-document :is(h2, h3):focus {
+  outline: none;
+}
+
+.calm-reader-document h1 {
+  font-size: 1.85em;
+  letter-spacing: -0.02em;
+}
+
+/* ── The margins ─────────────────────────────────── */
+.calm-reader-outline,
+.calm-reader-progress {
+  position: absolute;
+  top: 6.25rem;
+  display: none;
+}
+
+.calm-reader-outline {
+  right: calc(50% + var(--calm-column) / 2 + var(--calm-margin-gap));
+  width: min(15rem, calc(50% - var(--calm-column) / 2 - var(--calm-margin-gap) * 1.5));
+  max-height: calc(100% - 8.25rem);
+  overflow-y: auto;
+  scrollbar-width: none;
+  text-align: right;
+}
+
+.calm-reader-margin-label {
+  display: block;
+  padding: 0 0.7rem 0.5rem;
+  color: var(--calm-margin-ink);
+  font-family: var(--font-mono, monospace);
+  font-size: 10.5px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.calm-reader-outline button {
+  display: block;
+  width: 100%;
+  padding: 0.35rem 0.7rem;
+  color: var(--calm-margin-ink);
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: right;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+  border-radius: 6px;
+  transition: color 160ms ease;
+}
+
+.calm-reader-outline button[data-level="3"] {
+  padding-right: 1.4rem;
+  font-size: 12px;
+}
+
+.calm-reader-outline button:hover {
+  color: var(--calm-margin-strong);
+}
+
+.calm-reader-outline button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.calm-reader-outline button[aria-current="location"] {
+  color: var(--calm-margin-strong);
+  font-weight: 550;
+  border-radius: 0;
+  box-shadow: inset -2px 0 0 var(--primary);
+}
+
+.calm-reader-progress {
+  left: calc(50% + var(--calm-column) / 2 + var(--calm-margin-gap));
+  flex-direction: column;
+  gap: 0.6rem;
+  color: var(--calm-margin-ink);
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.calm-reader-track {
+  position: relative;
+  width: 2px;
+  height: 11rem;
+  border-radius: 2px;
+  background: var(--calm-margin-track);
+}
+
+.calm-reader-track::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: var(--calm-progress, 0%);
+  border-radius: 2px;
+  background: var(--primary);
+}
+
+.calm-reader-time {
+  color: var(--calm-margin-strong);
+  font-size: 12px;
+}
+
+@media (min-width: 1100px) {
+  .calm-reader-outline {
+    display: block;
+  }
+  .calm-reader-progress {
+    display: flex;
+  }
+  .calm-reader-hairline {
+    display: none;
+  }
 }
 
 @keyframes calm-reader-fade {
@@ -7761,20 +8225,15 @@ a.ref-link--session::before {
 }
 
 @media (max-width: 640px) {
-  .calm-reader-layer {
-    padding: 0;
-  }
   .calm-reader-sheet {
-    width: 100%;
-    height: 100%;
     border: 0;
-    border-radius: 0;
   }
   .calm-reader-header {
     grid-template-columns: minmax(max-content, 1fr) minmax(0, 1fr) max-content;
   }
   .calm-reader-document {
-    padding-top: 2.5rem;
+    font-size: 17px;
+    padding-top: 2rem;
   }
 }
 
@@ -7782,6 +8241,9 @@ a.ref-link--session::before {
   .calm-reader-layer,
   .calm-reader-sheet {
     animation: none;
+  }
+  .calm-reader-outline button {
+    transition: none;
   }
 }
 
@@ -14214,4 +14676,46 @@ button.waterfall-fold:hover {
 .artifacts-empty {
   font-size: 13px;
   color: var(--text-dim);
+}
+
+/* The destination belongs next to the field, throughout a mail reply. */
+.composer-reply-mode {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 4px 8px;
+  color: var(--quiet-ink-hover);
+  font-size: 12px;
+}
+.composer-reply-mode strong {
+  color: var(--foreground);
+  font-weight: 500;
+}
+.composer-reply-mode button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted-foreground);
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+.composer-reply-mode button:hover {
+  color: var(--foreground);
+  background: var(--chip);
+}
+.quiet-ask-answered {
+  flex: none;
+  color: var(--quiet-ink);
+  font-size: 12px;
+}
+
+.mail-item-quote {
+  display: block;
+  font-size: 12px;
+  color: var(--quiet-ink);
+  padding: 4px 0;
+}
+.mail-item-quote:hover {
+  color: var(--quiet-ink-hover);
 }

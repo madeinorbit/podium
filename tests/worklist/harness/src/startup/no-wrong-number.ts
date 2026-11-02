@@ -32,7 +32,8 @@ import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { autorun } from 'mobx'
 
 /** The question groups the brief names, plus the first screen itself. */
-export type StartupGroup = 'first-screen' | 'counts' | 'search' | 'board-archive' | 'closed-children'
+export type StartupGroup =
+  | 'first-screen' | 'counts' | 'search' | 'board-archive' | 'closed-children'
 
 export interface StartupQuestion {
   readonly name: string
@@ -176,7 +177,7 @@ export function startupQuestions(targets: StartupTargets): StartupQuestion[] {
       const view = missionView(pool), root = view.selectedRoot(id)
       if (root === LOADING) return LOADING
       return root ? view.deck(root.id, 'full').progress
-        : { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }
+        : { total: 0, done: 0, working: 0, waiting: 0, todo: 0 }
     })
     add('closed-children', `board-card:${id}`, (pool) => {
       const card = board(pool).issue(id)

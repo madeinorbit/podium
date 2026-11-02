@@ -1,11 +1,17 @@
+import './test-support/no-message-attachments'
+import type { HeadlessOverlay } from '@podium/client-core/conversation'
 import type { RenderableRow } from '@podium/client-core/values'
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildChatRows, pairToolResults } from './chat'
 import { TranscriptFeed } from './TranscriptFeed'
-import type { HeadlessOverlay } from '@podium/client-core/conversation'
+
+vi.mock('./mail-body', () => ({
+  useMailBody: () => ({ status: 'ready', body: 'Status\nI am reading this body.' }),
+}))
+;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 // FEED MOTION (POD-423), end to end through the feed: which rows carry
 // `.transcript-arrive` when, and whether in-progress text carries its caret.
@@ -17,7 +23,7 @@ let host: HTMLDivElement
 let root: Root
 
 const say = (id: string, text: string): TranscriptItem =>
-  ({ id, role: 'assistant', text }) as TranscriptItem
+  ({ id, role: 'assistant', text, answer: true }) as TranscriptItem
 
 function rowsFor(items: TranscriptItem[]): RenderableRow[] {
   return buildChatRows(pairToolResults(items)).map((row, index) => ({
@@ -30,7 +36,12 @@ function rowsFor(items: TranscriptItem[]): RenderableRow[] {
 function render(
   items: TranscriptItem[],
   overlay: HeadlessOverlay | null = null,
-  opts: { phase?: 'loading' | 'empty' | 'ready'; moreAbove?: boolean; loadingOlder?: boolean } = {},
+  opts: {
+    phase?: 'loading' | 'empty' | 'ready'
+    moreAbove?: boolean
+    loadingOlder?: boolean
+    activeRow?: number
+  } = {},
 ): void {
   const blocks = pairToolResults(items)
   act(() => {
@@ -46,7 +57,14 @@ function render(
         rows={rowsFor(items)}
         blocks={blocks}
         markdownHtml={new Map()}
-        search={{ activeRow: -1, filtering: false, matches: [], activeMatch: 0 } as never}
+        search={
+          {
+            activeRow: opts.activeRow ?? -1,
+            filtering: false,
+            matches: [],
+            activeMatch: 0,
+          } as never
+        }
         moreAbove={opts.moreAbove ?? false}
         loadingOlder={opts.loadingOlder ?? false}
         loadOlder={() => {}}
@@ -148,7 +166,8 @@ describe('TranscriptFeed — the streaming caret', () => {
 
   it('marks in-progress text so it can carry a caret', () => {
     render([say('a', 'one')], { text: 'half a thou' })
-    expect(streaming()?.className).toContain('chat-md--streaming')
+    act(() => host.querySelector<HTMLButtonElement>('[data-testid="turn-line"] > button')!.click())
+    expect(streaming()?.querySelector('.chat-md')?.className).toContain('chat-md--streaming')
   })
 
   it('leaves settled transcript text unmarked — only the overlay is in progress', () => {
@@ -235,4 +254,152 @@ describe('TranscriptFeed — boundary states', () => {
     expect(host.querySelector('.transcript-pager')?.textContent).toContain('loading')
     expect(host.querySelector('.transcript-pager .pod-mark')).toBeNull()
   })
+})
+
+it('keeps a lone note addressed by its own key and gives a mixed stretch just one feed tick', () => {
+  const note: TranscriptItem = {
+    id: 'note',
+    role: 'user',
+    text: '[podium message msg_key · from system:steward · to issue:POD-2287]\nStatus\nDetail\n[end podium message msg_key]',
+  }
+  render([note])
+  expect(host.querySelectorAll('[data-block]')).toHaveLength(1)
+  expect(host.querySelector('[data-row-key="note"]')).not.toBeNull()
+  expect(host.querySelector('[data-transcript-run-view]')).toBeNull()
+  const command: TranscriptItem = {
+    id: 'cmd',
+    role: 'tool',
+    text: '',
+    toolName: 'Bash',
+    toolInput: 'git status',
+    toolResult: 'clean',
+  }
+  render([command, note])
+  expect(host.querySelectorAll('[data-block]')).toHaveLength(1)
+  expect(host.querySelector('[data-row-key="cmd"]')).not.toBeNull()
+  expect(
+    JSON.parse(host.querySelector('[data-row-aliases]')?.getAttribute('data-row-aliases') ?? '[]'),
+  ).toEqual(['cmd', 'note'])
+})
+
+const openNote: TranscriptItem = {
+  id: 'note',
+  role: 'user',
+  text: '[podium message msg_live · from issue:POD-2242 · to issue:POD-2287]\nStatus\nI am reading this body.\n[end podium message msg_live]',
+}
+const appendedCommand: TranscriptItem = {
+  id: 'new-command',
+  role: 'tool',
+  text: '',
+  toolName: 'Bash',
+  toolInput: 'git status',
+  toolResult: 'clean',
+}
+
+it.each([
+  { label: 'received note', item: openNote, button: '.mail-item-head', body: '.mail-item-body' },
+  {
+    label: 'sent note',
+    item: {
+      id: 'sent',
+      role: 'tool',
+      text: '',
+      toolName: 'Bash',
+      toolInput: "podium mail send --to POD-2242 --body 'Status'",
+      toolResult: 'sent msg_sent to POD-2242 (delivered)',
+    } as TranscriptItem,
+    button: '.mail-item-head',
+    body: '.mail-item-body',
+  },
+  {
+    label: 'inbox read',
+    item: {
+      id: 'inbox',
+      role: 'tool',
+      text: '',
+      toolName: 'Bash',
+      toolInput: 'podium mail inbox',
+      toolResult: '* msg_live issue:POD-2242 2026-10-28T17:00:00Z\n  I am reading this body.',
+    } as TranscriptItem,
+    button: '.mail-fold',
+    body: '.tool-result-full',
+  },
+])('retains a deliberately opened $label, its DOM and selection when a command joins and leaves', ({
+  item,
+  button,
+  body,
+}) => {
+  render([item])
+  const turn = host.querySelector<HTMLButtonElement>('[data-testid="turn-line"] > button')
+  if (turn) act(() => turn.click())
+  const original = host.querySelector(`[data-row-key="${item.id}"]`)
+  const toggle = host.querySelector<HTMLButtonElement>(button)!
+  if (!host.querySelector(body)) act(() => toggle.click())
+  const content = host.querySelector<HTMLElement>(body)!
+  expect(content.textContent).toContain('I am reading this body.')
+  const text = document.createTreeWalker(content, NodeFilter.SHOW_TEXT).nextNode()!
+  const range = document.createRange()
+  range.setStart(text, 0)
+  range.setEnd(text, 6)
+  document.getSelection()!.addRange(range)
+  const selected = document.getSelection()!.toString()
+  try {
+    render([item, appendedCommand])
+    expect(host.querySelector(`[data-row-key="${item.id}"]`)).toBe(original)
+    expect(host.querySelector(body)).toBe(content)
+    expect(document.getSelection()!.toString()).toBe(selected)
+    expect(host.querySelector(button)).toBe(toggle)
+    expect(host.querySelector('[data-transcript-run-toggle]')?.getAttribute('aria-expanded')).toBe(
+      item.role === 'user' ? 'false' : 'true',
+    )
+    render([item])
+    expect(host.querySelector(body)).toBe(content)
+    expect(document.getSelection()!.toString()).toBe(selected)
+  } finally {
+    document.getSelection()!.removeAllRanges()
+  }
+})
+
+it('keeps an explicitly reopened search note when the search closes and its stretch grows', () => {
+  render([openNote], null, { activeRow: 0 })
+  act(() => host.querySelector<HTMLButtonElement>('.mail-item-head')!.click())
+  const content = host.querySelector('.mail-item-body')
+  render([openNote, appendedCommand])
+  expect(host.querySelector('.mail-item-body')).toBe(content)
+  expect(host.querySelector('[data-transcript-retain]')).not.toBeNull()
+})
+
+it('folds a growing stretch after the reader closes the lone note', () => {
+  render([openNote])
+  act(() => host.querySelector<HTMLButtonElement>('.mail-item-head')!.click())
+  act(() => host.querySelector<HTMLButtonElement>('.mail-item-head')!.click())
+  render([openNote, appendedCommand])
+  expect(host.querySelector('.mail-item-body')).toBeNull()
+  expect(host.querySelector('[data-transcript-run-toggle]')?.getAttribute('aria-expanded')).toBe(
+    'false',
+  )
+})
+
+it('retains an opened envelope when another envelope extends the same transcript item', () => {
+  render([openNote])
+  act(() => host.querySelector<HTMLButtonElement>('.mail-item-head')!.click())
+  const content = host.querySelector('.mail-item-body')
+  render([
+    {
+      ...openNote,
+      text: `${openNote.text}\n[podium message msg_next · from system:steward · to your session]\nAnother note\n[end podium message msg_next]`,
+    },
+  ])
+  expect(host.querySelector('.mail-item-body')).toBe(content)
+  expect(host.textContent).toContain('I am reading this body.')
+})
+
+it('allows windowing to release a lone note opened only by search', () => {
+  render([openNote], null, { activeRow: 0 })
+  expect(host.querySelector('.mail-item-body')).not.toBeNull()
+  expect(host.querySelector('[data-transcript-retain]')).toBeNull()
+  expect(host.querySelector('[data-open="true"]:not([data-transcript-run-view])')).toBeNull()
+  expect(host.querySelector('[aria-expanded="true"]:not([data-transcript-run-toggle])')).toBeNull()
+  render([openNote, appendedCommand])
+  expect(host.querySelector('.mail-item-body')).toBeNull()
 })

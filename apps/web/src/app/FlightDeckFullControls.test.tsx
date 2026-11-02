@@ -103,19 +103,19 @@ function storage(initial: [string, string][] = []) {
   }
   return { values, ui }
 }
-async function open(prefs = storage(), ready = true) {
+async function open(prefs = storage(), ready = true, fixture = { issues, sessions }) {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
   attachPreferenceSource(pool, prefs.ui)
   pool.apply({
     type: 'replace',
     rows: [
       { kind: 'repo', id: 'repo', value: { id: 'repo', repoPath: '/synthetic', prefix: 'POD' } },
-      ...issues().map((value) => ({
+      ...fixture.issues().map((value) => ({
         kind: 'issue' as const,
         id: value['id'] as string,
         value: value as never,
       })),
-      ...sessions().map((value) => ({
+      ...fixture.sessions().map((value) => ({
         kind: 'session' as const,
         id: value['sessionId'] as string,
         value: value as never,
@@ -225,6 +225,19 @@ it('offers exact model leaf totals and matching descendant paths for each Full f
   ])
   expect(f.tally()).toEqual(totals)
   expect(f.prefs.values.has('podium.flightDeck.mode')).toBe(false)
+})
+
+it('draws no filter bar for a mission that is its only issue (POD-2313)', async () => {
+  // A review with nobody on it is Idle, so the tabs read "All 1 · Active 1"
+  // over a list that never draws the root.
+  const f = await open(storage(), true, {
+    issues: () => [issue('root', null, 'a', { stage: 'review' })],
+    sessions: () => [],
+  })
+  expect(f.full.counts).toMatchObject({ all: 1, active: 1 })
+  expect(f.full.filterable).toBe(false)
+  expect(f.ui.queryByRole('group', { name: 'Task filters' })).toBeNull()
+  expect(f.ui.queryByRole('button', { name: 'Search this mission' })).toBeNull()
 })
 
 it('colors Needs you red for Error, amber for attention alone, and neutral for zero', async () => {

@@ -8,12 +8,13 @@
  * "Read 3 notes" line with the raw listing behind it. The compute path decides
  * all of it (`presentToolBlock`); these rows only read the block's `mail`.
  */
-import type { ParsedEnvelope, ToolMail } from '@podium/client-core/values'
-import { ChevronDown, Mail as MailIcon } from 'lucide-react'
+import { useActivityDisclosure } from '@podium/client-core/react'
+import type { ActivityDisclosureProps, ParsedEnvelope, ToolMail } from '@podium/client-core/values'
 import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { MessageEnvelopeGroup } from './MessageEnvelopeGroup'
 import { clockLabel, fullTimeLabel, parseTs } from './transcript-time'
+import { WorkGlyph } from './WorkGlyph'
 
 export function SentNoteRow({
   note,
@@ -23,16 +24,19 @@ export function SentNoteRow({
   ts,
   onBodyClick,
   forceOpen,
+  bare = false,
+  onOpenChange,
+  initialOpen,
 }: {
   note: Extract<ToolMail, { op: 'note' }>
   /** Keys the item while the send is still running and has no id. */
   fallbackId: string
-  className: string
-  blockIndex: number
+  className?: string
+  blockIndex?: number
   ts: string | undefined
   onBodyClick: (e: ReactMouseEvent) => void
-  forceOpen: boolean
-}): JSX.Element {
+  bare?: boolean
+} & ActivityDisclosureProps): JSX.Element {
   const envelopes = useMemo(
     (): ParsedEnvelope[] => [
       {
@@ -54,10 +58,14 @@ export function SentNoteRow({
       envelopes={envelopes}
       className={className}
       blockIndex={blockIndex}
+      rowKey={fallbackId}
       ts={ts}
       onBodyClick={onBodyClick}
       forceOpen={forceOpen}
       direction="to"
+      bare={bare}
+      onOpenChange={onOpenChange}
+      initialOpen={initialOpen}
     />
   )
 }
@@ -69,20 +77,55 @@ export function InboxReadRow({
   blockIndex,
   rowKey,
   ts,
+  bare = false,
+  forceOpen = false,
+  onOpenChange,
+  initialOpen,
 }: {
   /** How many notes the read listed, when its output said. */
   notes: number | undefined
   result: string | undefined
-  className: string
-  blockIndex: number
+  className?: string
+  blockIndex?: number
   rowKey: string
   ts: string | undefined
-}): JSX.Element {
-  const [open, setOpen] = useState(false)
+  bare?: boolean
+} & ActivityDisclosureProps): JSX.Element {
+  const { userOpen, open, toggle } = useActivityDisclosure({ forceOpen, onOpenChange, initialOpen })
   const label =
     notes === undefined ? 'Read notes' : `Read ${notes === 1 ? '1 note' : `${notes} notes`}`
-  const stamp = parseTs(ts)
-  return (
+  const stamp = bare ? parseTs(ts) : undefined
+  const content = (
+    <div
+      className="work-line mail-group"
+      data-open={open ? 'true' : 'false'}
+      data-transcript-retain={userOpen ? '' : undefined}
+      data-transcript-run-view={forceOpen && !userOpen ? '' : undefined}
+    >
+      {stamp && (
+        <time className="quiet-time" dateTime={ts} title={fullTimeLabel(stamp)}>
+          {clockLabel(stamp)}
+        </time>
+      )}
+      <button
+        data-pressable
+        type="button"
+        className="work-line-row mail-fold"
+        data-transcript-run-toggle={forceOpen && !userOpen ? '' : undefined}
+        aria-expanded={open}
+        onClick={toggle}
+      >
+        <span className="work-line-glyph" aria-hidden="true">
+          <WorkGlyph mail />
+        </span>
+        <span className="work-line-phrase">{label}</span>
+      </button>
+      {open && <pre className="tool-result-full">{result ?? '(no result captured)'}</pre>}
+    </div>
+  )
+  return bare ? (
+    content
+  ) : (
     <div
       className={className}
       data-block={blockIndex}
@@ -91,33 +134,7 @@ export function InboxReadRow({
       data-testid="inbox-read"
     >
       <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
-      <div className="transcript-body">
-        <div className="work-line mail-group" data-open={open ? 'true' : 'false'}>
-          <button
-            data-pressable
-            type="button"
-            className="work-line-row mail-fold"
-            aria-expanded={open}
-            onClick={() => setOpen((v) => !v)}
-          >
-            <span className="work-line-glyph mail-fold-glyph" aria-hidden="true">
-              <MailIcon size={13} />
-            </span>
-            <span className="work-line-phrase">{label}</span>
-            {stamp && (
-              <time className="work-line-time" dateTime={ts} title={fullTimeLabel(stamp)}>
-                {clockLabel(stamp)}
-              </time>
-            )}
-            <ChevronDown className="work-line-chev" size={11} aria-hidden="true" />
-          </button>
-          {open && (
-            <div className="work-line-list">
-              <pre className="tool-result-full">{result ?? '(no result captured)'}</pre>
-            </div>
-          )}
-        </div>
-      </div>
+      <div className="transcript-body">{content}</div>
     </div>
   )
 }

@@ -33,7 +33,7 @@ const state = vi.hoisted(() => ({
 vi.mock('expo-router', async () => {
   const { useEffect } = await import('react')
   return {
-    useRouter: () => ({ push: () => {}, replace: () => {}, back: () => {}, dismissTo: () => {} }),
+    useRouter: () => ({ push: () => {}, replace: () => {}, back: () => {}, dismissTo: () => {}, setParams: () => {} }),
     useLocalSearchParams: () => ({ missionId: state.missionId }),
     usePathname: () => '/work',
     Stack: { SearchBar: () => null },

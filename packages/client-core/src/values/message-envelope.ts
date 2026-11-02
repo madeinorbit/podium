@@ -45,6 +45,11 @@ export interface ParsedEnvelope {
   pointer?: 'by-id' | 'legacy'
 }
 
+/** Only a question addressed to the operator needs the reader's attention. */
+export function isOperatorQuestion(envelope: ParsedEnvelope): boolean {
+  return envelope.question && (envelope.to === 'the operator' || envelope.to === 'operator')
+}
+
 /** The head line. The reply part is absent from the short frame a server job
  *  types (auto-continue, an automation's prompt — POD-4868): mail no agent
  *  answers, but still Podium's, never the person's. */

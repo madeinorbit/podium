@@ -77,7 +77,7 @@ interface PaneValues {
   rowPresentation: ReadonlyMap<string, { state: ReturnType<typeof deckIssueState>; note: ReturnType<typeof issueNote>; presence: ReturnType<typeof presenceNote> }>
 }
 const NO_PANE: PaneValues = { root: undefined, rows: [], members: new Set(), titles: new Map(),
-  progress: { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }, departures: [],
+  progress: { total: 0, done: 0, working: 0, waiting: 0, todo: 0 }, departures: [],
   continuation: null, note: null, presence: null, rowPresentation: new Map() }
 const openings = new WeakMap<MobxPool, Map<string, MissionScreen>>()
 /** One opening per mission root, as the deck's root component creates it. */

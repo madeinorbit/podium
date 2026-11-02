@@ -10,12 +10,15 @@ import type { TranscriptItem } from '@podium/model/browser'
  * call sites keep their import path.
  */
 export {
+  type ActivityStretchRow,
   buildChatRows,
   type ChatBlock,
   type ChatRow,
   failLine,
   isBatchableTool,
   isInteractiveTool,
+  isQuietNote,
+  isStretchItem,
   mcpLabel,
   mcpParts,
   pairToolResults,

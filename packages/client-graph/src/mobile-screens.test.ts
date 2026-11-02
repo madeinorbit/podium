@@ -31,7 +31,7 @@ const disposals: (() => void)[] = []
 afterEach(() => {
   for (const dispose of disposals.splice(0)) dispose()
 })
-const NO_PROGRESS = { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }
+const NO_PROGRESS = { total: 0, done: 0, working: 0, waiting: 0, todo: 0 }
 /** The phone's mission routes read one opening per mission root. `mission`
  * and `deck` answer what MissionScreen and MissionDeck draw from it. */
 function phone(pool: MobxPool) {
@@ -285,7 +285,7 @@ it('an explicitly opened archived mission counts accepted formal children withou
   while (pool.hydrate()) {}
   expect(reader.mission('cold')).toMatchObject({
     root: { id: 'cold' },
-    progress: { total: 1, done: 0, stall: 1 },
+    progress: { total: 1, done: 0, waiting: 1 },
   })
   expect(reader.deck('cold')).toMatchObject({ rows: [], presence: null })
 })

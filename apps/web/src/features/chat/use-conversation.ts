@@ -1,24 +1,38 @@
-import { currentMessageRecord, ingestMessageRecords } from '@podium/client-graph/message-models'
-import { chatItemMessage } from '@podium/client-graph/chat-context'
-import { here } from '@podium/client-graph/lookup'
-import { omitGone } from '@podium/client-graph/lookup'
-import type { SessionModel } from '@podium/client-graph/models'
 import {
-  ConversationService, type ConversationPendingTurn, type ConversationOptions, hubConnection, nativeSessionCanInterrupt,
+  type ConversationOptions,
+  type ConversationPendingTurn,
+  ConversationService,
+  hubConnection,
+  nativeSessionCanInterrupt,
 } from '@podium/client-core/conversation'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { randomUUID } from '@podium/client-core/id'
+import { useConversation as useOwnedConversation, useStoreHandle } from '@podium/client-core/react'
 import { REPLICA_TRANSCRIPT_ITEM_CAP } from '@podium/client-core/replica'
-import { useStoreHandle, useConversation as useOwnedConversation } from '@podium/client-core/react'
-import { chatSendRoute, composerState, parseEnvelopeBatch, stagedAttachmentId, type SuperThreadRef, OPTIMISTIC_SEND_CEILING_MS } from '@podium/client-core/values'
+import {
+  chatSendRoute,
+  composerState,
+  OPTIMISTIC_SEND_CEILING_MS,
+  parseEnvelopeBatch,
+  type SuperThreadRef,
+  stagedAttachmentId,
+} from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
+import { chatItemMessage } from '@podium/client-graph/chat-context'
+import { here, omitGone } from '@podium/client-graph/lookup'
+import { currentMessageRecord, ingestMessageRecords } from '@podium/client-graph/message-models'
+import type { SessionModel } from '@podium/client-graph/models'
+import { lazy } from '@podium/mobx-helpers'
 import { asMutationId, asSessionId, HarnessAgent, type SessionId } from '@podium/model/browser'
 import { actionBound, compareShallow, observable, reaction } from 'mobx'
 import { useCallback, useEffect, useRef } from 'react'
-import { lazy } from '@podium/mobx-helpers'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
-import { ConversationPresentation, INITIAL_LIMIT, PAGE_LIMIT } from './conversation-presentation'
+import {
+  type ConversationPresentation,
+  INITIAL_LIMIT,
+  PAGE_LIMIT,
+} from './conversation-presentation'
 
 export interface ConversationMountOptions {
   active?: boolean
@@ -30,7 +44,8 @@ export interface ConversationMountOptions {
   compact?: boolean
 }
 type Loaded<T> = Exclude<T, symbol>
-const loaded = <T,>(row: T): Loaded<T> | undefined => typeof row === 'symbol' ? undefined : row as Loaded<T>
+const loaded = <T>(row: T): Loaded<T> | undefined =>
+  typeof row === 'symbol' ? undefined : (row as Loaded<T>)
 
 /** Web ports and worker presentation; the inherited model owns every live state. */
 export class WebConversation extends ConversationService {
@@ -48,21 +63,50 @@ export class WebConversation extends ConversationService {
   addView(view: ConversationPresentation): () => void {
     this.views.add(view)
     view.bind(this.transcript, this.graph)
-    return () => { this.views.delete(view); view.dispose() }
+    return () => {
+      this.views.delete(view)
+      view.dispose()
+    }
   }
   changed(change: import('@podium/client-core/conversation').TranscriptChange): void {
     for (const view of this.views) view.changed(change)
   }
-  get retainHistory(): boolean { return [...this.views].some(view => view.retainHistory) }
-  @lazy get session(): SessionModel | undefined { return here(this.pool.model('session', this.sessionId)) }
-  @lazy get thread() { return this.mount.superThread ? loaded(omitGone(this.pool.row('superThread', this.mount.superThread.threadId))) : undefined }
+  get retainHistory(): boolean {
+    return [...this.views].some((view) => view.retainHistory)
+  }
+  get retainFrom(): string | undefined {
+    let earliest: string | undefined
+    let position = Infinity
+    for (const view of this.views) {
+      const id = view.retainFrom
+      const at = id === undefined ? undefined : this.transcript.position(id)
+      if (at !== undefined && at < position) {
+        earliest = id
+        position = at
+      }
+    }
+    return earliest
+  }
+  @lazy get session(): SessionModel | undefined {
+    return here(this.pool.model('session', this.sessionId))
+  }
+  @lazy get thread() {
+    return this.mount.superThread
+      ? loaded(omitGone(this.pool.row('superThread', this.mount.superThread.threadId)))
+      : undefined
+  }
   @lazy({ equals: compareShallow }) get records() {
-    return loaded(omitGone(this.pool.row('chatContextReader', 'reader')))?.records(this.sessionId).records ?? []
+    return (
+      loaded(omitGone(this.pool.row('chatContextReader', 'reader')))?.records(this.sessionId)
+        .records ?? []
+    )
   }
   @lazy({ equals: compareShallow }) get heldSends() {
     return loaded(omitGone(this.pool.row('chatHeld', this.sessionId)))?.sends ?? []
   }
-  @lazy get hasPending(): boolean { return this.sends.bubbles.length > 0 }
+  @lazy get hasPending(): boolean {
+    return this.sends.bubbles.length > 0
+  }
   @lazy get ready(): boolean {
     const reader = loaded(omitGone(this.pool.row('chatContextReader', 'reader')))
     const held = loaded(omitGone(this.pool.row('chatHeld', this.sessionId)))
@@ -75,153 +119,318 @@ export class WebConversation extends ConversationService {
   }
   @lazy override get latestOperatorPrompt(): string | null {
     const prompt = this.lastSubmittedPrompt ?? this.transcript.latestOperatorPrompt
-    return prompt ? parseEnvelopeBatch(prompt)?.operatorText ?? prompt : null
+    return prompt ? (parseEnvelopeBatch(prompt)?.operatorText ?? prompt) : null
   }
-  @actionBound rememberPrompt(text: string): void { this.lastSubmittedPrompt = text || null }
-  override dispose(): void { for (const view of this.views) view.dispose(); this.views.clear(); super.dispose() }
-
+  @actionBound rememberPrompt(text: string): void {
+    this.lastSubmittedPrompt = text || null
+  }
+  override dispose(): void {
+    for (const view of this.views) view.dispose()
+    this.views.clear()
+    super.dispose()
+  }
 }
 
-export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPool, sessionId: SessionId, mount: ConversationMountOptions): WebConversation {
+export function createWebConversation(
+  runtime: ClientRuntime<Trpc>,
+  pool: MobxPool,
+  sessionId: SessionId,
+  mount: ConversationMountOptions,
+): WebConversation {
   pool.bindSessionDrafts(runtime.drafts)
   const store = runtime.access
   const { hub, trpc, replica } = store
   const readSession = () => here(pool.model('session', sessionId))
-  const readRecords = () => loaded(omitGone(pool.row('chatContextReader', 'reader')))?.records(sessionId).records ?? []
+  const readRecords = () =>
+    loaded(omitGone(pool.row('chatContextReader', 'reader')))?.records(sessionId).records ?? []
   const readHeld = () => loaded(omitGone(pool.row('chatHeld', sessionId)))?.sends ?? []
   const headless = mount.superThread !== undefined || readSession()?.headless === true
   const attachmentHistoryReads = new Set<string>()
   let conversation: WebConversation
-  const held: ConversationPendingTurn[] = headless ? [] : readHeld().map((send, index) => ({
-    id: `outbox-${index}-${send.mutationId}`, deliveryId: send.mutationId,
-    text: send.text, wire: send.text, at: send.queuedAt, state: send.state, kind: 'message',
-    ...(send.attachments ? { attachments: send.attachments } : {}),
-    ...(send.failure ? { error: send.failure.message, ...(send.failure.retryable ? {} : { retryable: false }) } : {}),
-  }))
-  const initialPending = mount.initialPendingText ? [{
-    id: 'pending-first-turn', deliveryId: 'pending-first-turn', text: mount.initialPendingText,
-    wire: mount.initialPendingText, at: Date.now(), state: 'sent' as const, kind: 'message' as const,
-    reconcile: headless ? 'next-user-item' as const : 'initial-prompt' as const,
-  }, ...held] : held
-  conversation = new WebConversation({
-    sessionId, drafts: { get: id => pool.sessionObject(id).messageDraft, set: (id, text) => pool.sessionObject(id).setMessageDraft(text) }, ...(typeof hub.on === 'function' ? { hub } : {}), headless,
-    initialTurnRunning: mount.initialTurnRunning,
-    readSession,
-    ...(mount.superThread ? { readTurnRunning: () => conversation.thread?.turnRunning } : {}),
-    ...(typeof hub.connectionHealth === 'function' && typeof hub.on === 'function' ? { connection: hubConnection(hub) } : {}),
-    transcript: {
-      initialLimit: INITIAL_LIMIT, pageLimit: PAGE_LIMIT,
-      retainHistory: () => conversation?.retainHistory ?? false,
-      collapseMachineContext: headless,
-      visible: () => typeof document === 'undefined' || document.visibilityState !== 'hidden',
-      source: {
-        read: async request => {
-          const page = await trpc.sessions.transcriptRead.query(request)
-          const ids = page.items.filter(item => {
-            if (item.role !== 'user') return false
-            if (chatItemMessage(pool, request.sessionId, item.id)) {
-              attachmentHistoryReads.delete(item.id)
-              return false
-            }
-            return !attachmentHistoryReads.has(item.id) && (
-              item.tags?.length || item.toolPaths?.length || item.text === '' ||
-              stagedAttachmentId(item.text.split('\n', 1)[0] ?? '') || /^\[Image #\d+\]/.test(item.text)
-            )
-          }).map(item => item.id)
-          // The feed has a bounded confirmation window. Ask for attachment
-          // records by item identity when loading history, including after a
-          // reload or session exit. These reads never delay transcript display.
-          for (let at = 0; at < ids.length; at += 100) {
-            const batch = ids.slice(at, at + 100)
-            for (const id of batch) attachmentHistoryReads.add(id)
-            void trpc.messages.records.query({ sessionId: request.sessionId, transcriptItemIds: batch }).then(answer => {
-              ingestMessageRecords(pool, answer.records, id => currentMessageRecord(pool, replica, id))
-            }).catch(() => {
-              for (const id of batch) attachmentHistoryReads.delete(id)
-            })
-          }
-          return page
+  const held: ConversationPendingTurn[] = headless
+    ? []
+    : readHeld().map((send, index) => ({
+        id: `outbox-${index}-${send.mutationId}`,
+        deliveryId: send.mutationId,
+        text: send.text,
+        wire: send.text,
+        at: send.queuedAt,
+        state: send.state,
+        kind: 'message',
+        ...(send.attachments ? { attachments: send.attachments } : {}),
+        ...(send.failure
+          ? { error: send.failure.message, ...(send.failure.retryable ? {} : { retryable: false }) }
+          : {}),
+      }))
+  const initialPending = mount.initialPendingText
+    ? [
+        {
+          id: 'pending-first-turn',
+          deliveryId: 'pending-first-turn',
+          text: mount.initialPendingText,
+          wire: mount.initialPendingText,
+          at: Date.now(),
+          state: 'sent' as const,
+          kind: 'message' as const,
+          reconcile: headless ? ('next-user-item' as const) : ('initial-prompt' as const),
         },
-        subscribe: (id, since, listener) => hub.subscribeTranscript(id, since, listener),
+        ...held,
+      ]
+    : held
+  conversation = new WebConversation(
+    {
+      sessionId,
+      drafts: {
+        get: (id) => pool.sessionObject(id).messageDraft,
+        set: (id, text) => pool.sessionObject(id).setMessageDraft(text),
       },
-      ...(replica ? { cache: { maxItems: REPLICA_TRANSCRIPT_ITEM_CAP, read: id => replica.transcriptWindow(id), write: (id, items) => replica.putTranscriptWindow(id, [...items]) } } : {}),
+      ...(typeof hub.on === 'function' ? { hub } : {}),
+      headless,
+      initialTurnRunning: mount.initialTurnRunning,
+      readSession,
+      ...(mount.superThread ? { readTurnRunning: () => conversation.thread?.turnRunning } : {}),
+      ...(typeof hub.connectionHealth === 'function' && typeof hub.on === 'function'
+        ? { connection: hubConnection(hub) }
+        : {}),
+      transcript: {
+        initialLimit: INITIAL_LIMIT,
+        pageLimit: PAGE_LIMIT,
+        retainHistory: () => conversation?.retainHistory ?? false,
+        retainFrom: () => conversation?.retainFrom,
+        collapseMachineContext: headless,
+        visible: () => typeof document === 'undefined' || document.visibilityState !== 'hidden',
+        source: {
+          read: async (request) => {
+            const page = await trpc.sessions.transcriptRead.query(request)
+            const ids = page.items
+              .filter((item) => {
+                if (item.role !== 'user') return false
+                if (chatItemMessage(pool, request.sessionId, item.id)) {
+                  attachmentHistoryReads.delete(item.id)
+                  return false
+                }
+                return (
+                  !attachmentHistoryReads.has(item.id) &&
+                  (item.tags?.length ||
+                    item.toolPaths?.length ||
+                    item.text === '' ||
+                    stagedAttachmentId(item.text.split('\n', 1)[0] ?? '') ||
+                    /^\[Image #\d+\]/.test(item.text))
+                )
+              })
+              .map((item) => item.id)
+            // The feed has a bounded confirmation window. Ask for attachment
+            // records by item identity when loading history, including after a
+            // reload or session exit. These reads never delay transcript display.
+            for (let at = 0; at < ids.length; at += 100) {
+              const batch = ids.slice(at, at + 100)
+              for (const id of batch) attachmentHistoryReads.add(id)
+              void trpc.messages.records
+                .query({ sessionId: request.sessionId, transcriptItemIds: batch })
+                .then((answer) => {
+                  ingestMessageRecords(pool, answer.records, (id) =>
+                    currentMessageRecord(pool, replica, id),
+                  )
+                })
+                .catch(() => {
+                  for (const id of batch) attachmentHistoryReads.delete(id)
+                })
+            }
+            return page
+          },
+          subscribe: (id, since, listener) => hub.subscribeTranscript(id, since, listener),
+        },
+        ...(replica
+          ? {
+              cache: {
+                maxItems: REPLICA_TRANSCRIPT_ITEM_CAP,
+                read: (id) => replica.transcriptWindow(id),
+                write: (id, items) => replica.putTranscriptWindow(id, [...items]),
+              },
+            }
+          : {}),
+      },
+      onTranscriptChange: (change) => conversation?.changed(change),
+      ...(mount.superThread
+        ? {
+            latestTurnFailure: () =>
+              trpc.superagent.latestTurnFailure.query({ threadId: mount.superThread!.threadId }),
+          }
+        : {}),
+      sends: {
+        ...(headless
+          ? { reconcile: 'next-user-item' as const }
+          : {
+              records: {
+                getSnapshot: () => conversation?.records ?? readRecords(),
+                subscribe: (listener) =>
+                  reaction(() => conversation.records.map((record) => record.row), listener, {
+                    equals: compareShallow,
+                  }),
+              },
+              outbox: {
+                held: () => conversation?.heldSends ?? readHeld(),
+                subscribe: (listener) => reaction(() => conversation.heldSends, listener),
+              },
+              messageRecords: {
+                read: (id) => here(pool.model('messageRecord', id)),
+                ingest: (records) =>
+                  ingestMessageRecords(pool, records, (id) =>
+                    currentMessageRecord(pool, replica, id),
+                  ),
+              },
+              lookupRecords: (ids) =>
+                trpc.messages.records.query({ ids: [...ids] }).then((answer) => answer.records),
+              retract: (id) =>
+                trpc.messages.cancel.mutate({ id }).then((message) => message.deliveryStatus),
+              discard: (id) => store.discardChat(asMutationId(id)),
+              dismissNotice: (id) =>
+                trpc.messages.dismissNotice.mutate({ id }).then(() => undefined),
+            }),
+        initialPending,
+        initialJustSent: mount.initialPendingText !== undefined && !headless,
+        createDeliveryId: () => `msg_${randomUUID()}`,
+        optimisticSendCeilingMs: OPTIMISTIC_SEND_CEILING_MS,
+        optimisticDismissOffer: false,
+        dismissOffer: (at) => store.dismissOffer(sessionId, at),
+        interrupt: async (messageId) => {
+          if (headless && mount.superThread) {
+            await trpc.superagent.interruptTurn.mutate({ threadId: mount.superThread.threadId })
+            return
+          }
+          const result = await trpc.sessions.interrupt.mutate({
+            sessionId,
+            ...(messageId ? { messageId } : {}),
+          })
+          if (result && typeof result === 'object' && 'ok' in result && result.ok === false)
+            throw new Error(
+              'reason' in result && typeof result.reason === 'string'
+                ? result.reason
+                : 'the agent refused the interrupt',
+            )
+        },
+        deliver: async (turn) => {
+          conversation.rememberPrompt(turn.text)
+          if (!conversation.ready) throw new Error('Conversation context is loading.')
+          const composer = composerState({
+            session: conversation.session,
+            headless,
+            turnRunning: conversation.turnRunning,
+            compact: mount.compact ?? false,
+          })
+          const route = chatSendRoute({
+            sessionId,
+            headless,
+            superThread: mount.superThread,
+            composer,
+            ...(mount.superThread
+              ? { ownThreadIds: new Set(conversation.thread ? [conversation.thread.id] : []) }
+              : {}),
+          })
+          if (conversation.heldSends.some((send) => send.mutationId === turn.deliveryId))
+            return store.sendChat(
+              { sessionId, text: turn.wire, wake: route.kind === 'resume' },
+              asMutationId(turn.deliveryId),
+            )
+          if (route.kind === 'session' || route.kind === 'resume') {
+            store.setPanelMode(sessionId, 'chat')
+            return store.sendChat(
+              {
+                sessionId,
+                text: turn.wire,
+                wake: route.kind === 'resume',
+                ...(turn.attachments?.length ? { attachments: turn.attachments } : {}),
+              },
+              asMutationId(turn.deliveryId),
+            )
+          }
+          if (route.kind === 'refused') {
+            conversation.setTurnError(route.reason)
+            throw new Error(route.reason)
+          }
+          // The superagent's turn is its text alone, queued durably as text, so a
+          // staged attachment rides there as its path ahead of the words: the
+          // path-text form its headless driver declares (POD-6093).
+          const wire = turn.attachments?.length
+            ? [...turn.attachments.map((attachment) => attachment.path), turn.wire]
+                .filter(Boolean)
+                .join('\n')
+            : turn.wire
+          const focus = store.getUserFocus()
+          const backend = turn.backend ?? {
+            model: conversation.thread?.model ?? 'auto',
+            effort: conversation.thread?.effort ?? 'auto',
+            agentKind: conversation.thread?.agentKind,
+          }
+          const harness = HarnessAgent.safeParse(backend.agentKind)
+          const choice = {
+            ...(backend.model ? { model: backend.model } : {}),
+            ...(backend.effort ? { effort: backend.effort } : {}),
+            ...(harness.success && backend.model !== 'auto' ? { agentKind: harness.data } : {}),
+          }
+          try {
+            if (route.kind === 'concierge') {
+              await trpc.superagent.concierge.mutate({
+                repoPath: route.repoPath,
+                text: wire,
+                focus,
+                ...choice,
+              })
+              return { state: 'sent' }
+            }
+            const attached = store.attachedSessionId
+            const answer = await trpc.superagent.sendTurn.mutate({
+              threadId: route.threadId,
+              text: wire,
+              focus,
+              ...(attached ? { attachSessionId: attached } : {}),
+              ...choice,
+            })
+            if (attached) store.clearAttachedSession()
+            return { state: answer?.queued ? 'queued' : 'sent' }
+          } catch (error) {
+            conversation.setTurnError(error instanceof Error ? error.message : String(error))
+            throw error
+          }
+        },
+      },
     },
-    onTranscriptChange: change => conversation?.changed(change),
-    ...(mount.superThread ? { latestTurnFailure: () => trpc.superagent.latestTurnFailure.query({ threadId: mount.superThread!.threadId }) } : {}),
-    sends: {
-      ...(headless ? { reconcile: 'next-user-item' as const } : {
-        records: { getSnapshot: () => conversation?.records ?? readRecords(), subscribe: listener => reaction(() => conversation.records.map(record => record.row), listener, { equals: compareShallow }) },
-        outbox: { held: () => conversation?.heldSends ?? readHeld(), subscribe: listener => reaction(() => conversation.heldSends, listener) },
-        messageRecords: { read: id => here(pool.model('messageRecord', id)), ingest: records => ingestMessageRecords(pool, records, id => currentMessageRecord(pool, replica, id)) },
-        lookupRecords: ids => trpc.messages.records.query({ ids: [...ids] }).then(answer => answer.records),
-        retract: id => trpc.messages.cancel.mutate({ id }).then(message => message.deliveryStatus),
-        discard: id => store.discardChat(asMutationId(id)),
-        dismissNotice: id => trpc.messages.dismissNotice.mutate({ id }).then(() => undefined),
-      }),
-      initialPending,
-      initialJustSent: mount.initialPendingText !== undefined && !headless,
-      createDeliveryId: () => `msg_${randomUUID()}`,
-      optimisticSendCeilingMs: OPTIMISTIC_SEND_CEILING_MS,
-      optimisticDismissOffer: false,
-      dismissOffer: at => store.dismissOffer(sessionId, at),
-      interrupt: async messageId => {
-        if (headless && mount.superThread) { await trpc.superagent.interruptTurn.mutate({ threadId: mount.superThread.threadId }); return }
-        const result = await trpc.sessions.interrupt.mutate({ sessionId, ...(messageId ? { messageId } : {}) })
-        if (result && typeof result === 'object' && 'ok' in result && result.ok === false)
-          throw new Error('reason' in result && typeof result.reason === 'string' ? result.reason : 'the agent refused the interrupt')
-      },
-      deliver: async turn => {
-        conversation.rememberPrompt(turn.text)
-        if (!conversation.ready) throw new Error('Conversation context is loading.')
-        const composer = composerState({ session: conversation.session, headless, turnRunning: conversation.turnRunning, compact: mount.compact ?? false })
-        const route = chatSendRoute({ sessionId, headless, superThread: mount.superThread, composer,
-          ...(mount.superThread ? { ownThreadIds: new Set(conversation.thread ? [conversation.thread.id] : []) } : {}),
-        })
-        if (conversation.heldSends.some(send => send.mutationId === turn.deliveryId))
-          return store.sendChat({ sessionId, text: turn.wire, wake: route.kind === 'resume' }, asMutationId(turn.deliveryId))
-        if (route.kind === 'session' || route.kind === 'resume') {
-          store.setPanelMode(sessionId, 'chat')
-          return store.sendChat({ sessionId, text: turn.wire, wake: route.kind === 'resume', ...(turn.attachments?.length ? { attachments: turn.attachments } : {}) }, asMutationId(turn.deliveryId))
-        }
-        if (route.kind === 'refused') { conversation.setTurnError(route.reason); throw new Error(route.reason) }
-        // The superagent's turn is its text alone, queued durably as text, so a
-        // staged attachment rides there as its path ahead of the words: the
-        // path-text form its headless driver declares (POD-6093).
-        const wire = turn.attachments?.length ? [...turn.attachments.map(attachment => attachment.path), turn.wire].filter(Boolean).join('\n') : turn.wire
-        const focus = store.getUserFocus()
-        const backend = turn.backend ?? { model: conversation.thread?.model ?? 'auto', effort: conversation.thread?.effort ?? 'auto', agentKind: conversation.thread?.agentKind }
-        const harness = HarnessAgent.safeParse(backend.agentKind)
-        const choice = { ...(backend.model ? { model: backend.model } : {}), ...(backend.effort ? { effort: backend.effort } : {}), ...(harness.success && backend.model !== 'auto' ? { agentKind: harness.data } : {}) }
-        try {
-          if (route.kind === 'concierge') { await trpc.superagent.concierge.mutate({ repoPath: route.repoPath, text: wire, focus, ...choice }); return { state: 'sent' } }
-          const attached = store.attachedSessionId
-          const answer = await trpc.superagent.sendTurn.mutate({ threadId: route.threadId, text: wire, focus, ...(attached ? { attachSessionId: attached } : {}), ...choice })
-          if (attached) store.clearAttachedSession()
-          return { state: answer?.queued ? 'queued' : 'sent' }
-        } catch (error) { conversation.setTurnError(error instanceof Error ? error.message : String(error)); throw error }
-      },
-    },
-  }, pool, runtime, mount)
+    pool,
+    runtime,
+    mount,
+  )
   return conversation
 }
 
 /** One lifecycle hook for session and thread chat; all state stays in its owner. */
-export function useConversation(sessionId: SessionId, options: ConversationMountOptions = {}): WebConversation | null {
+export function useConversation(
+  sessionId: SessionId,
+  options: ConversationMountOptions = {},
+): WebConversation | null {
   const runtime = useStoreHandle<Trpc>()
   const pool = useWorklistPool()
-  const readReady = useCallback((pool: MobxPool) => {
-    const reader = loaded(omitGone(pool.row('chatContextReader', 'reader')))
-    const held = loaded(omitGone(pool.row('chatHeld', sessionId)))
-    return !!reader && !!held && reader.records(sessionId).pending === 0
-  }, [sessionId])
+  const readReady = useCallback(
+    (pool: MobxPool) => {
+      const reader = loaded(omitGone(pool.row('chatContextReader', 'reader')))
+      const held = loaded(omitGone(pool.row('chatHeld', sessionId)))
+      return !!reader && !!held && reader.records(sessionId).pending === 0
+    },
+    [sessionId],
+  )
   const ready = useWorklistPoolProjection(readReady, false)
   const gate = useRef({ runtime, sessionId, ready: false })
-  if (gate.current.runtime !== runtime || gate.current.sessionId !== sessionId) gate.current = { runtime, sessionId, ready: false }
+  if (gate.current.runtime !== runtime || gate.current.sessionId !== sessionId)
+    gate.current = { runtime, sessionId, ready: false }
   if (ready) gate.current.ready = true
-  const cacheId = options.superThread ? asSessionId(`${sessionId}:thread:${options.superThread.threadId}`) : sessionId
-  const conversation = useOwnedConversation<WebConversation>(cacheId,
-    () => createWebConversation(runtime, pool!, sessionId, options),
-    { enabled: !!pool && gate.current.ready && !options.deferInitialTranscript }) ?? null
+  const cacheId = options.superThread
+    ? asSessionId(`${sessionId}:thread:${options.superThread.threadId}`)
+    : sessionId
+  const conversation =
+    useOwnedConversation<WebConversation>(
+      cacheId,
+      () => createWebConversation(runtime, pool!, sessionId, options),
+      { enabled: !!pool && gate.current.ready && !options.deferInitialTranscript },
+    ) ?? null
   const active = options.active !== false && !options.deferInitialTranscript
   const activation = useRef({ runtime, cacheId, active, conversation })
   useEffect(() => {
@@ -242,13 +451,29 @@ export function useConversation(sessionId: SessionId, options: ConversationMount
     // Deferral releases this reader, but the owner may keep its conversation warm.
     if (conversation) previous.conversation = conversation
   }, [runtime, cacheId, active, conversation])
-  const onInitialPendingSettled = options.onInitialPendingSettled ?? conversation?.mount.onInitialPendingSettled
+  const onInitialPendingSettled =
+    options.onInitialPendingSettled ?? conversation?.mount.onInitialPendingSettled
   useEffect(() => {
-    if (!conversation || !onInitialPendingSettled || conversation.mount.initialPendingText === undefined) return
+    if (
+      !conversation ||
+      !onInitialPendingSettled ||
+      conversation.mount.initialPendingText === undefined
+    )
+      return
     let settled = false
-    return reaction(() => conversation.sends.pending.some(turn => turn.id === 'pending-first-turn' && turn.reconcile !== 'record'), pending => {
-      if (!pending && !settled) { settled = true; onInitialPendingSettled() }
-    }, { fireImmediately: true })
+    return reaction(
+      () =>
+        conversation.sends.pending.some(
+          (turn) => turn.id === 'pending-first-turn' && turn.reconcile !== 'record',
+        ),
+      (pending) => {
+        if (!pending && !settled) {
+          settled = true
+          onInitialPendingSettled()
+        }
+      },
+      { fireImmediately: true },
+    )
   }, [conversation, onInitialPendingSettled])
   return conversation
 }

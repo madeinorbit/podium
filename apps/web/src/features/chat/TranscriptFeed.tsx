@@ -1,29 +1,42 @@
+import type { HeadlessOverlay, TurnPreview } from '@podium/client-core/conversation'
 import type { SessionView } from '@podium/client-core/session-values'
-import type { SessionModel } from '@podium/client-graph/models'
 import type {
   ChatActivity,
   ChatBlock,
   ChatRow,
   RenderableRow,
+  SessionIssueOutcome,
   TranscriptAttributionTable,
   TranscriptPhase,
   TranscriptSearchState,
 } from '@podium/client-core/values'
 import {
+  activityRowSingletonDisplay,
   attributionForRole,
   isInteractiveTool,
   sessionWaking,
+  toolBatchTitles,
 } from '@podium/client-core/values'
-import { agentErrorRecoveryInstruction, formatAgentError } from '@podium/model/browser'
-import type { SessionId} from '@podium/model/browser'
+import type { SessionModel } from '@podium/client-graph/models'
 import { MESSAGE_ACCEPTED_LINE } from '@podium/model'
+import type { SessionId } from '@podium/model/browser'
+import { agentErrorRecoveryInstruction, formatAgentError } from '@podium/model/browser'
 import { ArrowUp, Image as ImageIcon, RotateCcw } from 'lucide-react'
+import { Observer, observer } from 'mobx-react-lite'
 import type { JSX, RefCallback, UIEventHandler } from 'react'
-import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { observer, Observer } from 'mobx-react-lite'
-import type { ChatSurface } from './use-chat-layout'
+import {
+  Fragment,
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
 import { renderMarkdownUnsafe } from '@/lib/markdown-renderer'
+import type { QuoteInput } from '@/lib/quote/quote-sinks'
 import { useKnownRefPrefixesVersion } from '@/lib/use-known-ref-prefixes'
 import { cn } from '@/lib/utils'
 import {
@@ -34,19 +47,31 @@ import {
 } from './ChatBlockView'
 import { ChatUploadThumb } from './ChatUploadThumb'
 import type { PendingItem } from './chat'
+import { IssueOutcomeCard } from './IssueOutcomeCard'
 import { MetaGlyph } from './MetaGlyph'
+import type { MailReply } from './mail-reply'
+import { NarrowMessageActions, useNarrowMessageActions } from './message-actions-layout'
 import { ToolBatchView } from './ToolBatchView'
 import { TranscriptCold } from './TranscriptCold'
-import { TranscriptWindowRow, useTranscriptWindow } from './TranscriptWindow'
 import { TranscriptStandby } from './TranscriptStandby'
-import { IssueOutcomeCard } from './IssueOutcomeCard'
 import { TranscriptTail, trailingRunIsLive } from './TranscriptTail'
+import { TranscriptWindowRow, useTranscriptWindow } from './TranscriptWindow'
+import { lineOwnsTail, previewMembers, TurnLineView, turnTail } from './TurnLineView'
 import { transcriptComputeClient } from './transcript-compute-client'
 import { dayKey, dayLabel, rowTimestamp } from './transcript-time'
+import {
+  type FoldLine,
+  foldLayout,
+  isProcessRow,
+  NO_FOLDS,
+  TurnFoldState,
+  turnFolds,
+} from './turn-fold'
+import { PresentedTurn } from './turn-line-model'
+import type { ChatSurface } from './use-chat-layout'
 import { rowIdentity, useFeedArrivals } from './use-feed-arrivals'
-import type { HeadlessOverlay, TurnPreview } from '@podium/client-core/conversation'
-import type { SessionIssueOutcome } from '@podium/client-core/values'
-import type { QuoteInput } from '@/lib/quote/quote-sinks'
+
+export { isProcessRow } from './turn-fold'
 
 /** Pending text uses the same sanitized Markdown and link handling as history. */
 const PendingMarkdown = memo(function PendingMarkdown({
@@ -203,7 +228,9 @@ export function queuedDeliveryLabel(
   position?: number,
 ): string {
   const error = queueIsBlocked(session)
-    ? session && 'agentError' in session ? session.agentError : session?.agentState?.error
+    ? session && 'agentError' in session
+      ? session.agentError
+      : session?.agentState?.error
     : undefined
   if (error) {
     const instruction = agentErrorRecoveryInstruction(error).replace(/\.$/, '')
@@ -244,14 +271,6 @@ function RetractButton({ onRetract }: { onRetract: () => void }) {
 /** Public process narration is visible transcript content, not hidden chain of
  * thought. It includes the assistant's intermediate commentary and the tool
  * activity that commentary introduces, then ends before the final answer. */
-export function isProcessRow(row: ChatRow): boolean {
-  if (row.kind === 'tools') return true
-  const { item } = row.block
-  if (item.role === 'assistant') return !item.answer
-  if (item.role === 'tool') return !isInteractiveTool(item)
-  return false
-}
-
 export function processPosition(
   row: ChatRow,
   previous: ChatRow | undefined,
@@ -295,6 +314,7 @@ export interface TranscriptFeedProps {
   /** Unsafe HTML produced by the shared worker; ChatBlockView sanitizes it. */
   markdownHtml: ReadonlyMap<string, string>
   search: TranscriptSearchState
+  searchQuery?: string
   /** Absolute row requested by an external transcript deep-link. */
   revealedRow?: number
   moreAbove: boolean
@@ -354,126 +374,198 @@ export interface TranscriptFeedProps {
   /** Quote a message into the composer (POD-376 per-message actions). Absent →
    *  the Quote action is not offered, which is what a host without a composer
    *  should get rather than a button that does nothing. */
+  mailReply?: MailReply | undefined
   onQuote?: (quote: QuoteInput) => void
   /** How the session's issue ended, drawn as the feed's last row (POD-2151). */
   outcome?: SessionIssueOutcome | null
 }
 
-export const TranscriptFeed = observer(function TranscriptFeed(props: TranscriptFeedProps): JSX.Element {
+export const TranscriptFeed = observer(function TranscriptFeed(
+  props: TranscriptFeedProps,
+): JSX.Element {
   const {
-  setScrollerRef,
-  setContentRef,
-  onScroll,
-  onPointerUp,
-  compact,
-  superagent,
-  phase,
-  rows,
-  blocks,
-  blockCount = blocks?.length ?? 0,
-  markdownHtml,
-  search,
-  revealedRow,
-  moreAbove,
-  loadingOlder,
-  loadOlder,
-  sessionId,
-  cwd,
-  session,
-  httpOrigin,
-  openFile,
-  onOpenImage,
-  onAnswerAsk,
-  answerInteractionId,
-  livePendingAskIndex,
-  pendingAskBlock,
-  lastAnswerBlockIndex,
-  ctxSeq = null,
-  collapseContext,
-  stickyEnabled,
-  isOperatorPromptRow,
-  pending = [],
-  onRetractQueued,
-  onRetryPending,
-  onDiscardPending,
-  onSendAgain,
-  overlay = null,
-  turnPreview = null,
-  activity = null,
-  offlineMachineName,
-  presenceOfflineMachineName,
-  attribution,
-  expandRuns = false,
-  onQuote,
+    setScrollerRef,
+    setContentRef,
+    onScroll,
+    onPointerUp,
+    compact,
+    superagent,
+    phase,
+    rows,
+    blocks,
+    blockCount = blocks?.length ?? 0,
+    markdownHtml,
+    search,
+    revealedRow,
+    moreAbove,
+    loadingOlder,
+    loadOlder,
+    sessionId,
+    cwd,
+    session,
+    httpOrigin,
+    openFile,
+    onOpenImage,
+    onAnswerAsk,
+    answerInteractionId,
+    livePendingAskIndex,
+    pendingAskBlock,
+    lastAnswerBlockIndex,
+    ctxSeq = null,
+    collapseContext,
+    stickyEnabled,
+    isOperatorPromptRow,
+    pending = [],
+    onRetractQueued,
+    onRetryPending,
+    onDiscardPending,
+    onSendAgain,
+    overlay = null,
+    turnPreview = null,
+    activity = null,
+    offlineMachineName,
+    presenceOfflineMachineName,
+    attribution,
+    expandRuns = false,
+    onQuote,
   } = props
+
+  const [localFolds] = useState(() => new TurnFoldState())
+  const presentation = props.chat?.view.presentation
+  const baseFolds = presentation?.turnFolds ?? turnFolds(rows, isOperatorPromptRow)
+  const fallbackSeed =
+    !props.chat && baseFolds.trailing?.state !== 'live' ? previewMembers(props)[0] : undefined
+  const seedFacts =
+    baseFolds.trailing?.state === 'live'
+      ? null
+      : props.chat && 'previewSeed' in props.chat.view
+        ? props.chat.view.previewSeed
+        : fallbackSeed
+          ? {
+              id: fallbackSeed.key,
+              role: fallbackSeed.block.item.role,
+              toolName: fallbackSeed.block.item.toolName,
+            }
+          : null
+  const seedId = seedFacts?.id,
+    seedRole = seedFacts?.role,
+    seedToolName = seedFacts?.toolName
+  const seed = useMemo<RenderableRow | undefined>(
+    () =>
+      seedId && seedRole
+        ? {
+            index: (rows.at(-1)?.index ?? -1) + 1,
+            row: {
+              kind: 'block',
+              blockIndex: -1,
+              block: { item: { id: seedId, role: seedRole, toolName: seedToolName, text: '' } },
+            },
+          }
+        : undefined,
+    [seedId, seedRole, seedToolName, rows],
+  )
+  const feedRows = useMemo(() => (seed ? [...rows, seed] : rows), [rows, seed])
+  const folds = useMemo(
+    () => (seed ? turnFolds(feedRows, isOperatorPromptRow) : baseFolds),
+    [seed, feedRows, baseFolds, isOperatorPromptRow],
+  )
+  const foldState = presentation?.folds ?? localFolds
+  const foldShape = foldLayout(folds, foldState, [search.activeRow, revealedRow], expandRuns)
 
   // Which rows LANDED, as opposed to which rows merely rendered — see
   // use-feed-arrivals. Identity is per row and index-free, so paging older
   // messages in above does not read as the whole feed arriving at once.
-  const windowKeys = useMemo(() => rows.map(({ row }) => rowIdentity(row)), [rows])
-  const arriving = useFeedArrivals(windowKeys)
+  const windowKeys = useMemo(
+    () =>
+      feedRows.map(({ row }) => {
+        const fold = folds.byStart.get(rowIdentity(row))
+        return fold && !(row.kind === 'tools' && row.blocks[0]?.item.role === 'user')
+          ? `turn:${fold.key}`
+          : rowIdentity(row)
+      }),
+    [feedRows, folds],
+  )
+  const sourceKeys = useMemo(() => feedRows.map(({ row }) => rowIdentity(row)), [feedRows])
+  const arriving = useFeedArrivals(sourceKeys)
   const windowScroller = useRef<HTMLDivElement | null>(null)
-  const setWindowScroller = useCallback<RefCallback<HTMLDivElement>>((element) => {
-    windowScroller.current = element
-    return setScrollerRef(element)
-  }, [setScrollerRef])
-  const windowing = useTranscriptWindow(windowKeys, windowScroller, `${compact}:${expandRuns}:${collapseContext}:${stickyEnabled}`)
+  const setWindowScroller = useCallback<RefCallback<HTMLDivElement>>(
+    (element) => {
+      windowScroller.current = element
+      return setScrollerRef(element)
+    },
+    [setScrollerRef],
+  )
+  const windowing = useTranscriptWindow(
+    windowKeys,
+    windowScroller,
+    `${compact}:${expandRuns}:${collapseContext}:${stickyEnabled}`,
+  )
   const searchMatches = useMemo(() => new Set(search.matches), [search.matches])
   // Recomputed with the rows rather than on a clock: "Today" only goes stale at
   // midnight, and by the time it does the next row to land refreshes it.
-  const dayMarks = useMemo(() => dayMarksByPosition(rows, new Date()), [rows])
-  return (
+  const dayMarks = useMemo(() => dayMarksByPosition(feedRows, new Date()), [feedRows])
+  const previousFolds = useRef(NO_FOLDS)
+  useLayoutEffect(() => {
+    previousFolds.current = folds
+    foldState.prime()
+  }, [folds, foldState])
+  const narrowActions = useNarrowMessageActions(windowScroller)
+  const feed = (
     <div
-      // Named so a portalled overlay hanging off a row can find the box it must
-      // stay inside. A tooltip's default collision boundary is the VIEWPORT, and
-      // the viewport does not stop at the feed — it continues down through the
-      // composer, which is how the work-line preview came to cover the prompt
-      // box. See WorkLinePreview in ToolBatchView.tsx.
-      data-feed-scroller=""
-      className={cn(
-        // The scrollport is deliberately NOT a flex container. The maintained
-        // follow primitive observes the one child below; making that child a
-        // shrinkable flex item lets its border box remain viewport-height while
-        // descendants overflow it, so ResizeObserver misses message growth even
-        // though scrollHeight changed. A plain scrollport + growing content box
-        // is the geometry the browser and the observer agree on.
-        'min-w-0 flex-1 overflow-x-clip overflow-y-auto overscroll-y-contain',
-        // §2.5 feed geometry: 12px/14px padding in the narrow column.
-        //
-        // THE MEASURE RETURNS, CENTRED (POD-993 round 2). POD-747 removed every
-        // cap here, and it was right about what it was fixing: there were two
-        // nested caps producing three different right edges inside one pane, with
-        // the composer and the tail running full width underneath them. What it
-        // put in place — the pane IS the measure — reads well up to about a
-        // thousand pixels and then stops: dragged to a 1600px stage the document
-        // sets 150-character lines, which is past the width at which the eye can
-        // find the start of the next one.
-        //
-        // So there is ONE cap, and it is on the column rather than on anything
-        // inside it: a 74-character measure, centred, with a 32px gutter that wins
-        // whenever the pane is narrower than the measure. Every voice obeys it
-        // because it is the scroller's own padding — nothing inside sets a width,
-        // so the failure POD-747 documented cannot come back. On narrower panes the
-        // expression collapses to exactly the flat 32px inset, which is the
-        // behaviour of the version this replaces.
-        //
-        // The rail's width comes OUT of the expression because a percentage in
-        // `padding` resolves against the CONTAINING BLOCK — here the box holding
-        // this scroller AND the reading rail beside it, not this scroller. The
-        // pinned brief's shelf uses the identical expression so the two share one
-        // measure; see `.brief-shelf-layer` in styles.css.
-        compact
-          ? 'px-3.5 pt-3 pb-4'
-          : 'px-[max(32px,calc((100%-var(--chat-reading-measure)-var(--chat-rail-w,0px))/2))] pt-[26px] pb-[14px]',
-      )}
-      ref={setWindowScroller}
-      onScroll={onScroll}
-      onPointerUp={onPointerUp}
+      data-feed-container=""
+      data-compact={compact || undefined}
+      className="flex min-h-0 min-w-0 flex-1"
     >
-      {/* One observed content column in normal DOM order. `min-h-full` keeps
+      <div
+        // Named so a portalled overlay hanging off a row can find the box it must
+        // stay inside. A tooltip's default collision boundary is the VIEWPORT, and
+        // the viewport does not stop at the feed — it continues down through the
+        // composer, which is how the work-line preview came to cover the prompt
+        // box. See WorkLinePreview in ToolBatchView.tsx.
+        data-feed-scroller=""
+        className={cn(
+          // The scrollport is deliberately NOT a flex container. The maintained
+          // follow primitive observes the one child below; making that child a
+          // shrinkable flex item lets its border box remain viewport-height while
+          // descendants overflow it, so ResizeObserver misses message growth even
+          // though scrollHeight changed. A plain scrollport + growing content box
+          // is the geometry the browser and the observer agree on.
+          'min-w-0 flex-1 overflow-x-clip overflow-y-auto overscroll-y-contain',
+          // §2.5 feed geometry: 12px/14px padding in the narrow column.
+          //
+          // THE MEASURE RETURNS, CENTRED (POD-993 round 2). POD-747 removed every
+          // cap here, and it was right about what it was fixing: there were two
+          // nested caps producing three different right edges inside one pane, with
+          // the composer and the tail running full width underneath them. What it
+          // put in place — the pane IS the measure — reads well up to about a
+          // thousand pixels and then stops: dragged to a 1600px stage the document
+          // sets 150-character lines, which is past the width at which the eye can
+          // find the start of the next one.
+          //
+          // So there is ONE cap, and it is on the column rather than on anything
+          // inside it: a 74-character measure, centred, with a 32px gutter that wins
+          // whenever the pane is narrower than the measure. Every voice obeys it
+          // because it is the scroller's own padding — nothing inside sets a width,
+          // so the failure POD-747 documented cannot come back. On narrower panes the
+          // expression collapses to exactly the flat 32px inset, which is the
+          // behaviour of the version this replaces.
+          //
+          // The feed container already excludes the reading rail. Percentages
+          // now resolve against that available width, so the padding subtracts
+          // only the measure. The pinned shelf still subtracts the rail from its
+          // wider containing block; both resolve to the same column.
+          compact
+            ? 'px-3.5 pt-3 pb-4'
+            : 'px-[max(32px,calc((100%-var(--chat-reading-measure))/2))] pt-[26px] pb-[14px]',
+        )}
+        ref={setWindowScroller}
+        onScroll={onScroll}
+        onPointerUp={onPointerUp}
+      >
+        {/* One observed content column in normal DOM order. `min-h-full` keeps
           the auto-margin spacer working for short conversations. */}
-      <div ref={setContentRef} className="feed-column flex min-h-full min-w-0 flex-col">
-        {/* A short conversation sits ON the composer instead of stranded at the
+        <div ref={setContentRef} className="feed-column flex min-h-full min-w-0 flex-col">
+          {/* A short conversation sits ON the composer instead of stranded at the
           top of an empty scrollport. An auto-margin spacer rather than
           `justify-end`, which makes overflow past the START edge unreachable in
           some engines: this collapses to zero the moment the feed overflows, so
@@ -481,151 +573,194 @@ export const TranscriptFeed = observer(function TranscriptFeed(props: Transcript
           resolves into content must occupy where that content will be (POD-700),
           and the standby's question belongs on the composer it is asking the
           reader to type into rather than centred in a void (POD-746). */}
-        <div className="mt-auto" aria-hidden="true" />
-        {phase === 'loading' && <TranscriptCold compact={compact} />}
-        {phase === 'empty' && offlineMachineName ? (
-          <div
-            className="transcript-standby"
-            data-testid="transcript-machine-offline"
-            role="status"
-          >
-            <p className="transcript-standby-ask shell-type-column-title">
-              <span>{`machine '${offlineMachineName}' is offline — history will load when it reconnects.`}</span>
-            </p>
-          </div>
-        ) : (
-          phase === 'empty' && (
-            <TranscriptStandby session={session} cwd={cwd} superagent={superagent} />
-          )
-        )}
-        {presenceOfflineMachineName && phase !== 'empty' && phase !== 'loading' && (
-          <div
-            className="transcript-offline-banner"
-            data-testid="transcript-machine-offline"
-            role="status"
-          >
-            <span>{`machine '${presenceOfflineMachineName}' is offline — showing last known transcript.`}</span>
-          </div>
-        )}
-        {/* Top sentinel: only the bounded tail of ROWS is mounted; more exist
+          <div className="mt-auto" aria-hidden="true" />
+          {phase === 'loading' && <TranscriptCold compact={compact} />}
+          {phase === 'empty' && offlineMachineName ? (
+            <div
+              className="transcript-standby"
+              data-testid="transcript-machine-offline"
+              role="status"
+            >
+              <p className="transcript-standby-ask shell-type-column-title">
+                <span>{`machine '${offlineMachineName}' is offline — history will load when it reconnects.`}</span>
+              </p>
+            </div>
+          ) : (
+            phase === 'empty' && (
+              <TranscriptStandby session={session} cwd={cwd} superagent={superagent} />
+            )
+          )}
+          {presenceOfflineMachineName && phase !== 'empty' && phase !== 'loading' && (
+            <div
+              className="transcript-offline-banner"
+              data-testid="transcript-machine-offline"
+              role="status"
+            >
+              <span>{`machine '${presenceOfflineMachineName}' is offline — showing last known transcript.`}</span>
+            </div>
+          )}
+          {/* Top sentinel: only the bounded tail of ROWS is mounted; more exist
           above (windowed-out locally or still on disk). Scrolling here autoloads
           them (onScroll → loadOlder); this is also a manual fallback if the
           scroll trigger is missed. */}
-        {blockCount > 0 && moreAbove && (
-          <button
-            data-pressable
-            type="button"
-            onClick={loadOlder}
-            disabled={loadingOlder}
-            className="transcript-pager"
-            aria-live="polite"
-          >
-            {loadingOlder ? (
-              <>
-                <ArrowUp size={11} aria-hidden="true" />
-                <strong>Earlier transcript</strong>
-                <span>loading…</span>
-              </>
-            ) : (
-              <>
-                <ArrowUp size={11} aria-hidden="true" />
-                <strong>Earlier transcript</strong>
-                <span>loads automatically · click to retry</span>
-              </>
-            )}
-          </button>
-        )}
-        {rows.map(({ row, index }, pos) => (
-          <TranscriptWindowRow key={rowIdentity(row)} window={windowing} rowKey={rowIdentity(row)} index={index}
-            geometryKey={`${dayMarks.get(pos) ?? ''}:${pos > 0 && isOperatorPromptRow(row) ? 'open' : turnPosition(row)}:${processPosition(row, rows[pos - 1]?.row)}`}>
-            {(remounted) => <TranscriptRow props={props} template={row} index={index} pos={pos}
-              previous={rows[pos - 1]?.row} arrived={!remounted && arriving.has(rowIdentity(row))}
-              dayMark={dayMarks.get(pos)} searchMatches={searchMatches} />}
-          </TranscriptWindowRow>
-        ))}
-        <Observer>{() => {
-          const pending = props.chat?.view.pending ?? props.pending ?? []
-          const session = props.chat?.view.session ?? props.session
-          return <>{pending.map((p) => {
-          // Waiting on the server: behind the turn in flight, or for the
-          // session to wake. Once handed on toward the agent the bubble keeps
-          // the same silence a message in flight keeps everywhere else in this
-          // feed (POD-1242), and it leaves when the history entry its record
-          // names is on screen (POD-4764).
-          const waiting = p.state === 'queued'
-          return (
-            <div
-              key={p.id}
-              data-testid={p.record ? 'chat-message-record' : undefined}
-              data-delivery={p.record?.status}
-              className={cn(
-                // An optimistic bubble is the operator opening an exchange, and is
-                // spaced like one — otherwise the feed's rhythm changes at the
-                // moment the real row replaces it.
-                'transcript-row transcript-turn-open',
-                // THE MESSAGE IS ON SCREEN BEFORE THE WIRE KNOWS (POD-993). The
-                // optimistic row plays the same arrival every landed row plays, so
-                // pressing send reads as the message MOVING into the conversation
-                // rather than as a row appearing where there wasn't one. The real
-                // row replaces it in the same place, at the same measure, and the
-                // swap is invisible.
-                'transcript-pending transcript-arrive-bubble',
-                (p.state === 'failed' || p.state === 'unknown') && 'transcript-pending--failed',
-              )}
+          {blockCount > 0 && moreAbove && (
+            <button
+              data-pressable
+              type="button"
+              onClick={loadOlder}
+              disabled={loadingOlder}
+              className="transcript-pager"
+              aria-live="polite"
             >
-              <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
-              <div className="transcript-body transcript-you">
-                <div
-                  className={cn('transcript-you-bubble', waiting && 'transcript-you-bubble--queued')}
-                >
-                  <div className="transcript-you-body">
-                    <PendingMarkdown text={p.text} sessionId={sessionId} cwd={cwd} openFile={openFile} />
-                    {p.files && p.files.length > 0 ? (
-                      <div className="mt-1.5 flex flex-wrap items-start gap-1.5">
-                        {p.files.map((file, i) => {
-                          // Until the issue holds its copy (POD-2148) a file
-                          // shows as the labelled chip it always did.
-                          const chip = (
-                            <span
-                              key={`${file.attachmentId ?? file.path}-${i}`}
-                              className="inline-flex items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground"
-                            >
-                              <ImageIcon size={12} aria-hidden="true" />
-                              {file.path}
-                            </span>
-                          )
-                          return file.kind === 'image' ? (
-                            <ChatUploadThumb
-                              key={`${file.attachmentId ?? file.path}-${i}`}
-                              sessionId={sessionId}
-                              attachmentId={file.attachmentId}
-                              fallbackUrl={null}
-                              name={file.path}
-                              httpOrigin={httpOrigin}
-                              onOpenImage={onOpenImage}
-                              fallback={chip}
-                            />
-                          ) : (
-                            chip
-                          )
-                        })}
-                      </div>
-                    ) : p.tags && p.tags.length > 0 && (
-                      <div className="mt-1.5 flex flex-wrap gap-1.5">
-                        {p.tags.map((tag, i) => (
-                          <span
-                            key={`${tag.kind}-${i}`}
-                            className="inline-flex items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground"
+              {loadingOlder ? (
+                <>
+                  <ArrowUp size={11} aria-hidden="true" />
+                  <strong>Earlier transcript</strong>
+                  <span>loading…</span>
+                </>
+              ) : (
+                <>
+                  <ArrowUp size={11} aria-hidden="true" />
+                  <strong>Earlier transcript</strong>
+                  <span>loads automatically · click to retry</span>
+                </>
+              )}
+            </button>
+          )}
+          {feedRows.map(({ row, index }, pos) => (
+            <TranscriptWindowRow
+              key={windowKeys[pos]}
+              window={windowing}
+              rowKey={windowKeys[pos]!}
+              index={index}
+              geometryKey={`${dayMarks.get(pos) ?? ''}:${pos > 0 && isOperatorPromptRow(row) ? 'open' : turnPosition(row)}:${processPosition(row, feedRows[pos - 1]?.row)}:${foldShape.hidden.has(index)}:${foldShape.lines.get(index)?.open}:${foldShape.lines.get(index)?.fold.key ?? ''}`}
+            >
+              {(remounted) => (
+                <TurnFeedRow
+                  props={props}
+                  template={row}
+                  index={index}
+                  pos={pos}
+                  previous={feedRows[pos - 1]?.row}
+                  arrived={!remounted && arriving.has(rowIdentity(row))}
+                  dayMark={dayMarks.get(pos)}
+                  searchMatches={searchMatches}
+                  hidden={foldShape.hidden.has(index)}
+                  line={foldShape.lines.get(index)}
+                  foldState={foldState}
+                  newest={foldShape.lines.get(index)?.fold === folds.trailing}
+                  standIn={folds.standIns.has(index)}
+                  externalAsk={folds.byMember.get(index)?.asks.has(index) === true}
+                  revealAnswer={
+                    foldState.primed &&
+                    folds.endings.has(index) &&
+                    (arriving.has(rowIdentity(row)) || previousFolds.current.byMember.has(index))
+                  }
+                />
+              )}
+            </TranscriptWindowRow>
+          ))}
+          <Observer>
+            {() => {
+              const pending = props.chat?.view.pending ?? props.pending ?? []
+              const session = props.chat?.view.session ?? props.session
+              return (
+                <>
+                  {pending.map((p) => {
+                    // Waiting on the server: behind the turn in flight, or for the
+                    // session to wake. Once handed on toward the agent the bubble keeps
+                    // the same silence a message in flight keeps everywhere else in this
+                    // feed (POD-1242), and it leaves when the history entry its record
+                    // names is on screen (POD-4764).
+                    const waiting = p.state === 'queued'
+                    return (
+                      <div
+                        key={p.id}
+                        data-testid={p.record ? 'chat-message-record' : undefined}
+                        data-delivery={p.record?.status}
+                        className={cn(
+                          // An optimistic bubble is the operator opening an exchange, and is
+                          // spaced like one — otherwise the feed's rhythm changes at the
+                          // moment the real row replaces it.
+                          'transcript-row transcript-turn-open',
+                          // THE MESSAGE IS ON SCREEN BEFORE THE WIRE KNOWS (POD-993). The
+                          // optimistic row plays the same arrival every landed row plays, so
+                          // pressing send reads as the message MOVING into the conversation
+                          // rather than as a row appearing where there wasn't one. The real
+                          // row replaces it in the same place, at the same measure, and the
+                          // swap is invisible.
+                          'transcript-pending transcript-arrive-bubble',
+                          (p.state === 'failed' || p.state === 'unknown') &&
+                            'transcript-pending--failed',
+                        )}
+                      >
+                        <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
+                        <div className="transcript-body transcript-you">
+                          <div
+                            className={cn(
+                              'transcript-you-bubble',
+                              waiting && 'transcript-you-bubble--queued',
+                            )}
                           >
-                            <ImageIcon size={12} aria-hidden="true" />
-                            {tag.label ?? tag.kind}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                {/* THE DELIVERY STATE IS THE CARD'S OWN CAPTION (POD-993) — no voice
+                            <div className="transcript-you-body">
+                              <PendingMarkdown
+                                text={p.text}
+                                sessionId={sessionId}
+                                cwd={cwd}
+                                openFile={openFile}
+                              />
+                              {p.files && p.files.length > 0 ? (
+                                <div className="mt-1.5 flex flex-wrap items-start gap-1.5">
+                                  {p.files.map((file, i) => {
+                                    // Until the issue holds its copy (POD-2148) a file
+                                    // shows as the labelled chip it always did.
+                                    const chip = (
+                                      <span
+                                        // biome-ignore lint/suspicious/noArrayIndexKey: an optimistic upload list has fixed order, including duplicate paths.
+                                        key={`${file.attachmentId ?? file.path}-${i}`}
+                                        className="inline-flex items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground"
+                                      >
+                                        <ImageIcon size={12} aria-hidden="true" />
+                                        {file.path}
+                                      </span>
+                                    )
+                                    return file.kind === 'image' ? (
+                                      <ChatUploadThumb
+                                        // biome-ignore lint/suspicious/noArrayIndexKey: an optimistic upload list has fixed order, including duplicate paths.
+                                        key={`${file.attachmentId ?? file.path}-${i}`}
+                                        sessionId={sessionId}
+                                        attachmentId={file.attachmentId}
+                                        fallbackUrl={null}
+                                        name={file.path}
+                                        httpOrigin={httpOrigin}
+                                        onOpenImage={onOpenImage}
+                                        fallback={chip}
+                                      />
+                                    ) : (
+                                      chip
+                                    )
+                                  })}
+                                </div>
+                              ) : (
+                                p.tags &&
+                                p.tags.length > 0 && (
+                                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                    {p.tags.map((tag, i) => (
+                                      <span
+                                        // biome-ignore lint/suspicious/noArrayIndexKey: optimistic tags never reorder.
+                                        key={`${tag.kind}-${i}`}
+                                        className="inline-flex items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground"
+                                      >
+                                        <ImageIcon size={12} aria-hidden="true" />
+                                        {tag.label ?? tag.kind}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )
+                              )}
+                            </div>
+                          </div>
+                          {/* THE DELIVERY STATE IS THE CARD'S OWN CAPTION (POD-993) — no voice
                 label, because the side already said who spoke.
 
                 A message in flight says NOTHING here: the breath at the end of
@@ -637,151 +772,168 @@ export const TranscriptFeed = observer(function TranscriptFeed(props: Transcript
                 The word is PENDING, not "queued" — one noun for every
                 not-yet-delivered bubble, whatever parked it (a hibernated
                 session, a turn already in flight, a server that queued it). */}
-                {p.state === 'interrupted' || p.state === 'retracted' ? (
-                  <div className="msg-foot" data-side="right">
-                    <span className="transcript-delivery">{p.state}</span>
-                  </div>
-                ) : p.state !== 'failed' &&
-                  p.state !== 'unknown' &&
-                  (waiting ||
-                    p.state === 'accepted' ||
-                    p.retractable ||
-                    p.retract ||
-                    p.retractError) ? (
-                  <div className="msg-foot" data-side="right">
-                    {p.retract ? (
-                      <span className="transcript-delivery" data-testid="retract-state">
-                        {retractCaption(p.retract)}
-                      </span>
-                    ) : p.state === 'accepted' ? (
-                      // The agent program has it, its history not yet (POD-4885):
-                      // a fact the breath at the tail cannot say, so it gets words.
-                      <span className="transcript-delivery" data-testid="delivery-accepted">
-                        {ACCEPTED_CAPTION}
-                      </span>
-                    ) : waiting ? (
-                      <span className="transcript-delivery">
-                        {p.record || queueIsBlocked(session)
-                          ? queuedDeliveryLabel(session, p.queuePosition)
-                          : `pending${queuePositionSuffix(p.queuePosition)}`}
-                      </span>
-                    ) : null}
-                    {p.retractError && (
-                      <span className="transcript-delivery transcript-delivery--error">
-                        {`couldn't retract — ${p.retractError}`}
-                      </span>
-                    )}
-                    {p.retractable && (
-                      <RetractButton onRetract={() => void onRetractQueued(p.id)} />
-                    )}
-                  </div>
-                ) : p.state === 'failed' || p.state === 'unknown' ? (
-                  <div className="msg-foot" data-side="right">
-                    <span className="transcript-delivery transcript-delivery--error">
-                      {p.state === 'unknown'
-                        ? 'not confirmed — it may or may not have arrived'
-                        : (p.failure ?? 'not delivered')}
-                    </span>
-                    {p.retract && (
-                      <span className="transcript-delivery" data-testid="retract-state">
-                        {retractCaption(p.retract)}
-                      </span>
-                    )}
-                    {p.retractable && (
-                      <RetractButton onRetract={() => void onRetractQueued(p.id)} />
-                    )}
-                    {p.notice !== undefined
-                      ? // THE SERVER HOLDS THIS MESSAGE AND SAYS IT DID NOT ARRIVE (or
-                        // cannot say). Never a resend of it: "send again" puts its
-                        // words back in the composer and the person sends them as a
-                        // NEW message by choice — for an unknown one knowing it may
-                        // already be there.
-                        onSendAgain && (
-                          <button
-                            data-pressable
-                            type="button"
-                            className="msg-action"
-                            aria-label={
-                              p.notice === 'unknown'
-                                ? 'Send again — it may already have arrived'
-                                : 'Send again'
-                            }
-                            title={
-                              p.notice === 'unknown'
-                                ? 'Send again — it may already have arrived'
-                                : 'Send again'
-                            }
-                            onClick={() => void onSendAgain(p.id)}
-                          >
-                            <RotateCcw size={12} strokeWidth={1.7} aria-hidden="true" />
-                          </button>
-                        )
-                      : // THE SAME MESSAGE AGAIN (POD-4762), never a new one: the
-                        // retry re-issues the entry the app still holds, under the id
-                        // the server would recognise if the first attempt had in fact
-                        // arrived. Withheld when the server refused these words,
-                        // because the same words would be refused again.
-                        p.retryable !== false &&
-                        onRetryPending && (
-                          <button
-                            data-pressable
-                            type="button"
-                            className="msg-action"
-                            aria-label="Retry sending message"
-                            title="Retry sending message"
-                            onClick={() => void onRetryPending(p.id)}
-                          >
-                            <RotateCcw size={12} strokeWidth={1.7} aria-hidden="true" />
-                          </button>
-                        )}
-                    {onDiscardPending && (
-                      <button
-                        data-pressable
-                        type="button"
-                        className="msg-action msg-action--retract"
-                        aria-label={p.notice !== undefined ? 'Dismiss' : 'Discard unsent message'}
-                        title={p.notice !== undefined ? 'Dismiss' : 'Discard unsent message'}
-                        onClick={() => void onDiscardPending(p.id)}
-                      >
-                        <MetaGlyph name="close" />
-                      </button>
-                    )}
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          )
-        })}</>
-        }}</Observer>
-        <Observer>{() => {
-          const turnPreview = props.chat?.view.preview ?? props.turnPreview
-          const overlay = props.chat?.view.headless ? props.chat.view.overlay : props.overlay
-          const previewHasText = turnPreview?.items.some(item => item.kind === 'text') === true
-          const lastRow = props.chat?.view?.presentation.tailRow(rows[rows.length - 1]?.row) ?? rows[rows.length - 1]?.row
-          return <>
-      {/* Headless streaming overlay: the in-progress assistant text (or the
+                          {p.state === 'interrupted' || p.state === 'retracted' ? (
+                            <div className="msg-foot" data-side="right">
+                              <span className="transcript-delivery">{p.state}</span>
+                            </div>
+                          ) : p.state !== 'failed' &&
+                            p.state !== 'unknown' &&
+                            (waiting ||
+                              p.state === 'accepted' ||
+                              p.retractable ||
+                              p.retract ||
+                              p.retractError) ? (
+                            <div className="msg-foot" data-side="right">
+                              {p.retract ? (
+                                <span className="transcript-delivery" data-testid="retract-state">
+                                  {retractCaption(p.retract)}
+                                </span>
+                              ) : p.state === 'accepted' ? (
+                                // The agent program has it, its history not yet (POD-4885):
+                                // a fact the breath at the tail cannot say, so it gets words.
+                                <span
+                                  className="transcript-delivery"
+                                  data-testid="delivery-accepted"
+                                >
+                                  {ACCEPTED_CAPTION}
+                                </span>
+                              ) : waiting ? (
+                                <span className="transcript-delivery">
+                                  {p.record || queueIsBlocked(session)
+                                    ? queuedDeliveryLabel(session, p.queuePosition)
+                                    : `pending${queuePositionSuffix(p.queuePosition)}`}
+                                </span>
+                              ) : null}
+                              {p.retractError && (
+                                <span className="transcript-delivery transcript-delivery--error">
+                                  {`couldn't retract — ${p.retractError}`}
+                                </span>
+                              )}
+                              {p.retractable && (
+                                <RetractButton onRetract={() => void onRetractQueued(p.id)} />
+                              )}
+                            </div>
+                          ) : p.state === 'failed' || p.state === 'unknown' ? (
+                            <div className="msg-foot" data-side="right">
+                              <span className="transcript-delivery transcript-delivery--error">
+                                {p.state === 'unknown'
+                                  ? 'not confirmed — it may or may not have arrived'
+                                  : (p.failure ?? 'not delivered')}
+                              </span>
+                              {p.retract && (
+                                <span className="transcript-delivery" data-testid="retract-state">
+                                  {retractCaption(p.retract)}
+                                </span>
+                              )}
+                              {p.retractable && (
+                                <RetractButton onRetract={() => void onRetractQueued(p.id)} />
+                              )}
+                              {p.notice !== undefined
+                                ? // THE SERVER HOLDS THIS MESSAGE AND SAYS IT DID NOT ARRIVE (or
+                                  // cannot say). Never a resend of it: "send again" puts its
+                                  // words back in the composer and the person sends them as a
+                                  // NEW message by choice — for an unknown one knowing it may
+                                  // already be there.
+                                  onSendAgain && (
+                                    <button
+                                      data-pressable
+                                      type="button"
+                                      className="msg-action"
+                                      aria-label={
+                                        p.notice === 'unknown'
+                                          ? 'Send again — it may already have arrived'
+                                          : 'Send again'
+                                      }
+                                      title={
+                                        p.notice === 'unknown'
+                                          ? 'Send again — it may already have arrived'
+                                          : 'Send again'
+                                      }
+                                      onClick={() => void onSendAgain(p.id)}
+                                    >
+                                      <RotateCcw size={12} strokeWidth={1.7} aria-hidden="true" />
+                                    </button>
+                                  )
+                                : // THE SAME MESSAGE AGAIN (POD-4762), never a new one: the
+                                  // retry re-issues the entry the app still holds, under the id
+                                  // the server would recognise if the first attempt had in fact
+                                  // arrived. Withheld when the server refused these words,
+                                  // because the same words would be refused again.
+                                  p.retryable !== false &&
+                                  onRetryPending && (
+                                    <button
+                                      data-pressable
+                                      type="button"
+                                      className="msg-action"
+                                      aria-label="Retry sending message"
+                                      title="Retry sending message"
+                                      onClick={() => void onRetryPending(p.id)}
+                                    >
+                                      <RotateCcw size={12} strokeWidth={1.7} aria-hidden="true" />
+                                    </button>
+                                  )}
+                              {onDiscardPending && (
+                                <button
+                                  data-pressable
+                                  type="button"
+                                  className="msg-action msg-action--retract"
+                                  aria-label={
+                                    p.notice !== undefined ? 'Dismiss' : 'Discard unsent message'
+                                  }
+                                  title={
+                                    p.notice !== undefined ? 'Dismiss' : 'Discard unsent message'
+                                  }
+                                  onClick={() => void onDiscardPending(p.id)}
+                                >
+                                  <MetaGlyph name="close" />
+                                </button>
+                              )}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </>
+              )
+            }}
+          </Observer>
+          <Observer>
+            {() => {
+              if (folds.trailing?.state === 'live' || folds.trailing?.state === 'paused')
+                return null
+              const turnPreview = props.chat?.view.preview ?? props.turnPreview
+              const overlay = props.chat?.view.headless ? props.chat.view.overlay : props.overlay
+              const previewHasText =
+                turnPreview?.items.some((item) => item.kind === 'text') === true
+              const lastRow =
+                props.chat?.view?.presentation.tailRow(rows[rows.length - 1]?.row) ??
+                rows[rows.length - 1]?.row
+              return (
+                <>
+                  {/* Headless streaming overlay: the in-progress assistant text (or the
           driver's status label) below the last transcript row. Replaced by
           the real item when it lands via the transcript tail; cleared on
           turn-end. Native sessions never emit these frames. */}
 
-      {/* The text carries a caret while it is still being written (POD-423):
+                  {/* The text carries a caret while it is still being written (POD-423):
           the overlay exists only mid-turn, so its presence IS the signal, and
           it goes away when the finished item takes over. */}
-        {overlay?.text !== undefined && !previewHasText && (
-          <div
-            className={cn(
-              'transcript-row transcript-process-row',
-              !lastRow || !isProcessRow(lastRow) ? 'transcript-process-start' : undefined,
-            )}
-            data-headless-overlay
-          >
-            <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
-            <div className="transcript-body">
-              <StreamingMarkdown text={overlay.text} />
-            </div>
-          </div>
-      )}
-      {/* THE IN-PROGRESS TURN (POD-2293), in the position its durable items will
+                  {overlay?.text !== undefined && !previewHasText && (
+                    <div
+                      className={cn(
+                        'transcript-row transcript-process-row',
+                        !lastRow || !isProcessRow(lastRow) ? 'transcript-process-start' : undefined,
+                      )}
+                      data-headless-overlay
+                    >
+                      <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
+                      <div className="transcript-body">
+                        <StreamingMarkdown text={overlay.text} />
+                      </div>
+                    </div>
+                  )}
+                  {/* THE IN-PROGRESS TURN (POD-2293), in the position its durable items will
           occupy. Each row disappears when the item carrying its identity lands
           on the transcript plane — the server retires it there, so a row still
           drawn here is one the transcript genuinely does not have yet.
@@ -791,33 +943,32 @@ export const TranscriptFeed = observer(function TranscriptFeed(props: Transcript
           running tool is one muted line rather than a ToolBlock. A preview row
           that looked identical to a finished one would be claiming a result it
           does not have. */}
-      {turnPreview && turnPreview.items.length > 0 && (
-        <div className="transcript-row" data-turn-preview>
-          <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
-          <div className="transcript-body">
-            {turnPreview.items.map((item) =>
-              item.kind === 'text' ? (
-                <StreamingMarkdown
-                  key={item.itemId}
-                  text={item.text}
-                />
-              ) : (
-                <div
-                  key={item.itemId}
-                  className="mt-1 text-xs text-muted-foreground italic"
-                  data-turn-preview-tool
-                >
-                  {item.item.toolName ?? 'tool'}
-                  {item.item.toolInput ? ` ${item.item.toolInput}` : ''}
-                </div>
-              ),
-            )}
-          </div>
-        </div>
-      )}
-          </>
-        }}</Observer>
-      {/* The question Claude Code has not written down yet (POD-1273). A
+                  {turnPreview && turnPreview.items.length > 0 && (
+                    <div className="transcript-row" data-turn-preview>
+                      <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
+                      <div className="transcript-body">
+                        {turnPreview.items.map((item) =>
+                          item.kind === 'text' ? (
+                            <StreamingMarkdown key={item.itemId} text={item.text} />
+                          ) : (
+                            <div
+                              key={item.itemId}
+                              className="mt-1 text-xs text-muted-foreground italic"
+                              data-turn-preview-tool
+                            >
+                              {item.item.toolName ?? 'tool'}
+                              {item.item.toolInput ? ` ${item.item.toolInput}` : ''}
+                            </div>
+                          ),
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )
+            }}
+          </Observer>
+          {/* The question Claude Code has not written down yet (POD-1273). A
           pending AskUserQuestion reaches the hook channel immediately but the
           transcript only once it RESOLVES, so for the whole time the agent is
           waiting there is no item to render — the state carries the ask instead
@@ -825,28 +976,28 @@ export const TranscriptFeed = observer(function TranscriptFeed(props: Transcript
           itself will land. It disappears on answer, when the session leaves
           `needs_user`; the transcript item then arrives on its own clock and
           stands as history. */}
-        {pendingAskBlock && (
-          <ChatBlockView
-            block={pendingAskBlock}
-            index={rows.length}
-            markdownHtml={markdownHtml}
-            highlighted={false}
-            dimmed={false}
-            sessionId={sessionId}
-            cwd={cwd}
-            openFile={openFile}
-            httpOrigin={httpOrigin}
-            onOpenImage={onOpenImage}
-            askLivePending={true}
-            onAnswerAsk={onAnswerAsk}
-                answerInteractionId={answerInteractionId}
-            collapseContext={collapseContext}
-            compact={compact}
-            attribution={attributionForRole(attribution, 'tool')}
-          />
-        )}
-        {props.outcome && <IssueOutcomeCard outcome={props.outcome} />}
-        {/* Where the transcript ENDS: the single live-status owner. Tool rows and
+          {pendingAskBlock && (
+            <ChatBlockView
+              block={pendingAskBlock}
+              index={rows.length}
+              markdownHtml={markdownHtml}
+              highlighted={false}
+              dimmed={false}
+              sessionId={sessionId}
+              cwd={cwd}
+              openFile={openFile}
+              httpOrigin={httpOrigin}
+              onOpenImage={onOpenImage}
+              askLivePending={true}
+              onAnswerAsk={onAnswerAsk}
+              answerInteractionId={answerInteractionId}
+              collapseContext={collapseContext}
+              compact={compact}
+              attribution={attributionForRole(attribution, 'tool')}
+            />
+          )}
+          {props.outcome && <IssueOutcomeCard outcome={props.outcome} />}
+          {/* Where the transcript ENDS: the single live-status owner. Tool rows and
           headless status frames can refine its wording but never replace it.
 
           THE SLOT STANDS WHETHER OR NOT A TAIL IS DUE (POD-1290 follow-up).
@@ -859,130 +1010,288 @@ export const TranscriptFeed = observer(function TranscriptFeed(props: Transcript
           changes size (min-height covers the tallest variant, styles.css), so
           phase changes and idle transitions move NO geometry — and as the
           feed's permanent last child it avoids bottom-geometry churn. */}
-        <Observer>{() => {
-          const activity = props.chat?.view.activity ?? props.activity
-          const overlayStatus = props.chat ? props.chat.view.overlayStatus : props.overlay?.status
-          const tailActivity = overlayStatus ? { tone: 'working' as const, label: overlayStatus } : activity ?? null
-          const session = props.chat?.view.session ?? props.session
-          const lastRow = props.chat?.view?.presentation.tailRow(rows[rows.length - 1]?.row) ?? rows[rows.length - 1]?.row
-          const questionOwnsAttention = (livePendingAskIndex >= 0 || pendingAskBlock !== null) && activity?.tone === 'attention'
-          // The issue outcome is the ending (POD-2151): a stop keeps the agent's
-          // last state (a retryable error, an interrupt), which must not trail it.
-          // Only a wake the operator just asked for speaks after it.
-          const outcomeOwnsEnd = props.outcome != null && tailActivity?.tone !== 'working' && tailActivity?.transient !== 'just-sent'
-          return (
-        <div className="feed-tail-slot" data-testid="feed-tail-slot">
-          {(phase === 'ready' || tailActivity?.tone === 'working') && !questionOwnsAttention && !outcomeOwnsEnd && (
-            <TranscriptTail
-              activity={tailActivity}
-              since={props.chat ? props.chat.view.session?.agentSince : session?.agentState?.since}
-              session={session}
-              lastRow={lastRow}
-            />
-          )}
-        </div>          )
-        }}</Observer>
+          <Observer>
+            {() => {
+              const { activity: tailActivity, session, lastRow, since } = turnTail(props)
+              const inline = lineOwnsTail(
+                folds.trailing ? foldShape.lines.get(folds.trailing.start) : undefined,
+                props,
+              )
+              // The issue outcome is the ending (POD-2151): a stop keeps the agent's
+              // last state (a retryable error, an interrupt), which must not trail it.
+              // Only a wake the operator just asked for speaks after it.
+              const outcomeOwnsEnd =
+                props.outcome != null &&
+                tailActivity?.tone !== 'working' &&
+                tailActivity?.transient !== 'just-sent'
+              return (
+                <div
+                  className={cn('feed-tail-slot', inline && 'feed-tail-slot--inline')}
+                  data-testid="feed-tail-slot"
+                >
+                  {(phase === 'ready' || tailActivity?.tone === 'working') && !outcomeOwnsEnd && (
+                    <TranscriptTail
+                      activity={tailActivity}
+                      since={since}
+                      session={session}
+                      lastRow={lastRow}
+                      inline={inline}
+                    />
+                  )}
+                </div>
+              )
+            }}
+          </Observer>
+        </div>
       </div>
     </div>
   )
+  return <NarrowMessageActions.Provider value={narrowActions}>{feed}</NarrowMessageActions.Provider>
 })
 
-const TranscriptRow = observer(function TranscriptRow({ props, template, index: idx, pos, previous, arrived, dayMark, searchMatches }: {
-  props: TranscriptFeedProps; template: ChatRow; index: number; pos: number; previous?: ChatRow;
-  arrived: boolean; dayMark?: string; searchMatches: ReadonlySet<number>;
+const TurnFeedRow = observer(function TurnFeedRow({
+  line,
+  hidden,
+  foldState,
+  newest,
+  standIn,
+  revealAnswer,
+  externalAsk,
+  ...rowProps
+}: Parameters<typeof TranscriptRow>[0] & {
+  line: FoldLine | undefined
+  hidden: boolean
+  foldState: TurnFoldState
+  newest: boolean
+  standIn: boolean
+  revealAnswer: boolean
+  externalAsk: boolean
 }) {
-  const { search, revealedRow, expandRuns, sessionId, cwd, openFile, httpOrigin, onOpenImage,
-    livePendingAskIndex, onAnswerAsk, answerInteractionId, collapseContext, compact,
-    lastAnswerBlockIndex, stickyEnabled, isOperatorPromptRow, attribution, onQuote } = props
+  const { props, template } = rowProps
+  const fold = line?.fold
+  const presentation = props.chat?.view.presentation
+  const model = useMemo(
+    () =>
+      fold
+        ? presentation?.turnFolds?.byStart.has(rowIdentity(template))
+          ? presentation.turn(template)
+          : new PresentedTurn(template, presentation, fold)
+        : undefined,
+    [fold, presentation, template],
+  )
+  if (hidden) return null
+  const prefix = model?.prefix ?? []
+  const prefixRow: ChatRow | undefined =
+    prefix.length && template.kind === 'tools'
+      ? {
+          ...template,
+          blocks: prefix,
+          ...toolBatchTitles(prefix),
+          blockIndices: props.chat?.view.presentation.blockIndex
+            ? prefix.map((block) => props.chat!.view.presentation.blockIndex(block.item.id) ?? -1)
+            : template.blockIndices.slice(0, prefix.length),
+        }
+      : undefined
+  const originalRow = (
+    <TranscriptRow
+      key="row"
+      {...rowProps}
+      template={prefixRow ?? template}
+      forceSnapshot={!!prefixRow}
+      revealAnswer={revealAnswer}
+    />
+  )
+  return (
+    <>
+      {line && !prefixRow && rowProps.dayMark && (
+        <div className="transcript-daymark" data-testid="transcript-daymark">
+          <span className="transcript-daymark-label">{rowProps.dayMark}</span>
+        </div>
+      )}
+      {(!line || prefixRow) &&
+        !standIn &&
+        (externalAsk ? (
+          <div key="row" className="turn-external-ask" style={{ display: 'contents' }}>
+            {originalRow}
+          </div>
+        ) : (
+          originalRow
+        ))}
+      {line && model && (
+        <TurnLineView
+          key="turn"
+          line={line}
+          model={model}
+          state={foldState}
+          props={props}
+          newest={newest}
+        />
+      )}
+      {standIn && <TranscriptRow key="row" {...rowProps} revealAnswer={revealAnswer} standIn />}
+    </>
+  )
+})
+
+const TranscriptRow = observer(function TranscriptRow({
+  props,
+  template,
+  index: idx,
+  pos,
+  previous,
+  arrived,
+  dayMark,
+  searchMatches,
+  forceSnapshot = false,
+  revealAnswer = false,
+  standIn = false,
+}: {
+  props: TranscriptFeedProps
+  template: ChatRow
+  index: number
+  pos: number
+  previous?: ChatRow
+  arrived: boolean
+  dayMark?: string
+  searchMatches: ReadonlySet<number>
+  forceSnapshot?: boolean
+  revealAnswer?: boolean
+  standIn?: boolean
+}) {
+  const {
+    search,
+    revealedRow,
+    expandRuns,
+    sessionId,
+    cwd,
+    openFile,
+    httpOrigin,
+    onOpenImage,
+    livePendingAskIndex,
+    onAnswerAsk,
+    answerInteractionId,
+    collapseContext,
+    compact,
+    lastAnswerBlockIndex,
+    stickyEnabled,
+    isOperatorPromptRow,
+    attribution,
+    onQuote,
+  } = props
   const ctxSeq = props.chat?.view.ctxSeq ?? props.ctxSeq ?? null
   const markdownHtml = props.chat?.view?.presentation.markdownHtml ?? props.markdownHtml
-  const presentation = props.chat?.view?.presentation
-  const row: ChatRow = !presentation ? template : template.kind === 'block'
-    ? { ...template, block: presentation.block(template.block.item.id) ?? template.block }
-    : template
-  const run = row.kind === 'tools' ? presentation?.run(row.blocks[0]!.item.id) : undefined
+  const presentation = forceSnapshot ? undefined : props.chat?.view?.presentation
+  const base: ChatRow = !presentation
+    ? template
+    : template.kind === 'block'
+      ? { ...template, block: presentation.block(template.block.item.id) ?? template.block }
+      : template
+  const run = base.kind === 'tools' ? presentation?.run(base.blocks[0]!.item.id) : undefined
+  // A LONE NOTE KEEPS ITS OWN ROW (POD-2286). Notes and mail fold into a
+  // stretch with the calls around them; on its own, a note reads better as the
+  // sender and subject than as "Read a note".
+  const singleton = base.kind === 'tools' ? activityRowSingletonDisplay(base, run) : undefined
+  const displayRow: ChatRow =
+    base.kind === 'tools' && singleton?.asBlock
+      ? { kind: 'block', block: singleton.block, blockIndex: base.blockIndices[0] ?? -1 }
+      : base
+  // One component owns a stretch from its first note onward. Only the display
+  // treatment changes when a neighbour arrives, preserving opened note DOM.
+  const row = base
 
-          // An operator prompt opens an exchange — except at the very top of the
-          // mounted window, where the air would only pad the scrollport (and
-          // where the row is often the sticky continuation of an exchange whose
-          // opening is scrolled away above).
-          const turn: TurnPosition | undefined =
-            pos > 0 && isOperatorPromptRow(row) ? 'open' : turnPosition(row)
-          const process = processPosition(row, previous)
-          const identity = rowIdentity(row)
-          // THE DAY MARK (POD-701). A per-row clock is ambiguous the moment a
-          // session outlives a day, so each date boundary states itself once and
-          // resolves every clock beneath it. The leading mark is emitted only when
-          // the window does NOT open on today: "Today" over a transcript that is
-          // entirely from today is a line that tells the reader nothing.
-          // Absolute row index into `rows` keeps minimap/search and
-          // [data-block] aligned even for the one-row sticky continuation.
-          const rowNode =
-            row.kind === 'tools' ? (
-              <ToolBatchView
-                // A tools row always folds ≥1 block, so [0] and blocks[bi] exist.
-                key={identity}
-                row={row}
-                run={run}
-                index={idx}
-                highlighted={idx === search.activeRow || idx === revealedRow}
-                forceOpen={expandRuns || idx === search.activeRow || idx === revealedRow}
-                dimmed={search.filtering && !(presentation ? presentation.rowMatches(identity)
-                  : row.blockIndices.some((bi) => searchMatches.has(bi)))}
-                // The work line names an in-flight call only when it is the
-                // trailing row. The permanent tail below remains the one owner of
-                // live motion, so a tool-result commit cannot remove the working
-                // indicator. MOUNT POSITION, not `idx`: `rows` is the bounded
-                // trailing window while `idx` is the absolute index.
-                live={pos === props.rows.length - 1 && trailingRunIsLive(props.chat?.view.activity ?? props.activity ?? null,
-                  presentation?.tailRow(row) ?? row)}
-                ownsTail={false}
-                arrived={arrived}
-                turn={turn}
-                process={process}
-                sessionId={sessionId}
-                cwd={cwd}
-                openFile={openFile}
-              />
-            ) : (
-              <ChatBlockView
-                key={identity}
-                block={row.block}
-                index={idx}
-                markdownHtml={markdownHtml}
-                highlighted={idx === search.activeRow || idx === revealedRow}
-                dimmed={search.filtering && !searchMatches.has(row.blockIndex)}
-                sessionId={sessionId}
-                cwd={cwd}
-                openFile={openFile}
-                httpOrigin={httpOrigin}
-                onOpenImage={onOpenImage}
-                // AskUserQuestion is its own block-row; light up the one that is the
-                // latest unanswered question on a live session (livePendingAskIndex
-                // indexes into `blocks`, matched here against the row's blockIndex).
-                askLivePending={row.blockIndex === livePendingAskIndex}
-                onAnswerAsk={onAnswerAsk}
-                answerInteractionId={answerInteractionId}
-                collapseContext={collapseContext}
-                compact={compact}
-                ctxSeq={compact && row.blockIndex === lastAnswerBlockIndex ? ctxSeq : null}
-                stickyOperator={stickyEnabled && isOperatorPromptRow(row)}
-                attribution={attributionForRole(attribution, row.block.item.role)}
-                turn={turn}
-                process={process}
-                arrived={arrived}
-                onQuote={onQuote}
-              />
-            )
-          return (
-            <Fragment key={identity}>
-              {dayMark && (
-                <div className="transcript-daymark" data-testid="transcript-daymark">
-                  <span className="transcript-daymark-label">{dayMark}</span>
-                </div>
-              )}
-              {rowNode}
-            </Fragment>
+  // An operator prompt opens an exchange — except at the very top of the
+  // mounted window, where the air would only pad the scrollport (and
+  // where the row is often the sticky continuation of an exchange whose
+  // opening is scrolled away above).
+  const turn: TurnPosition | undefined =
+    pos > 0 && isOperatorPromptRow(displayRow) ? 'open' : turnPosition(displayRow)
+  const process = processPosition(displayRow, previous)
+  const identity = rowIdentity(row)
+  // THE DAY MARK (POD-701). A per-row clock is ambiguous the moment a
+  // session outlives a day, so each date boundary states itself once and
+  // resolves every clock beneath it. The leading mark is emitted only when
+  // the window does NOT open on today: "Today" over a transcript that is
+  // entirely from today is a line that tells the reader nothing.
+  // Absolute row index into `rows` keeps minimap/search and
+  // [data-block] aligned even for the one-row sticky continuation.
+  const rowNode =
+    row.kind === 'tools' ? (
+      <ToolBatchView
+        // A tools row always folds ≥1 block, so [0] and blocks[bi] exist.
+        key={identity}
+        row={row}
+        run={run}
+        index={idx}
+        highlighted={idx === search.activeRow || idx === revealedRow}
+        forceOpen={expandRuns || idx === search.activeRow || idx === revealedRow}
+        dimmed={
+          search.filtering &&
+          !(presentation
+            ? presentation.rowMatches(identity)
+            : row.blockIndices.some((bi) => searchMatches.has(bi)))
+        }
+        // Track the trailing call's pending state while the permanent tail
+        // owns its live phrase and timer. MOUNT POSITION, not `idx`: `rows`
+        // is the bounded trailing window while `idx` is the absolute index.
+        live={
+          pos === props.rows.length - 1 &&
+          trailingRunIsLive(
+            props.chat?.view.activity ?? props.activity ?? null,
+            presentation?.tailRow(row) ?? row,
           )
-
+        }
+        ownsTail={false}
+        arrived={arrived}
+        turn={turn}
+        process={process}
+        sessionId={sessionId}
+        cwd={cwd}
+        openFile={openFile}
+      />
+    ) : (
+      <ChatBlockView
+        key={identity}
+        block={row.block}
+        index={idx}
+        markdownHtml={markdownHtml}
+        highlighted={idx === search.activeRow || idx === revealedRow}
+        dimmed={search.filtering && !searchMatches.has(row.blockIndex)}
+        sessionId={sessionId}
+        cwd={cwd}
+        openFile={openFile}
+        httpOrigin={httpOrigin}
+        onOpenImage={onOpenImage}
+        // AskUserQuestion is its own block-row; light up the one that is the
+        // latest unanswered question on a live session (livePendingAskIndex
+        // indexes into `blocks`, matched here against the row's blockIndex).
+        askLivePending={row.blockIndex === livePendingAskIndex}
+        onAnswerAsk={onAnswerAsk}
+        answerInteractionId={answerInteractionId}
+        collapseContext={collapseContext}
+        compact={compact}
+        ctxSeq={compact && row.blockIndex === lastAnswerBlockIndex ? ctxSeq : null}
+        stickyOperator={stickyEnabled && isOperatorPromptRow(row)}
+        attribution={attributionForRole(attribution, row.block.item.role)}
+        turn={turn}
+        process={process}
+        arrived={arrived}
+        onQuote={onQuote}
+        mailReply={props.chat?.view.reply ?? props.mailReply}
+      />
+    )
+  return (
+    <Fragment key={identity}>
+      {dayMark && (
+        <div className="transcript-daymark" data-testid="transcript-daymark">
+          <span className="transcript-daymark-label">{dayMark}</span>
+        </div>
+      )}
+      {standIn || (row.kind === 'block' && row.block.item.answer) ? (
+        <div key={`answer:${identity}`} className={cn('tl-answer', revealAnswer && 'is-new')}>
+          <div>{rowNode}</div>
+        </div>
+      ) : (
+        rowNode
+      )}
+    </Fragment>
+  )
 })

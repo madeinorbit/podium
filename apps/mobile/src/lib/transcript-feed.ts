@@ -1,5 +1,6 @@
-import type { TranscriptToolRun } from '@podium/client-core/conversation'
+import type { TranscriptActivityRun } from '@podium/client-core/conversation'
 import {
+  activityRowSingletonDisplay,
   type ChatBlock,
   type ChatRow,
   computeTranscript,
@@ -11,8 +12,8 @@ import {
   machineContextLabel,
   type ParsedEnvelope,
   parseAskQuestions,
-  parseEnvelopeBatch,
   searchBlocks,
+  transcriptActivityFacts,
 } from '@podium/client-core/values'
 import type { TranscriptItem } from '@podium/model'
 
@@ -39,7 +40,7 @@ export interface MobileTranscriptRow {
     | 'context'
   item: TranscriptItem
   blocks?: ChatBlock[]
-  readonly run?: TranscriptToolRun
+  readonly run?: TranscriptActivityRun
   blockIndices: number[]
   envelope?: ParsedEnvelope
   quietText?: string
@@ -84,7 +85,10 @@ export interface MobileRowOptions {
 }
 
 /** Shape one addressed paired row, including its envelope slots. */
-export function shapeMobileChatRow(chatRow: ChatRow, options: MobileRowOptions = {}): MobileTranscriptRow[] {
+export function shapeMobileChatRow(
+  chatRow: ChatRow,
+  options: MobileRowOptions = {},
+): MobileTranscriptRow[] {
   const rows: MobileTranscriptRow[] = []
   const append = (row: MobileTranscriptRow) => rows.push(row)
   const blockIndices = chatRow.kind === 'tools' ? chatRow.blockIndices : [chatRow.blockIndex]
@@ -92,6 +96,12 @@ export function shapeMobileChatRow(chatRow: ChatRow, options: MobileRowOptions =
   if (chatRow.kind === 'tools') {
     const first = chatRow.blocks[0]
     if (!first) return rows
+    if (activityRowSingletonDisplay(chatRow)?.kind === 'received-notes') {
+      return shapeMobileChatRow(
+        { kind: 'block', block: first, blockIndex: blockIndices[0] ?? -1 },
+        options,
+      )
+    }
     append({
       key: transcriptItemKey(first.item),
       kind: 'tools',
@@ -186,7 +196,7 @@ export function shapeMobileChatRow(chatRow: ChatRow, options: MobileRowOptions =
     return rows
   }
   if (item.role === 'user') {
-    const batch = parseEnvelopeBatch(item.text)
+    const batch = transcriptActivityFacts(item).envelopes
     if (batch) {
       batch.envelopes.forEach((envelope, index) => {
         append({

@@ -7,12 +7,27 @@ import { TranscriptGraph, type TranscriptGraphChange } from './transcript-graph'
 
 const prose = (id: string, text = id): TranscriptItem => ({ id, role: 'assistant', text })
 const user = (id: string, text = id): TranscriptItem => ({ id, role: 'user', text })
-const call = (id: string, use = 'same', name = 'Read'): TranscriptItem =>
-  ({ id, role: 'tool', text: '', toolName: name, toolUseId: use })
-const result = (id: string, use = 'same', text = id): TranscriptItem =>
-  ({ id, role: 'tool', text: '', toolUseId: use, toolResult: text })
-const media = (id: string, kind: 'image' | 'file' = 'image'): TranscriptItem =>
-  ({ id, role: 'user', text: '', toolPaths: [`/${id}`], tags: [{ kind, label: id }] })
+const call = (id: string, use = 'same', name = 'Read'): TranscriptItem => ({
+  id,
+  role: 'tool',
+  text: '',
+  toolName: name,
+  toolUseId: use,
+})
+const result = (id: string, use = 'same', text = id): TranscriptItem => ({
+  id,
+  role: 'tool',
+  text: '',
+  toolUseId: use,
+  toolResult: text,
+})
+const media = (id: string, kind: 'image' | 'file' = 'image'): TranscriptItem => ({
+  id,
+  role: 'user',
+  text: '',
+  toolPaths: [`/${id}`],
+  tags: [{ kind, label: id }],
+})
 const plain = (value: unknown) => JSON.parse(JSON.stringify(value))
 
 function fixture(initial: TranscriptItem[]) {
@@ -32,20 +47,22 @@ function fixture(initial: TranscriptItem[]) {
     }
   }
   const apply = (change: TranscriptGraphChange) => {
-    const values = new Map(items.map(item => [item.id, item]))
+    const values = new Map(items.map((item) => [item.id, item]))
     for (const item of change.changed) values.set(item.id, item)
     const removed = new Set(change.removed)
-    const ids = items.map(item => item.id).filter(id => !removed.has(id))
+    const ids = items.map((item) => item.id).filter((id) => !removed.has(id))
     for (const insertion of change.insertions ?? []) {
       const before = insertion.before === undefined ? ids.length : ids.indexOf(insertion.before)
       ids.splice(before < 0 ? ids.length : before, 0, insertion.id)
     }
-    items = ids.map(id => values.get(id)!)
+    items = ids.map((id) => values.get(id)!)
     graph.apply(change)
     check()
   }
-  const append = (...changed: TranscriptItem[]) => apply({ changed, insertions: changed.map(item => ({ id: item.id })) })
-  const prepend = (...changed: TranscriptItem[]) => apply({ changed, insertions: changed.map(item => ({ id: item.id, before: items[0]?.id })) })
+  const append = (...changed: TranscriptItem[]) =>
+    apply({ changed, insertions: changed.map((item) => ({ id: item.id })) })
+  const prepend = (...changed: TranscriptItem[]) =>
+    apply({ changed, insertions: changed.map((item) => ({ id: item.id, before: items[0]?.id })) })
   check()
   return { graph, check, apply, append, prepend }
 }
@@ -120,32 +137,48 @@ it('folds image/file markers through paired results and repairs the older-page s
   f.prepend(user('prompt'))
   f.append(call('call'), user('next'), result('r'), media('attachment'), media('chip', 'file'))
   f.apply({ changed: [{ ...media('attachment'), toolPaths: ['/replacement'] }] })
-  f.append(media('orphan-file', 'file'), prose('break'), media('seam-file', 'file'), media('seam-image'))
+  f.append(
+    media('orphan-file', 'file'),
+    prose('break'),
+    media('seam-file', 'file'),
+    media('seam-image'),
+  )
 })
 
 it('folds a compaction boundary, summary and idle notice into one note across frames and seams', () => {
-  const part = (id: string, extra: Partial<TranscriptItem>): TranscriptItem =>
-    ({ id, role: 'system', text: '', systemKind: 'compaction', ...extra })
-  const boundary = (id: string) => part(id, { compaction: { trigger: 'auto', preTokens: 300_000, postTokens: 9_000 } })
+  const part = (id: string, extra: Partial<TranscriptItem>): TranscriptItem => ({
+    id,
+    role: 'system',
+    text: '',
+    systemKind: 'compaction',
+    ...extra,
+  })
+  const boundary = (id: string) =>
+    part(id, { compaction: { trigger: 'auto', preTokens: 300_000, postTokens: 9_000 } })
   const summary = (id: string) => part(id, { text: `${id} needle` })
-  const idle = (id: string) => part(id, { compaction: { idle: true, notice: 'Compacted while idle' } })
+  const idle = (id: string) =>
+    part(id, { compaction: { idle: true, notice: 'Compacted while idle' } })
   const f = fixture([prose('before'), boundary('b1')])
   f.append(summary('s1'), media('reread', 'file'))
   f.append(idle('n1'), prose('after'))
-  expect(f.graph.structuralBlocks.map(block => block.item.id)).toEqual(['before', 'b1', 'after'])
+  expect(f.graph.structuralBlocks.map((block) => block.item.id)).toEqual(['before', 'b1', 'after'])
   expect(f.graph.block('b1')?.item).toMatchObject({
-    text: 's1 needle', compaction: { trigger: 'auto', preTokens: 300_000, idle: true },
+    text: 's1 needle',
+    compaction: { trigger: 'auto', preTokens: 300_000, idle: true },
   })
   // A second compaction starts its own note, and a page that brings the older
   // boundary in front of a summary folds the head into it.
   f.append(boundary('b2'), summary('s2'))
   const g = fixture([summary('s3'), idle('n3'), prose('tail')])
   g.prepend(prose('older'), boundary('b3'))
-  expect(g.graph.structuralBlocks.map(block => block.item.id)).toEqual(['older', 'b3', 'tail'])
+  expect(g.graph.structuralBlocks.map((block) => block.item.id)).toEqual(['older', 'b3', 'tail'])
 })
 
 it('repairs local prompt timestamps on append and prepend without sorting file order', () => {
-  const stamped = (item: TranscriptItem, second: number) => ({ ...item, ts: `2026-10-06T00:00:0${second}Z` })
+  const stamped = (item: TranscriptItem, second: number) => ({
+    ...item,
+    ts: `2026-10-06T00:00:0${second}Z`,
+  })
   const f = fixture([stamped(prose('reply'), 4)])
   f.append(stamped(user('prompt'), 2))
   f.append(stamped(prose('later'), 5), stamped(user('next'), 3))
@@ -166,9 +199,18 @@ it('keeps an observed row list and unrelated blocks stable across a streamed ite
   const graph = new TranscriptGraph([prose('a'), prose('b')])
   const counts = { list: 0, a: 0, b: 0 }
   const stops = [
-    autorun(() => { graph.structuralRows; counts.list++ }),
-    autorun(() => { graph.block('a'); counts.a++ }),
-    autorun(() => { graph.block('b'); counts.b++ }),
+    autorun(() => {
+      graph.structuralRows
+      counts.list++
+    }),
+    autorun(() => {
+      graph.block('a')
+      counts.a++
+    }),
+    autorun(() => {
+      graph.block('b')
+      counts.b++
+    }),
   ]
   try {
     counts.list = counts.a = counts.b = 0
@@ -176,7 +218,9 @@ it('keeps an observed row list and unrelated blocks stable across a streamed ite
     expect(counts).toEqual({ list: 0, a: 0, b: 1 })
     expect(graph.matches('needle')).toEqual(['b'])
     expect(graph.snapshot().blocks[1]?.item.text).toBe('streamed needle')
-  } finally { for (const stop of stops) stop() }
+  } finally {
+    for (const stop of stops) stop()
+  }
 })
 
 it('discards removed search postings and honours an empty authoritative replacement', () => {
@@ -185,13 +229,25 @@ it('discards removed search postings and honours an empty authoritative replacem
   graph.apply({ changed: [prose('a', 'replacement')] })
   expect(graph.matches('needle')).toEqual([])
   graph.reset([])
-  expect(graph.snapshot()).toEqual({ blocks: [], rows: [], search: {
-    matches: [], activeMatch: undefined, activeRow: undefined, position: 0, total: 0, filtering: false,
-  } })
+  expect(graph.snapshot()).toEqual({
+    blocks: [],
+    rows: [],
+    search: {
+      matches: [],
+      activeMatch: undefined,
+      activeRow: undefined,
+      position: 0,
+      total: 0,
+      filtering: false,
+    },
+  })
 })
 
 it('retains a quiet run across appends, prefix rekeys and changed title subjects', () => {
-  const read = (id: string, path: string) => ({ ...call(id, id), toolInput: JSON.stringify({ file_path: path }) })
+  const read = (id: string, path: string) => ({
+    ...call(id, id),
+    toolInput: JSON.stringify({ file_path: path }),
+  })
   const f = fixture([read('a', '/a'), read('b', '/b'), read('c', '/a')])
   const run = f.graph.run('a')!
   f.append(read('d', '/d'))
@@ -209,8 +265,15 @@ it('retains a quiet run across appends, prefix rekeys and changed title subjects
 
 it('selects the last result and last supplied effects without demanding all progress results', () => {
   const f = fixture([call('call')])
-  f.append({ ...result('first', 'same', 'first'), toolEffects: [{ kind: 'unknown', key: 'first' }] }, result('last'))
-  f.apply({ changed: [{ ...result('first', 'same', 'updated'), toolEffects: [{ kind: 'unknown', key: 'updated' }] }] })
+  f.append(
+    { ...result('first', 'same', 'first'), toolEffects: [{ kind: 'unknown', key: 'first' }] },
+    result('last'),
+  )
+  f.apply({
+    changed: [
+      { ...result('first', 'same', 'updated'), toolEffects: [{ kind: 'unknown', key: 'updated' }] },
+    ],
+  })
   expect(f.graph.block('call')?.result).toBe('last')
   expect(f.graph.block('call')?.item.toolEffects?.[0]).toEqual({ kind: 'unknown', key: 'updated' })
   f.apply({ changed: [result('first')] })
@@ -219,18 +282,23 @@ it('selects the last result and last supplied effects without demanding all prog
 
 it('retains coalesced prefix pages and tail appends in their source order', () => {
   const f = fixture([prose('held')])
-  f.apply({ changed: [user('first'), prose('second'), prose('tail'), user('oldest')], insertions: [
-    { id: 'first', before: 'held' }, { id: 'second', before: 'held' },
-    { id: 'tail' }, { id: 'oldest', before: 'first' },
-  ] })
+  f.apply({
+    changed: [user('first'), prose('second'), prose('tail'), user('oldest')],
+    insertions: [
+      { id: 'first', before: 'held' },
+      { id: 'second', before: 'held' },
+      { id: 'tail' },
+      { id: 'oldest', before: 'first' },
+    ],
+  })
   expect(f.graph.blockIds.slice()).toEqual(['oldest', 'first', 'second', 'held', 'tail'])
-  f.apply({ changed: [prose('new-tail'), user('new-head')], insertions: [
-    { id: 'new-tail' }, { id: 'new-head', before: 'oldest' },
-  ] })
+  f.apply({
+    changed: [prose('new-tail'), user('new-head')],
+    insertions: [{ id: 'new-tail' }, { id: 'new-head', before: 'oldest' }],
+  })
   expect(f.graph.blockIds[0]).toBe('new-head')
   expect(f.graph.blockIds.at(-1)).toBe('new-tail')
 })
-
 
 it('publishes addressed rows atomically across prefix rekeys and coalesced source changes', () => {
   const graph = new TranscriptGraph([call('first')])
@@ -240,26 +308,70 @@ it('publishes addressed rows atomically across prefix rekeys and coalesced sourc
     graph.apply({ changed: [call('prefix')], insertions: [{ id: 'prefix', before: 'first' }] })
     expect(graph.rowPublication.removed).toEqual(['first'])
     expect(graph.rowPublication.changed).toEqual(['prefix'])
-    graph.apply({ changed: [call('older'), prose('tail', 'New')],
-      insertions: [{ id: 'older', before: 'prefix' }, { id: 'tail' }] })
+    graph.apply({
+      changed: [call('older'), prose('tail', 'New')],
+      insertions: [{ id: 'older', before: 'prefix' }, { id: 'tail' }],
+    })
     expect(graph.rowPublication.reset).toBe(false)
     expect(graph.rowPublication.removed).toContain('prefix')
     expect(graph.rowPublication.changed).toEqual(expect.arrayContaining(['older', 'tail']))
     graph.reset([prose('reset', 'Replacement')])
     expect(graph.rowPublication).toEqual({ reset: true, changed: [], removed: [] })
-  } finally { graph.dispose() }
+  } finally {
+    graph.dispose()
+  }
 })
 
-it('moves a command in and out of its run when an update makes it the agent’s own mail (POD-2146)', () => {
-  const bash = (id: string, command: string): TranscriptItem =>
-    ({ ...call(id, id, 'Bash'), toolInput: command })
+it('keeps mail commands in their stretch across in-place updates', () => {
+  const bash = (id: string, command: string): TranscriptItem => ({
+    ...call(id, id, 'Bash'),
+    toolInput: command,
+  })
   const send = bash('b', `podium mail send --to POD-2140 --body 'handoff'`)
   const f = fixture([bash('a', 'ls'), bash('b', 'pwd'), bash('c', 'git status')])
-  expect(f.graph.snapshot().rows.map(row => row.kind)).toEqual(['tools'])
-  // Updated in place to a send: tools[a], note[b], tools[c].
+  expect(f.graph.snapshot().rows.map((row) => row.kind)).toEqual(['tools'])
+  // Updating a call to mail preserves the same stretch and its identity.
   f.apply({ changed: [send] })
-  expect(f.graph.snapshot().rows.map(row => row.kind)).toEqual(['tools', 'block', 'tools'])
+  expect(f.graph.snapshot().rows.map((row) => row.kind)).toEqual(['tools'])
+  expect(f.graph.run('a')?.summary).toBe('Ran 2 commands, sent a note')
   // And back.
   f.apply({ changed: [bash('b', 'pwd')] })
-  expect(f.graph.snapshot().rows.map(row => row.kind)).toEqual(['tools'])
+  expect(f.graph.snapshot().rows.map((row) => row.kind)).toEqual(['tools'])
+})
+
+it('keeps mixed stretches, note counts, search aliases and summary rows in parity across seams', () => {
+  const note = (id: string, to = 'issue:POD-2287', question = false, suffix = ''): TranscriptItem =>
+    user(
+      id,
+      `[podium message ${id} · from issue:POD-2242 · to ${to}]\nStatus\nneedle in the note\n${question ? '[this is a question: answer the sender]\n' : ''}[end podium message ${id}]${suffix}`,
+    )
+  const f = fixture([note('notes')])
+  f.prepend(call('first', 'first'))
+  const run = f.graph.run('first')
+  f.append(call('last', 'last', 'Bash'))
+  expect(f.graph.run('first')).toBe(run)
+  expect(run?.ids).toEqual(['first', 'notes', 'last'])
+  expect(f.graph.search('needle', 0).activeRow).toBe(0)
+  expect(f.graph.rowIdForBlock('notes')).toBe('first')
+  expect(f.graph.snapshot('summary').rows).toHaveLength(1)
+  const two = {
+    ...note('notes', 'issue:POD-2287', true),
+    text: `${note('notes', 'issue:POD-2287', true).text}\n${note('second').text}`,
+  }
+  f.apply({ changed: [two] })
+  expect(run?.summary).toBe('Read a file, read 2 notes, ran a command')
+  expect(f.graph.rowIds.slice()).toEqual(['first'])
+  for (const to of ['the operator', 'operator']) {
+    f.apply({ changed: [note('notes', to, true)] })
+    expect(f.graph.rowIds.slice()).toEqual(['first', 'notes', 'last'])
+    expect(f.graph.snapshot('summary').rows).toHaveLength(1)
+  }
+  f.apply({ changed: [note('notes', 'issue:POD-2287', true)] })
+  expect(f.graph.rowIds.slice()).toEqual(['first'])
+  f.apply({ changed: [note('notes', 'issue:POD-2287', false, '\nOperator follow-up')] })
+  expect(f.graph.rowIds.slice()).toEqual(['first', 'notes', 'last'])
+  f.apply({ changed: [], removed: ['notes'] })
+  expect(f.graph.rowIds.slice()).toEqual(['first'])
+  expect(f.graph.search('needle', 0).total).toBe(0)
+  f.graph.dispose()
 })

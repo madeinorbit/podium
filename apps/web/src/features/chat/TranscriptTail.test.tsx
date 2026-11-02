@@ -6,6 +6,8 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { TranscriptTail, trailingRunIsLive } from './TranscriptTail'
 
+;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
 // THE TAIL (POD-376): one object, three weights. What this pins is which state
 // the feed ends in, what figure that state is allowed to show, and that the two
 // states which must not move (waiting, idle) carry no perpetual motion.
@@ -242,4 +244,22 @@ describe('trailingRunIsLive', () => {
       false,
     )
   })
+})
+
+it('never treats a note at the end of a mixed stretch as an in-flight tool', () => {
+  const activity = { label: 'Working', tone: 'working' } as const
+  const note = toolRow({ id: 'note', role: 'user', text: 'internal mail' } as TranscriptItem)
+  expect(trailingRunIsLive(activity, note)).toBe(false)
+  const mixed: ChatRow = {
+    kind: 'tools',
+    title: '',
+    blockIndices: [0, 1],
+    blocks: [
+      { item: { id: 'call', role: 'tool', text: '', toolName: 'Bash' } },
+      { item: { id: 'note', role: 'user', text: 'mail' } },
+    ],
+  }
+  expect(trailingRunIsLive(activity, mixed)).toBe(false)
+  mixed.blocks.push({ item: { id: 'new-call', role: 'tool', text: '', toolName: 'Bash' } })
+  expect(trailingRunIsLive(activity, mixed)).toBe(true)
 })

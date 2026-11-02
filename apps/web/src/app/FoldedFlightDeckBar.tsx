@@ -1,6 +1,5 @@
 import {
   type MissionProgress,
-  missionProgressFromBuckets,
   missionProgressLabel,
 } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
@@ -46,11 +45,9 @@ import { useWorklistPool, useWorklistPoolProjection } from './store-worklist-poo
 const NO_PROGRESS: MissionProgress = {
   total: 0,
   done: 0,
-  run: 0,
-  review: 0,
-  stall: 0,
-  block: 0,
-  wait: 0,
+  working: 0,
+  waiting: 0,
+  todo: 0,
 }
 
 type FoldedBarActions = {
@@ -90,7 +87,7 @@ const FoldedOpening = observer(function FoldedOpening({
     <FoldedBar
       progress={
         screen.ready && screen.full.ready
-          ? missionProgressFromBuckets(screen.full.buckets)
+          ? screen.full.buckets
           : NO_PROGRESS
       }
       actions={actions}

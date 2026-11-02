@@ -27,7 +27,7 @@ export { EMPTY_HOST_AGGREGATE, type HeaderAggregate } from './header-session'
 
 const sessionPresentOnTask = (session: SessionView) =>
   !session.archived && session.status !== 'exited'
-const NO_PROGRESS = { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }
+const NO_PROGRESS = { total: 0, done: 0, working: 0, waiting: 0, todo: 0 }
 const FOLDED_LOADING = {
   root: undefined,
   progress: NO_PROGRESS,

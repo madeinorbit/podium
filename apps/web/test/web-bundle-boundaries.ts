@@ -35,16 +35,32 @@ const STARTUP_GRAPH_SOURCES = new Set([
   // lookup contract (POD-5867). This leaf only imports loading.ts and owns
   // scalar sentinels/narrowing policies, with no optional screen dependency.
   'src/lookup.ts',
-  'src/cached.ts', 'src/clock.ts', 'src/create.ts', 'src/debug-name.ts', 'src/enumerate.ts',
-  'src/models.ts', 'src/pool.ts', 'src/query-result.ts', 'src/reader-queries.ts',
-  // Each startup issue/session model in models.ts owns one. A mobx-only leaf
-  // with no optional screen dependency (POD-2264).
+  'src/cached.ts',
+  'src/clock.ts',
+  'src/create.ts',
+  'src/debug-name.ts',
+  'src/enumerate.ts',
+  'src/models.ts',
+  'src/pool.ts',
+  'src/query-result.ts',
+  'src/reader-queries.ts',
+  // Issue/session models own local read observations before any screen opens.
+  // This leaf imports only MobX and starts no requests or subscriptions (POD-2264).
   'src/read-observation.ts',
-  'src/relations.ts', 'src/residency.ts', 'src/source-registry.ts', 'src/tables.ts', 'src/views.ts',
+  'src/relations.ts',
+  'src/residency.ts',
+  'src/source-registry.ts',
+  'src/tables.ts',
+  'src/views.ts',
   'src/runtime-pool.ts',
-  'src/host/pool-host.ts', 'src/host/screens.ts',
-  'src/header-entities.ts', 'src/header-schema.ts', 'src/header-session.ts', 'src/header-sessions.ts',
-  'src/header-source.ts', 'src/header-views.ts',
+  'src/host/pool-host.ts',
+  'src/host/screens.ts',
+  'src/header-entities.ts',
+  'src/header-schema.ts',
+  'src/header-session.ts',
+  'src/header-sessions.ts',
+  'src/header-source.ts',
+  'src/header-views.ts',
   // Header lifecycle samples ingest the shared settings record at startup.
   // This passive source owns no requests or view lifetimes; those remain in
   // requested-records.ts and request-answer.ts behind their screen boundaries.
@@ -52,40 +68,84 @@ const STARTUP_GRAPH_SOURCES = new Set([
   // First-screen header and worklist rules moved out of models.ts (POD-5767).
   // These exact modules serve the already-eager header/sidebar; optional
   // screens and future worklist modules still need their own boundary decision.
-  'src/header-companion.ts', 'src/shared/session-facts.ts',
+  'src/header-companion.ts',
+  'src/shared/session-facts.ts',
   'src/react/worklist-context.tsx',
   // header-entities (startup) owns the repository path relations (POD-5530).
   'src/header-repositories.ts',
   // header-entities (startup) owns per-repository shipping membership (POD-5835).
   'src/header-shipping-index.ts',
-  'src/chat-context-schema.ts', 'src/command-launch-schema.ts', 'src/issue-board-schema.ts',
-  'src/issue-page-schema.ts', 'src/mission-schema.ts', 'src/mission-view-schema.ts',
-  'src/navigation-schema.ts', 'src/notice-schema.ts', 'src/preference-schema.ts',
-  'src/session-pane-schema.ts', 'src/settings-schema.ts', 'src/shell-schema.ts', 'src/workflow-schema.ts',
-  'src/command-launch-views.ts', 'src/issue-reference.ts', 'src/mission-view.ts', 'src/mission.ts',
-  'src/notice-card.ts', 'src/notice-views.ts', 'src/preference-source.ts',
-  'src/session-pane.ts', 'src/session-seats.ts', 'src/settings-source.ts', 'src/settings-views.ts',
-  'src/shell-views.ts', 'src/superagent.ts',
-  'src/shared/cold-index.ts', 'src/shared/field-inputs.ts', 'src/shared/issue-identities.ts',
-  'src/shared/issue-questions.ts', 'src/shared/links.ts', 'src/shared/overlay-row.ts',
-  'src/shared/reader-questions.ts', 'src/shared/relation-index.ts', 'src/shared/repo-from-lane.ts',
-  'src/shared/row-view.ts', 'src/shared/schema.ts', 'src/shared/session-questions.ts',
+  'src/chat-context-schema.ts',
+  'src/command-launch-schema.ts',
+  'src/issue-board-schema.ts',
+  'src/issue-page-schema.ts',
+  'src/mission-schema.ts',
+  'src/mission-view-schema.ts',
+  'src/navigation-schema.ts',
+  'src/notice-schema.ts',
+  'src/preference-schema.ts',
+  'src/session-pane-schema.ts',
+  'src/settings-schema.ts',
+  'src/shell-schema.ts',
+  'src/workflow-schema.ts',
+  'src/command-launch-views.ts',
+  'src/issue-reference.ts',
+  'src/mission-view.ts',
+  'src/mission.ts',
+  'src/notice-card.ts',
+  'src/notice-views.ts',
+  'src/preference-source.ts',
+  'src/session-pane.ts',
+  'src/session-seats.ts',
+  'src/settings-source.ts',
+  'src/settings-views.ts',
+  'src/shell-views.ts',
+  'src/superagent.ts',
+  'src/shared/cold-index.ts',
+  'src/shared/field-inputs.ts',
+  'src/shared/issue-identities.ts',
+  'src/shared/issue-questions.ts',
+  'src/shared/links.ts',
+  'src/shared/overlay-row.ts',
+  'src/shared/reader-questions.ts',
+  'src/shared/relation-index.ts',
+  'src/shared/repo-from-lane.ts',
+  'src/shared/row-view.ts',
+  'src/shared/schema.ts',
+  'src/shared/session-questions.ts',
   'src/write/commands.ts',
   // Read-time companion joins and normalized ref keys serve the startup pool (POD-5485).
-  'src/shared/joined-fields.ts', 'src/shared/session-reference.ts',
+  'src/shared/joined-fields.ts',
+  'src/shared/session-reference.ts',
   // Header and sidebar startup readers share these scalar lifecycle rules.
   // This facade adds no optional screen or store implementation (POD-5545).
   'src/shared/predicates.ts',
-  'src/worklist/groups.ts', 'src/worklist/mobile-row.ts', 'src/worklist/mobile.ts',
-  'src/worklist/rollup.ts', 'src/worklist/seat-verdicts.ts', 'src/worklist/projects.ts',
-  'src/worklist/sidebar-row.ts', 'src/worklist/sidebar.ts', 'src/worklist/sorted-lanes.ts',
+  'src/worklist/groups.ts',
+  'src/worklist/mobile-row.ts',
+  'src/worklist/mobile.ts',
+  'src/worklist/rollup.ts',
+  'src/worklist/seat-verdicts.ts',
+  'src/worklist/projects.ts',
+  'src/worklist/sidebar-row.ts',
+  'src/worklist/sidebar.ts',
+  'src/worklist/sorted-lanes.ts',
   'src/worklist/visible.ts',
-  'src/worklist/view-model.ts', 'src/worklist/issue.ts', 'src/worklist/session.ts',
-  'src/worklist/attention.ts', 'src/worklist/lists.ts',
+  // The always-on worklist owns phone filters/sections and the row vocabulary
+  // shared with the desktop sidebar (POD-2303). These are data companions over
+  // the startup models above; phone screen components remain outside this list.
+  'src/worklist/phone.ts',
+  'src/worklist/voice.ts',
+  'src/worklist/view-model.ts',
+  'src/worklist/issue.ts',
+  'src/worklist/session.ts',
+  'src/worklist/attention.ts',
+  'src/worklist/lists.ts',
   // Startup readers own these: reader-questions builds the mention index,
   // reader-queries the addressed worktree answers, and the sidebar close
   // guard and issue menus read issuePages.closeFacts (POD-5530/5569/5570/5577).
-  'src/issue-page.ts', 'src/shared/issue-mention-question.ts', 'src/shared/worktree-questions.ts',
+  'src/issue-page.ts',
+  'src/shared/issue-mention-question.ts',
+  'src/shared/worktree-questions.ts',
   // The startup pool and header polls share these failure counters. This
   // keeps no rows or errors and adds no optional screen dependency (POD-5540).
   'src/shared/feed-diagnostics.ts',
@@ -100,11 +160,58 @@ export function eagerClientGraphSources(sources: readonly string[]): string[] {
     ...new Set(
       sources.filter((source) => {
         const normalized = source.replaceAll('\\', '/')
-        if (/(?:^|\/)(?:tests\/worklist|node_modules\/@podium\/worklist-tests)\//.test(normalized)) return true
+        if (/(?:^|\/)(?:tests\/worklist|node_modules\/@podium\/worklist-tests)\//.test(normalized))
+          return true
         const module = normalized.match(
-            /(?:^|\/)(?:packages\/client-graph|node_modules\/@podium\/client-graph)\/(.*)$/,
-          )?.[1]
+          /(?:^|\/)(?:packages\/client-graph|node_modules\/@podium\/client-graph)\/(.*)$/,
+        )?.[1]
         return module !== undefined && !STARTUP_GRAPH_SOURCES.has(module)
+      }),
+    ),
+  ].sort()
+}
+
+/** These source trees include host capabilities that crash browser chunks
+ * during evaluation (POD-2176). Only the exact audited browser leaves below
+ * may be bundled; optional routes are checked as well as the startup graph. */
+const BROWSER_HOSTILE_SOURCES = [
+  // Operator replay reads local credentials and must never be a product import.
+  'file-viewer-replay.ts',
+  'packages/runtime/src/sqlite/',
+  'packages/harness/src/',
+] as const
+
+/** Exact leaves reached through declared browser entrypoints. The source and
+ * bundler browser-reach audits check their complete closure for Node imports. */
+const BROWSER_HOSTILE_EXCEPTIONS = [
+  'packages/harness/src/browser.ts',
+  'packages/harness/src/store/cursor-codec.ts',
+  'packages/harness/src/store/stream-identity.ts',
+  // cursor-codec re-exports the pure codec from this grammar leaf (POD-2320).
+  'packages/harness/src/transcript-types.ts',
+  // The composer-sync browser entrypoint is the harness-free shared port.
+  'packages/harness/src/driver/families/terminal/composer-sync.ts',
+  // Pure composer rules and descriptors reached through src/browser.ts.
+  'packages/harness/src/adapters/bundled-descriptors.generated.ts',
+  'packages/harness/src/adapters/shared/composer.ts',
+  'packages/harness/src/adapters/claude-code/composer.ts',
+  'packages/harness/src/adapters/codex/composer.ts',
+  // Interview cards use only pure JSON/string helpers.
+  'packages/harness/src/adapters/codex/interview.ts',
+  'packages/harness/src/adapters/shared/json-util.ts',
+  // Version floors are pure data and string parsing.
+  'packages/harness/src/version-policy.ts',
+] as const
+
+export function browserHostileSources(sources: readonly string[]): string[] {
+  return [
+    ...new Set(
+      sources.filter((source) => {
+        const normalized = source.replaceAll('\\', '/')
+        return (
+          BROWSER_HOSTILE_SOURCES.some((fragment) => normalized.includes(fragment)) &&
+          !BROWSER_HOSTILE_EXCEPTIONS.some((allowed) => normalized.endsWith(allowed))
+        )
       }),
     ),
   ].sort()

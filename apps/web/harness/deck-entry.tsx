@@ -86,6 +86,35 @@ const MISSIONS = {
   statusCounts: () => statusCountsFixture([4, 3, 2, 3]),
   statusCountsWide: () => statusCountsFixture([12, 13, 14, 15]),
   statusCountsWaiting: () => statusCountsFixture([0, 0, 7, 0]),
+  /** POD-2313: a lone review nobody is on, as POD-2301 stood. */
+  reviewLone: () => {
+    state.issues = [
+      issue('root', {
+        displayRef: 'POD-2301',
+        title: 'Shared activity presentation rules',
+        description:
+          'Share the singleton-note and member disclosure rules across transcript views.',
+        stage: 'review',
+      }),
+    ]
+    state.sessions = []
+  },
+  /** POD-2313: the same review with its stopped agent still listed. */
+  reviewStopped: () => {
+    state.issues = [
+      issue('root', {
+        displayRef: 'POD-2301',
+        title: 'Shared activity presentation rules',
+        description:
+          'Share the singleton-note and member disclosure rules across transcript views.',
+        stage: 'review',
+        memberSessionIds: ['done-agent'],
+      }),
+    ]
+    state.sessions = [
+      session('done-agent', { issueId: 'root', status: 'exited', name: 'Shared rules refactor' }),
+    ]
+  },
   /**
    * THE COMPLEX TICKET THE WATERFALL IS FOR (POD-1854): an epic with staggered
    * real times, a reviewer that looped three times (on/off/on — the segmented

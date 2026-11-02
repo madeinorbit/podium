@@ -144,7 +144,7 @@ interface PhoneDeck {
   rowPresentation: ReadonlyMap<string, MissionRowPresentation>
   departures: MissionScreen['departures']
 }
-const NO_PROGRESS = { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }
+const NO_PROGRESS = { total: 0, done: 0, working: 0, waiting: 0, todo: 0 }
 const NO_MISSION: PhoneMission = { root: undefined, missionSessions: [], progress: NO_PROGRESS, header: () => undefined, author: () => null }
 const NO_DECK: PhoneDeck = { root: undefined, progress: NO_PROGRESS, continuation: null, presence: null, rows: [], rowPresentation: new Map(), departures: [] }
 const openings = new WeakMap<MobxPool, Map<string, MissionScreen>>()

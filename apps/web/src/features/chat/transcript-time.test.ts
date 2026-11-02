@@ -1,7 +1,14 @@
 import type { ChatRow } from '@podium/client-core/values'
 import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { clockLabel, dayKey, dayLabel, parseTs, rowTimestamp } from './transcript-time'
+import {
+  clockLabel,
+  dayKey,
+  dayLabel,
+  formatWorkDuration,
+  parseTs,
+  rowTimestamp,
+} from './transcript-time'
 
 const item = (ts?: string): TranscriptItem =>
   ({ id: 'i1', role: 'assistant', text: 'x', ...(ts ? { ts } : {}) }) as TranscriptItem
@@ -16,6 +23,14 @@ const toolsRow = (...tss: (string | undefined)[]): ChatRow => ({
   blocks: tss.map((ts) => ({ item: item(ts) })),
   blockIndices: tss.map((_, i) => i),
   title: 'Ran tools',
+})
+
+it('formats work timers in units without counting a partial second early', () => {
+  expect(formatWorkDuration(22999)).toBe('22s')
+  expect(formatWorkDuration(62000)).toBe('1m 02s')
+  expect(formatWorkDuration(125000)).toBe('2m 05s')
+  expect(formatWorkDuration(3720000)).toBe('1h 02m')
+  expect(formatWorkDuration(-100)).toBe('0s')
 })
 
 describe('parseTs', () => {

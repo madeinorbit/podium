@@ -728,11 +728,11 @@ describe('execution buckets', () => {
     })
     expect(tracked(() => full.leafIds)).toEqual(['leaf'])
     expect(tracked(() => full.buckets)).toEqual({ total: 1, done: 0, working: 1, waiting: 0, todo: 0 })
-    const expected = { total: 1, done: 0, run: 1, stall: 0, review: 0, block: 0, wait: 0 }
+    const expected = { total: 1, done: 0, working: 1, waiting: 0, todo: 0 }
     expect(tracked(() => screen.progress)).toEqual(expected)
     expect(tracked(() => pool.worklistRow('root')!.progress)).toEqual(expected)
     expect(tracked(() => pool.worklistRow('phase')!.progress)).toEqual(expected)
-    expect(tracked(() => unitsBelowPartOf(pool.rollupInputs, 'root'))).toMatchObject({ units: 1, done: 0, progress: { run: 1, stall: 0 } })
+    expect(tracked(() => unitsBelowPartOf(pool.rollupInputs, 'root'))).toMatchObject({ units: 1, done: 0, progress: { working: 1, waiting: 0 } })
     expect(tracked(() => pool.worklistRow('empty-phase')!.progress)).toMatchObject({ total: 0 })
   })
 
@@ -761,8 +761,14 @@ describe('execution buckets', () => {
     pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'worker',
       value: { ...original, issueId: 'elsewhere' } as never }] })
     expect(tracked(() => full.buckets)).toEqual({ total: 1, done: 0, working: 0, waiting: 1, todo: 0 })
-    expect(tracked(() => screen.progress)).toMatchObject({ total: 1, run: 0, stall: 1, wait: 0 })
-    expect(tracked(() => pool.worklistRow('root')!.progress)).toMatchObject({ total: 1, run: 0, stall: 1, wait: 0 })
+    expect(tracked(() => screen.progress)).toMatchObject({ total: 1,
+      working: 0,
+      waiting: 1,
+      todo: 0 })
+    expect(tracked(() => pool.worklistRow('root')!.progress)).toMatchObject({ total: 1,
+      working: 0,
+      waiting: 1,
+      todo: 0 })
     const rebuilt = rollupInputsOf({ ...pool.visibleInputs, missionBucket: undefined })
     expect(rebuilt.missionBucket?.('history')).toBe('waiting')
   })

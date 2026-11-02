@@ -227,12 +227,16 @@ export { issueAbandoned } from './shared/predicates'
 /**
  * Closed top-level human issue (`isClosedTopLevelIssue`,
  * `slices/issues.ts:318-322`): a fold candidate (spec §3 R-GROUP) and the
- * sessionless keep's `fold` (`rows.ts:96`).
+ * sessionless keep's `fold` (`rows.ts:96`). A closed task whose parent is
+ * archived or deleted draws as a root row, so it folds like one too, whatever
+ * its audience; otherwise it sits in the open lane forever (POD-2315).
  */
 export function isClosedTopLevel(
   issue: Pick<SliceIssue, 'closedReason' | 'parentId' | 'audience'>,
+  parentGone = false,
 ): boolean {
-  return isClosed(issue) && !issue.parentId && issue.audience === 'human'
+  if (!isClosed(issue)) return false
+  return issue.parentId ? parentGone : issue.audience === 'human'
 }
 
 /**
@@ -247,7 +251,7 @@ export function closedOf(
   input: Pick<ViewInputs, 'passed'>,
   facts?: CloseFacts,
 ): boolean {
-  if (!isClosedTopLevel(issue) || issue.needsHuman === true || (facts ? facts.awaitingMerge : awaitingMergeOf(issue)) || waiting) return false
+  if (!isClosedTopLevel(issue, facts?.parentGone) || issue.needsHuman === true || (facts ? facts.awaitingMerge : awaitingMergeOf(issue)) || waiting) return false
   if (issueAbandoned(issue)) return true
   if (issue.tuckedAt != null) return true
   const finishedAt = facts ? facts.finishedMs : parseMs(issue.closedAt ?? issue.updatedAt) ?? 0
@@ -266,7 +270,12 @@ export function foldAtOf(issue: SliceIssue): string {
  * the band and the fold verdict are computed for a row (the rank and the
  * group placement take them from here).
  */
-export interface CloseFacts { readonly awaitingMerge: boolean; readonly finishedMs: number }
+export interface CloseFacts {
+  readonly awaitingMerge: boolean
+  readonly finishedMs: number
+  /** The formal parent is archived or deleted: the task folds as a root row. */
+  readonly parentGone?: boolean
+}
 
 export function ownPartOfRow(issue: SliceIssue, input: Pick<ViewInputs, 'passed' | 'reached'>, facts?: CloseFacts): OwnPart {
   // Keep the plain rule object narrow too: reading band or repoKey must

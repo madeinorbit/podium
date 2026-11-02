@@ -446,14 +446,14 @@
       "file": "apps/mobile/src/components/SessionConversation.tsx",
       "holder": "SessionConversation/model/useConversation:callback/sends/messageRecords/ingest/callback",
       "rule": "helper-consumer",
-      "tokens": "04548263be4e0b6f21d32790fe3109f5f2275ad5fdc736e1e8968c046e91bc23",
+      "tokens": "ab6891182f7e4db36eab2156ba049f14cdfda72ab32a8f98c738adadf6bf2f87",
       "gate": [
         "then:986f690ce3c4f8741f4341d67936aa814b16cd92511eb5fce83f5e04a025a80b"
       ],
       "origin": [
         "9a9140ec798ba5ed9accfdce3a66537d4a2e589273a5eb95b0ed545355592641"
       ],
-      "fingerprint": "826137dae0fa9ad01e0023e12b266a0acdd3d35702fcab9166f46195b79f3f2c",
+      "fingerprint": "cc6668bcee355a550b6c18a2760d162c9eec548a638dbfa8fcdd6da5e9d66f0f",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5869",
@@ -652,40 +652,40 @@
       "file": "apps/mobile/src/lib/transcript-feed.ts",
       "holder": "indexedTranscript/result",
       "rule": "helper-consumer",
-      "tokens": "fc311807560da19b6985e02b07f506bdef64819c56ed4b56fc00bcf7bf0ea595",
+      "tokens": "779cba78cc7c30aa1581bf15733b4e81a5e108ab204c0e9a6a8a4fd305c8288c",
       "gate": [
         "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
       ],
       "origin": [
         "f72fdf68e43ec41083b5a1d5680fa0760f555000bb6b221f47c98ce7205a2970"
       ],
-      "fingerprint": "73f9eab78613384cc26f354aecbfdc0962985d6a44e871ceb1ce1c21fced1174",
+      "fingerprint": "86955a93f5a79ebfdba91c33843425c9d14734b55f9b5b2625e00bbbf1cfcb60",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of indexedTranscript/result",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 7cbbbedcaf4b88c50679be915f4b52ea4218e3fe687eea571635514a811b4283.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 7cbbbedcaf4b88c50679be915f4b52ea4218e3fe687eea571635514a811b4283. Murmur changes quiet-row grouping within the same per-snapshot compute; the cache trigger and full-snapshot debt are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/mobile/src/lib/transcript-feed.ts",
       "holder": "indexedTranscript/result",
       "rule": "helper-consumer",
-      "tokens": "fc311807560da19b6985e02b07f506bdef64819c56ed4b56fc00bcf7bf0ea595",
+      "tokens": "779cba78cc7c30aa1581bf15733b4e81a5e108ab204c0e9a6a8a4fd305c8288c",
       "gate": [
         "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
       ],
       "origin": [
         "0dfee297d24adb2924db9fd93d111ecabce26fa26e2c98dd39da87c70299a5cf"
       ],
-      "fingerprint": "b416cce12bd4dd26c4e37cf13b9d75e8eb45ccdd8c2c53d5d98b0c58d46897b2",
+      "fingerprint": "46d732347082a183086288bc93bde372b16df7a559343194cb9c5bb7775a7cd6",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of indexedTranscript/result",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 1099e6cb6f3b5be5fd9863308e2a039990ea5d3d2d075f9d8b40a8cbdf635ca5.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 1099e6cb6f3b5be5fd9863308e2a039990ea5d3d2d075f9d8b40a8cbdf635ca5. Murmur changes quiet-row grouping within the same per-snapshot compute; the cache trigger and full-snapshot debt are unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -3687,40 +3687,40 @@
       "file": "apps/web/src/features/chat/ChatView.tsx",
       "holder": "ChatView/conversation",
       "rule": "reader-summary",
-      "tokens": "5e600b71dfbfdc9727f79d910e9d5776d3906fc39357cf88568965f696f6efc9",
+      "tokens": "173a26b69b115191d2553ba9bae5740e0cc32dcdeb879603511dbde0fbf8c0d4",
       "gate": [],
       "origin": [
         "130cdf8f9d4ed8f09fb3c14cb532c8aea0c8413756acd071787bec2d945f1ce2",
+        "571d643e56951ba67e1dccf71daf6c377a3fd78430a5ab217513636e377b9891",
         "8bd1f9bfc0645ceea6f133dacd0f9c5342ced07a34d42d1cf4eb61dc7bdf239d",
-        "a1fc014805eff8197c2cfbf8c3943a8a0ad26cebbcae96266980f0cef377b090",
-        "eb3e9643a20228ecf463b20b4386f5c5fa7a0b783e7c6bd55a3f05c08d7d363f"
+        "a1fc014805eff8197c2cfbf8c3943a8a0ad26cebbcae96266980f0cef377b090"
       ],
-      "fingerprint": "091512487a789ec6fee45a500c4ac9f39195912fcc78144ba7acc6bdbc5b177d",
+      "fingerprint": "ac4329145417b51c3573a182261003657508747793b9bbe73aff646abcac8884",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of ChatView/chat",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 19d2f544ef62ed90bb4cf8fc6ac38d7dbaae72e22d2958a569ca426bd3419966. POD-6069: First acquisition uses the shared startup read; the imported hook body changed, with the same collection origins, gates and multiplicity. Predecessor: e366b9da4c906258720a0980fb02b686abca73f7a78a75c190d6f192e9029327. POD-2257: The imported conversation factory now seeds native first prompts for record handoff; acquisition, collection origins, gates and multiplicity are unchanged. Predecessor: 9dc3d72eadc6d5f4bc4aa27a0f56a69bdaf9b50318a2af25221174410cd1901c.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 19d2f544ef62ed90bb4cf8fc6ac38d7dbaae72e22d2958a569ca426bd3419966. POD-6069: First acquisition uses the shared startup read; the imported hook body changed, with the same collection origins, gates and multiplicity. Predecessor: e366b9da4c906258720a0980fb02b686abca73f7a78a75c190d6f192e9029327. POD-2257: The imported conversation factory now seeds native first prompts for record handoff; acquisition, collection origins, gates and multiplicity are unchanged. Predecessor: 9dc3d72eadc6d5f4bc4aa27a0f56a69bdaf9b50318a2af25221174410cd1901c. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: 091512487a789ec6fee45a500c4ac9f39195912fcc78144ba7acc6bdbc5b177d.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/web/src/features/chat/ChatView.tsx",
       "holder": "ConversationChatView/ConversationChatView/chat",
       "rule": "reader-summary",
-      "tokens": "6d3e42eb2de7f8c0c31eb95e78058924daa981fea9a30fed8fae679ce169eaae",
+      "tokens": "348d6f2ae3167bd5beaf1567c2a10bc973476ebf4736cb1e95e3080a341f5a44",
       "gate": [],
       "origin": [
         "0ada7271c7f9a312e00ddc7d7745c29aa340b32ed0cad32a202b66ad0a6fa4cc",
         "38fbaac9da16906de217d6806926a7bbec5c49548b92e3e9c328e6f573c27b23"
       ],
-      "fingerprint": "44e79377ac015c5b37a1767cfb154aaf4563a4f7d98d39f39b940abd40527af1",
+      "fingerprint": "3b25d8517c22fff80df79e2a30626d49549a5f7f05c6f611324cde497f413eda",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Mount one chat reader and its DOM layout.",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "Display facts are read by leaf observers, but inherited conversation/context initialization taint remains; this entry claims no new collection bound. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 004229d48a542972d7a2e936455fb7c6a64b21c0c8731b8dc31ba8b0d9638680. POD-2047: Async interview submission reads its captured transcript block by ID; reader multiplicity and inherited collection demand are unchanged. Predecessor: aef63c7ad31df7b5a7f7d762b326cd7669dfa56308ed9ef69fc883990f001545. POD-2047 review fixes: replies now use the conversation outbox, removing the direct-send collection origin; current-question validation stays addressed and duplicate checks inspect this conversation pending replies. Classification and owner retain the inherited reader debt. Predecessor: 73fb89f4c9705c80f9d63ec115c88d898ea535eca1cf8daf6bca23e9fa33afbb. Predecessor: 8cbdd215fec11b8585f58062e26d540be96fce8532384306a175d395fe425bb1. POD-2219: the removed tl;dr rail button no longer reads the last answer text; reader multiplicity and inherited collection demand are unchanged. Predecessor: ef264dbe228e117f58409d18bfb00f32c34ae33856db693b93bffd048b10d0c1.",
+      "reason": "Display facts are read by leaf observers, but inherited conversation/context initialization taint remains; this entry claims no new collection bound. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 004229d48a542972d7a2e936455fb7c6a64b21c0c8731b8dc31ba8b0d9638680. POD-2047: Async interview submission reads its captured transcript block by ID; reader multiplicity and inherited collection demand are unchanged. Predecessor: aef63c7ad31df7b5a7f7d762b326cd7669dfa56308ed9ef69fc883990f001545. POD-2047 review fixes: replies now use the conversation outbox, removing the direct-send collection origin; current-question validation stays addressed and duplicate checks inspect this conversation pending replies. Classification and owner retain the inherited reader debt. Predecessor: 73fb89f4c9705c80f9d63ec115c88d898ea535eca1cf8daf6bca23e9fa33afbb. Predecessor: 8cbdd215fec11b8585f58062e26d540be96fce8532384306a175d395fe425bb1. POD-2219: the removed tl;dr rail button no longer reads the last answer text; reader multiplicity and inherited collection demand are unchanged. Predecessor: ef264dbe228e117f58409d18bfb00f32c34ae33856db693b93bffd048b10d0c1. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: e44abe82524bfc15e9af2523e4e47ea6731942d7fc60bfa6a3b9a110810cc521.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -3933,60 +3933,60 @@
       "gate": [
         "exit:then:eb95bf59088a0aacae48b47f694da8acc66addfb6b485c18369f3695b5bbc40b",
         "exit:then:2a9160b19112a59c7b44e568540986db57a63545f1718707ed26b3ea3dbe9c22",
-        "exit:then:997cc1c443014ddbfa946aa1133a9985b45e8a127652136b1ddfbb651b489fe7",
-        "exit:then:5799af1627b016837931d2861081342e87f6732a59e9d8262d795296da0f4ff9",
+        "exit:then:f34081857d69cbdda74871bc219a1e46722e7899ae446b0c2aedd13564f56640",
+        "exit:then:3169b2aef25f9863e46aaa9f29428133af4f20ee9111138a01df2a33ce1fb768",
         "exit:then:1f514a0dff4fa91030eabaff13a4dd5cf7302b10a2151aac0ef27d498360df90"
       ],
       "origin": [
-        "eaac8c86e36a9afe9b268169b929c86806feb42241bc5d8d8f0724806d984283"
+        "8574ade6c197e64635753b34ef8042cb1d240e2f0cbf15ed0580867b953c8c64"
       ],
-      "fingerprint": "0358bb2c653bae189b14799ea975a388995302f28484aa3bccef87a041d30c6b",
+      "fingerprint": "cc28d0c9ffdb063b9d01b8d166b76ad8bee2f7b3f4422a8eb0bc79c634691597",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Send a turn to the selected superagent thread.",
       "bound": "Backend choice has three optional fields; generic conversation/context taint reaching the send options retains its unproven bound.",
-      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: a79c9a6543b8f94f8c9185f3383ccff6ef42a16b061b5a66e67abce6f2591809. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 629970c5bdff875e120eca4ca6fe534f9d38435e56c4bfecb23dfd19e26c3dae.",
+      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: a79c9a6543b8f94f8c9185f3383ccff6ef42a16b061b5a66e67abce6f2591809. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 629970c5bdff875e120eca4ca6fe534f9d38435e56c4bfecb23dfd19e26c3dae. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: 0358bb2c653bae189b14799ea975a388995302f28484aa3bccef87a041d30c6b.",
       "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
     },
     {
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "createWebConversation/sends/deliver/callback/composer",
       "rule": "helper-consumer",
-      "tokens": "7bf147209bbf6ee9641e00ce801916c14699ed9675dbb4cd1c21745497d5f6c7",
+      "tokens": "d679357681d9979bd50cbd9afca24e40219f76ae7e8a4f9582c20b00a4692e11",
       "gate": [
-        "exit:then:5799af1627b016837931d2861081342e87f6732a59e9d8262d795296da0f4ff9"
+        "exit:then:3169b2aef25f9863e46aaa9f29428133af4f20ee9111138a01df2a33ce1fb768"
       ],
       "origin": [
         "adfc80928fa7e8f33d73591c8c752a6ec1006cdeb81b7b8014d0d4921ac12d7c"
       ],
-      "fingerprint": "baa2b8a8f92aaf0ab4bf9a276313fd000ad7e87b43d6224251a868f00afca022",
+      "fingerprint": "6f2d2d156e06950b24f23ec9f7577551c8c241a0aa09060df2ac4d3236d6d67c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Compute composer state immediately before one addressed delivery.",
       "bound": "Composer state is scalar, but the helper inherits the session/context taint previously held in the React send hook.",
-      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 8cb8c08cce444f4545e166ce4bbb082edbe8026c494a5d7d9a8f6e083b0e15e2. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 54ee6cc52ad003b794c32c0a781ced6c08f06ea5f2be7bfa30da9a392ef2c585. POD-2109: composer placeholders are rewritten as sentences without em dashes; collection demand is unchanged. Predecessor: 4081e5af4b05943809b6caf1efc125e48f41d1046d331a9e21df08c0dc472c0e. POD-2151 changed only scalar helpers on this path (landing copy, composer placeholder); no collection read was added. Predecessor: 02ce3305fd8bde13cb4c4a3a75877ee50f8f6b7f0621b57569bc365d18937b78.",
+      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 8cb8c08cce444f4545e166ce4bbb082edbe8026c494a5d7d9a8f6e083b0e15e2. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 54ee6cc52ad003b794c32c0a781ced6c08f06ea5f2be7bfa30da9a392ef2c585. POD-2109: composer placeholders are rewritten as sentences without em dashes; collection demand is unchanged. Predecessor: 4081e5af4b05943809b6caf1efc125e48f41d1046d331a9e21df08c0dc472c0e. POD-2151 changed only scalar helpers on this path (landing copy, composer placeholder); no collection read was added. Predecessor: 02ce3305fd8bde13cb4c4a3a75877ee50f8f6b7f0621b57569bc365d18937b78. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: baa2b8a8f92aaf0ab4bf9a276313fd000ad7e87b43d6224251a868f00afca022.",
       "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
     },
     {
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "createWebConversation/sends/messageRecords/ingest/callback",
       "rule": "helper-consumer",
-      "tokens": "13011b5281c4f430ca395cfe6bb57635b0485a60c7284cc5d1286d4fc94641e4",
+      "tokens": "93c6d806b44708d99867b5ff8399498e6ecaa74e288f22cddaf5928d9df3b1f1",
       "gate": [
         "else:b324373e6dc9a92f7b216cd4c94e835a9b0a35fb5d91fe38a7e84bd9c31844c2"
       ],
       "origin": [
         "f35ca1ac5b529731036a460163188e2ea02ab9db6a795d238e8e7b30973ae32f"
       ],
-      "fingerprint": "403f581e5dd2088896dc934c1d1c0d3e9dbd4004198fb9b9eeffc87781a5909f",
+      "fingerprint": "bf720797a15569d65756b806b5defbcb5499ddf3524a1b42da3f783180526b8a",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5869",
       "trigger": "Sends completes its addressed catch-up lookup for held local turns.",
       "bound": "Only the returned message-record request batch is installed; no screen-specific record cache is added.",
-      "reason": "The request records enter the same message table that replica ingestion and the ledger use.",
+      "reason": "The request records enter the same message table that replica ingestion and the ledger use. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: 728ea134251c7ebee30dd075431f740136329f66f773b213e5e2046b51d69d98.",
       "guard": "sends.test.ts and message-models.test.ts cover catch-up parity, shared identity, and current-replica precedence."
     },
     {
@@ -3996,56 +3996,56 @@
       "tokens": "73ef294c6129cac466f29d0b83fe0f8f577a66cc1f1ed432e11b5df65511ac7f",
       "gate": [
         "else:b324373e6dc9a92f7b216cd4c94e835a9b0a35fb5d91fe38a7e84bd9c31844c2",
-        "??:1535f4be6c8f7ac3b5c2db659d7b216f04efee86dc4e45a21a52f376f897a4e5"
+        "??:58e1f988182ac13b267c03f3ebac8546c70430da24ea2c70a760c54a70575f18"
       ],
       "origin": [
-        "eb3e9643a20228ecf463b20b4386f5c5fa7a0b783e7c6bd55a3f05c08d7d363f"
+        "571d643e56951ba67e1dccf71daf6c377a3fd78430a5ab217513636e377b9891"
       ],
-      "fingerprint": "52b1428c198e0a4d9caae68a8dbe399b9648052a248cbadea6bee09fcbcb24ba",
+      "fingerprint": "49d2cc3aa158194d0844119f9c3deaf2a12a95b37a5e606f54bacbbd932f992b",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5872",
       "trigger": "Initialize or refresh one open conversation’s existing message-record port.",
       "bound": "The addressed noticeSession membership only; no new numeric cap on held notices or records is asserted.",
-      "reason": "The existing snapshot and row-version subscription moved from a manual computed to a lazy service field. Collection ownership and work are preserved; transcript refresh and subscription redesign belongs to POD-5800. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 5a80f4115b2dbeb6ff8b12905e2a116be7defbfb9ca7b491a74d8368f6488b55.",
+      "reason": "The existing snapshot and row-version subscription moved from a manual computed to a lazy service field. Collection ownership and work are preserved; transcript refresh and subscription redesign belongs to POD-5800. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 5a80f4115b2dbeb6ff8b12905e2a116be7defbfb9ca7b491a74d8368f6488b55. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: 52b1428c198e0a4d9caae68a8dbe399b9648052a248cbadea6bee09fcbcb24ba.",
       "guard": "ChatView.test.tsx and conversation-service.parity.test.ts preserve delivery and record answers; exact fingerprint and multiplicity remain enforced. This entry does not claim a repaired collection bound."
     },
     {
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "createWebConversation/sends/records/subscribe/callback/reaction:callback",
       "rule": "consume:map",
-      "tokens": "9e36ba30b6c15fddbd51c6ea07686e56a6095e6d6e567d931e5f68320e851791",
+      "tokens": "e0655b4fe49ee3bfc07aec95b880fa676d019a7dce5b776645dae039d1f64c68",
       "gate": [
         "else:b324373e6dc9a92f7b216cd4c94e835a9b0a35fb5d91fe38a7e84bd9c31844c2"
       ],
       "origin": [
-        "39197dabd3ad3a37f7543aa35da562935365fcf39c41b4c5daf5374710794ec9"
+        "237716a431f264a10102d3c70e82cd783ef11ce2f82526bcb0e1e9d521a0972f"
       ],
-      "fingerprint": "f7ccab7429b608e010b0a2ef8b453da51946e2cd458267fbbefbe008d438ad14",
+      "fingerprint": "64f36fb1c70946bf326a85986d85559cc948d79ae6412f624999b59fc8a6e077",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5872",
       "trigger": "Initialize or refresh one open conversation’s existing message-record port.",
       "bound": "The addressed noticeSession membership only; no new numeric cap on held notices or records is asserted.",
-      "reason": "The existing snapshot and row-version subscription moved from a manual computed to a lazy service field. Collection ownership and work are preserved; transcript refresh and subscription redesign belongs to POD-5800. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 51c998ca196a9a6c243e1bbe5d981eabc11baa7e3cef40d3f3e29834b5c00df1.",
+      "reason": "The existing snapshot and row-version subscription moved from a manual computed to a lazy service field. Collection ownership and work are preserved; transcript refresh and subscription redesign belongs to POD-5800. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 51c998ca196a9a6c243e1bbe5d981eabc11baa7e3cef40d3f3e29834b5c00df1. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: f7ccab7429b608e010b0a2ef8b453da51946e2cd458267fbbefbe008d438ad14.",
       "guard": "ChatView.test.tsx and conversation-service.parity.test.ts preserve delivery and record answers; exact fingerprint and multiplicity remain enforced. This entry does not claim a repaired collection bound."
     },
     {
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "useConversation/conversation/useOwnedConversation:callback",
       "rule": "reader-summary",
-      "tokens": "1a71dacfa2b824ce1b6b1a78f78d61781aaf226809f1968e9d80056275712208",
+      "tokens": "dde0caf414ab3342f1e96b85780f35a73daa762cc9c03477b6737bd19d8eea28",
       "gate": [],
       "origin": [
         "adfc80928fa7e8f33d73591c8c752a6ec1006cdeb81b7b8014d0d4921ac12d7c"
       ],
-      "fingerprint": "86b228537a5884c5559cd0d342fd4b8097a36d03dc20f05c90c5cf97fefb4884",
+      "fingerprint": "c3a1782fed8024a994b04bd279e3949551e21658cd906a4c34d4f367322b4e2b",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Acquire a web conversation through the shared React lifecycle hook.",
       "bound": "One session identity is acquired; initialization may restore all held sends for that session and has no new collection cap.",
-      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: cec908acc386d397ab1e0e27148d4eef65403317848ae5fba7c5a9f407312c52. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: a711a0ea1c6fc8be0a850e43345510cc896125b94d7642d558ebdc94c911b25b. POD-2257: Native first prompts adopt their existing server record; factory ownership and collection origins, gates and multiplicity are unchanged. Predecessor: 6bf0589d085f9a2ae626946d642e2188f1b14ffb9b705c712a8f7d5964f0bba9.",
+      "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: cec908acc386d397ab1e0e27148d4eef65403317848ae5fba7c5a9f407312c52. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: a711a0ea1c6fc8be0a850e43345510cc896125b94d7642d558ebdc94c911b25b. POD-2257: Native first prompts adopt their existing server record; factory ownership and collection origins, gates and multiplicity are unchanged. Predecessor: 6bf0589d085f9a2ae626946d642e2188f1b14ffb9b705c712a8f7d5964f0bba9. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: 86b228537a5884c5559cd0d342fd4b8097a36d03dc20f05c90c5cf97fefb4884.",
       "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
     },
     {
@@ -9398,11 +9398,12 @@
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "25dbf408a8d1f423c5d36d156eee8147255f8061fa080c5d02772c3886ceb24b",
         "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
+        "55b5dd66415715360f9a6a47e15be4f5c82c7034671e0b278bddc9218bc76d2e",
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
         "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf",
         "f47c0c702e2d9828f78f1dcf167a8adc130ab6e27dc0430f356eee1d89ec20f8"
       ],
-      "fingerprint": "df64b887444680c286ea3c2c30da52e04d03374d5e81368344c45bec40553dd8",
+      "fingerprint": "ea62c97d169ff3a57b0f28ea7147eb07ddea1823a84b31c7d092761de0600768",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -9751,121 +9752,6 @@
     },
     {
       "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
-      "holder": "createPoolWorkActions/selectIssue/callback",
-      "rule": "helper-consumer",
-      "tokens": "ba36d92d2b78ededc29a99e1ab4c96adfdaf2b325215393f99a3e6915532ad3a",
-      "gate": [
-        "exit:then:f29179a7c8a940bd92d9e6a387ceadc1785ff834756e7cfa567d181fc43436c1",
-        "exit:then:a3bceb8f05d18723105bc3d9455f8cb526ed83e9ebe3494b370706bb67790d11",
-        "exit:then:ca117cd6cc76b7e7e9208de279628faac1c4a3b89e8d9616bc2a0a2b0efdae5b"
-      ],
-      "origin": [
-        "274575087436e0ee70f29952ed3e0dad2325a7f1c0dc6adc973a6d57588e0169"
-      ],
-      "fingerprint": "1619d03d90abd0bd539e10c952014b31f15e52a11249be514e38a2d40eca0383",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createPoolWorkActions/selectIssue/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
-      "holder": "createPoolWorkActions/selectIssue/callback/files",
-      "rule": "consume:filter",
-      "tokens": "96f9aee827d261b4738a74eb9f02d2f937b72fda651077e5291fda09707ad49b",
-      "gate": [
-        "exit:then:f29179a7c8a940bd92d9e6a387ceadc1785ff834756e7cfa567d181fc43436c1",
-        "exit:then:a3bceb8f05d18723105bc3d9455f8cb526ed83e9ebe3494b370706bb67790d11",
-        "exit:then:ca117cd6cc76b7e7e9208de279628faac1c4a3b89e8d9616bc2a0a2b0efdae5b",
-        "then:3aa19248bca3e0b651f945d814713df765b6add90d8d2db4639a5dddaa38b758"
-      ],
-      "origin": [
-        "f7105fcc1e6be5410a146bcf7fbcf78e3013536bd96680d39101d99eb2458ebe"
-      ],
-      "fingerprint": "fb932d93b88687ba873a15159b26481f2d24b41d58973b76c60fa7a9a1100dc4",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createPoolWorkActions/selectIssue/callback/files",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
-      "holder": "createPoolWorkActions/selectIssue/callback/files",
-      "rule": "consume:map",
-      "tokens": "c22da762312ccb528d9b1e9360224b9730349952a71e805ef27b0f94d525c801",
-      "gate": [
-        "exit:then:f29179a7c8a940bd92d9e6a387ceadc1785ff834756e7cfa567d181fc43436c1",
-        "exit:then:a3bceb8f05d18723105bc3d9455f8cb526ed83e9ebe3494b370706bb67790d11",
-        "exit:then:ca117cd6cc76b7e7e9208de279628faac1c4a3b89e8d9616bc2a0a2b0efdae5b",
-        "then:3aa19248bca3e0b651f945d814713df765b6add90d8d2db4639a5dddaa38b758"
-      ],
-      "origin": [
-        "f7105fcc1e6be5410a146bcf7fbcf78e3013536bd96680d39101d99eb2458ebe"
-      ],
-      "fingerprint": "3804bf7043ffb0a61dc26608efc8bd3917c2ca23b9f790c2a234d11fc4d3566e",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createPoolWorkActions/selectIssue/callback/files",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
-      "holder": "createPoolWorkActions/selectIssue/callback/target",
-      "rule": "helper-consumer",
-      "tokens": "0a8d4c002d4b2d7e5b8acf636c6b25977364128c8ec5ef63bc705be01560b3ad",
-      "gate": [
-        "exit:then:f29179a7c8a940bd92d9e6a387ceadc1785ff834756e7cfa567d181fc43436c1",
-        "exit:then:a3bceb8f05d18723105bc3d9455f8cb526ed83e9ebe3494b370706bb67790d11",
-        "exit:then:ca117cd6cc76b7e7e9208de279628faac1c4a3b89e8d9616bc2a0a2b0efdae5b",
-        "??:65d5b0508f60bc490f5c53669e38b9c59be5458e319c3ff7e956871fa9d2814f"
-      ],
-      "origin": [
-        "274575087436e0ee70f29952ed3e0dad2325a7f1c0dc6adc973a6d57588e0169",
-        "f7105fcc1e6be5410a146bcf7fbcf78e3013536bd96680d39101d99eb2458ebe"
-      ],
-      "fingerprint": "c1ef54b1924a7a26bdc37edacbe347e14871e9de3b619a82a45f6706b2d6fbdc",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createPoolWorkActions/selectIssue/callback/target",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
-      "holder": "createPoolWorkActions/selectIssue/callback/target",
-      "rule": "reader-summary",
-      "tokens": "474db981ff4bbd38da5d6ccea2491234fa36471e9000c1b752ad1fc30ccc3608",
-      "gate": [
-        "exit:then:f29179a7c8a940bd92d9e6a387ceadc1785ff834756e7cfa567d181fc43436c1",
-        "exit:then:a3bceb8f05d18723105bc3d9455f8cb526ed83e9ebe3494b370706bb67790d11",
-        "exit:then:ca117cd6cc76b7e7e9208de279628faac1c4a3b89e8d9616bc2a0a2b0efdae5b",
-        "??:65d5b0508f60bc490f5c53669e38b9c59be5458e319c3ff7e956871fa9d2814f"
-      ],
-      "origin": [
-        "274575087436e0ee70f29952ed3e0dad2325a7f1c0dc6adc973a6d57588e0169"
-      ],
-      "fingerprint": "7fc378a123406cf409977ff6117ad23a37775adb6973a3dbe4a5f617fe65b144",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createPoolWorkActions/selectIssue/callback/target",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
       "holder": "sessionMembership",
       "rule": "loop:for-of",
       "tokens": "d5f731892769a812a3f6a7c526e44b6d0290c50a01e2a4fdfecce5170fd857e3",
@@ -9980,6 +9866,51 @@
       "bound": "Gesture-local roots and their captured cascade IDs; no cardinality cap.",
       "reason": "POD-2106: the view reads local enqueue completion and pending root archive commands to disable Undo until receipts arrive. Batch membership has no cardinality cap. No receipt waiter or deferred restore is retained. Predecessor: bb6eb58301dbc5df2ee83298bad5f62e95deeb0d214d3702f66e9e572f1d7a6e.",
       "guard": "Exact fingerprint and multiplicity only. This entry documents debt and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
+      "holder": "createPoolWorkActions/selectIssue/callback",
+      "rule": "helper-consumer",
+      "tokens": "bd54e1d85e0ed7fcb81aeb8fb95a2b65daa03bd8f5486cbc95eb208942a3daeb",
+      "gate": [
+        "exit:then:f29179a7c8a940bd92d9e6a387ceadc1785ff834756e7cfa567d181fc43436c1",
+        "exit:then:a3bceb8f05d18723105bc3d9455f8cb526ed83e9ebe3494b370706bb67790d11",
+        "exit:then:ca117cd6cc76b7e7e9208de279628faac1c4a3b89e8d9616bc2a0a2b0efdae5b"
+      ],
+      "origin": [
+        "f8684447c173def87df8fbe53bb8d26b431fb7ca55434a1398ee3a30380b2ef1"
+      ],
+      "fingerprint": "642843e93946a7f12abbacb3e4db13e6d9e13bb792f15225c52e4d168361c646",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2324",
+      "trigger": "One task-selection gesture restoring its saved workspace.",
+      "bound": "Only the panes and tabs in the destination workspace, obtained by its mission key; no enumeration of other workspaces or the global file-tab catalogue.",
+      "reason": "The caller asks whether one saved layout has tabs, then reads its focused tab for navigation tracing. Existing mission membership work is unchanged; the old global file-tab filter and map are removed.",
+      "guard": "SidebarUnified.pool-actions.test.tsx covers Markdown artifacts with and without worktrees, the Artifacts index, saved split focus and explicit session selection."
+    },
+    {
+      "file": "apps/web/src/features/worklist/use-pool-unified-work.ts",
+      "holder": "createPoolWorkActions/selectIssue/callback/restoreLayout",
+      "rule": "helper-consumer",
+      "tokens": "3d3121ddbbfa7f998e80239c23e925ca3ae315af294aa43fbeb298b0b06d7456",
+      "gate": [
+        "exit:then:f29179a7c8a940bd92d9e6a387ceadc1785ff834756e7cfa567d181fc43436c1",
+        "exit:then:a3bceb8f05d18723105bc3d9455f8cb526ed83e9ebe3494b370706bb67790d11",
+        "exit:then:ca117cd6cc76b7e7e9208de279628faac1c4a3b89e8d9616bc2a0a2b0efdae5b",
+        "&&:6213bdbdc184c5f75e66e230faccd6f711ba4a69b32c77323fed62df20c7e619"
+      ],
+      "origin": [
+        "f8684447c173def87df8fbe53bb8d26b431fb7ca55434a1398ee3a30380b2ef1"
+      ],
+      "fingerprint": "436545a6183b0fbdec9dd4417c22c8eaefbb477cb90416795715a7d914c58065",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2324",
+      "trigger": "One task-selection gesture restoring its saved workspace.",
+      "bound": "Only the panes and tabs in the destination workspace, obtained by its mission key; no enumeration of other workspaces or the global file-tab catalogue.",
+      "reason": "The caller asks whether one saved layout has tabs, then reads its focused tab for navigation tracing. Existing mission membership work is unchanged; the old global file-tab filter and map are removed.",
+      "guard": "SidebarUnified.pool-actions.test.tsx covers Markdown artifacts with and without worktrees, the Artifacts index, saved split focus and explicit session selection."
     },
     {
       "file": "apps/web/src/features/worklist/useRowDrag.ts",
@@ -10676,18 +10607,18 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "fixtureSidebarSections",
       "rule": "loop:for-of",
-      "tokens": "7dc04b31be2ce5e92a2262ae4a8d2cf14b2e08c5e925490c9f178f0d86497300",
+      "tokens": "bf80d609dbd8ad598eaf2216598a6c8f771fbdf232f358845479f8a040ceac66",
       "gate": [],
       "origin": [
         "4bed1838542c1263d86af04d8f60231a7891b8bcb42ec58e87a88aef7c00c3a7"
       ],
-      "fingerprint": "6f9c18cc3d55049c4aef05ec5df8ffd53ec2fdae65222f6b6691e3209642c48f",
+      "fingerprint": "cc78ab0165d9aa558ef42d8cf26ccbdb2cbccade0ffb40f024f7f49f1aad964e",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Fixture sidebar projection over normalized synthetic issues (POD-5566)",
       "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
-      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path. Predecessor: 6f9c18cc3d55049c4aef05ec5df8ffd53ec2fdae65222f6b6691e3209642c48f.",
       "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
     },
     {
@@ -12033,7 +11964,7 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/pool/sidebar/row/callback",
       "rule": "helper-consumer",
-      "tokens": "baf7dfd328b1e50dd1c7048536664de7a038484290f245b5f2a73f770dd04fb0",
+      "tokens": "c5d5928d8bdc48c382ae26e71c5430985518f3750e35890cd5354c7acc2da6ca",
       "gate": [
         "exit:then:2b4f18499c8215cdd61f2462bac62beed1908aa8157f047393ee49214db8ff66"
       ],
@@ -12042,13 +11973,13 @@
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "781cf84c14c8452b4e325035e9d9c7abfb304dbcfa59c488a8c7d2fb34420a8d",
+      "fingerprint": "3920a1733ac0cc71d2a50deef3dd30dc2b59e3d5663d0ab9b961fc06dd58e45a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Fixture sidebar projection over normalized synthetic issues (POD-5566)",
       "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
-      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path. Session execution, presence and timestamp predicates now borrow shared model facts; the same collection and demand bounds remain. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path. Session execution, presence and timestamp predicates now borrow shared model facts; the same collection and demand bounds remain. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced. POD-2239 removes progress compatibility fields; this retained path keeps its collection demand and classification. Predecessor: b00bdaef43c2b434d5a5ff46cc016086300043e14109a25220a18c660e17d3ce. Rebased onto tf.dev while retaining its fixture unread and historical-attachment behavior; the combined callback replaces parent fingerprint 781cf84c14c8452b4e325035e9d9c7abfb304dbcfa59c488a8c7d2fb34420a8d. Predecessor: 14cd9a018f1857b34d9448a14b34101ac44306c2efbd8f78ca96dec2a836af18.",
       "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
     },
     {
@@ -12134,19 +12065,19 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/pool/sidebar/sections/callback",
       "rule": "helper-consumer",
-      "tokens": "bdf4d2287f94422a621abc3c627433286b19cd7c491a01b97b4e30b4d9ffb475",
+      "tokens": "8477270ec6cdc6f78ef3717d98b330c30449318c58071e177bd1c9ee605ce120",
       "gate": [],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25"
       ],
-      "fingerprint": "798c370550ef74700fa321d90c6da96e0f2a530b789c0d78f64670037f7b2140",
+      "fingerprint": "cd73214a8d37a96d3bbe11e9d98aa91c9e851bc4567166b876a17f61d343fee2",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Fixture sidebar projection over normalized synthetic issues (POD-5566)",
       "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
-      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path. Predecessor: 075946d00f5f9088579d5738e8ecdf00347f80fd1b93d75a3ba157a271839635.",
+      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path. Predecessor: 075946d00f5f9088579d5738e8ecdf00347f80fd1b93d75a3ba157a271839635. Predecessor: 798c370550ef74700fa321d90c6da96e0f2a530b789c0d78f64670037f7b2140.",
       "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
     },
     {
@@ -13522,72 +13453,72 @@
       "file": "packages/client-core/src/conversation/transcript-graph.ts",
       "holder": "TranscriptGraph/reset",
       "rule": "consume:forEach",
-      "tokens": "6bfcc2abee0171c62a7f38cb4366e1a6f168b9fa5c620b2231b40ffdd284339b",
+      "tokens": "80d4b7f375e44e5b912acc597ae9cdec2e6aeb3dfa8b203a57834ddd56fcae96",
       "gate": [],
       "origin": [
         "3ed4953e6673c6f70560dd7e1d93f842526e821ec554750f403bfe9ec65de148"
       ],
-      "fingerprint": "168163e8eca76c12955fec88100958ca5f738178e360f8c25e1adf5db2c4ac3b",
+      "fingerprint": "a70f461d4d1fe67d044b70582bf1bf20cbe627c408844c0614e22f0e732496d9",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5629",
       "trigger": "Initial hydration, authoritative replacement, or exceptional pairing/order topology repair.",
       "bound": "The supplied replacement transcript is processed once to initialize source-owned membership and search indexes.",
-      "reason": "Cold graph initialization is an ingestion boundary. Warm stream, append, prepend, query and verbosity use sparse changes; exceptional identity/order edits still perform a complete rebuild and are not claimed bounded.",
+      "reason": "Cold graph initialization is an ingestion boundary. Warm stream, append, prepend, query and verbosity use sparse changes; exceptional identity/order edits still perform a complete rebuild and are not claimed bounded. Biome normalization changes this fingerprint without changing the replacement-ingestion work.",
       "guard": "Exact fingerprint and multiplicity. Retained web and quiet-run work probes cover ordinary warm changes; semantic oracle covers replacement/topology behavior."
     },
     {
       "file": "packages/client-core/src/conversation/transcript-graph.ts",
       "holder": "TranscriptGraph/reset",
       "rule": "consume:map",
-      "tokens": "61e6ff8aa60e1592dd968bd0d171d102a6301071aff9e01a66ccf3bab9ca5c94",
+      "tokens": "a67e650e81ee87f862ce12639ed032fc8862902d20e50ca25f903f542b0d7b65",
       "gate": [],
       "origin": [
         "3ed4953e6673c6f70560dd7e1d93f842526e821ec554750f403bfe9ec65de148"
       ],
-      "fingerprint": "7e529a35a61717ee52c249dc199f86e2948d65e1c0a4a421b1a8dfa4fd04d5e5",
+      "fingerprint": "10c64047a3954b1ed2be1d91271e18158f329bfe4865ccd0e0446abeac12703c",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5629",
       "trigger": "Initial hydration, authoritative replacement, or exceptional pairing/order topology repair.",
       "bound": "The supplied replacement transcript is processed once to initialize source-owned membership and search indexes.",
-      "reason": "Cold graph initialization is an ingestion boundary. Warm stream, append, prepend, query and verbosity use sparse changes; exceptional identity/order edits still perform a complete rebuild and are not claimed bounded.",
+      "reason": "Cold graph initialization is an ingestion boundary. Warm stream, append, prepend, query and verbosity use sparse changes; exceptional identity/order edits still perform a complete rebuild and are not claimed bounded. Biome normalization changes this fingerprint without changing the replacement-ingestion work.",
       "guard": "Exact fingerprint and multiplicity. Retained web and quiet-run work probes cover ordinary warm changes; semantic oracle covers replacement/topology behavior."
     },
     {
       "file": "packages/client-core/src/conversation/transcript-graph.ts",
       "holder": "TranscriptGraph/reset",
       "rule": "consume:map",
-      "tokens": "22f9ec2a160b5056431d3405d923c374b363eeb2cdd24ac8f01373226fc02e7c",
+      "tokens": "7bd1307a8ddd8c2fa34e94fe301125a32c175a966629b5108fd8fead4d004382",
       "gate": [],
       "origin": [
         "3ed4953e6673c6f70560dd7e1d93f842526e821ec554750f403bfe9ec65de148"
       ],
-      "fingerprint": "c890ae5aa19b51706f76d351faaf7ffa001b99229c34bffcf8552997143adfec",
+      "fingerprint": "be6b24ed5484c4d5dcd7205026f60641a378132a45a74b3dac359ff3e7b867f3",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5629",
       "trigger": "Initial hydration, authoritative replacement, or exceptional pairing/order topology repair.",
       "bound": "The supplied replacement transcript is processed once to initialize source-owned membership and search indexes.",
-      "reason": "Cold graph initialization is an ingestion boundary. Warm stream, append, prepend, query and verbosity use sparse changes; exceptional identity/order edits still perform a complete rebuild and are not claimed bounded.",
+      "reason": "Cold graph initialization is an ingestion boundary. Warm stream, append, prepend, query and verbosity use sparse changes; exceptional identity/order edits still perform a complete rebuild and are not claimed bounded. Biome normalization changes this fingerprint without changing the replacement-ingestion work.",
       "guard": "Exact fingerprint and multiplicity. Retained web and quiet-run work probes cover ordinary warm changes; semantic oracle covers replacement/topology behavior."
     },
     {
       "file": "packages/client-core/src/conversation/transcript-graph.ts",
       "holder": "TranscriptGraph/reset",
       "rule": "enumerate:forEach",
-      "tokens": "6bfcc2abee0171c62a7f38cb4366e1a6f168b9fa5c620b2231b40ffdd284339b",
+      "tokens": "80d4b7f375e44e5b912acc597ae9cdec2e6aeb3dfa8b203a57834ddd56fcae96",
       "gate": [],
       "origin": [
-        "01b46fe5bebbaeb60e5247456f6454db78157fc013ff9c8fa28644ca7ee4813a"
+        "3abf53d46017f64d685f5e94c5eb21f83551b896b2bc6cbb81b11dd84a7dfc09"
       ],
-      "fingerprint": "ea4b20218d2ee50c340afb9f42b9adf0056af9c707db3ffb5404c4ebed01928b",
+      "fingerprint": "147058b578299045c5ccdc00040ea8ccd3be71ec42985fc07f6ad9526d9b79ee",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5629",
       "trigger": "Initial hydration, authoritative replacement, or exceptional pairing/order topology repair.",
       "bound": "The supplied replacement transcript is processed once to initialize source-owned membership and search indexes.",
-      "reason": "Cold graph initialization is an ingestion boundary. Warm stream, append, prepend, query and verbosity use sparse changes; exceptional identity/order edits still perform a complete rebuild and are not claimed bounded.",
+      "reason": "Cold graph initialization is an ingestion boundary. Warm stream, append, prepend, query and verbosity use sparse changes; exceptional identity/order edits still perform a complete rebuild and are not claimed bounded. Biome normalization changes this fingerprint without changing the replacement-ingestion work.",
       "guard": "Exact fingerprint and multiplicity. Retained web and quiet-run work probes cover ordinary warm changes; semantic oracle covers replacement/topology behavior."
     },
     {
@@ -13739,21 +13670,22 @@
       "file": "packages/client-core/src/conversation/transcript-log.ts",
       "holder": "TranscriptLog/boundFollowingWindow/tail",
       "rule": "consume:slice",
-      "tokens": "938706bd798e6ce62ae537ce1d1569c927f4134d4517dedac661891ae91dc569",
+      "tokens": "83aff4d9ca60ba7e23ccb30d35d016859d74955b3a3b5b6a47871ab089b85036",
       "gate": [
+        "exit:then:60cae70ef337faed67a87cc58e877f0bbcd1944c97f613dd68a9cabe3ce6fffd",
         "exit:then:d59720cbd2484aec41113428fb4d2bd12de587a465329f96676ab9784a148aaf"
       ],
       "origin": [
         "5faf488eafb9a7d64cb052b86063c5ddc4aaf4e8ddb687600820b7dadd5b8c47"
       ],
-      "fingerprint": "3e6e7ee56cb28529fd267359c2e8752fc65c764a705256e60cfe5f5e577a5827",
+      "fingerprint": "caa3d24444f6ed8e353b1f1a4d0f5e0060b3fb8744b4861d1c40c2920e34fe4a",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5621",
       "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
-      "bound": "Changed-row work follows the incoming frame; reads/resets rebuild only this held conversation window. Following mode retains at most 2 * initialLimit (400 by default), while explicit older-history retention may grow that window.",
-      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history.",
-      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame."
+      "bound": "One reconciled transcript snapshot while following. Keep the requested display-boundary suffix when it exceeds the normal 2 × initialLimit window; older complete turns can still leave. Incremental frames use the addressed item-position index instead.",
+      "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: 3e6e7ee56cb28529fd267359c2e8752fc65c764a705256e60cfe5f5e577a5827.",
+      "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame. transcript-log.test.ts and conversation-presentation.test.ts cover boundary retention beyond 300/400 records, newest refresh, explicit reset, and release back to the normal window."
     },
     {
       "file": "packages/client-core/src/conversation/transcript-log.ts",
@@ -13816,12 +13748,12 @@
       "file": "packages/client-core/src/conversation/transcript-log.ts",
       "holder": "TranscriptLog/prepend",
       "rule": "consume:map",
-      "tokens": "2a6033527e626e0a1163a802a7dc835c2557b986748c3ca14354ee9418e1918f",
+      "tokens": "699eb3e5b8ad338bb708a994229d66f9bc2745791e13e803a6a02fc64f74659b",
       "gate": [],
       "origin": [
         "731923a9ac9d3c2fc4bfe3d922b8bc2a2c685bd6e8b868edcd45af5900fd1fb2"
       ],
-      "fingerprint": "94700c59e2689949c0e1dc04479913958e90c5499de6987673970aca457eedab",
+      "fingerprint": "b27a808f715455db8e90eb26efdf7f54af2ca1b363904a0066d6386742f17acc",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5629",
@@ -22663,26 +22595,26 @@
       "file": "packages/client-core/src/values/mission.ts",
       "holder": "missionProgress",
       "rule": "helper-consumer",
-      "tokens": "e8981db52ec400dbb2f20b9542d37a65c12fec44eec5ad71054f188e67fea539",
+      "tokens": "f38f9455a84a92bf105db890bf3c22bee90b452266052d5cd4cdc208d92206e9",
       "gate": [],
       "origin": [
         "e1718d763445a15f2425142657526db4eee0711fae691caca45b4efd22ff7b00",
         "e86934b770d2688dea1a7084a4ef7fb9a788bbcc6c5d9dac6bf9273aa99a969d"
       ],
-      "fingerprint": "07164cad0e7ce3f41f3f0bdc4eeee964c49fa22f8fb97b6e155919ec7ba4aebf",
+      "fingerprint": "60cc3139371cf005275bd22a8c75728429b6f2a173962dbf8c0906a29922b526",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of missionProgress",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 7634f46464e0dcc63ead520f7f789982197a2f2fa5c2b2593176d24c9ebf3f6e. Predecessor: 857747078d6e26b7ef55cc2850ed65443793c39e94a18888d98a24dc9188fd05.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 7634f46464e0dcc63ead520f7f789982197a2f2fa5c2b2593176d24c9ebf3f6e. Predecessor: 857747078d6e26b7ef55cc2850ed65443793c39e94a18888d98a24dc9188fd05. POD-2239 removes progress compatibility fields; this retained path keeps its collection demand and classification. Predecessor: 07164cad0e7ce3f41f3f0bdc4eeee964c49fa22f8fb97b6e155919ec7ba4aebf.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "packages/client-core/src/values/mission.ts",
       "holder": "missionRollup/memoBySlices:callback",
       "rule": "helper-consumer",
-      "tokens": "9dc4ac729c3668b2bc231f45606404559f3a64c5fceb4aa6ffbfa4da7080f62e",
+      "tokens": "0ed2105ab28903d77d908327c35df06680a76c9ccb49b993a769065ef37a8814",
       "gate": [
         "exit:then:f0a635fb2fab4a48857c14d2bf67cacd54205a89ff726e77888e576b77f8a178"
       ],
@@ -22690,20 +22622,20 @@
         "0bc1e6c030a1f9b93ff1fe4499f8e21d977c8fe3ce1b8874a00d85de467bfebb",
         "0ece8b4a77147488eccac2b10630c44b9b6a0dce4ce8272b8612bc0148b8885b"
       ],
-      "fingerprint": "76ed3c0b5e56f3b45bfa5e4fbff3399bb72e418c7c34b69fd22769e88bce8d86",
+      "fingerprint": "d371091e92e4145995faf924d36c2a4206d5e89b3eb4412c52971945eb17f528",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of missionRollup/memoBySlices:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 1708b1f4b4f5aae2c06d2662d510414bce651f1c52be7867d191ed71c5d6b5a3. Predecessor: c49f8c94eeccb3e763d949ab9629976f4fb2ef5fcf373377f9cd928ab50fa6eb.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 1708b1f4b4f5aae2c06d2662d510414bce651f1c52be7867d191ed71c5d6b5a3. Predecessor: c49f8c94eeccb3e763d949ab9629976f4fb2ef5fcf373377f9cd928ab50fa6eb. POD-2239 removes progress compatibility fields; this retained path keeps its collection demand and classification. Predecessor: 76ed3c0b5e56f3b45bfa5e4fbff3399bb72e418c7c34b69fd22769e88bce8d86.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "packages/client-core/src/values/mission.ts",
       "holder": "missionRollup/memoBySlices:callback",
       "rule": "helper-consumer",
-      "tokens": "9dc4ac729c3668b2bc231f45606404559f3a64c5fceb4aa6ffbfa4da7080f62e",
+      "tokens": "0ed2105ab28903d77d908327c35df06680a76c9ccb49b993a769065ef37a8814",
       "gate": [
         "exit:then:f0a635fb2fab4a48857c14d2bf67cacd54205a89ff726e77888e576b77f8a178"
       ],
@@ -22711,13 +22643,13 @@
         "e1718d763445a15f2425142657526db4eee0711fae691caca45b4efd22ff7b00",
         "e86934b770d2688dea1a7084a4ef7fb9a788bbcc6c5d9dac6bf9273aa99a969d"
       ],
-      "fingerprint": "663bcdb9bce4319127fff660fc73a557a7d3bf03d1c3dd7c57b2ce91a9840048",
+      "fingerprint": "d9e740164648be8ee9aa49257815289cc6e5adeb388b35e4efb2b03b66acb1ea",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of missionRollup/memoBySlices:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 39ae1730b1bd9860b30756520c88f16768908b06fa3fa4d4cdcdc4232a785b57. Predecessor: c3f9d0974e76e3db4416d009116430e4927169d01741e8fa72bdcf7fc3ed8b91.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 39ae1730b1bd9860b30756520c88f16768908b06fa3fa4d4cdcdc4232a785b57. Predecessor: c3f9d0974e76e3db4416d009116430e4927169d01741e8fa72bdcf7fc3ed8b91. POD-2239 removes progress compatibility fields; this retained path keeps its collection demand and classification. Predecessor: 663bcdb9bce4319127fff660fc73a557a7d3bf03d1c3dd7c57b2ce91a9840048.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -27446,6 +27378,134 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "allTabIds",
+      "rule": "helper-consumer",
+      "tokens": "38e42c0180fe088d14d2e08bc9fae38dce97956109117b08505cd6e0308b157c",
+      "gate": [],
+      "origin": [
+        "f8684447c173def87df8fbe53bb8d26b431fb7ca55434a1398ee3a30380b2ef1"
+      ],
+      "fingerprint": "07c91edafd67e72bf9196b3276cc9f4ea057d93eb44c74c230dd249fed59cba7",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2324",
+      "trigger": "One task-selection gesture restoring its saved workspace.",
+      "bound": "Only the panes and tabs in the destination workspace, obtained by its mission key; no enumeration of other workspaces or the global file-tab catalogue.",
+      "reason": "The caller asks whether one saved layout has tabs, then reads its focused tab for navigation tracing. Existing mission membership work is unchanged; the old global file-tab filter and map are removed.",
+      "guard": "SidebarUnified.pool-actions.test.tsx covers Markdown artifacts with and without worktrees, the Artifacts index, saved split focus and explicit session selection."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "allTabIds",
+      "rule": "reader-summary",
+      "tokens": "4892cccc34ad16cf4bddc9e3f2814293bb56ceba9b3e0f96a334fbb69d0d5dbb",
+      "gate": [],
+      "origin": [
+        "f8684447c173def87df8fbe53bb8d26b431fb7ca55434a1398ee3a30380b2ef1"
+      ],
+      "fingerprint": "3818c0c487a9aefd09e5fa7dba2df4eebbb50e91a53accde59e886280990d1d0",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2324",
+      "trigger": "One task-selection gesture restoring its saved workspace.",
+      "bound": "Only the panes and tabs in the destination workspace, obtained by its mission key; no enumeration of other workspaces or the global file-tab catalogue.",
+      "reason": "The caller asks whether one saved layout has tabs, then reads its focused tab for navigation tracing. Existing mission membership work is unchanged; the old global file-tab filter and map are removed.",
+      "guard": "SidebarUnified.pool-actions.test.tsx covers Markdown artifacts with and without worktrees, the Artifacts index, saved split focus and explicit session selection."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "allTabIds",
+      "rule": "consume:flatMap",
+      "tokens": "0a12d4529120e5bea3bce85847e0e2173e60448b5fec8290249635c1ee519490",
+      "gate": [],
+      "origin": [
+        "f8684447c173def87df8fbe53bb8d26b431fb7ca55434a1398ee3a30380b2ef1"
+      ],
+      "fingerprint": "d58f02f03826d747cdb94a3673e66048a79eff6f987ec4f5186d60ea663f0775",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2324",
+      "trigger": "One task-selection gesture restoring its saved workspace.",
+      "bound": "Only the panes and tabs in the destination workspace, obtained by its mission key; no enumeration of other workspaces or the global file-tab catalogue.",
+      "reason": "The caller asks whether one saved layout has tabs, then reads its focused tab for navigation tracing. Existing mission membership work is unchanged; the old global file-tab filter and map are removed.",
+      "guard": "SidebarUnified.pool-actions.test.tsx covers Markdown artifacts with and without worktrees, the Artifacts index, saved split focus and explicit session selection."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "leafPaneIds",
+      "rule": "consume:flatMap",
+      "tokens": "d03d8ce012ea12a025eb9995f0180ce97b080098d64f71af97a10b5eab408ec0",
+      "gate": [
+        "else:0bb208a19a17f7bf48506d8b05e73ed02e132a1bd20879b4caf8a48f6029cc77"
+      ],
+      "origin": [
+        "f8684447c173def87df8fbe53bb8d26b431fb7ca55434a1398ee3a30380b2ef1"
+      ],
+      "fingerprint": "18e18be6ca90679f806fa01e7c42615023b44f3f786c25f42f6375c74fb50e19",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2324",
+      "trigger": "One task-selection gesture restoring its saved workspace.",
+      "bound": "Only the panes and tabs in the destination workspace, obtained by its mission key; no enumeration of other workspaces or the global file-tab catalogue.",
+      "reason": "The caller asks whether one saved layout has tabs, then reads its focused tab for navigation tracing. Existing mission membership work is unchanged; the old global file-tab filter and map are removed.",
+      "guard": "SidebarUnified.pool-actions.test.tsx covers Markdown artifacts with and without worktrees, the Artifacts index, saved split focus and explicit session selection."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "orderedPanes",
+      "rule": "consume:flatMap",
+      "tokens": "d9b309239cbd2cfb9921fae273ee7558b755927c506518857cc482d4ca114696",
+      "gate": [],
+      "origin": [
+        "f8684447c173def87df8fbe53bb8d26b431fb7ca55434a1398ee3a30380b2ef1"
+      ],
+      "fingerprint": "6f55aad1087c97a8d87b74eea419ac8398265c8bdb14714fd2c216548f975d0e",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2324",
+      "trigger": "One task-selection gesture restoring its saved workspace.",
+      "bound": "Only the panes and tabs in the destination workspace, obtained by its mission key; no enumeration of other workspaces or the global file-tab catalogue.",
+      "reason": "The caller asks whether one saved layout has tabs, then reads its focused tab for navigation tracing. Existing mission membership work is unchanged; the old global file-tab filter and map are removed.",
+      "guard": "SidebarUnified.pool-actions.test.tsx covers Markdown artifacts with and without worktrees, the Artifacts index, saved split focus and explicit session selection."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "orderedPanes",
+      "rule": "helper-consumer",
+      "tokens": "d8e3cc9d2df5e24e4459c75fcec80a5f0fd42d9edfa7d60e4b5fefe9c7c2597c",
+      "gate": [],
+      "origin": [
+        "f8684447c173def87df8fbe53bb8d26b431fb7ca55434a1398ee3a30380b2ef1"
+      ],
+      "fingerprint": "86b3f1f2496b73e9162880083b36044e2dcf26eec55de5db2a648d4cab362860",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2324",
+      "trigger": "One task-selection gesture restoring its saved workspace.",
+      "bound": "Only the panes and tabs in the destination workspace, obtained by its mission key; no enumeration of other workspaces or the global file-tab catalogue.",
+      "reason": "The caller asks whether one saved layout has tabs, then reads its focused tab for navigation tracing. Existing mission membership work is unchanged; the old global file-tab filter and map are removed.",
+      "guard": "SidebarUnified.pool-actions.test.tsx covers Markdown artifacts with and without worktrees, the Artifacts index, saved split focus and explicit session selection."
+    },
+    {
+      "file": "packages/client-core/src/values/workspace-layout.ts",
+      "holder": "orderedPanes",
+      "rule": "reader-summary",
+      "tokens": "27447ef075a9afa6e6de67b598c08cda41b662ec6d9ef9d9f7bd1d7f6586278c",
+      "gate": [],
+      "origin": [
+        "f8684447c173def87df8fbe53bb8d26b431fb7ca55434a1398ee3a30380b2ef1"
+      ],
+      "fingerprint": "e278a5348ec6549d2995efe94cd05fa2bedbb055bc710f6a4c2d1b5d4ee1a507",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2324",
+      "trigger": "One task-selection gesture restoring its saved workspace.",
+      "bound": "Only the panes and tabs in the destination workspace, obtained by its mission key; no enumeration of other workspaces or the global file-tab catalogue.",
+      "reason": "The caller asks whether one saved layout has tabs, then reads its focused tab for navigation tracing. Existing mission membership work is unchanged; the old global file-tab filter and map are removed.",
+      "guard": "SidebarUnified.pool-actions.test.tsx covers Markdown artifacts with and without worktrees, the Artifacts index, saved split focus and explicit session selection."
+    },
+    {
       "file": "packages/client-graph/src/automation-source.ts",
       "holder": "AutomationSource/install",
       "rule": "loop:for-of",
@@ -30303,12 +30363,12 @@
       "file": "packages/client-graph/src/message-models.ts",
       "holder": "ingestLedgerMessages/rows",
       "rule": "consume:map",
-      "tokens": "1183da4686d7ffb309df5fa788e41861731ce5a43e0e9ea4c06f6cfc4a95cead",
+      "tokens": "a8a13b4c6621cc68a5dbe268669e8d702525598d3c83bf28bc0850810108d5e3",
       "gate": [],
       "origin": [
         "941a92bea6641b258fb3548bb38edde5775c9e40808a80bd8559f7b98f03d738"
       ],
-      "fingerprint": "1ebe3725c6dd38472d7b143bd7c6316c5243b95453d102904a0bbc9e7b291cdd",
+      "fingerprint": "258546b5eac05714c4fe1c7620b1acc0960b970fd8eaaf155e96ccf90b6d5767",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5869",
@@ -30321,14 +30381,14 @@
       "file": "packages/client-graph/src/message-models.ts",
       "holder": "ingestLedgerMessages/rows/map:callback/value",
       "rule": "helper-consumer",
-      "tokens": "4c2847fed447687455ad32cb9814859b46b42c80c2e7cbc07459beb484159499",
+      "tokens": "abdf6d760bfaec777e80df84a573e5c42e4e68ca0bdee77ba9a581bbcd11df8e",
       "gate": [
         "then:0bafa83631820767cb67c4fdb0b93c38edec86a9de6d4fe0967c10416ce2ed3a"
       ],
       "origin": [
         "59ec6dd8313e5da8c941aed4e3c9b8ed2530e9036250410c2c682bddfcf7daaf"
       ],
-      "fingerprint": "ea0ef163d76d6a8a8e02e28ed9a181d7adebd667723ffb5ac3f3f1cfb19ac4d0",
+      "fingerprint": "199cb6b8a7bfec95fa474408dc4b2d9da555461e8404e709783790eb6e01a5e5",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5869",
@@ -30341,14 +30401,14 @@
       "file": "packages/client-graph/src/message-models.ts",
       "holder": "ingestLedgerMessages/rows/map:callback/value",
       "rule": "reader-summary",
-      "tokens": "20b81995d20b76417a22bd3f675acaa05993ca715ccd7137fe6bca8a94256f29",
+      "tokens": "48b178eaa6d73a036e1e5bed1457eb7bf15256f4af57293fac3e9b80dba498b7",
       "gate": [
         "then:0bafa83631820767cb67c4fdb0b93c38edec86a9de6d4fe0967c10416ce2ed3a"
       ],
       "origin": [
         "59ec6dd8313e5da8c941aed4e3c9b8ed2530e9036250410c2c682bddfcf7daaf"
       ],
-      "fingerprint": "228d7bc0ac054d41d1a71be90b45b104c380bc976b824c4cfdfe9a7940fffeca",
+      "fingerprint": "607178e7b0eb8f7e9688a8339b5b0d39a42fec608a970884137b7ed7002c5be0",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5869",
@@ -30361,12 +30421,12 @@
       "file": "packages/client-graph/src/message-models.ts",
       "holder": "ingestMessageRecords/rows",
       "rule": "consume:map",
-      "tokens": "238fa0b70726a90f356ace005ec8f09fecef35606cc61ae9c9bddcf31f066e99",
+      "tokens": "9e091c4b95a0d0bbbc9ea3f17198c95a7ded0bdd1d424ef0c323eec6965cdca6",
       "gate": [],
       "origin": [
         "b4f389fb2fd51e16a14d49a16f879e0daaddccaa8389f2e2ac664e328cd2b9dd"
       ],
-      "fingerprint": "4459f3b9fb5e5770a73db32d0d1387742456c85a315cbc7db4b7643efa2b7368",
+      "fingerprint": "991ea481a9b8f2d01ff6af14a05e42c80bd28c92616d3975a6e9cf069f2e726b",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5869",
@@ -33164,6 +33224,47 @@
       "reason": "The section owner forwards the declared non-asking subset maintained from each record, replacing the whole-group filter. Incremental updates visit changed records and consumed output positions. First demand still seeds group membership without a cardinality cap; this entry retains that collection debt. Predecessor: 1d62be3a76ec865a81e7e2150662596a228cd80801b756317261580478ccdaef."
     },
     {
+      "file": "packages/client-graph/src/worklist/phone.ts",
+      "holder": "PhoneWorkSection/ids",
+      "rule": "consume:filter",
+      "tokens": "ba0fbb505460b38e5c0a50842bcec4889c7e7c2eaad6ab8d9239ebff638fe5a4",
+      "gate": [
+        "then:97626fe8d89d8a57f9c043cb6b64198017bd68782e63b847fd7ca7a649bb440d"
+      ],
+      "origin": [
+        "209d37110de0ff9f14b47a1b3312519a6c5c872c9d9cef7d522dedf99dd58033"
+      ],
+      "fingerprint": "08fffb3e98ba4ce351c73aadca68845de61b294dfe958f845086af2c9687894e",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2303",
+      "trigger": "A nonempty phone Work filter, or a searchable change within that project lane.",
+      "bound": "Only the current project section's filed desktop lane IDs and pinned lifecycle exceptions. Cost is O(W_project), the current working set, on explicit search; archived history is absent from the source.",
+      "reason": "The phone filters the existing desktop membership rather than acquiring a second catalogue. Per-section lazy equality preserves untouched list boundaries.",
+      "guard": "packages/client-graph/src/worklist/phone.test.ts: keeps search reads inside the working set as unrelated archived history grows; equal knownRow calls at 1x/4x archived history and no historical IDs. WorkScreen.pool.test.tsx checks active-search boundary identity at both scales."
+    },
+    {
+      "file": "packages/client-graph/src/worklist/phone.ts",
+      "holder": "PhoneWorkSection/label",
+      "rule": "reader-summary",
+      "tokens": "921c1fb9f6865ee3c855854dbeb279f8bbc1170c3940558e1aa700c85bfa7be8",
+      "gate": [
+        "exit:then:7534792804bb24e97eab17c6370e21427aa86cb5d1eb80b09e2872530b3027f4",
+        "exit:then:ff53c4f1580436c49355e477e638f3bb93c5c7dc6a726b5c3bc15522b3d60534"
+      ],
+      "origin": [
+        "c6528658720395c716d44dc2defe29f6a510c5791f5344e9cc337f8fbe24270f"
+      ],
+      "fingerprint": "3112dae8184f7a092250bf6f4b68ba9c05ff28ec9c16f04a0aa65218f0b0ed39",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-2303",
+      "trigger": "Rendering an unregistered project whose only tasks are pinned in Snoozed or Closed.",
+      "bound": "One explicitly indexed member (allIds[0]) of the current project section supplies its canonical repoPath. The label does not enumerate or search the issue catalogue.",
+      "reason": "Registered sections borrow their existing desktop band label. The fallback addresses one task only when that band is absent.",
+      "guard": "packages/client-graph/src/worklist/phone.test.ts: labels an unregistered pinned-only project with one addressed task read; knownRow is called exactly once with nap."
+    },
+    {
       "file": "packages/client-graph/src/worklist/seat-verdicts.ts",
       "holder": "SeatVerdicts/reset",
       "rule": "loop:for-of",
@@ -35304,20 +35405,20 @@
     },
     {
       "file": "apps/web/src/features/chat/MessageEnvelopeGroup.tsx",
-      "holder": "PointerEnvelopeItem/mail",
+      "holder": "PointerEnvelopeBody/mail",
       "rule": "reader-summary",
-      "tokens": "aeb91e84acd77f9eefc772ec2d401f04cc9b7e80f63da69aaebae46e98b44c75",
+      "tokens": "9aa47bb37031480314d298f4b593f172f71e13a0cc2ac863bbec44a0333812cd",
       "gate": [],
       "origin": [
         "29ef4a25e89fc8a2714d1c07bf2d8d0156c909359bcfd147f07eedde65ca5b42"
       ],
-      "fingerprint": "b8b6266c6777ad5e3b974d6cc1f6c24db49a4024d359a0b8cb96a2e08abe3ceb",
+      "fingerprint": "df16705d8b8fce3a78daf98b1c259d7e823a4fa6ea741765e3759280a5ce12f4",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2143",
       "trigger": "The reader opens a chat mail note whose message reached the agent as an inbox pointer.",
       "bound": "One addressed message id per opened pointer item; at most 50 bodies are kept per store handle, so a reopen does not query again.",
-      "reason": "The messages value is the TRPC mail API, not message rows. useMailBody calls messages.show for one id and enumerates no records.",
+      "reason": "The messages value is the TRPC mail API, not message rows. useMailBody calls messages.show for one id and enumerates no records. PointerEnvelopeBody now mounts only for an opened note, inside or outside a stretch.",
       "guard": "ChatBlockView.envelope.test.tsx proves the body is requested only after the note opens, by the pointer id; legacy pointers request nothing."
     },
     {
@@ -35518,18 +35619,18 @@
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "createWebConversation/transcript/source/read/callback",
       "rule": "loop",
-      "tokens": "053853cf636ff61a2b753713577e92fe5d8e5d1611012e578da7919c4888e377",
+      "tokens": "dfc091980c0303dcc80d7e9eca116806a4061587f6f8eebf032576f9be143abc",
       "gate": [],
       "origin": [
         "28c4bcdcd718357a75d6b774f6d18e3aaf564e6281b93722bd9761d814eba91c"
       ],
-      "fingerprint": "6c291d86ecaf4673caf9f1164e3087287e2cd5bbf9da23bdd9b0924330208219",
+      "fingerprint": "a7ebdf6efb4e7b5b3785ae5e306328b979e72f481e6925928a90ce6795896e22",
       "count": 1,
       "owner": "POD-2256",
       "classification": "ingest",
       "trigger": "A transcriptRead page resolves while this conversation is open.",
       "bound": "The requested page window only: initialLimit 200 or pageLimit 400; each message-record query contains at most 100 transcript item IDs. Successful and pending lookups are deduplicated and the transcript page returns without waiting.",
-      "reason": "Historical attachment records enter the existing shared message table by authoritative session and transcript identity. Existing live records skip the request; no collection is read from the complete message history.",
+      "reason": "Historical attachment records enter the existing shared message table by authoritative session and transcript identity. Existing live records skip the request; no collection is read from the complete message history. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: 5d1fd017e8f71f2982f503c47940e248b0239905169cda4306fd2daeb735b3f2.",
       "guard": "apps/web/src/features/chat/ChatBlockView.attachments.test.tsx covers deferred history answers, empty attachment-only turns and one lookup across repeated history reads; packages/client-graph/src/message-models.test.ts covers quiet identity lookup updates."
     },
     {
@@ -35596,56 +35697,56 @@
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "createWebConversation/transcript/source/read/callback/ids",
       "rule": "consume:map",
-      "tokens": "0350d1541fdb5b60599c28edf6048c2115e3952b9025c897750c67c2242d7247",
+      "tokens": "c207acaebcab6e339c787b94a7c5355a927d7beacf7062a308652d257a06aad1",
       "gate": [],
       "origin": [
         "28c4bcdcd718357a75d6b774f6d18e3aaf564e6281b93722bd9761d814eba91c"
       ],
-      "fingerprint": "a7de14a2168359869789b2924b3e8642bb59b630f02a002b2997cc20749cff77",
+      "fingerprint": "eb7881c159f6948b5afe54e9fd8628cb579ee1de6d8442ccf76ac51732b787da",
       "count": 1,
       "owner": "POD-2256",
       "classification": "ingest",
       "trigger": "A transcriptRead page resolves while this conversation is open.",
       "bound": "The requested page window only: initialLimit 200 or pageLimit 400; each message-record query contains at most 100 transcript item IDs. Successful and pending lookups are deduplicated and the transcript page returns without waiting.",
-      "reason": "Historical attachment records enter the existing shared message table by authoritative session and transcript identity. Existing live records skip the request; no collection is read from the complete message history.",
+      "reason": "Historical attachment records enter the existing shared message table by authoritative session and transcript identity. Existing live records skip the request; no collection is read from the complete message history. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: a7de14a2168359869789b2924b3e8642bb59b630f02a002b2997cc20749cff77.",
       "guard": "apps/web/src/features/chat/ChatBlockView.attachments.test.tsx covers deferred history answers, empty attachment-only turns and one lookup across repeated history reads; packages/client-graph/src/message-models.test.ts covers quiet identity lookup updates."
     },
     {
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "createWebConversation/transcript/source/read/callback/ids",
       "rule": "consume:filter",
-      "tokens": "95378a8fe9b0b8cecfa189b6d3c0787beaebe5759568e1cc7c0087015259970b",
+      "tokens": "731b912c77de5421acaf9d5b7c74da6f44c7f4bebf56ddac872c45161b6584d7",
       "gate": [],
       "origin": [
         "28c4bcdcd718357a75d6b774f6d18e3aaf564e6281b93722bd9761d814eba91c"
       ],
-      "fingerprint": "eee937b54d7148c60cd102af781ce6778ec47b4d27cbfff9c0ea779a7cccde5c",
+      "fingerprint": "533fea573a0a10df733013a039d9c3fbc90884f34b7d41343984e4cd47a29222",
       "count": 1,
       "owner": "POD-2256",
       "classification": "ingest",
       "trigger": "A transcriptRead page resolves while this conversation is open.",
       "bound": "The requested page window only: initialLimit 200 or pageLimit 400; each message-record query contains at most 100 transcript item IDs. Successful and pending lookups are deduplicated and the transcript page returns without waiting.",
-      "reason": "Historical attachment records enter the existing shared message table by authoritative session and transcript identity. Existing live records skip the request; no collection is read from the complete message history.",
+      "reason": "Historical attachment records enter the existing shared message table by authoritative session and transcript identity. Existing live records skip the request; no collection is read from the complete message history. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: eee937b54d7148c60cd102af781ce6778ec47b4d27cbfff9c0ea779a7cccde5c.",
       "guard": "apps/web/src/features/chat/ChatBlockView.attachments.test.tsx covers deferred history answers, empty attachment-only turns and one lookup across repeated history reads; packages/client-graph/src/message-models.test.ts covers quiet identity lookup updates."
     },
     {
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "createWebConversation/transcript/source/read/callback/then:callback",
       "rule": "helper-consumer",
-      "tokens": "74552dd71749d3331c9e68dab24212c9e7b50a2dded06ceba2c1883d6a45cb92",
+      "tokens": "7fae7894686e33f141daf84274c1f4a2f1ace5ea386e93e563f22b85ab0ff03b",
       "gate": [
         "loop:441d7a2823007b94457873037aabe003eeb6d910f3faee16c00ffecbe67478b3"
       ],
       "origin": [
         "a1fc014805eff8197c2cfbf8c3943a8a0ad26cebbcae96266980f0cef377b090"
       ],
-      "fingerprint": "d2839874904e1f6ad3e715185110296e50deb5017f7dd71c5997c9943f792988",
+      "fingerprint": "8567736bec7d74586da1bfe091beab039ccfa632b61e1dd78883a6e3afaec0d7",
       "count": 1,
       "owner": "POD-2256",
       "classification": "ingest",
       "trigger": "A transcriptRead page resolves while this conversation is open.",
       "bound": "The requested page window only: initialLimit 200 or pageLimit 400; each message-record query contains at most 100 transcript item IDs. Successful and pending lookups are deduplicated and the transcript page returns without waiting.",
-      "reason": "Historical attachment records enter the existing shared message table by authoritative session and transcript identity. Existing live records skip the request; no collection is read from the complete message history.",
+      "reason": "Historical attachment records enter the existing shared message table by authoritative session and transcript identity. Existing live records skip the request; no collection is read from the complete message history. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: bbc8f1d6e3d01f189729a0a2d32171c976d30358eaf3b566f6a7e2b848b10e6a.",
       "guard": "apps/web/src/features/chat/ChatBlockView.attachments.test.tsx covers deferred history answers, empty attachment-only turns and one lookup across repeated history reads; packages/client-graph/src/message-models.test.ts covers quiet identity lookup updates."
     },
     {
@@ -35731,6 +35832,81 @@
       "bound": "One pass over resident messageRecord rows at index creation. Later publications inspect only the changed row and update keys only when its session or transcript identity changes.",
       "reason": "The index stores message IDs and returns the existing shared models. This also includes requested historical records outside the live feed index; lookups do not scan the working set.",
       "guard": "packages/client-graph/src/message-models.test.ts: looks up transcript identity without waking for unrelated message changes. ChatBlockView.attachments.test.tsx covers historical rows absent from the live feed."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "fixtureSidebarRow/bucketOf/callback",
+      "rule": "consume:some",
+      "tokens": "5507dd2b554162e0f9941f6d710d36850733f2c1dbf9618bb361228136a31c58",
+      "gate": [],
+      "origin": [
+        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+      ],
+      "fingerprint": "3ee056defe020e7e5b0f73d194255a0f39121fe57d211b9235130fb5ca426b84",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Fixture sidebar task-bucket projection over synthetic session rows (POD-2239)",
+      "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
+      "reason": "POD-2239 traces the existing fixture session filter and checks the matching sessions for current execution. Test-only synthetic input; no production import caller. Conservative fixture taint remains REQUIRED REPAIR, with no claim to repair existing collection debt. Predecessor fixture projection: b00bdaef43c2b434d5a5ff46cc016086300043e14109a25220a18c660e17d3ce.",
+      "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "fixtureSidebarRow/bucketOf/callback/sessions",
+      "rule": "reader-summary",
+      "tokens": "e49352c410f1473477e91d170745f5427371ddbc731705ad68a905db24b4d2fb",
+      "gate": [],
+      "origin": [
+        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+      ],
+      "fingerprint": "18aedd694620939e7c0ab8e628016c11ad43b74d26325310138e1ef36621e878",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Fixture sidebar task-bucket projection over synthetic session rows (POD-2239)",
+      "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
+      "reason": "POD-2239 traces the existing fixture session filter and checks the matching sessions for current execution. Test-only synthetic input; no production import caller. Conservative fixture taint remains REQUIRED REPAIR, with no claim to repair existing collection debt. Predecessor fixture projection: b00bdaef43c2b434d5a5ff46cc016086300043e14109a25220a18c660e17d3ce.",
+      "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-screen-pool.ts",
+      "holder": "fixtureSidebarRow/childSessionsOf/callback",
+      "rule": "consume:filter",
+      "tokens": "b89c9fff24c1d491d6bc6a4c5de1a5be4c4e95526b2d4311be3ec65e2909dc5b",
+      "gate": [],
+      "origin": [
+        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
+      ],
+      "fingerprint": "7314502b0276b1b3095c4fbe6f2b66facd9d30a2d1c63ca4096744e4296508d5",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Fixture sidebar task-bucket projection over synthetic session rows (POD-2239)",
+      "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
+      "reason": "POD-2239 traces the existing fixture session filter and checks the matching sessions for current execution. Test-only synthetic input; no production import caller. Conservative fixture taint remains REQUIRED REPAIR, with no claim to repair existing collection debt. Predecessor fixture projection: b00bdaef43c2b434d5a5ff46cc016086300043e14109a25220a18c660e17d3ce.",
+      "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
+    },
+    {
+      "file": "packages/client-core/src/conversation/transcript-log.ts",
+      "holder": "TranscriptLog/boundFollowingWindow/boundary",
+      "rule": "consume:findIndex",
+      "tokens": "b0127cc708a44f8f8192a0863294b7b19326ab59cfc1095ca06831674d0dcf52",
+      "gate": [
+        "exit:then:d59720cbd2484aec41113428fb4d2bd12de587a465329f96676ab9784a148aaf",
+        "else:48f6202319443fc329a42b462ef682050ddc0755f432e9d5a84847fbca5e826c"
+      ],
+      "origin": [
+        "5faf488eafb9a7d64cb052b86063c5ddc4aaf4e8ddb687600820b7dadd5b8c47"
+      ],
+      "fingerprint": "96fcdc12af217b50212fb73cd947fd88627cf9344b294ec65157c283bf93be18",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-2304",
+      "trigger": "A newest transcript snapshot would trim a boundary still owned by a mounted reader.",
+      "bound": "One reconciled snapshot, only above 2 × initialLimit and only while following; an addressed boundary ID limits the retained suffix. Incremental frame trimming uses the existing item-position index.",
+      "reason": "Complete active turn membership must survive the following window. This scan locates the requested boundary in the incoming snapshot before committing its ordered contents; no computed screen scan or global cache is added.",
+      "guard": "transcript-log.test.ts proves stream and newest-refresh retention, normal-window release, and explicit reset; conversation-presentation.test.ts and TranscriptFeed.turn-line.test.tsx cross both 300-row and 400-item limits."
     }
   ]
 }

@@ -74,7 +74,7 @@ export function trailingRunIsLive(
 ): boolean {
   if (activity?.tone !== 'working' || lastRow?.kind !== 'tools') return false
   const last = lastRow.blocks[lastRow.blocks.length - 1]
-  if (!last) return false
+  if (last?.item.role !== 'tool') return false
   return last.result === undefined && last.item.toolResult === undefined
 }
 
@@ -215,6 +215,7 @@ export const TranscriptTail = observer(function TranscriptTail({
   since,
   session,
   lastRow,
+  inline = false,
 }: {
   /** The session's live activity, or null when nothing is running. */
   activity: ChatActivity | null
@@ -224,6 +225,8 @@ export const TranscriptTail = observer(function TranscriptTail({
   session?: TailSession | undefined
   /** The visible tail row supplies the active tool's own subject. */
   lastRow?: ChatRow | undefined
+  /** The active turn line draws this owner's mark and timer. */
+  inline?: boolean
 }): JSX.Element | null {
   const state = transcriptTailState(activity, session, lastRow, since)
   const stateSince = state?.timerless ? undefined : (state?.since ?? since)
@@ -233,10 +236,17 @@ export const TranscriptTail = observer(function TranscriptTail({
   const waitingOnDependency = state?.mode === 'wait'
   // Two clocks so nothing wakes faster than its figure can change: the working
   // timer counts seconds, and an idle one only needs that in its first minute.
-  const now = useAgeNow(startedAt, 0, known && !!state)
+  const now = useAgeNow(startedAt, 0, known && !!state && !inline)
   const elapsed = known ? Math.max(0, now - startedAt) : 0
 
   if (!state) return null
+  if (inline)
+    return (
+      <span className="sr-only" role="status" aria-live="polite" data-testid="feed-tail-inline">
+        {state.label}
+        {state.detail ? ` ${state.detail}` : ''}
+      </span>
+    )
 
   const kind = state.mode
   const label = state.label

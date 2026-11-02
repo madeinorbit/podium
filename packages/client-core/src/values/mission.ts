@@ -178,23 +178,9 @@ export function reuseFlightDeckRows(
   return unchanged ? (previous as FlightDeckRow[]) : reused
 }
 
-/** Four task counts. The legacy field names remain for mobile consumers. */
-export interface MissionProgress {
-  total: number
-  done: number
-  /** Working: shipping or a session computing now. */
-  run: number
-  /** Reserved compatibility fields, always zero. */
-  review: number
-  block: number
-  /** Waiting: started, with nothing computing. */
-  stall: number
-  /** To do: backlog with no session history. */
-  wait: number
-}
-
 export type MissionTaskBucket = 'done' | 'working' | 'waiting' | 'todo'
 export type MissionBuckets = Record<MissionTaskBucket, number> & { total: number }
+export type MissionProgress = MissionBuckets
 
 /** Task execution is independent of its attention word and dependency state. */
 export function missionTaskBucket(
@@ -224,20 +210,8 @@ export function tallyMissionBuckets<T>(
   return counts
 }
 
-export function missionProgressFromBuckets(counts: MissionBuckets): MissionProgress {
-  return {
-    total: counts.total,
-    done: counts.done,
-    run: counts.working,
-    stall: counts.waiting,
-    wait: counts.todo,
-    review: 0,
-    block: 0,
-  }
-}
-
 export function missionProgressLabel(progress: MissionProgress): string {
-  return `${progress.done} of ${progress.total} tasks done, ${progress.run} working, ${progress.stall} waiting, ${progress.wait} to do`
+  return `${progress.done} of ${progress.total} tasks done, ${progress.working} working, ${progress.waiting} waiting, ${progress.todo} to do`
 }
 
 /**
@@ -1307,11 +1281,9 @@ export function deckSessionOrder(
 const EMPTY_PROGRESS: MissionProgress = Object.freeze({
   total: 0,
   done: 0,
-  run: 0,
-  review: 0,
-  stall: 0,
-  block: 0,
-  wait: 0,
+  working: 0,
+  waiting: 0,
+  todo: 0,
 })
 
 const EMPTY_ROLLUP: MissionRollup = Object.freeze({
@@ -1384,7 +1356,7 @@ function computeMissionRollup(
       own.some(works) || members.some(works),
     )
   })
-  return { progress: Object.freeze(missionProgressFromBuckets(counts)), fromChildren }
+  return { progress: Object.freeze(counts), fromChildren }
 }
 
 /**
@@ -2211,7 +2183,11 @@ export function presenceNote(
     return { kind: 'done', text, attention: false }
   }
   if (issue.stage === 'review') {
-    return { kind: 'review', text: 'Review ready · session ended', attention: false }
+    // An issue another session moved to review never had an agent of its own to stop (POD-2313).
+    const text = sessions.length
+      ? 'Waiting for your review · agent stopped'
+      : 'Waiting for your review · no agent on it'
+    return { kind: 'review', text, attention: false }
   }
   if (issue.stage === 'shipping') {
     return { kind: 'shipping', text: 'Shipping service has custody', attention: false }

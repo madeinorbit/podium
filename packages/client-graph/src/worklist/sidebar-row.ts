@@ -404,7 +404,7 @@ export function unstarted(s: SliceSession): boolean {
 }
 
 export function sidebarLifecycle(issue: SliceIssue, asking: boolean, passed: (at: number) => boolean, reached: (at: number) => boolean, facts?: CloseFacts) {
-  const settled = isClosedTopLevel(issue) && !issue.needsHuman && !(facts ? facts.awaitingMerge : awaitingMergeOf(issue)) && !asking
+  const settled = isClosedTopLevel(issue, facts?.parentGone) && !issue.needsHuman && !(facts ? facts.awaitingMerge : awaitingMergeOf(issue)) && !asking
   const eligible = settled && !issueAbandoned(issue) &&
     !passed((facts ? facts.finishedMs : Date.parse(issue.closedAt ?? issue.updatedAt) || 0) + FINISHED_GRACE_MS)
   const deadline = Date.parse(issue.deferUntil ?? '')

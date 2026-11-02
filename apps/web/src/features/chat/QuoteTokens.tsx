@@ -26,15 +26,16 @@ export interface UseQuotesResult {
 
 let seq = 0
 
-export function useQuotes(key: string): UseQuotesResult {
-  const [state, setState] = useState(() => ({ key, quotes: loadQuotes(key) }))
+/** Mail forms use a local bank; their unsent text is not a synced prompt. */
+export function useQuotes(key: string, persist = true): UseQuotesResult {
+  const [state, setState] = useState(() => ({ key, quotes: persist ? loadQuotes(key) : [] }))
   // A composer reused for another session picks up THAT session's quotes.
-  if (state.key !== key) setState({ key, quotes: loadQuotes(key) })
-  const quotes = state.key === key ? state.quotes : loadQuotes(key)
-  const current = useRef({ key, quotes })
-  current.current = { key, quotes }
+  if (state.key !== key) setState({ key, quotes: persist ? loadQuotes(key) : [] })
+  const quotes = state.key === key ? state.quotes : persist ? loadQuotes(key) : []
+  const current = useRef({ key, quotes, persist })
+  current.current = { key, quotes, persist }
   const add = useCallback((input: QuoteInput, draft: string): Quote => {
-    const { key, quotes } = current.current
+    const { key, quotes, persist } = current.current
     const named = new Set(findTokens(draft).map((t) => t.label))
     const kept = quotes.filter((q) => named.has(q.label))
     const staged = new Set(kept.map((q) => q.label))
@@ -45,15 +46,15 @@ export function useQuotes(key: string): UseQuotesResult {
       label: uniqueLabel(input, kept, orphans),
     }
     const next = [...kept, quote]
-    saveQuotes(key, next)
-    current.current = { key, quotes: next }
+    if (persist) saveQuotes(key, next)
+    current.current = { key, quotes: next, persist }
     setState({ key, quotes: next })
     return quote
   }, [])
   const clear = useCallback(() => {
-    const { key } = current.current
-    saveQuotes(key, [])
-    current.current = { key, quotes: [] }
+    const { key, persist } = current.current
+    if (persist) saveQuotes(key, [])
+    current.current = { key, quotes: [], persist }
     setState({ key, quotes: [] })
   }, [])
   return useMemo(() => ({ quotes, add, clear }), [quotes, add, clear])

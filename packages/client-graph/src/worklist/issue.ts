@@ -22,11 +22,51 @@ import { childIdsPartOf, type HeldIssue, type HiddenIssue, hiddenPresenceOf, kep
 import type { IssueModel, ModelHost } from '../models'
 import type { Worklist } from './view-model'
 import { AttentionFields } from './attention'
+import { issueDisplayRef } from '@podium/protocol'
+import { rowVoice } from './voice'
+import { DEFER_NEXT_MESSAGE } from '@podium/model/browser'
 
 /** One worklist's rules for the shared issue; desktop and phone borrow this object. */
 export class WorklistIssue implements HeldIssue, RowView {
   constructor(readonly issue: IssueModel, readonly worklist: Worklist) {}
   get id(): string { return this.issue.id }
+  @lazy({ equals: compareStructural }) get voice() {
+    const progress = this.progress
+    return rowVoice({
+      issue: this.issue,
+      decision: this.decision,
+      phase: this.timing.phase,
+      working: this.visibleWorking,
+      awaitingFirstPrompt: this.awaitingFirstPrompt,
+      showsChildProgress: this.showsChildProgress,
+      progress: typeof progress === 'symbol' ? null : progress,
+      continuation: this.continuation,
+    })
+  }
+  @lazy get statusWord() {
+    return this.voice.word
+  }
+  @lazy get statusTone() {
+    return this.voice.tone
+  }
+  @lazy get snoozeLabel() {
+    const until = this.issue.deferUntil
+    if (until === DEFER_NEXT_MESSAGE) return 'Snoozed until next message'
+    const date = new Date(until ?? '')
+    return Number.isNaN(date.getTime()) ? 'Snoozed'
+      : `Snoozed until ${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
+  }
+  @lazy get searchText() {
+    return [
+      this.title,
+      issueDisplayRef(this.issue),
+      this.statusWord,
+      this.issue.deferred ? this.snoozeLabel : '',
+      this.issue.finished ? 'closed' : '',
+    ]
+      .join(' ')
+      .toLocaleLowerCase()
+  }
   get visible(): boolean { return this.issue.visible }
   private get host(): ModelHost { return this.worklist.host }
 
@@ -1050,9 +1090,9 @@ export class WorklistIssue implements HeldIssue, RowView {
     const below = this.unitsBelow, own = this.unitOwn
     if (below.pending > 0 || own.cold) return LOADING
     return below.members > 0
-      ? { done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0, ...below.progress, total: below.units }
-      : { done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0, total: own.solo ? 1 : 0,
-        ...(own.solo ? { [own.state ?? 'wait']: 1 } : {}) }
+      ? { done: 0, working: 0, waiting: 0, todo: 0, ...below.progress, total: below.units }
+      : { done: 0, working: 0, waiting: 0, todo: 0, total: own.solo ? 1 : 0,
+        ...(own.solo ? { [own.state ?? 'todo']: 1 } : {}) }
   }
   @lazy get hasChildProgress() { return this.unitsBelow.members > 0 }
   @lazy get showsChildProgress() { return this.nestParent === null && this.hasChildProgress }

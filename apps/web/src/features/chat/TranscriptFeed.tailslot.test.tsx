@@ -1,3 +1,4 @@
+import './test-support/no-message-attachments'
 import type { ChatActivity, RenderableRow, SessionIssueOutcome } from '@podium/client-core/values'
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import { act } from 'react'
@@ -152,7 +153,7 @@ describe('the tail stands in a slot of constant height', () => {
 
     render(working, [prose, tool()])
     const line = (): HTMLElement | null => host.querySelector('[data-testid="work-line"]')
-    expect(line()?.dataset.state).toBe('handoff')
+    expect(line()?.dataset.state).toBe('pending')
     expect(line()?.querySelector('.pod-mark')).toBeNull()
     expect(tailRow()?.dataset.tail).toBe('working')
     expect(host.querySelectorAll('.pod-mark')).toHaveLength(1)
@@ -162,6 +163,57 @@ describe('the tail stands in a slot of constant height', () => {
     expect(line()?.querySelector('.pod-mark')).toBeNull()
     expect(tailRow()?.dataset.tail).toBe('working')
     expect(host.querySelectorAll('.pod-mark')).toHaveLength(1)
+  })
+
+  it.each([
+    false,
+    true,
+  ])('leaves the running shell phrase and timer to the tail, mixed stretch: %s', (mixed) => {
+    vi.useFakeTimers()
+    vi.setSystemTime(Date.parse('2026-08-18T12:02:42.000Z'))
+    const working = { tone: 'working', label: 'Working' } as ChatActivity
+    const earlier: TranscriptItem[] = mixed
+      ? [
+          { ...tool('clean'), id: 'rebase', toolName: 'Bash', toolInput: 'git rebase main' },
+          {
+            id: 'note',
+            role: 'user',
+            ts: '2026-08-18T12:00:20.000Z',
+            text: '[podium message note · from issue:POD-2242 · to issue:POD-2289]\nRebased and ready for checks\n[end podium message note]',
+          },
+        ]
+      : []
+    const running: TranscriptItem = {
+      ...tool(),
+      toolName: 'Bash',
+      toolInput: 'bun run test',
+      ts: '2026-08-18T12:00:43.000Z',
+    }
+    const items = [say('a1', 'Running the checks.'), ...earlier, running]
+    const line = (): HTMLElement => host.querySelector('[data-testid="work-line"]')!
+
+    render(working, items)
+    expect(tailRow()?.querySelector('.feed-tail-label')?.textContent).toBe('Waiting on shell')
+    expect(tailRow()?.querySelector('.feed-tail-detail')?.textContent).toBe('bun run test')
+    expect(tailRow()?.querySelector('.feed-tail-figure')?.textContent).toBe('1:59')
+    expect(line().querySelector('.work-line-phrase')?.textContent).not.toMatch(/Running|Waiting/)
+    expect(line().querySelector('.work-line-time')).toBeNull()
+    expect(line().dataset.state).toBe('pending')
+
+    act(() => vi.advanceTimersByTime(1000))
+    expect(tailRow()?.querySelector('.feed-tail-figure')?.textContent).toBe('2:00')
+    expect(line().querySelector('.work-line-time')).toBeNull()
+
+    act(() => line().querySelector<HTMLButtonElement>('[data-transcript-run-toggle]')!.click())
+    expect(line().querySelector('.work-line-time')).toBeNull()
+    expect(tailRow()?.querySelector('.feed-tail-detail')?.textContent).toBe('bun run test')
+
+    render(working, [...items.slice(0, -1), { ...running, toolResult: 'ok', durationMs: 120000 }])
+    expect(line().dataset.state).toBe('done')
+    expect(line().querySelector('.work-line-time')?.textContent).toMatch(
+      mixed ? /^\d{2}:\d{2}–\d{2}:\d{2}$/ : /^2:00$/,
+    )
+    expect(tailRow()?.querySelector('.feed-tail-label')?.textContent).toBe('Working')
   })
 })
 
