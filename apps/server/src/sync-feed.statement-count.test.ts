@@ -84,7 +84,15 @@ async function world(size: number, delta = false): Promise<World> {
   const owner = await firstAdminMemberId(store)
   const issues: IssueId[] = []
   for (let i = 0; i < size; i++) {
-    issues.push((await reg.issues.crud.create({ repoPath: '/repo', title: `Issue ${i}`, startNow: false })).id)
+    // An explicit parent: create would otherwise probe the repo for its base
+    // branch (POD-2065), which the test daemon never answers (3 s per issue).
+    const created = await reg.issues.crud.create({
+      repoPath: '/repo',
+      title: `Issue ${i}`,
+      startNow: false,
+      parentBranch: 'main',
+    })
+    issues.push(created.id)
     await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: `/other/w${i}` })
   }
   await settle(reg)

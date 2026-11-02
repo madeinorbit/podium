@@ -64,7 +64,14 @@ async function fixture(size: number): Promise<Fixture> {
   let issueId: IssueId | undefined
   const others: string[] = []
   for (let i = 0; i < size; i++) {
-    const issue = await reg.issues.crud.create({ repoPath: '/repo', title: `Issue ${i}`, startNow: false })
+    // An explicit parent: create would otherwise probe the repo for its base
+    // branch (POD-2065), which the test daemon never answers (3 s per issue).
+    const issue = await reg.issues.crud.create({
+      repoPath: '/repo',
+      title: `Issue ${i}`,
+      startNow: false,
+      parentBranch: 'main',
+    })
     issueId ??= issue.id
     const cwd = `/repo/w${i}`
     const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd, issueId: issue.id })
