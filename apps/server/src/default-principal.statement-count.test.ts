@@ -114,9 +114,11 @@ const pin: StatementPin<Fixture> = {
 }
 
 describe('the default principal per runtime event: pinned at 5 and 200 sessions', () => {
-  it('reads the earliest admin once and its settings once', async () => {
+  it('reads the earliest admin from the cache and its settings once', async () => {
     const counts = await expectConstantStatements(pin, RUNTIME_EVENT)
-    expectReads(counts, USERS, 1)
+    // The setup's frames filled `users.earliest-admin` (POD-6150); with it
+    // empty the frame reads the row once (store/operation-loaders.test.ts).
+    expectReads(counts, USERS, 0)
     expectReads(counts, META, 1)
     expectReads(counts, PREFERENCES, 1)
   })
@@ -125,4 +127,5 @@ describe('the default principal per runtime event: pinned at 5 and 200 sessions'
 // Measured on the polaris VM. Before POD-6218 this frame ran 36 (on e617c446a5:
 // `users` 8, `meta` 2, `user_preferences` 2); POD-6216's board drain then
 // removed three (11ab04ade0 among them), so 33 on the parent of this change.
-const RUNTIME_EVENT = 24
+// 24 until POD-6150 put the earliest admin in a declared cache: 23.
+const RUNTIME_EVENT = 23

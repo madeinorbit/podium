@@ -359,13 +359,23 @@ describe('UsersRepository.earliestAdmin for a whole operation', () => {
         ids.push((await store.users.earliestAdmin())?.id)
         return ids
       }
+      // The memo is pinned with the cross-operation cache (POD-6150) emptied.
+      const cold = async () => await store.users.earliestAdminCache.delete('earliest-admin')
+      await cold()
       const first = await countStatements(store, () => withOperation(phases))
       expect(first.statements).toBe(1)
       expect(new Set(first.result).size).toBe(1)
       expect(first.result[0]).toBeDefined()
+      await cold()
       expect((await countStatements(store, () => withOperation(phases))).statements).toBe(1)
-      // With no operation each ask is one live read (the row, not the id and the row).
-      expect((await countStatements(store, phases)).statements).toBe(3)
+      // With no operation and no cache entry each ask is one live read (the row,
+      // not the id and the row); the first fills the cache, so the third reads it.
+      await cold()
+      expect((await countStatements(store, phases)).statements).toBe(2)
+      // With the cache filled an operation reads nothing; an ask inside a write
+      // span with no operation still reads the database.
+      expect((await countStatements(store, () => withOperation(phases))).statements).toBe(0)
+      expect((await countStatements(store, phases)).statements).toBe(1)
     })
   })
 
@@ -458,6 +468,8 @@ describe('UsersRepository.get for a whole operation', () => {
 
   it('the earliest admin\'s row answers the next read of that member by id', async () => {
     await withStore(async (store) => {
+      // With the cross-operation cache (POD-6150) emptied, so the row is read here.
+      await store.users.earliestAdminCache.delete('earliest-admin')
       const counted = await countStatements(store, () => withOperation(async () => {
         const admin = (await store.users.earliestAdmin())!
         return [admin.id, (await store.users.get(asUserId(admin.id)))?.id, await store.users.roleOf(asUserId(admin.id))]

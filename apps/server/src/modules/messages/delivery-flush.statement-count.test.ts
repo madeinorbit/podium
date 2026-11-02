@@ -31,7 +31,7 @@ import type { MessageDeliveryDeps } from './service'
 
 const SENDER = asSessionId('sFrom')
 /** Measured on the polaris VM (POD-6231). */
-const PASS_STATEMENTS = 13
+const PASS_STATEMENTS = 12 // was 13 until POD-6150 put the earliest admin in a declared cache
 
 const row = (id: string, toId: IssueId, lifecycle: MessageRow['lifecycle'], createdAt: string): MessageRow => ({
   id,
@@ -209,7 +209,7 @@ describe('session changes: pinned statement counts at 5 and 200 sessions [POD-62
           await h.store.close()
         },
       },
-      6,
+      5, // was 6 until POD-6150 put the earliest admin in a declared cache
     )
   })
 })

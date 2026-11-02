@@ -13,7 +13,7 @@ Memory may hold only:
 | What | Example |
 |---|---|
 | **Live runtime state** that is not a stored fact. It grows with activity, not with history. | connected daemons, running sessions and their terminals, presence |
-| **Declared caches**, under the rules in "Caching" below | none yet; the cache layer is built only when a measurement shows the first real need (POD-6150) |
+| **Declared caches**, under the rules in "Caching" below | `users.earliest-admin`, the instance's earliest active admin (POD-6150) |
 | **Declared write hints**, under rule 7 of "Caching" below: what a store last wrote, kept only to make its next write cheaper, never read as a fact | `WrittenColumns` for the session upsert (POD-6234) |
 | **One-operation memos**: the read scope, which removes repeated lookups inside one operation and is gone when the operation ends | `withReadScope` and `readScopeSlot` in `apps/server/src/store/executor/read-scope.ts` |
 
@@ -65,7 +65,7 @@ Each rule has the reason for it and an example from this repository.
 ## Caching
 
 1. **The default is no cache.** Add a cache only after a fresh measurement shows the need. The order is: build it correct, measure, then fix.
-2. **One interface.** Every cache sits behind one interface: get, get many, set, delete by key. The first implementation is an in-process LRU; a Redis implementation can replace it later without touching callers. The cache layer itself (POD-6150) is built when the final measurement shows the first real need, not before.
+2. **One interface.** Every cache sits behind one interface: get, get many, set, delete by key (`Cache` in `apps/server/src/store/cache/cache.ts`, POD-6150). The first implementation is an in-process LRU (`LruCacheBackend`, `store/cache/lru.ts`); a Redis backend can replace it later without touching callers. How to add one is under "Using the cache layer" below.
 3. **Declared.** Each cache is registered with:
    - what it holds;
    - its key;
@@ -91,6 +91,32 @@ Each rule has the reason for it and an example from this repository.
 
    A new write hint must state the same, and a change that adds a second writer of a table must check this list.
 
+### Using the cache layer
+
+The layer is in `apps/server/src/store/cache/` (POD-6150). A new cache needs, in this order: a fresh measurement that shows the need (rule 1), a declaration, the bindings that remove its entries, reads through `readThrough`, and the tests below.
+
+1. **Declare it once, at module level**, next to the repository that owns the rows: `declareCache({ name, holds, key, limit, invalidatedBy, writers, measured })`. `name` is `<owner>.<what>`; `limit` is required; `invalidatedBy` names every table whose writes change an entry; `writers` states the writers it assumes (below); `measured` says which measurement showed the need. `declaredCaches()` lists every declaration.
+2. **Open it in the repository's constructor**: `openCache(declaration, [invalidateOn(table, repository.committed, (change) => keys)], new LruCacheBackend(declaration.limit))`, one `invalidateOn` per declared table (it refuses more or fewer). The key function gets the committed rows (RETURNING) and names every key they affect. After the outermost commit, inside the commit application, exactly those keys are removed; a rollback removes nothing. There is no `clear`.
+3. **Every write of a declared table goes through that table's `CommittedRows.write`.** A write some other way is invisible to the cache. Find every writer first (the repository's statements, migrations, raw SQL; see POD-6150 for the `users` census) and route the rest through `committed.write` with `.returning()`.
+4. **Read through `readThrough(cache, keys, load)`**, usually inside the batch of a per-operation loader, so the loader's memo still answers repeats within one operation. It answers hits from the cache and calls `load` once with the misses. Inside a write span it calls `load` for every key and does not touch the cache. `get`, `getMany` and `set` throw inside a span (rule 5).
+5. **A fill carries a mark.** `readThrough` takes `cache.mark()` before `load` and fills with it; the backend refuses the fill when a key was removed after the mark, so a write that commits during the load cannot leave the old row cached. Code that calls `set` directly must do the same.
+6. **Values are plain data:** primitives, arrays and plain objects; no `Date`, `Map`, class instance, function, cycle or shared reference. Development builds check every `set`; the LRU stores a frozen copy, so a caller that mutates what it got fails loudly.
+7. **Tests.** `expectWriteEvicts(cache, write, { evicts, keeps })` (`apps/server/src/test-support/cache.ts`) fills the named keys, runs the write as production runs it, and asserts that exactly `evicts` are gone and `keeps` remain. Write one per write path of each declared table, and a test that a read after each kind of write returns the new row. A statement-count pin whose operation now reads from the cache pins the warm count and says so; a loader pin empties the cache first (`cache.delete(key)`).
+
+**One writer.** The in-process backend is memory of one process, so after-commit removal is correct only while this process is the only writer of the declared tables, as for `WrittenColumns` (rule 7). Before a second writer exists (another server process on the same database, a Postgres deployment), a cache moves to a shared backend that every writer clears: a Redis `CacheBackend` deletes the keys from each writer's commit as a durable follow-up (a commit application cannot await the network) and implements the mark as a per-key version or lease, so a fill that raced a delete on any process is refused.
+
+**The declared caches:**
+
+| | `users.earliest-admin` (`apps/server/src/store/users.ts`, POD-6150) |
+|---|---|
+| what it holds | the instance's earliest active admin member row (`UserAccountRow`); no entry when there is none |
+| key | the constant `earliest-admin`: one entry per instance |
+| limit | 1 |
+| removed by | every committed write of `users` (create, create unclaimed, disable, enable, email, profile, account claim, password, member removal), all through `UsersRepository.committed` |
+| why | each runtime event, session activity and mail delivery is its own operation and asked for it again: 1,345 reads/min, 191 ms/min of SQL wall on the bench (profile round 2026-11-02 at 35bae63e8b, h1a1, running targeting) |
+| tests | `store/users-earliest-admin-cache.test.ts` (each write removes it, a read after each kind of write returns the new row, a span reads the database), `store/cache/cache.test.ts` (the layer) |
+| **assumes** | **this process is the only writer of `users`.** |
+
 ## How queries execute
 
 1. **Async everywhere.** Every data call is awaited through the existing store interface (POD-3221).
@@ -105,5 +131,5 @@ Each rule has the reason for it and an example from this repository.
 | adds or changes a repository query | it is prepared once (rule 1) | `apps/server/src/store/prepared-guard.test.ts`: a source census of per-call builders (with an explicit allowlist) and a runtime preparation count (POD-6147) |
 | adds or changes a lookup | the query-plan audit passes: the query is served by an index (rule 3) | `apps/server/src/store/query-plan-audit.test.ts`: `EXPLAIN QUERY PLAN` of every `prepared`/`preparedFamily` definition, with explicit lists for accepted sorts, small tables, whole-table reads (POD-6172) and query-shape debt (what is left needs full-text search, POD-5617) (POD-6148) |
 | adds or changes an operation that reads or writes | its statement count is pinned by a test and does not grow with data (rule 8) | `expectConstantStatements` in `apps/server/src/test-support/statement-count.ts` (POD-6149) |
-| adds a cache | a measurement that shows the need, its declaration, and a test that a write removes the entry | added with the cache layer, POD-6150 |
+| adds a cache | a measurement that shows the need, its declaration, and a test that a write removes the entry | `openCache` refuses an undeclared cache or a missing table binding; `expectWriteEvicts` in `apps/server/src/test-support/cache.ts` (POD-6150) |
 | removes an in-memory copy | before the copy is deleted, proof that the answers did not change: for the folder → issue lookup, both sync copies, the issue map and the session map, a test that runs old and new over the benchmark corpus and edge-case fixtures and compares (the issue map and the session map also at runtime in development builds); for the smaller copies, the existing tests plus new focused tests. After, the benchmark against the parent commit, the two runs interleaved | benchmark added by POD-6146 |

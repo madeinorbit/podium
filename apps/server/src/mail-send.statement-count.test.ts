@@ -192,7 +192,7 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
   // machine rows and their grants (4 statements): tRPC to an issue 19 -> 15,
   // relayed 23 -> 19, mailSend 29 -> 25.
   it('over tRPC, to a running session', async () => {
-    await expectConstantStatements(trpcToSession, 62)
+    await expectConstantStatements(trpcToSession, 61) // was 62 until POD-6150 put the earliest admin in a declared cache
   })
 
   it('tRPC pin is armed', async () => {
@@ -217,7 +217,7 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
     await expectConstantStatements(
       heldIssueMail('tRPC messages.send to a session, issue mail held', async (f) =>
         await f.call.messages.send({ to: f.target, body: 'counted' })),
-      70,
+      68, // was 70 until POD-6150 put the earliest admin in a declared cache
     )
   })
 
@@ -225,7 +225,7 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
     await expectConstantStatements(
       heldIssueMail('relayed messages.send to a session, issue mail held', async (f) =>
         await relay(f, 'send', { to: f.target, body: 'counted' })),
-      61,
+      59, // was 61 until POD-6150 put the earliest admin in a declared cache
     )
   })
 
@@ -260,7 +260,7 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
   it('over tRPC, to an issue', async () => {
     await expectConstantStatements(
       pin('tRPC messages.send to an issue', async (f) => await f.call.messages.send({ to: f.issueId, body: 'counted' })),
-      15,
+      14, // was 15 until POD-6150 put the earliest admin in a declared cache
     )
   })
 
@@ -271,7 +271,7 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
   )
 
   it('through the agent relay, to a running session', async () => {
-    await expectConstantStatements(relayToSession, 53)
+    await expectConstantStatements(relayToSession, 52) // was 53 until POD-6150 put the earliest admin in a declared cache
   })
 
   it('relay pin is armed', async () => {
@@ -281,17 +281,17 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
   it('through the agent relay, to its own issue', async () => {
     await expectConstantStatements(
       pin('relayed messages.send to an issue', async (f) => await relay(f, 'send', { to: f.issueId, body: 'counted' })),
-      19,
+      18, // was 19 until POD-6150 put the earliest admin in a declared cache
     )
   })
 
   it('through the agent relay, issues.mailSend to its own issue', async () => {
     await expectConstantStatements(
       pin('relayed issues.mailSend', async (f) => await relay(f, 'mailSend', { id: f.issueId, body: 'counted' }, 'issues')),
-      25,
+      22, // was 25 until POD-6150 put the earliest admin in a declared cache
     )
   })
 })
 
 // Measured on the polaris VM (POD-6218).
-const HELD_PASS_USERS_READS = 1
+const HELD_PASS_USERS_READS = 0 // was 1 until POD-6150 put the earliest admin in a declared cache

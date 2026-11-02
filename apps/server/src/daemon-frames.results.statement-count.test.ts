@@ -292,7 +292,7 @@ describe('daemon *Result frames: pinned statement counts at 5 and 200', () => {
   // approvals broadcast. POD-6218: the earliest admin in one statement: 19 -> 18.
   // POD-6229: the notice's apply-time check reads no machines: 18 -> 14.
   it('approvalExecResult of a session on an issue', async () => {
-    await expectConstantStatements(approval, 14)
+    await expectConstantStatements(approval, 13) // was 14 until POD-6150 put the earliest admin in a declared cache
   })
 
   it('approvalExecResult pin is armed', async () => {

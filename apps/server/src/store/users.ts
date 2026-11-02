@@ -25,6 +25,8 @@ import type { CredentialSource, UserId, UserRole } from '@podium/model'
 import { asUserId, CREDENTIAL_SOURCES, LoginEmail, USER_ROLES } from '@podium/model'
 import { and, asc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import { clientSessions, grants, memberInvites, settingsAuditEvents, userCredentials, users } from '../migrations/schema'
+import { declareCache, invalidateOn, openCache, type OpenedCache, readThrough } from './cache/cache'
+import { LruCacheBackend } from './cache/lru'
 import { applyAfterCommit, spanOpen } from './executor/executor'
 import { operationLoader } from './executor/operation-loader'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
@@ -71,8 +73,38 @@ const earliestAdminRow = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-/** The one key of the earliest-admin loader: the instance has one earliest admin. */
+/** The one key of the earliest-admin loader and cache: the instance has one earliest admin. */
 const EARLIEST_ADMIN = 'earliest-admin'
+
+/**
+ * THE FIRST DECLARED CACHE [POD-6150, server-data "Caching"].
+ *
+ * The per-operation loader (POD-6218) reads the earliest admin once per
+ * operation, and every runtime event, session activity and mail delivery is an
+ * operation of its own that asks again: 1,345 reads/min, 191 ms/min of SQL wall
+ * on the server-data bench (h1a1, realistic targeting; POD-6150 profile round,
+ * 2026-11-02), for a row that changes when a member is created, disabled or
+ * edited. So the loader's batch reads through this cache.
+ *
+ * Every write of `users` goes through {@link UsersRepository.committed}, and
+ * each committed write removes the one key: any member row can change who the
+ * earliest active admin is (a create, a disable, an enable), and a profile or
+ * email write changes the admin's row itself.
+ */
+export const EARLIEST_ADMIN_CACHE = declareCache({
+  name: 'users.earliest-admin',
+  holds: "the instance's earliest active admin member row (UserAccountRow); no entry when there is none",
+  key: "the constant 'earliest-admin': one entry per instance",
+  limit: 1,
+  invalidatedBy: ['users'],
+  writers:
+    'this process is the only writer of `users` (every write runs through UsersRepository.committed). ' +
+    'A second writer (another server process, a Postgres deployment, a hand-run UPDATE) is invisible to it: ' +
+    'before one exists, move it to a shared backend that every writer evicts, or remove it.',
+  measured:
+    'POD-6150 profile round at 35bae63e8b (h1a1, running targeting): 1,345 reads/min, 191 ms/min of SQL wall, ' +
+    'one per operation across runtime events, session activity and mail delivery',
+})
 
 const userIdByEmail = prepared((db: StoreDrizzle) =>
   db
@@ -103,10 +135,6 @@ const insertUserValues = {
   disabledAt: null,
 }
 
-const insertUser = prepared((db: StoreDrizzle) =>
-  db.insert(users).values(insertUserValues).prepare(),
-)
-
 const insertUserReturning = prepared((db: StoreDrizzle) =>
   db.insert(users).values(insertUserValues).returning().prepare(),
 )
@@ -116,6 +144,7 @@ const setUserEmail = prepared((db: StoreDrizzle) =>
     .update(users)
     .set({ email: sql.placeholder('email') })
     .where(eq(users.id, param(users.id, 'id')))
+    .returning()
     .prepare(),
 )
 
@@ -133,6 +162,7 @@ const setUserProfile = prepared((db: StoreDrizzle) =>
     .update(users)
     .set({ displayName: sql.placeholder('displayName'), avatar: sql.placeholder('avatar') })
     .where(eq(users.id, param(users.id, 'id')))
+    .returning()
     .prepare(),
 )
 
@@ -141,6 +171,7 @@ const claimUserAccount = prepared((db: StoreDrizzle) =>
     .update(users)
     .set({ cloudAccountId: sql.placeholder('cloudAccountId') })
     .where(and(eq(users.id, param(users.id, 'id')), isNull(users.cloudAccountId), isNull(users.disabledAt)))
+    .returning()
     .prepare(),
 )
 
@@ -299,6 +330,8 @@ export interface UserCredentialRow {
 
 export class UsersRepository {
   readonly committed: CommittedRows<typeof users.$inferSelect>
+  /** {@link EARLIEST_ADMIN_CACHE}, removed after every committed write of `users`. */
+  readonly earliestAdminCache: OpenedCache<typeof EARLIEST_ADMIN, UserAccountRow>
 
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
@@ -309,6 +342,11 @@ export class UsersRepository {
     private readonly grantsRepository = new GrantsRepository(queries),
   ) {
     this.committed = new CommittedRows(queries.createOrJoinTransaction, 'users')
+    this.earliestAdminCache = openCache<typeof EARLIEST_ADMIN, UserAccountRow>(
+      EARLIEST_ADMIN_CACHE,
+      [invalidateOn('users', this.committed, () => [EARLIEST_ADMIN])],
+      new LruCacheBackend(EARLIEST_ADMIN_CACHE.limit),
+    )
     this.rootDb = queries.rootDb
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
@@ -410,11 +448,14 @@ export class UsersRepository {
    * `users` below invalidates it ({@link accountsWritten}).
    */
   private readonly earliestAdminOfOperation = operationLoader<typeof EARLIEST_ADMIN, UserAccountRow>(
-    async () => {
-      const row = await earliestAdminRow(this.db).get()
-      const account = row ? userFromRow(row) : undefined
-      return new Map(account ? [[EARLIEST_ADMIN, account] as const] : [])
-    },
+    // Across operations through the declared cache; inside a write span
+    // `readThrough` reads the database and leaves the cache alone.
+    async () =>
+      await readThrough(this.earliestAdminCache, [EARLIEST_ADMIN], async () => {
+        const row = await earliestAdminRow(this.db).get()
+        const account = row ? userFromRow(row) : undefined
+        return new Map(account ? [[EARLIEST_ADMIN, account] as const] : [])
+      }),
     { copy: (row) => ({ ...row }), perOperation: true },
   )
 
@@ -439,8 +480,11 @@ export class UsersRepository {
   async setEmail(userId: UserId, email: string): Promise<void> {
     const normalized = LoginEmail.parse(email)
     if (!(await this.get(userId))) throw new Error(`unknown user: ${userId}`)
-    await setUserEmail(this.db).run({ id: userId, email: normalized })
-    this.accountsWritten()
+    await this.committed.write(async () => {
+      const rows = await setUserEmail(this.db).all({ id: userId, email: normalized })
+      this.accountsWritten()
+      return rows
+    }, 'upsert')
   }
 
   async list(): Promise<UserAccountRow[]> {
@@ -573,14 +617,17 @@ export class UsersRepository {
   }
 
   async createUnclaimed(account: UserAccountRow): Promise<void> {
-    await insertUser(this.db).run({
-      id: asUserId(account.id),
-      displayName: account.displayName,
-      email: account.email,
-      role: account.role,
-      createdAt: account.createdAt,
-    })
-    this.accountsWritten()
+    await this.committed.write(async () => {
+      const rows = await insertUserReturning(this.db).all({
+        id: asUserId(account.id),
+        displayName: account.displayName,
+        email: account.email,
+        role: account.role,
+        createdAt: account.createdAt,
+      })
+      this.accountsWritten()
+      return rows
+    }, 'upsert')
   }
 
   async findMemberByAccount(accountId: string): Promise<UserAccountRow | undefined> {
@@ -590,14 +637,20 @@ export class UsersRepository {
 
   async writeProfile(userId: UserId, name: string, avatar: string | null): Promise<void> {
     if (!(await this.get(userId))) throw new Error('Member unavailable')
-    await setUserProfile(this.db).run({ id: userId, displayName: name, avatar })
-    this.accountsWritten()
+    await this.committed.write(async () => {
+      const rows = await setUserProfile(this.db).all({ id: userId, displayName: name, avatar })
+      this.accountsWritten()
+      return rows
+    }, 'upsert')
   }
 
   async attachAccount(userId: UserId, accountId: string): Promise<void> {
-    const result = await claimUserAccount(this.db).run({ id: userId, cloudAccountId: accountId })
-    this.accountsWritten()
-    if (Number(result.changes) !== 1) throw new Error('Member is already claimed or unavailable')
+    const { changes } = await this.committed.write(async () => {
+      const rows = await claimUserAccount(this.db).all({ id: userId, cloudAccountId: accountId })
+      this.accountsWritten()
+      return rows
+    }, 'upsert')
+    if (changes !== 1) throw new Error('Member is already claimed or unavailable')
   }
 
   async removeMember(userId: UserId, actor: UserId): Promise<void> {

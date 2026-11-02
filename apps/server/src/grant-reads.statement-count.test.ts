@@ -211,5 +211,5 @@ describe('grant reads per change, a running session on an issue: pinned at 5 and
 // issue's pending mail (two statements); the flush now asks for both in one: -1.
 // POD-6218: the earliest admin is one statement, once per operation: issues.update -1.
 const RENAME = 12
-const ISSUE_UPDATE = 28
+const ISSUE_UPDATE = 27 // was 28 until POD-6150 put the earliest admin in a declared cache
 const OBSERVATION = 12

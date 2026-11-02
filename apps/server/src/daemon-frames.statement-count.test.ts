@@ -240,7 +240,7 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
         ),
         setup: async (size) => await fixture(size, true),
       },
-      24,
+      23, // was 24 until POD-6150 put the earliest admin in a declared cache
     )
     expectGrantReads(counts, 1)
   })
@@ -274,7 +274,7 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
     const counts = await expectConstantStatements(
       pin('agentExit', async (f) =>
         await route(f, { type: 'agentExit', sessionId: f.ids[0], code: 0, observerGeneration: 1 })),
-      30,
+      29, // was 30 until POD-6150 put the earliest admin in a declared cache
     )
     expectGrantReads(counts, 1)
   })
@@ -320,7 +320,7 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
   it('agentState (legacy, unfenced) of one session among many', async () => {
     const counts = await expectConstantStatements(
       pin('agentState', async (f) => await route(f, { type: 'agentState', sessionId: f.ids[0], state: idle })),
-      20,
+      19, // was 20 until POD-6150 put the earliest admin in a declared cache
     )
     expectGrantReads(counts, 1)
   })
