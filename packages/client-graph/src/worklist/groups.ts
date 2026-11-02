@@ -13,7 +13,9 @@ import { worklistView } from './view-model'
  * §3): pinned rows move out into one flat PINNED section; the rest bucket by
  * `repoKey` (`repoId ?? repoPath`) in the rank order of each group's first
  * member, open or closed (`groupUnifiedWorkRows`, `folds.ts:185-222`), labelled
- * by that first member's path tail (`folds.ts:200-203`); each group has ONE
+ * by the repo's own name when the row has a repo (the origin-derived name its
+ * lanes carry, POD-6246), else by that first member's path tail
+ * (`folds.ts:200-203`); each group has ONE
  * closed fold, newest `foldAt` first, ties in rank order (`folds.ts:214-220`,
  * L1b `compareClosedFold`). The fold verdict is views.ts `closedOf` (the one
  * the row's `closed` field uses), so a row and its lane cannot disagree.
@@ -66,7 +68,11 @@ export interface Placement {
   readonly repoKey: string
   /** The first member's path, retained with its existing placement facts. */
   readonly repoPath?: string
-  /** The group label this row would give its group as first member (`folds.ts:200-203`). */
+  /**
+   * The group label this row would give its group as first member: its repo's
+   * name, else its path tail (`folds.ts:200-203`). A repo's checkouts share
+   * one name, so the label does not change with the head row (POD-6246).
+   */
   readonly label: string
   /** R-GROUP 3, no selection: the row's `closed` field (views.ts `closedOf`). */
   readonly closed: boolean
@@ -83,17 +89,22 @@ export function repoLabelOf(repoPath: string): string {
 
 /**
  * One row's placement from its own part (the fold verdict and the stamp the
- * row view shows) and its repo path, with "nothing in the subtree waits"
- * ASSUMED: the row applies the waiting roll-up only to a row this places in
- * the fold (`withWaiting`), so a row that could never fold never reads its
- * subtree.
+ * row view shows), its repo path and its repo's name, with "nothing in the
+ * subtree waits" ASSUMED: the row applies the waiting roll-up only to a row
+ * this places in the fold (`withWaiting`), so a row that could never fold
+ * never reads its subtree.
+ *
+ * `repoName` is the repo's own name (`VisibleInputs.repoName`). The path is
+ * only the fallback: an issue filed from a renamed checkout (a `bak_podium`
+ * copy) carries that checkout's path, and the group must not take its name
+ * from whichever issue ranks first (POD-6246).
  */
-export function placementOfPart(part: OwnPart, repoPath: string): Placement {
+export function placementOfPart(part: OwnPart, repoPath: string, repoName?: string): Placement {
   return {
     pinned: part.pinned,
     repoKey: part.repoKey,
     repoPath,
-    label: repoLabelOf(repoPath),
+    label: repoName || repoLabelOf(repoPath),
     closed: part.closed,
     dismissed: part.dismissed,
     foldMs: Date.parse(part.foldAt) || 0,

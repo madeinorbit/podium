@@ -555,6 +555,13 @@ export class MobxPool {
       issueRow: (id) => omitGone(this.row('issue', id, 'peek')) as SliceIssue | undefined,
       // untracked-read: visibility-session-peek
       sessionRow: (id) => omitGone(this.row('session', id, 'peek')) as SliceSession | undefined,
+      // Tracked: a lane arriving names the repo. Every lane of one repo carries
+      // the same origin-derived name (`row-source.ts` `indexFor`), so the
+      // latest-lane-wins repo row answers one name whichever checkout holds it.
+      repoName: (id) => {
+        const name = (here(this.row('repo', id)) as RepoRow | undefined)?.repoName
+        return typeof name === 'string' && name.length > 0 ? name : undefined
+      },
       issue: (id) => this.knownIssue(id),
       session: (id) => worklistView(this).session(this.sessionObject(id)),
       passed: (t) => this.clock.passed(t),

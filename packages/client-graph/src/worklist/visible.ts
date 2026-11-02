@@ -137,6 +137,12 @@ export interface VisibleInputs {
   issueRow(id: string): SliceIssue | undefined
   /** A session's row, hot or cold; undefined when unknown. */
   sessionRow(id: string): SliceSession | undefined
+  /**
+   * TRACKED: repo `repoId`'s own name (the origin-derived name its lanes
+   * carry), or undefined before any lane names it. The group label reads it
+   * so every checkout of one repo shows one name (POD-6246).
+   */
+  repoName?(repoId: string): string | undefined
   /** Another known issue's parts (its object in the live pool); undefined when unknown. */
   issue(id: string): Omit<IssueVisibility, 'unread'> | undefined
   /** A session's parts (its object in the live pool). */
@@ -303,14 +309,22 @@ export interface IssueFacts {
 /** The facts group of `issue` (the fold verdict and the band are computed once, here). */
 function issueFactsOf(
   issue: SliceIssue,
-  input: Pick<VisibleInputs, 'passed' | 'reached' | 'issueSessionFact'>,
+  input: Pick<VisibleInputs, 'passed' | 'reached' | 'issueSessionFact' | 'repoName'>,
 ): IssueFacts {
   const part = ownPartOfRow(issue, input)
   return {
     standing: standingOf(issue, undefined, input.issueSessionFact),
     part,
-    placement: placementOfPart(part, issue.repoPath),
+    placement: placementOfPart(part, issue.repoPath, issueRepoNameOf(issue, input)),
   }
+}
+
+/** The name of the repo `issue` belongs to, or undefined (no repo, or none known yet). */
+export function issueRepoNameOf(
+  issue: Pick<SliceIssue, 'repoId'>,
+  input: Pick<VisibleInputs, 'repoName'>,
+): string | undefined {
+  return issue.repoId ? input.repoName?.(issue.repoId) : undefined
 }
 
 /** The facts group of issue `id`, hot or cold; undefined when unknown. */
