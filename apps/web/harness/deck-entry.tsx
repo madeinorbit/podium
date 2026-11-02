@@ -14,7 +14,7 @@
  * different ladder than the one that ships.
  */
 import type { JSX } from 'react'
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { FlightDeck } from '@/app/FlightDeck'
 import { MovedConversationPane } from '@/app/MovedConversationPane'
@@ -34,7 +34,6 @@ declare global {
       setWidth: (px: number) => void
       /** Swap the fixture; `bump` re-renders against the new one. */
       setMission: (name: keyof typeof MISSIONS) => void
-      setDisplay: (display: 'compact' | 'expanded') => void
       setTheme: (mode: 'light' | 'dark') => void
       point: (sessionId: string | null) => void
     }
@@ -1036,7 +1035,6 @@ const paneWidth = paneParam ? Number(paneParam) : 0
 
 function Harness(): JSX.Element {
   const [width, setWidth] = useState(366)
-  const [display, setDisplay] = useState<'compact' | 'expanded'>('compact')
   const [mission, setMission] = useState<keyof typeof MISSIONS>('asking')
   const [, bump] = useState(0)
 
@@ -1045,11 +1043,6 @@ function Harness(): JSX.Element {
   state.activity = {}
   MISSIONS[mission]()
 
-  const changeDisplay = useCallback((next: 'compact' | 'expanded'): void => {
-    setDisplay(next)
-    setWidth(next === 'expanded' ? 680 : 366)
-  }, [])
-
   useEffect(() => {
     window.deck = {
       setWidth: (px) => setWidth(px),
@@ -1057,7 +1050,6 @@ function Harness(): JSX.Element {
         setMission(name)
         bump((v) => v + 1)
       },
-      setDisplay: changeDisplay,
       setTheme: (mode) => {
         document.documentElement.classList.toggle('dark', mode === 'dark')
       },
@@ -1065,7 +1057,7 @@ function Harness(): JSX.Element {
       // guarded form a row uses on pointer-out and needs its own id.
       point: (id) => setHoveredSession(id as never),
     }
-  }, [changeDisplay])
+  }, [])
 
   return (
     <div className="desktop-shell">
@@ -1080,21 +1072,14 @@ function Harness(): JSX.Element {
           style={{ width, display: paneWidth ? 'none' : undefined }}
         >
           <div
-            className={`relative flex min-w-0 flex-[0_1_auto] ${
-              display === 'expanded' ? 'max-w-[62vw]' : 'max-w-[45vw]'
-            }`}
-            data-flight-deck-display={display}
+            className="relative flex min-w-0 max-w-[calc(100vw-300px)] flex-[0_1_auto]"
             data-resizable-column="podium:superagent:width"
             style={{ width }}
           >
             <OperatorFocusProvider missionId="root">
               <ConfirmProvider>
                 <DockIssueProvider>
-                  <FlightDeck
-                    onCollapse={() => {}}
-                    display={display}
-                    onDisplayChange={changeDisplay}
-                  />
+                  <FlightDeck onCollapse={() => {}} />
                 </DockIssueProvider>
               </ConfirmProvider>
             </OperatorFocusProvider>

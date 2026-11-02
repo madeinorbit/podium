@@ -279,6 +279,8 @@ export const CLIENT_DEVICE_LOCAL_UI_KEYS = [
   'podium.flightDeck.fullDisplay',
   'podium:flightDeck:fullCompactWidth',
   'podium:flightDeck:fullExpandedWidth',
+  /** Full's one width, since it lost its compact/wide modes (POD-6245). */
+  'podium:flightDeck:fullWidth',
   'podium:rightdock:width',
   /**
    * The phone launch sheet's local draft. Explicit choices survive dismissal;
@@ -367,6 +369,7 @@ export const FLIGHT_DECK_EXPANDED_WIDTH_KEY = 'podium:flightDeck:expandedWidth'
 export const FLIGHT_DECK_FULL_DISPLAY_KEY = 'podium.flightDeck.fullDisplay'
 export const FLIGHT_DECK_FULL_COMPACT_WIDTH_KEY = 'podium:flightDeck:fullCompactWidth'
 export const FLIGHT_DECK_FULL_EXPANDED_WIDTH_KEY = 'podium:flightDeck:fullExpandedWidth'
+export const FLIGHT_DECK_FULL_WIDTH_KEY = 'podium:flightDeck:fullWidth'
 
 /** The phone deck's saved mode. `active` is `working`'s old id (POD-1452); an
  * operator who chose it stays there. Retired desktop views read as `full`. */

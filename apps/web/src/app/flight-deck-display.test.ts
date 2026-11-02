@@ -1,71 +1,60 @@
+import {
+  FLIGHT_DECK_FULL_COMPACT_WIDTH_KEY,
+  FLIGHT_DECK_FULL_DISPLAY_KEY,
+  FLIGHT_DECK_FULL_EXPANDED_WIDTH_KEY,
+  FLIGHT_DECK_FULL_WIDTH_KEY,
+} from '@podium/client-core/ui-state'
 import { describe, expect, it } from 'vitest'
 import {
-  flightDeckSizing,
+  FLIGHT_DECK_SIZING,
   isComplexFlightDeckMission,
-  nextFlightDeckDisplayForSessionPick,
-  readFlightDeckDisplay,
   readFlightDeckWidth,
 } from './flight-deck-display'
 
-describe('Flight Deck display contract', () => {
-  it('defaults large missions to expanded and ordinary work to compact', () => {
-    expect(isComplexFlightDeckMission({ type: 'task', childCount: 6 })).toBe(true)
-    expect(isComplexFlightDeckMission({ type: 'task', childCount: 12 })).toBe(true)
-    expect(isComplexFlightDeckMission({ type: 'task', childCount: 2 })).toBe(false)
-    expect(readFlightDeckDisplay(null, true)).toBe('expanded')
-    expect(readFlightDeckDisplay(null, false)).toBe('compact')
+const store =
+  (values: Record<string, string>) =>
+  (key: string): string | null =>
+    values[key] ?? null
+
+describe('Flight Deck width contract', () => {
+  it('has one range spanning the old compact and wide ones', () => {
+    expect(FLIGHT_DECK_SIZING).toMatchObject({ min: 300, defaultWidth: 366 })
+    expect(FLIGHT_DECK_SIZING.max).toBeGreaterThanOrEqual(1120)
+    expect(FLIGHT_DECK_SIZING.storageKey).toBe(FLIGHT_DECK_FULL_WIDTH_KEY)
   })
 
-  it('honors an explicit persisted choice', () => {
-    expect(readFlightDeckDisplay('compact', true)).toBe('compact')
-    expect(readFlightDeckDisplay('expanded', false)).toBe('expanded')
-  })
-
-  it('contracts an overview pick and expands a repeated compact pick', () => {
-    expect(nextFlightDeckDisplayForSessionPick('expanded', 's1', 's1', false)).toBe('compact')
-    expect(nextFlightDeckDisplayForSessionPick('compact', 's1', 's1', false)).toBe('expanded')
-  })
-
-  it('keeps a different preview and every promotion compact', () => {
-    expect(nextFlightDeckDisplayForSessionPick('compact', 's1', 's2', false)).toBe('compact')
-    expect(nextFlightDeckDisplayForSessionPick('expanded', 's1', 's2', true)).toBe('compact')
-  })
-
-  it('makes Full wide reachable and keeps compact and expanded stores apart', () => {
-    const expanded = flightDeckSizing('expanded')
-    const compact = flightDeckSizing('compact')
-    expect(expanded.defaultWidth).toBeGreaterThanOrEqual(860)
-    expect(expanded.max).toBe(1120)
-    expect(compact).toMatchObject({ min: 300, max: 620, defaultWidth: 366 })
-    expect(compact.storageKey).not.toBe(expanded.storageKey)
-  })
-
-  it.each([
-    300, 320, 359, 360, 439, 440, 559, 560, 620,
-  ])('preserves a valid compact width of %i', (width) => {
-    expect(readFlightDeckWidth(String(width), 'compact')).toBe(width)
-  })
-
-  it.each([
-    540, 559, 560, 680, 760, 859, 860, 900, 1120,
-  ])('preserves Full expanded width %i through reopen', (width) => {
-    expect(readFlightDeckWidth(String(width), 'expanded')).toBe(width)
+  it.each([300, 366, 620, 621, 860, 1120, 1600])('keeps a saved width of %i', (width) => {
+    expect(readFlightDeckWidth(store({ [FLIGHT_DECK_FULL_WIDTH_KEY]: String(width) }))).toBe(width)
   })
 
   it.each([
     null,
     '',
+    ' ',
     'NaN',
     'Infinity',
     '-1',
     '299',
-    '1121',
-  ])('rejects invalid saved widths %s', (raw) => {
-    expect(readFlightDeckWidth(raw, 'expanded')).toBe(900)
+    '1601',
+  ])('falls back from an invalid saved width %s', (raw) => {
+    const values: Record<string, string> = raw === null ? {} : { [FLIGHT_DECK_FULL_WIDTH_KEY]: raw }
+    expect(readFlightDeckWidth(store(values))).toBe(366)
   })
 
-  it('caps the compact width', () => {
-    expect(readFlightDeckWidth('620', 'compact')).toBe(620)
-    expect(readFlightDeckWidth('621', 'compact')).toBe(366)
+  it('seeds the single width from the mode the user last used', () => {
+    const old = {
+      [FLIGHT_DECK_FULL_COMPACT_WIDTH_KEY]: '340',
+      [FLIGHT_DECK_FULL_EXPANDED_WIDTH_KEY]: '940',
+    }
+    expect(readFlightDeckWidth(store(old))).toBe(340)
+    expect(readFlightDeckWidth(store({ ...old, [FLIGHT_DECK_FULL_DISPLAY_KEY]: 'expanded' }))).toBe(
+      940,
+    )
+    expect(readFlightDeckWidth(store({ ...old, [FLIGHT_DECK_FULL_WIDTH_KEY]: '700' }))).toBe(700)
+  })
+
+  it('calls a mission with six or more children complex', () => {
+    expect(isComplexFlightDeckMission({ type: 'task', childCount: 6 })).toBe(true)
+    expect(isComplexFlightDeckMission({ type: 'task', childCount: 2 })).toBe(false)
   })
 })

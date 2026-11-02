@@ -65,8 +65,6 @@ const harness = vi.hoisted(() => ({
   split: false,
   focusedPane: 'A' as 'A' | 'B',
   coarseNow: Date.parse('2026-01-01T00:10:00.000Z'),
-  display: 'compact' as 'compact' | 'expanded',
-  onDisplayChange: vi.fn(),
   openSessionTab: vi.fn(),
   openSessionAtTranscript: vi.fn(),
   focusIssueSession: vi.fn(async () => null),
@@ -280,11 +278,7 @@ function DeckHarness({ pane = false }: { pane?: boolean }) {
             reads it to know which task the dock is already showing — so the
             harness supplies the real provider rather than the default context. */}
         <DockIssueProvider>
-          <FlightDeck
-            onCollapse={vi.fn()}
-            display={harness.display}
-            onDisplayChange={harness.onDisplayChange}
-          />
+          <FlightDeck onCollapse={vi.fn()} />
           {/* The task's empty pane, which holds a moved conversation's actions
               (POD-2043). */}
           {pane && <MovedConversationPane issueId="root" fallback={null} />}
@@ -310,17 +304,12 @@ const settle = async (): Promise<void> => {
   })
 }
 
-it('keeps explicit Full expansion reachable without forcing compact or hiding collapse', async () => {
-  harness.display = 'expanded'
+it('offers collapse and no width-mode toggle; the column edge resizes it', async () => {
   await deck()
-  expect(harness.onDisplayChange).not.toHaveBeenCalled()
   expect(screen.getByTestId('flight-deck-scroller').classList.contains('flight-full-panel')).toBe(true)
-  const compact = screen.getByRole('button', { name: 'Use compact Flight Deck' })
-  expect(compact.getAttribute('aria-pressed')).toBe('true')
-  fireEvent.click(compact)
-  expect(harness.onDisplayChange).toHaveBeenCalledExactlyOnceWith('compact')
-  // Expand and collapse are the eyebrow's own controls; no view bar sits below.
-  expect(screen.getByRole('button', { name: 'Collapse Flight Deck' }).parentElement).toBe(compact.parentElement)
+  expect(screen.getByRole('button', { name: 'Collapse Flight Deck' })).toBeDefined()
+  // The compact/wide toggle is gone (POD-6245); no view bar sits below either.
+  expect(screen.queryByRole('button', { name: /compact Flight Deck|Expand mission overview/ })).toBeNull()
   expect(screen.queryByRole('group', { name: 'Deck view' })).toBeNull()
 })
 
@@ -385,8 +374,6 @@ beforeEach(() => {
   harness.split = false
   harness.focusedPane = 'A'
   harness.coarseNow = Date.parse('2026-01-01T00:10:00.000Z')
-  harness.display = 'compact'
-  harness.onDisplayChange.mockClear()
   harness.openSessionTab.mockClear()
   harness.openSessionAtTranscript.mockClear()
   harness.focusIssueSession.mockClear()

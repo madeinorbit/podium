@@ -12,6 +12,7 @@ import {
   FLIGHT_DECK_FULL_COMPACT_WIDTH_KEY,
   FLIGHT_DECK_FULL_DISPLAY_KEY,
   FLIGHT_DECK_FULL_EXPANDED_WIDTH_KEY,
+  FLIGHT_DECK_FULL_WIDTH_KEY,
   type ReplicatedUiStatePort,
   readFileScrollPosition,
   readStoredDensity,
@@ -217,6 +218,7 @@ describe('workspace ui-state routing', () => {
       FLIGHT_DECK_FULL_DISPLAY_KEY,
       FLIGHT_DECK_FULL_COMPACT_WIDTH_KEY,
       FLIGHT_DECK_FULL_EXPANDED_WIDTH_KEY,
+      FLIGHT_DECK_FULL_WIDTH_KEY,
     ]) {
       expect(uiStateRoute(key).home).toBe('device-local')
     }

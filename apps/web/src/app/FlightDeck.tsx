@@ -30,8 +30,6 @@ import {
   ChevronLeft,
   ChevronUp,
   Eye,
-  Maximize2,
-  Minimize2,
   UserPlus,
   X,
 } from 'lucide-react'
@@ -70,7 +68,6 @@ import { FlightDeckFullArchivedSession, FlightDeckFullCoordinator } from './Flig
 import PoolFlightDeck from './FlightDeckPool'
 import { FlightDeckProposals } from './FlightDeckProposals'
 import type { FlightDeckV6Actions } from './FlightDeckV6Rows'
-import type { FlightDeckDisplay } from './flight-deck-display'
 import { MissionCostChip } from './MissionCostChip'
 import { MissionGauge } from './MissionGauge'
 import { useMissionEndings } from './mission-endings'
@@ -785,8 +782,6 @@ function GhostTaskRow({ tier }: { tier: 1 | 2 | 3 | 4 }): JSX.Element {
 
 export interface FlightDeckProps {
   onCollapse: () => void
-  display?: FlightDeckDisplay
-  onDisplayChange?: (display: FlightDeckDisplay) => void
 }
 /** Lookups through the opening's reader, plus the pool-backed menu and archive. */
 export interface FlightDeckSource {
@@ -1083,8 +1078,6 @@ const DeckArchive = observer(function DeckArchive({
  */
 export const FlightDeckContent = observer(function FlightDeckContent({
   onCollapse,
-  display = 'compact',
-  onDisplayChange = () => {},
   screen,
   source,
 }: FlightDeckProps & {
@@ -1419,39 +1412,21 @@ export const FlightDeckContent = observer(function FlightDeckContent({
    *
    * The collapse chevron used to be `absolute top-1 right-2` on the column
    * itself, and the eyebrow then reserved `pr-11` to dodge a control that was
-   * floating over it. As the last flex children of a row padded to 8px, expand
-   * and collapse are simply 24px buttons and the reservation goes away.
+   * floating over it. As the last flex child of a row padded to 8px, collapse
+   * is simply a 24px button and the reservation goes away. The column has no
+   * width modes (POD-6245): its edge resizes it.
    */
-  const displayLabel =
-    display === 'expanded' ? 'Use compact Flight Deck' : 'Expand mission overview'
   const columnControls = (
-    <>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        className="size-6 flex-none text-text-faint"
-        aria-label={displayLabel}
-        aria-pressed={display === 'expanded'}
-        title={displayLabel}
-        onClick={() => onDisplayChange(display === 'expanded' ? 'compact' : 'expanded')}
-      >
-        {display === 'expanded' ? (
-          <Minimize2 size={13} aria-hidden="true" />
-        ) : (
-          <Maximize2 size={13} aria-hidden="true" />
-        )}
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        className="deck-eyebrow-chevron size-6 flex-none text-text-faint"
-        aria-label="Collapse Flight Deck"
-        title="Collapse Flight Deck"
-        onClick={onCollapse}
-      >
-        <ChevronLeft size={14} aria-hidden="true" />
-      </Button>
-    </>
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      className="deck-eyebrow-chevron size-6 flex-none text-text-faint"
+      aria-label="Collapse Flight Deck"
+      title="Collapse Flight Deck"
+      onClick={onCollapse}
+    >
+      <ChevronLeft size={14} aria-hidden="true" />
+    </Button>
   )
   const fullActions: FlightDeckV6Actions = {
     activeSessionId,

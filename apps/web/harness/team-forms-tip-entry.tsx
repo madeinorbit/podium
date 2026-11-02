@@ -84,18 +84,13 @@ function Harness() {
           >
             <div
               className="relative flex min-w-0 max-w-[45vw] flex-[0_1_auto]"
-              data-flight-deck-display="compact"
               data-resizable-column="podium:superagent:width"
               style={{ width: 400 }}
             >
               <OperatorFocusProvider missionId="root">
                 <ConfirmProvider>
                   <DockIssueProvider>
-                    <FlightDeck
-                      onCollapse={() => {}}
-                      display="compact"
-                      onDisplayChange={() => {}}
-                    />
+                    <FlightDeck onCollapse={() => {}} />
                   </DockIssueProvider>
                 </ConfirmProvider>
               </OperatorFocusProvider>

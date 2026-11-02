@@ -28,8 +28,47 @@ export function dependencyHook(
     targetY: dependent.y,
     hook,
     path: `M${x} ${dependency.y} C${x + hook} ${dependency.y}, ${x + hook} ${dependent.y}, ${x} ${dependent.y}`,
-    arrow: `M${x + 4} ${dependent.y - 3} L${x} ${dependent.y} L${x + 4} ${dependent.y + 3}`,
+    arrow: arrowhead(x, dependency.y, x + hook, dependent.y),
   }
+}
+
+const ARROW_BACK = 4
+const ARROW_HALF = 3
+/** How far back along the curve the arrowhead takes its direction from. */
+const ARROW_AIM = 6
+const round = (value: number) => Math.round(value * 10) / 10
+
+/**
+ * The arrowhead follows the line where the line meets it. The hook's tangent
+ * is horizontal only at its very end: over the arrowhead's last few pixels the
+ * curve still runs mostly up or down, so a flat `<` had one arm lying across
+ * the line. Aim along the chord from the point ARROW_AIM px back on the curve
+ * to the tip instead; that is the direction the eye reads.
+ */
+function arrowhead(x: number, fromY: number, hookX: number, toY: number): string {
+  const at = (t: number) => {
+    const u = 1 - t
+    // Cubic with control points (hookX, fromY) and (hookX, toY), ends at x.
+    return {
+      x: u * u * u * x + 3 * u * t * hookX + t * t * t * x,
+      y: u * u * u * fromY + 3 * u * u * t * fromY + 3 * u * t * t * toY + t * t * t * toY,
+    }
+  }
+  let back = at(0)
+  for (let t = 0.99; t > 0; t -= 0.01) {
+    const point = at(t)
+    if (Math.hypot(point.x - x, point.y - toY) >= ARROW_AIM) {
+      back = point
+      break
+    }
+  }
+  const length = Math.hypot(x - back.x, toY - back.y) || 1
+  // Unit direction of travel into the tip, and its normal.
+  const dx = (x - back.x) / length,
+    dy = (toY - back.y) / length
+  const arm = (side: 1 | -1) =>
+    `${round(x - ARROW_BACK * dx - side * ARROW_HALF * dy)} ${round(toY - ARROW_BACK * dy + side * ARROW_HALF * dx)}`
+  return `M${arm(1)} L${x} ${toY} L${arm(-1)}`
 }
 
 export function dependencyEdges(

@@ -28,12 +28,15 @@ it('paints stored dependent -> dependency links with the dot at dependency and a
     x: 875,
     highlighted: false,
     path: 'M875 80 C884 80, 884 160, 875 160',
-    arrow: 'M879 157 L875 160 L879 163',
+    // Aimed along the curve's last 6px (down and left), not flat: a flat
+    // arrowhead laid one arm across the line coming in from above.
+    arrow: 'M874.7 155 L875 160 L879.7 158.3',
   })
   // A dependency below its dependent reverses only y, never the semantics.
   expect(dependencyHook(points.get('dependent')!, points.get('dependency')!, 0)).toMatchObject({
     sourceY: 160,
     targetY: 80,
+    arrow: 'M879.7 81.7 L875 80 L874.7 85',
   })
 })
 
