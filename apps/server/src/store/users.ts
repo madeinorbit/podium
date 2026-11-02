@@ -106,6 +106,25 @@ export const EARLIEST_ADMIN_CACHE = declareCache({
     'one per operation across runtime events, session activity and mail delivery',
 })
 
+/**
+ * ONE SET OF ENTRIES PER STORE, however many repositories read it. A store
+ * builds more than one `UsersRepository` (`SuperagentRepository` holds its
+ * own), and each has its own `CommittedRows`: a backend per repository would
+ * leave one instance's entry in place after a write through another. So the
+ * backend is keyed by the store's query capability, and every instance binds
+ * its own `committed` to it.
+ */
+const earliestAdminBackends = new WeakMap<StoreQueries, LruCacheBackend<UserAccountRow>>()
+
+function earliestAdminBackend(queries: StoreQueries): LruCacheBackend<UserAccountRow> {
+  let backend = earliestAdminBackends.get(queries)
+  if (!backend) {
+    backend = new LruCacheBackend<UserAccountRow>(EARLIEST_ADMIN_CACHE.limit)
+    earliestAdminBackends.set(queries, backend)
+  }
+  return backend
+}
+
 const userIdByEmail = prepared((db: StoreDrizzle) =>
   db
     .select({ id: users.id })
@@ -345,7 +364,7 @@ export class UsersRepository {
     this.earliestAdminCache = openCache<typeof EARLIEST_ADMIN, UserAccountRow>(
       EARLIEST_ADMIN_CACHE,
       [invalidateOn('users', this.committed, () => [EARLIEST_ADMIN])],
-      new LruCacheBackend(EARLIEST_ADMIN_CACHE.limit),
+      earliestAdminBackend(queries),
     )
     this.rootDb = queries.rootDb
     this.createOrJoinTransaction = queries.createOrJoinTransaction

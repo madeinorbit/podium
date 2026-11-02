@@ -11,7 +11,8 @@ import { openTestStore } from '../test-support/open-test-store'
 import { countStatements } from '../test-support/statement-count'
 import { declaredCaches } from './cache/cache'
 import { withOperation } from './executor/operation-scope'
-import { EARLIEST_ADMIN_CACHE, type UserAccountRow } from './users'
+import type { StoreQueries } from './executor/sync-drizzle'
+import { EARLIEST_ADMIN_CACHE, type UserAccountRow, UsersRepository } from './users'
 
 const KEY = 'earliest-admin'
 const LATER = asUserId('mem_2YYYYYYYYYYYYYYYYYYYYYYYYYY')
@@ -104,6 +105,17 @@ describe('users.earliest-admin cache', () => {
       await earliest()
       await store.users.writeProfile(asUserId(first.id), 'Renamed', 'avatar.png')
       expect(await earliest()).toMatchObject({ id: first.id, displayName: 'Renamed', avatar: 'avatar.png' })
+    })
+
+    it('a write through another repository of the same store removes it too', async () => {
+      // `SuperagentRepository` holds a UsersRepository of its own.
+      const queries = (store as unknown as { queries: StoreQueries }).queries
+      const other = new UsersRepository(queries)
+      expect((await withOperation(async () => await other.earliestAdmin()))?.id).toBe(first.id)
+      await store.users.disable(asUserId(first.id), '2099-07-01T00:00:00.000Z')
+      expect((await withOperation(async () => await other.earliestAdmin()))?.id).toBe(LATER)
+      await other.enable(asUserId(first.id), '2099-07-02T00:00:00.000Z')
+      expect((await earliest())?.id).toBe(first.id)
     })
 
     it('a write that rolls back leaves the cached row, which is still the database\'s', async () => {
