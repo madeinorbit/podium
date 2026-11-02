@@ -8019,39 +8019,51 @@ a.ref-link--session::before {
   accent-color: var(--muted-foreground);
 }
 
-/* Calm reading lifts a Markdown document without replacing the workspace. The
-   shell remains barely legible behind it as place-memory, while blur, low
-   saturation and a neutral scrim stop its live data from competing with prose. */
+/* Calm reading lifts a Markdown document out of the workspace without
+   replacing it (POD-2322). The document gets a full-height column at reading
+   width and a reading step of its own (18.5px/1.7 against the panel's 15/1.75),
+   so it reads as a different mode rather than the same preview in a box. The
+   shell stays behind it as place-memory, dimmed and blurred enough that its
+   live data cannot compete with the prose.
+
+   On a window wide enough for the margins to hold something (1100px), the left
+   one carries the document's outline and the right one the time left. They sit
+   on the scrim, which is dark in both themes, so their ink is a fixed light
+   rather than a theme token. Narrower, they drop out and a hairline under the
+   header carries the progress instead. */
 .calm-reader-layer {
+  --calm-column: 48rem;
+  --calm-margin-gap: 2rem;
+  --calm-margin-ink: rgb(255 255 255 / 70%);
+  --calm-margin-strong: #ffffff;
+  --calm-margin-track: rgb(255 255 255 / 18%);
   position: fixed;
   inset: 0;
   z-index: 100;
   display: flex;
-  align-items: center;
   justify-content: center;
-  padding: clamp(0.75rem, 3vw, 2.5rem);
-  background: color-mix(in oklab, black 54%, transparent);
-  backdrop-filter: blur(3px) saturate(0.62);
+  background: color-mix(in oklab, black 62%, transparent);
+  backdrop-filter: blur(7px) saturate(0.4);
+  outline: none;
   animation: calm-reader-fade 180ms ease-out both;
 }
 
 .calm-reader-sheet {
   display: flex;
-  width: 100%;
-  height: min(90vh, 58rem);
+  width: min(100%, var(--calm-column));
+  height: 100%;
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
   color: var(--foreground);
   background: color-mix(in oklab, var(--background) 97%, var(--muted));
-  border: 1px solid color-mix(in oklab, var(--border) 78%, transparent);
-  border-radius: 12px;
-  box-shadow: 0 24px 80px rgb(0 0 0 / 34%);
-  outline: none;
+  border-inline: 1px solid color-mix(in oklab, var(--border) 78%, transparent);
+  box-shadow: 0 0 120px rgb(0 0 0 / 40%);
   animation: calm-reader-arrive 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .calm-reader-header {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(max-content, 1fr) minmax(0, auto) minmax(max-content, 1fr);
   align-items: center;
@@ -8086,16 +8098,145 @@ a.ref-link--session::before {
   white-space: nowrap;
 }
 
-.calm-reader-header > :last-child {
+.calm-reader-header > :nth-child(3) {
   justify-self: end;
 }
 
+.calm-reader-hairline {
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  width: var(--calm-progress, 0%);
+  height: 2px;
+  background: color-mix(in oklab, var(--primary) 80%, transparent);
+}
+
+/* The measure lives on `.md-block` and is written in em, so it tracks the
+   larger size: 35em is about 68 characters of Geist here. */
 .calm-reader-document {
-  --md-measure: 42em;
-  font-size: 16px;
-  line-height: 1.8;
-  padding-top: clamp(2.5rem, 7vh, 5rem);
-  padding-bottom: 6rem;
+  --md-measure: 35em;
+  font-size: 18.5px;
+  line-height: 1.7;
+  padding: clamp(2.5rem, 7vh, 3.5rem) clamp(1.25rem, 7%, 3.75rem) 30vh;
+}
+
+/* Focused on open, and a heading on an outline jump, so the keyboard pages on
+   from there. Neither is a control the reader chose, so neither draws a ring;
+   the outline's own highlight shows where the jump landed. */
+.calm-reader-document:focus,
+.calm-reader-document :is(h2, h3):focus {
+  outline: none;
+}
+
+.calm-reader-document h1 {
+  font-size: 1.85em;
+  letter-spacing: -0.02em;
+}
+
+/* ── The margins ─────────────────────────────────── */
+.calm-reader-outline,
+.calm-reader-progress {
+  position: absolute;
+  top: 6.25rem;
+  display: none;
+}
+
+.calm-reader-outline {
+  right: calc(50% + var(--calm-column) / 2 + var(--calm-margin-gap));
+  width: min(15rem, calc(50% - var(--calm-column) / 2 - var(--calm-margin-gap) * 1.5));
+  max-height: calc(100% - 8.25rem);
+  overflow-y: auto;
+  scrollbar-width: none;
+  text-align: right;
+}
+
+.calm-reader-margin-label {
+  display: block;
+  padding: 0 0.7rem 0.5rem;
+  color: var(--calm-margin-ink);
+  font-family: var(--font-mono, monospace);
+  font-size: 10.5px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.calm-reader-outline button {
+  display: block;
+  width: 100%;
+  padding: 0.35rem 0.7rem;
+  color: var(--calm-margin-ink);
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: right;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+  border-radius: 6px;
+  transition: color 160ms ease;
+}
+
+.calm-reader-outline button[data-level="3"] {
+  padding-right: 1.4rem;
+  font-size: 12px;
+}
+
+.calm-reader-outline button:hover {
+  color: var(--calm-margin-strong);
+}
+
+.calm-reader-outline button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.calm-reader-outline button[aria-current="location"] {
+  color: var(--calm-margin-strong);
+  font-weight: 550;
+  border-radius: 0;
+  box-shadow: inset -2px 0 0 var(--primary);
+}
+
+.calm-reader-progress {
+  left: calc(50% + var(--calm-column) / 2 + var(--calm-margin-gap));
+  flex-direction: column;
+  gap: 0.6rem;
+  color: var(--calm-margin-ink);
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.calm-reader-track {
+  position: relative;
+  width: 2px;
+  height: 11rem;
+  border-radius: 2px;
+  background: var(--calm-margin-track);
+}
+
+.calm-reader-track::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: var(--calm-progress, 0%);
+  border-radius: 2px;
+  background: var(--primary);
+}
+
+.calm-reader-time {
+  color: var(--calm-margin-strong);
+  font-size: 12px;
+}
+
+@media (min-width: 1100px) {
+  .calm-reader-outline {
+    display: block;
+  }
+  .calm-reader-progress {
+    display: flex;
+  }
+  .calm-reader-hairline {
+    display: none;
+  }
 }
 
 @keyframes calm-reader-fade {
@@ -8119,20 +8260,15 @@ a.ref-link--session::before {
 }
 
 @media (max-width: 640px) {
-  .calm-reader-layer {
-    padding: 0;
-  }
   .calm-reader-sheet {
-    width: 100%;
-    height: 100%;
     border: 0;
-    border-radius: 0;
   }
   .calm-reader-header {
     grid-template-columns: minmax(max-content, 1fr) minmax(0, 1fr) max-content;
   }
   .calm-reader-document {
-    padding-top: 2.5rem;
+    font-size: 17px;
+    padding-top: 2rem;
   }
 }
 
@@ -8140,6 +8276,9 @@ a.ref-link--session::before {
   .calm-reader-layer,
   .calm-reader-sheet {
     animation: none;
+  }
+  .calm-reader-outline button {
+    transition: none;
   }
 }
 

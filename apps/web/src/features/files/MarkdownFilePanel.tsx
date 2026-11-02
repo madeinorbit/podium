@@ -9,14 +9,14 @@ import {
   writeFilePanelMode,
 } from '@podium/client-core/ui-state'
 import { type FileScope, scopeKey } from '@podium/client-core/values'
-import { asSessionId, type MachineId, type SessionId } from '@podium/model/browser'
+import { asSessionId } from '@podium/model/browser'
 import { Columns2, Eye, Flower2, Pencil, Save, X } from 'lucide-react'
 import { type JSX, useCallback, useEffect, useId, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui/button'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { modChord } from '@/lib/mod-chord'
 import { usePersistedUiValue } from '@/lib/use-persisted-ui-state'
+import { CalmMarkdownReader } from './CalmMarkdownReader'
 import { DownloadFileButton } from './DownloadFileButton'
 import { canSave } from './editor-save'
 import { isMarkdownPath } from './file-kind'
@@ -278,83 +278,6 @@ export function MarkdownFilePanel({
         />
       )}
     </div>
-  )
-}
-
-/** A temporary reading surface above the live workspace. The shell remains visible
- *  through the subdued backdrop, preserving place while attention moves to the text. */
-function CalmMarkdownReader({
-  sessionId,
-  worktree,
-  path,
-  content,
-  onClose,
-}: {
-  sessionId: SessionId
-  worktree?: { root: string; machineId?: MachineId }
-  path: string
-  content: string
-  onClose: () => void
-}): JSX.Element {
-  const readerRef = useRef<HTMLElement | null>(null)
-
-  useEffect(() => {
-    const previousFocus = document.activeElement as HTMLElement | null
-    readerRef.current?.focus({ preventScroll: true })
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape' || event.defaultPrevented) return
-      event.stopPropagation()
-      onClose()
-    }
-    window.addEventListener('keydown', onKeyDown, true)
-    return () => {
-      window.removeEventListener('keydown', onKeyDown, true)
-      previousFocus?.focus({ preventScroll: true })
-    }
-  }, [onClose])
-
-  return createPortal(
-    // biome-ignore lint/a11y/noStaticElementInteractions: backdrop click is a pointer convenience; Escape and the explicit button are keyboard routes
-    <div className="calm-reader-layer" role="presentation" onClick={onClose}>
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: keeps document interaction from reaching the backdrop */}
-      <section
-        ref={readerRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Calm reading: ${path}`}
-        tabIndex={-1}
-        className="calm-reader-sheet"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <header className="calm-reader-header">
-          <div className="calm-reader-heading">
-            <Flower2 size={15} aria-hidden="true" />
-            <span>Calm reading</span>
-          </div>
-          <span className="calm-reader-path" title={path}>
-            {path}
-          </span>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            onClick={onClose}
-            aria-label="Leave calm reading mode"
-            title="Leave calm reading mode — Esc"
-          >
-            <Flower2 size={15} aria-hidden="true" />
-          </Button>
-        </header>
-        <MarkdownPreview
-          sessionId={sessionId}
-          {...(worktree ? { worktree } : {})}
-          path={path}
-          content={content}
-          className="calm-reader-document"
-        />
-      </section>
-    </div>,
-    document.body,
   )
 }
 

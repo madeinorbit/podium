@@ -39,6 +39,11 @@ export function MarkdownPreview({
       }),
     [content, httpOrigin, sessionId, fileDir],
   )
+  // React DOM re-assigns innerHTML whenever this prop is a NEW object, even with
+  // the same string, which replaces every node on any parent re-render: a reader's
+  // selection is lost and anything holding the old nodes is left with detached
+  // ones (POD-2322). One object per distinct HTML keeps the DOM across renders.
+  const inner = useMemo(() => ({ __html: html }), [html])
 
   const onClick = (e: React.MouseEvent): void => {
     if (handleCodeCopyClick(e)) return // copy button works even without a session
@@ -80,7 +85,7 @@ export function MarkdownPreview({
       data-quote-source={path}
       onClick={onClick}
       // eslint-disable-next-line react/no-danger -- sanitized by renderMarkdownBlocks (DOMPurify)
-      dangerouslySetInnerHTML={{ __html: html }}
+      dangerouslySetInnerHTML={inner}
     />
   )
 }
