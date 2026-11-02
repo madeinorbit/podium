@@ -261,18 +261,22 @@ export const FlightDeckFullDependencies = observer(function FlightDeckFullDepend
           height={layout.height}
           style={{ pointerEvents: 'none' }}
         >
-          {edges.map((edge) => (
-            <g
-              key={`${edge.dependentId}:${edge.dependencyId}`}
-              data-dependency-source={edge.dependencyId}
-              data-dependency-target={edge.dependentId}
-              data-highlighted={edge.highlighted}
-            >
-              <path d={edge.path} fill="none" strokeWidth={edge.highlighted ? 1.5 : 1} />
-              <circle cx={edge.x} cy={edge.sourceY} r={2} strokeWidth={1} />
-              <path d={edge.arrow} fill="none" strokeWidth={edge.highlighted ? 1.5 : 1.2} />
-            </g>
-          ))}
+          {/* SVG has no z-index: paint order is document order. The hovered
+              row's links go last, so they are never under another line. */}
+          {[...edges]
+            .sort((a, b) => Number(a.highlighted) - Number(b.highlighted))
+            .map((edge) => (
+              <g
+                key={`${edge.dependentId}:${edge.dependencyId}`}
+                data-dependency-source={edge.dependencyId}
+                data-dependency-target={edge.dependentId}
+                data-highlighted={edge.highlighted}
+              >
+                <path d={edge.path} fill="none" strokeWidth={edge.highlighted ? 1.5 : 1} />
+                <circle cx={edge.x} cy={edge.sourceY} r={2} strokeWidth={1} />
+                <path d={edge.arrow} fill="none" strokeWidth={edge.highlighted ? 1.5 : 1.2} />
+              </g>
+            ))}
         </svg>
       </div>
     </DependencyContext.Provider>

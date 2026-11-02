@@ -229,6 +229,12 @@ it('continuously draws only scheduling links in expanded Full and limits dimming
   })
   expect(f.ui.container.querySelector('[data-dependency-dim]')).toBeNull()
   expect(f.edges()).toHaveLength(2)
+  // The hovered row's link paints last, above the link it would otherwise sit under.
+  fireEvent.pointerOver(f.row('dependent'))
+  expect(f.edges().map((e) => [e.dataset.dependencyTarget, e.dataset.highlighted])).toEqual([
+    ['cross', 'false'],
+    ['dependent', 'true'],
+  ])
 })
 
 it('cross-phase hover dims only its own group, and loose work does not dim phases', async () => {
