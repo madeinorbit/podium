@@ -448,7 +448,7 @@ it.each([
   'blocked',
   'not-started',
   'done',
-] as TaskWord[])('shows the shared task word and ring for %s', async (word) => {
+] as TaskWord[])('shows the shared task word and the status picker glyph for %s', async (word) => {
   const patch =
     word === 'done'
       ? { stage: 'done', closedAt: stamp }
@@ -456,7 +456,11 @@ it.each([
   const f = await open([issue('root', null, 1), issue('task', 'root', 2, patch)], [])
   if (word === 'done') act(() => f.full.setShowDone(true))
   expect(f.task().querySelector('.flight-v6-state')?.textContent).toBe(TASK_WORD_LABEL[word])
-  expect(f.task().querySelector('.flight-v6-ring')?.getAttribute('data-word')).toBe(word)
+  // The strip draws the picker's own glyph, the one its menu lists, with no
+  // second mark drawn over it.
+  const glyph = f.task().querySelector('.flight-v6-ring-control svg[role="img"]')
+  expect(glyph?.getAttribute('aria-label')).toBe(word === 'done' ? 'Done' : 'Backlog')
+  expect(f.task().querySelector('.flight-v6-ring')).toBeNull()
 })
 
 // Optional review capture uses this test's real rendered markup and the scoped

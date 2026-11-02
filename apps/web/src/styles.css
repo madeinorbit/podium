@@ -12862,41 +12862,11 @@ button.waterfall-fold:hover {
   color: var(--text-faint);
 }
 .flight-v6-ring-control {
-  position: relative;
   display: grid;
   place-items: center;
   flex: none;
   width: 14px;
   height: 14px;
-}
-.flight-v6-ring-control > span:first-child > svg {
-  opacity: 0;
-}
-.flight-v6-ring {
-  position: absolute;
-  pointer-events: none;
-  box-sizing: border-box;
-  width: 14px;
-  height: 14px;
-  border: 1.5px dotted var(--text-faint);
-  border-radius: 50%;
-}
-.flight-v6-ring[data-word="working"],
-.flight-v6-ring[data-word="idle"],
-.flight-v6-ring[data-word="error"],
-.flight-v6-ring[data-word="needs-you"] {
-  border-style: solid;
-  border-color: var(--live);
-  padding: 1.5px;
-  background: conic-gradient(var(--live) 0 25%, transparent 25% 100%);
-  background-clip: content-box;
-}
-.flight-v6-ring[data-word="done"] {
-  display: grid;
-  place-items: center;
-  border: 0;
-  background: var(--success);
-  color: white;
 }
 .flight-v6-task-body {
   display: flex;
@@ -13675,9 +13645,13 @@ button.waterfall-fold:hover {
   min-width: 0;
 }
 .flight-v6-card,
-.flight-full-phase-header,
-.flight-full-phase-lead {
+.flight-full-phase-header {
   margin-left: min(var(--v6-indent, 0px), var(--v6-indent-limit, 66px));
+}
+/* A phase's own agents sit inside its rail, in line with its tasks: one depth
+   step (V6_DEPTH_STEP) in from the header, where the child cards start. */
+.flight-full-phase-lead {
+  margin-left: min(calc(var(--v6-indent, 0px) + 22px), var(--v6-indent-limit, 66px));
 }
 /* Phase wrappers retain semantic nesting/disclosure IDs without accumulating
    horizontal padding. The rail is decoration, independent of content width. */
@@ -13701,6 +13675,39 @@ button.waterfall-fold:hover {
 }
 .flight-full-phase-content[data-has-lead="true"]::before {
   border-left-color: var(--text-dim);
+}
+/* Hover hit areas. Rows sit a few pixels apart (task padding, phase padding,
+   the crew inset), and a pointer in that gap hovered nothing, so a sweep down
+   the deck flickered. Each row's hit area reaches DOWN over the gap below it.
+   Never up: the row below is later in the tree, so it paints over this
+   reach and keeps its own pixels. The reach lives on the element that takes
+   the click (the strip, the phase toggle, the session button), so a click
+   in the gap does what the highlighted row does. `isolation` lets the reach
+   sit under the row's own content (z-index -1) yet over the gap. */
+.flight-v6-strip,
+.flight-full-phase-toggle,
+.flight-v6-session-open {
+  position: relative;
+  isolation: isolate;
+}
+.flight-v6-strip::before,
+.flight-full-phase-toggle::before,
+.flight-v6-session-open::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: 100%;
+  left: 0;
+  right: 0;
+  /* Covers a task's 3px plus its phase's 3px, and a phase lead's 4px. */
+  height: 6px;
+}
+/* The last agent in a task's crew: crew padding 3px + crew margin 4px + task
+   padding 3px, plus 3px more when the task closes its phase. */
+.flight-v6-card .flight-v6-session:last-child
+  > .flight-v6-session-line
+  > .flight-v6-session-open::before {
+  height: 13px;
 }
 .flight-v6-guide {
   left: min(var(--v6-guide-left), var(--v6-indent-limit, 66px));
@@ -13811,8 +13818,12 @@ button.waterfall-fold:hover {
 .flight-v6-native-slot {
   display: none;
 }
+/* Positioned (with no offset) so it paints over the session button's hover
+   reach when it wraps below that button. */
 .flight-v6-native-chip {
-  position: static;
+  position: relative;
+  top: auto;
+  right: auto;
   flex: none;
   margin: 0 0 4px auto;
 }

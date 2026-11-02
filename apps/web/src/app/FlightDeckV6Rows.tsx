@@ -5,8 +5,8 @@ import type { FullDeck, FullDeckTask } from '@podium/client-graph/mission-full-d
 import { settled } from '@podium/client-graph/mission-view'
 import type { SessionModel } from '@podium/client-graph/models'
 import { observer } from '@podium/client-graph/react'
-import { SESSION_WORD_LABEL, TASK_WORD_LABEL, type TaskWord } from '@podium/model/browser'
-import { ArrowUpRight, Check, ChevronDown, ChevronRight, ListTree, Lock } from 'lucide-react'
+import { SESSION_WORD_LABEL, TASK_WORD_LABEL } from '@podium/model/browser'
+import { ArrowUpRight, ChevronDown, ChevronRight, ListTree, Lock } from 'lucide-react'
 import {
   type CSSProperties,
   type MouseEvent,
@@ -157,12 +157,6 @@ export const FlightDeckV6Crew = observer(function FlightDeckV6Crew({
   ) : null
 })
 
-const Ring = ({ word }: { word: TaskWord }) => (
-  <span aria-hidden className="flight-v6-ring" data-word={word}>
-    {word === 'done' && <Check size={9} />}
-  </span>
-)
-
 /** No task selection state: only the session's pane ID owns a selected fill. */
 export const FlightDeckV6Task = observer(function FlightDeckV6Task({
   task,
@@ -249,7 +243,6 @@ export const FlightDeckV6Task = observer(function FlightDeckV6Task({
                 size={14}
                 onPick={(value) => actions.onStatusPick(task, value)}
               />
-              <Ring word={task.word} />
             </span>
             {actions.renameTarget?.id === task.id ? (
               <SessionNameEditor
