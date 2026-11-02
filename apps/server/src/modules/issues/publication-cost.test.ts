@@ -129,7 +129,7 @@ it('publishes read-only receipts without issue writes or collection discovery', 
   const before = await store.issues.getIssue(root.id)
   const writeIssue = vi.spyOn(store.issues, 'upsertIssue')
   const stateWrite = vi.spyOn(store.issues, 'setIssueUserState')
-  const scan = vi.spyOn(svc.crud.store.rows, 'values').mockImplementation(() => {
+  const scan = vi.spyOn(store.issues, 'listIssueRows').mockImplementation(() => {
     throw new Error('whole issue collection read')
   })
   published.length = 0

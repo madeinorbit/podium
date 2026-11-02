@@ -7049,16 +7049,16 @@ describe('landing verdict over real git (POD-2151)', () => {
     const created = await svc.crud.create({ repoPath: root, title: 'Landing', startNow: false })
     await svc.gitWorkflow.start(created.id)
     const id = created.id
-    const worktree = (): string => {
-      const path = svc.reports.store.rows.get(id)?.worktreePath
+    const worktree = async (): Promise<string> => {
+      const path = (await svc.reports.store.row(id))?.worktreePath
       if (!path) throw new Error('no worktree')
       return path
     }
     const land = async (message: string) => {
-      const sha = commit(worktree(), 'a.txt', message)
+      const sha = commit(await worktree(), 'a.txt', message)
       const merged = await svc.gitWorkflow.action(id, 'merge')
       expect(merged.ok).toBe(true)
-      expect(svc.reports.store.rows.get(id)?.landedSha).toBe(sha)
+      expect((await svc.reports.store.row(id))?.landedSha).toBe(sha)
       return sha
     }
     const reopen = async (path: 'update' | 'start') => {
@@ -7066,7 +7066,7 @@ describe('landing verdict over real git (POD-2151)', () => {
         await svc.crud.update(id, { stage: 'in_progress' })
         await svc.gitWorkflow.ensureWorktree(id)
       } else await svc.gitWorkflow.start(id)
-      expect(svc.reports.store.rows.get(id)?.landedAt).toBeTruthy()
+      expect((await svc.reports.store.row(id))?.landedAt).toBeTruthy()
     }
     const settle = async () => {
       await svc.gitWorkflow.refreshGitState(id)
@@ -7097,7 +7097,7 @@ describe('landing verdict over real git (POD-2151)', () => {
     const r = await rig()
     try {
       await r.land('A')
-      const old = r.worktree()
+      const old = await r.worktree()
       await r.svc.gitWorkflow.freeWorktreeKeepBranch(r.id, systemPrincipal('test'))
       r.calls.length = 0
       await r.svc.gitWorkflow.refreshGitState(r.id, old)
@@ -7105,7 +7105,7 @@ describe('landing verdict over real git (POD-2151)', () => {
       expect(r.calls.filter((c) => c.cwd === old)).toEqual([])
       const cleaned = await r.svc.gitWorkflow.cleanup(r.id, systemPrincipal('test'))
       expect(cleaned.ok).toBe(true)
-      expect(r.svc.reports.store.rows.get(r.id)?.branch).toBeNull()
+      expect((await r.svc.reports.store.row(r.id))?.branch).toBeNull()
       r.calls.length = 0
       await r.svc.gitWorkflow.refreshGitState(r.id, old)
       const wire = (await r.svc.reports.get(r.id))!
