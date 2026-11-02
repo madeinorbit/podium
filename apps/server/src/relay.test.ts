@@ -2824,11 +2824,13 @@ describe('agent state', () => {
           title: 'keyboard needs you',
           body: 'SQLite or Postgres?',
         })
-      expect(ntfy).toHaveBeenCalledWith('podium-topic', {
+      // The client event goes out before the external pushes, which follow the
+      // owner's telegram binding read: wait for them rather than racing it.
+      await expect.poll(() => ntfy).toHaveBeenCalledWith('podium-topic', {
         title: 'keyboard needs you',
         body: 'SQLite or Postgres?',
       })
-      expect(telegramRequest).toHaveBeenCalledWith({
+      await expect.poll(() => telegramRequest).toHaveBeenCalledWith({
         ownerUserId: firstAdminMemberId(),
         sessionId,
         text: 'keyboard needs you\n\nSQLite or Postgres?',
