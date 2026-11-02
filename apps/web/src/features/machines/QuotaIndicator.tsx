@@ -129,7 +129,7 @@ export function QuotaIndicator({
   header = false,
 }: {
   compact?: boolean
-  /** 44px desktop-header treatment: label + scoped per-pool mini-meters whose
+  /** 44px desktop-header treatment: scoped per-pool mini-meters whose
    *  hover opens the quota panel (no click-to-pin breakdown). */
   header?: boolean
   /** Render the worst window as inline text ("Claude Code 68% · resets in 2h 14m"). */
@@ -184,9 +184,6 @@ export function QuotaIndicator({
             className="header-quota-chip"
             aria-label={poolSummary ? `Agent quota: ${poolSummary}` : 'Agent quota'}
           >
-            {/* A group label, not a fourth pool: it names the marks to its
-                right, so it sits a tier above them in the mono ramp. */}
-            <span className="header-quota-label">quota</span>
             <span className="header-quota-pools" role="presentation">
               {pools.map(({ group, percent, models }) => {
                 const poolKey = percent === null ? null : percentTone(percent)

@@ -87,9 +87,7 @@ async function mount(roster = false) {
     () => {
       expect(ready).toBe(true)
       expect(view.container.querySelectorAll('.header-machine-name')).toHaveLength(3)
-      expect(view.container.querySelector('.header-quota-label')?.textContent?.toUpperCase()).toBe(
-        'QUOTA',
-      )
+      expect(view.container.querySelector('.header-quota-chip')).not.toBeNull()
       expect(view.container.querySelectorAll('.header-mark')).toHaveLength(16)
     },
     { timeout: 15000 },
@@ -151,7 +149,7 @@ describe('old and pool header rendering', () => {
     expect(current.changed.sentence).toBe('1 agent working')
   }, 30000)
 
-  it('preserves visible names, QUOTA, labels and element order across both paths', async () => {
+  it('preserves visible names, labels and element order across both paths', async () => {
     const pool = await mount()
     expectPoolOutput(
       renderedHeader(pool.container.querySelector('.header-host-indicators')!),
@@ -160,11 +158,8 @@ describe('old and pool header rendering', () => {
     expect(
       [...pool.container.querySelectorAll('.header-machine-name')].map((node) => node.textContent),
     ).toEqual(['Host 1', 'Host 2', 'Host 3'])
-    expect(
-      [...pool.container.querySelectorAll('.header-quota-chip .header-quota-label')].map((node) =>
-        node.textContent?.toUpperCase(),
-      ),
-    ).toEqual(['QUOTA'])
+    // The pool marks name themselves; the chip carries no "quota" word.
+    expect(pool.container.querySelector('.header-quota-chip')?.textContent).not.toMatch(/quota/i)
     for (const chip of pool.container.querySelectorAll('.header-machine-chip')) {
       expect([...chip.querySelectorAll('.header-mark')].map((node) => node.textContent)).toEqual([
         'MEM',

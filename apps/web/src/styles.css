@@ -530,16 +530,10 @@ html[data-podium-desktop="true"] body {
 /* THE WELL'S SHED ORDER. Below 1180px the bar can no longer hold four meters, a
    search field and five controls, and the old answer was to let the well's clip
    behead whatever ran past its edge — a truncated hostname at 900px. Words go
-   before data: the group label first (the CC/CX/GR marks already name the
-   pools), then the hostname (the dot and the meter still say "this host, this
-   pressure", and the chip's panel names it), then — only then — the numbers on
-   pools that are quiet, at 1024px, and last the MEM mark. A number that crossed
-   a threshold is never shed at any width. */
-@media (max-width: 1180px) {
-  .header-quota-label {
-    display: none;
-  }
-}
+   before data: the hostname first (the dot and the meter still say "this host,
+   this pressure", and the chip's panel names it), then — only then — the
+   numbers on pools that are quiet, at 1024px, and last the MEM mark. A number
+   that crossed a threshold is never shed at any width. */
 @media (max-width: 1100px) {
   .header-machine-name {
     display: none;
@@ -826,17 +820,6 @@ html[data-podium-platform="macos"] .desktop-shell-row {
   letter-spacing: 0.06em;
   transition: color 150ms ease;
 }
-/* The group label names the three pool marks to its right, so it sits a tier
-   above them — the same mono micro-label the shell uses for WORK / FILES. */
-.header-quota-label {
-  color: var(--label);
-  font-family: var(--font-mono);
-  font-size: var(--shell-type-micro);
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  transition: color 150ms ease;
-}
 /* The number the bar can't give you: 25px of meter is ~4% per pixel, and 75%
    (warn) from 60% is the whole decision. Dim at rest so the bars still lead;
    it takes signal colour only once a window crosses a threshold. */
@@ -857,15 +840,6 @@ html[data-podium-platform="macos"] .desktop-shell-row {
 html[data-density="balanced"] .header-host-indicators :is(.header-mark, .header-value) {
   display: none;
 }
-html[data-density="balanced"] .header-quota-label {
-  font-size: 0;
-  letter-spacing: 0;
-}
-html[data-density="balanced"] .header-quota-label::before {
-  content: "quota";
-  font-size: var(--shell-type-micro);
-  letter-spacing: 0.08em;
-}
 html[data-density="balanced"] .header-quota-pools {
   gap: 6px;
 }
@@ -883,10 +857,9 @@ html[data-density="balanced"] .header-quota-pools {
   letter-spacing: 0.04em;
 }
 .header-machine-chip:hover :is(.header-mark, .header-value[data-tone="ok"]),
-.header-quota-chip:hover :is(.header-mark, .header-quota-label, .header-value[data-tone="ok"]),
+.header-quota-chip:hover :is(.header-mark, .header-value[data-tone="ok"]),
 .header-machine-chip[data-popup-open] :is(.header-mark, .header-value[data-tone="ok"]),
-.header-quota-chip[data-popup-open]
-  :is(.header-mark, .header-quota-label, .header-value[data-tone="ok"]) {
+.header-quota-chip[data-popup-open] :is(.header-mark, .header-value[data-tone="ok"]) {
   color: var(--muted-foreground);
 }
 /* Carved, not raised: the track was --secondary, a navy light enough that an
@@ -1033,13 +1006,6 @@ html:not([data-density="balanced"])
 .header-host-indicators .header-agent-readout {
   display: none;
 }
-.header-host-indicators .header-quota-label,
-html[data-density="balanced"] .header-host-indicators .header-quota-label::before {
-  color: var(--text-dim);
-  font-weight: 400;
-  letter-spacing: 0;
-  text-transform: none;
-}
 .header-host-indicators .header-quota-chip {
   gap: 10px;
 }
@@ -1105,7 +1071,6 @@ html .header-host-indicators .header-quota-chip .header-value:is([data-tone="cri
   .header-machine-name,
   .header-harness-icon,
   .header-mark,
-  .header-quota-label,
   .header-value,
   .header-meter,
   .header-meter > span,
