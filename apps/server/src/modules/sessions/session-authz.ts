@@ -1,4 +1,3 @@
-import { readIssue, readIssues } from '../issues/issue-reader'
 import { spanOpen } from '../../store/executor/executor'
 /**
  * Session apply-time authorization and ownership (POD-1396).
@@ -8,7 +7,7 @@ import { spanOpen } from '../../store/executor/executor'
 
 
 import { createLogger, describeError } from '@podium/logger'
-import type { SessionId, UserId, IssueId } from '@podium/model'
+import type { SessionId, UserId } from '@podium/model'
 import { asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
 import {
   type CommandPrincipal,
@@ -19,7 +18,6 @@ import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { Capability } from '../../issue-authz'
 import { machineUseDecision, ownershipSnapshotFromMachines } from '../../machine-access'
 import { spawnedByParentSessionId } from '@podium/model'
-import { granteesOf } from './session-state/grantees'
 import type { SessionStore } from '../../store'
 import type { SessionRecords } from './records'
 import type { SessionLifecycleDeps } from './session-lifecycle-types'
@@ -40,8 +38,6 @@ const log = createLogger('server:session-authz')
 export interface SessionAuthzStorePort {
   readonly users: Pick<SessionStore['users'], 'get' | 'roleOf' | 'earliestAdmin'>
   readonly sessions: Pick<SessionStore['sessions'], 'loadSession' | 'getSessions'>
-  readonly issues: Pick<SessionStore['issues'], 'getIssue' | 'getIssues'>
-  readonly grants: Pick<SessionStore['grants'], 'loadForResource' | 'loadForResourcesOfKinds' | 'listForResources'>
 }
 
 export interface SessionAuthzPorts {
@@ -155,10 +151,9 @@ export class SessionAuthz {
       }
     }
 
-    if (
-      ownership.owner !== (principal.kind === 'user' ? principal.user : principal.onBehalfOf) &&
-      !ownership.grants.includes(principal.kind === 'user' ? principal.user : principal.onBehalfOf)
-    ) {
+    // Private (design §2.3): only the session's own human may queue input into
+    // it. A grant on it, or on the task it sits on, carries nothing.
+    if (ownership.owner !== (principal.kind === 'user' ? principal.user : principal.onBehalfOf)) {
       return refused
     }
     if (
@@ -176,8 +171,8 @@ export class SessionAuthz {
     // CURRENT rights. The source message proves intent and ordering, never rights.
     const access = {
       sessionById: (sessionId: SessionId) => this.ports.sessionById(sessionId),
+      ownerOf: async (sessionId: SessionId) => (await this.sessionOwner(sessionId))?.owner,
       issues: this.ports.deps.issueAccess,
-      visibility: () => true,
     }
     const resolved = await resolveSessionTarget(principal, input.sessionId, access)
     if (resolved.kind === 'absent') return refused
@@ -208,10 +203,9 @@ export class SessionAuthz {
      * scope policy before the row existed, and none of them can re-present a
      * confirmation here.
      *
-     * A refusal on a target that EXISTS and passed the owner, grant and
-     * machine checks above names its rule. Those checks are the collapse that
-     * protects the existence oracle (`visibility` is unconditional at this
-     * site); past them the target has nothing left to hide, and "session no
+     * A refusal on a target that EXISTS and passed the owner and machine
+     * checks above names its rule. Those checks are the collapse that protects
+     * the existence oracle; past them the target has nothing left to hide, and "session no
      * longer exists" sent two agents hunting for a coordinator that was alive.
      */
     try {
@@ -282,99 +276,39 @@ export class SessionAuthz {
    */
 
   /**
-   * OWNER + GRANTS of a session, for the owner-or-grant policy (POD-380).
+   * THE OWNER of a session: the person who started it, or on whose behalf an
+   * agent started it (design §2.3, POD-6283). Sessions are private, so this is
+   * the whole authorization fact: no task owner stands in for it and no grant
+   * widens it. A session on Alice's task that Bob started is Bob's.
    *
-   * `undefined` means the session does not exist — which the session-state envelope
-   * treats identically to a denial (§3.1.5's consistent-error rule).
-   *
-   * Issue ownership overrides the session owner; absent or ownerless issues
-   * fall back to the session owner. Issue-backed sessions use issue grants,
-   * and standalone sessions use their own grants.
+   * `undefined` means the session does not exist or has no owner, which every
+   * caller treats exactly as a denial (§3.1.5's consistent-error rule).
    */
   async sessionOwner(
     sessionId: SessionId,
-    /** Per-pass read-through memo [POD-1618]. Absent = look everything up, the
+    /** Per-pass read-through memo [POD-1618]. Absent = read the row, the
      *  behaviour every single-session caller keeps. */
     memo?: SessionOwnerMemo,
-  ): Promise<{ owner: UserId; grants: string[] } | undefined> {
-    const durable = await this.ownershipOf(sessionId, memo)
-    if (!durable) return undefined
-    const issueId = durable.issueId ?? undefined
-    const resourceKind = issueId ? 'issue' : 'session'
-    const resourceId = issueId ?? sessionId
-    // Both lookups below repeat per session in a full-list pass and collapse to
-    // a handful of distinct keys: every session on one issue asks for the SAME
-    // issue row and the SAME grant edges [POD-1618].
-    const parentOwner = issueId
-      ? ((await this.memoIssueOwner(issueId, memo)) ?? durable.ownerUserId)
-      : durable.ownerUserId
-    if (!parentOwner) return undefined
-    const grants = await this.memoGrantees(resourceKind, resourceId, memo, issueId ? sessionId : undefined)
-    return { owner: parentOwner, grants }
+  ): Promise<{ owner: UserId } | undefined> {
+    const owner = (await this.ownershipOf(sessionId, memo))?.ownerUserId
+    return owner ? { owner } : undefined
   }
 
   /**
-   * Fill a pass's grant memo in ONE read per resource kind [POD-1653].
-   *
-   * `memoGrantees` collapses repeated keys, which is everything POD-1618 needed
-   * for issue-backed sessions: a hundred sessions on one issue ask one question.
-   * A session with NO issue keys on its own id, so there is nothing to collapse
-   * — every such session was its own statement, and on the live host ~1145 of
-   * them per pass each returned zero rows. Coalescing cannot fix a set of
-   * distinct keys; only asking for them together can.
-   *
-   * Freshness is unchanged. This runs at the START of the pass the memo belongs
-   * to, reads transaction-aware grant facts, and writes the same values `memoGrantees` would have
-   * computed. A pass that primes and a pass that does not see the same edges;
-   * outside mutation spans the grant portion issues no SQL.
-   *
-   * The empty array matters: a primed key with no edges must be RECORDED as
-   * empty, or `memoGrantees` reads the miss as "not looked at yet" and issues
-   * the per-resource query anyway — which is precisely the statement being
-   * removed, and the reason this fills every requested key rather than only the
-   * ones the batched read returned.
+   * Fill a pass's memo with the rows of the sessions that are not in memory, in
+   * one batched read (POD-6160: a parked session is not in memory), so a
+   * full-list pass asks the database once rather than once per session.
+   * A MISSING id is recorded as `null`, because `ownershipOf` reads a miss in the
+   * memo as "not looked up yet" and would query it again.
    */
   async primeOwnerMemo(memo: SessionOwnerMemo, sessionIds: readonly SessionId[]): Promise<void> {
-    // A memo prepared before an in-span revocation is not an authority fact.
-    if (spanOpen()) { memo.grants.clear(); memo.issues.clear(); memo.sessions?.clear() }
-    // The rows of the sessions neither in memory nor already in the memo, in
-    // one batched read (POD-6160: a parked session is not in memory).
+    // A memo prepared before an in-span write is not an authority fact.
+    if (spanOpen()) memo.sessions?.clear()
     const missing = sessionIds.filter((id) => this.ports.sessions.get(id) === undefined && !memo.sessions?.has(id))
-    if (missing.length > 0) {
-      const rows = await this.ports.store.sessions.getSessions(missing)
-      const owners = (memo.sessions ??= new Map())
-      for (const id of missing) owners.set(id, rows.get(id) ?? null)
-    }
-    const byKind = new Map<string, Set<string>>()
-    const issueIds = new Set<string>()
-    for (const sessionId of sessionIds) {
-      const durable = await this.ownershipOf(sessionId, memo)
-      if (!durable) continue
-      const issueId = durable.issueId ?? undefined
-      if (issueId) issueIds.add(issueId)
-      const kind = issueId ? 'issue' : 'session'
-      const id = issueId ?? sessionId
-      const bucket = byKind.get(kind) ?? new Set<string>()
-      bucket.add(id)
-      byKind.set(kind, bucket)
-    }
-    // The issue half of the same memo. `memoIssueOwner` collapses ~1200 sessions
-    // onto their distinct issues; this collapses those onto one statement. A
-    // MISSING id must still be recorded — as null — because `memoIssueOwner`
-    // reads a `has()` miss as "not looked up yet" and would re-query it.
-    const wantedIssues = [...issueIds].filter((id) => !memo.issues.has(id))
-    if (wantedIssues.length > 0) {
-      const found = await readIssues(this.ports.store.issues, wantedIssues)
-      for (const id of wantedIssues) memo.issues.set(id, found.get(id) ?? null)
-    }
-    for (const [kind, ids] of byKind) {
-      const wanted = [...ids].filter((id) => !memo.grants.has(`${kind}:${id}`))
-      if (wanted.length === 0) continue
-      const found = await this.ports.store.grants.listForResources(kind, wanted)
-      for (const id of wanted) {
-        memo.grants.set(`${kind}:${id}`, granteesOf(found.get(id) ?? []))
-      }
-    }
+    if (missing.length === 0) return
+    const rows = await this.ports.store.sessions.getSessions(missing)
+    const owners = (memo.sessions ??= new Map())
+    for (const id of missing) owners.set(id, rows.get(id) ?? null)
   }
 
   /** A session's owner and issue: in memory, else the pass's memo, else its row. */
@@ -391,48 +325,6 @@ export class SessionAuthz {
   private async storedOwnershipRecord(sessionId: SessionId) {
     log.debug('session ownership registry miss; reading durable row', { sessionId })
     return this.ports.store.sessions.loadSession(sessionId)
-  }
-
-  private async memoIssueOwner(
-    issueId: IssueId,
-    memo?: SessionOwnerMemo,
-  ): Promise<UserId | undefined> {
-    if (!memo || spanOpen()) return (await readIssue(this.ports.store.issues, issueId))?.ownerUserId ?? undefined
-    if (!memo.issues.has(issueId)) {
-      memo.issues.set(issueId, await readIssue(this.ports.store.issues, issueId))
-    }
-    return (memo.issues.get(issueId) ?? null)?.ownerUserId ?? undefined
-  }
-
-  /**
-   * `alsoSession`: a session on an issue, whose own grants the publication of
-   * a write to it reads (the feed's visibility rule) where this check reads the
-   * issue's. Read with the issue's in one statement, the operation's memo
-   * answers the publication (POD-6217).
-   */
-  private async memoGrantees(
-    resourceKind: string,
-    resourceId: string,
-    memo?: SessionOwnerMemo,
-    alsoSession?: SessionId,
-  ): Promise<string[]> {
-    const compute = async (): Promise<string[]> => {
-      if (alsoSession === undefined) {
-        return granteesOf(await this.ports.store.grants.loadForResource(resourceKind, resourceId))
-      }
-      const found = await this.ports.store.grants.loadForResourcesOfKinds({
-        [resourceKind]: [resourceId],
-        session: [alsoSession],
-      })
-      return granteesOf(found.get(resourceKind)?.get(resourceId) ?? [])
-    }
-    if (!memo || spanOpen()) return compute()
-    const key = `${resourceKind}:${resourceId}`
-    const hit = memo.grants.get(key)
-    if (hit !== undefined) return hit
-    const value = await compute()
-    memo.grants.set(key, value)
-    return value
   }
 
   /**

@@ -203,7 +203,7 @@ export class SessionView {
       if (!session) return undefined
       const principal = forPrincipal ?? await this.defaultPrincipal()
       if (!principal) return undefined
-      if (!(await this.ports.state.canReadSession(principal, sessionId, { issues: new Map(), grants: new Map() }))) {
+      if (!(await this.ports.state.canReadSession(principal, sessionId, {}))) {
         return undefined
       }
       return session.spawnedBy

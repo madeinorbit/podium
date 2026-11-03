@@ -7,6 +7,7 @@ import {
   type IssueId,
   type IssueProjection,
   type IssueRehomeTarget,
+  type UserId,
   isAgentFieldSet,
   isIssueStage,
   isSystemOwnedIssueStage,
@@ -48,6 +49,10 @@ const log = createLogger('server:issues')
 /** What `start` takes beyond the issue and an explicit harness. */
 export interface IssueStartOptions {
   spawnedBy?: string
+  /** The human starting this work (POD-6283): the person, or the human an agent
+   *  acts for. The session it spawns is theirs, whoever owns the task. Absent
+   *  (a system job) = the task's owner. */
+  onBehalfOf?: UserId
   /** Client-minted identity for an optimistic first-session insert. */
   sessionId?: SessionId
   forceUnknownModel?: boolean
@@ -68,6 +73,13 @@ export type IssueStartResult = IssueProjection &
     effort: string | null
     machine: string
   }>
+
+/** Who owns a session started on this task (design §2.3, POD-6283): the human
+ *  who started it; the task's owner only when no human did (a system job). */
+function sessionOwnerFor(row: IssueRow, opts?: { onBehalfOf?: UserId }): { ownerUserId?: UserId } {
+  const owner = opts?.onBehalfOf ?? row.ownerUserId
+  return owner ? { ownerUserId: owner } : {}
+}
 
 /** Issues whose merge axis is a live question [POD-384]: a private worktree on a
  *  branch, still in the worklist. A shared checkout has no merge axis; an issue
@@ -684,7 +696,7 @@ export class IssueGitWorkflowModule {
         ...(initialPrompt ? { initialPrompt } : {}),
         ...(launch.agentProfileId ? { agentProfileId: launch.agentProfileId } : {}),
         spawnedBy: opts?.spawnedBy ?? spawnedByTag({ kind: 'issue', id: row.id }),
-        ...(row.ownerUserId ? { ownerUserId: row.ownerUserId } : {}),
+        ...sessionOwnerFor(row, opts),
         ...(row.machineId ? { machineId: row.machineId } : {}),
       })
       .catch(async (err: unknown) => {
@@ -1698,7 +1710,7 @@ export class IssueGitWorkflowModule {
   async addSession(
     id: string,
     agentKind?: string,
-    opts?: { spawnedBy?: string; forceUnknownModel?: boolean },
+    opts?: { spawnedBy?: string; forceUnknownModel?: boolean; onBehalfOf?: UserId },
   ): Promise<IssueProjection | Promise<IssueProjection>> {
     const row = await this.store.rowOrThrow(id)
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
@@ -1720,7 +1732,7 @@ export class IssueGitWorkflowModule {
   private async spawnAddedSession(
     id: string,
     agentKind?: string,
-    opts?: { spawnedBy?: string; forceUnknownModel?: boolean },
+    opts?: { spawnedBy?: string; forceUnknownModel?: boolean; onBehalfOf?: UserId },
   ): Promise<IssueProjection> {
     const row = await this.store.rowOrThrow(id)
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
@@ -1775,7 +1787,7 @@ export class IssueGitWorkflowModule {
       effort: selection.effort,
       ...(selection.forced ? { forceUnknownModel: true } : {}),
       spawnedBy: opts?.spawnedBy ?? spawnedByTag({ kind: 'issue', id: row.id }),
-      ...(row.ownerUserId ? { ownerUserId: row.ownerUserId } : {}),
+      ...sessionOwnerFor(row, opts),
       ...(row.machineId ? { machineId: row.machineId } : {}),
       ...(launch?.agentProfileId ? { agentProfileId: launch.agentProfileId } : {}),
     })
@@ -1784,7 +1796,7 @@ export class IssueGitWorkflowModule {
 
   async addShell(
     id: string,
-    opts?: { spawnedBy?: string },
+    opts?: { spawnedBy?: string; onBehalfOf?: UserId },
   ): Promise<IssueProjection | Promise<IssueProjection>> {
     return await this.addSession(id, 'shell', opts)
   }

@@ -114,15 +114,15 @@ export async function sessionCommandCtx(
       for (const artifact of artifacts) await issues.crud.panelArtifactUpload(issueId, artifact)
     },
     discardUnlaunchedDraft: async (issueId) => await issues.attention.discardUnlaunchedDraft(issueId),
-    issueOwner: async (issueId) => (await issues.reports.ownedTarget(issueId, 'read'))?.owner ?? undefined,
     access: {
       sessionById: async (sessionId) => await sessions.sessionById(sessionId),
       // Unambiguous prefix only (POD-4536) — ids by a range read on the primary
       // key, never the full projection. Consulted only after an exact miss.
       sessionIdsWithPrefix: async (prefix) =>
         (await sessions.readSessionFactsByIdPrefix(prefix)).map((s) => s.sessionId),
+      // The private-class gate (POD-6283): the session's own owner only.
+      ownerOf: async (sessionId) => (await sessions.sessionOwner(sessionId))?.owner,
       issues: asyncSessionIssueAccess(issues),
-      // POD-1075 supplies the owner/grant answer; today one account sees all.
     },
     rpc: () => modules.rpc,
     ownership: await ownershipSnapshotFromMachines(modules.machines),

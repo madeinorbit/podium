@@ -26,17 +26,18 @@
  *    flattening it into not-found would tell an agent its sibling issue does not
  *    exist while its own human is looking at it.
  *
- * Today one human sees everything, so the `absent` branch fires only for ids
- * that genuinely do not exist and the observable behaviour is unchanged. The
- * branch is not dead: {@link SessionVisibility} is injectable precisely so the
- * multi-user answer is exercised before POD-1075 supplies the real one.
+ * Sessions are private (design §2.3, POD-6283): the human ceiling for a session
+ * is its own owner, so a session another person owns is `absent`, admin or not,
+ * and whatever task it sits on. On a one-member instance every session is that
+ * member's, and the `absent` branch fires only for ids that do not exist.
+ * {@link SessionVisibility} remains an extra, narrowing filter.
  */
 
 import type { IssueTrackerCapabilities } from '../issues/service'
-import type { Capability, SessionId, SessionMeta } from '@podium/model'
+import type { Capability, SessionId, SessionMeta, UserId } from '@podium/model'
 import { isSpawnedBy } from '@podium/model'
-import type { CommandPrincipal } from '../../command-principal'
-import { checkIssueAccess, type IssueAccessIndex } from '../../issue-authz'
+import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
+import { checkIssueAccess, type IssueAccessIndex, mayReachPrivate } from '../../issue-authz'
 
 /**
  * The live-session facts this resolver needs — a PICK of the model's own
@@ -66,7 +67,30 @@ export type SessionVisibility = (
 
 export const everythingVisible: SessionVisibility = () => true
 
+/**
+ * SESSIONS ARE PRIVATE (design §2.3, POD-6283). Only the session's own human
+ * reaches it: the person for a direct call, the delegating human for an agent.
+ * Everyone else, the task's owner and admins included, gets `absent`, the same
+ * answer as an id that does not exist. A system job has no human and is not
+ * narrowed here.
+ */
+async function ownerReaches(
+  principal: CommandPrincipal,
+  session: SessionTargetRow,
+  deps: Pick<SessionAccessDeps, 'ownerOf'>,
+): Promise<boolean> {
+  if (principal.kind === 'system') return true
+  return mayReachPrivate(onBehalfOfUser(principal), {
+    id: session.sessionId,
+    owner: await deps.ownerOf(session.sessionId),
+  })
+}
+
 export interface SessionAccessDeps {
+  /** The session's own durable owner (`SessionAuthz.sessionOwner`). REQUIRED:
+   *  it is the private-class gate, and an optional authorization port is one
+   *  refactor away from an unwired one. */
+  ownerOf(sessionId: SessionId): Promise<UserId | null | undefined>
   /** ONE session by id, without the full reader-scoped pass [POD-1646].
    *  REQUIRED since POD-3857. This resolver runs on the authorization path of
    *  essentially every command; the full-list port it used to fall back to made
@@ -131,10 +155,12 @@ export async function resolveSessionTarget(
   sessionId: SessionId,
   deps: SessionAccessDeps,
 ): Promise<SessionTarget> {
+  const reaches = async (row: SessionTargetRow) =>
+    (await ownerReaches(principal, row, deps)) &&
+    (await (deps.visibility ?? everythingVisible)(principal, row))
   const session = await deps.sessionById(sessionId)
   if (session) {
-    const visible = await (deps.visibility ?? everythingVisible)(principal, session)
-    return visible ? { kind: 'visible', session } : { kind: 'absent' }
+    return (await reaches(session)) ? { kind: 'visible', session } : { kind: 'absent' }
   }
   if (!sessionId || !deps.sessionIdsWithPrefix) return { kind: 'absent' }
   const prefixed = (await deps.sessionIdsWithPrefix(sessionId)).filter((id) => id.startsWith(sessionId))
@@ -144,8 +170,7 @@ export async function resolveSessionTarget(
   for (const id of prefixed) {
     const row = await deps.sessionById(id)
     if (!row) continue
-    const visible = await (deps.visibility ?? everythingVisible)(principal, row)
-    if (visible) {
+    if (await reaches(row)) {
       visibleRows.push(row)
       visibleIds.push(id)
     }
@@ -161,9 +186,9 @@ export async function resolveSessionTarget(
  *
  * This is today's relay logic, moved rather than rewritten — the issue-scoped
  * branch is `checkIssueAccess` verbatim, and the issueless branch keeps the
- * operator/parent rule from [spec:SP-34d7 authz] with its exact message. A human
- * principal on the operator channel has scope `all` and passes both, which is
- * why the tRPC surface behaves as it always has.
+ * parent rule from [spec:SP-34d7 authz] with its exact message. Both apply to
+ * agents only: a person reaching their own session (the owner gate) may command
+ * it, and nobody else's, admin or not (design §2.3).
  *
  * Throws (TRPCError or Error) exactly as the shipped paths do.
  */
@@ -175,6 +200,12 @@ export async function assertMayCommandSession(
   overrideScope?: boolean,
 ): Promise<void> {
   if (principal.kind === 'system') return
+  // The private-class gate again, for a caller that did not resolve the target
+  // through `resolveSessionTarget`: one answer, whichever door was used.
+  if (!(await ownerReaches(principal, session, deps))) throw new Error(SESSION_NOT_FOUND)
+  // A person driving their own session needs nothing more: not write access to
+  // the task it sits on (Bob drives his session on Alice's task), and no scope.
+  if (principal.kind === 'user') return
   const capability: Capability = principal.capability
   const targetIssueId = session.issueId ?? await deps.issues.issueForCwd(session.cwd)
   if (targetIssueId) {
@@ -187,15 +218,13 @@ export async function assertMayCommandSession(
     )
     return
   }
-  // Issueless target: no issue to gate on used to mean NO gate at all. Only the
-  // operator (unscoped capability) or the target's own parent (spawnedBy
-  // provenance) may command it; --outside-scope confirms scope-crossing on ISSUE
-  // targets and never substitutes here.
-  const isOperator = capability.scope.kind === 'all'
+  // Issueless target: an agent may command it only as its parent (spawnedBy
+  // provenance); --outside-scope confirms scope-crossing on ISSUE targets and
+  // never substitutes here. Its human, the owner, may always (above).
   const isParent =
     capability.actorSessionId !== undefined &&
     isSpawnedBy(session.spawnedBy, { kind: 'session', id: capability.actorSessionId })
-  if (!isOperator && !isParent) {
+  if (!isParent) {
     throw new Error('target session has no issue; only its parent or the operator may message it')
   }
 }

@@ -3,6 +3,7 @@ import { actorSystem, actorUser } from '@podium/model'
 import type { ClientMessage, SessionOpenUrlMessage, SessionOpenUrlResultMessage, SubscriptionRegistry } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { asSubscriberId, roomRoutingKey } from '@podium/protocol'
+import { mayReachPrivate } from '../issue-authz'
 import type { ClientConn, ClientRegistry } from './client-registry'
 
 interface BrowserOpenSession {
@@ -11,7 +12,6 @@ interface BrowserOpenSession {
 
 interface BrowserOpenOwnership {
   owner: UserId
-  grants: string[]
 }
 
 export interface BrowserOpenGatewayDeps {
@@ -193,13 +193,11 @@ export class BrowserOpenGateway {
   }
 
   private async clientMaySeeSession(client: ClientConn, sessionId: SessionId): Promise<boolean> {
-    // Use the same live owner/grant facts the feed visibility policy reads; no
-    // connection-cached authorization copy can outlive a grant revocation.
+    // The live owner the feed visibility policy reads; no connection-cached
+    // authorization copy. Sessions are private: the owner only (POD-6283).
     const ownership = await this.deps.sessionOwner(sessionId)
     if (!ownership) return false
-    return (
-      ownership.owner === client.principal.user || ownership.grants.includes(client.principal.user)
-    )
+    return mayReachPrivate(client.principal.user, { id: sessionId, owner: ownership.owner })
   }
 
   private recipients(sessionId: SessionId): ClientConn[] {

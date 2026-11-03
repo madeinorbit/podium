@@ -67,7 +67,7 @@ describe('gap 2: the admin role covers other people’s sessions (POD-6283)', ()
     )
   })
 
-  it.fails('POD-6283: admin Alice is refused a write to Bob’s own session', async () => {
+  it('POD-6283: admin Alice is refused a write to Bob’s own session', async () => {
     // Today the admin's scope `all` lets the rename through.
     await expect(renameSession('alice', f.sessions.bob, 'alice renames bob')).rejects.toThrow()
   })
@@ -78,18 +78,18 @@ describe('gap 3: a session on a task takes the task’s owner (POD-6283)', () =>
     await renameSession('bob', f.sessions.bob, 'bob renames his own')
   })
 
-  it.fails('POD-6283: Bob’s session on Alice’s task is recorded as Bob’s', async () => {
+  it('POD-6283: Bob’s session on Alice’s task is recorded as Bob’s', async () => {
     // Today `session-start.ts` gives an issue-owned session the issue's owner.
     const row = await f.handle.registry.sessionStore.sessions.getSession(f.sessions.bobOnAliceTask)
     expect(row?.ownerUserId).toBe(MEMBERS.bob.id)
   })
 
-  it.fails('POD-6283: Bob writes to his session on Alice’s task', async () => {
+  it('POD-6283: Bob writes to his session on Alice’s task', async () => {
     // Today: "command refused".
     await renameSession('bob', f.sessions.bobOnAliceTask, 'bob renames his session on alice')
   })
 
-  it.fails('POD-6283: the feed gives Bob, not Alice, his session on Alice’s task', async () => {
+  it('POD-6283: the feed gives Bob, not Alice, his session on Alice’s task', async () => {
     // Today it is the other way round.
     expect((await feedOf('bob')).sessions).toContain(f.sessions.bobOnAliceTask)
     expect((await feedOf('alice')).sessions).not.toContain(f.sessions.bobOnAliceTask)

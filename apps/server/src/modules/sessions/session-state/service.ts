@@ -54,7 +54,7 @@ import type {
 import type { EntityChangeSpec } from '@podium/sync'
 import type { ClientConn } from '../../../gateway/client-registry'
 import type { PinState, SessionStore, SnoozeMap } from '../../../store'
-import type { IssueRow } from '../../../store/types'
+import { mayReachPrivate } from '../../../issue-authz'
 import type { Session, SessionDurableState } from '../session'
 
 const log = createLogger('server:sessions')
@@ -97,16 +97,6 @@ export type SessionStateDraft = Pick<
  * staleness unobservable.
  */
 export interface SessionOwnerMemo {
-  /** Issue rows by id. `null` records a LOOKED-UP-AND-ABSENT id, which is not
-   *  the same as a `has()` miss — see `SessionAuthz.memoIssueOwner`.
-   *
-   *  This was `Map<string, unknown>` and `unknown` accepts a promise, so the
-   *  unawaited `memo.issues.set(id, store.issues.getIssue(id))` that the async
-   *  flip created typechecked clean and the read back answered "no owner"
-   *  [POD-3507]. */
-  issues: Map<string, IssueRow | null>
-  /** Grantee lists by `${resourceKind}:${resourceId}`. */
-  grants: Map<string, string[]>
   /**
    * Who owns each session of the pass and which issue it is on (POD-6160): the
    * candidates a projection already read (a parked session's record carries
@@ -157,7 +147,7 @@ export interface SessionStatePorts {
     sessionId: SessionId
     /** Per-pass read-through memo for full-list callers [POD-1618]. */
     memo?: SessionOwnerMemo
-  }) => Promise<{ owner: UserId | null; grants: readonly string[] } | undefined>
+  }) => Promise<{ owner: UserId | null } | undefined>
   /** Fill a pass's grant memo in one read per resource kind [POD-1653].
    *  Optional: a fixture that omits it is slow, never wrong, because every key
    *  it would have primed is still computed on demand by `sessionOwner`. */
@@ -395,12 +385,9 @@ export class SessionStateService {
     // Keep single-session reads on their original path: batching inserts an
     // await before ownership resolution and can duplicate durable fallback reads.
     const target = await this.ports.sessionOwner({ sessionId, ...(memo ? { memo } : {}) })
-    if (!target) return false
-    if (target.owner === principal.userId || target.grants.includes(principal.userId)) {
-      return true
-    }
-    // Narrow agent scopes never widen the on-behalf-of human's visibility.
-    return principal.capability.scope.kind === 'all'
+    // Private (design §2.3, POD-6283): the owner only. No grant, no task, and
+    // no admin scope reaches another person's session.
+    return target !== undefined && mayReachPrivate(principal.userId, { id: sessionId, owner: target.owner })
   }
 
   /** One reader-scoped set computation. Principals are already admitted by the
@@ -410,7 +397,7 @@ export class SessionStateService {
   async visibleSessions(
     principal: SessionStatePrincipal,
     candidates: readonly SessionId[],
-    memo: SessionOwnerMemo = { issues: new Map(), grants: new Map() },
+    memo: SessionOwnerMemo = {},
   ): Promise<ReadonlySet<SessionId>> {
     const visible = new Set<SessionId>()
     if (candidates.length === 0) return visible
@@ -418,12 +405,7 @@ export class SessionStateService {
     await this.primeOwnerMemo(memo, ids)
     for (const sessionId of ids) {
       const target = await this.ports.sessionOwner({ sessionId, memo })
-      if (
-        target &&
-        (target.owner === principal.userId ||
-          target.grants.includes(principal.userId) ||
-          principal.capability.scope.kind === 'all')
-      ) {
+      if (target && mayReachPrivate(principal.userId, { id: sessionId, owner: target.owner })) {
         visible.add(sessionId)
       }
     }

@@ -541,7 +541,7 @@ export class SessionLifecycle {
   sessionOwner(
     sessionId: SessionId,
     memo?: SessionOwnerMemo,
-  ): Promise<{ owner: UserId; grants: string[] } | undefined> {
+  ): Promise<{ owner: UserId } | undefined> {
     return this.sessionAuthz.sessionOwner(sessionId, memo)
   }
   machineUseForClient(

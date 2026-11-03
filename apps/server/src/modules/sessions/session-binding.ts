@@ -12,7 +12,6 @@ type ResumeObservation = Extract<DaemonMessage, { type: 'sessionResumeRef' }>
 
 interface SessionOwnership {
   owner: UserId
-  grants: string[]
 }
 
 export interface SessionBindingReceiptsDeps {

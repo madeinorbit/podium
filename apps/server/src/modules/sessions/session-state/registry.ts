@@ -190,7 +190,8 @@ const ownedSession: TargetResolver = async (input, _principal, deps) => {
   if (!sessionId) return undefined
   const owner = await deps.sessions.sessionOwner(sessionId)
   if (owner === undefined) return undefined
-  return { kind: 'owned', id: sessionId, owner: owner.owner, grants: owner.grants }
+  // Private class (design §4.1, POD-6283): owner only, admin scope included.
+  return { kind: 'private', id: sessionId, owner: owner.owner }
 }
 
 /** A per-user row: always the CALLER's own. The payload cannot name a user, so

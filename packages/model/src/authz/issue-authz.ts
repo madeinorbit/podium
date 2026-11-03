@@ -110,6 +110,18 @@ export type AuthTarget =
     }
   /** One row of the per-user state family, identified by whose row it is. */
   | { kind: 'per-user-row'; userId: UserId }
+  /**
+   * A PRIVATE entity (a session: design §2.3 and §4.1's private class). Only
+   * its owner reaches it, whatever the caller's scope: no grant list, and the
+   * admin role adds nothing. `owner` is the entity's own durable owner, never
+   * borrowed from a task it sits on.
+   */
+  | {
+      kind: 'private'
+      id: string
+      /** `null` = unowned, which nobody reaches. */
+      owner: string | null
+    }
 
 /** Full authz outcome: a hard role denial vs. a scope violation the caller may knowingly override. */
 export type AuthDecision = 'allow' | 'forbidden' | 'confirm-required'
@@ -300,6 +312,14 @@ export function authorize(
 ): AuthDecision {
   if (!ROLE_ACTIONS[cap.role].includes(action)) return 'forbidden'
   const scope = cap.scope
+  // THE PRIVATE CLASS IS DECIDED BEFORE THE SCOPE (design §4.1). The caller's
+  // human must be the owner; that is the whole rule for a person, and an agent's
+  // own scope still narrows it below. Scope `all` is an issue-tree statement and
+  // says nothing about whose session this is, so it cannot pass a private target.
+  if (issue?.kind === 'private') {
+    const human = scope.kind === 'owned' || scope.kind === 'self' ? scope.userId : cap.onBehalfOf
+    if (issue.owner === null || human === undefined || human !== issue.owner) return 'forbidden'
+  }
   switch (scope.kind) {
     case 'all':
       return 'allow'
@@ -314,7 +334,9 @@ export function authorize(
       // entity or a per-user row is not a scope violation to be overridden — it is
       // a category error, and answering 'confirm-required' would let
       // `--outside-scope` convert it into an allow. Forbidden, without an override.
-      if (issue.kind === 'owned' || issue.kind === 'per-user-row') return 'forbidden'
+      if (issue.kind === 'owned' || issue.kind === 'per-user-row' || issue.kind === 'private') {
+        return 'forbidden'
+      }
       const inSubtree =
         issue.id === scope.rootId || (issue.ancestorIds ?? []).includes(scope.rootId)
       return inSubtree ? 'allow' : outOfScope(opts)
@@ -331,6 +353,9 @@ export function authorize(
           return issue.owner === scope.userId || (issue.grants ?? []).includes(scope.userId)
             ? 'allow'
             : 'forbidden'
+        case 'private':
+          // The owner check above already passed: this is the caller's own.
+          return 'allow'
         case 'per-user-row':
           // §3.3: an owner-or-grant capability does not reach anybody's per-user
           // rows, including its own — a per-user write needs a `self` scope, so

@@ -66,6 +66,7 @@ import {
 import { authorize, type AuthTarget, type SessionId, type UserId, type MutationId } from '@podium/model'
 import type { CommandPrincipal } from '../../command-principal'
 import { onBehalfOfUser } from '../../command-principal'
+import { mayReachPrivate } from '../../issue-authz'
 import type { MutationLedgerPort } from '@podium/sync'
 import type { SessionLifecycle } from './lifecycle'
 
@@ -135,7 +136,8 @@ async function ownedTarget(
 ): Promise<AuthTarget | undefined> {
   const owner = await deps.sessions.sessionOwner(sessionId)
   if (owner === undefined) return undefined
-  return { kind: 'owned', id: sessionId, owner: owner.owner, grants: owner.grants }
+  // Private class (design §4.1, POD-6283): owner only, admin scope included.
+  return { kind: 'private', id: sessionId, owner: owner.owner }
 }
 
 /**
@@ -201,12 +203,9 @@ function mayWrite(principal: CommandPrincipal, target: AuthTarget): boolean {
 
 /** Does this human currently own, or hold a grant on, the target? Read live. */
 function holdsTarget(human: UserId, target: AuthTarget): boolean {
-  if (target.kind !== 'owned') return false
-  // An UNOWNED entity is not ambient: absent ownership fails toward refusal
-  // (§3.1.1 default-closed, §3.1.4 M4's all-in-one case).
-  if (target.owner === null) return false
-  const owner = target.owner
-  return owner === human || (target.grants ?? []).includes(human)
+  if (target.kind !== 'private') return false
+  // The private class: the session's own owner, nobody else (POD-6283).
+  return mayReachPrivate(human, target)
 }
 
 /**

@@ -22,21 +22,19 @@ import {
 import type { PresenceIdentity } from '@podium/protocol'
 import type { CommandPrincipal } from '../../command-principal'
 import type { ClientPrincipal } from '../../gateway/client-principal'
+import { mayReachPrivate } from '../../issue-authz'
 
 /** Rights a principal needs on a session to participate. */
 export type SessionControlVerb = 'watch' | 'drive'
 
 /**
- * The session-side facts the policy needs — owner + grant lists + the machine
- * use verdict for the session's host. Grants are READ from the store by the
- * caller (ADR 3 D7); this module never looks them up.
+ * The session-side facts the policy needs — its owner and the machine use
+ * verdict for the session's host, READ from the store by the caller (ADR 3 D7).
  */
 export interface SessionControlContext {
+  /** The session's own owner. Sessions are private (design §2.3, POD-6283):
+   *  only this person, or their own agents, may watch or drive it. */
   readonly owner: UserId
-  /** Grantees who may spectate (read / write / manage). */
-  readonly watchGrantees: readonly string[]
-  /** Grantees who may take control (write / manage). */
-  readonly driveGrantees: readonly string[]
   /**
    * Machine `use` for this principal on the session's host (ADR 9 D6 M1).
    * `absent` and `denied` both refuse attach — session share is not a back door
@@ -66,8 +64,8 @@ export const controlSubjectFromClient = (principal: ClientPrincipal): ControlSub
 export const controlSubjectFromCommand = (principal: CommandPrincipal): ControlSubject => {
   switch (principal.kind) {
     case 'user':
-      // Capability.role is the issue-authz vocabulary; instance admin is the
-      // only break-glass grade that may drive any session (policy §3).
+      // Capability.role is the issue-authz vocabulary. The role is carried for
+      // identity only: it grants nothing on sessions (design §2.3, POD-6283).
       return {
         kind: 'user',
         human: principal.user,
@@ -90,39 +88,17 @@ export const controlSubjectFromCommand = (principal: CommandPrincipal): ControlS
  * already exposes. `write`/`manage` drive; any grant verb watches.
  */
 export const contextFromOwnership = (
-  ownership: { owner: UserId; grants: readonly string[] },
+  ownership: { owner: UserId },
   machineUse: SessionControlContext['machineUse'],
-  /**
-   * Optional write/manage-only list. When omitted, every listed grantee may both
-   * watch and drive (today's transitional "grant = share" shape). Callers that
-   * know verb-level grants pass the filtered lists explicitly.
-   */
-  driveGrantees?: readonly string[],
 ): SessionControlContext => ({
   owner: ownership.owner,
-  watchGrantees: ownership.grants,
-  driveGrantees: driveGrantees ?? ownership.grants,
   machineUse,
 })
 
-const humanMay = (
-  human: UserId,
-  role: UserRole | null,
-  owner: UserId,
-  grantees: readonly string[],
-): boolean => {
-  if (human === owner) return true
-  if (role === 'admin') return true
-  return grantees.includes(human)
-}
+/** The owner, and nobody else: no grantee, no task owner, and no admin. */
+const humanMay = (human: UserId, owner: UserId): boolean =>
+  mayReachPrivate(human, { id: 'session', owner })
 
-/**
- * May this subject SEE the session and attach a PTY?
- *
- * Both session visibility and machine `use` apply. Machine use is the
- * code-execution boundary (ADR 9 D6 M2) and cannot be satisfied by a session
- * grant alone.
- */
 export function mayWatch(
   subject: ControlSubject,
   ctx: SessionControlContext,
@@ -130,16 +106,14 @@ export function mayWatch(
   if (ctx.machineUse !== 'granted') return 'unauthorized'
   if (subject.kind === 'system') return true
   if (!subject.human) return 'unauthorized'
-  return humanMay(subject.human, subject.role, ctx.owner, ctx.watchGrantees)
-    ? true
-    : 'unauthorized'
+  return humanMay(subject.human, ctx.owner) ? true : 'unauthorized'
 }
 
 /**
  * May this subject TAKE or HOLD control?
  *
  * Watch is a prerequisite (includes machine use). Drive additionally needs
- * owner / write-or-manage grant / admin.
+ * the owner (design §2.3): watching and driving have the same audience today.
  */
 export function mayDrive(
   subject: ControlSubject,
@@ -149,9 +123,7 @@ export function mayDrive(
   if (watch !== true) return watch
   if (subject.kind === 'system') return true
   if (!subject.human) return 'unauthorized'
-  return humanMay(subject.human, subject.role, ctx.owner, ctx.driveGrantees)
-    ? true
-    : 'unauthorized'
+  return humanMay(subject.human, ctx.owner) ? true : 'unauthorized'
 }
 
 /** Stamp the live controller identity from a control subject. */

@@ -1,6 +1,5 @@
 import { createLogger } from '@podium/logger'
 import { machinePathBasename } from '@podium/model'
-import { readIssue } from '../issues/issue-reader'
 /**
  * STARTING A SESSION (POD-1396, from POD-1385's god-object audit).
  *
@@ -190,7 +189,7 @@ export interface SessionStartPorts {
     effort: string
     machineId: MachineId | null
   }>
-  sessionOwner(sessionId: SessionId): Promise<{ owner: UserId; grants: string[] } | undefined>
+  sessionOwner(sessionId: SessionId): Promise<{ owner: UserId } | undefined>
   queueInitialPrompt(input: {
     sessionId: SessionId
     text: string
@@ -416,12 +415,10 @@ export class SessionStart {
     // stages them on the agent's machine at delivery (POD-2148).
     const useArgv =
       taskPrompt !== undefined && !initialAttachments && harnessSupportsInitialPrompt(agentKind)
-    // Session ownership is declared per class: an issue-owned child inherits the
-    // issue owner; otherwise a binding resolves to its on-behalf-of human. The
-    // final fallback exists only for legacy in-process callers with no binding.
-    const parentOwner = issueId
-      ? (await readIssue(this.ports.store.issues, issueId))?.ownerUserId
-      : undefined
+    // A SESSION BELONGS TO WHOEVER STARTED IT (design §2.3, POD-6283): the
+    // binding's on-behalf-of human, else the authenticated starter. The task it
+    // sits on does not change that: Bob's agent on Alice's task is Bob's. The
+    // final fallback exists only for legacy in-process callers with neither.
     const bindingOwner =
       input.binding?.principal.kind === 'user'
         ? input.binding.principal.userId
@@ -430,10 +427,7 @@ export class SessionStart {
               ?.delegation?.onBehalfOf
           : undefined
     const ownerUserId =
-      parentOwner ??
-      input.ownerUserId ??
-      bindingOwner ??
-      (await firstAdminMemberId(this.ports.store))
+      bindingOwner ?? input.ownerUserId ?? (await firstAdminMemberId(this.ports.store))
     // THE BINDING PRINCIPAL, RESOLVED ONCE (POD-1516). It was previously built
     // inline at the `binding:` key below; hoisting it is what lets the durable
     // attribution pair and the daemon binding come from THE SAME identity rather
@@ -446,10 +440,8 @@ export class SessionStart {
     // WHO CREATED THIS SESSION, AND FOR WHOM — stamped here, UNCONDITIONALLY, so
     // that an absent pair downstream can only ever mean "recorded before the
     // field existed" (ADR 9 D5 A3; see `SessionMeta.createdBy`). The human half
-    // is the DELEGATING human off the principal, NOT `ownerUserId`: those differ
-    // exactly when a session is spawned under a shared issue, and conflating
-    // them would attribute the spawn to the issue's owner.
-    const createdBy = createdByForBinding(binding.principal, bindingOwner ?? ownerUserId)
+    // is the DELEGATING human off the principal, which is also the owner.
+    const createdBy = createdByForBinding(binding.principal, ownerUserId)
     const spawned = await this.spawn({
       agentKind,
       ownerUserId,

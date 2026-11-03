@@ -174,7 +174,6 @@ export interface SessionCommandDeps {
   ): Promise<void>
   /** Compensate only the draft created by this launch when createSession throws. */
   discardUnlaunchedDraft(issueId: IssueId): Promise<boolean>
-  issueOwner(issueId: IssueId): Promise<import('@podium/model').UserId | undefined>
   /** The runtime-contract staging leg, used at upload only for headless
    *  sessions (the superagent), whose turn carries the path as text. */
   stageAttachment(input: {
@@ -389,46 +388,25 @@ export function createdByForBinding(
 }
 
 /**
- * Ownership of a session this command creates (ADR 9 D5 A4; readiness §3.1.2's
- * inheritance-on-create item, which is declared PER CLASS — and this is the
- * class).
+ * Ownership of a session this command creates (ADR 9 D5 A4; design §2.3).
  *
- * A session created by an agent is owned by that agent's `onBehalfOf` HUMAN with
- * the agent as actor; a session spawned under an issue inherits THAT ISSUE's
- * owner instead — otherwise sharing an issue does not share its work, and
- * retiring an agent orphans everything it made.
+ * A session belongs to the person who started it, or to the person on whose
+ * behalf an agent started it: the principal's `onBehalfOf` human, with the
+ * agent as actor. The task it is started on changes NOTHING (POD-6283): Bob's
+ * agent on Alice's task is Bob's, so sharing a task never shares its sessions.
  *
  * Persisted by the lifecycle module as `sessions.owner_user_id`. This function
- * remains the ONE producer of the inheritance rule, so storage consumes the
- * decision without re-deciding it.
+ * remains the ONE producer of the rule, so storage consumes the decision
+ * without re-deciding it.
  */
 export interface CreatedOwnership {
   readonly owner: string | null
   readonly actor: string
-  readonly inheritedFrom: { kind: 'issue'; id: string } | { kind: 'principal' }
 }
 
-export function createdOwnership(
-  principal: CommandPrincipal,
-  parentIssue: { id: IssueId; owner?: UserId | null } | undefined,
-): CreatedOwnership {
+export function createdOwnership(principal: CommandPrincipal): CreatedOwnership {
   const attribution = attributionOf(principal)
-  if (parentIssue) {
-    return {
-      // The issue's owner when it has one. Before POD-1075 an issue row has no
-      // owner column either, so it falls back to the delegating human — the same
-      // person in a one-account instance, and still correct the moment issues
-      // grow the column.
-      owner: parentIssue.owner ?? attribution.onBehalfOf,
-      actor: attribution.actor,
-      inheritedFrom: { kind: 'issue', id: parentIssue.id },
-    }
-  }
-  return {
-    owner: attribution.onBehalfOf,
-    actor: attribution.actor,
-    inheritedFrom: { kind: 'principal' },
-  }
+  return { owner: attribution.onBehalfOf, actor: attribution.actor }
 }
 
 // ---------------------------------------------------------------------------
@@ -670,12 +648,7 @@ export const SESSION_COMMAND_HANDLERS = {
     // a denied principal must never cause.
     if (rest.machineId !== undefined) ctx.assertMachineUse(rest.machineId)
     const target = await ctx.sessions.workspace.prepareTarget({ ...rest, use: ctx.machineUse })
-    const ownership = createdOwnership(
-      ctx.principal,
-      rest.issueId
-        ? { id: rest.issueId, owner: await ctx.deps.issueOwner(rest.issueId) }
-        : undefined,
-    )
+    const ownership = createdOwnership(ctx.principal)
     if (!ownership.owner) throw new Error('session creation requires an accountable human owner')
     const createdDraftId =
       !rest.issueId && draftIssue
@@ -729,7 +702,7 @@ export const SESSION_COMMAND_HANDLERS = {
 
   resume: async (ctx: SessionCommandCtx, input: ResumeInput) => {
     if (input.machineId !== undefined) ctx.assertMachineUse(input.machineId)
-    const ownership = createdOwnership(ctx.principal, undefined)
+    const ownership = createdOwnership(ctx.principal)
     if (!ownership.owner) throw new Error('session resume requires an accountable human owner')
     // A resume landing on an EXISTING row keeps that row's provenance; the stamp
     // here is the fresh-spawn fallback only.

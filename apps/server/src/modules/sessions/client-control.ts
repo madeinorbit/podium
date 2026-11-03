@@ -47,7 +47,7 @@ export interface SessionClientControlPorts {
   setDraft(principal: ClientPrincipal, clientId: string, sessionId: SessionId, text: string): Promise<void>
   editDraft(message: DraftEditMessage, clientId: string): Promise<void>
   /**
-   * Session ownership + grants (from store). Undefined ⇒ session does not exist
+   * Session owner (from store). Undefined ⇒ session does not exist
    * (or is invisible — same answer per the consistent-error rule).
    *
    * REQUIRED, and that is the point (POD-333). It and `machineUseFor` were
@@ -60,7 +60,7 @@ export interface SessionClientControlPorts {
    * away from being an unwired one. A fixture that does not care now says so
    * explicitly — see the test helpers in session-control-identity.test.ts.
    */
-  sessionOwner(sessionId: SessionId): Promise<{ owner: UserId; grants: string[] } | undefined>
+  sessionOwner(sessionId: SessionId): Promise<{ owner: UserId } | undefined>
   /**
    * Machine `use` for this principal on the session's host. REQUIRED — see
    * `sessionOwner` above. `MachineUseDecision` deliberately has no `'unknown'`
@@ -414,7 +414,7 @@ export class SessionClientControl {
     return mayWatch(controlSubjectFromClient(principal), ctx) === true
   }
 
-  /** Drive rights for requestControl — owner / write grantee / admin + machine use. */
+  /** Drive rights for requestControl — the owner only (POD-6283) + machine use. */
   async authorizeDrive(principal: ClientPrincipal, sessionId: SessionId): Promise<boolean> {
     const owner = await this.ports.sessionOwner(sessionId)
     if (!owner) return false

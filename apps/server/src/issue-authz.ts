@@ -128,3 +128,26 @@ export function mayReadOwned(
     }) === 'allow'
   )
 }
+
+/**
+ * MAY THIS PERSON REACH THIS PRIVATE ENTITY — a session (design §2.3, POD-6283).
+ *
+ * The one server-side answer for the private class: the entity's own owner, and
+ * nobody else. Not the owner of the task it sits on, not a grantee (legacy
+ * session grants are inert) and not an admin. `human` is the person behind the
+ * caller: the user for a person, the delegating human for an agent. Decided by
+ * the model's `authorize`, like {@link mayReadOwned}, so there is one rule.
+ */
+export function mayReachPrivate(
+  human: UserId | null | undefined,
+  entity: { id: string; owner: string | null | undefined },
+): boolean {
+  if (!human) return false
+  return (
+    authorize({ role: 'viewer', scope: { kind: 'owned', userId: asUserId(human) } }, 'read', {
+      kind: 'private',
+      id: entity.id,
+      owner: entity.owner ?? null,
+    }) === 'allow'
+  )
+}

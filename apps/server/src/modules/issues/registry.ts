@@ -7,7 +7,7 @@ import {
   ISSUE_CONTRACTS,
   type IssueContractName,
 } from '@podium/commands'
-import type { SessionId } from '@podium/model'
+import type { SessionId, UserId } from '@podium/model'
 import {
   actorAgent,
   actorSystem,
@@ -94,6 +94,15 @@ import { becameCoordinatorText, seatRefusal, seatText } from './service/seat'
  * pinned to `ISSUE_CONTRACTS` via `satisfies`, so handler↔contract drift is a
  * compile error in both directions.
  */
+
+/** The human starting a session on a task (POD-6283): the person, or the human
+ *  at the root of an agent's delegation. That session is theirs, whoever owns
+ *  the task. A system job has no human, and the task's owner stands in. */
+function startedOnBehalfOf(ctx: IssueCommandCtx): { onBehalfOf?: UserId } {
+  const principal = ctx.caller.principal
+  const human = principal ? attributionOf(principal).onBehalfOf : ctx.caller.capability.onBehalfOf
+  return human ? { onBehalfOf: human } : {}
+}
 
 /** Guardrail 2 [spec:SP-6144]: lifecycle moves on a proposed issue are
  *  operator-only, and the check FAILS CLOSED — an id that doesn't resolve is
@@ -762,6 +771,7 @@ const defs = {
         async () =>
           await ctx.gitWorkflow.start(input.id, input.agentKind, {
             spawnedBy: ctx.spawnProvenance(),
+            ...startedOnBehalfOf(ctx),
             // Explicit per-launch choice (POD-1545); persists onto the issue profile.
             ...(input.defaultModel ? { model: input.defaultModel } : {}),
             ...(input.defaultEffort ? { effort: input.defaultEffort } : {}),
@@ -984,6 +994,7 @@ const defs = {
     handler: async (ctx, input) =>
       await ctx.gitWorkflow.addSession(input.id, input.agentKind, {
         spawnedBy: ctx.spawnProvenance(),
+        ...startedOnBehalfOf(ctx),
         ...(input.forceUnknownModel ? { forceUnknownModel: true } : {}),
       }),
   }),
@@ -991,7 +1002,10 @@ const defs = {
     kind: 'mutation',
     target: targetId,
     handler: async (ctx, input) =>
-      await ctx.gitWorkflow.addShell(input.id, { spawnedBy: ctx.spawnProvenance() }),
+      await ctx.gitWorkflow.addShell(input.id, {
+        spawnedBy: ctx.spawnProvenance(),
+        ...startedOnBehalfOf(ctx),
+      }),
   }),
   applySuggestion: def('applySuggestion', {
     kind: 'mutation',
