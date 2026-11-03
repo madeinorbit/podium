@@ -71,7 +71,7 @@ import { dirname } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { FeedIdentityRegistry, SyncRepository } from '@podium/sync'
 import { syncQueriesOver } from '../store/executor/sync-drizzle'
-import { freeDiskBytes } from './backup'
+import { freeDiskBytes, vacuumIntoPublished } from './backup'
 import { syncServerTables } from './sync-server-tables'
 
 export interface RestoreReport {
@@ -296,17 +296,8 @@ async function remintRestoredEpoch(
  * need back. Reclaiming it is the operator's call, not ours.
  */
 function saveReplacedDatabase(dbPath: string, freeBytes: (dir: string) => number): string {
-  // Fold the WAL into the main file so a plain copy is a consistent snapshot —
-  // the same reason backupDatabase does it, and safe for the same reason (the
-  // server is the single writer, and a restore runs with it stopped).
-  const db = openDatabase(dbPath)
-  try {
-    db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
-  } finally {
-    db.close()
-  }
-
-  const needed = sizeOf(dbPath) + sizeOf(`${dbPath}-wal`) + sizeOf(`${dbPath}-shm`)
+  // VACUUM INTO writes at most the main file plus what its WAL adds.
+  const needed = sizeOf(dbPath) + sizeOf(`${dbPath}-wal`)
   const dir = dirname(dbPath)
   const free = freeBytes(dir)
   if (free < needed * 1.1) {
@@ -321,13 +312,14 @@ function saveReplacedDatabase(dbPath: string, freeBytes: (dir: string) => number
   // Two restores inside one millisecond would otherwise silently overwrite the
   // first replaced database — the one file this function exists to keep.
   for (let n = 2; existsSync(dest); n++) dest = `${dbPath}.replaced-${stamp}-${n}`
+  // Through SQLite, like every snapshot of a database that may be open: one
+  // consistent, self-contained file, even if a server were (wrongly) still
+  // running on it, and no plain descriptor on the live files (POD-6263).
+  const db = openDatabase(dbPath)
   try {
-    copyFileSync(dbPath, dest)
-    copyIfPresent(`${dbPath}-wal`, `${dest}-wal`)
-    copyIfPresent(`${dbPath}-shm`, `${dest}-shm`)
-  } catch (err) {
-    removeDbFiles(dest)
-    throw err
+    vacuumIntoPublished(db, dest)
+  } finally {
+    db.close()
   }
   return dest
 }

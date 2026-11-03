@@ -98,6 +98,10 @@ Each rule has the reason for it and an example from this repository.
 3. **Writes stay one at a time**, as today.
 4. **The driver interface stays.** `apps/server/src/store/executor/driver.ts` is the seam where another engine plugs in.
 
+## The database files
+
+1. **Never touch the live database files outside SQLite in-process.** While this process has `podium.db` open, nothing in it opens `podium.db`, `podium.db-wal` or `podium.db-shm` with plain file calls (`copyFile`, `readFile`, `open`, `createReadStream`, hashing); `stat` and `exists` are fine. POSIX locks belong to the process, and closing any descriptor on a file releases all of the process's locks on it, so a copy silently drops SQLite's locks for the rest of the process's life. The next program that opens the database then believes it is alone: it truncates the `-shm` under the server's mapping, and the server dies of SIGBUS in `walFindFrame` (four times on ludovico, October to November 2026, from the boot backup's copy). It can also let a second writer in and corrupt the database ([howtocorrupt §2.2](https://sqlite.org/howtocorrupt.html)). A snapshot is written by SQLite: `vacuumIntoPublished` (`migrations/backup.ts`) runs `VACUUM INTO` through a connection, either the live one (the boot backup) or the snapshot child's own read-only connection while the server serves (`migrations/snapshot-copy.ts`: the transfer's `podium.db`). Another SQLite connection in the same process is safe, because SQLite shares its locks across its connections (POD-6263).
+
 ## What a change must show
 
 | A change that… | must show | automatic check |
@@ -106,4 +110,5 @@ Each rule has the reason for it and an example from this repository.
 | adds or changes a lookup | the query-plan audit passes: the query is served by an index (rule 3) | `apps/server/src/store/query-plan-audit.test.ts`: `EXPLAIN QUERY PLAN` of every `prepared`/`preparedFamily` definition, with explicit lists for accepted sorts, small tables, whole-table reads (POD-6172) and query-shape debt (what is left needs full-text search, POD-5617) (POD-6148) |
 | adds or changes an operation that reads or writes | its statement count is pinned by a test and does not grow with data (rule 8) | `expectConstantStatements` in `apps/server/src/test-support/statement-count.ts` (POD-6149) |
 | adds a cache | a measurement that shows the need, its declaration, and a test that a write removes the entry | added with the cache layer, POD-6150 |
+| copies, hashes or otherwise reads the live database files | it goes through SQLite (database files rule 1) | the lock probes in `apps/server/src/test-support/sqlite-locks.ts`, used by `migrations/backup.test.ts` and `modules/server-transfer/snapshot.test.ts` (POD-6263) |
 | removes an in-memory copy | before the copy is deleted, proof that the answers did not change: for the folder → issue lookup, both sync copies, the issue map and the session map, a test that runs old and new over the benchmark corpus and edge-case fixtures and compares (the issue map and the session map also at runtime in development builds); for the smaller copies, the existing tests plus new focused tests. After, the benchmark against the parent commit, the two runs interleaved | benchmark added by POD-6146 |

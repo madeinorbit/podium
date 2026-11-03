@@ -14,6 +14,8 @@
  * the parent records as `failed` rather than as a bad snapshot.
  */
 
+import { describeError } from '@podium/logger'
+import type { CopySnapshotRequest, CopySnapshotResult } from './snapshot-copy'
 import type { VerifySnapshotRequest } from './snapshot-verification'
 
 /** Environment variable carrying the JSON {@link VerifySnapshotRequest}. */
@@ -32,7 +34,19 @@ export async function runSnapshotVerifierChildIfRequested(
   const raw = env[SNAPSHOT_VERIFIER_ENV]
   if (!raw) return false
   // Imported lazily so the ordinary CLI boot never pays for the SQLite verifier.
-  const request = JSON.parse(raw) as VerifySnapshotRequest
+  const request = JSON.parse(raw) as VerifySnapshotRequest | CopySnapshotRequest
+  if ('kind' in request) {
+    // The server transfer's portable database (POD-6263).
+    const { copySnapshotFile } = await import('./snapshot-copy')
+    let result: CopySnapshotResult
+    try {
+      result = { ok: true, correlationId: request.correlationId, path: copySnapshotFile(request) }
+    } catch (error) {
+      result = { ok: false, correlationId: request.correlationId, detail: describeError(error) }
+    }
+    write(`${JSON.stringify(result)}\n`)
+    return true
+  }
   const { verifySnapshotFile } = await import('./snapshot-verification')
   write(`${JSON.stringify(verifySnapshotFile(request))}\n`)
   return true

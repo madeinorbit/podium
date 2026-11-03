@@ -1,17 +1,24 @@
-import { mintUpdateSigningKey, readOrCreateUpdateSigningKey } from '@podium/runtime/update-signing-key'
 import { existsSync } from 'node:fs'
-import {
-  bumpInstallationGeneration,
-  mintInstallationIdentity,
-} from '@podium/runtime/installation-identity'
-import { openDatabase } from '@podium/runtime/sqlite'
-import { openTestStore } from '../../test-support/open-test-store'
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId } from '@podium/model'
 import { canonicalServerTransferManifest, type ServerTransferManifest } from '@podium/protocol'
+import {
+  bumpInstallationGeneration,
+  mintInstallationIdentity,
+} from '@podium/runtime/installation-identity'
+import { openDatabase } from '@podium/runtime/sqlite'
+import {
+  mintUpdateSigningKey,
+  readOrCreateUpdateSigningKey,
+} from '@podium/runtime/update-signing-key'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { openTestStore } from '../../test-support/open-test-store'
+import {
+  exclusiveLockFromAnotherProcess,
+  openFromAnotherProcess,
+} from '../../test-support/sqlite-locks'
 import {
   createPortableSnapshot,
   isSafeRelativePath,
@@ -81,8 +88,9 @@ describe('portable server snapshot', () => {
         targetMachineId: asMachineId('target'),
         sourceFeedId: 'feed',
         sourceFeedEpoch: 'epoch',
-        sourceApplicationVersion: 'test',        sourceSchemaVersion: 'test',
-        checkpoint: () => source.checkpointForTransfer(),
+        sourceApplicationVersion: 'test',
+        sourceSchemaVersion: 'test',
+        snapshotDatabase: (destination) => source.snapshotForTransfer(destination),
       })
       expect(snapshot.files.map((file) => file.path)).toEqual(
         expect.arrayContaining([
@@ -90,6 +98,41 @@ describe('portable server snapshot', () => {
           'pending-uploads/3f2b8c1e-9a4d-4e7f-8b21-0c5d6e7f8a9b/file/shot.png',
         ]),
       )
+    } finally {
+      await source.close()
+    }
+  })
+
+  it("snapshots podium.db without dropping the live store's SQLite locks [POD-6263]", async () => {
+    const root = await mkdtemp(join(tmpdir(), 'podium-transfer-locks-'))
+    roots.push(root)
+    const dbPath = join(root, 'podium.db')
+    const source = await openTestStore(dbPath)
+    try {
+      const snapshot = await createPortableSnapshot({
+        stateRoot: root,
+        packageDir: join(root, '.server-transfer', 'snapshot'),
+        operationId: 'operation-locks',
+        transferId: 'transfer-locks',
+        sourceInstanceId: 'instance-source',
+        sourceMachineId: asMachineId('source'),
+        targetMachineId: asMachineId('target'),
+        sourceFeedId: 'feed',
+        sourceFeedEpoch: 'epoch',
+        sourceApplicationVersion: 'test',
+        sourceSchemaVersion: 'test',
+        snapshotDatabase: (destination) => source.snapshotForTransfer(destination),
+      })
+      expect(snapshot.files.map((file) => file.path)).toContain('podium.db')
+
+      // The live store must still own its locks: another process can neither
+      // take the database exclusively nor, after an ordinary read, delete the
+      // sidecars when it closes.
+      expect(exclusiveLockFromAnotherProcess(dbPath)).toBe('refused')
+      openFromAnotherProcess(dbPath)
+      expect(existsSync(`${dbPath}-wal`)).toBe(true)
+      expect(existsSync(`${dbPath}-shm`)).toBe(true)
+      expect(await source.secrets.installationIdentity()).toBeDefined()
     } finally {
       await source.close()
     }
@@ -128,7 +171,7 @@ describe('portable server snapshot', () => {
         sourceFeedEpoch: 'epoch',
         sourceApplicationVersion: 'test',
         sourceSchemaVersion: 'test',
-        checkpoint: () => source.checkpointForTransfer(),
+        snapshotDatabase: (destination) => source.snapshotForTransfer(destination),
       })
       expect(snapshot.files.map((file) => file.path)).toContain('podium.db')
       expect(snapshot.files.map((file) => file.path)).not.toContain('installation.json')
@@ -153,7 +196,7 @@ describe('portable server snapshot', () => {
     }
   })
 
-  it('checkpoints before snapshot and refuses symlinks', async () => {
+  it('refuses symlinks before writing any snapshot', async () => {
     const root = await mkdtemp(join(tmpdir(), 'podium-transfer-manifest-'))
     roots.push(root)
     await writeFile(join(root, 'podium.db'), 'db')
@@ -161,7 +204,7 @@ describe('portable server snapshot', () => {
     await writeFile(join(root, 'update-signing-key.json'), 'server-key')
     await mkdir(join(root, 'transcripts'))
     await symlink(join(root, 'podium.db'), join(root, 'transcripts', 'linked.db'))
-    const checkpoint = vi.fn()
+    const snapshotDatabase = vi.fn(async () => undefined)
 
     await expect(
       createPortableSnapshot({
@@ -176,9 +219,9 @@ describe('portable server snapshot', () => {
         sourceFeedEpoch: 'epoch-1',
         sourceApplicationVersion: 'test',
         sourceSchemaVersion: 'schema-1',
-        checkpoint,
+        snapshotDatabase,
       }),
     ).rejects.toThrow(/unsafe file/)
-    expect(checkpoint).toHaveBeenCalledOnce()
+    expect(snapshotDatabase).not.toHaveBeenCalled()
   })
 })

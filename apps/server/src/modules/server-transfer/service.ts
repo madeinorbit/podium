@@ -79,7 +79,12 @@ export interface ServerTransferDeps {
     | undefined
     | Promise<PromotedTargetMetadata | undefined>
   sourceHealthy(): Promise<void>
-  checkpoint(): Promise<void>
+  /**
+   * Publish a consistent copy of the live `podium.db` at `destination` through
+   * SQLite. Never a file copy: closing a descriptor on the live database drops
+   * this process's SQLite locks (POD-6263).
+   */
+  snapshotDatabase(destination: string): Promise<void>
   /** Covers SQLite and every durable portable-file writer. */
   fence(): void | Promise<void>
   releaseFence(): void | Promise<void>
@@ -751,7 +756,7 @@ export class ServerTransferService {
       sourceFeedEpoch: identity.feedEpoch,
       sourceApplicationVersion: this.deps.sourceApplicationVersion,
       sourceSchemaVersion: await this.deps.sourceSchemaVersion(),
-      checkpoint: this.deps.checkpoint,
+      snapshotDatabase: this.deps.snapshotDatabase,
     })
   }
 

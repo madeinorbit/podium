@@ -1349,7 +1349,7 @@ export class SessionRegistry {
         },
       },
       sourceHealthy: () => this.store.checkpointForTransfer(),
-      checkpoint: () => this.store.checkpointForTransfer(),
+      snapshotDatabase: (destination) => this.store.snapshotForTransfer(destination),
       fence: async () => {
         const daemonPortableState = this.localDaemonPortableState
         await daemonPortableState?.pauseAndDrain()

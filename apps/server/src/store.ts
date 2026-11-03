@@ -589,6 +589,20 @@ export class SessionStore {
   }
 
   /**
+   * The server transfer's portable `podium.db`: a consistent copy published at
+   * `destination` by the snapshot child through its own SQLite connection
+   * (POD-6263). Never a file copy of the live database: this process holds it
+   * open, and closing any descriptor on it would drop the store's SQLite locks.
+   */
+  async snapshotForTransfer(destination: string): Promise<void> {
+    if (this.path === ':memory:') throw new Error('an in-memory store has no portable database')
+    // Drain earlier transactions so the copy holds every write this process has
+    // committed; the copy itself must not hold the store's read barrier.
+    await this.executor.exclusive(async () => undefined)
+    await this.snapshotVerifier.copyTo(destination)
+  }
+
+  /**
    * Can this disk hold the pre-migration backup the successor takes at boot?
    *
    * THE OLD SERVER'S HALF OF THE ONE RECOVERY POINT (POD-6255). The update used
@@ -596,7 +610,8 @@ export class SessionStore {
    * 50 to 160 seconds on a multi-gigabyte database, all of it shown as
    * "downloading" — only for the new server to copy the database again before
    * migrating. The boot backup (`backupDatabase`) is the recovery point now: it
-   * is taken with no other writer, so a file copy is consistent and exact. What
+   * is taken with no other writer, through SQLite (`VACUUM INTO`, POD-6263), so
+   * it holds exactly the pre-migration data. What
    * the old server still owes is the early refusal: asking the same free-space
    * question here keeps a full disk from stopping the update AFTER the old
    * server has gone. A `stat` and a `statfs`; nothing is opened or written.

@@ -3,10 +3,11 @@
  * verifier and catalogue rather than about how backups are taken.
  *
  * Production backups come from the boot migration (`backupDatabase`), which
- * copies the file while nothing else is writing. A test store IS writing, so the
- * copy goes through a separate SQLite connection with `VACUUM INTO` instead: a
- * consistent read transaction, and no raw file descriptor whose close would drop
- * this process's POSIX SQLite locks on the live database.
+ * writes them with `VACUUM INTO` through the store's own connection. This helper
+ * does the same through a separate SQLite connection, without the space check,
+ * fsync or retention: a consistent read transaction, and no raw file descriptor
+ * whose close would drop this process's POSIX SQLite locks on the live database
+ * (POD-6263).
  */
 import { openDatabase } from '@podium/runtime/sqlite'
 

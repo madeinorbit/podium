@@ -39,6 +39,7 @@ import { createPortableSnapshot } from '../modules/server-transfer/snapshot'
 import { openTestStore } from '../test-support/open-test-store'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { runDrizzleMigrations } from './index'
+import { copySnapshotFile } from './snapshot-copy'
 
 const RETIRED = manifest.retiredPrincipal
 const HOST = asMachineId(manifest.hostMachineId)
@@ -327,7 +328,15 @@ describe('customer upgrade fixture: server', () => {
       sourceFeedEpoch: epoch,
       sourceApplicationVersion: 'fixture',
       sourceSchemaVersion: DRIZZLE_MIGRATIONS.at(-1)!.name,
-      checkpoint: () => {},
+      // No store is open here; the same SQLite copy the snapshot child makes.
+      snapshotDatabase: async (destination) => {
+        copySnapshotFile({
+          kind: 'copy',
+          dbPath: join(root, 'podium.db'),
+          destination,
+          correlationId: 'm1',
+        })
+      },
     })
     const paths = snapshot.files.map((entry) => entry.path)
     expect(paths).toContain('podium.db')

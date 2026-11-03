@@ -38,6 +38,7 @@ import {
   verifiedFallback,
   writeSnapshotCatalogue,
 } from './snapshot-catalogue'
+import type { CopySnapshotRequest, CopySnapshotResult } from './snapshot-copy'
 import type { VerifySnapshotRequest, VerifySnapshotResult } from './snapshot-verification'
 import { SNAPSHOT_VERIFIER_ENV } from './snapshot-verifier-child'
 
@@ -61,6 +62,12 @@ export interface SnapshotChildOutcome {
   result?: VerifySnapshotResult
   /** Set when the child itself failed — crash, timeout, unparsable output. */
   failure?: { code: 'timeout' | 'crashed' | 'unreadable-output' | 'cancelled'; detail: string }
+}
+
+/** What a copy run produced: the server transfer's portable database (POD-6263). */
+export interface SnapshotCopyOutcome {
+  result?: CopySnapshotResult
+  failure?: SnapshotChildOutcome['failure']
 }
 
 export type SnapshotChildRunner = (
@@ -108,8 +115,18 @@ export interface SnapshotProcessDeps {
 export function spawnSnapshotVerifierChild(
   request: VerifySnapshotRequest,
   timeoutMs: number,
+  deps?: SnapshotProcessDeps,
+): Promise<SnapshotChildOutcome>
+export function spawnSnapshotVerifierChild(
+  request: CopySnapshotRequest,
+  timeoutMs: number,
+  deps?: SnapshotProcessDeps,
+): Promise<SnapshotCopyOutcome>
+export function spawnSnapshotVerifierChild(
+  request: VerifySnapshotRequest | CopySnapshotRequest,
+  timeoutMs: number,
   deps: SnapshotProcessDeps = {},
-): Promise<SnapshotChildOutcome> {
+): Promise<SnapshotChildOutcome | SnapshotCopyOutcome> {
   const spawnProcess = deps.spawnProcess ?? spawn
   const compiled = deps.compiled ?? import.meta.url.includes('/$bunfs/')
   const args = compiled
@@ -119,7 +136,7 @@ export function spawnSnapshotVerifierChild(
         fileURLToPath(new URL('../../../../scripts/cli.ts', import.meta.url)),
         'snapshot-verify',
       ]
-  return new Promise<SnapshotChildOutcome>((resolve) => {
+  return new Promise<SnapshotChildOutcome | SnapshotCopyOutcome>((resolve) => {
     let child: ChildProcess
     try {
       child = spawnProcess(deps.execPath ?? process.execPath, args, {
@@ -149,7 +166,7 @@ export function spawnSnapshotVerifierChild(
     // Settling does NOT cancel the pending SIGKILL: the parent stops waiting at
     // the deadline, but the child still has to die. Only the child actually
     // exiting cancels it.
-    const finish = (outcome: SnapshotChildOutcome): void => {
+    const finish = (outcome: SnapshotChildOutcome | SnapshotCopyOutcome): void => {
       if (settled) return
       settled = true
       clearTimeout(deadline)
@@ -223,7 +240,11 @@ export function spawnSnapshotVerifierChild(
         return
       }
       try {
-        finish({ result: JSON.parse(line) as VerifySnapshotResult })
+        finish(
+          'kind' in request
+            ? { result: JSON.parse(line) as CopySnapshotResult }
+            : { result: JSON.parse(line) as VerifySnapshotResult },
+        )
       } catch (error) {
         finish({
           failure: {
@@ -383,6 +404,45 @@ export class SnapshotVerifier {
       this.dbPath,
       retainSnapshotRecords(next, this.deps.keep ?? SNAPSHOT_RECORDS_TO_KEEP, active),
     )
+  }
+
+  /**
+   * Publish a consistent copy of the live database at `destination`, written by
+   * the snapshot child through its own SQLite connection: the server transfer's
+   * portable database (POD-6263). This process never opens the live files
+   * itself, because closing any descriptor on them drops its SQLite locks. The
+   * child has the verifier's deadline and dies with it on shutdown. No
+   * retention and no catalogue record: the caller owns the file.
+   */
+  async copyTo(destination: string): Promise<void> {
+    if (this.closed) throw new Error('the snapshot child is shut down')
+    const request: CopySnapshotRequest = {
+      kind: 'copy',
+      dbPath: this.dbPath,
+      destination,
+      correlationId: randomUUID(),
+    }
+    const outcome = await spawnSnapshotVerifierChild(
+      request,
+      this.deps.timeoutMs ?? SNAPSHOT_VERIFY_TIMEOUT_MS,
+      {
+        signal: this.lifetime.signal,
+        ...(this.deps.spawnProcess ? { spawnProcess: this.deps.spawnProcess } : {}),
+        onChildLifetime: (exited) => {
+          this.children.add(exited)
+          void exited.then(() => this.children.delete(exited))
+        },
+      },
+    )
+    if (outcome.failure) {
+      throw new Error(`Database copy ${outcome.failure.code}: ${outcome.failure.detail}`)
+    }
+    const result = outcome.result
+    if (!result || result.correlationId !== request.correlationId) {
+      throw new Error('Database copy returned no matching result')
+    }
+    if (!result.ok) throw new Error(result.detail)
+    if (result.path !== destination) throw new Error('Database copy published elsewhere')
   }
 
   /**

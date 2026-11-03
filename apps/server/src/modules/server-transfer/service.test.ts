@@ -1,7 +1,7 @@
-import { asIssueId, asMachineId } from '@podium/model'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asIssueId, asMachineId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openTestStore } from '../../test-support/open-test-store'
 import { assertWritableServerBoot } from './journal'
@@ -239,7 +239,9 @@ function makeService(
     targetState: () => ({ exists: true, online: true, capable: true, hasDaemon: true }),
     localPromotedTransfer: () => undefined,
     sourceHealthy: vi.fn(async () => undefined),
-    checkpoint: vi.fn(async () => undefined),
+    snapshotDatabase: vi.fn(async (destination: string) => {
+      await copyFile(join(root, 'podium.db'), destination)
+    }),
     fence: vi.fn(),
     releaseFence: vi.fn(),
     demoteSource: vi.fn(),
@@ -276,16 +278,17 @@ describe('ServerTransferService final-fence flow', () => {
     const fence = vi.fn(() => {
       order.push('fence')
     })
-    const checkpoint = vi.fn(async () => {
-      order.push(fence.mock.calls.length === 0 ? 'checkpoint:writable' : 'checkpoint:fenced')
+    const snapshotDatabase = vi.fn(async (destination: string) => {
+      order.push(fence.mock.calls.length === 0 ? 'snapshot:writable' : 'snapshot:fenced')
+      await copyFile(join(root, 'podium.db'), destination)
     })
-    const service = makeService(fake.rpc, { fence, checkpoint })
+    const service = makeService(fake.rpc, { fence, snapshotDatabase })
 
     const result = await service.transfer(input, allow)
 
     expect(result).toMatchObject({ ok: true, state: 'committed' })
     expect(fence).toHaveBeenCalledOnce()
-    expect(order).toEqual(['checkpoint:writable', 'fence', 'checkpoint:fenced'])
+    expect(order).toEqual(['snapshot:writable', 'fence', 'snapshot:fenced'])
     expect(fake.operations.filter((operation) => operation.startsWith('prepare:'))).toHaveLength(2)
     expect(fake.operations.some((operation) => operation.startsWith('abort:'))).toBe(true)
 
@@ -498,7 +501,6 @@ describe('ServerTransferService final-fence flow', () => {
     expect(fake.rpc.serverTransferAbort).toHaveBeenCalledOnce()
     expect(fence).not.toHaveBeenCalled()
   })
-
 })
 
 /**

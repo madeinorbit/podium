@@ -16,7 +16,8 @@ import { fsyncPathAsync } from '@podium/runtime/fsync'
  * database-backed update-signing key and Connect identity belong to the server,
  * unlike machine credentials and runtime files. Neither is a generic file RPC.
  */
-const ROOT_FILES = ['podium.db'] as const
+const DATABASE_FILE = 'podium.db'
+const ROOT_FILES = [DATABASE_FILE] as const
 // `pending-uploads`: composer files held until a send claims them (POD-2148).
 const ROOT_DIRECTORIES = ['transcripts', 'artifacts', 'uploads', 'pending-uploads'] as const
 export const MAX_TRANSFER_BYTES = 512 * 1024 * 1024
@@ -94,6 +95,7 @@ async function snapshotEntry(
   stateRoot: string,
   packageDir: string,
   portablePath: string,
+  snapshotDatabase: (destination: string) => Promise<void>,
 ): Promise<ServerTransferManifestEntry> {
   if (!isSafeRelativePath(portablePath)) throw new Error(`unsafe portable path: ${portablePath}`)
   const source = join(stateRoot, ...portablePath.split('/'))
@@ -111,19 +113,27 @@ async function snapshotEntry(
   const destination = join(packageDir, ...portablePath.split('/'))
   await mkdir(dirname(destination), { recursive: true, mode: 0o700 })
   const temporary = `${destination}.${process.pid}.tmp`
-  await copyFile(source, temporary, constants.COPYFILE_EXCL)
+  // The live database is read through SQLite, never copied: this process holds
+  // it open, and closing a copy's descriptor would drop its SQLite locks
+  // (POD-6263). SQLite's read transaction makes that copy consistent, so only
+  // ordinary files need the changed-while-copying check below.
+  const database = portablePath === DATABASE_FILE
   try {
+    if (database) await snapshotDatabase(temporary)
+    else await copyFile(source, temporary, constants.COPYFILE_EXCL)
     await fsyncPathAsync(temporary)
-    const after = await lstat(source)
-    if (
-      !after.isFile() ||
-      after.isSymbolicLink() ||
-      before.dev !== after.dev ||
-      before.ino !== after.ino ||
-      before.size !== after.size ||
-      before.mtimeMs !== after.mtimeMs
-    ) {
-      throw new Error(`portable source changed while snapshotting: ${portablePath}`)
+    if (!database) {
+      const after = await lstat(source)
+      if (
+        !after.isFile() ||
+        after.isSymbolicLink() ||
+        before.dev !== after.dev ||
+        before.ino !== after.ino ||
+        before.size !== after.size ||
+        before.mtimeMs !== after.mtimeMs
+      ) {
+        throw new Error(`portable source changed while snapshotting: ${portablePath}`)
+      }
     }
     await rename(temporary, destination)
     await fsyncPathAsync(dirname(destination))
@@ -134,7 +144,9 @@ async function snapshotEntry(
 
   return {
     path: portablePath,
-    size: before.size,
+    // What was written: a database copy is compacted, so it can be smaller than
+    // the live file; an ordinary file is byte-identical to its source.
+    size: (await lstat(destination)).size,
     mode: before.mode & 0o777,
     sha256: await sha256(destination),
   }
@@ -189,14 +201,14 @@ export async function createPortableSnapshot(input: {
   sourceFeedEpoch: string
   sourceApplicationVersion: string
   sourceSchemaVersion: string
-  checkpoint(): void | Promise<void>
+  /** Publish a consistent copy of the live database at `destination` through SQLite. */
+  snapshotDatabase(destination: string): Promise<void>
 }): Promise<ServerTransferManifest & { digest: string }> {
-  await input.checkpoint()
   await rm(input.packageDir, { recursive: true, force: true })
   await mkdir(input.packageDir, { recursive: true, mode: 0o700 })
   const files: ServerTransferManifestEntry[] = []
   for (const path of await regularFiles(input.stateRoot)) {
-    files.push(await snapshotEntry(input.stateRoot, input.packageDir, path))
+    files.push(await snapshotEntry(input.stateRoot, input.packageDir, path, input.snapshotDatabase))
   }
   const packageBytes = files.reduce((sum, entry) => sum + entry.size, 0)
   if (packageBytes > MAX_TRANSFER_BYTES)

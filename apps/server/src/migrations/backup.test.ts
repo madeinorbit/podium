@@ -1,7 +1,8 @@
 /**
- * Durable snapshot tests: free-space refusal, atomic publication, partial-copy
- * cleanup, bounded retention, suspicious-file preservation, and non-fatal
- * pruning. Every filesystem fixture is removed after its test.
+ * Durable snapshot tests: free-space refusal, atomic publication through SQLite,
+ * partial-file cleanup, the live connection's locks (POD-6263), bounded
+ * retention, suspicious-file preservation, and non-fatal pruning. Every
+ * filesystem fixture is removed after its test.
  */
 
 import {
@@ -20,12 +21,20 @@ import { basename, dirname, join } from 'node:path'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  exclusiveLockFromAnotherProcess,
+  openFromAnotherProcess,
+  posixLocksOn,
+  readLockCovers,
+  SHM_DEADMAN_SWITCH_BYTE,
+} from '../test-support/sqlite-locks'
+import {
   backupDatabase,
   backupSpaceShortfall,
   freeDiskBytes,
   MIGRATION_BACKUPS_TO_KEEP,
   measureBackupSpace,
 } from './backup'
+import { configureStoreConnection } from './store-lifecycle'
 
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>()
@@ -105,7 +114,7 @@ describe('backupDatabase preflight', () => {
    */
   it('the pre-restart preflight is never more permissive than the boot backup', () => {
     const { db, dbPath } = tmpDb()
-    // A live WAL that the boot backup will checkpoint away before measuring.
+    // Rows past the last checkpoint: both halves measure the files as they are.
     db.exec(`PRAGMA wal_autocheckpoint=0;
       WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i<200)
       INSERT INTO t SELECT 'row-' || i FROM n;`)
@@ -123,24 +132,54 @@ describe('backupDatabase preflight', () => {
     db.close()
   })
 
-  it('publishes a sufficient snapshot only after temp-copy fsync and rename', () => {
+  it('publishes a SQLite snapshot only after the partial file is fsynced and renamed', () => {
     const { db, dbPath, dir } = tmpDb()
 
     const backupPath = backupDatabase(db, dbPath, 'ok', PLENTY)
 
     expect(backupPath).toBeDefined()
     expect(dirname(backupPath as string)).toBe(dir)
-    expect(existsSync(backupPath as string)).toBe(true)
-    expect(statSync(backupPath as string).size).toBe(statSync(dbPath).size)
     expect(backupMains(dir)).toEqual([basename(backupPath as string)])
-    expect(String(vi.mocked(copyFileSync).mock.calls[0]?.[1])).toContain('.partial-')
-    expect(vi.mocked(renameSync).mock.calls.at(-1)?.[1]).toBe(backupPath)
+    // One self-contained file, written by SQLite: no sidecars, and no plain
+    // copy of the live database's files.
+    expect(existsSync(`${backupPath}-wal`)).toBe(false)
+    expect(existsSync(`${backupPath}-shm`)).toBe(false)
+    expect(vi.mocked(copyFileSync)).not.toHaveBeenCalled()
+    const copy = openDatabase(backupPath as string, { readOnly: true })
+    expect(copy.prepare('SELECT id FROM t').all()).toEqual([{ id: 'x' }])
+    copy.close()
+
+    const publish = vi.mocked(renameSync).mock.calls.at(-1)
+    expect(String(publish?.[0])).toContain('.partial-')
+    expect(publish?.[1]).toBe(backupPath)
     const fileFsyncOrder = vi.mocked(fsyncSync).mock.invocationCallOrder[0]
     const publishOrder = vi.mocked(renameSync).mock.invocationCallOrder.at(-1)
     if (fileFsyncOrder === undefined || publishOrder === undefined) {
       throw new Error('snapshot did not reach fsync and rename')
     }
     expect(fileFsyncOrder).toBeLessThan(publishOrder)
+    db.close()
+  })
+
+  it('holds rows still in the WAL without checkpointing the live database', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-backup-wal-'))
+    tempDirs.push(dir)
+    const dbPath = join(dir, 'podium.db')
+    const db = openDatabase(dbPath)
+    configureStoreConnection(db)
+    db.exec('PRAGMA wal_autocheckpoint = 0')
+    db.exec(
+      `CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT); INSERT INTO t (v) VALUES ('in the WAL')`,
+    )
+    const walBytes = statSync(`${dbPath}-wal`).size
+    expect(walBytes).toBeGreaterThan(0)
+
+    const backupPath = backupDatabase(db, dbPath, 'wal', PLENTY) as string
+
+    const copy = openDatabase(backupPath, { readOnly: true })
+    expect(copy.prepare('SELECT v FROM t').all()).toEqual([{ v: 'in the WAL' }])
+    copy.close()
+    expect(statSync(`${dbPath}-wal`).size).toBe(walBytes)
     db.close()
   })
 
@@ -151,11 +190,12 @@ describe('backupDatabase preflight', () => {
   })
 })
 
-describe('backupDatabase partial-copy cleanup', () => {
-  it('never publishes the truncated file when a copy fails mid-way', () => {
+describe('backupDatabase partial-file cleanup', () => {
+  it('never publishes a snapshot whose bytes did not reach the disk', () => {
     const { db, dbPath, dir } = tmpDb()
-    vi.mocked(copyFileSync).mockImplementationOnce((_src, dest) => {
-      writeFileSync(dest as string, 'truncated')
+    // The first fsync is the partial file's: the bytes are written but cannot
+    // be made durable, so nothing may be published.
+    vi.mocked(fsyncSync).mockImplementationOnce(() => {
       throw Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' })
     })
 
@@ -229,6 +269,46 @@ describe('backupDatabase retention', () => {
     expect(backupPath).toBeDefined()
     expect(existsSync(backupPath as string)).toBe(true)
     db.close()
+  })
+})
+
+describe("backupDatabase keeps the live connection's SQLite locks [POD-6263]", () => {
+  it('leaves another process unable to mistake itself for the only connection', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-backup-locks-'))
+    tempDirs.push(dir)
+    const dbPath = join(dir, 'podium.db')
+    const db = openDatabase(dbPath)
+    configureStoreConnection(db)
+    db.exec(`CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT); INSERT INTO t (v) VALUES ('before')`)
+    try {
+      // Before: the store's connection holds the database SHARED lock and the
+      // wal-index deadman switch, like the healthy server on ludovico.
+      const before = posixLocksOn(`${dbPath}-shm`)
+      if (before) expect(readLockCovers(before, SHM_DEADMAN_SWITCH_BYTE)).toBe(true)
+
+      backupDatabase(db, dbPath, 'locks', PLENTY)
+
+      const shmLocks = posixLocksOn(`${dbPath}-shm`)
+      const dbLocks = posixLocksOn(dbPath)
+      if (shmLocks && dbLocks) {
+        expect.soft(readLockCovers(shmLocks, SHM_DEADMAN_SWITCH_BYTE)).toBe(true)
+        expect.soft(dbLocks.length).toBeGreaterThan(0)
+      }
+
+      // What any other program does next. Had this process dropped its locks,
+      // another process could take the database exclusively, and an ordinary
+      // reader would find itself alone: closing would checkpoint and delete
+      // both sidecars this connection still has open and mapped.
+      expect.soft(exclusiveLockFromAnotherProcess(dbPath)).toBe('refused')
+      openFromAnotherProcess(dbPath)
+      expect(existsSync(`${dbPath}-wal`)).toBe(true)
+      expect(existsSync(`${dbPath}-shm`)).toBe(true)
+
+      db.exec(`INSERT INTO t (v) VALUES ('after')`)
+      expect(db.prepare('SELECT count(*) AS n FROM t').get()).toEqual({ n: 2 })
+    } finally {
+      db.close()
+    }
   })
 })
 

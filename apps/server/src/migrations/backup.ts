@@ -1,28 +1,34 @@
 /**
  * Durable database snapshots shared by boot migrations and update operations.
  *
- * A snapshot is copied to a temporary sibling, fsynced, and renamed only when
- * complete.
+ * A snapshot is written by SQLite (`VACUUM INTO`) to a temporary sibling,
+ * fsynced, and renamed only when complete.
+ *
+ * NOTHING HERE OPENS THE LIVE DATABASE FILES OUTSIDE SQLITE (POD-6263). POSIX
+ * advisory locks belong to the process, and closing ANY descriptor on a file
+ * releases every lock the process holds on it. The boot backup used to
+ * `copyFileSync` podium.db, -wal and -shm from inside the server while its
+ * connection was open, which silently dropped the database SHARED lock and the
+ * wal-index deadman-switch lock for the rest of the server's life. The next
+ * process to open the database then believed it was alone, truncated and
+ * rebuilt the -shm under the server's mapping, and the server died of SIGBUS in
+ * `walFindFrame` (four crashes on ludovico, October to November 2026);
+ * https://sqlite.org/howtocorrupt.html §2.2 is the corruption form of the same
+ * hazard. `VACUUM INTO` reads through SQLite, which keeps its descriptors and
+ * locks, and writes a different file.
  *
  * NOTHING HERE OPENS A RETAINED SNAPSHOT (POD-3068). Retention used to decide
  * what to evict by running `PRAGMA quick_check` over every retained file, and
  * the read path used to do the same before answering "what can I restore to?" —
  * ~80 seconds of blocked event loop on three ~747 MiB files. Proving a snapshot
  * is now the child process's job (`snapshot-verifier.ts`) and its answer is read
- * from the published catalogue; this module stats, copies, renames and unlinks.
+ * from the published catalogue; this module stats, snapshots through SQLite,
+ * renames and unlinks.
  */
 
 import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import {
-  copyFileSync,
-  existsSync,
-  readdirSync,
-  renameSync,
-  rmSync,
-  statfsSync,
-  statSync,
-} from 'node:fs'
+import { existsSync, readdirSync, renameSync, rmSync, statfsSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import { fsyncPath } from '@podium/runtime/fsync'
@@ -89,8 +95,9 @@ export interface BackupSpace {
  * the backup at boot ({@link backupDatabase}); the old server asks this same
  * question before it restarts, so a disk that cannot hold the copy refuses the
  * update while the old server is still serving instead of after it has stopped.
- * Measuring before a WAL checkpoint counts the sidecars at their current size,
- * which can only overstate what the checkpointed copy needs.
+ * Counting the sidecars at their current size can only overstate what the
+ * backup needs: `VACUUM INTO` writes at most every live page, the main file
+ * plus what the WAL adds, and never the -shm.
  */
 export function measureBackupSpace(
   dbPath: string,
@@ -118,13 +125,53 @@ export function backupSpaceShortfall(space: BackupSpace): string | undefined {
 }
 
 /**
- * Copies the on-disk database (plus -wal/-shm sidecars when present) to a
- * timestamped sibling, then prunes old usable snapshots.
+ * Write a consistent snapshot of `db`'s database to `path` through SQLite, and
+ * publish it atomically.
  *
- * Safety: called while this process owns the live connection, after
- * `PRAGMA wal_checkpoint(TRUNCATE)` folded the WAL into the main file. The main
- * backup filename is published last, after every temporary copy has been
- * fsynced, so a mid-copy ENOSPC can never leave a truncated restorable file.
+ * `VACUUM INTO` runs inside one read transaction, so the snapshot holds every
+ * committed row, including rows still in the WAL, with no checkpoint first and
+ * no -wal/-shm sidecars after: the result is one self-contained, compacted
+ * file. SQLite does not fsync what it writes there, so this does, then renames
+ * the partial file to `path` (the trust marker) and fsyncs the directory. A
+ * failure removes whatever this call created and rethrows.
+ *
+ * `db` may be the live connection itself or another connection to the same
+ * file: either way every access to the live files goes through SQLite.
+ */
+export function vacuumIntoPublished(db: SqlDatabase, path: string): void {
+  const dir = dirname(path)
+  const partial = `${path}.partial-${randomUUID()}`
+  let published = false
+  try {
+    db.prepare('VACUUM INTO ?').run(partial)
+    fsyncPath(partial)
+    renameSync(partial, path)
+    published = true
+    // Persist the directory entry before a caller records this path or
+    // migrates the database it protects.
+    fsyncPath(dir)
+  } catch (err) {
+    log.warn('database snapshot did not complete; removing its unpublished files', {
+      path: partial,
+      err,
+    })
+    for (const suffix of ['', '-journal', '-wal', '-shm']) {
+      rmSync(`${partial}${suffix}`, { force: true })
+    }
+    if (published) rmSync(path, { force: true })
+    throw err
+  }
+}
+
+/**
+ * Snapshots the database to a timestamped sibling, then prunes old usable
+ * snapshots.
+ *
+ * Called by the boot migration through the store's own connection, before any
+ * migration runs; since POD-6255 this is the one recovery point an update
+ * leaves. The snapshot goes through SQLite ({@link vacuumIntoPublished}), never
+ * through a file copy: this process has the database open, and closing a copy's
+ * descriptor would drop its SQLite locks (see the module header).
  *
  * `freeBytes` and `prune` are injectable for focused failure tests.
  */
@@ -137,7 +184,6 @@ export function backupDatabase(
   activeFallback: () => string | undefined = () => undefined,
 ): string | undefined {
   if (!existsSync(dbPath)) return undefined
-  db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
 
   const space = measureBackupSpace(dbPath, freeBytes)
   const shortfall = backupSpaceShortfall(space)
@@ -153,45 +199,13 @@ export function backupDatabase(
     throw new Error(shortfall)
   }
 
-  const dir = space.dir
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')
   const backupPath = `${dbPath}.backup-v${label}-${stamp}`
-  const partialPath = `${backupPath}.partial-${randomUUID()}`
-  const suffixes = ['', '-wal', '-shm'].filter(
-    (suffix) => suffix === '' || existsSync(`${dbPath}${suffix}`),
-  )
-  try {
-    for (const suffix of suffixes) {
-      const temp = `${partialPath}${suffix}`
-      copyFileSync(`${dbPath}${suffix}`, temp)
-      fsyncPath(temp)
-    }
-
-    // Sidecars become visible first; the main filename is the trust marker and
-    // is published last, only after every byte of the snapshot set is durable.
-    for (const suffix of suffixes.filter(Boolean)) {
-      renameSync(`${partialPath}${suffix}`, `${backupPath}${suffix}`)
-    }
-    renameSync(partialPath, backupPath)
-
-    // Persist the directory entry before the update operation records this path
-    // and asks the coordinator to restart onto code that may run migrations.
-    fsyncPath(dir)
-  } catch (err) {
-    log.warn('database snapshot did not complete; removing its unpublished files', {
-      path: partialPath,
-      err,
-    })
-    for (const suffix of ['', '-wal', '-shm']) {
-      rmSync(`${partialPath}${suffix}`, { force: true })
-      rmSync(`${backupPath}${suffix}`, { force: true })
-    }
-    throw err
-  }
+  vacuumIntoPublished(db, backupPath)
 
   try {
-    // Normal-operation cleanup: every successful snapshot, including the
-    // update server step, reaches retention immediately.
+    // Normal-operation cleanup: every successful snapshot reaches retention
+    // immediately.
     prune(dbPath, activeFallback())
   } catch (err) {
     // Cleanup must not turn an already durable recovery point into an update
