@@ -1,6 +1,6 @@
 # Multi-user Podium instance: design
 
-Status: accepted by the user, 3 November 2026 (Q1 and Q2 decided; the outbox question was dropped as out of scope). Issue: POD-6281 under PDM-107.
+Status: accepted by the user, 3 November 2026 (Q1 and Q2 decided; the outbox question was dropped as out of scope). Revised the same day after checking every task against it; Q4 is open (section 5). Issue: POD-6281 under PDM-107.
 
 This file lives on the epic's integration branch `integrate/pdm-107-multi-user` (cut from `dev/mw`). Every task branches from that branch and fast-forwards back into it.
 Written against `dev/mw` at `94a059bf3a7c65cb9a1effe761d8737c4796b1fa`. All file references below are to that commit.
@@ -30,19 +30,19 @@ A one-person instance runs exactly the same model, so nothing here may change ho
 - **Reading.** Every active member can read every task, including tasks agents created (D4). There is no private-task option and no per-task read grant.
 - **Editing.** Every active member can edit ordinary task content and properties and comment (D5). Description and brief edits are kept as attributed revisions that can be restored. Only a comment's author edits that comment.
 - **The assignee.** Each task has exactly one accountable human, shown as **Assignee** (D1, D10). Any active member can reassign a task to any active member (D2). Agents never change the human assignee.
-- **Creator and collaborators.** The creator is recorded separately and never changes. Collaborators are participation records, not access grants.
+- **Creator and collaborators.** The creator is recorded separately and never changes. In the first release a task's collaborators are the members who explicitly joined it or started work on it (their personal start or join records). There is no separate add-collaborator command; naming someone else as a collaborator comes with following, which is deferred. Collaborators gain no access.
 - **Lifecycle commands.** Destructive or operational commands (delete, restore, shipping, stage transitions with gates) keep their own command contracts. Being able to edit a task is not enough to run them.
 - **The sidebar is personal (D3).** It shows tasks the person started or joined, plus a removable "assigned to you by X" row for tasks assigned to them. Seeing a task, searching for it or opening it adds nothing to the sidebar.
 
 ### 2.3 Sessions and agents are private
 
 - **Ownership.** A session belongs to the person who started it, or to the person on whose behalf an agent started it. The session's task does not change that. If Bob starts an agent on Alice's task, the session is Bob's.
-- **No one else gets in.** Only the session's owner can read, drive, resume, approve or download from it (D7). That excludes other members, the task's assignee and admins.
+- **No one else gets in.** Only the session's owner can read, drive, resume, approve or download from it (D7). That excludes other members, their agents, the task's assignee and admins. Input into a session counts as driving it, including answering the agent's needs-human question and clicking one of its offer actions: only the session's own human may do either.
 - **No session sharing.** Session sharing commands are refused at the server, and existing cross-person session grants have no effect.
 - **What task readers see (D13).** For each session on a task they can read, other members see the owner, the title and whether it is live or idle. They never see its content or controls.
 - **Agents act for one human.** An agent acts for exactly one human: the root of its delegation chain. The server records this as `sessions.delegation`, written by the server (POD-3961).
 - **Agent limits.** An agent can read every task its human can read. It can write within its own task subtree, or anywhere its human can write if it says `--outside-scope`. It can never reach another human's sessions.
-- **Who an agent talks to.** "Talks to the user" in the seat rule means the agent's own human. A top coordinator working on someone else's task still asks its own human.
+- **Who an agent talks to.** "Talks to the user" in the seat rule means the agent's own human. A session's coordinator is the nearest coordinator acting for the same human; another human's coordinator is skipped. A top coordinator working on someone else's task asks its own human.
 - **Reassignment leaves work in place.** Reassigning a task does not move sessions, credentials, approvals or spending. Existing agents keep working under their original human (September addendum §6).
 
 ### 2.4 Machines: the POD-3955 model, as shipped
@@ -57,8 +57,8 @@ This replaces the September D9 ("exactly one executing human per machine, no sha
 
 **Running on someone else's machine is allowed, with clear warnings (decided 3 Nov 2026, Q1).**
 - When Bob holds `use` on Alice's machine, Bob's runs use only Bob's own provider connection, which he explicitly sends to that machine.
-- Alice's native logins on it are never used for Bob, and a run with no usable connection of Bob's fails clearly.
-- Granting `use` to another person, accepting it, and sending a connection to that machine each show the same warning: both people's agents run under the machine's OS account, so each can read the other's files and installed credentials there.
+- Alice's native logins on it are never used for Bob, and a run with no usable connection of Bob's fails clearly. If the harness cannot use Bob's login there without replacing Alice's, the run fails clearly too; nothing is overwritten.
+- The same warning is shown when someone grants `use` to another person, to the grantee before their first run on that machine, and when a connection is sent there: both people's agents run under the machine's OS account, so each can read the other's files and installed credentials there. (`dev/mw` has no accept step for a `use` grant.)
 
 ### 2.5 Provider accounts and credentials
 
@@ -206,7 +206,7 @@ The task row carries fields that belong to someone's private work. These include
 
 - **Revisions.** Record description and brief revisions on top of the existing change-provenance machinery (`store/issue-revision.ts`). Restore creates a new revision.
 - **Comments.** A comment carries its author, and only that author edits it. Admin moderation is audited.
-- **Personal records.** Per-member start and join reasons, plus removable assignment rows, feed the sidebar. Collaborators are participation records with no access meaning.
+- **Personal records.** Per-member start and join reasons, plus removable assignment rows, feed the sidebar. The same start and join records define a task's collaborators (§2.2); they have no access meaning.
 
 ### 4.5 Sync and clients
 
@@ -226,6 +226,7 @@ The task row carries fields that belong to someone's private work. These include
 ## 5. Decisions taken on this design (3 November 2026)
 
 - **Q1, running on someone else's machine:** allowed, with the warnings in §2.4. A run uses only the runner's own connection, and the custodian's logins are never borrowed.
+- **Q4, working on someone else's task (OPEN, recommendation pending the user):** a task keeps exactly one worktree on one machine, as today (`issues.worktree_path`, `issues.machine_id`). Another member's agents work in it only with `use` on that machine (Q1 warnings apply); otherwise they contribute through their own sub-tasks, which get their own worktrees on their own machines. Per-person worktrees for one task are not in the first release.
 - **Q2, existing provider accounts on upgrade:** they go to the custodian of the source machine where known, otherwise to the earliest admin, with an upgrade note.
 - **Dropped:** whether unsent offline commands survive namespace eviction. It is not a multi-user question. The multi-user rule, that one person's queued commands are never sent as another person, is MU-12.
 
@@ -235,13 +236,13 @@ Each row is proved by a two-member test (Alice admin, Bob member, Carol disabled
 
 | ID | Observation | Owner |
 |---|---|---|
-| MU-01 | A fresh one-member install and an upgraded one both act as an ordinary member. Open mode is local-only and ends once anyone has a password. | POD-6285 |
+| MU-01 | A fresh one-member install and an upgraded one both act as an ordinary member. Open mode is local-only and ends once anyone has a password or a second member exists. | POD-6285 |
 | MU-02 | Forged payload identity has no effect. Each transport resolves the caller's own member. | POD-6285 |
 | MU-03 | An invite is consumed once under concurrency. Carol sees nothing and cannot sign in. The last admin cannot be removed or demoted. | POD-6298 |
 | MU-04 | Alice's task appears for Bob under All users, in search, and in Bob's agent's discovery, with Alice as assignee. It does not appear in Bob's sidebar. | POD-6296 |
 | MU-05 | Bob reads and edits Alice's task and its task artifacts on every path, without any grant. | POD-6288 |
 | MU-06 | No path carries Alice's execution-private task fields to Bob. Bob sees only D13 metadata for Alice's sessions. | POD-6288 |
-| MU-07 | Bob's agent on Alice's task belongs to Bob. Alice, and admin Alice, cannot read, drive, resume or approve it. Reassignment does not change that. | POD-6283 |
+| MU-07 | Bob's agent on Alice's task belongs to Bob. Alice, admin Alice and Alice's agents cannot read, drive, resume or approve it, answer its questions or click its offers. | POD-6283 |
 | MU-08 | Session file bytes, transcripts, conversation search, approvals and superagent session tools refuse a non-owner. | POD-6284 |
 | MU-09 | Me / All users and Show agent tasks are filters. The sidebar and preferences stay personal. (UI) | POD-6294 |
 | MU-10 | Task access never grants machine use. A `use` grant never grants session access. An unowned machine runs nothing. Admin custody is audited as a takeover. | POD-6286 |
@@ -253,12 +254,12 @@ Each row is proved by a two-member test (Alice admin, Bob member, Carol disabled
 | MU-16 | An automation is owner-only for read, edit, run and transfer. | POD-6284 |
 | MU-17 | Concurrent edits and claims resolve by revision, with attributed events and no idempotency-result leak across members. | POD-6287 (claims), POD-6289 (edits) |
 | MU-19 | Bob's edit to Alice's task is a revision attributed to Bob. Restore creates a new revision. Bob cannot edit Alice's comment. | POD-6289 |
-| MU-21 | Bob's edit or mention on Alice's task cannot create or widen an effect under Alice's credentials. | POD-6286 |
+| MU-21 | Bob's edit or mention on Alice's task cannot create or widen an effect under Alice's credentials. | POD-6296 |
 | MU-24 | Reassignment by any active member notifies both people, and agents cannot reassign humans. Delete or status changes cannot stop another person's session. | POD-6287 |
 | MU-26 | Alice's and Bob's provider connections, login attempts and quotas stay separate. A missing selection never falls through. | POD-6300 |
 | MU-27 | The D11 checkbox installs only on the owner's custody machines. An existing different login on a machine is preserved. | POD-6301 |
-| MU-28 | Bob's run on Alice's machine uses only Bob's connection, never Alice's logins; granting, accepting and sending show the shared-account warning; a missing connection fails clearly. | POD-6300 |
-| MU-30 | After reassignment, existing runs keep their original scope and human. Approvals and usage stay with the run owner. | POD-6287 |
+| MU-28 | Bob's run on Alice's machine uses only Bob's connection, never Alice's logins; the shared-account warning appears on granting, before the grantee's first run there, and on sending a connection; a missing or conflicting connection fails clearly. | POD-6300 |
+| MU-30 | After reassignment, existing runs keep their original scope and human, and the new assignee gets no access to them. Approvals and usage stay with the run owner. | POD-6287 |
 
 Rows dropped from the September matrix:
 - **MU-18:** hosted, moves to PDM-494.
@@ -272,7 +273,7 @@ Rows dropped from the September matrix:
 | POD-6283 Private sessions | Keep. Covers gaps 2 (sessions part) and 3, plus the session half of §4.1's class policy. | `session-authz.ts`, `command-principal.ts`, `issue-authz.ts`, session commands |
 | POD-6284 Private resource routes | Keep. Add automations and runs. | `file-asset-route.ts`, conversations search, `modules/superagent/tools.ts`, approvals, mail/inbox |
 | POD-6285 Retired identity fallbacks | Keep. Covers gap 7 and the request-path half of gap 6 (`settingsViewer` and the session, superagent and messages paths). | the files in gap 6 except `broadcastViewer`, `feed-visibility.ts:278` |
-| POD-6286 Daemon delegation checks | Keep. Covers gaps 8 and 9. | `gateway/machine-directory.ts`, session start, handoff, binding store |
+| POD-6286 Daemon delegation checks | Keep. Covers gaps 8 and 9, and MU-10. MU-21 moved to POD-6296 (it needs member-wide task edits first). | `gateway/machine-directory.ts`, session start, handoff, binding store |
 | POD-6287 One accountable assignee | Keep. | `fields/issue.ts`, `store/issue-listings.ts`, claim, CLI and MCP |
 | POD-6288 Shared and private task data | **Widen.** It owns §4.2 and the task half of §4.1 in **both** commands and feed (gap 1). The feed's task readability moves here from POD-6291. | `issue-authz.ts` (model and server), `feed-visibility.ts`, issue projection |
 | POD-6289 Task edit history | Keep. | `store/issue-revision.ts`, comments |
@@ -282,7 +283,7 @@ Rows dropped from the September matrix:
 | POD-6293 Access change invalidation | Keep. | authorization revision, outbox dispatch, daemon fencing |
 | POD-6294 Task filters and sidebar | Keep. | web task views |
 | POD-6295 Shared task detail | Keep. | web task detail |
-| POD-6296 Agent task discovery | Keep. Add the seat rule's "talks to its own human" (§2.3). | issue CLI and MCP, `service/seat.ts` |
+| POD-6296 Agent task discovery | Keep. Add the seat rule (§2.3), the `--assignee` filter, and MU-21. | issue CLI and MCP, `service/seat.ts` |
 | POD-6297 Mobile and desktop parity | Keep. | phone and desktop shells |
 | POD-6298 Admission and member lifecycle | Keep, but much exists already: prove it with two members and fill gaps (recent authentication, last admin, recovery). | `member-routes.ts`, `store/users.ts`, `auth-route.ts` |
 | POD-6299 Administration area | Keep. | settings UI, machines panel |
@@ -290,7 +291,10 @@ Rows dropped from the September matrix:
 | POD-6301 Owned-machine credential propagation | Keep. | accounts, machine enrollment |
 | POD-6302 / 6303 / 6304 Release | Keep. | upgrade fixtures, acceptance, notes |
 
-**Order constraint.** POD-6288 must land after POD-6283 and POD-6284, which is already the case. Within POD-6288, the field split lands before read widening.
+**Order constraints.**
+- POD-6288 lands after POD-6283 and POD-6284. Within POD-6288, the field split lands before read widening, and removing the human `all` scope comes last.
+- POD-6287 (reassignment by any member) lands after POD-6288, because Bob can only reassign Alice's task once members can edit each other's tasks.
+- POD-6302 waits for every implementation task, including POD-6286.
 
 ## 8. Sources
 
