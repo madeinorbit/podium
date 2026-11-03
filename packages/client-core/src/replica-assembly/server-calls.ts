@@ -5,7 +5,8 @@ import { observable, type Unsubscribable } from '@trpc/server/observable'
 
 const defaultLog = createLogger('client-core:server-calls')
 
-export const SERVER_UNAVAILABLE_MESSAGE = 'The server is briefly unavailable.'
+export const SERVER_UNAVAILABLE_MESSAGE =
+  "Can't reach the Podium server. It may be restarting or stopped. Try again in a moment."
 
 /**
  * A fetch-level failure with copy that is safe to surface through tRPC.
@@ -188,15 +189,49 @@ export function isServerUnavailable(error: unknown): boolean {
   )
 }
 
+/**
+ * A response body that was not the JSON a Podium endpoint sends.
+ *
+ * Engines disagree on the error: V8 and JavaScriptCore's `JSON.parse` throw a
+ * real `SyntaxError`, but WebKit's `Response.json()` (Safari, the macOS desktop
+ * webview, iOS) rejects with a `DOMException` NAMED `SyntaxError`, which is not
+ * an instance of the global class and whose message is "The string did not
+ * match the expected pattern." Matching on `instanceof` alone let exactly that
+ * message reach the operator whenever a stopped server's proxy answered with an
+ * HTML 502 or a shutting-down server with a plain-text 503 (POD-6306).
+ */
+export function isBodyParseFailure(value: unknown): boolean {
+  return (
+    value instanceof SyntaxError ||
+    (typeof value === 'object' &&
+      value !== null &&
+      (value as { name?: unknown }).name === 'SyntaxError')
+  )
+}
+
+/**
+ * Read a Podium endpoint's JSON body, turning an unparseable one into
+ * {@link ServerUnavailableError}: whatever answered was not a working Podium
+ * server (a proxy's error page, a restart's plain-text 503, a cut response).
+ */
+export async function readServerJson<T = unknown>(response: Response): Promise<T> {
+  try {
+    return (await response.json()) as T
+  } catch (error) {
+    if (isAbort(error)) throw error
+    throw new ServerUnavailableError(error)
+  }
+}
+
 function isInterrupted(error: unknown): boolean {
   return causedBy(
     error,
-    (value) => value instanceof ServerUnavailableError || value instanceof SyntaxError,
+    (value) => value instanceof ServerUnavailableError || isBodyParseFailure(value),
   )
 }
 
 function isParseFailure(error: unknown): boolean {
-  return causedBy(error, (value) => value instanceof SyntaxError)
+  return causedBy(error, isBodyParseFailure)
 }
 
 function unavailable<TRouter extends AnyRouter>(

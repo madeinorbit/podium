@@ -172,6 +172,56 @@ describe('reportingFetch', () => {
     expect(base.mock.calls[3]?.[0]).toContain('/trpc/updates.fleet')
   })
 
+  /**
+   * WebKit (Safari, the macOS desktop webview, iOS) rejects `Response.json()` on
+   * a non-JSON body with a DOMException named `SyntaxError` — NOT an instance of
+   * the global `SyntaxError` — whose message is "The string did not match the
+   * expected pattern." That reached the operator verbatim whenever the server was
+   * down behind a proxy (an HTML 502) or shutting down (a plain-text 503).
+   */
+  function webkitBody(body: string, init: ResponseInit): Response {
+    const response = new Response(body, init)
+    Object.defineProperty(response, 'json', {
+      value: async () => {
+        throw new DOMException('The string did not match the expected pattern.', 'SyntaxError')
+      },
+    })
+    return response
+  }
+
+  it('turns a WebKit body-parse failure on a proxy 502 into the server-unavailable message', async () => {
+    const base = vi
+      .fn()
+      .mockResolvedValue(webkitBody('<html>502 Bad Gateway</html>', { status: 502 }))
+    const trpc = makeTrpc('https://relay.test', {
+      fetch: base as typeof fetch,
+      recoveryDelaysMs: [0],
+    })
+
+    const error = await trpc.updates.checkNow.mutate().catch((cause: unknown) => cause)
+
+    expect(base).toHaveBeenCalledTimes(1)
+    expect((error as Error).message).toBe(SERVER_UNAVAILABLE_MESSAGE)
+    expect((error as Error).message).not.toMatch(/expected pattern/i)
+  })
+
+  it('waits for readiness after a WebKit body-parse failure on a plain-text 503, then replays a query', async () => {
+    const base = vi
+      .fn()
+      .mockResolvedValueOnce(webkitBody('Server is shutting down', { status: 503 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response('[{"result":{"data":{"recovered":true}}}]', { status: 200 }),
+      )
+    const trpc = makeTrpc('https://relay.test', {
+      fetch: base as typeof fetch,
+      recoveryDelaysMs: [0],
+    })
+
+    await expect(trpc.updates.fleet.query()).resolves.toEqual({ recovered: true })
+    expect(base.mock.calls[1]?.[0]).toBe('https://relay.test/readiness')
+  })
+
   it('does not replay a mutation whose response was cut off', async () => {
     const base = vi.fn().mockResolvedValue(new Response('', { status: 200 }))
     const trpc = makeTrpc('https://relay.test', {
