@@ -154,6 +154,10 @@ async function harness(opts?: {
     messages: svc,
     issues,
     sessionById: async (sessionId) => sessions.find((s) => s.sessionId === sessionId),
+    // Every session here is the first admin's, the human every capability in
+    // this file acts for (POD-6283: only a session's own human mails it).
+    sessionOwner: async (sessionId) =>
+      sessions.some((s) => s.sessionId === sessionId) ? { owner: firstAdminMemberId() } : undefined,
     messageRecords: async () => [],
     mutations: new MutationLedger(store.sync, () => Date.now()),
     spawnSession:
