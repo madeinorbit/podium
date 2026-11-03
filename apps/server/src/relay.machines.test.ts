@@ -7,6 +7,7 @@ import {
   asRepoId,
   asUserId,
   firstAdminMemberId,
+  type UserId,
 } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
@@ -222,7 +223,10 @@ describe('multi-daemon routing', () => {
     expect(meta?.machineName).toBe('two')
   })
 
-  it.each([['/repo', '/repo'], [String.raw`c:\repo`, 'C:/REPO']])('machine paths: remote worktree adoption under %s', async (root, reportedRoot) => {
+  it.each([
+    ['/repo', '/repo'],
+    [String.raw`c:\repo`, 'C:/REPO'],
+  ])('machine paths: remote worktree adoption under %s', async (root, reportedRoot) => {
     const { reg } = await regWithTwoDaemons()
     try {
       await reg.sessionStore.repos.addRepo(root, asMachineId('m2'))
@@ -247,11 +251,13 @@ describe('multi-daemon routing', () => {
         repoRoot: reportedRoot,
       })
 
-      await expect.poll(() => reg.modules.issues.reports.get(issue.id)).toMatchObject({
-        worktreePath: reportedRoot + '/.worktrees/remote-adoption',
-        branch: 'issue/remote-adoption',
-        machineId: 'm2',
-      })
+      await expect
+        .poll(() => reg.modules.issues.reports.get(issue.id))
+        .toMatchObject({
+          worktreePath: reportedRoot + '/.worktrees/remote-adoption',
+          branch: 'issue/remote-adoption',
+          machineId: 'm2',
+        })
     } finally {
       await reg.dispose()
     }
@@ -275,8 +281,7 @@ describe('multi-daemon routing', () => {
     })
 
     expect(
-      (await clientSessionViews(reg)).find((session) => session.sessionId === sessionId)
-        ?.resume,
+      (await clientSessionViews(reg)).find((session) => session.sessionId === sessionId)?.resume,
     ).toEqual({ kind: 'codex-thread', value: 'thread-a' })
     expect(m1).toContainEqual({
       type: 'sessionResumeRefAck',
@@ -306,8 +311,7 @@ describe('multi-daemon routing', () => {
     })
 
     expect(
-      (await clientSessionViews(reg)).find((session) => session.sessionId === sessionId)
-        ?.resume,
+      (await clientSessionViews(reg)).find((session) => session.sessionId === sessionId)?.resume,
     ).toBeUndefined()
     expect(m1).not.toContainEqual(expect.objectContaining({ type: 'sessionResumeRefAck' }))
     expect(m2).not.toContainEqual(expect.objectContaining({ type: 'sessionResumeRefAck' }))
@@ -370,16 +374,20 @@ describe('multi-daemon routing', () => {
 
   it('detaching m1 only marks m1 sessions reconnecting', async () => {
     const { reg } = await regWithTwoDaemons()
-    const a = (await reg.modules.sessions.createSession({
-      agentKind: 'shell',
-      cwd: '/a',
-      machineId: asMachineId('m1'),
-    })).sessionId
-    const b = (await reg.modules.sessions.createSession({
-      agentKind: 'shell',
-      cwd: '/b',
-      machineId: asMachineId('m2'),
-    })).sessionId
+    const a = (
+      await reg.modules.sessions.createSession({
+        agentKind: 'shell',
+        cwd: '/a',
+        machineId: asMachineId('m1'),
+      })
+    ).sessionId
+    const b = (
+      await reg.modules.sessions.createSession({
+        agentKind: 'shell',
+        cwd: '/b',
+        machineId: asMachineId('m2'),
+      })
+    ).sessionId
     // mark both live as a bind would
     await reg.gateway.routeDaemonFrame('m1', {
       type: 'bind',
@@ -398,7 +406,8 @@ describe('multi-daemon routing', () => {
       geometry: { cols: 80, rows: 24 },
     })
     reg.gateway.detachDaemon('m1')
-    const meta = async (id: string) => (await clientSessionViews(reg)).find((s) => s.sessionId === id)
+    const meta = async (id: string) =>
+      (await clientSessionViews(reg)).find((s) => s.sessionId === id)
     expect((await meta(a))?.status).toBe('reconnecting')
     expect((await meta(b))?.status).toBe('live')
   })
@@ -484,15 +493,30 @@ async function handoffRegistry(
     oldDaemon?: boolean
     targetHasRepo?: boolean
     withIssue?: boolean
+    /** A second member who holds custody of the SOURCE machine, starts the
+     *  session, and holds only `use` on the target, which stays the admin's. */
+    secondMember?: UserId
   } = {},
 ) {
   const store = await openTestStore(':memory:')
+  if (opts.secondMember) {
+    await store.users.create(
+      {
+        id: opts.secondMember,
+        displayName: 'Bob',
+        role: 'member',
+        createdAt: new Date().toISOString(),
+        disabledAt: null,
+      },
+      'unused-password-hash',
+    )
+  }
   await store.machines.upsertMachine({
     id: 'm1',
     name: 'source',
     hostname: 'source',
     tokenHash: 'x',
-    ownerUserId: firstAdminMemberId(),
+    ownerUserId: opts.secondMember ?? firstAdminMemberId(),
     assignment: { server: false, agentExecution: true },
   })
   await store.machines.upsertMachine({
@@ -514,6 +538,20 @@ async function handoffRegistry(
   let targetRepoPath = '/target/repo'
   if (opts.targetHasRepo !== false)
     await store.repos.addRepo(targetRepoPath, asMachineId('m2'), 'git@github.com:example/repo.git')
+  if (opts.secondMember) {
+    await store.grants.upsert({
+      resourceKind: 'machine',
+      resourceId: 'm2',
+      grantee: opts.secondMember,
+      verb: 'use',
+      owner: firstAdminMemberId(),
+      visibility: 'owned-compute',
+      createdAt: new Date().toISOString(),
+      actorKind: 'user',
+      actorId: firstAdminMemberId(),
+      onBehalfOf: firstAdminMemberId(),
+    })
+  }
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   const source: ControlMessage[] = []
   const target: ControlMessage[] = []
@@ -658,7 +696,11 @@ async function handoffRegistry(
   })
   // An issue homed on the SOURCE machine, as `issue start` would leave it.
   const issue = opts.withIssue
-    ? await reg.modules.issues.crud.create({ repoPath: '/source/repo', title: 'handoff me', startNow: false })
+    ? await reg.modules.issues.crud.create({
+        repoPath: '/source/repo',
+        title: 'handoff me',
+        startNow: false,
+      })
     : undefined
   if (issue) {
     await reg.modules.issues.crud.update(issue.id, {
@@ -674,11 +716,39 @@ async function handoffRegistry(
     conversationId: 'native-id',
     machineId: asMachineId('m1'),
     ...(issue ? { issueId: issue.id } : {}),
+    ...(opts.secondMember ? { ownerUserId: opts.secondMember } : {}),
   })
   return { reg, source, target, sessionId, issueId: issue?.id, store }
 }
 
 describe('session handoff orchestration', () => {
+  it('a session handed off to a machine its owner may only use still acts for its owner (POD-6286)', async () => {
+    const prior = process.env.PODIUM_STATE_DIR
+    process.env.PODIUM_STATE_DIR = mkdtempSync(join(tmpdir(), 'podium-handoff-server-'))
+    try {
+      // Bob's session on Bob's machine moves to the admin's machine, where Bob
+      // holds only `use`. It is still Bob's, and its agent still acts for Bob.
+      const bob = asUserId('mem_handoff_bob')
+      const { reg, target, sessionId, store } = await handoffRegistry({ secondMember: bob })
+      const bobPrincipal = userCommandPrincipal(bob, 'member')
+      await reg.modules.issueSessionLifecycle.handoffSession(
+        { sessionId, machineId: asMachineId('m2') },
+        { capability: bobPrincipal.capability, principal: bobPrincipal },
+      )
+      const row = await store.sessions.getSession(sessionId)
+      expect(row).toMatchObject({ machineId: 'm2', ownerUserId: bob })
+      expect(row?.delegation?.onBehalfOf).toBe(bob)
+      expect((await reg.modules.sessions.capabilityForSession(sessionId)).onBehalfOf).toBe(bob)
+      // The target daemon is handed Bob's delegation, not its custodian's.
+      const imported = target.find((m) => m.type === 'handoffImportRequest')
+      expect(JSON.stringify(imported)).toContain(`"onBehalfOf":"${bob}"`)
+      expect(JSON.stringify(imported)).not.toContain(`"onBehalfOf":"${firstAdminMemberId()}"`)
+    } finally {
+      if (prior === undefined) delete process.env.PODIUM_STATE_DIR
+      else process.env.PODIUM_STATE_DIR = prior
+    }
+  })
+
   it('re-homes the canonical row and resumes it on the target', async () => {
     const prior = process.env.PODIUM_STATE_DIR
     process.env.PODIUM_STATE_DIR = mkdtempSync(join(tmpdir(), 'podium-handoff-server-'))
@@ -699,7 +769,11 @@ describe('session handoff orchestration', () => {
       const retire = source.findIndex(
         (m) => m.type === 'runtimeLifecycleRequest' && m.sessionId === sessionId,
       )
-      expect(source[retire]).toMatchObject({ type: 'runtimeLifecycleRequest', sessionId, verb: 'stop' })
+      expect(source[retire]).toMatchObject({
+        type: 'runtimeLifecycleRequest',
+        sessionId,
+        verb: 'stop',
+      })
       expect(retire).toBeLessThan(source.findIndex((m) => m.type === 'handoffExportRequest'))
       expect(source.filter((m) => m.type === 'kill')).toEqual([])
       expect(target).toContainEqual(
