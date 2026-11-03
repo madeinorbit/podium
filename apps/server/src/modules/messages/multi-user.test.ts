@@ -865,6 +865,9 @@ describe('mail.show admits the owner of the sending or the receiving session', (
     for (const user of ['u_bob', 'u_carol']) {
       expect((await show(user)).body, user).toBe('handoff')
     }
+    for (const user of ['u_dana', 'u_erin']) {
+      await expect(show(user), user).rejects.toThrow(MAIL_VIEW_REFUSED)
+    }
   })
 
   it('refuses the sessions’ former grantees', async () => {

@@ -32,6 +32,7 @@ import {
   type MachineId,
   type SessionId,
   type SessionMeta,
+  type UserId,
 } from '@podium/model'
 import type { TurnReceipt } from '@podium/protocol/daemon'
 import { normalizeSettings } from '@podium/runtime'
@@ -105,6 +106,9 @@ export interface ReceiptBehaviour {
 
 export interface SessionFixture {
   sessionId: SessionId
+  /** Whose session it is (POD-6283: only its owner's mail reaches it).
+   *  Default: the first admin, the human every `agentCap` acts for. */
+  ownerUserId?: UserId
   status?: SessionMeta['status']
   phase?: AgentPhase
   cwd?: string
@@ -260,6 +264,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
   // A reported repo carries a prefix (`REP`), so issue labels read `REP-<seq>`.
   await store.repos.addRepo('/repo', store.hostMachineId)
   const sessions: SessionMeta[] = []
+  const owners = new Map<string, UserId>()
   const pushes: Push[] = []
   const wakeSpawns: Record<string, unknown>[] = []
   const gateSpawns: Record<string, unknown>[] = []
@@ -449,7 +454,12 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       ...(opts?.resolveWorkflowStepLaunch
         ? { resolveWorkflowStepLaunch: opts.resolveWorkflowStepLaunch }
         : {}),
-      ...(opts?.sessionOwnerUserId ? { sessionOwnerUserId: opts.sessionOwnerUserId } : {}),
+      // The session's owner, as the session's row answers it: a test's own
+      // port, else the seeded fixture's owner (POD-6283).
+      sessionOwnerUserId:
+        opts?.sessionOwnerUserId ??
+        (async (id) =>
+          sessions.some((s) => s.sessionId === id) ? (owners.get(id) ?? firstAdminMemberId()) : undefined),
       createIssue: async (input) => await issues.crud.create({ ...input, startNow: false }),
       appendEvent: async (e) => {
         await store.events.appendEvent(e)
@@ -529,6 +539,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       await issues.crud.update(issueId, { archived: true })
     },
     put: (...fixtures) => {
+      for (const f of fixtures) if (f.ownerUserId) owners.set(f.sessionId, f.ownerUserId)
       const created = fixtures.map(session)
       sessions.push(...created)
       return created

@@ -984,17 +984,25 @@ describe('issue spawn provenance', () => {
       } as const
       const start = vi.spyOn(registry.issues.gitWorkflow, 'start').mockResolvedValue(issue)
       await registry.issueCommands.dispatch(caller, 'issues', 'start', { id: issue.id })
+      // …and the human it starts for, whose the session will be (POD-6283).
       expect(start).toHaveBeenCalledWith(issue.id, undefined, {
         spawnedBy: 'session:parent-session',
+        onBehalfOf: firstAdminMemberId(),
       })
       const add = vi.spyOn(registry.issues.gitWorkflow, 'addSession').mockResolvedValue(issue)
       await registry.issueCommands.dispatch(caller, 'issues', 'addSession', { id: issue.id })
-      expect(add).toHaveBeenCalledWith(issue.id, undefined, { spawnedBy: 'session:parent-session' })
+      expect(add).toHaveBeenCalledWith(issue.id, undefined, {
+        spawnedBy: 'session:parent-session',
+        onBehalfOf: firstAdminMemberId(),
+      })
       const shell = vi.spyOn(registry.issues.gitWorkflow, 'addShell').mockResolvedValue(issue)
       await registry.issueCommands.dispatch({ capability: OPERATOR }, 'issues', 'addShell', {
         id: issue.id,
       })
-      expect(shell).toHaveBeenCalledWith(issue.id, { spawnedBy: 'user' })
+      expect(shell).toHaveBeenCalledWith(issue.id, {
+        spawnedBy: 'user',
+        onBehalfOf: firstAdminMemberId(),
+      })
     } finally {
       await registry.dispose()
     }

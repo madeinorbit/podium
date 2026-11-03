@@ -21,6 +21,11 @@
  * - an `agentObservation` daemon frame: 2 -> 1 (the projection pass reads the
  *   session's own grants with the issue's).
  * Each at 5 and 200 other sessions on the server.
+ *
+ * POD-6283 made sessions private: their access check, projection and feed
+ * visibility read the session's own owner, never a grant. So `sessions.rename`
+ * reads only the caller's machine grants (2 -> 1), and an `agentObservation`
+ * frame reads none (1 -> 0). `issues.update` still reads its issue's grants.
  */
 import { asUserId, firstAdminMemberId, type IssueId, type SessionId } from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'
@@ -165,7 +170,7 @@ const observation = (sessionId: SessionId): AgentObservation => ({
 })
 
 describe('grant reads per change, a running session on an issue: pinned at 5 and 200', () => {
-  it('sessions.rename reads the machine grants and both of the session\'s grant sets once', async () => {
+  it('sessions.rename reads only the machine grants', async () => {
     const counts = await expectConstantStatements(
       pin(
         'sessions.rename (on an issue)',
@@ -174,7 +179,7 @@ describe('grant reads per change, a running session on an issue: pinned at 5 and
       ),
       RENAME,
     )
-    expectGrantReads(counts, 2)
+    expectGrantReads(counts, 1)
   })
 
   it('issues.update reads the issue\'s and its session\'s grants in one statement', async () => {
@@ -189,7 +194,7 @@ describe('grant reads per change, a running session on an issue: pinned at 5 and
     expectGrantReads(counts, 1)
   })
 
-  it('an agentObservation frame reads the issue\'s and the session\'s grants in one statement', async () => {
+  it('an agentObservation frame reads no grant', async () => {
     const counts = await expectConstantStatements(
       pin(
         'agentObservation (on an issue)',
@@ -202,7 +207,7 @@ describe('grant reads per change, a running session on an issue: pinned at 5 and
       ),
       OBSERVATION,
     )
-    expectGrantReads(counts, 1)
+    expectGrantReads(counts, 0)
   })
 })
 
@@ -210,6 +215,7 @@ describe('grant reads per change, a running session on an issue: pinned at 5 and
 // POD-6219: the session write's delivery trigger counted the session's and its
 // issue's pending mail (two statements); the flush now asks for both in one: -1.
 // POD-6218: the earliest admin is one statement, once per operation: issues.update -1.
-const RENAME = 12
+// POD-6283: no session grant read: rename -1, observation -1.
+const RENAME = 11
 const ISSUE_UPDATE = 28
-const OBSERVATION = 12
+const OBSERVATION = 11

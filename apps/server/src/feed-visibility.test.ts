@@ -195,7 +195,9 @@ describe('feed visibility grant semantics', () => {
       const state = await prepare(refs)
       for (const ref of refs) {
         expect(state.mayRead(owner, ref)).toBe(true)
-        expect(state.mayRead(reader, ref)).toBe(ref.entity === 'issueProjection' || verb === 'read')
+        // A session grant is legacy and admits nobody (POD-6283); an issue
+        // grant still admits its issue (until POD-6288 widens tasks).
+        expect(state.mayRead(reader, ref)).toBe(ref.entity === 'issueProjection')
         expect(state.mayRead(stranger, ref)).toBe(false)
         expect(state.mayRead(revoked, ref)).toBe(false)
       }
@@ -230,12 +232,13 @@ describe('rows scoped by the session named in their id', () => {
 
   it('shows a blocking ask to whoever may see its session (POD-4764 found the prefetch missing)', async () => {
     const { policy, grant } = await fixture()
+    // A legacy session grant: the ask stays its session owner's alone (POD-6283).
     await grant('session', reader, 'read')
     for (const prepare of [policy.state.forBootstrap!, policy.state.forBatch!]) {
       const state = await prepare([ask])
       expect([owner, reader, stranger].map((user) => state.mayRead(user, ask))).toEqual([
         true,
-        true,
+        false,
         false,
       ])
     }
