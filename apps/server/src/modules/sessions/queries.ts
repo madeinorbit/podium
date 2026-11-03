@@ -31,14 +31,12 @@ const q = defineQuery<FamilyState>()
 
 // THE PRIVATE CLASS (POD-6284, design §2.3): a session is read by its owner and
 // nobody else. Not by a grantee, not through its task, not by an admin. The rule
-// lives in `private-resources.ts`, shared with every other surface serving a
-// session's content; a missing session and someone else's answer alike.
-async function mayReadSession(state: FamilyState, sessionId: SessionId): Promise<boolean> {
-  return await state.privateAccess.ownsSession(sessionId)
-}
-
+// is `privateAccess.ownsSession` (`private-resources.ts`), which decides with the
+// one session-owner predicate every session path uses (`mayReachPrivate`,
+// POD-6283); a missing session and someone else's answer alike.
 async function assertMayReadSession(state: FamilyState, sessionId: SessionId): Promise<void> {
-  if (!(await mayReadSession(state, sessionId))) throw new TRPCError({ code: 'NOT_FOUND' })
+  if (!(await state.privateAccess.ownsSession(sessionId)))
+    throw new TRPCError({ code: 'NOT_FOUND' })
 }
 
 /** `Array.prototype.filter` over an ASYNC predicate. Written out because the
@@ -61,9 +59,9 @@ export async function resolveReadableIdentifier(
   const match = await state.modules.readToolkit.resolveIdentifier(identifier)
   if (match.kind === 'absent') return match
   if (match.kind === 'session') {
-    return (await mayReadSession(state, match.sessionId)) ? match : { kind: 'absent' }
+    return (await state.privateAccess.ownsSession(match.sessionId)) ? match : { kind: 'absent' }
   }
-  const readable = await filterAsync(match.candidates, (id) => mayReadSession(state, id))
+  const readable = await filterAsync(match.candidates, (id) => state.privateAccess.ownsSession(id))
   const only = readable[0]
   if (readable.length === 1 && only) return { kind: 'session', sessionId: only }
   if (readable.length === 0) return { kind: 'absent' }
@@ -85,7 +83,7 @@ export const SESSION_QUERIES = {
     async (s) =>
       await filterAsync(
         await s.modules.sessions.listSessions(s.caller.sessionState, 'rpc'),
-        (session) => mayReadSession(s, session.sessionId),
+        (session) => s.privateAccess.ownsSession(session.sessionId),
       ),
   ),
   /** Fleet-wide 12-hour concurrency samples for the global shell status strip. */
@@ -101,7 +99,7 @@ export const SESSION_QUERIES = {
     z.object({ sessionIds: z.array(SessionIdField).max(200) }),
     async (s, input) =>
       await s.modules.sessions.sessionActivityHistory(
-        await filterAsync(input.sessionIds, (sessionId) => mayReadSession(s, sessionId)),
+        await filterAsync(input.sessionIds, (sessionId) => s.privateAccess.ownsSession(sessionId)),
       ),
   ),
   /** Authorized chat window. Live sessions use driver history; parked sessions
@@ -130,7 +128,7 @@ export const SESSION_QUERIES = {
     // A ref may name a session or a task; either way the session it lands on
     // must be the caller's own, and someone else's answers like no session.
     const found = await s.modules.readToolkit.resolveTarget(input.ref)
-    if (!found || !(await mayReadSession(s, found.sessionId))) {
+    if (!found || !(await s.privateAccess.ownsSession(found.sessionId))) {
       throw new Error(`no session found for ${input.ref}`)
     }
     return await s.modules.readToolkit.status(

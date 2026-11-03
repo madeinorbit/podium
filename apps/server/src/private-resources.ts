@@ -20,24 +20,22 @@
 
 import type { MachineId, SessionId, UserId } from '@podium/model'
 import { type CommandPrincipal, onBehalfOfUser } from './command-principal'
+import { mayReachPrivate } from './issue-authz'
 import {
   type AsyncMachineRowSource,
   checkMachineUse,
   ownershipSnapshotFromMachines,
 } from './machine-access'
 
-/** The private-class rule itself: the owner, and only the owner. */
+/** The private-class rule itself: the owner, and only the owner. ONE rule
+ *  for sessions everywhere (POD-6283): this is `mayReachPrivate`, which the
+ *  session commands, drive gates, relay and mail paths call too, and which the
+ *  model's `authorize()` decides as its `private` target class. */
 export function isPrivateOwner(
   human: UserId | null | undefined,
   owner: UserId | null | undefined,
 ): boolean {
-  return (
-    human !== null &&
-    human !== undefined &&
-    owner !== null &&
-    owner !== undefined &&
-    human === owner
-  )
+  return mayReachPrivate(human, { id: 'session', owner })
 }
 
 export interface PrivateResourceDeps {
