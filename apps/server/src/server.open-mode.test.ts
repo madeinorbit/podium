@@ -11,7 +11,7 @@ import { startServer } from './server'
  * OPEN MODE IS A POLICY ON A MEMBER (A2, spec §8 "Open mode as a policy").
  *
  * With no credentials configured, an unauthenticated LOCAL request is served as
- * this instance's first admin. That is what it always did; what changed is where
+ * this instance's sole active member (on a fresh install, its first admin). What changed is where
  * the answer comes from. It used to synthesise `FIRST_ADMIN_USER_ID` — a
  * principal named by the build, which no row had to exist for. It now resolves
  * the earliest admin MEMBER, so the id it reports is one that a query returns
@@ -36,7 +36,7 @@ import { startServer } from './server'
  */
 const priorStateDir = process.env.PODIUM_STATE_DIR
 
-describe('open mode acts as the earliest admin member', () => {
+describe('open mode acts as the sole active member', () => {
   let stateDir: string
   let handle: Awaited<ReturnType<typeof startServer>>
   const url = (path: string): string => `http://127.0.0.1:${handle.port}${path}`
@@ -152,5 +152,88 @@ describe('open mode acts as the earliest admin member', () => {
 
     expect(body.authed).toBe(false)
     expect(body.userId).toBeUndefined()
+  })
+})
+
+/**
+ * MU-01 (POD-6285): open mode is one person's. It acts as the instance's SOLE
+ * active member, and a second active member ends it, password or not. Before,
+ * it acted as the earliest admin for as long as nobody had a password, so a
+ * local request from anyone on a two-member instance was Alice's.
+ */
+describe('open mode ends once a second active member exists (MU-01)', () => {
+  const boot = async (config: Record<string, unknown>) => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-open-mode-mu01-'))
+    writeFileSync(
+      join(dir, 'config.json'),
+      JSON.stringify({ configVersion: 2, mode: 'all-in-one', persistence: 'systemd', ...config }),
+    )
+    process.env.PODIUM_STATE_DIR = dir
+    const server = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
+    const status = async () =>
+      (await (await fetch(`http://127.0.0.1:${server.port}/auth/status`)).json()) as {
+        needsAuth: boolean
+        authed: boolean
+        userId?: string
+      }
+    const trpcStatus = async () =>
+      (await fetch(`http://127.0.0.1:${server.port}/trpc/instance.info?input=%7B%7D`)).status
+    const addBob = async () =>
+      await server.registry.sessionStore.users.createUnclaimed({
+        id: 'mem_bob_open_mode',
+        displayName: 'Bob',
+        email: 'bob@example.test',
+        role: 'member',
+        createdAt: new Date().toISOString(),
+        disabledAt: null,
+      })
+    const close = async () => {
+      await server.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+    return { server, status, trpcStatus, addBob, close }
+  }
+
+  afterAll(() => {
+    if (priorStateDir === undefined) delete process.env.PODIUM_STATE_DIR
+    else process.env.PODIUM_STATE_DIR = priorStateDir
+  })
+
+  it('a second member with no password ends open mode; disabling them restores it', async () => {
+    const f = await boot({})
+    try {
+      // Control: one member, open mode as that member.
+      const alone = await f.status()
+      expect(alone).toMatchObject({ needsAuth: false, authed: true })
+      expect(alone.userId).toBe(firstAdminMemberId())
+
+      await f.addBob()
+      const shared = await f.status()
+      expect(shared.needsAuth).toBe(true)
+      expect(shared.authed).toBe(false)
+      expect(shared.userId).toBeUndefined()
+      // The data plane agrees with the status route: log in.
+      expect(await f.trpcStatus()).toBe(401)
+
+      // A disabled member is not a second person who can act.
+      await f.server.registry.sessionStore.users.disable(
+        'mem_bob_open_mode' as never,
+        new Date().toISOString(),
+      )
+      expect(await f.status()).toMatchObject({ needsAuth: false, authed: true, userId: alone.userId })
+    } finally {
+      await f.close()
+    }
+  })
+
+  it('turning login off does not keep open mode once two members exist', async () => {
+    const f = await boot({ auth: { openMode: true } })
+    try {
+      expect(await f.status()).toMatchObject({ needsAuth: false, authed: true })
+      await f.addBob()
+      expect(await f.status()).toMatchObject({ needsAuth: true, authed: false })
+    } finally {
+      await f.close()
+    }
   })
 })

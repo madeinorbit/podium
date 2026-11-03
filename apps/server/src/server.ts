@@ -700,8 +700,13 @@ export async function startServer(
   reconcileSafeServerTransferBoot(stateDir(), activeServerMove)
   // IS LOGIN REQUIRED — composed ONCE and passed to every gate, so the guard, the login
   // route, the status route and the exposure warning cannot answer it differently.
+  //
+  // A second active member ends open mode even when the operator turned login off
+  // (`authOpenMode`): that setting is one person's choice about their own machine,
+  // and with two people it would let any local request act as someone (POD-6285).
   const credentialsRequired = async (): Promise<boolean> =>
     resolveAuthMode() === 'cloud' ||
+    (await store.users.hasSeveralActiveMembers()) ||
     (!store.settings.resolve('authOpenMode').value && (await store.users.hasPerUserCredentials()))
   const mobilePairing = new MobilePairingManager()
   // Readiness gate [spec:SP-c29e]: a bloated change log is fully pruned in
@@ -1538,10 +1543,11 @@ export async function startServer(
    * OPEN MODE IS A POLICY ON A MEMBER, NOT A SPECIAL USER [A2, spec §8].
    *
    * It used to synthesise `FIRST_ADMIN_USER_ID` — a principal named by the
-   * build, which no row had to exist for. Now it RESOLVES the earliest admin
-   * member of this instance, so an unauthenticated request in open mode acts as
-   * an ordinary member row, and an instance with no member that may act (every
-   * admin disabled) serves nobody rather than serving a ghost.
+   * build, which no row had to exist for — and later the earliest admin. Now it
+   * RESOLVES the instance's sole active member (POD-6285), so an
+   * unauthenticated request in open mode acts as that ordinary member row. An
+   * instance with no active member, or with two, serves nobody in open mode: a
+   * second member also makes login required (`credentialsRequired`).
    *
    * AND THE REQUEST MUST BE LOCAL, which is the one behavioural change. Open
    * mode exists for loopback — the all-in-one desktop's embedded server, where
@@ -1615,12 +1621,14 @@ export async function startServer(
     if (credentialed) return credentialed
     // An invalid provider identity cannot fall through to open-mode authorization.
     if (request && (await sourcePrincipal(request)) === false) return undefined
+    // OPEN MODE: a host-local request while login is not required acts as the
+    // instance's ONLY active member, with that member's own role. Never "the
+    // first admin": with no member, or more than one, there is nobody it could
+    // honestly be, and the request is anonymous (POD-6285, MU-01).
     const openMode =
       request !== undefined && isHostLocalRequest(request) && !(await credentialsRequired())
-    const userId = openMode ? (await store.users.earliestAdmin())?.id : undefined
-    if (userId === undefined) return undefined
-    const account = await store.users.get(asUserId(userId))
-    return account ? userCommandPrincipal(asUserId(userId), account.role) : undefined
+    const sole = openMode ? await store.users.soleActiveMember() : undefined
+    return sole ? userCommandPrincipal(asUserId(sole.id), sole.role) : undefined
   }
   const guard = clientAuthGuard({
     principalForRequest: sourcePrincipal,

@@ -458,6 +458,12 @@ export class UsersRepository {
     return rows.length === 1 ? userFromRow(rows[0]!) : undefined
   }
 
+  /** Whether at least two enabled members exist: the instance is shared, so open
+   *  mode is over whatever the login setting says (POD-6285, MU-01). */
+  async hasSeveralActiveMembers(): Promise<boolean> {
+    return (await firstTwoActiveMembers(this.db).all()).length > 1
+  }
+
   /**
    * Disable authority, not custody. Agent principals intersect their delegation
    * with this live member row, so publishing it invalidates them in the same
