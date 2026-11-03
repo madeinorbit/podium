@@ -16,7 +16,7 @@
  *   on anyone else's machine.
  * - Both machines report the repo `/repo` and have a fake daemon attached, so
  *   sessions can be placed on them and their agents can relay.
- * - Every session is an agent session (`claude`), started the way `sessions.create`
+ * - Every session is an agent session (`claude-code`), started the way `sessions.create`
  *   starts one for a signed-in member (owner and binding principal = the starter).
  *   `bobOnAliceTask` is Bob's by the design (§2.3) although it sits on Alice's task.
  *   TODAY `dev/mw` records it as ALICE's (an issue-owned session inherits the
@@ -290,7 +290,7 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
       (
         await registry.modules.sessions.createSession({
           ownerUserId: owner.id,
-          agentKind: 'claude',
+          agentKind: 'claude-code',
           cwd: `/wt/${owner.name}-session-${title}`,
           title,
           machineId,
