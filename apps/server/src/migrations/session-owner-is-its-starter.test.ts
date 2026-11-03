@@ -84,6 +84,9 @@ describe(`migration ${MIGRATION}`, () => {
       expect((db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n).toBe(1)
       seedSession(db, 'own', alice, alice)
       seedSession(db, 'foreign-attribution', alice, 'mem_elsewhere')
+      // Only the one-member guard keeps this row: its starter IS an active
+      // member, and a multi-member instance would hand it to her.
+      seedSession(db, 'owned-by-a-removed-id', 'mem_previous', alice)
       const before = db.prepare('SELECT * FROM sessions ORDER BY id').all()
 
       upgrade()
