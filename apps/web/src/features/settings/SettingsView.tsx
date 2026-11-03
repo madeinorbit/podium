@@ -26,7 +26,6 @@ import { MembersSection } from './sections/members'
 import { NetworkSection } from './sections/network'
 import { NotificationsSection, type TelegramSetupState } from './sections/notifications'
 import { PrivacySection } from './sections/privacy'
-import { ReposSection } from './sections/repos'
 import { type SecretSurfaceState, SecretsSection } from './sections/secrets'
 import { LoginPasswordSection } from './sections/security'
 import { SessionsSection } from './sections/sessions'
@@ -42,6 +41,13 @@ import { SETTINGS_SURFACES, type SettingsSurface, SURFACE_COPY, tabsOnSurface } 
 const AccountsSection = lazy(() =>
   throughRestarts(() => import('./sections/accounts')).then((module) => ({
     default: module.AccountsSection,
+  })),
+)
+// The repository table, its prefix editor and the grouping model behind it are
+// only needed on the Repos tab, and keep the Settings chunk inside its budget.
+const ReposSection = lazy(() =>
+  throughRestarts(() => import('./sections/repos')).then((module) => ({
+    default: module.ReposSection,
   })),
 )
 const MachinesPanel = lazy(() =>
