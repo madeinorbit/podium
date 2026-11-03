@@ -42,6 +42,7 @@ export {
   DeviceGradeNoAnchors,
   DeviceGradeUnscopedPolicy,
   DEVICE_GRADE_PRINCIPAL,
+  CHANGE_LOG_OBSERVER,
   GrantEdgeVisibilityPolicy,
   NoDelegationsGranted,
   kernelVisibilityResolver,

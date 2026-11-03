@@ -269,7 +269,6 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         return null
       },
       mayRead: (userId, ref) => {
-        if (userId === 'device:shared-instance-password') return true
         // An unresolved root policy, or a ref outside this pass, denies. The
         // producer must prepare every ref before entering the synchronous loop.
         if (!prefetch) return false

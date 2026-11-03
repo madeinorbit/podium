@@ -3,6 +3,7 @@
  * (spawn / first attach / boot backfill), never lazily during serialization, so
  * a broadcast can never brand a soon-to-be-attached session POD-DRAFT-n.
  */
+import { CHANGE_LOG_OBSERVER } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { attachHostDaemon } from './test-support/host-daemon'
@@ -77,7 +78,7 @@ describe('session birth naming (#474)', () => {
       agentKind: 'shell',
       cwd: '/elsewhere',
     })
-    const cursor = (await reg.modules.sessions.syncChangesSince(null)).cursor
+    const cursor = (await reg.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)).cursor
     const events: unknown[] = []
     reg.modules.sessions.onSessionProjection((event) => events.push(event))
     const append = vi.spyOn(store.sync, 'appendChanges').mockImplementationOnce(async () => {
@@ -97,7 +98,7 @@ describe('session birth naming (#474)', () => {
         refLetter: null,
       },
     )
-    expect(await reg.modules.sessions.syncChangesSince(cursor)).toMatchObject({
+    expect(await reg.modules.sessions.syncChangesSince(cursor, CHANGE_LOG_OBSERVER)).toMatchObject({
       kind: 'delta',
       cursor,
       changes: [],
@@ -112,7 +113,7 @@ describe('session birth naming (#474)', () => {
 
   it('does not consume DRAFT-1 when the first spawn append fails', async () => {
     const { store, reg, meta } = await harness()
-    const cursor = (await reg.modules.sessions.syncChangesSince(null)).cursor
+    const cursor = (await reg.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)).cursor
     const events: unknown[] = []
     reg.modules.sessions.onSessionProjection((event) => events.push(event))
     const append = vi.spyOn(store.sync, 'appendChanges').mockImplementationOnce(async () => {
@@ -123,7 +124,7 @@ describe('session birth naming (#474)', () => {
       reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/r/podium' }),
     ).rejects.toThrow('first draft append failed')
     append.mockRestore()
-    expect(await reg.modules.sessions.syncChangesSince(cursor)).toMatchObject({
+    expect(await reg.modules.sessions.syncChangesSince(cursor, CHANGE_LOG_OBSERVER)).toMatchObject({
       kind: 'delta',
       cursor,
       changes: [],

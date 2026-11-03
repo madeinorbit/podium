@@ -1,3 +1,4 @@
+import { CHANGE_LOG_OBSERVER } from '@podium/sync'
 import { actorUser, firstAdminMemberId } from '@podium/model'
 import { afterEach, expect, it, vi } from 'vitest'
 import { resolvePrincipal } from '../../command-principal'
@@ -111,7 +112,7 @@ it('keeps requested issue JSON fields on create, update, get, list and tree', as
     omittedChildren: 0,
     children: [expect.objectContaining({ id: child.id, children: [] })],
   })
-  const snapshot = await registry.modules.sessions.syncChangesSince(null)
+  const snapshot = await registry.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)
   expect(snapshot.kind).toBe('snapshot')
   if (snapshot.kind !== 'snapshot') throw new Error('expected snapshot')
   expect(snapshot.issues).toEqual([])
@@ -140,7 +141,7 @@ it('records the authenticated asking user without inventing a session delivery a
   expect(report.humanQuestionAskedBy).toBeUndefined()
   const row = await registry.sessionStore.issues.getIssue(issue.id)
   expect(row?.humanQuestionAttribution).toEqual({ actor: actorUser(user), onBehalfOf: user })
-  const snapshot = await registry.modules.sessions.syncChangesSince(null)
+  const snapshot = await registry.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)
   if (snapshot.kind !== 'snapshot') throw new Error('expected snapshot')
   expect(snapshot.issueProjections?.find((row) => row.id === issue.id)?.asked).toMatchObject({
     question: 'Which option?',

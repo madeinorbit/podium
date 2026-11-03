@@ -2,6 +2,7 @@ import { createLogger } from '@podium/logger'
 import type { MetadataChange, Principal } from '@podium/protocol'
 import {
   type AuthorityPort,
+  CHANGE_LOG_OBSERVER,
   DEVICE_GRADE_PRINCIPAL,
   type FeedScopingGrade,
   type ScopedChange,
@@ -66,25 +67,19 @@ export class WriteFunnel {
     // Enqueueing before the emit makes arrival order equal append order no
     // matter what a listener does.
     //
-    // THE PRINCIPAL, AND WHICH HALF OF SCOPING THIS SITE HAS (POD-1077). The
-    // Authority's feed is per-principal (ADR 2 Am1 D12), and this subscription
-    // names `DEVICE_GRADE_PRINCIPAL` because that is what this transport can
-    // honestly authenticate: `auth-store.ts` is one shared password and
-    // `gateway/client-principal.ts` still asserts `CLIENT_PRINCIPAL_GRADE ===
-    // 'device'`, so two connections presenting it are indistinguishable AS
-    // PERSONS. Per-connection principals arrive with per-user login.
+    // THE BUS IS THE SERVER'S OWN OBSERVER, NOT A CLIENT (POD-6285). It used to
+    // read the device-grade principal's slice, which was everything only because
+    // that user id had an all-read exception. It now subscribes as the named
+    // system observer, which sees the same rows, and the device-grade slice that
+    // feeds the serving edge below is an ordinary, owner-checked one.
+    //
+    // Registered AFTER the serving queue: the Authority delivers each batch to its
+    // subscribers in registration order, so the pipe still sees batch N before a
+    // bus listener can commit N+1 (#247).
     deps.authority.subscribe(DEVICE_GRADE_PRINCIPAL, (delivery) => {
-      // BOTH ARMS ARE NOW EXPRESSIBLE, which is what the cutover bought.
-      // POD-1077 had to THROW here on a `rescope`, because the pre-cutover wire
-      // had no frame for "your rights changed, re-bootstrap" and degrading it to
-      // silence is the invisible-gap failure. Wire v2 carries it, so it rides the
-      // same ordered pipe as everything else.
-      //
-      // The `evict` refusal that lived here has MOVED rather than been dropped —
-      // is genuinely inexpressible. That is the point of the cutover: a scoped
-      // principal must be served wire v2 or not served, and the failure is loud
-      // at the edge that cannot express it instead of loud for everyone.
       this.queue(delivery)
+    })
+    deps.authority.subscribe(CHANGE_LOG_OBSERVER, (delivery) => {
       if (delivery.kind !== 'batch') return
       const wire = delivery.changes.flatMap(toBusChange)
       if (wire.length > 0) deps.bus.emit('oplog.appended', { changes: wire })
@@ -124,14 +119,14 @@ export class WriteFunnel {
   /** Cursor catch-up read (sync.changesSince) — null when compacted/future. */
   async changesSince(
     cursor: number | null,
-    principal: Principal = DEVICE_GRADE_PRINCIPAL,
+    principal: Principal,
   ): Promise<MetadataChange[] | null> {
     const delivery = await this.deps.authority.changesSince(cursor, principal)
     if (delivery === null || delivery.kind !== 'batch') return null
     return delivery.changes.flatMap(toBusChange)
   }
 
-  async snapshot(principal: Principal = DEVICE_GRADE_PRINCIPAL): Promise<MetadataChange[]> {
+  async snapshot(principal: Principal): Promise<MetadataChange[]> {
     return (await this.deps.authority.bootstrap(principal)).changes.flatMap(toBusChange)
   }
 

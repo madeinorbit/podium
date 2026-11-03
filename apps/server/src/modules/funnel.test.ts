@@ -1,6 +1,6 @@
 import type { MetadataChange } from '@podium/protocol'
 import type { AuthorityPort, ScopedChange, ScopedDelivery } from '@podium/sync'
-import { Ledger } from '@podium/sync'
+import { CHANGE_LOG_OBSERVER, Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { type OnPublicationIdle, scheduleFeedFlush } from '../gateway/feed-serving'
 import { afterCommit, applyAfterCommit, spanOpen } from '../store/executor/executor'
@@ -151,7 +151,7 @@ describe('WriteFunnel.changesSince / cursor (ledger passthrough)', () => {
       write: async () => {},
       changes: () => [{ entity: 'conversation', id: 'c1', op: 'upsert', value: { a: 2 } }],
     })
-    const changes = await funnel.changesSince(cursor)
+    const changes = await funnel.changesSince(cursor, CHANGE_LOG_OBSERVER)
     expect(changes?.map((c) => c.id)).toEqual(['c1'])
     expect(await funnel.cursor()).toBe(2)
   })

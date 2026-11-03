@@ -1,3 +1,4 @@
+import { CHANGE_LOG_OBSERVER } from '@podium/sync'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -234,7 +235,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
   describe('the durable write and the feed row travel together', () => {
     /** Session changes on the feed since `cursor`, newest state per change. */
     async function sessionChangesSince(reg: SessionRegistry, cursor: number) {
-      const res = await reg.modules.sessions.syncChangesSince(cursor)
+      const res = await reg.modules.sessions.syncChangesSince(cursor, CHANGE_LOG_OBSERVER)
       // A cursor this recent is always servable as a delta; a snapshot here
       // would mean the assertion silently stopped testing the feed.
       expect(res.kind).toBe('delta')
@@ -252,7 +253,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       })
       await reg.modules.sessions.setOffer({ sessionId, ...OFFER })
       reg.modules.sessions.flushBroadcasts()
-      return { reg, sessionId, cursor: (await reg.modules.sessions.syncChangesSince(null)).cursor }
+      return { reg, sessionId, cursor: (await reg.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)).cursor }
     }
 
     it('clearing a standing offer puts the offer-free meta on the feed', async () => {
@@ -339,7 +340,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
         cwd: '/p',
       })
       reg.modules.sessions.flushBroadcasts()
-      const cursor = (await reg.modules.sessions.syncChangesSince(null)).cursor
+      const cursor = (await reg.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)).cursor
       const deleted = vi.spyOn(reg.sessionStore.sessions, 'clearOffer')
 
       await reg.modules.sessions.clearOffer(asSessionId(sessionId))
@@ -359,7 +360,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     it('a non-resident session is durable-only, on both set and clear', async () => {
       const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
       reg.modules.sessions.flushBroadcasts()
-      const cursor = (await reg.modules.sessions.syncChangesSince(null)).cursor
+      const cursor = (await reg.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)).cursor
       const gone = asSessionId('a-session-not-in-memory')
 
       await reg.modules.sessions.setOffer({ sessionId: gone, ...OFFER })

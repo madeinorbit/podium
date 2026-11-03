@@ -1,3 +1,4 @@
+import { CHANGE_LOG_OBSERVER } from '@podium/sync'
 import type { IssueProjection, IssueUserStateWire, SessionMeta } from '@podium/model'
 import { firstAdminMemberId } from '@podium/model'
 import { CLIENT_WIRE_VERSION, type MetadataChange, type ServerMessage } from '@podium/protocol'
@@ -24,7 +25,7 @@ describe('SessionRegistry metadata deltas', () => {
     try {
       const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
       registries.push(registry)
-      const snapshot = await registry.modules.sessions.syncChangesSince(null)
+      const snapshot = await registry.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)
       expect(snapshot.kind).toBe('snapshot')
       expect(attempts).not.toHaveBeenCalled()
     } finally {
@@ -188,7 +189,7 @@ describe('SessionRegistry metadata deltas', () => {
     const registry = await makeRegistry()
     await registry.issues.crud.create({ repoPath: '/r', title: 'a', startNow: false })
 
-    const boot = await registry.modules.sessions.syncChangesSince(null)
+    const boot = await registry.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)
     expect(boot.kind).toBe('snapshot')
     if (boot.kind !== 'snapshot') return
     expect(boot.issues).toEqual([])
@@ -198,7 +199,7 @@ describe('SessionRegistry metadata deltas', () => {
     await registry.issues.crud.close(created.id, 'wontfix')
     await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
 
-    const catchUp = await registry.modules.sessions.syncChangesSince(boot.cursor)
+    const catchUp = await registry.modules.sessions.syncChangesSince(boot.cursor, CHANGE_LOG_OBSERVER)
     expect(catchUp.kind).toBe('delta')
     if (catchUp.kind !== 'delta') return
 
@@ -212,7 +213,7 @@ describe('SessionRegistry metadata deltas', () => {
       }
       return [...m.values()]
     }
-    const fresh = await registry.modules.sessions.syncChangesSince(null)
+    const fresh = await registry.modules.sessions.syncChangesSince(null, CHANGE_LOG_OBSERVER)
     if (fresh.kind !== 'snapshot') throw new Error('expected snapshot')
     const byId = <T>(l: T[], key: (t: T) => string) =>
       [...l].sort((x, y) => key(x).localeCompare(key(y)))

@@ -67,6 +67,7 @@ import {
 } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { hashPassword } from '@podium/runtime/auth-store'
+import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
 import { createTRPCClient, httpLink, type TRPCClient } from '@trpc/client'
 import WebSocket from 'ws'
 import { runIssueCli } from '../../../cli/src/issue-cli'
@@ -465,9 +466,8 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
     }
 
     const legacyDeviceFeed = async (): Promise<FeedSnapshot> => {
-      // The default principal of the session module's feed read IS the
-      // device-grade principal (`DEVICE_GRADE_PRINCIPAL`).
-      const boot = await registry.modules.sessions.syncChangesSince(null)
+      // The session module's feed read, as the device-grade principal.
+      const boot = await registry.modules.sessions.syncChangesSince(null, DEVICE_GRADE_PRINCIPAL)
       if (boot.kind !== 'snapshot') throw new Error(`expected a snapshot, got ${boot.kind}`)
       return boot
     }

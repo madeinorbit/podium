@@ -54,7 +54,7 @@ import { durableSessionLabel } from '@podium/runtime/instance'
 import { stateDir } from '@podium/runtime/local-machine'
 import { prepareSourceDaemonCutover } from '@podium/runtime/transfer-lifecycle'
 import {
-  DEVICE_GRADE_PRINCIPAL,
+  CHANGE_LOG_OBSERVER,
   FeedIdentityRegistry,
   GrantEdgeVisibilityPolicy,
   kernelVisibilityResolver,
@@ -985,7 +985,7 @@ export class SessionRegistry {
     const ledger = new Ledger({
       visibility,
       anchors: feedVisibility.anchors,
-      listenerPrincipal: DEVICE_GRADE_PRINCIPAL,
+      listenerPrincipal: CHANGE_LOG_OBSERVER,
       repo: this.store.sync,
       now: () => this.now(),
       transact: async (fn) => await this.store.transact(fn),

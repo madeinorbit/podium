@@ -103,7 +103,7 @@ describe('gap 7: the legacy device principal reads every feed row (POD-6285)', (
     expect(bob).not.toContain(f.sessions.alice)
   })
 
-  it.fails('POD-6285: the device-grade feed carries no member’s private session', async () => {
+  it('POD-6285: the device-grade feed carries no member’s private session', async () => {
     // Today `feed-visibility.ts` admits `device:shared-instance-password` to every row.
     const device = snapshotIds(await f.legacyDeviceFeed())
     for (const sessionId of Object.values(f.sessions)) {

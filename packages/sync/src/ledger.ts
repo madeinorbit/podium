@@ -15,7 +15,7 @@ import {
 } from './change-log'
 import type { FeedVisibilityPolicy, VisibilityAnchorPort } from './feed/visibility'
 import {
-  DEVICE_GRADE_PRINCIPAL,
+  CHANGE_LOG_OBSERVER,
   DeviceGradeNoAnchors,
   DeviceGradeUnscopedPolicy,
 } from './feed/visibility'
@@ -247,7 +247,7 @@ export class Ledger {
     // Authority delivers batches in append order through one queue, and joining
     // that queue late would put this facade's listeners behind changes they were
     // registered before.
-    this.authority.subscribe(deps.listenerPrincipal ?? DEVICE_GRADE_PRINCIPAL, (delivery) => {
+    this.authority.subscribe(deps.listenerPrincipal ?? CHANGE_LOG_OBSERVER, (delivery) => {
       // D14.4's terminal arm is unreachable from here — `DeviceGradeNoAnchors`
       // reports no visibility edges, so no anchored row is ever derived and the
       // threshold cannot be crossed. Handled rather than cast, because "cannot
@@ -369,7 +369,7 @@ export class Ledger {
   /** Catch-up read for `sync.changesSince` — null means "fall back to a
    *  snapshot" (bootstrap / compacted-past-cursor / future cursor / corrupt row). */
   async changesSince(cursor: number | null): Promise<MetadataChange[] | null> {
-    const delivery = await this.authority.changesSince(cursor, DEVICE_GRADE_PRINCIPAL)
+    const delivery = await this.authority.changesSince(cursor, CHANGE_LOG_OBSERVER)
     if (delivery === null) return null
     if (delivery.kind !== 'batch') return null
     return delivery.changes.map(toWireChange)

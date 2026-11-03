@@ -42,7 +42,7 @@ import type {
 } from '@podium/protocol'
 import type { ControlMessage, TurnEvent, TurnReceipt } from '@podium/protocol/daemon'
 import {
-  DEVICE_GRADE_PRINCIPAL,
+  CHANGE_LOG_OBSERVER,
   type EntityChangeSpec,
   type MutationLedgerPort,
 } from '@podium/sync'
@@ -930,9 +930,11 @@ export class SessionLifecycle {
   flushBroadcasts(): Promise<void> {
     return this.broadcasts.flush()
   }
+  /** `principal` is required: a request passes its caller's feed principal, and
+   *  only in-process system work names {@link CHANGE_LOG_OBSERVER} (POD-6285). */
   async syncChangesSince(
     cursor: number | null,
-    principal: Principal = DEVICE_GRADE_PRINCIPAL,
+    principal: Principal,
   ): Promise<SyncChangesSinceResult> {
     const sourceCursor = await this.funnel.cursor()
     const { feedId, epoch } = await this.funnel.feedIdentity()
@@ -963,7 +965,7 @@ export class SessionLifecycle {
       automations: values('automation'),
       automationRuns: values('automationRun'),
       diagnostics:
-        principal === DEVICE_GRADE_PRINCIPAL ? await this.deps.snapshotDiagnostics() : [],
+        principal === CHANGE_LOG_OBSERVER ? await this.deps.snapshotDiagnostics() : [],
       cursor: sourceCursor,
       ...identity,
     }

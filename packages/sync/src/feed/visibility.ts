@@ -65,6 +65,7 @@ import type {
   DelegationRef,
   MetadataEntityKind,
   Principal,
+  SystemPrincipal,
   VisibilityResolver,
 } from '@podium/protocol'
 import { asCapabilityRef, asDeviceId, asUserId } from '@podium/protocol'
@@ -422,6 +423,16 @@ export class GrantEdgeVisibilityPolicy implements FeedVisibilityPolicy {
     // because "it is not scoping, it is exclusion" (D12's rejected alternatives).
     if (declared === 'secret') return { visible: false, reason: 'secret-never-replicates' }
 
+    if (principal === CHANGE_LOG_OBSERVER) {
+      // The server's own change-log observers (the write funnel's bus bridge and
+      // the Ledger's listeners). No transport can present this object: it is
+      // compared by identity, and a system principal has no wire form. It sees
+      // what the retired device-grade principal saw, and nothing more: every
+      // shared and owned row, never a per-user row (no user is in its key).
+      if (declared === 'per-user-state') return { visible: false, reason: 'per-user-state-not-yours' }
+      return { visible: true, reason: declared === 'deployment-substrate' ? 'substrate' : 'granted' }
+    }
+
     const human = humanOf(principal)
     if (human === null) {
       // A machine or system principal has no human to hold a grant, so there is
@@ -475,6 +486,26 @@ export class GrantEdgeVisibilityPolicy implements FeedVisibilityPolicy {
       : { visible: false, reason: 'outside-delegated-scope' }
   }
 }
+
+/**
+ * THE SERVER'S OWN CHANGE-LOG OBSERVER (POD-6285).
+ *
+ * In-process consumers of every committed change, such as the bus event that
+ * reactions subscribe to and the Ledger's `onAppended` listeners, used to
+ * subscribe as {@link DEVICE_GRADE_PRINCIPAL}, which read every row because the
+ * server's visibility state admitted that user id to everything. That made a
+ * shared-password "user" the server's system observer. They subscribe as this
+ * system principal instead, and the device-grade id is an ordinary user that
+ * owns nothing.
+ *
+ * {@link GrantEdgeVisibilityPolicy} recognises it by object identity only, so
+ * holding this export is the authority: no frame, cookie or payload can
+ * produce it.
+ */
+export const CHANGE_LOG_OBSERVER: SystemPrincipal = Object.freeze({
+  kind: 'system',
+  job: 'change-log-observer',
+})
 
 /**
  * THE ONE PRINCIPAL A DEVICE-GRADE AUTHENTICATOR CAN PRODUCE, and the policy that
