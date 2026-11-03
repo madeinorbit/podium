@@ -101,6 +101,11 @@ export const TranscriptItem = z.object({
    *  transcript item is per-session detail, not a replicated entity, so it has no
    *  brand and no `MetadataEntityKind` membership. */
   id: z.string(),
+  /** The provider's id for the message this item came from, where a live
+   *  preview of the message is keyed by it rather than by the item (POD-6280):
+   *  Claude streams a reply under its API message id before the session file
+   *  holds the record. What `streamItemIdOf` returns when present. */
+  streamId: z.string().optional(),
   /** Opaque position anchor for read-from/subscribe-since paging. Stable across
    *  re-reads of the same bytes in the same session namespace, independent of path. */
   cursor: z.string().optional(),
