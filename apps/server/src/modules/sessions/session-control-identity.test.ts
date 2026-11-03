@@ -227,7 +227,11 @@ describe('POD-1081 attach + take-control policy', () => {
     // OWNER is an admin here and holds the old grant: neither reaches Alice's session.
     const admin = makeClient('c-admin', OWNER, 'admin')
     await ctl.onFrame(admin.principal, admin, { type: 'attach', sessionId: SESSION })
-    expect(admin.sent).toContainEqual({ type: 'terminalOutcome', sessionId: SESSION, outcome: 'unauthorized' })
+    expect(admin.sent).toContainEqual({
+      type: 'terminalOutcome',
+      sessionId: SESSION,
+      outcome: 'unauthorized',
+    })
     expect(admin.attached).not.toContain(SESSION)
     expect(session.terminal.clientCount).toBe(0)
 

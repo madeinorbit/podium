@@ -49,7 +49,8 @@ const agentSubject = (human: typeof OWNER = OWNER): ControlSubject => ({
 
 const ctx = (
   partial: Partial<SessionControlContext> & Pick<SessionControlContext, 'machineUse'>,
-): SessionControlContext => contextFromOwnership({ owner: partial.owner ?? OWNER }, partial.machineUse)
+): SessionControlContext =>
+  contextFromOwnership({ owner: partial.owner ?? OWNER }, partial.machineUse)
 
 describe('session control policy — watch / drive', () => {
   it('owner may watch and drive when machine use is granted', () => {

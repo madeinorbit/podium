@@ -140,7 +140,11 @@ describe('S4 server consumers', () => {
       'fixture-hash',
     )
     // B's own session (sessions are private, POD-6283) and A's private one.
-    const { sessionId } = await sessions.createSession({ agentKind: 'shell', cwd: '/source', ownerUserId: B })
+    const { sessionId } = await sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/source',
+      ownerUserId: B,
+    })
     const { sessionId: privateId } = await sessions.createSession({
       agentKind: 'shell',
       cwd: '/private',

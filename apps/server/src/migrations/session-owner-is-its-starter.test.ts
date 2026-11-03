@@ -27,7 +27,9 @@ function rewound(): { db: SqlDatabase; upgrade(): void } {
 
 const addMember = (db: SqlDatabase, id: string, disabledAt: string | null = null) =>
   db
-    .prepare('INSERT INTO users (id, display_name, role, created_at, disabled_at) VALUES (?, ?, ?, ?, ?)')
+    .prepare(
+      'INSERT INTO users (id, display_name, role, created_at, disabled_at) VALUES (?, ?, ?, ?, ?)',
+    )
     .run(id, id, 'member', '2026-10-01T00:00:00.000Z', disabledAt)
 
 const seedSession = (db: SqlDatabase, id: string, owner: string, onBehalfOf: string | null) =>
@@ -42,14 +44,19 @@ const seedSession = (db: SqlDatabase, id: string, owner: string, onBehalfOf: str
     .run(id, `t-${id}`, `l-${id}`, owner, onBehalfOf ? 'user' : null, onBehalfOf, onBehalfOf)
 
 const ownerOf = (db: SqlDatabase, id: string) =>
-  (db.prepare('SELECT owner_user_id AS owner FROM sessions WHERE id = ?').get(id) as { owner: string })
-    .owner
+  (
+    db.prepare('SELECT owner_user_id AS owner FROM sessions WHERE id = ?').get(id) as {
+      owner: string
+    }
+  ).owner
 
 /** The instance's existing first admin: the one member every database has. */
 const firstAdmin = (db: SqlDatabase) =>
-  (db.prepare("SELECT id FROM users WHERE role = 'admin' ORDER BY created_at LIMIT 1").get() as {
-    id: string
-  }).id
+  (
+    db.prepare("SELECT id FROM users WHERE role = 'admin' ORDER BY created_at LIMIT 1").get() as {
+      id: string
+    }
+  ).id
 
 describe(`migration ${MIGRATION}`, () => {
   it('hands a session started on another member’s task to its starter, and nothing else', () => {

@@ -77,7 +77,9 @@ describe('MU-07: Bob’s agent on Alice’s task belongs to Bob', () => {
   })
 
   it('a session Bob starts on Alice’s task over tRPC is his', async () => {
-    const created = (await (await trpc('bob')).sessions.create.mutate({
+    const created = (await (
+      await trpc('bob')
+    ).sessions.create.mutate({
       agentKind: 'shell',
       cwd: '/wt/bob-on-alice-shell',
       machineId: f.machines.bob,
@@ -88,24 +90,32 @@ describe('MU-07: Bob’s agent on Alice’s task belongs to Bob', () => {
 })
 
 describe('MU-07: admin Alice, who owns the task, cannot read Bob’s session', () => {
-  it.each(['status', 'read', 'transcriptRead', 'recap'] as const)(
-    'sessions.%s answers NOT_FOUND at once',
-    async (proc) => {
-      const alice = await trpc('alice')
-      const input =
-        proc === 'status'
-          ? { ref: target() }
-          : proc === 'transcriptRead'
-            ? { sessionId: target(), direction: 'before', limit: 5 }
-            : { sessionId: target() }
-      await prompt(async () => await expect(alice.sessions[proc].query(input)).rejects.toThrow('NOT_FOUND'))
-    },
-  )
+  it.each([
+    'status',
+    'read',
+    'transcriptRead',
+    'recap',
+  ] as const)('sessions.%s answers NOT_FOUND at once', async (proc) => {
+    const alice = await trpc('alice')
+    const input =
+      proc === 'status'
+        ? { ref: target() }
+        : proc === 'transcriptRead'
+          ? { sessionId: target(), direction: 'before', limit: 5 }
+          : { sessionId: target() }
+    await prompt(
+      async () => await expect(alice.sessions[proc].query(input)).rejects.toThrow('NOT_FOUND'),
+    )
+  })
 
   it('control: Bob reads his own session’s transcript', async () => {
     const bob = await trpc('bob')
     expect(
-      await bob.sessions.transcriptRead.query({ sessionId: target(), direction: 'before', limit: 5 }),
+      await bob.sessions.transcriptRead.query({
+        sessionId: target(),
+        direction: 'before',
+        limit: 5,
+      }),
     ).toMatchObject({ items: [] })
   })
 
@@ -124,8 +134,15 @@ describe('MU-07: admin Alice, who owns the task, cannot read Bob’s session', (
       send: (m) => bobFrames.push(m),
     })
     await registry.clientGateway.routeClientFrame(alice, { type: 'attach', sessionId: target() })
-    await registry.clientGateway.routeClientFrame(alice, { type: 'requestControl', sessionId: target() })
-    expect(aliceFrames).toContainEqual({ type: 'terminalOutcome', sessionId: target(), outcome: 'unauthorized' })
+    await registry.clientGateway.routeClientFrame(alice, {
+      type: 'requestControl',
+      sessionId: target(),
+    })
+    expect(aliceFrames).toContainEqual({
+      type: 'terminalOutcome',
+      sessionId: target(),
+      outcome: 'unauthorized',
+    })
     expect(aliceFrames.some((m) => m.type === 'attached')).toBe(false)
     const terminal = sessions().sessions.get(target())?.terminal
     expect(terminal?.controllerIdentity).not.toEqual({ kind: 'user', user: MEMBERS.alice.id })
@@ -150,7 +167,9 @@ describe('MU-07: admin Alice, who owns the task, cannot read Bob’s session', (
     })
     const feed = snapshotIds(await (await (await f.as('alice')).feed()).bootstrap())
     expect(feed.sessions).not.toContain(target())
-    await expect((await trpc('alice')).sessions.read.query({ sessionId: target() })).rejects.toThrow('NOT_FOUND')
+    await expect(
+      (await trpc('alice')).sessions.read.query({ sessionId: target() }),
+    ).rejects.toThrow('NOT_FOUND')
     await expect(
       (await trpc('alice')).sessions.rename.mutate({ sessionId: target(), name: 'granted rename' }),
     ).rejects.toThrow(/command refused/)
@@ -164,7 +183,10 @@ describe('MU-07: admin Alice cannot drive Bob’s session; Bob can', () => {
         (await trpc('alice')).sessions[proc].mutate({ sessionId: target(), text: 'from alice' }),
       )
       expect(refused, proc).toMatchObject({ ok: false, disposition: 'dead_letter' })
-      const sent = await (await trpc('bob')).sessions[proc].mutate({ sessionId: target(), text: 'from bob' })
+      const sent = await (await trpc('bob')).sessions[proc].mutate({
+        sessionId: target(),
+        text: 'from bob',
+      })
       expect(sent, proc).toMatchObject({ ok: true, disposition: 'queued' })
     }
   })
@@ -181,14 +203,21 @@ describe('MU-07: admin Alice cannot drive Bob’s session; Bob can', () => {
         : proc === 'answerAskUserQuestion'
           ? { sessionId: target(), interactionId: 'ixn_x', choices: [{ optionIndices: [1] }] }
           : { sessionId: target() }
-    const answered = await prompt(async () => await (await trpc('alice')).sessions[proc].mutate(input))
+    const answered = await prompt(
+      async () => await (await trpc('alice')).sessions[proc].mutate(input),
+    )
     // The absent shape exactly: an answer that got past the gate carries more.
     if (proc === 'configure') expect(answered).toMatchObject(answer)
     else expect(answered).toEqual(answer)
   })
 
   it('cannot put files into it; Bob can', async () => {
-    const input = { sessionId: target(), filename: 'a.png', mimeType: 'image/png', dataBase64: 'iVBORw0KGgo=' }
+    const input = {
+      sessionId: target(),
+      filename: 'a.png',
+      mimeType: 'image/png',
+      dataBase64: 'iVBORw0KGgo=',
+    }
     expect(await (await trpc('alice')).sessions.uploadImage.mutate(input)).toEqual({
       refusal: { reason: 'unsupported', detail: 'unknown session' },
     })
@@ -218,9 +247,18 @@ describe('MU-07: admin Alice cannot drive Bob’s session; Bob can', () => {
       resume,
       confidence: 'exact',
     })
-    const input = { agentKind: 'claude-code', cwd: '/wt/bob-session-bob-on-alice-task', resume, conversationId: resume.value }
-    await expect((await trpc('alice')).sessions.resume.mutate(input)).rejects.toThrow('session not found')
-    expect(await (await trpc('bob')).sessions.resume.mutate({ ...input, machineId: f.machines.bob })).toEqual({
+    const input = {
+      agentKind: 'claude-code',
+      cwd: '/wt/bob-session-bob-on-alice-task',
+      resume,
+      conversationId: resume.value,
+    }
+    await expect((await trpc('alice')).sessions.resume.mutate(input)).rejects.toThrow(
+      'session not found',
+    )
+    expect(
+      await (await trpc('bob')).sessions.resume.mutate({ ...input, machineId: f.machines.bob }),
+    ).toEqual({
       sessionId: target(),
     })
   })
@@ -229,7 +267,9 @@ describe('MU-07: admin Alice cannot drive Bob’s session; Bob can', () => {
     const apply = async (who: 'alice' | 'bob') =>
       await sessions().authorizeQueuedInputAtApply({
         sessionId: target(),
-        principal: inboxPrincipalFromCommand(userCommandPrincipal(MEMBERS[who].id, MEMBERS[who].role)),
+        principal: inboxPrincipalFromCommand(
+          userCommandPrincipal(MEMBERS[who].id, MEMBERS[who].role),
+        ),
         sourceMessageId: null,
       })
     expect(await apply('alice')).toMatchObject({ ok: false })
@@ -254,7 +294,10 @@ describe('MU-07: only Bob answers his agent’s question on Alice’s task', () 
       } as never),
     ).rejects.toThrow(refusal)
     expect(
-      await (await trpc('bob')).issues.answerQuestion.mutate({ id: f.tasks.alice, answer: 'right' }),
+      await (await trpc('bob')).issues.answerQuestion.mutate({
+        id: f.tasks.alice,
+        answer: 'right',
+      }),
     ).toMatchObject({ deliveredVia: 'text' })
   })
 })
@@ -262,9 +305,9 @@ describe('MU-07: only Bob answers his agent’s question on Alice’s task', () 
 describe('MU-07: an agent acting for Alice cannot read, send to or drive Bob’s session', () => {
   const aliceAgent = () => f.agent(f.sessions.alice).client
   it('session read and status answer as a missing session', async () => {
-    await expect(aliceAgent().sessions.read.query({ sessionId: target() } as never)).rejects.toThrow(
-      `no session found for ${target()}`,
-    )
+    await expect(
+      aliceAgent().sessions.read.query({ sessionId: target() } as never),
+    ).rejects.toThrow(`no session found for ${target()}`)
     await expect(aliceAgent().sessions.status.query({ ref: target() } as never)).rejects.toThrow(
       `no session found for ${target()}`,
     )
@@ -274,16 +317,18 @@ describe('MU-07: an agent acting for Alice cannot read, send to or drive Bob’s
     await expect(
       aliceAgent().sessions.sendText.mutate({ sessionId: target(), text: 'x' } as never),
     ).rejects.toThrow('session not found')
-    expect(await aliceAgent().messages.send.mutate({ to: target(), body: 'x' } as never)).toMatchObject({
+    expect(
+      await aliceAgent().messages.send.mutate({ to: target(), body: 'x' } as never),
+    ).toMatchObject({
       ok: false,
       disposition: 'dead_letter',
     })
   })
 
   it('cannot stop it', async () => {
-    await expect(aliceAgent().sessions.stop.mutate({ sessionId: target() } as never)).rejects.toThrow(
-      'session not found',
-    )
+    await expect(
+      aliceAgent().sessions.stop.mutate({ sessionId: target() } as never),
+    ).rejects.toThrow('session not found')
   })
 })
 
