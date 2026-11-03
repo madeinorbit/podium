@@ -253,7 +253,7 @@ const create: CommandDef = {
     note: 'Draft artifact bytes are user content and must never reach command logs. The whole array is redacted because this contract redacts top-level fields.',
   },
   conflict: 'cmd',
-  decision: `${PLACEMENT_DECISION} Ownership on create is resolved from the principal, not the transport: an agent-created session is owned by its onBehalfOf HUMAN with the agent as actor (A4), and one spawned under an issue inherits THAT issue's owner and grants — otherwise sharing an issue does not share its work and retiring an agent orphans what it made. The draftIssue vessel resolves the same owner, so the low-friction start path produces an OWNED draft. No relay exposure: agents spawn through messages.spawnAgent, which carries its own budget and parent-scope rules.`,
+  decision: `${PLACEMENT_DECISION} Ownership on create is resolved from the principal, not the transport: an agent-created session is owned by its onBehalfOf HUMAN with the agent as actor (A4), and the task it is started on changes nothing: a session is private to the person who started it, or for whom an agent started it (POD-6283, design §2.3). The draftIssue vessel resolves the same owner, so the low-friction start path produces an OWNED draft. No relay exposure: agents spawn through messages.spawnAgent, which carries its own budget and parent-scope rules.`,
 }
 
 /**

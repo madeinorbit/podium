@@ -93,7 +93,6 @@ const OLD_SCOPED_TARGET_FIELD: Record<string, 'id' | 'fromId' | 'oldId' | 'none'
   defer: 'id',
   undefer: 'id',
   setNeedsHuman: 'id',
-  answerQuestion: 'id',
   clearNeedsHuman: 'id',
   addComment: 'id',
   panelApply: 'id',

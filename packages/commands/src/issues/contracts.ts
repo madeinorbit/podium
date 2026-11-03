@@ -1608,7 +1608,18 @@ export const issueAnswerQuestionContract = {
   version: 1,
   visibility: ISSUE_VISIBILITY,
   input: answerQuestionInput.merge(EXPECTED_REVISION),
-  policy: WRITE_POLICY,
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'none',
+    confirmation: 'none',
+    rationale:
+      'ANSWERING IS DRIVING THE ASKING SESSION (POD-6283, design §2.3). The answer is typed into ' +
+      'the session that asked, so the gate is that session’s owner, decided by the handler against ' +
+      'the stored `humanQuestionAskedBy`: only its own human, a person or their agent, may answer, ' +
+      'whoever owns the task. A task-write gate here would refuse the asker’s own human on another ' +
+      'member’s task and admit the task owner, who must not drive it.',
+  },
   exposure: SERVED_EVERYWHERE,
   delivery: WRITE_DELIVERY,
   redaction: ISSUE_REDACTION,

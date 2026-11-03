@@ -1187,7 +1187,8 @@ const defs = {
    *  or dead session never silently drops the question. */
   answerQuestion: def('answerQuestion', {
     kind: 'mutation',
-    target: targetId,
+    // No task target (POD-6283): the gate is the ASKING session's owner, decided
+    // by `answerSessionQuestion` before anything is typed into it.
     handler: async (ctx, input) => {
       const issue = await ctx.reports.getMeta(input.id)
       if (!issue) {
