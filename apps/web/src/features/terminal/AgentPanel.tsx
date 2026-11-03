@@ -51,11 +51,11 @@ import {
 import { ChatView } from '@/features/chat/ChatView'
 import { FileLinkPathIndex } from '@/features/chat/chat'
 import { OfferBar } from '@/features/chat/OfferBar'
+import { SessionModelChip } from '@/features/chat/SessionModelChip'
 import { OfferDismissalContext, useOfferDismissalHost } from '@/features/chat/offer-dismissal'
 import { OfferLiftContext, useOfferLiftHost } from '@/features/chat/offer-lift'
 import { useClock, useDeadlineNow } from '@/lib/clock-hooks'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
-import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
 import { isKnownRefPrefix } from '@/lib/markdown-references'
 import { activateRef } from '@/lib/ref-activation'
 import { SnoozeControl } from '@/lib/SnoozeControl'
@@ -93,99 +93,6 @@ import { useTerminalAppearance } from './use-terminal-appearance'
 // session (screenText/sendInput/simulateKeyboard/…) for the Playwright harness under
 // tests/e2e/browser. Off by default, so normal sessions never expose the input API.
 const E2E = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('e2e')
-
-/** Effort tiers, compacted to header width. Unknown spellings pass through. */
-const EFFORT_SHORT: Record<string, string> = {
-  low: 'low',
-  medium: 'med',
-  high: 'high',
-  xhigh: 'xhigh',
-  max: 'max',
-}
-
-/**
- * The header's model token [POD-121]: "fable 5 · med". The model is the
- * transcript-OBSERVED one when known (`observedModel` — resolves a spawn-time
- * `auto` and follows `/model` switches), then the one last REQUESTED at runtime
- * (`requestedModel`, POD-3081), then the spawn selection — including an explicit
- * "auto", shown literally until observation resolves it [POD-158].
- *
- * THE MIDDLE ARM IS WHY THE ORDER IS THREE AND NOT TWO. A sticky configure on a
- * headless session takes effect on the NEXT turn, so between the change and the
- * next assistant message there is no observation of the new model — and without
- * this arm the token would fall all the way through to the SPAWN selection and
- * show a model two changes out of date. It sits BELOW the observation because
- * the observation is the stronger claim: during that window the session really
- * is still answering as the old model, and the dotted rule below says so.
- * Effort renders even before any model is known ("· med"→ effort-only label).
- * Null only when neither a model nor an effort is known.
- *
- * Id compaction: "claude-fable-5" → "fable 5", "claude-opus-4-8" → "opus 4.8",
- * "claude-haiku-4-5-20251001" → "haiku 4.5" (date suffix dropped, consecutive
- * numeric parts join as a dotted version).
- */
-/**
- * MAY A CLIENT OFFER A MODEL / EFFORT CONTROL ON THIS RUNNING SESSION?
- * (POD-3087.)
- *
- * The one fact that answers it is `configureFields`, reported by the daemon on
- * bind out of the live driver's own `configure.fields`. Nothing else on
- * `SessionMeta` can: `driverFamily` is the nearest, and it is wrong here —
- * `grok-acp` is family `server` and declares `configure` for `permissionMode`
- * alone, so a family-gated picker appears on a session that can only refuse it.
- *
- * ABSENT IS NOT "NO", and this function exists as much for that rule as for the
- * lookup. Undefined means we have not been told — an older daemon mid-upgrade,
- * or a session that has not bound yet — and reading it as "cannot" would hide
- * the control on every session in the fleet during a rolling upgrade, silently.
- * So absent answers `unknown`, and the caller decides; only an EMPTY array,
- * which is a daemon that answered "nothing", is a real no.
- */
-export type ConfigurableVerdict = 'yes' | 'no' | 'unknown'
-
-export function canConfigureModel(session: {
-  configureFields?: readonly string[]
-}): ConfigurableVerdict {
-  if (session.configureFields === undefined) return 'unknown'
-  return session.configureFields.includes('model') ? 'yes' : 'no'
-}
-
-export function modelToken(session: {
-  observedModel?: string
-  observedEffort?: string
-  requestedModel?: string
-  requestedEffort?: string
-  model?: string
-  effort?: string
-}): string | null {
-  const raw = session.observedModel ?? session.requestedModel ?? session.model
-  let label: string | undefined
-  if (raw === 'auto') {
-    label = 'auto'
-  } else if (raw) {
-    const parts = raw
-      .replace(/^claude-/, '')
-      .replace(/-\d{8}$/, '')
-      .split('-')
-    const words: string[] = []
-    for (const part of parts) {
-      const last = words.at(-1)
-      if (/^\d+$/.test(part) && last !== undefined && /^\d/.test(last)) {
-        words[words.length - 1] = `${last}.${part}`
-      } else {
-        words.push(part)
-      }
-    }
-    label = words.join(' ')
-  }
-  const rawEffort =
-    session.observedEffort ??
-    session.requestedEffort ??
-    (session.effort && session.effort !== 'auto' ? session.effort : undefined)
-  const effort = rawEffort ? (EFFORT_SHORT[rawEffort] ?? rawEffort) : undefined
-  if (!label) return effort ?? null
-  return effort ? `${label} · ${effort}` : label
-}
 
 type DesktopSessionGlobals = {
   __PODIUM_FOCUS_SESSION_PROMPT__?: () => void
@@ -376,37 +283,9 @@ export function AgentPanel({
   // resume ref is known. Also the first right-aligned header control, so the
   // `ml-auto` fallbacks below defer to it when present.
   const resumeCmd = session ? resumeCommand(session) : null
-  // A running-session control is deliberately a separate path from the model
-  // readout below. The daemon reports `configureFields` from the live driver's
-  // own capabilities; only an explicit `model` capability may expose these
-  // controls. `undefined` remains unknown during an older-daemon/rolling-bind
-  // window, and PATCH-shaped mutations preserve the other sticky field.
-  const runtimeAgentKind = session ? issueAgentKind(session.agentKind) : null
-  const canConfigureRuntime =
-    session !== undefined && runtimeAgentKind !== null && canConfigureModel(session) === 'yes'
-  const canConfigureRuntimeEffort =
-    canConfigureRuntime && session?.configureFields?.includes('effort') === true
-  const runtimeModel = session?.requestedModel ?? session?.model ?? 'auto'
-  const runtimeEffort = session?.requestedEffort ?? session?.effort ?? 'auto'
-  const configureRuntime = useCallback(
-    async (patch: { model?: string; effort?: string }) => {
-      try {
-        const result = await trpc.sessions.configure.mutate({ sessionId, ...patch })
-        if ('ok' in result) {
-          toast.success(
-            result.effective === 'next-turn'
-              ? 'The change applies from the next turn.'
-              : 'The running session changed.',
-          )
-          return
-        }
-        toast.error(result.detail ?? `Could not change the running session (${result.reason}).`)
-      } catch {
-        toast.error('Could not change the running session.')
-      }
-    },
-    [sessionId, trpc],
-  )
+  // THE MODEL CHIP LIVES IN THE CHAT COMPOSER (POD-6264). The header shows it
+  // only for the CLI view, which has no composer to carry it.
+  const cliShowing = surface.kind === 'live' && effectiveMode === 'native'
   // Manual hibernation, as a descriptor: whether it applies at all and why it is
   // blocked come from the SHARED eligibility rule (`sessionMenuEligibility`, also
   // read by the session context menu and the command palette) rather than from a
@@ -879,82 +758,15 @@ export function AgentPanel({
               exited transcript with you), and distinguishes "only you" from
               "we do not know" rather than collapsing both to blank. */}
             <SessionWatchers sessionId={sessionId} view={effectiveMode} />
-            {/* The running model + requested effort ("fable 5 · med"): observed
-              model from the transcript tail (resolves a spawn-time `auto`),
-              effort from the spawn selection — hidden until either is known.
-
-              PROVENANCE IS THE POINT (POD-413). This is a READOUT, and the one
-              thing a reader must not conclude from it is that Podium chose the
-              model. It does not: across Claude Code, Codex, Grok and shells the
-              harness owns model selection, and a `/model` typed into the harness
-              changes it under us. So the token says which of two things it is —
-              OBSERVED in the transcript (plain, because it is simply true) or
-              merely REQUESTED at spawn and not yet seen (dotted rule, the
-              typographic mark for provisional). The tooltip names it in words. */}
-            {session && !(runtimeAgentKind && canConfigureRuntime) && modelToken(session) && (
-              <span
-                className="model-token hidden flex-none items-center gap-[5px] lg:inline-flex"
-                data-provenance={session.observedModel ? 'observed' : 'requested'}
-                title={
-                  // POD-3087: whether the model can be changed HERE is now a
-                  // reported fact rather than a guess, so the readout can say so.
-                  // Appended to whichever provenance sentence applies, because
-                  // "what is running" and "can I change it" are two different
-                  // questions and collapsing them is how a readout starts
-                  // implying it is a control.
-                  (session.observedModel
-                    ? `Observed — the model this agent is actually running, read from its transcript. The harness owns this; Podium reports it.${session.effort ? ' Effort is the spawn request.' : ''}`
-                    : session.requestedModel
-                      ? // POD-3081: a RUNTIME change, not a spawn one, and the
-                        // difference is the whole reason the wording branches —
-                        // a sticky configure on a headless session takes effect
-                        // on the next message, so "not yet seen" here means
-                        // "not yet asked", not "the harness ignored you".
-                        'Requested — you changed this on the running session. It applies from its next message, and this becomes Observed once a turn answers on it.'
-                      : 'Requested at spawn — not yet seen in the transcript. The harness owns model selection; Podium reports it rather than setting it.') +
-                  (canConfigureModel(session) === 'yes'
-                    ? ' This session can be moved to another model while it runs.'
-                    : canConfigureModel(session) === 'no'
-                      ? ' This harness takes its model at launch; changing it is a relaunch.'
-                      : // UNKNOWN says nothing at all. A sentence claiming either
-                        // answer for a session whose daemon has not reported would
-                        // be an invention, and silence is the honest shape of "we
-                        // have not been told".
-                        '')
-                }
-              >
-                <span className="model-token-text">{modelToken(session)}</span>
+            {/* CLI VIEW ONLY (POD-6264). The chat view carries the session's
+              model · effort in its composer, where the next message is written;
+              the CLI view has no composer, so the same chip sits here. It is a
+              menu where the live driver can switch models mid-session, and a
+              readout naming why not everywhere else. */}
+            {cliShowing && (
+              <span className="flex min-w-0 max-w-[16rem] flex-none">
+                <SessionModelChip session={session} />
               </span>
-            )}
-            {/* Runtime model/effort controls [POD-3087]. These are offered only
-              after the daemon has positively reported the live driver's fields;
-              a missing report is not permission to guess from driver family. */}
-            {session && runtimeAgentKind && canConfigureRuntime && (
-              <>
-                <span className="hidden flex-none items-center lg:inline-flex">
-                <ModelPicker
-                  agentKind={runtimeAgentKind}
-                  value={runtimeModel}
-                  onChange={(model) => {
-                    void configureRuntime({ model })
-                  }}
-                  variant="quiet"
-                  machineId={session.machineId}
-                />
-                <span aria-hidden="true">·</span>
-                <EffortPicker
-                  disabled={!canConfigureRuntimeEffort}
-                  agentKind={runtimeAgentKind}
-                  model={runtimeModel}
-                  value={runtimeEffort}
-                  onChange={(effort) => {
-                    void configureRuntime({ effort })
-                  }}
-                  variant="quiet"
-                  machineId={session.machineId}
-                />
-                </span>
-              </>
             )}
             {/* Mode switch [POD-121, replaces #20's toggle]: one two-segment
               control — both views always visible and labeled, the filled segment
@@ -1105,36 +917,6 @@ export function AgentPanel({
               )}
             </span>
           </span>
-        </div>
-      )}
-      {showHeader && session && runtimeAgentKind && canConfigureRuntime && (
-        <div
-          data-testid="runtime-configure-mobile"
-          className="flex min-w-0 flex-none items-center gap-2 border-b border-hairline-soft px-3 py-1.5 lg:hidden"
-        >
-          <span className="flex-none text-[10px] font-medium text-text-dim">Next turn</span>
-          <ModelPicker
-            agentKind={runtimeAgentKind}
-            value={runtimeModel}
-            onChange={(model) => {
-              void configureRuntime({ model })
-            }}
-            variant="pill"
-            className="min-w-0 max-w-[min(14rem,58vw)] flex-1 truncate"
-            machineId={session.machineId}
-          />
-          <EffortPicker
-            disabled={!canConfigureRuntimeEffort}
-            agentKind={runtimeAgentKind}
-            model={runtimeModel}
-            value={runtimeEffort}
-            onChange={(effort) => {
-              void configureRuntime({ effort })
-            }}
-            variant="pill"
-            className="min-w-0 max-w-[8rem] flex-1 truncate"
-            machineId={session.machineId}
-          />
         </div>
       )}
       {session?.condition === 'logged-out' && (

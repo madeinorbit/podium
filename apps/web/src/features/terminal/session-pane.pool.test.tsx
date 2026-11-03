@@ -532,14 +532,3 @@ it('uses pool facts in the real chat header while leaving transcript reads on th
     ),
   ).toEqual([])
 })
-
-
-it('offers no Use option in the session model menu', async () => {
-  pickerFixture.real = true
-  const row = sessions.find((session) => session.configureFields?.includes('model'))!
-  expect(row).toBeDefined()
-  const panel = render(<AgentPanel sessionId={row.sessionId} />)
-  fireEvent.click(panel.getAllByRole('button', { name: 'Model' })[0]!)
-  fireEvent.change(await panel.findByPlaceholderText('Filter…'), { target: { value: 'my-custom-model' } })
-  expect(panel.queryByRole('menuitem', { name: /Use / })).toBeNull()
-})

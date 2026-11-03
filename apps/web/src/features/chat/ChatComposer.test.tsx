@@ -100,6 +100,7 @@ async function mount(
     autoFocusKey?: string
     fromRuntime?: boolean
     backend?: ComponentProps<typeof ChatComposer>['backend']
+    modelControl?: ComponentProps<typeof ChatComposer>['modelControl']
   } = { compact: true },
 ): Promise<{ ta: HTMLTextAreaElement }> {
   const taRef = createRef<HTMLTextAreaElement>()
@@ -135,6 +136,7 @@ async function mount(
           backend={opts.backend}
           onBackendModelChange={() => {}}
           onBackendEffortChange={() => {}}
+          modelControl={opts.modelControl}
         />
       </PanelVisible>,
     )
@@ -805,6 +807,36 @@ describe('native composer sizing', () => {
     expect(measure).not.toHaveBeenCalled()
     expect(container.querySelector('textarea')?.className).toContain('[field-sizing:content]')
   })
+})
+
+// POD-6264: a task session's model chip rides the field's row in the wide
+// box, drops under the well in the narrow one, and leaves while replying to mail.
+it.each([
+  [false, 'row'],
+  [true, 'floor'],
+] as const)('places the model chip, compact=%s, on the %s', async (compact, where) => {
+  await mount({ compact, modelControl: <span data-testid="chip">Opus 5.5 · High</span> })
+  const chip = container.querySelector('[data-testid="chip"]')
+  expect(chip).not.toBeNull()
+  const well = container.querySelector('.chat-composer-well, .prompt-well')
+  expect(well?.contains(chip ?? null)).toBe(where === 'row')
+})
+
+it('hides the model chip while replying to mail', async () => {
+  const reply = new MailReply(new MobxPool({ coarseNow: 0, selectedIssueId: null }), {
+    show: async () => null,
+    reply: async () => null,
+  })
+  reply.start({
+    id: 'note',
+    from: 'issue:POD-1',
+    to: 'operator',
+    body: 'Q',
+    question: true,
+    expectsReply: false,
+  })
+  await mount({ compact: false, reply, modelControl: <span data-testid="chip">chip</span> })
+  expect(container.querySelector('[data-testid="chip"]')).toBeNull()
 })
 
 it('offers no Use option in the chat backend menu and preserves an inert stored effort', async () => {

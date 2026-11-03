@@ -476,15 +476,16 @@ describe('AgentPanel on a server-family client terminal', () => {
       requestedEffort: 'max',
     })
 
-  it('keeps model and effort controls reachable below the desktop breakpoint', async () => {
+  it('carries the model and effort menus in the header while the CLI view shows', async () => {
+    // POD-6264: the chat view carries them in its composer; the CLI view has no
+    // composer, so the header holds the same chip at every width.
     storeSessions = [serverDriven()]
     await render({ active: true })
-    const mobileRoute = container.querySelector('[data-testid="runtime-configure-mobile"]')
-    expect(mobileRoute).toBeTruthy()
-    expect(mobileRoute?.className).toContain('lg:hidden')
-    expect(mobileRoute?.textContent).toContain('Next turn')
-    expect(mobileRoute?.querySelector('[aria-label="Model"]')).toBeTruthy()
-    expect(mobileRoute?.querySelector('[aria-label="Effort"]')).toBeTruthy()
+    const header = container.querySelector('[data-testid="agent-panel-header"]')
+    const chip = header?.querySelector('[data-testid="session-model"]')
+    expect(chip?.getAttribute('data-configurable')).toBe('true')
+    expect(chip?.querySelector('[aria-label="Model"]')).toBeTruthy()
+    expect(chip?.querySelector('[aria-label="Effort"]')).toBeTruthy()
   })
 
   it('native-default mounts the original harness terminal and offers both modes', async () => {

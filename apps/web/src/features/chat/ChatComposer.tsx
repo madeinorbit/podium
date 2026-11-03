@@ -14,7 +14,7 @@ import {
   X,
 } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
-import type { JSX, RefObject } from 'react'
+import type { JSX, ReactNode, RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePanelVisible } from '@/app/panel-visible'
 import { Button } from '@/components/ui/button'
@@ -171,6 +171,7 @@ export const ChatComposer = observer(function ChatComposer({
   backend,
   onBackendModelChange,
   onBackendEffortChange,
+  modelControl,
   reply,
 }: {
   reply?: MailReply
@@ -230,6 +231,12 @@ export const ChatComposer = observer(function ChatComposer({
   backend?: { agentKind: string | undefined; model: string; effort: string }
   onBackendModelChange?: (model: string, agentKind?: string) => void
   onBackendEffortChange?: (effort: string) => void
+  /** A task session's model · effort chip (POD-6264): a menu where the driver
+   *  can switch models mid-conversation, a readout with its reason elsewhere.
+   *  Rides the field's row on a wide desktop box, and the floor under the well
+   *  where the row is too narrow to share. Hidden while replying to mail, which
+   *  no model answers. */
+  modelControl?: ReactNode
 }): JSX.Element {
   const lastInterruptEscapeAt = useRef<number | null>(null)
   // The reset default is a mount seed, never a mirror of the live draft.
@@ -893,6 +900,9 @@ export const ChatComposer = observer(function ChatComposer({
                 ))}
               </span>
             )}
+            {!replying && modelControl && !compact && !isMobile && (
+              <span className="flex min-w-0 max-w-[16rem] shrink self-end">{modelControl}</span>
+            )}
             {/* ONE CALM LINE (POD-2076): the field and its attach · mic · send
                 cluster share a row in both modes; the cluster rides the last
                 line as the field grows. */}
@@ -908,6 +918,9 @@ export const ChatComposer = observer(function ChatComposer({
           this component's layout effect. */}
       <SyncComposerDraft taRef={taRef} draft={draft} owner={autoFocusKey} />
       {compact && <PromptAutoGrow taRef={taRef} value={draft} />}
+      {!replying && modelControl && (compact || isMobile) && (
+        <div className="mt-1 flex min-w-0 items-center px-0.5">{modelControl}</div>
+      )}
       {!replying && backend && onBackendModelChange && onBackendEffortChange && (
         <BackendRail
           backend={backend}
