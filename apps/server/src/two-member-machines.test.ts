@@ -9,8 +9,8 @@
  * - At connect a daemon names the sessions it holds and the server answers with
  *   their facts. Alice's machine learns nothing about Bob's sessions by naming
  *   them, unless one is placed on her machine (it runs there already).
- * - Every session Bob's agents author acts for Bob: a child his agent spawns,
- *   whatever task its parent sat on.
+ * - Every session Bob's agents author acts for Bob: a child his agent spawns on
+ *   Alice's task, on Alice's machine, is Bob's.
  * - MU-10: task access never grants machine use; a `use` grant never grants
  *   session access; an unowned machine runs nothing; an admin taking custody is
  *   audited as a takeover.
@@ -127,26 +127,6 @@ describe('gap 8: the session inventory a machine gets at connect', () => {
   })
 })
 
-describe('gap 9: sessions Bob’s agents author act for Bob', () => {
-  it('a child that Bob’s agent on Alice’s task spawns is Bob’s, and acts for Bob', async () => {
-    // biome-ignore lint/suspicious/noExplicitAny: the relay client is typed for issue procedures
-    const agent = f.agent(f.sessions.bobOnAliceTask, { outsideScope: true }).client as any
-    const spawned = (await agent.messages.spawnAgent.mutate({
-      requestId: randomUUID(),
-      prompt: 'child of Bob’s agent',
-      issue: f.tasks.bob,
-      harness: 'shell',
-    })) as { sessionId: SessionId }
-    const row = await f.handle.registry.sessionStore.sessions.getSession(spawned.sessionId)
-    expect(row?.ownerUserId).toBe(MEMBERS.bob.id)
-    expect(row?.delegation?.onBehalfOf).toBe(MEMBERS.bob.id)
-    expect(row?.createdBy?.onBehalfOf).toBe(MEMBERS.bob.id)
-    expect((await sessions().capabilityForSession(spawned.sessionId)).onBehalfOf).toBe(
-      MEMBERS.bob.id,
-    )
-  })
-})
-
 describe('MU-10: task access never grants machine use', () => {
   beforeAll(async () => {
     // Bob may read and edit Alice's task. Until member-wide task access lands
@@ -257,6 +237,27 @@ describe('MU-10: a `use` grant never grants session access', () => {
       }),
       [f.sessions.bob]: UNKNOWN,
     })
+  })
+
+  it('gap 9: a child Bob’s agent spawns on Alice’s task, on Alice’s machine, is Bob’s', async () => {
+    // The child lands on the task's home, Alice's machine, which Bob may now
+    // use. Neither the task nor the machine makes it Alice's.
+    // biome-ignore lint/suspicious/noExplicitAny: the relay client is typed for issue procedures
+    const agent = f.agent(f.sessions.bobOnAliceTask).client as any
+    const spawned = (await agent.messages.spawnAgent.mutate({
+      requestId: randomUUID(),
+      prompt: 'child of Bob’s agent',
+      issue: f.tasks.alice,
+      harness: 'shell',
+    })) as { sessionId: SessionId }
+    const row = await f.handle.registry.sessionStore.sessions.getSession(spawned.sessionId)
+    expect(row?.machineId).toBe(f.machines.alice)
+    expect(row?.ownerUserId).toBe(MEMBERS.bob.id)
+    expect(row?.delegation?.onBehalfOf).toBe(MEMBERS.bob.id)
+    expect(row?.createdBy?.onBehalfOf).toBe(MEMBERS.bob.id)
+    expect((await sessions().capabilityForSession(spawned.sessionId)).onBehalfOf).toBe(
+      MEMBERS.bob.id,
+    )
   })
 
   it('queued input is judged at dispatch as the human its agent acts for, never as claimed', async () => {
