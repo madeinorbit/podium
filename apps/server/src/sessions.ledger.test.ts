@@ -766,34 +766,28 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     off()
   })
 
-  it('prepares room grants without admitting unauthorized viewers or counting duplicate tabs', async () => {
+  it('admits only the owner to a session room, without counting duplicate tabs (POD-6283)', async () => {
     const registry = await makeRegistry()
     const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/w',
     })
     const room = { kind: 'session' as const, id: sessionId }
-    const viewer = asUserId('room-viewer')
-    const stranger = asUserId('room-stranger')
+    const legacyGrantee = asUserId('room-viewer')
     const ownerMessages: ServerMessage[] = []
-    const viewerMessages: ServerMessage[] = []
-    const deniedMessages: ServerMessage[] = []
+    const granteeMessages: ServerMessage[] = []
     const owner = attachTestClient(registry.clientGateway, (msg) => ownerMessages.push(msg))
     const tab = attachTestClient(registry.clientGateway, () => {})
-    const granted = attachTestClient(registry.clientGateway, {
-      userId: viewer,
+    const grantee = attachTestClient(registry.clientGateway, {
+      userId: legacyGrantee,
       userRole: 'member',
-      send: (msg) => viewerMessages.push(msg),
+      send: (msg) => granteeMessages.push(msg),
     })
-    const denied = attachTestClient(registry.clientGateway, {
-      userId: stranger,
-      userRole: 'member',
-      send: (msg) => deniedMessages.push(msg),
-    })
+    // A legacy session grant: kept, and it admits nobody (sessions are private).
     await registry.sessionStore.grants.upsert({
       resourceKind: 'session',
       resourceId: sessionId,
-      grantee: viewer,
+      grantee: legacyGrantee,
       verb: 'read',
       owner: firstAdminMemberId(),
       visibility: 'personal',
@@ -802,44 +796,31 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       actorId: firstAdminMemberId(),
       onBehalfOf: null,
     })
-    for (const id of [owner, tab, granted]) {
+    for (const id of [owner, tab]) {
       await registry.clientGateway.routeClientFrame(id, { type: 'presenceSubscribe', room })
     }
     expect(ownerMessages).toContainEqual(
-      expect.objectContaining({ type: 'presenceRoomState', room }),
-    )
-    expect(viewerMessages).toContainEqual(
       expect.objectContaining({
         type: 'presenceRoomState',
         room,
-        members: [
-          expect.objectContaining({ identity: { kind: 'user', user: firstAdminMemberId() } }),
-          expect.objectContaining({ identity: { kind: 'user', user: viewer } }),
-        ],
+        members: [expect.objectContaining({ identity: { kind: 'user', user: firstAdminMemberId() } })],
       }),
     )
-    deniedMessages.length = 0
-    await registry.clientGateway.routeClientFrame(denied, {
+    granteeMessages.length = 0
+    await registry.clientGateway.routeClientFrame(grantee, {
       type: 'presenceSubscribe',
       room,
       token: 'denied',
     })
-    expect(deniedMessages).toEqual([{ type: 'presenceRoomClosed', room, token: 'denied' }])
+    expect(granteeMessages).toEqual([{ type: 'presenceRoomClosed', room, token: 'denied' }])
     await registry.modules.sessions.flushBroadcasts()
     expect(
       (await registry.modules.sessions.listSessions(undefined, 'rpc')).find(
         (row) => row.sessionId === sessionId,
       )?.clientCount,
-    ).toBe(2)
-
-    // A fresh join must read current grants, never reuse the earlier allowance.
-    await registry.clientGateway.routeClientFrame(granted, { type: 'presenceUnsubscribe', room })
-    await registry.sessionStore.grants.remove('session', sessionId, viewer, 'read')
-    viewerMessages.length = 0
-    await registry.clientGateway.routeClientFrame(granted, { type: 'presenceSubscribe', room })
-    expect(viewerMessages).toEqual([{ type: 'presenceRoomClosed', room }])
-    await registry.clientGateway.routeClientFrame(denied, { type: 'attach', sessionId })
-    expect(deniedMessages).toContainEqual({
+    ).toBe(1)
+    await registry.clientGateway.routeClientFrame(grantee, { type: 'attach', sessionId })
+    expect(granteeMessages).toContainEqual({
       type: 'terminalOutcome',
       sessionId,
       outcome: 'unauthorized',

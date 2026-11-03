@@ -139,26 +139,15 @@ describe('S4 server consumers', () => {
       },
       'fixture-hash',
     )
-    const { sessionId } = await sessions.createSession({ agentKind: 'shell', cwd: '/source' })
+    // B's own session (sessions are private, POD-6283) and A's private one.
+    const { sessionId } = await sessions.createSession({ agentKind: 'shell', cwd: '/source', ownerUserId: B })
     const { sessionId: privateId } = await sessions.createSession({
       agentKind: 'shell',
       cwd: '/private',
     })
-    await o.store.grants.upsert({
-      resourceKind: 'session',
-      resourceId: sessionId,
-      grantee: B,
-      verb: 'read',
-      owner: A,
-      visibility: 'personal',
-      createdAt: '2026-01-01T00:00:00.000Z',
-      actorKind: 'user',
-      actorId: A,
-      onBehalfOf: A,
-    })
     const a = await sessions.view.principalForTrustedUser(A)
     const b = await sessions.view.principalForTrustedUser(B)
-    await sessions.state.setSnooze(a, sessionId, null)
+    await sessions.state.setSnooze(a, privateId, null)
     await o.store.superagent.upsertSuperagentThread({
       id: 'thread:b',
       ownerUserId: B,

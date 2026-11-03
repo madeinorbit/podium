@@ -382,6 +382,7 @@ async function grantReadsDuring(
   const { store } = internals(reg)
   const one = store.grants.listForResource.bind(store.grants)
   const many = store.grants.listForResources.bind(store.grants)
+  const grouped = store.grants.loadForResourcesOfKinds.bind(store.grants)
   let points = 0
   let batches = 0
   const byKind = new Map<string, number>()
@@ -394,11 +395,18 @@ async function grantReadsDuring(
     byKind.set(kind, (byKind.get(kind) ?? 0) + 1)
     return await many(kind, ids)
   }
+  // The feed's own pass asks through the operation loader (POD-6217).
+  store.grants.loadForResourcesOfKinds = async (resources) => {
+    batches++
+    for (const kind of Object.keys(resources)) byKind.set(kind, (byKind.get(kind) ?? 0) + 1)
+    return await grouped(resources)
+  }
   try {
     await run()
   } finally {
     store.grants.listForResource = one
     store.grants.listForResources = many
+    store.grants.loadForResourcesOfKinds = grouped
   }
   return { points, batches, byKind }
 }
@@ -439,7 +447,7 @@ describe('POD-6155 — feed passes read grants in one grouped query', () => {
     expect(world.changes.filter((change) => change.entity === 'issueProjection')).toHaveLength(32)
   })
 
-  it('reads them once for a batch across subscribed principals', async () => {
+  it('reads no session grant for a batch across subscribed principals (POD-6283)', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const { ledger, store } = internals(reg)
     // Session subjects do not trigger the issue-anchor rescope threshold (32).
@@ -499,30 +507,24 @@ describe('POD-6155 — feed passes read grants in one grouped query', () => {
       const reads = budget?.result ?? (await publish())
       if (budget) {
         expect(budget.statements).toBeGreaterThan(0)
+        // Sessions are private: their visibility is their owner, so the 50
+        // legacy session grants seeded above are never read.
         const grantReads = [...budget.byQuery].filter(([sql]) => /\bgrants\b/i.test(sql))
-        expect(grantReads.reduce((sum, [, n]) => sum + n, 0)).toBe(1)
+        expect(grantReads.reduce((sum, [, n]) => sum + n, 0)).toBe(0)
       }
       expect(delivered).toEqual(Array.from({ length: 10 }, (_, i) => i))
+      // Every subscriber is answered, and none receives a session it was only
+      // granted: a legacy session grant admits nobody.
       for (const batch of payloads) {
-        expect(batch).toEqual(
-          expect.objectContaining({
-            kind: 'batch',
-            changes: expect.arrayContaining(
-              Array.from({ length: 50 }, (_, i) =>
-                expect.objectContaining({
-                  entity: 'session',
-                  entityId: `shared_${i}`,
-                  op: 'upsert',
-                  value: { id: `shared_${i}`, v: 2 },
-                }),
-              ),
-            ),
-          }),
-        )
+        expect(batch).toEqual(expect.objectContaining({ kind: 'batch' }))
+        expect(
+          ((batch as { changes?: { entity: string }[] }).changes ?? []).filter(
+            (change) => change.entity === 'session',
+          ),
+        ).toEqual([])
       }
       expect(reads.points).toBe(0)
-      // One grouped grant read for the whole batch, not one per subscriber.
-      expect(reads.batches).toBe(1)
+      expect(reads.batches).toBe(0)
     } finally {
       for (const off of unsubscribe) off()
     }

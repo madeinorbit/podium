@@ -43,19 +43,10 @@ async function fixture() {
       'fixture-hash',
     )
   const sessions = o.reg.modules.sessions
-  const { sessionId } = await sessions.createSession({ agentKind: 'shell', cwd: '/p' })
-  await o.store.grants.upsert({
-    resourceKind: 'session',
-    resourceId: sessionId,
-    grantee: B,
-    verb: 'read',
-    owner: A,
-    visibility: 'personal',
-    createdAt: '2026-01-01T00:00:00.000Z',
-    actorKind: 'user',
-    actorId: A,
-    onBehalfOf: A,
-  })
+  // Sessions are private (POD-6283): B's session and A's session, each seen by
+  // its owner only, so every per-user row below is its owner's.
+  const { sessionId } = await sessions.createSession({ agentKind: 'shell', cwd: '/p', ownerUserId: B })
+  const { sessionId: aSessionId } = await sessions.createSession({ agentKind: 'shell', cwd: '/a' })
   const a = await sessions.view.principalForTrustedUser(A)
   const b = await sessions.view.principalForTrustedUser(B)
   const stateRows = async (user: typeof A) => {
@@ -63,7 +54,7 @@ async function fixture() {
     if (snapshot.kind !== 'snapshot') throw new Error('expected snapshot')
     return snapshot.sessionUserStates ?? []
   }
-  return { ...o, sessions, sessionId, A, a, b, stateRows }
+  return { ...o, sessions, sessionId, aSessionId, A, a, b, stateRows }
 }
 
 describe('S1 session companion records', () => {
@@ -99,14 +90,17 @@ describe('S1 session companion records', () => {
 
   it('publishes acting-user read and snooze rows to only that principal in snapshot and delta', async () => {
     const f = await fixture()
-    const { sessions, sessionId, A, a, b } = f
+    const { sessions, sessionId, aSessionId, A, a, b } = f
     const cursor = await f.reg.changeLedger.cursor()
-    await sessions.state.markRead(a, sessionId)
-    await sessions.state.setSnooze(a, sessionId, null)
+    await sessions.state.markRead(a, aSessionId)
+    await sessions.state.setSnooze(a, aSessionId, null)
     await sessions.state.setSnooze(b, sessionId, '2026-10-03T00:00:00.000Z')
+    // Neither reaches the other's session: both writes are refused.
+    expect(await sessions.state.markRead(a, sessionId)).toBe(false)
+    expect(await sessions.state.markRead(b, aSessionId)).toBe(false)
     const rows = await f.stateRows(A)
     expect(rows).toEqual([
-      { userId: A, sessionId, readAt: new Date(NOW).toISOString(), snoozedUntil: null },
+      { userId: A, sessionId: aSessionId, readAt: new Date(NOW).toISOString(), snoozedUntil: null },
     ])
     expect(await f.stateRows(B)).toEqual([
       { userId: B, sessionId, readAt: null, snoozedUntil: '2026-10-03T00:00:00.000Z' },
@@ -117,9 +111,8 @@ describe('S1 session companion records', () => {
       if (result.kind !== 'delta') throw new Error('expected delta')
       const markers = result.changes.filter((change) => change.entity === 'sessionUserState')
       expect(markers.length).toBeGreaterThan(0)
-      expect(markers.every((change) => change.id === sessionUserStateRowId(user, sessionId))).toBe(
-        true,
-      )
+      const own = user === A ? aSessionId : sessionId
+      expect(markers.every((change) => change.id === sessionUserStateRowId(user, own))).toBe(true)
     }
     // Shared sessions are principal-independent; only the personal kind carries markers.
     const shared = await sessions.syncChangesSince(null, wirePrincipal(B))
@@ -144,32 +137,32 @@ describe('S1 session companion records', () => {
     expect(await f.stateRows(A)).toEqual(rows)
   })
 
-  it('activity snooze clear and terminal unread re-arm update every affected user only', async () => {
+  it('activity snooze clear and terminal unread re-arm update the affected session only', async () => {
     const f = await fixture()
-    const { sessions, sessionId, A, a, b } = f
-    const { sessionId: other } = await sessions.createSession({ agentKind: 'shell', cwd: '/other' })
-    for (const principal of [a, b]) {
-      await sessions.state.markRead(principal, sessionId)
-      await sessions.state.setSnooze(principal, sessionId, null)
+    const { sessions, sessionId, aSessionId, A, a, b } = f
+    for (const [principal, id] of [[a, aSessionId], [b, sessionId]] as const) {
+      await sessions.state.markRead(principal, id)
+      await sessions.state.setSnooze(principal, id, null)
     }
-    await sessions.state.setSnooze(a, other, null)
     await sessions.state.clearAllSnoozes(sessionId)
-    for (const user of [A, B]) {
-      expect((await f.stateRows(user)).find((row) => row.sessionId === sessionId)).toEqual({
-        userId: user,
-        sessionId,
-        readAt: new Date(NOW).toISOString(),
-      })
-    }
-    expect(await sessions.state.isSnoozed(A, other)).toBe(true)
+    expect((await f.stateRows(B)).find((row) => row.sessionId === sessionId)).toEqual({
+      userId: B,
+      sessionId,
+      readAt: new Date(NOW).toISOString(),
+    })
+    expect(await sessions.state.isSnoozed(A, aSessionId)).toBe(true)
     await sessions.state.rearmUnreadForAll(sessionId)
-    for (const user of [A, B])
-      expect((await f.stateRows(user)).find((row) => row.sessionId === sessionId)).toEqual({
-        userId: user,
-        sessionId,
-        readAt: null,
-      })
-    expect((await f.stateRows(A)).find((row) => row.sessionId === other)?.snoozedUntil).toBeNull()
+    expect((await f.stateRows(B)).find((row) => row.sessionId === sessionId)).toEqual({
+      userId: B,
+      sessionId,
+      readAt: null,
+    })
+    expect((await f.stateRows(A)).find((row) => row.sessionId === aSessionId)).toEqual({
+      userId: A,
+      sessionId: aSessionId,
+      readAt: new Date(NOW).toISOString(),
+      snoozedUntil: null,
+    })
   })
 
   it('a failed append rolls back the sources and personal authority row', async () => {
@@ -193,19 +186,19 @@ describe('S1 session companion records', () => {
     const f = await fixture()
     await f.sessions.state.markRead(f.b, f.sessionId)
     await f.sessions.state.markUnread(f.b, f.sessionId)
-    await f.sessions.state.setSnooze(f.a, f.sessionId, null)
+    await f.sessions.state.setSnooze(f.a, f.aSessionId, null)
     await f.sessions.loadFromStore()
     expect(await f.stateRows(B)).toEqual([{ userId: B, sessionId: f.sessionId, readAt: null }])
     expect(await f.stateRows(f.A)).toEqual([
-      { userId: f.A, sessionId: f.sessionId, readAt: null, snoozedUntil: null },
+      { userId: f.A, sessionId: f.aSessionId, readAt: null, snoozedUntil: null },
     ])
   })
 
   it('sessions.list checks caller visibility and superagent snoozes use the caller source', async () => {
     const f = await fixture()
-    // B's markers on A's session (B holds a read share): they are B's alone.
-    await f.sessions.state.markRead(f.b, f.sessionId)
-    await f.sessions.state.setSnooze(f.b, f.sessionId, null)
+    // A's markers on A's own session: they are A's alone.
+    await f.sessions.state.markRead(f.a, f.aSessionId)
+    await f.sessions.state.setSnooze(f.a, f.aSessionId, null)
     const asCaller = (userId: typeof f.A, sessionState: typeof f.a) =>
       ({
         caller: { userId, sessionState },
@@ -219,37 +212,39 @@ describe('S1 session companion records', () => {
         ),
       }) as unknown as FamilyState
     // The owner lists it, and the row carries nobody's per-user markers.
-    const result = await SESSION_QUERIES.list.run(asCaller(f.A, f.a), {})
+    const result = await SESSION_QUERIES.list.run(asCaller(B, f.b), {})
     expect(result.find((row) => row.sessionId === f.sessionId)).toBeDefined()
+    // A's session is A's alone (POD-6283).
+    expect(result.find((row) => row.sessionId === f.aSessionId)).toBeUndefined()
     expect(result.find((row) => row.sessionId === f.sessionId)).not.toHaveProperty('readAt')
     expect(result.find((row) => row.sessionId === f.sessionId)).not.toHaveProperty('unread')
     expect(result.find((row) => row.sessionId === f.sessionId)).not.toHaveProperty('snoozedUntil')
-    // A share grant opens nothing private (POD-6284, design §2.3): B does not list it.
+    // Nothing private opens to another member (POD-6284, design §2.3).
     expect(
-      (await SESSION_QUERIES.list.run(asCaller(B, f.b), {})).find(
+      (await SESSION_QUERIES.list.run(asCaller(f.A, f.a), {})).find(
         (row) => row.sessionId === f.sessionId,
       ),
     ).toBeUndefined()
     await f.store.superagent.upsertSuperagentThread({
-      id: 'thread:a',
-      ownerUserId: f.A,
+      id: 'thread:b',
+      ownerUserId: B,
       kind: 'global',
     })
     const tools = await buildSuperagentTools(
       { modules: f.reg.modules, repos: { list: async () => [] }, store: f.store, waitPollMs: 1 },
       '',
-      asThreadId('thread:a'),
+      asThreadId('thread:b'),
     )
     const tool = tools.find((entry) => entry.spec.name === 'list_sessions')!
     const listed = JSON.parse(await tool.run({})) as {
       sessionId: string
       snoozedUntil?: string | null
     }[]
-    // B's snooze is not A's.
+    // A's snooze is not B's, and B has none yet.
     expect(listed.find((row) => row.sessionId === f.sessionId)).not.toHaveProperty('snoozedUntil')
     // Far in the future: the store drops a snooze whose time has passed by the
     // wall clock, and this read is not on the oracle's frozen clock.
-    await f.sessions.state.setSnooze(f.a, f.sessionId, '2099-10-03T00:00:00.000Z')
+    await f.sessions.state.setSnooze(f.b, f.sessionId, '2099-10-03T00:00:00.000Z')
     expect(
       (JSON.parse(await tool.run({})) as typeof listed).find((row) => row.sessionId === f.sessionId)
         ?.snoozedUntil,

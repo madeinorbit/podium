@@ -190,7 +190,8 @@ describe('remote browser-open routing', () => {
     expect(owner).toContainEqual(
       expect.objectContaining({ type: 'sessionOpenUrl', requestId: 'open-scoped' }),
     )
-    expect(grantee).toContainEqual(
+    // A legacy session grant reaches nobody (POD-6283): only the owner is asked.
+    expect(grantee).not.toContainEqual(
       expect.objectContaining({ type: 'sessionOpenUrl', requestId: 'open-scoped' }),
     )
     expect(unrelated).not.toContainEqual(

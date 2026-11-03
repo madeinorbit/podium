@@ -95,7 +95,10 @@ async function fixture(count: number) {
       geometry: { cols: 80, rows: 24 },
       machineId,
       toDaemon: () => {},
-      ownerUserId: [1, 3, 4].includes(i % 5) ? asUserId('other') : reader,
+      // Sessions are private (POD-6283): the reader sees exactly its own. Every
+      // fifth row is another person's, on a task the reader owns, with a legacy
+      // read grant to the reader below: neither makes it visible.
+      ownerUserId: i % 5 === 4 ? asUserId('other') : reader,
     })
     // Unique absent issues exercise negative caching as the corpus grows.
     if (i % 5 === 0) session.issueId = asIssueId(`missing-${i}`)
@@ -112,7 +115,10 @@ async function fixture(count: number) {
     return session
   })
   for (const [index, row] of rows.entries()) {
-    if (index % 5 === 1)
+    if (index % 5 === 4) {
+      row.issueId = asIssueId('projection-issue')
+    }
+    if (index % 5 === 4)
       await store.grants.upsert({
         resourceKind: 'session',
         resourceId: row.sessionId,
@@ -282,9 +288,10 @@ describe('one projection pass', () => {
         userId: asUserId('unrelated'),
         capability: { role: 'admin', scope: { kind: 'all' } },
       } as SessionStatePrincipal
+      // The admin scope reaches nobody else's session (POD-6283).
       expect(
         await Promise.all(f.rows.map((s) => f.state.canReadSession(operator, s.sessionId))),
-      ).toEqual([true, true, true, true, true])
+      ).toEqual([false, false, false, false, false])
       expect(await f.state.canReadSession(operator, asSessionId('absent'))).toBe(false)
     } finally {
       await f.store.close()
@@ -329,7 +336,7 @@ describe('one projection pass', () => {
     }
   })
 
-  it('reads at most three statements for 200 visibility candidates and none for primed ownership', async () => {
+  it('reads no statement for 200 resident visibility candidates and none for primed ownership', async () => {
     const f = await fixture(200)
     try {
       resetQueryAttribution()
@@ -346,7 +353,8 @@ describe('one projection pass', () => {
       const count = statementCount() / recordingsPerStatement
       process.stdout.write(`visibility 200: ${count} physical statements\n`)
       expect(visible.size).toBe(160)
-      expect(count).toBe(3)
+      // Resident sessions carry their owner; nothing else is read (POD-6283).
+      expect(count).toBe(0)
       expect(sessionReads).not.toHaveBeenCalled()
       expect(userReads).not.toHaveBeenCalled()
 
@@ -354,10 +362,7 @@ describe('one projection pass', () => {
       // the registry, and its issue/grant inputs come from the enclosing pass.
       const pass = await f.view.buildProjectionPass(f.rows)
       resetQueryAttribution()
-      expect(await f.authz.sessionOwner(f.rows[3]!.sessionId, pass)).toEqual({
-        owner: reader,
-        grants: [],
-      })
+      expect(await f.authz.sessionOwner(f.rows[3]!.sessionId, pass)).toEqual({ owner: reader })
       expect(statementCount()).toBe(0)
       expect(sessionReads).not.toHaveBeenCalled()
       process.stdout.write('registered non-live ownership: 0 physical statements\n')
@@ -388,11 +393,10 @@ describe('one projection pass', () => {
         await f.store.close()
       }
     }
-    // Repo registry is warm from fixture creation. Three physical reads: issues,
-    // both grant kinds in one (POD-6217) and queue counts; no personal overlays.
-    // Calibration accounts for POD-3852 double recording, and still works after
-    // that fix lands.
-    expect(counts[0]).toBe(3)
+    // Repo registry is warm from fixture creation. Two physical reads: issues
+    // and queue counts; no grant read (sessions are private, POD-6283) and no
+    // personal overlays. Calibration accounts for POD-3852 double recording.
+    expect(counts[0]).toBe(2)
     expect(counts).toEqual([counts[0], counts[0], counts[0]])
   })
 
@@ -429,11 +433,10 @@ describe('one projection pass', () => {
         await f.store.close()
       }
     }
-    // Repo registry is warm from fixture creation. Three physical reads: issues,
-    // both grant kinds in one (POD-6217) and queue counts; no personal overlays.
-    // Calibration accounts for POD-3852 double recording, and still works after
-    // that fix lands.
-    expect(counts[0]).toBe(3)
+    // Repo registry is warm from fixture creation. Two physical reads: issues
+    // and queue counts; no grant read (sessions are private, POD-6283) and no
+    // personal overlays. Calibration accounts for POD-3852 double recording.
+    expect(counts[0]).toBe(2)
     expect(counts).toEqual([counts[0], counts[0], counts[0]])
   })
 
@@ -481,34 +484,34 @@ describe('one projection pass', () => {
       teardown: async (f) => await f.store.close(),
     })
 
-    it('list: issues, both grant kinds in one read, and queue counts', async () => {
+    it('list: issues and queue counts', async () => {
       await expectConstantStatements(
         pin('SessionView.list', (f) => f.view.list(principal, 'rpc'), (rows, size) =>
           expect(rows).toHaveLength((size * 4) / 5),
         ),
-        3,
+        2,
       )
     })
 
-    it('byIds over every session: the same three reads', async () => {
+    it('byIds over every session: the same two reads', async () => {
       await expectConstantStatements(
         pin(
           'SessionView.byIds',
           (f) => f.view.byIds(f.rows.map((s) => s.sessionId), principal),
           (rows, size) => expect(rows).toHaveLength((size * 4) / 5),
         ),
-        3,
+        2,
       )
     })
 
-    it('listForIssue: members carry an issue, so no session-grant read', async () => {
+    it('listForIssue: the same two reads', async () => {
       await expectConstantStatements(
         pin(
           'SessionView.listForIssue',
           (f) => f.view.listForIssue(null, asIssueId('projection-issue'), principal),
           (rows, size) => expect(rows).toHaveLength(size / 5),
         ),
-        3,
+        2,
       )
     })
 
@@ -519,7 +522,7 @@ describe('one projection pass', () => {
           (f) => f.view.byId(f.rows[3]!.sessionId, principal),
           (row) => expect(row).toMatchObject({ refSeq: 1, refLetter: 'b', queuedMessageCount: 1 }),
         ),
-        3,
+        2,
       )
     })
   })
