@@ -560,7 +560,12 @@ describe('session-steering tool belt (issue #62)', () => {
 
     const metaOf = async (id: string) =>
       (await clientSessionViews(registry)).find((s) => s.sessionId === id)
-    return { registry, sa, inputs, answers, sends, spawn, ask, answer, metaOf }
+    // The tools act for a thread's owner (POD-6284): a thread-blind belt reaches
+    // no session at all. These tests drive the belt as the boot-seeded `global`
+    // thread, whose owner is the one who owns the sessions `spawn` creates.
+    const tool = async (name: string, args: Record<string, unknown>, threadId = asThreadId('global')) =>
+      await sa.callMcpTool(name, args, threadId)
+    return { registry, sa, inputs, answers, sends, spawn, ask, answer, metaOf, tool }
   }
 
   const askItem = (multiSelect = false): TranscriptItem =>
@@ -720,7 +725,7 @@ describe('session-steering tool belt (issue #62)', () => {
     const sessionId = await h.spawn(true)
     markPending(h, sessionId)
     expect(
-      await h.sa.callMcpTool('answer_question', { sessionId, answer: 'Yes' }),
+      await h.tool('answer_question', { sessionId, answer: 'Yes' }),
     ).toBe('failed: answer caller identity unavailable')
     expect(h.inputs).toEqual([])
   })
@@ -728,7 +733,7 @@ describe('session-steering tool belt (issue #62)', () => {
   it('resume_and_send accepts a message for a not-yet-live session (durable queue)', async () => {
     const h = await harness()
     const sessionId = await h.spawn() // starting: goes through the queue
-    const out = await h.sa.callMcpTool('resume_and_send', { sessionId, text: 'carry on' })
+    const out = await h.tool('resume_and_send', { sessionId, text: 'carry on' })
     expect(out).toMatch(/^sent/)
     expect((await h.metaOf(sessionId))?.queuedMessageCount).toBe(1)
   })
@@ -736,8 +741,8 @@ describe('session-steering tool belt (issue #62)', () => {
   it('resume_and_send fails on an unknown session', async () => {
     const h = await harness()
     expect(
-      await h.sa.callMcpTool('resume_and_send', { sessionId: asSessionId('nope'), text: 'x' }),
-    ).toBe('failed: dead-lettered: session no longer exists')
+      await h.tool('resume_and_send', { sessionId: asSessionId('nope'), text: 'x' }),
+    ).toBe('unknown session')
   })
 
   it("continue_session sends 'continue' through the contract to an errored live session only", async () => {
@@ -748,7 +753,7 @@ describe('session-steering tool belt (issue #62)', () => {
       sessionId: asSessionId(sessionId),
       state: st('errored'),
     })
-    expect(await h.sa.callMcpTool('continue_session', { sessionId })).toBe('sent continue')
+    expect(await h.tool('continue_session', { sessionId })).toBe('sent continue')
     // One contract send of the retry text, stamped as an auto-continue — and no
     // PTY bytes (d43ac0682: only a plain shell keeps the raw keystroke).
     await vi.waitFor(() => expect(h.sends).toHaveLength(1))
@@ -765,12 +770,12 @@ describe('session-steering tool belt (issue #62)', () => {
       sessionId: asSessionId(sessionId),
       state: st('idle'),
     })
-    expect(await h.sa.callMcpTool('continue_session', { sessionId })).toMatch(/errored phase/)
+    expect(await h.tool('continue_session', { sessionId })).toMatch(/errored phase/)
   })
 
   it('continue_session rejects an unknown session', async () => {
     const h = await harness()
-    expect(await h.sa.callMcpTool('continue_session', { sessionId: asSessionId('nope') })).toBe(
+    expect(await h.tool('continue_session', { sessionId: asSessionId('nope') })).toBe(
       'unknown session',
     )
   })
@@ -783,17 +788,17 @@ describe('session-steering tool belt (issue #62)', () => {
       sessionId: asSessionId(sessionId),
       resume: { kind: 'claude-session', value: 'r1' },
     })
-    expect(await h.sa.callMcpTool('hibernate_session', { sessionId })).toBe('hibernated')
+    expect(await h.tool('hibernate_session', { sessionId })).toBe('hibernated')
     expect((await h.metaOf(sessionId))?.status).toBe('hibernated')
   })
 
   it('hibernate_session surfaces the registry refusal reasons', async () => {
     const h = await harness()
-    expect(await h.sa.callMcpTool('hibernate_session', { sessionId: asSessionId('nope') })).toBe(
-      'failed: unknown session',
+    expect(await h.tool('hibernate_session', { sessionId: asSessionId('nope') })).toBe(
+      'unknown session',
     )
     const sessionId = await h.spawn(true) // live but no resume ref yet
-    expect(await h.sa.callMcpTool('hibernate_session', { sessionId })).toMatch(
+    expect(await h.tool('hibernate_session', { sessionId })).toMatch(
       /failed: no resume ref/,
     )
   })
@@ -802,7 +807,7 @@ describe('session-steering tool belt (issue #62)', () => {
     const h = await harness()
     const sessionId = await h.spawn()
     expect(
-      await h.sa.callMcpTool(
+      await h.tool(
         'snooze_session',
         { sessionId, until: 'next-message' },
         asThreadId('global'),
@@ -816,9 +821,9 @@ describe('session-steering tool belt (issue #62)', () => {
     // documented. The behaviour is strictly more correct (a client already ignores
     // lapsed snoozes at render time) and the assertion now needs a real deadline.
     const iso = '2999-07-03T05:00:00.000Z'
-    await h.sa.callMcpTool('snooze_session', { sessionId, until: iso }, asThreadId('global'))
+    await h.tool('snooze_session', { sessionId, until: iso }, asThreadId('global'))
     expect((await h.metaOf(sessionId))?.snoozedUntil).toBe(iso)
-    expect(await h.sa.callMcpTool('clear_snooze', { sessionId }, asThreadId('global'))).toBe(
+    expect(await h.tool('clear_snooze', { sessionId }, asThreadId('global'))).toBe(
       'snooze cleared',
     )
     expect((await h.metaOf(sessionId))?.snoozedUntil).toBeUndefined()
@@ -850,17 +855,17 @@ describe('session-steering tool belt (issue #62)', () => {
   it('snooze_session rejects garbage untils and unknown sessions', async () => {
     const h = await harness()
     const sessionId = await h.spawn()
-    expect(await h.sa.callMcpTool('snooze_session', { sessionId, until: 'whenever' })).toMatch(
+    expect(await h.tool('snooze_session', { sessionId, until: 'whenever' })).toMatch(
       /invalid until/,
     )
     expect((await h.metaOf(sessionId))?.snoozedUntil).toBeUndefined()
     expect(
-      await h.sa.callMcpTool('snooze_session', {
+      await h.tool('snooze_session', {
         sessionId: asSessionId('nope'),
         until: 'next-message',
       }),
     ).toBe('unknown session')
-    expect(await h.sa.callMcpTool('clear_snooze', { sessionId: asSessionId('nope') })).toBe(
+    expect(await h.tool('clear_snooze', { sessionId: asSessionId('nope') })).toBe(
       'unknown session',
     )
   })
@@ -868,28 +873,28 @@ describe('session-steering tool belt (issue #62)', () => {
   it('rename_session sets the user-facing name', async () => {
     const h = await harness()
     const sessionId = await h.spawn()
-    expect(await h.sa.callMcpTool('rename_session', { sessionId, name: 'auth fix' })).toBe(
+    expect(await h.tool('rename_session', { sessionId, name: 'auth fix' })).toBe(
       'renamed',
     )
     expect((await h.metaOf(sessionId))?.name).toBe('auth fix')
     expect(
-      await h.sa.callMcpTool('rename_session', { sessionId: asSessionId('nope'), name: 'x' }),
+      await h.tool('rename_session', { sessionId: asSessionId('nope'), name: 'x' }),
     ).toBe('unknown session')
   })
 
   it('set_work_state validates against the protocol WorkState enum', async () => {
     const h = await harness()
     const sessionId = await h.spawn()
-    expect(await h.sa.callMcpTool('set_work_state', { sessionId, workState: 'testing' })).toBe(
+    expect(await h.tool('set_work_state', { sessionId, workState: 'testing' })).toBe(
       JSON.stringify({ workState: 'testing' }),
     )
     expect((await h.metaOf(sessionId))?.workState).toBe('testing')
-    expect(await h.sa.callMcpTool('set_work_state', { sessionId, workState: 'shipping' })).toMatch(
+    expect(await h.tool('set_work_state', { sessionId, workState: 'shipping' })).toMatch(
       /invalid workState/,
     )
     expect((await h.metaOf(sessionId))?.workState).toBe('testing') // unchanged
     expect(
-      await h.sa.callMcpTool('set_work_state', {
+      await h.tool('set_work_state', {
         sessionId: asSessionId('nope'),
         workState: 'done',
       }),
@@ -905,7 +910,7 @@ describe('session-steering tool belt (issue #62)', () => {
       sessionId: asSessionId(sessionId),
       state: st('working'),
     })
-    const p = h.sa.callMcpTool('wait_for_session', { sessionId, timeoutSeconds: 10 })
+    const p = h.tool('wait_for_session', { sessionId, timeoutSeconds: 10 })
     await new Promise((r) => setTimeout(r, 15))
     h.registry.gateway.routeDaemonFrame(h.registry.sessionStore.hostMachineId, {
       type: 'agentState',
@@ -924,7 +929,7 @@ describe('session-steering tool belt (issue #62)', () => {
       state: st('idle', { idle: { kind: 'question' } }),
     })
     const t0 = Date.now()
-    const out = await h.sa.callMcpTool('wait_for_session', { sessionId, timeoutSeconds: 120 })
+    const out = await h.tool('wait_for_session', { sessionId, timeoutSeconds: 120 })
     expect(JSON.parse(out)).toEqual({ phase: 'idle', verdict: 'question' })
     expect(Date.now() - t0).toBeLessThan(1000) // no wait, no poll
   })
@@ -937,14 +942,14 @@ describe('session-steering tool belt (issue #62)', () => {
       sessionId: asSessionId(sessionId),
       state: st('working'),
     })
-    expect(await h.sa.callMcpTool('wait_for_session', { sessionId, timeoutSeconds: 0 })).toBe(
+    expect(await h.tool('wait_for_session', { sessionId, timeoutSeconds: 0 })).toBe(
       'timeout after 0s (session still working)',
     )
   })
 
   it('wait_for_session rejects an unknown session', async () => {
     const h = await harness()
-    expect(await h.sa.callMcpTool('wait_for_session', { sessionId: asSessionId('nope') })).toBe(
+    expect(await h.tool('wait_for_session', { sessionId: asSessionId('nope') })).toBe(
       'unknown session',
     )
   })
@@ -958,7 +963,7 @@ describe('session-steering tool belt (issue #62)', () => {
     })
     await h.registry.modules.sessions.setSnooze({ userId: firstAdminMemberId(), sessionId, until: null })
     const rows = JSON.parse(
-      await h.sa.callMcpTool('list_sessions', {}, asThreadId('global')),
+      await h.tool('list_sessions', {}, asThreadId('global')),
     ) as Array<Record<string, unknown>>
     expect(rows[0]).toMatchObject({ sessionId, spawnedBy: 'user', snoozedUntil: null })
   })

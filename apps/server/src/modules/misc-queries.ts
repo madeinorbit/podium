@@ -27,8 +27,10 @@ import {
   IssueIdField,
   type MachineId,
   MachineIdField,
+  type SessionId,
   ThreadIdField,
 } from '@podium/model'
+import type { TaskCostComparisonWire } from '@podium/model'
 import { loadConfig } from '@podium/runtime/config'
 import { z } from 'zod'
 import { getFeatureStates } from '../features'
@@ -70,7 +72,8 @@ export const SEARCH_QUERIES = {
       text: z.string().min(1).max(256),
       limit: z.number().int().positive().max(100).optional(),
     }),
-    async (s, input) => await s.modules.memory.search({ kind: 'user', id: asUserId(s.caller.userId) }, input),
+    async (s, input) =>
+      await s.modules.memory.search({ kind: 'user', id: asUserId(s.caller.userId) }, input),
   ),
 } as const
 
@@ -161,6 +164,10 @@ export const USAGE_QUERIES = {
    *  magnitude larger than the buckets and no client reads it. Best-effort — a
    *  failed fold never fails the usage read. */
   summary: q(noInput, async (s) => {
+    // The buckets are harvested from the answering machine's transcripts, so
+    // they are private to the people who may run there (POD-6284). Anyone else
+    // gets the answer an unreachable daemon gives: no host, no buckets.
+    if (!(await s.privateAccess.mayReadMachineFiles())) return { hostname: '', buckets: [] }
     // The daemon's own default window, restated here because the fold has to
     // record WHICH window its per-file totals cover — see `window_since_ms`.
     const sinceMs = Date.now() - USAGE_WINDOW_MS
@@ -172,7 +179,11 @@ export const USAGE_QUERIES = {
         // last window's numbers as current and keeps a transcript that has
         // since fallen out of the window contributing to "attributed".
         const foldSinceMs = sourcesSinceMs ?? sinceMs
-        await new CostService(s.store).ingest(await s.modules.rpc.answeringMachineId(), sources, foldSinceMs)
+        await new CostService(s.store).ingest(
+          await s.modules.rpc.answeringMachineId(),
+          sources,
+          foldSinceMs,
+        )
       } catch (err) {
         log.warn('cost fold failed — usage buckets unaffected', { err })
       }
@@ -185,6 +196,21 @@ export const USAGE_QUERIES = {
 // cost — what a task cost (POD-1858)
 // ---------------------------------------------------------------------------
 
+/** A task's cost breakdown names each session that spent: the caller is shown
+ *  only its OWN sessions' lines (POD-6284). The task's totals are the task's. */
+async function ownSessionCostsOnly<T extends { sessions: Array<{ sessionId: SessionId | null }> }>(
+  s: FamilyState,
+  task: T,
+): Promise<T> {
+  const own = await Promise.all(
+    task.sessions.map(
+      async (line) =>
+        line.sessionId !== null && (await s.privateAccess.ownsSession(line.sessionId)),
+    ),
+  )
+  return { ...task, sessions: task.sessions.filter((_, index) => own[index] === true) }
+}
+
 export const COST_QUERIES = {
   /** One task's accounting: own cost, rollup over ALL descendants, descendant
    *  count, the per-session breakdown, and which of the four states it is in.
@@ -193,15 +219,24 @@ export const COST_QUERIES = {
    *
    *  Tokens are priced through the shared model/cost-pricing table. A pure DB read: it opens no transcript, so a
    *  panel can call it on first paint. */
-  task: q(z.object({ issueId: IssueIdField }), async (s, input) =>
-    await new CostService(s.store).task(input.issueId),
+  task: q(
+    z.object({ issueId: IssueIdField }),
+    async (s, input) =>
+      await ownSessionCostsOnly(s, await new CostService(s.store).task(input.issueId)),
   ),
   /** One task total plus its all-time own-cost comparison, on request. */
-  taskComparison: q(z.object({
-    issueId: IssueIdField,
-    includeSessions: z.boolean().optional(),
-  }), async (s, input) =>
-    await new CostService(s.store).taskComparison(input.issueId, input.includeSessions),
+  taskComparison: q(
+    z.object({
+      issueId: IssueIdField,
+      includeSessions: z.boolean().optional(),
+    }),
+    async (s, input): Promise<TaskCostComparisonWire> => {
+      const comparison = await new CostService(s.store).taskComparison(
+        input.issueId,
+        input.includeSessions,
+      )
+      return { ...comparison, task: await ownSessionCostsOnly(s, comparison.task) }
+    },
   ),
   /** Every task with a stored figure — the sheet's ranked table, and the cohort
    *  the "×median" rate is computed against. OWN cost per task, not rolled up:
@@ -226,7 +261,12 @@ export const QUOTA_QUERIES = {
   summary: q(noInput, async (s) => {
     const machines = await s.modules.rpc.agentQuotaAll()
     await recordQuotaSamples(s.store.quotaHistory, machines)
-    return machines
+    // A machine's plan quota is its users' (POD-6284): every reading is folded
+    // into the ledger above, but the caller is shown only machines it may use.
+    const usable = await Promise.all(
+      machines.map(async (machine) => await s.privateAccess.mayReadMachineFiles(machine.machineId)),
+    )
+    return machines.filter((_, index) => usable[index] === true)
   }),
   /** The window ledger: one entry per run of a plan window, oldest first, over
    *  the requested lookback. `peakPercent` is what a window came to before it
@@ -243,7 +283,9 @@ export const QUOTA_QUERIES = {
 
 export const FEATURE_QUERIES = {
   /** Experimental feature flags [spec:SP-f4b9] — same auth as settings.get. */
-  state: q(noInput, async (s) => getFeatureStates(await s.modules.settings.getSettings(), loadConfig())),
+  state: q(noInput, async (s) =>
+    getFeatureStates(await s.modules.settings.getSettings(), loadConfig()),
+  ),
 } as const
 
 // ---------------------------------------------------------------------------
@@ -255,15 +297,17 @@ export const FEATURE_QUERIES = {
 export const SUPERAGENT_QUERIES = {
   /** The global orchestrator thread plus per-session 'btw' threads. */
   listThreads: q(noInput, async (s) => await s.superagent.listThreads(asUserId(s.caller.userId))),
-  history: q(z.object({ threadId: ThreadIdField.default(asThreadId('global')) }), async (s, input) =>
-    await s.superagent.history(asUserId(s.caller.userId), input.threadId),
+  history: q(
+    z.object({ threadId: ThreadIdField.default(asThreadId('global')) }),
+    async (s, input) => await s.superagent.history(asUserId(s.caller.userId), input.threadId),
   ),
   /** The thread's most recent durable turn failure for post-reload restoration
    *  (POD-4806): a typed `{inputId, userText, error, at}` or null — selected
    *  server-side by column, so clients never match prose to find it. */
   latestTurnFailure: q(
     z.object({ threadId: ThreadIdField.default(asThreadId('global')) }),
-    async (s, input) => await s.superagent.latestTurnFailure(asUserId(s.caller.userId), input.threadId),
+    async (s, input) =>
+      await s.superagent.latestTurnFailure(asUserId(s.caller.userId), input.threadId),
   ),
 } as const
 
@@ -303,6 +347,10 @@ export const AUTOMATION_QUERIES = {
       limit: z.number().int().optional(),
     }),
     async (s, input) =>
-      await s.modules.automations.runsForUser(asUserId(s.caller.userId), input.automationId, input.limit),
+      await s.modules.automations.runsForUser(
+        asUserId(s.caller.userId),
+        input.automationId,
+        input.limit,
+      ),
   ),
 } as const

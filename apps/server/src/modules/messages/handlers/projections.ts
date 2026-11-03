@@ -27,17 +27,15 @@ import type {
 import { MAIL_VIEW_REFUSED } from '@podium/commands/mail-pointer-nudge'
 import type { MessageRecordWire } from '@podium/model'
 import type { MessageWire } from '../gate'
-import type { MailHandlerContext } from './context'
+import { type MailHandlerContext, personOf } from './context'
 
-/** The shared read: resolve, gate on `mayView` (or on reading the session that
- *  sent it or that it was delivered to), project. */
+/** The shared read: resolve, gate on `mayViewAs` (the caller's own mail, or
+ *  for an agent its capability's), project. */
 async function viewable(ctx: MailHandlerContext, id: string): Promise<MessageWire> {
   const { caller, deps, access } = ctx
   const m = await deps.messages.message(id)
   if (!m) throw new Error(`unknown message ${id}`)
-  if (!access.mayView(caller.capability, m) && !(await access.mayReadAsSessionReader(caller, m))) {
-    throw new Error(MAIL_VIEW_REFUSED)
-  }
+  if (!(await access.mayViewAs(caller, m))) throw new Error(MAIL_VIEW_REFUSED)
   return await access.wire(m)
 }
 
@@ -68,9 +66,13 @@ export async function dismissHandler(
   const svc = deps.messages
   const message = await svc.message(input.id)
   if (!message) throw new Error(`unknown message ${input.id}`)
-  if (caller.capability.scope.kind !== 'all' && !access.isRecipient(caller.capability, message)) {
-    throw new Error('only the recipient of a message may dismiss it')
-  }
+  // A person's recipient box is the operator box, and only their own rows in
+  // it are theirs to clear (POD-6284): the admin role clears nobody else's.
+  const recipient =
+    personOf(caller) !== undefined
+      ? message.toKind === 'operator' && (await access.mayViewAs(caller, message))
+      : access.isRecipient(caller.capability, message)
+  if (!recipient) throw new Error('only the recipient of a message may dismiss it')
   return await access.wire(await svc.dismiss(message.id, caller.capability.actorSessionId ?? null))
 }
 
@@ -113,7 +115,10 @@ export async function recordsHandler(
 ): Promise<{ records: MessageRecordWire[] }> {
   const { principal } = ctx.caller
   if (principal.kind !== 'user') return { records: [] }
-  return { records: 'ids' in input
-    ? await ctx.deps.messageRecords(principal.user, input.ids)
-    : await ctx.deps.messageRecords(principal.user, input.transcriptItemIds, input.sessionId) }
+  return {
+    records:
+      'ids' in input
+        ? await ctx.deps.messageRecords(principal.user, input.ids)
+        : await ctx.deps.messageRecords(principal.user, input.transcriptItemIds, input.sessionId),
+  }
 }

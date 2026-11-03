@@ -279,13 +279,14 @@ describe('MemoryService omni-search', () => {
     // (POD-6214) this fixture ran a statement per candidate: 4 issue reads and
     // 4 grant reads. Now the issue text match, the commented issues and the
     // candidate issues are one read each, and the grants are one read for the
-    // live sessions and one for the candidate issues. Several issues are
+    // candidate issues. Sessions read no grants at all since POD-6284: a
+    // session is its owner's, decided from its own row. Several issues are
     // resolved, so a read per candidate would show:
     expect(issueRows.filter((row) => !row.deletedAt).length).toBeGreaterThan(1)
     const issues = readsOf(counted, 'issues')
     const grants = readsOf(counted, 'grants')
     expect(issues.count, issues.queries).toBe(3)
-    expect(grants.count, grants.queries).toBe(2)
+    expect(grants.count, grants.queries).toBe(1)
     // The conversation and transcript candidates' segments are read once per
     // source pass, two reads each (podium ids, then segments), and every check
     // is answered from them (POD-6215). Asked per candidate, the one
@@ -294,7 +295,7 @@ describe('MemoryService omni-search', () => {
     expect(segments.count, segments.queries).toBe(4)
   })
 
-  it('reads issue ownership and grants in one batch each for the native conversation list', async () => {
+  it('reads no task and no grant to decide the native conversation list', async () => {
     const store = await openTestStore(':memory:')
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
@@ -302,7 +303,9 @@ describe('MemoryService omni-search', () => {
 
     const issueIds: string[] = []
     const conversationIds: string[] = []
-    const issueOwner = asUserId('usr_issue_owner')
+    // The reader's own tasks and sessions: a conversation is readable by its
+    // session's owner alone (POD-6284), so these are the ones it may list.
+    const issueOwner = READER.id
     for (let i = 0; i < 4; i++) {
       const issue = await registry.issues.crud.create({
         repoPath: '/repo',
@@ -311,18 +314,6 @@ describe('MemoryService omni-search', () => {
         ownerUserId: issueOwner,
       })
       issueIds.push(issue.id)
-      await store.grants.upsert({
-        resourceKind: 'issue',
-        resourceId: issue.id,
-        grantee: READER.id,
-        verb: 'read',
-        owner: issueOwner,
-        visibility: 'personal',
-        createdAt: '2026-08-05T00:00:00.000Z',
-        actorKind: 'user',
-        actorId: READER.id,
-        onBehalfOf: READER.id,
-      })
       const { sessionId } = await registry.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: `/repo/session-${i}`,
@@ -357,17 +348,16 @@ describe('MemoryService omni-search', () => {
     )
 
     expect(counted.result.map((row) => row.id).sort()).toEqual([...conversationIds].sort())
-    // THE DEFECT IS THE CONSERVED SQL COUNT, not a duration. POD-3892 served
-    // the issue owners from the issue map; since POD-6195 they are one live
-    // batch for the four distinct issues again, and since POD-6158 that batch
-    // goes through the issue loader, not getIssues, so the count is taken at
-    // the driver. Grants have no copy since POD-6155: the four issues' edges
-    // are one batch. A read per owner or per grant edge runs four.
+    // THE DEFECT IS THE CONSERVED SQL COUNT, not a duration. Until POD-6284
+    // the pass read the four sessions' issue owners and grant edges (one batch
+    // each), because a session's readers came from its task. A session is now
+    // its own owner's alone, so the pass reads neither: a task or grant read
+    // here means session visibility is being derived from the task again.
     expect(issueIds).toHaveLength(4)
     const issues = readsOf(counted, 'issues')
     const grants = readsOf(counted, 'grants')
-    expect(issues.count, issues.queries).toBe(1)
-    expect(grants.count, grants.queries).toBe(1)
+    expect(issues.count, issues.queries).toBe(0)
+    expect(grants.count, grants.queries).toBe(0)
     // Each row's check asks for the segments of its conversation. Asked per
     // row, that was the segment's podium id and then its siblings: two reads
     // per row (POD-6215). The pass now reads them for every row together: one

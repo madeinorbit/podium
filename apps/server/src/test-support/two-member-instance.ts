@@ -37,6 +37,10 @@
  *   `cli([...])` runs `podium issue …`, `mcp(tool, input)` calls an MCP issue tool.
  * - `legacyDeviceFeed()` reads the feed as the device-grade principal
  *   (`device:shared-instance-password`, design gap 7).
+ * - `daemonFrames(machineId)` lists every control frame the server sent that
+ *   machine's fake daemon. The fake daemons answer file, transcript, usage and
+ *   quota reads (naming the path, session or machine in the reply), so a test
+ *   can show an owner's read reached the machine and a refused one never did.
  *
  * Use one instance per test file (`beforeAll`/`afterAll`): booting a server
  * costs about a second. Tests that mutate shared rows should create their own.
@@ -185,10 +189,10 @@ export function snapshotIds(snapshot: FeedSnapshot): { sessions: string[]; issue
   }
 }
 
-/** The fake daemon's answer to a file or transcript read: the requested path or
- *  session named in the reply, so a test can see the read reached the machine and
- *  what it asked for. */
-function fakeDaemonAnswer(msg: ControlMessage): DaemonMessage | undefined {
+/** The fake daemon's answer to a file, transcript, usage or quota read: the
+ *  requested path, session or machine named in the reply, so a test can see the
+ *  read reached the machine and what it asked for. */
+function fakeDaemonAnswer(machineId: MachineId, msg: ControlMessage): DaemonMessage | undefined {
   if (msg.type === 'fileAssetRequest') {
     const bytes = Buffer.from(`fixture bytes of ${msg.path}`)
     return {
@@ -209,6 +213,13 @@ function fakeDaemonAnswer(msg: ControlMessage): DaemonMessage | undefined {
       path: msg.path,
       content: `fixture text of ${msg.path}`,
     }
+  }
+  // Usage and plan quota answer with the machine's name as its hostname.
+  if (msg.type === 'usageRequest') {
+    return { type: 'usageResult', requestId: msg.requestId, hostname: machineId, buckets: [] }
+  }
+  if (msg.type === 'agentQuotaRequest') {
+    return { type: 'agentQuotaResult', requestId: msg.requestId, hostname: machineId, agents: [] }
   }
   if (msg.type === 'transcriptRead') {
     return {
@@ -301,7 +312,7 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
       await attachDaemonWithInventory(registry, machineId, (msg: ControlMessage) => {
         received.push(msg)
         if (msg.type === 'agentRelayResult') hub.onResult(msg)
-        const answer = fakeDaemonAnswer(msg)
+        const answer = fakeDaemonAnswer(machineId, msg)
         if (answer) queueMicrotask(() => void registry.gateway.routeDaemonFrame(machineId, answer))
       })
       const relay = await startAgentRelayServer({ port: 0, relay: (req) => hub.relay(req) })

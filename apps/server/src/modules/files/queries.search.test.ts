@@ -40,6 +40,8 @@ const LS_FILES = [
 const stateFor = (allowedRoots: string[]): FileState =>
   ({
     repos: { list: () => allowedRoots },
+    // The caller may run on this machine (POD-6284's private-class gate passes).
+    access: { ownsSession: async () => false, mayReadMachineFiles: async () => true },
     rpc: {
       repoOp: async (op: string) => {
         if (op !== 'lsFiles') return { ok: false, output: `unexpected op ${op}` }

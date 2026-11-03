@@ -11,6 +11,8 @@ import type { FamilyState } from './modules/derived-family'
 import { disposeOracles, makeOracle } from './modules/sessions/oracle-support'
 import { SESSION_QUERIES } from './modules/sessions/queries'
 import { buildSuperagentTools } from './modules/superagent/tools'
+import { userCommandPrincipal } from './command-principal'
+import { privateResourceAccess } from './private-resources'
 
 const NOW = Date.parse('2026-10-02T12:00:00.000Z')
 const B = asUserId('user:b')
@@ -201,38 +203,57 @@ describe('S1 session companion records', () => {
 
   it('sessions.list checks caller visibility and superagent snoozes use the caller source', async () => {
     const f = await fixture()
-    await f.sessions.state.markRead(f.a, f.sessionId)
-    await f.sessions.state.setSnooze(f.a, f.sessionId, null)
-    const family = {
-      caller: { userId: B, sessionState: f.b },
-      modules: f.reg.modules,
-    } as unknown as FamilyState
-    const result = await SESSION_QUERIES.list.run(family, {})
+    // B's markers on A's session (B holds a read share): they are B's alone.
+    await f.sessions.state.markRead(f.b, f.sessionId)
+    await f.sessions.state.setSnooze(f.b, f.sessionId, null)
+    const asCaller = (userId: typeof f.A, sessionState: typeof f.a) =>
+      ({
+        caller: { userId, sessionState },
+        modules: f.reg.modules,
+        privateAccess: privateResourceAccess(
+          {
+            sessionOwnerUserId: async (id) => (await f.store.sessions.getSession(id))?.ownerUserId,
+            machines: f.reg.modules.machines,
+          },
+          userCommandPrincipal(userId, 'member'),
+        ),
+      }) as unknown as FamilyState
+    // The owner lists it, and the row carries nobody's per-user markers.
+    const result = await SESSION_QUERIES.list.run(asCaller(f.A, f.a), {})
     expect(result.find((row) => row.sessionId === f.sessionId)).toBeDefined()
     expect(result.find((row) => row.sessionId === f.sessionId)).not.toHaveProperty('readAt')
     expect(result.find((row) => row.sessionId === f.sessionId)).not.toHaveProperty('unread')
     expect(result.find((row) => row.sessionId === f.sessionId)).not.toHaveProperty('snoozedUntil')
+    // A share grant opens nothing private (POD-6284, design §2.3): B does not list it.
+    expect(
+      (await SESSION_QUERIES.list.run(asCaller(B, f.b), {})).find(
+        (row) => row.sessionId === f.sessionId,
+      ),
+    ).toBeUndefined()
     await f.store.superagent.upsertSuperagentThread({
-      id: 'thread:b',
-      ownerUserId: B,
+      id: 'thread:a',
+      ownerUserId: f.A,
       kind: 'global',
     })
     const tools = await buildSuperagentTools(
       { modules: f.reg.modules, repos: { list: async () => [] }, store: f.store, waitPollMs: 1 },
       '',
-      asThreadId('thread:b'),
+      asThreadId('thread:a'),
     )
     const tool = tools.find((entry) => entry.spec.name === 'list_sessions')!
     const listed = JSON.parse(await tool.run({})) as {
       sessionId: string
       snoozedUntil?: string | null
     }[]
+    // B's snooze is not A's.
     expect(listed.find((row) => row.sessionId === f.sessionId)).not.toHaveProperty('snoozedUntil')
-    await f.sessions.state.setSnooze(f.b, f.sessionId, '2026-10-03T00:00:00.000Z')
+    // Far in the future: the store drops a snooze whose time has passed by the
+    // wall clock, and this read is not on the oracle's frozen clock.
+    await f.sessions.state.setSnooze(f.a, f.sessionId, '2099-10-03T00:00:00.000Z')
     expect(
       (JSON.parse(await tool.run({})) as typeof listed).find((row) => row.sessionId === f.sessionId)
         ?.snoozedUntil,
-    ).toBe('2026-10-03T00:00:00.000Z')
+    ).toBe('2099-10-03T00:00:00.000Z')
     const anonymous = await buildSuperagentTools(
       { modules: f.reg.modules, repos: { list: async () => [] }, store: f.store, waitPollMs: 1 },
       '',

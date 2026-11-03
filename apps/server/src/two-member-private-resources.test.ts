@@ -24,7 +24,13 @@
  * owner is already right.
  */
 
-import { asArtifactId, asSessionId, type SessionId } from '@podium/model'
+import {
+  actorAgent,
+  asAgentIdentityId,
+  asArtifactId,
+  asSessionId,
+  type SessionId,
+} from '@podium/model'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildSuperagentTools } from './modules/superagent/tools'
 import {
@@ -199,7 +205,7 @@ describe('MU-08: search returns only the caller’s own sessions', () => {
   })
 })
 
-describe('MU-08: approvals are read by the session owner only', () => {
+describe('MU-08: approvals are listed, broadcast and decided by the session owner only', () => {
   const request = async (sessionId: SessionId, machine: 'alice' | 'bob', target: string) =>
     (await registry().modules.approvals.request({
       op: { kind: 'set-server', target },
@@ -220,6 +226,33 @@ describe('MU-08: approvals are read by the session owner only', () => {
     // The admin role adds nothing.
     expect(await ids('alice')).not.toContain(bobs.id)
     expect(await ids('bob')).not.toContain(alices.id)
+  })
+
+  it('only the session owner decides an approval; anyone else is told it does not exist', async () => {
+    const bobs = await request(f.sessions.bob, 'bob', 'https://bob-decide.example')
+    const alice = await trpc('alice')
+    const answer = async (call: () => Promise<unknown>) =>
+      await call().then(
+        () => 'resolved',
+        (error: Error) =>
+          error.message.replaceAll(bobs.id, '<id>').replaceAll('apr_missing', '<id>'),
+      )
+    for (const decide of [
+      (id: string) => alice.approvals.approve.mutate({ id }),
+      (id: string) => alice.approvals.deny.mutate({ id }),
+    ]) {
+      const refused = await answer(() => decide(bobs.id))
+      expect(refused).toMatch(/unknown approval request/)
+      expect(refused).toBe(await answer(() => decide('apr_missing')))
+    }
+    expect((await store().approvals.get(bobs.id))?.status).toBe('pending')
+    // Control: Bob decides his own.
+    await expect((await trpc('bob')).approvals.deny.mutate({ id: bobs.id })).resolves.toMatchObject(
+      {
+        id: bobs.id,
+        status: 'denied',
+      },
+    )
   })
 
   it('the live approvals broadcast carries only the receiving member’s own approvals', async () => {
@@ -327,6 +360,79 @@ describe('Bob cannot read Alice’s superagent threads', () => {
     await expect(
       bob.superagent.history.query({ threadId: 'thr_does_not_exist' as never }),
     ).rejects.toThrow(/unknown thread/)
+  })
+})
+
+describe('mail and inbox reads return only the caller’s own mail', () => {
+  /** Bob's agent asks "the operator": that is Bob, and nobody else. */
+  const bobsAgentAsksItsHuman = async (body: string) =>
+    (
+      await registry().modules.messages.send(
+        {
+          kind: 'agent',
+          issueId: f.tasks.bob,
+          sessionId: f.sessions.bob,
+          attribution: {
+            actor: actorAgent(asAgentIdentityId(`session:${f.sessions.bob}`)),
+            onBehalfOf: MEMBERS.bob.id,
+          },
+        },
+        { to: { kind: 'operator' }, body },
+      )
+    ).message.id
+
+  const inboxBodies = async (name: MemberName) =>
+    ((await (await trpc(name)).messages.inbox.mutate({})) as Array<{ body: string }>).map(
+      (row) => row.body,
+    )
+
+  it('Bob’s agent’s question reaches Bob’s inbox and not admin Alice’s', async () => {
+    await bobsAgentAsksItsHuman('bob, please look')
+    expect(await inboxBodies('bob')).toContain('bob, please look')
+    expect(await inboxBodies('alice')).not.toContain('bob, please look')
+  })
+
+  it('admin Alice can neither open it, nor see it in the ledger, nor clear it', async () => {
+    const id = await bobsAgentAsksItsHuman('private to bob')
+    const alice = await trpc('alice')
+    const bob = await trpc('bob')
+    // Control: Bob opens it and finds it in his session's ledger.
+    await expect(bob.messages.show.query({ id })).resolves.toMatchObject({ body: 'private to bob' })
+    const ledgerIds = async (who: typeof alice) =>
+      (
+        (await who.messages.ledger.query({ sessionId: f.sessions.bob })) as Array<{ id: string }>
+      ).map((row) => row.id)
+    expect(await ledgerIds(bob)).toContain(id)
+    await expect(alice.messages.show.query({ id })).rejects.toThrow()
+    await expect(alice.messages.status.query({ id })).rejects.toThrow()
+    expect(await ledgerIds(alice)).not.toContain(id)
+    await expect(alice.messages.dismiss.mutate({ id })).rejects.toThrow(/only the recipient/)
+    await expect(bob.messages.dismiss.mutate({ id })).resolves.toMatchObject({ id })
+  })
+})
+
+describe('usage and plan quota are read by the people who run on the machine', () => {
+  it('the answering machine’s token usage goes to its user only, and the other is never asked', async () => {
+    const answering = await registry().modules.machines.defaultMachine()
+    const [user, other] = (
+      answering === f.machines.alice ? ['alice', 'bob'] : ['bob', 'alice']
+    ) as [MemberName, MemberName]
+    const usageAsks = () =>
+      f.daemonFrames(answering).filter((frame) => frame.type === 'usageRequest').length
+    // Control: the machine's own user gets its buckets.
+    expect(await (await trpc(user)).usage.summary.query()).toMatchObject({ hostname: answering })
+    const before = usageAsks()
+    expect(await (await trpc(other)).usage.summary.query()).toEqual({ hostname: '', buckets: [] })
+    expect(usageAsks()).toBe(before)
+  })
+
+  it('each member sees the plan quota of their own machine only', async () => {
+    const machines = async (name: MemberName) =>
+      ((await (await trpc(name)).quota.summary.query()) as Array<{ machineId: string }>).map(
+        (row) => row.machineId,
+      )
+    expect(await machines('alice')).toEqual([f.machines.alice])
+    expect(await machines('bob')).toEqual([f.machines.bob])
   })
 })
 

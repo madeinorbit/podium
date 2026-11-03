@@ -2658,7 +2658,9 @@ export class SessionRegistry {
         messages: messagesSvc,
         issues,
         sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
-        sessionOwner: async (sessionId) => await sessionsSvc.sessionOwner(sessionId),
+        // A session's mail is its own owner's (POD-6284): the row, not its task.
+        sessionOwnerUserId: async (sessionId) =>
+          (await this.store.sessions.getSession(sessionId))?.ownerUserId,
         messageRecords: async (userId, ids, transcriptSessionId) =>
           await readMessageRecords(
             { messages: this.store.messages, sessions: this.store.sessions },

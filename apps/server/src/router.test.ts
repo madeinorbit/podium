@@ -513,14 +513,20 @@ describe('repos router', () => {
     expect(await call.automations.list()).toEqual([])
   })
   it('automations.create accepts a future one-off and rejects an incomplete one', async () => {
-    const { call } = await caller()
+    const { call, registry } = await caller()
     const runAt = '2099-07-17T02:00:00.000Z'
+    // A target must be one of the caller's own sessions (POD-6284).
+    const { sessionId: sleeping } = await registry.modules.sessions.createSession({
+      agentKind: 'codex',
+      cwd: '/p',
+      ownerUserId: TEST_PRINCIPAL.user,
+    })
     const created = await call.automations.create({
       name: 'One night wake',
       scheduleKind: 'once',
       cron: null,
       runAt,
-      targetSessionId: 'sess_sleeping',
+      targetSessionId: sleeping,
       repoPath: '/repos/podium',
       agentKind: 'codex',
       prompt: 'Continue.',
@@ -532,7 +538,7 @@ describe('repos router', () => {
       cron: null,
       runAt,
       nextRunAt: runAt,
-      targetSessionId: 'sess_sleeping',
+      targetSessionId: sleeping,
     })
 
     await expect(

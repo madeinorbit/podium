@@ -809,7 +809,7 @@ describe('mail.show admits the owner of the session the mail was delivered to', 
   it('a member opens the pointer body in their own agent’s chat; another member is refused', async () => {
     const bob = asUserId('u_bob')
     const h = await mailHarness({
-      sessionOwner: async (id) => (id === 'sBob' ? { owner: bob, grants: [] } : undefined),
+      sessionOwnerUserId: async (id) => (id === 'sBob' ? bob : undefined),
     })
     const iss = await h.createIssue({ title: 'bob’s task' })
     h.put({ sessionId: asSessionId('sBob'), issueId: iss.id, phase: 'idle' })
@@ -830,21 +830,19 @@ describe('mail.show admits the owner of the session the mail was delivered to', 
   })
 })
 
-// Whoever may read a session may read mail sent from it or delivered to it
-// (POD-2146): one rule for both ends, nothing wider.
-describe('mail.show admits a reader of the sending or the receiving session', () => {
+// The owner of a session may read mail sent from it or delivered to it
+// (POD-2146): one rule for both ends, nothing wider. A session grant admits
+// nobody since POD-6284 (design §2.3: sessions are private).
+describe('mail.show admits the owner of the sending or the receiving session', () => {
   const bob = asUserId('u_bob')
-  const dana = asUserId('u_dana')
-  const erin = asUserId('u_erin')
-  // sFrom is bob's and granted to dana; sTo is carol's and granted to erin.
-  const owners: Record<string, { owner: typeof bob; grants: string[] }> = {
-    sFrom: { owner: bob, grants: [dana] },
-    sTo: { owner: asUserId('u_carol'), grants: [erin] },
-  }
+  const carol = asUserId('u_carol')
+  // sFrom is bob's, sTo is carol's. dana and erin held read grants on them,
+  // which is what admitted them before POD-6284.
+  const owners: Record<string, typeof bob> = { sFrom: bob, sTo: carol }
   const member = (user: string) => userCommandPrincipal(asUserId(user), 'member').capability
 
   async function sentAndDelivered() {
-    const h = await mailHarness({ sessionOwner: async (id) => owners[id] })
+    const h = await mailHarness({ sessionOwnerUserId: async (id) => owners[id] })
     const from = await h.createIssue({ title: 'sender' })
     const to = await h.createIssue({ title: 'receiver' })
     h.put({ sessionId: asSessionId('sFrom'), issueId: from.id, phase: 'idle' })
@@ -862,10 +860,17 @@ describe('mail.show admits a reader of the sending or the receiving session', ()
     return show
   }
 
-  it('admits the sending session’s owner and grantee, and the receiving session’s grantee', async () => {
+  it('admits the sending session’s owner and the receiving session’s owner', async () => {
     const show = await sentAndDelivered()
-    for (const user of ['u_bob', 'u_dana', 'u_erin']) {
+    for (const user of ['u_bob', 'u_carol']) {
       expect((await show(user)).body, user).toBe('handoff')
+    }
+  })
+
+  it('refuses the sessions’ former grantees', async () => {
+    const show = await sentAndDelivered()
+    for (const user of ['u_dana', 'u_erin']) {
+      await expect(show(user), user).rejects.toThrow(MAIL_VIEW_REFUSED)
     }
   })
 

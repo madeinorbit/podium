@@ -8,9 +8,10 @@
  * was a sound gate while `operator` meant one person; it is not a policy once
  * `operator` is a role held by everyone who can log in.
  *
- * The classification now: OWN TRAFFIC for a member, CROSS-USER only at admin
- * grade. Which is ADR 3 Amendment 1 D15's split — the role floor says a member
- * may attempt the command, the row gate says which rows come back.
+ * The classification now: OWN TRAFFIC for every person, admins included
+ * (POD-6284 removed the admin's cross-user arm). ADR 3 Amendment 1 D15's split
+ * still holds — the role floor says a member may attempt the command, the row
+ * gate says which rows come back.
  */
 
 import type { ContractInput, mailLedgerContract } from '@podium/commands'
@@ -22,10 +23,6 @@ export async function ledgerHandler(
   input: ContractInput<typeof mailLedgerContract>,
 ): Promise<MessageWire[]> {
   const { caller, deps, access } = ctx
-  // Admin grade — today's `scope.kind === 'all'` — is the CROSS-USER projection:
-  // every row, unfiltered. This is the arm that exposes other principals'
-  // traffic, and it is the arm that stays admin-only.
-  const crossUser = caller.capability.scope.kind === 'all'
   // An `issueId` filter is a caller-supplied target, so it must not become an
   // existence oracle: a query scoped to an issue beyond the human ceiling
   // returns an EMPTY page, identical to an issue with no traffic.
@@ -36,8 +33,10 @@ export async function ledgerHandler(
   const rows = await deps.messages.ledger(input)
   // A member sees the delivery ledger for traffic they sent or received — the
   // "why did my wake not fire" question the view exists to answer, answerable
-  // entirely from their own rows. Same `mayView` predicate the show/status
+  // entirely from their own rows. Same `mayViewAs` predicate the show/status
   // surfaces use, so there is one definition of "my traffic", not two.
-  const visible = crossUser ? rows : rows.filter((m) => access.mayView(caller.capability, m))
+  // There is no cross-user arm (POD-6284): an admin's ledger is their own
+  // traffic too.
+  const visible = await access.visibleTo(caller, rows)
   return await Promise.all(visible.map(async (m) => await access.wire(m)))
 }
