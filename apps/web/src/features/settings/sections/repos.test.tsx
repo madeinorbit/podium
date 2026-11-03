@@ -16,7 +16,6 @@ vi.mock('@/features/settings/stable-access', () => ({
   useSettingsTrpc: () => ({ repos: { setPrefix: { mutate: h.setPrefix } } }),
 }))
 vi.mock('@/lib/BaseBranchMenu', () => ({
-  usePodiumDefaultParentBranch: () => 'main',
   RepoBaseBranchMenu: () => null,
 }))
 
@@ -61,7 +60,7 @@ function mount(scans: GitRepositoryWire[] | null) {
       scans.map((_, i) => `scan${i}`),
     )
   h.pool = pool
-  render(<ReposSection />)
+  render(<ReposSection podiumDefault="main" />)
   return pool
 }
 

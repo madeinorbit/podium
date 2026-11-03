@@ -18,7 +18,7 @@ import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { useSettingsTrpc } from '@/features/settings/stable-access'
-import { RepoBaseBranchMenu, usePodiumDefaultParentBranch } from '@/lib/BaseBranchMenu'
+import { RepoBaseBranchMenu } from '@/lib/BaseBranchMenu'
 import { REF_PREFIXES_CHANGED_EVENT } from '@/lib/ref-activation'
 import { cn } from '@/lib/utils'
 
@@ -51,7 +51,14 @@ const CHECKOUT_GRID = 'sm:grid sm:grid-cols-[8rem_minmax(0,1fr)_9.5rem_11rem]'
 /** Worktrees shown before "Show all": enough to recognise, not a wall. */
 const WORKTREE_PREVIEW = 8
 
-export const ReposSection = observer(function ReposSection(): JSX.Element {
+export const ReposSection = observer(function ReposSection({
+  podiumDefault,
+}: {
+  /** `gitWorkflow.defaultParentBranch` from the settings record the view already
+   *  holds: what a repository without its own base branch falls back to. Passed
+   *  in, so the list never fetches the settings record a second time. */
+  podiumDefault: string | undefined
+}): JSX.Element {
   const view = useOpeningView(useWorklistPool(), createRepositories)
   // Until the machines' list arrives, an empty list means "not yet", not "none".
   const rows = view?.loaded ? view.rows : undefined
@@ -86,7 +93,7 @@ export const ReposSection = observer(function ReposSection(): JSX.Element {
       ) : empty ? (
         <NoRepositories />
       ) : (
-        <RepoList rows={rows} />
+        <RepoList rows={rows} podiumDefault={podiumDefault} />
       )}
     </section>
   )
@@ -94,10 +101,11 @@ export const ReposSection = observer(function ReposSection(): JSX.Element {
 
 const RepoList = observer(function RepoList({
   rows,
+  podiumDefault,
 }: {
   rows: readonly SettingsRepository[]
+  podiumDefault: string | undefined
 }): JSX.Element {
-  const podiumDefault = usePodiumDefaultParentBranch()
   return (
     <div>
       <div

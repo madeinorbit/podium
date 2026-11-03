@@ -238,7 +238,9 @@ const SECTION_VIEWS: Record<SettingsTab, (ctx: SectionContext) => JSX.Element> =
   devices: ({ trpc, openNetworkSettings }) => (
     <ConnectedDevicesSection trpc={trpc} onOpenNetwork={openNetworkSettings} />
   ),
-  repos: () => <ReposSection />,
+  repos: ({ settings }) => (
+    <ReposSection podiumDefault={settings.gitWorkflow?.defaultParentBranch ?? ''} />
+  ),
   machines: () => <MachinesPanel />,
   members: () => <MembersSection />,
   security: ({ trpc }) => <LoginPasswordSection trpc={trpc} />,

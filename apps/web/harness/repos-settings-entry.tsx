@@ -27,7 +27,7 @@ function Shell(): JSX.Element {
     >
       <div className="settings-pane-scroll" style={{ overflow: 'visible' }}>
         <div className="settings-measure settings-section-enter">
-          <ReposSection />
+          <ReposSection podiumDefault="main" />
         </div>
       </div>
     </div>

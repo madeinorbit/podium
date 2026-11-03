@@ -8,8 +8,6 @@ import type { MachineId } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { BaseBranchMenuContent } from '../src/lib/BaseBranchMenu'
 
-export const usePodiumDefaultParentBranch = (): string | undefined => 'main'
-
 export function RepoBaseBranchMenu(props: {
   repoId: string
   path: string
