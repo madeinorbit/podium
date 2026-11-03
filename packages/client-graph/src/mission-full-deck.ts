@@ -307,7 +307,8 @@ export class FullDeckTask {
  */
 export class FullDeck {
   @observable accessor filter: FullDeckFilter = 'all'
-  @observable accessor showDone = false
+  /** Done work shows in place by default (POD-6245); the eye button hides it. */
+  @observable accessor showDone = true
   private readonly card = companion((issue: IssueModel) => new FullDeckTask(issue, this))
 
   constructor(readonly screen: MissionScreen) {}
@@ -326,10 +327,11 @@ export class FullDeck {
   }
 
   // UI state
-  /** Choosing a filter turns Show done off (handoff note 5). */
+  /** Choosing a filter turns Show done off (handoff note 5); coming back to
+   * All returns to the default, done work shown (POD-6245). */
   @action setFilter(filter: FullDeckFilter): void {
     this.filter = filter
-    this.showDone = false
+    this.showDone = filter === 'all'
   }
   /** Show done returns to All: done work shows in its place in the tree. */
   @action setShowDone(show: boolean): void {

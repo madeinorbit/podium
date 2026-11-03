@@ -198,8 +198,12 @@ it('offers exact model leaf totals and matching descendant paths for each Full f
     'working',
     'idle',
     'blocked',
+    'done',
+    'complete',
+    'released',
   ])
-  capture('All · eight leaves, done hidden', f.ui.container)
+  // Done work shows in place by default (POD-6245).
+  capture('All · eight leaves, done shown', f.ui.container)
   await f.click('Needs you 2')
   expect(f.order()).toEqual(['build', 'parent', 'error', 'ask'])
   expect(f.button('Needs you 2').getAttribute('aria-pressed')).toBe('true')
@@ -222,6 +226,9 @@ it('offers exact model leaf totals and matching descendant paths for each Full f
     'working',
     'idle',
     'blocked',
+    'done',
+    'complete',
+    'released',
   ])
   expect(f.tally()).toEqual(totals)
   expect(f.prefs.values.has('podium.flightDeck.mode')).toBe(false)
@@ -327,7 +334,7 @@ it('shares Done state with the done line and resets filters and Done in both dir
   ])
   expect(f.ui.container.querySelector('.flight-full-done-line')).toBeNull()
   capture('Done restored · original positions', f.ui.container)
-  for (const name of ['All 8', 'Needs you 2', 'Active 4', 'Up next 2']) {
+  for (const name of ['Needs you 2', 'Active 4', 'Up next 2']) {
     await f.click(name)
     expect(f.button('Done 2').getAttribute('aria-pressed')).toBe('false')
     expect(f.row('done')).toBeNull()
@@ -336,6 +343,12 @@ it('shares Done state with the done line and resets filters and Done in both dir
     expect(f.button('Done 2').getAttribute('aria-pressed')).toBe('true')
     expect(f.row('done')).not.toBeNull()
   }
+  // All is the default view, so choosing it shows done work again (POD-6245).
+  await f.click('Done 2')
+  expect(f.row('done')).toBeNull()
+  await f.click('All 8')
+  expect(f.button('Done 2').getAttribute('aria-pressed')).toBe('true')
+  expect(f.row('done')).not.toBeNull()
   await f.click('Done 2')
   expect(f.row('released')).toBeNull()
   expect(f.tally()).toEqual(totals)
@@ -407,7 +420,8 @@ it('waits for stored folds before drawing tasks or enabling controls, with no de
   )
   expect(f.initial).toEqual({ pending: true, disabled: true, rows: 0 })
   await waitFor(() => expect(f.button('All 8').hasAttribute('disabled')).toBe(false))
-  expect(f.order()).toEqual(['loose', 'build'])
+  // The complete phase shows too: done work is in place by default (POD-6245).
+  expect(f.order()).toEqual(['loose', 'build', 'complete', 'released'])
   expect(f.button('Expand phase build').getAttribute('aria-expanded')).toBe('false')
 })
 
@@ -448,7 +462,10 @@ function capture(title: string, node: HTMLElement) {
 afterAll(() => {
   const path = process.env['PODIUM_FULL_CONTROLS_REVIEW_HTML']
   if (!path) return
-  const css = readFileSync('src/styles.css', 'utf8').replace(/"/g, "'").replace(/\s+/g, ' ').split('/* Full flight deck v6.')[1]
+  const css = readFileSync('src/styles.css', 'utf8')
+    .replace(/"/g, "'")
+    .replace(/\s+/g, ' ')
+    .split('/* Full flight deck v6.')[1]
   const tokens = readFileSync('src/index.css', 'utf8')
     .split('[data-theme="podium"].dark {')[1]
     ?.split('}')[0]

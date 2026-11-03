@@ -137,6 +137,8 @@ async function open(issues = mixed(), sessions: Row[] = []) {
 
 it('orders the done line, unheaded loose tasks, sorted phase sections, leaving proposals for the tail', async () => {
   const f = await open()
+  // Done work shows by default (POD-6245); these rows are the hidden-done view.
+  act(() => f.full.setShowDone(false))
   expect(f.order()).toEqual([
     'loose work',
     'build',
@@ -162,6 +164,13 @@ it('orders the done line, unheaded loose tasks, sorted phase sections, leaving p
   capture('Mixed work · done hidden', f.ui.container)
 })
 
+it('shows done work in place by default, with no done line', async () => {
+  const f = await open()
+  expect(f.full.showDone).toBe(true)
+  for (const id of ['loose done', 'shipped']) expect(f.task(id)).not.toBeNull()
+  expect(f.ui.container.querySelector('.flight-full-done-line')).toBeNull()
+})
+
 it('keeps a plain task list with no headers or rails when no phases exist', async () => {
   const f = await open([
     issue('root', null, 'a'),
@@ -177,6 +186,8 @@ it('keeps a plain task list with no headers or rails when no phases exist', asyn
 
 it('counts phase direct children separately from done leaf tasks and hides done grandchildren', async () => {
   const f = await open()
+  // Done work shows by default (POD-6245); these rows are the hidden-done view.
+  act(() => f.full.setShowDone(false))
   expect(f.group('build')?.querySelector('.flight-full-phase-counter')?.textContent).toBe('1/2')
   expect(f.task('parent')?.querySelector('.flight-v6-counter')?.textContent).toBe('2/3')
   expect(f.full.counts.done).toBe(5)
@@ -191,6 +202,8 @@ it('counts phase direct children separately from done leaf tasks and hides done 
 
 it('restores completed phases and every done row at their original positions through the shared Done action', async () => {
   const f = await open()
+  // Done work shows by default (POD-6245); these rows are the hidden-done view.
+  act(() => f.full.setShowDone(false))
   const counts = f.full.counts
   fireEvent.click(f.ui.getByRole('button', { name: /5 tasks done Show/ }))
   expect(f.full.showDone).toBe(true)
@@ -285,6 +298,8 @@ it('preserves nested phases under both tasks and phases, with phase-local elbows
     issue('innermost task', 'phase under phase', 'a'),
     issue('done deep leaf', 'phase under phase', 'b', done),
   ])
+  // Done work shows by default (POD-6245); these rows are the hidden-done view.
+  act(() => f.full.setShowDone(false))
   expect(f.order()).toEqual([
     'unphased parent',
     'phase under task',

@@ -705,6 +705,8 @@ describe('Full mission header', () => {
       '1 of 2 tasks done, 0 working, 0 waiting, 1 to do',
     ))
     expect(screen.getByRole('button', { name: /^All 2$/ })).toBeTruthy()
+    // Done work shows by default (POD-6245); the done line appears once it is hidden.
+    fireEvent.click(screen.getByTitle('Hide done tasks'))
     expect(screen.getByRole('button', { name: /1 task done Show/ })).toBeTruthy()
     const before = screen.getByTestId('mission-gauge-track').parentElement?.getAttribute('aria-label')
     fireEvent.click(screen.getByRole('button', { name: /1 task done Show/ }))
@@ -2086,6 +2088,9 @@ describe('Full phase sections', () => {
     const groups = current.getByTestId('flight-deck-full-groups')
     const order = () => [...groups.querySelectorAll('[data-flight-issue], [data-flight-phase]')]
       .map(node => node.getAttribute('data-flight-issue') ?? node.getAttribute('data-flight-phase'))
+    // Done work shows in place by default (POD-6245); hide it to get the line.
+    expect(order()).toEqual(['loose', 'phase', 'done', 'work'])
+    fireEvent.click(screen.getByTitle('Hide done tasks'))
     expect(order()).toEqual(['loose', 'phase', 'work'])
     const tail = current.getByTestId('flight-deck-tail')
     expect(tail.textContent).toContain('Suggested follow-up')
