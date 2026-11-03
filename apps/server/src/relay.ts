@@ -84,7 +84,7 @@ import { FeedServing } from './gateway/feed-serving'
 import { MobileClientVersions } from './gateway/mobile-client-versions'
 import { PresenceRouting } from './gateway/presence-routing'
 import { driverFamilyForId } from './harness-manifest'
-import { checkIssueAccess } from './issue-authz'
+import { checkIssueAccess, mayReachPrivate } from './issue-authz'
 import { type CodexTransport, llmClient } from './llm'
 import { checkMachineUse, ownershipSnapshotFromMachines } from './machine-access'
 import type { ModelProbe } from './model-catalog'
@@ -1398,16 +1398,9 @@ export class SessionRegistry {
     // acts for (POD-6160: the resident session, else its row, read once per
     // operation). `sessionsSvc` is built below; these run only once it exists.
     const capabilityForLiveSession = async (sessionId: SessionId) => await sessionsSvc.capabilityForSession(sessionId)
-    const liveSessionOwnership = async (sessionId: SessionId) => {
-      const session = await sessionsSvc.records.ownershipOf(sessionId, 'mailSessionRef')
-      if (!session) return undefined
-      return {
-        owner: session.ownerUserId,
-        grants: (await this.store.grants.loadForResource('session', sessionId))
-          .filter((edge) => edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage')
-          .map((edge) => edge.grantee),
-      }
-    }
+    // Sessions are private (POD-6283): the owner, and no grant.
+    const liveSessionOwner = async (sessionId: SessionId) =>
+      (await sessionsSvc.records.ownershipOf(sessionId, 'mailSessionRef'))?.ownerUserId
     // What a mail principal may address. Its own function so a check that
     // needs only this (the apply-time re-authorization of each queued row)
     // does not read the fleet's machine ownership as well (POD-6229).
@@ -1420,8 +1413,7 @@ export class SessionRegistry {
           if (ref.kind === 'issue')
             return feedVisibility.mayReadIssue(userId, asIssueId(ref.id))
           if (ref.kind === 'session') {
-            const owner = await liveSessionOwnership(asSessionId(ref.id))
-            return owner?.owner === userId || owner?.grants.includes(userId) === true
+            return mayReachPrivate(userId, { id: ref.id, owner: await liveSessionOwner(asSessionId(ref.id)) })
           }
           return false
         },
