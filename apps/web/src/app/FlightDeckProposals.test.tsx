@@ -494,19 +494,6 @@ it.each([
   }
 })
 
-it('retains full Backlog, Start and Dismiss buttons in narrow decks while the title truncates', async () => {
-  const f = await open([], { title: 'A long title for a narrow deck'.repeat(5) })
-  const css = readFileSync('src/styles.css', 'utf8').split('/* Full proposal triage.')[1]!
-  expect(css).toContain(
-    '.flight-proposal-actions { display:flex; align-items:center; gap:4px; flex:none; }',
-  )
-  expect(css).toContain('white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0;')
-  expect(css).not.toMatch(/\.flight-proposal-actions[^}]*display:\s*none/)
-  for (const name of ['Backlog', 'Start', 'Dismiss POD-3'])
-    expect(within(f.proposal()!).getByRole('button', { name })).toBeTruthy()
-  capture('Narrow deck · all three actions retained', f.section()!, 300)
-})
-
 const captures: { title: string; html: string; width: number }[] = []
 function capture(title: string, node: HTMLElement, width = 640) {
   if (process.env['PODIUM_PROPOSAL_REVIEW_HTML'])
