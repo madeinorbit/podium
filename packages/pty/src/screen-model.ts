@@ -43,7 +43,9 @@ export interface HeadlessScreen extends ScreenReader {
 function readLines(term: Terminal, dropDim: boolean): string[] {
   const buf = term.buffer.active
   const out: string[] = []
-  for (let i = 0; i < buf.length; i += 1) {
+  // The visible rows only: the buffer also holds the one history line the
+  // model keeps (see VIEWPORT_HEADROOM), which is not on screen.
+  for (let i = buf.baseY; i < buf.baseY + term.rows; i += 1) {
     const line = buf.getLine(i)
     if (!dropDim || !line) {
       out.push(line?.translateToString(true) ?? '')
@@ -72,8 +74,8 @@ const ALT_BUFFER_MARK = '\x1b[?1049h\x1b[H'
  * is the split.
  *
  * - `scrollback: 0`: the visible rows only. A snapshot repaints the viewer's
- *   SCREEN; the model keeps no history anyway (`scrollback: 0` below), and
- *   the viewer's own scrollback is not ours to rewrite.
+ *   SCREEN; the one history line the model keeps is xterm headroom, not
+ *   history, and the viewer's own scrollback is not ours to rewrite.
  * - `excludeModes`: a mode (mouse tracking, bracketed paste, app cursor keys)
  *   is program state, not a picture. The snapshot must never act like one.
  */
@@ -84,14 +86,29 @@ function serializeActive(term: Terminal, addon: SerializeAddon): string {
   return at < 0 ? all : all.slice(at + ALT_BUFFER_MARK.length)
 }
 
+/**
+ * History lines the model keeps above the screen. Readers never see them
+ * ({@link readLines} and the serializer read the visible rows only); they
+ * exist because xterm needs them.
+ *
+ * POD-6256: with `scrollback: 0` the buffer holds exactly `rows` lines, and
+ * xterm's `Buffer._reflowSmaller` (5.5.0, unchanged through 6.1.0-beta.334)
+ * still moves `ybase` down one line when narrowing the grid pushes the cursor
+ * off the bottom. With no line to move into, `ybase + rows` points past the
+ * end of the line list and every later resize keeps the deficit; the next
+ * line feed onto the bottom row then reads a missing line and throws
+ * (`lines.get(ybase + y).isWrapped`) from xterm's parse timer, which escaped as
+ * an uncaught exception in the daemon. The unguarded step is a single line
+ * (any further one checks `maxLength`), so one line of history is enough room.
+ */
+const VIEWPORT_HEADROOM = 1
+
 export function createHeadlessScreen(cols: number, rows: number): HeadlessScreen {
-  // scrollback: 0 keeps the buffer bounded to the visible screen — the composer is
-  // always on screen, so history would only add per-scrape cost.
   const term = new Terminal({
     cols: Math.max(1, cols),
     rows: Math.max(1, rows),
     allowProposedApi: true,
-    scrollback: 0,
+    scrollback: VIEWPORT_HEADROOM,
   })
   const serializer = new SerializeAddon()
   // The addon is typed against @xterm/xterm; @xterm/headless is API-compatible
