@@ -102,7 +102,7 @@ Personal settings remain per member.
 
 | Resource | Rule today | Where |
 |---|---|---|
-| Task, commands | Admin: scope `all`, so everything is allowed. Member: scope `owned`, so only tasks they own or hold a read/write/manage grant on. | `command-principal.ts:129-130`, `packages/model/src/authz/issue-authz.ts:295-355`, `apps/server/src/issue-authz.ts` `checkIssueAccess` |
+| Task, commands | Reads, admins included: owner or grant, through `mayReadIssue` (an admin's `issues.get` on Bob's task answers "unknown issue"). Writes: admin scope `all` allows everything; member scope `owned` allows tasks they own or hold a grant on. | `command-principal.ts:129-130`, `packages/model/src/authz/issue-authz.ts:295-355`, `apps/server/src/issue-authz.ts` `checkIssueAccess`, `modules/issues/service/reads.ts` |
 | Task, feed | Owner, or anyone holding an issue grant. Admins get nothing extra. | `apps/server/src/feed-visibility.ts:193-209`, `211-220` |
 | Session, commands | Effective owner is the **task's** owner when the session has a task; grants come from the **task's** grants. Admin scope `all` passes. | `session-authz.ts:294-314`, `159-163` |
 | Session, feed | The session's own owner, or anyone holding a session `read` grant. | `feed-visibility.ts:229-235` |
@@ -116,9 +116,9 @@ Personal settings remain per member.
 
 ### 3.3 Gaps against the rules
 
-1. **Tasks are owner-or-grant, and need to be member-wide.** Today a member who is not the owner and holds no grant can neither read nor edit a task, in commands or in the feed. This is the single largest change. The fix has two halves: commands and feed must be changed together (§4.1), and the split of private execution data (§4.2) has to happen first.
-2. **Admins can do everything through commands.** Admin scope `all` short-circuits `authorize()` and `checkIssueAccess`, sessions included. The admin role must stop covering sessions, private files and credentials.
-3. **A session inherits its task's owner and grants.** `sessionOwner()` substitutes the task's owner. That breaks D7 both ways: Alice can drive Bob's agent on her task, and Bob can be refused on his own session.
+1. **Tasks are owner-or-grant, and need to be member-wide.** Today a member who is not the owner and holds no grant can neither read nor edit a task, in commands or in the feed. For reads this holds for admins too; only admin writes bypass it. This is the single largest change. The fix has two halves: commands and feed must be changed together (§4.1), and the split of private execution data (§4.2) has to happen first.
+2. **Admins can write everything through commands.** Admin scope `all` short-circuits `authorize()` and `checkIssueAccess` for writes, sessions included. The admin role must stop covering sessions, private files and credentials.
+3. **A session inherits its task's owner and grants.** It happens in two places. `session-start.ts:432` stores the task's owner as the session owner (`parentOwner ?? input.ownerUserId ?? …`, with a first-admin fallback), so the agent's capability acts on behalf of the task owner and only `createdBy.onBehalfOf` names the real starter. `sessionOwner()` then substitutes the task's owner and grants at check time. That breaks D7 both ways: Alice can drive Bob's agent on her task, Bob's agent acts with Alice's rights, and Bob can be refused on his own session.
 4. **Session file bytes are not owner-checked.** The asset route serves files for any named session or worktree root.
 5. **Credentials have no owner.** Managed provider accounts are shared by everyone, which contradicts §2.5. The fix needs an owner column, a migration that assigns existing rows, and per-member selection at spawn.
 6. **The first admin stands in for everyone.** 23 non-test server files call `firstAdminMemberId()` or `earliestAdmin()`. Most are bootstrap or recovery paths and should stay. Several read as "the viewer" for everyone:
