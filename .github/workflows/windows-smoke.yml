@@ -16,8 +16,8 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
         with:
           install_args: bun
       # Bun's global virtual store is not a directory of its own: it is `links/` INSIDE the
@@ -175,7 +175,7 @@ jobs:
         run: |
           bun run --cwd apps/desktop tauri bundle --bundles nsis --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() && steps.nsis.outcome == 'success' }}
         with:
           name: windows-nsis-smoke

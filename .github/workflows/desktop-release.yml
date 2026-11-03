@@ -94,10 +94,10 @@ jobs:
           echo "stable_tag=$stable_tag" >> "$GITHUB_OUTPUT"
           echo "checkout_ref=$checkout_ref" >> "$GITHUB_OUTPUT"
           echo "releasing $channel from $checkout_ref"
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ steps.resolve.outputs.checkout_ref }}
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v4
         with:
           install_args: bun
       - name: Choose the desktop builds for this channel
@@ -208,10 +208,10 @@ jobs:
       MISE_DISABLE_TOOLS: ${{ matrix.target == 'windows-x86_64' && 'zig,rcodesign,pigz' || '' }}
     timeout-minutes: ${{ matrix.timeout_minutes || 360 }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.validate.outputs.checkout_ref }}
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v4
         with:
           install_args: bun
       - name: Pin Bun's install cache (and its global store) to the checkout volume
@@ -320,7 +320,7 @@ jobs:
           security delete-keychain "$RUNNER_TEMP/podium-signing.keychain-db" || true
           rm -f "$RUNNER_TEMP"/AuthKey_*.p8 "$RUNNER_TEMP/certificate.p12"
       - name: Stage desktop bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: desktop-${{ matrix.target }}
           path: ${{ matrix.artifact_paths }}
@@ -332,14 +332,14 @@ jobs:
     if: needs.validate.outputs.build_shell == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.validate.outputs.checkout_ref }}
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v4
         with:
           install_args: bun
       - name: Collect promoted desktop bundles
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: desktop-*
           path: dist-desktop-input

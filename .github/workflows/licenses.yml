@@ -11,8 +11,8 @@ jobs:
   licenses:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
         with:
           install_args: bun
       # --ignore-scripts: the generator only reads bun.lock + installed package.json/LICENSE
