@@ -1,5 +1,6 @@
 import type { GitRepositoryWire } from '@podium/model'
 import { asMachineId, asRepoId } from '@podium/model/browser'
+import { autorun } from 'mobx'
 import { expect, it } from 'vitest'
 import { headerEntities } from './header-entities'
 import { MobxPool } from './pool'
@@ -232,6 +233,42 @@ it('keeps the row and follows a new worktree arriving on the checkout', () => {
     ])
     expect(section.rows[0]).toBe(row)
     expect(row.worktreeCount).toBe(1)
+  } finally {
+    p.dispose()
+  }
+})
+
+it('names the repository by the server-decided repo name, and follows a rename', () => {
+  // The checkout's folder is a backup copy; its remote alone would say "podium".
+  const { p, section } = scene([
+    {
+      kind: 'repository',
+      machineId: ludovico,
+      repoId: podium,
+      path: '/src/bak_podium',
+      worktrees: [],
+    },
+  ])
+  try {
+    const row = section.rows[0]!
+    expect(row.name).toBe('bak_podium')
+    const seen: string[] = []
+    const stop = autorun(() => seen.push(row.name))
+    const named = (name: string) => ({
+      kind: 'repo' as const,
+      id: podium,
+      value: {
+        id: podium,
+        name,
+        prefix: 'POD',
+        defaultParentBranch: 'dev',
+        path: '/src/podium',
+      } as never,
+    })
+    p.apply({ type: 'update', rows: [named('podium')] })
+    p.apply({ type: 'update', rows: [named('podium-core')] })
+    expect(seen).toEqual(['bak_podium', 'podium', 'podium-core'])
+    stop()
   } finally {
     p.dispose()
   }

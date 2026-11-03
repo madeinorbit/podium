@@ -118,9 +118,13 @@ export class SettingsRepository {
   @lazy({ equals: compareShallow }) get scans(): RepositoryModel[] {
     return this.section.scans.filter((scan) => this.section.ownerOf(scan) === this.owner)
   }
-  /** The repository's name: its remote's last segment, else its folder's. */
+  /** The repository's name as the server decided it [POD-6246]. A scan's own
+   *  guess stands in only while no name has arrived (an older server, or a
+   *  scan the server has not given a repo id yet). */
   @lazy get name(): string {
-    return (this.checkouts[0]?.scan ?? this.scans[0])?.name ?? ''
+    const id = this.repoId
+    const named = id ? here(this.pool.model('repo', id))?.name : null
+    return named || ((this.checkouts[0]?.scan ?? this.scans[0])?.name ?? '')
   }
   /** The remote as people say it (`github.com/owner/repo`); `null` for a local-only repo. */
   @lazy get origin(): string | null {
