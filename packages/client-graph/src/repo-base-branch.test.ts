@@ -77,7 +77,9 @@ it('finds the checkout a base-branch write goes through and follows a remote bas
     expect(repositoryScanOf(p, repoId, '/moved')?.path).toBe('/repo')
     expect(repositoryScanOf(p, asRepoId('unknown'), '/elsewhere')).toBeUndefined()
 
-    const row = new SettingsRepositories(p).rows.find((r) => r.path === '/repo')!
+    const row = new SettingsRepositories(p).rows.find((r) =>
+      r.checkouts.some((c) => c.path === '/repo'),
+    )!
     const seen: (string | null)[] = []
     const stop = autorun(() => seen.push(row.defaultParentBranch))
     p.apply({

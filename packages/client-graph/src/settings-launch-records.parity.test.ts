@@ -115,22 +115,29 @@ it('matches the original repository grouping, pinned filtering and open order on
   } finally { legacy.dispose(); next.dispose(); vi.restoreAllMocks() }
 })
 
-it('matches the registered repository prefix section on the same scan/projection fixtures and follows a remote prefix edit', () => {
+it('shows a registered repository once, with its worktree folded under its checkout, and follows a remote prefix edit', () => {
   const p = pool(), machineId = asMachineId('host'), repoId = asRepoId('project')
-  const oldRows = [
-    { machineId, path: '/repo', originUrl: 'https://example.test/project.git', repoId, prefix: 'OLD' },
-    { machineId, path: '/repo/topic', originUrl: 'https://example.test/project.git', repoId, prefix: 'OLD' },
+  const scans = [
+    { machineId, path: '/repo', originUrl: 'https://example.test/project.git', repoId },
+    { machineId, path: '/repo/topic', originUrl: 'https://example.test/project.git', repoId },
   ]
   try {
     p.apply({ type: 'update', rows: [{ kind: 'repo', id: repoId, value: { id: repoId, prefix: 'OLD', path: '/repo' } as never }] })
-    headerEntities(p).apply(oldRows.map((row, i) => ({ kind: 'repository' as const, id: `scan${i}`, value: {
+    headerEntities(p).apply(scans.map((row, i) => ({ kind: 'repository' as const, id: `scan${i}`, value: {
       kind: i === 0 ? 'repository' as const : 'worktree' as const, machineId, path: row.path, originUrl: row.originUrl, repoId,
       worktrees: i === 0 ? [{ path: '/repo/topic', branch: 'topic' }] : [],
     } })))
     headerEntities(p).order('repository', ['scan0', 'scan1'])
     const section = new SettingsRepositories(p)
-    expect(section.rows.map(row => ({ machineId: row.machineId, path: row.path, prefix: row.prefix })))
-      .toEqual(oldRows.map(({ machineId, path, prefix }) => ({ machineId, path, prefix })))
+    // POD-6267: the registered worktree used to be a second "repository" row
+    // carrying the same prefix. It is the checkout's worktree, listed once.
+    expect(section.rows.map(row => ({
+      repoId: row.repoId, prefix: row.prefix, origin: row.origin,
+      checkouts: row.checkouts.map(c => ({ machineId: c.machineId, path: c.path, worktrees: c.worktrees.map(w => w.path) })),
+    }))).toEqual([{
+      repoId, prefix: 'OLD', origin: 'example.test/project',
+      checkouts: [{ machineId, path: '/repo', worktrees: ['/repo/topic'] }],
+    }])
     const retained = section.rows[0]!, seen: (string | null)[] = []
     const stop = autorun(() => seen.push(retained.prefix))
     p.apply({ type: 'update', rows: [{ kind: 'repo', id: repoId, value: { id: repoId, prefix: 'NEW', path: '/repo' } as never }] })
