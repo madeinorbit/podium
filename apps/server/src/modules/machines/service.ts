@@ -29,8 +29,10 @@ import {
   resolveMachineChannel,
   structuralEligibility,
   type UpdateChannel,
-  type UserId} from '@podium/model'
-import type { BindingConfirmations,
+  type UserId,
+} from '@podium/model'
+import type {
+  BindingConfirmations,
   DaemonHandshake,
   DaemonPtyInputBatch,
   HarnessDescriptorWire,
@@ -42,7 +44,8 @@ import type { BindingConfirmations,
   UpdateKeyRotation,
   UpdateSpaceEstimate,
   UpdateSpaceResultMessage,
-  UpdateTarget} from '@podium/protocol'
+  UpdateTarget,
+} from '@podium/protocol'
 import { SERVER_MOVE_CAPABILITY, supervisorGenerationOf, unknownUpdateSpace, UPDATE_SPACE_CAPABILITY, wireSchemaDigest } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
@@ -51,6 +54,7 @@ import { requestParentEnrollment } from '@podium/runtime/parent-control'
 import { TRPCError } from '@trpc/server'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { DaemonControlPeer } from '../../gateway/daemon-ports'
+import { isPrivateOwner } from '../../private-resources'
 import { enrollSetupMachine, readSetupEnrollment } from '../../setup-enrollment'
 import type { MachineRecord, SessionStore } from '../../store'
 import type { SettingsAuditRow } from '../../store/settings-audit'
@@ -220,7 +224,16 @@ export interface PairingGrant {
  */
 type MachineCapabilityFacts = Pick<
   MachineListing,
-  'id' | 'online' | 'services' | 'components' | 'inventory' | 'serviceAssignment' | 'availability' | 'revokedAt' | 'supersededBy' | 'daemonReadiness'
+  | 'id'
+  | 'online'
+  | 'services'
+  | 'components'
+  | 'inventory'
+  | 'serviceAssignment'
+  | 'availability'
+  | 'revokedAt'
+  | 'supersededBy'
+  | 'daemonReadiness'
 >
 
 export interface MachineFactsSnapshot {
@@ -280,7 +293,36 @@ export interface MachinesDeps {
   /** Connected client fan-out (machinesChanged). */
   clients(): Iterable<{ principal: ClientPrincipal; send(msg: ServerMessage): void }>
   /** Principal-scoped projection supplied by the command-policy composition boundary. */
-  machinesForPrincipal(principal: ClientPrincipal, machines: MachinesService): Promise<MachineListing[]>
+  machinesForPrincipal(
+    principal: ClientPrincipal,
+    machines: MachinesService,
+  ): Promise<MachineListing[]>
+}
+
+/**
+ * WHAT A CONNECTING MACHINE MAY LEARN ABOUT THE SESSIONS IT NAMES (design gap 8,
+ * POD-6286). A daemon names the session ids it holds; it gets the real facts
+ * (owner, placement, closed, delegation) only for a session that is placed on
+ * it, which it runs already whoever it acts for, or that its custodian owns.
+ * Every other id answers exactly like an id that does not exist, so a machine
+ * cannot learn another person's sessions by naming them. The daemon confirms a
+ * binding only when its fact names this machine, so a withheld fact only ever
+ * means "quarantine", never "run".
+ */
+export function disclosedBindingFacts(
+  facts: BindingConfirmations,
+  machineId: MachineId,
+  custodian: UserId | null,
+): BindingConfirmations {
+  return Object.fromEntries(
+    Object.entries(facts).map(([id, fact]) => [
+      id,
+      fact.machineId === machineId ||
+      (fact.owner !== null && isPrivateOwner(custodian, asUserId(fact.owner)))
+        ? fact
+        : { owner: null, machineId: null, closed: false },
+    ]),
+  )
 }
 
 /**
@@ -316,8 +358,12 @@ export class MachinesService {
   private availabilityWrites: Promise<void> = Promise.resolve()
 
   private observedAvailability(machineId: MachineId) {
-    return { epoch: this.availabilityEpoch, server: machineId === this.deps.hostMachineId,
-      daemon: this.daemons.has(machineId), supervisor: this.supervisors.has(machineId) }
+    return {
+      epoch: this.availabilityEpoch,
+      server: machineId === this.deps.hostMachineId,
+      daemon: this.daemons.has(machineId),
+      supervisor: this.supervisors.has(machineId),
+    }
   }
 
   /** Serialize snapshots so a delayed detach cannot overwrite a later attach. */
@@ -325,18 +371,33 @@ export class MachinesService {
     if (this.presenceReadOnly) return Promise.resolve()
     const observed = this.observedAvailability(machineId)
     const credentialCurrent = this.credentialFence()
-    const write = this.availabilityWrites.then(() => credentialCurrent(machineId)
-      ? this.deps.store.machines.setAvailability(machineId, observed) : undefined)
-    this.availabilityWrites = write.catch((error: unknown) => { log.error('availability write failed', { error }) })
+    const write = this.availabilityWrites.then(() =>
+      credentialCurrent(machineId)
+        ? this.deps.store.machines.setAvailability(machineId, observed)
+        : undefined,
+    )
+    this.availabilityWrites = write.catch((error: unknown) => {
+      log.error('availability write failed', { error })
+    })
     return write
   }
 
-  async changeAssignment(machineId: MachineId, assignment: MachineServiceAssignment, requestId: string): Promise<void> {
-    const result = await this.deps.store.machines.replaceExecutionAssignment(machineId, assignment,
-      { version: 1, source: 'admin-assignment', requestId })
+  async changeAssignment(
+    machineId: MachineId,
+    assignment: MachineServiceAssignment,
+    requestId: string,
+  ): Promise<void> {
+    const result = await this.deps.store.machines.replaceExecutionAssignment(
+      machineId,
+      assignment,
+      { version: 1, source: 'admin-assignment', requestId },
+    )
     if (result === 'missing') throw new TRPCError({ code: 'NOT_FOUND', message: 'unknown machine' })
     if (result === 'server-transfer-required')
-      throw new TRPCError({ code: 'BAD_REQUEST', message: 'move the server through server transfer' })
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'move the server through server transfer',
+      })
     this.supervisors.get(machineId)?.send({ type: 'serviceAssignment', assignment })
     await this.broadcastMachines()
   }
@@ -420,9 +481,15 @@ export class MachinesService {
   }
 
   registerCredentialConnection(id: MachineId, close: () => void): () => void {
-    if (this.revokedMachines.has(id)) { close(); return () => {} }
+    if (this.revokedMachines.has(id)) {
+      close()
+      return () => {}
+    }
     let connections = this.credentialConnections.get(id)
-    if (!connections) { connections = new Set(); this.credentialConnections.set(id, connections) }
+    if (!connections) {
+      connections = new Set()
+      this.credentialConnections.set(id, connections)
+    }
     connections.add(close)
     return () => {
       connections.delete(close)
@@ -481,7 +548,10 @@ export class MachinesService {
     if (revokedAt) {
       if (!this.revokedMachines.has(asMachineId(id))) {
         this.revokedMachines.add(asMachineId(id))
-        this.credentialEpochs.set(asMachineId(id), (this.credentialEpochs.get(asMachineId(id)) ?? 0) + 1)
+        this.credentialEpochs.set(
+          asMachineId(id),
+          (this.credentialEpochs.get(asMachineId(id)) ?? 0) + 1,
+        )
       }
       this.retireIncarnation(asMachineId(id))
     } else this.revokedMachines.delete(asMachineId(id))
@@ -495,13 +565,18 @@ export class MachinesService {
   /** This host's machine id — see {@link MachinesDeps.hostMachineId}. Exposed because
    *  the handshake's machine directory has to name the machine the loopback bootstrap
    *  secret belongs to, and taking it from here keeps ONE answer in the process. */
-  get installationId(): string | undefined { return this.deps.installationId }
+  get installationId(): string | undefined {
+    return this.deps.installationId
+  }
 
-  async rotateCredential(machineId: MachineId, rotation: import('@podium/protocol').MachineCredentialRotation, transcript: string): Promise<boolean> {
+  async rotateCredential(
+    machineId: MachineId,
+    rotation: import('@podium/protocol').MachineCredentialRotation,
+    transcript: string,
+  ): Promise<boolean> {
     if (this.presenceReadOnly) return false
     return this.deps.store.machines.rotateCredential(machineId, rotation, transcript)
   }
-
 
   get hostMachineId(): MachineId {
     return this.deps.hostMachineId
@@ -513,8 +588,12 @@ export class MachinesService {
 
   /** Register a machine's daemon socket (the bookkeeping half of attachDaemon —
    *  the registry orchestrates adoption/flush/reattach around this). */
-  async attach(machineId: MachineId, transport: DaemonControlPeer, caps: readonly string[] = []): Promise<void> {
-    if (this.revokedMachines.has(machineId)) throw new Error("machine is revoked")
+  async attach(
+    machineId: MachineId,
+    transport: DaemonControlPeer,
+    caps: readonly string[] = [],
+  ): Promise<void> {
+    if (this.revokedMachines.has(machineId)) throw new Error('machine is revoked')
     this.daemons.set(machineId, transport)
     // WHAT THIS SOCKET CAN DO, for as long as this socket lasts (POD-3239). Kept
     // beside `daemons` and cleared with it: the question "does the daemon
@@ -526,7 +605,11 @@ export class MachinesService {
     // reports, treating an old `installed: false` as current turns startup into a
     // confident false negative.
     this.inventoryPending.add(machineId)
-    this.daemonReadiness.set(machineId, { state: 'attached', reason: 'inventory pending', quarantinedBindings: 0 })
+    this.daemonReadiness.set(machineId, {
+      state: 'attached',
+      reason: 'inventory pending',
+      quarantinedBindings: 0,
+    })
     if (!this.supervisors.has(machineId) && !this.presenceReadOnly) {
       await this.deps.store.machines.setPresenceSource(machineId, 'legacy-daemon')
       this.clearPresenceGrace(machineId)
@@ -546,7 +629,7 @@ export class MachinesService {
    */
   async recordComponent(machineId: MachineId, component: MachineComponent): Promise<void> {
     if (this.presenceReadOnly) return
-    if (!await this.deps.store.machines.addMachineComponent(machineId, component)) return
+    if (!(await this.deps.store.machines.addMachineComponent(machineId, component))) return
     await this.broadcastMachines()
   }
 
@@ -607,7 +690,8 @@ export class MachinesService {
     build: PeerBuild,
     caps: string[],
   ): Promise<SupervisorAttachOutcome> {
-    if (this.revokedMachines.has(machineId) || this.supervisorSuperseded(machineId, build)) return 'superseded'
+    if (this.revokedMachines.has(machineId) || this.supervisorSuperseded(machineId, build))
+      return 'superseded'
     const generation = supervisorGenerationOf(build)
     // Fenced replacement: the old socket may still close, but cannot detach this one.
     this.supervisors.set(machineId, { send, build, caps: [...caps], generation })
@@ -648,7 +732,7 @@ export class MachinesService {
     this.supervisors.delete(machineId)
     await this.recordAvailability(machineId)
     if (this.presenceReadOnly) {
-        return true
+      return true
     }
     const legacy = this.legacyBuilds.get(machineId)
     if (this.daemons.has(machineId) && legacy) {
@@ -789,7 +873,7 @@ export class MachinesService {
     const timer = setTimeout(() => {
       this.presenceGraceTimers.delete(machineId)
       this.presenceGraceUntil.delete(machineId)
-        this.scheduleBroadcastMachines()
+      this.scheduleBroadcastMachines()
     }, MACHINE_PRESENCE_GRACE_MS)
     timer.unref?.()
     this.presenceGraceTimers.set(machineId, timer)
@@ -912,17 +996,28 @@ export class MachinesService {
   }
 
   /** Bind replacement authority to the revoked credential, never merely its id. */
-  async mintReplacementPairingCode(id: MachineId, grant: PairingGrant, byAdmin = false): Promise<string> {
+  async mintReplacementPairingCode(
+    id: MachineId,
+    grant: PairingGrant,
+    byAdmin = false,
+  ): Promise<string> {
     return credentials.withMachineTransition(this.enrollmentHost, id, async () => {
       const row = await this.deps.store.machines.getMachine(id)
       if (!row?.revokedAt) throw new Error('replacement requires a revoked machine')
       if (row.supersededBy) throw new Error('superseded machine identities cannot be re-enrolled')
-      if (!byAdmin && (!grant.ownerUserId || await this.deps.store.machines.custodian(id) !== grant.ownerUserId)) {
+      if (
+        !byAdmin &&
+        (!grant.ownerUserId || (await this.deps.store.machines.custodian(id)) !== grant.ownerUserId)
+      ) {
         throw new Error('replacement requires an administrator or the machine grantee')
       }
       const incarnation = await this.deps.store.machines.credentialIncarnation(id)
       if (!incarnation) throw new Error('replacement credential is absent')
-      return this.mintPairingCode({ ...grant, replaceMachineId: id, replaceIncarnation: incarnation })
+      return this.mintPairingCode({
+        ...grant,
+        replaceMachineId: id,
+        replaceIncarnation: incarnation,
+      })
     })
   }
 
@@ -950,23 +1045,45 @@ export class MachinesService {
   > {
     // Read inventory before consuming a one-use pairing code. A failed lookup
     // can retry the entire handshake; none of these facts leave before auth.
-    const bindingConfirmations = options.bindingSessionIds === undefined ? undefined
-      : await this.deps.store.sessions.bindingConfirmations(options.bindingSessionIds)
+    // The claimed machine's custodian is read here for the same reason.
+    const facts =
+      options.bindingSessionIds === undefined
+        ? undefined
+        : await this.deps.store.sessions.bindingConfirmations(options.bindingSessionIds)
+    const claimedCustodian =
+      facts === undefined ? null : await this.deps.store.machines.custodian(frame.machineId)
     const result = await credentials.authenticateDaemon(this.enrollmentHost, frame, {
       ...options,
       ...(this.presenceReadOnly ? { verifyOnly: true } : {}),
     })
     if (!result.ok) return result
     if (frame.type === 'pair') await this.publishDisplayProjection(result.machineId)
+    if (facts === undefined) {
+      // A peer that sends no inventory gets the owners of the sessions placed
+      // on it, which it already runs: nothing about anyone else's sessions.
+      return {
+        ...result,
+        legacyBindingOwners: await this.deps.store.sessions.bindingOwnersForMachine(
+          result.machineId,
+        ),
+      }
+    }
+    // A pairing hands custody to the code's minter in the same transaction.
+    const custodian =
+      frame.type === 'pair'
+        ? (result.pairingGrant?.ownerUserId ?? null)
+        : result.machineId === frame.machineId
+          ? claimedCustodian
+          : null
+    const bindingConfirmations = disclosedBindingFacts(facts, result.machineId, custodian)
     return {
       ...result,
-      ...(bindingConfirmations === undefined ? {
-        legacyBindingOwners: await this.deps.store.sessions.bindingOwnersForMachine(result.machineId),
-      } : {
-        bindingConfirmations,
-        legacyBindingOwners: Object.fromEntries(Object.entries(bindingConfirmations)
-          .flatMap(([id, fact]) => fact.owner === null ? [] : [[id, fact.owner]])),
-      }),
+      bindingConfirmations,
+      legacyBindingOwners: Object.fromEntries(
+        Object.entries(bindingConfirmations).flatMap(([id, fact]) =>
+          fact.owner === null ? [] : [[id, fact.owner]],
+        ),
+      ),
     }
   }
 
@@ -982,17 +1099,38 @@ export class MachinesService {
 
   /** Owner-or-admin ownership transfer (POD-1480) — the product surface behind
    *  `machines.transferOwnership`. See {@link credentials.transferMachineOwnership}. */
-  async transferMachineOwnership(id: MachineId, newOwnerUserId: UserId, actor: UserId, context: MachineManagementContext = {}): Promise<void> {
-    await credentials.transferMachineOwnership(this.enrollmentHost, id, newOwnerUserId, actor, context)
+  async transferMachineOwnership(
+    id: MachineId,
+    newOwnerUserId: UserId,
+    actor: UserId,
+    context: MachineManagementContext = {},
+  ): Promise<void> {
+    await credentials.transferMachineOwnership(
+      this.enrollmentHost,
+      id,
+      newOwnerUserId,
+      actor,
+      context,
+    )
   }
 
   /** Retire an explicitly selected identity; names never establish replacement. */
-  async supersedeMachine(id: MachineId, replacementId: MachineId, actor: UserId, context: MachineManagementContext = {}): Promise<void> {
+  async supersedeMachine(
+    id: MachineId,
+    replacementId: MachineId,
+    actor: UserId,
+    context: MachineManagementContext = {},
+  ): Promise<void> {
     await supersedeMachine(this.enrollmentHost, id, replacementId, actor, context)
   }
 
   /** Give an owner to an explicitly unowned machine. */
-  async adoptMachine(id: MachineId, newOwnerUserId: UserId, actor: UserId, context: MachineManagementContext = {}): Promise<void> {
+  async adoptMachine(
+    id: MachineId,
+    newOwnerUserId: UserId,
+    actor: UserId,
+    context: MachineManagementContext = {},
+  ): Promise<void> {
     await credentials.adoptMachine(this.enrollmentHost, id, newOwnerUserId, actor, context)
   }
 
@@ -1019,38 +1157,55 @@ export class MachinesService {
   ): Promise<AccountId> {
     const unsuffixed = 'native:' + agentKind
     if (accountId !== unsuffixed) return accountId
-    const identity = (await this.deps.store.machines.getMachine(machineId))
-      ?.inventory?.agents.find((agent) => agent.kind === agentKind)?.login.identity
+    const identity = (await this.deps.store.machines.getMachine(machineId))?.inventory?.agents.find(
+      (agent) => agent.kind === agentKind,
+    )?.login.identity
     return identity?.fingerprint
       ? asAccountId('native:' + agentKind + ':' + identity.fingerprint)
       : accountId
   }
 
   /** The password and host enrollment are one setup transition; parent effects stay outside it. */
-  async completeHostSetup(actor: UserId, agentExecution: boolean, passwordHash?: string): Promise<void> {
+  async completeHostSetup(
+    actor: UserId,
+    agentExecution: boolean,
+    passwordHash?: string,
+  ): Promise<void> {
     const supervisor = loadSupervisorState(stateDir())
     const pending = supervisor.setupEnrollment
-    const committed = pending && this.deps.installationId
-      ? await readSetupEnrollment(this.deps.store, this.deps.installationId, pending) : undefined
+    const committed =
+      pending && this.deps.installationId
+        ? await readSetupEnrollment(this.deps.store, this.deps.installationId, pending)
+        : undefined
     if (committed && !supervisor.enrolledPublicKey) {
-      await requestParentEnrollment({ action: 'confirm', agentExecution: committed.agentExecution,
-        setupRequestId: committed.requestId, publicKey: committed.publicKey, installationId: committed.installationId })
+      await requestParentEnrollment({
+        action: 'confirm',
+        agentExecution: committed.agentExecution,
+        setupRequestId: committed.requestId,
+        publicKey: committed.publicKey,
+        installationId: committed.installationId,
+      })
     }
     const existing = await this.deps.store.machines.getMachine(this.deps.hostMachineId)
     // Reconfiguring an enrolled server never replaces its credential or personal grantee.
     if (existing) {
-      if (existing.revokedAt) throw new Error('host machine is revoked; explicit replacement enrollment required')
+      if (existing.revokedAt)
+        throw new Error('host machine is revoked; explicit replacement enrollment required')
       await this.deps.store.transact(async () => {
-        if (passwordHash) await this.deps.store.users.setPasswordHash(actor, passwordHash, new Date().toISOString())
+        if (passwordHash)
+          await this.deps.store.users.setPasswordHash(actor, passwordHash, new Date().toISOString())
         await this.grantHostMachineIfUnowned(actor)
       })
       return
     }
-    if (!this.deps.installationId) throw new Error('setup enrollment requires installation identity')
+    if (!this.deps.installationId)
+      throw new Error('setup enrollment requires installation identity')
     const request = await requestParentEnrollment({ action: 'prepare', agentExecution })
-    if (request.machineId !== this.deps.hostMachineId) throw new Error('parent setup machine identity mismatch')
+    if (request.machineId !== this.deps.hostMachineId)
+      throw new Error('parent setup machine identity mismatch')
     const receipt = await this.deps.store.transact(async () => {
-      if (passwordHash) await this.deps.store.users.setPasswordHash(actor, passwordHash, new Date().toISOString())
+      if (passwordHash)
+        await this.deps.store.users.setPasswordHash(actor, passwordHash, new Date().toISOString())
       return enrollSetupMachine(this.deps.store, this.deps.installationId!, request, actor)
     })
     await this.publishDisplayProjection(this.deps.hostMachineId)
@@ -1065,7 +1220,12 @@ export class MachinesService {
 
   async grantHostMachineIfUnowned(ownerUserId: UserId): Promise<boolean> {
     const row = await this.deps.store.machines.getMachine(this.deps.hostMachineId)
-    if (!row || row.revokedAt || await this.deps.store.machines.custodian(this.deps.hostMachineId) !== null) return false
+    if (
+      !row ||
+      row.revokedAt ||
+      (await this.deps.store.machines.custodian(this.deps.hostMachineId)) !== null
+    )
+      return false
     await this.deps.store.machines.setMachineOwner(this.deps.hostMachineId, ownerUserId)
     return true
   }
@@ -1090,15 +1250,25 @@ export class MachinesService {
 
   /** Refuse rather than invent a target when no assigned daemon is attached. */
   async defaultMachine(): Promise<MachineId> {
-    const target = (await this.machineRecords()).find((m) =>
-      !m.revokedAt && m.serviceAssignment.agentExecution && this.daemons.has(m.id))
-    if (!target) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'no assigned and available daemon' })
+    const target = (await this.machineRecords()).find(
+      (m) => !m.revokedAt && m.serviceAssignment.agentExecution && this.daemons.has(m.id),
+    )
+    if (!target)
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'no assigned and available daemon',
+      })
     return target.id
   }
 
   /** Resolve an explicit online machine or an assigned and available daemon by repo affinity. */
   async resolveMachine(requested: string | undefined, cwd: string): Promise<MachineId> {
-    if (requested && this.daemons.has(requested) && (await this.serviceAssignment(asMachineId(requested))).agentExecution) return asMachineId(requested)
+    if (
+      requested &&
+      this.daemons.has(requested) &&
+      (await this.serviceAssignment(asMachineId(requested))).agentExecution
+    )
+      return asMachineId(requested)
     return await this.pickMachineForRepo(undefined, cwd)
   }
 
@@ -1129,13 +1299,20 @@ export class MachinesService {
     // keeps implicit routing useful without ever launching against a foreign path.
     // Repo ownership may disappear; keep these reads local to this placement,
     // never reuse a positive on a later request. Missing rows cannot match.
-    const reposByMachine = new Map(await Promise.all(machines.map(async (machine) =>
-      [machine.id, await this.deps.store.repos.listRepos(machine.id)] as const,
-    )))
-    const byRepo = machines.find((machine) =>
-      this.daemons.has(machine.id) &&
-      agentCapabilityRejectionForSelection(machine, agentKind) === undefined &&
-      reposByMachine.get(machine.id)?.some((repo) => isMachinePathWithinRoot(repo.path, cwd)) === true,
+    const reposByMachine = new Map(
+      await Promise.all(
+        machines.map(
+          async (machine) =>
+            [machine.id, await this.deps.store.repos.listRepos(machine.id)] as const,
+        ),
+      ),
+    )
+    const byRepo = machines.find(
+      (machine) =>
+        this.daemons.has(machine.id) &&
+        agentCapabilityRejectionForSelection(machine, agentKind) === undefined &&
+        reposByMachine.get(machine.id)?.some((repo) => isMachinePathWithinRoot(repo.path, cwd)) ===
+          true,
     )
     if (byRepo) return byRepo.id
 
@@ -1143,18 +1320,28 @@ export class MachinesService {
     // the existing queue-and-attach behavior. Once ANY online daemon reports an
     // inventory, lack of the requested harness is authoritative and actionable.
     if (!machines.some((machine) => machine.online && machine.inventory !== undefined)) {
-      const probing = machines.find((machine) => machine.serviceAssignment?.agentExecution === true &&
-        machine.availability?.daemon === true && machine.use !== 'denied')
+      const probing = machines.find(
+        (machine) =>
+          machine.serviceAssignment?.agentExecution === true &&
+          machine.availability?.daemon === true &&
+          machine.use !== 'denied',
+      )
       if (probing) return probing.id
     }
-    const available = machines.find((machine) => agentCapabilityRejectionForSelection(machine, agentKind) === undefined)
+    const available = machines.find(
+      (machine) => agentCapabilityRejectionForSelection(machine, agentKind) === undefined,
+    )
     if (available) return available.id
     await this.requireAgent(legacy, agentKind, use)
     return legacy
   }
 
   /** Throw a human-readable reason when a machine cannot run an agent. */
-  async requireAgent(machineId: MachineId, agentKind: AgentKind, use?: MachineUseResolver): Promise<void> {
+  async requireAgent(
+    machineId: MachineId,
+    agentKind: AgentKind,
+    use?: MachineUseResolver,
+  ): Promise<void> {
     const machine = (await this.listMachines(use)).find((candidate) => candidate.id === machineId)
     if (!machine)
       throw new TRPCError({ code: 'NOT_FOUND', message: `unknown machine '${machineId}'` })
@@ -1307,9 +1494,9 @@ export class MachinesService {
         `machine '${name}' is offline — bring its daemon online or clear the issue's machine pin`,
       )
     }
-    const hasRepo = (await this.deps.store.repos
-      .listRepos(machineId))
-      .some((r) => isMachinePathWithinRoot(r.path, repoPath))
+    const hasRepo = (await this.deps.store.repos.listRepos(machineId)).some((r) =>
+      isMachinePathWithinRoot(r.path, repoPath),
+    )
     if (!hasRepo) {
       throw new Error(
         `machine '${name}' has no repo registered at ${repoPath} — clone/register the repo on that machine or clear the issue's machine pin`,
@@ -1322,14 +1509,17 @@ export class MachinesService {
     const online = this.onlineMachineIds()
     // A removed repo would make a retained positive unsafe. Resolve per pick;
     // absent repos and machines that disconnected during the read do not match.
-    const reposByMachine = new Map(await Promise.all(online.map(async (id) =>
-      [id, await this.deps.store.repos.listRepos(id)] as const,
-    )))
-    const byRepo = online.find((id) =>
-      this.daemons.has(id) &&
-      reposByMachine.get(id)?.some((repo) => isMachinePathWithinRoot(repo.path, cwd)) === true,
+    const reposByMachine = new Map(
+      await Promise.all(
+        online.map(async (id) => [id, await this.deps.store.repos.listRepos(id)] as const),
+      ),
     )
-    return byRepo ?? await this.defaultMachine()
+    const byRepo = online.find(
+      (id) =>
+        this.daemons.has(id) &&
+        reposByMachine.get(id)?.some((repo) => isMachinePathWithinRoot(repo.path, cwd)) === true,
+    )
+    return byRepo ?? (await this.defaultMachine())
   }
 
   /**
@@ -1410,14 +1600,19 @@ export class MachinesService {
       components: m.components ?? [],
       serviceAssignment: m.serviceAssignment,
       availability: this.observedAvailability(m.id),
-      ...(this.daemonReadiness.has(m.id) ? { daemonReadiness: this.daemonReadiness.get(m.id)! } : {}),
+      ...(this.daemonReadiness.has(m.id)
+        ? { daemonReadiness: this.daemonReadiness.get(m.id)! }
+        : {}),
       // A durable snapshot remains useful while OFFLINE, but it is not evidence
       // about a newly attached daemon until that connection reports once.
       ...(m.inventory && !this.inventoryPending.has(m.id) ? { inventory: m.inventory } : {}),
     }
   }
 
-  async listMachines(use?: MachineUseResolver, owned?: MachineOwnedResolver): Promise<MachineListing[]> {
+  async listMachines(
+    use?: MachineUseResolver,
+    owned?: MachineOwnedResolver,
+  ): Promise<MachineListing[]> {
     // A SEQUENTIAL LOOP, NOT `.map`. The per-machine try/catch is the reason
     // this is a loop rather than one Promise.all up front: a machine whose
     // target cannot be resolved must degrade to `null` on its own row without
@@ -1506,7 +1701,10 @@ export class MachinesService {
    * presence, its structural components and its inventory, all already in
    * memory.
    */
-  async agentLoginCondition(machineId: MachineId, agentKind: AgentKind): Promise<'logged-out' | undefined> {
+  async agentLoginCondition(
+    machineId: MachineId,
+    agentKind: AgentKind,
+  ): Promise<'logged-out' | undefined> {
     const machine = await this.deps.store.machines.getMachine(machineId)
     return machine ? agentLoginCondition(this.capabilityFacts(machine), agentKind) : undefined
   }
@@ -1590,9 +1788,19 @@ export class MachinesService {
    * machines table per call; `ownershipSnapshotFromMachines` takes it once
    * per decision.
    */
-  async ownershipRows(): Promise<{ id: MachineId; name: string; revokedAt: string | null; daemonAssigned: boolean; daemonAvailable: boolean }[]> {
+  async ownershipRows(): Promise<
+    {
+      id: MachineId
+      name: string
+      revokedAt: string | null
+      daemonAssigned: boolean
+      daemonAvailable: boolean
+    }[]
+  > {
     return (await this.machineRecords()).map((m) => ({
-      id: m.id, revokedAt: m.revokedAt, name: m.name,
+      id: m.id,
+      revokedAt: m.revokedAt,
+      name: m.name,
       daemonAssigned: m.serviceAssignment.agentExecution,
       daemonAvailable: this.daemons.has(m.id),
     }))
@@ -1606,12 +1814,16 @@ export class MachinesService {
    * somebody remembers to invalidate. Inside one operation's read scope the
    * repository's loader batches the reads; inside a write span they stay live.
    */
-  async grantsForMachine(machineId: MachineId): Promise<{ grantee: string; verb: string; custody?: boolean }[]> {
+  async grantsForMachine(
+    machineId: MachineId,
+  ): Promise<{ grantee: string; verb: string; custody?: boolean }[]> {
     return await this.deps.store.grants.loadForResource('machine', machineId)
   }
 
   /** {@link grantsForMachine} for many machines in one query. */
-  async grantsForMachines(machineIds: readonly MachineId[]): Promise<Map<string, { grantee: string; verb: string; custody?: boolean }[]>> {
+  async grantsForMachines(
+    machineIds: readonly MachineId[],
+  ): Promise<Map<string, { grantee: string; verb: string; custody?: boolean }[]>> {
     return await this.deps.store.grants.listForResources('machine', machineIds)
   }
 
@@ -1642,7 +1854,8 @@ export class MachinesService {
     for (const machineId of this.daemons.keys()) {
       const id = asMachineId(machineId)
       await this.recordAvailability(id)
-      if (!this.supervisors.has(id)) await this.deps.store.machines.setPresenceSource(id, 'legacy-daemon')
+      if (!this.supervisors.has(id))
+        await this.deps.store.machines.setPresenceSource(id, 'legacy-daemon')
     }
     for (const [machineId, supervisor] of this.supervisors) {
       await this.attachSupervisor(
@@ -1684,7 +1897,12 @@ export class MachinesService {
   }
 
   /** Persist the compatibility local participant's build while no supervisor owns it. */
-  async setMachineBuild(machineId: MachineId, build: PeerBuild, caps: string[], at: string): Promise<void> {
+  async setMachineBuild(
+    machineId: MachineId,
+    build: PeerBuild,
+    caps: string[],
+    at: string,
+  ): Promise<void> {
     if (this.supervisors.has(machineId)) return
     await this.deps.store.machines.setMachineBuild(machineId, build, caps, at, 'legacy-daemon')
     await this.broadcastMachines()
@@ -1751,7 +1969,11 @@ export class MachinesService {
   ): Promise<void> {
     const machine = await this.deps.store.machines.getMachine(id)
     if (!machine || machine.revokedAt) throw new Error(`unknown machine '${id}'`)
-    if (attribution.manage?.(id) === false || (await this.deps.store.machines.custodian(id) !== attribution.onBehalfOf && await this.deps.store.users.roleOf(asUserId(attribution.onBehalfOf)) !== 'admin')) {
+    if (
+      attribution.manage?.(id) === false ||
+      ((await this.deps.store.machines.custodian(id)) !== attribution.onBehalfOf &&
+        (await this.deps.store.users.roleOf(asUserId(attribution.onBehalfOf))) !== 'admin')
+    ) {
       throw new Error('only the machine owner or an admin may change sharing')
     }
     const actorKind = attribution.actor.startsWith('session:')
@@ -1777,14 +1999,28 @@ export class MachinesService {
     await this.broadcastMachines()
   }
 
-  async unshareMachine(id: MachineId, grantee: string, verb: MachineVerb, owner: string, context: MachineManagementContext = {}): Promise<void> {
+  async unshareMachine(
+    id: MachineId,
+    grantee: string,
+    verb: MachineVerb,
+    owner: string,
+    context: MachineManagementContext = {},
+  ): Promise<void> {
     const machine = await this.deps.store.machines.getMachine(id)
     if (!machine || machine.revokedAt) throw new Error(`unknown machine '${id}'`)
-    if (context.manage?.(id) === false || (await this.deps.store.machines.custodian(id) !== owner && await this.deps.store.users.roleOf(asUserId(owner)) !== 'admin')) {
+    if (
+      context.manage?.(id) === false ||
+      ((await this.deps.store.machines.custodian(id)) !== owner &&
+        (await this.deps.store.users.roleOf(asUserId(owner))) !== 'admin')
+    ) {
       throw new Error('only the machine owner or an admin may change sharing')
     }
     // Personal custody rights are released through custody transitions, not unshare.
-    if (grantee === await this.deps.store.machines.custodian(id) && (verb === 'use' || verb === 'manage')) return
+    if (
+      grantee === (await this.deps.store.machines.custodian(id)) &&
+      (verb === 'use' || verb === 'manage')
+    )
+      return
     await this.deps.store.grants.remove('machine', id, grantee, verb)
     await this.broadcastMachines()
   }
@@ -1798,7 +2034,12 @@ export class MachinesService {
    */
   async revokeMachine(
     id: MachineId,
-    opts: { by?: string | null; attribution?: Pick<SettingsAuditRow, 'actorKind' | 'actorId' | 'onBehalfOf'>; skipRowDelete?: boolean; txnId?: string } = {},
+    opts: {
+      by?: string | null
+      attribution?: Pick<SettingsAuditRow, 'actorKind' | 'actorId' | 'onBehalfOf'>
+      skipRowDelete?: boolean
+      txnId?: string
+    } = {},
   ): Promise<void> {
     if (opts.skipRowDelete) return
     await credentials.withMachineTransition(this.enrollmentHost, id, async () => {
@@ -1809,8 +2050,16 @@ export class MachinesService {
         await this.deps.store.grants.removeAllForResource('machine', id, true)
         await this.deps.store.machines.revokeMachine(id)
         await this.deps.store.settingsAudit.append({
-          command: 'machines.revoke', outcome: 'applied',
-          ...(opts.attribution ?? { actorKind: opts.by ? 'user' as const : 'system' as const, actorId: opts.by ?? 'system:machine-revoke', onBehalfOf: opts.by ?? null }), detail: { machineId: id }, redactedPaths: [], createdAt: now,
+          command: 'machines.revoke',
+          outcome: 'applied',
+          ...(opts.attribution ?? {
+            actorKind: opts.by ? ('user' as const) : ('system' as const),
+            actorId: opts.by ?? 'system:machine-revoke',
+            onBehalfOf: opts.by ?? null,
+          }),
+          detail: { machineId: id },
+          redactedPaths: [],
+          createdAt: now,
         })
       })
       this.retireIncarnation(id)
@@ -1839,7 +2088,12 @@ export class MachinesService {
       assignment: assignment ?? { server: true, agentExecution: false },
       assignmentEvidence: { version: 1, source: 'setup', requestId: id },
     })
-    if (assignment && !existing?.assignmentEvidence) await this.deps.store.machines.setServiceAssignment(id, assignment, { version: 1, source: 'setup', requestId: id })
+    if (assignment && !existing?.assignmentEvidence)
+      await this.deps.store.machines.setServiceAssignment(id, assignment, {
+        version: 1,
+        source: 'setup',
+        requestId: id,
+      })
     await this.recordAvailability(id)
     // The row's NAME is derived onto every session's `machineName`, and this write is
     // where it first becomes known (before it, the projection falls back to the raw
