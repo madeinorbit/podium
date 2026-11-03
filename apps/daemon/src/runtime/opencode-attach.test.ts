@@ -866,17 +866,13 @@ describe('the client terminal a server-family attach produces', () => {
       label: requireClientTerminalLabel(SESSION, 'codex'),
       cmd: 'codex',
       env: { CODEX_TUI_DISABLE_KEYBOARD_ENHANCEMENT: '1' },
-      args: [
-        'resume',
-        '-C',
-        '/work/codex',
-        'thread-9',
-        '-c',
-        'sandbox_workspace_write.network_access=true',
-        '--remote',
-        'unix:///instance/runtime/codex-9.sock',
-      ],
+      // No `-c sandbox_workspace_write.*`: Codex refuses any permission
+      // override on a `--remote` resume ("Permission overrides are not
+      // supported when resuming a remote task."); the app-server owns the
+      // thread's sandbox.
+      args: ['resume', '-C', '/work/codex', 'thread-9', '--remote', 'unix:///instance/runtime/codex-9.sock'],
     })
+    expect(codex.state.spawns[0]?.args.join(' ')).not.toMatch(/sandbox|approval|permissions/)
 
     const grok = harness()
     await grok.terminals.attach({

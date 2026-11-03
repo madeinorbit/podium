@@ -165,6 +165,21 @@ export function codexTranscriptPlacement(
   return join(home, '.codex', 'sessions', ...safeDir, basename(filename))
 }
 
+/**
+ * How codex is told which thread to reopen, shared by the terminal launch and
+ * the server family's client terminal.
+ *
+ * Codex prompts when a resumed thread's recorded cwd differs from the
+ * directory it was launched in. That is normal after a cross-machine handoff:
+ * the repository was cloned under a different absolute path. -C is Codex's
+ * supported, invocation-scoped choice of the CURRENT directory, so the
+ * imported session resumes unattended without persisting a user-wide
+ * resume_cwd preference.
+ */
+function codexResumeArgs(cwd: string, threadId: string): string[] {
+  return ['resume', '-C', cwd, threadId]
+}
+
 export const codexManifest: AgentManifest = {
   kind: 'codex',
   descriptor: codexDescriptor,
@@ -305,13 +320,7 @@ export const codexManifest: AgentManifest = {
     return {
       cmd: 'codex',
       args: [
-        // Codex prompts when a resumed thread's recorded cwd differs from the
-        // directory it was launched in. That is normal after a cross-machine
-        // handoff: the repository was cloned under a different absolute path.
-        // -C is Codex's supported, invocation-scoped choice of the CURRENT
-        // directory, so the imported session resumes unattended without
-        // persisting a user-wide resume_cwd preference.
-        ...(opts.resume ? ['resume', '-C', opts.cwd, opts.resume.value] : []),
+        ...(opts.resume ? codexResumeArgs(opts.cwd, opts.resume.value) : []),
         ...(isSet(opts.model) ? ['--model', opts.model] : []),
         ...(isSet(opts.effort) ? ['-c', `model_reasoning_effort=${opts.effort}`] : []),
         ...(instructions ? ['-c', `developer_instructions=${JSON.stringify(instructions)}`] : []),
@@ -392,12 +401,14 @@ export const codexManifest: AgentManifest = {
        * `codex resume --remote <socket>` — the stock TUI, joined to the
        * app-server this session is already running.
        *
-       * BUILT FROM THIS MANIFEST'S OWN `launch()`, not restated. How codex is
+       * SHARES `codexResumeArgs` WITH `launch()`, not restated. How codex is
        * told which thread to reopen (`resume -C <cwd> <threadId>`, and the
        * `-C` reason recorded there) is one fact, and a second copy of it here
        * would drift the way this epic keeps finding second copies drift. What
        * is genuinely extra is `--remote`: the address of the per-session Unix
-       * listener the TUI dials DIRECTLY.
+       * listener the TUI dials DIRECTLY. The rest of `launch()`'s argv is NOT
+       * carried over: the engine already holds model, effort and instructions,
+       * and Codex rejects permission overrides on a remote resume.
        *
        * THAT DIRECT DIAL IS ALSO A TEARDOWN OBLIGATION. The stock TUI holds its
        * own writer to the listener, so a client left alive after the control
@@ -417,16 +428,21 @@ export const codexManifest: AgentManifest = {
          * does.
          */
         parkOnRelease: false,
-        launch: ({ cwd, conversation, endpoint }) => {
-          const spec = codexManifest.launch({
-            cwd,
-            resume: { kind: 'codex-thread', value: conversation },
-          })
-          return {
-            ...spec,
-            args: [...spec.args, ...(endpoint.address ? ['--remote', endpoint.address] : [])],
-          }
-        },
+        launch: ({ cwd, conversation, endpoint }) => ({
+          cmd: 'codex',
+          args: [
+            ...codexResumeArgs(cwd, conversation),
+            // NO PERMISSION OVERRIDES on a `--remote` resume. The terminal
+            // launch's `-c sandbox_workspace_write.network_access=true` is one:
+            // Codex (0.166.0 checked) refuses it with "Permission overrides are
+            // not supported when resuming a remote task." and exits, because
+            // any `--remote` socket other than Codex's own default daemon socket
+            // counts as remote. The app-server owns the thread's sandbox, so
+            // the override would not have reached the thread anyway.
+            ...(endpoint.address ? ['--remote', endpoint.address] : []),
+          ],
+          cwd,
+        }),
       }),
     }),
     embedded: unsupported('Codex ships a server, not a library to host in-process'),
