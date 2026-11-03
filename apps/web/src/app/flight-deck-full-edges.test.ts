@@ -1,5 +1,10 @@
 import { expect, it } from 'vitest'
-import { dependencyEdges, dependencyHook, dependencyPoint } from './flight-deck-full-edges'
+import {
+  DOT_CLEARANCE,
+  dependencyEdges,
+  dependencyHook,
+  dependencyPoint,
+} from './flight-deck-full-edges'
 
 it.each([0.75, 1, 1.25, 2])('normalizes translated rects to layout pixels at zoom %s', (scale) => {
   expect(
@@ -30,14 +35,38 @@ it('paints stored dependent -> dependency links with the dot at dependency and a
     path: 'M903 80 C912 80, 912 160, 903 160',
     // Aimed along the curve's last 6px (down and left), not flat: a flat
     // arrowhead laid one arm across the line coming in from above.
-    arrow: 'M902.7 155 L903 160 L907.7 158.3',
+    arrow: 'M902.8 155 L903 160 L907.7 158.4',
   })
   // A dependency below its dependent reverses only y, never the semantics.
   expect(dependencyHook(points.get('dependent')!, points.get('dependency')!, 0)).toMatchObject({
     sourceY: 160,
     targetY: 80,
-    arrow: 'M907.7 81.7 L903 80 L902.7 85',
+    arrow: 'M907.7 81.6 L903 80 L902.8 85',
   })
+})
+
+it('stops an arrow just short of the start dot on a row that also starts a link', () => {
+  const points = new Map([
+    ['a', { right: 900, y: 0 }],
+    ['b', { right: 900, y: 40 }],
+    ['c', { right: 900, y: 80 }],
+  ])
+  const [ab, bc] = dependencyEdges(
+    [
+      { dependentId: 'b', dependencyId: 'a' },
+      { dependentId: 'c', dependencyId: 'b' },
+    ],
+    points,
+    true,
+    null,
+  )
+  // b draws a start dot at (903, 40); a's arrow into b ends 3.5px short of it.
+  const tip = (arrow: string) => arrow.split(' L')[1]!.split(' ').map(Number)
+  const [bx, by] = tip(ab!.arrow)
+  expect(Math.hypot(bx! - 903, by! - 40)).toBeCloseTo(DOT_CLEARANCE, 0)
+  expect(ab!.path.endsWith(`${bx} ${by}`)).toBe(true)
+  // c starts nothing, so b's arrow still reaches its row.
+  expect(tip(bc!.arrow)).toEqual([903, 80])
 })
 
 it('staggers hooks 9/14/19px inside the reserved 28px gutter, starting 3px past the row even at different depths', () => {

@@ -252,10 +252,15 @@ it('cross-phase hover dims only its own group, and loose work does not dim phase
 it('below 860 focus is equivalent to hover, clears across controls and never selects a session', async () => {
   width = 859
   const f = await open()
+  const gutter = () => f.ui.getByTestId('flight-deck-full-groups').dataset.edgeGutter
   await waitFor(() => expect(f.edges()).toHaveLength(0))
+  // No lines at rest, so the rows keep their full width (POD-6245).
+  expect(gutter()).toBeUndefined()
   const buttons = within(f.row('source')).getAllByRole('button')
   act(() => buttons[0]!.focus())
   await waitFor(() => expect(f.edges()).toHaveLength(2))
+  // Lines show for the focused row, so the rows shorten to make room.
+  expect(gutter()).toBe('true')
   expect(f.card('dependent').dataset.dependencyHighlight).toBe('true')
   act(() => buttons.at(-1)!.focus())
   expect(f.card('dependent').dataset.dependencyHighlight).toBe('true')
@@ -267,6 +272,7 @@ it('below 860 focus is equivalent to hover, clears across controls and never sel
   expect(f.card('unrelated').dataset.dependencyDim).toBe('true') // retained keyboard focus
   act(() => f.ui.getByRole('button', { name: 'Proposals' }).focus())
   expect(f.edges()).toHaveLength(0)
+  expect(gutter()).toBeUndefined()
   expect(f.ui.container.querySelector('[data-dependency-highlight]')).toBeNull()
   expect(f.actions.onSelectSession).not.toHaveBeenCalled()
 })

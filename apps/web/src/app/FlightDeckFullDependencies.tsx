@@ -18,6 +18,7 @@ import {
   type DependencyPoint,
   dependencyEdges,
   dependencyPoint,
+  FULL_EDGE_GUTTER,
 } from './flight-deck-full-edges'
 
 /** Only transient view state lives here. Topology, phases and scheduling
@@ -235,14 +236,34 @@ export const FlightDeckFullDependencies = observer(function FlightDeckFullDepend
         for (const dependencyId of dependencies) links.push({ dependentId: id, dependencyId })
     }
   const currentIds = new Set(Array.isArray(rowIds) ? rowIds : [])
-  // The gutter follows the links that exist, not the ones measured on screen:
-  // measuring depends on the gutter, so it must not decide it.
-  const gutter =
+  // ROWS SHORTEN TO MAKE ROOM (POD-6245). The gutter opens only while lines
+  // show: always in an expanded deck that has links, otherwise while the
+  // hovered or focused row has a link. It follows the links that exist, not
+  // the ones measured on screen: measuring depends on the gutter.
+  const hasLinks =
     Array.isArray(rowIds) &&
     rowIds.some((id) => {
       const dependencies = settled(() => full.task(id).blockedByIds)
       return Array.isArray(dependencies) && dependencies.some((dep) => currentIds.has(dep))
     })
+  const active = interaction.activeId
+  const gutter =
+    hasLinks &&
+    (layout.expanded ||
+      (active !== null &&
+        [...interaction.directIds].some((id) => id !== active && currentIds.has(id))))
+  // The row under the pointer. Over the open gutter that is the row at the
+  // same height: the rows shortened under the pointer, and losing the hover
+  // there would close the gutter, grow the row back and flicker.
+  const pointedRow = (target: EventTarget | null, event: { clientX: number; clientY: number }) => {
+    const row = rowId(target)
+    const container = root.current
+    if (row || !gutter || !container || !(target instanceof Node) || !container.contains(target))
+      return row
+    const box = container.getBoundingClientRect()
+    if (event.clientX < box.right - FULL_EDGE_GUTTER) return null
+    return rowId(document.elementFromPoint(box.right - FULL_EDGE_GUTTER - 8, event.clientY))
+  }
   const points = new Map([...layout.points].filter(([id]) => currentIds.has(id)))
   const edges = dependencyEdges(links, points, layout.expanded, interaction.activeId)
   return (
@@ -252,9 +273,9 @@ export const FlightDeckFullDependencies = observer(function FlightDeckFullDepend
         className="flight-full-groups"
         data-testid="flight-deck-full-groups"
         data-edge-gutter={gutter || undefined}
-        onPointerOver={(event) => interaction.hover(rowId(event.target))}
-        onPointerMove={(event) => interaction.hover(rowId(event.target))}
-        onPointerOut={(event) => interaction.hover(rowId(event.relatedTarget))}
+        onPointerOver={(event) => interaction.hover(pointedRow(event.target, event))}
+        onPointerMove={(event) => interaction.hover(pointedRow(event.target, event))}
+        onPointerOut={(event) => interaction.hover(pointedRow(event.relatedTarget, event))}
         onPointerLeave={() => interaction.hover(null)}
         onFocusCapture={(event) => interaction.focus(rowId(event.target))}
         onBlurCapture={(event) =>

@@ -14084,6 +14084,13 @@ button.waterfall-fold:hover {
   display: none;
 }
 
+/* The blocker-line gutter opens without motion when motion is reduced. Kept
+   above the Full section, which takes no media queries. */
+@media (prefers-reduced-motion: reduce) {
+  .flight-full-panel .flight-full-groups {
+    transition: none;
+  }
+}
 /* Full alone sheds by the entire panel, never the viewport or an indented
    strip. Expanded uses this same tree. POD-6000 approved wrapping mandatory
    identity/state and bounded indentation when their intrinsic widths collide. */
@@ -14235,8 +14242,12 @@ button.waterfall-fold:hover {
   position: relative;
 }
 /* The blocker lines' own strip (FULL_EDGE_GUTTER, 28px from the row's right
-   edge: this 24px plus the rows' 4px padding). Reserved whenever the deck has
-   a link to draw, at every width, since narrow decks draw them on hover. */
+   edge: this 24px plus the rows' 4px padding). It opens only while lines show:
+   always in an expanded deck with links, on hover in a narrower one, so the
+   rows shorten to make room and take the width back afterwards. */
+.flight-full-groups {
+  transition: padding-right 160ms ease;
+}
 .flight-full-groups[data-edge-gutter="true"] {
   padding-right: 24px;
 }
