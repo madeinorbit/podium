@@ -1,7 +1,7 @@
 import { withoutShells } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { resolveIssueEdge } from '@podium/client-core/values'
+import { issueRepoName, resolveIssueEdge } from '@podium/client-core/values'
 import { issueActivity } from '@podium/client-graph/issue-activity'
 import type { PageIssue } from '@podium/client-graph/issue-page'
 import {
@@ -10,7 +10,6 @@ import {
   IssueType,
   issueStatusMenuEntries,
   issueStatusValueOf,
-  machinePathBasename,
   parseIssueStatusValue,
   type SessionId,
 } from '@podium/model'
@@ -293,7 +292,7 @@ const IssueContent = observer(function IssueContent({
     setSheet((cur) => (cur?.kind === kind ? null : cur))
   const resolveEdge = (id: string | undefined | null) => resolveEdgeFromPool(pool, id)
 
-  const repoName = machinePathBasename(issue.repoPath)
+  const repoName = issueRepoName(issue)
   const breadcrumb = parent
     ? `${repoName} › ${issueDisplayRef(parent)}${parent.archived ? ' · archived' : ''}`
     : repoName

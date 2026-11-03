@@ -344,9 +344,78 @@ describe('repo projection [POD-822]', () => {
       { repoId: asRepoId('repo_a'), prefix: 'POD', path: '/z/repo' },
       { repoId: asRepoId('repo_a'), prefix: 'POD', path: '/a/repo' },
     ]
-    const expected = [{ id: 'repo_a', value: { id: 'repo_a', prefix: 'POD', repoPath: '/a/repo' } }]
+    // No remote on either checkout: the name is the chosen root's folder.
+    const expected = [
+      { id: 'repo_a', value: { id: 'repo_a', prefix: 'POD', repoPath: '/a/repo', name: 'repo' } },
+    ]
     expect(repoProjectionRows(repos)).toEqual(expected)
     expect(repoProjectionRows([...repos].reverse())).toEqual(expected)
+  })
+
+  // POD-6246: the repo's display name is decided here, once, from its remote.
+  // The chosen root is only the checkout that sorts first, which for podium is
+  // a Mac backup copy; its folder must not become the repo's name.
+  it('names a repo from its remote, whatever folder its chosen root has', () => {
+    const repo = asRepoId('repo_podium')
+    const home = {
+      repoId: repo,
+      prefix: 'POD',
+      path: '/home/mgw/src/other/podium',
+      originUrl: 'https://github.com/madeinorbit/podium.git',
+    }
+    const backup = {
+      repoId: repo,
+      prefix: 'POD',
+      path: '/Users/mw/Source/other/bak_podium',
+      originUrl: 'git@github.com:madeinorbit/podium.git',
+    }
+    const mac = {
+      repoId: repo,
+      prefix: 'POD',
+      path: '/Users/mw/Source/podium/podium',
+      originUrl: 'git@github.com:madeinorbit/podium.git',
+    }
+    const expected = [
+      {
+        id: 'repo_podium',
+        value: {
+          id: 'repo_podium',
+          prefix: 'POD',
+          repoPath: '/Users/mw/Source/other/bak_podium',
+          name: 'podium',
+        },
+      },
+    ]
+    for (const order of [
+      [home, backup, mac],
+      [mac, backup, home],
+      [backup, home, mac],
+    ])
+      expect(repoProjectionRows(order)).toEqual(expected)
+  })
+
+  it('takes the name from any checkout that knows the remote, the lowest such path first', () => {
+    const repo = asRepoId('repo_a')
+    const rows = [
+      { repoId: repo, prefix: null, path: '/a/backup-copy', originUrl: null },
+      {
+        repoId: repo,
+        prefix: null,
+        path: '/b/checkout',
+        originUrl: 'git@github.com:acme/widgets.git',
+      },
+      {
+        repoId: repo,
+        prefix: null,
+        path: '/c/checkout',
+        originUrl: 'git@github.com:acme/widgets-fork.git',
+      },
+    ]
+    const expected = [
+      { id: 'repo_a', value: { id: 'repo_a', repoPath: '/a/backup-copy', name: 'widgets' } },
+    ]
+    expect(repoProjectionRows(rows)).toEqual(expected)
+    expect(repoProjectionRows([...rows].reverse())).toEqual(expected)
   })
   it('keys by the LOGICAL repoId and collapses sibling checkouts to one row', () => {
     // repos.listRepos() returns one row per (machine, path); the entity is the

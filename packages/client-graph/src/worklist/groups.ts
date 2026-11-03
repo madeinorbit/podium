@@ -13,8 +13,8 @@ import { worklistView } from './view-model'
  * §3): pinned rows move out into one flat PINNED section; the rest bucket by
  * `repoKey` (`repoId ?? repoPath`) in the rank order of each group's first
  * member, open or closed (`groupUnifiedWorkRows`, `folds.ts:185-222`), labelled
- * by the repo's own name when the row has a repo (the origin-derived name its
- * lanes carry, POD-6246), else by that first member's path tail
+ * by the repo's server-decided name when the row has a repo (`repo.name`,
+ * POD-6246), else by that first member's path tail
  * (`folds.ts:200-203`); each group has ONE
  * closed fold, newest `foldAt` first, ties in rank order (`folds.ts:214-220`,
  * L1b `compareClosedFold`). The fold verdict is views.ts `closedOf` (the one
@@ -94,10 +94,10 @@ export function repoLabelOf(repoPath: string): string {
  * this places in the fold (`withWaiting`), so a row that could never fold
  * never reads its subtree.
  *
- * `repoName` is the repo's own name (`VisibleInputs.repoName`). The path is
- * only the fallback: an issue filed from a renamed checkout (a `bak_podium`
- * copy) carries that checkout's path, and the group must not take its name
- * from whichever issue ranks first (POD-6246).
+ * `repoName` is the repo's server-decided name (`repo.name`, joined onto the
+ * issue like `repoPath`). The path tail is only the fallback for an issue with
+ * no repo, or before its repo row arrives: a path names a checkout, not the
+ * repo (a `bak_podium` copy is still "podium", POD-6246).
  */
 export function placementOfPart(part: OwnPart, repoPath: string, repoName?: string): Placement {
   return {

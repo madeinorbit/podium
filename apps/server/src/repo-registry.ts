@@ -227,6 +227,9 @@ export class RepoRegistry {
   async remove(path: string, machineId?: MachineId): Promise<void> {
     const mid = machineId ?? await this.sessionReg.modules.machines.defaultMachine()
     await this.store.repos.removeRepo(normalizeRepoPath(path), mid)
+    // The removed checkout may have been the repo's chosen root or the source
+    // of its name (POD-6246): the logical repo row is a function of the rest.
+    await this.publishRepos()
   }
 
   /**
@@ -281,6 +284,7 @@ export class RepoRegistry {
       }
     }
 
+    let originsMoved = false
     const perMachine = await Promise.all(
       machineIds.map(async (machineId) => {
         const roots = await this.store.repos.listRepoPaths(machineId)
@@ -289,12 +293,20 @@ export class RepoRegistry {
           { includeHome: false, maxDepth: 0 },
           machineId,
         )
+        const storedRows = registeredRows.filter((row) => row.machineId === machineId)
+        const storedOrigin = new Map(
+          storedRows.map((row) => [machinePathKey(normalizeRepoPath(row.path)), row.originUrl]),
+        )
         // Record scan-reported origins for registered repos (upgrades path-fallback
         // repo_ids to origin-derived ones — remote/late origins included).
         for (const r of result.repositories) {
-          if (r.originUrl) await this.store.repos.updateRepoOrigin(machineId, r.path, r.originUrl)
+          if (!r.originUrl) continue
+          await this.store.repos.updateRepoOrigin(machineId, r.path, r.originUrl)
+          // A new or changed remote on a registered checkout can rename the
+          // logical repo (POD-6246). An unchanged one publishes nothing.
+          const key = machinePathKey(normalizeRepoPath(r.path))
+          if (storedOrigin.has(key) && storedOrigin.get(key) !== r.originUrl) originsMoved = true
         }
-        const storedRows = registeredRows.filter((row) => row.machineId === machineId)
         const repoIdByPath = new Map(
           storedRows.map((row) => [machinePathKey(normalizeRepoPath(row.path)), row.repoId]),
         )
@@ -328,6 +340,7 @@ export class RepoRegistry {
       }),
     )
 
+    if (originsMoved) await this.publishRepos()
     const online = new Set(machineIds)
     return {
       repositories: [

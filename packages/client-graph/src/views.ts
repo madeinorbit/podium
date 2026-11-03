@@ -68,8 +68,8 @@ export interface RepoRow {
   readonly prefix?: string | null
   /** The repo's base branch [POD-2065]; absent defers to the instance default. */
   readonly defaultParentBranch?: string | null
-  /** The name its lanes carry (origin-derived, one per repo); absent before a scan. */
-  readonly repoName?: string | null
+  /** The repo's server-decided display name (POD-6246); absent from an older server. */
+  readonly name?: string | null
 }
 
 /**

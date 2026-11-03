@@ -55,6 +55,8 @@ export interface SliceIssue {
   tuckedAt?: string | null
   repoId?: string | null
   repoPath: string
+  /** The repo's server-decided name (`repo.name`, joined like `repoPath`; POD-6246). */
+  repoName?: string
   worktreePath?: string | null
   coordinatorSessionId?: string | null
   startedBySession?: string | null

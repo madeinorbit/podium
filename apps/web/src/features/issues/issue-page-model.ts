@@ -1,4 +1,4 @@
-import { machinePathBasename } from '@podium/model'
+import { issueRepoName } from '@podium/client-core/values'
 /**
  * Navigation and mutation ports for the issue page. Record facts are read by
  * observer sections; the activity section owns its shared request history.
@@ -70,7 +70,7 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
     busy,
     run,
     ...issueNeighbors(orderedIds, issue.id),
-    repoName: machinePathBasename(issue.repoPath),
+    repoName: issueRepoName(issue),
     openSession: ports.navigateToSession,
   }
 }

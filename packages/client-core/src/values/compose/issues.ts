@@ -56,6 +56,16 @@ export type IssueNavigationModel = IssueViewModel & {
   sessionSummary?: { total: number; byPhase: Record<string, number> }
 }
 
+/**
+ * The name of the repo an issue belongs to, for every surface (POD-6246): the
+ * server-decided `repo.name` joined onto the issue. A path names a checkout,
+ * not the repo, so the folder of `repoPath` is only the stand-in for a server
+ * too old to send a name.
+ */
+export function issueRepoName(issue: Pick<IssueViewModel, 'repoName' | 'repoPath'>): string {
+  return issue.repoName || machinePathBasename(issue.repoPath) || issue.repoPath
+}
+
 /** A parent/epic's direct children, seq-ordered, INCLUDING archived ones (issue
  *  #133). The subissue list keeps archived children visible (the UI marks them
  *  archived) rather than dropping them, so archiving a child doesn't silently
@@ -188,7 +198,7 @@ export function issueNavList(
       )
       const lastSession = mine.reduce((max, s) => Math.max(max, Date.parse(s.lastActiveAt) || 0), 0)
       const activityAt = lastSession || Date.parse(issue.updatedAt) || 0
-      const repoName = machinePathBasename(issue.repoPath)
+      const repoName = issueRepoName(issue)
       return { issue, repoName, sessions: mine, activityAt }
     })
   return views.sort((a, b) => b.activityAt - a.activityAt)

@@ -38,7 +38,7 @@ export const ISSUE_PAGE_SESSION_FIELDS = {
 } as const
 
 export const ISSUE_PAGE_SUMMARIES = {
-  issue: ['seq', 'title', 'labels', 'assignee', 'repoId', 'repoPath', 'stage',
+  issue: ['seq', 'title', 'labels', 'assignee', 'repoId', 'repoPath', 'repoName', 'stage',
     'parentId', 'archived', 'deletedAt', 'closedReason', 'owner', 'createdBy', 'deps', 'worktreePath',
     'blocked', 'blockedByNotes', 'needsHuman', 'isDraftVessel', 'audience', 'updatedAt', 'deferUntil', 'supersededBy', 'duplicateOf',
     // The fallback list's shared close dialog names these concerns too.

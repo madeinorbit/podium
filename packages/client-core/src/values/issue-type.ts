@@ -40,6 +40,8 @@ export type IssueViewModel = Omit<
     pinned: boolean
     gitState?: IssueGitState
     repoPath: string
+    /** The repo's server-decided name (`repo.name`, POD-6246). Read it through `issueRepoName`. */
+    repoName?: string
     prefix?: string
     deps: Array<{ id: IssueId; type: string }>
   }

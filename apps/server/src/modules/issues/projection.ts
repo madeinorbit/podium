@@ -12,9 +12,11 @@ import {
   type IssueProjection,
   issueDepId,
   issueDepToWire,
+  machinePathBasename,
   Repo,
   type RepoId,
   type RepoProjection,
+  repoNameFromOrigin,
   repoToWire,
   toWire,
 } from '@podium/model'
@@ -189,6 +191,12 @@ export function issueDepProjectionRows(
  * answers. Rows with no `repoId` are dropped — an unidentified repo has no
  * prefix to join against and no stable id to address.
  *
+ * NAME [POD-6246]. The logical repo's display name is decided here, once,
+ * from its checkouts: the remote-derived name (`repoNameFromOrigin`) of the
+ * first checkout, by path, that has a remote; else the folder name of the
+ * chosen `repoPath`. Clients show this and derive no name of their own. Path
+ * order makes it independent of registry iteration order, like `repoPath`.
+ *
  * O(repos) — a handful of rows, and the ledger's byte-equality dedup means an
  * unchanged set appends nothing. This never runs per-issue.
  */
@@ -198,28 +206,53 @@ export function repoProjectionRows(
     prefix: string | null
     defaultParentBranch?: string | null
     path?: string
+    originUrl?: string | null
   }>,
 ): { id: RepoId; value: RepoProjection }[] {
-  const byId = new Map<string, RepoProjection>()
+  type Chosen = {
+    prefix: string | null
+    defaultParentBranch: string | null
+    repoPath: string | null
+    /** The remote-derived name and the path it came from (lowest path wins). */
+    origin: { name: string; path: string } | null
+  }
+  const byId = new Map<string, Chosen>()
   for (const repo of repos) {
     if (!repo.repoId) continue
-    // `.parse()` brands the RepoId — see issueDepToProjection.
     // Several machine checkouts can share an id. Pick the same root regardless
     // of registry iteration order, so a repeated reconcile cannot flap paths.
-    const current = byId.get(repo.repoId)
     const repoPath = repo.path ?? null
-    if (current?.repoPath && (repoPath === null || current.repoPath <= repoPath)) continue
-    byId.set(
-      repo.repoId,
-      repoToWire(
-        Repo.parse({
-          id: repo.repoId,
-          prefix: repo.prefix,
-          defaultParentBranch: repo.defaultParentBranch ?? null,
-          repoPath,
-        }),
-      ),
-    )
+    const fromOrigin = repoNameFromOrigin(repo.originUrl ?? undefined)
+    const current = byId.get(repo.repoId)
+    const origin =
+      fromOrigin !== null && (current?.origin == null || (repoPath ?? '') < current.origin.path)
+        ? { name: fromOrigin, path: repoPath ?? '' }
+        : (current?.origin ?? null)
+    // The root rule is unchanged: the lowest path wins (and a path beats none).
+    if (current?.repoPath && (repoPath === null || current.repoPath <= repoPath)) {
+      byId.set(repo.repoId, { ...current, origin })
+      continue
+    }
+    byId.set(repo.repoId, {
+      prefix: repo.prefix,
+      defaultParentBranch: repo.defaultParentBranch ?? null,
+      repoPath,
+      origin,
+    })
   }
-  return [...byId].map(([id, value]) => ({ id: id as RepoId, value }))
+  return [...byId].map(([id, chosen]) => ({
+    id: id as RepoId,
+    // `.parse()` brands the RepoId — see issueDepToProjection.
+    value: repoToWire(
+      Repo.parse({
+        id,
+        prefix: chosen.prefix,
+        defaultParentBranch: chosen.defaultParentBranch,
+        repoPath: chosen.repoPath,
+        name:
+          chosen.origin?.name ??
+          (chosen.repoPath === null ? null : machinePathBasename(chosen.repoPath) || null),
+      }),
+    ),
+  }))
 }

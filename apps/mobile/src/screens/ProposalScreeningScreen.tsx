@@ -4,7 +4,7 @@ import { LOADING } from '@podium/client-graph/loading'
 import { observer } from 'mobx-react-lite'
 import { useMobilePool } from '../client/mobile-pool'
 import { issueObserver } from '../client/issue-observer'
-import { machinePathBasename } from '@podium/model'
+import { issueRepoName } from '@podium/client-core/values'
 import { useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
@@ -26,7 +26,7 @@ interface Failure {
   message: string
 }
 
-const repoName = (issue: IssueViewModel) => machinePathBasename(issue.repoPath)
+const repoName = (issue: IssueViewModel) => issueRepoName(issue)
 const refOf = (issue: IssueViewModel) => issue.displayRef ?? `#${issue.seq}`
 const VisibleScreeningCard = issueObserver(ScreeningCard)
 

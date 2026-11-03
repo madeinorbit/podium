@@ -18,7 +18,7 @@ import { mobileWaitingCount, type MobileNavigation } from './mobile-row'
 import { childIdsPartOf, type HeldIssue, type HiddenIssue, hiddenPresenceOf, keptBelowPartOf,
   laneMemberIdsPartOf, memberIdsPartOf, nestCandidatePartOf, nestParentPartOf,
   exceptionSeatIdsPartOf, flatPartOf, keepsPartOf, retainedSeatIdsPartOf, rosterIdsPartOf, openOwnPartOf, nestBelowPartOf, nestedPartOf,
-  laneRetainedSeatIdsPartOf, mergeIds, standingOf, type Standing, spinOffIdsPartOf, issueRepoNameOf } from './visible'
+  laneRetainedSeatIdsPartOf, mergeIds, standingOf, type Standing, spinOffIdsPartOf } from './visible'
 import type { IssueModel, ModelHost } from '../models'
 import type { Worklist } from './view-model'
 import { AttentionFields } from './attention'
@@ -501,10 +501,8 @@ export class WorklistIssue implements HeldIssue, RowView {
    */
   @lazy({ equals: compareStructural }) get placement(): Placement | undefined {
     const part = this.own
-    const input = this.host.visibleInputs
-    const row = input.issueRow(this.id)
-    const settled = part === undefined || row === undefined ? undefined
-      : placementOfPart(part, row.repoPath, issueRepoNameOf(row, input))
+    const row = this.host.visibleInputs.issueRow(this.id)
+    const settled = part === undefined || row === undefined ? undefined : placementOfPart(part, row.repoPath, row.repoName)
     return settled === undefined || !settled.closed || !this.waiting
       ? settled
       : withWaiting(settled)

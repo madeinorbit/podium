@@ -207,7 +207,8 @@ export class SidebarIndex {
     for (const repo of repos)
       add(
         repo.repoId ?? machinePathKey(repo.repoPath),
-        repo.repoName,
+        // The lane model's name: the server's `repo.name` when known (POD-6246).
+        here(this.pool.model('worktree', repo.path))?.repoName || repo.repoName,
         repo.repoPath,
         repo.projectAliases ?? [repo.repoId ?? repo.repoPath, repo.path],
         repo.repoId ?? null,

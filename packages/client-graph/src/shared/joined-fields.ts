@@ -8,7 +8,7 @@ const SESSION_JOINS: Readonly<Record<string, readonly string[]>> = {
   handoffTarget: ['handoffTargetMachineId'],
   displayRef: ['refRepoId', 'refSeq', 'refLetter', 'refDraft'],
 }
-const ISSUE_JOINS: Readonly<Record<string, readonly string[]>> = { repoPath: ['repoId'] }
+const ISSUE_JOINS: Readonly<Record<string, readonly string[]>> = { repoPath: ['repoId'], repoName: ['repoId'] }
 export function joinInputs(entity: string, field: string): readonly string[] | undefined {
   return (entity === 'session' ? SESSION_JOINS : entity === 'issue' ? ISSUE_JOINS : {})[field]
 }
@@ -25,8 +25,13 @@ export function joinedFields(entity: string, row: Row, fields: readonly string[]
       get() {
         // Directly-fed fixtures can already carry a display value without ids.
         // Production feed rows contain normalized join keys only.
-        if (entity === 'issue')
+        if (field === 'repoPath')
           return typeof row.repoId === 'string' ? read('repo', row.repoId)?.repoPath || row[field] || '' : row[field] ?? ''
+        // The repo's server-decided name (POD-6246); absent until its row arrives.
+        if (field === 'repoName') {
+          const name = typeof row.repoId === 'string' ? read('repo', row.repoId)?.name : undefined
+          return typeof name === 'string' && name ? name : typeof row[field] === 'string' ? row[field] : undefined
+        }
         if (field === 'machineName')
           return typeof row.machineId === 'string' ? read('machine', row.machineId)?.name ?? '' : row[field] ?? ''
         if (field === 'condition') {
@@ -54,3 +59,4 @@ export function storedFields(entity: string, fields: readonly string[]): string[
   return [...new Set(fields.flatMap(field => joinInputs(entity, field) ?? [field]))]
 }
 export const SESSION_JOIN_FIELDS = Object.keys(SESSION_JOINS)
+export const ISSUE_JOIN_FIELDS = Object.keys(ISSUE_JOINS)

@@ -8,7 +8,7 @@ import { IssueSessionFactsIndex, type IssueSessionFacts, type IssueSessionFactRe
 import type { SessionPhaseChange, NotificationSession } from '@podium/client-core/sound'
 import { asSessionId } from '@podium/model'
 import { createDemandAtoms, lazy } from '@podium/mobx-helpers'
-import { joinedFields, SESSION_JOIN_FIELDS } from './shared/joined-fields'
+import { ISSUE_JOIN_FIELDS, joinedFields, SESSION_JOIN_FIELDS } from './shared/joined-fields'
 import {
   SETUP_SESSION_SUMMARY_FIELDS,
   type SetupSession,
@@ -555,13 +555,6 @@ export class MobxPool {
       issueRow: (id) => omitGone(this.row('issue', id, 'peek')) as SliceIssue | undefined,
       // untracked-read: visibility-session-peek
       sessionRow: (id) => omitGone(this.row('session', id, 'peek')) as SliceSession | undefined,
-      // Tracked: a lane arriving names the repo. Every lane of one repo carries
-      // the same origin-derived name (`row-source.ts` `indexFor`), so the
-      // latest-lane-wins repo row answers one name whichever checkout holds it.
-      repoName: (id) => {
-        const name = (here(this.row('repo', id)) as RepoRow | undefined)?.repoName
-        return typeof name === 'string' && name.length > 0 ? name : undefined
-      },
       issue: (id) => this.knownIssue(id),
       session: (id) => worklistView(this).session(this.sessionObject(id)),
       passed: (t) => this.clock.passed(t),
@@ -677,7 +670,7 @@ export class MobxPool {
     ) {
       let view = this.joinedRows.get(server)
       if (!view) {
-        view = joinedFields(core, server as Readonly<Record<string, unknown>>, core === 'session' ? SESSION_JOIN_FIELDS : ['repoPath'], (kind, key) => {
+        view = joinedFields(core, server as Readonly<Record<string, unknown>>, core === 'session' ? SESSION_JOIN_FIELDS : ISSUE_JOIN_FIELDS, (kind, key) => {
           const companion = kind === 'machine' ? here(this.row('machine', key)) : here(this.model('repo', key))?.row
           return companion === undefined ? undefined : here(companion) as Readonly<Record<string, unknown>> | undefined
         })

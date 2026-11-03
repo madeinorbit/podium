@@ -32,7 +32,7 @@ export const SHELL_RELATIONS = [
   { from: 'shellShipLane', to: 'repo', name: 'shipLanes', key: 'repoId' },
 ] as const
 export const SHELL_SUMMARIES = {
-  issue: ['id', 'seq', 'title', 'repoId', 'repoPath', 'worktreePath', 'parentId', 'archived', 'deletedAt', 'stage', 'closedReason', 'audience', 'sortKey', 'branch', 'gitState', 'blocked', 'supersededBy', 'duplicateOf'],
+  issue: ['id', 'seq', 'title', 'repoId', 'repoPath', 'repoName', 'worktreePath', 'parentId', 'archived', 'deletedAt', 'stage', 'closedReason', 'audience', 'sortKey', 'branch', 'gitState', 'blocked', 'supersededBy', 'duplicateOf'],
   session: ['sessionId', 'displayRef', 'cwd', 'machineId', 'issueId', 'name', 'title', 'archived', 'lastActiveAt', 'resume', 'status', 'agentKind', 'headless'],
 } as const
 export type ShellIssue = Pick<IssueViewModel, typeof SHELL_SUMMARIES.issue[number] | 'prefix' | 'displayRef'>

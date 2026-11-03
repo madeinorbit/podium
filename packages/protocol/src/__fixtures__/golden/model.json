@@ -7992,12 +7992,13 @@
         "id": "id",
         "prefix": null,
         "defaultParentBranch": null,
-        "repoPath": null
+        "repoPath": null,
+        "name": null
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"prefix\":null,\"defaultParentBranch\":null,\"repoPath\":null}"
+      "encoded": "{\"id\":\"id\",\"prefix\":null,\"defaultParentBranch\":null,\"repoPath\":null,\"name\":null}"
     },
     {
       "schema": "Repo",
@@ -8006,12 +8007,13 @@
         "id": "id",
         "prefix": "prefix",
         "defaultParentBranch": "defaultParentBranch",
-        "repoPath": "repoPath"
+        "repoPath": "repoPath",
+        "name": "name"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"prefix\":\"prefix\",\"defaultParentBranch\":\"defaultParentBranch\",\"repoPath\":\"repoPath\"}"
+      "encoded": "{\"id\":\"id\",\"prefix\":\"prefix\",\"defaultParentBranch\":\"defaultParentBranch\",\"repoPath\":\"repoPath\",\"name\":\"name\"}"
     },
     {
       "schema": "RepoId",
@@ -8038,12 +8040,13 @@
         "id": "id",
         "prefix": null,
         "defaultParentBranch": null,
-        "repoPath": null
+        "repoPath": null,
+        "name": null
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"prefix\":null,\"defaultParentBranch\":null,\"repoPath\":null}"
+      "encoded": "{\"id\":\"id\",\"prefix\":null,\"defaultParentBranch\":null,\"repoPath\":null,\"name\":null}"
     },
     {
       "schema": "RepoIdentity",
@@ -8052,12 +8055,13 @@
         "id": "id",
         "prefix": "prefix",
         "defaultParentBranch": "defaultParentBranch",
-        "repoPath": "repoPath"
+        "repoPath": "repoPath",
+        "name": "name"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"prefix\":\"prefix\",\"defaultParentBranch\":\"defaultParentBranch\",\"repoPath\":\"repoPath\"}"
+      "encoded": "{\"id\":\"id\",\"prefix\":\"prefix\",\"defaultParentBranch\":\"defaultParentBranch\",\"repoPath\":\"repoPath\",\"name\":\"name\"}"
     },
     {
       "schema": "RepoIdField",
@@ -8095,12 +8099,13 @@
         "id": "id",
         "prefix": "prefix",
         "defaultParentBranch": "defaultParentBranch",
-        "repoPath": "repoPath"
+        "repoPath": "repoPath",
+        "name": "name"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"prefix\":\"prefix\",\"defaultParentBranch\":\"defaultParentBranch\",\"repoPath\":\"repoPath\"}"
+      "encoded": "{\"id\":\"id\",\"prefix\":\"prefix\",\"defaultParentBranch\":\"defaultParentBranch\",\"repoPath\":\"repoPath\",\"name\":\"name\"}"
     },
     {
       "schema": "RequestRecordKey",

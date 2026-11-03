@@ -89,6 +89,15 @@ export const RepoIdentity = z.object({
   defaultParentBranch: z.string().nullable(),
   /** A registered root path for this logical repo. Older rows omit it. */
   repoPath: z.string().nullable(),
+  /**
+   * The repo's display name, decided ONCE here for every surface [POD-6246]:
+   * the last segment of its git remote (`.../podium.git` → `podium`), else
+   * the folder name of `repoPath`. A checkout's folder is not the repo's name:
+   * a backup clone at `~/bak_podium` is still "podium", and `repoPath` is only
+   * whichever checkout sorts first. Clients read this and never derive a name
+   * from a path. `null` when the repo has neither; older servers omit it.
+   */
+  name: z.string().nullable(),
 })
 export type RepoIdentity = z.infer<typeof RepoIdentity>
 

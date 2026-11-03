@@ -530,6 +530,7 @@ const DECLARED = defineSchema({
       tuckedAt: { type: 'isoDate', optional: true, nullable: true, source: { schema: 'IssueUserStateWire', arrivesOn: 'replica:issueUserStates' } },
       repoId: { type: 'id', optional: true, nullable: true, source: projection(), note: 'Foreign key of the `repo` relation.' },
       repoPath: { type: 'string', source: { schema: 'RepoProjection', arrivesOn: 'replica:repos' }, note: 'Joined through the projection repoId; absent repository facts have not loaded yet.' },
+      repoName: { type: 'string', optional: true, source: { schema: 'RepoProjection', arrivesOn: 'replica:repos', property: 'name' }, note: "The repo's server-decided display name (`repo.name`, POD-6246), joined through the projection repoId. Absent until the repo row arrives, or from an older server." },
       worktreePath: { type: 'string', optional: true, nullable: true, source: projection(), note: 'Foreign key of the `worktree` relation.' },
       branch: { type: 'string', optional: true, nullable: true, source: projection(), note: 'The private checkout branch; with an unlanded `gitState` it keeps a finished row shown (`awaitingMergeOf`).' },
       gitState: {
@@ -1005,7 +1006,8 @@ const DECLARED = defineSchema({
       id: { type: 'id', source: { schema: 'RepoProjection', arrivesOn: 'replica:repos' } },
       prefix: { type: 'string', optional: true, nullable: true, source: { schema: 'RepoProjection', arrivesOn: 'replica:repos' }, note: 'Absent renders `#seq` (slice §3 R-SUM).' },
       defaultParentBranch: { type: 'string', optional: true, nullable: true, source: { schema: 'RepoProjection', arrivesOn: 'replica:repos' }, note: "The repo's base branch [POD-2065]. Absent defers to `gitWorkflow.defaultParentBranch`, then auto-detection." },
-      path: { type: 'string', source: scan('GitRepositoryWire'), note: 'The repo label is derived from this at view time (L1b), never stored.' },
+      name: { type: 'string', optional: true, nullable: true, source: { schema: 'RepoProjection', arrivesOn: 'replica:repos' }, note: "The repo's display name, decided by the server from its git remote (POD-6246). Every surface reads this; none derives a name from a path." },
+      path: { type: 'string', source: scan('GitRepositoryWire'), note: 'A checkout path. Never the source of the repo name (POD-6246).' },
     },
     relations: {
       issues: hasMany({ to: 'issue', inverse: 'repo', lazy: true, why: 'Every issue in the repo; holds closed ones.' }),

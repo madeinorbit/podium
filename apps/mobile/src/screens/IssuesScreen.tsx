@@ -3,6 +3,7 @@ import { ISSUES_DISPLAY_KEY } from '@podium/client-core/ui-state'
 import {
   type BoardFilter,
   type filterChips,
+  issueRepoName,
   type RankedTaskIssue,
   readSharedIssuesDisplay as readMobileTaskDisplay,
   taskStateWord,
@@ -18,7 +19,6 @@ import {
   issueStatusControlLabel,
   issueStatusMenuEntries,
   issueStatusValueOf,
-  machinePathBasename,
   parseIssueStatusValue,
 } from '@podium/model'
 import { isFinished } from '@podium/model/browser'
@@ -612,7 +612,7 @@ const TaskRow = observer(function TaskRow({
     throw error
   }
   const resting = issue.stage === 'backlog' || issue.stage === 'proposed'
-  const repo = machinePathBasename(issue.repoPath) ?? ''
+  const repo = issueRepoName(issue)
   const parent = issue.treeParent
   const parentModel = parent === LOADING ? null : parent
   const childCount = row.childCount

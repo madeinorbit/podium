@@ -79,13 +79,13 @@ describe('project sections', () => {
     expect(bands(pool)).toEqual([{ key: 'alpha', label: 'Repo alpha', rowIds: [] }])
   })
 
-  it('keeps the repo’s name once the section has a task (not the task’s path, POD-6246), and drops a repo opted out of the list', () => {
+  it('labels a section by its first task once it has one, and drops a repo opted out of the list', () => {
     const pool = poolWith([
       root('alpha', 0),
       root('beta', 1, { projectRoot: false }),
       task('t1', 'alpha'),
     ])
-    expect(bands(pool)).toEqual([{ key: 'alpha', label: 'Repo alpha', rowIds: ['t1'] }])
+    expect(bands(pool)).toEqual([{ key: 'alpha', label: 'alpha', rowIds: ['t1'] }])
   })
 
   it('puts pinned repos first, and keeps a pinned repo whose only checkout is pinned elsewhere', () => {
@@ -127,9 +127,7 @@ describe('task rows', () => {
       task('child-agent', 'alpha', { audience: 'agent', parentId: 'human' }),
       session('s-child', 'child-agent'),
     ])
-    expect(bands(pool)).toEqual([
-      { key: 'alpha', label: 'Repo alpha', rowIds: ['human', 'top-agent'] },
-    ])
+    expect(bands(pool)).toEqual([{ key: 'alpha', label: 'alpha', rowIds: ['human', 'top-agent'] }])
     expect(sidebarNested(pool.worklistRow('human')!, pool)).toEqual(['child-agent'])
   })
 
@@ -144,8 +142,8 @@ describe('task rows', () => {
       task('started', 'beta', { startedBySession: 's-coordinator' }),
     ])
     expect(bands(pool)).toEqual([
-      { key: 'alpha', label: 'Repo alpha', rowIds: ['coordinator'] },
-      { key: 'beta', label: 'Repo beta', rowIds: ['started'] },
+      { key: 'alpha', label: 'alpha', rowIds: ['coordinator'] },
+      { key: 'beta', label: 'beta', rowIds: ['started'] },
     ])
     expect(sidebarNested(pool.worklistRow('coordinator')!, pool)).toEqual([])
   })

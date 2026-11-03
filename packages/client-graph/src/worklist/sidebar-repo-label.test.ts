@@ -53,28 +53,30 @@ it('keeps the issue path as a fallback while repository scan facts arrive and le
       repoPath: '/local/scanned',
       repoName: 'Scanned',
     }
+    // A scanned checkout does not name the repo (POD-6246); with no server
+    // name the label stays a path tail.
     pool.apply({ type: 'update', rows: [{ kind: 'worktree', id: lane.path, value: lane }] })
-    // A scanned lane names the repo: the label is that name, not a path tail.
-    expect(labels).toEqual(['gamma', 'Scanned'])
+    expect(labels).toEqual(['gamma', 'scanned'])
 
     pool.apply({ type: 'update', rows: [{ kind: 'worktree', id: lane.path, value: undefined }] })
-    expect(labels).toEqual(['gamma', 'Scanned', 'gamma'])
+    expect(labels).toEqual(['gamma', 'scanned', 'gamma'])
 
     pool.apply({
       type: 'update',
       rows: [{ kind: 'repo', id: issue.repoId, value: { id: issue.repoId, repoPath: '' } }],
     })
-    expect(labels).toEqual(['gamma', 'Scanned', 'gamma'])
+    expect(labels).toEqual(['gamma', 'scanned', 'gamma'])
   } finally {
     stop()
     pool.dispose()
   }
 })
 
-// POD-6246: one repo, checked out under two folder names. Issues filed from a
-// `bak_podium` copy carry that path; the group is still named for the repo,
-// whichever checkout holds the repo row and whichever issue ranks first.
-describe('a repo checked out under two folder names', () => {
+// POD-6246: the repo's name is the server's `repo.name`, and nothing else.
+// The podium repo is checked out under several folder names; the server's row
+// carries the alphabetically first checkout as its path (the Mac's
+// `bak_podium` copy) and "podium" as its name.
+describe('a repo is named by its server record', () => {
   const repoId = 'repo-podium'
   const home = '/home/mgw/src/other/podium'
   const backup = '/Users/mw/Source/other/bak_podium'
@@ -90,14 +92,35 @@ describe('a repo checked out under two folder names', () => {
     createdAt,
     updatedAt: createdAt,
   })
-  // Every lane of one repo carries the repo's origin-derived name (`row-source.ts` `indexFor`).
-  const lane = (path: string) => ({
-    path,
-    repoId,
-    repoPath: path,
-    repoName: 'podium',
-    isMain: true,
+  const record = (patch: Record<string, unknown> = {}) => ({
+    kind: 'repo' as const,
+    id: repoId,
+    value: {
+      id: repoId,
+      prefix: 'POD',
+      defaultParentBranch: null,
+      repoPath: backup,
+      name: 'podium',
+      ...patch,
+    },
   })
+  // A lane's own scan name differs on purpose: it must never win over the record.
+  const lane = (path: string) => ({
+    kind: 'worktree' as const,
+    id: path,
+    value: { path, repoId, repoPath: path, repoName: 'scan-name', isMain: true },
+  })
+  const labelsOf = (pool: MobxPool) => {
+    const labels: (string | undefined)[] = []
+    const stop = autorun(() => {
+      labels.push(
+        sidebarView(pool)
+          .sections()
+          .bands.find((band) => band.key === repoId)?.label,
+      )
+    })
+    return { labels, stop }
+  }
 
   it.each([
     ['the home checkout', 'home-issue'],
@@ -118,16 +141,93 @@ describe('a repo checked out under two folder names', () => {
             id: 'backup-issue',
             value: issueAt('backup-issue', 2, backup, at(head === 'backup-issue' ? 1 : 30)),
           },
-          { kind: 'worktree', id: home, value: lane(home) },
-          // The backup checkout's lane arrives last, so it holds the repo row.
-          { kind: 'worktree', id: backup, value: lane(backup) },
+          lane(home),
+          lane(backup),
+          record(),
         ],
       })
-
       const bands = sidebarView(pool).sections().bands
       expect(bands).toHaveLength(1)
       expect(bands[0]).toMatchObject({ key: repoId, label: 'podium' })
       expect(bands[0]?.rowIds[0]).toBe(head)
+    } finally {
+      pool.dispose()
+    }
+  })
+
+  const task = {
+    kind: 'issue' as const,
+    id: 'task',
+    value: { ...issue, id: 'task', repoId, repoPath: backup },
+  }
+  const orders = {
+    'lanes, then the record': [lane(home), lane(backup), record()],
+    'the record, then lanes': [record(), lane(home), lane(backup)],
+  }
+
+  it.each(
+    Object.entries(orders),
+  )('keeps "podium" after a replace carrying %s, then a base-branch edit', (_, rows) => {
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: now })
+    const { labels, stop } = labelsOf(pool)
+    try {
+      pool.apply({ type: 'replace', rows: [task, ...rows] })
+      pool.apply({ type: 'update', rows: [record({ defaultParentBranch: 'dev/mw' })] })
+      expect(labels.at(-1)).toBe('podium')
+      expect(labels.filter((label) => label !== undefined && label !== 'podium')).toEqual([])
+    } finally {
+      stop()
+      pool.dispose()
+    }
+  })
+
+  it.each(
+    Object.entries(orders),
+  )('keeps "podium" after updates carrying %s, then a base-branch edit', (_, rows) => {
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: now })
+    const { labels, stop } = labelsOf(pool)
+    try {
+      pool.apply({ type: 'replace', rows: [task] })
+      for (const row of rows) pool.apply({ type: 'update', rows: [row] })
+      pool.apply({ type: 'update', rows: [record({ defaultParentBranch: 'dev/mw' })] })
+      expect(labels.at(-1)).toBe('podium')
+    } finally {
+      stop()
+      pool.dispose()
+    }
+  })
+
+  it('follows a server rename, by update and by a replace', () => {
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: now })
+    const { labels, stop } = labelsOf(pool)
+    try {
+      pool.apply({ type: 'replace', rows: [task, lane(home), record()] })
+      pool.apply({ type: 'update', rows: [record({ name: 'podium-app' })] })
+      pool.apply({ type: 'replace', rows: [task, lane(home), record({ name: 'podium-next' })] })
+      expect(labels.filter((label) => label !== undefined)).toEqual([
+        'podium',
+        'podium-app',
+        'podium-next',
+      ])
+    } finally {
+      stop()
+      pool.dispose()
+    }
+  })
+
+  it('names a registered repo with no tasks by its record, not its scan', () => {
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: now })
+    try {
+      pool.apply({
+        type: 'replace',
+        rows: [
+          { ...lane(home), value: { ...lane(home).value, projectIndex: 0, projectRoot: true } },
+          record(),
+        ],
+      })
+      expect(sidebarView(pool).sections().bands).toMatchObject([
+        { key: repoId, label: 'podium', rowIds: [] },
+      ])
     } finally {
       pool.dispose()
     }

@@ -10250,20 +10250,20 @@
       "file": "apps/web/src/test-support/mock-command-launch.ts",
       "holder": "useCommandFixture/fixture/useMemo:callback/update",
       "rule": "helper-consumer",
-      "tokens": "9dbd3cbec597334c4eadf1b4513275878c1680eefe7edfd606a5960c3aaebe54",
+      "tokens": "357378c0b6e84ebfc97c59a3fb18a0226c152d8cbdf9ed6cffe59747e22feb34",
       "gate": [
         "then:eff1e4bdcf1cd7260f17e8ca3557da804e743d40432de0b2244318508856ffcd"
       ],
       "origin": [
         "cf44a3aa9ea523c1d5954e1cced32d2e05662a456e8b13721e575aedad13bd10"
       ],
-      "fingerprint": "27b914d9b63d7ca7da1838c11dec77522085325df216cdcdec00f26160de1c81",
+      "fingerprint": "c027947fa94b51ea68e8f9bad16642e7a48a5f19f501d54163db1367c54a5c9a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of useCommandFixture/fixture/useMemo:callback/update",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 56e8a15696d9374c8afdb409a1aa680a37b68e7a69919976f46832bf6de433dd.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 56e8a15696d9374c8afdb409a1aa680a37b68e7a69919976f46832bf6de433dd. Predecessor: 27b914d9b63d7ca7da1838c11dec77522085325df216cdcdec00f26160de1c81 (POD-6246: repo name joined from the server record; no traversal added).",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -12646,7 +12646,7 @@
       "file": "apps/web/src/test-support/pool-fixture.ts",
       "holder": "syncPoolFixture",
       "rule": "helper-consumer",
-      "tokens": "c74d3fb7510b832f5e13a811897997de3ab43763f1da9a1ba76e31a2ff8f7ce8",
+      "tokens": "0b5b7aca3c489dddb892044c67c7d4e8c151fcbabe183b8d85daf94d8333486e",
       "gate": [
         "then:06220bc81cd248fb56e99efd8bf9eecb82cdddeb1827556cfab84507c375e49f"
       ],
@@ -12654,13 +12654,13 @@
         "1fc626feccb53ee2b2b821f5e6e8279424c0631fe987ccda5bf4a1814b63214e",
         "c77b0b5df1a56c21e04e74a107655690b236422a60b5f219909ed19cf4e82dcd"
       ],
-      "fingerprint": "d9c4e9b2c9cf27a3b2473c4d2276197079bcfb183c33bea26e4bd1dc23bd2698",
+      "fingerprint": "e8f34d3e8ea11789c15daf416e5cf5a81f6f221c6fe79c79137c45458cf8830a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of syncPoolFixture",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 52347629b6f7fcc378d3caca28e679a6f35b71a5f67185ae787166c7fb71c630.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 52347629b6f7fcc378d3caca28e679a6f35b71a5f67185ae787166c7fb71c630. Predecessor: d9c4e9b2c9cf27a3b2473c4d2276197079bcfb183c33bea26e4bd1dc23bd2698 (POD-6246: repo name joined from the server record; no traversal added).",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -17213,18 +17213,18 @@
       "file": "packages/client-core/src/values/compose/issues.ts",
       "holder": "issueNavList/views",
       "rule": "consume:map",
-      "tokens": "4c7b964b7a564d77f763bce4a242c5eedca01cf1722ac3567f239920a681d1b3",
+      "tokens": "da33c6b4b27bd3321fe296a98b3e5f59a96765ff75ba2507a110537345da9fb7",
       "gate": [],
       "origin": [
         "cc6114f49f4d4263fe48ce79e36ae4ef7ad910652e60c67c2e121debb90a78b8"
       ],
-      "fingerprint": "6c720b358252e2245e5d673fbebd3f3a36957e3ff9b9bb80171dcdff9516592b",
+      "fingerprint": "24d6f71db9267c2f81eb19e711bd7845f926a3724d51dcb00b29cf4c37102058",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of issueNavList/views",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 6c720b358252e2245e5d673fbebd3f3a36957e3ff9b9bb80171dcdff9516592b (POD-6246: repo name joined from the server record; no traversal added).",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -31273,7 +31273,7 @@
       "file": "packages/client-graph/src/pool.ts",
       "holder": "MobxPool/apply/runInAction:callback",
       "rule": "helper-consumer",
-      "tokens": "67f82fff4911304a9c209741ac29b092dd37b59edae5c0a19be5d9c37a5f2337",
+      "tokens": "268e9aafa4aa79255f539f505665a59dd8a801bae3cc639f3b64e4e4e90f988b",
       "gate": [
         "exit:then:710e5dcb43ddd346f8ec70a0b8535caaf905d83eb941188b77a28d35d5d651f3",
         "then:e50fe35f728bede0989d15da8b368643ed69caaeebaf56465528b4791dbb7492"
@@ -31282,13 +31282,13 @@
         "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
         "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
       ],
-      "fingerprint": "241e8458393e8dedae6a688b9d53a3700f7159ab99e520328e68bce3b01e253a",
+      "fingerprint": "88ccf9dbec6c8c6968052ca55a016fd314d25e9697241562cf73555605c94504",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5868",
       "trigger": "An explicit replica bootstrap/rescope replacement reaches pool ingestion.",
       "bound": "Replacement payload plus currently live-only machine membership; ordinary addressed updates do not enumerate it.",
-      "reason": "Generic table reseeding preserves live-only machine rows while installing the existing live/replicated merge. No interaction reader scans these records. POD-2153: the repo row gained a fourth declared field (defaultParentBranch), which moved this scan; its collection demand is unchanged. Predecessor: d8b01f00db2adebdf7af478512da16ff4f8d55f1c624687eb8fd7115b6a8918f.",
+      "reason": "Generic table reseeding preserves live-only machine rows while installing the existing live/replicated merge. No interaction reader scans these records. POD-2153: the repo row gained a fourth declared field (defaultParentBranch), which moved this scan; its collection demand is unchanged. Predecessor: d8b01f00db2adebdf7af478512da16ff4f8d55f1c624687eb8fd7115b6a8918f. Predecessor: 241e8458393e8dedae6a688b9d53a3700f7159ab99e520328e68bce3b01e253a (POD-6246: repo name joined from the server record; no traversal added).",
       "guard": "synced-record-models.test.ts covers replacement and removal; header-offline-machines.work.test.ts and companion-joins.test.ts preserve addressed offline/companion behavior."
     },
     {
@@ -31897,7 +31897,7 @@
       "file": "packages/client-graph/src/residency.ts",
       "holder": "Residency/attach",
       "rule": "loop:for-of",
-      "tokens": "dfbd1d8300434b9388b6f52fd9cd57535436bb639e2976f90a86b8d17b72dadf",
+      "tokens": "c042afb3f175f573fea1cd806089274c2f6e4d6d126dea1b150bf5e75cc2458d",
       "gate": [
         "then:ef284b8be8e0a3304bfe9ebed739c96578db42d52e0966ff0b9f1a20b575d736"
       ],
@@ -31905,13 +31905,13 @@
         "97f43eedaad666d4b43179a99ec50c3d88b1f80832514179a40742e9ca02dd4b",
         "9934e33de90c924dd8aeeb603766d20b0f50e0f9591e18ff8aa2b7a5ad9fc995"
       ],
-      "fingerprint": "5d668c3c3cc07422f46e17c14b435e49b847f587df020e6c811f1779c5949382",
+      "fingerprint": "b0e1c87f030525b5b9fecc73a6e1452295f8453ffbd66506941934f85d3eb8bb",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of Residency/attach",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2153: the repo row gained a fourth declared field (defaultParentBranch), which moved this scan; its collection demand is unchanged. Predecessor: cd61a8021795d4b5fc0c8857c82193156afe953eba39e4ca8d75a52d6b63eda2.",
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2153: the repo row gained a fourth declared field (defaultParentBranch), which moved this scan; its collection demand is unchanged. Predecessor: cd61a8021795d4b5fc0c8857c82193156afe953eba39e4ca8d75a52d6b63eda2. Predecessor: 5d668c3c3cc07422f46e17c14b435e49b847f587df020e6c811f1779c5949382 (POD-6246: repo name joined from the server record; no traversal added).",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {

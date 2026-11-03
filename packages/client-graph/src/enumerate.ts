@@ -94,6 +94,10 @@ export function reseed(
     }
     ingestRecord(staging, record, scratch)
   }
+  // The staged repo bookkeeping (holding lanes, replicated records) goes over
+  // FIRST: a repo put composes its row from the record and the holding lane it
+  // finds, so it must find this slice's, not the previous one's (POD-6246).
+  replaceRepoHolders(incoming.repo, target.write.repo)
   for (const entity of ENTITIES) {
     if (residency?.capable(entity) === true) continue
     const table = target.write[entity]
@@ -103,7 +107,6 @@ export function reseed(
     for (const id of gone) drop(target, entity, id, out)
     for (const [id, row] of next) put(target, entity, id, row, out)
   }
-  replaceRepoHolders(incoming.repo, target.write.repo)
   // Only rows the index does not know need visiting beyond the candidates: an
   // index built from these very rows knows them all, and a feed with its own
   // index hands none over.

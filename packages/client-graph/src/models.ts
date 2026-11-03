@@ -1,6 +1,6 @@
 import { type IssueNavigationModel, issuePendingDecision, missionTaskBucket, type MissionTaskBucket } from '@podium/client-core/values'
 import type { IssueGitState, IssuePanel, IssuePanelArtifact, IssueProjection } from '@podium/model'
-import { isGone, type Lookup, omitGone } from './lookup'
+import { here, isGone, type Lookup, omitGone } from './lookup'
 import type { MessageModel, PendingInteractionModel } from './message-models'
 import { ReadObservation } from './read-observation'
 import type { AccountModel, DeviceModel, MemberModel, PodiumSettingsModel, RepositoryModel } from './requested-models'
@@ -1102,7 +1102,15 @@ export class SessionModel extends EntityModel {
 }
 
 export class WorktreeModel extends EntityModel {
-  @lazy get repoName(): string { return String(this.storedField('repoName') ?? '') }
+  /**
+   * The repo's name: the server-decided `repo.name` (POD-6246), else the name
+   * the scan gave this lane (a repo the server has no record of yet).
+   */
+  @lazy get repoName(): string {
+    const repoId = this.storedField('repoId')
+    const name = typeof repoId === 'string' ? (here(this.host.row('repo', repoId)) as RepoRow | undefined)?.name : undefined
+    return typeof name === 'string' && name ? name : String(this.storedField('repoName') ?? '')
+  }
   @lazy get branch(): string | null | undefined { return this.storedField('branch') as string | null | undefined }
   constructor(id: string, host: ModelHost) {
     super('worktree', id, host)

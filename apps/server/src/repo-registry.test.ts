@@ -98,3 +98,62 @@ it('machine paths: repo scan matches case-folded keys without rewriting display 
   const result = await registry.scanReposAll()
   expect(result.repositories).toEqual([expect.objectContaining({ path: 'c:/src/podium', repoId })])
 })
+
+// POD-6246: the logical repo row (its chosen root and its name) is a function
+// of the registered checkouts and their remotes, so it is republished when a
+// checkout leaves or a scan reports a new remote, and not on an unchanged scan.
+describe('republishing the logical repo row', () => {
+  const machineId = asMachineId('mac')
+  const root = '/Users/mw/Source/other/bak_podium'
+  const origin = 'git@github.com:madeinorbit/podium.git'
+  const make = (stored: string | null, scanned: { path: string; originUrl?: string }[]) => {
+    const published: number[] = []
+    const updates: string[] = []
+    const row = { machineId, path: root, repoId: asRepoId('repo-podium'), prefix: 'POD', originUrl: stored }
+    const registry = new RepoRegistry(
+      {
+        modules: {
+          machines: { onlineMachineIds: () => [machineId], defaultMachine: async () => machineId },
+          rpc: {
+            scanRepos: async () => ({
+              repositories: scanned.map((r) => ({ ...r, kind: 'repository', worktrees: [] })),
+              diagnostics: [],
+            }),
+          },
+          issues: { reports: { store: { publishRepos: async () => void published.push(1) } } },
+        },
+      } as unknown as SessionRegistry,
+      {
+        repos: {
+          listRepos: async () => [row],
+          listRepoPaths: async () => [root],
+          updateRepoOrigin: async (_m: string, path: string, url: string) => void updates.push(`${path} ${url}`),
+          removeRepo: async () => {},
+        },
+      } as unknown as SessionStore,
+    )
+    return { registry, published, updates }
+  }
+
+  it('publishes once when a scan reports a new remote for a registered checkout', async () => {
+    const { registry, published, updates } = make(null, [{ path: root, originUrl: origin }])
+    await registry.scanReposAll()
+    expect(updates).toEqual([`${root} ${origin}`])
+    expect(published).toHaveLength(1)
+  })
+
+  it('publishes nothing when the remote is unchanged or the checkout is not registered', async () => {
+    const unchanged = make(origin, [{ path: root, originUrl: origin }])
+    await unchanged.registry.scanReposAll()
+    expect(unchanged.published).toHaveLength(0)
+    const stranger = make(origin, [{ path: '/Users/mw/elsewhere', originUrl: origin }])
+    await stranger.registry.scanReposAll()
+    expect(stranger.published).toHaveLength(0)
+  })
+
+  it('publishes when a checkout is removed', async () => {
+    const { registry, published } = make(origin, [])
+    await registry.remove(root, machineId)
+    expect(published).toHaveLength(1)
+  })
+})
