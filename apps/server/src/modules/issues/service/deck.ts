@@ -17,6 +17,7 @@ import {
   tallyTaskWords,
   taskHidden,
   toIssueTreeSession,
+  type UserId,
 } from '@podium/model'
 import type { IssueRow } from '../../../store'
 import { readSessionRefs } from '../../sessions/refs'
@@ -30,6 +31,8 @@ export async function readDeck(
   ref: string,
   mayRead: (id: string) => boolean | Promise<boolean>,
   niceRef: (row: IssueRow) => Promise<string>,
+  /** The reader the deck's seats are shown to: only their own sessions (POD-6285). */
+  forUser?: UserId,
 ): Promise<IssueDeck> {
   const root = await store.rowOrThrow(await store.resolveRef(ref))
   if (root.deletedAt || !(await mayRead(root.id))) throw new IssueNotFound(ref)
@@ -109,7 +112,7 @@ export async function readDeck(
     }
     const ids = [...candidates].filter((id) => !requested.has(id))
     for (const id of ids) requested.add(id)
-    for (const session of await store.deps.sessionsById(ids))
+    for (const session of await store.deps.sessionsById(ids, forUser))
       projected.set(session.sessionId, session)
     const authors = new Map(senders().map((s) => [s.sessionId, s]))
     grew = false

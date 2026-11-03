@@ -164,14 +164,24 @@ export interface IssueDeps {
   /** ONE session by id, without the full reader-scoped pass [POD-1646]. */
   sessionById(sessionId: SessionId): Promise<SessionMeta | undefined>
   /** The member sessions of ONE issue, WIRED [POD-1639] — for the two reads
-   *  whose output carries the sessions to a client (`issues.get`, the tree). */
-  listSessionsForIssue(worktreePath: string | null, issueId: IssueId): Promise<SessionMeta[]>
+   *  whose output carries the sessions to a client (`issues.get`, the tree).
+   *  `forUser` is the reader those sessions are handed to; omitted, the read is
+   *  the service's own (POD-6285). */
+  listSessionsForIssue(
+    worktreePath: string | null,
+    issueId: IssueId,
+    forUser?: UserId,
+  ): Promise<SessionMeta[]>
   /** A KNOWN SET of sessions, wired [POD-2322]. The issue tree selects member
-   *  ids across the whole subtree from facts, then projects only those. */
-  sessionsById(sessionIds: Iterable<SessionId>): Promise<SessionMeta[]>
+   *  ids across the whole subtree from facts, then projects only those.
+   *  `forUser` as for {@link listSessionsForIssue}. */
+  sessionsById(sessionIds: Iterable<SessionId>, forUser?: UserId): Promise<SessionMeta[]>
   /** Current label from MachinesService; omitted by fixtures that only know ids. */
   machineName?(machineId: MachineId): Promise<string>
-  getSettings(): Promise<PodiumSettings>
+  /** Settings as `forUser` sees them: their personal preferences on the
+   *  instance's. A spawn names the person it runs for (POD-6285); instance-tier
+   *  reads (git workflow, worktree GC) may omit it. */
+  getSettings(forUser?: UserId): Promise<PodiumSettings>
   /** Spawn a session in the issue's worktree. `initialPrompt` hands the agent its
    *  first prompt at spawn (argv for capable agents, draft-seed fallback otherwise —
    *  resolved inside createSession), which is the race-free way to start the work.

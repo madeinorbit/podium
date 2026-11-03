@@ -523,9 +523,11 @@ const defs = {
         if (!issue) return null
         // The issue's live sessions ride the read (ab75ab1e). `shell` panes are
         // not agents on the issue, so they are not listed as such.
-        const sessions = (await ctx.deps.listSessionsForIssue(issue.worktreePath, issue.id)).filter(
-          (session) => session.agentKind !== 'shell',
-        )
+        // Only the sessions this reader may read (POD-6285): sessions are private.
+        const reader = ctx.issueReader().readableBy() ?? undefined
+        const sessions = (
+          await ctx.deps.listSessionsForIssue(issue.worktreePath, issue.id, reader)
+        ).filter((session) => session.agentKind !== 'shell')
         return { ...issue, sessions }
       }),
   }),

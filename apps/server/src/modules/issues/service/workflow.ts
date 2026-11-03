@@ -319,6 +319,9 @@ export class IssueGitWorkflowModule {
     },
     fields: { agent: string; model: string; effort: string },
     cwd: string,
+    /** The person the spawn runs for: an unset agent takes THEIR default
+     *  harness, never the first admin's (POD-6285). */
+    forUser: UserId | undefined,
   ): Promise<{
     agent: string
     issueProfile: { agentKind: string; model: string; effort: string }
@@ -338,7 +341,7 @@ export class IssueGitWorkflowModule {
         : null
     let agent = launch?.agentKind ?? fields.agent
     if (!isAgentFieldSet(agent)) {
-      agent = resolveSpawnDefaults(await this.store.d.getSettings(), {
+      agent = resolveSpawnDefaults(await this.store.d.getSettings(forUser), {
         agentKind: 'auto',
       }).agentKind
     }
@@ -436,10 +439,13 @@ export class IssueGitWorkflowModule {
       model: switching || profileChanged ? 'auto' : row.defaultModel,
       effort: switching || profileChanged ? 'auto' : row.defaultEffort,
     }
+    // The person this start runs for, whose preferences fill every default.
+    const starter = sessionOwnerFor(row, opts).ownerUserId
     const launch = await this.issueLaunch(
       { ...row, agentProfileId: explicitProfileId ?? row.agentProfileId ?? null },
       { agent, model: stored.model, effort: stored.effort },
       row.repoPath,
+      starter,
     )
     // Where the worktree is cut: the issue's pin, else its profile's machine.
     const homeMachineId = launch.machineId ?? undefined
@@ -453,7 +459,7 @@ export class IssueGitWorkflowModule {
       agentKind: launch.agent,
       explicit: { model: opts?.model ?? 'auto', effort: opts?.effort ?? 'auto' },
       issueProfile: launch.issueProfile,
-      settings: await this.store.d.getSettings(),
+      settings: await this.store.d.getSettings(starter),
       catalog: await this.store.d.store.settings.getModelCatalog(
         homeMachineId ?? this.store.d.store.hostMachineId,
       ),
@@ -1739,6 +1745,8 @@ export class IssueGitWorkflowModule {
       throw new IssueRefusal('shipping stage is system-owned and cannot add a session')
     }
     if (!row.worktreePath) throw new IssueRefusal('issue not started')
+    // The person this session runs for, whose preferences fill every default.
+    const starter = sessionOwnerFor(row, opts).ownerUserId
     // A shell is a shell: no profile, no candidates.
     const launch =
       agentKind === 'shell'
@@ -1751,6 +1759,7 @@ export class IssueGitWorkflowModule {
               effort: row.defaultEffort,
             },
             row.worktreePath,
+            starter,
           )
     const kind = agentKind === 'shell' ? 'shell' : (launch?.agent ?? row.defaultAgent)
     // Everything here is inherited from the issue's profile, so nothing here can
@@ -1764,7 +1773,7 @@ export class IssueGitWorkflowModule {
         model: row.defaultModel,
         effort: row.defaultEffort,
       },
-      settings: await this.store.d.getSettings(),
+      settings: await this.store.d.getSettings(starter),
       catalog: await this.store.d.store.settings.getModelCatalog(
         row.machineId ?? this.store.d.store.hostMachineId,
       ),

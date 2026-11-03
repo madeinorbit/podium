@@ -27,7 +27,7 @@ import { privateResourceAccess } from '../../private-resources'
 import type { RegistryModules } from '../../relay'
 import type { SessionStore } from '../../store'
 import { deliverAnswerToSession } from './answer-delivery'
-import { superagentSender } from './send'
+import { superagentFrom, superagentSender } from './send'
 
 /** MCP server name the harness agent sees Podium's tools under (→ tool ids
  *  `mcp__podium__<tool>`). Header carries the access token to the in-process route. */
@@ -329,8 +329,9 @@ export async function buildSuperagentTools(
         // Unified substrate (#237) [spec:SP-34d7]: the superagent is its OWN
         // principal (never the operator) — the message is ledgered and lands
         // enveloped, so the receiver sees who is speaking.
+        if (!ownerUserId) return 'unknown superagent thread'
         const r = await modules.messages.send(
-          { kind: 'superagent' },
+          superagentFrom(ownerUserId),
           {
             to: { kind: 'session', id: sessionIdArg(args.sessionId) },
             body: str(args.text) ?? '',
@@ -413,6 +414,7 @@ export async function buildSuperagentTools(
         // The superagent's message (POD-4846), like send_to_agent's, but a wake
         // message: a parked session is resumed. Enveloped, with a delivery
         // status and an id.
+        if (!ownerUserId) return 'unknown superagent thread'
         const r = await superagentSender(
           modules.messages,
           ownerUserId,
@@ -738,8 +740,9 @@ export async function buildSuperagentTools(
         if (refused) return refused
         // Same substrate as podium session ask: a question message through the
         // one send path (clamps/cooldown apply), then a bounded ack wait.
+        if (!ownerUserId) return 'unknown superagent thread'
         const r = await modules.messages.send(
-          { kind: 'superagent' },
+          superagentFrom(ownerUserId),
           {
             to: { kind: 'session', id: sessionId },
             body: question,

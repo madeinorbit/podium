@@ -153,7 +153,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   })
   bag.launchConfig = new SessionLaunchConfig({
     store,
-    settingsViewer: () => bag.settingsViewer(),
   })
   bag.naming = new SessionNaming({
     session: (sessionId) => bag.sessions.get(sessionId),
@@ -249,7 +248,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     machines,
     issueAccess: bag.deps.issueAccess,
     getSession: (sessionId) => bag.sessions.get(sessionId),
-    settingsViewer: () => bag.settingsViewer(),
     onWorktreesChanged: (repoPath, machineId) => bag.deps.onWorktreesChanged(repoPath, machineId),
   })
   bag.state = new SessionStateService({
@@ -360,7 +358,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     state: bag.state,
     launchConfig: bag.launchConfig,
     terminalProof: bag.terminalProof,
-    settingsViewer: () => bag.settingsViewer(),
     durableLabelFor: (sessionId) => bag.deps.durableLabelFor(sessionId),
     hasSession: async (sessionId) =>
       bag.sessions.has(sessionId) || (await store.sessions.getSession(sessionId))?.deletedAt === null,
@@ -792,11 +789,12 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   })
 
   bag.autoContinue = new AutoContinueController({
-    // PERSONAL (POD-1213): auto-continue governs the reader's OWN sessions,
-    // so it is resolved for a user. See `settingsViewer` below for why that
-    // user is spelled out rather than defaulted.
-    isEnabled: async () =>
-      (await store.settings.getSettingsFor((await bag.settingsViewer()))).autoContinue.enabled,
+    // PERSONAL (POD-1213): auto-continue is the session OWNER's preference
+    // (POD-6285), so Alice's switch never retries Bob's agent.
+    isEnabled: async (sessionId) => {
+      const owner = (await store.sessions.getSession(sessionId))?.ownerUserId
+      return owner ? (await store.settings.getSettingsFor(owner)).autoContinue.enabled : false
+    },
     sendContinue: (sessionId) => {
       void bag.continueSession({ sessionId })
     },

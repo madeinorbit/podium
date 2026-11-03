@@ -8,7 +8,7 @@ import { spanOpen } from '../../store/executor/executor'
 
 import { createLogger, describeError } from '@podium/logger'
 import type { SessionId, UserId } from '@podium/model'
-import { asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
+import { asSessionId, asUserId } from '@podium/model'
 import {
   type CommandPrincipal,
   onBehalfOfUser,
@@ -383,21 +383,6 @@ export class SessionAuthz {
    * rule; selecting a different harness must not inherit that harness's model or effort
    * [spec:SP-7ff1].
    */
-  /**
-   * WHOSE PREFERENCES A SESSION-SPAWNING READ USES (POD-1213).
-   *
-   * `roles.*` and `autoContinue.*` are `preferences-personal` and live on
-   * `user_preferences` now, so a read of the instance blob would see the model's
-   * defaults rather than anyone's choices. `firstAdminMemberId()` is spelled out
-   * here for the reason `IssueService.broadcastViewer` spells it out: this
-   * build's transport authenticates one shared password, so the sole account is
-   * the only true answer — and POD-315 replaces this body with the requesting
-   * principal, with every caller already asking the question.
-   */
-  async settingsViewer(): Promise<UserId> {
-    return (await firstAdminMemberId(this.ports.store))
-  }
-
   // ---- the sessions FEATURE PORT for client frames (gateway/client-mux.ts) ----
   /**
    * A client connection was admitted: send it the world it is owed.

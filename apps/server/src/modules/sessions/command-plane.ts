@@ -53,6 +53,7 @@ import {
   actorUser,
   asAgentIdentityId,
   asMutationId,
+  asUserId,
   type SpawnedByRef,
   STOPPED_SEND_REASON,
   spawnedByTag,
@@ -647,9 +648,13 @@ export const SESSION_COMMAND_HANDLERS = {
     // preparing may clone a repository onto the target machine — a side effect
     // a denied principal must never cause.
     if (rest.machineId !== undefined) ctx.assertMachineUse(rest.machineId)
-    const target = await ctx.sessions.workspace.prepareTarget({ ...rest, use: ctx.machineUse })
     const ownership = createdOwnership(ctx.principal)
     if (!ownership.owner) throw new Error('session creation requires an accountable human owner')
+    const target = await ctx.sessions.workspace.prepareTarget({
+      ...rest,
+      use: ctx.machineUse,
+      owner: asUserId(ownership.owner),
+    })
     const createdDraftId =
       !rest.issueId && draftIssue
         ? (await ctx.deps.createDraftIssue(draftIssue.repoPath, rest.agentKind, draftIssue.issueId, {

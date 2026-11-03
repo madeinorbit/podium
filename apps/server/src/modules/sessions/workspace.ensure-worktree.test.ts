@@ -1,4 +1,6 @@
-import { asMachineId, asRepoId, type MachineId } from '@podium/model'
+import { asMachineId, asRepoId, asUserId, type MachineId } from '@podium/model'
+
+const OWNER = asUserId('mem_workspace_test_owner')
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionIssueWorkflowPort } from './issue-workflow-port'
 import type { Session } from './session'
@@ -34,6 +36,7 @@ describe('prepareTarget reconnect inventory', () => {
       agentKind: 'claude-code',
       cwd: '/repo',
       machineId: asMachineId('machine-b'),
+      owner: OWNER,
     })
 
     expect(waitForInventory).toHaveBeenCalledWith('machine-b')
@@ -58,6 +61,7 @@ describe('prepareTarget reconnect inventory', () => {
         agentKind: 'shell',
         cwd: '/repo',
         machineId: asMachineId('machine-b'),
+        owner: OWNER,
       }),
     ).resolves.toEqual({ cwd: '/repo', machineId: 'machine-b' })
     expect(waitForInventory).not.toHaveBeenCalled()
@@ -216,7 +220,7 @@ it.each([
     machines: { resolveMachineForAgent: async () => targetMachine },
     store: { repos: { listRepos: async (machineId?: MachineId) => rows.filter(r => !machineId || r.machineId === machineId) } },
   } as unknown as SessionWorkspacePorts)
-  expect(await workspace.prepareTarget({ agentKind: 'shell', cwd, machineId: targetMachine })).toEqual({ cwd: expected, machineId: targetMachine })
+  expect(await workspace.prepareTarget({ agentKind: 'shell', cwd, machineId: targetMachine, owner: OWNER })).toEqual({ cwd: expected, machineId: targetMachine })
   expect(await workspace.resolveRepoOnMachine(cwd, targetMachine)).toBe(target)
   expect(await workspace.findRepoOnMachine(root, targetMachine)).toBe(target)
 })

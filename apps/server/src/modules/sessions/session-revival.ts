@@ -31,13 +31,14 @@
  *
  * Dispose: none. The coordinator holds a single-flight map only; no timer.
  *
- * Ambient: resumeSession's `ownerUserId ?? firstAdminMemberId()` moved here from
+ * Ambient: resumeSession's owner fallback (now `soleMemberFor`, POD-6285) moved here from
  * lifecycle. USAGE DELTA on the census must be 0.
  */
 
 import { randomUUID } from 'node:crypto'
 import type { IssueId, MachineId, ResumeRef, SessionId, SessionMeta, UserId } from '@podium/model'
-import { type AgentKind, asSessionId, firstAdminMemberId } from '@podium/model'
+import { type AgentKind, asSessionId } from '@podium/model'
+import { soleMemberFor } from '../../sole-member'
 import type { SessionBindingAdoptLaunchInstruction } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import type { AutoContinueController } from '../../auto-continue'
@@ -187,7 +188,8 @@ export class SessionRevival {
       ownerUserId: input.ownerUserId,
       machineId,
     })
-    const ownerUserId = input.ownerUserId ?? (await firstAdminMemberId(this.ports.store))
+    const ownerUserId =
+      input.ownerUserId ?? (await soleMemberFor(this.ports.store.users, 'a session resume'))
     try {
       return await this.mintResumed(input, ownerUserId, machineId, task?.issueId)
     } catch (error) {
@@ -477,7 +479,7 @@ export class SessionRevival {
     // Name the allowed companions so model defaults can never leak into a
     // restart frame, even if the launch-config API later grows new fields.
     const { subagentModel, seedCliTheme } =
-      await this.ports.launchConfig.modelDefaults(session.agentKind)
+      await this.ports.launchConfig.modelDefaults(session.agentKind, session.ownerUserId)
 
     const preparedInstructions = await this.ports.instructionsForStart({
       sessionId,

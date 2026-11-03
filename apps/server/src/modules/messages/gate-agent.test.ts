@@ -118,7 +118,8 @@ async function harness(opts?: {
   const sent: { fn: string; sessionId: SessionId; text: string }[] = []
   const retired: { factKey: string; target: string }[] = []
   const svc = new MessageDeliveryService({
-      firstAdminMemberId: () => firstAdminMemberId(store),
+      soleActiveMember: async () => (await store.users.soleActiveMember())?.id as never,
+      legacyRowOwner: () => firstAdminMemberId(store),
     messages: store.messages,
     notificationFacts: store.notificationFacts,
     events: store.events,

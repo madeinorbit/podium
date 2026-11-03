@@ -36,7 +36,6 @@ export interface SessionWorkspacePorts {
   getSession: SessionLookup
   /** A session restored from its row when it is parked out of memory (POD-6160 D2f). */
   readSession?(sessionId: SessionId): Promise<Session | undefined>
-  settingsViewer(): UserId | Promise<UserId>
   onWorktreesChanged(repoPath: string, machineId?: MachineId): void
 }
 
@@ -49,13 +48,14 @@ export class SessionWorkspace {
     cwd: string
     machineId?: MachineId
     use?: MachineUseResolver
+    /** Whose default harness an unnamed agent kind resolves to (POD-6285). */
+    owner: UserId
   }): Promise<{ cwd: string; machineId?: MachineId }> {
     if (!input.machineId) return { cwd: input.cwd }
     const parsed = AgentKind.safeParse(input.agentKind)
     const agentKind = parsed.success
       ? parsed.data
-      : resolveRole(await this.ports.store.settings.getSettingsFor((await this.ports.settingsViewer())), 'coding')
-          .harness
+      : resolveRole(await this.ports.store.settings.getSettingsFor(input.owner), 'coding').harness
     // A freshly reconnected daemon temporarily hides its persisted inventory:
     // the old report belongs to the previous socket. Explicit placement can
     // afford to wait for this connection's report before the harness gate, and

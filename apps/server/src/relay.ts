@@ -50,6 +50,7 @@ import type {
 } from '@podium/protocol/daemon'
 import { resolveSpawnDefaults } from '@podium/runtime'
 import { resolveLaunchSelection } from './model-validation'
+import { soleMemberFor } from './sole-member'
 import { durableSessionLabel } from '@podium/runtime/instance'
 import { stateDir } from '@podium/runtime/local-machine'
 import { prepareSourceDaemonCutover } from '@podium/runtime/transfer-lifecycle'
@@ -2029,10 +2030,20 @@ export class SessionRegistry {
       sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
       // The narrow read [POD-1639]: an issue mutation asks for ITS sessions, not
       // for all of them. Same set, same fields — see SessionView.listForIssue.
-      listSessionsForIssue: async (worktreePath, issueId) =>
-        await sessionsSvc.listSessionsForIssue(worktreePath, issueId),
+      // A read handed to a person carries only the sessions THEY may read
+      // (POD-6285); a read without one is the issue service's own lookup.
+      listSessionsForIssue: async (worktreePath, issueId, forUser) =>
+        await sessionsSvc.listSessionsForIssue(
+          worktreePath,
+          issueId,
+          forUser ? await sessionsSvc.view.principalForTrustedUser(forUser) : undefined,
+        ),
       // A known set, wired [POD-2322] — the issue tree's members.
-      sessionsById: async (sessionIds) => await sessionsSvc.sessionsById(sessionIds),
+      sessionsById: async (sessionIds, forUser) =>
+        await sessionsSvc.sessionsById(
+          sessionIds,
+          forUser ? await sessionsSvc.view.principalForTrustedUser(forUser) : undefined,
+        ),
       machineName: async (machineId) => await machines.machineName(machineId),
       // Shell lifetime verbs for the worktree-free trigger (POD-4525): live
       // reads off the registry map, viewer state for held/watched, and the
@@ -2044,11 +2055,12 @@ export class SessionRegistry {
         park: async (sessionId) => await sessionsSvc.parkShellSession({ sessionId }),
         kill: async (sessionId) => await sessionsSvc.killSession({ sessionId }),
       },
-      // Resolved for the sole account (POD-1213): the issue service reads
-      // `roles.coding` — a personal preference — beside instance-tier git
-      // workflow policy. See the note on `NotifyService` above.
-      getSettings: async () =>
-        await this.store.settings.getSettingsFor(await firstAdminMemberId(this.store)),
+      // A spawn names the person it runs for, so `roles.coding` is theirs
+      // (POD-6285). With no user named, the read is for instance-tier policy
+      // (git workflow, worktree GC), the same for every member: SYSTEM, read
+      // through the first admin's row only because a settings read needs one.
+      getSettings: async (forUser) =>
+        await this.store.settings.getSettingsFor(forUser ?? (await firstAdminMemberId(this.store))),
       // Server-side LLM clients run on this factory so the `codex` provider
       // resolves to the catalog transport above instead of a server-local
       // login file (POD-4750). Other providers behave exactly as `llmClient`.
@@ -2315,7 +2327,12 @@ export class SessionRegistry {
     // than only unit-tested against the handler, so POD-1075's real ceiling
     // arrives at a composition root that already carries it.
     const messagesSvc = new MessageDeliveryService({
-      firstAdminMemberId: () => firstAdminMemberId(this.store),
+      soleActiveMember: async () => {
+        const sole = await this.store.users.soleActiveMember()
+        return sole ? asUserId(sole.id) : undefined
+      },
+      // RECOVERY: rows stored before per-message attribution were the first admin's.
+      legacyRowOwner: () => firstAdminMemberId(this.store),
       authorizeAtApply: mail.authorizeAtApply,
       // POD-1193: wake resumes/spawns on the target session's machine — enforce
       // `use` at delivery. Same principalMailPolicy object as the ceiling port.
@@ -2894,7 +2911,11 @@ export class SessionRegistry {
           // explicit agent ignored the operator's configured default harness
           // while issue-create honoured it. Continuing an existing session still
           // wins outright — that session's harness is already running.
-          const settings = await this.store.settings.getSettingsFor(await firstAdminMemberId(this.store))
+          // The defaults of the person the automation runs for (POD-6285).
+          const settings = await this.store.settings.getSettingsFor(
+            onBehalfOfUser(principal) ??
+              (await soleMemberFor(this.store.users, 'a scheduled automation')),
+          )
           const spawnDefaults = resolveSpawnDefaults(settings, {
             agentKind: existing?.agentKind ?? fresh?.agentKind,
           })
@@ -2964,9 +2985,14 @@ export class SessionRegistry {
       mutations,
       // The by-id read [POD-1646]: one session, not the full pass.
       sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
-      // The narrow issue read [POD-1639] — `issues.get` embeds its members.
-      listSessionsForIssue: async (worktreePath, issueId) =>
-        await sessionsSvc.listSessionsForIssue(worktreePath, issueId),
+      // The narrow issue read [POD-1639] — `issues.get` embeds its members, as
+      // its reader may read them (POD-6285).
+      listSessionsForIssue: async (worktreePath, issueId, forUser) =>
+        await sessionsSvc.listSessionsForIssue(
+          worktreePath,
+          issueId,
+          forUser ? await sessionsSvc.view.principalForTrustedUser(forUser) : undefined,
+        ),
       repoPaths: async () => await this.store.repos.listRepoPaths(),
       inferRepoFromPath: async (path) =>
         inferRepoFromRoots(await this.store.repos.listRepoPaths(), path),

@@ -4,8 +4,8 @@ import type { AgentRuntimeState, SessionId } from '@podium/model'
 /** Everything the controller needs from the relay, injected so the loop is
  *  unit-testable with spies + fake timers and carries no relay knowledge. */
 export interface AutoContinueDeps {
-  /** The global master switch, read fresh on every decision. */
-  isEnabled: () => Promise<boolean>
+  /** The session owner's switch, read fresh on every decision. */
+  isEnabled: (sessionId: SessionId) => Promise<boolean>
   /** Type one `continue⏎` into the session (relay.continueSession, phase-gated). */
   sendContinue: (sessionId: SessionId) => void
   /** Liveness + latest agent state, or undefined if the session is gone. */
@@ -42,7 +42,7 @@ export class AutoContinueController {
   /** Relay calls this on every agent-state transition. Arms on a retryable error,
    *  stops (resetting backoff) the instant the agent is no longer in one. */
   async onStateChange(sessionId: SessionId, next: AgentRuntimeState): Promise<void> {
-    if ((await this.deps.isEnabled()) && isRetryableErrored(next)) await this.arm(sessionId)
+    if ((await this.deps.isEnabled(sessionId)) && isRetryableErrored(next)) await this.arm(sessionId)
     else this.stop(sessionId)
   }
 
@@ -95,7 +95,7 @@ export class AutoContinueController {
     const loop = this.loops.get(sessionId)
     if (!loop) return
     const snap = this.deps.getSession(sessionId)
-    if (!(await this.deps.isEnabled()) || !snap || !snap.live || !isRetryableErrored(snap.state)) {
+    if (!(await this.deps.isEnabled(sessionId)) || !snap || !snap.live || !isRetryableErrored(snap.state)) {
       this.stop(sessionId)
       return
     }

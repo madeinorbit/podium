@@ -1,6 +1,19 @@
 import { actorAgent, asAgentIdentityId, type SessionId, type UserId } from '@podium/model'
 import type { MessageDeliveryService } from '../messages/service'
-import { SUPERAGENT_AGENT_IDENTITY } from '../messages/types'
+import { type MessageSender, SUPERAGENT_AGENT_IDENTITY } from '../messages/types'
+
+/** The superagent speaking for its thread's owner: the actor is the superagent,
+ *  `onBehalfOf` the owner. Every superagent send names the owner (POD-6285). */
+export function superagentFrom(ownerUserId: UserId): MessageSender {
+  return {
+    kind: 'superagent',
+    attribution: {
+      actor: actorAgent(asAgentIdentityId(SUPERAGENT_AGENT_IDENTITY)),
+      onBehalfOf: ownerUserId,
+    },
+    delegationRef: SUPERAGENT_AGENT_IDENTITY,
+  }
+}
 
 /**
  * WHAT THE SUPERAGENT TYPES INTO A SESSION IS ITS MESSAGE (POD-4846).
@@ -9,39 +22,26 @@ import { SUPERAGENT_AGENT_IDENTITY } from '../messages/types'
  * any mail: inside the envelope (the superagent is "you, automated", not you),
  * waking a parked session, followed by its delivery status. A failure found
  * later tells the operator (POD-4778); one found at send time is this call's
- * answer. With no thread owner known, the superagent speaks for the default
- * owner, as `send_to_agent` always has. `messageId` names a message with a fact behind it — a new session's
+ * answer. It always speaks for the thread's owner. `messageId` names a message with a fact behind it — a new session's
  * first message is its spawn prompt — so a repeat stores it once.
  */
 export function superagentSender(
   messages: Pick<MessageDeliveryService, 'send'>,
-  ownerUserId: UserId | undefined,
+  ownerUserId: UserId,
 ): (input: {
   sessionId: SessionId
   text: string
   messageId?: string
 }) => Promise<{ ok: boolean; reason?: string }> {
   return async ({ sessionId, text, messageId }) => {
-    const r = await messages.send(
-      ownerUserId
-        ? {
-            kind: 'superagent',
-            attribution: {
-              actor: actorAgent(asAgentIdentityId(SUPERAGENT_AGENT_IDENTITY)),
-              onBehalfOf: ownerUserId,
-            },
-            delegationRef: SUPERAGENT_AGENT_IDENTITY,
-          }
-        : { kind: 'superagent' },
-      {
-        ...(messageId ? { messageId } : {}),
-        to: { kind: 'session', id: sessionId },
-        kind: 'message',
-        urgency: 'next-turn',
-        lifecycle: 'wake',
-        body: text,
-      },
-    )
+    const r = await messages.send(superagentFrom(ownerUserId), {
+      ...(messageId ? { messageId } : {}),
+      to: { kind: 'session', id: sessionId },
+      kind: 'message',
+      urgency: 'next-turn',
+      lifecycle: 'wake',
+      body: text,
+    })
     // Stored is accepted: a push the transport refused is the sweep's to retry.
     return r.disposition === 'dead_letter'
       ? { ok: false, ...(r.reason ? { reason: r.reason } : {}) }

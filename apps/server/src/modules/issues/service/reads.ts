@@ -491,7 +491,13 @@ export class IssueReportsModule {
   }
 
   async deck(ref: string, reader: IssueReader = UNRESTRICTED_READER) {
-    return await readDeck(this.store, ref, reader.mayRead, async (row) => await this.niceRef(row))
+    return await readDeck(
+      this.store,
+      ref,
+      reader.mayRead,
+      async (row) => await this.niceRef(row),
+      reader.readableBy() ?? undefined,
+    )
   }
 
   /** The children of these parents the reader sees, in the boot map's order. */
@@ -685,6 +691,8 @@ export class IssueReportsModule {
       (
         await this.store.deps.sessionsById(
           wiring.flatMap((entry) => entry.members.map((m) => m.sessionId)),
+          // Only the sessions this reader may read (POD-6285).
+          reader.readableBy() ?? undefined,
         )
       ).map((session) => [session.sessionId, session]),
     )

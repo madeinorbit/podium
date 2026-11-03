@@ -1,7 +1,7 @@
 /** Spawn companions shared by new sessions and revival: subagent model,
  * theme seed and account environment. Model/effort belong to the launch resolver. */
 
-import type { AccountId, AgentKind, MachineId, UserId } from '@podium/model'
+import type { AccountId, AgentKind, UserId } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
 import { harnessCapabilitiesFor } from '../../harness-manifest'
 import type { SessionStore } from '../../store'
@@ -9,8 +9,6 @@ import { type AccountEnvTarget, resolveAccountEnv } from './account-env'
 
 export interface LaunchConfigPorts {
   store: Pick<SessionStore, 'settings' | 'accounts' | 'machines'>
-  /** Whose preferences a spawning read uses. Not this module's decision. */
-  settingsViewer(): UserId | Promise<UserId>
 }
 
 export interface LaunchModelDefaults {
@@ -21,15 +19,10 @@ export interface LaunchModelDefaults {
 export class SessionLaunchConfig {
   constructor(private readonly ports: LaunchConfigPorts) {}
 
-  /** Companions only. Legacy arguments remain until the restart caller moves. */
-  async modelDefaults(
-    agentKind: AgentKind,
-    _override?: { model?: string; effort?: string },
-    _machineId?: MachineId,
-  ): Promise<LaunchModelDefaults> {
-    const settings = await this.ports.store.settings.getSettingsFor(
-      await this.ports.settingsViewer(),
-    )
+  /** Companions only, from the preferences of `owner`, the person the session
+   *  runs for (POD-6285): Bob's spawn uses Bob's choices, never Alice's. */
+  async modelDefaults(agentKind: AgentKind, owner: UserId): Promise<LaunchModelDefaults> {
+    const settings = await this.ports.store.settings.getSettingsFor(owner)
     const coding = settings.roles.coding
     const subagentModel = coding.subagentModel
     return {

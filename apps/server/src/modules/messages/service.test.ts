@@ -258,7 +258,8 @@ async function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
   const narrowCalls = { byId: 0, byIssue: 0 }
   const issueGetLists: (SessionMeta[] | undefined)[] = []
   const svc = new MessageDeliveryService({
-      firstAdminMemberId: () => firstAdminMemberId(store),
+      soleActiveMember: async () => (await store.users.soleActiveMember())?.id as never,
+      legacyRowOwner: () => firstAdminMemberId(store),
     messages: store.messages,
     notificationFacts: store.notificationFacts,
     events: store.events,

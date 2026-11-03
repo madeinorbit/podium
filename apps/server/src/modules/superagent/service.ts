@@ -24,7 +24,6 @@ import {
   asIssueId,
   asSessionId,
   asThreadId,
-  firstAdminMemberId,
   HarnessAgent,
   type HarnessAgent as HarnessAgentKind,
   type IssueId,
@@ -360,10 +359,13 @@ export class SuperagentService {
 
   private async personalThreadId(ownerUserId: UserId, base: ThreadId): Promise<ThreadId> {
     const legacy = await this.store.superagent.getSuperagentThread(base)
-    // Existing personal history stays with its recorded owner after admin removal.
+    // The bare id belongs to the owner its row records, and stays theirs after
+    // admin removal. With no row it goes to the instance's only active member,
+    // as it always went to the one person; once there are two, to nobody: each
+    // member gets their own suffixed id, never "the first admin's" (POD-6285).
     const ownsBase = legacy
       ? legacy.ownerUserId === ownerUserId
-      : ownerUserId === (await firstAdminMemberId(this.store))
+      : ownerUserId === (await this.store.users.soleActiveMember())?.id
     return ownsBase ? base : asThreadId(`${base}:${ownerUserId}`)
   }
 
@@ -874,9 +876,7 @@ export class SuperagentService {
     let thread = await this.store.superagent.getSuperagentThread(threadId, ownerUserId)
     if (!thread) throw new Error(`unknown queued thread: ${threadId}`)
     // PERSONAL (POD-1213): `roles.superagent` is *"you, automated"* — one
-    // human's delegation — so it resolves for a user. `firstAdminMemberId()`
-    // spelled out, never defaulted: this build authenticates one shared
-    // password, and POD-315 replaces the argument with the real principal.
+    // human's delegation — so it resolves for the thread's owner.
     const settings = await this.store.settings.getSettingsFor(ownerUserId)
     const frozen = HarnessAgent.safeParse(thread.agentKind)
     const requested =

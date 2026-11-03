@@ -30,7 +30,12 @@ import { TRPCError } from '@trpc/server'
 import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import { authorize, type Capability, type IssueAccessReader } from '../../issue-authz'
 import type { IssueAuthorityArbitration } from './authority-arbitration'
-import type { MessageSender, MessageSendInput, MessageSendResult } from '../messages/service'
+import {
+  type MessageSender,
+  type MessageSendInput,
+  type MessageSendResult,
+  senderFromPrincipal,
+} from '../messages/service'
 import type {
   IssueAttentionCapability,
   IssueCommentsMailCapability,
@@ -91,10 +96,13 @@ export interface IssueCommandDeps {
   ): Promise<SessionMeta | undefined>
   /** The member sessions of ONE issue, wired [POD-1639]. `issues.get` embeds
    *  them in its reply, so these do cross to a reader — but only an issue's
-   *  own handful, never the fleet. */
+   *  own handful, never the fleet. `forUser` is the reader: a read handed to a
+   *  person carries only the sessions they may read (POD-6285). Omitted, it is
+   *  the server's own lookup. */
   listSessionsForIssue(
     worktreePath: string | null,
     issueId: IssueId,
+    forUser?: import('@podium/model').UserId,
   ): Promise<SessionMeta[]>
   /** Registered repo paths, all machines (RepoRegistry.list() semantics). */
   repoPaths(): string[] | Promise<string[]>
@@ -299,6 +307,22 @@ export class IssueCommandCtx {
    *  unwrapped/unclamped as the human ("unwrapped = operator" invariant).
    *  Client input NEVER contributes sender fields. */
   messageSender(): MessageSender {
+    const sender = this.capabilitySender()
+    // The authenticated principal names the ATTRIBUTION: a person sends as
+    // themselves, an agent for its own human (POD-6285). Never the first admin,
+    // which is what an unattributed sender used to resolve to. The sender's kind
+    // (operator or agent) stays the capability's, as it decides the envelope.
+    const principal = this.caller.principal
+    if (!principal) return sender
+    const { attribution, delegationRef } = senderFromPrincipal(principal)
+    return {
+      ...sender,
+      ...(attribution ? { attribution } : {}),
+      delegationRef: delegationRef ?? null,
+    }
+  }
+
+  private capabilitySender(): MessageSender {
     if (this.caller.capability.scope.kind === 'subtree') {
       return {
         kind: 'agent',

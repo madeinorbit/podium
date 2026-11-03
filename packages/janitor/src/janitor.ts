@@ -10,6 +10,7 @@ import {
   asIssueId,
   asMachineId,
   asSessionId,
+  asUserId,
   type UserId,
 } from '@podium/model'
 import {
@@ -870,7 +871,9 @@ export class MaintenanceCommandsPrunePlanner {
  * a reason instead of a sweep that finds nothing.
  */
 /** Resolve from this reader's database on every scan so member removal and
- * independent worker/store lifetimes cannot leave a stale viewer. */
+ * independent worker/store lifetimes cannot leave a stale viewer. ISSUES only:
+ * a stopped SESSION is retired by its owner's read (`SessionAutoArchiveReader`,
+ * POD-6285), because nobody else may read it. */
 const archiveViewer = (db: SqlDatabase): UserId => {
   const member = earliestAdminMember(db)
   if (!member) throw new Error('the first admin member is not resolved: no active administrator in this database')
@@ -883,21 +886,19 @@ const archiveViewer = (db: SqlDatabase): UserId => {
  */
 /** Durable read + stopped session candidates [spec:SP-6144]. */
 export class SessionAutoArchiveReader {
-  constructor(
-    private readonly db: SqlDatabase,
-    private readonly viewer?: UserId,
-  ) {}
+  constructor(private readonly db: SqlDatabase) {}
 
+  /** The reader is each session's OWNER (POD-6285): sessions are private, so
+   *  only the owner's read can say they are done with it. */
   async read(input: AutoArchiveReadInput): Promise<SessionAutoArchiveObservation[]> {
-    const viewer = this.viewer ?? archiveViewer(this.db)
     return this.db
       .prepare(
-        // INNER JOIN, not LEFT: no row in `session_user_state` for this viewer
+        // INNER JOIN, not LEFT: no row in `session_user_state` for the owner
         // means they have never read the session, which is exactly the case the
         // old `s.read_at IS NOT NULL` excluded.
-        `SELECT s.id, s.issue_id, s.stopped_at, sus.read_at, s.archived
+        `SELECT s.id, s.issue_id, s.stopped_at, s.owner_user_id, sus.read_at, s.archived
          FROM sessions s
-         JOIN session_user_state sus ON sus.session_id = s.id AND sus.user_id = ?
+         JOIN session_user_state sus ON sus.session_id = s.id AND sus.user_id = s.owner_user_id
          LEFT JOIN issues i ON i.id = s.issue_id
          WHERE s.archived = 0
            AND s.stopped_at IS NOT NULL
@@ -909,16 +910,16 @@ export class SessionAutoArchiveReader {
          ORDER BY sus.read_at ASC, s.id ASC
          LIMIT ?`,
       )
-      .all(viewer, input.cutoffReadAt, input.cutoffReadAt, input.limit)
+      .all(input.cutoffReadAt, input.cutoffReadAt, input.limit)
       .map((row: any) => ({
         sessionId: asSessionId(row.id),
         issueId: row.issue_id === null ? null : asIssueId(row.issue_id),
         stoppedAt: row.stopped_at,
-        // The reader, not the timestamp (POD-1229): the server re-derives this
-        // viewer's read state authoritatively and refuses an observation that
+        // The reader, not the timestamp (POD-1229): the server re-derives the
+        // owner's read state authoritatively and refuses an observation that
         // names anyone else. `sus.read_at` still drives the candidate query and
         // the ordering above — it just no longer rides the wire.
-        readerUserId: viewer,
+        readerUserId: asUserId(row.owner_user_id),
         archived: false as const,
       }))
   }

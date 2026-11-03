@@ -1,6 +1,5 @@
 import { readIssue, readIssues } from '../issues/issue-reader'
 import {
-  firstAdminMemberId,
   asUserId,
   type SessionId,
   type SessionMeta,
@@ -277,10 +276,6 @@ export class SessionView {
 
   readonly wire = wireSession
 
-  async broadcastViewer(): Promise<UserId> {
-    return (await firstAdminMemberId(this.ports.store))
-  }
-
   async principalForTrustedUser(userId: UserId): Promise<SessionStatePrincipal> {
     const role = await this.ports.store.users.roleOf(userId)
     if (!role) throw new Error(`refused: no active account for session-state user ${userId}`)
@@ -296,8 +291,10 @@ export class SessionView {
       : undefined
   }
 
-  async overlay(sessionId: SessionId): Promise<SessionUserOverlay> {
-    return await this.ports.state.overlay((await this.broadcastViewer()), sessionId)
+  /** `userId`'s personal state on one session. Sessions are private, so the
+   *  only person with state worth reading is the owner (POD-6285). */
+  async overlay(userId: UserId, sessionId: SessionId): Promise<SessionUserOverlay> {
+    return await this.ports.state.overlay(userId, sessionId)
   }
 
   /**

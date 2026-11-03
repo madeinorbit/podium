@@ -35,18 +35,16 @@ import { machinePathBasename } from '@podium/model'
  * WHAT THIS MODULE DOES NOT DECIDE
  * ---------------------------------------------------------------------------
  *
- * WHOSE preferences a spawning read uses. `settingsViewer` arrives as a port and
- * stays owned by `SessionLifecycle`, which has five callers for it. It resolves
- * to `firstAdminMemberId()` today and POD-315 replaces that with the requesting
- * principal; this module needs no change when it does.
+ * WHOSE preferences a spawning read uses: always the session's owner, the
+ * person it runs for (POD-6285). There is no "settings viewer" any more.
  *
- * The two `?? firstAdminMemberId()` fallbacks below ARE ambient-principal sites,
- * and they moved here from `lifecycle.ts` rather than being created. The census
- * (`bun run audit:ambient-principals`) counts USAGE and reads the delta, so a
- * move like this is 0 and only a genuinely NEW default is +1.
+ * The two owner fallbacks below (`soleMemberFor`) serve only legacy in-process
+ * callers that name no owner: on a one-person instance they answer that
+ * person, and once a second member exists they refuse.
  */
 
 import { randomUUID } from 'node:crypto'
+import { soleMemberFor } from '../../sole-member'
 import type { Attribution, ResumeRef } from '@podium/model'
 import {
   type AccountId,
@@ -54,7 +52,6 @@ import {
   type AgentSetupFields,
   asMachineId,
   asSessionId,
-  firstAdminMemberId,
   type IssueId,
   type MachineId,
   type SessionId,
@@ -123,8 +120,6 @@ export interface SessionStartPorts {
   state: SessionStateService
   launchConfig: SessionLaunchConfig
   terminalProof: SessionTerminalProof
-  /** Whose preferences a spawning read uses. NOT this module's decision. */
-  settingsViewer(): UserId | Promise<UserId>
   durableLabelFor(sessionId: SessionId): string | Promise<string>
   /** Narrow session-registry access. Deliberately not the raw Map: this module
    *  needs exactly these three operations, and widening the shared map's reach
@@ -317,6 +312,29 @@ export class SessionStart {
     onDraft: (issueId: IssueId) => void,
   ): Promise<SessionSpawnResult> {
     if (process.env.PODIUM_REHEARSAL === '1') throw new Error('Session spawn disabled during upgrade rehearsal')
+    // A SESSION BELONGS TO WHOEVER STARTED IT (design §2.3, POD-6283): the
+    // binding's on-behalf-of human, else the authenticated starter. The task it
+    // sits on does not change that: Bob's agent on Alice's task is Bob's. The
+    // final fallback exists only for legacy in-process callers with neither:
+    // the sole member, refused once there are two (POD-6285).
+    //
+    // Resolved FIRST, because every preference this start reads below (default
+    // harness, model and effort) is the owner's: Bob's spawn uses Bob's
+    // preferences, never the first admin's (POD-6285).
+    const bindingOwner =
+      input.binding?.principal.kind === 'user'
+        ? input.binding.principal.userId
+        : input.binding?.principal.kind === 'agent'
+          ? (await this.ports.store.sessions.getSession(input.binding.principal.parentBindingId))
+              ?.delegation?.onBehalfOf
+          : undefined
+    const ownerUserId =
+      bindingOwner ??
+      input.ownerUserId ??
+      (await soleMemberFor(this.ports.store.users, 'a session start'))
+    // Read only when a default is needed, as the old per-site reads were.
+    let ownerSettingsRead: ReturnType<SessionStore['settings']['getSettingsFor']> | undefined
+    const ownerSettings = () => (ownerSettingsRead ??= this.ports.store.settings.getSettingsFor(ownerUserId))
     // THE PROFILE, RESOLVED ONCE (POD-6107): profile candidates with the
     // caller's fields on top, first usable one wins. A caller that already
     // vetted a launchSelection (issue start / add-session) resolved it itself;
@@ -349,10 +367,7 @@ export class SessionStart {
     const requested = AgentKind.safeParse(requestedAgentKind)
     const agentKind = requested.success
       ? requested.data
-      : resolveRole(
-          await this.ports.store.settings.getSettingsFor(await this.ports.settingsViewer()),
-          'coding',
-        ).harness
+      : resolveRole(await ownerSettings(), 'coding').harness
     // Resolve the target machine before model validation — the catalog is
     // machine-keyed (POD-1123), so we validate against THIS spawn's host.
     if (input.loginHarness && agentKind !== 'shell') {
@@ -380,7 +395,7 @@ export class SessionStart {
       // The profile's values are INHERITED, like an issue's stored picks: one the
       // catalog does not know falls back to `auto` instead of refusing the start.
       ...(inheritedSelection ? { issueProfile: inheritedSelection } : {}),
-      settings: await this.ports.store.settings.getSettingsFor(await this.ports.settingsViewer()),
+      settings: await ownerSettings(),
       catalog: await this.ports.store.settings.getModelCatalog(machineId),
       force: input.forceUnknownModel,
     })
@@ -415,19 +430,6 @@ export class SessionStart {
     // stages them on the agent's machine at delivery (POD-2148).
     const useArgv =
       taskPrompt !== undefined && !initialAttachments && harnessSupportsInitialPrompt(agentKind)
-    // A SESSION BELONGS TO WHOEVER STARTED IT (design §2.3, POD-6283): the
-    // binding's on-behalf-of human, else the authenticated starter. The task it
-    // sits on does not change that: Bob's agent on Alice's task is Bob's. The
-    // final fallback exists only for legacy in-process callers with neither.
-    const bindingOwner =
-      input.binding?.principal.kind === 'user'
-        ? input.binding.principal.userId
-        : input.binding?.principal.kind === 'agent'
-          ? (await this.ports.store.sessions.getSession(input.binding.principal.parentBindingId))
-              ?.delegation?.onBehalfOf
-          : undefined
-    const ownerUserId =
-      bindingOwner ?? input.ownerUserId ?? (await firstAdminMemberId(this.ports.store))
     // THE BINDING PRINCIPAL, RESOLVED ONCE (POD-1516). It was previously built
     // inline at the `binding:` key below; hoisting it is what lets the durable
     // attribution pair and the daemon binding come from THE SAME identity rather
@@ -575,7 +577,12 @@ export class SessionStart {
     const machineId = input.machineId
       ? asMachineId(input.machineId)
       : await this.ports.defaultMachine()
-    const ownerUserId = input.ownerUserId ?? (await firstAdminMemberId(this.ports.store))
+    const ownerUserId =
+      input.ownerUserId ?? (await soleMemberFor(this.ports.store.users, 'a session spawn'))
+    // The owner's preferences, never the first admin's (POD-6285); read only
+    // when a default is needed, as the old per-site reads were.
+    let ownerSettingsRead: ReturnType<SessionStore['settings']['getSettingsFor']> | undefined
+    const ownerSettings = () => (ownerSettingsRead ??= this.ports.store.settings.getSettingsFor(ownerUserId))
     this.ports.onSpawnTargetLogin?.({
       machineId,
       agentKind: input.agentKind,
@@ -584,11 +591,11 @@ export class SessionStart {
     const selection = input.launchSelection ?? resolveLaunchSelection({
       agentKind: input.agentKind,
       explicit: { model: input.model ?? 'auto', effort: input.effort ?? 'auto' },
-      settings: await this.ports.store.settings.getSettingsFor(await this.ports.settingsViewer()),
+      settings: await ownerSettings(),
       catalog: await this.ports.store.settings.getModelCatalog(machineId),
     })
     const launch = {
-      ...await this.ports.launchConfig.modelDefaults(input.agentKind),
+      ...await this.ports.launchConfig.modelDefaults(input.agentKind, ownerUserId),
       ...(selection.model !== 'auto' && input.agentKind !== 'shell' ? { model: selection.model } : {}),
       ...(selection.effort !== 'auto' && harnessSupportsEffort(input.agentKind)
         ? { effort: selection.effort }
@@ -600,8 +607,7 @@ export class SessionStart {
     const inheritedAccountId =
       input.agentKind === 'shell'
         ? undefined
-        : resolveRole(await this.ports.store.settings.getSettingsFor(ownerUserId), 'coding')
-            .accountId
+        : resolveRole(await ownerSettings(), 'coding').accountId
     // The harness-login rule lives in ONE place (POD-4827 review 2):
     // `selectHarnessAccountId` — the superagent's headless establishment
     // calls the same function with its superagent-or-coding preference, so

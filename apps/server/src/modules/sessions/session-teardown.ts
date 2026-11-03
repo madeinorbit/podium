@@ -252,10 +252,11 @@ export class SessionTeardown {
   ): Promise<'applied' | 'precondition' | 'not-due'> {
     const session = this.ports.sessions.get(observed.sessionId)
     if (!session || session.archived) return 'precondition'
-    // WHOSE read (POD-1229) — see `IssueAttention.tryAutoArchiveObserved` for the
-    // reasoning. `archived` is shared, so only the viewer this service archives
-    // for may gate it, and a proposal naming anyone else is refused outright.
-    if (observed.readerUserId !== (await this.ports.view.broadcastViewer())) return 'precondition'
+    // WHOSE read (POD-1229). A session is private (POD-6283), so the one person
+    // whose read can mean "done with it" is its owner, never the first admin,
+    // who cannot read another member's session at all (POD-6285). A proposal
+    // naming anyone else is refused outright.
+    if (observed.readerUserId !== session.ownerUserId) return 'precondition'
     // NO compare-and-swap against an observed timestamp (POD-1229 removed it),
     // and no `readAt == null` clause here either: both cases the CAS caught are
     // refused by the checks below — a re-read lands inside the `not-due` window,
@@ -269,7 +270,9 @@ export class SessionTeardown {
       return 'precondition'
     }
     const stoppedMs = Date.parse(session.stoppedAt ?? '')
-    const readMs = Date.parse((await this.ports.view.overlay(observed.sessionId)).readAt ?? '')
+    const readMs = Date.parse(
+      (await this.ports.view.overlay(session.ownerUserId, observed.sessionId)).readAt ?? '',
+    )
     if (!Number.isFinite(stoppedMs) || !Number.isFinite(readMs) || readMs < stoppedMs) {
       return 'precondition'
     }

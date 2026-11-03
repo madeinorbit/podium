@@ -79,6 +79,56 @@ const observation = (sessionId: SessionId, readerUserId: string) => ({
   archived: false as const,
 })
 
+describe('a member’s own read retires their session, not the first admin’s (POD-6285)', () => {
+  it('applies the owner’s read and refuses the first admin’s on a second member’s session', async () => {
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    registries.push(reg)
+    await attachHostDaemon(reg, (msg) => {
+      if (msg.type !== 'repoOpRequest') return
+      queueMicrotask(() =>
+        reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+          type: 'repoOpResult',
+          requestId: msg.requestId,
+          ok: true,
+          output: '',
+        }),
+      )
+    })
+    const bob = asUserId('mem_auto_archive_bob')
+    await reg.sessionStore.users.createUnclaimed({
+      id: bob,
+      displayName: 'Bob',
+      email: 'bob@example.test',
+      role: 'member',
+      createdAt: new Date().toISOString(),
+      disabledAt: null,
+    })
+    const { sessionId } = await reg.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/r',
+      ownerUserId: bob,
+    })
+    await reg.modules.issueSessionLifecycle.stopSession({ sessionId })
+    await reg.modules.sessions.markSessionRead(bob, sessionId)
+    const stoppedAt = (await reg.sessionStore.sessions.getSession(sessionId))?.stoppedAt ?? ''
+    const later = Date.parse(stoppedAt) + 8 * DAY_MS
+    // The first admin cannot read Bob's session, so their read means nothing.
+    expect(
+      await reg.modules.sessions.tryAutoArchiveStoppedObserved(
+        { ...observation(sessionId, firstAdminMemberId()), stoppedAt },
+        later,
+      ),
+    ).toBe('precondition')
+    // Bob's own read retires it. Without the fix only the first admin's counted.
+    expect(
+      await reg.modules.sessions.tryAutoArchiveStoppedObserved(
+        { ...observation(sessionId, bob), stoppedAt },
+        later,
+      ),
+    ).toBe('applied')
+  })
+})
+
 describe('SessionService.tryAutoArchiveStoppedObserved — whose read (POD-1229)', () => {
   it('APPLIES an observation naming the viewer it archives for', async () => {
     // Says YES first, on the same fixture every refusal below uses.

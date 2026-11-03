@@ -280,7 +280,10 @@ export class SuperagentRepository {
     return this.rootDb
   }
 
-  /** Per-boot heal: idempotent seed of the always-there 'global' thread. */
+  /** Per-boot heal: idempotent seed of the always-there 'global' thread.
+   *  BOOTSTRAP (POD-6285): with no owner given, the bare id is seeded for the
+   *  first admin, the install's original person; other members get their own
+   *  `global:<member>` thread on first use. */
   async seedGlobalThread(ownerUserId?: UserId): Promise<void> {
     ownerUserId ??= await firstAdminMemberId({ users: this.users })
     const saNow = new Date().toISOString()

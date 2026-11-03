@@ -854,6 +854,7 @@ describe('session handoff orchestration', () => {
       agentKind: 'claude-code',
       cwd: '/source/repo',
       machineId: asMachineId('m2'),
+      owner: firstAdminMemberId(),
     })
     const targetRepo = (await store.repos.listRepos(asMachineId('m2')))[0]
     expect(prepared).toEqual({ cwd: targetRepo?.path, machineId: 'm2' })

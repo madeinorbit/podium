@@ -360,7 +360,8 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
   }
 
   const svc = new MessageDeliveryService({
-      firstAdminMemberId: () => firstAdminMemberId(store),
+      soleActiveMember: async () => (await store.users.soleActiveMember())?.id as never,
+      legacyRowOwner: () => firstAdminMemberId(store),
     messages: store.messages,
     notificationFacts: store.notificationFacts,
     events: store.events,

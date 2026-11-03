@@ -256,7 +256,19 @@ export interface DeliveryContradiction {
 }
 
 export interface MessageDeliveryDeps {
-  firstAdminMemberId(): Promise<import('@podium/model').UserId>
+  /**
+   * Who a LIVE sender with no attribution acts for: the instance's only active
+   * member, or `undefined` when there are none or several (POD-6285). Every
+   * production sender attributes itself; this keeps a one-member instance's
+   * older call shapes working and refuses them once a second person exists.
+   */
+  soleActiveMember(): Promise<import('@podium/model').UserId | undefined>
+  /**
+   * RECOVERY: the human a STORED row with no attribution is read as. Such rows
+   * predate per-message attribution, when the instance had one person, its
+   * first admin. Used only to read those rows, never to stamp a new one.
+   */
+  legacyRowOwner(): Promise<import('@podium/model').UserId>
   messages: MessagesRepository
   notificationFacts: NotificationFactsRepository
   events: EventsRepository
@@ -3054,16 +3066,31 @@ export class MessageDeliveryService {
     })
   }
 
-  private async authorityOf(from: MessageSender): Promise<{
+  private async authorityOf(
+    from: MessageSender,
+    stored: 'live' | 'legacy-row' = 'live',
+  ): Promise<{
     attribution: Attribution
     delegationRef: string | null
   }> {
     if (from.attribution) {
       return { attribution: from.attribution, delegationRef: from.delegationRef ?? null }
     }
+    // No attribution: never "the first admin" for a live send (POD-6285). Only a
+    // stored legacy row is read as the person who was then the only one.
+    const human = async () => {
+      if (stored === 'legacy-row') return await this.deps.legacyRowOwner()
+      const sole = await this.deps.soleActiveMember()
+      if (!sole) {
+        throw new Error(
+          `a ${from.kind} message sender carries no attribution, and this instance has more than one member`,
+        )
+      }
+      return sole
+    }
     switch (from.kind) {
       case 'operator': {
-        const owner = await this.deps.firstAdminMemberId()
+        const owner = await human()
         return {
           attribution: {
             actor: actorUser(owner),
@@ -3076,7 +3103,7 @@ export class MessageDeliveryService {
         return {
           attribution: {
             actor: actorAgent(asAgentIdentityId(SUPERAGENT_AGENT_IDENTITY)),
-            onBehalfOf: (await this.deps.firstAdminMemberId()),
+            onBehalfOf: await human(),
           },
           delegationRef: SUPERAGENT_AGENT_IDENTITY,
         }
@@ -3085,7 +3112,7 @@ export class MessageDeliveryService {
         return {
           attribution: {
             actor: actorAgent(asAgentIdentityId(actorId)),
-            onBehalfOf: (await this.deps.firstAdminMemberId()),
+            onBehalfOf: await human(),
           },
           delegationRef: from.sessionId ?? null,
         }
@@ -3113,7 +3140,8 @@ export class MessageDeliveryService {
                 ...(message.fromIssue ? { issueId: message.fromIssue } : {}),
                 ...(message.fromSession ? { sessionId: message.fromSession } : {}),
               }
-    const attribution = message.attribution ?? (await this.authorityOf(legacySender)).attribution
+    const attribution =
+      message.attribution ?? (await this.authorityOf(legacySender, 'legacy-row')).attribution
     const actor = attribution.actor
     return {
       kind: actor.kind === 'user' ? 'user' : actor.kind === 'agent' ? 'agent' : 'system',

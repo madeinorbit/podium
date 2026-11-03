@@ -169,7 +169,8 @@ describe('wake → spawn → first prompt (service integration)', () => {
     const queued: { sessionId: SessionId; text: string }[] = []
     const interrupted: { sessionId: SessionId; text: string }[] = []
     const deps: MessageDeliveryDeps = {
-      firstAdminMemberId: () => firstAdminMemberId(store),
+      soleActiveMember: async () => (await store.users.soleActiveMember())?.id as never,
+      legacyRowOwner: () => firstAdminMemberId(store),
       messages: store.messages,
       notificationFacts: store.notificationFacts,
       events: store.events,
