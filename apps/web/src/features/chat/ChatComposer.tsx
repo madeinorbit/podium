@@ -233,9 +233,9 @@ export const ChatComposer = observer(function ChatComposer({
   onBackendEffortChange?: (effort: string) => void
   /** A task session's model · effort chip (POD-6264): a menu where the driver
    *  can switch models mid-conversation, a readout with its reason elsewhere.
-   *  Rides the field's row on a wide desktop box, and the floor under the well
-   *  where the row is too narrow to share. Hidden while replying to mail, which
-   *  no model answers. */
+   *  The wide box gives it a foot row inside the well, beside the cluster, so
+   *  the field keeps its whole width; the narrow dock puts it under the well.
+   *  Hidden while replying to mail, which no model answers. */
   modelControl?: ReactNode
 }): JSX.Element {
   const lastInterruptEscapeAt = useRef<number | null>(null)
@@ -432,6 +432,20 @@ export const ChatComposer = observer(function ChatComposer({
    * last one, so a wide pane wrapped a prompt three lines early and the box read
    * as narrower than the pane it sits in.
    */
+  // The wide box carries a task session's model chip on a foot row of its own
+  // (POD-6264); the narrow dock puts it under the well instead.
+  const footRow = !compact && Boolean(modelControl)
+  const chord = !compact && !isMobile && (
+    <span className="composer-chord" aria-hidden="true">
+      {/* ⌘ is drawn, not typed: Geist has no glyph for it, and the
+          fallback face sets it heavier and lower than the letter. */}
+      {chordKeys().map((key) => (
+        <kbd key={key}>
+          {key === '⌘' ? <Command size={10} strokeWidth={2.25} aria-hidden="true" /> : key}
+        </kbd>
+      ))}
+    </span>
+  )
   const actionCluster = (
     <div
       className={cn(
@@ -885,31 +899,27 @@ export const ChatComposer = observer(function ChatComposer({
                 onPaste={replying ? undefined : attachments.onPaste}
               />
             </div>
-            {!compact && !isMobile && (
-              <span className="composer-chord" aria-hidden="true">
-                {/* ⌘ is drawn, not typed: Geist has no glyph for it, and the
-                    fallback face sets it heavier and lower than the letter. */}
-                {chordKeys().map((key) => (
-                  <kbd key={key}>
-                    {key === '⌘' ? (
-                      <Command size={10} strokeWidth={2.25} aria-hidden="true" />
-                    ) : (
-                      key
-                    )}
-                  </kbd>
-                ))}
-              </span>
-            )}
-            {!replying && modelControl && !compact && !isMobile && (
-              <span className="flex min-w-0 max-w-[16rem] shrink self-end">{modelControl}</span>
-            )}
-            {/* ONE CALM LINE (POD-2076): the field and its attach · mic · send
-                cluster share a row in both modes; the cluster rides the last
-                line as the field grows. */}
-            {actionCluster}
+            {/* ONE CALM LINE (POD-2076): without a model chip the field and its
+                attach · mic · send cluster share a row; the cluster rides the
+                last line as the field grows. */}
+            {!footRow && chord}
+            {!footRow && actionCluster}
           </div>
           {!replying && (
             <AttachmentStrip attachments={attachments.attachments} onRemove={attachments.remove} />
+          )}
+          {/* THE FOOT (POD-6264), the new-task box's grammar: the model chip on
+              the left, the cluster on the right, under a field that keeps the
+              whole width. On the field's row the chip took the words' room, and
+              a long model name took most of it. */}
+          {footRow && (
+            <div className="mt-1.5 flex min-w-0 items-center gap-2" data-testid="composer-foot">
+              <div className="-ml-2 flex min-w-0 flex-1 items-center">
+                {!replying && modelControl}
+              </div>
+              {chord}
+              {actionCluster}
+            </div>
           )}
         </div>
       </div>
@@ -918,7 +928,7 @@ export const ChatComposer = observer(function ChatComposer({
           this component's layout effect. */}
       <SyncComposerDraft taRef={taRef} draft={draft} owner={autoFocusKey} />
       {compact && <PromptAutoGrow taRef={taRef} value={draft} />}
-      {!replying && modelControl && (compact || isMobile) && (
+      {!replying && modelControl && compact && (
         <div className="mt-1 flex min-w-0 items-center px-0.5">{modelControl}</div>
       )}
       {!replying && backend && onBackendModelChange && onBackendEffortChange && (

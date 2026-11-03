@@ -809,17 +809,35 @@ describe('native composer sizing', () => {
   })
 })
 
-// POD-6264: a task session's model chip rides the field's row in the wide
-// box, drops under the well in the narrow one, and leaves while replying to mail.
-it.each([
-  [false, 'row'],
-  [true, 'floor'],
-] as const)('places the model chip, compact=%s, on the %s', async (compact, where) => {
-  await mount({ compact, modelControl: <span data-testid="chip">Opus 5.5 · High</span> })
+// POD-6264: a task session's model chip sits on a foot row inside the wide box,
+// beside the cluster, so it never takes the field's width; the narrow dock puts
+// it under the well; it leaves while replying to mail.
+it('gives the wide box a foot row: chip left, cluster right, field above at full width', async () => {
+  await mount({ compact: false, modelControl: <span data-testid="chip">Opus 5.5 · High</span> })
+  const chip = container.querySelector('[data-testid="chip"]')
+  const foot = container.querySelector('[data-testid="composer-foot"]')
+  expect(foot?.contains(chip)).toBe(true)
+  expect(foot?.querySelector('button[title="Attach a file"]')).not.toBeNull()
+  // The field's row holds the field alone.
+  const field = container.querySelector('textarea')
+  expect(foot?.contains(field ?? null)).toBe(false)
+  expect(field?.closest('.flex')?.querySelector('button')).toBeNull()
+})
+
+it('keeps one calm line when there is no model chip', async () => {
+  await mount({ compact: false })
+  expect(container.querySelector('[data-testid="composer-foot"]')).toBeNull()
+  const field = container.querySelector('textarea')
+  expect(
+    field?.parentElement?.parentElement?.querySelector('button[title="Attach a file"]'),
+  ).not.toBeNull()
+})
+
+it('puts the model chip under the well in the narrow dock', async () => {
+  await mount({ compact: true, modelControl: <span data-testid="chip">Opus 5.5 · High</span> })
   const chip = container.querySelector('[data-testid="chip"]')
   expect(chip).not.toBeNull()
-  const well = container.querySelector('.chat-composer-well, .prompt-well')
-  expect(well?.contains(chip ?? null)).toBe(where === 'row')
+  expect(container.querySelector('.prompt-well')?.contains(chip)).toBe(false)
 })
 
 it('hides the model chip while replying to mail', async () => {

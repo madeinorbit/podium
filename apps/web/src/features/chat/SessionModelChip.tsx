@@ -115,7 +115,7 @@ const ConfigurableChip = observer(function ConfigurableChip({
           if (next !== model) void configure({ model: next })
         }}
       />
-      <span aria-hidden="true">·</span>
+      <span className="shrink-0" aria-hidden="true">·</span>
       <EffortPicker
         variant="inline"
         agentKind={agentKind}
@@ -123,7 +123,7 @@ const ConfigurableChip = observer(function ConfigurableChip({
         model={model}
         value={effort}
         disabled={session.configureFields?.includes('effort') !== true}
-        className="h-7 pr-2 pl-1 enabled:hover:text-text-strong"
+        className="h-7 shrink-0 pr-2 pl-1 enabled:hover:text-text-strong"
         onChange={(next) => {
           if (next !== effort) void configure({ effort: next })
         }}
