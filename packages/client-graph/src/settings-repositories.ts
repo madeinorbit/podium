@@ -1,17 +1,19 @@
 /**
- * SETTINGS → REPOSITORIES, ONE ROW PER REPOSITORY [POD-6267].
+ * SETTINGS → REPOSITORIES [POD-6267].
  *
- * The machines report one scan row per registered PATH, and a registered path
- * may be a root clone, a bare clone or a linked worktree. Listing those rows
- * as they arrived made the page a list of worktrees: a repository with forty
- * task worktrees read as forty repositories, each repeating the same prefix.
+ * A row is a REPOSITORY RECORD: the logical repo the server publishes (one per
+ * repo id, with its server-decided name, prefix and base branch). Nothing here
+ * decides which paths belong together; the server already did.
  *
- * This view groups the scans by the logical repository they belong to (the
- * server-stamped `repoId`; a scan without one stands alone), and inside a
- * repository separates its CHECKOUTS (the root clones, as a rule one per
- * machine) from the WORKTREES those checkouts have out. A registered worktree
- * whose root is not registered still shows, as a checkout, so nothing a
- * machine reports disappears from the page.
+ * Its CHECKOUTS are the registered paths the machines report for it, read
+ * through the pool's `repo → scans` relation. Only registered paths carry a
+ * repo id: the scanner also reports every linked worktree of a registered root
+ * as a scan of its own (harness discovery `withRegisteredWorktrees` →
+ * `toWorktreeRepository`), with no id, so those never reach this page as
+ * checkouts. A registered path that is itself a worktree of a registered root
+ * on the same machine is shown inside that root, not beside it.
+ *
+ * A checkout's WORKTREES are what git lists for it (`worktrees` on its scan).
  */
 import './requested-models'
 import './synced-models'
@@ -25,11 +27,10 @@ import type { ModelOf } from './models'
 import type { MobxPool } from './pool'
 import type { RepositoryModel } from './requested-models'
 
-/** A worktree as the page lists it: the scan's own entry, or a registered worktree row. */
+/** A worktree as git lists it for a checkout. */
 export type SettingsWorktree = Pick<GitWorktreeWire, 'path' | 'branch' | 'locked' | 'prunable'>
 
-/** What a row is keyed by: the logical repository, or a scan that has none. */
-type RowOwner = ModelOf['repo'] | RepositoryModel
+type RepoModel = ModelOf['repo']
 
 const byName = (a: SettingsRepository, b: SettingsRepository) =>
   a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) || a.key.localeCompare(b.key)
@@ -37,11 +38,11 @@ const byPath = (a: { path: string }, b: { path: string }) => a.path.localeCompar
 const placeKey = (machineId: string | undefined, path: string) =>
   `${machineId ?? ''}\u0000${machinePathKey(path)}`
 
-/** One checkout of a repository on one machine, and the worktrees it has out. */
+/** One checkout of a repository on one machine, and the worktrees git lists for it. */
 export class SettingsCheckout {
   constructor(
     readonly scan: RepositoryModel,
-    private readonly repository: SettingsRepository,
+    private readonly pool: MobxPool,
   ) {}
 
   // Place
@@ -58,7 +59,7 @@ export class SettingsCheckout {
   @lazy get bare(): boolean {
     return this.scan.kind === 'bare'
   }
-  /** A registered worktree standing in for a root no machine registered. */
+  /** A registered worktree whose root is not registered on its machine. */
   @lazy get linked(): boolean {
     return this.scan.kind === 'worktree'
   }
@@ -66,65 +67,54 @@ export class SettingsCheckout {
   // Machine
   @lazy get machineName(): string | null {
     const id = this.machineId
-    return id ? (here(this.repository.pool.model('machine', id))?.name ?? null) : null
+    return id ? (here(this.pool.model('machine', id))?.name ?? null) : null
   }
   /** `null` while the machine record is not resident. */
   @lazy get machineOnline(): boolean | null {
     const id = this.machineId
-    const machine = id ? here(this.repository.pool.model('machine', id)) : undefined
+    const machine = id ? here(this.pool.model('machine', id)) : undefined
     return machine ? machine.online === true : null
   }
 
   // Worktrees
-  /** The linked worktrees git lists for this checkout, plus registered worktree
-   *  rows on its machine that no checkout lists (the first checkout there takes them). */
+  /** The linked worktrees git lists for this checkout, by path. A worktree
+   *  checkout's own scan repeats its siblings, so it lists none. */
   @lazy({ equals: compareShallow }) get worktrees(): readonly SettingsWorktree[] {
-    const listed = this.scan.kind === 'worktree' ? [] : (this.scan.worktrees ?? [])
-    const strays = this.repository.straysFor(this)
-    if (!strays.length) return [...listed].sort(byPath)
-    const seen = new Set(listed.map((worktree) => machinePathKey(worktree.path)))
-    const extra = strays.flatMap((scan) =>
-      seen.has(machinePathKey(scan.path)) ? [] : [{ path: scan.path, branch: scan.branch }],
-    )
-    return [...listed, ...extra].sort(byPath)
+    return this.linked ? [] : [...(this.scan.worktrees ?? [])].sort(byPath)
   }
-  /** Worktrees whose directory is gone (`git worktree prune` would drop them). */
+  /** Worktrees whose folder is gone (`git worktree prune` would drop them). */
   @lazy get missingWorktreeCount(): number {
     return this.worktrees.reduce((count, worktree) => count + (worktree.prunable ? 1 : 0), 0)
   }
 }
 
-/** One logical repository: its prefix, its base branch and every checkout of it. */
+/** One repository record: its prefix, its base branch and its checkouts. */
 export class SettingsRepository {
-  readonly checkout = companion((scan: RepositoryModel) => new SettingsCheckout(scan, this))
+  readonly checkout = companion((scan: RepositoryModel) => new SettingsCheckout(scan, this.pool))
   constructor(
-    readonly owner: RowOwner,
-    private readonly section: SettingsRepositories,
-    readonly pool: MobxPool,
+    readonly repo: RepoModel,
+    private readonly pool: MobxPool,
   ) {}
 
   // Identity
-  /** Stable React key: the repo id, else the lone scan's id. */
   @lazy get key(): string {
-    return `${this.owner.entity}:${this.owner.id}`
+    return this.repo.id
   }
-  /** The logical repository; `null` for a scan the server has not given one yet. */
-  @lazy get repoId(): string | null {
-    return this.owner.entity === 'repo'
-      ? this.owner.id
-      : ((this.owner as RepositoryModel).repoId ?? null)
+  @lazy get repoId(): string {
+    return this.repo.id
   }
-  /** Every scan the machines report for this repository. */
+  /** Every registered path the machines report for this repository. */
   @lazy({ equals: compareShallow }) get scans(): RepositoryModel[] {
-    return this.section.scans.filter((scan) => this.section.ownerOf(scan) === this.owner)
+    return headerEntities(this.pool)
+      .members('repo', this.repo.id, 'scans')
+      .flatMap((id) => {
+        const scan = here(this.pool.model('repository', id))
+        return scan ? [scan] : []
+      })
   }
-  /** The repository's name as the server decided it [POD-6246]. A scan's own
-   *  guess stands in only while no name has arrived (an older server, or a
-   *  scan the server has not given a repo id yet). */
+  /** The server-decided name [POD-6246]; a checkout's own guess only until one arrives. */
   @lazy get name(): string {
-    const id = this.repoId
-    const named = id ? here(this.pool.model('repo', id))?.name : null
-    return named || ((this.checkouts[0]?.scan ?? this.scans[0])?.name ?? '')
+    return this.repo.name || (this.checkouts[0]?.scan.name ?? '')
   }
   /** The remote as people say it (`github.com/owner/repo`); `null` for a local-only repo. */
   @lazy get origin(): string | null {
@@ -137,59 +127,36 @@ export class SettingsRepository {
 
   // Settings
   @lazy get prefix(): string | null {
-    const id = this.repoId
-    return id ? (here(this.pool.model('repo', id))?.prefix ?? null) : null
+    return this.repo.prefix ?? null
   }
   /** The repo's base branch [POD-2065]; `null` defers to the Podium default. */
   @lazy get defaultParentBranch(): string | null {
-    const id = this.repoId
-    return id ? (here(this.pool.model('repo', id))?.defaultParentBranch ?? null) : null
+    return this.repo.defaultParentBranch ?? null
   }
 
   // Checkouts
-  /** Paths some scan of this repository lists as a linked worktree, per machine. */
-  @lazy({ equals: compareShallow }) get listedWorktrees(): string[] {
-    return this.scans.flatMap((scan) =>
-      scan.kind === 'worktree'
-        ? []
-        : (scan.worktrees ?? []).map((worktree) => placeKey(scan.machineId, worktree.path)),
-    )
-  }
-  /** Root and bare clones, by machine then path. A registered worktree on a
-   *  machine where no root of this repository is registered has nowhere to
-   *  nest, so it stands as a checkout itself. */
+  /** Registered paths, by machine then path, leaving out a registered worktree
+   *  that a registered root on the same machine already lists. */
   @lazy({ equals: compareShallow }) get checkouts(): SettingsCheckout[] {
-    const roots = this.scans.filter((scan) => scan.kind !== 'worktree')
-    const rooted = new Set(roots.map((scan) => scan.machineId ?? null))
-    const listed = new Set(this.listedWorktrees)
-    const loose = this.scans.filter(
-      (scan) =>
-        scan.kind === 'worktree' &&
-        !rooted.has(scan.machineId ?? null) &&
-        !listed.has(placeKey(scan.machineId, scan.path)),
+    const listed = new Set(
+      this.scans.flatMap((scan) =>
+        scan.kind === 'worktree'
+          ? []
+          : (scan.worktrees ?? []).map((tree) => placeKey(scan.machineId, tree.path)),
+      ),
     )
-    return [...roots, ...loose]
+    return this.scans
+      .filter(
+        (scan) => !(scan.kind === 'worktree' && listed.has(placeKey(scan.machineId, scan.path))),
+      )
       .map((scan) => this.checkout(scan))
       .sort(
         (a, b) =>
           (a.machineName ?? '').localeCompare(b.machineName ?? '') || a.path.localeCompare(b.path),
       )
   }
-  /** Registered worktree rows on `checkout`'s machine that are not themselves a
-   *  checkout. Only the first checkout on that machine takes them. */
-  straysFor(checkout: SettingsCheckout): RepositoryModel[] {
-    const first = this.checkouts.find((row) => row.machineId === checkout.machineId)
-    if (first !== checkout) return []
-    const shown = new Set(this.checkouts.map((row) => row.scan))
-    return this.scans.filter(
-      (scan) =>
-        scan.kind === 'worktree' &&
-        !shown.has(scan) &&
-        (scan.machineId ?? null) === checkout.machineId,
-    )
-  }
-  /** The checkout a settings write names (the server resolves its repository
-   *  from it): one on an online machine when there is one. */
+  /** The checkout a settings write names (the server authorizes it against that
+   *  checkout's machine): one on an online machine when there is one. */
   @lazy get writeCheckout(): SettingsCheckout | null {
     return (
       this.checkouts.find((checkout) => checkout.machineOnline !== false) ??
@@ -202,20 +169,15 @@ export class SettingsRepository {
   }
 }
 
-/** The Repositories settings page: every repository any machine reports, by name. */
+/** The Repositories settings page: every repository a machine reports a checkout of, by name. */
 export class SettingsRepositories {
-  readonly row = companion((owner: RowOwner) => new SettingsRepository(owner, this, this.pool))
+  // Typed explicitly: the inferred companion type would make declaration emit
+  // spell out the repo model's internal class, which it cannot name.
+  readonly row: (repo: RepoModel) => SettingsRepository = companion(
+    (repo: RepoModel) => new SettingsRepository(repo, this.pool),
+  )
   constructor(private readonly pool: MobxPool) {}
 
-  /** Every scan row, in the feed's order. */
-  @lazy({ equals: compareShallow }) get scans(): RepositoryModel[] {
-    return (
-      headerEntities(this.pool).orders.get('repository') ?? [...this.pool.tables.repository.keys()]
-    ).flatMap((id) => {
-      const model = here(this.pool.model('repository', id))
-      return model ? [model] : []
-    })
-  }
   /** Whether the machines' repository list has arrived. Before it has, an
    *  empty list means "not yet", never "none". */
   @lazy get loaded(): boolean {
@@ -223,20 +185,15 @@ export class SettingsRepositories {
       headerEntities(this.pool).orders.has('repository') || this.pool.tables.repository.size > 0
     )
   }
-  /** The row a scan belongs to: its logical repository when that record is
-   *  resident, else the first scan reporting the same repo id, else itself. */
-  ownerOf(scan: RepositoryModel): RowOwner {
-    const id = scan.repoId
-    if (!id) return scan
-    return (
-      here(this.pool.model('repo', id)) ?? this.scans.find((other) => other.repoId === id) ?? scan
-    )
-  }
-  /** One row per repository, by name. */
+  /** One row per repository record that has a checkout, by name. */
   @lazy({ equals: compareShallow }) get rows(): SettingsRepository[] {
-    const owners = new Set<RowOwner>()
-    for (const scan of this.scans) owners.add(this.ownerOf(scan))
-    return [...owners].map((owner) => this.row(owner)).sort(byName)
+    return [...this.pool.tables.repo.keys()]
+      .flatMap((id) => {
+        const repo = here(this.pool.model('repo', id))
+        return repo ? [this.row(repo)] : []
+      })
+      .filter((row) => row.checkouts.length > 0)
+      .sort(byName)
   }
   dispose() {}
 }

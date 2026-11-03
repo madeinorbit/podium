@@ -65,23 +65,9 @@ function scans(scene: SceneName): GitRepositoryWire[] {
     branch: 'main',
     worktrees: [...taskWorktrees, { path: '/home/mgw/src/other/podium-dev-mw', branch: 'dev/mw' }],
   }
-  // What the old page listed as repositories: every worktree the user had
-  // registered, each its own scan row.
-  const registered = taskWorktrees.slice(0, 9).map(
-    (worktree): GitRepositoryWire => ({
-      kind: 'worktree',
-      machineId: ludovico,
-      repoId: podium,
-      originUrl: ORIGIN,
-      path: worktree.path,
-      branch: worktree.branch,
-      worktrees: [],
-    }),
-  )
-  if (scene === 'single') return [root, ...registered]
-  return [
+  if (scene === 'single') return withScannedWorktrees([root])
+  return withScannedWorktrees([
     root,
-    ...registered,
     {
       kind: 'repository',
       machineId: flatblock,
@@ -119,7 +105,30 @@ function scans(scene: SceneName): GitRepositoryWire[] {
       branch: 'main',
       worktrees: [],
     },
-  ]
+  ])
+}
+
+/**
+ * What `scanReposAll` publishes beside each registered root: the scanner also
+ * reports every linked worktree as a scan of its own (harness discovery
+ * `withRegisteredWorktrees` -> `toWorktreeRepository`): path, branch, the root's
+ * remote, and no repo id, because only the registered root gets one. This is
+ * the shape the old page listed as dozens of repositories.
+ */
+function withScannedWorktrees(roots: GitRepositoryWire[]): GitRepositoryWire[] {
+  return roots.flatMap((root) => [
+    root,
+    ...(root.kind === 'worktree' ? [] : root.worktrees).map(
+      (tree): GitRepositoryWire => ({
+        kind: 'worktree',
+        ...(root.machineId ? { machineId: root.machineId } : {}),
+        path: tree.path,
+        ...(tree.branch ? { branch: tree.branch } : {}),
+        ...(root.originUrl ? { originUrl: root.originUrl } : {}),
+        worktrees: [],
+      }),
+    ),
+  ])
 }
 
 function buildPool(scene: SceneName): MobxPool | null {

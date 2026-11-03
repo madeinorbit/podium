@@ -60,9 +60,13 @@ it('measures the mounted settings sections at 1x and 4x', async () => {
       online: true,
       appVersion: '1.0.0',
     }))
+    // Registered roots as `scanReposAll` publishes them: the server stamps the
+    // repo id and machine on every registered path (POD-6267).
     const repos = Array.from({ length: 8 * scale }, (_, i) => ({
       path: `/project-${i}`,
       kind: 'repository',
+      machineId: `machine-${i % machines.length}`,
+      repoId: `repo-${i}`,
       worktrees: [],
     }))
     const devices = Array.from({ length: 8 * scale }, (_, i) => ({
@@ -107,6 +111,21 @@ it('measures the mounted settings sections at 1x and 4x', async () => {
     })
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() })
     seam.pool = pool
+    // The logical repo records the replica carries beside those scans.
+    pool.apply({
+      type: 'update',
+      rows: repos.map((row) => ({
+        kind: 'repo' as const,
+        id: row.repoId,
+        value: {
+          id: row.repoId,
+          name: row.path.slice(1),
+          prefix: null,
+          defaultParentBranch: null,
+          path: row.path,
+        } as never,
+      })),
+    })
     attachSettingsSource(pool, owner)
     attachPreferenceSource(pool, ui)
     const rowReads = vi.spyOn(pool, 'row')

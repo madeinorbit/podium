@@ -84,9 +84,9 @@ const PODIUM: GitRepositoryWire[] = [
     worktrees: [{ path: '/src/podium-12', branch: 'pod-12' }],
   },
   {
+    // The scanner's own scan of the root's worktree: the root's remote, no repo id.
     kind: 'worktree',
     machineId: ludovico,
-    repoId: podium,
     originUrl: ORIGIN,
     path: '/src/podium-12',
     branch: 'pod-12',

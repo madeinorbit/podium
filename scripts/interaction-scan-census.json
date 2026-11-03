@@ -31994,6 +31994,178 @@
     },
     {
       "file": "packages/client-graph/src/settings-repositories.ts",
+      "holder": "SettingsCheckout/worktrees",
+      "rule": "consume:sort",
+      "tokens": "f814dda0d16f51164da46d408d149281fbb4e9e3529c9df3686bd6deb97c345b",
+      "gate": [
+        "else:d086762c3434ca057f239bb4a8b431560ab81e4b7287c06b6005f402e0cbd503"
+      ],
+      "origin": [
+        "e602e20f8a483ca75fc91ff241dd28e6cea6342d6961b62edd9a4075c3f442c5"
+      ],
+      "fingerprint": "ae6839327e21b8a2c15d846fe8b2d86a37a7a1337d5cbd3cacb8d8e9e113490f",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6267",
+      "trigger": "The open Repositories settings section renders each repository record with its checkouts and worktrees.",
+      "bound": "One checkout's git worktree list.",
+      "reason": "Sorts the worktrees shown when the user opens that checkout's disclosure.",
+      "guard": "settings-repositories.test.ts builds scans the way scanReposAll publishes them (published(): registered root with repo id, the scanner's id-less worktree scans) and pins rows, checkouts and worktrees; settings-launch-records.parity.test.ts keeps the old two-scan fixture."
+    },
+    {
+      "file": "packages/client-graph/src/settings-repositories.ts",
+      "holder": "SettingsCheckout/worktrees",
+      "rule": "spread",
+      "tokens": "5d1a6e336e7e893c9a48330c32c042abfe84871c840fda070ed0dff0e975137d",
+      "gate": [
+        "else:d086762c3434ca057f239bb4a8b431560ab81e4b7287c06b6005f402e0cbd503"
+      ],
+      "origin": [
+        "e602e20f8a483ca75fc91ff241dd28e6cea6342d6961b62edd9a4075c3f442c5"
+      ],
+      "fingerprint": "b88d17c5862d5d4296bb4bc01654dc92dfe17f454519e09be8602a1511639568",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6267",
+      "trigger": "The open Repositories settings section renders each repository record with its checkouts and worktrees.",
+      "bound": "One checkout's git worktree list.",
+      "reason": "Sorts the worktrees shown when the user opens that checkout's disclosure.",
+      "guard": "settings-repositories.test.ts builds scans the way scanReposAll publishes them (published(): registered root with repo id, the scanner's id-less worktree scans) and pins rows, checkouts and worktrees; settings-launch-records.parity.test.ts keeps the old two-scan fixture."
+    },
+    {
+      "file": "packages/client-graph/src/settings-repositories.ts",
+      "holder": "SettingsRepositories/rows",
+      "rule": "consume:sort",
+      "tokens": "197836889b7f495e706b7fb611d30e1e2093ca147f3476377d0b8bfebe033181",
+      "gate": [],
+      "origin": [
+        "7654b081a84cabb4c22a79fa7cceda4fceee69b32ce9439062dea9c9fd4618c2",
+        "c3a9a082f5ebec898fe2b38ba9c28eb4012b2af4ef045e30f30f64bf951745db"
+      ],
+      "fingerprint": "0082ba6bcdf420167ed9cbd79d4b749b6f02fa5e04eba560947673f411dde288",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-6267",
+      "trigger": "The open Repositories settings section renders each repository record with its checkouts and worktrees.",
+      "bound": "The resident logical repo records (cold: never; one per repository the server knows), each kept only if a machine reports a registered checkout of it.",
+      "reason": "One row per repository record; the page reads the server's records instead of grouping scans.",
+      "guard": "settings-repositories.test.ts builds scans the way scanReposAll publishes them (published(): registered root with repo id, the scanner's id-less worktree scans) and pins rows, checkouts and worktrees; settings-launch-records.parity.test.ts keeps the old two-scan fixture."
+    },
+    {
+      "file": "packages/client-graph/src/settings-repositories.ts",
+      "holder": "SettingsRepositories/rows",
+      "rule": "spread",
+      "tokens": "778f72f2a41450b6e7c5c71e8484fbc1be68bbbc08c8a689b9c9795dad718501",
+      "gate": [],
+      "origin": [
+        "7654b081a84cabb4c22a79fa7cceda4fceee69b32ce9439062dea9c9fd4618c2",
+        "c3a9a082f5ebec898fe2b38ba9c28eb4012b2af4ef045e30f30f64bf951745db"
+      ],
+      "fingerprint": "1393e09af4ee368d4ca612543aaaf7223a8a4f459be66f778f4b42a3de55ff97",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-6267",
+      "trigger": "The open Repositories settings section renders each repository record with its checkouts and worktrees.",
+      "bound": "The resident logical repo records (cold: never; one per repository the server knows), each kept only if a machine reports a registered checkout of it.",
+      "reason": "One row per repository record; the page reads the server's records instead of grouping scans.",
+      "guard": "settings-repositories.test.ts builds scans the way scanReposAll publishes them (published(): registered root with repo id, the scanner's id-less worktree scans) and pins rows, checkouts and worktrees; settings-launch-records.parity.test.ts keeps the old two-scan fixture."
+    },
+    {
+      "file": "packages/client-graph/src/settings-repositories.ts",
+      "holder": "SettingsRepositories/rows",
+      "rule": "consume:flatMap",
+      "tokens": "f64fcd52c4377769964f17bb093bc5974893821e491837b020351e790a9f96f8",
+      "gate": [],
+      "origin": [
+        "7654b081a84cabb4c22a79fa7cceda4fceee69b32ce9439062dea9c9fd4618c2",
+        "c3a9a082f5ebec898fe2b38ba9c28eb4012b2af4ef045e30f30f64bf951745db"
+      ],
+      "fingerprint": "480b5e28375722e7655601e0470f3cf2bec64f61a95db243be6ed3a16dc892f8",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-6267",
+      "trigger": "The open Repositories settings section renders each repository record with its checkouts and worktrees.",
+      "bound": "The resident logical repo records (cold: never; one per repository the server knows), each kept only if a machine reports a registered checkout of it.",
+      "reason": "One row per repository record; the page reads the server's records instead of grouping scans.",
+      "guard": "settings-repositories.test.ts builds scans the way scanReposAll publishes them (published(): registered root with repo id, the scanner's id-less worktree scans) and pins rows, checkouts and worktrees; settings-launch-records.parity.test.ts keeps the old two-scan fixture."
+    },
+    {
+      "file": "packages/client-graph/src/settings-repositories.ts",
+      "holder": "SettingsRepositories/rows",
+      "rule": "consume:filter",
+      "tokens": "5583afad3e06694623c5db88d6c9e752ff78e2b2727709d475ec99791b10df46",
+      "gate": [],
+      "origin": [
+        "7654b081a84cabb4c22a79fa7cceda4fceee69b32ce9439062dea9c9fd4618c2",
+        "c3a9a082f5ebec898fe2b38ba9c28eb4012b2af4ef045e30f30f64bf951745db"
+      ],
+      "fingerprint": "73d36fec3b318a8867fb01c01248b55b6f144faf6f8b0691579a97b58a8c063f",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-6267",
+      "trigger": "The open Repositories settings section renders each repository record with its checkouts and worktrees.",
+      "bound": "The resident logical repo records (cold: never; one per repository the server knows), each kept only if a machine reports a registered checkout of it.",
+      "reason": "One row per repository record; the page reads the server's records instead of grouping scans.",
+      "guard": "settings-repositories.test.ts builds scans the way scanReposAll publishes them (published(): registered root with repo id, the scanner's id-less worktree scans) and pins rows, checkouts and worktrees; settings-launch-records.parity.test.ts keeps the old two-scan fixture."
+    },
+    {
+      "file": "packages/client-graph/src/settings-repositories.ts",
+      "holder": "SettingsRepositories/rows",
+      "rule": "enumerate:keys",
+      "tokens": "1d6c8daf525af0c41456769290d8a12a05ff9bc9ad182a61e9a01bcc79d9823d",
+      "gate": [],
+      "origin": [
+        "7654b081a84cabb4c22a79fa7cceda4fceee69b32ce9439062dea9c9fd4618c2"
+      ],
+      "fingerprint": "b8872a95fee05955652577f3d5d326cf9deb981f31d5ee0ae477c0da1780a143",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-6267",
+      "trigger": "The open Repositories settings section renders each repository record with its checkouts and worktrees.",
+      "bound": "The resident logical repo records (cold: never; one per repository the server knows), each kept only if a machine reports a registered checkout of it.",
+      "reason": "One row per repository record; the page reads the server's records instead of grouping scans.",
+      "guard": "settings-repositories.test.ts builds scans the way scanReposAll publishes them (published(): registered root with repo id, the scanner's id-less worktree scans) and pins rows, checkouts and worktrees; settings-launch-records.parity.test.ts keeps the old two-scan fixture."
+    },
+    {
+      "file": "packages/client-graph/src/settings-repositories.ts",
+      "holder": "SettingsRepository/checkouts/listed",
+      "rule": "materialize:Set",
+      "tokens": "a7b39498fdbed59aabec57c5a060cc65ff710d07e1fdb95e38ad4b4aee062923",
+      "gate": [],
+      "origin": [
+        "b4172522a818225f43a2e3491686fe30dfff5ea2a8f36cbe4258c3fb0797cb77"
+      ],
+      "fingerprint": "eb2f15c7ccf452f5ca8ed91a3a70950f107980379f11381e7d0b593e8d79212c",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6267",
+      "trigger": "The open Repositories settings section renders each repository record with its checkouts and worktrees.",
+      "bound": "One repository's registered scans and the worktree lists git reports for them.",
+      "reason": "Hides a registered worktree that a registered root on the same machine already lists, so it shows once, inside that root.",
+      "guard": "settings-repositories.test.ts builds scans the way scanReposAll publishes them (published(): registered root with repo id, the scanner's id-less worktree scans) and pins rows, checkouts and worktrees; settings-launch-records.parity.test.ts keeps the old two-scan fixture."
+    },
+    {
+      "file": "packages/client-graph/src/settings-repositories.ts",
+      "holder": "SettingsRepository/checkouts/listed/flatMap:callback",
+      "rule": "consume:map",
+      "tokens": "a13367e681547ee81700c7eaa0c5e6b23c353ca73d0688c5f0f0d66ceb2a0ffd",
+      "gate": [
+        "else:1c63cc3a3067bafe6a66af2792baeb91f714807c6b481c5903046010ce823d64"
+      ],
+      "origin": [
+        "b4172522a818225f43a2e3491686fe30dfff5ea2a8f36cbe4258c3fb0797cb77"
+      ],
+      "fingerprint": "14fbda4a07fa34a86bb8487cfdf171e9309412f111d1c72c8b61d4fe90cf0b17",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6267",
+      "trigger": "The open Repositories settings section renders each repository record with its checkouts and worktrees.",
+      "bound": "One registered root's worktree list.",
+      "reason": "Collects the worktree paths a root lists, for the hide-once rule above.",
+      "guard": "settings-repositories.test.ts builds scans the way scanReposAll publishes them (published(): registered root with repo id, the scanner's id-less worktree scans) and pins rows, checkouts and worktrees; settings-launch-records.parity.test.ts keeps the old two-scan fixture."
+    },
+    {
+      "file": "packages/client-graph/src/settings-repositories.ts",
       "holder": "SettingsCheckout/missingWorktreeCount",
       "rule": "consume:reduce",
       "tokens": "7587eb12d7566b7e82e24d5c3c40b369286ed94e03fee74ea55a13bbd03ba257",
@@ -32008,206 +32180,6 @@
       "trigger": "The open Repositories settings section renders each repository with its checkouts and worktrees.",
       "bound": "One checkout's worktree list.",
       "reason": "Counts worktrees whose folder is gone for the checkout line's '· N missing' note.",
-      "guard": "settings-repositories.test.ts pins the grouping (registered worktrees fold into their checkout, one checkout per machine, loose worktrees stand alone, live worktree arrival); settings-launch-records.parity.test.ts compares the old two-scan fixture."
-    },
-    {
-      "file": "packages/client-graph/src/settings-repositories.ts",
-      "holder": "SettingsCheckout/worktrees",
-      "rule": "spread",
-      "tokens": "156209e11514ddd1ae45c145182131de6949d7e2037aeafa213ec08bd892a1d6",
-      "gate": [
-        "then:241e0b2dbf24681fffcb74a2bbae62a83b855dcd81729967239126f2a3c3477b"
-      ],
-      "origin": [
-        "138809510fb7a5a484f388d7ce2ac48e7f0e0634f9c0905ae90a440d1eb5c95a"
-      ],
-      "fingerprint": "149a0fc91b8182950b63feabe269105174194ecddeb02920619a9c2000ca8129",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-6267",
-      "trigger": "The open Repositories settings section renders each repository with its checkouts and worktrees.",
-      "bound": "One checkout's own git worktree list plus the registered worktree scans on the same machine for the same repository.",
-      "reason": "Builds the worktree list shown only when the user opens that checkout's disclosure; sorted by path so the list is stable.",
-      "guard": "settings-repositories.test.ts pins the grouping (registered worktrees fold into their checkout, one checkout per machine, loose worktrees stand alone, live worktree arrival); settings-launch-records.parity.test.ts compares the old two-scan fixture."
-    },
-    {
-      "file": "packages/client-graph/src/settings-repositories.ts",
-      "holder": "SettingsCheckout/worktrees",
-      "rule": "consume:sort",
-      "tokens": "e9410de7b6983bcab05a66008ece7865542ec87cd2e49b67505bcc27d9e822cf",
-      "gate": [
-        "then:241e0b2dbf24681fffcb74a2bbae62a83b855dcd81729967239126f2a3c3477b"
-      ],
-      "origin": [
-        "138809510fb7a5a484f388d7ce2ac48e7f0e0634f9c0905ae90a440d1eb5c95a"
-      ],
-      "fingerprint": "7ad02aabbd333ad692a59d9325cc0132d5e83d5eb8f28768eed52e1d65a1c48c",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-6267",
-      "trigger": "The open Repositories settings section renders each repository with its checkouts and worktrees.",
-      "bound": "One checkout's own git worktree list plus the registered worktree scans on the same machine for the same repository.",
-      "reason": "Builds the worktree list shown only when the user opens that checkout's disclosure; sorted by path so the list is stable.",
-      "guard": "settings-repositories.test.ts pins the grouping (registered worktrees fold into their checkout, one checkout per machine, loose worktrees stand alone, live worktree arrival); settings-launch-records.parity.test.ts compares the old two-scan fixture."
-    },
-    {
-      "file": "packages/client-graph/src/settings-repositories.ts",
-      "holder": "SettingsCheckout/worktrees",
-      "rule": "consume:sort",
-      "tokens": "786b466734472fd2786518c0fb5f9cd7a11ee96c751cb3170d20ad0765fbf27e",
-      "gate": [
-        "exit:then:241e0b2dbf24681fffcb74a2bbae62a83b855dcd81729967239126f2a3c3477b"
-      ],
-      "origin": [
-        "138809510fb7a5a484f388d7ce2ac48e7f0e0634f9c0905ae90a440d1eb5c95a"
-      ],
-      "fingerprint": "b50c4cc1bed7751bb1a62856ed8eda1220655838d75443519b30a67c6f53cdfa",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-6267",
-      "trigger": "The open Repositories settings section renders each repository with its checkouts and worktrees.",
-      "bound": "One checkout's own git worktree list plus the registered worktree scans on the same machine for the same repository.",
-      "reason": "Builds the worktree list shown only when the user opens that checkout's disclosure; sorted by path so the list is stable.",
-      "guard": "settings-repositories.test.ts pins the grouping (registered worktrees fold into their checkout, one checkout per machine, loose worktrees stand alone, live worktree arrival); settings-launch-records.parity.test.ts compares the old two-scan fixture."
-    },
-    {
-      "file": "packages/client-graph/src/settings-repositories.ts",
-      "holder": "SettingsCheckout/worktrees",
-      "rule": "spread",
-      "tokens": "156209e11514ddd1ae45c145182131de6949d7e2037aeafa213ec08bd892a1d6",
-      "gate": [
-        "exit:then:241e0b2dbf24681fffcb74a2bbae62a83b855dcd81729967239126f2a3c3477b"
-      ],
-      "origin": [
-        "138809510fb7a5a484f388d7ce2ac48e7f0e0634f9c0905ae90a440d1eb5c95a"
-      ],
-      "fingerprint": "bb99379fd8b219a4ed4eaa75fad4d0f85edba07d4e37239a0dd77feac8097e62",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-6267",
-      "trigger": "The open Repositories settings section renders each repository with its checkouts and worktrees.",
-      "bound": "One checkout's own git worktree list plus the registered worktree scans on the same machine for the same repository.",
-      "reason": "Builds the worktree list shown only when the user opens that checkout's disclosure; sorted by path so the list is stable.",
-      "guard": "settings-repositories.test.ts pins the grouping (registered worktrees fold into their checkout, one checkout per machine, loose worktrees stand alone, live worktree arrival); settings-launch-records.parity.test.ts compares the old two-scan fixture."
-    },
-    {
-      "file": "packages/client-graph/src/settings-repositories.ts",
-      "holder": "SettingsCheckout/worktrees/seen",
-      "rule": "materialize:Set",
-      "tokens": "539732b88a0a9b0afe48d343f088da6d6939d3aa20ce783462ec0c682a22a7e6",
-      "gate": [
-        "exit:then:241e0b2dbf24681fffcb74a2bbae62a83b855dcd81729967239126f2a3c3477b"
-      ],
-      "origin": [
-        "138809510fb7a5a484f388d7ce2ac48e7f0e0634f9c0905ae90a440d1eb5c95a"
-      ],
-      "fingerprint": "071065431697b800d28220442584628d7cb7a42997be4ca872815bca59bf0453",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-6267",
-      "trigger": "The open Repositories settings section renders each repository with its checkouts and worktrees.",
-      "bound": "One checkout's own git worktree list.",
-      "reason": "Deduplicates registered worktree scans against the paths git already lists for the checkout.",
-      "guard": "settings-repositories.test.ts pins the grouping (registered worktrees fold into their checkout, one checkout per machine, loose worktrees stand alone, live worktree arrival); settings-launch-records.parity.test.ts compares the old two-scan fixture."
-    },
-    {
-      "file": "packages/client-graph/src/settings-repositories.ts",
-      "holder": "SettingsCheckout/worktrees/seen",
-      "rule": "consume:map",
-      "tokens": "e36be58dbb0a2afcf5db5ea3c85c284b6d8b819e4c7e97e02d426a1c6704724a",
-      "gate": [
-        "exit:then:241e0b2dbf24681fffcb74a2bbae62a83b855dcd81729967239126f2a3c3477b"
-      ],
-      "origin": [
-        "138809510fb7a5a484f388d7ce2ac48e7f0e0634f9c0905ae90a440d1eb5c95a"
-      ],
-      "fingerprint": "646e04bb2c466a7a50994293c0d3c51b9100e85e3c6c78144f5600db6a880d5a",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-6267",
-      "trigger": "The open Repositories settings section renders each repository with its checkouts and worktrees.",
-      "bound": "One checkout's own git worktree list.",
-      "reason": "Deduplicates registered worktree scans against the paths git already lists for the checkout.",
-      "guard": "settings-repositories.test.ts pins the grouping (registered worktrees fold into their checkout, one checkout per machine, loose worktrees stand alone, live worktree arrival); settings-launch-records.parity.test.ts compares the old two-scan fixture."
-    },
-    {
-      "file": "packages/client-graph/src/settings-repositories.ts",
-      "holder": "SettingsRepositories/scans",
-      "rule": "consume:flatMap",
-      "tokens": "f29bf25cb644fe4ed8939e43737cbd17faf3d7ed2573e7ec3cdf72d711f1df23",
-      "gate": [],
-      "origin": [
-        "5e3b6138d3d8f40dc149d68294773ee1bc75cd86dd52bef38652a5ed40df1815",
-        "6fda081e4e50002db3c8961ff6929c47f60664c455c2ddc28e2c935a49180484"
-      ],
-      "fingerprint": "2d362cae27a5543e4c2a73ec568fb1e32660aff70cf14b0d7ba22098a330de68",
-      "count": 1,
-      "classification": "visible output",
-      "owner": "POD-6267",
-      "trigger": "The open Repositories settings section renders each repository with its checkouts and worktrees.",
-      "bound": "The declared registered scan order, or resident scan IDs before that order arrives: one row per registered path on the machines this user may see; no issue or session history.",
-      "reason": "The page's single acquisition: every scan model the machines report, read once and shared by every repository row through ownerOf; rows and checkouts filter this list instead of acquiring again.",
-      "guard": "settings-repositories.test.ts pins the grouping (registered worktrees fold into their checkout, one checkout per machine, loose worktrees stand alone, live worktree arrival); settings-launch-records.parity.test.ts compares the old two-scan fixture."
-    },
-    {
-      "file": "packages/client-graph/src/settings-repositories.ts",
-      "holder": "SettingsRepositories/scans",
-      "rule": "spread",
-      "tokens": "1e62156227d45d9cabd8cbf5476b0f73d2f1fe495835f4bc9b16d346ff93e74c",
-      "gate": [
-        "??:ca74da514d9b16ee2d64e05e921b959667db3b169d514b7c949499e5d60e9fa3"
-      ],
-      "origin": [
-        "5e3b6138d3d8f40dc149d68294773ee1bc75cd86dd52bef38652a5ed40df1815",
-        "6fda081e4e50002db3c8961ff6929c47f60664c455c2ddc28e2c935a49180484"
-      ],
-      "fingerprint": "80e0850692ff3ba0c36f067039f0a8b993c32b73068138f47ffe5595227e436d",
-      "count": 1,
-      "classification": "visible output",
-      "owner": "POD-6267",
-      "trigger": "The open Repositories settings section renders each repository with its checkouts and worktrees.",
-      "bound": "The declared registered scan order, or resident scan IDs before that order arrives: one row per registered path on the machines this user may see; no issue or session history.",
-      "reason": "The page's single acquisition: every scan model the machines report, read once and shared by every repository row through ownerOf; rows and checkouts filter this list instead of acquiring again.",
-      "guard": "settings-repositories.test.ts pins the grouping (registered worktrees fold into their checkout, one checkout per machine, loose worktrees stand alone, live worktree arrival); settings-launch-records.parity.test.ts compares the old two-scan fixture."
-    },
-    {
-      "file": "packages/client-graph/src/settings-repositories.ts",
-      "holder": "SettingsRepositories/scans",
-      "rule": "enumerate:keys",
-      "tokens": "bc096de72fae50389f4eb8223fb73d6b2caf011a02c6fb9865ad3bf0d37f8acf",
-      "gate": [
-        "??:ca74da514d9b16ee2d64e05e921b959667db3b169d514b7c949499e5d60e9fa3"
-      ],
-      "origin": [
-        "6fda081e4e50002db3c8961ff6929c47f60664c455c2ddc28e2c935a49180484"
-      ],
-      "fingerprint": "9aa06977721540e54e7c188010a59fd6d1640883bcbaf0c1c47ad8088cb29bc0",
-      "count": 1,
-      "classification": "visible output",
-      "owner": "POD-6267",
-      "trigger": "The open Repositories settings section renders each repository with its checkouts and worktrees.",
-      "bound": "The declared registered scan order, or resident scan IDs before that order arrives: one row per registered path on the machines this user may see; no issue or session history.",
-      "reason": "The page's single acquisition: every scan model the machines report, read once and shared by every repository row through ownerOf; rows and checkouts filter this list instead of acquiring again.",
-      "guard": "settings-repositories.test.ts pins the grouping (registered worktrees fold into their checkout, one checkout per machine, loose worktrees stand alone, live worktree arrival); settings-launch-records.parity.test.ts compares the old two-scan fixture."
-    },
-    {
-      "file": "packages/client-graph/src/settings-repositories.ts",
-      "holder": "SettingsRepository/listedWorktrees/flatMap:callback",
-      "rule": "consume:map",
-      "tokens": "0a7b0d5894888926cac11cc98c0cf0e10735b3ede94fcaf14e4418754eb03b69",
-      "gate": [
-        "else:1c63cc3a3067bafe6a66af2792baeb91f714807c6b481c5903046010ce823d64"
-      ],
-      "origin": [
-        "728d649e49571eee7eb03d7de52303aa986af3dcf2ec17efaf59d8f0e3f4d1c3"
-      ],
-      "fingerprint": "a6a236f38c7894198223a6dd01064a6d8be33ed42391268282fd94e3c6099974",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-6267",
-      "trigger": "The open Repositories settings section renders each repository with its checkouts and worktrees.",
-      "bound": "One repository's scans and the linked worktrees git lists for each of them (one machine's worktrees of one repository).",
-      "reason": "Places a registered worktree scan under the root that lists it, so it is shown as that root's worktree rather than as a repository.",
       "guard": "settings-repositories.test.ts pins the grouping (registered worktrees fold into their checkout, one checkout per machine, loose worktrees stand alone, live worktree arrival); settings-launch-records.parity.test.ts compares the old two-scan fixture."
     },
     {

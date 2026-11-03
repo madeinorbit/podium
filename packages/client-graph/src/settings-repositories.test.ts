@@ -7,9 +7,10 @@ import { MobxPool } from './pool'
 import { SettingsRepositories } from './settings-repositories'
 
 /**
- * POD-6267: Settings → Repositories lists REPOSITORIES. Every case below is a
- * shape the machines really report, and under the old one-row-per-scan list
- * each extra scan in it was a row of its own.
+ * POD-6267: Settings → Repositories lists REPOSITORY RECORDS, and takes their
+ * checkouts from what the machines publish. Every fixture below is built the way
+ * the producer builds it (see `published`), because the first two landings were
+ * tested on fixtures the producer never sends.
  */
 const ludovico = asMachineId('m-ludovico')
 const flatblock = asMachineId('m-flatblock')
@@ -17,27 +18,67 @@ const podium = asRepoId('repo-podium')
 const site = asRepoId('repo-site')
 const ORIGIN = 'git@github.com:acme/podium.git'
 
-function scene(scans: GitRepositoryWire[]) {
+type Repo = {
+  id: string
+  name?: string
+  prefix?: string | null
+  defaultParentBranch?: string | null
+}
+
+/**
+ * What `scanReposAll` publishes for one root on one machine. The scanner's
+ * `withRegisteredWorktrees` reports the root with its worktree list AND one
+ * `kind: 'worktree'` scan per linked worktree (`toWorktreeRepository`: path,
+ * branch, the root's origin). The server then stamps the repo id on REGISTERED
+ * paths only: the root when it is registered, and a worktree only when that
+ * worktree path was registered too.
+ */
+function published(
+  machineId: GitRepositoryWire['machineId'],
+  root: string,
+  options: {
+    repoId?: GitRepositoryWire['repoId']
+    originUrl?: string
+    trees?: string[]
+    registeredTrees?: string[]
+    kind?: GitRepositoryWire['kind']
+  },
+): GitRepositoryWire[] {
+  const { repoId, originUrl, trees = [], registeredTrees = [], kind = 'repository' } = options
+  const worktrees = trees.map((tree) => ({ path: `${root}-${tree}`, branch: `issue/${tree}` }))
+  return [
+    {
+      kind,
+      machineId,
+      path: root,
+      ...(kind === 'bare' ? {} : { branch: 'main' }),
+      ...(originUrl ? { originUrl } : {}),
+      ...(repoId ? { repoId } : {}),
+      worktrees,
+    },
+    ...worktrees.map(
+      (tree, i): GitRepositoryWire => ({
+        kind: 'worktree',
+        machineId,
+        path: tree.path,
+        branch: tree.branch,
+        ...(originUrl ? { originUrl } : {}),
+        ...(repoId && registeredTrees.includes(trees[i] as string) ? { repoId } : {}),
+        worktrees: [],
+      }),
+    ),
+  ]
+}
+
+function scene(repos: Repo[], scans: GitRepositoryWire[]) {
   const p = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
   p.apply({
     type: 'update',
-    rows: [
-      {
-        kind: 'repo',
-        id: podium,
-        value: {
-          id: podium,
-          prefix: 'POD',
-          defaultParentBranch: 'dev',
-          path: '/src/podium',
-        } as never,
-      },
-      {
-        kind: 'repo',
-        id: site,
-        value: { id: site, prefix: null, defaultParentBranch: null, path: '/src/site' } as never,
-      },
-    ],
+    rows: repos.map((repo) => ({
+      kind: 'repo' as const,
+      id: repo.id,
+      value: { prefix: null, defaultParentBranch: null, path: '/', ...repo } as never,
+    })),
   })
   headerEntities(p).apply([
     {
@@ -52,6 +93,10 @@ function scene(scans: GitRepositoryWire[]) {
     },
     ...scans.map((value, i) => ({ kind: 'repository' as const, id: `scan${i}`, value })),
   ])
+  headerEntities(p).order(
+    'repository',
+    scans.map((_, i) => `scan${i}`),
+  )
   return { p, section: new SettingsRepositories(p) }
 }
 
@@ -64,79 +109,46 @@ const shape = (section: SettingsRepositories) =>
     ),
   }))
 
-it('folds registered worktrees into their checkout and lists the repository once', () => {
-  const { p, section } = scene([
-    {
-      kind: 'repository',
-      machineId: ludovico,
+it('shows a registered root and the scanner’s scans of its worktrees as one repository', () => {
+  const { p, section } = scene(
+    [{ id: podium, name: 'podium', prefix: 'POD', defaultParentBranch: 'dev' }],
+    published(ludovico, '/src/podium', {
       repoId: podium,
       originUrl: ORIGIN,
-      path: '/src/podium',
-      branch: 'main',
-      worktrees: [
-        { path: '/src/podium-12', branch: 'pod-12' },
-        { path: '/src/podium-7', branch: 'pod-7', prunable: true },
-      ],
-    },
-    // Registered worktrees: one git lists, one it does not (a stale scan).
-    {
-      kind: 'worktree',
-      machineId: ludovico,
-      repoId: podium,
-      originUrl: ORIGIN,
-      path: '/src/podium-12',
-      branch: 'pod-12',
-      worktrees: [],
-    },
-    {
-      kind: 'worktree',
-      machineId: ludovico,
-      repoId: podium,
-      originUrl: ORIGIN,
-      path: '/src/podium-30',
-      branch: 'pod-30',
-      worktrees: [],
-    },
-  ])
+      trees: ['340', '389', '7'],
+    }),
+  )
   try {
     expect(shape(section)).toEqual([
       {
         name: 'podium',
         prefix: 'POD',
-        checkouts: ['ludovico:/src/podium[/src/podium-12,/src/podium-30,/src/podium-7]'],
+        checkouts: ['ludovico:/src/podium[/src/podium-340,/src/podium-389,/src/podium-7]'],
       },
     ])
     const [row] = section.rows
-    expect(row!.origin).toBe('github.com/acme/podium')
-    expect(row!.defaultParentBranch).toBe('dev')
-    expect(row!.worktreeCount).toBe(3)
-    expect(row!.checkouts[0]!.missingWorktreeCount).toBe(1)
-    expect(row!.checkouts[0]!.branch).toBe('main')
-    expect(row!.checkouts[0]!.machineOnline).toBe(true)
+    expect(row?.origin).toBe('github.com/acme/podium')
+    expect(row?.defaultParentBranch).toBe('dev')
+    expect(row?.worktreeCount).toBe(3)
+    expect(row?.checkouts[0]?.branch).toBe('main')
+    expect(row?.checkouts[0]?.machineOnline).toBe(true)
   } finally {
     p.dispose()
   }
 })
 
-it('shows one repository with a checkout per machine, by machine name', () => {
-  const { p, section } = scene([
-    {
-      kind: 'repository',
-      machineId: ludovico,
-      repoId: podium,
-      originUrl: ORIGIN,
-      path: '/src/podium',
-      worktrees: [],
-    },
-    {
-      kind: 'repository',
-      machineId: flatblock,
-      repoId: podium,
-      originUrl: ORIGIN,
-      path: '/home/u/podium',
-      worktrees: [{ path: '/home/u/podium-1' }],
-    },
-  ])
+it('lists one checkout per machine, by machine name, and writes through an online one', () => {
+  const { p, section } = scene(
+    [{ id: podium, name: 'podium', prefix: 'POD' }],
+    [
+      ...published(ludovico, '/src/podium', { repoId: podium, originUrl: ORIGIN }),
+      ...published(flatblock, '/home/u/podium', {
+        repoId: podium,
+        originUrl: ORIGIN,
+        trees: ['1'],
+      }),
+    ],
+  )
   try {
     expect(shape(section)).toEqual([
       {
@@ -145,113 +157,79 @@ it('shows one repository with a checkout per machine, by machine name', () => {
         checkouts: ['flatblock:/home/u/podium[/home/u/podium-1]', 'ludovico:/src/podium[]'],
       },
     ])
-    expect(section.rows[0]!.checkouts[0]!.machineOnline).toBe(false)
+    expect(section.rows[0]?.writeCheckout?.path).toBe('/src/podium')
   } finally {
     p.dispose()
   }
 })
 
-it('keeps a registered worktree whose root no machine registered, as a checkout of its own', () => {
-  const { p, section } = scene([
-    {
-      kind: 'repository',
-      machineId: ludovico,
-      repoId: podium,
-      originUrl: ORIGIN,
-      path: '/src/podium',
-      worktrees: [],
-    },
-    {
-      kind: 'worktree',
-      machineId: flatblock,
-      repoId: podium,
-      originUrl: ORIGIN,
-      path: '/w/podium-5',
-      branch: 'pod-5',
-      worktrees: [{ path: '/w/podium-5' }],
-    },
-  ])
+it('keeps a registered worktree inside the root that lists it, and alone where its root is not registered', () => {
+  const { p, section } = scene(
+    [{ id: podium, name: 'podium', prefix: 'POD' }],
+    [
+      // ludovico: root and one of its worktrees are both registered.
+      ...published(ludovico, '/src/podium', {
+        repoId: podium,
+        originUrl: ORIGIN,
+        trees: ['12'],
+        registeredTrees: ['12'],
+      }),
+      // flatblock: only a worktree is registered; its root is not.
+      ...published(flatblock, '/w/podium-5', {
+        repoId: podium,
+        originUrl: ORIGIN,
+        kind: 'worktree',
+      }),
+    ],
+  )
   try {
     expect(shape(section)).toEqual([
       {
         name: 'podium',
         prefix: 'POD',
-        checkouts: ['flatblock:/w/podium-5[]', 'ludovico:/src/podium[]'],
+        checkouts: ['flatblock:/w/podium-5[]', 'ludovico:/src/podium[/src/podium-12]'],
       },
     ])
-    expect(section.rows[0]!.checkouts[0]!.linked).toBe(true)
+    expect(section.rows[0]?.checkouts[0]?.linked).toBe(true)
   } finally {
     p.dispose()
   }
 })
 
-it('lists separate repositories by name, and a scan with no repository id on its own', () => {
-  const { p, section } = scene([
-    { kind: 'repository', machineId: ludovico, repoId: site, path: '/src/site', worktrees: [] },
-    {
-      kind: 'repository',
-      machineId: ludovico,
-      repoId: podium,
-      originUrl: ORIGIN,
-      path: '/src/podium',
-      worktrees: [],
-    },
-    { kind: 'repository', machineId: ludovico, path: '/src/scratch', worktrees: [] },
-  ])
+it('lists only repository records with a checkout, by name; unregistered folders are not repositories', () => {
+  const { p, section } = scene(
+    [
+      { id: podium, name: 'podium', prefix: 'POD' },
+      { id: site, name: 'Site' },
+      // A repository no machine reports any more (its tasks still exist).
+      { id: asRepoId('repo-gone'), name: 'gone', prefix: 'OLD' },
+    ],
+    [
+      ...published(ludovico, '/src/site', { repoId: site }),
+      ...published(ludovico, '/src/podium', { repoId: podium, originUrl: ORIGIN }),
+      // A folder a scan reached that nobody registered: no repo id.
+      ...published(ludovico, '/src/scratch', { trees: ['a'] }),
+    ],
+  )
   try {
     expect(shape(section)).toEqual([
       { name: 'podium', prefix: 'POD', checkouts: ['ludovico:/src/podium[]'] },
-      { name: 'scratch', prefix: null, checkouts: ['ludovico:/src/scratch[]'] },
-      { name: 'site', prefix: null, checkouts: ['ludovico:/src/site[]'] },
+      { name: 'Site', prefix: null, checkouts: ['ludovico:/src/site[]'] },
     ])
-    expect(section.rows.map((row) => row.repoId)).toEqual([podium, null, site])
-    expect(section.rows[2]!.origin).toBeNull()
+    expect(section.rows[1]?.origin).toBeNull()
   } finally {
     p.dispose()
   }
 })
 
-it('keeps the row and follows a new worktree arriving on the checkout', () => {
-  const root: GitRepositoryWire = {
-    kind: 'repository',
-    machineId: ludovico,
-    repoId: podium,
-    originUrl: ORIGIN,
-    path: '/src/podium',
-    worktrees: [],
-  }
-  const { p, section } = scene([root])
+it('names a row by the server-decided name, a checkout’s folder only until one arrives', () => {
+  const { p, section } = scene(
+    [{ id: podium }],
+    published(ludovico, '/src/bak_podium', { repoId: podium }),
+  )
   try {
-    const row = section.rows[0]!
-    expect(row.worktreeCount).toBe(0)
-    headerEntities(p).apply([
-      {
-        kind: 'repository',
-        id: 'scan0',
-        value: { ...root, worktrees: [{ path: '/src/podium-9', branch: 'pod-9' }] },
-      },
-    ])
-    expect(section.rows[0]).toBe(row)
-    expect(row.worktreeCount).toBe(1)
-  } finally {
-    p.dispose()
-  }
-})
-
-it('names the repository by the server-decided repo name, and follows a rename', () => {
-  // The checkout's folder is a backup copy; its remote alone would say "podium".
-  const { p, section } = scene([
-    {
-      kind: 'repository',
-      machineId: ludovico,
-      repoId: podium,
-      path: '/src/bak_podium',
-      worktrees: [],
-    },
-  ])
-  try {
-    const row = section.rows[0]!
-    expect(row.name).toBe('bak_podium')
+    const row = section.rows[0]
+    if (!row) throw new Error('no row')
     const seen: string[] = []
     const stop = autorun(() => seen.push(row.name))
     const named = (name: string) => ({
@@ -261,14 +239,34 @@ it('names the repository by the server-decided repo name, and follows a rename',
         id: podium,
         name,
         prefix: 'POD',
-        defaultParentBranch: 'dev',
+        defaultParentBranch: null,
         path: '/src/podium',
       } as never,
     })
     p.apply({ type: 'update', rows: [named('podium')] })
     p.apply({ type: 'update', rows: [named('podium-core')] })
     expect(seen).toEqual(['bak_podium', 'podium', 'podium-core'])
+    expect(row.prefix).toBe('POD')
     stop()
+  } finally {
+    p.dispose()
+  }
+})
+
+it('keeps the row and follows a worktree git starts listing', () => {
+  const root = published(ludovico, '/src/podium', { repoId: podium, originUrl: ORIGIN })
+  const { p, section } = scene([{ id: podium, name: 'podium' }], root)
+  try {
+    const row = section.rows[0]
+    expect(row?.worktreeCount).toBe(0)
+    const [next] = published(ludovico, '/src/podium', {
+      repoId: podium,
+      originUrl: ORIGIN,
+      trees: ['9'],
+    })
+    headerEntities(p).apply([{ kind: 'repository', id: 'scan0', value: next as GitRepositoryWire }])
+    expect(section.rows[0]).toBe(row)
+    expect(row?.worktreeCount).toBe(1)
   } finally {
     p.dispose()
   }
