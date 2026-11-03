@@ -23,7 +23,9 @@
 import { randomUUID } from 'node:crypto'
 import { asMachineId, type MachineId, type SessionId } from '@podium/model'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { userCommandPrincipal } from './command-principal'
 import { sha256 } from './modules/machines/enrollment'
+import { inboxPrincipalFromCommand } from './modules/sessions/inbox'
 import { attachDaemonWithInventory } from './test-support/daemon-inventory'
 import {
   MEMBERS,
@@ -255,6 +257,46 @@ describe('MU-10: a `use` grant never grants session access', () => {
       }),
       [f.sessions.bob]: UNKNOWN,
     })
+  })
+
+  it('queued input is judged at dispatch as the human its agent acts for, never as claimed', async () => {
+    // The queue row stores WHO queued it; dispatch resolves that live. The
+    // target is Bob's session on his own task: outside both agents' task scope
+    // alike, so the only difference between them is whose human they act for.
+    const agentRow = async (sessionId: SessionId, claimedHuman = MEMBERS.bob.id) =>
+      await sessions().authorizeQueuedInputAtApply({
+        sessionId: f.sessions.bob,
+        principal: inboxPrincipalFromCommand({
+          kind: 'agent',
+          agentSessionId: sessionId,
+          onBehalfOf: claimedHuman,
+          capability: await sessions().capabilityForSession(sessionId),
+          chain: [],
+        }),
+        sourceMessageId: null,
+      })
+    // Bob's agent (on Alice's task) into Bob's session: his own human's.
+    expect(await agentRow(f.sessions.bobOnAliceTask)).toEqual({ ok: true })
+    // Alice's agent is refused, whether it names its own human or claims to act
+    // for Bob.
+    expect(await agentRow(f.sessions.alice, MEMBERS.alice.id)).toMatchObject({ ok: false })
+    expect(await agentRow(f.sessions.alice)).toMatchObject({ ok: false })
+  })
+
+  it('Bob’s queued input is refused at dispatch once Alice takes his use grant away', async () => {
+    const bobRow = async () =>
+      await sessions().authorizeQueuedInputAtApply({
+        sessionId: bobOnAliceMachine,
+        principal: inboxPrincipalFromCommand(userCommandPrincipal(MEMBERS.bob.id, 'member')),
+        sourceMessageId: null,
+      })
+    expect(await bobRow()).toEqual({ ok: true })
+    await (await trpc('alice')).machines.unshare.mutate({
+      id: f.machines.alice,
+      grantee: MEMBERS.bob.id,
+      verb: 'use',
+    })
+    expect(await bobRow()).toMatchObject({ ok: false })
   })
 })
 
