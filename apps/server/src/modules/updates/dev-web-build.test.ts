@@ -49,8 +49,8 @@ afterAll(() => {
 describe('development web build', () => {
   it('runs the one production build script of each client', () => {
     // POD-3053: `build` is the single recipe per client and a Turbo task, so a dest
-    // rebuild produces exactly the bytes a release packages — including the landing
-    // size ratchet, which no caller routes around any more.
+    // rebuild produces exactly the bytes a release packages — including the bundle
+    // placement check, which no caller routes around any more.
     const web = DEV_WEB_BUILD_STEPS.find((step) => step.role === 'dev-web-build')
     expect(web?.args).toEqual(['run', '--filter', '@podium/web', 'build'])
     const mobile = DEV_WEB_BUILD_STEPS.find((step) => step.role === 'dev-mobile-build')

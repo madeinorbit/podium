@@ -3,7 +3,7 @@
  *
  * This is the half of `web-bundle-budget.ts` that decides whether a package
  * reached the bundle from more than one place on disk. It lives in its own file
- * for one reason: the budget script reads `apps/web/dist` at module scope, so
+ * for one reason: the bundle check reads `apps/web/dist` at module scope, so
  * nothing in it can be imported without a built website standing by, and a check
  * whose ability to REFUSE is never exercised is the defect this whole line of
  * work kept finding. Everything here is a pure function over source paths, and
@@ -11,10 +11,9 @@
  *
  * WHY A SECOND COPY MATTERS AT ALL. Two answers, and they are not the same
  * answer — which is the whole of POD-2527. SINGLETON_PACKAGES below is the list
- * of packages a second copy BREAKS. What the byte ceilings needed was the list
- * of packages a second copy COSTS, and that list is "every package", because the
- * eager source budget counts `sourcesContent`: a split prices one vendor file
- * twice and arrives at the ceiling as growth with nobody's name on it.
+ * of packages a second copy BREAKS. Every other package still COSTS when it is
+ * split: the browser downloads and evaluates one vendor file twice, as growth
+ * with nobody's name on it.
  *
  * WHY THERE IS AN ACCEPT LIST. Detection without a valve gives the wrong advice
  * under the one condition it is most confident about. See

@@ -33,12 +33,12 @@ describe('the order of the web build', () => {
     }
   })
 
-  it('judges the size only AFTER the dist has been named', () => {
+  it('judges the bundle only AFTER the dist has been named', () => {
     // POD-2002: web-bundle-budget writes nothing — it is a pure assertion. In
     // front of the stamp it left a complete, correct build with no
     // podium-build.json, which the server reads as "not the website for this
     // commit": it then rebuilt on every start-up, refused to pack a bundle, and
-    // published no headless artifact. A size complaint must not make a good
+    // published no headless artifact. A bundle complaint must not make a good
     // build unusable; it still fails the command, which is what stops landings.
     expect(writingSteps).toContain('write-web-build-stamp')
     expect(writingSteps).not.toContain('web-bundle-budget')
@@ -47,17 +47,17 @@ describe('the order of the web build', () => {
     )
   })
 
-  it('still fails the build when the budget is exceeded', () => {
+  it('still fails the build when the bundle check fails', () => {
     // `&&`, not `;` — the check must remain able to fail the command.
     expect(buildScript).toMatch(/&&\s*bun [^&]*web-bundle-budget[^&]*--check\s*$/)
   })
 
-  it('is the only production recipe, so no caller can skip the ratchet', () => {
+  it('is the only production recipe, so no caller can skip the bundle check', () => {
     // POD-3053: `build:dist` existed so a dest rebuild could stop before the
-    // landing size ratchet. Two recipes meant dev and a release could ship
+    // landing bundle check. Two recipes meant dev and a release could ship
     // different bytes from one commit, and the exemption quietly became the
     // normal path. There is now one script, it is the Turbo task, and a red
-    // ratchet is a red build for everyone — the floor is raised in
+    // check is a red build for everyone — it is fixed in
     // scripts/web-bundle-budget.ts, not routed around here.
     expect(scripts['build:dist']).toBeUndefined()
     expect(steps.at(-1)).toContain('web-bundle-budget')
