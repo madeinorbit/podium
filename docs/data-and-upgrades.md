@@ -121,20 +121,26 @@ the migration into an additive expand step and a later contract step. Its `--pro
 mode proves each check can fire before a clean result is trusted.
 ## Snapshots before update migrations
 
-When a managed update reaches its **server** step, the currently running server
-checkpoints the WAL and creates a timestamped snapshot beside `podium.db` *before* it
-requests the restart that can run the new version's migrations. The snapshot path is
-recorded on the update operation, so a later schema-downgrade refusal can name the exact
-file to restore instead of assuming that an operator-created backup exists. Starting a
-new binary directly with pending migrations also takes the same pre-migration snapshot.
-A routine restart with neither an update server step nor pending migrations does not.
+The recovery point for a migration is the snapshot the **new** server takes when it starts
+with migrations pending, before it applies any of them. Nothing else is writing at that
+moment, so it checkpoints the WAL and copies the database file. Every way of reaching a new
+binary takes it: a managed update, a desktop update, a manual install or a source run. A
+routine restart with no pending migrations does not.
 
-Snapshots use names such as
-`podium.db.backup-vupdate-<from>-to-<target>-<timestamp>`. Podium writes the database
-and any present SQLite sidecars to temporary `.partial-` names, fsyncs them, and
-atomically publishes the main snapshot name last. If copying stops partway (including
-because the disk fills), no truncated file is published under a restorable name and the
-update does not restart the server.
+A managed update does not copy the database before the restart. When it reaches its
+**server** step, the old server only checks that the disk can hold the new server's
+snapshot (the database and its sidecars plus 10%). If it cannot, the update fails there and
+the old server keeps running; nothing has stopped yet. The new server repeats the same check
+before copying and refuses to migrate if the disk filled in between.
+
+Snapshots use names such as `podium.db.backup-vdrizzle-<applied-count>-<timestamp>`; older
+installations may also hold `podium.db.backup-vupdate-<from>-to-<target>-<timestamp>` files
+from before this change. Podium writes the database and any present SQLite sidecars to
+temporary `.partial-` names, fsyncs them, and atomically publishes the main snapshot name
+last. If copying stops partway (including because the disk fills), no truncated file is
+published under a restorable name and the migration does not run. A background check
+verifies each snapshot after boot; a later schema-downgrade refusal names the newest
+verified one.
 
 Podium keeps the newest **3 verified snapshots**. Cleanup runs after every successful
 snapshot; it removes older snapshots only after they pass SQLite's integrity check.

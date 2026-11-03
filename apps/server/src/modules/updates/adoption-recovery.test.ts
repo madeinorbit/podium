@@ -79,7 +79,7 @@ async function fixture() {
         serverPlacement: { kind: 'external' },
         appVersion: () => target.version,
         onlyMachines: ids,
-        createDatabaseSnapshot: () => {
+        preflightDatabaseBackup: () => {
           throw new Error('No server step in this fleet-only regression')
         },
       })

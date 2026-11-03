@@ -1135,10 +1135,7 @@ export async function startServer(
       serverInstallKind: developmentRuntime.runningFromSource ? 'source' : 'installed',
       serverPlacement,
       ...(desktopSupervised ? { desktopSupervised: true } : {}),
-      createDatabaseSnapshot: (from, target) =>
-        registry.sessionStore.snapshotBeforeUpdate(from, target),
-      prepareVerifiedDatabaseSnapshot: async (from, target) =>
-        await registry.sessionStore.verifiedSnapshotBeforeUpdate(from, target),
+      preflightDatabaseBackup: async () => registry.sessionStore.preflightUpdateBackup(),
       latestDatabaseSnapshot: () => registry.sessionStore.latestDatabaseSnapshot(),
       ...(prepareCoordinatorUpdate ? { prepareCoordinatorUpdate } : {}),
       legacyTransferActive: () => legacyTransferInProgress(stateDir()),

@@ -72,6 +72,51 @@ export function freeDiskBytes(dir: string): number {
   }
 }
 
+/** What a pre-migration backup of a database needs on disk, and what is free. */
+export interface BackupSpace {
+  dir: string
+  /** Database plus -wal/-shm sidecars, as they are on disk now. */
+  needed: number
+  /** `needed` with the safety margin applied. */
+  required: number
+  available: number
+}
+
+/**
+ * Measure the pre-migration backup's disk need against the free space.
+ *
+ * ONE FORMULA FOR BOTH HALVES OF THE UPDATE (POD-6255). The new server takes
+ * the backup at boot ({@link backupDatabase}); the old server asks this same
+ * question before it restarts, so a disk that cannot hold the copy refuses the
+ * update while the old server is still serving instead of after it has stopped.
+ * Measuring before a WAL checkpoint counts the sidecars at their current size,
+ * which can only overstate what the checkpointed copy needs.
+ */
+export function measureBackupSpace(
+  dbPath: string,
+  freeBytes: (dir: string) => number = freeDiskBytes,
+): BackupSpace {
+  const dir = dirname(dbPath)
+  let needed = statSync(dbPath).size
+  for (const suffix of ['-wal', '-shm']) {
+    if (existsSync(`${dbPath}${suffix}`)) needed += statSync(`${dbPath}${suffix}`).size
+  }
+  return { dir, needed, required: Math.ceil(needed * PREFLIGHT_MARGIN), available: freeBytes(dir) }
+}
+
+/** The old server's answer before a restart: room for the boot backup, or why not. */
+export type BackupPreflight = { ok: true } | { ok: false; detail: string }
+
+/** The refusal sentence when `space` cannot hold the backup, otherwise undefined. */
+export function backupSpaceShortfall(space: BackupSpace): string | undefined {
+  if (space.available >= space.required) return undefined
+  return (
+    `Not enough disk space for the pre-migration backup in ${space.dir}: ` +
+    `need ~${space.required} bytes (database + sidecars + 10% margin), only ${space.available} bytes free. ` +
+    'The server refuses to start the migration until disk space is freed.'
+  )
+}
+
 /**
  * Copies the on-disk database (plus -wal/-shm sidecars when present) to a
  * timestamped sibling, then prunes old usable snapshots.
@@ -94,32 +139,21 @@ export function backupDatabase(
   if (!existsSync(dbPath)) return undefined
   db.exec('PRAGMA wal_checkpoint(TRUNCATE)')
 
-  const dir = dirname(dbPath)
-  let needed = statSync(dbPath).size
-  for (const suffix of ['-wal', '-shm']) {
-    if (existsSync(`${dbPath}${suffix}`)) needed += statSync(`${dbPath}${suffix}`).size
-  }
-  const required = Math.ceil(needed * PREFLIGHT_MARGIN)
-  const available = freeBytes(dir)
-  if (available < required) {
+  const space = measureBackupSpace(dbPath, freeBytes)
+  const shortfall = backupSpaceShortfall(space)
+  if (shortfall !== undefined) {
     // LOGGED WHERE THE NUMBERS ARE KNOWN (POD-5289). The update operation
     // reports this reason as its step error, but only this line ties the
     // refusal to the measured database size and the free bytes on this
     // filesystem at the moment it was refused.
     log.warn('refusing the pre-migration backup: not enough free disk space', {
-      dir,
       dbPath,
-      needed,
-      required,
-      available,
+      ...space,
     })
-    throw new Error(
-      `Not enough disk space for the pre-migration backup in ${dir}: ` +
-        `need ~${required} bytes (database + sidecars + 10% margin), only ${available} bytes free. ` +
-        'The server refuses to start the migration until disk space is freed.',
-    )
+    throw new Error(shortfall)
   }
 
+  const dir = space.dir
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')
   const backupPath = `${dbPath}.backup-v${label}-${stamp}`
   const partialPath = `${backupPath}.partial-${randomUUID()}`

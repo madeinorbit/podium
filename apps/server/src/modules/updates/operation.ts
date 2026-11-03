@@ -631,8 +631,14 @@ export interface UpdateOperationDetails {
   channel: UpdateChannel
   /** The version this server was on when the plan was computed — the "from". */
   fromVersion?: string
-  /** Verified restore point available when this attempt began or created by it. */
+  /** Newest verified restore point when this attempt began. */
   databaseSnapshotPath?: string
+  /**
+   * The coordinator grant whose pre-restart check passed, made durable before
+   * activation. The name predates POD-6255, when that check was a staged and
+   * verified snapshot; it is now the backup free-space preflight. Kept, not
+   * renamed: operation details are a persisted contract.
+   */
   coordinatorSnapshotGrantId?: string
   /**
    * EVERY ROUND OF GRANTS THIS OPERATION'S WAVE ISSUED (POD-2754), oldest
@@ -1419,33 +1425,23 @@ export interface UpdateOperationContext {
     bundleReady: boolean
     failureDetail?: string
   }
-  /** Server-owned snapshot seam; daemon places deliberately have none. */
-  createDatabaseSnapshot?: (
-    fromVersion: string,
-    targetVersion: string,
-  ) => Promise<string | undefined>
   /**
-   * Worker-backed snapshot seam (POD-3068), preferred over the staged-only one
-   * above when both are present.
+   * Server-owned free-space preflight for the successor's pre-migration backup
+   * (POD-6255); daemon places deliberately have none.
    *
-   * The server step is the ONE place allowed to wait for a snapshot proof, and
-   * it waits on a Promise rather than on the event loop: the verification runs
-   * in a child process, so this host keeps answering health and read requests
-   * for the whole time it takes to scan a multi-hundred-megabyte file.
+   * The server step no longer copies the database before restarting. The new
+   * server's boot backup is the single recovery point; this asks, while the old
+   * server is still serving, whether the disk can hold it — so a full disk
+   * refuses the update before any downtime instead of after.
    */
-  prepareVerifiedDatabaseSnapshot?: (
-    fromVersion: string,
-    targetVersion: string,
-  ) => Promise<
-    { ok: true; path: string; schemaVersion?: string } | { ok: false; code: string; detail: string }
-  >
+  preflightDatabaseBackup?: () => Promise<{ ok: true } | { ok: false; detail: string }>
   /** Verified recovery point to carry into a new operation's failure guidance. */
   latestDatabaseSnapshot?: () => string | undefined
   legacyTransferActive?: () => boolean
   /**
    * MUST BE AWAITED WHERE DURABILITY IS THE POINT.
    *
-   * The snapshot path has to be IN the operation row before the restart request
+   * The preflight receipt has to be IN the operation row before the restart request
    * can terminate this process — that was the whole reason this port used to be
    * declared synchronous. It no longer can be: the engine's `recordDetails` is a
    * store write, so the implementation returns a promise, and a caller that only
@@ -1584,27 +1580,27 @@ const heldCoordinatorUpdates = new Map<string, PreparedCoordinatorUpdate>()
 let coordinatorRuns = new WeakMap<UpdatesService, Map<string, Promise<StepOutcome>>>()
 const canceledCoordinatorUpdates = new Set<string>()
 /**
- * THE SNAPSHOT FAILURE AN OPERATION ALREADY EARNED (POD-5289).
+ * THE PREFLIGHT FAILURE AN OPERATION ALREADY EARNED (POD-5289).
  *
- * A coordinator snapshot that fails (for example the free-space check refusing
- * a 1.2 GB database with only megabytes free) returns a `snapshotFailure`
+ * A coordinator backup preflight that fails (for example the free-space check
+ * refusing a 1.2 GB database with only megabytes free) returns a `preflightFailure`
  * outcome AND cancels its prepared update in the `finally` below. That cancel
  * moves the supervisor journal to `canceled` with detail `Update canceled
  * before activation`, and a retry that starts afterwards (the stall retry, or
  * the machines-step dispatch with a new grant) reads that journal and throws
- * the canceled detail — which then finishes the step while the snapshot
+ * the canceled detail — which then finishes the step while the preflight
  * report queued behind it is dropped as finished (`engine.ts` recordProgress).
  * The operator reads `unexpected update failure / canceled before activation`
  * instead of the disk-space reason that actually stopped the update.
  *
- * Keeping the first snapshot failure per operation and returning it for every
+ * Keeping the first preflight failure per operation and returning it for every
  * later attempt of the same operation (instead of re-preparing into the
  * canceled journal, or reporting `coordinator-update-inactive`) is what makes
  * the real reason the step's reported error. The map is module-level like the
  * neighboring coordinator state; entries are rare (one per failed operation)
  * and cleared with the rest in tests.
  */
-const coordinatorSnapshotFailures = new Map<string, StepOutcome>()
+const coordinatorPreflightFailures = new Map<string, StepOutcome>()
 
 /**
  * Watch something this process handed off, reporting when it ends — and saying
@@ -2285,13 +2281,13 @@ const serverRunner: StepRunner<UpdateOperationContext> = {
         initiator: { kind: 'operation', operationId: operation.id, step: UPDATE_STEP_SERVER },
         eligibility: 'the operation reached its coordinator replacement step after the fleet',
       })
-      // A snapshot that already failed stays the answer even when no replacement
+      // A preflight that already failed stays the answer even when no replacement
       // was dispatched (for example a re-entry after the first attempt already
       // finished the operation, so `handler.active` is false and `replacement`
       // is still undefined). Returning bare `coordinator-update-inactive` here
       // would hide the disk-space reason behind a code with no detail.
-      const priorSnapshot = coordinatorSnapshotFailures.get(operation.id)
-      if (priorSnapshot && replacement === undefined) return priorSnapshot
+      const priorPreflight = coordinatorPreflightFailures.get(operation.id)
+      if (priorPreflight && replacement === undefined) return priorPreflight
       const run = replacement ?? Promise.resolve({ state: 'failed', error: { code: 'coordinator-update-inactive' } } as StepOutcome)
       return run
     }
@@ -2299,7 +2295,7 @@ const serverRunner: StepRunner<UpdateOperationContext> = {
   },
 }
 
-/** Re-entry joins the same preparation, snapshot and activation, even after it resolves. */
+/** Re-entry joins the same preparation, preflight and activation, even after it resolves. */
 function ensureCoordinatorReplacement(
   operation: Operation,
   context: UpdateOperationContext,
@@ -2325,13 +2321,13 @@ async function runCoordinatorReplacement(
   grant?: UpdateGrantMessage,
 ): Promise<StepOutcome> {
   if (context.serverPlacement.kind === 'external') return { state: 'skipped' }
-  // A snapshot that already failed for this operation stays the answer.
+  // A preflight that already failed for this operation stays the answer.
   // Without this, a retry that starts after the `finally` below cancelled the
   // preparation reads the supervisor journal's `canceled` phase (detail
   // `Update canceled before activation`) and finishes the step with that,
-  // while the snapshot report queued behind it is dropped as finished.
-  const priorSnapshotFailure = coordinatorSnapshotFailures.get(operation.id)
-  if (priorSnapshotFailure) return priorSnapshotFailure
+  // while the preflight report queued behind it is dropped as finished.
+  const priorPreflightFailure = coordinatorPreflightFailures.get(operation.id)
+  if (priorPreflightFailure) return priorPreflightFailure
   const originalDetails = updateOperationDetails(operation)
   const details = originalDetails && { ...originalDetails, target: grant?.target ?? originalDetails.target }
   const active = async () =>
@@ -2358,31 +2354,30 @@ async function runCoordinatorReplacement(
       }),
     }
   }
-  if (
-    (!context.createDatabaseSnapshot && !context.prepareVerifiedDatabaseSnapshot) ||
-    !context.recordOperationDetails
-  ) {
+  if (!context.preflightDatabaseBackup || !context.recordOperationDetails) {
     return {
       state: 'failed',
       error: describeUpdateOperationFailure({
         code: 'preparation-failed',
-        detail: 'Database snapshot support is unavailable; the server was not restarted.',
+        detail: 'Database backup preflight is unavailable; the server was not restarted.',
       }),
     }
   }
+  const preflightDatabaseBackup = context.preflightDatabaseBackup
+  const recordOperationDetails = context.recordOperationDetails
   let prepared: PreparedCoordinatorUpdate | void = undefined
   if (context.prepareCoordinatorUpdate) {
     try {
       prepared = await context.prepareCoordinatorUpdate(details.target, grant)
       if (prepared) heldCoordinatorUpdates.set(operation.id, prepared)
     } catch (error) {
-      // A snapshot that already failed stays the answer even when the
+      // A preflight that already failed stays the answer even when the
       // preparation now reads the journal the `finally` below left behind.
-      // After a snapshot failure cancels the preparation, a retry's poll sees
+      // After a preflight failure cancels the preparation, a retry's poll sees
       // phase `canceled` and throws `Update canceled before activation` here;
       // returning that would hide the disk-space (or timeout, or corruption)
       // reason that actually stopped the update.
-      const prior = coordinatorSnapshotFailures.get(operation.id)
+      const prior = coordinatorPreflightFailures.get(operation.id)
       if (prior) return prior
       // CLASSIFY ON THE THROWN ERROR'S OWN MESSAGE, DESCRIBE THE WHOLE CHAIN
       // [POD-3824]: widening what an operator READS must not quietly rewrite
@@ -2415,18 +2410,16 @@ async function runCoordinatorReplacement(
   let cancelReason = 'Coordinator update lost admission before activation.'
   try {
     if (!(await active())) return { state: 'failed', error: { code: 'coordinator-update-inactive' } }
-    if (prepared?.committed &&
-        (!grant || details.coordinatorSnapshotGrantId !== grant.grantId || !details.databaseSnapshotPath)) {
-      cancelReason = 'Committed coordinator update has no matching durable snapshot receipt.'
-      return { state: 'failed', error: { code: 'preparation-failed', message: 'Committed coordinator update has no matching durable snapshot receipt.' } }
+    if (prepared?.committed && (!grant || details.coordinatorSnapshotGrantId !== grant.grantId)) {
+      cancelReason = 'Committed coordinator update has no matching durable preflight receipt.'
+      return { state: 'failed', error: { code: 'preparation-failed', message: 'Committed coordinator update has no matching durable preflight receipt.' } }
     }
-    // THE SAFETY CHECK THAT SURVIVED THE MOVE (POD-3068). Verification left the
-    // request path, not the restart path: a timeout, a corrupt file or an
-    // identity mismatch here is a structured operation failure and the OLD
-    // SERVER KEEPS RUNNING. Only a proved snapshot reaches `requestCoordinatorRestart`.
-    const fromVersion = details.fromVersion ?? context.appVersion()
-    const snapshotFailure = (detail: string): StepOutcome => {
-      cancelReason = `Database snapshot failed; the server was not restarted: ${detail}`
+    // THE SAFETY CHECK THAT SURVIVED THE MOVE (POD-3068, POD-6255). A disk
+    // that cannot hold the successor's pre-migration backup is a structured
+    // operation failure here, and the OLD SERVER KEEPS RUNNING. Only a passed
+    // preflight, durably receipted for this grant, reaches activation.
+    const preflightFailure = (detail: string): StepOutcome => {
+      cancelReason = `Database backup preflight failed; the server was not restarted: ${detail}`
       const outcome: StepOutcome = {
         state: 'failed',
         error: describeUpdateOperationFailure({
@@ -2439,54 +2432,38 @@ async function runCoordinatorReplacement(
       // `Update canceled before activation`; without this line the only record
       // of the real reason (for example the free-space check's required and
       // available bytes) is a StepOutcome that a stall retry can drop.
-      log.warn('coordinator database snapshot failed; the server was not restarted', {
+      log.warn('coordinator database backup preflight failed; the server was not restarted', {
         operationId: operation.id,
         step: stepId,
         ...(grant ? { grantId: grant.grantId } : {}),
         detail,
       })
-      coordinatorSnapshotFailures.set(operation.id, outcome)
+      coordinatorPreflightFailures.set(operation.id, outcome)
       // REPORTED HERE, BEFORE THE `finally` CANCELS (POD-5289). Fire-and-forget:
       // awaiting from inside `ensure()` would deadlock on the engine's chain,
       // and the return below still carries the outcome for the drive path. For
       // the machines step (whose runner already returned `running`) this is the
-      // report that fails the step with the snapshot reason; the cancel that
+      // report that fails the step with the preflight reason; the cancel that
       // follows would otherwise finish it first with the journal's `canceled`
       // detail and leave this report to be dropped as finished.
       context.report?.(operation.id, stepId, { ...outcome, state: 'failed' })
       return outcome
     }
-    let databaseSnapshotPath = grant && details.coordinatorSnapshotGrantId === grant.grantId
-      ? details.databaseSnapshotPath : undefined
-    if (databaseSnapshotPath) {
-      // Adoption reuses only this exact grant's already durable verification.
-    } else if (context.prepareVerifiedDatabaseSnapshot) {
-      let verification: Awaited<ReturnType<typeof context.prepareVerifiedDatabaseSnapshot>>
+    // Adoption reuses only this exact grant's already durable receipt.
+    if (!grant || details.coordinatorSnapshotGrantId !== grant.grantId) {
+      let preflight: Awaited<ReturnType<typeof preflightDatabaseBackup>>
       try {
-        verification = await context.prepareVerifiedDatabaseSnapshot(
-          fromVersion,
-          details.target.version,
-        )
+        preflight = await preflightDatabaseBackup()
       } catch (error) {
-        return snapshotFailure(describeError(error))
+        return preflightFailure(describeError(error))
       }
-      if (!verification.ok) return snapshotFailure(`${verification.code}: ${verification.detail}`)
-      databaseSnapshotPath = verification.path
-      try {
-        await context.recordOperationDetails(operation.id, { databaseSnapshotPath, ...(grant ? { coordinatorSnapshotGrantId: grant.grantId } : {}) })
-      } catch (error) {
-        return snapshotFailure(describeError(error))
-      }
-    } else if (context.createDatabaseSnapshot) {
-      try {
-        databaseSnapshotPath = await context.createDatabaseSnapshot(
-          fromVersion,
-          details.target.version,
-        )
-        if (!databaseSnapshotPath) throw new Error('the database has no snapshotable file')
-        await context.recordOperationDetails(operation.id, { databaseSnapshotPath, ...(grant ? { coordinatorSnapshotGrantId: grant.grantId } : {}) })
-      } catch (error) {
-        return snapshotFailure(describeError(error))
+      if (!preflight.ok) return preflightFailure(preflight.detail)
+      if (grant) {
+        try {
+          await recordOperationDetails(operation.id, { coordinatorSnapshotGrantId: grant.grantId })
+        } catch (error) {
+          return preflightFailure(describeError(error))
+        }
       }
     }
     if (!(await active())) return { state: 'failed', error: { code: 'coordinator-update-inactive' } }
@@ -2506,7 +2483,7 @@ async function runCoordinatorReplacement(
     }
     return {
       state: 'running',
-      detail: `Database snapshot: ${databaseSnapshotPath}. Restarting the server…`,
+      detail: 'Disk space for the pre-migration backup is available. Restarting the server…',
     }
   } finally {
     if (prepared && heldCoordinatorUpdates.get(operation.id) === prepared) {
@@ -3071,5 +3048,5 @@ export function resetUpdateOperationState(): void {
   heldCoordinatorUpdates.clear()
   coordinatorRuns = new WeakMap()
   canceledCoordinatorUpdates.clear()
-  coordinatorSnapshotFailures.clear()
+  coordinatorPreflightFailures.clear()
 }

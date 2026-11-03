@@ -53,7 +53,11 @@ import { importConfigSettings } from './settings-config-import'
 import { importInstallationIdentity } from './installation-identity-import'
 import { latestAppliedMigration } from './migrations/index'
 import {
-  type SnapshotVerification,
+  type BackupPreflight,
+  backupSpaceShortfall,
+  measureBackupSpace,
+} from './migrations/backup'
+import {
   SnapshotVerifier,
   type SnapshotVerifierDeps,
 } from './migrations/snapshot-verifier'
@@ -585,51 +589,23 @@ export class SessionStore {
   }
 
   /**
-   * Durable recovery point made by the update operation immediately before the
-   * coordinator restart can boot a binary with newer migrations.
-   */
-  async snapshotBeforeUpdate(
-    fromVersion: string,
-    targetVersion: string,
-  ): Promise<string | undefined> {
-    if (this.path === ':memory:') return undefined
-    // Drain earlier transactions before the child takes its own consistent
-    // SQLite snapshot. The scan itself must not hold the store's read barrier.
-    await this.executor.exclusive(async () => undefined)
-    const safe = (version: string): string => version.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 80)
-    return await this.snapshotVerifier.stage(`update-${safe(fromVersion)}-to-${safe(targetVersion)}`)
-  }
-
-  /**
-   * Stage a snapshot behind the database fence and PROVE it in a child process.
+   * Can this disk hold the pre-migration backup the successor takes at boot?
    *
-   * The only caller is the update operation's server-replacement step, which may
-   * legitimately wait: awaiting this Promise leaves the event loop free, so
-   * health and read requests continue while the verifier scans (POD-3068).
-   * Staging and the schema-version read take exclusive; the proof itself must
-   * not (rule 67) — exclusive is a barrier against every store read.
+   * THE OLD SERVER'S HALF OF THE ONE RECOVERY POINT (POD-6255). The update used
+   * to stage its own `VACUUM INTO` copy here and prove it in a child process —
+   * 50 to 160 seconds on a multi-gigabyte database, all of it shown as
+   * "downloading" — only for the new server to copy the database again before
+   * migrating. The boot backup (`backupDatabase`) is the recovery point now: it
+   * is taken with no other writer, so a file copy is consistent and exact. What
+   * the old server still owes is the early refusal: asking the same free-space
+   * question here keeps a full disk from stopping the update AFTER the old
+   * server has gone. A `stat` and a `statfs`; nothing is opened or written.
    */
-  async verifiedSnapshotBeforeUpdate(
-    fromVersion: string,
-    targetVersion: string,
-  ): Promise<SnapshotVerification> {
-    const staged = await this.snapshotBeforeUpdate(fromVersion, targetVersion)
-    if (!staged) {
-      return {
-        ok: false,
-        code: 'no-snapshotable-file',
-        detail: 'the database has no snapshotable file',
-        durationMs: 0,
-      }
-    }
-    let expectedSchemaVersion: string | undefined
-    try {
-      expectedSchemaVersion = await this.schemaVersionForTransfer()
-    } catch {
-      // A store with no migration identity still gets a quick_check proof; the
-      // schema comparison is the part that is skipped, not the verification.
-    }
-    return await this.snapshotVerifier.verify(staged, expectedSchemaVersion)
+  preflightUpdateBackup(): BackupPreflight {
+    if (this.path === ':memory:') return { ok: true }
+    const space = measureBackupSpace(this.path)
+    const shortfall = backupSpaceShortfall(space)
+    return shortfall === undefined ? { ok: true } : { ok: false, detail: shortfall }
   }
 
   /**

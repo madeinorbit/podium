@@ -24,9 +24,8 @@ import { swapHeadlessBundle } from '../../packages/runtime/src/update-install'
 import { startMachineUpdateControl } from '../../packages/runtime/src/machine-update-control'
 import { createInstalledCoordinatorUpdate } from '../../apps/server/src/modules/updates/installed-restart'
 import { openDatabase } from '@podium/runtime/sqlite'
-import { backupDatabase, runDrizzleMigrations } from '../../apps/server/src/migrations'
+import { runDrizzleMigrations } from '../../apps/server/src/migrations'
 import { DRIZZLE_MIGRATIONS } from '../../apps/server/src/migrations/drizzle-manifest.generated'
-import { SnapshotVerifier } from '../../apps/server/src/migrations/snapshot-verifier'
 import { OperationEngine, systemOperationClock } from '../../apps/server/src/modules/operations/engine'
 import { OperationKindRegistry } from '../../apps/server/src/modules/operations/kinds'
 import { syncQueriesOver } from '../../apps/server/src/store/executor/sync-drizzle'
@@ -199,7 +198,6 @@ export async function runMachine(version: string, buildIdentity: string): Promis
       runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
     }
     const store = db ? new OperationStore(syncQueriesOver(db)) : undefined
-    const verifier = db ? new SnapshotVerifier(dbPath) : undefined
     let engine: OperationEngine | undefined
     let bridge: ReturnType<typeof createUpdateFleetBridge> | undefined
     const updates = new UpdatesService({
@@ -242,16 +240,10 @@ export async function runMachine(version: string, buildIdentity: string): Promis
       requestCoordinatorRestart: () => {
         throw new Error('Unscoped coordinator restart')
       },
-      prepareVerifiedDatabaseSnapshot: async (from, target) => {
-        event('snapshot-waiting')
-        while (existsSync(join(state, 'hold-snapshot'))) await sleep(50)
-        const path = backupDatabase(db!, dbPath, `update-${from}-to-${target}`)
-        if (!path) throw new Error('Coordinator database has no snapshotable file')
-        verifier!.recordStaged(path, crypto.randomUUID())
-        const schema = db!
-          .prepare('SELECT name FROM __drizzle_migrations ORDER BY name DESC LIMIT 1')
-          .get() as { name: string }
-        return verifier!.verify(path, schema.name)
+      preflightDatabaseBackup: async () => {
+        event('preflight-waiting')
+        while (existsSync(join(state, 'hold-preflight'))) await sleep(50)
+        return { ok: true }
       },
       recordOperationDetails: async (operationId, patch) => {
         // OperationEngine.recordDetailsLocked: "Such a caller must NOT queue: it
@@ -259,7 +251,7 @@ export async function runMachine(version: string, buildIdentity: string): Promis
         // rounds while holding the chain; match production updateOperationContext.
         await engine!.recordDetailsLocked(operationId, patch)
         if (patch.coordinatorSnapshotGrantId)
-          event('snapshot-receipt', {
+          event('preflight-receipt', {
             operationId,
             ...(await store!.get(operationId))!.operation!.details,
           })
@@ -420,7 +412,6 @@ export async function runMachine(version: string, buildIdentity: string): Promis
       lifecycle?.stopping('signal')
       event('stop')
       engine?.stop()
-      verifier?.close()
       server.close(() => process.exit(0))
       setTimeout(() => process.exit(0), 100).unref()
     }
@@ -534,12 +525,10 @@ export async function runMachine(version: string, buildIdentity: string): Promis
         if (
           !operation ||
           details?.coordinatorSnapshotGrantId !== grant.grantId ||
-          typeof details.databaseSnapshotPath !== 'string' ||
-          !existsSync(details.databaseSnapshotPath) ||
           !isDeepStrictEqual(recovered, grant) ||
           !isDeepStrictEqual(details.target, grant.target)
         )
-          throw new Error('Activation preceded the durable exact operation/snapshot receipt')
+          throw new Error('Activation preceded the durable exact operation/preflight receipt')
         event('activation-receipt', { operationId: operation.id, grant, ...details })
       } finally {
         db.close()

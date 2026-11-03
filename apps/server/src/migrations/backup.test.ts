@@ -19,7 +19,13 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { backupDatabase, freeDiskBytes, MIGRATION_BACKUPS_TO_KEEP } from './backup'
+import {
+  backupDatabase,
+  backupSpaceShortfall,
+  freeDiskBytes,
+  MIGRATION_BACKUPS_TO_KEEP,
+  measureBackupSpace,
+} from './backup'
 
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>()
@@ -88,6 +94,32 @@ describe('backupDatabase preflight', () => {
       expect(msg).toContain('only 10 bytes free')
     }
     expect(backupMains(dir)).toEqual([])
+    db.close()
+  })
+
+  /**
+   * POD-6255. The old server asks this question before it restarts; the new
+   * server's boot backup asks it again before it copies. The old server's
+   * answer must never be more permissive than the boot backup's, or a full disk
+   * would pass the early check and stop the update after the old server is gone.
+   */
+  it('the pre-restart preflight is never more permissive than the boot backup', () => {
+    const { db, dbPath } = tmpDb()
+    // A live WAL that the boot backup will checkpoint away before measuring.
+    db.exec(`PRAGMA wal_autocheckpoint=0;
+      WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i<200)
+      INSERT INTO t SELECT 'row-' || i FROM n;`)
+    const preflight = measureBackupSpace(dbPath, PLENTY)
+    expect(preflight.needed).toBeGreaterThanOrEqual(statSync(dbPath).size)
+
+    const refused = { ...preflight, available: preflight.required - 1 }
+    expect(backupSpaceShortfall(refused)).toContain(
+      'Not enough disk space for the pre-migration backup',
+    )
+    expect(backupSpaceShortfall({ ...preflight, available: preflight.required })).toBeUndefined()
+
+    // Whatever free space passes the preflight also passes the boot backup.
+    expect(backupDatabase(db, dbPath, 'after-preflight', () => preflight.required)).toBeDefined()
     db.close()
   })
 

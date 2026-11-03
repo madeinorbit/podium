@@ -1353,8 +1353,7 @@ interface HarnessOptions {
   requestWebRebuild?: () => void
   requestCoordinatorRestart?: UpdateOperationContext['requestCoordinatorRestart']
   prepareCoordinatorUpdate?: UpdateOperationContext['prepareCoordinatorUpdate']
-  createDatabaseSnapshot?: (fromVersion: string, targetVersion: string) => string | undefined
-  prepareVerifiedDatabaseSnapshot?: UpdateOperationContext['prepareVerifiedDatabaseSnapshot']
+  preflightDatabaseBackup?: UpdateOperationContext['preflightDatabaseBackup']
   latestDatabaseSnapshot?: () => string | undefined
   legacyTransferActive?: () => boolean
   preparation?: () => { webReady: boolean; bundleReady: boolean; failureDetail?: string }
@@ -1455,13 +1454,7 @@ async function harness(options: HarnessOptions = {}) {
     channel: 'dev',
     appVersion: () => options.appVersion ?? '0.4.1',
     serverPlacement: options.serverPlacement ?? { kind: 'fleet', machineId: 'test-server' },
-    createDatabaseSnapshot: async (from, target) =>
-      options.createDatabaseSnapshot
-        ? options.createDatabaseSnapshot(from, target)
-        : '/state/podium.db.backup-vupdate-0.4.1-to-dev-abc1234-test',
-    ...(options.prepareVerifiedDatabaseSnapshot
-      ? { prepareVerifiedDatabaseSnapshot: options.prepareVerifiedDatabaseSnapshot }
-      : {}),
+    preflightDatabaseBackup: options.preflightDatabaseBackup ?? (async () => ({ ok: true })),
     latestDatabaseSnapshot: options.latestDatabaseSnapshot ?? (() => undefined),
     ...(options.legacyTransferActive ? { legacyTransferActive: options.legacyTransferActive } : {}),
     // Wired exactly as `updateOperationContext` wires it: the `…Locked` form,
@@ -1750,13 +1743,13 @@ describe('the update operation, driven', () => {
 describe('the step runners', () => {
   it('does not restart an external server when resuming an old server step', async () => {
     const restart = vi.fn()
-    const snapshot = vi.fn(() => '/unused-snapshot')
+    const preflight = vi.fn(async () => ({ ok: true as const }))
     const prepare = vi.fn()
     const h = await harness({
       serverPlacement: { kind: 'external' },
       target: packedTarget(),
       requestCoordinatorRestart: restart,
-      createDatabaseSnapshot: snapshot,
+      preflightDatabaseBackup: preflight,
       prepareCoordinatorUpdate: prepare,
     })
     const step = { id: UPDATE_STEP_SERVER, title: 'Updating your server', state: 'running' as const }
@@ -1769,7 +1762,7 @@ describe('the step runners', () => {
     })
     expect(outcome).toEqual({ state: 'skipped' })
     expect(restart).not.toHaveBeenCalled()
-    expect(snapshot).not.toHaveBeenCalled()
+    expect(preflight).not.toHaveBeenCalled()
     expect(prepare).not.toHaveBeenCalled()
   })
 
@@ -1862,30 +1855,34 @@ describe('the step runners', () => {
     expect(h.sent).toEqual([])
   })
 
-  it('server: records a durable snapshot path BEFORE the restart is requested', async () => {
-    const snapshotPath = '/state/podium.db.backup-vupdate-0.4.1-to-dev-abc1234-2026-08-17'
-    const createDatabaseSnapshot = vi.fn(() => snapshotPath)
-    const seen: Array<{ state: string; snapshotPath: unknown }> = []
+  /**
+   * POD-6255. The old server copies nothing before it restarts: the successor's
+   * boot backup is the recovery point. What still has to happen first is the
+   * free-space preflight, so a full disk refuses while the old server serves.
+   */
+  it('server: runs the backup preflight BEFORE the restart is requested and copies nothing', async () => {
+    const order: string[] = []
     const h = await harness({
       machines: [],
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
-      createDatabaseSnapshot,
+      preflightDatabaseBackup: async () => {
+        order.push('preflight')
+        return { ok: true }
+      },
       requestCoordinatorRestart: async () => {
         const operation = await h.read()
-        seen.push({
-          state: stepState(operation, UPDATE_STEP_SERVER) ?? 'absent',
-          snapshotPath: operation.details?.databaseSnapshotPath,
-        })
+        order.push(`restart:${stepState(operation, UPDATE_STEP_SERVER) ?? 'absent'}`)
       },
     })
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
-    expect(createDatabaseSnapshot).toHaveBeenCalledWith('0.4.1', 'dev+abc1234')
-    expect(seen).toEqual([{ state: 'running', snapshotPath }])
+    expect(order).toEqual(['preflight', 'restart:running'])
+    // No snapshot was made, so none is recorded beyond what planning found.
+    expect((await h.read()).details?.databaseSnapshotPath).toBeUndefined()
   })
 
-  it('server: places the exact installed target before snapshot and restart', async () => {
+  it('server: places the exact installed target before the preflight and restart', async () => {
     const order: string[] = []
     const h = await harness({
       machines: [],
@@ -1896,9 +1893,9 @@ describe('the step runners', () => {
       prepareCoordinatorUpdate: async (target) => {
         order.push(`deliver:${target.version}`)
       },
-      createDatabaseSnapshot: () => {
-        order.push('snapshot')
-        return '/state/podium.db.backup'
+      preflightDatabaseBackup: async () => {
+        order.push('preflight')
+        return { ok: true }
       },
       requestCoordinatorRestart: async () => {
         order.push('restart')
@@ -1908,11 +1905,11 @@ describe('the step runners', () => {
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
 
-    expect(order).toEqual(['deliver:dev+abc1234', 'snapshot', 'restart'])
+    expect(order).toEqual(['deliver:dev+abc1234', 'preflight', 'restart'])
   })
 
-  it('server: fails without snapshot or restart when exact-target delivery fails', async () => {
-    const snapshot = vi.fn(() => '/state/podium.db.backup')
+  it('server: fails without preflight or restart when exact-target delivery fails', async () => {
+    const preflight = vi.fn(async () => ({ ok: true as const }))
     const restart = vi.fn()
     const h = await harness({
       machines: [],
@@ -1923,7 +1920,7 @@ describe('the step runners', () => {
       prepareCoordinatorUpdate: async () => {
         throw new Error('signature verification FAILED')
       },
-      createDatabaseSnapshot: snapshot,
+      preflightDatabaseBackup: preflight,
       requestCoordinatorRestart: restart,
     })
 
@@ -1933,7 +1930,7 @@ describe('the step runners', () => {
     expect((await h.read()).state).toBe('failed')
     expect((await h.read()).error?.code).toBe('download-failed')
     expect((await h.read()).error?.detail).toContain('signature verification FAILED')
-    expect(snapshot).not.toHaveBeenCalled()
+    expect(preflight).not.toHaveBeenCalled()
     expect(restart).not.toHaveBeenCalled()
   })
 
@@ -1947,7 +1944,7 @@ describe('the step runners', () => {
       prepareCoordinatorUpdate: async () => {
         throw new Error('supervisor control endpoint missing')
       },
-      createDatabaseSnapshot: () => '/state/podium.db.backup',
+      preflightDatabaseBackup: async () => ({ ok: true }),
       requestCoordinatorRestart: async () => {},
     })
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
@@ -1967,7 +1964,7 @@ describe('the step runners', () => {
     // input is load-bearing. It is insurance against the token table being
     // unanchored later, and `refusal.test.ts` is where the table's own patterns
     // are pinned.
-    const snapshot = vi.fn(() => '/state/podium.db.backup')
+    const preflight = vi.fn(async () => ({ ok: true as const }))
     const restart = vi.fn()
     const h = await harness({
       machines: [],
@@ -1980,7 +1977,7 @@ describe('the step runners', () => {
           cause: new Error('artifact address unreachable: https://missing.example/a.tgz'),
         })
       },
-      createDatabaseSnapshot: snapshot,
+      preflightDatabaseBackup: preflight,
       requestCoordinatorRestart: restart,
     })
 
@@ -1992,12 +1989,12 @@ describe('the step runners', () => {
     expect((await h.read()).error?.detail).toBe(
       'signature verification FAILED ← artifact address unreachable: https://missing.example/a.tgz',
     )
-    expect(snapshot).not.toHaveBeenCalled()
+    expect(preflight).not.toHaveBeenCalled()
     expect(restart).not.toHaveBeenCalled()
   })
 
   it('server: records an unreachable published artifact as permanent', async () => {
-    const snapshot = vi.fn(() => '/state/podium.db.backup')
+    const preflight = vi.fn(async () => ({ ok: true as const }))
     const restart = vi.fn()
     const h = await harness({
       machines: [],
@@ -2010,7 +2007,7 @@ describe('the step runners', () => {
           'artifact address unreachable: https://missing.example/a.tgz — ECONNREFUSED',
         )
       },
-      createDatabaseSnapshot: snapshot,
+      preflightDatabaseBackup: preflight,
       requestCoordinatorRestart: restart,
     })
 
@@ -2021,18 +2018,18 @@ describe('the step runners', () => {
     expect((await h.read()).error?.code).toBe('artifact-unreachable')
     expect((await h.read()).error?.detail).toContain('https://missing.example/a.tgz')
     expect((await h.read()).error?.message).not.toMatch(/try again|connection/iu)
-    expect(snapshot).not.toHaveBeenCalled()
+    expect(preflight).not.toHaveBeenCalled()
     expect(restart).not.toHaveBeenCalled()
   })
 
-  it('server: fails closed without requesting restart when the snapshot fails', async () => {
+  it('server: fails closed without requesting restart when the backup preflight throws', async () => {
     const restart = vi.fn()
     const h = await harness({
       machines: [],
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
-      createDatabaseSnapshot: () => {
-        throw new Error('ENOSPC: no space left on device')
+      preflightDatabaseBackup: async () => {
+        throw new Error('EACCES: permission denied, statfs')
       },
       requestCoordinatorRestart: restart,
     })
@@ -2042,55 +2039,21 @@ describe('the step runners', () => {
 
     expect(restart).not.toHaveBeenCalled()
     expect((await h.read()).state).toBe('failed')
-    expect((await h.read()).error?.message).toContain('Database snapshot failed')
-    expect((await h.read()).error?.message).toContain('ENOSPC')
+    expect((await h.read()).error?.message).toContain('Database backup preflight failed')
+    expect((await h.read()).error?.message).toContain('EACCES')
   })
 
-  /**
-   * POD-3068. The safety check did not move OUT of the restart path when the
-   * quick_check left the request path — it moved into a child process that the
-   * restart path awaits. These four drills are the whole of that contract.
-   */
-  it('server: awaits the worker-backed snapshot proof and restarts on success', async () => {
-    const snapshotPath = '/state/podium.db.backup-vupdate-0.4.1-to-dev-abc1234-2026-08-28'
-    const order: string[] = []
-    const sync = vi.fn(() => '/state/podium.db.sync-path')
-    const h = await harness({
-      machines: [],
-      target: packedTarget(),
-      servedWebDigest: () => WEB_DIGEST,
-      createDatabaseSnapshot: sync,
-      prepareVerifiedDatabaseSnapshot: async () => {
-        order.push('verify:start')
-        await new Promise((resolve) => setTimeout(resolve, 0))
-        order.push('verify:done')
-        return { ok: true, path: snapshotPath }
-      },
-      requestCoordinatorRestart: async () => {
-        order.push('restart')
-      },
-    })
-
-    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
-    await h.engine.whenSettled('op_1')
-
-    // The proof completes BEFORE the restart is requested, and the synchronous
-    // seam is not used at all when the worker-backed one is wired.
-    expect(order).toEqual(['verify:start', 'verify:done', 'restart'])
-    expect(sync).not.toHaveBeenCalled()
-    expect((await h.read()).details?.databaseSnapshotPath).toBe(snapshotPath)
-  })
-
-  it('server: a verification timeout leaves the old server running', async () => {
+  it('server: a disk too full for the boot backup leaves the old server running', async () => {
     const restart = vi.fn()
     const h = await harness({
       machines: [],
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
-      prepareVerifiedDatabaseSnapshot: async () => ({
+      preflightDatabaseBackup: async () => ({
         ok: false,
-        code: 'timeout',
-        detail: 'no result within 600000ms',
+        detail:
+          'Not enough disk space for the pre-migration backup in /state: need ~1452000000 bytes ' +
+          '(database + sidecars + 10% margin), only 500000000 bytes free.',
       }),
       requestCoordinatorRestart: restart,
     })
@@ -2101,50 +2064,25 @@ describe('the step runners', () => {
     expect(restart).not.toHaveBeenCalled()
     expect((await h.read()).state).toBe('failed')
     expect((await h.read()).error?.code).toBe('preparation-failed')
-    expect((await h.read()).error?.message).toContain('Database snapshot failed')
-    expect((await h.read()).error?.message).toContain('timeout')
-    expect((await h.read()).details?.databaseSnapshotPath).toBeUndefined()
+    expect((await h.read()).error?.message).toContain('Database backup preflight failed')
+    expect((await h.read()).error?.message).toContain('1452000000')
   })
 
-  it('server: a corrupt snapshot leaves the old server running', async () => {
-    const restart = vi.fn()
-    const h = await harness({
-      machines: [],
-      target: packedTarget(),
-      servedWebDigest: () => WEB_DIGEST,
-      prepareVerifiedDatabaseSnapshot: async () => ({
-        ok: false,
-        code: 'corrupt',
-        detail: 'quick_check answered *** in database main ***',
-      }),
-      requestCoordinatorRestart: restart,
-    })
-
-    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
-    await h.engine.whenSettled('op_1')
-
-    expect(restart).not.toHaveBeenCalled()
-    expect((await h.read()).state).toBe('failed')
-    expect((await h.read()).error?.message).toContain('corrupt')
-  })
-
-  it('server: a machine-only plan never asks for a snapshot at all', async () => {
-    // The Ludovico outage was a MACHINE-ONLY plan that nevertheless paid for a
-    // full backup scan. No server step, no verifier — not even a slow one.
-    const prepare = vi.fn(async () => ({ ok: true as const, path: '/state/x' }))
+  it('server: a machine-only plan never runs the backup preflight', async () => {
+    const preflight = vi.fn(async () => ({ ok: true as const }))
     const latest = vi.fn(() => undefined)
     const h = await harness({
       machines: [machine({ id: 'vmi', version: '0.4.0' })],
       target: packedTarget(),
       appVersion: 'dev+abc1234',
       servedWebDigest: () => WEB_DIGEST,
-      prepareVerifiedDatabaseSnapshot: prepare,
+      preflightDatabaseBackup: preflight,
       latestDatabaseSnapshot: latest,
     })
 
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
 
-    expect(prepare).not.toHaveBeenCalled()
+    expect(preflight).not.toHaveBeenCalled()
   })
 
   it('server: a server already on the target does not restart', async () => {
@@ -4661,7 +4599,7 @@ describe('the wave rounds an update writes down', () => {
 })
 
 /** H1: real operation/store/service and authenticated local executor transport. */
-describe('coordinator snapshot activation boundary', () => {
+describe('coordinator backup preflight activation boundary', () => {
   function latch<T>() {
     let resolve!: (value: T) => void
     const promise = new Promise<T>((done) => { resolve = done })
@@ -4675,31 +4613,30 @@ describe('coordinator snapshot activation boundary', () => {
     let transfer = false
     const preparing = latch<void>()
     const releasePreparation = latch<void>()
-    const snapshotting = latch<void>()
-    const releaseSnapshot = latch<void>()
+    const preflighting = latch<void>()
+    const releasePreflight = latch<void>()
     const activated = latch<void>()
     const receiptSettled = latch<void>()
     const fleet = online ? [machine({
       id: 'host', coordinator: true, presenceSource: 'supervisor',
       deliveryCaps: FEED_CAPS, platform: 'linux-x64',
     })] : []
-    let failSnapshot = false
-    let throwDiskFull = false
-    const snapshotPath = join(runtimeDir, 'verified.db')
-    const snapshot = vi.fn(async () => {
-      snapshotting.resolve()
-      await releaseSnapshot.promise
-      if (throwDiskFull) {
-        // The free-space refusal from backupDatabase (backup.ts): the safety
-        // copy needs ~1.1x the database and the disk does not have it.
-        throw new Error(
-          'Not enough disk space for the pre-migration backup in /state: ' +
+    let failPreflight = false
+    const preflight = vi.fn(async (): Promise<{ ok: true } | { ok: false; detail: string }> => {
+      preflighting.resolve()
+      await releasePreflight.promise
+      if (failPreflight) {
+        // The free-space refusal from backupSpaceShortfall (backup.ts): the
+        // boot backup needs ~1.1x the database and the disk does not have it.
+        return {
+          ok: false,
+          detail:
+            'Not enough disk space for the pre-migration backup in /state: ' +
             'need ~1452000000 bytes (database + sidecars + 10% margin), only 500000000 bytes free. ' +
             'The server refuses to start the migration until disk space is freed.',
-        )
+        }
       }
-      if (failSnapshot) return { ok: false as const, code: 'timeout' as const, detail: 'verification timed out' }
-      return { ok: true as const, path: snapshotPath }
+      return { ok: true }
     })
     const fallbackRestart = vi.fn()
     const prepare = createInstalledCoordinatorUpdate({
@@ -4719,7 +4656,7 @@ describe('coordinator snapshot activation boundary', () => {
         }
       },
       requestCoordinatorRestart: fallbackRestart,
-      prepareVerifiedDatabaseSnapshot: snapshot,
+      preflightDatabaseBackup: preflight,
     })
     const adapter = {
       runningVersion: () => '0.4.1',
@@ -4730,7 +4667,6 @@ describe('coordinator snapshot activation boundary', () => {
       }),
       activate: vi.fn(async (grant: UpdateGrantMessage) => {
         // Read the actual SQLite operation row at the external activation boundary.
-        expect((await h.read()).details?.databaseSnapshotPath).toBe(snapshotPath)
         expect((await h.read()).details?.coordinatorSnapshotGrantId).toBe(grant.grantId)
         activated.resolve()
       }),
@@ -4755,15 +4691,14 @@ describe('coordinator snapshot activation boundary', () => {
       return updateOperationKind().runners[step.id]!.ensure({ operation, step, context: h.context() })
     }
     return {
-      h, target, executor, adapter, reports, snapshot, snapshotting, preparing, activated, receiptSettled,
-      releasePreparation, releaseSnapshot, fallbackRestart, start, repeat, oldServer, runtimeDir,
-      failSnapshot: () => { failSnapshot = true },
-      throwDiskFull: () => { throwDiskFull = true },
+      h, target, executor, adapter, reports, preflight, preflighting, preparing, activated, receiptSettled,
+      releasePreparation, releasePreflight, fallbackRestart, start, repeat, oldServer, runtimeDir,
+      failPreflight: () => { failPreflight = true },
       transfer: () => { transfer = true },
       supersede: () => { approved = { ...target, artifacts: { ...target.artifacts, web: { digest: 'replaced' } } } },
       async close() {
         releasePreparation.resolve()
-        releaseSnapshot.resolve()
+        releasePreflight.resolve()
         h.engine.stop()
         await control.close()
         await new Promise<void>((resolve) => serving.close(() => resolve()))
@@ -4772,7 +4707,7 @@ describe('coordinator snapshot activation boundary', () => {
     }
   }
 
-  it.each([true, false])('joins repeated ensures while preparing, snapshotting and committed (online=%s)', async (online) => {
+  it.each([true, false])('joins repeated ensures while preparing, preflighting and committed (online=%s)', async (online) => {
     const f = await fixture(online)
     try {
       await f.start()
@@ -4781,12 +4716,12 @@ describe('coordinator snapshot activation boundary', () => {
       expect(f.adapter.prepare).toHaveBeenCalledTimes(1)
       expect(f.adapter.activate).not.toHaveBeenCalled()
       f.releasePreparation.resolve()
-      await f.snapshotting.promise
+      await f.preflighting.promise
       repeats.push(f.repeat())
-      expect(f.snapshot).toHaveBeenCalledTimes(1)
-      expect((await f.h.read()).details?.databaseSnapshotPath).toBeUndefined()
+      expect(f.preflight).toHaveBeenCalledTimes(1)
+      expect((await f.h.read()).details?.coordinatorSnapshotGrantId).toBeUndefined()
       expect(await f.oldServer()).toBe('old coordinator serving')
-      f.releaseSnapshot.resolve()
+      f.releasePreflight.resolve()
       await f.activated.promise
       await f.receiptSettled.promise
       await Promise.all(repeats)
@@ -4794,27 +4729,27 @@ describe('coordinator snapshot activation boundary', () => {
       await f.repeat()
       expect(f.executor.snapshot()!.grant).toEqual(grant)
       expect(f.adapter.prepare).toHaveBeenCalledTimes(1)
-      expect(f.snapshot).toHaveBeenCalledTimes(1)
+      expect(f.preflight).toHaveBeenCalledTimes(1)
       expect(f.adapter.activate).toHaveBeenCalledTimes(1)
       expect(f.h.sent).toEqual([])
       expect(f.fallbackRestart).not.toHaveBeenCalled()
     } finally { await f.close() }
   })
 
-  it.each(['verification', 'persistence', 'transfer', 'approval', 'cancellation', 'activation-refusal'] as const)(
+  it.each(['disk-space', 'persistence', 'transfer', 'approval', 'cancellation', 'activation-refusal'] as const)(
     'keeps the old coordinator serving after %s while the grant is held', async (failure) => {
       const f = await fixture()
       try {
         await f.start()
         f.releasePreparation.resolve()
-        await f.snapshotting.promise
-        if (failure === 'verification') f.failSnapshot()
-        if (failure === 'persistence') vi.spyOn(f.h.engine, 'recordDetailsLocked').mockImplementation(() => { throw new Error('snapshot receipt disk full') })
+        await f.preflighting.promise
+        if (failure === 'disk-space') f.failPreflight()
+        if (failure === 'persistence') vi.spyOn(f.h.engine, 'recordDetailsLocked').mockImplementation(() => { throw new Error('preflight receipt disk full') })
         if (failure === 'transfer') f.transfer()
         if (failure === 'approval') f.supersede()
         if (failure === 'cancellation') expect((await f.h.engine.cancel('op_1')).canceled).toBe(true)
         if (failure === 'activation-refusal') await f.executor.cancel(f.executor.snapshot()!.grant.grantId)
-        f.releaseSnapshot.resolve()
+        f.releasePreflight.resolve()
         await f.receiptSettled.promise
         // The machines runner reports its asynchronous coordinator failure to the engine.
         await new Promise<void>((resolve) => setImmediate(resolve))
@@ -4823,12 +4758,12 @@ describe('coordinator snapshot activation boundary', () => {
         expect(f.fallbackRestart).not.toHaveBeenCalled()
         expect(await f.oldServer()).toBe('old coordinator serving')
         expect(f.executor.snapshot()!.phase).toBe('canceled')
-        if (failure === 'verification') {
-          expect(f.executor.snapshot()!.detail).toContain('verification timed out')
+        if (failure === 'disk-space') {
+          expect(f.executor.snapshot()!.detail).toContain('Not enough disk space')
           expect(f.executor.snapshot()!.reasonCode).toBe('coordinator-preparation-failed')
         }
         if (failure === 'persistence') {
-          expect(f.executor.snapshot()!.detail).toContain('snapshot receipt disk full')
+          expect(f.executor.snapshot()!.detail).toContain('preflight receipt disk full')
           expect(f.executor.snapshot()!.reasonCode).toBe('coordinator-preparation-failed')
         }
         if (failure !== 'cancellation') expect((await f.h.read()).state).toBe('failed')
@@ -4836,13 +4771,13 @@ describe('coordinator snapshot activation boundary', () => {
     },
   )
 
-  it('preserves a snapshot failure when cancellation reports reach the fleet first [POD-5290]', async () => {
+  it('preserves a preflight failure when cancellation reports reach the fleet first [POD-5290]', async () => {
     const f = await fixture()
     try {
       await f.start()
       f.releasePreparation.resolve()
-      await f.snapshotting.promise
-      f.failSnapshot()
+      await f.preflighting.promise
+      f.failPreflight()
       // Prevent the detached runner report from winning: production can receive
       // the supervisor's cancellation report before /cancel returns to the runner.
       // The runner already captured its context; hold its report at the engine seam.
@@ -4850,7 +4785,7 @@ describe('coordinator snapshot activation boundary', () => {
       const report = vi.spyOn(f.h.engine, 'recordProgress').mockImplementation(async () => {
         runnerReported.resolve()
       })
-      f.releaseSnapshot.resolve()
+      f.releasePreflight.resolve()
       await f.receiptSettled.promise
       await runnerReported.promise
       const canceled = f.reports.findLast(status => status.phaseDetail === 'canceled')!
@@ -4859,20 +4794,20 @@ describe('coordinator snapshot activation boundary', () => {
       await createUpdateFleetBridge({ engine: f.h.engine, updates: f.h.updates, now: () => f.h.clock.clock.now() }).onFleetChanged()
       await f.h.engine.whenSettled('op_1')
       expect((await f.h.read()).state).toBe('failed')
-      expect((await f.h.read()).error?.detail).toContain('verification timed out')
+      expect((await f.h.read()).error?.detail).toContain('Not enough disk space')
       expect(f.adapter.activate).not.toHaveBeenCalled()
       expect(await f.oldServer()).toBe('old coordinator serving')
     } finally { vi.restoreAllMocks(); await f.close() }
   })
 
   /**
-   * POD-5289. When the safety copy cannot be made because the disk is too
+   * POD-5289. When the boot backup cannot be made because the disk is too
    * full, the operator must read the disk-space reason — not `unexpected
    * update failure / canceled before activation`.
    *
-   * The snapshot throws the free-space refusal, the `finally` cancels the
+   * The preflight returns the free-space refusal, the `finally` cancels the
    * prepared update (journal `canceled`), and a retry with a new grant starts
-   * afterwards. That retry must still report the snapshot reason rather than
+   * afterwards. That retry must still report the preflight reason rather than
    * the journal's canceled detail (or `coordinator-update-inactive` once the
    * first attempt already finished the operation).
    */
@@ -4881,9 +4816,9 @@ describe('coordinator snapshot activation boundary', () => {
     try {
       await f.start()
       f.releasePreparation.resolve()
-      await f.snapshotting.promise
-      f.throwDiskFull()
-      f.releaseSnapshot.resolve()
+      await f.preflighting.promise
+      f.failPreflight()
+      f.releasePreflight.resolve()
       await f.receiptSettled.promise
       await f.h.engine.whenSettled('op_1')
 
@@ -4893,14 +4828,14 @@ describe('coordinator snapshot activation boundary', () => {
       expect(await f.oldServer()).toBe('old coordinator serving')
       const first = await f.h.read()
       expect(first.state).toBe('failed')
-      expect(first.error?.message).toContain('Database snapshot failed')
+      expect(first.error?.message).toContain('Database backup preflight failed')
       expect(first.error?.message).toContain('Not enough disk space')
       expect(first.error?.message).toContain('1452000000')
       expect(first.error?.message).toContain('500000000')
       expect(first.error?.message).not.toContain('canceled before activation')
 
       // A retry with a new grant (the stall retry, or a re-entry after the
-      // cancel) must return the same snapshot reason — not the journal's
+      // cancel) must return the same preflight reason — not the journal's
       // `canceled` detail and not a bare inactive code.
       const retry = await f.repeat()
       expect(retry.state).toBe('failed')
@@ -4916,16 +4851,16 @@ describe('coordinator snapshot activation boundary', () => {
     } finally { await f.close() }
   })
 
-  it('never cancels a replacement grant after authority changes during snapshot verification', async () => {
+  it('never cancels a replacement grant after authority changes during the backup preflight', async () => {
     const f = await fixture()
     try {
       await f.start()
       f.releasePreparation.resolve()
-      await f.snapshotting.promise
+      await f.preflighting.promise
       const old = f.executor.snapshot()!.grant
       const replacement = { ...old, grantId: 'separate-owner', issuedAt: old.issuedAt! + 1 }
       await requestMachineUpdate(f.runtimeDir, '/prepare', replacement)
-      f.releaseSnapshot.resolve()
+      f.releasePreflight.resolve()
       await f.receiptSettled.promise
       await f.repeat()
       await new Promise<void>((resolve) => setImmediate(resolve))
@@ -4937,13 +4872,13 @@ describe('coordinator snapshot activation boundary', () => {
     } finally { await f.close() }
   })
 
-  it('restores the exact committed grant and snapshot receipt through the production recovery store', async () => {
+  it('restores the exact committed grant and preflight receipt through the production recovery store', async () => {
     const f = await fixture()
     try {
       await f.start()
       f.releasePreparation.resolve()
-      await f.snapshotting.promise
-      f.releaseSnapshot.resolve()
+      await f.preflighting.promise
+      f.releasePreflight.resolve()
       await f.activated.promise
       await f.receiptSettled.promise
       await f.repeat()
@@ -4959,7 +4894,7 @@ describe('coordinator snapshot activation boundary', () => {
       expect(f.executor.snapshot()!.grant).toEqual(grant)
       expect(f.adapter.prepare).toHaveBeenCalledTimes(1)
       expect(f.adapter.activate).toHaveBeenCalledTimes(1)
-      expect(f.snapshot).toHaveBeenCalledTimes(1)
+      expect(f.preflight).toHaveBeenCalledTimes(1)
       expect(f.h.sent).toEqual([])
       boot.engine.stop()
     } finally { await f.close() }

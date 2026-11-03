@@ -13,6 +13,7 @@ import { appRouter } from './router'
 import type { SessionStore } from './store'
 import { OPERATOR } from './test-support/capabilities'
 import { openTestStore } from './test-support/open-test-store'
+import { writeTestBackup } from './test-support/write-test-backup'
 
 /**
  * A resolved release target, WITH THE ARTIFACT A RESOLVED ONE ALWAYS HAS.
@@ -75,15 +76,14 @@ const temporaryStores: Array<{ store: SessionStore; directory: string }> = []
  * intentionally cannot produce one, so restart-order tests use a disposable
  * file-backed store and keep the production gate armed.
  */
-async function fileBackedStore(runChild?: SnapshotChildRunner): Promise<SessionStore> {
+async function fileBackedStore(
+  runChild?: SnapshotChildRunner,
+): Promise<SessionStore & { dbPath: string }> {
   const directory = mkdtempSync(join(tmpdir(), 'podium-router-updates-'))
-  const store = await openTestStore(
-    join(directory, 'podium.db'),
-    undefined,
-    runChild ? { runChild } : {},
-  )
+  const dbPath = join(directory, 'podium.db')
+  const store = await openTestStore(dbPath, undefined, runChild ? { runChild } : {})
   temporaryStores.push({ store, directory })
-  return store
+  return Object.assign(store, { dbPath })
 }
 
 async function harness(requestCoordinatorRestart?: (() => void) | HarnessOptions) {
@@ -1627,7 +1627,7 @@ describe('the update operation', () => {
     })
     // A snapshot exists on disk and is UNVERIFIED: the tempting case, where a
     // background scan would look like a helpful thing to start.
-    await store.snapshotBeforeUpdate('0.4.1', '0.4.2')
+    writeTestBackup(store.dbPath, 'update-0.4.1-to-0.4.2')
     const { registry, caller } = await harness({ store })
     // The host is already on the target; only a daemon machine is behind.
     await registry.modules.machines.setMachineBuild(

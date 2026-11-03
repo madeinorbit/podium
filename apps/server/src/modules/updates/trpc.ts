@@ -286,11 +286,7 @@ export function updateOperationContext(input: {
   servedWebDigest?: () => string | undefined
   servedMobileWeb?: () => MobileWebIdentity
   prepareCoordinatorUpdate?: PrepareCoordinatorUpdate
-  createDatabaseSnapshot: (
-    fromVersion: string,
-    targetVersion: string,
-  ) => Promise<string | undefined>
-  prepareVerifiedDatabaseSnapshot?: UpdateOperationContext['prepareVerifiedDatabaseSnapshot']
+  preflightDatabaseBackup: NonNullable<UpdateOperationContext['preflightDatabaseBackup']>
   latestDatabaseSnapshot?: () => string | undefined
   legacyTransferActive?: () => boolean
   requestCoordinatorRestart?: () => void | Promise<void>
@@ -320,17 +316,14 @@ export function updateOperationContext(input: {
     ...(input.prepareCoordinatorUpdate
       ? { prepareCoordinatorUpdate: input.prepareCoordinatorUpdate }
       : {}),
-    createDatabaseSnapshot: input.createDatabaseSnapshot,
-    ...(input.prepareVerifiedDatabaseSnapshot
-      ? { prepareVerifiedDatabaseSnapshot: input.prepareVerifiedDatabaseSnapshot }
-      : {}),
+    preflightDatabaseBackup: input.preflightDatabaseBackup,
     ...(input.latestDatabaseSnapshot
       ? { latestDatabaseSnapshot: input.latestDatabaseSnapshot }
       : {}),
     ...(input.legacyTransferActive ? { legacyTransferActive: input.legacyTransferActive } : {}),
     // `…Locked`, and AWAITED: a runner is invoked from inside the operation's
     // chain, so queueing here would be waiting for ourselves — and the server
-    // step has to have its snapshot path durable before it asks this process to
+    // step has to have its preflight receipt durable before it asks this process to
     // restart, which is the one thing this port exists for.
     recordOperationDetails: async (operationId, patch) => {
       await input.operations.engine.recordDetailsLocked(operationId, patch)
@@ -376,11 +369,9 @@ async function contextFor(
     serverPlacement: serverPlacementOf(ctx),
     ...(ctx.desktopSupervised ? { desktopSupervised: true } : {}),
     ...extra,
-    createDatabaseSnapshot: (from, target) => state.store.snapshotBeforeUpdate(from, target),
-    // The server step waits on THIS one; it stages behind the database fence and
-    // proves the result in a child process (POD-3068).
-    prepareVerifiedDatabaseSnapshot: async (from, target) =>
-      await state.store.verifiedSnapshotBeforeUpdate(from, target),
+    // The server step's only pre-restart database work: room for the
+    // successor's boot backup, which is the recovery point (POD-6255).
+    preflightDatabaseBackup: async () => state.store.preflightUpdateBackup(),
     // Snapshot DISCOVERY is now metadata + `stat` (POD-3068), so it is cheap
     // enough for a request; it is still gated to the confirmed-operation path
     // because a polled startability preview has no use for restore guidance.
