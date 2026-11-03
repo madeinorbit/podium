@@ -3,15 +3,15 @@
 // choice, provenance stamping — plus the end-to-end wake→spawn→first-prompt
 // path through MessageDeliveryService and the parent clamp it unlocks.
 
-import { asIssueId, asSessionId, firstAdminMemberId, type SessionId } from '@podium/model'
 import type { SessionMeta } from '@podium/model'
+import { asIssueId, asSessionId, asUserId, firstAdminMemberId, type SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import { isMemberCwd, sessionsForIssue } from '../../issue-util'
+import { openTestStore } from '../../test-support/open-test-store'
+import { metasAsFacts } from '../../test-support/session-facts'
 import type { IssueService } from '../issues/service'
 import { type MessageDeliveryDeps, MessageDeliveryService } from './service'
 import { makeSpawnOnWake, spawnedByForMessage } from './spawn'
-import { openTestStore } from '../../test-support/open-test-store'
-import { metasAsFacts } from '../../test-support/session-facts'
-import { isMemberCwd, sessionsForIssue } from '../../issue-util'
 
 const ISSUE = {
   id: 'iss_a',
@@ -124,6 +124,36 @@ describe('makeSpawnOnWake', () => {
     })
   })
 
+  it('a woken session acts for the human whose mail woke it, not the task owner (POD-6286)', async () => {
+    const bob = asUserId('mem_bob')
+    const owners: unknown[] = []
+    const seam = makeSpawnOnWake({
+      issues: fakeIssues(),
+      createSession: (i) => {
+        owners.push(i.ownerUserId)
+        return { sessionId: asSessionId('woken') }
+      },
+    })
+    // Bob's agent mails Alice's task (its owner is the first admin, Alice).
+    await seam.spawn({
+      issueId: asIssueId(ISSUE.id),
+      message: row({
+        fromKind: 'agent',
+        fromSession: 'sBob',
+        attribution: { actor: { kind: 'agent', id: 'sBob' }, onBehalfOf: bob },
+      }),
+    })
+    // A server job's mail has no human: the task's owner is the one left.
+    await seam.spawn({
+      issueId: asIssueId(ISSUE.id),
+      message: row({
+        fromKind: 'system',
+        attribution: { actor: { kind: 'system', job: 'steward' }, onBehalfOf: null },
+      }),
+    })
+    expect(owners).toEqual([bob, ISSUE.ownerUserId])
+  })
+
   it('spawnedByForMessage maps every principal to an existing provenance shape', () => {
     expect(spawnedByForMessage(row({ fromKind: 'operator' }))).toBe('user')
     expect(spawnedByForMessage(row({ fromKind: 'superagent' }))).toBe('superagent')
@@ -148,7 +178,9 @@ describe('wake → spawn → first prompt (service integration)', () => {
         readSessionFactsByIssue: async (worktreePath, issueId) =>
           sessionsForIssue(worktreePath, metasAsFacts(sessions), issueId),
         readSessionFactsByWorktree: async (worktreePath) =>
-          worktreePath ? metasAsFacts(sessions).filter((s) => isMemberCwd(worktreePath, s.cwd)) : [],
+          worktreePath
+            ? metasAsFacts(sessions).filter((s) => isMemberCwd(worktreePath, s.cwd))
+            : [],
         sessionById: async (sessionId) => sessions.find((s) => s.sessionId === sessionId),
         listSessionsForIssue: async (worktreePath, issueId) =>
           sessionsForIssue(worktreePath, sessions, issueId),
