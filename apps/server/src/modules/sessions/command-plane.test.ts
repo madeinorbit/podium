@@ -149,9 +149,9 @@ async function ctxFor(
       for (const artifact of artifacts) await modules.issues.crud.panelArtifactUpload(issueId, artifact)
     },
     discardUnlaunchedDraft: async (issueId) => await modules.issues.attention.discardUnlaunchedDraft(issueId),
-    issueOwner: async () => undefined,
     access: {
       sessionById: async (sessionId) => await modules.sessions.sessionById(sessionId),
+      ownerOf: async (sessionId) => (await modules.sessions.sessionOwner(sessionId))?.owner,
       sessionIdsWithPrefix: async (prefix) =>
         (await modules.sessions.readSessionFactsByIdPrefix(prefix)).map((s) => s.sessionId),
       issues: asyncSessionIssueAccess(modules.issues),
@@ -1315,13 +1315,9 @@ describe('attribution and ownership come from the principal', () => {
   })
 
   it('a created session is owned by the onBehalfOf human, with the agent as actor', () => {
-    const owned = createdOwnership(agentFor('agent-1', COLLEAGUE), undefined)
+    const owned = createdOwnership(agentFor('agent-1', COLLEAGUE))
 
-    expect(owned).toEqual({
-      owner: COLLEAGUE,
-      actor: 'session:agent-1',
-      inheritedFrom: { kind: 'principal' },
-    })
+    expect(owned).toEqual({ owner: COLLEAGUE, actor: 'session:agent-1' })
     // The actor half is what the shipped `spawnedBy` column already speaks.
     expect(spawnedByFor(agentFor('agent-1', COLLEAGUE))).toBe('session:agent-1')
     expect(spawnedByFor(human(COLLEAGUE))).toBe('user')
@@ -1354,28 +1350,13 @@ describe('attribution and ownership come from the principal', () => {
     })
     expect(await o.reg.modules.sessions.sessionOwner(created.sessionId)).toEqual({
       owner: COLLEAGUE,
-      grants: [],
     })
   })
 
-  it("a session spawned under an issue inherits THAT issue's owner, not the actor's", () => {
-    const underIssue = createdOwnership(agentFor('agent-1', COLLEAGUE), {
-      id: asIssueId('podium-7'),
-      owner: firstAdminMemberId(),
-    })
-
-    // The issue's owner wins over the delegating human — otherwise sharing an
-    // issue would not share the work done inside it.
-    expect(underIssue).toEqual({
-      owner: firstAdminMemberId(),
-      actor: 'session:agent-1',
-      inheritedFrom: { kind: 'issue', id: 'podium-7' },
-    })
-    // An issue with no owner recorded yet falls back to the delegating human,
-    // never to nobody: the draft vessel is OWNED.
-    expect(
-      createdOwnership(agentFor('agent-1', COLLEAGUE), { id: asIssueId('draft-1') }).owner,
-    ).toBe(COLLEAGUE)
+  it('a session started on a task is its starter’s, whoever owns the task (POD-6283)', () => {
+    // There is no task input any more: the rule cannot consult one.
+    expect(createdOwnership(agentFor('agent-1', COLLEAGUE)).owner).toBe(COLLEAGUE)
+    expect(createdOwnership(human(firstAdminMemberId())).owner).toBe(firstAdminMemberId())
   })
 })
 
@@ -1386,6 +1367,8 @@ describe('session id prefix (POD-4536)', () => {
   ): SessionAccessDeps {
     return {
       sessionById: async (id) => rows.get(id),
+      // Every fake row is the first admin's: this suite is about id resolution.
+      ownerOf: async (id) => (rows.has(id) ? firstAdminMemberId() : undefined),
       sessionIdsWithPrefix: opts?.listSpy ?? ((prefix: string) => [...rows.keys()].filter((id) => id.startsWith(prefix))),
       issues: { has: () => false, ancestorIds: () => [], issueForCwd: async () => null },
     }
@@ -1415,7 +1398,6 @@ describe('session id prefix (POD-4536)', () => {
         createDraftIssue: async () => ({ id: asIssueId('x') }),
         attachDraftArtifacts: async () => {},
         discardUnlaunchedDraft: async () => false,
-        issueOwner: async () => undefined,
         access,
         rpc: () => ({}) as never,
         ownership: { rowFor: () => undefined, delegatedMachines: () => undefined },

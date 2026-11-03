@@ -55,14 +55,14 @@ function spawns(daemon: ControlMessage[]) {
   return daemon.filter((m): m is Extract<ControlMessage, { type: 'spawn' }> => m.type === 'spawn')
 }
 
-describe('SessionStart: issue owner precedence', () => {
-  // ADR 1: ownership per class — an issue-owned child inherits the issue owner.
-  // Without this assertion, inverting parentOwner ?? input.ownerUserId stays green.
-  it('ADR 1: createSession with issueId and a conflicting ownerUserId lands on the issue owner', async () => {
+describe('SessionStart: a session is its starter’s, whatever task it is on (POD-6283)', () => {
+  // Design §2.3: the task a session sits on does not change who owns it. Without
+  // this assertion, letting the task owner win again stays green.
+  it('createSession on another person’s task lands on the starter, in the row and the binding', async () => {
     const issueOwner = asUserId('user:issue-owner')
-    const conflicting = asUserId('user:explicit-conflict')
-    expect(issueOwner).not.toBe(conflicting)
-    expect(issueOwner).not.toBe(firstAdminMemberId())
+    const starter = asUserId('user:starter')
+    expect(issueOwner).not.toBe(starter)
+    expect(starter).not.toBe(firstAdminMemberId())
 
     const { reg, daemon } = await makeRegistry()
     const issue = await reg.issues.crud.create({
@@ -77,17 +77,29 @@ describe('SessionStart: issue owner precedence', () => {
       agentKind: 'shell',
       cwd: '/r/.worktrees/a',
       issueId: issue.id,
-      ownerUserId: conflicting,
+      ownerUserId: starter,
     })
 
-    // Durable row is the issue's owner — not the conflicting input.
     const row = (await reg.sessionStore.sessions.loadSessions()).find((r) => r.id === sessionId)
-    expect(row?.ownerUserId).toBe(issueOwner)
+    expect(row?.ownerUserId).toBe(starter)
+    expect(row?.createdBy?.onBehalfOf).toBe(starter)
 
     // create() feeds one ownership answer into the daemon binding as well.
     const frame = spawns(daemon).at(-1)
     expect(frame?.sessionId).toBe(sessionId)
-    expect(frame?.binding?.principal).toEqual({ kind: 'user', userId: issueOwner })
+    expect(frame?.binding?.principal).toEqual({ kind: 'user', userId: starter })
+  })
+
+  it('a binding’s on-behalf-of human wins over a requested owner', async () => {
+    const { reg } = await makeRegistry()
+    const human = asUserId('user:binding-human')
+    const { sessionId } = await reg.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/r',
+      ownerUserId: asUserId('user:requested'),
+      binding: { principal: { kind: 'user', userId: human } },
+    })
+    expect((await reg.sessionStore.sessions.loadSessions()).find((r) => r.id === sessionId)?.ownerUserId).toBe(human)
   })
 })
 

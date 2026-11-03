@@ -14,7 +14,6 @@ import { harnessCapabilitiesFor } from '../../harness-manifest'
 import type { SessionStore } from '../../store'
 import type { IssueRow } from '../../store/types'
 import { DEPLOYMENT, perf } from '../perf/registry'
-import { granteesOf } from './session-state/grantees'
 import type { Session, SessionDurableFields } from './session'
 import { isResident, type SessionRecordReads, type SessionSubject } from './records'
 import { projectSessionMeta, type SessionIdentity, type SessionRecord } from './session-record'
@@ -25,7 +24,6 @@ import type { SessionOwnerFacts, SessionStatePrincipal, SessionStateService } fr
 export interface ProjectionPass {
   queuedMessageCounts: ReadonlyMap<SessionId, number>
   issues: Map<string, IssueRow | null>
-  grants: Map<string, string[]>
   refRepoIds?: ReadonlyMap<string, RepoId | undefined>
   occupancy: ReadonlyMap<SessionId, number | undefined>
   /** The candidates' owners and issues, for the visibility check (POD-6160). */
@@ -218,7 +216,7 @@ export class SessionView {
   private async project(candidates: SessionSubject[], forPrincipal?: SessionStatePrincipal): Promise<SessionMeta[]> {
     const principal = forPrincipal ?? await this.defaultPrincipal()
     if (!principal) return []
-    const pass = await this.buildProjectionPass(candidates, { published: false })
+    const pass = await this.buildProjectionPass(candidates)
     const visible = await this.ports.state.visibleSessions(
       principal, candidates.map(session => session.sessionId), pass,
     )
@@ -230,15 +228,11 @@ export class SessionView {
   /**
    * Build after any transaction writes; drafts supply the fields being committed.
    *
-   * `published` (the default) says the projected rows are published, so the
-   * feed's visibility pass will ask for each session's OWN grants, also for a
-   * session on an issue, whose projection reads the issue's (POD-6217). The
-   * pass reads those in the same statement, and the publication finds them in
-   * the operation's memo. A pass that only answers a read passes `false`.
+   * No grant is read: sessions are private (POD-6283), so a session's
+   * visibility is its owner, which each candidate already carries.
    */
   async buildProjectionPass(
     sessions: readonly (SessionDurableFields & { sessionId: SessionId; ownerUserId?: UserId })[],
-    { published = true }: { published?: boolean } = {},
   ): Promise<ProjectionPass> {
     const ids = sessions.map(s => s.sessionId)
     const issueIds = [...new Set(sessions.flatMap(s =>
@@ -246,22 +240,6 @@ export class SessionView {
     ))]
     const found = issueIds.length ? await readIssues(this.ports.store.issues, issueIds) : new Map<string, IssueRow>()
     const issues = new Map(issueIds.map(id => [id, found.get(id) ?? null]))
-    const grants = new Map<string, string[]>()
-    const issueResources = [...new Set(sessions.flatMap(s => (s.issueId ? [s.issueId] : [])))]
-    const sessionResources = [...new Set(sessions.flatMap(s => (!s.issueId ? [s.sessionId] : [])))]
-    const sessionAsked = published ? [...new Set(ids)] : sessionResources
-    const asked = {
-      ...(issueResources.length ? { issue: issueResources } : {}),
-      ...(sessionAsked.length ? { session: sessionAsked } : {}),
-    }
-    if (Object.keys(asked).length) {
-      // Through the operation's loader (POD-6189): the access check before a
-      // session write and the reprojections after it ask about the same session.
-      // Both kinds in one statement (POD-6217).
-      const edges = await this.ports.store.grants.loadForResourcesOfKinds(asked)
-      for (const id of issueResources) grants.set(`issue:${id}`, granteesOf(edges.get('issue')?.get(id) ?? []))
-      for (const id of sessionResources) grants.set(`session:${id}`, granteesOf(edges.get('session')?.get(id) ?? []))
-    }
     const paths = new Set(sessions.flatMap(s => {
       const issue = s.refIssueId && s.refLetter ? issues.get(s.refIssueId) : undefined
       return issue ? [issue.repoPath] : s.refDraft != null ? [s.cwd] : []
@@ -283,7 +261,6 @@ export class SessionView {
     }
     return {
       issues,
-      grants,
       refRepoIds,
       queuedMessageCounts,
       occupancy,

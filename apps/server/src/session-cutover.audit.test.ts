@@ -191,9 +191,9 @@ async function ctxFor(
       for (const artifact of artifacts) await modules.issues.crud.panelArtifactUpload(issueId, artifact)
     },
     discardUnlaunchedDraft: async (issueId) => await modules.issues.attention.discardUnlaunchedDraft(issueId),
-    issueOwner: async () => undefined,
     access: {
       sessionById: async (sessionId) => await modules.sessions.sessionById(sessionId),
+      ownerOf: async (sessionId) => (await modules.sessions.sessionOwner(sessionId))?.owner,
       issues: asyncSessionIssueAccess(modules.issues),
       ...(opts.visibility ? { visibility: opts.visibility } : {}),
     },

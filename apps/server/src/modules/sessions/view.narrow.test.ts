@@ -10,7 +10,7 @@ import { firstAdminMemberId } from '@podium/model'
  * `sessionsForIssue(list())`) so a future change to membership precedence that
  * lands on one path only turns this red.
  */
-import { asIssueId, asMachineId, asSessionId, type IssueId, type SessionId, type SessionMeta } from '@podium/model'
+import { asIssueId, asMachineId, asSessionId, asUserId, type IssueId, type SessionId, type SessionMeta } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { openTestStore } from '../../test-support/open-test-store'
 import { residentRecords } from '../../test-support/session-records'
@@ -569,7 +569,6 @@ describe('SessionView visibility is awaited [POD-3534]', () => {
    */
   function asyncViewOver(sessions: Session[], readable: Set<string>, primeFails = false) {
     const perSessionGrantReads: string[] = []
-    const key = (id: string) => `session:${id}`
     const ports: SessionViewPorts = {
       records: residentRecords(new Map(sessions.map((s) => [s.sessionId, s]))),
       store: {
@@ -595,18 +594,19 @@ describe('SessionView visibility is awaited [POD-3534]', () => {
           // has about the filter, one layer down.
           await new Promise((resolve) => setTimeout(resolve, 0))
           if (primeFails) throw new Error('prime failed')
+          const owners = (memo.sessions ??= new Map())
           for (const id of ids) {
-            memo.grants.set(key(id), readable.has(id) ? [READER.userId] : [])
+            owners.set(asSessionId(id), { ownerUserId: readable.has(id) ? READER.userId : asUserId('someone-else') })
           }
         },
         canReadSession: async (_p: unknown, id: string, memo?: SessionOwnerMemo) => {
           await Promise.resolve()
-          const primed = memo?.grants.get(key(id))
+          const primed = memo?.sessions?.get(asSessionId(id))
           if (primed === undefined) {
             perSessionGrantReads.push(id)
             return readable.has(id)
           }
-          return primed.includes(READER.userId)
+          return primed?.ownerUserId === READER.userId
         },
         overlaySnapshot: async () => new Map(),
         overlay: async () => ({}),

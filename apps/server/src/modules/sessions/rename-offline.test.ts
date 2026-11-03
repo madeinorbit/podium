@@ -232,10 +232,11 @@ describe('a rename queued offline is re-authorized at DRAIN, against the world a
     expect(await s.nameNow()).toBe('yes')
   })
 
-  it('a GRANT, not just ownership, is enough — and is also read live', async () => {
+  it('a GRANT on someone else’s session gives nothing: sessions are private (POD-6283)', async () => {
     const s = await revocableStack()
     s.ownership.owner = 'user:someone-else'
     s.ownership.grants = [firstAdminMemberId()]
+    const before = await s.nameNow()
 
     expect(
       (await renameOnTargetPath(
@@ -244,19 +245,8 @@ describe('a rename queued offline is re-authorized at DRAIN, against the world a
         human,
         'outbox',
       )).outcome,
-    ).toBe('applied')
-
-    // Revoke the GRANT specifically (ownership unchanged) — the write stops.
-    s.ownership.grants = []
-    expect(
-      (await renameOnTargetPath(
-        s.deps,
-        { sessionId: s.sessionId, name: 'after grant revoked', mutationId: 'g2' },
-        human,
-        'outbox',
-      )).outcome,
     ).toBe('denied')
-    expect(await s.nameNow()).toBe('granted')
+    expect(await s.nameNow()).toBe(before)
   })
 })
 
@@ -375,32 +365,17 @@ describe('the offline transport is served because the CONTRACT says so', () => {
 })
 
 // ---------------------------------------------------------------------------
-// THE TRANSITIONAL GAP, RECORDED RATHER THAN HIDDEN
+// THE ADMIN SCOPE, CLOSED (POD-6283)
 // ---------------------------------------------------------------------------
 
 /**
- * TODAY'S REAL tRPC HUMAN IS `OPERATOR`, AND `OPERATOR` IS NOT OWNER-GATED.
- *
- * The tests above use a `worker`/`owned` capability — the principal POD-1075 will
- * mint. The principal the product mints TODAY is `OPERATOR`
- * (`{ role: 'admin', scope: { kind: 'all' } }`), and `authorize()` answers `allow`
- * for scope `all` before it reads the target's owner at all.
- *
- * So the owner/grant gate on this command is REAL and PROVEN for an agent (whose
- * human ceiling is checked separately and unconditionally) and for any scoped
- * human, and is SHORT-CIRCUITED for today's unconstrained operator. That is
- * correct-as-designed — one shared password means one unconstrained human, and
- * §3.2 says so — but it must not be reported as "owner-gated" without the
- * qualifier, which is why it is a test and not a footnote.
- *
- * This is exactly the state ADR 3 Amendment 1's rejected-alternatives table warns
- * about: with OPERATOR as the tRPC principal, "every ownership check would be dead
- * code on the one transport humans actually use". It is NOT dead code here — the
- * agent path exercises it on every call — but it is unexercised for the human, and
- * that distinction belongs in the record.
+ * The admin principal carries scope `all`, which used to answer `allow` before
+ * the target's owner was read. Sessions are now a private class that
+ * `authorize()` decides before the scope (design §4.1): an admin reaches only
+ * their own sessions, like every other member.
  */
-describe('today’s operator principal short-circuits the owner gate (transitional, §3.2)', () => {
-  it('OPERATOR renames a session it does not own, because scope `all` allows it', async () => {
+describe('the admin scope `all` does not pass the owner gate (POD-6283)', () => {
+  it('OPERATOR is refused on a session it does not own', async () => {
     const s = await revocableStack()
     s.ownership.owner = 'user:someone-else'
 
@@ -417,11 +392,9 @@ describe('today’s operator principal short-circuits the owner gate (transition
       'outbox',
     )
 
-    // Pinned as the CURRENT behaviour, not endorsed as the target one. When
-    // POD-1075 replaces OPERATOR with a scoped per-user principal this flips to
-    // 'denied' and this test is the one that says so.
-    expect(dispatch.outcome).toBe('applied')
-    expect(await s.nameNow()).toBe('operator wrote this')
+    // Sessions are private: the admin role grants nothing on them.
+    expect(dispatch.outcome).toBe('denied')
+    expect(await s.nameNow()).not.toBe('operator wrote this')
   })
 
   it('but an AGENT is refused on the same session, even with an admin/all capability', async () => {

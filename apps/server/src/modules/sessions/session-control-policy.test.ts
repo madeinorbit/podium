@@ -49,15 +49,7 @@ const agentSubject = (human: typeof OWNER = OWNER): ControlSubject => ({
 
 const ctx = (
   partial: Partial<SessionControlContext> & Pick<SessionControlContext, 'machineUse'>,
-): SessionControlContext =>
-  contextFromOwnership(
-    {
-      owner: partial.owner ?? OWNER,
-      grants: partial.watchGrantees ?? [],
-    },
-    partial.machineUse,
-    partial.driveGrantees,
-  )
+): SessionControlContext => contextFromOwnership({ owner: partial.owner ?? OWNER }, partial.machineUse)
 
 describe('session control policy — watch / drive', () => {
   it('owner may watch and drive when machine use is granted', () => {
@@ -66,69 +58,42 @@ describe('session control policy — watch / drive', () => {
     expect(mayDrive(ownerSubject(), c)).toBe(true)
   })
 
-  it('session share without machine use cannot attach (no back door to execution)', () => {
-    const shared = ctx({
-      machineUse: 'denied',
-      watchGrantees: [ALICE],
-      driveGrantees: [ALICE],
-    })
-    // Alice is on the grant list but the machine refuses use.
-    expect(mayWatch(ownerSubject(ALICE), shared)).toBe('unauthorized')
-    expect(mayDrive(ownerSubject(ALICE), shared)).toBe('unauthorized')
+  it('the owner without machine use cannot attach (no back door to execution)', () => {
+    const c = ctx({ machineUse: 'denied' })
+    expect(mayWatch(ownerSubject(), c)).toBe('unauthorized')
+    expect(mayDrive(ownerSubject(), c)).toBe('unauthorized')
   })
 
-  it('read-only grantee may watch but not drive', () => {
-    const c = ctx({
-      machineUse: 'granted',
-      watchGrantees: [ALICE],
-      driveGrantees: [], // write/manage not granted
-    })
-    expect(mayWatch(ownerSubject(ALICE), c)).toBe(true)
-    expect(mayDrive(ownerSubject(ALICE), c)).toBe('unauthorized')
-  })
-
-  it('write grantee may take control', () => {
-    const c = ctx({
-      machineUse: 'granted',
-      watchGrantees: [BOB],
-      driveGrantees: [BOB],
-    })
-    expect(mayDrive(ownerSubject(BOB), c)).toBe(true)
-  })
-
-  it('stranger with neither grant nor ownership is refused', () => {
+  it('anyone else is refused, with machine use or without (POD-6283)', () => {
     const c = ctx({ machineUse: 'granted' })
     expect(mayWatch(ownerSubject(ALICE), c)).toBe('unauthorized')
-    expect(mayDrive(ownerSubject(ALICE), c)).toBe('unauthorized')
+    expect(mayDrive(ownerSubject(BOB), c)).toBe('unauthorized')
   })
 
-  it('instance admin is break-glass drive (policy §3)', () => {
+  it('the admin role grants nothing on another person’s session (POD-6283)', () => {
     const c = ctx({ machineUse: 'granted' })
-    expect(mayDrive(adminSubject(), c)).toBe(true)
+    expect(mayWatch(adminSubject(), c)).toBe('unauthorized')
+    expect(mayDrive(adminSubject(), c)).toBe('unauthorized')
+    // …and nothing is lost on the admin's own session.
+    expect(mayDrive(adminSubject(), ctx({ owner: ADMIN, machineUse: 'granted' }))).toBe(true)
   })
 
-  it('agent rights are the human ceiling — revoke human, agent loses drive at next apply', () => {
-    const before = ctx({
-      machineUse: 'granted',
-      watchGrantees: [OWNER],
-      driveGrantees: [OWNER],
-    })
-    expect(mayDrive(agentSubject(OWNER), before)).toBe(true)
+  it('an agent drives its own human’s session and nobody else’s', () => {
+    const c = ctx({ machineUse: 'granted' })
+    expect(mayDrive(agentSubject(OWNER), c)).toBe(true)
+    expect(mayDrive(agentSubject(ALICE), c)).toBe('unauthorized')
+  })
 
-    // Human lost the session share and machine use. No reaper: next apply re-checks.
-    const after = ctx({
-      owner: ALICE, // session re-owned / human no longer owner
-      machineUse: 'denied',
-      watchGrantees: [],
-      driveGrantees: [],
-    })
+  it('agent rights are the human ceiling — the human loses the session, the agent loses drive at next apply', () => {
+    expect(mayDrive(agentSubject(OWNER), ctx({ machineUse: 'granted' }))).toBe(true)
+    // No reaper: next apply re-checks against the current owner and machine use.
+    const after = ctx({ owner: ALICE, machineUse: 'denied' })
     expect(mayDrive(agentSubject(OWNER), after)).toBe('unauthorized')
     expect(controllerStillAuthorized(agentSubject(OWNER), after)).toBe(false)
   })
 
   it('absent machine use refuses like denied — attach fails closed', () => {
-    const c = ctx({ machineUse: 'absent', watchGrantees: [ALICE], driveGrantees: [ALICE] })
-    expect(mayWatch(ownerSubject(ALICE), c)).toBe('unauthorized')
+    expect(mayWatch(ownerSubject(), ctx({ machineUse: 'absent' }))).toBe('unauthorized')
   })
 })
 
@@ -160,13 +125,13 @@ describe('session control policy — identity + attribution', () => {
     expect(agentAttr?.onBehalfOf).toBe(OWNER)
   })
 
-  it('command principal projects role from capability.role for admin break-glass', () => {
+  it('command principal carries the admin role, which drives nobody else’s session', () => {
     const admin = controlSubjectFromCommand({
       kind: 'user',
       user: ADMIN,
       capability: { role: 'admin', scope: { kind: 'all' }, actorUser: ADMIN, onBehalfOf: ADMIN },
     })
     expect(admin.role).toBe('admin')
-    expect(mayDrive(admin, ctx({ machineUse: 'granted' }))).toBe(true)
+    expect(mayDrive(admin, ctx({ machineUse: 'granted' }))).toBe('unauthorized')
   })
 })
