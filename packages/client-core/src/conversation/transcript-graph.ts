@@ -13,6 +13,7 @@ import {
   foldsIntoCompaction,
   isCompactionPart,
   isStretchItem,
+  isToolSummaryItem,
   isUserMediaMarker,
   pairToolResults,
   presentToolBlock,
@@ -98,6 +99,9 @@ export class TranscriptGraph {
   private readonly owners = new Map<string, string>()
   private readonly rowByBlock = new Map<string, string | TranscriptActivityRun>()
   private readonly toolMembers = new Map<string, ToolMembers>()
+  /** Harness summaries by the tool-use id they cover → the summary item's id
+   *  (POD-6258). Summary items are never emitted; their calls carry them. */
+  private readonly summaryByToolUse = observable.map<string, string>(undefined, { deep: false })
   /** Transcript identity index; companions follow records without owning them. */
   private readonly records = observable.map<string, TranscriptRecord>(undefined, { deep: false })
   readonly presentation = companion(
@@ -185,12 +189,18 @@ export class TranscriptGraph {
     const item = this.items.get(id)
     if (!item) return undefined
     const children = this.children.get(id)
-    if (!children?.length) return presentToolBlock({ item })
+    const harnessSummary = this.harnessSummary(item)
+    if (!children?.length)
+      return presentToolBlock(harnessSummary ? { item, harnessSummary } : { item })
     if (item.role === 'tool' && item.toolUseId) {
       const result = this.items.get(children.at(-1)!)?.toolResult
       const effectId = this.effectChildren.get(id)?.at(-1)
       const effects = effectId === undefined ? undefined : this.items.get(effectId)?.toolEffects
-      return presentToolBlock({ item: effects ? { ...item, toolEffects: effects } : item, result })
+      return presentToolBlock({
+        item: effects ? { ...item, toolEffects: effects } : item,
+        result,
+        ...(harnessSummary ? { harnessSummary } : {}),
+      })
     }
     const related = [item]
     for (const child of children) {
@@ -199,6 +209,13 @@ export class TranscriptGraph {
     }
     return pairToolResults(related)[0]
   }
+  private harnessSummary(item: TranscriptItem): ChatBlock['harnessSummary'] {
+    if (item.role !== 'tool' || !item.toolUseId || item.toolResult !== undefined) return undefined
+    const id = this.summaryByToolUse.get(item.toolUseId)
+    const text = id === undefined ? undefined : this.items.get(id)?.text
+    return id === undefined || !text ? undefined : { id, text }
+  }
+
   deriveRow(id: string): ChatRow | undefined {
     const members = this.rowMembers.get(id)
     if (!members?.length) return undefined
@@ -322,6 +339,7 @@ export class TranscriptGraph {
     this.owners.clear()
     this.rowByBlock.clear()
     this.toolMembers.clear()
+    this.summaryByToolUse.clear()
     this.operatorIds[0].length = this.operatorIds[1].length = 0
     this.cursorMembers.clear()
     this.aliasById.clear()
@@ -598,6 +616,15 @@ export class TranscriptGraph {
 
   private ingestIdentity(id: string, dirty = new Set<string>()): void {
     const item = this.items.get(id)!
+    if (isToolSummaryItem(item)) {
+      // Metadata for the calls it names: those blocks re-derive (and their run
+      // re-reads its title); the summary itself never becomes a row.
+      for (const use of item.summarizes ?? []) {
+        this.summaryByToolUse.set(use, id)
+        for (const call of this.toolMembers.get(use)?.calls ?? []) dirty.add(call)
+      }
+      return
+    }
     if (isUserMediaMarker(item)) {
       this.ingestMedia(id, dirty)
       return
@@ -830,6 +857,7 @@ export class TranscriptGraph {
         block.item.toolName ?? '',
         block.item.toolInput ?? '',
         block.result ?? block.item.toolResult ?? '',
+        block.harnessSummary?.text ?? '',
       ].join('\n'),
     )
     this.answers.set(id, block.item.role === 'assistant' && block.item.answer === true)

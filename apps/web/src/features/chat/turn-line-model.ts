@@ -1,6 +1,7 @@
 import type { HeadlessOverlay, TurnPreview } from '@podium/client-core/conversation'
 import type { ChatBlock, ChatRow, ToolTitleClause } from '@podium/client-core/values'
 import {
+  harnessSummaryLine,
   isInteractiveTool,
   toolActivityCount,
   toolBatchTitleFromClauses,
@@ -145,6 +146,51 @@ export class PresentedTurn {
     for (const block of this.prefix)
       add({ ...toolCategory(block.item), count: toolActivityCount(block.item), subjects: [] }, -1)
     return [...counts.values()].filter((clause) => clause.count > 0)
+  }
+  /** The harness's own words for this fold's calls (POD-6258), when its
+   *  harness summarizes; undefined otherwise. */
+  @lazy get harnessSummary(): string | undefined {
+    const parts: string[] = []
+    for (const { row } of this.fold?.rows ?? []) {
+      const line =
+        row.kind === 'tools'
+          ? (this.presentation?.run(rowIdentity(row))?.harnessSummary ??
+            harnessSummaryLine(row.blocks.map((block) => block.harnessSummary)))
+          : (this.presentation?.block(row.block.item.id) ?? row.block).harnessSummary?.text
+      if (line && !parts.includes(line)) parts.push(line)
+    }
+    return parts.length ? parts.join(' · ') : undefined
+  }
+  /** What a settled fold is called: the harness's summary, else the calls
+   *  named by their subjects ("Ran pnpm check, edited chat.ts +2"). */
+  @lazy get title(): string {
+    if (this.harnessSummary) return this.harnessSummary
+    if (this.eventCount === 1) return this.eventPhrase
+    const titles: string[] = []
+    for (const { row, index } of this.fold?.rows ?? []) {
+      // An operator question keeps its own row beside the line; naming it here
+      // too would say it twice.
+      if (this.fold?.asks.has(index)) continue
+      const title =
+        row.kind === 'tools'
+          ? (this.presentation?.run(rowIdentity(row))?.title ?? row.title)
+          : row.block.item.role === 'assistant'
+            ? ''
+            : toolBatchTitleFromClauses([
+                {
+                  ...toolCategory(row.block.item),
+                  count: toolActivityCount(row.block.item),
+                  subjects: [toolSubject(row.block.item)].filter((s): s is string => !!s),
+                },
+              ])
+      if (title && !titles.includes(title)) titles.push(title)
+    }
+    // One sentence: later clauses continue it ("Ran x, read y"), not restart it.
+    return (
+      titles
+        .map((title, at) => (at === 0 ? title : title.charAt(0).toLowerCase() + title.slice(1)))
+        .join(', ') || this.summary
+    )
   }
   @lazy get eventCount(): number {
     return this.clauses.reduce((sum, clause) => sum + clause.count, 0)

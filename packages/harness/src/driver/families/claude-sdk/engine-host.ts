@@ -646,6 +646,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
         }),
         ...claudeStreamEnvOverlay({
           isRoot: process.getuid?.() === 0,
+          toolSummaries: true,
         }),
       }
 
@@ -746,6 +747,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
             onPermission: input.onPermission,
             onToolCall: input.onToolCall,
             onToolResult: input.onToolResult,
+            ...(input.onToolSummary ? { onToolSummary: input.onToolSummary } : {}),
             // Status badges (`starting`/`running`/`tool`) were already dropped
             // at the session layer before this change — only partial text
             // travels up through `onPartialText`.

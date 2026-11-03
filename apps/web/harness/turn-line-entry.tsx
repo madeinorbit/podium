@@ -109,6 +109,48 @@ const ask: TranscriptItem = {
     ],
   }),
 }
+/** A harness that summarizes its calls (POD-6258): separate call and result
+ *  records paired by toolUseId, and a 'tool-summary' after each step. */
+const summarized = (items: TranscriptItem[]): TranscriptItem[] => {
+  const words: Record<string, string> = {
+    show: "Checked POD-2242's stage",
+    read: 'Rebased onto main and read the work-line styles',
+    test: 'Ran the lean gate',
+  }
+  const out: TranscriptItem[] = []
+  let step: string[] = []
+  for (const item of items) {
+    if (item.role !== 'tool') {
+      out.push(item)
+      continue
+    }
+    const { toolResult, durationMs, ...call } = item
+    out.push({ ...call, toolUseId: item.id })
+    out.push({
+      id: `${item.id}-result`,
+      role: 'tool',
+      text: '',
+      toolUseId: item.id,
+      toolResult: toolResult ?? '',
+      ts: item.ts,
+      ...(durationMs !== undefined ? { durationMs } : {}),
+    })
+    step.push(item.id)
+    const text = words[item.id]
+    if (text) {
+      out.push({
+        id: `summary-${item.id}`,
+        role: 'system',
+        systemKind: 'tool-summary',
+        text,
+        summarizes: step,
+        ts: item.ts,
+      })
+      step = []
+    }
+  }
+  return out
+}
 interface Scene {
   items: TranscriptItem[]
   activity: ChatActivity | null
@@ -151,13 +193,17 @@ const initial: Scene =
           activeMatch: undefined,
           activeRow: undefined,
         }
-      : params.get('state') === 'settled'
+      : params.get('state') === 'settled' || params.get('state') === 'summaries'
         ? {
             items: [
-              ...work.map((item) =>
-                item.id === 'test'
-                  ? { ...item, toolResult: 'lean gate green', durationMs: 52000 }
-                  : item,
+              ...(params.get('state') === 'summaries'
+                ? summarized
+                : (list: TranscriptItem[]) => list)(
+                work.map((item) =>
+                  item.id === 'test'
+                    ? { ...item, toolResult: 'lean gate green', durationMs: 52000 }
+                    : item,
+                ),
               ),
               answer,
             ],

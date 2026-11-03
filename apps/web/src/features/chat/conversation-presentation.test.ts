@@ -83,22 +83,29 @@ function resolve(at = requests.length - 1) {
   request.resolve(main(request.source, request.query, request.cursor))
 }
 
-it('reads streaming narration and update presence from live blocks without rebuilding nonempty turn structure', () => {
+it('keeps narration out of folds and rebuilds structure only when its text first appears', () => {
   worker.usesWorker = false
+  const call: TranscriptItem = {
+    id: 'call',
+    role: 'tool',
+    text: '',
+    toolName: 'Read',
+    toolInput: '/a.ts',
+    toolResult: 'ok',
+  }
   const intro: TranscriptItem = { id: 'intro', role: 'assistant', text: '' }
-  const { presentation, log } = fixture([{ id: 'prompt', role: 'user', text: 'Check' }, intro])
-  const row = presentation.rows[1]!
-  const model = presentation.turn(row)
-  const values: string[] = []
-  stops.push(autorun(() => values.push(`${model.narration}:${model.fold?.updates}`)))
-  expect(values.at(-1)).toBe(':0')
+  const { presentation, log } = fixture([
+    { id: 'prompt', role: 'user', text: 'Check' },
+    call,
+    intro,
+  ])
+  expect(presentation.turnFolds.trailing?.state).toBe('live')
   log.merge([{ ...intro, text: 'Checking now.' }])
-  expect(presentation.rows[1]).toBe(row)
-  expect(values.at(-1)).toBe('Checking now.:1')
   const structure = presentation.turnFolds
+  expect(structure.folds.map((fold) => [fold.state, fold.members])).toEqual([['done', [1]]])
+  expect(structure.byMember.has(2)).toBe(false)
   log.merge([{ ...intro, text: 'Checking the next file.' }])
   expect(presentation.turnFolds).toBe(structure)
-  expect(values.at(-1)).toBe('Checking the next file.:1')
 })
 
 it('uses retained category facts and boundary calls without materializing a collapsed turn run', () => {
@@ -254,11 +261,13 @@ it('keeps complete live turn identity, counts and timing beyond both source limi
     text: 'Check everything',
     ts: at(0),
   }
+  // Text-less assistant records: rows of their own inside the run, never the
+  // narration that would end it (POD-6258).
   const updates: TranscriptItem[] = Array.from({ length: 298 }, (_, n) => ({
     id: `update-${n}`,
     cursor: `long-${n + 1}`,
     role: 'assistant',
-    text: `Checking ${n}`,
+    text: '',
     ts: at(n + 1),
   }))
   const first: TranscriptItem = {
@@ -287,7 +296,7 @@ it('keeps complete live turn identity, counts and timing beyond both source limi
           id: `update-${n}`,
           cursor: `long-${n + 1}`,
           role: 'assistant' as const,
-          text: `Checking ${n}`,
+          text: '',
           ts: at(n + 1),
         }
       }),

@@ -107,7 +107,7 @@ import {
   stopSessionProcess,
 } from './control/session'
 import { headlessTurnEnv, spawnEnv } from './control/session-env'
-import { sourceForRead } from './control/transcripts'
+import { sourceForRead, transcriptAnnotations } from './control/transcripts'
 import {
   createSchemaGate,
   refuseConvergence,
@@ -1275,6 +1275,7 @@ export async function createDaemonHostRuntime(args: {
     facts: claudeFacts,
     engine: claudeEngine,
     stageAttachment,
+    annotations: transcriptAnnotations(),
     transcript: {
       readHistory: contractHost.readHistory,
       archiveTranscript: contractHost.archiveTranscript,

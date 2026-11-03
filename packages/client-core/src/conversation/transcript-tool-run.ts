@@ -3,6 +3,7 @@ import { action, compareShallow, observable } from 'mobx'
 import { type ActivitySingletonDisplay, activitySingletonDisplay } from '../values/activity-display'
 import {
   type ChatBlock,
+  harnessSummaryLine,
   type ToolTitleClause,
   toolActivityCount,
   toolBatchTitleFromClauses,
@@ -40,6 +41,11 @@ export class TranscriptActivityRun {
   @observable private accessor failedCount = 0
   private readonly durations = new Map<string, number>()
   @observable accessor durationMs = 0
+  /** Each call's harness summary (POD-6258), when its harness wrote one. */
+  private readonly summaries = observable.map<string, NonNullable<ChatBlock['harnessSummary']>>(
+    undefined,
+    { deep: false },
+  )
 
   constructor(
     readonly ids: readonly string[],
@@ -93,8 +99,14 @@ export class TranscriptActivityRun {
   @lazy({ equals: compareShallow }) get blocks(): ChatBlock[] {
     return this.ids.map((id) => this.readBlock(id)!)
   }
+  /** The harness's own words for this run, when it wrote any: its distinct
+   *  summaries in call order. Undefined for harnesses that do not summarize. */
+  @lazy get harnessSummary(): string | undefined {
+    if (this.summaries.size === 0) return undefined
+    return harnessSummaryLine(this.calls.map((id) => this.summaries.get(id)))
+  }
   @lazy get title(): string {
-    return toolBatchTitleFromClauses(this.clauses())
+    return this.harnessSummary ?? toolBatchTitleFromClauses(this.clauses())
   }
   /** Count-only face for the folded row; see `toolBatchTitles`. */
   @lazy get summary(): string {
@@ -117,6 +129,12 @@ export class TranscriptActivityRun {
       if (failure) this.failed.add(id)
       else this.failed.delete(id)
       this.failedCount += failure ? 1 : -1
+    }
+    const summary = block.harnessSummary
+    const held = this.summaries.get(id)
+    if (summary?.id !== held?.id || summary?.text !== held?.text) {
+      if (summary) this.summaries.set(id, summary)
+      else this.summaries.delete(id)
     }
     const { verb, noun } = toolCategory(block.item)
     const key = `${verb}|${noun}`
@@ -159,6 +177,7 @@ export class TranscriptActivityRun {
   }
 
   @action remove(id: string): void {
+    this.summaries.delete(id)
     this.durationMs -= this.durations.get(id) ?? 0
     this.durations.delete(id)
     const previous = this.entries.get(id)

@@ -375,3 +375,37 @@ it('keeps mixed stretches, note counts, search aliases and summary rows in parit
   expect(f.graph.search('needle', 0).total).toBe(0)
   f.graph.dispose()
 })
+
+it('carries harness tool summaries on their calls and runs, never as rows, across seams', () => {
+  const summary = (id: string, text: string, uses: string[]): TranscriptItem => ({
+    id,
+    role: 'system',
+    systemKind: 'tool-summary',
+    text,
+    summarizes: uses,
+  })
+  const { graph, append, prepend } = fixture([
+    call('b', 'use-b'),
+    result('b-result', 'use-b'),
+    prose('after'),
+  ])
+  expect(graph.structuralRows.map((row) => row.kind)).toEqual(['tools', 'block'])
+  expect(graph.run('b')?.harnessSummary).toBeUndefined()
+  // The summary lands after its calls: the run names itself by it, and the
+  // item never becomes a row of its own.
+  append(summary('sum-b', 'Read the config', ['use-b']))
+  expect(graph.structuralRows.map((row) => row.kind)).toEqual(['tools', 'block'])
+  expect(graph.block('b')?.harnessSummary).toEqual({ id: 'sum-b', text: 'Read the config' })
+  expect(graph.run('b')?.title).toBe('Read the config')
+  // An older page brings an earlier call of the same run and its own summary.
+  prepend(
+    call('a', 'use-a'),
+    result('a-result', 'use-a'),
+    summary('sum-a', 'Listed the repo', ['use-a']),
+  )
+  expect(graph.structuralRows.map((row) => row.kind)).toEqual(['tools', 'block'])
+  expect(graph.run('a')?.harnessSummary).toBe('Listed the repo · Read the config')
+  // Without a summary, a call keeps Podium's own name for itself.
+  append(call('c', 'use-c'))
+  expect(graph.block('c')?.harnessSummary).toBeUndefined()
+})

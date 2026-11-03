@@ -184,9 +184,17 @@ export function mcpConfigInline(mcpConfig: string): string {
 export function claudeStreamEnvOverlay(input: {
   permissionMode?: string
   isRoot: boolean
+  /** Ask the CLI for `tool_use_summary` messages (POD-6258). Each costs the
+   *  account a small-model call, so only a session whose transcript shows
+   *  them asks; one-shot headless turns do not. */
+  toolSummaries?: boolean
 }): Record<string, string> {
-  if (input.permissionMode === 'bypassPermissions' && input.isRoot) return { IS_SANDBOX: '1' }
-  return {}
+  return {
+    // RUN, not read: claude-code 2.1.317 emits one summary per model step in
+    // stream-json and writes none of them to its session JSONL.
+    ...(input.toolSummaries ? { CLAUDE_CODE_EMIT_TOOL_USE_SUMMARIES: '1' } : {}),
+    ...(input.permissionMode === 'bypassPermissions' && input.isRoot ? { IS_SANDBOX: '1' } : {}),
+  }
 }
 
 /**
@@ -345,6 +353,15 @@ export interface ClaudeStreamToolResult {
   isError?: boolean
 }
 
+/** The CLI's summary of the tool calls one model step made (`tool_use_summary`). */
+export interface ClaudeStreamToolSummary {
+  /** The message's own uuid: stable, so a replay names the same summary. */
+  id: string
+  summary: string
+  /** `preceding_tool_use_ids`, in call order. */
+  toolUseIds: string[]
+}
+
 export interface ClaudeStreamTurnOutcome {
   /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   harnessSessionId: string
@@ -371,6 +388,7 @@ export interface ClaudeStreamTurnCallbacks {
   onPermission(request: ClaudeStreamPermissionRequest): void
   onToolCall(call: ClaudeStreamToolCall): void
   onToolResult(result: ClaudeStreamToolResult): void
+  onToolSummary?(summary: ClaudeStreamToolSummary): void
   emit(event: HeadlessTurnEvent): void
 }
 
@@ -865,6 +883,16 @@ export function createClaudeStreamClient(
             output: toolResultText(block.content),
             ...(block.is_error === true ? { isError: true } : {}),
           })
+        }
+        return
+      }
+      case 'tool_use_summary': {
+        const summary = msg as { uuid?: unknown; summary?: unknown; preceding_tool_use_ids?: unknown }
+        const ids = Array.isArray(summary.preceding_tool_use_ids)
+          ? summary.preceding_tool_use_ids.filter((id): id is string => typeof id === 'string' && id !== '')
+          : []
+        if (turn && typeof summary.uuid === 'string' && typeof summary.summary === 'string' && ids.length) {
+          turn.callbacks.onToolSummary?.({ id: summary.uuid, summary: summary.summary, toolUseIds: ids })
         }
         return
       }

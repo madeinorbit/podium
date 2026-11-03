@@ -99,32 +99,37 @@ function render(items: TranscriptItem[], extra: Partial<TranscriptFeedProps> = {
 const line = () => host.querySelector<HTMLElement>('[data-testid="turn-line"]')!
 const toggle = () => act(() => line().querySelector<HTMLButtonElement>(':scope > button')!.click())
 
-it('starts on one closed line, updates narration in place, and keeps status after a result', () => {
+it('keeps narration on the page and names the call in flight on one live line', () => {
   render([prompt, say('intro', 'Checking now.')])
+  expect(host.querySelector('[data-testid="turn-line"]')).toBeNull()
+  expect(host.querySelector('[data-row-key="intro"] .chat-md')?.textContent).toContain(
+    'Checking now.',
+  )
+  render([prompt, say('intro', 'Checking now.'), call('cmd')])
   const original = line()
-  expect(original.querySelector('.tl-current')?.textContent).toBe('Checking now.')
   expect(original.dataset.open).toBe('false')
-  expect(host.querySelector('.chat-md')?.textContent?.trim()).toBe('Check it')
+  expect(original.dataset.state).toBe('live')
+  expect(original.querySelector('.tl-current')?.textContent).toBe('bun run test')
+  // Named once: the label already is the call in flight.
+  expect(
+    original.querySelector(':scope > button')?.textContent?.match(/bun run test/g),
+  ).toHaveLength(1)
+  expect(host.querySelector('[data-row-key="intro"] .chat-md')?.textContent).toContain(
+    'Checking now.',
+  )
   expect(host.querySelector('[data-testid="feed-tail"]')).toBeNull()
   expect(host.querySelector('[data-testid="feed-tail-inline"]')).not.toBeNull()
   expect(host.querySelectorAll('.pod-mark')).toHaveLength(1)
-  render([prompt, say('intro', 'Checking now.'), call('cmd'), say('next', 'Running the checks.')])
+  render([prompt, say('intro', 'Checking now.'), call('cmd', 'green'), say('next', 'All green.')])
   expect(line()).toBe(original)
-  expect(line().querySelector('.tl-current')?.textContent).toBe('Running the checks.')
-  expect(line().querySelector('.tl-now')?.textContent).toBe('bun run test')
-  render([
-    prompt,
-    say('intro', 'Checking now.'),
-    call('cmd', 'green'),
-    say('next', 'Running the checks.'),
-  ])
-  expect(line()).toBe(original)
-  expect(host.querySelectorAll('.pod-mark')).toHaveLength(1)
-  expect(line().querySelector('.tl-now')?.textContent).toBe('')
+  expect(line().dataset.state).toBe('done')
+  expect(line().querySelector('.tl-current')?.textContent).toBe('bun run test')
+  expect(host.querySelector('[data-row-key="next"] .chat-md')?.textContent).toContain('All green.')
+  expect(line().querySelector('[data-row-key="next"]')).toBeNull()
 })
 
 it('keeps the flat opened list, member disclosure and selection when work appends and settles', async () => {
-  const items = [prompt, say('intro'), call('cmd', 'green')]
+  const items = [prompt, say('intro'), call('first', 'ok'), call('cmd', 'green')]
   render(items)
   toggle()
   const original = line()
@@ -180,7 +185,7 @@ it('keeps a singleton output well deliberately opened through the outer line whe
 })
 
 it('keeps operator Reply notes outside and repeats them as ordinary notes in chronology', () => {
-  const items = [prompt, say('intro'), note(true), call('cmd')]
+  const items = [prompt, call('first', 'done'), note(true), call('cmd')]
   render(items)
   expect(host.querySelectorAll('.quiet-ask')).toHaveLength(1)
   toggle()
@@ -218,29 +223,24 @@ it('opens only the addressed result for search and drops forced expansion when s
   expect(line().querySelector('.turn-entry')).toBeNull()
 })
 
-it('uses the same line and opened text node when preview characters become durable narration', () => {
+it('streams text below a live line and lands it as its own row, outside the fold', () => {
   const preview: TurnPreview = {
     turnEpoch: 1,
     items: [{ kind: 'text', itemId: 'stream', text: 'Checking now.' }],
   }
-  render([prompt], { turnPreview: preview })
+  render([prompt, call('cmd', 'green')], { turnPreview: preview })
   const original = line()
-  expect(original.querySelector('.tl-current')?.textContent).toBe('Checking now.')
+  expect(original.querySelector('.tl-current')?.textContent).toBe('bun run test')
+  expect(host.querySelector('[data-turn-preview]')?.textContent).toContain('Checking now.')
   toggle()
-  const body = host.querySelector('.turn-entry .chat-md')
-  render([prompt], {
-    turnPreview: {
-      ...preview,
-      items: [{ kind: 'text', itemId: 'stream', text: 'Checking next.' }],
-    },
-  })
+  expect(line().textContent).not.toContain('Checking now.')
+  render([prompt, call('cmd', 'green'), say('stream', 'Checking now.')], { turnPreview: null })
   expect(line()).toBe(original)
-  expect(line().querySelector('.tl-current')?.textContent).toBe('Checking next.')
-  render([prompt, say('stream', 'Checking next.')], { turnPreview: null })
-  expect(line()).toBe(original)
-  expect(line().dataset.open).toBe('true')
-  expect(host.querySelector('.turn-entry .chat-md')).toBe(body)
-  expect(host.querySelectorAll('.turn-entry')).toHaveLength(1)
+  expect(line().dataset.state).toBe('done')
+  expect(line().textContent).not.toContain('Checking now.')
+  expect(host.querySelector('[data-row-key="stream"] .chat-md')?.textContent).toContain(
+    'Checking now.',
+  )
 })
 
 it('pauses at an interactive card, settles that seam on answer, and starts a new line', () => {
@@ -264,41 +264,79 @@ it('pauses at an interactive card, settles that seam on answer, and starts a new
   const items = [prompt, say('intro', 'Checking the branch.'), call('cmd', 'green'), ask]
   render(items, { activity: { tone: 'attention', label: 'needs answer' }, livePendingAskIndex: 3 })
   expect(line().dataset.state).toBe('paused')
-  expect(line().querySelector('.tl-current')?.textContent).toBe('Checking the branch.')
+  expect(line().querySelector('.tl-current')?.textContent).toBe('bun run test')
+  expect(host.querySelector('[data-row-key="intro"] .chat-md')?.textContent).toContain(
+    'Checking the branch.',
+  )
   expect(line().querySelector('.asked-you')).toBeNull()
   expect(host.querySelector('[data-testid="feed-tail"]')?.textContent).toContain(
     'Waiting for your answer',
   )
   const first = line()
   toggle()
-  render([...items.slice(0, -1), { ...ask, toolResult: 'main' }, say('resumed', 'Using main.')])
+  render([
+    ...items.slice(0, -1),
+    { ...ask, toolResult: 'main' },
+    say('resumed', 'Using main.'),
+    call('next'),
+  ])
   expect(host.querySelectorAll('[data-testid="turn-line"]')).toHaveLength(2)
   expect(line()).toBe(first)
   expect(first.dataset.open).toBe('true')
   expect(first.dataset.state).toBe('done')
-  expect(first.querySelector('.tl-current')?.textContent).toBe('Worked for 1m 40s · ran 1 command')
+  expect(first.querySelector('.tl-current')?.textContent).toBe('bun run test')
   expect(first.querySelector('.tl-timer')).toBeNull()
 })
 
-it('groups settled counts by verb with numbers and one final conjunction', () => {
+it('names a settled run by its harness summaries, else by its subjects', () => {
   const commands = Array.from({ length: 5 }, (_, n) => call(`command-${n}`, 'green'))
+  const read: TranscriptItem = {
+    ...call('read', 'contents'),
+    toolName: 'Read',
+    toolInput: '/repo/file.ts',
+  }
+  const plain = [prompt, say('intro', 'Checking now.'), ...commands, read, note()]
+  render([...plain, say('answer', 'Ready.', true)], { activity: null })
+  const named = buildChatRows(pairToolResults(plain)).find((row) => row.kind === 'tools')!
+  expect(named.kind === 'tools' && named.title).toBeTruthy()
+  expect(line().querySelector('.tl-current')?.textContent).toBe(
+    named.kind === 'tools' ? named.title : '',
+  )
+  expect(line().querySelector('.tl-counts')).toBeNull()
+  const summary = (id: string, text: string, ids: string[]): TranscriptItem => ({
+    id,
+    role: 'system',
+    systemKind: 'tool-summary',
+    text,
+    summarizes: ids,
+    ts,
+  })
+  // A harness's calls and results are separate records paired by toolUseId.
+  const paired = (item: TranscriptItem): TranscriptItem[] => [
+    { ...item, toolResult: undefined, toolUseId: item.id },
+    { id: `${item.id}-r`, role: 'tool', text: '', toolUseId: item.id, toolResult: 'ok', ts },
+  ]
   render(
     [
       prompt,
       say('intro', 'Checking now.'),
-      ...commands,
-      { ...call('read', 'contents'), toolName: 'Read', toolInput: '/repo/file.ts' },
-      note(),
+      ...commands.flatMap(paired),
+      summary(
+        's1',
+        'Ran the test suite',
+        commands.map((item) => item.id),
+      ),
+      ...paired(read),
+      summary('s2', 'Read file.ts', ['read']),
       say('answer', 'Ready.', true),
     ],
     { activity: null },
   )
-  expect(line().querySelector('.tl-counts')?.textContent).toBe(
-    ' · ran 5 commands, read 1 file and 1 note',
-  )
+  expect(line().querySelector('.tl-current')?.textContent).toBe('Ran the test suite · Read file.ts')
   expect(line().querySelector(':scope > button')?.getAttribute('aria-label')).toContain(
-    'ran 5 commands, read 1 file and 1 note',
+    'Ran the test suite · Read file.ts',
   )
+  expect(host.textContent).not.toContain('System')
 })
 
 it('keeps the command glyph on a live opened entry and uses work duration units', () => {
@@ -314,22 +352,22 @@ it('keeps the command glyph on a live opened entry and uses work duration units'
   expect(line().querySelector('.tl-timer')?.textContent).not.toContain(':')
 })
 
-it('settles a failed turn with a separate error tail and an interrupted turn with a full-ink stand-in', () => {
-  const items = [
-    prompt,
-    say('intro', 'Checking now.'),
-    call('cmd', 'error: failed'),
-    say('latest', 'Trying the next file.'),
-  ]
+it('settles a failed run with a separate error tail and an interrupted one beside its narration', () => {
+  const items = [prompt, say('intro', 'Checking now.'), call('cmd', 'error: failed')]
   render(items, { activity: { tone: 'error', label: 'rate limited' } })
   expect(line().dataset.state).toBe('failed')
   expect(line().querySelector('.tl-current')?.textContent).toContain('Failed')
   expect(host.querySelector('[data-testid="feed-tail"]')?.textContent).toContain(
     'Agent stopped with an error',
   )
-  render([...items, { id: 'stop', role: 'user', event: 'interrupt', text: '', ts }], {
-    activity: { tone: 'note', label: 'interrupted' } as never,
-  })
+  render(
+    [
+      ...items,
+      say('latest', 'Trying the next file.'),
+      { id: 'stop', role: 'user', event: 'interrupt', text: '', ts },
+    ],
+    { activity: { tone: 'note', label: 'interrupted' } as never },
+  )
   expect(line().dataset.state).toBe('stopped')
   expect(host.querySelector('[data-row-key="latest"] .chat-md')?.textContent).toContain(
     'Trying the next file.',
@@ -346,7 +384,10 @@ it('restamps a Grok narration into the answer without leaving stale phrase text 
   ]
   render(items)
   const original = line()
-  expect(original.querySelector('.tl-current')?.textContent).toBe('The result is ready.')
+  expect(original.querySelector('.tl-current')?.textContent).toBe('bun run test')
+  expect(host.querySelector('[data-row-key="final"] .chat-md')?.textContent).toContain(
+    'The result is ready.',
+  )
   render([...items.slice(0, -1), say('final', 'The result is ready.', true)], { activity: null })
   expect(line()).toBe(original)
   expect(line().querySelector('.tl-current')?.textContent).not.toContain('The result is ready.')
@@ -433,14 +474,15 @@ it('retains the live line and selected note DOM when a turn crosses the source a
     forgetGraph() {},
   }
   const presentation = new ConversationPresentation(client as never)
+  // Text-less assistant records stay inside the run as rows of their own;
+  // narration with text would end it (POD-6258).
   const updates = (start: number, count: number): TranscriptItem[] =>
     Array.from({ length: count }, (_, at) => ({
-      ...say(`long-${start + at}`, `Checking ${start + at}`),
+      ...say(`long-${start + at}`, ''),
       cursor: `cursor-${start + at}`,
     }))
   const items = [
     { ...prompt, cursor: 'prompt-cursor' },
-    say('intro'),
     note(),
     call('first', 'done'),
     ...updates(0, 297),

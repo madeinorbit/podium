@@ -900,9 +900,18 @@ export const TranscriptFeed = observer(function TranscriptFeed(
           </Observer>
           <Observer>
             {() => {
-              if (folds.trailing?.state === 'live' || folds.trailing?.state === 'paused')
-                return null
-              const turnPreview = props.chat?.view.preview ?? props.turnPreview
+              // A live fold line owns the in-flight CALLS; streaming text is
+              // the agent's words and renders here, below it (POD-6258).
+              const foldOwnsCalls =
+                folds.trailing?.state === 'live' || folds.trailing?.state === 'paused'
+              const fullPreview = props.chat?.view.preview ?? props.turnPreview
+              const turnPreview =
+                foldOwnsCalls && fullPreview
+                  ? {
+                      ...fullPreview,
+                      items: fullPreview.items.filter((item) => item.kind === 'text'),
+                    }
+                  : fullPreview
               const overlay = props.chat?.view.headless ? props.chat.view.overlay : props.overlay
               const previewHasText =
                 turnPreview?.items.some((item) => item.kind === 'text') === true

@@ -77,6 +77,32 @@ export interface ChatBlock {
   /** A Codex script's calls as its row lists them, a mail call that went
    *  through named as its note. Set by {@link presentToolBlock}. */
   scriptCalls?: ScriptCallLine[]
+  /** The harness's own summary of the batch this call belongs to (POD-6258),
+   *  from a 'tool-summary' item naming its `toolUseId`. One summary covers
+   *  several calls, so `id` (the summary item's) tells them apart. */
+  harnessSummary?: { readonly id: string; readonly text: string }
+}
+
+/** A harness's summary of a batch of calls: metadata for the run those calls
+ *  fold into, never a row of its own. */
+export function isToolSummaryItem(item: TranscriptItem): boolean {
+  return item.systemKind === 'tool-summary'
+}
+
+/** The distinct harness summaries of these calls, in call order, as one
+ *  line; undefined when the harness gave none, so callers fall back to
+ *  Podium's own naming. */
+export function harnessSummaryLine(
+  summaries: Iterable<{ readonly id: string; readonly text: string } | undefined>,
+): string | undefined {
+  const seen = new Set<string>()
+  const texts: string[] = []
+  for (const summary of summaries) {
+    if (!summary || seen.has(summary.id)) continue
+    seen.add(summary.id)
+    texts.push(summary.text)
+  }
+  return texts.length ? texts.join(' · ') : undefined
 }
 
 /** A mail call as the chat shows it: a sent note, or an inbox read. */
@@ -157,7 +183,12 @@ export function foldCompaction(note: TranscriptItem, part: TranscriptItem): Tran
 export function pairToolResults(items: TranscriptItem[]): ChatBlock[] {
   const blocks: ChatBlock[] = []
   const callByToolUseId = new Map<string, ChatBlock>()
+  const summaries = new Map<string, { id: string; text: string }>()
   for (const item of items) {
+    if (isToolSummaryItem(item)) {
+      for (const use of item.summarizes ?? []) summaries.set(use, { id: item.id, text: item.text })
+      continue
+    }
     if (isUserMediaMarker(item)) {
       const prev = blocks[blocks.length - 1]
       if (prev && prev.item.role === 'user' && prev.item.event === undefined) {
@@ -197,6 +228,10 @@ export function pairToolResults(items: TranscriptItem[]): ChatBlock[] {
     const block: ChatBlock = { item }
     if (item.role === 'tool' && item.toolUseId) callByToolUseId.set(item.toolUseId, block)
     blocks.push(block)
+  }
+  for (const [use, summary] of summaries) {
+    const call = callByToolUseId.get(use)
+    if (call) call.harnessSummary = summary
   }
   return blocks.map(presentToolBlock)
 }
@@ -764,7 +799,9 @@ export function toolBatchTitles(blocks: ChatBlock[]): { title: string; summary: 
     return { verb, noun, subjects: distinct.slice(0, SUBJECTS_PER_CLAUSE), count }
   })
   return {
-    title: toolBatchTitleFromClauses(clauses),
+    title:
+      harnessSummaryLine(blocks.map((block) => block.harnessSummary)) ??
+      toolBatchTitleFromClauses(clauses),
     summary: toolBatchTitleFromClauses(clauses.map((clause) => ({ ...clause, subjects: [] }))),
   }
 }

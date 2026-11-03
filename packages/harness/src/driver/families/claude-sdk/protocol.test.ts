@@ -182,6 +182,13 @@ describe('the stream-json invocation', () => {
     expect(claudeStreamEnvOverlay({ permissionMode: 'auto', isRoot: true })).toEqual({})
   })
 
+  it('asks for tool summaries only when the caller shows them', () => {
+    expect(claudeStreamEnvOverlay({ isRoot: false, toolSummaries: true })).toEqual({
+      CLAUDE_CODE_EMIT_TOOL_USE_SUMMARIES: '1',
+    })
+    expect(claudeStreamEnvOverlay({ isRoot: false })).toEqual({})
+  })
+
   it('carries the orchestrator prompt on initialize, never argv', () => {
     expect(initializePayload({ systemPrompt: 'sys', contextPrompt: 'ctx' })).toEqual({
       subtype: 'initialize',
@@ -221,12 +228,14 @@ describe('the stream client', () => {
     const partials: Array<{ text: string; itemHint?: string }> = []
     const calls: Array<{ toolUseId: string; toolName: string }> = []
     const results: Array<{ toolUseId: string; output: string }> = []
+    const summaries: Array<{ id: string; summary: string; toolUseIds: string[] }> = []
     const client = createClaudeStreamClient(fake.transport, {})
     const turn = client.turn('hello', {
       onPartialText: (text, itemHint) => partials.push({ text, ...(itemHint ? { itemHint } : {}) }),
       onPermission: () => {},
       onToolCall: (call) => calls.push(call),
       onToolResult: (result) => results.push(result),
+      onToolSummary: (summary) => summaries.push(summary),
       emit: () => {},
     })
     completeTurn(fake, 'sess-1')
@@ -266,6 +275,18 @@ describe('the stream client', () => {
         message: { content: [{ type: 'tool_result', tool_use_id: 'tu-1', content: 'file!' }] },
       }),
     )
+    // The CLI's summary of the step (POD-6258); one naming no call is dropped.
+    fake.emitLine(
+      frame({
+        type: 'tool_use_summary',
+        uuid: 'sum-1',
+        summary: 'Read the file',
+        preceding_tool_use_ids: ['tu-1'],
+      }),
+    )
+    fake.emitLine(
+      frame({ type: 'tool_use_summary', uuid: 'sum-2', summary: 'Nothing', preceding_tool_use_ids: [] }),
+    )
     fake.emitLine(frame({ type: 'result', subtype: 'success', result: 'the answer' }))
     await expect(turn.done).resolves.toEqual({
       harnessSessionId: 'sess-1',
@@ -275,6 +296,7 @@ describe('the stream client', () => {
     expect(partials).toEqual([{ text: 'hel', itemHint: 'msg-1' }])
     expect(calls).toEqual([{ toolUseId: 'tu-1', toolName: 'Read', input: { p: 1 } }])
     expect(results).toEqual([{ toolUseId: 'tu-1', output: 'file!' }])
+    expect(summaries).toEqual([{ id: 'sum-1', summary: 'Read the file', toolUseIds: ['tu-1'] }])
     await expect(client.ready).resolves.toBe('sess-1')
   })
 

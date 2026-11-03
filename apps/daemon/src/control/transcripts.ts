@@ -8,16 +8,19 @@ import {
   manifestFor,
   resolveWithinRoots,
 } from '@podium/harness'
+import {
+  fileChainSource,
+  type SliceResult,
+  type TranscriptAnnotationStore,
+  type TranscriptSource,
+  transcriptAnnotationStore,
+  transcriptSourceFromGrammar,
+  withTranscriptAnnotations,
+} from '@podium/harness/store'
 import { createLogger } from '@podium/logger'
 import type { AgentKind, SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
-import {
-  fileChainSource,
-  transcriptSourceFromGrammar,
-  type SliceResult,
-  type TranscriptSource,
-} from '@podium/harness/store'
 import type { ControlHandlers, DaemonContext } from './context'
 
 const log = createLogger('daemon:transcripts')
@@ -42,6 +45,24 @@ export function normalizeAgentKind(agentKind: AgentKind, resumeKind?: string): A
   return (resumeKind !== undefined ? harnessKindForResumeKind(resumeKind) : undefined) ?? agentKind
 }
 
+const annotationStores = new Map<string, TranscriptAnnotationStore>()
+
+/**
+ * The daemon's one annotation log (POD-6258): items a driver saw live that its
+ * harness does not keep. Drivers append; {@link sourceForRead} weaves them into
+ * every read, whatever the harness. Per state dir, so separate instances on one
+ * machine keep separate logs.
+ */
+export function transcriptAnnotations(): TranscriptAnnotationStore {
+  const dir = join(stateDir(), 'transcript-annotations')
+  let store = annotationStores.get(dir)
+  if (!store) {
+    store = transcriptAnnotationStore(dir)
+    annotationStores.set(dir, store)
+  }
+  return store
+}
+
 // Build a TranscriptSource for the session named by a transcript-read request.
 // The factory routes on the TRUE harness (normalizeAgentKind, since a session's
 // real harness can hide behind resume.kind) and resolves the file chain / DB
@@ -52,7 +73,7 @@ export function normalizeAgentKind(agentKind: AgentKind, resumeKind?: string): A
 // harnesses whose transcript support is declared unsupported read as an empty
 // file-chain source, matching the pre-registry behavior — the session still
 // runs, it just has no readable history.
-export function sourceForRead(
+export async function sourceForRead(
   ctx: Pick<DaemonContext, 'homeDir'>,
   msg: {
     sessionId: SessionId
@@ -65,8 +86,9 @@ export function sourceForRead(
   const agentKind = normalizeAgentKind(msg.agentKind, msg.resume?.kind)
   const transcript = manifestFor(agentKind)?.transcript
   const grammar = transcript ? declaredValue(transcript) : undefined
-  if (!grammar) return Promise.resolve(fileChainSource([], () => []))
-  return transcriptSourceFromGrammar(grammar, {
+  if (!grammar) return fileChainSource([], () => [])
+  const annotations = transcriptAnnotations()
+  const source = await transcriptSourceFromGrammar(grammar, {
     podiumSessionId: msg.sessionId,
     cwd: msg.cwd,
     ...(msg.resume?.value ? { resumeValue: msg.resume.value } : {}),
@@ -74,6 +96,7 @@ export function sourceForRead(
     ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
     transcriptRoot: join(stateDir(), 'transcripts'),
   })
+  return withTranscriptAnnotations(source, () => annotations.read(msg.sessionId))
 }
 
 // Unified cursor-anchored read (replaces the old parked-tail + scroll-back-page

@@ -369,6 +369,7 @@ export function blockMatches(block: ChatBlock, query: string): boolean {
     block.item.toolName ?? '',
     block.item.toolInput ?? '',
     block.result ?? block.item.toolResult ?? '',
+    block.harnessSummary?.text ?? '',
   ]
     .join('\n')
     .toLowerCase()

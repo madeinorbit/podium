@@ -154,8 +154,6 @@ export const TurnLineView = observer(function TurnLineView({
   const listId = useId()
   const root = useRef<HTMLDivElement>(null)
   const tail = turnTail(props, model)
-  const preview = newest ? previewMembers(props) : []
-  const liveNarration = preview.findLast((member) => member.block.item.role === 'assistant')
   const live = newest && lineOwnsTail(line, props)
   const failed = newest && fold.state === 'live' && tail.state?.mode === 'error'
   const stopped = fold.state === 'stopped' || (newest && tail.state?.mode === 'interrupted')
@@ -176,7 +174,15 @@ export const TurnLineView = observer(function TurnLineView({
     const timer = setTimeout(() => setRetiringMark(false), 200)
     return () => clearTimeout(timer)
   }, [live])
-  const stopAt = fold.endedAt ?? (!live ? tail.since : undefined)
+  // A fold with no closer yet ends, at the earliest, where the agent last
+  // changed state. That state can be older than the fold itself (the turn
+  // opened before its first call), and measuring from it read "0s" on a
+  // turn that was still running (POD-6258): such a stop is no stop at all.
+  const since =
+    !live && tail.since && fold.startedAt && Date.parse(tail.since) >= Date.parse(fold.startedAt)
+      ? tail.since
+      : undefined
+  const stopAt = fold.endedAt ?? since
   const elapsed =
     fold.durationMs ??
     (fold.startedAt && stopAt
@@ -192,18 +198,18 @@ export const TurnLineView = observer(function TurnLineView({
     durationMs: elapsed,
     failed,
   })
+  // The agent's words are rows of their own now (POD-6258), so a live line
+  // names the call in flight and a settled one names its calls: the
+  // harness's summary when it wrote one, else Podium's own subjects.
+  const liveTool = tail.lastRow?.kind === 'tools' ? tail.lastRow.blocks[0]?.item : undefined
+  const settledBad = !live && !paused && (failed || stopped)
   const phrase =
     live || paused
-      ? liveNarration?.block.item.text ||
-        model.narration ||
-        (tail.lastRow?.kind === 'tools'
-          ? toolSubject(tail.lastRow.blocks[0]!.item, Infinity)
-          : undefined) ||
-        model.eventPhrase
-      : single && !failed && !stopped
-        ? model.eventPhrase
-        : lead
-  const counts = !live && !paused && !single ? model.summary : ''
+      ? (liveTool ? toolSubject(liveTool, Infinity) : undefined) || model.eventPhrase
+      : settledBad
+        ? lead
+        : model.title
+  const counts = settledBad ? model.title : ''
   const matching = props.search.filtering ? new Set(props.search.matches) : undefined
   const hits = matching
     ? fold.rows.reduce(
@@ -233,7 +239,7 @@ export const TurnLineView = observer(function TurnLineView({
     elapsed === undefined
       ? lead
       : `${failed ? 'Failed after' : stopped ? 'Stopped after' : 'Worked for'} ${spokenDuration(elapsed)}`
-  const accessiblePhrase = !live && !paused && !single ? spokenLead : phrase
+  const accessiblePhrase = settledBad ? spokenLead : phrase
   const aria = `${accessiblePhrase}${counts ? `, ${counts}` : ''}${model.failures ? `, ${model.failures} failed` : ''}`
   return (
     <div
@@ -282,12 +288,16 @@ export const TurnLineView = observer(function TurnLineView({
               }
               code={
                 (live || paused
-                  ? !liveNarration && !model.narration
-                  : single && !failed && !stopped) && model.firstEvent?.item.toolName === 'Bash'
+                  ? (liveTool ?? model.firstEvent?.item)?.toolName === 'Bash'
+                  : single &&
+                    !failed &&
+                    !stopped &&
+                    !model.harnessSummary &&
+                    model.firstEvent?.item.toolName === 'Bash') ?? false
               }
               phraseKey={
                 live || paused
-                  ? (liveNarration?.key ?? fold.narration ?? model.firstEvent?.item.id ?? fold.key)
+                  ? (liveTool?.id ?? model.firstEvent?.item.id ?? fold.key)
                   : `${mode}:${phrase}`
               }
             >
@@ -312,7 +322,7 @@ export const TurnLineView = observer(function TurnLineView({
               )}
               {live || paused ? (
                 <>
-                  <span className="tl-now">{current}</span>
+                  <span className="tl-now">{current === phrase ? '' : current}</span>
                   <Clock start={fold.startedAt ?? tail.since} duration={elapsed} live={live} />
                 </>
               ) : (
@@ -388,9 +398,15 @@ const TurnList = observer(function TurnList({
 }) {
   const durable = model.members
   const keys = new Set(durable.map((member) => member.key))
+  // Streaming text is not the fold's: it renders below the line, where the
+  // finished message will land and close this fold (POD-6258).
   const members = [
     ...durable,
-    ...(newest ? previewMembers(props).filter((member) => !keys.has(member.key)) : []),
+    ...(newest
+      ? previewMembers(props).filter(
+          (member) => member.block.item.role !== 'assistant' && !keys.has(member.key),
+        )
+      : []),
   ]
   const arriving = useFeedArrivals(members.map((member) => member.key))
   return (

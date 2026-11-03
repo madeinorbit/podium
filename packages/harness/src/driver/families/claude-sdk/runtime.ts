@@ -19,6 +19,7 @@ import {
 } from '../../../adapters/claude-code/transcript.js'
 import type { AgentStateEvent } from '../../../agent-state/types.js'
 import { reduceAgentState } from '../../../observer.js'
+import { type TranscriptAnnotation, toolSummaryAnnotation } from '../../../store/annotations.js'
 import type { ProcessIdentity } from '../../binding.js'
 import { type ConfigureValueChecks, decideConfigure, noWhitespaceCheck } from '../../configure.js'
 import { withDeliveryQueue } from '../../delivery-queue.js'
@@ -108,6 +109,13 @@ export interface ClaudeSdkToolResult {
   isError?: boolean
 }
 
+/** The CLI's own one-line summary of the calls one model step made. */
+export interface ClaudeSdkToolSummary {
+  id: string
+  summary: string
+  toolUseIds: string[]
+}
+
 export interface ClaudeSdkTurnResult {
   resumeValue: string
   output: string
@@ -166,6 +174,9 @@ export interface ClaudeSdkTurnHandle {
 export interface ClaudeSdkRuntimeHost {
   /** Refuses the ask-the-user tools for a session below a coordinator (POD-6108). */
   askUserGate?: AskUserGate
+  /** Keep an item the CLI never writes to its JSONL, so later reads carry it
+   *  (POD-6258). Absent: the item is live-only. */
+  recordAnnotation?(sessionId: SessionId, annotation: TranscriptAnnotation): Promise<void>
   mintSessionId(): SessionId
   mintResumeValue(): string
   now(): string
@@ -189,6 +200,8 @@ export interface ClaudeSdkRuntimeHost {
     onToolCall(call: ClaudeSdkToolCall): void
     /** That call's return. `output` may be empty; the call still finished. */
     onToolResult(result: ClaudeSdkToolResult): void
+    /** The CLI's summary of a step's calls, after their results. */
+    onToolSummary?(summary: ClaudeSdkToolSummary): void
   }): ClaudeSdkTurnHandle
   readTranscript(input: {
     sessionId: SessionId
@@ -577,6 +590,22 @@ export function createClaudeSdkRuntime(
     )
   }
 
+  /** The CLI's summary of a step's calls (POD-6258). Published live and
+   *  recorded, because the CLI's own JSONL never carries it. */
+  function publishToolSummary(core: SessionCore, summary: ClaudeSdkToolSummary): void {
+    const annotation = toolSummaryAnnotation({
+      id: `tool-summary:${summary.id}`,
+      text: summary.summary,
+      toolUseIds: summary.toolUseIds,
+      ts: host.now(),
+    })
+    if (!annotation || !notePublishedToolItem(core, annotation.item.id)) return
+    publishItem(core, annotation.item)
+    void host.recordAnnotation?.(core.sessionId, annotation).catch(() => {
+      // Lost on the next reload, never wrong: the run keeps Podium's own name.
+    })
+  }
+
   /** A system transcript item is the operator's copy of the record. The runtime
    *  event stream is the machine's; both are pushed, and neither substitutes for
    *  the other — the daemon forwards `complete` items to the durable transcript,
@@ -898,6 +927,10 @@ export function createClaudeSdkRuntime(
         onToolResult(result) {
           if (!core.turnOpen || core.turnEpoch !== epoch) return
           publishToolResult(core, result)
+        },
+        onToolSummary(summary) {
+          if (!core.turnOpen || core.turnEpoch !== epoch) return
+          publishToolSummary(core, summary)
         },
       })
     } catch (error) {

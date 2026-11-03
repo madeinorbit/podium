@@ -20,6 +20,7 @@ import type {
   ServerSessionFramePorts,
 } from '../server-family.js'
 import type { SessionDriverSlots } from '../session-slots.js'
+import type { TranscriptAnnotation, TranscriptAnnotationStore } from '../../../store/annotations.js'
 import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, ResumeRef, SessionId } from '@podium/model'
 import {
@@ -133,6 +134,9 @@ export interface ClaudeSdkSessionDeps extends ServerSessionFramePorts {
   /** The daemon's attachment stager (POD-6093): the same landing every family
    *  writes into, so the send-time ownership check covers this one too. */
   stageAttachment: AttachmentStager
+  /** Podium's annotation log (POD-6258): where items the CLI never writes to
+   *  its JSONL are kept, for the daemon's read layer to weave back in. */
+  annotations?: Pick<TranscriptAnnotationStore, 'append'>
   transcript: {
     readHistory(
       session: {
@@ -164,6 +168,12 @@ export function createClaudeSdkSessionRuntime(
     mintResumeValue: randomUUID,
     now: () => new Date().toISOString(),
     stageAttachment: deps.stageAttachment,
+    ...(deps.annotations
+      ? {
+          recordAnnotation: (sessionId: SessionId, annotation: TranscriptAnnotation) =>
+            deps.annotations!.append(sessionId, annotation),
+        }
+      : {}),
     startTurn: (input) => deps.engine.startTurn(input),
     readTranscript: ({ sessionId, workdir, resumeValue, range }) =>
       deps.transcript.readHistory(

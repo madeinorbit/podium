@@ -35,37 +35,53 @@ const prompt = (row: ChatRow) =>
 const rows = (items: TranscriptItem[]): RenderableRow[] =>
   buildChatRows(pairToolResults(items)).map((row, index) => ({ row, index }))
 
-it('has one closed live fold from the first event and keeps its key when an answer lands', () => {
+it('folds only tool work: text stays outside and keys the run after it', () => {
   const state = new TurnFoldState()
-  const first = turnFolds(rows([say('intro')]), prompt)
+  expect(turnFolds(rows([say('intro')]), prompt).folds).toHaveLength(0)
+  const first = turnFolds(rows([say('intro'), tool('cmd')]), prompt)
   expect(first.folds).toHaveLength(1)
-  expect(first.trailing).toMatchObject({
-    key: 'intro',
-    state: 'live',
-    members: [0],
-    narration: 'intro',
-  })
-  expect(foldLayout(first, state, []).lines.get(0)?.open).toBe(false)
-  state.open('intro')
+  expect(first.trailing).toMatchObject({ key: 'intro:work', state: 'live', members: [1] })
+  expect(first.byMember.has(0)).toBe(false)
+  expect(foldLayout(first, state, []).lines.get(1)?.open).toBe(false)
+  state.open('intro:work')
   const next = turnFolds(rows([say('intro'), tool('cmd'), say('answer', true, at(12))]), prompt)
   expect(next.trailing).toMatchObject({
-    key: 'intro',
+    key: 'intro:work',
     state: 'done',
-    durationMs: 11000,
-    members: [0, 1],
+    durationMs: 10000,
+    members: [1],
   })
-  expect(foldLayout(next, state, []).lines.get(0)?.open).toBe(true)
+  expect(foldLayout(next, state, []).lines.get(1)?.open).toBe(true)
   expect(next.byMember.has(2)).toBe(false)
 })
 
-it('leaves an answer-only exchange and pre-work notes outside the line', () => {
+it("ends a run at the agent's next words and opens a new one at its next call", () => {
+  const result = turnFolds(
+    rows([
+      tool('a'),
+      say('between', false, at(5)),
+      tool('b', { ts: at(6) }),
+      say('answer', true, at(9)),
+    ]),
+    prompt,
+  )
+  expect(result.folds.map((fold) => [fold.key, fold.state, fold.members])).toEqual([
+    ['a', 'done', [0]],
+    ['between:work', 'done', [2]],
+  ])
+  expect(result.byMember.has(1)).toBe(false)
+  expect(result.folds[1]?.durationMs).toBe(3000)
+})
+
+it('leaves an answer-only exchange, pre-work notes and narration outside the line', () => {
   expect(turnFolds(rows([note('early'), say('answer', true)]), prompt).folds).toHaveLength(0)
   const folded = turnFolds(
     rows([note('early'), say('intro'), tool('cmd'), say('answer', true)]),
     prompt,
   )
-  expect(folded.trailing?.members).toEqual([1, 2])
+  expect(folded.trailing?.members).toEqual([2])
   expect(folded.byMember.has(0)).toBe(false)
+  expect(folded.byMember.has(1)).toBe(false)
 })
 
 it('starts a note-leading activity row at its first agent call', () => {
@@ -76,35 +92,35 @@ it('starts a note-leading activity row at its first agent call', () => {
 it('makes an interactive question a paused seam and resumes on a new line', () => {
   const ask = tool('ask', { toolName: 'AskUserQuestion', ts: at(8) })
   const paused = turnFolds(rows([say('intro'), tool('cmd'), ask]), prompt)
-  expect(paused.trailing).toMatchObject({ state: 'paused', durationMs: 7000, members: [0, 1] })
+  expect(paused.trailing).toMatchObject({ state: 'paused', durationMs: 6000, members: [1] })
   expect(paused.byMember.has(2)).toBe(false)
   const resumed = turnFolds(
-    rows([
-      say('intro'),
-      tool('cmd'),
-      { ...ask, toolResult: 'yes' },
-      say('resume', false, at(10)),
-      tool('next'),
-    ]),
+    rows([say('intro'), tool('cmd'), { ...ask, toolResult: 'yes' }, tool('next', { ts: at(10) })]),
     prompt,
   )
   expect(resumed.folds.map((fold) => [fold.key, fold.state])).toEqual([
-    ['intro', 'done'],
+    ['intro:work', 'done'],
     ['ask:work', 'live'],
   ])
 })
 
-it('keeps an operator question outside and includes its ordinary note in the opened chronology', () => {
-  const result = turnFolds(
+it('keeps an operator question before the run outside it, and one inside the run in place', () => {
+  const before = turnFolds(
     rows([say('intro'), note('ask', 'the operator', true), tool('cmd')]),
     prompt,
   )
-  expect(result.trailing?.members).toEqual([0, 1, 2])
-  expect(result.trailing?.asks.has(1)).toBe(true)
-  expect(foldLayout(result, new TurnFoldState(), []).hidden.has(1)).toBe(false)
+  expect(before.trailing?.members).toEqual([2])
+  expect(before.byMember.has(1)).toBe(false)
+  const inside = turnFolds(
+    rows([tool('cmd'), note('ask', 'the operator', true), tool('more')]),
+    prompt,
+  )
+  expect(inside.trailing?.members).toEqual([0, 1, 2])
+  expect(inside.trailing?.asks.has(1)).toBe(true)
+  expect(foldLayout(inside, new TurnFoldState(), []).hidden.has(1)).toBe(false)
 })
 
-it('keeps the latest narration as an interrupted stand-in, including a narration-only turn', () => {
+it('stops the open run at an interrupt and leaves the narration on the page', () => {
   const stop: TranscriptItem = {
     id: 'stop',
     role: 'user',
@@ -112,30 +128,45 @@ it('keeps the latest narration as an interrupted stand-in, including a narration
     text: '',
     ts: at(12),
   }
-  for (const work of [[say('intro')], [say('intro'), tool('cmd'), say('latest')]]) {
-    const result = turnFolds(rows([...work, stop]), prompt)
-    expect(result.trailing?.state).toBe('stopped')
-    expect(result.standIns.size).toBe(1)
-    expect(result.byMember.has([...result.standIns][0]!)).toBe(false)
-  }
+  expect(turnFolds(rows([say('intro'), stop]), prompt).folds).toHaveLength(0)
+  const running = turnFolds(rows([say('intro'), tool('cmd'), stop]), prompt)
+  expect(running.trailing).toMatchObject({ state: 'stopped', members: [1] })
+  const spoke = turnFolds(rows([say('intro'), tool('cmd'), say('latest'), stop]), prompt)
+  expect(spoke.folds.map((fold) => fold.state)).toEqual(['done'])
+  expect(spoke.standIns.size).toBe(0)
+  expect(spoke.byMember.has(2)).toBe(false)
 })
 
-it('absorbs churn time, respects prompt boundaries, and forces search without retaining it', () => {
-  const items: TranscriptItem[] = [
-    say('intro'),
-    tool('cmd'),
-    say('answer', true),
-    { id: 'duration', role: 'system', systemKind: 'duration', durationMs: 12500, text: '' },
-    { id: 'prompt', role: 'user', text: 'Again' },
-    say('next'),
-  ]
-  const result = turnFolds(rows(items), prompt)
-  expect(result.folds[0]?.durationMs).toBe(12500)
-  expect(result.absorbed.has(3)).toBe(true)
+it('absorbs churn time only into a fold that is the whole turn', () => {
+  const duration: TranscriptItem = {
+    id: 'duration',
+    role: 'system',
+    systemKind: 'duration',
+    durationMs: 12500,
+    text: '',
+  }
+  const whole = turnFolds(
+    rows([
+      tool('cmd'),
+      say('answer', true),
+      duration,
+      { id: 'prompt', role: 'user', text: 'Again' },
+      say('next'),
+    ]),
+    prompt,
+  )
+  expect(whole.folds[0]?.durationMs).toBe(12500)
+  expect(whole.absorbed.has(2)).toBe(true)
   const state = new TurnFoldState()
   state.prime()
-  expect(foldLayout(result, state, [1]).lines.get(0)?.open).toBe(true)
+  expect(foldLayout(whole, state, [0]).lines.get(0)?.open).toBe(true)
   expect(state.opened.size).toBe(0)
-  expect(foldLayout(result, state, []).lines.get(0)?.open).toBe(false)
+  expect(foldLayout(whole, state, []).lines.get(0)?.open).toBe(false)
+  const part = turnFolds(
+    rows([say('intro'), tool('cmd'), say('answer', true, at(4)), duration]),
+    prompt,
+  )
+  expect(part.absorbed.size).toBe(0)
+  expect(part.folds[0]?.durationMs).toBe(2000)
   expect(foldLead({ durationMs: 41000, state: 'done', failed: true })).toBe('Failed after 41s')
 })

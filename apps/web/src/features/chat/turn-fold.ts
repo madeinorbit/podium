@@ -85,7 +85,12 @@ export function foldable(row: ChatRow, isPrompt: (row: ChatRow) => boolean): boo
 }
 
 /** POD-2285's segments, including the trailing live segment from its first event.
- * Narrow retained facts keep streaming text out of this structural derivation. */
+ * Narrow retained facts keep streaming text out of this structural derivation.
+ *
+ * ONLY TOOL WORK FOLDS (POD-6258). The agent's own words stay on the page: an
+ * assistant message with text ends the fold before it, and the next tool call
+ * opens a new one, the way Claude Code batches the calls between two pieces of
+ * text. A fold therefore needs at least one non-assistant work row. */
 export function turnFolds(
   rows: readonly RenderableRow[],
   isPrompt: (row: ChatRow) => boolean,
@@ -107,14 +112,21 @@ export function turnFolds(
   let segment: number[] = []
   let boundary: string | undefined
   let boundaryIndex: number | undefined
+  /** Whether the open segment began at the turn's start rather than after the
+   *  agent's own words: only such a fold is the whole turn, and only the whole
+   *  turn may take the turn's churn time as its own. */
+  let turnStart = true
   const update = (row: ChatRow) =>
     row.kind === 'block' &&
     row.block.item.role === 'assistant' &&
     !row.block.item.answer &&
     hasText(row)
 
+  const tooling = (row: ChatRow) =>
+    hasWork(row) && !(row.kind === 'block' && row.block.item.role === 'assistant')
+
   const settle = (closer: number | undefined, state: TurnFold['state']) => {
-    const first = segment.findIndex((pos) => hasWork(rows[pos]!.row))
+    const first = segment.findIndex((pos) => tooling(rows[pos]!.row))
     const work = first < 0 ? [] : segment.slice(first)
     segment = []
     const kept = state === 'stopped' ? work.findLast((pos) => update(rows[pos]!.row)) : undefined
@@ -127,7 +139,7 @@ export function turnFolds(
     const start = rows[work[0]!]!
     const end = closer === undefined ? undefined : rows[closer]!
     let durationMs: number | undefined
-    if (state === 'done' && closer !== undefined) {
+    if (state === 'done' && closer !== undefined && turnStart) {
       for (let pos = closer + 1; pos < rows.length; pos++) {
         const row = rows[pos]!.row
         if (duration(row)) {
@@ -177,23 +189,33 @@ export function turnFolds(
       segment = []
       boundary = rowIdentity(row)
       boundaryIndex = rows[pos]!.index
+      turnStart = true
     } else if (duration(row)) {
       settle(pos, 'done')
       segment = []
       boundary = rowIdentity(row)
       boundaryIndex = rows[pos]!.index
+      turnStart = true
     } else if (answer(row)) {
       settle(pos, 'done')
       boundary = rowIdentity(row)
       boundaryIndex = rows[pos]!.index
+      turnStart = false
     } else if (interrupt(row)) {
       settle(pos, 'stopped')
       boundary = rowIdentity(row)
       boundaryIndex = rows[pos]!.index
+      turnStart = false
     } else if (question(row)) {
       settle(pos, isPending(row) ? 'paused' : 'done')
       boundary = rowIdentity(row)
       boundaryIndex = rows[pos]!.index
+      turnStart = false
+    } else if (update(row)) {
+      settle(pos, 'done')
+      boundary = rowIdentity(row)
+      boundaryIndex = rows[pos]!.index
+      turnStart = false
     } else segment.push(pos)
   }
   settle(undefined, 'live')

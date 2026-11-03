@@ -16,6 +16,16 @@
  * behind `@podium/harness` (the daemon barrel), never here.
  */
 export {
+  toolSummaryAnnotation,
+  transcriptAnnotationStore,
+  weaveAnnotations,
+  withTranscriptAnnotations,
+} from './store/annotations.js'
+export type {
+  TranscriptAnnotation,
+  TranscriptAnnotationStore,
+} from './store/annotations.js'
+export {
   SYNTHESIZED_ITEM_ID_PREFIX,
   decodeCursor,
   encodeCursor,

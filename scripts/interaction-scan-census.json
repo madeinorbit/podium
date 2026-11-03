@@ -652,14 +652,14 @@
       "file": "apps/mobile/src/lib/transcript-feed.ts",
       "holder": "indexedTranscript/result",
       "rule": "helper-consumer",
-      "tokens": "779cba78cc7c30aa1581bf15733b4e81a5e108ab204c0e9a6a8a4fd305c8288c",
+      "tokens": "6d671ab1238911dda1a3e4c764a060f626fb202cfd6654e0b449154b1895ce5a",
       "gate": [
         "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
       ],
       "origin": [
         "f72fdf68e43ec41083b5a1d5680fa0760f555000bb6b221f47c98ce7205a2970"
       ],
-      "fingerprint": "86955a93f5a79ebfdba91c33843425c9d14734b55f9b5b2625e00bbbf1cfcb60",
+      "fingerprint": "bf76f340522ddebada54ab82b901f400180e048ae3a6abbec94a83e5f46810f8",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -672,14 +672,14 @@
       "file": "apps/mobile/src/lib/transcript-feed.ts",
       "holder": "indexedTranscript/result",
       "rule": "helper-consumer",
-      "tokens": "779cba78cc7c30aa1581bf15733b4e81a5e108ab204c0e9a6a8a4fd305c8288c",
+      "tokens": "6d671ab1238911dda1a3e4c764a060f626fb202cfd6654e0b449154b1895ce5a",
       "gate": [
         "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
       ],
       "origin": [
         "0dfee297d24adb2924db9fd93d111ecabce26fa26e2c98dd39da87c70299a5cf"
       ],
-      "fingerprint": "46d732347082a183086288bc93bde372b16df7a559343194cb9c5bb7775a7cd6",
+      "fingerprint": "d558e542cabce883dd14f7cd2fb69b30cf63d0711a25d4adc48fa37465c8bb93",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -16928,12 +16928,12 @@
       "file": "packages/client-core/src/values/chat.ts",
       "holder": "pairToolResults",
       "rule": "loop:for-of",
-      "tokens": "9eff2be16c6f6e29f6bc0e073052adc688ddc500b51bf8497645ef630f5ada9f",
+      "tokens": "84622e9dbf0d88fe29875be6f52fbea6d65cfcc07569c1a0fe94036b48ebcbf8",
       "gate": [],
       "origin": [
         "90ee1d7345d047e422a587a7587f40920186d2bbc15ec4fc7a94fc2f2cbb12f6"
       ],
-      "fingerprint": "b84c0f3634a56c1a2b605cd98c3b6ea317f2aa4426ecc9f4030a1535770cba45",
+      "fingerprint": "8c1bc78295db72c3090b7bf5abc53108fb2c0f3faa13918ca596eb77d40f507b",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -24800,12 +24800,12 @@
       "file": "packages/client-core/src/values/transcript-compute.ts",
       "holder": "computeTranscript/blocks",
       "rule": "helper-consumer",
-      "tokens": "46c21209759ddf406acb015bc24d740ca7e9f6249551468109a79b342dd4a7a4",
+      "tokens": "71a5c561bd5d8e80e2c8fbda2e7dc1fd1129d3d58044f490cb832e883c0eca9d",
       "gate": [],
       "origin": [
-        "f72fdf68e43ec41083b5a1d5680fa0760f555000bb6b221f47c98ce7205a2970"
+        "0dfee297d24adb2924db9fd93d111ecabce26fa26e2c98dd39da87c70299a5cf"
       ],
-      "fingerprint": "186e286716ced1a49b16da9c80ceb37397411e6def3e32f8526b51e9abbf4598",
+      "fingerprint": "7170adcb095a50434623af53c53ddbf34cad834862c32150753e7c4f1ba49378",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -24818,12 +24818,12 @@
       "file": "packages/client-core/src/values/transcript-compute.ts",
       "holder": "computeTranscript/blocks",
       "rule": "helper-consumer",
-      "tokens": "46c21209759ddf406acb015bc24d740ca7e9f6249551468109a79b342dd4a7a4",
+      "tokens": "71a5c561bd5d8e80e2c8fbda2e7dc1fd1129d3d58044f490cb832e883c0eca9d",
       "gate": [],
       "origin": [
-        "0dfee297d24adb2924db9fd93d111ecabce26fa26e2c98dd39da87c70299a5cf"
+        "f72fdf68e43ec41083b5a1d5680fa0760f555000bb6b221f47c98ce7205a2970"
       ],
-      "fingerprint": "34c5dddec04c49051a33666af4345733754173743f1fdf0e005c4b336fb0164e",
+      "fingerprint": "c4cd5ead891795d43936981fc48ef2ea7a3f76dd03754941be3e1662138dfbf2",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -31273,7 +31273,7 @@
       "file": "packages/client-graph/src/pool.ts",
       "holder": "MobxPool/apply/runInAction:callback",
       "rule": "helper-consumer",
-      "tokens": "bcc61224011c1a8e941b0f354f5fccbc330ceca81b9b0a9a8a0c7d2cc848ba92",
+      "tokens": "67f82fff4911304a9c209741ac29b092dd37b59edae5c0a19be5d9c37a5f2337",
       "gate": [
         "exit:then:710e5dcb43ddd346f8ec70a0b8535caaf905d83eb941188b77a28d35d5d651f3",
         "then:e50fe35f728bede0989d15da8b368643ed69caaeebaf56465528b4791dbb7492"
@@ -31282,7 +31282,7 @@
         "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
         "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
       ],
-      "fingerprint": "fa738e67f87eb47ebbd71ec67b8f1bbcac90c91dcd178c098d1ceaef1aba2529",
+      "fingerprint": "241e8458393e8dedae6a688b9d53a3700f7159ab99e520328e68bce3b01e253a",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5868",
@@ -31897,7 +31897,7 @@
       "file": "packages/client-graph/src/residency.ts",
       "holder": "Residency/attach",
       "rule": "loop:for-of",
-      "tokens": "6114067f9d61bdc5c2ac1b3e33e1b1918ae663b279e891c60fa73ffc0edf62e6",
+      "tokens": "dfbd1d8300434b9388b6f52fd9cd57535436bb639e2976f90a86b8d17b72dadf",
       "gate": [
         "then:ef284b8be8e0a3304bfe9ebed739c96578db42d52e0966ff0b9f1a20b575d736"
       ],
@@ -31905,7 +31905,7 @@
         "97f43eedaad666d4b43179a99ec50c3d88b1f80832514179a40742e9ca02dd4b",
         "9934e33de90c924dd8aeeb603766d20b0f50e0f9591e18ff8aa2b7a5ad9fc995"
       ],
-      "fingerprint": "43c73abb3b8709305be002517c7699028d2aabb6781d2b598b1b794bb20b8521",
+      "fingerprint": "5d668c3c3cc07422f46e17c14b435e49b847f587df020e6c811f1779c5949382",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",

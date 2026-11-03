@@ -173,8 +173,17 @@ export const TranscriptItem = z.object({
    *  turn_duration), carried in `durationMs`; 'compaction' = the summary saved
    *  when the harness compacts its context; 'file-changed' = a file the agent
    *  had read changed on disk outside its own tool calls (`toolPaths` names it).
+   *  'tool-summary' = the HARNESS's own one-line summary of a batch of tool
+   *  calls (text in `text`, the calls in `summarizes`); never a row of its own,
+   *  the chat uses it to name the run those calls fold into.
    *  Absent on plain system messages. */
-  systemKind: z.enum(['recap', 'duration', 'compaction', 'file-changed']).optional(),
+  systemKind: z
+    .enum(['recap', 'duration', 'compaction', 'file-changed', 'tool-summary'])
+    .optional(),
+  /** The `toolUseId`s of the calls a 'tool-summary' item describes, in call
+   *  order. Any driver whose harness summarizes its tool calls emits these;
+   *  harnesses that do not simply never produce the item. */
+  summarizes: z.array(z.string()).optional(),
   /** What a harness recorded about a compaction beside its summary (set with
    *  systemKind 'compaction'). Claude Code writes a boundary record (trigger,
    *  token counts) and, for an idle compaction, a notice; each arrives as its own
