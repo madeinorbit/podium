@@ -1666,11 +1666,22 @@ export class MessageDeliveryService {
   }): Promise<string> {
     const parent = await this.deps.sessions.sessionById(input.parentSessionId)
     const parentIssue = await this.issueForSession(parent)
+    const parentHuman = parent?.delegation?.onBehalfOf ?? parent?.createdBy?.onBehalfOf ?? null
     return await this.recordPrompt(
       {
         kind: 'agent',
         sessionId: input.parentSessionId,
         ...(parentIssue ? { issueId: parentIssue } : {}),
+        // The parent agent speaks for ITS human (POD-6285), never the first admin.
+        ...(parentHuman
+          ? {
+              attribution: {
+                actor: actorAgent(asAgentIdentityId(input.parentSessionId)),
+                onBehalfOf: parentHuman,
+              },
+              delegationRef: input.parentSessionId,
+            }
+          : {}),
       },
       input.sessionId,
       input.text,
