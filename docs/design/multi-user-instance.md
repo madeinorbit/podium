@@ -1,6 +1,6 @@
 # Multi-user Podium instance: design
 
-Status: accepted by the user, 3 November 2026 (Q1 and Q2 decided; the outbox question was dropped as out of scope). Revised the same day after checking every task against it; Q4 is open (section 5). Issue: POD-6281 under PDM-107.
+Status: accepted by the user, 3 November 2026 (Q1 and Q2 decided; the outbox question was dropped as out of scope). Revised the same day after checking every task against it. Q4 decided for now (section 5), may be revisited. Issue: POD-6281 under PDM-107.
 
 This file lives on the epic's integration branch `integrate/pdm-107-multi-user` (cut from `dev/mw`). Every task branches from that branch and fast-forwards back into it.
 Written against `dev/mw` at `94a059bf3a7c65cb9a1effe761d8737c4796b1fa`. All file references below are to that commit.
@@ -226,7 +226,7 @@ The task row carries fields that belong to someone's private work. These include
 ## 5. Decisions taken on this design (3 November 2026)
 
 - **Q1, running on someone else's machine:** allowed, with the warnings in §2.4. A run uses only the runner's own connection, and the custodian's logins are never borrowed.
-- **Q4, working on someone else's task (OPEN, recommendation pending the user):** a task keeps exactly one worktree on one machine, as today (`issues.worktree_path`, `issues.machine_id`). Another member's agents work in it only with `use` on that machine (Q1 warnings apply); otherwise they contribute through their own sub-tasks, which get their own worktrees on their own machines. Per-person worktrees for one task are not in the first release.
+- **Q4, working on someone else's task (decided for now, 3 Nov 2026; may be revisited):** a task keeps exactly one worktree on one machine, as today (`issues.worktree_path`, `issues.machine_id`). Another member's agents work in it only with `use` on that machine (Q1 warnings apply); otherwise they contribute through their own sub-tasks, which get their own worktrees on their own machines. Per-person worktrees for one task are not in the first release.
 - **Q2, existing provider accounts on upgrade:** they go to the custodian of the source machine where known, otherwise to the earliest admin, with an upgrade note.
 - **Dropped:** whether unsent offline commands survive namespace eviction. It is not a multi-user question. The multi-user rule, that one person's queued commands are never sent as another person, is MU-12.
 
