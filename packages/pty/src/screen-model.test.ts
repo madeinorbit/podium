@@ -46,6 +46,22 @@ describe('headless screen model (POD-6256)', () => {
     screen.dispose()
   })
 
+  it('two viewers at 74x40 and 30x34 taking turns, as on 2026-11-03', () => {
+    // Session 3708f8d4's applied size flipped between a 74x40 and a 30x34
+    // viewer; the crash came 10 s after the flip back to 74x40.
+    const screen = createHeadlessScreen(74, 40)
+    // A shell after `clear` and ~1500 characters of output: the prompt sits
+    // mid-screen under a long wrapped line.
+    feed(screen, `\x1b[H\x1b[2J${'x'.repeat(1500)}\r\n$ `)
+    screen.resize(30, 34)
+    screen.resize(74, 40)
+    expect(screen.lines(false)).toHaveLength(40)
+    // Before the fix: the model has 39 lines for 40 rows and this throws.
+    expect(() => feed(screen, '\x1b[39;1H\nOK')).not.toThrow()
+    expect(screen.lines(false)[39]).toBe('OK')
+    screen.dispose()
+  })
+
   it('a row painted after narrowing the grid lands on that row', () => {
     const screen = createHeadlessScreen(10, 3)
     // A full 10-column line on row 1, then the cursor on row 2 of 3.
