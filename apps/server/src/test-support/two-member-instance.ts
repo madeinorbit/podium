@@ -77,6 +77,7 @@ export type MemberName = 'alice' | 'bob' | 'carol'
 
 export interface FixtureMember {
   readonly name: MemberName
+  readonly displayName: string
   readonly id: UserId
   readonly email: string
   readonly password: string
@@ -86,6 +87,7 @@ export interface FixtureMember {
 export const MEMBERS: Readonly<Record<MemberName, FixtureMember>> = {
   alice: {
     name: 'alice',
+    displayName: 'Alice',
     id: firstAdminMemberId(),
     email: 'alice@example.com',
     password: 'alice-fixture-password',
@@ -93,6 +95,7 @@ export const MEMBERS: Readonly<Record<MemberName, FixtureMember>> = {
   },
   bob: {
     name: 'bob',
+    displayName: 'Bob',
     id: asUserId('mem_fixture_bob'),
     email: 'bob@example.com',
     password: 'bob-fixture-password',
@@ -100,6 +103,7 @@ export const MEMBERS: Readonly<Record<MemberName, FixtureMember>> = {
   },
   carol: {
     name: 'carol',
+    displayName: 'Carol',
     id: asUserId('mem_fixture_carol'),
     email: 'carol@example.com',
     password: 'carol-fixture-password',
@@ -221,7 +225,7 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
       await store.users.create(
         {
           id: member.id,
-          displayName: member.name[0]!.toUpperCase() + member.name.slice(1),
+          displayName: member.displayName,
           email: member.email,
           role: member.role,
           createdAt: at,
