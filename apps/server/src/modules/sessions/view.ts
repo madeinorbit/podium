@@ -201,7 +201,7 @@ export class SessionView {
       if (!session) return undefined
       if (forPrincipal) {
         if (!(await this.ports.state.canReadSession(forPrincipal, sessionId, {}))) return undefined
-      } else if (!(await this.defaultPrincipal())) {
+      } else if (!(await this.defaultPrincipal()) || !(await this.ports.state.resolvableSessions([sessionId])).has(sessionId)) {
         return undefined
       }
       return session.spawnedBy
@@ -216,15 +216,17 @@ export class SessionView {
   private async project(candidates: SessionSubject[], forPrincipal?: SessionStatePrincipal): Promise<SessionMeta[]> {
     // NO PRINCIPAL IS AN IN-PROCESS READ (POD-6283): authorization lookups,
     // delegation walks, lifecycle work. It used to be filtered as the earliest
-    // admin, whose scope `all` saw every session; sessions are private now, so
-    // that stand-in would hide every other member's sessions from the server
-    // itself. It reads what it always read: every session, once the instance
-    // has a member. Retiring the stand-in on request paths is POD-6285's.
+    // admin, whose scope `all` saw every session with an owner; sessions are
+    // private now, so that stand-in would hide every other member's sessions
+    // from the server itself. It reads what it always read: every session whose
+    // owner resolves, once the instance has a member. Retiring the stand-in on
+    // request paths is POD-6285's.
     if (!forPrincipal && !(await this.defaultPrincipal())) return []
     const pass = await this.buildProjectionPass(candidates)
+    const ids = candidates.map(session => session.sessionId)
     const visible = forPrincipal
-      ? await this.ports.state.visibleSessions(forPrincipal, candidates.map(session => session.sessionId), pass)
-      : new Set(candidates.map(session => session.sessionId))
+      ? await this.ports.state.visibleSessions(forPrincipal, ids, pass)
+      : await this.ports.state.resolvableSessions(ids, pass)
     const readable = candidates.filter(session => visible.has(session.sessionId))
     if (readable.length === 0) return []
     return readable.map(session => (isResident(session) ? this.wire(session, pass) : wireRecord(session, pass)))

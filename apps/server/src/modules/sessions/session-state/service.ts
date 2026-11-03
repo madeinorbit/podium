@@ -413,6 +413,26 @@ export class SessionStateService {
   }
 
   /**
+   * The candidates an IN-PROCESS read (no principal) may see: every session
+   * whose owner resolves. This is exactly what the earliest admin's scope `all`
+   * used to see when it stood in for such reads; sessions are private now, so
+   * it is stated as what it is rather than borrowed from a person (POD-6283).
+   */
+  async resolvableSessions(
+    candidates: readonly SessionId[],
+    memo: SessionOwnerMemo = {},
+  ): Promise<ReadonlySet<SessionId>> {
+    const found = new Set<SessionId>()
+    if (candidates.length === 0) return found
+    const ids = [...new Set(candidates)]
+    await this.primeOwnerMemo(memo, ids)
+    for (const sessionId of ids) {
+      if (await this.ports.sessionOwner({ sessionId, memo })) found.add(sessionId)
+    }
+    return found
+  }
+
+  /**
    * Projection overlay for a caller already proven able to see the session:
    * the reader's own read marker and snooze, read from the database
    * (POD-6160; there is no per-user cache to drop on every write).
