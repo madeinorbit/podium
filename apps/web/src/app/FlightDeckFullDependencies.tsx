@@ -16,7 +16,7 @@ import {
 import {
   type DependencyLink,
   type DependencyPoint,
-  dependencyEdges,
+  dependencyDrawing,
   dependencyPoint,
   FULL_EDGE_GUTTER,
 } from './flight-deck-full-edges'
@@ -265,7 +265,7 @@ export const FlightDeckFullDependencies = observer(function FlightDeckFullDepend
     return rowId(document.elementFromPoint(box.right - FULL_EDGE_GUTTER - 8, event.clientY))
   }
   const points = new Map([...layout.points].filter(([id]) => currentIds.has(id)))
-  const edges = dependencyEdges(links, points, layout.expanded, interaction.activeId)
+  const { edges, heads } = dependencyDrawing(links, points, layout.expanded, interaction.activeId)
   return (
     <DependencyContext.Provider value={interaction}>
       <div
@@ -291,22 +291,37 @@ export const FlightDeckFullDependencies = observer(function FlightDeckFullDepend
           height={layout.height}
           style={{ pointerEvents: 'none' }}
         >
-          {/* SVG has no z-index: paint order is document order. The hovered
-              row's links go last, so they are never under another line. */}
-          {[...edges]
-            .sort((a, b) => Number(a.highlighted) - Number(b.highlighted))
-            .map((edge) => (
-              <g
-                key={`${edge.dependentId}:${edge.dependencyId}`}
-                data-dependency-source={edge.dependencyId}
-                data-dependency-target={edge.dependentId}
-                data-highlighted={edge.highlighted}
-              >
-                <path d={edge.path} fill="none" strokeWidth={edge.highlighted ? 1.5 : 1} />
-                <circle cx={edge.x} cy={edge.sourceY} r={2} strokeWidth={1} />
-                <path d={edge.arrow} fill="none" strokeWidth={edge.highlighted ? 1.5 : 1.2} />
-              </g>
-            ))}
+          {/* SVG has no z-index: paint order is document order. Unlit lines,
+              then unlit shared heads, then the hovered row's lines and heads,
+              so lit ones are never under another line. Rows where three or
+              more lines arrive draw one shared head instead of one per line. */}
+          {[false, true].map((lit) => [
+            ...edges
+              .filter((edge) => edge.highlighted === lit)
+              .map((edge) => (
+                <g
+                  key={`${edge.dependentId}:${edge.dependencyId}`}
+                  data-dependency-source={edge.dependencyId}
+                  data-dependency-target={edge.dependentId}
+                  data-highlighted={edge.highlighted}
+                >
+                  <path d={edge.path} fill="none" strokeWidth={lit ? 1.5 : 1} />
+                  <circle cx={edge.x} cy={edge.sourceY} r={2} strokeWidth={1} />
+                  {edge.arrow && <path d={edge.arrow} fill="none" strokeWidth={lit ? 1.5 : 1.2} />}
+                </g>
+              )),
+            ...heads
+              .filter((head) => head.highlighted === lit)
+              .map((head) => (
+                <g
+                  key={`head:${head.dependentId}`}
+                  data-dependency-head={head.dependentId}
+                  data-highlighted={head.highlighted}
+                >
+                  <path d={head.arrow} fill="none" strokeWidth={lit ? 1.5 : 1.2} />
+                </g>
+              )),
+          ])}
         </svg>
       </div>
     </DependencyContext.Provider>

@@ -239,6 +239,30 @@ it('continuously draws only scheduling links in expanded Full and limits dimming
   ])
 })
 
+it('draws one shared arrowhead where three lines arrive, lit with any of them', async () => {
+  const f = await open([
+    issue('root', null, 'a'),
+    issue('one', 'root', 'a'),
+    issue('two', 'root', 'b'),
+    issue('three', 'root', 'c'),
+    issue('cleanup', 'root', 'd', { deps: [waits('one'), waits('two'), waits('three')] }),
+  ])
+  await waitFor(() => expect(f.edges()).toHaveLength(3))
+  const heads = () => [...f.ui.container.querySelectorAll<SVGGElement>('[data-dependency-head]')]
+  expect(heads().map((h) => h.dataset.dependencyHead)).toEqual(['cleanup'])
+  // The lines carry no heads of their own.
+  for (const edge of f.edges()) expect(edge.querySelectorAll('path')).toHaveLength(1)
+  fireEvent.pointerOver(f.row('two'))
+  expect(heads()[0]!.dataset.highlighted).toBe('true')
+  // Lit lines and the lit head paint after every unlit one.
+  const order = [
+    ...f.ui.container.querySelectorAll<SVGGElement>(
+      '[data-dependency-source], [data-dependency-head]',
+    ),
+  ].map((g) => g.dataset.highlighted)
+  expect(order).toEqual(['false', 'false', 'true', 'true'])
+})
+
 it('cross-phase hover dims only its own group, and loose work does not dim phases', async () => {
   const f = await open()
   fireEvent.pointerOver(f.row('cross'))

@@ -72,15 +72,19 @@ export function dependencyHook(
     { x, y: dependent.y },
   ]
   const curve = stopAtDot ? headOf(full, shortOf(full, DOT_CLEARANCE)) : full
-  const [, c1, c2, tip] = curve
   return {
     x,
     sourceY: dependency.y,
     targetY: dependent.y,
     hook,
-    path: `M${x} ${dependency.y} C${round(c1.x)} ${round(c1.y)}, ${round(c2.x)} ${round(c2.y)}, ${round(tip.x)} ${round(tip.y)}`,
+    curve,
+    path: pathOf(curve),
     arrow: arrowhead(curve),
   }
+}
+
+function pathOf([p0, c1, c2, tip]: Cubic): string {
+  return `M${round(p0.x)} ${round(p0.y)} C${round(c1.x)} ${round(c1.y)}, ${round(c2.x)} ${round(c2.y)}, ${round(tip.x)} ${round(tip.y)}`
 }
 
 const ARROW_BACK = 4
@@ -97,23 +101,43 @@ const round = (value: number) => Math.round(value * 10) / 10
  * to the tip instead; that is the direction the eye reads.
  */
 function arrowhead(curve: Cubic): string {
+  return arrowAlong(curve[3], arrival(curve))
+}
+/** Unit direction of travel into the curve's end, read over ARROW_AIM px. */
+function arrival(curve: Cubic): Point {
   const tip = curve[3]
   const back = pointAt(curve, shortOf(curve, ARROW_AIM))
-  const length = Math.hypot(tip.x - back.x, tip.y - back.y) || 1
-  // Unit direction of travel into the tip, and its normal.
-  const dx = (tip.x - back.x) / length,
-    dy = (tip.y - back.y) / length
+  return unit({ x: tip.x - back.x, y: tip.y - back.y })
+}
+function unit(v: Point): Point {
+  const length = Math.hypot(v.x, v.y) || 1
+  return { x: v.x / length, y: v.y / length }
+}
+/** An arrowhead at `tip` pointing along unit direction `d`. */
+function arrowAlong(tip: Point, d: Point): string {
   const arm = (side: 1 | -1) =>
-    `${round(tip.x - ARROW_BACK * dx - side * ARROW_HALF * dy)} ${round(tip.y - ARROW_BACK * dy + side * ARROW_HALF * dx)}`
+    `${round(tip.x - ARROW_BACK * d.x - side * ARROW_HALF * d.y)} ${round(tip.y - ARROW_BACK * d.y + side * ARROW_HALF * d.x)}`
   return `M${arm(1)} L${round(tip.x)} ${round(tip.y)} L${arm(-1)}`
 }
 
-export function dependencyEdges(
+/** Where this many lines or more arrive at one row they merge into one
+ * arrowhead instead of stacking that many on one point (POD-6245). */
+export const FAN_IN = 3
+/** How far behind the shared tip each merging line's last control point sits:
+ * the stretch over which the lines bend into one direction and blend. */
+const MERGE_REACH = 14
+
+export type DependencyEdge = DependencyLink &
+  ReturnType<typeof dependencyHook> & { highlighted: boolean }
+/** One arrowhead shared by every line arriving at a fan-in row. */
+export type DependencyHead = { dependentId: string; arrow: string; highlighted: boolean }
+
+export function dependencyDrawing(
   links: readonly DependencyLink[],
   points: ReadonlyMap<string, DependencyPoint>,
   expanded: boolean,
   activeId: string | null,
-) {
+): { edges: DependencyEdge[]; heads: DependencyHead[] } {
   const shown = links.flatMap((link, index) => {
     const highlighted = link.dependencyId === activeId || link.dependentId === activeId
     const source = points.get(link.dependencyId),
@@ -124,9 +148,69 @@ export function dependencyEdges(
   })
   // Rows that draw a start dot: an arrow ending on one stops short of the dot.
   const dots = new Set(shown.map(({ link }) => link.dependencyId))
-  return shown.map(({ link, index, source, target, highlighted }) => ({
-    ...link,
-    ...dependencyHook(source, target, index, dots.has(link.dependentId)),
-    highlighted,
-  }))
+  const incoming = new Map<string, typeof shown>()
+  for (const item of shown) {
+    const list = incoming.get(item.link.dependentId) ?? []
+    list.push(item)
+    incoming.set(item.link.dependentId, list)
+  }
+  const ordered: { index: number; edge: DependencyEdge }[] = []
+  const heads: DependencyHead[] = []
+  for (const [dependentId, arriving] of incoming) {
+    if (arriving.length < FAN_IN) {
+      for (const { link, index, source, target, highlighted } of arriving)
+        ordered.push({
+          index,
+          edge: {
+            ...link,
+            ...dependencyHook(source, target, index, dots.has(dependentId)),
+            highlighted,
+          },
+        })
+      continue
+    }
+    // FAN-IN. Every line bends into the average of the directions the lines
+    // would arrive in on their own: its last control point sits on one ray
+    // behind the shared tip, so all of them meet the tip along one tangent
+    // and blend into a single line just before it. One arrowhead, along it.
+    const naturals = arriving.map(({ index, source, target }) =>
+      dependencyHook(source, target, index),
+    )
+    const d = unit(
+      naturals
+        .map((hook) => arrival(hook.curve))
+        .reduce((sum, v) => ({ x: sum.x + v.x, y: sum.y + v.y }), { x: 0, y: 0 }),
+    )
+    const target = arriving[0]!.target
+    const x = Math.max(...naturals.map((hook) => hook.x))
+    const clearance = dots.has(dependentId) ? DOT_CLEARANCE : 0
+    const tip = { x: x - d.x * clearance, y: target.y - d.y * clearance }
+    const bend = { x: tip.x - d.x * MERGE_REACH, y: tip.y - d.y * MERGE_REACH }
+    arriving.forEach(({ link, index, highlighted }, n) => {
+      const hook = naturals[n]!
+      const curve: Cubic = [hook.curve[0], hook.curve[1], bend, tip]
+      ordered.push({
+        index,
+        edge: { ...link, ...hook, curve, path: pathOf(curve), arrow: '', highlighted },
+      })
+    })
+    heads.push({
+      dependentId,
+      arrow: arrowAlong(tip, d),
+      highlighted: arriving.some(({ highlighted }) => highlighted),
+    })
+  }
+  // Keep the links' own order; callers sort only by highlight.
+  ordered.sort((a, b) => a.index - b.index)
+  return { edges: ordered.map(({ edge }) => edge), heads }
+}
+
+/** The lines alone, for callers that draw no fan-in heads. */
+export function dependencyEdges(
+  links: readonly DependencyLink[],
+  points: ReadonlyMap<string, DependencyPoint>,
+  expanded: boolean,
+  activeId: string | null,
+): DependencyEdge[] {
+  return dependencyDrawing(links, points, expanded, activeId).edges
 }

@@ -1,9 +1,11 @@
 import { expect, it } from 'vitest'
 import {
   DOT_CLEARANCE,
+  dependencyDrawing,
   dependencyEdges,
   dependencyHook,
   dependencyPoint,
+  FAN_IN,
 } from './flight-deck-full-edges'
 
 it.each([0.75, 1, 1.25, 2])('normalizes translated rects to layout pixels at zoom %s', (scale) => {
@@ -43,6 +45,54 @@ it('paints stored dependent -> dependency links with the dot at dependency and a
     targetY: 80,
     arrow: 'M907.7 81.6 L903 80 L902.8 85',
   })
+})
+
+it('merges three or more arriving lines into one arrowhead along their average direction', () => {
+  const points = new Map([
+    ['a', { right: 900, y: 0 }],
+    ['b', { right: 900, y: 40 }],
+    ['c', { right: 900, y: 80 }],
+    ['target', { right: 900, y: 160 }],
+    ['pair-1', { right: 900, y: 200 }],
+    ['pair-2', { right: 900, y: 240 }],
+    ['pair-target', { right: 900, y: 280 }],
+  ])
+  const links = [
+    { dependentId: 'target', dependencyId: 'a' },
+    { dependentId: 'target', dependencyId: 'b' },
+    { dependentId: 'target', dependencyId: 'c' },
+    { dependentId: 'pair-target', dependencyId: 'pair-1' },
+    { dependentId: 'pair-target', dependencyId: 'pair-2' },
+  ]
+  expect(FAN_IN).toBe(3)
+  const { edges, heads } = dependencyDrawing(links, points, true, null)
+  const fan = edges.filter((e) => e.dependentId === 'target')
+  // No line carries its own head; one shared head is drawn for the row.
+  expect(fan.map((e) => e.arrow)).toEqual(['', '', ''])
+  expect(heads.map((h) => h.dependentId)).toEqual(['target'])
+  // All three end on the same tip, and their last control points lie on one
+  // ray behind it: they meet the tip along one tangent and blend.
+  const ends = fan.map((e) => e.curve[3])
+  expect(new Set(ends.map((p) => `${p.x},${p.y}`)).size).toBe(1)
+  const tip = ends[0]!
+  expect(tip).toEqual({ x: 903, y: 160 })
+  const bends = fan.map((e) => e.curve[2])
+  expect(new Set(bends.map((p) => `${p.x.toFixed(3)},${p.y.toFixed(3)}`)).size).toBe(1)
+  // The head points along that same tangent: down and to the left, since
+  // every line comes from above.
+  const bend = bends[0]!
+  const d = { x: tip.x - bend.x, y: tip.y - bend.y }
+  expect(d.x).toBeLessThan(0)
+  expect(d.y).toBeGreaterThan(0)
+  expect(heads[0]!.arrow).toContain(`L903 160 L`)
+  // Two arriving lines keep their own heads.
+  expect(edges.filter((e) => e.dependentId === 'pair-target').every((e) => e.arrow !== '')).toBe(
+    true,
+  )
+  // The shared head lights with any of its lines.
+  const lit = dependencyDrawing(links, points, true, 'b')
+  expect(lit.heads[0]!.highlighted).toBe(true)
+  expect(lit.edges.filter((e) => e.highlighted).map((e) => e.dependencyId)).toEqual(['b'])
 })
 
 it('stops an arrow just short of the start dot on a row that also starts a link', () => {
