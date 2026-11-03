@@ -242,8 +242,8 @@ Each row is proved by a two-member test (Alice admin, Bob member, Carol disabled
 | MU-04 | Alice's task appears for Bob under All users, in search, and in Bob's agent's discovery, with Alice as assignee. It does not appear in Bob's sidebar. | POD-6296 |
 | MU-05 | Bob reads and edits Alice's task and its task artifacts on every path, without any grant. | POD-6288 |
 | MU-06 | No path carries Alice's execution-private task fields to Bob. Bob sees only D13 metadata for Alice's sessions. | POD-6288 |
-| MU-07 | Bob's agent on Alice's task belongs to Bob. Alice, admin Alice and Alice's agents cannot read, drive, resume or approve it, answer its questions or click its offers. | POD-6283 |
-| MU-08 | Session file bytes, transcripts, conversation search, approvals and superagent session tools refuse a non-owner. | POD-6284 |
+| MU-07 | Bob's agent on Alice's task belongs to Bob. Alice, admin Alice and Alice's agents cannot read, drive or resume it, answer its questions or click its offers. | POD-6283 |
+| MU-08 | Session file bytes, transcripts, conversation search, approvals (list, broadcast, approve, deny) and superagent session tools refuse a non-owner. | POD-6284 |
 | MU-09 | Me / All users and Show agent tasks are filters. The sidebar and preferences stay personal. (UI) | POD-6294 |
 | MU-10 | Task access never grants machine use. A `use` grant never grants session access. An unowned machine runs nothing. Admin custody is audited as a takeover. | POD-6286 |
 | MU-11 | Disable, role change, sign-out and delegation end each evict or rescope live feeds and refuse queued work at dispatch. A reconnecting daemon is fenced. | POD-6293 |
