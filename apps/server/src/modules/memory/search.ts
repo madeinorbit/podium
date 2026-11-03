@@ -76,13 +76,7 @@ export class MemorySearchService {
     const limit = Math.min(200, Math.max(1, opts.limit ?? 50))
     const scopedVisibility =
       visibility ??
-      await this.visibility.forRequest(await this.store.sessions.loadSessions(), {
-        // The native conversation-list RPC can return one row per distinct
-        // issue. Prime those owner and grant rows as one request-local batch;
-        // the omni search caller passes its own visibility context and keeps
-        // its existing memoized path unchanged.
-        batchIssueOwners: true,
-      })
+      await this.visibility.forRequest(await this.store.sessions.loadSessions())
     // Revocation makes a stale allow unsafe: this batch belongs only to this
     // request, and only an explicit true survives the synchronous filter.
     const visible = async (rows: readonly ConversationIndexRow[]) => {

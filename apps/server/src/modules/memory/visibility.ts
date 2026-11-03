@@ -1,19 +1,20 @@
-import { readIssue, readIssues } from '../issues/issue-reader'
-import { spanOpen } from '../../store/executor/executor'
 import {
   asIssueId,
   asSessionId,
+  type IssueId,
+  type MachineId,
   ROW,
+  type SessionId,
+  type UserId,
   type VisibilityClass,
   visibilityClassOf,
-  type MachineId,
-  type UserId,
-  type IssueId,
-  type SessionId,
 } from '@podium/model'
 import { mayReadOwned } from '../../issue-authz'
+import { isPrivateOwner } from '../../private-resources'
 import type { IssueRow, SessionRow, SessionStore } from '../../store'
+import { spanOpen } from '../../store/executor/executor'
 import type { GrantRow } from '../../store/grants'
+import { readIssue } from '../issues/issue-reader'
 import type { MemoryReader } from './types'
 
 export const INDEXED_MEMORY_DOCUMENT_CLASSES = [
@@ -139,36 +140,10 @@ export class MemoryVisibilityPolicy {
    * supplies the session snapshot it already needs, while this context owns
    * only request-local indexes and memoized reads.
    */
-  async forRequest(
-    sessions: readonly SessionRow[],
-    options: { batchIssueOwners?: boolean } = {},
-  ): Promise<MemoryVisibilityPolicy> {
+  async forRequest(sessions: readonly SessionRow[]): Promise<MemoryVisibilityPolicy> {
+    // A session's reader is decided from the session row alone (its owner), so
+    // nothing about its task is loaded for it.
     const request = visibilityRequestFor(sessions)
-    // The native conversation list asks visibility about each matching session.
-    // Its issue owner is the same live fact for every session on that issue, so
-    // load the distinct issue ids from the already-captured session snapshot in
-    // one batch before the filter starts. This is BATCHING, not a shared cache:
-    // getIssues reads SQLite now, the result lives only for this request, and
-    // missing ids are recorded as null just like issueById's lazy path.
-    if (options.batchIssueOwners) {
-      const issueIds = [
-        ...new Set(sessions.flatMap((row) => (row.issueId ? [String(row.issueId)] : []))),
-      ]
-      if (issueIds.length > 0) {
-        const rows = await readIssues(this.store.issues, issueIds)
-        for (const id of issueIds) request.issues.set(id, rows.get(id) ?? null)
-
-        // The same distinct issue ids drive the grant read in mayReadSessionRow.
-        // Prime every key, including ids with no edges, so the lazy fallback does
-        // not repeat the query. Sessions without issueId resolve grants against
-        // their own session id; leave those keys lazy because they are outside
-        // this issue-owner fanout and the live fallback preserves their semantics.
-        const grants = await this.store.grants.listForResources('issue', issueIds)
-        for (const id of issueIds) {
-          request.grants.set(`issue\0${id}`, readGranteesFrom(grants.get(id) ?? []))
-        }
-      }
-    }
     return new MemoryVisibilityPolicy(this.store, request)
   }
 
@@ -176,17 +151,23 @@ export class MemoryVisibilityPolicy {
    * Read the segments of every native conversation a pass is about to check,
    * in one batch (POD-6215). The check of a conversation or transcript asks for
    * the segments of its conversation; asked per candidate, that was two
-   * statements per row of the listing. Like the issue owners above, this is
+   * statements per row of the listing. This is
    * BATCHING for one request, not a shared cache: the answers live in this
    * context only, and a check inside a write span reads live.
    */
-  async primeNativeConversations(reader: MemoryReader, refs: readonly NativeSegment[]): Promise<void> {
+  async primeNativeConversations(
+    reader: MemoryReader,
+    refs: readonly NativeSegment[],
+  ): Promise<void> {
     const request = this.request
     if (!request || reader.kind === 'system' || spanOpen()) return
-    const missing = [...new Map(refs.map((ref) => [nativeKey(ref.machineId, ref.nativeId), ref]))]
-      .filter(([key]) => !request.siblings.has(key))
+    const missing = [
+      ...new Map(refs.map((ref) => [nativeKey(ref.machineId, ref.nativeId), ref])),
+    ].filter(([key]) => !request.siblings.has(key))
     if (missing.length === 0) return
-    const found = await this.store.conversations.registry.siblingSegmentsMany(missing.map(([, ref]) => ref))
+    const found = await this.store.conversations.registry.siblingSegmentsMany(
+      missing.map(([, ref]) => ref),
+    )
     missing.forEach(([key], index) => request.siblings.set(key, found[index] ?? []))
   }
 
@@ -196,7 +177,10 @@ export class MemoryVisibilityPolicy {
       : undefined
   }
 
-  async mayRead(reader: MemoryReader, ref: MemoryDocumentRef | { class: string }): Promise<boolean> {
+  async mayRead(
+    reader: MemoryReader,
+    ref: MemoryDocumentRef | { class: string },
+  ): Promise<boolean> {
     const visibility = this.classOf(ref.class)
     if (!visibility) return false
     if (reader.kind === 'system') return true
@@ -240,7 +224,7 @@ export class MemoryVisibilityPolicy {
   private async sessionById(sessionId: SessionId): Promise<SessionRow | undefined> {
     return (
       this.request?.sessionsById.get(sessionId) ??
-      await this.store.sessions.getSession(asSessionId(sessionId))
+      (await this.store.sessions.getSession(asSessionId(sessionId)))
     )
   }
 
@@ -252,20 +236,15 @@ export class MemoryVisibilityPolicy {
     return this.request.issues.get(issueId) ?? null
   }
 
+  /**
+   * A session, and every conversation and transcript resolved through it, is
+   * PRIVATE (POD-6284, design §2.3): its own owner reads it, nobody else. The
+   * session's task decides nothing here, nor does any grant: deriving a
+   * session's readers from its task would expose every session on a task to
+   * everyone who can read the task.
+   */
   private async mayReadSessionRow(userId: UserId, row: SessionRow): Promise<boolean> {
-    const issueId = row.issueId ?? undefined
-    const owner = issueId
-      ? ((await this.issueById(issueId))?.ownerUserId ?? row.ownerUserId)
-      : row.ownerUserId
-    // The owner-or-grant rule itself comes from `@podium/model`'s `authorize`
-    // (POD-335). What stays here is the RESOLUTION — which row carries the
-    // owner, and which resource the grants hang off — which is this module's
-    // own knowledge and not a second authorization surface.
-    return mayReadOwned(userId, {
-      id: issueId ?? row.id,
-      owner,
-      grants: await this.readGranteesOf(issueId ? 'issue' : 'session', issueId ?? row.id),
-    })
+    return isPrivateOwner(userId, row.ownerUserId)
   }
 
   private async mayReadNativeConversation(
@@ -285,12 +264,15 @@ export class MemoryVisibilityPolicy {
       const matches =
         (row.resumeValue && keys.has(nativeKey(rowMachine, row.resumeValue))) ||
         (row.conversationId && keys.has(nativeKey(rowMachine, row.conversationId)))
-      if (matches && await this.mayReadSessionRow(userId, row)) return true
+      if (matches && (await this.mayReadSessionRow(userId, row))) return true
     }
     return false
   }
 
-  private async siblingSegments(machineId: MachineId, nativeId: string): Promise<readonly NativeSegment[]> {
+  private async siblingSegments(
+    machineId: MachineId,
+    nativeId: string,
+  ): Promise<readonly NativeSegment[]> {
     if (!this.request || spanOpen()) {
       return await this.store.conversations.registry.siblingSegments(machineId, nativeId)
     }
@@ -315,7 +297,9 @@ export class MemoryVisibilityPolicy {
   private async readGranteesOf(resourceKind: string, resourceId: string): Promise<string[]> {
     const key = `${resourceKind}\0${resourceId}`
     if (!spanOpen() && this.request?.grants.has(key)) return this.request.grants.get(key) ?? []
-    const grantees = readGranteesFrom(await this.store.grants.loadForResource(resourceKind, resourceId))
+    const grantees = readGranteesFrom(
+      await this.store.grants.loadForResource(resourceKind, resourceId),
+    )
     this.request?.grants.set(key, grantees)
     return grantees
   }

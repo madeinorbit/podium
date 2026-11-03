@@ -30,7 +30,7 @@
 
 import type { TransportTag } from '@podium/commands'
 import { z } from 'zod'
-import type { ApprovalService } from './service'
+import type { ApprovalCallerView } from './service'
 
 /** `trpc` alone, matching the two decision contracts' `SERVED_ON`. The agent side
  *  reads its own request through the issue relay's arm, not through this. */
@@ -39,7 +39,7 @@ const SERVED_ON: readonly TransportTag[] = ['trpc']
 export interface ApprovalQuery<In extends z.ZodTypeAny, Out> {
   readonly input: In
   readonly exposure: readonly TransportTag[]
-  readonly run: (service: ApprovalService, input: z.infer<In>) => Out
+  readonly run: (service: ApprovalCallerView, input: z.infer<In>) => Out
 }
 
 /** Preserves the schema and return types through the object literal below —
@@ -47,7 +47,7 @@ export interface ApprovalQuery<In extends z.ZodTypeAny, Out> {
  *  loses `AppRouter` inference on the read. */
 const query = <In extends z.ZodTypeAny, Out>(
   input: In,
-  run: (service: ApprovalService, input: z.infer<In>) => Out,
+  run: (service: ApprovalCallerView, input: z.infer<In>) => Out,
 ): ApprovalQuery<In, Out> => ({ input, exposure: SERVED_ON, run })
 
 /**

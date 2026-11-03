@@ -21,6 +21,7 @@ export const fileFamilyProcedures = (): FileProcedures =>
       rpc: state.modules.rpc,
       artifacts: state.modules.issueArtifacts,
       repos: state.repos,
+      access: state.privateAccess,
     }),
     commands: FILE_COMMANDS_TRPC,
     queries: FILE_QUERIES,

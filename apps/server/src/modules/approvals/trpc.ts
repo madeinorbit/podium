@@ -27,7 +27,8 @@ export type ApprovalProcedures = FamilyProcedures<
 export const approvalFamilyProcedures = (): ApprovalProcedures =>
   derivedFamilyProcedures({
     family: 'approvals',
-    service: (state) => state.modules.approvals,
+    // The caller's own approvals only (POD-6284).
+    service: (state) => state.modules.approvals.forCaller(state.caller.userId),
     commands: APPROVAL_COMMANDS_TRPC,
     queries: APPROVAL_QUERIES,
   })

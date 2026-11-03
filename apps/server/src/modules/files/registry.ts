@@ -30,8 +30,10 @@ import {
   registryClassificationErrors,
   type TransportTag,
 } from '@podium/commands'
+import type { MachineId, SessionId } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import type { z } from 'zod'
+import type { PrivateResourceAccess } from '../../private-resources'
 import type { RegistryModules } from '../../relay'
 import type { RepoRegistry } from '../../repo-registry'
 import { isAllowedRoot } from '../../root-allowlist'
@@ -42,6 +44,8 @@ export interface FileState {
   readonly rpc: RegistryModules['rpc']
   readonly artifacts: RegistryModules['issueArtifacts']
   readonly repos: RepoRegistry
+  /** The caller's private-class decisions (POD-6284): whose session, which machine. */
+  readonly access: PrivateResourceAccess
 }
 
 export type FileHandler<In, Out> = (state: FileState, input: In) => Out
@@ -61,6 +65,42 @@ export const assertAllowedRoot = async (state: FileState, root: string): Promise
   }
 }
 
+/**
+ * THE PRIVATE CLASS for file bytes (POD-6284, design §2.3 and gap 4). A session's
+ * files are its owner's; a checkout on a machine is read or written only by a
+ * person holding `use` there. Admins, task readers and grantees get nothing.
+ * Both refuse as NOT_FOUND, the answer a missing session gets, and both run
+ * BEFORE the root allowlist so a refusal says nothing about another person's
+ * checkouts.
+ */
+export const assertOwnsSessionFiles = async (
+  state: FileState,
+  sessionId: SessionId,
+): Promise<void> => {
+  if (!(await state.access.ownsSession(sessionId))) {
+    throw new TRPCError({ code: 'NOT_FOUND', message: 'session not found' })
+  }
+}
+
+export const assertMayReadMachineFiles = async (
+  state: FileState,
+  machineId: MachineId | undefined,
+): Promise<void> => {
+  if (!(await state.access.mayReadMachineFiles(machineId))) {
+    throw new TRPCError({ code: 'NOT_FOUND', message: 'checkout not found' })
+  }
+}
+
+/** The machine gate, then the shipped root allowlist. */
+export const assertReadableRoot = async (
+  state: FileState,
+  root: string,
+  machineId: MachineId | undefined,
+): Promise<void> => {
+  await assertMayReadMachineFiles(state, machineId)
+  await assertAllowedRoot(state, root)
+}
+
 export const FILE_COMMANDS_TRPC = {
   write: {
     contract: FILE_CONTRACTS.write,
@@ -68,7 +108,8 @@ export const FILE_COMMANDS_TRPC = {
       // The union's session-addressed arm resolves its root from the session and
       // carries no `root` to check; the explicit arm is gated. Shipped behaviour,
       // moved rather than rewritten.
-      if ('root' in input) await assertAllowedRoot(state, input.root)
+      if ('root' in input) await assertReadableRoot(state, input.root, input.machineId)
+      else await assertOwnsSessionFiles(state, input.sessionId)
       return await state.rpc.writeFile(input)
     }) satisfies FileHandler<z.infer<(typeof FILE_CONTRACTS)['write']['input']>, unknown>,
   },

@@ -106,6 +106,7 @@ import { createCloudRuntimeProviderFromEnv } from './cloud-runtime'
 import { userCommandPrincipal } from './command-principal'
 import { registerArtifactRoute } from './file-artifact-route'
 import { registerAssetRoute } from './file-asset-route'
+import { privateResourceAccess } from './private-resources'
 import {
   createDaemonAcceptor,
   prepareDaemonFrame,
@@ -1741,6 +1742,25 @@ export async function startServer(
   app.use('/files/*', boundary)
   app.use('/files/*', guard)
   registerAssetRoute(app, {
+    mayRead: async (request, target) => {
+      const access = privateResourceAccess(
+        {
+          sessionOwnerUserId: async (sessionId) =>
+            (await store.sessions.getSession(sessionId))?.ownerUserId,
+          machines: registry.modules.machines,
+        },
+        await requestPrincipal(
+          {
+            cookieHeader: request.headers.get('cookie') ?? undefined,
+            authorizationHeader: request.headers.get('authorization') ?? undefined,
+          },
+          request,
+        ),
+      )
+      return 'sessionId' in target
+        ? await access.ownsSession(target.sessionId)
+        : await access.mayReadMachineFiles(target.machineId)
+    },
     readAsset: async (a) => await registry.modules.rpc.readAsset(a),
     allowsRoot: async (root, machineId) =>
       (await repos.inferFromPath(

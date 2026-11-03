@@ -2,9 +2,10 @@
  * THE FILE QUERIES — `read`, `list` and `search`.
  *
  * A table rather than read contracts: a `visibility` class describes what a
- * command WRITES and a read writes nothing. All three run the SAME root
- * allowlist the write does (`assertAllowedRoot`), shared from `registry.ts` so
- * the four procedures cannot drift into four notions of "an allowed root".
+ * command WRITES and a read writes nothing. All three run the SAME gates the
+ * write does (`assertReadableRoot`, `assertOwnsSessionFiles`), shared from
+ * `registry.ts` so the four procedures cannot drift into four notions of "an
+ * allowed root" or of whose files these are.
  */
 
 import type { TransportTag } from '@podium/commands'
@@ -12,7 +13,7 @@ import { ArtifactIdField, IssueIdField, MachineIdField, SessionIdField } from '@
 import type { FileReadResultMessage } from '@podium/protocol'
 import { z } from 'zod'
 import { PathIndex, rankPaths } from './path-search'
-import { assertAllowedRoot, type FileState } from './registry'
+import { assertOwnsSessionFiles, assertReadableRoot, type FileState } from './registry'
 
 const SERVED_ON: readonly TransportTag[] = ['trpc']
 
@@ -49,7 +50,8 @@ export const FILE_QUERIES = {
           ? { ok: true, path: input.path, content: r.bytes.toString('utf8') }
           : { ok: false, path: input.path, error: 'artifact file not found' }
       }
-      if ('root' in input) await assertAllowedRoot(state, input.root)
+      if ('root' in input) await assertReadableRoot(state, input.root, input.machineId)
+      else await assertOwnsSessionFiles(state, input.sessionId)
       return await state.rpc.readFile(input)
     },
   ),
@@ -60,7 +62,7 @@ export const FILE_QUERIES = {
       path: z.string().optional(),
     }),
     async (state, input) => {
-      await assertAllowedRoot(state, input.root)
+      await assertReadableRoot(state, input.root, input.machineId)
       return await state.rpc.listDir(input)
     },
   ),
@@ -86,10 +88,13 @@ export const FILE_QUERIES = {
       limit: z.number().int().positive().max(50).default(10),
     }),
     async (state, input): Promise<{ paths: string[] }> => {
-      await assertAllowedRoot(state, input.root)
+      // Someone else's machine is an unreadable checkout: no hits, no error.
+      if (!(await state.access.mayReadMachineFiles(input.machineId))) return { paths: [] }
+      await assertReadableRoot(state, input.root, input.machineId)
       const key = { ...(input.machineId ? { machineId: input.machineId } : {}), root: input.root }
-      const paths = await PATH_INDEX.paths(key, async () =>
-        await state.rpc.repoOp('lsFiles', input.root, undefined, input.machineId),
+      const paths = await PATH_INDEX.paths(
+        key,
+        async () => await state.rpc.repoOp('lsFiles', input.root, undefined, input.machineId),
       )
       return { paths: rankPaths(paths, input.query.trim(), input.limit).map((hit) => hit.path) }
     },

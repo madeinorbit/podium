@@ -34,7 +34,7 @@ import { z } from 'zod'
 import { getFeatureStates } from '../features'
 import { CostService } from './cost/service'
 import type { FamilyState } from './derived-family'
-import { assertAllowedRoot } from './files/registry'
+import { assertReadableRoot } from './files/registry'
 import { defineQuery } from './query-table'
 import { QUOTA_HISTORY_DEFAULT_DAYS, recordQuotaSamples } from './quota-history/service'
 import { specsInputs } from './specs/service'
@@ -54,6 +54,7 @@ const fileState = (s: FamilyState) => ({
   rpc: s.modules.rpc,
   artifacts: s.modules.issueArtifacts,
   repos: s.repos,
+  access: s.privateAccess,
 })
 
 // ---------------------------------------------------------------------------
@@ -116,7 +117,8 @@ const repoOp = (op: GitPanelOp) => {
       { machineId?: MachineId | undefined; root: string; path?: string; sha?: string }
     >,
     async (s, input) => {
-      await assertAllowedRoot(fileState(s), input.root)
+      // A checkout is private to the people who may run on its machine (POD-6284).
+      await assertReadableRoot(fileState(s), input.root, input.machineId)
       const args: Record<string, string> = {}
       if (needs.includes('path')) args.path = input.path as string
       if (needs.includes('sha')) args.sha = input.sha as string

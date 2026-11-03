@@ -15,7 +15,7 @@ import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { assertScheduleFloor, nextAfter, nextRunAfter, parseCron } from '@podium/commands'
 import { createLogger, describeError } from '@podium/logger'
-import type { IssueId, SessionId, AutomationId } from '@podium/model'
+import type { AutomationId, IssueId, SessionId } from '@podium/model'
 import {
   type AgentKind,
   type AutomationScheduleKind,
@@ -82,6 +82,12 @@ export interface AutomationsDeps {
   ): CommandPrincipal | undefined | Promise<CommandPrincipal | undefined>
   /** Re-check the creator's current use grant on the selected machine. */
   mayUseDefaultMachine(principal: CommandPrincipal): boolean | Promise<boolean>
+  /**
+   * A session's own owner (POD-6284). An automation runs only into its owner's
+   * own sessions: a target that is somebody else's answers like a missing one.
+   * Absent (unit tests that predate it) = targets are not checked.
+   */
+  sessionOwnerUserId?(sessionId: SessionId): Promise<UserId | undefined>
   now(): Date
   /** Where a GLOBAL (repo-less) automation runs. Injected for the tests. */
   homeDir?(): string
@@ -204,9 +210,15 @@ export class AutomationsService {
     return await this.deps.store.listRuns(automationId, limit)
   }
 
-  async runsForUser(userId: UserId, automationId: AutomationId, limit?: number): Promise<AutomationRunRow[]> {
+  async runsForUser(
+    userId: UserId,
+    automationId: AutomationId,
+    limit?: number,
+  ): Promise<AutomationRunRow[]> {
     const automation = await this.deps.store.get(automationId)
-    return automation?.ownerUserId === userId ? await this.deps.store.listRuns(automationId, limit) : []
+    return automation?.ownerUserId === userId
+      ? await this.deps.store.listRuns(automationId, limit)
+      : []
   }
 
   private ownerFor(principal: CommandPrincipal): UserId {
@@ -218,6 +230,20 @@ export class AutomationsService {
   private assertOwner(principal: CommandPrincipal, automation: AutomationRow): void {
     if (this.ownerFor(principal) !== automation.ownerUserId) {
       throw new Error('unknown automation: ' + automation.id)
+    }
+  }
+
+  /** Whether `sessionId` is `owner`'s own session (POD-6284). */
+  private async isOwnSession(owner: UserId, sessionId: SessionId): Promise<boolean> {
+    if (!this.deps.sessionOwnerUserId) return true
+    return (await this.deps.sessionOwnerUserId(sessionId)) === owner
+  }
+
+  /** A target session must be the automation owner's own; anything else reads
+   *  exactly as a session that does not exist. */
+  private async assertOwnTarget(owner: UserId, sessionId: SessionId | null): Promise<void> {
+    if (sessionId !== null && !(await this.isOwnSession(owner, sessionId))) {
+      throw new Error('unknown session: ' + sessionId)
     }
   }
 
@@ -259,21 +285,28 @@ export class AutomationsService {
       createdByActor: attribution.actor,
       createdByOnBehalfOf: ownerUserId,
     }
-    const created = (await this.deps.ledger.commit({
-      write: async () => {
-        await this.deps.store.insert(row)
-        return row
-      },
-      changes: (automation) => [
-        { entity: 'automation', id: automation.id, op: 'upsert', value: automation },
-      ],
-    })).result
+    await this.assertOwnTarget(ownerUserId, row.targetSessionId)
+    const created = (
+      await this.deps.ledger.commit({
+        write: async () => {
+          await this.deps.store.insert(row)
+          return row
+        },
+        changes: (automation) => [
+          { entity: 'automation', id: automation.id, op: 'upsert', value: automation },
+        ],
+      })
+    ).result
     return created
   }
 
   /** Patch an automation. Any schedule/enabled change re-arms from now; an edited
    *  cron never retains the old expression's pending fire. */
-  async update(id: string, patch: Partial<AutomationInput>, principal: CommandPrincipal): Promise<AutomationRow> {
+  async update(
+    id: string,
+    patch: Partial<AutomationInput>,
+    principal: CommandPrincipal,
+  ): Promise<AutomationRow> {
     const current = await this.deps.store.get(id)
     if (!current) throw new Error('unknown automation: ' + id)
     this.assertOwner(principal, current)
@@ -320,49 +353,60 @@ export class AutomationsService {
       throw new Error('completed one-off schedule needs a new runAt timestamp before enabling')
     }
     if (scheduleChanged) next.lastRunAt = null
+    if (patch.targetSessionId !== undefined)
+      await this.assertOwnTarget(current.ownerUserId, next.targetSessionId)
     const rearm = scheduleChanged || patch.enabled !== undefined
     if (rearm) {
       next.nextRunAt = this.armFrom(next.scheduleKind, next.cron, next.runAt, next.enabled)
     }
-    const updated = (await this.deps.ledger.commit({
-      write: async () => {
-        await this.deps.store.update(next)
-        return next
-      },
-      changes: (automation) => [
-        { entity: 'automation', id: automation.id, op: 'upsert', value: automation },
-      ],
-    })).result
+    const updated = (
+      await this.deps.ledger.commit({
+        write: async () => {
+          await this.deps.store.update(next)
+          return next
+        },
+        changes: (automation) => [
+          { entity: 'automation', id: automation.id, op: 'upsert', value: automation },
+        ],
+      })
+    ).result
     return updated
   }
 
-  async setEnabled(id: string, enabled: boolean, principal: CommandPrincipal): Promise<AutomationRow> {
+  async setEnabled(
+    id: string,
+    enabled: boolean,
+    principal: CommandPrincipal,
+  ): Promise<AutomationRow> {
     return await this.update(id, { enabled }, principal)
   }
 
   async remove(id: string, principal: CommandPrincipal): Promise<{ removed: boolean }> {
     const current = await this.deps.store.get(id)
-    if (!current) return { removed: false }
-    this.assertOwner(principal, current)
+    // Somebody else's automation answers exactly like a missing one (POD-6284):
+    // the caller may not know it exists.
+    if (!current || current.ownerUserId !== this.ownerFor(principal)) return { removed: false }
     const runIds = await this.deps.store.liveRunIdsOf(current.id)
     // The store TOMBSTONES rather than deletes (POD-1509) — the clock stays
     // injected here rather than reaching into the store, so a test that freezes
     // time still controls what a deletion is stamped with.
     const deletedAt = this.now().toISOString()
-    const removed = (await this.deps.ledger.commit({
-      write: async () => await this.deps.store.remove(id, deletedAt),
-      changes: (didRemove) =>
-        didRemove
-          ? [
-              ...runIds.map((runId) => ({
-                entity: 'automationRun' as const,
-                id: runId,
-                op: 'remove' as const,
-              })),
-              { entity: 'automation' as const, id, op: 'remove' as const },
-            ]
-          : [],
-    })).result
+    const removed = (
+      await this.deps.ledger.commit({
+        write: async () => await this.deps.store.remove(id, deletedAt),
+        changes: (didRemove) =>
+          didRemove
+            ? [
+                ...runIds.map((runId) => ({
+                  entity: 'automationRun' as const,
+                  id: runId,
+                  op: 'remove' as const,
+                })),
+                { entity: 'automation' as const, id, op: 'remove' as const },
+              ]
+            : [],
+      })
+    ).result
     return { removed }
   }
 
@@ -597,12 +641,20 @@ export class AutomationsService {
     if (!principal) {
       throw new AutomationSpawnError('automation creator account is disabled or missing', null)
     }
-    if (!await this.deps.mayUseDefaultMachine(principal)) {
+    if (!(await this.deps.mayUseDefaultMachine(principal))) {
       throw new AutomationSpawnError('automation creator no longer has machine use access', null)
     }
     if (automation.targetSessionId !== null || automation.sessionMode === 'resume') {
       const previousSessionId =
         automation.targetSessionId ?? (await this.deps.store.lastSpawnedSessionOf(automation.id))
+      // A row written before targets were checked may still name somebody
+      // else's session; a run never types into it (POD-6284).
+      if (
+        previousSessionId &&
+        !(await this.isOwnSession(automation.ownerUserId, previousSessionId))
+      ) {
+        throw new AutomationSpawnError(`unknown session: ${previousSessionId}`, null)
+      }
       if (previousSessionId) {
         const resumed = await this.deps.deliverPrompt({
           automationId: automation.id,

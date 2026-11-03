@@ -18,10 +18,12 @@ import {
   WorkState,
 } from '@podium/model'
 import type { LiveServerMessage } from '@podium/protocol'
+import { userCommandPrincipal } from '../../command-principal'
 import { createIssue, moveIssue, searchIssues } from '../../linear'
 import type { LlmTool } from '../../llm'
 import type { McpToolProvider } from '../../mcp-route'
 import { spawnPromptMessageId } from '../../message-ids'
+import { privateResourceAccess } from '../../private-resources'
 import type { RegistryModules } from '../../relay'
 import type { SessionStore } from '../../store'
 import { deliverAnswerToSession } from './answer-delivery'
@@ -120,7 +122,26 @@ export async function buildSuperagentTools(
   const listPrincipal = ownerUserId
     ? await sessions.view.principalForTrustedUser(ownerUserId)
     : undefined
-  const getSession = async (id: string) => await sessions.sessionById(id as SessionId)
+  // THE PRIVATE CLASS (POD-6284, design §2.3): a thread acts for its owner, so
+  // every session it names must be the OWNER's own, and every checkout it reads
+  // must be on a machine the owner may use. Someone else's session answers like
+  // a missing one ('unknown session'); a thread with no owner reaches nothing.
+  const ownerRole = ownerUserId ? await store.users.roleOf(ownerUserId) : undefined
+  const ownerAccess = privateResourceAccess(
+    {
+      sessionOwnerUserId: async (sessionId) =>
+        (await store.sessions.getSession(sessionId))?.ownerUserId,
+      machines: modules.machines,
+    },
+    ownerUserId && ownerRole ? userCommandPrincipal(ownerUserId, ownerRole) : undefined,
+  )
+  const getSession = async (id: string) =>
+    (await ownerAccess.ownsSession(id as SessionId))
+      ? await sessions.sessionById(id as SessionId)
+      : undefined
+  /** `'unknown session'` unless the thread owner owns it — the one refusal. */
+  const unknownUnlessOwned = async (id: string): Promise<'unknown session' | undefined> =>
+    (await getSession(id)) ? undefined : 'unknown session'
   const tools: SuperagentTool[] = [
     {
       spec: {
@@ -133,34 +154,41 @@ export async function buildSuperagentTools(
         parameters: { type: 'object', properties: {} },
       },
       run: async () => {
-        if (!listPrincipal) return '[]'
-        const listed = await sessions.listSessions(listPrincipal, 'listAllTool')
+        if (!listPrincipal || !ownerUserId) return '[]'
+        const owned = new Set(
+          (await store.sessions.loadSessions())
+            .filter((row) => row.ownerUserId === ownerUserId)
+            .map((row) => row.id as string),
+        )
+        const listed = (await sessions.listSessions(listPrincipal, 'listAllTool')).filter((s) =>
+          owned.has(s.sessionId),
+        )
         const snoozes = await store.sessions.listSnoozes(listPrincipal.userId)
         return JSON.stringify(
           await Promise.all(
-            listed.map(
-              async (s) => {
-                // Reverse of issue_show's session list (issue #72): session cwd →
-                // bound issue, via the same worktree-containment rule as authz scope.
-                const issueId = await issues.reports.issueForCwd(s.cwd)
-                const issue = issueId ? await issues.reports.getMeta(issueId) : null
-                return {
-                  sessionId: s.sessionId,
-                  name: s.name ?? s.title,
-                  kind: s.agentKind,
-                  cwd: s.cwd,
-                  status: s.status,
-                  phase: s.agentState?.phase ?? 'unknown',
-                  archived: s.archived,
-                  lastActiveAt: s.lastActiveAt,
-                  // Provenance + snooze (issue #62): who created it, and whether it's
-                  // parked out of the attention flow (null = until next message).
-                  spawnedBy: s.spawnedBy,
-                  snoozedUntil: Object.hasOwn(snoozes, s.sessionId) ? snoozes[s.sessionId] : undefined,
-                  ...(issue ? { boundIssue: { seq: issue.seq, title: issue.title } } : {}),
-                }
-              },
-            ),
+            listed.map(async (s) => {
+              // Reverse of issue_show's session list (issue #72): session cwd →
+              // bound issue, via the same worktree-containment rule as authz scope.
+              const issueId = await issues.reports.issueForCwd(s.cwd)
+              const issue = issueId ? await issues.reports.getMeta(issueId) : null
+              return {
+                sessionId: s.sessionId,
+                name: s.name ?? s.title,
+                kind: s.agentKind,
+                cwd: s.cwd,
+                status: s.status,
+                phase: s.agentState?.phase ?? 'unknown',
+                archived: s.archived,
+                lastActiveAt: s.lastActiveAt,
+                // Provenance + snooze (issue #62): who created it, and whether it's
+                // parked out of the attention flow (null = until next message).
+                spawnedBy: s.spawnedBy,
+                snoozedUntil: Object.hasOwn(snoozes, s.sessionId)
+                  ? snoozes[s.sessionId]
+                  : undefined,
+                ...(issue ? { boundIssue: { seq: issue.seq, title: issue.title } } : {}),
+              }
+            }),
           ),
         )
       },
@@ -235,9 +263,9 @@ export async function buildSuperagentTools(
             // Not started yet — issues.start owns the whole flow (worktree, branch,
             // agent spawn with the description as first prompt and caller provenance).
             const started = await issues.gitWorkflow.start(issue.id, agentKind, { spawnedBy })
-            const spawned = (await sessions
-              .listSessionsForIssue(started.worktreePath ?? null, issue.id))
-              .find((s) => machinePathsEqual(s.cwd, started.worktreePath!) && s.status !== 'exited')
+            const spawned = (
+              await sessions.listSessionsForIssue(started.worktreePath ?? null, issue.id)
+            ).find((s) => machinePathsEqual(s.cwd, started.worktreePath!) && s.status !== 'exited')
             return JSON.stringify({
               ...(spawned ? { sessionId: spawned.sessionId } : {}),
               cwd: started.worktreePath,
@@ -273,7 +301,10 @@ export async function buildSuperagentTools(
           // a failed spawn attempt and a server restart, and delivered once the
           // CLI settles. It is the new session's spawn prompt, so its id is the
           // session's and a retried start stores it once.
-          await superagentSender(modules.messages, ownerUserId)({
+          await superagentSender(
+            modules.messages,
+            ownerUserId,
+          )({
             sessionId,
             text: first,
             messageId: spawnPromptMessageId(sessionId),
@@ -293,6 +324,8 @@ export async function buildSuperagentTools(
         },
       },
       run: async (args) => {
+        const refused = await unknownUnlessOwned(sessionIdArg(args.sessionId))
+        if (refused) return refused
         // Unified substrate (#237) [spec:SP-34d7]: the superagent is its OWN
         // principal (never the operator) — the message is ledgered and lands
         // enveloped, so the receiver sees who is speaking.
@@ -326,6 +359,8 @@ export async function buildSuperagentTools(
         },
       },
       run: async (args) => {
+        const refused = await unknownUnlessOwned(sessionIdArg(args.sessionId))
+        if (refused) return refused
         // The menu gate + option matching live in answer-delivery.ts (issue #53),
         // shared with the web-callable issues.answerQuestion. Menu-only here: no
         // textFallback — this tool's contract is the native menu or a refusal.
@@ -373,10 +408,15 @@ export async function buildSuperagentTools(
         },
       },
       run: async (args) => {
+        const refused = await unknownUnlessOwned(sessionIdArg(args.sessionId))
+        if (refused) return refused
         // The superagent's message (POD-4846), like send_to_agent's, but a wake
         // message: a parked session is resumed. Enveloped, with a delivery
         // status and an id.
-        const r = await superagentSender(modules.messages, ownerUserId)({
+        const r = await superagentSender(
+          modules.messages,
+          ownerUserId,
+        )({
           sessionId: sessionIdArg(args.sessionId),
           text: str(args.text) ?? '',
         })
@@ -399,7 +439,7 @@ export async function buildSuperagentTools(
       },
       run: async (args) => {
         const sessionId = sessionIdArg(args.sessionId)
-        if (!await getSession(sessionId)) return 'unknown session'
+        if (!(await getSession(sessionId))) return 'unknown session'
         const r = await sessions.continueSession({ sessionId })
         return r.ok ? 'sent continue' : 'failed: session must be running and in the errored phase'
       },
@@ -417,6 +457,8 @@ export async function buildSuperagentTools(
         },
       },
       run: async (args) => {
+        const refused = await unknownUnlessOwned(sessionIdArg(args.sessionId))
+        if (refused) return refused
         const r = await sessions.hibernateSession({ sessionId: sessionIdArg(args.sessionId) })
         return r.ok ? 'hibernated' : `failed: ${r.reason ?? 'unknown'}`
       },
@@ -442,7 +484,7 @@ export async function buildSuperagentTools(
       run: async (args) => {
         const sessionId = sessionIdArg(args.sessionId)
         const until = str(args.until) ?? ''
-        if (!await getSession(sessionId)) return 'unknown session'
+        if (!(await getSession(sessionId))) return 'unknown session'
         // null = until next message (SessionMeta.snoozedUntil semantics).
         const value = until === 'next-message' ? null : until
         if (value !== null && Number.isNaN(Date.parse(value))) {
@@ -468,7 +510,7 @@ export async function buildSuperagentTools(
       },
       run: async (args) => {
         const sessionId = sessionIdArg(args.sessionId)
-        if (!await getSession(sessionId)) return 'unknown session'
+        if (!(await getSession(sessionId))) return 'unknown session'
         if (!ownerUserId) return 'unknown superagent thread'
         await sessions.clearSnooze(ownerUserId, sessionId)
         return 'snooze cleared'
@@ -486,7 +528,7 @@ export async function buildSuperagentTools(
       },
       run: async (args) => {
         const sessionId = sessionIdArg(args.sessionId)
-        if (!await getSession(sessionId)) return 'unknown session'
+        if (!(await getSession(sessionId))) return 'unknown session'
         await sessions.renameSession({
           sessionId,
           name: typeof args.name === 'string' ? args.name : '',
@@ -514,7 +556,7 @@ export async function buildSuperagentTools(
         if (!parsed.success) {
           return `invalid workState: expected one of ${WorkState.options.join(' | ')}`
         }
-        if (!await getSession(sessionId)) return 'unknown session'
+        if (!(await getSession(sessionId))) return 'unknown session'
         await sessions.setWorkState({ sessionId, workState: parsed.data })
         return JSON.stringify({ workState: parsed.data })
       },
@@ -542,7 +584,7 @@ export async function buildSuperagentTools(
       },
       run: async (args) => {
         const sessionId = sessionIdArg(args.sessionId)
-        if (!await getSession(sessionId)) return 'unknown session'
+        if (!(await getSession(sessionId))) return 'unknown session'
         const timeoutS = Math.min(120, Math.max(0, num(args.timeoutSeconds) ?? 60))
         // Already settled? Answer from the current state without waiting — the
         // event log only carries TRANSITIONS, so an agent that finished before
@@ -566,9 +608,9 @@ export async function buildSuperagentTools(
         const since = await store.events.maxEventId()
         const deadline = Date.now() + timeoutS * 1000
         while (Date.now() < deadline) {
-          const evs = (await store.events
-            .listEventsSince(since, { kinds: ['session.phase'] }))
-            .filter((e) => e.subject === sessionId)
+          const evs = (
+            await store.events.listEventsSince(since, { kinds: ['session.phase'] })
+          ).filter((e) => e.subject === sessionId)
           const last = evs[evs.length - 1]
           if (last) {
             const p = last.payload as { phase?: string; verdict?: string }
@@ -594,6 +636,8 @@ export async function buildSuperagentTools(
         },
       },
       run: async (args) => {
+        const refused = await unknownUnlessOwned(sessionIdArg(args.sessionId))
+        if (refused) return refused
         await sessions.killSession({ sessionId: sessionIdArg(args.sessionId) })
         return 'killed'
       },
@@ -614,6 +658,8 @@ export async function buildSuperagentTools(
         },
       },
       run: async (args) => {
+        const refused = await unknownUnlessOwned(sessionIdArg(args.sessionId))
+        if (refused) return refused
         const lastN = Math.min(100, Math.max(1, num(args.lastN) ?? 30))
         if (!memoryReader) return 'unknown superagent thread'
         // The latest window off disk; 'before' with no anchor returns the newest items.
@@ -652,8 +698,10 @@ export async function buildSuperagentTools(
       // Watermark reader identity is thread-scoped when known, so parallel
       // superagent threads each keep their own catch-up point (#237)
       // [spec:SP-34d7 read-toolkit].
-      run: async (args) =>
-        JSON.stringify(
+      run: async (args) => {
+        const refused = await unknownUnlessOwned(sessionIdArg(args.sessionId))
+        if (refused) return refused
+        return JSON.stringify(
           await modules.readToolkit.recap(
             {
               sessionId: sessionIdArg(args.sessionId),
@@ -661,7 +709,8 @@ export async function buildSuperagentTools(
             },
             threadId ? `superagent:${threadId}` : 'superagent',
           ),
-        ),
+        )
+      },
     },
     {
       spec: {
@@ -685,6 +734,8 @@ export async function buildSuperagentTools(
         const sessionId = sessionIdArg(args.sessionId)
         const question = str(args.question) ?? ''
         if (!question) return 'question is required'
+        const refused = await unknownUnlessOwned(sessionId)
+        if (refused) return refused
         // Same substrate as podium session ask: a question message through the
         // one send path (clamps/cooldown apply), then a bounded ack wait.
         const r = await modules.messages.send(
@@ -816,6 +867,8 @@ export async function buildSuperagentTools(
       run: async (args) => {
         const op = str(args.op)
         if (op !== 'status' && op !== 'log' && op !== 'branches') return 'invalid op'
+        // The default machine's checkouts are its users' (POD-6284).
+        if (!(await ownerAccess.mayReadMachineFiles())) return 'failed: no such checkout'
         const r = await rpc.repoOp(op, str(args.cwd) ?? '')
         return r.ok ? r.output || '(clean)' : `failed: ${r.output}`
       },
@@ -932,7 +985,11 @@ export async function buildSuperagentTools(
           parameters: spec.inputSchema as Record<string, unknown>,
         },
         run: async (args) =>
-          await issueProvider.callMcpTool(spec.name, args, threadId ? asThreadId(threadId) : undefined),
+          await issueProvider.callMcpTool(
+            spec.name,
+            args,
+            threadId ? asThreadId(threadId) : undefined,
+          ),
       })
     }
   }

@@ -2809,6 +2809,9 @@ export class SessionRegistry {
         const ownership = await ownershipSnapshotFromMachines(machines)
         return checkMachineUse(principal, await machines.defaultMachine(), ownership) === undefined
       },
+      // An automation runs only into its owner's own sessions (POD-6284).
+      sessionOwnerUserId: async (sessionId) =>
+        (await this.store.sessions.getSession(sessionId))?.ownerUserId,
       now: () => new Date(this.now()),
     })
     // Approval broker [spec:SP-edbb] (#410): agent-requested management ops.
@@ -2820,6 +2823,9 @@ export class SessionRegistry {
       // `toMachine` queues for an absent one, so that frame is parked, not lost.
       hasDaemon: (machineId) => machines.hasDaemon(machineId),
       clients: () => clientRegistry.values(),
+      // An approval is its session owner's (POD-6284): list, broadcast, decide.
+      sessionOwnerUserId: async (sessionId) =>
+        (await this.store.sessions.getSession(sessionId))?.ownerUserId,
       sessionIssueId: async (sessionId) => {
         const s = await sessionsSvc.sessionById(sessionId)
         return s ? (s.issueId ?? (await issues.reports.issueForCwd(s.cwd))) : null
@@ -3953,7 +3959,7 @@ export class SessionRegistry {
       bootstrap: async (client): Promise<void> => {
         client.send({
           type: 'approvalsChanged',
-          pending: await approvals.listPending(),
+          pending: await approvals.listPendingFor(client.principal.user),
         })
         hosts.snapshotFor(client.send)
       },

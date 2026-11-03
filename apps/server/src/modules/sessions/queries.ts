@@ -19,30 +19,22 @@
  * able to decide whether they may have them.
  */
 
-import { asUserId, SessionIdField, type SessionId } from '@podium/model'
+import { asUserId, type SessionId, SessionIdField } from '@podium/model'
 import type { SessionIdentifierResolution } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
-import { mayReadOwned } from '../../issue-authz'
 import type { FamilyState } from '../derived-family'
 import { defineQuery } from '../query-table'
 import { ambiguousSessionPrefixMessage } from './session-access'
 
 const q = defineQuery<FamilyState>()
 
-// THE decision comes from the model (POD-335). This used to spell the rule out
-// here — `owner === caller.userId || grants.includes(caller.userId)` — which is
-// a second authorization surface (docs/multi-user-readiness.md §3.2) and, over
-// an absent owner and an absent caller, compared `undefined === undefined` and
-// answered ALLOW. `mayReadOwned` refuses an unowned entity by construction.
+// THE PRIVATE CLASS (POD-6284, design §2.3): a session is read by its owner and
+// nobody else. Not by a grantee, not through its task, not by an admin. The rule
+// lives in `private-resources.ts`, shared with every other surface serving a
+// session's content; a missing session and someone else's answer alike.
 async function mayReadSession(state: FamilyState, sessionId: SessionId): Promise<boolean> {
-  const target = await state.modules.sessions.sessionOwner(sessionId as never)
-  if (target === undefined) return false
-  return mayReadOwned(state.caller.userId, {
-    id: sessionId,
-    owner: target.owner,
-    grants: target.grants,
-  })
+  return await state.privateAccess.ownsSession(sessionId)
 }
 
 async function assertMayReadSession(state: FamilyState, sessionId: SessionId): Promise<void> {
@@ -97,8 +89,9 @@ export const SESSION_QUERIES = {
       ),
   ),
   /** Fleet-wide 12-hour concurrency samples for the global shell status strip. */
-  concurrencyHistory: q(z.object({}).passthrough().optional(), async (s) =>
-    await s.modules.sessions.agentConcurrencyHistory(),
+  concurrencyHistory: q(
+    z.object({}).passthrough().optional(),
+    async (s) => await s.modules.sessions.agentConcurrencyHistory(),
   ),
   /** Per-session phase-transition history (48h window) for the Flight Deck
    *  waterfall's on/off segments. Unreadable ids are silently omitted — the
@@ -122,7 +115,10 @@ export const SESSION_QUERIES = {
     }),
     async (s, input) => {
       await assertMayReadSession(s, input.sessionId)
-      return await s.modules.rpc.readTranscript(input, { kind: 'user', id: asUserId(s.caller.userId) })
+      return await s.modules.rpc.readTranscript(input, {
+        kind: 'user',
+        id: asUserId(s.caller.userId),
+      })
     },
   ),
   /** Read toolkit tiers 1–2 (#237) [spec:SP-34d7]: structured status (phase,
@@ -130,16 +126,26 @@ export const SESSION_QUERIES = {
    *  transcript text). The /trpc surface is operator-authority; agents reach the
    *  same procs via the daemon relay's scope-gated sessions arm. Every read is
    *  event-logged by the toolkit. */
-  status: q(z.object({ ref: z.string() }), async (s, input) =>
-    await s.modules.readToolkit.status(input.ref, s.caller.actorSessionId ?? 'operator'),
-  ),
+  status: q(z.object({ ref: z.string() }), async (s, input) => {
+    // A ref may name a session or a task; either way the session it lands on
+    // must be the caller's own, and someone else's answers like no session.
+    const found = await s.modules.readToolkit.resolveTarget(input.ref)
+    if (!found || !(await mayReadSession(s, found.sessionId))) {
+      throw new Error(`no session found for ${input.ref}`)
+    }
+    return await s.modules.readToolkit.status(
+      found.sessionId,
+      s.caller.actorSessionId ?? 'operator',
+    )
+  }),
   /** WHAT A SESSION LINK NAMES (POD-4637): a full id, a short id prefix or a
    *  birth ref, through the CLI's own rule. A link on the web or the phone asks
    *  this rather than matching a prefix client-side. Unreadable matches are
    *  dropped BEFORE counting, so a hidden session neither resolves nor makes a
    *  readable one ambiguous — either would be an existence oracle (D20.2). */
-  resolve: q(z.object({ identifier: z.string().min(1).max(200) }), async (s, input) =>
-    await resolveReadableIdentifier(s, input.identifier),
+  resolve: q(
+    z.object({ identifier: z.string().min(1).max(200) }),
+    async (s, input) => await resolveReadableIdentifier(s, input.identifier),
   ),
   read: q(
     z.object({
@@ -155,10 +161,13 @@ export const SESSION_QUERIES = {
   /** Read toolkit tier 3 (#237) [spec:SP-34d7 read-toolkit]: server-side recap
    *  since a watermark — repeated check-ins pay only for the delta (the watermark
    *  persists per (reader, target)). */
-  recap: q(z.object({ sessionId: SessionIdField, since: z.string().optional() }), async (s, input) => {
-    await assertMayReadSession(s, input.sessionId)
-    return await s.modules.readToolkit.recap(input, s.caller.actorSessionId ?? 'operator')
-  }),
+  recap: q(
+    z.object({ sessionId: SessionIdField, since: z.string().optional() }),
+    async (s, input) => {
+      await assertMayReadSession(s, input.sessionId)
+      return await s.modules.readToolkit.recap(input, s.caller.actorSessionId ?? 'operator')
+    },
+  ),
 } as const
 
 export const SYNC_QUERIES = {
@@ -166,14 +175,16 @@ export const SYNC_QUERIES = {
    *  bootstrap snapshot; a valid cursor = the changes after it; a
    *  compacted/future cursor falls back to snapshot. The client heals every WS
    *  (re)connect through this. */
-  changesSince: q(z.object({ cursor: z.number().int().nonnegative().nullable() }), async (s, input) =>
-    await s.modules.sessions.syncChangesSince(
-      input.cursor,
-      s.feedPrincipal ??
-        (() => {
-          throw new Error('authenticated feed principal required')
-        })(),
-    ),
+  changesSince: q(
+    z.object({ cursor: z.number().int().nonnegative().nullable() }),
+    async (s, input) =>
+      await s.modules.sessions.syncChangesSince(
+        input.cursor,
+        s.feedPrincipal ??
+          (() => {
+            throw new Error('authenticated feed principal required')
+          })(),
+      ),
   ),
   /**
    * THE AUTHORITY'S OWN VIEW OF THIS PRINCIPAL'S SLICE (POD-376).
@@ -189,13 +200,15 @@ export const SYNC_QUERIES = {
    * receive its key here either — which is exactly the property that makes it
    * usable as the comparison's basis.
    */
-  feedSlice: q(z.object({}).optional(), async (s) =>
-    await s.modules.funnel.feedSlice(
-      s.feedPrincipal ??
-        (() => {
-          throw new Error('authenticated feed principal required')
-        })(),
-    ),
+  feedSlice: q(
+    z.object({}).optional(),
+    async (s) =>
+      await s.modules.funnel.feedSlice(
+        s.feedPrincipal ??
+          (() => {
+            throw new Error('authenticated feed principal required')
+          })(),
+      ),
   ),
 } as const
 
@@ -211,5 +224,8 @@ export const SNOOZE_QUERIES = {
 } as const
 
 export const TAB_QUERIES = {
-  listOrders: q(noInput, async (s) => await s.modules.sessions.state.listTabOrders(s.caller.sessionState)),
+  listOrders: q(
+    noInput,
+    async (s) => await s.modules.sessions.state.listTabOrders(s.caller.sessionState),
+  ),
 } as const

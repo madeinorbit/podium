@@ -162,6 +162,9 @@ export interface TwoMemberInstance {
   agent(sessionId: SessionId, opts?: { outsideScope?: boolean }): AgentActor
   /** The feed as the legacy device-grade principal sees it (design gap 7). */
   legacyDeviceFeed(): Promise<FeedSnapshot>
+  /** Every control frame the server sent to that machine's fake daemon, in order.
+   *  A file read the server refused never shows up here. */
+  daemonFrames(machineId: MachineId): readonly ControlMessage[]
   close(): Promise<void>
 }
 
@@ -180,6 +183,45 @@ export function snapshotIds(snapshot: FeedSnapshot): { sessions: string[]; issue
     sessions: snapshot.sessions.map((session) => session.sessionId),
     issues: (snapshot.issueProjections ?? []).map((issue) => issue.id),
   }
+}
+
+/** The fake daemon's answer to a file or transcript read: the requested path or
+ *  session named in the reply, so a test can see the read reached the machine and
+ *  what it asked for. */
+function fakeDaemonAnswer(msg: ControlMessage): DaemonMessage | undefined {
+  if (msg.type === 'fileAssetRequest') {
+    const bytes = Buffer.from(`fixture bytes of ${msg.path}`)
+    return {
+      type: 'fileAssetResult',
+      requestId: msg.requestId,
+      ok: true,
+      path: msg.path,
+      dataBase64: bytes.toString('base64'),
+      contentType: 'text/plain',
+      size: bytes.length,
+    }
+  }
+  if (msg.type === 'fileReadRequest') {
+    return {
+      type: 'fileReadResult',
+      requestId: msg.requestId,
+      ok: true,
+      path: msg.path,
+      content: `fixture text of ${msg.path}`,
+    }
+  }
+  if (msg.type === 'transcriptRead') {
+    return {
+      type: 'transcriptReadResult',
+      requestId: msg.requestId,
+      sessionId: msg.sessionId,
+      items: [
+        { id: 'fixture-item', role: 'assistant', text: `fixture transcript of ${msg.sessionId}` },
+      ],
+      hasMore: false,
+    }
+  }
+  return undefined
 }
 
 const until = async (pred: () => boolean, ms = 5000): Promise<void> => {
@@ -240,6 +282,7 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
     // daemon whose relay hub answers its agents' `podium issue` calls.
     const machines = { alice: asMachineId('machine-alice'), bob: asMachineId('machine-bob') }
     const relayFor = new Map<MachineId, Awaited<ReturnType<typeof startAgentRelayServer>>>()
+    const daemonFrames = new Map<MachineId, ControlMessage[]>()
     for (const [name, machineId] of Object.entries(machines) as Array<[MemberName, MachineId]>) {
       await store.machines.upsertMachine({
         id: machineId,
@@ -253,8 +296,13 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
       const hub = createAgentRelayHub((msg: DaemonMessage) =>
         registry.gateway.routeDaemonFrame(machineId, msg),
       )
+      const received: ControlMessage[] = []
+      daemonFrames.set(machineId, received)
       await attachDaemonWithInventory(registry, machineId, (msg: ControlMessage) => {
+        received.push(msg)
         if (msg.type === 'agentRelayResult') hub.onResult(msg)
+        const answer = fakeDaemonAnswer(msg)
+        if (answer) queueMicrotask(() => void registry.gateway.routeDaemonFrame(machineId, answer))
       })
       const relay = await startAgentRelayServer({ port: 0, relay: (req) => hub.relay(req) })
       relayServers.push(relay)
@@ -424,6 +472,7 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
       login,
       agent,
       legacyDeviceFeed,
+      daemonFrames: (machineId) => daemonFrames.get(machineId) ?? [],
       close,
     }
   } catch (error) {

@@ -25,12 +25,12 @@ import {
   type TransportTag,
 } from '@podium/commands'
 import type { z } from 'zod'
-import type { ApprovalService } from './service'
+import type { ApprovalCallerView } from './service'
 
 /** An approval handler is a method ON the service; everything it needs (the store,
  *  the machine channel, the event log, the notifier) is a constructor dependency
  *  already. */
-export type ApprovalHandler<In, Out> = (svc: ApprovalService, input: In) => Out
+export type ApprovalHandler<In, Out> = (svc: ApprovalCallerView, input: In) => Out
 
 /** One contract joined to the service method that implements it. */
 export interface ApprovalCommand {

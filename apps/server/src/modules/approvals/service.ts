@@ -1,8 +1,20 @@
 import { randomUUID } from 'node:crypto'
 import { describeError } from '@podium/logger'
-import { asMachineId, asSessionId, type IssueId, type SessionId, type MachineId } from '@podium/model'
-import { ApprovalOp, type ApprovalWire, describeApprovalOp, type LiveServerMessage } from '@podium/protocol'
-import { type ControlMessage, type DaemonMessage } from '@podium/protocol/daemon'
+import {
+  asMachineId,
+  asSessionId,
+  type IssueId,
+  type MachineId,
+  type SessionId,
+  type UserId,
+} from '@podium/model'
+import {
+  ApprovalOp,
+  type ApprovalWire,
+  describeApprovalOp,
+  type LiveServerMessage,
+} from '@podium/protocol'
+import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { ApprovalRow, ApprovalsRepository } from '../../store/approvals'
 
 /**
@@ -28,13 +40,29 @@ export interface ApprovalServiceDeps {
   store: ApprovalsRepository
   now(): string
   toMachine(machineId: MachineId, msg: ControlMessage): void
-  clients(): Iterable<{ send(msg: LiveServerMessage): void }>
+  /** Every connected client, with the member it is signed in as. */
+  clients(): Iterable<{ send(msg: LiveServerMessage): void; principal?: { user: UserId } }>
+  /**
+   * The requesting session's own owner (POD-6284). An approval belongs to that
+   * person alone: only they see it, in the list and the live broadcast, and only
+   * they decide it. Absent (unit tests that predate it) = no owner filter.
+   */
+  sessionOwnerUserId?(sessionId: SessionId): Promise<UserId | undefined>
   /** The issue the requesting session is attached to (explicit or cwd-derived). */
   sessionIssueId(sessionId: SessionId): IssueId | null | Promise<IssueId | null>
-  issueInfo(issueId: IssueId): { seq: number; title: string; displayRef?: string } | null | Promise<{ seq: number; title: string; displayRef?: string } | null>
+  issueInfo(
+    issueId: IssueId,
+  ):
+    | { seq: number; title: string; displayRef?: string }
+    | null
+    | Promise<{ seq: number; title: string; displayRef?: string } | null>
   machineName(machineId: MachineId): string | undefined | Promise<string | undefined>
   /** Append to the durable event log (renders in the issue activity feed). */
-  logEvent(kind: string, issueId: IssueId | null, payload: Record<string, unknown>): void | Promise<void>
+  logEvent(
+    kind: string,
+    issueId: IssueId | null,
+    payload: Record<string, unknown>,
+  ): void | Promise<void>
   /**
    * Push the outcome to the requesting agent via issue mail (stop-hook/nudge
    * delivery) — the agent must not have to poll to learn the decision.
@@ -79,6 +107,13 @@ export const APPROVAL_EXEC_DEADLINE_MS = 7 * 60_000
 /** How often {@link ApprovalService.sweepStalledExecutions} should be driven. One
  *  minute keeps the fire window at 7–8 min, still two minutes inside the CLI's wait. */
 export const APPROVAL_STALL_SWEEP_MS = 60_000
+
+/** What one member's approvals procedures reach (see `ApprovalService.forCaller`). */
+export interface ApprovalCallerView {
+  listPending(): Promise<ApprovalWire[]>
+  approve(id: string): Promise<ApprovalWire>
+  deny(id: string): Promise<ApprovalWire>
+}
 
 export class ApprovalService {
   /** When the requesting CLI last polled (it blocks on the decision, so a recent
@@ -147,12 +182,65 @@ export class ApprovalService {
   }
 
   async listPending(): Promise<ApprovalWire[]> {
-    return await Promise.all((await this.deps.store.listPending()).map(async (r) => await this.toWire(r)))
+    return await Promise.all(
+      (await this.deps.store.listPending()).map(async (r) => await this.toWire(r)),
+    )
+  }
+
+  /** Whether `userId` owns the approval's session. True for everyone while no
+   *  owner lookup is wired (unit tests that predate POD-6284). */
+  private async owns(userId: UserId | undefined, row: ApprovalRow): Promise<boolean> {
+    if (!this.deps.sessionOwnerUserId) return true
+    return userId !== undefined && (await this.deps.sessionOwnerUserId(row.sessionId)) === userId
+  }
+
+  /** The pending approvals of `userId`'s own sessions. */
+  async listPendingFor(userId: UserId | undefined): Promise<ApprovalWire[]> {
+    const rows = await this.deps.store.listPending()
+    const owned = await Promise.all(rows.map(async (row) => await this.owns(userId, row)))
+    return await Promise.all(rows.filter((_, i) => owned[i]).map(async (r) => await this.toWire(r)))
+  }
+
+  /**
+   * The approvals surface as ONE member sees it: their own approvals, decided
+   * only by them. Someone else's approval answers exactly like a missing one.
+   */
+  forCaller(userId: UserId): ApprovalCallerView {
+    const mine = async (id: string): Promise<void> => {
+      const row = await this.deps.store.get(id)
+      if (!row || !(await this.owns(userId, row)))
+        throw new Error(`unknown approval request: ${id}`)
+    }
+    return {
+      listPending: async () => await this.listPendingFor(userId),
+      approve: async (id) => {
+        await mine(id)
+        return await this.approve(id)
+      },
+      deny: async (id) => {
+        await mine(id)
+        return await this.deny(id)
+      },
+    }
   }
 
   private async broadcast(): Promise<void> {
-    const msg: LiveServerMessage = { type: 'approvalsChanged', pending: await this.listPending() }
-    for (const c of this.deps.clients()) c.send(msg)
+    if (!this.deps.sessionOwnerUserId) {
+      const msg: LiveServerMessage = { type: 'approvalsChanged', pending: await this.listPending() }
+      for (const c of this.deps.clients()) c.send(msg)
+      return
+    }
+    // Per member: one list per signed-in person, never another person's rows.
+    const perUser = new Map<UserId | undefined, LiveServerMessage>()
+    for (const c of this.deps.clients()) {
+      const user = c.principal?.user
+      let msg = perUser.get(user)
+      if (!msg) {
+        msg = { type: 'approvalsChanged', pending: await this.listPendingFor(user) }
+        perUser.set(user, msg)
+      }
+      c.send(msg)
+    }
   }
 
   /**
@@ -173,7 +261,11 @@ export class ApprovalService {
     } catch {}
   }
 
-  private async log(row: ApprovalRow, kind: string, extra: Record<string, unknown> = {}): Promise<void> {
+  private async log(
+    row: ApprovalRow,
+    kind: string,
+    extra: Record<string, unknown> = {},
+  ): Promise<void> {
     await this.deps.logEvent(kind, row.issueId, {
       approvalId: row.id,
       machineId: row.machineId,
@@ -194,9 +286,9 @@ export class ApprovalService {
     const sessionId = asSessionId(String(raw.sessionId ?? ''))
     const machineId = asMachineId(String(raw.machineId ?? ''))
     if (!sessionId || !machineId) throw new Error('approval request lost its relay context')
-    const dup = (await this.deps.store
-      .listPending())
-      .find((r) => r.machineId === machineId && JSON.stringify(r.op) === JSON.stringify(op))
+    const dup = (await this.deps.store.listPending()).find(
+      (r) => r.machineId === machineId && JSON.stringify(r.op) === JSON.stringify(op),
+    )
     if (dup) {
       return {
         id: dup.id,
@@ -248,12 +340,12 @@ export class ApprovalService {
   async approve(id: string): Promise<ApprovalWire> {
     const row = await this.deps.store.get(id)
     if (!row) throw new Error(`unknown approval request: ${id}`)
-    if (!await this.deps.store.transition(id, 'pending', 'executing')) {
+    if (!(await this.deps.store.transition(id, 'pending', 'executing'))) {
       throw new Error(`approval ${id} is not pending (already decided?)`)
     }
     await this.log(row, 'issue.approval_approved')
     try {
-      const serverResult = await this.deps.executeServerOp?.(row.op, row.sessionId) ?? null
+      const serverResult = (await this.deps.executeServerOp?.(row.op, row.sessionId)) ?? null
       if (serverResult !== null) {
         await this.deps.store.transition(id, 'executing', 'succeeded', serverResult)
         await this.log(row, 'issue.approval_succeeded')
@@ -284,7 +376,7 @@ export class ApprovalService {
   async deny(id: string): Promise<ApprovalWire> {
     const row = await this.deps.store.get(id)
     if (!row) throw new Error(`unknown approval request: ${id}`)
-    if (!await this.deps.store.transition(id, 'pending', 'denied', 'denied by the operator')) {
+    if (!(await this.deps.store.transition(id, 'pending', 'denied', 'denied by the operator'))) {
       throw new Error(`approval ${id} is not pending (already decided?)`)
     }
     await this.log(row, 'issue.approval_denied')
@@ -307,7 +399,12 @@ export class ApprovalService {
     const from = this.stalled.delete(msg.requestId) ? 'failed' : 'executing'
     const late = from === 'failed'
     if (
-      !await this.deps.store.transition(msg.requestId, from, msg.ok ? 'succeeded' : 'failed', text)
+      !(await this.deps.store.transition(
+        msg.requestId,
+        from,
+        msg.ok ? 'succeeded' : 'failed',
+        text,
+      ))
     )
       return
     await this.log(row, msg.ok ? 'issue.approval_succeeded' : 'issue.approval_failed', {
@@ -399,7 +496,7 @@ export class ApprovalService {
       `Its daemon was connected and did not answer, which usually means that machine's podium ` +
       `predates this operation and dropped the request — check its version, update it, then ask again. ` +
       `The operation may or may not have run; \`podium fleet\` shows what that machine is actually on.`
-    if (!await this.deps.store.transition(row.id, 'executing', 'failed', text)) return false
+    if (!(await this.deps.store.transition(row.id, 'executing', 'failed', text))) return false
     this.stallClock.delete(row.id)
     this.stalled.add(row.id)
     await this.log(row, 'issue.approval_failed', { stalled: true, waitedMs })

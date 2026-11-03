@@ -65,6 +65,7 @@ import {
 import type { TRPCMutationProcedure, TRPCQueryProcedure } from '@trpc/server'
 import type { z } from 'zod'
 import type { Capability } from '../issue-authz'
+import { type PrivateResourceAccess, privateResourceAccess } from '../private-resources'
 import type { RegistryModules, SessionRegistry } from '../relay'
 import type { RepoRegistry } from '../repo-registry'
 import type { UsersRepository } from '../store/users'
@@ -209,6 +210,13 @@ export interface FamilyState {
     readonly actorSessionId: Capability['actorSessionId']
   }
   readonly feedPrincipal?: import('@podium/protocol').Principal
+  /**
+   * THE CALLER'S PRIVATE-CLASS DECISIONS (POD-6284), bound to this request's
+   * principal: does the caller own this session, may it read checkouts on this
+   * machine. A decision function rather than the capability, so a handler can
+   * ask about one resource and still cannot see or widen the authority itself.
+   */
+  readonly privateAccess: PrivateResourceAccess
   /** Tiered per-machine repo discovery (POD-787) [spec:SP-3701]. Optional, so
    *  callers that do not exercise discovery need not construct one — which is
    *  the shipped shape, and why `discovery.lastMachineScan` answers null rather
@@ -425,6 +433,17 @@ const callerUserId = (ctx: Context): UserId => {
   throw new Error('authenticated human principal is required')
 }
 
+/** The private-class decisions for this request's caller, over the live rows. */
+export const privateResourceAccessFor = (ctx: Context): PrivateResourceAccess =>
+  privateResourceAccess(
+    {
+      sessionOwnerUserId: async (sessionId) =>
+        (await ctx.registry.sessionStore.sessions.getSession(sessionId))?.ownerUserId,
+      machines: mods(ctx).machines,
+    },
+    ctx.principal,
+  )
+
 export const familyState = (ctx: Context): FamilyState => ({
   modules: mods(ctx),
   repos: ctx.repos,
@@ -446,6 +465,7 @@ export const familyState = (ctx: Context): FamilyState => ({
     actorSessionId: ctx.capability.actorSessionId,
   },
   feedPrincipal: syncFeedPrincipal(ctx.principal),
+  privateAccess: privateResourceAccessFor(ctx),
   discovery: ctx.discovery,
   superagent: ctx.superagent,
 })
