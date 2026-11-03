@@ -302,9 +302,12 @@ export class MailAccess {
     return placementDecision(machineId, this.machines)
   }
 
-  /** The session-target containment gate — same posture as the relay sessions
-   *  slice (#237 authz): issue-bound targets need write access to that issue;
-   *  issueless targets are parent/operator-only (--outside-scope never
+  /** The session-target gate. Sessions are private (design §2.3, POD-6283):
+   *  only the session's own human may send to it or ask it, a person directly
+   *  or through their own agents; anyone else's session answers as a missing
+   *  one. A person needs nothing more. An agent keeps the relay sessions
+   *  slice's posture (#237 authz): issue-bound targets need write access to that
+   *  issue; issueless targets are parent-only (--outside-scope never
    *  substitutes there). */
   async assertSessionTargetAccess(
     caller: MailCaller,
@@ -313,13 +316,20 @@ export class MailAccess {
   ): Promise<void> {
     const target = await this.deps.sessionById(sessionId)
     if (!target) throw new Error('session not found')
+    if (caller.principal.kind !== 'system') {
+      const owner = (await this.deps.sessionOwner?.(sessionId))?.owner
+      if (!mayReachPrivate(onBehalfOfUser(caller.principal), { id: sessionId, owner })) {
+        throw new Error('session not found')
+      }
+      if (caller.principal.kind === 'user') return
+    }
     const issues = this.deps.issues
     const targetIssueId = target.issueId ?? (await issues.reports.issueForCwd(target.cwd))
     if (targetIssueId) {
       await checkIssueAccess(caller, commandAccess(issues), proc, 'write', targetIssueId)
       return
     }
-    const isOperator = caller.capability.scope.kind === 'all'
+    const isOperator = caller.principal.kind === 'system'
     const isParent =
       caller.capability.actorSessionId !== undefined &&
       isSpawnedBy(target.spawnedBy, { kind: 'session', id: caller.capability.actorSessionId })

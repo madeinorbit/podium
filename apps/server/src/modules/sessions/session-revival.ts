@@ -148,6 +148,12 @@ export class SessionRevival {
     // the source: a running row is focused as-is; a parked (hibernated/exited)
     // row is resurrected under its same id.
     const existing = await this.findLiveByResume(input.resume)
+    // A conversation's row is its owner's (design §2.3, POD-6283): resuming
+    // another person's conversation neither wakes their session nor mints a
+    // parallel one. It answers as a conversation that does not exist.
+    if (existing && input.ownerUserId !== undefined && existing.ownerUserId !== input.ownerUserId) {
+      throw new Error('session not found')
+    }
     if (existing) {
       if (existing.status === 'hibernated' || existing.status === 'exited') {
         const woke = await this.resurrectSession({ sessionId: existing.sessionId }, issues)

@@ -95,7 +95,6 @@ type BootstrapVisibilityPrefetch = {
    * ID sets distinguish an empty answer from an unprepared ref.
    */
   readonly issueGrants: ReadonlyMap<string, readonly GrantRow[]>
-  readonly sessionGrants: ReadonlyMap<string, readonly GrantRow[]>
   readonly automationIds: ReadonlySet<string>
   readonly automationOwners: ReadonlyMap<string, UserId | undefined>
   readonly automationRunIds: ReadonlySet<string>
@@ -193,8 +192,6 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
   const issueGrantAdmits = (edge: GrantRow, userId: string): boolean =>
     edge.grantee === userId &&
     (edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage')
-  const sessionGrantAdmits = (edge: GrantRow, userId: string): boolean =>
-    edge.grantee === userId && edge.verb === 'read'
   const mayReadIssue = async (userId: UserId, issueId: IssueId): Promise<boolean> => {
     // The repository commit installs the owned row map before publication.
     // Open mutation spans still read their own writes through the live fallback.
@@ -220,18 +217,15 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
   }
 
   const makeVisibilityState = (prefetch?: BootstrapVisibilityPrefetch): VisibilityStatePort => {
-    /** MAY THIS PERSON SEE THIS SESSION — owner, or a read grant on it.
+    /** MAY THIS PERSON SEE THIS SESSION — its owner only (design §2.3,
+     *  POD-6283). A legacy session grant is kept and has no effect.
      *
      *  Extracted (POD-2020) because `pendingInteraction` answers the same question
      *  about the session named in its row id, and two copies of a visibility rule
-     *  is one copy that eventually says yes when the other says no. The body is
-     *  the `session` arm's, unchanged, perf label included. */
+     *  is one copy that eventually says yes when the other says no. */
     const maySeeSession = (userId: string, sessionId: string): boolean => {
       if (!prefetch?.sessionIds.has(sessionId)) return false
-      if (prefetch.sessions.get(sessionId)?.ownerUserId === userId) return true
-      return (prefetch.sessionGrants.get(sessionId) ?? []).some((edge) =>
-        sessionGrantAdmits(edge, userId),
-      )
+      return prefetch.sessions.get(sessionId)?.ownerUserId === userId
     }
     return {
       classOf: (entity) => {
@@ -334,11 +328,8 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         if (ref.entity === 'conversation') {
           if (!prefetch.resumeValues.has(ref.entityId)) return false
           const row = prefetch.sessionsByResumeValue.get(ref.entityId)
-          if (!row) return false
-          if (row.ownerUserId === userId) return true
-          return (prefetch.sessionGrants.get(row.id) ?? []).some((edge) =>
-            sessionGrantAdmits(edge, userId),
-          )
+          // A conversation is its session's: the owner only (POD-6283).
+          return row?.ownerUserId === userId
         }
         if (ref.entity === 'automation') {
           return (
@@ -508,8 +499,6 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           )
     // The session ids a grant question can be asked about: the ones named
     // directly, plus the ones a conversation resolved to.
-    const grantedSessionIds = new Set<string>(sessionIds)
-    for (const row of sessionsByResumeValue.values()) grantedSessionIds.add(row.id)
     // One read per table for every automation and run in the batch (POD-6149).
     // Every asked id gets an entry, `undefined` for "no owner", as before.
     const ownersOf = async (
@@ -529,13 +518,13 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       'visibility.automationRun.runOwnerOf',
       (ids) => store.automations.runOwnersOf(ids),
     )
-    // One grouped read for both resource kinds of the whole batch (POD-6217);
-    // every asked id gets an entry, `[]` for "no edges". Through the
-    // operation's loader (POD-6189): a batch published inside the operation
-    // that wrote it asks about the rows that operation already checked.
+    // One grouped read for the whole batch (POD-6217); every asked id gets an
+    // entry, `[]` for "no edges". Through the operation's loader (POD-6189): a
+    // batch published inside the operation that wrote it asks about the rows
+    // that operation already checked. Session edges are not read: sessions are
+    // private, so a legacy session grant decides nothing (POD-6283).
     const asked = {
       ...(issueIds.size > 0 ? { issue: [...issueIds] } : {}),
-      ...(grantedSessionIds.size > 0 ? { session: [...grantedSessionIds] } : {}),
     }
     const found: ReadonlyMap<string, ReadonlyMap<string, readonly GrantRow[]>> =
       Object.keys(asked).length === 0
@@ -545,7 +534,6 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
             async () => await store.grants.loadForResourcesOfKinds(asked),
           )
     const issueGrants = new Map(found.get('issue') ?? [])
-    const sessionGrants = new Map(found.get('session') ?? [])
     return makeVisibilityState({
       issueIds,
       issues,
@@ -558,7 +546,6 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       resumeValues,
       sessionsByResumeValue,
       issueGrants,
-      sessionGrants,
       automationIds,
       automationOwners,
       automationRunIds,

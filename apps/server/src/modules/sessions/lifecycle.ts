@@ -544,6 +544,10 @@ export class SessionLifecycle {
   ): Promise<{ owner: UserId } | undefined> {
     return this.sessionAuthz.sessionOwner(sessionId, memo)
   }
+  /** Sessions are private (POD-6283): does this caller's human own it? */
+  mayReachSession(capability: Capability, sessionId: SessionId): Promise<boolean> {
+    return this.sessionAuthz.mayReachSession(capability, sessionId)
+  }
   machineUseForClient(
     principal: ClientPrincipal,
     sessionId: SessionId,

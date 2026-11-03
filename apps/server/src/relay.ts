@@ -2983,6 +2983,11 @@ export class SessionRegistry {
       // path, with text fallback — no live menu means the answer arrives as the
       // answerer's own message, which wakes a parked session (POD-4846).
       answerSessionQuestion: async (sessionId, answer, caller) => {
+        // Answering an agent's question is driving it (design §2.3, POD-6283):
+        // only the session's own human may, even on someone else's task.
+        if (!(await sessionsSvc.mayReachSession(caller.capability, sessionId))) {
+          return { ok: false, message: 'only the person this agent works for can answer its question' }
+        }
         const r = await deliverAnswerToSession(
           {
             getSession: async (id) => await sessionsSvc.sessionById(id),

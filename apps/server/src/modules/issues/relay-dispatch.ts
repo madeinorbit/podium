@@ -40,12 +40,10 @@ import {
   isSpawnedBy,
   type SessionMeta,
   type SessionId,
-  spawnedByParentSessionId,
 } from '@podium/model'
 import { bareSelfRefCount, selfRefNudge, sessionTitleRule } from '@podium/protocol'
 import type { getFeatureStates, isFeatureEnabled } from '../../features'
-import { onBehalfOfUser, resolvePrincipalAsync } from '../../command-principal'
-import { type Capability, checkIssueAccess, mayReachPrivate } from '../../issue-authz'
+import { type Capability, checkIssueAccess } from '../../issue-authz'
 import type { RegistryModules } from '../../relay'
 import { isGenericClaudeTitle, isTransientTitle } from '../../title-filter'
 import type { ApprovalService } from '../approvals/service'
@@ -151,32 +149,6 @@ async function sessionTitlePrime(
 }
 
 /** Build the arm. The root names the result as `AgentRelayGate`'s `dispatch`. */
-/**
- * MAY THIS AGENT REACH THAT SESSION (design §2.3, POD-6283)? Only when the
- * session belongs to the human the agent acts for: the root of its delegation
- * chain, read live. An agent acting for Alice never reaches Bob's session, on
- * Alice's task or anywhere else. The agent's own task scope is a second check.
- */
-async function reachesOwnHumansSession(
-  sessionsSvc: SessionLifecycle,
-  capability: Capability,
-  sessionId: SessionId,
-): Promise<boolean> {
-  let human
-  try {
-    human = onBehalfOfUser(
-      await resolvePrincipalAsync(capability, {
-        parentSessionOf: async (id) => spawnedByParentSessionId(await sessionsSvc.sessionSpawnedBy(id)),
-        onBehalfOfFor: async (id) => (await sessionsSvc.sessionOwner(id))?.owner,
-      }),
-    )
-  } catch {
-    return false
-  }
-  const owner = (await sessionsSvc.sessionOwner(sessionId))?.owner
-  return mayReachPrivate(human, { id: sessionId, owner })
-}
-
 export function makeAgentRelayDispatch(
   deps: AgentRelayDispatchDeps,
 ): AgentRelayGateDeps['dispatch'] {
@@ -456,8 +428,9 @@ export function makeAgentRelayDispatch(
             throw new Error(`${proc === 'status' ? 'ref' : 'sessionId'} is required`)
           }
           const target = await readToolkit.resolveTarget(ref)
-          // Another person's session answers exactly as a missing one.
-          if (!target || !(await reachesOwnHumansSession(sessionsSvc, capability, target.sessionId))) {
+          // Sessions are private (POD-6283): another person's session answers
+          // exactly as a missing one, whatever task it sits on.
+          if (!target || !(await sessionsSvc.mayReachSession(capability, target.sessionId))) {
             throw new Error(`no session found for ${ref}`)
           }
           const targetIssueId = target.issueId ?? (await issues.reports.issueForCwd(target.cwd))
@@ -549,7 +522,7 @@ export function makeAgentRelayDispatch(
           const selfStop = actorSessionId !== undefined && sessionId === actorSessionId
           if (!selfStop) {
             const target = await sessionsSvc.sessionById(sessionId)
-            if (!target || !(await reachesOwnHumansSession(sessionsSvc, capability, sessionId))) {
+            if (!target || !(await sessionsSvc.mayReachSession(capability, sessionId))) {
               throw new Error('session not found')
             }
             const targetIssueId = target.issueId ?? (await issues.reports.issueForCwd(target.cwd))

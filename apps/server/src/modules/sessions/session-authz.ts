@@ -11,11 +11,12 @@ import type { SessionId, UserId } from '@podium/model'
 import { asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
 import {
   type CommandPrincipal,
+  onBehalfOfUser,
   resolvePrincipalAsync,
   userCommandPrincipal,
 } from '../../command-principal'
 import type { ClientPrincipal } from '../../gateway/client-principal'
-import type { Capability } from '../../issue-authz'
+import { type Capability, mayReachPrivate } from '../../issue-authz'
 import { machineUseDecision, ownershipSnapshotFromMachines } from '../../machine-access'
 import { spawnedByParentSessionId } from '@podium/model'
 import type { SessionStore } from '../../store'
@@ -292,6 +293,29 @@ export class SessionAuthz {
   ): Promise<{ owner: UserId } | undefined> {
     const owner = (await this.ownershipOf(sessionId, memo))?.ownerUserId
     return owner ? { owner } : undefined
+  }
+
+  /**
+   * MAY THE CALLER BEHIND `capability` REACH THIS SESSION (design §2.3)? Only
+   * when its human (the person, or the root of an agent's delegation chain,
+   * read live) owns it. The one answer for paths that take a capability rather
+   * than a resolved principal: relayed session reads and stops, and delivering
+   * an answer to an agent's question. An unresolvable caller reaches nothing.
+   */
+  async mayReachSession(capability: Capability, sessionId: SessionId): Promise<boolean> {
+    let human: UserId | null
+    try {
+      human = onBehalfOfUser(
+        await resolvePrincipalAsync(capability, {
+          parentSessionOf: async (id) =>
+            spawnedByParentSessionId((await this.ports.records.ownershipOf(id, 'capability'))?.spawnedBy),
+          onBehalfOfFor: async (id) => (await this.sessionOwner(id))?.owner,
+        }),
+      )
+    } catch {
+      return false
+    }
+    return mayReachPrivate(human, { id: sessionId, owner: (await this.sessionOwner(sessionId))?.owner })
   }
 
   /**

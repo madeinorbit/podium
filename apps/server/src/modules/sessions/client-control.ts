@@ -8,6 +8,7 @@ import { userCommandPrincipal } from '../../command-principal'
 import type { BrowserOpenGateway } from '../../gateway/browser-open'
 import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
 import type { ClientPrincipal } from '../../gateway/client-principal'
+import { mayReachPrivate } from '../../issue-authz'
 import { feedPrincipalOf } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
 import type { MachineListing } from '../machines/service'
@@ -338,6 +339,9 @@ export class SessionClientControl {
         break
       }
       case 'transcriptSubscribe':
+        // Reading a session's transcript is reading the session: its owner only
+        // (design §2.3, POD-6283). Unknown and denied share one silence.
+        if (!(await this.mayRead(principal, message.sessionId))) break
         client.transcriptSubs.add(message.sessionId)
         this.ports.sessions
           .get(message.sessionId)
@@ -412,6 +416,12 @@ export class SessionClientControl {
     if (!owner) return false
     const ctx = contextFromOwnership(owner, await this.ports.machineUseFor(principal, sessionId))
     return mayWatch(controlSubjectFromClient(principal), ctx) === true
+  }
+
+  /** Read rights on a session's content: its owner, nobody else (POD-6283). */
+  private async mayRead(principal: ClientPrincipal, sessionId: SessionId): Promise<boolean> {
+    const owner = await this.ports.sessionOwner(sessionId)
+    return owner !== undefined && mayReachPrivate(principal.user, { id: sessionId, owner: owner.owner })
   }
 
   /** Drive rights for requestControl — the owner only (POD-6283) + machine use. */

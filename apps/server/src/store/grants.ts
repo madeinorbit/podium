@@ -191,6 +191,9 @@ const splitResourceGrantKey = (key: string): [string, string] => {
   return [key.slice(0, at), key.slice(at + 1)]
 }
 
+/** The refusal for any attempt to share a session (POD-6283). */
+export const SESSION_SHARING_REFUSED = 'sessions are private to the person who started them and cannot be shared'
+
 export class GrantsRepository {
   readonly committed: CommittedRows<typeof grants.$inferSelect>
 
@@ -413,6 +416,9 @@ export class GrantsRepository {
    * that owner rather than to the previous one.
    */
   async upsert(row: GrantRow): Promise<void> {
+    // Sessions are private (design §2.3, POD-6283): no session sharing, so no
+    // new session edge is ever written. Legacy rows are kept and read as inert.
+    if (row.resourceKind === 'session') throw new Error(SESSION_SHARING_REFUSED)
     if (row.custody && (row.resourceKind !== 'machine' || row.verb !== 'manage')) {
       throw new Error('Custody requires a machine manage edge')
     }

@@ -224,9 +224,10 @@ async function spawnOnce(
   // persisted snapshot from the previous connection. The wait stays below the
   // relay deadline; on expiry SessionStart returns the honest probing refusal.
   if (machineId && harness !== 'shell') await deps.awaitMachineInventory?.(machineId)
-  const sessionOwner = (await issues.reports.ownedTarget(issue.id, 'read'))?.owner ?? callerOwner
+  // The child session is the spawning human's (design §2.3, POD-6283), whoever
+  // owns the task it is spawned on.
   const spawned = await deps.spawnSession({
-    ownerUserId: sessionOwner,
+    ownerUserId: callerOwner,
     cwd,
     agentKind: harness,
     initialPrompt: input.prompt,

@@ -845,6 +845,11 @@ export const SESSION_COMMAND_HANDLERS = {
     },
   ) => {
     const row = await ctx.sessions.sessionById(input.sessionId)
+    // Files into an EXISTING session are input to it, which only its own human
+    // may give (design §2.3, POD-6283); another person's answers as unknown.
+    if (row && !(await ctx.target(input.sessionId, 'sessions.uploadImage'))) {
+      return { refusal: { reason: 'unsupported' as const, detail: 'unknown session' } }
+    }
     const machineId = row?.machineId ?? input.machineId
     if (machineId !== undefined) ctx.assertMachineUse(machineId)
     // HELD ON THE SERVER (POD-2148): an agent session's upload, and one for a
