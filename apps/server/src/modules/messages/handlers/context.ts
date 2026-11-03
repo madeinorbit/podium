@@ -40,7 +40,7 @@ import {
   type UserId,
 } from '@podium/model'
 import { type CommandPrincipal, onBehalfOfUser } from '../../../command-principal'
-import { type Capability, checkIssueAccess } from '../../../issue-authz'
+import { type Capability, checkIssueAccess, mayReachPrivate } from '../../../issue-authz'
 import { failureNoticeId } from '../../../message-ids'
 import type { MessageRow } from '../../../store'
 import { withReadScope } from '../../../store/executor/read-scope'
@@ -317,7 +317,7 @@ export class MailAccess {
     const target = await this.deps.sessionById(sessionId)
     if (!target) throw new Error('session not found')
     if (caller.principal.kind !== 'system') {
-      const owner = (await this.deps.sessionOwner?.(sessionId))?.owner
+      const owner = await this.deps.sessionOwnerUserId?.(sessionId)
       if (!mayReachPrivate(onBehalfOfUser(caller.principal), { id: sessionId, owner })) {
         throw new Error('session not found')
       }
