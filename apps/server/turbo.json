@@ -441,6 +441,7 @@
         "src/migrations/retire-the-solo-user.test.ts",
         "src/migrations/schema.ts",
         "src/migrations/server-secret-store.test.ts",
+        "src/migrations/session-owner-binding.test.ts",
         "src/migrations/session-owner-is-its-starter.test.ts",
         "src/migrations/shipping-train-proof-authority.test.ts",
         "src/migrations/snapshot-catalogue.test.ts",
