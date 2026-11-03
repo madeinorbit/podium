@@ -63,8 +63,9 @@ const human = (id: UserId, role: 'admin' | 'worker' = 'worker'): CommandPrincipa
   // Worker by default, mirroring machine-access.test.ts: POD-3960 gives admins
   // universal `see`, so an admin principal can never be told "unknown machine"
   // and the D20 invisible-identical-to-nonexistent pin below would be
-  // unstatable. Scope stays `all` — the operator channel the router resolves.
-  capability: { role, scope: { kind: 'all' } },
+  // unstatable. Scope stays `all` — the operator channel the router resolves —
+  // and the human halves are stamped as `userCommandPrincipal` stamps them.
+  capability: { role, scope: { kind: 'all' }, actorUser: id, onBehalfOf: id },
 })
 
 const agentFor = (
@@ -506,6 +507,11 @@ describe('held chat uploads (POD-2148)', () => {
       {
         sessions: () =>
           ({ sessionById: async () => ({ sessionId: 's-1', headless: true }) }) as never,
+        access: {
+          sessionById: async () => ({ sessionId: 's-1', headless: true }),
+          ownerOf: async () => firstAdminMemberId(),
+          issues: { has: () => false, ancestorIds: () => [], issueForCwd: async () => null },
+        },
         stageAttachment: async () => staged,
         holdUpload,
         claimUpload: async () => {},
@@ -926,9 +932,12 @@ describe('the machine `use` gate, on every command that starts or feeds work', (
     // ...and a second authenticated human may not, on the SAME machine.
     const asColleague = await ctxFor(o, human(COLLEAGUE))
 
-    expect(await messageOf(() => dispatchSessionCommand(asColleague, 'kill', { sessionId }))).toBe(
-      `unknown machine '${host}'`,
-    )
+    // The colleague does not own the session either, so it is absent to them
+    // before the machine is asked (POD-6283): kill's pinned no-op, and nothing
+    // reached the daemon. The owner's kill goes through.
+    const before = o.daemon.length
+    expect(await dispatchSessionCommand(asColleague, 'kill', { sessionId })).toBeUndefined()
+    expect(o.daemon.slice(before).some((m) => m.type === 'kill' || m.type === 'runtimeLifecycleRequest')).toBe(false)
     expect(await dispatchSessionCommand(asOwner, 'kill', { sessionId })).toBeUndefined()
   })
 })

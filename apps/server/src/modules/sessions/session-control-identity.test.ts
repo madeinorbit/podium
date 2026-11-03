@@ -71,7 +71,7 @@ function makeClient(
 
 function control(opts: {
   session: Session
-  owner?: { owner: UserId; grants: string[] } | undefined
+  owner?: { owner: UserId; grants?: string[] } | undefined
   machineUse?: 'granted' | 'denied' | 'absent'
   occupancy?: number
 }): SessionClientControl {
@@ -216,18 +216,37 @@ describe('POD-1081 attach + take-control policy', () => {
     expect(session.terminal.clientCount).toBe(0)
   })
 
-  it('allows attach for a grantee with machine use and stamps controller identity', async () => {
+  it('refuses attach to a legacy grantee and to an admin who is not the owner (POD-6283)', async () => {
     const session = makeSession()
     const ctl = control({
       session,
-      owner: { owner: OWNER, grants: [ALICE] },
+      // A legacy grant on the session: kept, and read as nothing.
+      owner: { owner: ALICE, grants: [OWNER] },
       machineUse: 'granted',
     })
+    // OWNER is an admin here and holds the old grant: neither reaches Alice's session.
+    const admin = makeClient('c-admin', OWNER, 'admin')
+    await ctl.onFrame(admin.principal, admin, { type: 'attach', sessionId: SESSION })
+    expect(admin.sent).toContainEqual({ type: 'terminalOutcome', sessionId: SESSION, outcome: 'unauthorized' })
+    expect(admin.attached).not.toContain(SESSION)
+    expect(session.terminal.clientCount).toBe(0)
+
+    // The counterfactual: the owner attaches and holds control.
     const alice = makeClient('c-alice', ALICE, 'member')
     await ctl.onFrame(alice.principal, alice, { type: 'attach', sessionId: SESSION })
     expect(session.terminal.controllerId).toBe('c-alice')
     expect(session.terminal.controllerIdentity).toEqual({ kind: 'user', user: ALICE })
-    expect(alice.sent.some((m) => m.type === 'attached')).toBe(true)
+  })
+
+  it('refuses a transcript subscription to anyone but the owner (POD-6283)', async () => {
+    const session = makeSession()
+    const ctl = control({ session, owner: { owner: OWNER }, machineUse: 'granted' })
+    const alice = makeClient('c-alice', ALICE, 'admin')
+    await ctl.onFrame(alice.principal, alice, { type: 'transcriptSubscribe', sessionId: SESSION })
+    expect(alice.transcriptSubs.has(SESSION)).toBe(false)
+    const owner = makeClient('c-owner', OWNER, 'member')
+    await ctl.onFrame(owner.principal, owner, { type: 'transcriptSubscribe', sessionId: SESSION })
+    expect(owner.transcriptSubs.has(SESSION)).toBe(true)
   })
 
   it('refuses requestControl when the principal may only watch', async () => {
@@ -259,37 +278,33 @@ describe('POD-1081 attach + take-control policy', () => {
     expect(session.terminal.controllerId).toBe('c-owner')
   })
 
-  it('preempts control for a drive-authorized grantee and broadcasts identity', async () => {
+  it('preempts control for the owner’s other device and broadcasts identity', async () => {
     const toDaemon: ControlMessage[] = []
     const session = makeSession((m) => toDaemon.push(m))
-    const owner = makeClient('c-owner', OWNER, 'admin')
-    session.terminal.attachClient(owner)
+    const desktop = makeClient('c-desktop', OWNER, 'admin')
+    session.terminal.attachClient(desktop)
 
-    const ctl = control({
-      session,
-      owner: { owner: OWNER, grants: [ALICE] },
-      machineUse: 'granted',
-    })
-    const alice = makeClient('c-alice', ALICE, 'member')
-    session.terminal.attachClient(alice)
-    alice.viewVisible = new Set([SESSION])
-    owner.sent.length = 0
-    alice.sent.length = 0
+    const ctl = control({ session, owner: { owner: OWNER }, machineUse: 'granted' })
+    const phone = makeClient('c-phone', OWNER, 'admin')
+    session.terminal.attachClient(phone)
+    phone.viewVisible = new Set([SESSION])
+    desktop.sent.length = 0
+    phone.sent.length = 0
 
-    await ctl.onFrame(alice.principal, alice, {
+    await ctl.onFrame(phone.principal, phone, {
       type: 'requestControl',
       sessionId: SESSION,
       geometry: { cols: 62, rows: 36 },
     })
-    expect(session.terminal.controllerId).toBe('c-alice')
-    expect(session.terminal.controllerIdentity).toEqual({ kind: 'user', user: ALICE })
+    expect(session.terminal.controllerId).toBe('c-phone')
+    expect(session.terminal.controllerIdentity).toEqual({ kind: 'user', user: OWNER })
     // The claim's box is forwarded; the copy waits for the daemon's report.
     expect(toDaemon).toContainEqual({ type: 'resize', sessionId: SESSION, cols: 62, rows: 36 })
-    expect(owner.sent).toContainEqual(
+    expect(desktop.sent).toContainEqual(
       expect.objectContaining({
         type: 'controllerChanged',
-        controllerId: 'c-alice',
-        controllerIdentity: { kind: 'user', user: ALICE },
+        controllerId: 'c-phone',
+        controllerIdentity: { kind: 'user', user: OWNER },
       }),
     )
   })
@@ -335,70 +350,54 @@ describe('POD-1081 attach + take-control policy', () => {
 })
 
 describe('POD-1081 two-principal identity (not "the only connection")', () => {
-  it('records the DRIVER principal, not merely the first or only socket', async () => {
-    // Vacuity trap: a fixture with one principal cannot tell "records driver"
-    // from "records the only connection" (POD-1424 class). Two distinct users.
+  it('records the DRIVER socket, and a second person can never become it (POD-6283)', async () => {
+    // Vacuity trap: a fixture with one socket cannot tell "records driver" from
+    // "records the only connection" (POD-1424 class). Two sockets of the owner,
+    // and a second person who is refused.
     const session = makeSession()
-    const ctl = control({
-      session,
-      owner: { owner: OWNER, grants: [ALICE] },
-      machineUse: 'granted',
-    })
-    const owner = makeClient('c-owner', OWNER, 'admin')
-    const alice = makeClient('c-alice', ALICE, 'member')
+    const ctl = control({ session, owner: { owner: OWNER }, machineUse: 'granted' })
+    const desktop = makeClient('c-desktop', OWNER, 'admin')
+    const phone = makeClient('c-phone', OWNER, 'admin')
+    const alice = makeClient('c-alice', ALICE, 'admin')
 
-    await ctl.onFrame(owner.principal, owner, { type: 'attach', sessionId: SESSION })
-    expect(session.terminal.controllerIdentity).toEqual({ kind: 'user', user: OWNER })
+    await ctl.onFrame(desktop.principal, desktop, { type: 'attach', sessionId: SESSION })
+    expect(session.terminal.controllerId).toBe('c-desktop')
+    await ctl.onFrame(phone.principal, phone, { type: 'attach', sessionId: SESSION })
+    expect(session.terminal.controllerId).toBe('c-desktop')
 
-    // Alice attaches as spectator — still owner's identity.
+    // Another person, admin or not, attaches nothing and takes nothing.
     await ctl.onFrame(alice.principal, alice, { type: 'attach', sessionId: SESSION })
-    expect(session.terminal.controllerId).toBe('c-owner')
+    await ctl.onFrame(alice.principal, alice, { type: 'requestControl', sessionId: SESSION })
+    expect(session.terminal.controllerId).toBe('c-desktop')
     expect(session.terminal.controllerIdentity).toEqual({ kind: 'user', user: OWNER })
 
-    // Alice takes control — identity MUST flip to alice, not stay owner.
-    owner.sent.length = 0
-    alice.sent.length = 0
-    await ctl.onFrame(alice.principal, alice, { type: 'requestControl', sessionId: SESSION })
-    expect(session.terminal.controllerId).toBe('c-alice')
-    expect(session.terminal.controllerIdentity).toEqual({ kind: 'user', user: ALICE })
-    // Current driver observes the transfer (not a silent takeover).
-    expect(owner.sent).toContainEqual(
-      expect.objectContaining({
-        type: 'controllerChanged',
-        controllerId: 'c-alice',
-        controllerIdentity: { kind: 'user', user: ALICE },
-      }),
+    // The phone takes control — the controller MUST flip to it.
+    desktop.sent.length = 0
+    await ctl.onFrame(phone.principal, phone, { type: 'requestControl', sessionId: SESSION })
+    expect(session.terminal.controllerId).toBe('c-phone')
+    expect(desktop.sent).toContainEqual(
+      expect.objectContaining({ type: 'controllerChanged', controllerId: 'c-phone' }),
     )
   })
 
-  it('two authorized claimants: second preemption wins; first observes controllerChanged', async () => {
-    // THE policy content is what happens with TWO claimants, not one.
+  it('two claimants: second preemption wins; first observes controllerChanged', async () => {
     const session = makeSession()
-    const ctl = control({
-      session,
-      owner: { owner: OWNER, grants: [ALICE] },
-      machineUse: 'granted',
-    })
-    const owner = makeClient('c-owner', OWNER, 'admin')
-    const alice = makeClient('c-alice', ALICE, 'member')
-    await ctl.onFrame(owner.principal, owner, { type: 'attach', sessionId: SESSION })
-    await ctl.onFrame(alice.principal, alice, { type: 'attach', sessionId: SESSION })
+    const ctl = control({ session, owner: { owner: OWNER }, machineUse: 'granted' })
+    const desktop = makeClient('c-desktop', OWNER, 'admin')
+    const phone = makeClient('c-phone', OWNER, 'admin')
+    await ctl.onFrame(desktop.principal, desktop, { type: 'attach', sessionId: SESSION })
+    await ctl.onFrame(phone.principal, phone, { type: 'attach', sessionId: SESSION })
 
     // Race: both request control. Last apply wins (preemption); both see the outcome.
-    owner.sent.length = 0
-    alice.sent.length = 0
-    await ctl.onFrame(alice.principal, alice, { type: 'requestControl', sessionId: SESSION })
-    expect(session.terminal.controllerIdentity).toEqual({ kind: 'user', user: ALICE })
-    await ctl.onFrame(owner.principal, owner, { type: 'requestControl', sessionId: SESSION })
-    expect(session.terminal.controllerId).toBe('c-owner')
-    expect(session.terminal.controllerIdentity).toEqual({ kind: 'user', user: OWNER })
-    // Alice (previous driver) observed the reclamation.
-    expect(alice.sent).toContainEqual(
-      expect.objectContaining({
-        type: 'controllerChanged',
-        controllerId: 'c-owner',
-        controllerIdentity: { kind: 'user', user: OWNER },
-      }),
+    desktop.sent.length = 0
+    phone.sent.length = 0
+    await ctl.onFrame(phone.principal, phone, { type: 'requestControl', sessionId: SESSION })
+    expect(session.terminal.controllerId).toBe('c-phone')
+    await ctl.onFrame(desktop.principal, desktop, { type: 'requestControl', sessionId: SESSION })
+    expect(session.terminal.controllerId).toBe('c-desktop')
+    // The phone (previous driver) observed the reclamation.
+    expect(phone.sent).toContainEqual(
+      expect.objectContaining({ type: 'controllerChanged', controllerId: 'c-desktop' }),
     )
   })
 

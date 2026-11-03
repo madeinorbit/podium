@@ -199,9 +199,9 @@ export class SessionView {
     try {
       const session = (await this.ports.records.resolve([sessionId], 'spawnedByOf')).get(sessionId)
       if (!session) return undefined
-      const principal = forPrincipal ?? await this.defaultPrincipal()
-      if (!principal) return undefined
-      if (!(await this.ports.state.canReadSession(principal, sessionId, {}))) {
+      if (forPrincipal) {
+        if (!(await this.ports.state.canReadSession(forPrincipal, sessionId, {}))) return undefined
+      } else if (!(await this.defaultPrincipal())) {
         return undefined
       }
       return session.spawnedBy
@@ -214,12 +214,17 @@ export class SessionView {
    *  `listForIssue()` and `byId()` share so the visibility rule and the memo
    *  lifetime have exactly one definition. */
   private async project(candidates: SessionSubject[], forPrincipal?: SessionStatePrincipal): Promise<SessionMeta[]> {
-    const principal = forPrincipal ?? await this.defaultPrincipal()
-    if (!principal) return []
+    // NO PRINCIPAL IS AN IN-PROCESS READ (POD-6283): authorization lookups,
+    // delegation walks, lifecycle work. It used to be filtered as the earliest
+    // admin, whose scope `all` saw every session; sessions are private now, so
+    // that stand-in would hide every other member's sessions from the server
+    // itself. It reads what it always read: every session, once the instance
+    // has a member. Retiring the stand-in on request paths is POD-6285's.
+    if (!forPrincipal && !(await this.defaultPrincipal())) return []
     const pass = await this.buildProjectionPass(candidates)
-    const visible = await this.ports.state.visibleSessions(
-      principal, candidates.map(session => session.sessionId), pass,
-    )
+    const visible = forPrincipal
+      ? await this.ports.state.visibleSessions(forPrincipal, candidates.map(session => session.sessionId), pass)
+      : new Set(candidates.map(session => session.sessionId))
     const readable = candidates.filter(session => visible.has(session.sessionId))
     if (readable.length === 0) return []
     return readable.map(session => (isResident(session) ? this.wire(session, pass) : wireRecord(session, pass)))
@@ -280,6 +285,8 @@ export class SessionView {
     return sessionStatePrincipalFor(userCommandPrincipal(userId, role))
   }
 
+  /** The instance's earliest admin, or none on an instance with no member. A
+   *  principal-less read only asks whether it exists (see `project`). */
   async defaultPrincipal(): Promise<SessionStatePrincipal | undefined> {
     const member = await this.ports.store.users.earliestAdmin()
     return member
