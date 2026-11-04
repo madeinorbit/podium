@@ -22,6 +22,9 @@ export const ISSUE_PAGE_FIELDS = {
   linearIdentifier: field('string'), linearUrl: field('string'),
   owner: field('id', false), visibility: field('string', false), createdBy: field('object', false),
   lastLifecycleActor: field('object'),
+  // POD-6295: a description edit names the revision it was cut from, and an
+  // assignee from before members keeps its old label as a note.
+  revision: field('number'), legacyAssignee: field('string'),
 } as const
 
 const seatField = (type: FieldSpec['type'], property?: string): FieldSpec => ({

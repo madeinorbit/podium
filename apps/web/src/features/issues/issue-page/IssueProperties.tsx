@@ -119,7 +119,7 @@ export const IssueProperties = observer(function IssueProperties({
   const shared = useIssueSharedDetail(issue)
   const allowed = shared?.allowed
   const busy = pending || allowed?.edit === false
-  const roster = useMemberRoster(true)
+  const roster = useMemberRoster()
   const nameOf = (id: string) => roster?.nameOf(id)
 
   const [optionsOpen, setOptionsOpen] = useState(false)
