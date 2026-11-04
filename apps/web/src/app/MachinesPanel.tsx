@@ -38,6 +38,7 @@ import {
   startServerMove,
   useServerMoveOperations,
 } from '@/features/machines/server-move'
+import { MachineCustody } from '@/features/settings/machine-custody'
 import { useSettingsMachine, useSettingsMachines } from '@/features/settings/readers'
 import { sourceUnavailableProse } from '@/features/settings/sections/updates-view'
 import { useSettingsClient } from '@/features/settings/stable-access'
@@ -1561,6 +1562,13 @@ const MachineRow = observer(function MachineRow({
               </Button>
             )}
 
+            {machine.unowned !== true && !machine.revokedAt && (
+              <MachineCustody
+                machineId={machine.id}
+                transferable={machine.transferable === true}
+                trpc={trpc}
+              />
+            )}
             {machine.unowned === true && <span className="settings-prose">Unowned</span>}
             {machine.unowned === true && machine.adoptable === true && (
               <Button

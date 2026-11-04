@@ -22,16 +22,24 @@ const data = {
       expiresAt: '2099-01-01T00:00:00.000Z',
     },
   ],
+  // The server's allowed actions per member (POD-6299).
+  actions: {
+    admin: ['signOutEverywhere'],
+    anna: ['setRole', 'disable', 'remove', 'recovery', 'signOutEverywhere'],
+  },
 }
-function mockApi(mailAvailable = false) {
+function mockApi(mailAvailable = false, refuse?: { path: string; status: number; error: string }) {
   const fetchMock = vi.fn(async (url: string) => ({
-    ok: true,
+    ok: !(refuse && url.endsWith(refuse.path)),
+    status: refuse && url.endsWith(refuse.path) ? refuse.status : 200,
     json: async () =>
-      url.endsWith('/list')
-        ? { ...data, mailAvailable }
-        : url.endsWith('/invite')
-          ? { url: 'https://workspace/#invite=secret', mailSent: true }
-          : { ok: true },
+      refuse && url.endsWith(refuse.path)
+        ? { error: refuse.error }
+        : url.endsWith('/list')
+          ? { ...data, mailAvailable }
+          : url.endsWith('/invite')
+            ? { url: 'https://workspace/#invite=secret', mailSent: true }
+            : { ok: true },
   }))
   vi.stubGlobal('fetch', fetchMock)
   return fetchMock
@@ -110,4 +118,65 @@ test('invites an existing member by mail and requires confirmation to remove', a
       expect.objectContaining({ body: JSON.stringify({ id: 'anna', current: 'admin-password' }) }),
     ),
   )
+})
+
+test('offers only the actions the server allows, and changes a role with the admin’s password', async () => {
+  const fetchMock = mockApi()
+  render(<MembersSection />)
+  await screen.findByText('Anna', { selector: 'strong' })
+  // The admin's own row offers only signing out everywhere.
+  expect(screen.queryByRole('button', { name: 'Make member' })).toBeNull()
+  expect(screen.getByRole('button', { name: 'Sign me out everywhere' })).toBeTruthy()
+  for (const name of [
+    'Make admin',
+    'Disable',
+    'Recovery link',
+    'Sign out everywhere',
+    'Remove Anna',
+  ])
+    expect(screen.getByRole('button', { name })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Enable' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Make admin' }))
+  expect(screen.getByRole('alertdialog', { name: 'Change role' })).toBeTruthy()
+  fireEvent.change(screen.getByLabelText('Your password'), { target: { value: 'admin-password' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm role change' }))
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(/\/auth\/members\/role$/),
+      expect.objectContaining({
+        body: JSON.stringify({ id: 'anna', role: 'admin', current: 'admin-password' }),
+      }),
+    ),
+  )
+})
+
+test('signs a member out everywhere without a password', async () => {
+  const fetchMock = mockApi()
+  render(<MembersSection />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Sign out everywhere' }))
+  expect(screen.queryByLabelText('Your password')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm sign out' }))
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringMatching(/\/auth\/members\/sign-out-everywhere$/),
+      expect.objectContaining({ body: JSON.stringify({ id: 'anna' }) }),
+    ),
+  )
+})
+
+test('shows the server’s refusal of a role change', async () => {
+  mockApi(false, {
+    path: '/role',
+    status: 409,
+    error: 'The last active admin cannot be demoted',
+  })
+  render(<MembersSection />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Make admin' }))
+  fireEvent.change(screen.getByLabelText('Your password'), { target: { value: 'x' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm role change' }))
+  expect((await screen.findByRole('alert')).textContent).toBe(
+    'The last active admin cannot be demoted',
+  )
+  // The confirmation stays open so the admin can see what was refused.
+  expect(screen.getByRole('alertdialog', { name: 'Change role' })).toBeTruthy()
 })

@@ -58,8 +58,10 @@ import {
 import { paletteIssueMenuData } from '@/features/issues/issue-menu-palette'
 import { issueMenuPaletteCommands } from '@/features/issues/issue-menu-palette-commands'
 import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
+import { useAdminSections } from '@/features/settings/admin-viewer'
 import { useSettingsRecord } from '@/features/settings/record-readers'
 import { SETTINGS_TABS } from '@/features/settings/SettingsView'
+import { adminSectionOf } from '@/features/settings/surfaces'
 import { agentIconFor } from '@/lib/agent-tone'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { AgentStatusGlyph, WorkingMark } from '@/lib/motion'
@@ -328,6 +330,8 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
   const specsEnabled = useFeature('specs')
   const automationsEnabled = useFeature('automations')
   const notificationsEnabled = useFeature('notifications')
+  // Admin tabs only for a viewer the server offers them to (POD-6299).
+  const adminSections = useAdminSections().answer ?? []
   const handoffEnabled = useFeature('session-handoff')
   const gitPanelEnabled = useFeature('git-panel')
   const messagesPanelEnabled = useFeature('messages-panel')
@@ -735,6 +739,8 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
     // ── Actions: settings destinations ────────────────────────────────────
     for (const tab of SETTINGS_TABS) {
       if (tab.key === 'notifications' && !notificationsEnabled) continue
+      const section = adminSectionOf(tab.key)
+      if (section && !adminSections.includes(section)) continue
       add({
         id: `action:settings-${tab.key}`,
         group: 'action',

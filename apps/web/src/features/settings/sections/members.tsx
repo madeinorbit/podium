@@ -14,6 +14,118 @@ import { Section } from './shared'
 const createDirectory = (pool: import('@podium/client-graph/pool').MobxPool) =>
   new MemberDirectory(pool)
 
+/** The member actions this section offers; `invite` is the form below. */
+const MEMBER_ACTIONS = [
+  'setRole',
+  'disable',
+  'enable',
+  'recovery',
+  'signOutEverywhere',
+  'remove',
+] as const
+type MemberAction = (typeof MEMBER_ACTIONS)[number]
+const isMemberAction = (action: string): action is MemberAction =>
+  (MEMBER_ACTIONS as readonly string[]).includes(action)
+
+function actionLabel(action: MemberAction, member: MemberModel, self: boolean): string {
+  switch (action) {
+    case 'setRole':
+      return member.role === 'admin' ? 'Make member' : 'Make admin'
+    case 'disable':
+      return 'Disable'
+    case 'enable':
+      return 'Enable'
+    case 'recovery':
+      return 'Recovery link'
+    case 'signOutEverywhere':
+      return self ? 'Sign me out everywhere' : 'Sign out everywhere'
+    case 'remove':
+      return `Remove ${member.displayName}`
+  }
+}
+
+const CONFIRM: Record<
+  MemberAction,
+  {
+    title: string
+    confirm: string
+    password: boolean
+    destructive: boolean
+    prompt: (member: MemberModel, self: boolean) => string
+  }
+> = {
+  setRole: {
+    title: 'Change role',
+    confirm: 'Confirm role change',
+    password: true,
+    destructive: false,
+    prompt: (m) =>
+      m.role === 'admin'
+        ? `Make ${m.displayName} a member? They will no longer administer this instance.`
+        : `Make ${m.displayName} an admin? They will manage members, machines and instance settings, but cannot open anyone’s sessions.`,
+  },
+  disable: {
+    title: 'Disable member',
+    confirm: 'Confirm disable',
+    password: true,
+    destructive: true,
+    prompt: (m) =>
+      `Disable ${m.displayName}? They are signed out and cannot sign in or act. Their history and the shares on their machines are kept.`,
+  },
+  enable: {
+    title: 'Enable member',
+    confirm: 'Confirm enable',
+    password: true,
+    destructive: false,
+    prompt: (m) => `Enable ${m.displayName}? They can sign in again.`,
+  },
+  recovery: {
+    title: 'Recovery link',
+    confirm: 'Create recovery link',
+    password: true,
+    destructive: false,
+    prompt: (m) =>
+      `Create a link that sets a new password for ${m.displayName}? Using it signs them out everywhere.`,
+  },
+  signOutEverywhere: {
+    title: 'Sign out everywhere',
+    confirm: 'Confirm sign out',
+    password: false,
+    destructive: true,
+    prompt: (m, self) =>
+      self
+        ? 'Sign yourself out on every device, this one included?'
+        : `Sign ${m.displayName} out on every device? They can sign in again.`,
+  },
+  remove: {
+    title: 'Remove member',
+    confirm: 'Confirm removal',
+    password: true,
+    destructive: true,
+    prompt: (m) =>
+      `Remove ${m.displayName}? They will lose access. Their issues and sessions will be kept.`,
+  },
+}
+
+/** The `/auth/members/*` route and body for one confirmed action. */
+function requestFor(
+  action: MemberAction,
+  member: MemberModel,
+  current: string,
+): [string, Record<string, string>] {
+  switch (action) {
+    case 'setRole':
+      return [
+        'role',
+        { id: member.id, role: member.role === 'admin' ? 'member' : 'admin', current },
+      ]
+    case 'signOutEverywhere':
+      return ['sign-out-everywhere', { id: member.id }]
+    default:
+      return [action, { id: member.id, current }]
+  }
+}
+
 export const MembersSection = observer(function MembersSection() {
   const origin = serverConfig(window.location).httpOrigin
   const data = useOpeningView(useWorklistPool(), createDirectory)
@@ -25,8 +137,9 @@ export const MembersSection = observer(function MembersSection() {
   const [error, setError] = useState('')
   const [link, setLink] = useState('')
   const [notice, setNotice] = useState('')
-  const [removing, setRemoving] = useState<MemberModel>()
-  // Removing a member needs the admin's current password (POD-6298).
+  // The member action waiting for the admin's confirmation (POD-6299).
+  const [pending, setPending] = useState<{ action: MemberAction; member: MemberModel }>()
+  // Role, disable, enable, removal and recovery need the admin's current password (POD-6298).
   const [current, setCurrent] = useState('')
   const reload = useCallback(
     () => data?.read(() => memberRequest<MemberDirectoryAnswer>(origin, 'list')),
@@ -57,14 +170,16 @@ export const MembersSection = observer(function MembersSection() {
       if (result.url) {
         setLink(result.url)
         setNotice(
-          sendEmail
-            ? result.mailSent
-              ? 'Invitation emailed.'
-              : 'Email wasn’t sent. Copy the link below.'
-            : 'Invitation ready to share.',
+          action === 'recovery'
+            ? 'Recovery link ready. It sets a new password once, within 24 hours.'
+            : sendEmail
+              ? result.mailSent
+                ? 'Invitation emailed.'
+                : 'Email wasn’t sent. Copy the link below.'
+              : 'Invitation ready to share.',
         )
       }
-      setRemoving(undefined)
+      setPending(undefined)
       setCurrent('')
       await reload()
     } catch (error) {
@@ -75,8 +190,8 @@ export const MembersSection = observer(function MembersSection() {
   }
   return (
     <Section
-      title="Members"
-      hint="Invite people to this workspace. Copy a link to share it with them."
+      title="People"
+      hint="Invite people, change their role, disable or remove them, and end their sign-ins."
     >
       {(error || data?.error) && <p role="alert">{error || data?.error}</p>}
       {data && (
@@ -91,40 +206,62 @@ export const MembersSection = observer(function MembersSection() {
                     {member.disabledAt ? ' · disabled' : ''}
                   </p>
                 </div>
-                {member.id !== data.currentMemberId && (
-                  <Button variant="ghost" disabled={busy} onClick={() => setRemoving(member)}>
-                    Remove {member.displayName}
-                  </Button>
-                )}
+                {/* Only the actions the server says it would accept (POD-6299). */}
+                <div className="flex flex-wrap justify-end gap-1">
+                  {data
+                    .actionsFor(member.id)
+                    .filter(isMemberAction)
+                    .map((action) => (
+                      <Button
+                        key={action}
+                        variant="ghost"
+                        disabled={busy}
+                        onClick={() => {
+                          setError('')
+                          setPending({ action, member })
+                        }}
+                      >
+                        {actionLabel(action, member, member.id === data.currentMemberId)}
+                      </Button>
+                    ))}
+                </div>
               </li>
             ))}
           </ul>
-          {removing && (
-            <div role="alertdialog" aria-label="Remove member" className="space-y-2">
+          {pending && (
+            <div
+              role="alertdialog"
+              aria-label={CONFIRM[pending.action].title}
+              className="space-y-2"
+            >
               <p>
-                Remove {removing.displayName}? They will lose access. Their issues and sessions will
-                be kept.
+                {CONFIRM[pending.action].prompt(
+                  pending.member,
+                  pending.member.id === data.currentMemberId,
+                )}
               </p>
-              <label className="block max-w-sm">
-                Your password
-                <Input
-                  type="password"
-                  autoComplete="current-password"
-                  value={current}
-                  onChange={(e) => setCurrent(e.target.value)}
-                />
-              </label>
+              {CONFIRM[pending.action].password && (
+                <label className="block max-w-sm">
+                  Your password
+                  <Input
+                    type="password"
+                    autoComplete="current-password"
+                    value={current}
+                    onChange={(e) => setCurrent(e.target.value)}
+                  />
+                </label>
+              )}
               <Button
-                variant="destructive"
+                variant={CONFIRM[pending.action].destructive ? 'destructive' : 'default'}
                 disabled={busy}
-                onClick={() => void mutate('remove', { id: removing.id, current })}
+                onClick={() => void mutate(...requestFor(pending.action, pending.member, current))}
               >
-                Confirm removal
+                {CONFIRM[pending.action].confirm}
               </Button>
               <Button
                 variant="ghost"
                 onClick={() => {
-                  setRemoving(undefined)
+                  setPending(undefined)
                   setCurrent('')
                 }}
               >

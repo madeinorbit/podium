@@ -35,7 +35,12 @@
 
 import type { SettingsTab } from './SettingsView'
 
-export const SETTINGS_SURFACES = ['your-preferences', 'instance', 'secrets'] as const
+export const SETTINGS_SURFACES = [
+  'your-preferences',
+  'administration',
+  'instance',
+  'secrets',
+] as const
 export type SettingsSurface = (typeof SETTINGS_SURFACES)[number]
 
 /**
@@ -57,6 +62,7 @@ export type SettingsSurface = (typeof SETTINGS_SURFACES)[number]
  */
 export const SURFACE_COPY: Readonly<Record<SettingsSurface, { label: string }>> = {
   'your-preferences': { label: 'Your preferences' },
+  administration: { label: 'Administration' },
   instance: { label: 'Instance settings' },
   secrets: { label: 'Secrets' },
 }
@@ -85,6 +91,16 @@ export const TAB_PATHS = {
   accounts: [],
   privacy: [],
   devices: [],
+  // Your own sign-in name and password: personal, whoever you are (POD-6299).
+  security: [],
+
+  // — Administration (POD-6299; design §2.6) ————————————————————————
+  // People, Access, Machines and Audit. None edits a settings leaf: each is
+  // its own surface over members, sign-ins, custody and the security log.
+  members: [],
+  access: [],
+  machines: [],
+  audit: [],
 
   // — Instance ——————————————————————————————————————————————————————
   // Worktree GC sits here rather than on a tab of its own: it is the same
@@ -96,10 +112,7 @@ export const TAB_PATHS = {
   // Substrate that lives outside the blob: pairing, routing and the deployment's
   // own identity. Tenant-visible, admin-managed, no classified leaf of its own.
   repos: [],
-  machines: [],
   network: [],
-  members: [],
-  security: [],
   updates: [],
 
   // — Secrets ———————————————————————————————————————————————————————
@@ -131,15 +144,18 @@ export const TAB_SURFACE = {
   accounts: 'your-preferences',
   privacy: 'your-preferences',
   devices: 'your-preferences',
+  security: 'your-preferences',
+
+  members: 'administration',
+  access: 'administration',
+  machines: 'administration',
+  audit: 'administration',
 
   hibernation: 'instance',
   workflow: 'instance',
   experimental: 'instance',
   repos: 'instance',
-  machines: 'instance',
   network: 'instance',
-  members: 'instance',
-  security: 'instance',
   updates: 'instance',
 
   secrets: 'secrets',
@@ -179,3 +195,55 @@ export const tabsOnSurface = (surface: SettingsSurface): SettingsTab[] =>
  */
 export const pathIsUnder = (path: string, prefix: string): boolean =>
   path === prefix || path.startsWith(`${prefix}.`)
+
+/**
+ * WHICH ADMIN SECTION EACH TAB BELONGS TO (POD-6299; design §2.6).
+ *
+ * The server says which sections the viewer may open (`/auth/admin/viewer`):
+ * every one for an admin, none for a member. Preference tabs belong to no
+ * section and are always shown. The Instance section is every tab on the
+ * instance and secrets surfaces.
+ */
+export const ADMIN_SECTIONS = ['people', 'access', 'machines', 'instance', 'audit'] as const
+export type AdminSection = (typeof ADMIN_SECTIONS)[number]
+
+const SECTION_OF_ADMIN_TAB: Partial<Record<SettingsTab, AdminSection>> = {
+  members: 'people',
+  access: 'access',
+  machines: 'machines',
+  audit: 'audit',
+}
+
+/** The admin section a tab needs, or undefined for a tab everyone sees. */
+export function adminSectionOf(tab: SettingsTab): AdminSection | undefined {
+  const surface = TAB_SURFACE[tab]
+  if (surface === 'your-preferences') return undefined
+  if (surface === 'administration') return SECTION_OF_ADMIN_TAB[tab]
+  return 'instance'
+}
+
+/**
+ * The rail a viewer sees, from the sections the server offered them.
+ *
+ * DEFAULT-CLOSED: `sections` is empty until the viewer read answers, so no
+ * admin tab is drawn on an assumption; the server refuses each admin endpoint
+ * to a non-admin anyway. A member who is not offered Machines still gets their
+ * own machines, as a preference tab: pairing and sharing your own machine is
+ * not administration.
+ */
+export function visibleSettingsGroups<
+  G extends { surface: SettingsSurface; tabs: { key: SettingsTab; label: string }[] },
+>(groups: readonly G[], sections: readonly string[]): G[] {
+  const offered = (tab: SettingsTab) => {
+    const section = adminSectionOf(tab)
+    return section === undefined || sections.includes(section)
+  }
+  const machines = groups.flatMap((g) => g.tabs).find((t) => t.key === 'machines')
+  return groups
+    .map((g) => {
+      const tabs = g.tabs.filter((t) => offered(t.key))
+      if (g.surface === 'your-preferences' && machines && !offered('machines')) tabs.push(machines)
+      return { ...g, tabs }
+    })
+    .filter((g) => g.tabs.length > 0)
+}

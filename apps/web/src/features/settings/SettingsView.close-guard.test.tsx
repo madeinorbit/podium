@@ -1,12 +1,12 @@
 import '@/test-support/mock-core-store-handle'
 import '@/test-support/mock-request-pool.test.fixture'
-import type { ReferenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
+import { ingestSettings } from '@podium/client-graph/requested-records'
+import { applySettingsPatch } from '@podium/commands/settings-write-plan'
 import { normalizeSettings } from '@podium/runtime'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { applySettingsPatch } from '@podium/commands/settings-write-plan'
-import { ingestSettings } from '@podium/client-graph/requested-records'
-import { useWorklistPool } from '@/app/store-worklist-pool'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { useWorklistPool } from '@/app/store-worklist-pool'
+import type { ReferenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
 
 type Store = ReferenceState<import('@/app/trpc').Trpc>
 
@@ -64,6 +64,19 @@ beforeEach(() => {
   demand.idleCap.mockClear()
   onClose.mockClear()
   storeState.settingsTab = 'sessions'
+  // An admin's viewer: the instance tabs below are in the admin area (POD-6299).
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) =>
+      url.endsWith('/auth/admin/viewer')
+        ? {
+            ok: true,
+            status: 200,
+            json: async () => ({ sections: ['people', 'access', 'machines', 'instance', 'audit'] }),
+          }
+        : { ok: false, status: 404, json: async () => ({}) },
+    ),
+  )
   const settings = normalizeSettings({})
   storeState.trpc = {
     settings: {
@@ -106,6 +119,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   cleanup()
+  vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
 
@@ -123,11 +137,15 @@ async function makeDirty(): Promise<void> {
 describe('Settings sheet — closing with unsaved edits', () => {
   it('shows remote untouched preferences, discards to live and saves only the changed leaf', async () => {
     storeState.settingsTab = 'hibernation'
-    const remote = normalizeSettings({ hibernation: { memoryPct: 90, idleMinutes: 123, enabled: false } })
-    const update = vi.fn(async ({ values }: { values: Record<string, unknown> }) => applySettingsPatch(remote, values))
+    const remote = normalizeSettings({
+      hibernation: { memoryPct: 90, idleMinutes: 123, enabled: false },
+    })
+    const update = vi.fn(async ({ values }: { values: Record<string, unknown> }) =>
+      applySettingsPatch(remote, values),
+    )
     Object.assign(storeState.trpc.settings, { updateInstance: { mutate: update } })
     render(<SettingsView onClose={onClose} />)
-    const memory = await screen.findByDisplayValue('80') as HTMLInputElement
+    const memory = (await screen.findByDisplayValue('80')) as HTMLInputElement
     fireEvent.change(memory, { target: { value: '85' } })
     act(() => ingestSettings(useWorklistPool()!, remote))
     expect(await screen.findByDisplayValue('123')).toBeTruthy()
@@ -136,7 +154,9 @@ describe('Settings sheet — closing with unsaved edits', () => {
     expect(memory.value).toBe('90')
     fireEvent.change(memory, { target: { value: '85' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
-    await waitFor(() => expect(update).toHaveBeenCalledExactlyOnceWith({ values: { 'hibernation.memoryPct': 85 } }))
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledExactlyOnceWith({ values: { 'hibernation.memoryPct': 85 } }),
+    )
     expect(await screen.findByText('Saved ✓')).toBeTruthy()
   })
   it('demands the cap scalar only on Hibernation and never demands fleet metric rows', async () => {

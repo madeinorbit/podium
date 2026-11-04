@@ -15,6 +15,7 @@ import type { NetworkSaveController } from '@/features/setup/network-step'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { invalidateFeatures, useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
+import { useAdminSections } from './admin-viewer'
 import { useSettingsTab } from './readers'
 import { accountKey, useSettingsRecord, useSettingsRecords } from './record-readers'
 import { SettingsOpening } from './SettingsOpening'
@@ -25,9 +26,9 @@ import { HibernationSection } from './sections/hibernation'
 import { MembersSection } from './sections/members'
 import { NetworkSection } from './sections/network'
 import { NotificationsSection, type TelegramSetupState } from './sections/notifications'
+import { PodiumAccountSection } from './sections/podium-account'
 import { PrivacySection } from './sections/privacy'
 import { type SecretSurfaceState, SecretsSection } from './sections/secrets'
-import { PodiumAccountSection } from './sections/podium-account'
 import { LoginPasswordSection } from './sections/security'
 import { SessionsSection } from './sections/sessions'
 import type { AccountView } from './sections/shared'
@@ -36,7 +37,13 @@ import { WorkflowSection } from './sections/workflow'
 import { WorkLlmSection } from './sections/workllm'
 import { SettingsEditDraft } from './settings-edit-draft'
 import { useSettingsClient } from './stable-access'
-import { SETTINGS_SURFACES, type SettingsSurface, SURFACE_COPY, tabsOnSurface } from './surfaces'
+import {
+  SETTINGS_SURFACES,
+  type SettingsSurface,
+  SURFACE_COPY,
+  tabsOnSurface,
+  visibleSettingsGroups,
+} from './surfaces'
 
 // Account connection and login controls are only needed on the Accounts tab.
 const AccountsSection = lazy(() =>
@@ -54,6 +61,17 @@ const ReposSection = lazy(() =>
 const MachinesPanel = lazy(() =>
   throughRestarts(() => import('./MachinesPanel')).then((module) => ({
     default: module.MachinesPanel,
+  })),
+)
+// The admin area's Access and Audit sections are read only by admins (POD-6299).
+const AccessSection = lazy(() =>
+  throughRestarts(() => import('./sections/access')).then((module) => ({
+    default: module.AccessSection,
+  })),
+)
+const AuditSection = lazy(() =>
+  throughRestarts(() => import('./sections/audit')).then((module) => ({
+    default: module.AuditSection,
   })),
 )
 const ConnectedDevicesSection = lazy(() =>
@@ -93,6 +111,8 @@ export type SettingsTab =
   | 'updates'
   | 'experimental'
   | 'secrets'
+  | 'access'
+  | 'audit'
 
 /** The human name of each tab. Separate from `TAB_SURFACE` so the class table
  *  stays a classification and does not become a place copy is edited. */
@@ -111,7 +131,9 @@ const TAB_LABEL: Record<SettingsTab, string> = {
   machines: 'Machines',
   network: 'Network',
   devices: 'Connected devices',
-  members: 'Members',
+  members: 'People',
+  access: 'Access',
+  audit: 'Audit',
   security: 'Profile & security',
   updates: 'Updates',
   secrets: 'Secrets',
@@ -244,6 +266,8 @@ const SECTION_VIEWS: Record<SettingsTab, (ctx: SectionContext) => JSX.Element> =
   ),
   machines: () => <MachinesPanel />,
   members: () => <MembersSection />,
+  access: () => <AccessSection />,
+  audit: () => <AuditSection />,
   security: ({ trpc }) => (
     <>
       <PodiumAccountSection />
@@ -310,9 +334,12 @@ const SettingsViewBody = observer(function SettingsViewBody({
   const notificationsEnabled = useFeature('notifications')
   // The nav filter is experimental (off by default) — Settings → Experimental.
   const searchEnabled = useFeature('settings-search')
-  const settingsTabs = SETTINGS_TABS.filter(
-    (tab) => tab.key !== 'notifications' || notificationsEnabled,
-  )
+  // The admin area is drawn only from the server's answer (POD-6299).
+  const adminSections = useAdminSections().answer ?? []
+  const offeredGroups = visibleSettingsGroups(SETTINGS_GROUPS, adminSections)
+  const settingsTabs = offeredGroups
+    .flatMap((g) => g.tabs)
+    .filter((tab) => tab.key !== 'notifications' || notificationsEnabled)
   const pool = useWorklistPool()
   const readSettings = useCallback(() => trpc.settings.get.query(), [trpc])
   const settingsRequest = useSettingsRecord(readSettings)
@@ -661,14 +688,16 @@ const SettingsViewBody = observer(function SettingsViewBody({
 
   const filterRef = useRef<HTMLInputElement | null>(null)
   const query = searchEnabled ? filter.trim().toLowerCase() : ''
-  const visibleGroups = SETTINGS_GROUPS.map((g) => ({
-    ...g,
-    tabs: g.tabs.filter(
-      (t) =>
-        (t.key !== 'notifications' || notificationsEnabled) &&
-        (query === '' || t.label.toLowerCase().includes(query)),
-    ),
-  })).filter((g) => g.tabs.length > 0)
+  const visibleGroups = offeredGroups
+    .map((g) => ({
+      ...g,
+      tabs: g.tabs.filter(
+        (t) =>
+          (t.key !== 'notifications' || notificationsEnabled) &&
+          (query === '' || t.label.toLowerCase().includes(query)),
+      ),
+    }))
+    .filter((g) => g.tabs.length > 0)
 
   // "/" focuses the nav filter; ⌘S saves when the dirty bar is up.
   useEffect(() => {

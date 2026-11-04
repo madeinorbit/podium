@@ -161,10 +161,16 @@ it('measures the mounted settings sections at 1x and 4x', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(
-        async () =>
-          new Response(JSON.stringify({ sessions: devices }), {
-            headers: { 'content-type': 'application/json' },
-          }),
+        async (url: string) =>
+          new Response(
+            JSON.stringify(
+              // An admin's viewer: Updates and Repos are in the admin area (POD-6299).
+              String(url).endsWith('/auth/admin/viewer')
+                ? { sections: ['people', 'access', 'machines', 'instance', 'audit'] }
+                : { sessions: devices },
+            ),
+            { headers: { 'content-type': 'application/json' } },
+          ),
       ),
     )
     const publish = (patch: Partial<typeof state>) => {

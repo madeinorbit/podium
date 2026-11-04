@@ -27,11 +27,14 @@ import {
   TAB_PATHS,
   TAB_SURFACE,
   tabsOnSurface,
+  visibleSettingsGroups,
 } from './surfaces'
 
 /** Which tier a surface claims. The one place the two vocabularies meet. */
 const SURFACE_TIER: Readonly<Record<SettingsSurface, SettingsTier>> = {
   'your-preferences': 'personal-preference',
+  // The admin area's own tabs edit no settings leaf (POD-6299).
+  administration: 'instance-preference',
   instance: 'instance-preference',
   secrets: 'server-secret',
 }
@@ -40,13 +43,13 @@ const CLASSIFIED = SETTINGS_CLASSIFICATION
 const TABS = Object.keys(TAB_SURFACE) as SettingsTab[]
 
 describe('the tables are not empty — nothing below is vacuous', () => {
-  it('there are classified leaves, tabs, and all three surfaces', () => {
+  it('there are classified leaves, tabs, and all four surfaces', () => {
     // Every claim in this file is a for-loop over one of these. An empty
     // classification would make "every path matches its tab's tier" true by
     // finding nothing, which is the POD-363 shape exactly.
     expect(CLASSIFIED.length).toBeGreaterThanOrEqual(39)
     expect(TABS.length).toBeGreaterThan(10)
-    expect(SETTINGS_SURFACES).toHaveLength(3)
+    expect(SETTINGS_SURFACES).toHaveLength(4)
     for (const surface of SETTINGS_SURFACES) {
       expect(tabsOnSurface(surface).length).toBeGreaterThan(0)
     }
@@ -163,6 +166,36 @@ describe('each class is NAMED, and says nothing else (POD-407)', () => {
       const copy = SURFACE_COPY[surface] as { label: string; hint?: string }
       expect(copy.label.length).toBeGreaterThan(0)
       expect(copy.hint).toBeUndefined()
+    }
+  })
+})
+
+describe('the admin area is drawn only for a viewer the server offers it to (POD-6299)', () => {
+  const groups = SETTINGS_SURFACES.map((surface) => ({
+    surface,
+    tabs: tabsOnSurface(surface).map((key) => ({ key, label: key })),
+  }))
+  const rail = (sections: readonly string[]) =>
+    Object.fromEntries(
+      visibleSettingsGroups(groups, sections).map((g) => [g.surface, g.tabs.map((t) => t.key)]),
+    )
+  const ALL = ['people', 'access', 'machines', 'instance', 'audit']
+
+  it('Alice, an admin, sees every section: People, Access, Machines, Instance and Audit', () => {
+    const seen = rail(ALL)
+    expect(seen.administration).toEqual(['members', 'access', 'machines', 'audit'])
+    expect(seen.instance).toEqual(tabsOnSurface('instance'))
+    expect(seen.secrets).toEqual(['secrets'])
+    expect(seen['your-preferences']).toEqual(tabsOnSurface('your-preferences'))
+  })
+
+  it('Bob, a member, sees no admin area: his preferences, his own password and machines', () => {
+    const seen = rail([])
+    expect(Object.keys(seen)).toEqual(['your-preferences'])
+    expect(seen['your-preferences']).toEqual([...tabsOnSurface('your-preferences'), 'machines'])
+    expect(seen['your-preferences']).toContain('security')
+    for (const tab of ['members', 'access', 'audit', 'secrets', 'hibernation', 'updates']) {
+      expect(seen['your-preferences']).not.toContain(tab)
     }
   })
 })
