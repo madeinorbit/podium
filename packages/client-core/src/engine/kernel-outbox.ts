@@ -274,7 +274,6 @@ type Answers = Map<string, { readonly reply?: unknown; readonly cause?: unknown 
 
 class KernelEngineOutbox implements EngineOutbox {
   private readonly localWrites = new Set<Promise<unknown>>()
-  private readonly metadata = new Map<string, { baseline?: string; chained?: boolean }>()
   /**
    * Queued entries an in-flight enqueue may collapse (POD-4554). The kernel
    * removes a superseded record before its event fires, so what it carried is
@@ -391,7 +390,7 @@ class KernelEngineOutbox implements EngineOutbox {
   enqueue<K extends keyof OutboxKinds & string>(
     kind: K,
     input: OutboxKinds[K],
-    opts?: { baseline?: string; chained?: boolean; mutationId?: MutationId },
+    opts?: { mutationId?: MutationId },
   ): Promise<OutboxEntry> {
     return this.trackLocalWrite(this.enqueueDurably(kind, input, opts))
   }
@@ -412,15 +411,11 @@ class KernelEngineOutbox implements EngineOutbox {
   private async enqueueDurably<K extends keyof OutboxKinds & string>(
     kind: K,
     input: OutboxKinds[K],
-    opts?: { baseline?: string; chained?: boolean; mutationId?: MutationId },
+    opts?: { mutationId?: MutationId },
   ): Promise<OutboxEntry> {
     // A caller-supplied id (POD-1053: the optimistic ledger files its overlay
     // under the id before the entry exists) or one minted here.
     const mutationId = opts?.mutationId ?? mintMutationId(OUTBOX_COMMANDS[kind])
-    this.metadata.set(mutationId, {
-      ...(opts?.baseline === undefined ? {} : { baseline: opts.baseline }),
-      ...(opts?.chained === true ? { chained: true } : {}),
-    })
     // POD-785: routed per TARGET, not into one global partition. See
     // OUTBOX_ROUTING for why the single `client-outbox` key wedged the queue.
     const route = outboxRoutingFor(kind, input, mutationId)
@@ -450,21 +445,9 @@ class KernelEngineOutbox implements EngineOutbox {
       })
       if (this.isOnline()) void this.drain()
       return this.toEntry(record)
-    } catch (error) {
-      this.metadata.delete(mutationId)
-      throw error
     } finally {
       for (const record of candidates) this.collapsible.delete(record.mutationId)
     }
-  }
-
-  /**
-   * Retire an applied entry by the caller's own rule (the layout controller's and
-   * the pool's, until POD-6278 and POD-6279 delete them). The replica may already
-   * have confirmed it, so an entry that is no longer applied is not an error.
-   */
-  retireAwaiting(mutationId: MutationId): void {
-    retireIfApplied(this.kernel, mutationId, this.onDegraded)
   }
 
   async retry(mutationId: MutationId, satisfaction: RetrySatisfaction): Promise<void> {
@@ -480,7 +463,6 @@ class KernelEngineOutbox implements EngineOutbox {
   async discard(mutationId: MutationId): Promise<void> {
     await this.trackLocalWrite(this.kernel.discard(mutationId as MutationId))
     await this.kernel.purgeCancelled(mutationId as MutationId)
-    this.metadata.delete(mutationId)
     // A cancelled entry releases its partition (R1, ADR 3 amendment 2). When it
     // was a queued head backing off, what was written behind it goes now rather
     // than at the next unrelated drain trigger.
@@ -558,20 +540,8 @@ class KernelEngineOutbox implements EngineOutbox {
           this.callbacks.onDeadLetter?.(parked)
         }
       }
-    } else if (
-      event.type === 'retired' ||
-      event.type === 'retired-automatic' ||
-      event.type === 'cancelled' ||
-      // POD-785: a collapsed entry leaves the queue without ever being sent, so
-      // its side metadata has to go with it. Omitted, this Map would be a second
-      // unbounded collection growing exactly where the first one did — a read
-      // receipt's baseline retained for a record that no longer exists.
-      event.type === 'superseded'
-    ) {
-      this.metadata.delete(event.mutationId)
-      if (event.type === 'superseded') {
-        this.callbacks.onSuperseded?.(event.mutationId, this.collapsible.get(event.mutationId))
-      }
+    } else if (event.type === 'superseded') {
+      this.callbacks.onSuperseded?.(event.mutationId, this.collapsible.get(event.mutationId))
     }
     // Queue membership moved (a new entry, a re-issue, a park, a retirement), so
     // the next expiry instant may have too.
@@ -587,7 +557,6 @@ class KernelEngineOutbox implements EngineOutbox {
       kind: kindFor(record),
       input: record.input,
       queuedAt: record.queuedAt,
-      ...this.metadata.get(record.mutationId),
     }
   }
 
@@ -801,9 +770,9 @@ export async function openKernelEngineOutbox(
 }
 
 /**
- * Retire an applied entry unless something else already did. Another retirement
- * (the replica's confirmation, a caller's own rule) can land between the check
- * and this write, so an entry that is gone by then is not an error either.
+ * Retire an applied entry unless something else already did. The replica's
+ * confirmation can land between the check and this write, so an entry that is
+ * gone by then is not an error either.
  */
 function retireIfApplied(
   kernel: KernelOutbox,

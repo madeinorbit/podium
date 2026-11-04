@@ -240,7 +240,7 @@ const spawnPools = new WeakMap<object, MobxPool>()
 type TransactionsRuntime = WorklistRuntime & {
   readonly principal: { userId: string }
   readonly subscribeOutboxOutcomes: PoolTransactionsPorts['outcomes']
-  readonly outbox: PoolTransactionsPorts['outbox'] & { enqueue: import('@podium/client-core/engine').EngineOutbox['enqueue']; retireAwaiting(id: import('@podium/model').MutationId): void }
+  readonly outbox: PoolTransactionsPorts['outbox'] & { enqueue: import('@podium/client-core/engine').EngineOutbox['enqueue'] }
   /** Routes the runtime's queued actions through the log (POD-5432). */
   readonly attachPoolWriter: (writer: PoolTransactions) => () => void
 }
@@ -258,7 +258,6 @@ export function createRuntimeTransactions(runtime: WorklistRuntime): PoolTransac
     outbox: rt.outbox,
     outcomes: rt.subscribeOutboxOutcomes,
     enqueue: async (kind, input, opts) => { await rt.outbox!.enqueue(kind, input, opts) },
-    retire: id => rt.outbox!.retireAwaiting(id),
     addressed: subscribeAddressed,
     spawn: {
       api: (runtime as unknown as { access: { trpc: import('@podium/client-core').PodiumClientApi } }).access.trpc,

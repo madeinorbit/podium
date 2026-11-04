@@ -108,7 +108,7 @@ it.each([1, 4])('matches the old pending sweep through addressed edits and retir
     expect(held).toEqual(rebuilt)
   }
   const edit = (entity: keyof typeof maps, id: string, patch: Record<string, unknown>) => {
-    maps[entity].set(id, [{ op: 'patch', key: `${entity}:${id}`, entity, id, patch, coveredBy: () => false }])
+    maps[entity].set(id, [{ op: 'patch', key: `${entity}:${id}`, entity, id, patch }])
     f.source.repaint([{ kind: entity.startsWith('session') ? 'session' : 'issue', id }])
     parity()
   }
@@ -343,7 +343,6 @@ it('recovery includes pending optimism, removals, and rollback', () => {
         entity: 'sessions',
         id: 'a',
         patch: { title: 'optimistic' },
-        coveredBy: () => false,
       },
     ])
     f.tables.get('sessions')!.delete('removed')
@@ -581,7 +580,7 @@ it('keeps masked remote changes quiet, then publishes rollback and marker change
   f.source.source.snapshot('issue')
   try {
     overlays.set('one', [{ op: 'patch', key: 'title', entity: 'issueProjections', id: 'one',
-      patch: { title: 'painted' }, coveredBy: () => false }])
+      patch: { title: 'painted' } }])
     const painted = f.source.repaint([{ kind: 'issue', id: 'one' }])!.rows[0]!.value
     f.put('issueProjections', 'one', { ...row, title: 'remote', revision: 2 })
     f.address({ kind: 'issueProjections', id: 'one' })
@@ -591,7 +590,7 @@ it('keeps masked remote changes quiet, then publishes rollback and marker change
     expect(f.source.repaint([{ kind: 'issue', id: 'one' }])!.rows[0]).toMatchObject({ value: { title: 'remote' } })
     // Echo retirement with equal visible fields is quiet too.
     overlays.set('one', [{ op: 'patch', key: 'title', entity: 'issueProjections', id: 'one',
-      patch: { title: 'echoed' }, coveredBy: () => false }])
+      patch: { title: 'echoed' } }])
     f.source.repaint([{ kind: 'issue', id: 'one' }])
     f.put('issueProjections', 'one', { ...row, title: 'echoed', revision: 3 })
     overlays.clear()

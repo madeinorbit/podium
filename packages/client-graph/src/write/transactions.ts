@@ -1,30 +1,21 @@
 import { randomUUID } from '@podium/client-core/id'
-import { PoolSpawns, type PoolSpawnPorts } from './spawns'
+import { type PoolSpawnPorts, PoolSpawns } from './spawns'
 /** PoolTransactions owns client optimism and spawn placeholders over one outbox.
  * A press reduces and paints inside one MobX action before the durable enqueue.
  * Refusal rebases from truth and the remaining commands; no previous visible
  * row is saved. The log adopts other tabs' queue edits and restores queued and
  * awaiting writes on boot, including offline hydration.
  *
- * Applied writes hold their durable entry until covering truth, a competing
- * patched-cell change, deletion, or TTL. Eviction and rescope preserve pending
- * work for readmission. Each log belongs to one principal and releases its
- * timers, spawn waiters and row indexes on disposal.
+ * An applied write paints exactly as long as its outbox entry is awaiting
+ * confirmation: the overlays derive from `outbox.awaiting()` and drop when the
+ * replica's confirmation retires the entry (ADR 12). No row check, value
+ * comparison or timer retires one. Eviction and rescope preserve pending work
+ * for readmission. Each log belongs to one principal and releases its spawn
+ * waiters and row indexes on disposal.
  */
 
-import type {
-  AwaitingTruth,
-  OverlayRow,
-  OverlayTarget,
-  PendingOverlay,
-} from '@podium/client-core/command-reducers'
-import {
-  AWAITING_TRUTH_TTL_MS,
-  overlaysForOutboxEntry,
-  patchedCellsMovedPast,
-  pruneAwaiting,
-  rowFingerprint,
-} from '@podium/client-core/command-reducers'
+import type { OverlayTarget, PendingOverlay } from '@podium/client-core/command-reducers'
+import { overlaysForOutboxEntry } from '@podium/client-core/command-reducers'
 import type {
   EngineOutbox,
   OutboxKinds,
@@ -42,6 +33,14 @@ type PatchOverlay = Extract<PendingOverlay, { op: 'patch' }>
 type InsertOverlay = Extract<PendingOverlay, { op: 'insert' }>
 type AnyKind = keyof OutboxKinds & string
 type PoolRow = { readonly kind: 'session' | 'issue'; readonly id: string }
+
+/** An applied change whose outbox entry still awaits confirmation. */
+interface Awaiting {
+  readonly mutationId: MutationId
+  /** The entry's input the overlays were reduced from. */
+  readonly input: unknown
+  readonly overlays: readonly PatchOverlay[]
+}
 
 const TARGETS: readonly OverlayTarget[] = [
   'sessions',
@@ -89,14 +88,11 @@ export interface PoolTransactionsPorts {
   readonly enqueue: <K extends AnyKind>(
     kind: K,
     input: OutboxKinds[K],
-    opts: { mutationId: MutationId; queuedAt: number; baseline?: string; chained?: boolean },
+    opts: { mutationId: MutationId; queuedAt: number },
   ) => Promise<void>
   /** Kernel batches by row: when truth lands, settlement runs. */
   readonly addressed: (listener: (batch: ReplicaAddressedBatch) => void) => () => void
-  /** Release an awaiting record's durable hold. Optional in isolated test logs. */
-  readonly retire?: (mutationId: MutationId) => void
   readonly now?: () => number
-  readonly schedule?: (run: () => void, ms: number) => () => void
   readonly mintId?: () => MutationId
   /** The shared command reducer. Only a test replaces it, to plant a wrong
    *  one and prove the differential check against an independent log fails. */
@@ -107,7 +103,6 @@ export interface PoolTransactions {
   spawnDraftAgent: PoolSpawns['spawnDraftAgent']
   spawnIssueAgent: PoolSpawns['spawnIssueAgent']
   waitForSpawnConfirmed: PoolSpawns['waitForSpawnConfirmed']
-  holds(mutationId: MutationId): boolean
   /** What the row source reads in `pooled` mode. */
   readonly pending: PooledPending
   /** Attach the row source the log repaints through; settles the boot state. */
@@ -127,11 +122,6 @@ export interface PoolTransactions {
   /** Transactions in the log, painted or queued (tests and meters). */
   size(): number
   dispose(): void
-}
-
-const realSchedule = (run: () => void, ms: number): (() => void) => {
-  const timer = setTimeout(run, ms)
-  return () => clearTimeout(timer)
 }
 
 const isPatch = (o: PendingOverlay): o is PatchOverlay => o.op === 'patch'
@@ -167,18 +157,9 @@ function poolRowOfAddress(kind: string, id: string): string | undefined {
   }
 }
 
-const keyOfTruth: Record<OverlayTarget, (row: Record<string, unknown>) => string> = {
-  sessions: (row) => String(row.sessionId),
-  sessionUserStates: (row) => String(row.sessionId),
-  issueProjections: (row) => String(row.id),
-  issueUserStates: (row) => String(row.entityId),
-}
-
 export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransactions {
-  // Wall-clock liveness, as the log's TTL is: it fires a timer and stamps
-  // a press, and no derivation reads it.
+  // Stamps a press; no derivation reads it.
   const now = ports.now ?? (() => Date.now())
-  const schedule = ports.schedule ?? realSchedule
   // Not `crypto.randomUUID`: a browser on plain-HTTP LAN origins has none, and this
   // default minter ran on every UI write there (POD-5931).
   const mintId = ports.mintId ?? (() => asMutationId(randomUUID()))
@@ -196,8 +177,8 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
     issueProjections: new Map(),
     issueUserStates: new Map(),
   }
-  /** Applied, waiting for covering truth; in resolution order. */
-  let awaiting: AwaitingTruth[] = []
+  /** Applied, awaiting confirmation: a mirror of `outbox.awaiting()`, in its order. */
+  let awaiting: Awaiting[] = []
   /** Adopted spawn placeholders. */
   let spawns: InsertOverlay[] = []
   /** Ids the outbox answered while the queue may still list them. */
@@ -210,10 +191,13 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
     deep: false,
     name: debugName(() => 'transactions.notSaved'),
   })
-  const parked = new Map<MutationId, {
-    entry: OutboxEntry
-    rows: ReadonlyMap<string, PoolRow>
-  }>()
+  const parked = new Map<
+    MutationId,
+    {
+      entry: OutboxEntry
+      rows: ReadonlyMap<string, PoolRow>
+    }
+  >()
 
   /** An index of the durable parked records, including boot, expiry and recovery.
    * Keep row slots stable when unrelated queue entries change. Multiple refusals
@@ -248,7 +232,6 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
     for (const id of parked.keys()) if (!seen.has(id)) removeParked(id)
   }
   const rejected = new Set<(rejection: PoolRejection) => void>()
-  let cancelSweep: (() => void) | null = null
   const offs: (() => void)[] = []
 
   // ---------------------------------------------------------------- index
@@ -317,11 +300,6 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
     return undefined
   }
 
-  /** The server-truth row a change is judged against (absence included). */
-  function truthRow(entity: OverlayTarget, id: string): OverlayRow | undefined {
-    return (truth(entity, id) ?? absentRow(entity, id)) as OverlayRow | undefined
-  }
-
   function decorate(o: PendingOverlay): PendingOverlay {
     if (o.op !== 'patch') return o
     const absent = absentRow(o.entity, o.id)
@@ -329,12 +307,12 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
   }
 
   /** One row's changes in the log's fold order: spawn inserts, awaiting
-   *  truth, queued in queue order, then painted ahead of the queue. */
+   *  confirmation, queued in queue order, then painted ahead of the queue. */
   function listFor(entity: OverlayTarget, id: string): PendingOverlay[] {
     const out: PendingOverlay[] = []
     for (const o of spawns) if (o.entity === entity && o.id === id) out.push(o)
     for (const a of awaiting) {
-      if (a.overlay.entity === entity && a.overlay.id === id) out.push(decorate(a.overlay))
+      for (const o of a.overlays) if (o.entity === entity && o.id === id) out.push(decorate(o))
     }
     const set = byRow[entity].get(id)
     if (set !== undefined) {
@@ -358,7 +336,7 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
   function rowIds(entity: OverlayTarget): Set<string> {
     const ids = new Set(byRow[entity].keys())
     for (const o of spawns) if (o.entity === entity) ids.add(o.id)
-    for (const a of awaiting) if (a.overlay.entity === entity) ids.add(a.overlay.id)
+    for (const a of awaiting) for (const o of a.overlays) if (o.entity === entity) ids.add(o.id)
     return ids
   }
 
@@ -371,7 +349,7 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
       has: (id) =>
         byRow[entity].has(id) ||
         spawns.some((o) => o.entity === entity && o.id === id) ||
-        awaiting.some((a) => a.overlay.entity === entity && a.overlay.id === id),
+        awaiting.some((a) => a.overlays.some((o) => o.entity === entity && o.id === id)),
       keys: () => rowIds(entity),
     }
   }
@@ -391,45 +369,11 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
 
   // ---------------------------------------------------------------- settlement
 
-  /** Retire awaiting changes whose truth covers them, moved past them, left,
-   *  or outlived the TTL (the log's `pruneAwaiting`, row by row); and spawn
-   *  placeholders whose server row landed. Returns the rows that moved. */
+  /** Retire spawn placeholders whose server row landed. Returns the rows
+   *  that moved. A placeholder is not an outbox entry; a row with its
+   *  client-minted id is exact evidence. */
   function settle(): Map<string, PoolRow> {
     const touched = new Map<string, PoolRow>()
-    if (awaiting.length > 0 && source !== null) {
-      const before = awaiting
-      for (const entity of TARGETS) {
-        const ids = new Set<string>()
-        for (const a of awaiting) if (a.overlay.entity === entity) ids.add(a.overlay.id)
-        if (ids.size === 0) continue
-        const base: Record<string, unknown>[] = []
-        for (const id of ids) {
-          const row = truth(entity, id)
-          if (row !== undefined) base.push(row)
-        }
-        awaiting = pruneAwaiting(
-          awaiting,
-          entity,
-          base,
-          keyOfTruth[entity],
-          now(),
-          undefined,
-          (id) => absentRow(entity, id) as Record<string, unknown> | undefined,
-        )
-      }
-      if (awaiting !== before) {
-        const dropped = before.filter((a) => !awaiting.includes(a))
-        rowsOf(
-          dropped.map((a) => a.overlay),
-          touched,
-        )
-        for (const a of dropped) {
-          const key = a.overlay.key
-          if (!awaiting.some((other) => other.overlay.key === key))
-            ports.retire?.(asMutationId(key))
-        }
-      }
-    }
     if (spawns.length > 0 && source !== null) {
       const kept = spawns.filter((o) => {
         if (o.entity === 'issueUserStates') {
@@ -460,32 +404,49 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
       }
     }
     spawnOwner?.confirmed()
-    armSweep()
     return touched
   }
 
-  /** The ledger's TTL backstop: a quiet replica must still retire a change
-   *  whose covering truth never comes. */
-  function armSweep(): void {
-    if (cancelSweep !== null || awaiting.length === 0 || disposed) return
-    let earliest = Number.POSITIVE_INFINITY
-    for (const a of awaiting) if (a.resolvedAt < earliest) earliest = a.resolvedAt
-    cancelSweep = schedule(
-      () => {
-        cancelSweep = null
-        if (disposed) return
-        runInAction(() => commit(settle()))
-      },
-      Math.max(0, earliest + AWAITING_TRUTH_TTL_MS - now()) + 25,
-    )
+  // ---------------------------------------------------------------- outbox
+
+  /** Mirror `outbox.awaiting()`: adopt applied entries this log has not seen
+   *  (boot, another tab), drop those the replica's confirmation retired. */
+  function reconcileAwaiting(touched: Map<string, PoolRow>): void {
+    const known = new Map(awaiting.map((a) => [a.mutationId, a]))
+    const next: Awaiting[] = []
+    for (const entry of ports.outbox.awaiting()) {
+      const previous = known.get(entry.mutationId)
+      known.delete(entry.mutationId)
+      if (previous !== undefined && previous.input === entry.input) {
+        next.push(previous)
+        continue
+      }
+      if (previous !== undefined) rowsOf(previous.overlays, touched)
+      const a = awaitingOf(entry)
+      rowsOf(a.overlays, touched)
+      next.push(a)
+    }
+    for (const gone of known.values()) rowsOf(gone.overlays, touched)
+    // A re-order changes a composition only where two changes share a row.
+    const kept = next.filter((a) => awaiting.includes(a))
+    const before = awaiting.filter((a) => kept.includes(a))
+    if (kept.some((a, i) => before[i] !== a)) for (const a of kept) rowsOf(a.overlays, touched)
+    awaiting = next
   }
 
-  // ---------------------------------------------------------------- outbox
+  function awaitingOf(entry: OutboxEntry, overlays?: readonly PendingOverlay[]): Awaiting {
+    return {
+      mutationId: entry.mutationId,
+      input: entry.input,
+      overlays: (overlays ?? reduce(entry)).filter(isPatch),
+    }
+  }
 
   /** Follow the queue: adopt records this log did not author, follow edits
    *  and order, drop records the queue no longer holds. Returns moved rows. */
   function reconcile(): Map<string, PoolRow> {
     const touched = new Map<string, PoolRow>()
+    reconcileAwaiting(touched)
     const entries = ports.outbox.pending()
     const seen = new Set<MutationId>()
     const before = [...txns.values()].filter((t) => t.position !== undefined)
@@ -538,38 +499,24 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
     return touched
   }
 
+  /** The reply came back: the change moves from the queue to awaiting
+   *  confirmation, unchanged. Its entry's retirement drops it (`reconcile`). */
   function onApplied(entry: OutboxEntry): void {
     settled.add(entry.mutationId)
     const touched = new Map<string, PoolRow>()
     const t = txns.get(entry.mutationId)
-    const overlays = (
-      t !== undefined && t.input === entry.input ? t.overlays : reduce(entry)
-    ).filter(isPatch)
     if (t !== undefined) {
       remove(t)
       rowsOf(t.overlays, touched)
     }
-    rowsOf(overlays, touched)
-    let hold = false
-    for (const overlay of overlays) {
-      const row = truthRow(overlay.entity, overlay.id)
-      // The ledger's `mutationApplied`, rule for rule: nothing to wait for when
-      // the row is gone or already covered; a moved baseline is a competing
-      // writer unless an older change on the same row explains it.
-      if (row === undefined || overlay.coveredBy(row)) continue
-      const olderSameRow =
-        entry.chained === true ||
-        awaiting.some((a) => a.overlay.entity === overlay.entity && a.overlay.id === overlay.id)
-      const moved = patchedCellsMovedPast(overlay, row, entry.baseline)
-      if (moved && !olderSameRow) continue
-      hold = true
-      awaiting = [
-        ...awaiting,
-        { overlay, baseline: olderSameRow ? undefined : entry.baseline, resolvedAt: now() },
-      ]
+    if (!awaiting.some((a) => a.mutationId === entry.mutationId)) {
+      const a = awaitingOf(
+        entry,
+        t !== undefined && t.input === entry.input ? t.overlays : undefined,
+      )
+      awaiting = [...awaiting, a]
+      rowsOf(a.overlays, touched)
     }
-    if (hold) armSweep()
-    for (const [key, row] of settle()) touched.set(key, row)
     commit(touched)
   }
 
@@ -618,34 +565,31 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
     commit(rowsOf(gone))
   }
 
-  const spawnOwner = ports.spawn ? new PoolSpawns({
-    ...ports.spawn,
-    truth,
-    pending: id => spawnPrompts.has(id),
-    paint: event => runInAction(() => { onSpawn(event); spawnOwner?.confirmed() }),
-  }) : null
+  const spawnOwner = ports.spawn
+    ? new PoolSpawns({
+        ...ports.spawn,
+        truth,
+        pending: (id) => spawnPrompts.has(id),
+        paint: (event) =>
+          runInAction(() => {
+            onSpawn(event)
+            spawnOwner?.confirmed()
+          }),
+      })
+    : null
 
   // ---------------------------------------------------------------- boot
 
-  // Awaiting truth first, in outbox queue order; then the queue.
-  for (const entry of ports.outbox.awaiting()) {
-    settled.add(entry.mutationId)
-    for (const overlay of reduce(entry).filter(isPatch)) {
-      awaiting.push({
-        overlay,
-        baseline: entry.chained === true ? undefined : entry.baseline,
-        resolvedAt: (entry as { resolvedAt?: number }).resolvedAt ?? now(),
-      })
-    }
-  }
+  // Awaiting confirmation first, in outbox order; then the queue.
   reconcile()
   runInAction(reconcileParked)
   offs.push(
     ports.outbox.subscribe(() => {
-      if (!disposed) runInAction(() => {
-        reconcileParked()
-        commit(new Map([...reconcile(), ...settle()]))
-      })
+      if (!disposed)
+        runInAction(() => {
+          reconcileParked()
+          commit(new Map([...reconcile(), ...settle()]))
+        })
     }),
     ports.outcomes((outcome) => {
       if (disposed) return
@@ -686,48 +630,13 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
     const mutationId = mintId()
     const queuedAt = now()
     let t!: Transaction
-    let enqueueOpts: { mutationId: MutationId; queuedAt: number; baseline?: string; chained?: boolean } = { mutationId, queuedAt }
     runInAction(() => {
-      // The ledger's enqueue, step for step: probe the patches, fingerprint
-      // their truth rows as the baseline, mark a change chained behind a
-      // same-row one, then reduce for real with both.
-      const probe = reduce({ mutationId, kind, input, queuedAt }).filter(isPatch)
-      let baseline: string | undefined
-      let chained = false
-      if (probe.length > 0) {
-        const rows = probe
-          .flatMap((o) => [
-            ...(o.entity === 'sessionUserStates' ? [truthRow('sessions', o.id)] : []),
-            truthRow(o.entity, o.id),
-          ])
-          .filter((row): row is OverlayRow => row !== undefined)
-        if (rows.length > 0) baseline = rowFingerprint(Object.assign({}, ...rows))
-        const sameRow = (o: PendingOverlay): boolean =>
-          o.op === 'patch' && probe.some((p) => o.entity === p.entity && o.id === p.id)
-        chained =
-          awaiting.some((a) => sameRow(a.overlay)) ||
-          [...txns.values()].some(
-            (other) =>
-              (other.position !== undefined || other.unqueued) && other.overlays.some(sameRow),
-          )
-      }
-      enqueueOpts = { mutationId, queuedAt, ...(baseline !== undefined ? { baseline } : {}), ...(chained ? { chained } : {}) }
-      const overlays =
-        probe.length === 0
-          ? []
-          : reduce({
-              mutationId,
-              kind,
-              input,
-              queuedAt,
-              ...(baseline !== undefined ? { baseline } : {}),
-              ...(chained ? { chained } : {}),
-            })
+      const overlays = reduce({ mutationId, kind, input, queuedAt })
       t = { mutationId, kind, input, overlays, position: undefined, unqueued: true, seq: ++seq }
       add(t)
       commit(rowsOf(overlays))
     })
-    const committed = ports.enqueue(kind, input, enqueueOpts)
+    const committed = ports.enqueue(kind, input, { mutationId, queuedAt })
     committed.then(
       () => {
         if (disposed || txns.get(mutationId) !== t) return
@@ -769,16 +678,15 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
 
   return {
     pending,
-    spawnDraftAgent: args => {
+    spawnDraftAgent: (args) => {
       if (!spawnOwner) throw new Error('Pool spawn transport is not attached')
       return spawnOwner.spawnDraftAgent(args)
     },
-    spawnIssueAgent: args => {
+    spawnIssueAgent: (args) => {
       if (!spawnOwner) throw new Error('Pool spawn transport is not attached')
       return spawnOwner.spawnIssueAgent(args)
     },
-    waitForSpawnConfirmed: id => spawnOwner?.waitForSpawnConfirmed(id) ?? Promise.resolve(),
-    holds: id => awaiting.some(a => a.overlay.key === id),
+    waitForSpawnConfirmed: (id) => spawnOwner?.waitForSpawnConfirmed(id) ?? Promise.resolve(),
     spawnPrompts,
     notSaved: (kind, id) => notSavedRows.has(`${kind}:${id}`),
 
@@ -809,8 +717,6 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
       disposed = true
       spawnOwner?.dispose()
       for (const off of offs.splice(0)) off()
-      cancelSweep?.()
-      cancelSweep = null
       txns.clear()
       for (const entity of TARGETS) byRow[entity].clear()
       awaiting = []

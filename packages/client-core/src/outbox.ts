@@ -58,15 +58,9 @@ export interface OutboxEntry {
   kind: string
   input: unknown
   queuedAt: number
-  /** Durable overlay stage (#263 review finding 1): absent/undefined = queued;
-   *  'awaiting-truth' = the executor resolved but the caller asked (via
-   *  onApplied returning true) to keep the entry until covering server truth
-   *  lands — it is excluded from the drain queue and deleted only by
-   *  `retireAwaiting`. Surviving in storage is the point: a reload inside the
-   *  resolution→truth window restores the optimistic overlay. */
+  /** absent/undefined = queued; 'awaiting-truth' = applied, kept until the
+   *  replica's confirmation retires it (ADR 12); it still paints. */
   state?: 'awaiting-truth' | 'dead-letter'
-  /** Epoch ms when the executor resolved (stamped on the awaiting transition). */
-  resolvedAt?: number
   /** Present exactly when `state === 'dead-letter'`: why it parked and when.
    *  Lives on the entry so the park reuses the one durable storage seam. */
   deadLetter?: {
@@ -75,15 +69,6 @@ export interface OutboxEntry {
     deadLetteredAt: number
     attempts: number
   }
-  /** Opaque caller annotation captured at enqueue (#263 review finding 2): the
-   *  engine stores the target row's replica fingerprint here so resolution can
-   *  tell whether server truth already moved while the mutation was in flight. */
-  baseline?: string
-  /** True when a same-row entry (queued or awaiting) already existed at ENQUEUE
-   *  time (#263 review round 2): the predecessor's echo will move the row past
-   *  this entry's baseline before this one resolves, and reading that movement
-   *  as "a competing writer won" would wrongly drop this entry's overlay. */
-  chained?: boolean
 }
 
 /**
@@ -159,12 +144,9 @@ function toDeadLetter(entry: OutboxEntry): OutboxDeadLetterEntry | undefined {
 }
 
 /** Storage seam — platform adapters own localStorage, AsyncStorage, SQLite, etc.
- *  QUEUED entries live here. Awaiting-truth entries live in a SEPARATE
- *  `awaitingStorage` (#263 review round 2): an OLD build (PWA cache rollback)
- *  reads this collection and drains EVERY row it finds — it predates the
- *  `state` field, so an awaiting-marked row left here would be replayed as a
- *  queued mutation, resurrecting stale renames/archives past the server's
- *  dedup retention. Old builds never read the awaiting home. */
+ *  QUEUED entries live here, and only those: an OLD build (PWA cache rollback)
+ *  reads this collection and drains EVERY row it finds, so an applied row left
+ *  here would be replayed as a queued mutation. */
 export interface OutboxStorage {
   load(): OutboxEntry[]
   save(entries: OutboxEntry[]): void
@@ -293,25 +275,17 @@ export interface OutboxInit<M extends Record<string, object>> {
    *  two answers to "why did this fail" come to exist. */
   onDeadLetter?: (parked: OutboxDeadLetterEntry) => void
   /** Fires after an entry's executor resolved and the entry left the queue,
-   *  BEFORE subscribers observe the new size — so an overlay handoff (#263:
-   *  queued → awaiting server truth) can happen with no intermediate state in
-   *  which the entry is in neither stage. Return `true` to HOLD the entry in
-   *  the durable awaiting-truth stage (kept in storage with
-   *  state:'awaiting-truth' + resolvedAt; released via `retireAwaiting`);
-   *  any other return value deletes it, the pre-#263-review behavior. Must not
-   *  throw (guarded anyway — a throw deletes). */
-  onApplied?: (entry: OutboxEntry) => unknown
+   *  BEFORE subscribers observe the new size. This queue has no replica
+   *  confirmation, so the reply retires the entry (plan Decision 4). Must not
+   *  throw (guarded anyway). */
+  onApplied?: (entry: OutboxEntry) => void
   /** Fires once per resolution of an entry, with what the Authority answered
    *  (POD-4762) — see `OutboxSettlement`. */
   onSettled?: (mutationId: MutationId, settlement: OutboxSettlement) => void
   storage: OutboxStorage
-  /** Durable home for the awaiting-truth stage, SEPARATE from `storage` (#263
-   *  review round 2 — see the OutboxStorage note): a downgraded build reads
-   *  only the queued collection, so held entries can never be re-drained as
-   *  queued mutations. Any state:'awaiting-truth' rows still found in the
-   *  legacy `storage` are adopted here on load and deleted there. When absent
-   *  (older adapters/tests), awaiting entries are held in MEMORY only — the
-   *  reload-repaint durability is lost, but the legacy collection stays clean. */
+  /** Where an older build held applied entries for its value-comparison
+   *  retirement (#263). Those writes were applied and nothing here confirms
+   *  them, so they retire at load and the home is emptied (plan Decision 4). */
   awaitingStorage?: OutboxStorage
   /**
    * Durable home for parked entries. When ABSENT the park still happens and the
@@ -341,14 +315,9 @@ export interface OutboxInit<M extends Record<string, object>> {
 export class Outbox<M extends Record<string, object>> {
   /** The queued FIFO — entries still waiting for a successful send. */
   private entries: OutboxEntry[]
-  /** Resolved entries held durably until covering server truth lands (#263
-   *  review finding 1). Not part of the drain queue; persisted in the separate
-   *  `awaitingStorage` home (never in `storage` — old builds re-drain it). */
-  private awaitingEntries: OutboxEntry[]
   /** Parked for recovery (D9 `dead-letter`). Never drained, never dropped. */
   private deadLetterEntries: OutboxDeadLetterEntry[]
   private readonly storage: OutboxStorage
-  private readonly awaitingStorage: OutboxStorage | undefined
   private readonly deadLetterStorage: OutboxStorage | undefined
   private readonly retryMs: number
   private readonly now: () => number
@@ -367,7 +336,6 @@ export class Outbox<M extends Record<string, object>> {
 
   constructor(private readonly init: OutboxInit<M>) {
     this.storage = init.storage
-    this.awaitingStorage = init.awaitingStorage
     this.deadLetterStorage = init.deadLetterStorage
     this.retryMs = init.retryMs ?? 5000
     const loaded = this.storage.load()
@@ -379,18 +347,9 @@ export class Outbox<M extends Record<string, object>> {
     // rows are kept out of this home entirely, so today the enumeration is
     // total; writing it as an enumeration is what keeps it total tomorrow.
     this.entries = loaded.filter((e) => e.state === undefined)
-    // Migration (#263 review round 2): a PREVIOUS build persisted awaiting
-    // entries in the queued collection (state-marked). Adopt them into the
-    // separate awaiting home and delete them from the legacy collection — an
-    // old build reading it after a rollback must never re-drain them.
-    const legacyAwaiting = loaded.filter((e) => e.state === 'awaiting-truth')
-    const adopted = this.awaitingStorage?.load() ?? []
-    const have = new Set(adopted.map((e) => e.mutationId))
-    this.awaitingEntries = [...adopted, ...legacyAwaiting.filter((e) => !have.has(e.mutationId))]
-    if (legacyAwaiting.length > 0) {
-      this.storage.save(this.entries)
-      this.saveAwaiting()
-    }
+    // LEGACY(remove-after: 2027-03): applied entries an older build held, in the awaiting home or state-marked in the queued collection, retire at load; removing this leaves them in storage, unread.
+    if (loaded.some((e) => e.state === 'awaiting-truth')) this.storage.save(this.entries)
+    if ((init.awaitingStorage?.load().length ?? 0) > 0) init.awaitingStorage?.save([])
     const restoredDeadLetters = (this.deadLetterStorage?.load() ?? []).flatMap((e) => {
       const parked = toDeadLetter(e)
       return parked ? [parked] : []
@@ -416,7 +375,7 @@ export class Outbox<M extends Record<string, object>> {
   enqueue<K extends keyof M & string>(
     kind: K,
     input: M[K],
-    opts?: { baseline?: string; chained?: boolean; mutationId?: MutationId },
+    opts?: { mutationId?: MutationId },
   ): OutboxEntry {
     const entry: OutboxEntry = {
       // A caller-supplied id (POD-1053: the optimistic ledger files its overlay
@@ -425,8 +384,6 @@ export class Outbox<M extends Record<string, object>> {
       kind,
       input,
       queuedAt: this.now(),
-      ...(opts?.baseline !== undefined ? { baseline: opts.baseline } : {}),
-      ...(opts?.chained === true ? { chained: true } : {}),
     }
     this.entries.push(entry)
     this.persist()
@@ -444,24 +401,10 @@ export class Outbox<M extends Record<string, object>> {
     return [...this.entries]
   }
 
-  /** Snapshot of the durable awaiting-truth stage (#263 review finding 1), in
-   *  resolution order. The engine restores these into its overlay on boot. */
+  /** Applied entries awaiting confirmation. This queue has none: the reply
+   *  retires an entry (plan Decision 4). */
   awaiting(): OutboxEntry[] {
-    return [...this.awaitingEntries]
-  }
-
-  /** Retire (delete durably) one awaiting-truth entry — covering server truth
-   *  landed, or the caller gave up on it (TTL). No-op for unknown ids, so a
-   *  re-entrant retirement during a repaint cascade converges. Saves WITHOUT
-   *  notifying subscribers: the queued size didn't change, and a notification
-   *  here would recompute the caller's overlays mid-retirement — promoting a
-   *  younger same-row awaiting entry to "oldest" (escape-eligible) within the
-   *  SAME pass, exactly what the oldest-first rule exists to prevent. */
-  retireAwaiting(mutationId: MutationId): void {
-    const idx = this.awaitingEntries.findIndex((e) => e.mutationId === mutationId)
-    if (idx === -1) return
-    this.awaitingEntries.splice(idx, 1)
-    this.saveAwaiting()
+    return []
   }
 
   // ---- Dead-letter recovery (ADR 3 D9 invariants 1–3) ---------------------
@@ -679,20 +622,10 @@ export class Outbox<M extends Record<string, object>> {
       // the entry for an idempotent (mutationId-deduped) replay instead.
       if (this.disposed) return
       this.entries.shift()
-      let hold = false
       try {
-        hold = this.init.onApplied?.(entry) === true
+        this.init.onApplied?.(entry)
       } catch {
         // an overlay listener must never wedge the drain
-      }
-      if (hold) {
-        // Durable awaiting-truth transition (#263 review finding 1): keep the
-        // entry in the awaiting home — a reload before covering truth lands
-        // restores the overlay instead of flashing stale replica truth. It
-        // moves OUT of the queued collection entirely (round 2): a downgraded
-        // build reading that collection must never re-drain a held entry.
-        this.awaitingEntries.push({ ...entry, state: 'awaiting-truth', resolvedAt: this.now() })
-        this.saveAwaiting()
       }
       this.persist()
       this.init.onSettled?.(entry.mutationId, { kind: 'applied', reply })
@@ -740,15 +673,8 @@ export class Outbox<M extends Record<string, object>> {
 
   private save(): void {
     if (this.disposed) return
-    // QUEUED entries only — the awaiting stage persists via saveAwaiting()
-    // into its own storage. Subscribers see the QUEUED size only.
+    // QUEUED entries only. Subscribers see the QUEUED size only.
     this.storage.save([...this.entries])
-  }
-
-  private saveAwaiting(): void {
-    if (this.disposed) return
-    // FIFO = resolution order; blob-shaped storages preserve save order.
-    this.awaitingStorage?.save([...this.awaitingEntries])
   }
 
   private scheduleRetry(): void {

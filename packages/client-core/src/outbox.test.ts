@@ -329,102 +329,46 @@ describe('storage-neutral outbox', () => {
     expect(ob2.size()).toBe(2)
   })
 
-  it('onApplied returning true holds the entry DURABLY as awaiting-truth in the SEPARATE home; retireAwaiting deletes it (#263 finding 1 + round 2)', async () => {
+  it('an applied entry retires on its reply: this queue has no confirmation (plan Decision 4)', async () => {
     const backing = memoryStorage()
     const awaitingBacking = memoryStorage()
-    const { executors } = makeExecutors()
+    const applied: string[] = []
     const ob = createOutbox<Kinds>({
-      executors,
+      executors: makeExecutors().executors,
       storage: backing.storage,
       awaitingStorage: awaitingBacking.storage,
       randomId: deterministicIds(),
-      now: () => 4242,
-      onApplied: () => true,
+      onApplied: (entry) => {
+        applied.push(entry.mutationId)
+      },
     })
     outboxes.push(ob)
-    const a = ob.enqueue(
-      'rename',
-      { sessionId: asSessionId('s1'), name: 'one' },
-      { baseline: '{"n":0}' },
-    )
+    const a = ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'one' })
     await ob.drain()
-    // Out of the QUEUE (subscriber-visible size), but not out of storage.
+    expect(applied).toEqual([a.mutationId])
     expect(ob.size()).toBe(0)
-    expect(ob.pending()).toEqual([])
-    expect(ob.awaiting()).toEqual([
-      {
-        mutationId: a.mutationId,
-        kind: 'rename',
-        input: { sessionId: 's1', name: 'one' },
-        queuedAt: 4242,
-        baseline: '{"n":0}',
-        state: 'awaiting-truth',
-        resolvedAt: 4242,
-      },
-    ])
-    // Round 2 (#263): the held entry lives ONLY in the awaiting home. The
-    // queued collection is empty — an OLD build (PWA rollback) reading it
-    // must find nothing to re-drain.
-    expect(parseOutboxEntries(backing.raw())).toEqual([])
-    expect(
-      parseOutboxEntries(awaitingBacking.raw()).map((e) => [e.mutationId, e.state, e.baseline]),
-    ).toEqual([[a.mutationId, 'awaiting-truth', '{"n":0}']])
-    // Retirement is the durable delete.
-    ob.retireAwaiting(a.mutationId)
     expect(ob.awaiting()).toEqual([])
-    expect(awaitingBacking.raw()).toBe('[]')
-    ob.retireAwaiting(a.mutationId) // unknown id — converging no-op
+    expect(parseOutboxEntries(backing.raw())).toEqual([])
+    expect(parseOutboxEntries(awaitingBacking.raw())).toEqual([])
   })
 
-  it('a reloaded awaiting-truth entry restores into awaiting() and is NOT re-executed (new-build round-trip)', async () => {
-    const backing = memoryStorage()
-    const awaitingBacking = memoryStorage()
-    const first = createOutbox<Kinds>({
-      executors: makeExecutors().executors,
-      storage: backing.storage,
-      awaitingStorage: awaitingBacking.storage,
-      randomId: deterministicIds(),
-      onApplied: () => true,
-    })
-    outboxes.push(first)
-    const a = first.enqueue('rename', { sessionId: asSessionId('s1'), name: 'one' })
-    await first.drain()
-    first.dispose()
-    const { calls, executors } = makeExecutors()
-    const second = createOutbox<Kinds>({
-      executors,
-      storage: backing.storage,
-      awaitingStorage: awaitingBacking.storage,
-      randomId: () => 'm-succ',
-    })
-    outboxes.push(second)
-    expect(second.size()).toBe(0)
-    expect(second.awaiting().map((e) => e.mutationId)).toEqual([a.mutationId])
-    // Queued writes drain normally alongside the held entry.
-    second.enqueue('snoozeClear', { sessionId: asSessionId('s2') })
-    await second.drain()
-    expect(calls.map((c) => c.kind)).toEqual(['snoozeClear']) // no rename replay
-    expect(second.awaiting()).toHaveLength(1)
-  })
-
-  it('adopts awaiting-marked rows found in the legacy queued collection into the new home — never re-drained (#263 round 2 migration)', async () => {
-    // A PREVIOUS build persisted the held entry in the queued collection with
-    // state:'awaiting-truth'. The new build must move it to the separate home
-    // and delete it from the legacy one, so a subsequent OLD-build load (PWA
-    // cache rollback) finds nothing to replay.
-    const legacyRows = [
-      {
-        mutationId: 'm-held',
-        kind: 'rename',
-        input: { sessionId: 's1', name: 'stale' },
-        queuedAt: 1000,
-        state: 'awaiting-truth',
-        resolvedAt: 1500,
-      },
-      { mutationId: 'm-q', kind: 'snoozeClear', input: { sessionId: 's2' }, queuedAt: 2000 },
-    ]
-    const backing = memoryStorage(JSON.stringify(legacyRows))
-    const awaitingBacking = memoryStorage()
+  it('applied entries an older build held retire at load, from either home, and never re-drain', async () => {
+    const held = {
+      mutationId: 'm-held',
+      kind: 'rename',
+      input: { sessionId: 's1', name: 'stale' },
+      queuedAt: 1000,
+      state: 'awaiting-truth' as const,
+    }
+    // One build marked a held row in the queued collection, a later one kept it
+    // in the separate awaiting home.
+    const backing = memoryStorage(
+      JSON.stringify([
+        held,
+        { mutationId: 'm-q', kind: 'snoozeClear', input: { sessionId: 's2' }, queuedAt: 2000 },
+      ]),
+    )
+    const awaitingBacking = memoryStorage(JSON.stringify([{ ...held, mutationId: 'm-home' }]))
     const { calls, executors } = makeExecutors()
     const ob = createOutbox<Kinds>({
       executors,
@@ -433,47 +377,20 @@ describe('storage-neutral outbox', () => {
       randomId: () => 'm-x',
     })
     outboxes.push(ob)
-    // Adopted, not queued: the held row moved homes and only the queued row drains.
-    expect(ob.awaiting().map((e) => e.mutationId)).toEqual(['m-held'])
+    expect(ob.awaiting()).toEqual([])
     expect(parseOutboxEntries(backing.raw()).map((e) => e.mutationId)).toEqual(['m-q'])
-    expect(parseOutboxEntries(awaitingBacking.raw()).map((e) => e.mutationId)).toEqual(['m-held'])
+    expect(parseOutboxEntries(awaitingBacking.raw())).toEqual([])
     await ob.drain()
-    expect(calls.map((c) => c.kind)).toEqual(['snoozeClear']) // the stale rename never replayed
-    // The legacy collection stays clean of awaiting rows from here on.
-    expect(parseOutboxEntries(backing.raw())).toEqual([])
-    expect(ob.awaiting()).toHaveLength(1)
+    expect(calls.map((c) => c.kind)).toEqual(['snoozeClear']) // the stale rename never replays
   })
 
-  it('adoption dedupes against rows already in the awaiting home (idempotent re-migration)', () => {
+  it('without an awaitingStorage, a held row still leaves the queued collection and never drains', async () => {
     const held = {
       mutationId: 'm-held',
       kind: 'rename',
       input: { sessionId: 's1', name: 'stale' },
       queuedAt: 1000,
       state: 'awaiting-truth' as const,
-      resolvedAt: 1500,
-    }
-    const backing = memoryStorage(JSON.stringify([held]))
-    const awaitingBacking = memoryStorage(JSON.stringify([held]))
-    const ob = createOutbox<Kinds>({
-      executors: makeExecutors().executors,
-      storage: backing.storage,
-      awaitingStorage: awaitingBacking.storage,
-      randomId: () => 'm-x',
-    })
-    outboxes.push(ob)
-    expect(ob.awaiting().map((e) => e.mutationId)).toEqual(['m-held'])
-    expect(parseOutboxEntries(backing.raw())).toEqual([])
-  })
-
-  it('without an awaitingStorage, legacy awaiting rows are still removed from the queued collection (memory-only hold)', async () => {
-    const held = {
-      mutationId: 'm-held',
-      kind: 'rename',
-      input: { sessionId: 's1', name: 'stale' },
-      queuedAt: 1000,
-      state: 'awaiting-truth' as const,
-      resolvedAt: 1500,
     }
     const backing = memoryStorage(JSON.stringify([held]))
     const { calls, executors } = makeExecutors()
@@ -483,7 +400,7 @@ describe('storage-neutral outbox', () => {
       randomId: () => 'm-x',
     })
     outboxes.push(ob)
-    expect(ob.awaiting().map((e) => e.mutationId)).toEqual(['m-held'])
+    expect(ob.awaiting()).toEqual([])
     expect(parseOutboxEntries(backing.raw())).toEqual([]) // old builds see nothing
     await ob.drain()
     expect(calls).toEqual([]) // never re-drained

@@ -357,20 +357,4 @@ describe('client write confirmation through sync.submit', () => {
     expect(outbox.awaiting()).toEqual([])
     outbox.dispose()
   })
-
-  it('retireAwaiting on an entry the replica already confirmed is not an error', async () => {
-    // The layout controller and the pool still retire by their own rules until
-    // Tasks 7 and 8 delete them; they must not trip over a confirmed entry.
-    const { api } = server(async () => applied(2))
-    const { outbox, degraded, goOnline } = await open(api, { current: at(5) })
-    await clear(outbox, M1)
-    goOnline()
-    await outbox.drain()
-    await settle()
-    expect(outbox.awaiting()).toEqual([])
-    outbox.retireAwaiting(M1)
-    await settle()
-    expect(degraded).toEqual([])
-    outbox.dispose()
-  })
 })

@@ -776,11 +776,15 @@ describe('real pool row mutations and receipts', () => {
     expect(referenceState(runtime).outboxDeadLetters).toHaveLength(1)
   })
 
-  it('retains an accepted rename until the echo, composes a later edit and rewinds only that edit', async () => {
+  // How long an applied write paints is the outbox entry's (POD-6279), and this
+  // fixture's compatibility queue retires on the reply: the echo lands first here.
+  it('composes a later edit over an accepted rename and rewinds only that edit', async () => {
     const fixture = await mount()
     act(() => actions.renameIssue(TARGET, 'Accepted title'))
+    expect(value().title).toBe('Accepted title')
     const first = await request('issues.update')
     await act(async () => {
+      patchIssue(fixture, TARGET, { title: 'Accepted title' })
       first.resolve({ ok: true })
     })
     await waitFor(() => expect(outcomes.some((o) => o.type === 'applied')).toBe(true))
@@ -791,9 +795,6 @@ describe('real pool row mutations and receipts', () => {
       expect(requests.filter((r) => r.procedure === 'issues.update')).toHaveLength(2),
     )
     const second = requests.filter((r) => r.procedure === 'issues.update')[1]!
-    await act(async () => {
-      patchIssue(fixture, TARGET, { title: 'Accepted title' })
-    })
     expect(value().title).toBe('Second pending title')
     await settle()
     await refuse(second)

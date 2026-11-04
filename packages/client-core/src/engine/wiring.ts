@@ -173,11 +173,10 @@ export interface EngineOutbox {
      * from the return value is too late. Omit it and the queue mints one, which
      * is what every other caller does.
      */
-    opts?: { baseline?: string; chained?: boolean; mutationId?: MutationId },
+    opts?: { mutationId?: MutationId },
   ): OutboxEntry | Promise<OutboxEntry>
   /** Wait for local queue commits only; pending network delivery may survive reload. */
   flushLocalWrites?(): Promise<void>
-  retireAwaiting(mutationId: MutationId): void
   retry(mutationId: MutationId, satisfaction: RetrySatisfaction): unknown
   edit(mutationId: MutationId, input: unknown): unknown
   discard(mutationId: MutationId): unknown
@@ -189,7 +188,7 @@ export interface EngineOutboxCallbacks {
   readonly api: PodiumClientApi
   readonly replica: Replica
   readonly notices: StoreNotices
-  readonly onApplied?: (entry: OutboxEntry) => unknown
+  readonly onApplied?: (entry: OutboxEntry) => void
   /** Every resolution of an entry, by id, with the Authority's answer — what a
    *  chat send waits on (POD-4762). Fires for entries `onApplied` never sees:
    *  a terminal verdict retires in the same commit that applies it. */

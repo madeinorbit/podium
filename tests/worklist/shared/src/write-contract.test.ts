@@ -2,12 +2,11 @@
  * POD-4548 (L1c) — every sequence in
  * `docs/plans/pod-4545-round-three-write-contract.md`, run against each pending
  * log implementation, plus the mapping table pinned against the kernel's own
- * command, routing, park and TTL tables.
+ * command, routing and park tables.
  *
  * An arm that writes its own {@link PendingLog} adds its factory to `LOGS`.
  */
 import {
-  AWAITING_TRUTH_TTL_MS,
   deadLetterHandlingFor,
   OUTBOX_COMMANDS,
   OUTBOX_ROUTING,
@@ -377,7 +376,7 @@ describe('W3 edit -> kernel command', () => {
     for (const patch of bad) expect(() => commandFor('issue', 'i1', patch as EditPatch<'issue'>)).toThrow(WriteContractError)
   })
 
-  it('matches the kernel routing, park and TTL tables the rules rely on', () => {
+  it('matches the kernel routing and park tables the rules rely on', () => {
     // Every slice edit shares the issue's partition, so same-row writes stay FIFO (W7).
     expect(OUTBOX_ROUTING.issueUpdate({ id: 'i1', patch: { title: 'T' } })).toEqual({ partitionKey: 'issue:i1' })
     // Only mark-read collapses, so only mark-read can be superseded (W9).
@@ -386,6 +385,5 @@ describe('W3 edit -> kernel command', () => {
     expect(shouldParkDeadLetter('issueUpdate', { id: 'i1', patch: { title: 'T' } })).toBe(true)
     expect(shouldParkDeadLetter('issueUpdate', { id: 'i1', patch: { stage: 'review' } })).toBe(false)
     expect(deadLetterHandlingFor('issueMarkRead')).toBe('discard-automatic')
-    expect(ECHO_TTL_MS).toBe(AWAITING_TRUTH_TTL_MS)
   })
 })

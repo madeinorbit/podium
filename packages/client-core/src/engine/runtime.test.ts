@@ -44,14 +44,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { installMobxWarnTrap } from '../../../../tests/worklist/harness/src/mobx-trap'
 import { createRuntimeWorklistPool } from '../../../client-graph/src/runtime-pool'
 import type { PodiumClientApi } from '../api'
-import {
-  type AwaitingTruth,
-  insertOverlay,
-  type OverlayEntity,
-  type OverlayTarget,
-  type PendingOverlay,
-  pruneAwaiting,
-} from '../command-reducers'
 import { readStoreStats, storeStats } from '../perf/store-stats'
 import { asClientPrincipal } from '../principal'
 import { memoryStorage, type Replica, type StorageApi } from '../replica/contract'

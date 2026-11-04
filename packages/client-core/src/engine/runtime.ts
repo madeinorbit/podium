@@ -182,7 +182,6 @@ export interface PoolWriter {
   spawnDraftAgent?: Store['spawnDraftAgent']
   spawnIssueAgent?: Store['spawnIssueAgent']
   waitForSpawnConfirmed?: (id: SessionId) => Promise<void>
-  holds?: (id: MutationId) => boolean
   dispose?: () => void
   write<K extends keyof OutboxKinds & string>(kind: K, input: OutboxKinds[K]): Promise<void>
 }
