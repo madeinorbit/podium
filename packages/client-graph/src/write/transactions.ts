@@ -107,6 +107,8 @@ export interface PoolTransactionsPorts {
 }
 
 export interface PoolTransactions {
+  /** The person this log writes for: their per-user rows are their own. */
+  readonly userId: string
   spawnDraftAgent: PoolLaunches['spawnDraftAgent']
   /** Take a failed or expired draft start off the feed (POD-6408): true when
    *  the session was one, so its Remove means Dismiss. */
@@ -711,6 +713,7 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
 
   return {
     pending,
+    userId: ports.userId,
     spawnDraftAgent: (args) => {
       if (!launchOwner) throw new Error('Pool spawn transport is not attached')
       let started!: ReturnType<PoolLaunches['spawnDraftAgent']>

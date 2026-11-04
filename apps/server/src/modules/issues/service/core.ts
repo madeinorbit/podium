@@ -166,15 +166,20 @@ export class IssueStore {
     return await this.deps.readSessionFactsByIssue(row.worktreePath, row.id)
   }
 
-  /** One issue's markers for the broadcast viewer, as the wire wants them. */
-  async issueOverlay(issueId: IssueId): Promise<IssueUserOverlay> {
-    return issueOverlayOf(await this.issueUserState(issueId))
+  /** One issue's markers for `user` (default: the broadcast viewer), as the
+   *  wire wants them. */
+  async issueOverlay(issueId: IssueId, user?: UserId): Promise<IssueUserOverlay> {
+    return issueOverlayOf(await this.issueUserState(issueId, user))
   }
 
   /** The stored markers, for callers that need `pinnedAt` rather than `pinned`.
-   *  Read from the database, batched per operation (POD-6158). */
-  async issueUserState(issueId: IssueId): Promise<StoredIssueUserState | undefined> {
-    return await this.deps.store.issues.loadIssueUserState(await this.broadcastViewer(), issueId)
+   *  Read from the database, batched per operation (POD-6158). `user` defaults
+   *  to the broadcast viewer; a generic record edit names its caller (POD-6404). */
+  async issueUserState(issueId: IssueId, user?: UserId): Promise<StoredIssueUserState | undefined> {
+    return await this.deps.store.issues.loadIssueUserState(
+      user ?? (await this.broadcastViewer()),
+      issueId,
+    )
   }
 
   /** {@link issueUserState} for many issues: one batched read (POD-6191). */
@@ -183,11 +188,16 @@ export class IssueStore {
   }
 
   /**
-   * Write one of the broadcast viewer's markers. A PARTIAL patch — see the
-   * repository method — so marking an issue read cannot silently un-pin it.
+   * Write one of `user`'s markers (default: the broadcast viewer's). A PARTIAL
+   * patch — see the repository method — so marking an issue read cannot
+   * silently un-pin it.
    */
-  async writeIssueUserState(issueId: IssueId, patch: Partial<StoredIssueUserState>): Promise<void> {
-    const user = await this.broadcastViewer()
+  async writeIssueUserState(
+    issueId: IssueId,
+    patch: Partial<StoredIssueUserState>,
+    forUser?: UserId,
+  ): Promise<void> {
+    const user = forUser ?? (await this.broadcastViewer())
     await this.deps.ledger.commit({
       write: async () => {
         await this.deps.store.issues.setIssueUserState(user, issueId, patch)

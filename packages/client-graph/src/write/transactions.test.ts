@@ -42,8 +42,10 @@ const INPUT = {
 
 describe('PoolTransactions coverage (POD-5431)', () => {
   it('maps every queued command kind through the shared reducers', () => {
+    // The seven per-user marks became generic record edits (POD-6404), painted
+    // by the one record case (`records.test.ts`).
     const kinds = Object.keys(OUTBOX_COMMANDS)
-    expect(kinds).toHaveLength(29)
+    expect(kinds).toHaveLength(22)
     const silent = kinds.filter(
       (kind) =>
         overlaysForOutboxEntry({

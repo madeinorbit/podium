@@ -116,14 +116,20 @@
  */
 
 import type { SessionId } from '@podium/model'
-import { asSessionId } from '@podium/model'
+import {
+  asIssueId,
+  asSessionId,
+  asUserId,
+  issueUserStateRowId,
+  sessionUserStateRowId,
+} from '@podium/model'
+import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import { describe, expect, it } from 'vitest'
 import type { PodiumClientApi } from '../api'
-import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import { createOutbox, type OutboxEntry, type OutboxStorage } from '../outbox'
 import type { Replica } from '../replica/contract'
-import type { StoreNotices } from './types'
 import { openKernelEngineOutbox } from './kernel-outbox'
+import type { StoreNotices } from './types'
 import { createEngineOutbox, type OutboxKinds } from './wiring'
 
 const MUST_NOT_CHANGE = 'must-not-change'
@@ -223,6 +229,23 @@ async function drainFully(outbox: { size(): number; drain(): Promise<void> }): P
   }
 }
 
+/** A read mark, snooze or tuck: a generic edit of my own row (POD-6404). On a
+ *  server without `sync.submit` (this API has none) it goes out as the old
+ *  procedure it replaced, so the paths below are unchanged. */
+const READER = asUserId('user-1')
+const AT = '2026-11-05T00:00:00.000Z'
+const mySession = (id: string, patch: object, unset?: string[]) => ({
+  kind: 'sessionUserState',
+  id: sessionUserStateRowId(READER, asSessionId(id)),
+  patch,
+  ...(unset === undefined ? {} : { unset }),
+})
+const myIssue = (id: string, patch: object) => ({
+  kind: 'issueUserState',
+  id: issueUserStateRowId(READER, asIssueId(id)),
+  patch,
+})
+
 /** The covered set, as the engine enqueues it (engine.ts session/issue actions). */
 const COVERED: { kind: keyof OutboxKinds & string; input: object; path: string }[] = [
   { kind: 'pinSet', input: { kind: 'panel', id: 's1', pinned: true }, path: 'pins.set' },
@@ -241,8 +264,8 @@ const COVERED: { kind: keyof OutboxKinds & string; input: object; path: string }
     input: { sessionId: 's1', workState: 'done' },
     path: 'sessions.setWorkState',
   },
-  { kind: 'sessionMarkRead', input: { sessionId: 's1' }, path: 'sessions.markRead' },
-  { kind: 'sessionMarkUnread', input: { sessionId: 's1' }, path: 'sessions.markUnread' },
+  { kind: 'recordEdit', input: mySession('s1', { readAt: AT }), path: 'sessions.markRead' },
+  { kind: 'recordEdit', input: mySession('s1', { readAt: null }), path: 'sessions.markUnread' },
   // POD-1110 — the offer bar's "none of these"; see the header for why the
   // session half grew. The ACTION buttons are `sessions.sendText`, a chat send
   // (POD-4762).
@@ -251,8 +274,12 @@ const COVERED: { kind: keyof OutboxKinds & string; input: object; path: string }
     input: { sessionId: 's1', offerCreatedAt: '2026-08-16T09:00:00.000Z' },
     path: 'sessions.dismissOffer',
   },
-  { kind: 'snoozeSet', input: { sessionId: 's1', until: null }, path: 'snoozes.set' },
-  { kind: 'snoozeClear', input: { sessionId: 's1' }, path: 'snoozes.clear' },
+  { kind: 'recordEdit', input: mySession('s1', { snoozedUntil: null }), path: 'snoozes.set' },
+  {
+    kind: 'recordEdit',
+    input: mySession('s1', {}, ['snoozedUntil']),
+    path: 'snoozes.clear',
+  },
   {
     kind: 'resumeAndSend',
     input: { sessionId: 's1', text: 'hi' },
@@ -260,9 +287,9 @@ const COVERED: { kind: keyof OutboxKinds & string; input: object; path: string }
   },
   // POD-4762 — every chat send; see the header's third extension.
   { kind: 'sendText', input: { sessionId: 's1', text: 'hi' }, path: 'sessions.sendText' },
-  { kind: 'issueMarkRead', input: { id: 'i1' }, path: 'issues.markRead' },
-  { kind: 'issueMarkUnread', input: { id: 'i1' }, path: 'issues.markUnread' },
-  { kind: 'issueSetTucked', input: { id: 'i1', tucked: true }, path: 'issues.setTucked' },
+  { kind: 'recordEdit', input: myIssue('i1', { readAt: AT }), path: 'issues.markRead' },
+  { kind: 'recordEdit', input: myIssue('i1', { readAt: null }), path: 'issues.markUnread' },
+  { kind: 'recordEdit', input: myIssue('i1', { tuckedAt: AT }), path: 'issues.setTucked' },
   // POD-781 — the curation writes. One generic patch kind plus the five commands
   // that are not `issues.update`; see the header for why the set grew.
   {

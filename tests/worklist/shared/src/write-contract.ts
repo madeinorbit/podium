@@ -1,6 +1,15 @@
 /** Prior-value reference transport contracts used only by the worklist regression harness. */
 import type { OutboxKinds } from '@podium/client-core/engine'
-import { EDITABLE_STAGES, type TxId, type EditableStage, type WritableKind, type EditPatch, type KernelCommand } from '@podium/client-graph/write/commands'
+import {
+  EDITABLE_STAGES,
+  type EditableStage,
+  type EditPatch,
+  type KernelCommand,
+  type TxId,
+  type WritableKind,
+} from '@podium/client-graph/write/commands'
+import { parseIssueUserStateRowId } from '@podium/model'
+
 export * from '@podium/client-graph/write/commands'
 
 /** The values an object HOLDS for each editable field — what `prior` records. */
@@ -27,7 +36,9 @@ export type FieldValues<K extends WritableKind> = Partial<WritableFields[K]>
  */
 export type Coverage = 'exact' | 'stamp'
 
-export const FIELD_COVERAGE: { readonly [K in WritableKind]: { readonly [F in FieldName<K>]: Coverage } } = {
+export const FIELD_COVERAGE: {
+  readonly [K in WritableKind]: { readonly [F in FieldName<K>]: Coverage }
+} = {
   issue: { title: 'exact', stage: 'exact', readAt: 'stamp' },
 }
 
@@ -112,9 +123,15 @@ const EDITABLE_STAGE_SET: ReadonlySet<string> = new Set(EDITABLE_STAGES)
 export function editForPendingWrite(
   entry: OutboxPendingWrite,
 ): { kind: 'issue'; id: string; patch: EditPatch<'issue'> } | null {
-  if (entry.kind === 'issueMarkRead') {
-    const input = entry.input as OutboxKinds['issueMarkRead']
-    return { kind: 'issue', id: input.id, patch: { readAt: new Date(entry.queuedAt).toISOString() } }
+  if (entry.kind === 'recordEdit') {
+    // A mark-read: my own issue row's record edit (POD-6404).
+    const input = entry.input as OutboxKinds['recordEdit']
+    if (input.kind !== 'issueUserState' || typeof input.patch.readAt !== 'string') return null
+    return {
+      kind: 'issue',
+      id: parseIssueUserStateRowId(input.id).entityId,
+      patch: { readAt: input.patch.readAt },
+    }
   }
   if (entry.kind === 'issueUpdate') {
     const input = entry.input as { id: string; patch: Record<string, unknown> }

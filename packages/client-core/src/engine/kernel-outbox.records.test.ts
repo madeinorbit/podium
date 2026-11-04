@@ -10,6 +10,7 @@ import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import type { Cursor } from '@podium/sync/replica'
 import { describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
+import { overlaysForOutboxEntry } from '../command-reducers'
 import type { OutboxEntry, OutboxStorage } from '../outbox'
 import type { Replica } from '../replica/contract'
 import { openKernelEngineOutbox } from './kernel-outbox'
@@ -47,7 +48,10 @@ const missingProcedure = (): Error =>
     data: { code: 'NOT_FOUND', httpStatus: 404, path: 'sync.submit' },
   })
 
-async function openOn(reply: (envelope: SyncSubmitInput) => SyncSubmitReply) {
+async function openOn(
+  reply: (envelope: SyncSubmitInput) => SyncSubmitReply,
+  store = new InMemoryOutboxStore([]),
+) {
   const submits: SyncSubmitInput[] = []
   const api = {
     sync: {
@@ -61,7 +65,7 @@ async function openOn(reply: (envelope: SyncSubmitInput) => SyncSubmitReply) {
   } as unknown as PodiumClientApi
   let online = false
   const create = await openKernelEngineOutbox({
-    store: new InMemoryOutboxStore([]),
+    store,
     principal: 'user-1',
     api,
     onDegraded: () => {},
@@ -163,12 +167,9 @@ describe('a generic record write on the kernel queue', () => {
     await outbox.drain()
     await settle()
 
-    // The entry point first, then the per-kind fallback, which has no other
-    // route for a record command and names it from the whole entry.
-    expect(submits.map((s) => s.command)).toEqual([
-      'records.issueProjection.edit',
-      'records.issueProjection.edit',
-    ])
+    // The entry point once: the per-kind fallback knows it is missing and does
+    // not probe again (POD-6404), and an issue field edit has no older route.
+    expect(submits.map((s) => s.command)).toEqual(['records.issueProjection.edit'])
     expect(outbox.pending()).toEqual([])
     expect(outbox.awaiting()).toEqual([])
     expect(onDropped).toHaveBeenCalledWith(expect.objectContaining({ mutationId: M1 }), {
@@ -262,5 +263,42 @@ describe('one device’s chain of edits on one record (POD-6403)', () => {
       mutationId: M1,
     })
     outbox.dispose()
+  })
+})
+
+describe('a converted plain edit across a reload (POD-6404)', () => {
+  it('a read mark awaiting its receipt keeps painting after a reopen, and retires at the covering cursor', async () => {
+    const store = new InMemoryOutboxStore([])
+    const applied = (): SyncSubmitReply => ({
+      outcome: 'applied',
+      result: { ok: true },
+      receipt: at(7),
+      replayed: false,
+    })
+    const read = {
+      kind: 'sessionUserState' as const,
+      id: READ_ROW,
+      patch: { readAt: '2026-11-05T00:00:00.000Z' },
+    }
+    const first = await openOn(applied, store)
+    await first.outbox.enqueue('recordEdit', read, { mutationId: M1 })
+    first.goOnline()
+    await first.outbox.drain()
+    await settle()
+    expect(first.outbox.awaiting().map((e) => e.mutationId)).toEqual([M1])
+    first.outbox.dispose()
+
+    // The app reloads before the covering frame arrives.
+    const second = await openOn(applied, store)
+    const [awaiting] = second.outbox.awaiting()
+    expect(awaiting?.mutationId).toBe(M1)
+    expect(overlaysForOutboxEntry(awaiting!)).toEqual([
+      expect.objectContaining({ entity: 'sessionUserStates', patch: read.patch }),
+    ])
+    await second.create.overlay.retire({ matches: [], through: at(6), install: false })
+    expect(second.outbox.awaiting()).toHaveLength(1)
+    await second.create.overlay.retire({ matches: [], through: at(7), install: false })
+    expect(second.outbox.awaiting()).toEqual([])
+    second.outbox.dispose()
   })
 })

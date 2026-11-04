@@ -214,6 +214,8 @@ export interface PoolLazyOptions {
 
 /** The transaction log as the pool sees it (`write/transactions.ts`). */
 export interface PoolMutator {
+  /** The person the log writes for (a mark-read lands on their own row). */
+  readonly userId?: string
   mutate<K extends keyof OutboxKinds & string>(kind: K, input: OutboxKinds[K]): TxId
   notSaved?(kind: 'issue' | 'session', id: string): boolean
   /** TRACKED: sessions painted as spawn placeholders, and their first turns. */
@@ -830,7 +832,7 @@ export class MobxPool {
     if (this.transactions === null) {
       throw new WriteContractError(`the pool has no transaction log: cannot edit ${entity} ${id}`)
     }
-    const command = commandFor(entity, id, patch)
+    const command = commandFor(entity, id, patch, this.transactions.userId)
     return this.transactions.mutate(command.kind, command.input)
   }
 

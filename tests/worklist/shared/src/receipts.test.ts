@@ -9,17 +9,22 @@
  */
 import type { OutboxOutcome } from '@podium/client-core/engine'
 import type { OutboxEntry } from '@podium/client-core/outbox'
-import { createRowSource } from './row-source'
+import {
+  asIssueId,
+  asMutationId,
+  asUserId,
+  issueUserStateRowId,
+  type MutationId,
+} from '@podium/model'
+import { Outbox as KernelOutbox } from '@podium/sync/outbox'
+import { describe, expect, it, vi } from 'vitest'
 import {
   createWriteTransport,
   type ReceiptEvent,
   type ReceiptsRuntime,
   subscribeReceipts,
 } from './receipts'
-import type { WriteTransport } from './write-contract'
-import { asIssueId, asMutationId, issueUserStateRowId, type MutationId } from '@podium/model'
-import { Outbox as KernelOutbox } from '@podium/sync/outbox'
-import { describe, expect, it, vi } from 'vitest'
+import { createRowSource } from './row-source'
 import {
   armMarkReadRejection,
   type ScenarioEngine,
@@ -29,6 +34,14 @@ import {
   writeOptimisticEcho,
   writeOptimisticPress,
 } from './scenarios'
+import type { WriteTransport } from './write-contract'
+
+/** A mark-read: my own issue row's record edit (POD-6404). */
+const markRead = (user: string, id: string) => ({
+  kind: 'issueUserState' as const,
+  id: issueUserStateRowId(asUserId(user), asIssueId(id)),
+  patch: { readAt: '2026-11-05T00:00:00.000Z' },
+})
 
 const tick = (ms = 80): Promise<void> => new Promise((r) => setTimeout(r, ms))
 const tx = (n: string): MutationId => asMutationId(`00000000-0000-4000-8000-${n.padStart(12, '0')}`)
@@ -77,9 +90,7 @@ describe.each([
     const off = subscribeReceipts(ctx.engine, (e) => events.push(e))
 
     await writeOptimisticPress(ctx)
-    expect(events).toEqual([
-      { type: 'accepted', txId: expect.any(String), kind: 'issueMarkRead', id },
-    ])
+    expect(events).toEqual([{ type: 'accepted', txId: expect.any(String), kind: 'recordEdit', id }])
     // The txId IS the queue entry's mutation id: the ledger holds this
     // mark-read awaiting truth under exactly that id.
     const accepted = events[0]!.txId
@@ -98,9 +109,9 @@ describe.each([
     expect(events[1]).toEqual({
       type: 'rejected',
       txId: expect.any(String),
-      kind: 'issueMarkRead',
+      kind: 'recordEdit',
       id,
-      error: { message: 'issueMarkRead refused (invalid)', code: 'invalid', parked: false },
+      error: { message: 'recordEdit refused (invalid)', code: 'invalid', parked: false },
     })
     expect(events[1]!.txId).not.toBe(accepted)
     // The kernel's own rollback is untouched: the rejected read is gone from
@@ -192,17 +203,23 @@ describe('write transport on the kernel queue', () => {
     const events: ReceiptEvent[] = []
     transport.subscribe((e) => events.push(e))
 
-    transport.send(tx('3'), { kind: 'issueMarkRead', input: { id } })
+    transport.send(tx('3'), {
+      kind: 'recordEdit',
+      input: markRead(ctx.engine.principal.userId, id),
+    })
     await tick()
-    transport.send(tx('4'), { kind: 'issueMarkRead', input: { id } })
+    transport.send(tx('4'), {
+      kind: 'recordEdit',
+      input: markRead(ctx.engine.principal.userId, id),
+    })
     await tick()
-    expect(events).toEqual([{ type: 'superseded', txId: tx('3'), kind: 'issueMarkRead', id }])
+    expect(events).toEqual([{ type: 'superseded', txId: tx('3'), kind: 'recordEdit', id }])
     const queued = transport.pending()
     expect(queued).toEqual([
       {
         txId: tx('4'),
-        kind: 'issueMarkRead',
-        input: { id },
+        kind: 'recordEdit',
+        input: markRead(ctx.engine.principal.userId, id),
         queuedAt: expect.any(Number),
         acked: false,
         base: { readAt: readAtBefore },
@@ -211,9 +228,7 @@ describe('write transport on the kernel queue', () => {
 
     network.goOnline()
     await tick()
-    expect(events.slice(1)).toEqual([
-      { type: 'accepted', txId: tx('4'), kind: 'issueMarkRead', id },
-    ])
+    expect(events.slice(1)).toEqual([{ type: 'accepted', txId: tx('4'), kind: 'recordEdit', id }])
     // Applied, and held by the kernel until its echo: awaiting truth.
     expect(transport.pending()).toEqual([{ ...queued[0], acked: true }])
     feed.dispose()
@@ -252,7 +267,9 @@ describe('write transport on the kernel queue', () => {
     const id = ctx.targets.markReadId
     const readsFor = async (txId: MutationId): Promise<number> => {
       const spy = vi.spyOn(KernelOutbox.prototype, 'pending')
-      await ctx.engine.outbox.enqueue('issueMarkRead', { id }, { mutationId: txId })
+      await ctx.engine.outbox.enqueue('recordEdit', markRead(ctx.engine.principal.userId, id), {
+        mutationId: txId,
+      })
       await tick()
       const n = spy.mock.calls.length
       spy.mockRestore()
@@ -268,7 +285,7 @@ describe('write transport on the kernel queue', () => {
     // One scan, and only while observed. The production runtime has no listener.
     expect(observed - unobserved).toBe(1)
     expect(afterOff).toBe(unobserved)
-    expect(events).toEqual([{ type: 'superseded', txId: tx('7'), kind: 'issueMarkRead', id }])
+    expect(events).toEqual([{ type: 'superseded', txId: tx('7'), kind: 'recordEdit', id }])
     ctx.dispose()
   }, 60_000)
 
@@ -292,8 +309,8 @@ describe('write transport on the kernel queue', () => {
 describe('receipts over a stub runtime', () => {
   const entry = (mutationId: MutationId): OutboxEntry => ({
     mutationId,
-    kind: 'issueMarkRead',
-    input: { id: 'i1' },
+    kind: 'recordEdit',
+    input: markRead('stub', 'i1'),
     queuedAt: 1,
   })
   function stub(opts: { enqueue?: () => Promise<void>; queued?: MutationId[] } = {}) {
@@ -303,7 +320,11 @@ describe('receipts over a stub runtime', () => {
         listeners.add(l)
         return () => listeners.delete(l)
       },
-      outbox: { enqueue: () => (opts.enqueue ?? (() => Promise.resolve()))() as never, pending: () => (opts.queued ?? []).map(entry), awaiting: () => [] },
+      outbox: {
+        enqueue: () => (opts.enqueue ?? (() => Promise.resolve()))() as never,
+        pending: () => (opts.queued ?? []).map(entry),
+        awaiting: () => [],
+      },
       replica: { row: () => undefined },
       principal: { userId: 'stub' },
     }
@@ -320,7 +341,7 @@ describe('receipts over a stub runtime', () => {
     emit({ type: 'applied', mutationId: tx('a'), entry: entry(tx('a')) })
     emit({ type: 'applied', mutationId: tx('a'), entry: entry(tx('a')) })
     emit({ type: 'rejected', mutationId: tx('a'), entry: entry(tx('a')), parked: false })
-    expect(events).toEqual([{ type: 'accepted', txId: tx('a'), kind: 'issueMarkRead', id: 'i1' }])
+    expect(events).toEqual([{ type: 'accepted', txId: tx('a'), kind: 'recordEdit', id: 'i1' }])
   })
 
   it('an enqueue that fails before reaching the queue is one rejected for that txId', async () => {
@@ -328,13 +349,13 @@ describe('receipts over a stub runtime', () => {
     const transport = createWriteTransport(runtime)
     const events: ReceiptEvent[] = []
     transport.subscribe((e) => events.push(e))
-    transport.send(tx('b'), { kind: 'issueMarkRead', input: { id: 'i1' } })
+    transport.send(tx('b'), { kind: 'recordEdit', input: markRead('stub', 'i1') })
     await tick(0)
     expect(events).toEqual([
       {
         type: 'rejected',
         txId: tx('b'),
-        kind: 'issueMarkRead',
+        kind: 'recordEdit',
         id: 'i1',
         error: { message: 'disk full', parked: false },
       },
@@ -349,7 +370,7 @@ describe('receipts over a stub runtime', () => {
     const transport = createWriteTransport(runtime)
     const events: ReceiptEvent[] = []
     transport.subscribe((e) => events.push(e))
-    transport.send(tx('c'), { kind: 'issueMarkRead', input: { id: 'i1' } })
+    transport.send(tx('c'), { kind: 'recordEdit', input: markRead('stub', 'i1') })
     await tick(0)
     expect(events).toEqual([])
     emit({ type: 'applied', mutationId: tx('c'), entry: entry(tx('c')) })

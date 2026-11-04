@@ -82,12 +82,8 @@ const UNGUARDED = [
   'tabSetOrder',
   'resumeAndSend',
   'sendText',
-  'sessionMarkRead',
-  'sessionMarkUnread',
   'setArchived',
   'setWorkState',
-  'snoozeClear',
-  'snoozeSet',
 ].sort()
 
 describe('the client outbox contract table matches the contracts', () => {

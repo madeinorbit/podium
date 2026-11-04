@@ -469,6 +469,7 @@ export {
 } from './records/issue-fresh'
 export {
   ISSUE_RECORD,
+  ISSUE_USER_STATE_RECORD,
   NOT_YET_GENERIC,
   SESSION_RECORD,
   SESSION_USER_STATE_RECORD,

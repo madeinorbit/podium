@@ -36,4 +36,10 @@ export {
   issueSeqPending,
   PENDING_ISSUE_SEQ,
 } from './issue-fresh'
-export { ISSUE_RECORD, SESSION_RECORD, SESSION_USER_STATE_RECORD, SYNCED_KINDS } from './kinds'
+export {
+  ISSUE_RECORD,
+  ISSUE_USER_STATE_RECORD,
+  SESSION_RECORD,
+  SESSION_USER_STATE_RECORD,
+  SYNCED_KINDS,
+} from './kinds'

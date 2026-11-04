@@ -141,6 +141,8 @@ export function kindLabel(kind: string): string {
     rename: 'Session rename',
     setArchived: 'Session archive',
     setWorkState: 'Session work state',
+    // LEGACY(remove-after: 2027-03): kinds an older build may still have queued;
+    // a record edit of the same cells is named alike (`describeRecordEdit`).
     snoozeSet: 'Session snooze',
     snoozeClear: 'Clear session snooze',
     sessionMarkRead: 'Session read status',
@@ -168,8 +170,52 @@ export function kindLabel(kind: string): string {
     issueRestore: 'Issue restored',
     sendText: 'Message to agent',
     resumeAndSend: 'Message to agent',
+    recordCreate: 'New record',
+    recordEdit: 'Change',
+    recordRemove: 'Removal',
   }
   return labels[kind] ?? kind
+}
+
+/**
+ * A generic record edit (ADR 12 D3), named from the cells it sets, in the words
+ * the per-command kinds it replaced used (POD-6404). Read off the author's input
+ * only: the record kind and the patch, never the target.
+ */
+function describeRecordEdit(input: unknown): QueuedChangeView {
+  const edit = record(input)
+  const patch = record(edit?.patch) ?? {}
+  const unset = Array.isArray(edit?.unset) ? (edit.unset as unknown[]) : []
+  const has = (name: string) => patch[name] !== undefined
+  switch (edit?.kind) {
+    case 'sessionUserState':
+      if (has('snoozedUntil')) {
+        return { label: 'Session snooze', summary: formatWhen(patch.snoozedUntil) }
+      }
+      if (unset.includes('snoozedUntil')) return { label: 'Clear session snooze', summary: null }
+      if (has('readAt')) {
+        return {
+          label: patch.readAt === null ? 'Session unread status' : 'Session read status',
+          summary: null,
+        }
+      }
+      break
+    case 'issueUserState':
+      if (has('tuckedAt')) {
+        return {
+          label: 'Issue visibility',
+          summary: patch.tuckedAt === null ? 'Shown in the list' : 'Hidden from the list',
+        }
+      }
+      if (has('readAt')) {
+        return {
+          label: patch.readAt === null ? 'Issue unread status' : 'Issue read status',
+          summary: null,
+        }
+      }
+      break
+  }
+  return { label: kindLabel('recordEdit'), summary: null }
 }
 
 /** What the author tried to send, named from THEIR input only. Never a target
@@ -209,6 +255,8 @@ export function describeQueuedChange(kind: string, input: unknown): QueuedChange
   switch (kind) {
     case 'issueUpdate':
       return describeIssueUpdate(input)
+    case 'recordEdit':
+      return describeRecordEdit(input)
     case 'issueSetTucked':
       return {
         label: kindLabel(kind),

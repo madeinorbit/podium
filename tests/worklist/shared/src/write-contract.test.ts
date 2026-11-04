@@ -12,18 +12,18 @@ import {
   OUTBOX_ROUTING,
   shouldParkDeadLetter,
 } from '@podium/client-core/engine'
-import { asMutationId } from '@podium/model'
+import { asIssueId, asMutationId, asUserId, issueUserStateRowId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import { createPendingLog, ECHO_TTL_MS, type LogOutcome, type PendingLog } from './pending-log'
 import {
   commandFor,
-  editForPendingWrite,
   type EditPatch,
+  editForPendingWrite,
   type FieldValues,
   type OutboxPendingWrite,
   type TxId,
   WriteContractError,
 } from './write-contract'
-import { createPendingLog, ECHO_TTL_MS, type LogOutcome, type PendingLog } from './pending-log'
 
 type Clock = { t: number }
 const LOGS: ReadonlyArray<readonly [string, (clock: Clock) => PendingLog]> = [
@@ -63,7 +63,7 @@ function makeArm(log: PendingLog, seed: Issue) {
     sent,
     commits,
     edit(patch: EditPatch<'issue'>): TxId {
-      const command = commandFor('issue', 'i1', patch) // throws before any state change
+      const command = commandFor('issue', 'i1', patch, 'u-1') // throws before any state change
       const txId = asMutationId(`tx${++n}`)
       const prior = Object.fromEntries(Object.keys(patch).map((k) => [k, row[k as keyof Issue]]))
       const priorIdentity = row
@@ -83,7 +83,8 @@ function makeArm(log: PendingLog, seed: Issue) {
       return true
     },
     settle: (txId: TxId) => apply(log.settle({ txId })),
-    reject: (txId: TxId) => apply(log.reject({ txId, error: { message: 'refused', parked: false } })),
+    reject: (txId: TxId) =>
+      apply(log.reject({ txId, error: { message: 'refused', parked: false } })),
     supersede: (txId: TxId) => apply(log.supersede({ txId })),
     remote: (values: Partial<Issue>) => apply(log.remote('issue', 'i1', values)),
     expire: () => log.expire().map(apply),
@@ -127,7 +128,7 @@ describe.each(LOGS)('pending log: %s', (_name, make) => {
     it('a stamp field settles on the server clock, not the client one', () => {
       const { log, arm } = setup()
       const tx = arm.edit({ readAt: '2026-09-22T10:00:00.000Z' })
-      expect(arm.sent[0]!.kind).toBe('issueMarkRead')
+      expect(arm.sent[0]!.kind).toBe('recordEdit')
       arm.settle(tx)
       arm.remote({ readAt: '2026-09-22T10:00:00.123Z' })
       expect(log.size).toBe(0)
@@ -281,11 +282,19 @@ describe.each(LOGS)('pending log: %s', (_name, make) => {
     it('an unknown txId is a no-op, a reused one is refused', () => {
       const { log } = setup()
       expect(log.settle({ txId: asMutationId('nope') })).toBeNull()
-      const edit = { txId: asMutationId('t'), kind: 'issue' as const, id: 'i1', patch: { title: 'x' }, prior: { title: 'y' } }
+      const edit = {
+        txId: asMutationId('t'),
+        kind: 'issue' as const,
+        id: 'i1',
+        patch: { title: 'x' },
+        prior: { title: 'y' },
+      }
       log.append(edit)
       expect(() => log.append(edit)).toThrow(WriteContractError)
       expect(() => log.append({ ...edit, txId: asMutationId('u'), prior: {} })).toThrow(/no prior/)
-      expect(() => log.append({ ...edit, txId: asMutationId('v'), patch: {} })).toThrow(/empty patch/)
+      expect(() => log.append({ ...edit, txId: asMutationId('v'), patch: {} })).toThrow(
+        /empty patch/,
+      )
     })
   })
 
@@ -293,9 +302,32 @@ describe.each(LOGS)('pending log: %s', (_name, make) => {
     it('re-applies queued and receipted outbox entries in queue order', () => {
       const { log, arm } = setup()
       const pending: OutboxPendingWrite[] = [
-        { txId: asMutationId('q1'), kind: 'issueUpdate', input: { id: 'i1', patch: { title: 'Queued', color: 'red' } }, queuedAt: 1, acked: false },
-        { txId: asMutationId('a1'), kind: 'issueMarkRead', input: { id: 'i1' }, queuedAt: Date.parse('2026-09-22T08:00:00Z'), acked: true, base: { readAt: null } },
-        { txId: asMutationId('x1'), kind: 'rename', input: { sessionId: 's1', name: 'n' }, queuedAt: 2, acked: false },
+        {
+          txId: asMutationId('q1'),
+          kind: 'issueUpdate',
+          input: { id: 'i1', patch: { title: 'Queued', color: 'red' } },
+          queuedAt: 1,
+          acked: false,
+        },
+        {
+          txId: asMutationId('a1'),
+          kind: 'recordEdit',
+          input: {
+            kind: 'issueUserState',
+            id: issueUserStateRowId(asUserId('u-1'), asIssueId('i1')),
+            patch: { readAt: '2026-09-22T08:00:00.000Z' },
+          },
+          queuedAt: Date.parse('2026-09-22T08:00:00Z'),
+          acked: true,
+          base: { readAt: null },
+        },
+        {
+          txId: asMutationId('x1'),
+          kind: 'rename',
+          input: { sessionId: 's1', name: 'n' },
+          queuedAt: 2,
+          acked: false,
+        },
       ]
       expect(pending.map((p) => arm.restore(p))).toEqual([true, true, false])
       expect(arm.row).toEqual({ ...SEED, title: 'Queued', readAt: '2026-09-22T08:00:00.000Z' })
@@ -352,15 +384,24 @@ describe.each(LOGS)('pending log: %s', (_name, make) => {
 })
 
 describe('W3 edit -> kernel command', () => {
-  it('title and stage ride issues.update; readAt rides issues.markRead', () => {
-    expect(commandFor('issue', 'i1', { title: 'T' })).toEqual({ kind: 'issueUpdate', input: { id: 'i1', patch: { title: 'T' } } })
+  it('title and stage ride issues.update; readAt is my own issue row’s record edit', () => {
+    expect(commandFor('issue', 'i1', { title: 'T' })).toEqual({
+      kind: 'issueUpdate',
+      input: { id: 'i1', patch: { title: 'T' } },
+    })
     expect(commandFor('issue', 'i1', { title: 'T', stage: 'review' })).toEqual({
       kind: 'issueUpdate',
       input: { id: 'i1', patch: { title: 'T', stage: 'review' } },
     })
-    expect(commandFor('issue', 'i1', { readAt: '2026-09-22T00:00:00.000Z' })).toEqual({ kind: 'issueMarkRead', input: { id: 'i1' } })
+    expect(commandFor('issue', 'i1', { readAt: '2026-09-22T00:00:00.000Z' }, 'u-1')).toEqual({
+      kind: 'recordEdit',
+      input: {
+        kind: 'issueUserState',
+        id: issueUserStateRowId(asUserId('u-1'), asIssueId('i1')),
+        patch: { readAt: '2026-09-22T00:00:00.000Z' },
+      },
+    })
     expect(OUTBOX_COMMANDS.issueUpdate.name).toBe('issues.update')
-    expect(OUTBOX_COMMANDS.issueMarkRead.name).toBe('issues.markRead')
   })
 
   it('refuses a patch that is not one slice command, before any state changes', () => {
@@ -373,17 +414,32 @@ describe('W3 edit -> kernel command', () => {
       { readAt: null },
       { readAt: '2026-09-22T00:00:00.000Z', title: 'T' },
     ]
-    for (const patch of bad) expect(() => commandFor('issue', 'i1', patch as EditPatch<'issue'>)).toThrow(WriteContractError)
+    for (const patch of bad)
+      expect(() => commandFor('issue', 'i1', patch as EditPatch<'issue'>, 'u-1')).toThrow(
+        WriteContractError,
+      )
   })
 
   it('matches the kernel routing and park tables the rules rely on', () => {
     // Every slice edit shares the issue's partition, so same-row writes stay FIFO (W7).
-    expect(OUTBOX_ROUTING.issueUpdate({ id: 'i1', patch: { title: 'T' } })).toEqual({ partitionKey: 'issue:i1' })
+    expect(OUTBOX_ROUTING.issueUpdate({ id: 'i1', patch: { title: 'T' } })).toEqual({
+      partitionKey: 'issue:i1',
+    })
     // Only mark-read collapses, so only mark-read can be superseded (W9).
-    expect(OUTBOX_ROUTING.issueMarkRead({ id: 'i1' })).toEqual({ partitionKey: 'issue:i1', collapseKey: 'issue-read:i1' })
+    const read = {
+      kind: 'issueUserState' as const,
+      id: issueUserStateRowId(asUserId('u-1'), asIssueId('i1')),
+      patch: { readAt: '2026-09-22T00:00:00.000Z' },
+    }
+    expect(OUTBOX_ROUTING.recordEdit(read)).toEqual({
+      partitionKey: 'issue:i1',
+      collapseKey: `record:issueUserState:${read.id}:readAt`,
+    })
     // A refused title parks (authored words); a refused stage snaps back; a refused read vanishes quietly.
     expect(shouldParkDeadLetter('issueUpdate', { id: 'i1', patch: { title: 'T' } })).toBe(true)
-    expect(shouldParkDeadLetter('issueUpdate', { id: 'i1', patch: { stage: 'review' } })).toBe(false)
-    expect(deadLetterHandlingFor('issueMarkRead')).toBe('discard-automatic')
+    expect(shouldParkDeadLetter('issueUpdate', { id: 'i1', patch: { stage: 'review' } })).toBe(
+      false,
+    )
+    expect(deadLetterHandlingFor('recordEdit', read)).toBe('discard-automatic')
   })
 })

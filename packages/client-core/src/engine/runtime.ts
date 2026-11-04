@@ -1581,6 +1581,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       api: this.api,
       hub: this.hub,
       outbox: this.outbox,
+      userId: this.principal.userId,
       outboxSettlements: this.outboxSettlements,
       router: this.router,
       notices: this.notices,

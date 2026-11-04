@@ -20,6 +20,7 @@ import {
   IssueIdField,
   IssueProjection,
   IssueType,
+  IssueUserStateWire,
   NewIssueId,
   parseUserEntityKey,
   ROW,
@@ -154,9 +155,15 @@ export const SESSION_USER_STATE_RECORD = defineSyncedKind({
     userId: key(UserIdField, ROW.perUserStateFamily),
     sessionId: key(SessionIdField, ROW.perUserStateFamily),
     readAt: spec(z.string().datetime().nullable(), ROW.sessionReadAt),
+    // `null` snoozes until the next message; clearing the cell (`unset`) ends
+    // the snooze (POD-6404).
+    snoozedUntil: spec(z.string().nullable(), ROW.snooze),
   },
   ops: {
-    edit: { policy: PER_USER_EDIT, note: 'When I last read this session; null marks it unread.' },
+    edit: {
+      policy: PER_USER_EDIT,
+      note: 'When I last read this session (null marks it unread), and my snooze on it.',
+    },
     remove: { policy: PER_USER_EDIT, note: 'Forget my read mark and snooze on this session.' },
   },
   visibility: PER_USER_VISIBILITY,
@@ -174,6 +181,68 @@ export const SESSION_USER_STATE_RECORD = defineSyncedKind({
     invisibleFailsAs: 'nonexistent',
     distinguishesUnauthorizedFromUnreachable: false,
     note: 'A session the caller may not read fails as an unknown one; another user’s row the same.',
+  },
+})
+
+// ---------------------------------------------------------------------------
+// issueUserState (POD-6404)
+// ---------------------------------------------------------------------------
+
+/** The feed's id of a per-user issue row: `userEntityKey(user, issue)`. */
+const IssueUserStateRef = z.string().refine(
+  (id) => {
+    try {
+      return parseUserEntityKey(id).kind === 'issue'
+    } catch {
+      return false
+    }
+  },
+  { message: 'a per-user issue row id' },
+)
+
+const PER_USER_ISSUE_EDIT: CommandPolicy = {
+  ...PER_USER_EDIT,
+  rationale:
+    'Read-grade on the issue, write-grade on the caller’s OWN row (ADR 9 D3 rule 4), as ' +
+    '`issues.markRead` and `issues.setTucked`: the row’s key names its user, and only that user ' +
+    'may write it.',
+}
+
+export const ISSUE_USER_STATE_RECORD = defineSyncedKind({
+  kind: 'issueUserState',
+  title: 'issue read state',
+  wire: IssueUserStateWire,
+  ref: IssueUserStateRef,
+  conflict: 'single-writer',
+  fields: {
+    userId: key(UserIdField, ROW.perUserStateFamily),
+    entityId: key(IssueIdField, ROW.perUserStateFamily),
+    readAt: spec(z.string().datetime().nullable(), ROW.issueMessageReadAt),
+    // Only a finished issue can be tucked into the Closed fold; the server keeps
+    // the first tuck's stamp.
+    tuckedAt: spec(z.string().datetime().nullable(), ROW.issueMessageReadAt),
+  },
+  ops: {
+    edit: {
+      policy: PER_USER_ISSUE_EDIT,
+      note: 'When I last read this issue (null marks it unread), and whether I tucked it away.',
+    },
+  },
+  visibility: PER_USER_VISIBILITY,
+  exposure: SUBMIT_ONLY,
+  delivery: QUEUED,
+  redaction: {
+    reviewed: true,
+    inputPaths: [],
+    outputPaths: [],
+    note: 'Read and tuck marks are timestamps about the caller; nothing on them is a credential.',
+  },
+  attribution: ISSUE_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note: 'An issue the caller may not read fails as an unknown one; another user’s row the same.',
   },
 })
 
@@ -250,6 +319,7 @@ export const SESSION_RECORD = defineSyncedKind({
 export const SYNCED_KINDS: readonly SyncedKindDeclaration[] = [
   ISSUE_RECORD,
   SESSION_USER_STATE_RECORD,
+  ISSUE_USER_STATE_RECORD,
   SESSION_RECORD,
 ]
 
@@ -277,11 +347,6 @@ export const NOT_YET_GENERIC: Readonly<
   issueEvent: { reason: 'An append-only history; never edited.', by: 'never (append)' },
   pendingInteraction: { reason: 'Answers are one-off effects.', by: 'POD-6359' },
   message: { reason: 'Chat delivery is an effect on its own record.', by: 'POD-6357' },
-  issueUserState: {
-    reason:
-      'Read and tuck marks convert as plain edits; today they are written for the broadcast viewer, not the caller.',
-    by: 'POD-6355',
-  },
   machine: { reason: 'Machine spec moves with POD-5802.', by: 'POD-5802' },
   issueGitState: {
     reason: 'All status: observed by the server, never client-written.',

@@ -260,69 +260,12 @@ function overlayOf(
       const workState: WorkState | undefined = i.workState ?? undefined
       return patchOverlay('sessions', i.sessionId, entry.mutationId, { workState })
     }
-    // THE FOUR PER-USER SESSION KINDS (POD-4974 S3) land on this principal's
-    // `(user, session)` row, never on the shared session row: `readAt` and
-    // `snoozedUntil` are facts about a reader and a session together. The
-    // reader joins that row into the session view (`session-values.ts`), which
-    // is where `unread` is derived, so nothing here paints `unread`.
-    case 'snoozeSet': {
-      // `null` is its own value: a snooze "until the next message" is `null`,
-      // and no snooze is an absent cell (NULL_IS_A_VALUE).
-      const i = entry.input as OutboxKinds['snoozeSet']
-      return patchOverlay('sessionUserStates', i.sessionId, entry.mutationId, {
-        snoozedUntil: i.until,
-      })
-    }
-    case 'snoozeClear': {
-      // `undefined`, not null: the server's cleared row carries no snooze cell,
-      // and `null` would be a snooze until the next message.
-      const i = entry.input as OutboxKinds['snoozeClear']
-      return patchOverlay('sessionUserStates', i.sessionId, entry.mutationId, {
-        snoozedUntil: undefined,
-      })
-    }
-    case 'sessionMarkRead': {
-      const i = entry.input as OutboxKinds['sessionMarkRead']
-      // The caller's cursor, or the press time. The server stamps its own
-      // clock; the paint lasts until the entry retires, and truth then shows
-      // the server's cursor.
-      const readAt = i.readAt ?? new Date(entry.queuedAt).toISOString()
-      return patchOverlay('sessionUserStates', i.sessionId, entry.mutationId, { readAt })
-    }
-    case 'sessionMarkUnread': {
-      const i = entry.input as OutboxKinds['sessionMarkUnread']
-      return patchOverlay('sessionUserStates', i.sessionId, entry.mutationId, { readAt: null })
-    }
     case 'dismissOffer': {
       const i = entry.input as OutboxKinds['dismissOffer']
       // `undefined`, not null, for the same reason `snoozeClear` patches
       // `snoozedUntil: undefined`: the server's cleared row carries no offer
       // key at all, so the paint is byte-identical to the truth it predicts.
       return patchOverlay('sessions', i.sessionId, entry.mutationId, { offer: undefined })
-    }
-    case 'issueMarkRead': {
-      const i = entry.input as OutboxKinds['issueMarkRead']
-      // `readAt` is PER-USER state (POD-4969): its home is this principal's
-      // `(user, issue)` row, never the shared normalized issue row.
-      return patchOverlay('issueUserStates', i.id, entry.mutationId, {
-        readAt: i.readAt ?? new Date(entry.queuedAt).toISOString(),
-      })
-    }
-    case 'issueMarkUnread': {
-      // The server deletes a row whose three markers are all null, and the row
-      // source folds absence as that null row.
-      const i = entry.input as OutboxKinds['issueMarkUnread']
-      return patchOverlay('issueUserStates', i.id, entry.mutationId, { readAt: null })
-    }
-    case 'issueSetTucked': {
-      const i = entry.input as OutboxKinds['issueSetTucked']
-      // The server stamps its own clock. Until the entry retires, it keeps the
-      // row folded across every replica write, including a reconnect heal
-      // snapshot taken before the mutation reached the server, which is exactly
-      // the un-fold flicker the old ui-state path could not avoid.
-      return patchOverlay('issueUserStates', i.id, entry.mutationId, {
-        tuckedAt: i.tucked ? new Date(entry.queuedAt).toISOString() : null,
-      })
     }
     case 'issueUpdate': {
       // THE PATCH IS THE OVERLAY (POD-781), ROUTED BY HOME (POD-4969). Every key
@@ -590,9 +533,8 @@ function recordOverlays(entry: OutboxEntry, viewer: ReducerViewer): PendingOverl
  * vocabularies drift silently and nothing notices. `overlay.test.ts` asserts every
  * OFFLINE-ELIGIBLE presence contract appears here — pins and tab order reduce in actions.ts because they are non-entity per-user rows.
  *
- * THE ISSUE KINDS ARE DELIBERATELY ABSENT, and always have been: `issueMarkRead`,
- * `issueMarkUnread` and `issueSetTucked` have reducer cases above without an entry
- * here, and POD-781's nine curation kinds (`issueUpdate`, `issueArchive`,
+ * THE ISSUE KINDS ARE DELIBERATELY ABSENT, and always have been (the per-user
+ * issue marks are record edits since POD-6404), and POD-781's nine curation kinds (`issueUpdate`, `issueArchive`,
  * `issueDelete`, `issueClose`, `issueDefer`, `issueUndefer`, `issueSetLabels`,
  * `issueSetPlacement`, `issueRestore`) follow them.
  * This map's totality test is stated against `sessionStateCommandNames()` — the
@@ -607,12 +549,21 @@ export const PRESENCE_REDUCER_KINDS: Record<string, keyof OutboxKinds & string> 
   'sessions.rename': 'rename',
   'sessions.setArchived': 'setArchived',
   'sessions.setWorkState': 'setWorkState',
-  'sessions.markRead': 'sessionMarkRead',
-  'sessions.markUnread': 'sessionMarkUnread',
   'sessions.dismissOffer': 'dismissOffer',
-  'snoozes.set': 'snoozeSet',
-  'snoozes.clear': 'snoozeClear',
 }
+
+/**
+ * The presence contracts whose writes became generic record edits (POD-6404):
+ * the apps paint them with the one record case, and the old routes stay only
+ * for older apps until POD-6359. The contract ↔ reducer totality test reads
+ * this beside the map above.
+ */
+export const PRESENCE_CONTRACTS_AS_RECORD_EDITS: ReadonlySet<string> = new Set([
+  'sessions.markRead',
+  'sessions.markUnread',
+  'snoozes.set',
+  'snoozes.clear',
+])
 
 /** True when the fold actually moved one of the cells it wrote. Only the patched
  *  keys are looked at — every other cell came straight off `row`. */

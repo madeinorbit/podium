@@ -45,6 +45,7 @@ import { couldNotSaveNotice, sessionGoneNotice } from '../outbox-recovery-copy'
 import { type RecordRevisionChain, recordRevisionChainFor } from '../record-revisions'
 import { isRecordOutboxKind, recordWireCommands, recordWireInput } from '../records'
 import { outboxOverlayPort } from '../replica-assembly/outbox-overlay'
+import { LEGACY_OUTBOX_COMMANDS, type LegacyOutboxKind } from './legacy-outbox-kinds'
 import {
   type CreateEngineOutbox,
   deadLetterHandlingFor,
@@ -114,12 +115,21 @@ export type KernelEngineOutboxFactory = CreateEngineOutbox & {
  *  Bounded, so a server upgraded under an open app is found again. */
 const LEGACY_SERVER_RECHECK_MS = 10 * 60_000
 
-const kindByCommand = new Map<string, keyof OutboxKinds>([
+/** A queued kind: one this build queues, or a retired one an older build
+ *  queued that still drains (LEGACY, `./legacy-outbox-kinds.ts`). */
+type KernelKind = keyof OutboxKinds | LegacyOutboxKind
+
+const kindByCommand = new Map<string, KernelKind>([
   ...Object.entries(OUTBOX_COMMANDS).map(
     ([kind, command]) => [command.name, kind as keyof OutboxKinds] as const,
   ),
   // Every `records.<kind>.<op>` a generic record write is sent as (POD-6392).
   ...recordWireCommands(),
+  // LEGACY(remove-after: 2027-03): the retired plain-edit commands, so an
+  // older build's queued read mark or snooze still drains (POD-6404).
+  ...Object.entries(LEGACY_OUTBOX_COMMANDS).map(
+    ([kind, command]) => [command.name, kind as LegacyOutboxKind] as const,
+  ),
 ])
 
 /** The chat sends, whose mutationId IS the message id the server stores and
@@ -137,7 +147,7 @@ function mintMutationId(command: Pick<OutboxRecord['command'], 'name'>): Mutatio
   ) as MutationId
 }
 
-function kindFor(record: Pick<OutboxRecord, 'command'>): keyof OutboxKinds {
+function kindFor(record: Pick<OutboxRecord, 'command'>): KernelKind {
   const kind = kindByCommand.get(record.command.name)
   if (kind === undefined) throw new Error(`unknown kernel Outbox command: ${record.command.name}`)
   return kind
@@ -206,7 +216,7 @@ function commandInput(envelope: OutboxEnvelope): Record<string, unknown> {
 /** The command's input on `sync.submit`. A record write's entry names its record
  *  kind, which the command's name already carries, so that key stays home. The
  *  per-kind executors take the entry whole: they name the command from it. */
-function submitInput(kind: keyof OutboxKinds, envelope: OutboxEnvelope): Record<string, unknown> {
+function submitInput(kind: KernelKind, envelope: OutboxEnvelope): Record<string, unknown> {
   const input = commandInput(envelope)
   return isRecordOutboxKind(kind) ? recordWireInput(input) : input
 }
@@ -218,7 +228,7 @@ function submitInput(kind: keyof OutboxKinds, envelope: OutboxEnvelope): Record<
  */
 function chainedInput(
   chain: RecordRevisionChain,
-  kind: keyof OutboxKinds,
+  kind: KernelKind,
   envelope: OutboxEnvelope,
   input: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -274,12 +284,22 @@ async function submitEnvelope(
       }
       return {
         kind: 'applied',
-        result: readOutboxReply(kind, envelope.input as never, reply.result, hooks),
+        result: readOutboxReply(
+          kind as keyof OutboxKinds,
+          envelope.input as never,
+          reply.result,
+          hooks,
+        ),
         receipt: reply.receipt,
       }
     }
   }
-  return { kind: 'applied', result: await submitPerKind(api, envelope, hooks) }
+  // The entry point is missing (or this kind has no record of it): the per-kind
+  // route, without probing the entry point again.
+  return {
+    kind: 'applied',
+    result: await submitPerKind(api, envelope, { ...hooks, syncSubmitMissing: true }),
+  }
 }
 
 /**
@@ -548,7 +568,7 @@ class KernelEngineOutbox implements EngineOutbox {
       const entry = this.toEntry(event.record)
       this.callbacks.onDropped?.(entry, event.record.reason)
       if (shouldDiscardDeadLetter(event.record)) {
-        if (deadLetterHandlingFor(entry.kind) !== 'discard-automatic') {
+        if (deadLetterHandlingFor(entry.kind, entry.input) !== 'discard-automatic') {
           this.callbacks.notices.error(couldNotSaveNotice(entry.kind, entry.input))
         }
       } else {

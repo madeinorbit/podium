@@ -7,8 +7,9 @@
  * reads whose row it is from the id itself and refuses anyone else's. Then the
  * session must be one the caller may read, as for `sessions.markRead`.
  *
- * An edit writes exactly the patched value; a remove forgets the caller's read
- * mark and snooze together.
+ * An edit writes exactly the patched values: the read mark, and the snooze
+ * (`null` until the next message; cleared, no snooze: POD-6404). A remove
+ * forgets the caller's read mark and snooze together.
  */
 
 import { SESSION_USER_STATE_RECORD } from '@podium/commands'
@@ -61,11 +62,18 @@ export function registerSessionUserStateRecord(
       if (!(await state().canReadSession(row.caller, row.sessionId))) return undefined
       return { kind: 'per-user-row', userId: row.caller.userId }
     },
-    edit: async (ctx, id, patch) => {
+    edit: async (ctx, id, patch, _expected, unset) => {
       const { caller, sessionId } = rowFor(id, ctx.principal)
-      if (patch.readAt === undefined) return { ok: true }
-      const readAt = patch.readAt as string | null
-      if (!(await state().setReadAt(caller, sessionId, readAt))) gone()
+      if (patch.readAt !== undefined) {
+        const readAt = patch.readAt as string | null
+        if (!(await state().setReadAt(caller, sessionId, readAt))) gone()
+      }
+      // `null` snoozes until the next message; a cleared cell ends the snooze.
+      if (patch.snoozedUntil !== undefined) {
+        const until = patch.snoozedUntil as string | null
+        if (!(await state().setSnooze(caller, sessionId, until))) gone()
+      }
+      if (unset.includes('snoozedUntil') && !(await state().clearSnooze(caller, sessionId))) gone()
       return { ok: true }
     },
     remove: async (ctx, id) => {

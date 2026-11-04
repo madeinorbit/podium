@@ -21,7 +21,7 @@ import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
-import { spreadSortKeys } from '@podium/model'
+import { parseIssueUserStateRowId, spreadSortKeys } from '@podium/model'
 import { asArtifactId, asIssueId, asSessionId, asUserId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useState } from 'react'
@@ -205,6 +205,17 @@ function value(id = TARGET) {
   expect(result).toBeDefined()
   if (result === undefined || result === LOADING) throw new Error('Expected resident row')
   return result
+}
+function isMarkRead(entry: {
+  kind: string
+  input: unknown
+}): entry is { kind: 'recordEdit'; input: { id: string } } {
+  const input = entry.input as { kind?: unknown; patch?: { readAt?: unknown } }
+  return (
+    entry.kind === 'recordEdit' &&
+    input.kind === 'issueUserState' &&
+    input.patch?.readAt !== undefined
+  )
 }
 async function request(name: string, id = TARGET) {
   await waitFor(() =>
@@ -874,8 +885,12 @@ describe('real pool row mutations and receipts', () => {
     fireEvent.click(folded)
     await settle()
     expect(worklistView(pool!).selectedWasFolded).toBe(true)
-    for (const queued of runtime.outbox.pending().filter((entry) => entry.kind === 'issueMarkRead'))
-      await accept(await request('issues.markRead', (queued.input as { id: string }).id))
+    // A mark-read is a record edit of my own issue row (POD-6404); this server has
+    // no sync.submit, so it reaches `issues.markRead`.
+    for (const queued of runtime.outbox.pending().filter(isMarkRead))
+      await accept(
+        await request('issues.markRead', parseIssueUserStateRowId(queued.input.id).entityId),
+      )
     fireEvent.contextMenu(folded, { clientX: 30, clientY: 40 })
     fireEvent.click(await screen.findByTestId('bring-back'))
     const bringBack = await request('issues.setTucked')

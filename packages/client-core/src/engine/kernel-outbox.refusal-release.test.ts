@@ -12,7 +12,7 @@
  *   wait for an unrelated trigger.
  */
 
-import { asMutationId, asSessionId } from '@podium/model'
+import { asIssueId, asMutationId, asSessionId, asUserId, issueUserStateRowId } from '@podium/model'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../api'
@@ -130,7 +130,13 @@ describe("POD-5415's sequence through the app's queue", () => {
       },
     )
     await vi.waitFor(() => expect(outbox.deadLetters()).toHaveLength(1))
-    await outbox.enqueue('issueMarkRead', { id: 'iss_90f8' })
+    // A read mark is a record edit (POD-6404); this server has no sync.submit,
+    // so it goes out as the old `issues.markRead`.
+    await outbox.enqueue('recordEdit', {
+      kind: 'issueUserState',
+      id: issueUserStateRowId(asUserId('u-reader'), asIssueId('iss_90f8')),
+      patch: { readAt: '2026-11-05T00:00:00.000Z' },
+    })
     await outbox.enqueue('issueUpdate', { id: 'iss_90f8', patch: { title: 'B' } })
 
     await vi.waitFor(() => expect(outbox.pending()).toEqual([]))
@@ -189,7 +195,7 @@ describe('a release outside a drain pass starts a drain', () => {
   })
 })
 
-describe("a refused task base branch (POD-2153)", () => {
+describe('a refused task base branch (POD-2153)', () => {
   // The task page awaits only the enqueue: a server refusal arrives later, here.
   it('surfaces as the outbox recovery notice naming the branch change', async () => {
     const refused = (): Error =>

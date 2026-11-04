@@ -33,7 +33,7 @@
 import type { EngineOutbox, OutboxOutcome } from '@podium/client-core/engine'
 import type { OutboxEntry } from '@podium/client-core/outbox'
 import type { Replica } from '@podium/client-core/replica'
-import { asIssueId, asUserId, issueUserStateRowId } from '@podium/model'
+import { parseIssueUserStateRowId } from '@podium/model'
 import type {
   FieldValues,
   KernelCommand,
@@ -55,7 +55,8 @@ export interface ReceiptsRuntime {
 
 /**
  * One outcome for one transaction. `kind` is the outbox kind (`issueUpdate`,
- * `issueMarkRead`, …) and `id` the entity id in its input. A superseded entry
+ * `recordEdit`, …) and `id` the entity id in its input (an issue's id for a
+ * mark-read, whose row id names its issue). A superseded entry
  * the queue could no longer see carries neither. Assignable to the write
  * contract's `WriteEvent`.
  */
@@ -81,9 +82,15 @@ export type ReceiptEvent =
     }
 
 function targetId(input: unknown): string | undefined {
-  const id = (input as { id?: unknown } | null | undefined)?.id
-  return typeof id === 'string' ? id : undefined
+  const i = input as { kind?: unknown; id?: unknown } | null | undefined
+  if (typeof i?.id !== 'string') return undefined
+  // A mark-read is a record edit of my own issue row (POD-6404): its target is
+  // the issue the row is about.
+  return i.kind === 'issueUserState' ? parseIssueUserStateRowId(i.id).entityId : i.id
 }
+
+const isMarkRead = (entry: { kind: string; input: unknown }): boolean =>
+  entry.kind === 'recordEdit' && (entry.input as { kind?: unknown }).kind === 'issueUserState'
 
 function toReceipt(outcome: OutboxOutcome): ReceiptEvent {
   switch (outcome.type) {
@@ -188,7 +195,7 @@ export function baseOf(outbox: object, entry: OutboxEntry): FieldValues<'issue'>
     return undefined
   }
   const text = (v: unknown): string | null => (typeof v === 'string' ? v : null)
-  if (entry.kind === 'issueMarkRead') return { readAt: text(row.readAt) }
+  if (isMarkRead(entry)) return { readAt: text(row.readAt) }
   if (entry.kind === 'issueUpdate') {
     const patch = (entry.input as { patch?: Record<string, unknown> }).patch ?? {}
     const base: { title?: string; stage?: string } = {}
@@ -220,11 +227,8 @@ function pendingWrite(outbox: object, entry: OutboxEntry, acked: boolean): Outbo
  */
 function sendBaseline(runtime: ReceiptsRuntime, command: KernelCommand): string | undefined {
   const row =
-    command.kind === 'issueMarkRead'
-      ? runtime.replica.row?.(
-          'issueUserStates',
-          issueUserStateRowId(asUserId(runtime.principal.userId), asIssueId(command.input.id)),
-        )
+    command.kind === 'recordEdit'
+      ? runtime.replica.row?.('issueUserStates', command.input.id)
       : runtime.replica.row?.('issueProjections', command.input.id)
   return row === undefined ? undefined : fingerprint(row)
 }
@@ -264,7 +268,7 @@ export function createWriteTransport(runtime: ReceiptsRuntime): ReceiptTransport
       const enqueued =
         command.kind === 'issueUpdate'
           ? runtime.outbox.enqueue('issueUpdate', command.input, opts)
-          : runtime.outbox.enqueue('issueMarkRead', command.input, opts)
+          : runtime.outbox.enqueue('recordEdit', command.input, opts)
       Promise.resolve(enqueued).catch((error: unknown) => {
         // The throw came after the entry reached the queue: the kernel still
         // owes it an outcome, and will report it.
@@ -273,7 +277,7 @@ export function createWriteTransport(runtime: ReceiptsRuntime): ReceiptTransport
           type: 'rejected',
           txId,
           kind: command.kind,
-          id: command.input.id,
+          id: targetId(command.input),
           error: { message: error instanceof Error ? error.message : String(error), parked: false },
         }
         for (const listener of [...failures]) listener(event)

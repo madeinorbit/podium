@@ -6,7 +6,15 @@
  */
 
 import { ISSUE_CONTRACTS, sessionStateCommand, sessionStateCommandNames } from '@podium/commands'
-import { asIssueId, asMutationId, asUserId, type IssueUserStateWire } from '@podium/model'
+import {
+  asIssueId,
+  asMutationId,
+  asSessionId,
+  asUserId,
+  type IssueUserStateWire,
+  issueUserStateRowId,
+  sessionUserStateRowId,
+} from '@podium/model'
 
 import { describe, expect, it } from 'vitest'
 import {
@@ -15,6 +23,7 @@ import {
   issueUpdateRoute,
   overlaysForOutboxEntry,
   type PendingOverlay,
+  PRESENCE_CONTRACTS_AS_RECORD_EDITS,
   PRESENCE_REDUCER_KINDS,
 } from '../command-reducers'
 import type { OutboxEntry } from '../outbox'
@@ -34,6 +43,21 @@ function overlayForOutboxEntry(e: OutboxEntry): PendingOverlay | null {
   expect(overlays.length).toBeLessThanOrEqual(1)
   return overlays[0] ?? null
 }
+
+/** My read state, snooze or tuck: a record edit of my own row (POD-6404). */
+const mySession = (patch: object, unset?: string[]) =>
+  entry('recordEdit', {
+    kind: 'sessionUserState',
+    id: sessionUserStateRowId(asUserId('u1'), asSessionId('s1')),
+    patch,
+    ...(unset === undefined ? {} : { unset }),
+  })
+const myIssue = (patch: object) =>
+  entry('recordEdit', {
+    kind: 'issueUserState',
+    id: issueUserStateRowId(asUserId('u1'), asIssueId('i1')),
+    patch,
+  })
 
 const userState = (over: Partial<IssueUserStateWire> = {}): IssueUserStateWire => ({
   userId: asUserId('u1'),
@@ -62,17 +86,19 @@ describe('overlayForOutboxEntry projection', () => {
     if (ws?.op !== 'patch') throw new Error('expected patch')
     expect(ws.patch).toEqual({ workState: undefined })
 
-    const snooze = overlayForOutboxEntry(
-      entry('snoozeSet', { sessionId: 's1', until: '2026-07-10T00:00:00.000Z' }),
-    )
+    // The snooze is a record edit of my own row (POD-6404): `null` until the
+    // next message, a cleared cell for none at all.
+    const snooze = overlayForOutboxEntry(mySession({ snoozedUntil: '2026-07-10T00:00:00.000Z' }))
     if (snooze?.op !== 'patch') throw new Error('expected patch')
     expect(snooze.entity).toBe('sessionUserStates')
+    expect(snooze.id).toBe('s1')
     expect(snooze.patch).toEqual({ snoozedUntil: '2026-07-10T00:00:00.000Z' })
 
-    const clear = overlayForOutboxEntry(entry('snoozeClear', { sessionId: 's1' }))
+    const clear = overlayForOutboxEntry(mySession({}, ['snoozedUntil']))
     if (clear?.op !== 'patch') throw new Error('expected patch')
     expect(clear.entity).toBe('sessionUserStates')
     expect(clear.patch).toEqual({ snoozedUntil: undefined })
+    expect('snoozedUntil' in clear.patch).toBe(true)
   })
 
   // POD-1110 — "none of these" queues like every other row edit, and this is the
@@ -87,49 +113,48 @@ describe('overlayForOutboxEntry projection', () => {
     expect(o.patch).toEqual({ offer: undefined })
   })
 
-  it('mark read/unread target the owning readAt field', () => {
-    const read = overlayForOutboxEntry(entry('sessionMarkRead', { sessionId: 's1' }, 1751500800000))
+  it('mark read/unread paint the readAt the edit carries, on my own row (POD-6404)', () => {
+    const readAt = '2026-10-29T12:00:00.000Z'
+    const read = overlayForOutboxEntry(mySession({ readAt }))
     if (read?.op !== 'patch') throw new Error('expected patch')
     expect(read.entity).toBe('sessionUserStates')
-    expect(read.patch).toEqual({ readAt: new Date(1751500800000).toISOString() })
+    expect(read.id).toBe('s1')
+    expect(read.patch).toEqual({ readAt })
 
-    const issueRead = overlayForOutboxEntry(entry('issueMarkRead', { id: 'i1' }, 1751500800000))
+    const issueRead = overlayForOutboxEntry(myIssue({ readAt }))
     if (issueRead?.op !== 'patch') throw new Error('expected patch')
     expect(issueRead.entity).toBe('issueUserStates')
-    expect(issueRead.patch).toEqual({ readAt: new Date(1751500800000).toISOString() })
+    expect(issueRead.id).toBe('i1')
+    expect(issueRead.patch).toEqual({ readAt })
 
-    const unread = overlayForOutboxEntry(entry('issueMarkUnread', { id: 'i1' }))
+    const unread = overlayForOutboxEntry(myIssue({ readAt: null }))
     if (unread?.op !== 'patch') throw new Error('expected patch')
-    expect(unread.entity).toBe('issueUserStates')
     expect(unread.patch).toEqual({ readAt: null })
   })
 
-  it.each(['issueMarkRead', 'sessionMarkRead'])('paints the observed cursor %s carries', (kind) => {
-    const readAt = '2026-10-29T12:00:00.000Z'
-    const input = kind === 'issueMarkRead' ? { id: 'i1', readAt } : { sessionId: 's1', readAt }
-    const overlay = overlayForOutboxEntry(
-      entry(kind, input, Date.parse('2026-10-29T13:00:00.000Z')),
-    )
-    if (overlay?.op !== 'patch') throw new Error('expected patch')
-    expect(overlay.patch).toEqual({ readAt })
-  })
-
   // Tuck-away rides the SAME optimistic mechanism as the rest (POD-333), which is
-  // what lets the fold be server state without the press feeling slow: the entry
-  // paints tuckedAt until its entry retires — including across a reconnect heal
-  // snapshot taken before the mutation got there.
-  it('setTucked stamps tuckedAt from queuedAt', () => {
-    const tuck = overlayForOutboxEntry(
-      entry('issueSetTucked', { id: 'i1', tucked: true }, 1751500800000),
-    )
+  // what lets the fold be server state without the press feeling slow: the
+  // edit paints tuckedAt until its entry retires — including across a reconnect
+  // heal snapshot taken before the mutation got there.
+  it('a tuck paints the tuckedAt the edit carries', () => {
+    const tuck = overlayForOutboxEntry(myIssue({ tuckedAt: '2026-07-03T00:00:00.000Z' }))
     if (tuck?.op !== 'patch') throw new Error('expected patch overlay')
     expect(tuck.entity).toBe('issueUserStates')
     expect(tuck.id).toBe('i1')
-    expect(tuck.patch).toEqual({ tuckedAt: new Date(1751500800000).toISOString() })
+    expect(tuck.patch).toEqual({ tuckedAt: '2026-07-03T00:00:00.000Z' })
 
-    const untuck = overlayForOutboxEntry(entry('issueSetTucked', { id: 'i1', tucked: false }))
+    const untuck = overlayForOutboxEntry(myIssue({ tuckedAt: null }))
     if (untuck?.op !== 'patch') throw new Error('expected patch overlay')
     expect(untuck.patch).toEqual({ tuckedAt: null })
+  })
+
+  it.each([
+    ['sessionMarkRead', { sessionId: 's1' }],
+    ['snoozeClear', { sessionId: 's1' }],
+    ['issueMarkRead', { id: 'i1' }],
+    ['issueSetTucked', { id: 'i1', tucked: true }],
+  ])('an older build’s queued %s drains but paints nothing (LEGACY)', (kind, input) => {
+    expect(overlayForOutboxEntry(entry(kind, input))).toBeNull()
   })
 
   it('an unknown kind projects to nothing', () => {
@@ -304,29 +329,29 @@ describe('overlayForOutboxEntry projection', () => {
 
 describe('folding over an absent per-user row', () => {
   const key = (row: IssueUserStateWire): string => row.entityId
-  const onAbsent = (kind: string, input: unknown): PendingOverlay => {
-    const o = overlayForOutboxEntry(entry(kind, input))
+  const onAbsent = (e: OutboxEntry): PendingOverlay => {
+    const o = overlayForOutboxEntry(e)
     if (o?.op !== 'patch') throw new Error('expected patch')
     return { ...o, absent: userState() }
   }
 
+  const readAt = new Date(1751500800000).toISOString()
+
   it('paints a mark-read onto the "nothing set" row, in both folds', () => {
-    const read = onAbsent('issueMarkRead', { id: 'i1' })
-    expect(foldRowOverlays<IssueUserStateWire>(undefined, [read])).toEqual(
-      userState({ readAt: new Date(1751500800000).toISOString() }),
-    )
+    const read = onAbsent(myIssue({ readAt }))
+    expect(foldRowOverlays<IssueUserStateWire>(undefined, [read])).toEqual(userState({ readAt }))
   })
 
   it('adds nothing for a patch that leaves the row saying "nothing set"', () => {
     const base: IssueUserStateWire[] = []
-    const unread = onAbsent('issueMarkUnread', { id: 'i1' })
+    const unread = onAbsent(myIssue({ readAt: null }))
     expect(foldRowOverlays<IssueUserStateWire>(undefined, [unread])).toBeUndefined()
   })
 
   it('a present row wins over the absent one, and a patch without one paints nothing', () => {
     const present = userState({ tuckedAt: 'T' })
-    const read = onAbsent('issueMarkRead', { id: 'i1' })
-    const bare = overlayForOutboxEntry(entry('issueMarkRead', { id: 'i1' })) as PendingOverlay
+    const read = onAbsent(myIssue({ readAt }))
+    const bare = overlayForOutboxEntry(myIssue({ readAt })) as PendingOverlay
     expect(foldRowOverlays<IssueUserStateWire>(undefined, [bare])).toBeUndefined()
   })
 })
@@ -342,8 +367,11 @@ describe('the presence contracts and their optimistic reducers', () => {
     )
     // Totality: a new offline-eligible contract with no reducer would queue a write
     // that paints nothing, which reads to the user as the click not registering.
+    // ...or became a generic record edit, painted by the one record case
+    // (POD-6404; the old route stays for older apps until POD-6359).
     const reduced = [
       ...Object.keys(PRESENCE_REDUCER_KINDS),
+      ...PRESENCE_CONTRACTS_AS_RECORD_EDITS,
       ...ACTION_STATE_REDUCER_COMMANDS.filter((name) => sessionStateCommand(name) !== undefined),
     ]
     expect(reduced.sort()).toEqual(eligible.sort())
@@ -356,13 +384,9 @@ describe('the presence contracts and their optimistic reducers', () => {
       rename: { sessionId: 's1', name: 'n' },
       setArchived: { sessionId: 's1', archived: true },
       setWorkState: { sessionId: 's1', workState: 'done' },
-      sessionMarkRead: { sessionId: 's1' },
-      sessionMarkUnread: { sessionId: 's1' },
       dismissOffer: { sessionId: 's1', offerCreatedAt: 'T1' },
-      snoozeSet: { sessionId: 's1', until: null },
-      snoozeClear: { sessionId: 's1' },
     }
-    const perUser = new Set(['sessionMarkRead', 'sessionMarkUnread', 'snoozeSet', 'snoozeClear'])
+    const perUser = new Set<string>()
     for (const name of Object.keys(PRESENCE_REDUCER_KINDS)) {
       const kind = PRESENCE_REDUCER_KINDS[name] as string
       const overlay = overlayForOutboxEntry(entry(kind as never, inputs[kind] as never))

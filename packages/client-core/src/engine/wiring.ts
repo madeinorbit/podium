@@ -43,6 +43,7 @@ import { recordRevisionChainFor } from '../record-revisions'
 import {
   isRecordOutboxKind,
   RECORD_HOMES,
+  type RecordEditEntry,
   type RecordKind,
   type RecordOutboxInputs,
   type RecordOutboxKind,
@@ -55,6 +56,14 @@ import type { Replica } from '../replica/kernel/facade'
 import { applyLegacyMetadataState } from '../replica/legacy-wire-v1-binding'
 import { LegacyWireV1Feed } from '../replica/legacy-wire-v1-feed'
 import { type FeedSinkPort, SocketHub } from '../socket-transport'
+import {
+  isLegacyOutboxKind,
+  LEGACY_AUTOMATIC_KINDS,
+  LEGACY_OUTBOX_COMMANDS,
+  type LegacyOutboxKind,
+  legacyOutboxExecutors,
+  submitRecordEditAsLegacy,
+} from './legacy-outbox-kinds'
 import { assertSendAccepted } from './send-outcome'
 import type { StoreNotices } from './types'
 
@@ -88,10 +97,6 @@ export type OutboxKinds = {
   rename: { sessionId: SessionId; name: string }
   setArchived: { sessionId: SessionId; archived: boolean }
   setWorkState: { sessionId: SessionId; workState: WorkState | null }
-  snoozeSet: { sessionId: SessionId; until: string | null }
-  snoozeClear: { sessionId: SessionId }
-  sessionMarkRead: { sessionId: SessionId; readAt?: string }
-  sessionMarkUnread: { sessionId: SessionId }
   /**
    * THE OFFER DISMISSAL (POD-1110) — "none of these", and only that.
    *
@@ -105,9 +110,6 @@ export type OutboxKinds = {
    * under the chat give-up window rather than this one's.
    */
   dismissOffer: { sessionId: SessionId; offerCreatedAt: string }
-  issueMarkRead: { id: string; readAt?: string }
-  issueMarkUnread: { id: string }
-  issueSetTucked: { id: string; tucked: boolean }
   /**
    * THE ISSUE CURATION WRITES (POD-781).
    *
@@ -137,8 +139,8 @@ export type OutboxKinds = {
    * can skip nudging it, and refuses a proposed issue for an agent. Queuing a
    * close as `issueUpdate` would drop both, silently, on the offline path only.
    *
-   * `issueUndefer` is separate from `issueDefer` for the same reason `snoozeClear`
-   * is separate from `snoozeSet`: it is another command, and not the same act —
+   * `issueUndefer` is separate from `issueDefer`: it is another command, and not
+   * the same act —
    * `defer(null)` clears quietly, `undefer` BACKDATES so the row floats back to
    * the top of WORK wearing the "Unsnoozed" tag (issue #133).
    */
@@ -314,14 +316,7 @@ export const OUTBOX_COMMANDS: Record<
   rename: { name: 'sessions.rename', version: 1, delivery, confirmation: 'none' },
   setArchived: { name: 'sessions.setArchived', version: 1, delivery, confirmation: 'none' },
   setWorkState: { name: 'sessions.setWorkState', version: 1, delivery, confirmation: 'none' },
-  snoozeSet: { name: 'snoozes.set', version: 1, delivery, confirmation: 'none' },
-  snoozeClear: { name: 'snoozes.clear', version: 1, delivery, confirmation: 'none' },
-  sessionMarkRead: { name: 'sessions.markRead', version: 1, delivery, confirmation: 'none' },
-  sessionMarkUnread: { name: 'sessions.markUnread', version: 1, delivery, confirmation: 'none' },
   dismissOffer: { name: 'sessions.dismissOffer', version: 1, delivery, confirmation: 'none' },
-  issueMarkRead: { name: 'issues.markRead', version: 1, delivery, confirmation: 'none' },
-  issueMarkUnread: { name: 'issues.markUnread', version: 1, delivery, confirmation: 'none' },
-  issueSetTucked: { name: 'issues.setTucked', version: 1, delivery, confirmation: 'none' },
   // THE FIRST QUEUED KINDS WITH `confirmation: 'confirm'` (POD-781). Every issue
   // WRITE/MANAGE contract carries it, and it is a copy of the contract's value,
   // not a choice made here — `outbox-contract-table.test.ts` pins it EQUAL.
@@ -390,18 +385,11 @@ export const OUTBOX_DEAD_LETTER_HANDLING: Record<keyof OutboxKinds, OutboxDeadLe
   rename: 'recover',
   setArchived: 'recover',
   setWorkState: 'recover',
-  snoozeSet: 'recover',
-  snoozeClear: 'recover',
-  sessionMarkRead: 'recover',
-  sessionMarkUnread: 'recover',
   // `recover`, not `discard-automatic`: a dismissal is a decision the operator
   // made with a click, unlike the read receipt the foreground reaction emits on
   // its own. It carries no authored prose, so `shouldParkDeadLetter` still lets
   // a definitive refusal revert-and-toast rather than parking it.
   dismissOffer: 'recover',
-  issueMarkRead: 'discard-automatic',
-  issueMarkUnread: 'recover',
-  issueSetTucked: 'recover',
   issueUpdate: 'recover',
   issueArchive: 'recover',
   issueDelete: 'recover',
@@ -420,7 +408,9 @@ export const OUTBOX_DEAD_LETTER_HANDLING: Record<keyof OutboxKinds, OutboxDeadLe
   effectDismiss: 'recover',
 }
 
-export function deadLetterHandlingFor(kind: string): OutboxDeadLetterHandling {
+export function deadLetterHandlingFor(kind: string, input?: unknown): OutboxDeadLetterHandling {
+  if (kind === 'recordEdit' && isAutomaticReadReceipt(input)) return 'discard-automatic'
+  if (LEGACY_AUTOMATIC_KINDS.has(kind)) return 'discard-automatic'
   return (
     OUTBOX_DEAD_LETTER_HANDLING[kind as keyof OutboxKinds] ??
     // Unknown work may contain authored content. Preserve it for recovery.
@@ -428,13 +418,28 @@ export function deadLetterHandlingFor(kind: string): OutboxDeadLetterHandling {
   )
 }
 
+/**
+ * THE AUTOMATIC READ RECEIPT (POD-6404): an edit that only sets my read mark on
+ * an issue. The foreground-issue reaction emits it on its own, as it emitted
+ * `issueMarkRead` before, so a refusal of it is bookkeeping to drop, never
+ * something to put in front of the person. Read off the input, never the target.
+ */
+function isAutomaticReadReceipt(input: unknown): boolean {
+  const edit = input as Partial<RecordOutboxInputs['recordEdit']> | undefined
+  if (edit?.kind !== 'issueUserState' || (edit.unset?.length ?? 0) > 0) return false
+  const cells = Object.entries(edit.patch ?? {}).filter(([, v]) => v !== undefined)
+  return cells.length === 1 && cells[0]?.[0] === 'readAt' && typeof cells[0][1] === 'string'
+}
+
 /** Park only when the author typed words we would lose by reverting.
  *  A refused stage click, tuck, or pin just snaps back — Linear-shaped.
  *  Unknown kinds fail closed into recovery. The decision reads the author's
  *  input only, never the target, so it cannot reopen the existence oracle. */
 export function shouldParkDeadLetter(kind: string, input: unknown): boolean {
-  if (deadLetterHandlingFor(kind) === 'discard-automatic') return false
-  if (!(kind in OUTBOX_DEAD_LETTER_HANDLING)) return true
+  if (deadLetterHandlingFor(kind, input) === 'discard-automatic') return false
+  // A retired kind an older build queued (LEGACY) is known work that carries no
+  // typed words: it snaps back like the record edit that replaced it.
+  if (!(kind in OUTBOX_DEAD_LETTER_HANDLING) && !isLegacyOutboxKind(kind)) return true
   return recoverableAuthoredText(input) !== null
 }
 
@@ -534,22 +539,6 @@ export const OUTBOX_ROUTING: {
     partitionKey: `session:${i.sessionId}`,
     collapseKey: `session-work-state:${i.sessionId}`,
   }),
-  snoozeSet: (i) => ({
-    partitionKey: `session:${i.sessionId}`,
-    collapseKey: `session-snooze:${i.sessionId}`,
-  }),
-  snoozeClear: (i) => ({
-    partitionKey: `session:${i.sessionId}`,
-    collapseKey: `session-snooze:${i.sessionId}`,
-  }),
-  sessionMarkRead: (i) => ({
-    partitionKey: `session:${i.sessionId}`,
-    collapseKey: `session-read:${i.sessionId}`,
-  }),
-  sessionMarkUnread: (i) => ({
-    partitionKey: `session:${i.sessionId}`,
-    collapseKey: `session-read:${i.sessionId}`,
-  }),
   // The offer cell, which holds AT MOST ONE offer per session — a new offer
   // replaces the standing one rather than joining it (the annotation matrix's
   // `offers` row: "single-row-per-session key"). So two queued dismissals for one
@@ -566,23 +555,9 @@ export const OUTBOX_ROUTING: {
     collapseKey: `session-offer:${i.sessionId}`,
   }),
 
-  // Issue-targeted writes. `issues.markRead` is the command named in the
-  // 2026-07-17 report as the trigger.
-  issueMarkRead: (i) => ({
-    partitionKey: `issue:${i.id}`,
-    collapseKey: `issue-read:${i.id}`,
-  }),
-  issueMarkUnread: (i) => ({
-    partitionKey: `issue:${i.id}`,
-    collapseKey: `issue-read:${i.id}`,
-  }),
-  issueSetTucked: (i) => ({
-    partitionKey: `issue:${i.id}`,
-    collapseKey: `issue-tucked:${i.id}`,
-  }),
-
   // The curation writes (POD-781) share the issue's partition with the per-user
-  // ones above, so a rename cannot overtake the delete that follows it.
+  // record edits (POD-6404), so a rename cannot overtake the delete that follows
+  // it.
   //
   // `issueUpdate` gets NO COLLAPSE, for the reason `layoutSet` and
   // `settingsUpdatePersonal` get none: it is a PARTIAL patch. Two updates to one
@@ -664,15 +639,34 @@ export const OUTBOX_ROUTING: {
 
   // GENERIC RECORD WRITES (POD-6392) share the partition of the pool row they
   // land on, so a generic edit keeps its order with the per-command writes to
-  // the same issue or session. None collapses: an edit is a PARTIAL patch (the
-  // `issueUpdate` rule), and a create or a remove is one act each.
+  // the same issue or session. A create or a remove is one act each and never
+  // collapses. An edit collapses only into a later one that sets or clears
+  // EXACTLY the same cells of the same record and names no revision (POD-6404):
+  // that later edit subsumes it, so "mark read, mark unread" or "snooze, clear
+  // the snooze" sends the last word, as the per-command kinds did. A partial
+  // patch of other cells, or a revision-checked edit, never collapses.
   recordCreate: (i) => ({ partitionKey: recordPartition(i) }),
-  recordEdit: (i) => ({ partitionKey: recordPartition(i) }),
+  recordEdit: (i) => {
+    const collapseKey = recordEditCollapseKey(i)
+    return collapseKey === undefined
+      ? { partitionKey: recordPartition(i) }
+      : { partitionKey: recordPartition(i), collapseKey }
+  },
   recordRemove: (i) => ({ partitionKey: recordPartition(i) }),
   // An effect on a record queues behind that record's own writes (a start
   // behind nothing; a dismiss behind its create).
   effectCreate: (i) => ({ partitionKey: `effect:${i.id}` }),
   effectDismiss: (i) => ({ partitionKey: `effect:${i.id}` }),
+}
+
+/** The cells one revision-free record edit writes, as a collapse key. */
+function recordEditCollapseKey(input: RecordOutboxInputs['recordEdit']): string | undefined {
+  if (input.expectedRevision !== undefined) return undefined
+  const cells = [
+    ...Object.keys(input.patch).filter((name) => input.patch[name] !== undefined),
+    ...(input.unset ?? []),
+  ].sort()
+  return cells.length === 0 ? undefined : `record:${input.kind}:${input.id}:${cells.join(',')}`
 }
 
 /** The ordering domain of one record: its pool row's. */
@@ -739,6 +733,9 @@ export const outboxCommandFor = (
       delivery,
       confirmation: op.policy.confirmation,
     }
+  }
+  if (isLegacyOutboxKind(kind)) {
+    return { ...LEGACY_OUTBOX_COMMANDS[kind], delivery, confirmation: 'none' }
   }
   return OUTBOX_COMMANDS[kind as FixedOutboxKind]
 }
@@ -817,6 +814,7 @@ async function submitRecord(
   api: PodiumClientApi,
   kind: RecordOutboxKind,
   input: RecordOutboxInputs[RecordOutboxKind] & { mutationId: MutationId },
+  hooks: OutboxExecutorHooks = {},
 ): Promise<unknown> {
   const { mutationId, ...entry } = input
   const command = outboxCommandFor(kind, entry)
@@ -825,8 +823,17 @@ async function submitRecord(
     Object.assign(new Error(`this server does not serve ${command.name}`), {
       data: { code: 'BAD_REQUEST' },
     })
+  /** A server without the entry point: the edit's old route(s), else refused. */
+  const legacy = async (): Promise<unknown> => {
+    const answer =
+      kind === 'recordEdit'
+        ? await submitRecordEditAsLegacy(api, { ...(entry as RecordEditEntry), mutationId })
+        : undefined
+    if (answer === undefined) throw unserved()
+    return answer
+  }
   const submit = api.sync?.submit
-  if (submit === undefined) throw unserved()
+  if (submit === undefined || hooks.syncSubmitMissing === true) return await legacy()
   // This device's own chain of edits on the record (POD-6403).
   const chain = recordRevisionChainFor(api)
   const against = chain.sendAgainst(kind, entry)
@@ -840,7 +847,7 @@ async function submitRecord(
       input: against === undefined ? wire : { ...wire, expectedRevision: against },
     })
   } catch (error) {
-    if (isMissingSyncSubmit(error)) throw unserved()
+    if (isMissingSyncSubmit(error)) return await legacy()
     throw error
   }
   const reply = SyncSubmitReply.parse(raw)
@@ -923,6 +930,12 @@ export interface OutboxExecutorHooks {
    * (POD-4690); this hook only reports the reading, like `sessionGone`.
    */
   readonly stoppedSend?: () => void
+  /**
+   * The queue already found this server without `sync.submit` (POD-6277's
+   * detection): a record write goes straight to its legacy route rather than
+   * probing the entry point a second time.
+   */
+  readonly syncSubmitMissing?: boolean
 }
 
 /**
@@ -996,7 +1009,7 @@ export function outboxExecutors(
   hooks: OutboxExecutorHooks = {},
 ): {
   [K in keyof OutboxKinds]: (input: OutboxKinds[K]) => Promise<unknown>
-} {
+} & Record<LegacyOutboxKind, (input: Record<string, unknown>) => Promise<unknown>> {
   return {
     pinSet: (i) => api.pins.set.mutate(i),
     tabSetOrder: (i) => api.tabs.setOrder.mutate(i),
@@ -1010,14 +1023,7 @@ export function outboxExecutors(
     rename: (i) => api.sessions.rename.mutate(i),
     setArchived: (i) => api.sessions.setArchived.mutate(i),
     setWorkState: (i) => api.sessions.setWorkState.mutate(i),
-    snoozeSet: (i) => api.snoozes.set.mutate(i),
-    snoozeClear: (i) => api.snoozes.clear.mutate(i),
-    sessionMarkRead: (i) => api.sessions.markRead.mutate(i),
-    sessionMarkUnread: (i) => api.sessions.markUnread.mutate(i),
     dismissOffer: (i) => api.sessions.dismissOffer.mutate(i),
-    issueMarkRead: (i) => api.issues.markRead.mutate(i),
-    issueMarkUnread: (i) => api.issues.markUnread.mutate(i),
-    issueSetTucked: (i) => api.issues.setTucked.mutate(i),
     issueUpdate: (i) => api.issues.update.mutate(i),
     issueArchive: (i) => api.issues.archive.mutate(i),
     issueDelete: (i) => api.issues.delete.mutate(i),
@@ -1029,11 +1035,14 @@ export function outboxExecutors(
     issueRestore: (i) => api.issues.restore.mutate(i),
     // Both queues hand an executor the entry's input WITH its mutationId
     // (`OutboxExecutors`); a record write needs it for its own submit.
-    recordCreate: (i) => submitRecord(api, 'recordCreate', i as typeof i & WithMutationId),
-    recordEdit: (i) => submitRecord(api, 'recordEdit', i as typeof i & WithMutationId),
-    recordRemove: (i) => submitRecord(api, 'recordRemove', i as typeof i & WithMutationId),
+    recordCreate: (i) => submitRecord(api, 'recordCreate', i as typeof i & WithMutationId, hooks),
+    recordEdit: (i) => submitRecord(api, 'recordEdit', i as typeof i & WithMutationId, hooks),
+    recordRemove: (i) => submitRecord(api, 'recordRemove', i as typeof i & WithMutationId, hooks),
     effectCreate: (i) => submitEffect(api, 'effects.create', i as typeof i & WithMutationId),
     effectDismiss: (i) => submitEffect(api, 'effects.dismiss', i as typeof i & WithMutationId),
+    // LEGACY(remove-after: 2027-03): entries an older build queued under the
+    // retired plain-edit kinds drain under their old routes.
+    ...legacyOutboxExecutors(api),
   }
 }
 
@@ -1068,7 +1077,7 @@ export function createEngineOutbox(args: EngineOutboxCallbacks): Outbox<OutboxKi
       args.onDropped?.(entry, refusal === undefined ? undefined : normalizeRefusal(refusal))
       if (
         !shouldParkDeadLetter(entry.kind, entry.input) &&
-        deadLetterHandlingFor(entry.kind) !== 'discard-automatic'
+        deadLetterHandlingFor(entry.kind, entry.input) !== 'discard-automatic'
       ) {
         args.notices.error(couldNotSaveNotice(entry.kind, entry.input))
       }

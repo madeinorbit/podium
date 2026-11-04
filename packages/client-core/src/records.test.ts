@@ -90,7 +90,26 @@ describe('the record kinds the client knows', () => {
     })
     expect(
       OUTBOX_ROUTING.recordRemove({ kind: 'sessionUserState', id: READ_ROW }).partitionKey,
-    ).toBe(OUTBOX_ROUTING.sessionMarkRead({ sessionId: SESSION }).partitionKey)
+    ).toBe(OUTBOX_ROUTING.rename({ sessionId: SESSION, name: 'n' }).partitionKey)
+  })
+
+  it('collapse only into a later revision-free edit of exactly the same cells (POD-6404)', () => {
+    const read = (patch: Record<string, unknown>, extra: object = {}) =>
+      OUTBOX_ROUTING.recordEdit({ kind: 'sessionUserState', id: READ_ROW, patch, ...extra })
+        .collapseKey
+    expect(read({ readAt: null })).toBe(read({ readAt: '2026-11-05T00:00:00.000Z' }))
+    expect(read({ readAt: null })).not.toBe(read({ snoozedUntil: null }))
+    expect(read({ readAt: null })).not.toBe(read({ readAt: null, snoozedUntil: null }))
+    expect(read({ snoozedUntil: null })).toBe(read({}, { unset: ['snoozedUntil'] }))
+    // A revision-checked edit never collapses: its base is part of what it says.
+    expect(
+      OUTBOX_ROUTING.recordEdit({
+        kind: 'issueProjection',
+        id: ISSUE,
+        patch: { title: 'x' },
+        expectedRevision: 2,
+      }).collapseKey,
+    ).toBeUndefined()
   })
 })
 

@@ -18,9 +18,10 @@ import type {
   MutationId,
   SessionId,
   ThreadId,
+  UserId,
   WorkState,
 } from '@podium/model'
-import { asThreadId } from '@podium/model'
+import { asIssueId, asThreadId, issueUserStateRowId, sessionUserStateRowId } from '@podium/model'
 import {
   isSessionIdPrefix,
   resolveSessionIdentifier,
@@ -28,7 +29,14 @@ import {
 } from '@podium/protocol'
 import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/runtime'
 import type { PodiumClientApi } from '../api'
-import { createRecordsApi } from '../records'
+import {
+  createRecordsApi,
+  type RecordKind,
+  type RecordPatch,
+  type RecordRef,
+  recordEditEntry,
+  UNSET,
+} from '../records'
 import type { SocketHub } from '../socket-transport'
 import type { SpawnDraftAgentArgs, SpawnTarget, TaskSpawnOutcome } from '../spawn-agent'
 import type { Router } from '../ui-state'
@@ -267,6 +275,9 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
    * the session was one.
    */
   dismissLaunch?(sessionId: SessionId): boolean
+  /** The person this store writes for: their per-user rows (read marks,
+   *  snoozes, tucks) are generic edits of rows keyed by them (POD-6404). */
+  readonly userId: UserId
   /** Resolution waiters for queued entries, by id (POD-4762). */
   readonly outboxSettlements: OutboxSettlements
   readonly router: Router
@@ -503,14 +514,58 @@ export function createEngineActions<TApi extends PodiumClientApi>(
   // The navigation reaction and the row gesture can request the same read
   // before durable enqueue has painted its overlay. Share that in-flight act.
   const pendingReads = new Map<string, { readAt?: string; write: Promise<void> }>()
-  const markRead = <K extends 'issueMarkRead' | 'sessionMarkRead'>(
-    kind: K,
+  /** One generic edit of a plain record (ADR 12 D3): it paints at once and
+   *  retires with its outbox entry (POD-6404). */
+  const editRecord = <K extends RecordKind>(
+    ref: RecordRef<K>,
+    patch: RecordPatch<K>,
+  ): Promise<void> => {
+    try {
+      return Promise.resolve(rt.write('recordEdit', recordEditEntry(ref, patch)))
+    } catch (error) {
+      return Promise.reject(error)
+    }
+  }
+  const mySessionState = (sessionId: SessionId): RecordRef<'sessionUserState'> => ({
+    kind: 'sessionUserState',
+    id: sessionUserStateRowId(rt.userId, sessionId),
+  })
+  const myIssueState = (id: string): RecordRef<'issueUserState'> => ({
+    kind: 'issueUserState',
+    id: issueUserStateRowId(rt.userId, asIssueId(id)),
+  })
+  /**
+   * The read mark a press without one writes: what this device has seen. It
+   * is now, or the last activity it holds if that is later (a server clock
+   * ahead of this one), so the mark covers every message on screen and the
+   * dot does not come back when the server's row lands.
+   */
+  const coveringReadAt = (activityAt: unknown): string => {
+    const now = new Date().toISOString()
+    return typeof activityAt === 'string' && activityAt > now ? activityAt : now
+  }
+  const sessionActivity = (sessionId: SessionId): unknown => {
+    const session = rt.state().navigation.session(sessionId)
+    return session === NAVIGATION_LOADING ? undefined : session?.lastActiveAt
+  }
+  const issueActivity = (id: string): unknown => {
+    const at = rt.state().navigation.activityAt(id)
+    return at === NAVIGATION_LOADING ? undefined : at
+  }
+  const markRead = (
+    kind: 'issue' | 'session',
     id: string,
-    input: OutboxKinds[K],
+    input: { readonly readAt?: string },
   ): Promise<void> => {
     const key = `${kind}:${id}`
     const pending = pendingReads.get(key)
-    const readAt = (input as { readAt?: string }).readAt
+    const readAt = input.readAt
+    const send = (): Promise<void> =>
+      kind === 'session'
+        ? editRecord(mySessionState(id as SessionId), {
+            readAt: readAt ?? coveringReadAt(sessionActivity(id as SessionId)),
+          })
+        : editRecord(myIssueState(id), { readAt: readAt ?? coveringReadAt(issueActivity(id)) })
     if (
       pending &&
       (readAt === pending.readAt || (readAt && pending.readAt && readAt <= pending.readAt))
@@ -520,10 +575,8 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     // observation in order rather than dropping it as a duplicate.
     const write: Promise<void> = (
       pending
-        ? pending.write.then(() =>
-            pendingReads.get(key)?.write === write ? rt.write(kind, input) : undefined,
-          )
-        : Promise.resolve(rt.write(kind, input))
+        ? pending.write.then(() => (pendingReads.get(key)?.write === write ? send() : undefined))
+        : send()
     ).finally(() => {
       if (pendingReads.get(key)?.write === write) pendingReads.delete(key)
     })
@@ -1102,27 +1155,32 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       rt.write('dismissOffer', { sessionId, offerCreatedAt }),
     setWorkState: async (sessionId: SessionId, workState: WorkState | null) =>
       rt.write('setWorkState', { sessionId, workState }),
-    setSnooze: async (sessionId, until) => rt.write('snoozeSet', { sessionId, until }),
-    clearSnooze: async (sessionId) => rt.write('snoozeClear', { sessionId }),
+    // `null` snoozes until the next message; clearing the cell ends the snooze.
+    setSnooze: async (sessionId, until) =>
+      editRecord(mySessionState(sessionId), { snoozedUntil: until }),
+    clearSnooze: async (sessionId) =>
+      editRecord(mySessionState(sessionId), { snoozedUntil: UNSET }),
     markSessionRead: (sessionId, readAt) => {
       if (readAt === undefined) rt.state().navigation.readIntent?.('session', sessionId, true)
-      return markRead('sessionMarkRead', sessionId, { sessionId, ...(readAt ? { readAt } : {}) })
+      return markRead('session', sessionId, readAt ? { readAt } : {})
     },
     markSessionUnread: async (sessionId) => {
-      pendingReads.delete(`sessionMarkRead:${sessionId}`)
+      pendingReads.delete(`session:${sessionId}`)
       rt.state().navigation.readIntent?.('session', sessionId, false)
-      return rt.write('sessionMarkUnread', { sessionId })
+      return editRecord(mySessionState(sessionId), { readAt: null })
     },
     markIssueRead: (id, readAt) => {
       if (readAt === undefined) rt.state().navigation.readIntent?.('issue', id, true)
-      return markRead('issueMarkRead', id, { id, ...(readAt ? { readAt } : {}) })
+      return markRead('issue', id, readAt ? { readAt } : {})
     },
     markIssueUnread: async (id) => {
-      pendingReads.delete(`issueMarkRead:${id}`)
+      pendingReads.delete(`issue:${id}`)
       rt.state().navigation.readIntent?.('issue', id, false)
-      return rt.write('issueMarkUnread', { id })
+      return editRecord(myIssueState(id), { readAt: null })
     },
-    setIssueTucked: async (id, tucked) => rt.write('issueSetTucked', { id, tucked }),
+    // The server keeps the first tuck's stamp; the paint is this press's.
+    setIssueTucked: async (id, tucked) =>
+      editRecord(myIssueState(id), { tuckedAt: tucked ? new Date().toISOString() : null }),
     // The curation writes (POD-781). Nothing here but the enqueue: the queued
     // entry IS the optimistic apply (#263), so there is no local mirror to keep
     // and no rollback to write — the overlay retires itself on covering truth or

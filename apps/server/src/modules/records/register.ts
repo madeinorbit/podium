@@ -10,6 +10,7 @@
 import type { RegistryModules } from '../../relay'
 import type { SyncWriteRegistry } from '../sync-write/registry'
 import { registerIssueRecord } from './issue-record'
+import { registerIssueUserStateRecord } from './issue-user-state-record'
 import { registerSessionLifecycleRecord } from './session-lifecycle-record'
 import { registerSessionUserStateRecord } from './session-user-state-record'
 
@@ -21,5 +22,6 @@ export interface RecordCommandDeps {
 export function registerRecordCommands(registry: SyncWriteRegistry, deps: RecordCommandDeps): void {
   registerIssueRecord(registry, deps)
   registerSessionUserStateRecord(registry, deps)
+  registerIssueUserStateRecord(registry, deps)
   registerSessionLifecycleRecord(registry, deps)
 }

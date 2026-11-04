@@ -24,6 +24,7 @@ import {
   deviceIdSchema,
   firstAdminMemberId,
   type IssueId,
+  issueUserStateRowId,
   OWNERSHIP_MATRIX_INDEX,
   ROW,
   type SessionId,
@@ -32,6 +33,7 @@ import {
 import type { SyncSubmitReply } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
+import type { CommandPrincipal } from '../../command-principal'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 import {
   appliedReply,
@@ -392,6 +394,152 @@ describe('records.sessionUserState', () => {
 
     expect(await readAt(o, sessionId)).toBeNull()
     expect((await o.store.sessions.listSnoozes(ME))[sessionId]).toBeUndefined()
+  })
+})
+
+describe('records.sessionUserState: the snooze (POD-6404)', () => {
+  const snoozedUntil = async (o: Oracle, sessionId: SessionId) => {
+    const all = await o.store.sessions.listSnoozes(ME)
+    return sessionId in all ? all[sessionId] : 'none'
+  }
+
+  it('sets a snooze, snoozes until the next message with null, and ends it by clearing the cell', async () => {
+    const o = await makeOracle()
+    const sessionId = await shellSession(o)
+    const id = sessionUserStateRowId(ME, sessionId)
+
+    await expectAppliedOnPath(
+      o,
+      editState(id, { snoozedUntil: '2099-01-01T00:00:00.000Z' }, 's-1'),
+      { writes: true },
+    )
+    expect(await snoozedUntil(o, sessionId)).toBe('2099-01-01T00:00:00.000Z')
+
+    appliedReply(await submit(o, editState(id, { snoozedUntil: null }, 's-2')))
+    expect(await snoozedUntil(o, sessionId)).toBeNull()
+
+    await expectAppliedOnPath(
+      o,
+      envelope('records.sessionUserState.edit', { id, patch: {}, unset: ['snoozedUntil'] }, 's-3'),
+      { writes: true },
+    )
+    expect(await snoozedUntil(o, sessionId)).toBe('none')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// A person's state on an issue (POD-6404): the CALLER's row
+// ---------------------------------------------------------------------------
+
+const MEMBER = asUserId('user:member-6404')
+
+async function member(o: Oracle): Promise<CommandPrincipal> {
+  await o.store.users.create(
+    {
+      id: MEMBER,
+      displayName: 'member',
+      role: 'member',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      disabledAt: null,
+    },
+    'fixture-hash',
+  )
+  // A per-user row is written under a `self` scope: an owner-or-grant capability
+  // reaches nobody's per-user rows (issue-authz §3.3).
+  return {
+    kind: 'user',
+    user: MEMBER,
+    capability: { role: 'worker', scope: { kind: 'self', userId: MEMBER } },
+  }
+}
+
+const editIssueState = (id: string, patch: Record<string, unknown>, m: string) =>
+  envelope('records.issueUserState.edit', { id, patch }, m)
+
+describe('records.issueUserState', () => {
+  it('marks read and unread for the caller, on the path', async () => {
+    const o = await makeOracle()
+    const issue = await createIssue(o)
+    const me = await firstAdminMemberId(o.store)
+    const id = issueUserStateRowId(me, issue)
+
+    await expectAppliedOnPath(
+      o,
+      editIssueState(id, { readAt: '2099-01-01T00:00:00.000Z' }, 'i-1'),
+      {
+        writes: true,
+      },
+    )
+    expect((await o.store.issues.getIssueUserState(me, issue))?.readAt).toBe(
+      '2099-01-01T00:00:00.000Z',
+    )
+
+    appliedReply(await submit(o, editIssueState(id, { readAt: null }, 'i-2')))
+    expect((await o.store.issues.getIssueUserState(me, issue))?.readAt ?? null).toBeNull()
+  })
+
+  it('writes the CALLER’s row, not the broadcast viewer’s', async () => {
+    const o = await makeOracle()
+    const issue = await createIssue(o)
+    const admin = await firstAdminMemberId(o.store)
+    const principal = await member(o)
+
+    const reply = await o.reg.modules.syncWrite.submit(
+      editIssueState(
+        issueUserStateRowId(MEMBER, issue),
+        { readAt: '2099-01-01T00:00:00.000Z' },
+        'i-m',
+      ),
+      principal,
+      'trpc',
+    )
+
+    appliedReply(reply)
+    expect((await o.store.issues.getIssueUserState(MEMBER, issue))?.readAt).toBe(
+      '2099-01-01T00:00:00.000Z',
+    )
+    expect((await o.store.issues.getIssueUserState(admin, issue))?.readAt ?? null).toBeNull()
+    const rows = await rowsOf(o, 'i-m')
+    expect(rows.map((r) => r.entityId)).toContain(issueUserStateRowId(MEMBER, issue))
+  })
+
+  it('refuses another person’s row', async () => {
+    const o = await makeOracle()
+    const issue = await createIssue(o)
+
+    const reply = await submit(
+      o,
+      editIssueState(issueUserStateRowId(MEMBER, issue), { readAt: null }, 'i-theirs'),
+    )
+
+    expect(refusal(reply)).toEqual({ kind: 'unauthorized' })
+  })
+
+  it('tucks only a finished issue, and a re-tuck keeps the first stamp', async () => {
+    const o = await makeOracle()
+    const issue = await createIssue(o)
+    const me = await firstAdminMemberId(o.store)
+    const id = issueUserStateRowId(me, issue)
+
+    const open = await submit(
+      o,
+      editIssueState(id, { tuckedAt: '2099-01-01T00:00:00.000Z' }, 't-1'),
+    )
+    expect(refusal(open)).toEqual({ kind: 'conflict' })
+
+    await o.call.issues.close({ id: issue, reason: 'done' })
+    appliedReply(
+      await submit(o, editIssueState(id, { tuckedAt: '2099-01-01T00:00:00.000Z' }, 't-2')),
+    )
+    const first = (await o.store.issues.getIssueUserState(me, issue))?.tuckedAt
+    expect(first).toEqual(expect.any(String))
+    appliedReply(
+      await submit(o, editIssueState(id, { tuckedAt: '2099-02-01T00:00:00.000Z' }, 't-3')),
+    )
+    expect((await o.store.issues.getIssueUserState(me, issue))?.tuckedAt).toBe(first)
+
+    appliedReply(await submit(o, editIssueState(id, { tuckedAt: null }, 't-4')))
+    expect((await o.store.issues.getIssueUserState(me, issue))?.tuckedAt ?? null).toBeNull()
   })
 })
 

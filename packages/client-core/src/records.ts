@@ -26,6 +26,7 @@
 import {
   editNeedsRevision,
   ISSUE_RECORD,
+  ISSUE_USER_STATE_RECORD,
   type RecordField,
   type RecordOp,
   recordCommandName,
@@ -38,7 +39,12 @@ import {
   specFields,
   unsettableFields,
 } from '@podium/commands/records'
-import { type DeviceIdPrefix, mintDeviceId, parseSessionUserStateRowId } from '@podium/model'
+import {
+  type DeviceIdPrefix,
+  mintDeviceId,
+  parseIssueUserStateRowId,
+  parseSessionUserStateRowId,
+} from '@podium/model'
 import type { z } from 'zod'
 
 /** Whether an issue row's number is still the creating device's placeholder
@@ -53,6 +59,8 @@ export { issueSeqPending, PENDING_ISSUE_SEQ } from '@podium/commands/records'
 export const RECORD_KINDS = {
   issueProjection: ISSUE_RECORD,
   sessionUserState: SESSION_USER_STATE_RECORD,
+  // My read and tuck marks on an issue (POD-6404).
+  issueUserState: ISSUE_USER_STATE_RECORD,
   // The lifecycle as desired state (POD-6356): an edit paints `desired` on the
   // session row until its entry retires.
   session: SESSION_RECORD,
@@ -163,7 +171,7 @@ export function recordWireInput(input: object): Record<string, unknown> {
  */
 export const RECORD_HOMES: {
   readonly [K in RecordKind]: {
-    readonly target: 'issueProjections' | 'sessionUserStates' | 'sessions'
+    readonly target: 'issueProjections' | 'sessionUserStates' | 'issueUserStates' | 'sessions'
     readonly row: (id: string) => string
   }
 } = {
@@ -171,6 +179,10 @@ export const RECORD_HOMES: {
   sessionUserState: {
     target: 'sessionUserStates',
     row: (id) => parseSessionUserStateRowId(id).sessionId,
+  },
+  issueUserState: {
+    target: 'issueUserStates',
+    row: (id) => parseIssueUserStateRowId(id).entityId,
   },
   session: { target: 'sessions', row: (id) => id },
 }

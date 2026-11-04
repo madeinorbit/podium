@@ -1,6 +1,7 @@
 /** Editable issue fields and validation for commands sent through the kernel. */
-import type { MutationId } from '@podium/model'
+
 import type { OutboxKinds } from '@podium/client-core/engine'
+import { asIssueId, asUserId, issueUserStateRowId, type MutationId } from '@podium/model'
 
 /**
  * A transaction id IS the outbox mutation id (W2). The arm mints it in
@@ -37,7 +38,7 @@ export const EDITABLE_FIELDS = { issue: { title: true, stage: true, readAt: true
 
 export type KernelCommand =
   | { readonly kind: 'issueUpdate'; readonly input: OutboxKinds['issueUpdate'] }
-  | { readonly kind: 'issueMarkRead'; readonly input: OutboxKinds['issueMarkRead'] }
+  | { readonly kind: 'recordEdit'; readonly input: OutboxKinds['recordEdit'] }
 
 export class WriteContractError extends Error {
   override readonly name = 'WriteContractError'
@@ -52,7 +53,13 @@ const ISSUE_FIELDS: ReadonlySet<string> = new Set(['title', 'stage', 'readAt'])
  * stage, a null `readAt`, or `readAt` mixed with title/stage (two commands,
  * two transactions — the caller makes two edits).
  */
-export function commandFor<K extends WritableKind>(kind: K, id: string, patch: EditPatch<K>): KernelCommand {
+export function commandFor<K extends WritableKind>(
+  kind: K,
+  id: string,
+  patch: EditPatch<K>,
+  /** Whose read mark a `readAt` edit sets (POD-6404): the pool's person. */
+  userId?: string,
+): KernelCommand {
   if (kind !== 'issue') throw new WriteContractError(`no editable fields on ${String(kind)}`)
   const p = patch as EditPatch<'issue'> & Record<string, unknown>
   const keys = Object.keys(p)
@@ -62,14 +69,29 @@ export function commandFor<K extends WritableKind>(kind: K, id: string, patch: E
     if (p[k] === undefined) throw new WriteContractError(`field ${k} is undefined`)
   }
   if ('readAt' in p) {
-    if (keys.length > 1) throw new WriteContractError('readAt is its own command (issues.markRead); edit it alone')
-    if (typeof p.readAt !== 'string') throw new WriteContractError('readAt must be an ISO instant; mark-unread is not a slice edit')
-    return { kind: 'issueMarkRead', input: { id } }
+    if (keys.length > 1)
+      throw new WriteContractError('readAt is its own record (my issue state); edit it alone')
+    if (typeof p.readAt !== 'string')
+      throw new WriteContractError('readAt must be an ISO instant; mark-unread is not a slice edit')
+    if (userId === undefined)
+      throw new WriteContractError('readAt is a per-user edit: the pool knows no person')
+    // My read mark, as a generic edit of my own row (POD-6404).
+    return {
+      kind: 'recordEdit',
+      input: {
+        kind: 'issueUserState',
+        id: issueUserStateRowId(asUserId(userId), asIssueId(id)),
+        patch: { readAt: p.readAt },
+      },
+    }
   }
   if (p.stage !== undefined && !EDITABLE_STAGE_SET.has(p.stage)) {
-    throw new WriteContractError(`stage ${p.stage} is not set through issues.update (close is issues.close)`)
+    throw new WriteContractError(
+      `stage ${p.stage} is not set through issues.update (close is issues.close)`,
+    )
   }
-  if (p.title !== undefined && typeof p.title !== 'string') throw new WriteContractError('title must be a string')
+  if (p.title !== undefined && typeof p.title !== 'string')
+    throw new WriteContractError('title must be a string')
   const out: { title?: string; stage?: EditableStage } = {}
   if (p.title !== undefined) out.title = p.title
   if (p.stage !== undefined) out.stage = p.stage

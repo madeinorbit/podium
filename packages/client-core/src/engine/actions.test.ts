@@ -1,5 +1,12 @@
 import type { IssueProjection, LayoutSnapshot, SessionId, SessionMeta } from '@podium/model'
-import { asIssueId, asMutationId, asSessionId } from '@podium/model'
+import {
+  asIssueId,
+  asMutationId,
+  asSessionId,
+  asUserId,
+  issueUserStateRowId,
+  sessionUserStateRowId,
+} from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { fixtureNavigation } from '../../test-support/navigation'
 import type { PodiumClientApi } from '../api'
@@ -30,6 +37,17 @@ function nestedKeys(value: unknown): string[] {
   if (value === null || typeof value !== 'object') return []
   return Object.entries(value).flatMap(([key, nested]) => [key, ...nestedKeys(nested)])
 }
+
+const ME = asUserId('u-1')
+/** My read state on an issue or a session: a record edit of my own row (POD-6404). */
+const myIssue = (id: string, patch: object) => ({
+  kind: 'recordEdit',
+  input: { kind: 'issueUserState', id: issueUserStateRowId(ME, asIssueId(id)), patch },
+})
+const mySession = (id: SessionId, patch: object) => ({
+  kind: 'recordEdit',
+  input: { kind: 'sessionUserState', id: sessionUserStateRowId(ME, id), patch },
+})
 
 function harness(
   layout: { seed?: LayoutSnapshot; fetch?: () => Promise<LayoutSnapshot> } = {},
@@ -110,6 +128,7 @@ function harness(
     navigate: (route: unknown) => navigated.push(route),
   } as unknown as Router
   const runtime = {
+    userId: ME,
     api: {
       layout: { get: { query: layoutGet } },
       superagent: { startBtw: { mutate: vi.fn(async () => ({})) } },
@@ -814,8 +833,8 @@ describe('navigation read command coalescing', () => {
     const last = h.actions.markIssueRead('issue-1', '2026-10-29T12:00:01.000Z')
     await Promise.all([first, last])
     expect(h.queued).toEqual([
-      { kind: 'issueMarkRead', input: { id: 'issue-1', readAt: '2026-10-29T12:00:00.000Z' } },
-      { kind: 'issueMarkRead', input: { id: 'issue-1', readAt: '2026-10-29T12:00:01.000Z' } },
+      myIssue('issue-1', { readAt: '2026-10-29T12:00:00.000Z' }),
+      myIssue('issue-1', { readAt: '2026-10-29T12:00:01.000Z' }),
     ])
   })
 
@@ -830,11 +849,11 @@ describe('navigation read command coalescing', () => {
     const last = read(sessionId, '2026-10-29T12:00:01.000Z')
     await unread(sessionId)
     await Promise.all([first, last])
-    expect(h.queued.map((entry) => entry.kind)).toEqual(
-      kind === 'issue'
-        ? ['issueMarkRead', 'issueMarkUnread']
-        : ['sessionMarkRead', 'sessionMarkUnread'],
-    )
+    const mine = kind === 'issue' ? myIssue : mySession
+    expect(h.queued).toEqual([
+      mine(sessionId, { readAt: '2026-10-29T12:00:00.000Z' }),
+      mine(sessionId, { readAt: null }),
+    ])
   })
 
   it('shares the reaction and click read until its optimistic overlay is published', async () => {
@@ -846,9 +865,11 @@ describe('navigation read command coalescing', () => {
     const duplicateSession = h.actions.markSessionRead(sessionId)
     expect(duplicate).toBe(first)
     expect(duplicateSession).toBe(session)
+    // A press without a cursor marks what this device has seen: now, or the
+    // row's later activity (POD-6404).
     expect(h.queued).toEqual([
-      { kind: 'issueMarkRead', input: { id: issueId } },
-      { kind: 'sessionMarkRead', input: { sessionId } },
+      myIssue(issueId, { readAt: expect.any(String) }),
+      mySession(sessionId, { readAt: expect.any(String) }),
     ])
     await Promise.all([first, session])
     await h.actions.markIssueRead(issueId)

@@ -1775,12 +1775,14 @@ export class IssueCrudModule {
   /** Publish only the actor's read cursor and issue.read event. Automatic
    * receipts carry the observed activity; an explicit mark-read still covers
    * now, this issue's updates, descendants and their sessions (POD-912). */
-  async markIssueRead(id: string, observedAt?: string): Promise<IssueProjection> {
+  /** `user`: whose mark (default: the broadcast viewer); a generic record edit
+   *  names its caller (POD-6404). */
+  async markIssueRead(id: string, observedAt?: string, user?: UserId): Promise<IssueProjection> {
     const row = await this.store.rowOrThrow(id)
     // Automatic receipts name what was actually seen, including across an
     // offline replay. Open-issue receipts avoid subtree discovery entirely;
     // read receipts never rewrite the issue.
-    const previous = (await this.store.issueOverlay(row.id)).readAt
+    const previous = (await this.store.issueOverlay(row.id, user)).readAt
     let readAt = observedAt ?? (await this.coveringReadAt(row))
     // A quiet closed issue keeps its existing post-read retention grace. Only
     // advance to receipt time after proving there is no newer unseen activity.
@@ -1793,7 +1795,7 @@ export class IssueCrudModule {
       if (now > readAt) readAt = now
     }
     if (previous && previous >= readAt) return await this.store.projection(row)
-    await this.store.writeIssueUserState(row.id, { readAt })
+    await this.store.writeIssueUserState(row.id, { readAt }, user)
     const wire = await this.store.projection(row)
     await this.store.emitEvent('issue.read', row.id, { seq: row.seq })
     return wire
@@ -1820,9 +1822,9 @@ export class IssueCrudModule {
    *  flips back to true, persist + broadcast, and log issue.unread. Mirrors
    *  markIssueRead exactly, on the actor's own `(userId, issueId)` row (POD-1076);
    *  marking MY copy unread never touches yours. */
-  async markIssueUnread(id: string): Promise<IssueProjection> {
+  async markIssueUnread(id: string, user?: UserId): Promise<IssueProjection> {
     const row = await this.store.rowOrThrow(id)
-    await this.store.writeIssueUserState(row.id, { readAt: null })
+    await this.store.writeIssueUserState(row.id, { readAt: null }, user)
     const wire = await this.store.projection(row)
     await this.store.emitEvent('issue.unread', row.id, { seq: row.seq })
     return wire
@@ -1838,17 +1840,19 @@ export class IssueCrudModule {
    *  completion decay and re-mark the issue unread). Tucking an OPEN issue is
    *  rejected rather than stored: the fold is for finished work, and a stamp
    *  parked on an open row would fire the moment it later closed. */
-  async setIssueTucked(id: string, tucked: boolean): Promise<IssueProjection> {
+  async setIssueTucked(id: string, tucked: boolean, user?: UserId): Promise<IssueProjection> {
     const row = await this.store.draft(await this.store.resolveRef(id))
     if (!row) throw new IssueNotFound(id)
     if (tucked && !this.store.isClosed(row)) throw new IssueRefusal(`issue ${id} is not finished`)
     // Re-tucking keeps the ORIGINAL stamp: a retried outbox entry (or a second
     // client pressing the same control) must not move the dismissal moment.
     // PER-USER (POD-1076): my fold is mine — tucking never hides your copy.
-    const prev = (await this.store.issueOverlay(row.id)).tuckedAt
-    await this.store.writeIssueUserState(row.id, {
-      tuckedAt: tucked ? (prev ?? this.store.now()) : null,
-    })
+    const prev = (await this.store.issueOverlay(row.id, user)).tuckedAt
+    await this.store.writeIssueUserState(
+      row.id,
+      { tuckedAt: tucked ? (prev ?? this.store.now()) : null },
+      user,
+    )
     return await this.store.persist(row, { touch: false })
   }
 

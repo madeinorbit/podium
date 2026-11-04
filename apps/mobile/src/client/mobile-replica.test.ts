@@ -11,8 +11,8 @@ import {
   type Replica,
   type StorageApi,
 } from '@podium/client-core/replica'
-import { asMutationId, asSessionId, IssueProjection } from '@podium/model'
 import type { LegacyIdentityEvidence } from '@podium/client-core/replica-assembly'
+import { asMutationId, asSessionId, IssueProjection } from '@podium/model'
 import type { SqlDatabaseLike } from '@podium/sync/adapters/mobile-sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -415,15 +415,21 @@ describe('the mobile replica composition root', () => {
     // The kernel queue mints the id, so what identifies the row here is the
     // CONTRACT it was authored under — which is also the thing a replay is
     // judged against, and the thing a lossy write would lose.
-    await queue.enqueue('snoozeClear', { sessionId: asSessionId('s9') })
+    await queue.enqueue('dismissOffer', {
+      sessionId: asSessionId('s9'),
+      offerCreatedAt: '2026-11-05T00:00:00.000Z',
+    })
 
     // `enqueue` resolves only after the durable commit (ADR 6 D4.3), and this
     // reads through a SEPARATE connection: the store's in-memory mirror cannot
     // answer for the file.
     const rows = durableOutbox(file)
     expect(rows).toHaveLength(1)
-    expect((rows[0]?.record.command as { name: string }).name).toBe('snoozes.clear')
-    expect(rows[0]?.record.input).toEqual({ sessionId: 's9' })
+    expect((rows[0]?.record.command as { name: string }).name).toBe('sessions.dismissOffer')
+    expect(rows[0]?.record.input).toEqual({
+      sessionId: 's9',
+      offerCreatedAt: '2026-11-05T00:00:00.000Z',
+    })
     expect(rows[0]?.record.state).toBe('queued')
     queue.dispose()
     // Side-cache may write ui-state keys under the principal prefix; the outbox
@@ -1016,7 +1022,10 @@ it('reopens the same boundary/member queue after re-pairing and keeps member att
   const principal = JSON.stringify(['installation-a', 'member-a'])
   const first = await open({ file, storage: device, principal, clientPrincipal: 'member-a' })
   const queue = engineOutbox(first)
-  await queue.enqueue('snoozeClear', { sessionId: asSessionId('s9') })
+  await queue.enqueue('dismissOffer', {
+    sessionId: asSessionId('s9'),
+    offerCreatedAt: '2026-11-05T00:00:00.000Z',
+  })
   expect(durableOutbox(file)[0]?.record.attribution).toMatchObject({ onBehalfOf: 'member-a' })
   queue.dispose()
   await first.settled()
