@@ -707,7 +707,7 @@ describe('prime draft/attach variants', () => {
   it('bound issue past backlog is not nagged about its stage', async () => {
     const { svc } = await harness()
     const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
-    await svc.crud.claim(a.id, asUserId('agent'))
+    await svc.crud.claim(a.id)
     expect(await svc.reports.prime({ boundIssueId: a.id })).not.toContain('still in `backlog`')
   })
 })
@@ -764,7 +764,7 @@ describe('coordinator seat', () => {
 
   it('the first child a session creates under its own issue makes it coordinator, once', async () => {
     const { svc, store, root } = await tree()
-    await svc.crud.claim(root.id, asUserId('agent:claude-code'), { actorSessionId: S('helper') })
+    await svc.crud.claim(root.id, { actorSessionId: S('helper') })
     expect(await coordinatorOf(svc, root.id)).toBeUndefined() // claim no longer seats
 
     await svc.crud.create({

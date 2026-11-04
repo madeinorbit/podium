@@ -19,7 +19,7 @@ import { asUserId } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
 import type { MachinesService } from '../machines/service'
 import type { WriteFunnel } from '../funnel'
-import type { SessionTeardown } from './session-teardown'
+import { ownedSessions, type SessionTeardown } from './session-teardown'
 import type { SessionKill, SessionKillPorts } from './session-kill'
 import type { EntityChangeSpec } from '@podium/sync'
 import type { MutationLedgerPort } from '@podium/sync'
@@ -455,12 +455,12 @@ export class SessionMetaOps {
   ): Promise<SessionDeletePlan> {
     // Every member, parked ones included: each is tombstoned, failed and killed.
     // A deletion by a person ends only that person's sessions on the task.
-    const members = this.ports.records
+    const members: { sessionId: SessionId }[] = this.ports.records
       ? await this.ports.records.issueMembers(worktreePath, issueId, 'prepareIssueSessionDelete')
       : sessionsForIssue(worktreePath, [...this.ports.sessions.values()].map((s) => s.toMeta()), issueId)
-    const sessionIds = members
-      .filter((s) => ownedBy === undefined || s.ownerUserId === ownedBy)
-      .map((s) => s.sessionId)
+    const sessionIds = (
+      ownedBy === undefined ? members : await ownedSessions(this.ports.store, members, ownedBy)
+    ).map((s) => s.sessionId)
     const deletedAt = new Date(this.ports.now()).toISOString()
     const removals: (() => void)[] = []
     for (const sessionId of sessionIds)

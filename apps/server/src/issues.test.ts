@@ -3196,11 +3196,12 @@ describe('IssueService field mutations (P1)', () => {
     await expect(svc.hierarchy.addDep(b.id, a.id)).rejects.toThrow(/cycle/) // a->b already; b->a closes the loop
   })
 
-  it('claim sets assignee + in_progress; close sets done + reason', async () => {
+  it('claim sets in_progress and leaves the assignee, the owner, alone; close sets done + reason', async () => {
     const { svc } = await harness()
     const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
-    const claimed = await svc.crud.claim(a.id, asUserId('agent:claude'))
-    expect(claimed.assignee).toBe('agent:claude')
+    const claimed = await svc.crud.claim(a.id)
+    // POD-6287: the assignee IS the owner; a claim without one names nobody new.
+    expect(claimed.assignee).toBe(a.owner)
     expect(claimed.stage).toBe('in_progress')
     const closed = await svc.crud.close(a.id, 'cancelled')
     expect(closed.stage).toBe('done')
@@ -4109,8 +4110,8 @@ describe('IssueService.resolveRef (display seq → internal id)', () => {
     // labels + update + claim + needs-human by seq
     await svc.crud.setLabels(String(b.seq), ['x'])
     expect((await svc.reports.get(String(b.seq)))?.labels).toContain('x')
-    await svc.crud.claim(`#${b.seq}`, asUserId('agent:test'))
-    expect((await svc.reports.get(b.id))?.assignee).toBe('agent:test')
+    await svc.crud.claim(`#${b.seq}`)
+    expect((await svc.reports.get(b.id))?.stage).toBe('in_progress')
     await svc.crud.setNeedsHuman(String(b.seq), 'q?')
     expect((await svc.reports.get(b.id))?.needsHuman).toBe(true)
   })

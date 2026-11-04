@@ -1076,9 +1076,13 @@ const defs = {
           message: 'stopIssueSessions is not wired',
         })
       }
+      // Stopping a task stops the CALLER's sessions on it, nobody else's
+      // (POD-6287, MU-24): a person's own, or for an agent its human's.
+      const ownedBy = ctx.markerUser()
       const r = await ctx.deps.stopIssueSessions({
         issueId: input.id,
         principal: ctx.requirePrincipal(),
+        ...(ownedBy ? { ownedBy } : {}),
         ...(input.force ? { force: true } : {}),
         ...(ctx.caller.capability.actorSessionId
           ? { callerSessionId: ctx.caller.capability.actorSessionId }

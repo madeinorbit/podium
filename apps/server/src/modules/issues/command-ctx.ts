@@ -77,7 +77,8 @@ export interface IssueCommandDeps {
     input: Parameters<IssueAttentionCapability['attachSession']>[0],
   ): ReturnType<IssueAttentionCapability['attachSession']>
   /** Cross-aggregate issue tombstone + member-session deletion coordinator. */
-  deleteIssue(id: string): unknown
+  /** `by` is whose sessions the deletion ends (POD-6287): the deleter's own. */
+  deleteIssue(id: string, by?: import('@podium/model').UserId): unknown
   /** Cross-aggregate issue + member-session tombstone restoration coordinator. */
   restoreIssue(id: string): unknown
   /**
@@ -147,6 +148,8 @@ export interface IssueCommandDeps {
     issueId: IssueId
     force?: boolean
     callerSessionId?: SessionId
+    /** Stop only this member's sessions on the task (POD-6287, MU-24). */
+    ownedBy?: import('@podium/model').UserId
     /** Who asked for the stop — stamped onto the free-worktree audit comment (POD-1344). */
     principal: CommandPrincipal
   }): Promise<{
@@ -300,7 +303,7 @@ export class IssueCommandCtx {
     return { nodes, edges: graph.edges.filter((edge) => ids.has(edge.from) && ids.has(edge.to)) }
   }
   deleteIssue(id: string): unknown {
-    return this.deps.deleteIssue(id)
+    return this.deps.deleteIssue(id, this.markerUser())
   }
   restoreIssue(id: string): unknown {
     return this.deps.restoreIssue(id)

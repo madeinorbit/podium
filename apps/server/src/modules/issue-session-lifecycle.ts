@@ -120,7 +120,7 @@ export class IssueSessionLifecycle {
       // the row; a row closed before that was recorded, or by the server,
       // stops the assignee's.
       const meta = input.closedBy ? undefined : await this.deps.issues.reports.getMeta(issueId)
-      const ownedBy = input.closedBy ?? meta?.closedByUserId ?? meta?.ownerUserId ?? current.owner
+      const ownedBy = input.closedBy ?? meta?.closedByUserId ?? meta?.ownerUserId
       log.info('closed issue stop requested', { issueId, reason: input.reason })
       const result = await this.stopIssue({
         issueId,

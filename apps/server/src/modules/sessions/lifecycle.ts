@@ -702,6 +702,8 @@ export class SessionLifecycle {
       callerSessionId?: SessionId
       reapParked?: boolean
       principal?: CommandPrincipal
+      /** Only this member's sessions (POD-6287). */
+      ownedBy?: UserId
     },
     issues: SessionIssueWorkflowPort,
   ): Promise<{

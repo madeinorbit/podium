@@ -574,9 +574,11 @@ export class SessionTeardown {
     if (!issue) return { ok: false, reason: 'unknown issue', stopped: [], worktreeFreed: false }
     // sessionsForIssue matches on the canonical issue id; input.issueId may be a
     // human ref/seq that getMeta resolved above but a raw string compare would miss [POD-985].
-    const members = (await this.ports.view.listForIssue(issue.worktreePath ?? null, issue.id)).filter(
-      (m) => input.ownedBy === undefined || m.ownerUserId === input.ownedBy,
-    )
+    const all = await this.ports.view.listForIssue(issue.worktreePath ?? null, issue.id)
+    const members =
+      input.ownedBy === undefined
+        ? all
+        : await ownedSessions(this.ports.store, all, input.ownedBy)
     const stopped: string[] = []
     let deferredKill = false
     const principal = input.principal ?? systemPrincipal('stop')
@@ -737,4 +739,16 @@ export class SessionTeardown {
     this.ports.broadcastSessions()
     return retired ? { ok: true } : { ok: false, reason: 'process retirement was not confirmed' }
   }
+}
+
+/** The sessions of `sessions` that `owner` owns, by their stored owner
+ *  (POD-6287): one read for the lot, in their order. */
+export async function ownedSessions<T extends { sessionId: SessionId }>(
+  store: Pick<SessionStore, 'sessions'>,
+  sessions: readonly T[],
+  owner: UserId,
+): Promise<T[]> {
+  if (sessions.length === 0) return []
+  const rows = await store.sessions.getSessions(sessions.map((s) => s.sessionId))
+  return sessions.filter((s) => rows.get(s.sessionId)?.ownerUserId === owner)
 }

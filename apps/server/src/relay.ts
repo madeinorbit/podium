@@ -15,6 +15,7 @@ import type {
   SessionId,
   SessionMeta,
   UpdateChannel,
+  UserId,
 } from '@podium/model'
 import {
   actorAgent,
@@ -113,6 +114,7 @@ import { IssueGitWatch } from './modules/issues/git-watch'
 import { PENDING_UPLOAD_SWEEP_MS, PendingUploadStore } from './modules/issues/pending-uploads'
 import { repoProjectionRows } from './modules/issues/projection'
 import { makeAgentRelayDispatch } from './modules/issues/relay-dispatch'
+import { type ReassignmentFacts, reassignmentNotices } from './modules/issues/reassign-notice'
 import { AgentRelayGate } from './modules/issues/relay-gate'
 import { IssueService } from './modules/issues/service'
 import { seatText } from './modules/issues/service/seat'
@@ -1997,7 +1999,11 @@ export class SessionRegistry {
     // composes. `Promise<void>`, not `void` [POD-3820]: the assignment at the
     // bottom is `async`, and under a `void` declaration TypeScript accepted it
     // while the close silently dropped the promise.
-    let stopClosedIssue: ((input: { issueId: IssueId }) => Promise<void>) | undefined
+    let stopClosedIssue:
+      | ((input: { issueId: IssueId; closedBy: UserId }) => Promise<void>)
+      | undefined
+    // Late-bound for the same reason: the messages service is composed below.
+    let noticeReassignment: ((facts: ReassignmentFacts) => Promise<void>) | undefined
 
     // Server-side LLM over a catalog Codex login (POD-4750): the transport a
     // `codex`-provider client runs on. It picks the owning machine from the
@@ -2136,6 +2142,7 @@ export class SessionRegistry {
       onIssueCreated: (event) => this.bus.emit('issue.created', event),
       onIssueWorktreeMoved: (event) => this.bus.emit('issue.worktreeMoved', event),
       onIssueClosed: async (input) => await stopClosedIssue?.(input),
+      onIssueReassigned: async (facts) => await noticeReassignment?.(facts),
     })
     const applySessionDerived = async (event: EventMap['issue.sessionDerived']): Promise<void> => {
       switch (event.kind) {
@@ -2378,6 +2385,26 @@ export class SessionRegistry {
       },
       now: () => new Date(this.now()).toISOString(),
     })
+    // Both people hear about a reassignment in their own inbox (POD-6287).
+    // Best effort: the reassignment has committed, and a lost notice must not
+    // turn it into an error the caller would retry.
+    noticeReassignment = async (facts) => {
+      const names = new Map<UserId, string>()
+      for (const id of [facts.from, facts.to, facts.by]) {
+        names.set(id, (await this.store.users.get(id))?.displayName ?? id)
+      }
+      for (const notice of reassignmentNotices(facts, (id) => names.get(id) ?? id)) {
+        try {
+          await messagesSvc.send(notice.sender, notice.input)
+        } catch (err) {
+          log.warn('reassignment notice not delivered', {
+            err,
+            issueId: facts.issueId,
+            recipient: notice.recipient,
+          })
+        }
+      }
+    }
     queuedApplyHooks.spawnPrompt = async (input) => await messagesSvc.recordSpawnPrompt(input)
     queuedApplyHooks.continueSession = autoContinueSender(messagesSvc)
     queuedApplyHooks.ownerPrompt = async (input) => await messagesSvc.recordOwnerPrompt(input)
@@ -2980,7 +3007,7 @@ export class SessionRegistry {
         cancel: async (input) => await shippingPort().cancel(input),
         deliveryReceipt: async (input) => await shippingPort().deliveryReceipt(input),
       },
-      deleteIssue: async (id) => await issueSessionLifecycle.deleteIssue(id),
+      deleteIssue: async (id, by) => await issueSessionLifecycle.deleteIssue(id, by),
       restoreIssue: async (id) => await issueSessionLifecycle.restoreIssue(id),
       mutations,
       // The by-id read [POD-1646]: one session, not the full pass.
