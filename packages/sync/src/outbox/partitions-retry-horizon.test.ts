@@ -826,7 +826,8 @@ describe('D11 — the dedupe horizon holds over a feed range that was watermark-
       // exercises. Nothing here tests the overlay; the reducer is incidental to the
       // dedupe-horizon assertions below.
       reduce: (base) => ({ kind: 'value', value: base }) as const,
-      retire: (matches, span) => {
+      covers: (evidence) => evidence.matches.length > 0,
+      retire: (evidence, span) => {
         // The Replica reports the facts; what the outbox does with them is the
         // outbox's own lifecycle — note the apply, then retire after covering truth.
         //
@@ -837,7 +838,7 @@ describe('D11 — the dedupe horizon holds over a feed range that was watermark-
         // production wiring, so with the seam fixed it is now the REAL wiring: the
         // promise is RETURNED, the Replica awaits it inside `transact`'s body, and the
         // retirement lands in the same transaction as the cache write and the cursor.
-        const ids = matches
+        const ids = evidence.matches
           .map((m) => m.mutationId)
           .filter((id): id is MutationId => id !== undefined) as MutationId[]
         return (async () => {

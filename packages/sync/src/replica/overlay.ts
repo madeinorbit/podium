@@ -21,14 +21,16 @@
  *    commands). The Replica never persists an overlay row, which is also why a
  *    re-bootstrap cannot lose one: the outbox survives every rung (ADR 2 D7), so
  *    the overlay simply recomputes.
- * 2. **Retirement is EXACT, via envelope provenance** — a change is "my own write
- *    coming back" when its `causationId`/`mutationId` matches a pending command
- *    (ADR 2 D8), never when its value looks similar. Value comparison would be the
- *    replica arbitrating.
+ * 2. **Retirement is EXACT, by evidence the commit carries** — a change is "my own
+ *    write coming back" when its `causationId`/`mutationId` matches a pending command
+ *    (ADR 2 D8), and a command is also covered once the commit certifies a cursor at
+ *    or past the receipt its reply named (ADR 12). Never when a value looks similar:
+ *    value comparison would be the replica arbitrating.
  */
 
 import type { MutationId } from '@podium/model'
 import type { SyncSpan } from './ports'
+import type { Cursor } from './types'
 
 /**
  * The attribution pair a queued command was authored under (readiness §3.1.3 A3;
@@ -152,6 +154,27 @@ export interface RetirementIntent {
   readonly mutationId?: MutationId
 }
 
+/**
+ * What ONE replica commit proves it holds (ADR 12): the provenance on the changes it
+ * applied, and the cursor it certifies. The outbox decides what that covers; the
+ * Replica only reports it.
+ *
+ * Provenance alone is not enough. The Authority suppresses a write that changes
+ * nothing, so such a command never produces a row to carry its id, and only the
+ * cursor reaching the receipt in its reply can confirm it. `through` is that cursor.
+ */
+export interface RetirementEvidence {
+  /** Provenance of every change this commit applied, in feed order, deduplicated. */
+  readonly matches: readonly RetirementIntent[]
+  /** The cursor this commit certifies. */
+  readonly through: Cursor
+  /**
+   * The commit is a bootstrap install: a new truth that supersedes receipts from
+   * another feed or epoch. Epochs compare by equality only, so a delta never does.
+   */
+  readonly install: boolean
+}
+
 export interface OptimisticOverlayPort {
   /** Pending commands for this entity, in author order. Supplied by the outbox (POD-370). */
   pending(entity: string, entityId: string): readonly PendingMutation[]
@@ -193,9 +216,25 @@ export interface OptimisticOverlayPort {
     authored?: PendingAttribution,
   ): OptimisticEffect
   /**
-   * Called ONCE PER TRANSACTION with every provenance-bearing change that
-   * transaction applied, in FEED ORDER, deduplicated. The Replica reports the
-   * facts; it does not decide what the outbox should do with them.
+   * Would {@link retire} retire anything for this evidence? SYNCHRONOUS, and read
+   * from memory only, because the Replica asks BEFORE it opens a transaction: the
+   * answer decides whether the commit is one region (the cache alone autocommits)
+   * or two (cache and outbox in one unit of work, ADR 2 D10).
+   *
+   * Coverage, not provenance, is the question. A frame naming only other writers'
+   * commands covers nothing and stays one region; a watermark carrying no change at
+   * all covers an applied command whose receipt it reaches (ADR 12). A `false` here
+   * is not lost: anything this commit would have covered stays covered by the next.
+   */
+  covers(evidence: RetirementEvidence): boolean
+  /**
+   * Called ONCE PER TRANSACTION with what that transaction proves it holds: every
+   * provenance-bearing change it applied, in FEED ORDER, deduplicated, and the cursor
+   * it certifies. The Replica reports the facts; it does not decide what the outbox
+   * should do with them. Coverage retires too, not only provenance: an applied
+   * command whose receipt the cursor reaches leaves in this same commit.
+   *
+   * Called only when {@link covers} said yes for this evidence.
    *
    * A batch rather than a call per change, because per-change calls are unsafe
    * inside a shared unit of work: two retirements in one span each stage from the
@@ -230,7 +269,8 @@ export interface OptimisticOverlayPort {
    * rejected at rung 3, or left buffered contributes nothing — retiring a command
    * whose effect never landed would tell the user their write was accepted when it
    * was not. A cache discard (rung 2-6, `rescope` included) contributes nothing
-   * either, and must never reach this method at all.
+   * either, and must never reach this method at all; the install that follows it
+   * reports its own evidence, with `install: true`, when it commits.
    */
-  retire(matches: readonly RetirementIntent[], span?: SyncSpan): void | PromiseLike<void>
+  retire(evidence: RetirementEvidence, span?: SyncSpan): void | PromiseLike<void>
 }
