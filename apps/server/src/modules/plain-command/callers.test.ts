@@ -1,5 +1,5 @@
 /**
- * EVERY CURRENT CALLER OF THE 26 NON-SYNC COMMANDS, THROUGH THE FRONT DOOR
+ * EVERY CURRENT CALLER OF THE 27 NON-SYNC COMMANDS, THROUGH THE FRONT DOOR
  * (ADR 12 D8, POD-6360).
  *
  * Moving these commands onto the plain path made their contracts' role floors
@@ -20,10 +20,12 @@
  *  - first-run setup, as the bootstrap principal (the earliest admin);
  *  - the operator CLI (`podium logs level|daemon`, `podium join`, `podium setup`),
  *    on the operator's own credential;
- *  - agents and the daemon: none of the 26 today. The agent rows below pin what
+ *  - agents and the daemon: none of the 27 today. The agent rows below pin what
  *    one would get;
- *  - `accounts.share` (POD-6360): no client caller yet; Settings has no sharing
- *    control. Its rows pin the owner/admin rule for the first one.
+ *  - `accounts.share` (POD-6360): Settings → Accounts, the owner on their own key
+ *    and an admin on any key (POD-6390);
+ *  - `accounts.keys` (POD-6390): Settings → Accounts, admin only; the list of
+ *    every member's keys an admin manages sharing from.
  */
 
 import type { AnyCommandContract } from '@podium/commands'
@@ -154,6 +156,18 @@ const CALLERS: readonly {
     expect: 'ok',
   },
   {
+    command: 'accounts.keys',
+    who: 'member',
+    caller: "every member's keys",
+    expect: 'floor',
+  },
+  {
+    command: 'accounts.keys',
+    who: 'admin',
+    caller: 'Settings → Accounts, all keys (admin)',
+    expect: 'ok',
+  },
+  {
     command: 'accounts.share',
     who: 'member',
     caller: 'share own key',
@@ -251,6 +265,7 @@ const CALLERS: readonly {
   { command: 'accounts.login', who: 'agent', caller: 'none today', expect: 'floor' },
   { command: 'accounts.connect', who: 'agent', caller: 'none today', expect: 'floor' },
   { command: 'accounts.disconnect', who: 'agent', caller: 'none today', expect: 'floor' },
+  { command: 'accounts.keys', who: 'agent', caller: 'none today', expect: 'floor' },
   {
     command: 'accounts.share',
     who: 'agent',
@@ -260,11 +275,11 @@ const CALLERS: readonly {
   },
 ]
 
-describe('every current caller of the 26 non-sync commands', () => {
-  it('covers the 26 commands, and only them', () => {
-    expect(CONTRACTS.size).toBe(26 + 2) // + settings.updatePersonal/updateInstance, not plain
+describe('every current caller of the 27 non-sync commands', () => {
+  it('covers the 27 commands, and only them', () => {
+    expect(CONTRACTS.size).toBe(27 + 2) // + settings.updatePersonal/updateInstance, not plain
     const plain = [...CONTRACTS.values()].filter((c) => c.delivery.class !== 'offline-eligible')
-    expect(plain).toHaveLength(26)
+    expect(plain).toHaveLength(27)
     for (const row of CALLERS) expect(CONTRACTS.has(row.command), row.command).toBe(true)
   })
 

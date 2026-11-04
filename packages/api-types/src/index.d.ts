@@ -2278,6 +2278,17 @@ type Input_workflows_runs = {
     includeTerminal?: boolean | undefined;
     limit?: number | undefined;
 };
+type Output_accounts_keys = Array<{
+    id: string & z.BRAND<"AccountId">;
+    identity?: string | undefined;
+    kind: "api-key" | "oauth";
+    owner: string & z.BRAND<"UserId">;
+    provider: string;
+    sharing: {
+        everyone: boolean;
+        users: string[];
+    };
+}>;
 type Output_accounts_login = Pick<{
     accountId?: (string & z.BRAND<"AccountId">) | undefined;
     agentColor?: string | undefined;
@@ -6491,6 +6502,11 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: {
                 ok: true;
             };
+            meta: unknown;
+        }>;
+        "keys": TRPC.TRPCMutationProcedure<{
+            input: {};
+            output: Output_accounts_keys;
             meta: unknown;
         }>;
         "list": TRPC.TRPCQueryProcedure<{

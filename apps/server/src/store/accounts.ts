@@ -42,6 +42,21 @@ export interface ManagedAccountRow {
   sharedWith: readonly string[]
 }
 
+/**
+ * One stored key as an admin's `accounts.keys` sees it (POD-6390): whose it is
+ * and who may use it, with the masked identity `connect` stored. There is no
+ * credential field, and the query behind it never selects that column.
+ */
+export interface ManagedKeySummary {
+  ownerUserId: UserId
+  accountKey: AccountId
+  provider: string
+  kind: 'api-key' | 'oauth'
+  identity: string
+  createdAt: number
+  sharedWith: readonly string[]
+}
+
 /** What a connect writes. Sharing is not part of it: a reconnect keeps it. */
 export type ManagedAccountWrite = Omit<ManagedAccountRow, 'id' | 'sharedWith'>
 
@@ -112,6 +127,24 @@ const storageIdFor = (ownerUserId: UserId, accountKey: AccountId): AccountId =>
 
 const accountsByCreation = prepared((db: StoreDrizzle) =>
   db.select().from(accounts).orderBy(asc(accounts.createdAt), asc(accounts.id)).prepare(),
+)
+
+/** Every owned row WITHOUT its credential, for the admin's keys read. */
+const keySummaries = prepared((db: StoreDrizzle) =>
+  db
+    .select({
+      ownerUserId: accounts.ownerUserId,
+      accountKey: accounts.accountKey,
+      provider: accounts.provider,
+      kind: accounts.kind,
+      identity: accounts.identity,
+      createdAt: accounts.createdAt,
+      sharedWith: accounts.sharedWith,
+    })
+    .from(accounts)
+    .where(and(isNotNull(accounts.ownerUserId), isNotNull(accounts.accountKey)))
+    .orderBy(asc(accounts.createdAt), asc(accounts.id))
+    .prepare(),
 )
 
 const accountsOfOwner = prepared((db: StoreDrizzle) =>
@@ -243,6 +276,29 @@ export class AccountsRepository {
   /** Every owned row, whoever owns it. For audits and tests; never a client answer. */
   async list(): Promise<ManagedAccountRow[]> {
     return rowsOf(await accountsByCreation(this.db).all())
+  }
+
+  /**
+   * Every owned key without its credential, oldest first: what an admin may see
+   * of other users' keys. A row with no owner is nobody's and is left out, as
+   * {@link toRow} drops it.
+   */
+  async summaries(): Promise<ManagedKeySummary[]> {
+    return (await keySummaries(this.db).all()).flatMap((r) =>
+      r.ownerUserId && r.accountKey
+        ? [
+            {
+              ownerUserId: r.ownerUserId,
+              accountKey: r.accountKey,
+              provider: r.provider,
+              kind: r.kind === 'oauth' ? ('oauth' as const) : ('api-key' as const),
+              identity: r.identity,
+              createdAt: r.createdAt,
+              sharedWith: parseSharedWith(r.sharedWith),
+            },
+          ]
+        : [],
+    )
   }
 
   /** One user's own keys. */

@@ -1,13 +1,20 @@
+import { MemberDirectory, type MemberDirectoryAnswer } from '@podium/client-graph/member-directory'
+import type { MobxPool } from '@podium/client-graph/pool'
+import { useOpeningView } from '@podium/client-graph/react'
 import { followVisibleRequest } from '@podium/client-graph/visible-request'
-import { observer } from 'mobx-react-lite'
-import { accountKey, useSettingsRecords } from '../record-readers'
 import type { HarnessAgent } from '@podium/runtime'
+import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
-import { useSettingsTrpc, useSettingsClient } from '../stable-access'
-import { useSettingsSessionPresent } from '../readers'
+import { useWorklistPool } from '@/app/store-worklist-pool'
+import { serverConfig } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { memberRequest } from '@/features/setup/member-api'
+import { useSettingsSessionPresent } from '../readers'
+import { accountKey, useSettingsRecords } from '../record-readers'
+import { useSettingsClient, useSettingsTrpc } from '../stable-access'
+import { KeySharing, MembersKeys } from './key-sharing'
 import { type AccountView, harnessAgentLabel, providerLabel, Row, Section } from './shared'
 
 /** The Claude subscription token from `claude setup-token` — the ONLY OAuth
@@ -17,7 +24,7 @@ const CLAUDE_OAUTH_ID = 'managed:claude-oauth'
 
 type ManagedProvider = 'anthropic' | 'openai' | 'openrouter'
 
-function managedLabel(a: AccountView): string {
+function managedLabel(a: { id: string; provider: string }): string {
   if (a.id === CLAUDE_OAUTH_ID) return 'Claude subscription (setup-token)'
   return `${providerLabel(a.provider as ManagedProvider)} API key`
 }
@@ -57,7 +64,11 @@ function StatusUnknown(): JSX.Element {
   )
 }
 
-const AccountStatus = observer(function AccountStatus({ account }: { account: AccountView }): JSX.Element {
+const AccountStatus = observer(function AccountStatus({
+  account,
+}: {
+  account: AccountView
+}): JSX.Element {
   if (account.status === 'connected') {
     return <StatusConnected identity={account.identity ?? 'connected'} />
   }
@@ -83,19 +94,28 @@ const NativeAccountRow = observer(function NativeAccountRow({
   useEffect(() => {
     if (attemptStatus !== 'running' && attemptStatus !== 'refreshing') return
     let initial = true
-    return followVisibleRequest(() => {
-      // The opening already requested this directory; subsequent visible ticks refresh it.
-      if (initial) { initial = false; return }
-      onChanged(true)
-    }, {
-      visible: () => document.visibilityState !== 'hidden',
-      subscribe: changed => { document.addEventListener('visibilitychange', changed); return () => document.removeEventListener('visibilitychange', changed) },
-    }, 1_000)
+    return followVisibleRequest(
+      () => {
+        // The opening already requested this directory; subsequent visible ticks refresh it.
+        if (initial) {
+          initial = false
+          return
+        }
+        onChanged(true)
+      },
+      {
+        visible: () => document.visibilityState !== 'hidden',
+        subscribe: (changed) => {
+          document.addEventListener('visibilitychange', changed)
+          return () => document.removeEventListener('visibilitychange', changed)
+        },
+      },
+      1_000,
+    )
   }, [attemptStatus, onChanged])
 
   useEffect(() => {
-    if (!pendingSessionId || !sessionPresent)
-      return
+    if (!pendingSessionId || !sessionPresent) return
     navigateToSession(pendingSessionId)
   }, [navigateToSession, pendingSessionId, sessionPresent])
 
@@ -182,7 +202,7 @@ const NativeAccountRow = observer(function NativeAccountRow({
   )
 })
 
- /** A carved panel grouping one class of accounts: a machine-voice mono label over
+/** A carved panel grouping one class of accounts: a machine-voice mono label over
  *  a bordered Panel-Navy surface whose rows self-divide by hairline seams. Groups
  *  the two account classes far more strongly than the old loose text lines, while
  *  staying carved (tone + seam), never floated. */
@@ -217,9 +237,11 @@ function AccountGroup({
  */
 const ManagedAccountRow = observer(function ManagedAccountRow({
   account,
+  directory,
   onChanged,
 }: {
   account: AccountView
+  directory: MemberDirectory | null
   onChanged: () => void
 }): JSX.Element {
   const trpc = useSettingsTrpc()
@@ -239,6 +261,12 @@ const ManagedAccountRow = observer(function ManagedAccountRow({
   // Another user's key, shared with this viewer (POD-6360). It is not theirs to
   // disconnect; connecting their own replaces it for their agents.
   const shared = connected && account.credentialSource === 'shared'
+  // The viewer's own stored key: theirs to share (POD-6390).
+  const own = connected && account.credentialSource === 'stored'
+  const sharedByName =
+    shared && account.sharedBy
+      ? directory?.members.find((member) => member.id === account.sharedBy)?.displayName
+      : undefined
   const label = managedLabel(account)
 
   // The row's own explanation lives under its label (POD-127 F3), never as a
@@ -257,8 +285,8 @@ const ManagedAccountRow = observer(function ManagedAccountRow({
       </span>
     ) : shared && !editing ? (
       <>
-        Shared with you by another user, and injected into your agents' spawns. Connect your own
-        to use it instead.
+        Shared with you by {sharedByName ?? 'another user'}, and injected into your agents' spawns.
+        Connect your own to use it instead.
       </>
     ) : !isOauth && connected && !legacy ? (
       <>
@@ -376,10 +404,39 @@ const ManagedAccountRow = observer(function ManagedAccountRow({
           </div>
         )}
       </Row>
+      {own && !editing && (
+        <KeySharing
+          accountId={account.id}
+          label={label}
+          sharing={account.sharing}
+          directory={directory}
+          currentMemberId={directory?.currentMemberId}
+          onChanged={onChanged}
+        />
+      )}
       {error && <p className="max-w-[62ch] pb-2.5 settings-prose text-destructive">{error}</p>}
     </div>
   )
 })
+
+const createDirectory = (pool: MobxPool) => new MemberDirectory(pool)
+
+/**
+ * The member directory, for naming the people a key is shared with. Only an
+ * admin can read it; for a member the read fails and the sharing control offers
+ * what needs no names (only you, everyone, removing people already named).
+ * Its answer is also what tells this screen the viewer is an admin, for the
+ * members' keys list.
+ */
+function useKeyPeople(open: boolean): MemberDirectory | null {
+  const directory = useOpeningView(useWorklistPool(), createDirectory, open)
+  useEffect(() => {
+    if (!directory) return
+    const origin = serverConfig(window.location).httpOrigin
+    void directory.read(() => memberRequest<MemberDirectoryAnswer>(origin, 'list'))
+  }, [directory])
+  return directory
+}
 
 /** Accounts & Keys hub (SP-6454 stream B2; managed credentials #216): native CLI
  *  logins on this machine (observed read-only — each CLI's own `login` on the
@@ -392,10 +449,16 @@ export const AccountsSection = observer(function AccountsSection(): JSX.Element 
   const readAccounts = useCallback(() => trpc.accounts.list.query(), [trpc])
   const { request, reload } = useSettingsRecords('account', readAccounts, accountKey, false)
   const accounts = request?.models
-  const refresh = useCallback((automatic = false) => { if (!automatic || !request?.loading) void reload() }, [request, reload])
+  const refresh = useCallback(
+    (automatic = false) => {
+      if (!automatic || !request?.loading) void reload()
+    },
+    [request, reload],
+  )
 
   const native = (accounts ?? []).filter((a) => a.source === 'native')
   const managed = (accounts ?? []).filter((a) => a.source === 'managed')
+  const directory = useKeyPeople(accounts !== undefined)
 
   return (
     <Section
@@ -410,9 +473,20 @@ export const AccountsSection = observer(function AccountsSection(): JSX.Element 
         </AccountGroup>
         <AccountGroup label="Managed accounts" qualifier="Podium-held">
           {managed.map((a) => (
-            <ManagedAccountRow key={a.id} account={a} onChanged={refresh} />
+            <ManagedAccountRow key={a.id} account={a} directory={directory} onChanged={refresh} />
           ))}
         </AccountGroup>
+        {directory?.answer && (
+          <MembersKeys
+            directory={directory}
+            labelOf={managedLabel}
+            group={(children) => (
+              <AccountGroup label="Members' keys" qualifier="admin · who may use each">
+                {children}
+              </AccountGroup>
+            )}
+          />
+        )}
       </div>
       <p className="settings-prose mt-3">
         Coming soon — rotating several subscription logins across agents.

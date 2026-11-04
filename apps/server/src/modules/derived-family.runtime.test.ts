@@ -101,11 +101,15 @@ describe('the derived families, against the RUNNING appRouter', () => {
    *
    * 32 -> 33: `accounts.share` (POD-6360): managed keys are per user, and a key
    * reaches another user's agents only when its owner or an admin shares it.
+   *
+   * 33 -> 34: `accounts.keys` (POD-6390): the admin's read of every user's
+   * stored keys (owner and sharing, never the credential), so Settings can
+   * manage any key's sharing.
    */
-  it('governs thirteen families and thirty-three derived writes', () => {
+  it('governs thirteen families and thirty-four derived writes', () => {
     expect(FAMILIES).toHaveLength(13)
     const total = FAMILIES.reduce((n, f) => n + Object.keys(f.table).length, 0)
-    expect(total).toBe(33)
+    expect(total).toBe(34)
   })
 
   it.each(

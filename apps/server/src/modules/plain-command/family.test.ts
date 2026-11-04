@@ -2,7 +2,7 @@
  * THE NON-SYNC COMMANDS ON THE RUNNING ROUTER (ADR 12 D8, POD-6360).
  *
  * Against `appRouter` with a real registry, because the claim is about what the
- * server SERVES: each of the 26 commands is reached through the front door, so a
+ * server SERVES: each of the 27 commands is reached through the front door, so a
  * caller the coarse check refuses gets a permission error, never a validation
  * error and never the handler.
  */
@@ -27,6 +27,7 @@ import { SuperagentService } from '../superagent'
 const PLAIN_COMMANDS = [
   'accounts.connect',
   'accounts.disconnect',
+  'accounts.keys',
   'accounts.login',
   'accounts.share',
   'auth.setEmail',
@@ -128,8 +129,8 @@ afterEach(() => {
 })
 
 describe('every non-sync command goes through the front door', () => {
-  it('a system principal with garbage input is refused as unauthorized by all 26', async () => {
-    expect(PLAIN_COMMANDS).toHaveLength(26)
+  it('a system principal with garbage input is refused as unauthorized by all 27', async () => {
+    expect(PLAIN_COMMANDS).toHaveLength(27)
     const { caller } = await harness({ capability: OPERATOR, principal: systemPrincipal('test') })
     const codes: Record<string, string> = {}
     for (const name of PLAIN_COMMANDS) {
@@ -274,6 +275,77 @@ describe('every user manages their own harness accounts, and only their own (POD
     ]
     expect(refusals.map((refusal) => refusal.code)).toEqual(['FORBIDDEN', 'FORBIDDEN', 'FORBIDDEN'])
     expect(await accounts.list()).toMatchObject([{ credential: 'sk-humans', sharedWith: [] }])
+  })
+})
+
+describe("an admin lists every user's keys, never their credentials (POD-6390)", () => {
+  const OTHER = asUserId('user:plain-family-other')
+  const ANTHROPIC = asAccountId('managed:anthropic')
+  const OAUTH = asAccountId('managed:claude-oauth')
+  const SECRETS = ['sk-ant-SECRET-member-0001', 'sk-ant-oat01-SECRET-other-0002']
+  const key = (ownerUserId: typeof MEMBER, accountKey: typeof ANTHROPIC, credential: string) =>
+    ({
+      ownerUserId,
+      accountKey,
+      provider: 'anthropic',
+      kind: accountKey === OAUTH ? 'oauth' : 'api-key',
+      credential,
+      identity: `${credential.slice(0, 4)}…`,
+      scope: 'role',
+      createdAt: accountKey === OAUTH ? 2 : 1,
+    }) as const
+
+  it('answers owner, account id, masked identity and sharing; no secret leaves the server', async () => {
+    const { caller, registry } = await harness({ capability: OPERATOR })
+    const accounts = registry.sessionStore.accounts
+    await accounts.connect(key(MEMBER, ANTHROPIC, SECRETS[0] as string))
+    await accounts.connect(key(OTHER, OAUTH, SECRETS[1] as string))
+    await accounts.share(MEMBER, ANTHROPIC, ['*', OTHER])
+
+    const keys = await caller.accounts.keys({})
+    expect(keys).toEqual([
+      {
+        owner: MEMBER,
+        id: ANTHROPIC,
+        provider: 'anthropic',
+        kind: 'api-key',
+        identity: 'sk-a…',
+        sharing: { everyone: true, users: [OTHER] },
+      },
+      {
+        owner: OTHER,
+        id: OAUTH,
+        provider: 'anthropic',
+        kind: 'oauth',
+        identity: 'sk-a…',
+        sharing: { everyone: false, users: [] },
+      },
+    ])
+    // The whole answer, serialized as the transport would: no credential, and
+    // no field that could carry one.
+    const wire = JSON.stringify(keys)
+    for (const secret of SECRETS) expect(wire).not.toContain(secret)
+    for (const row of keys) {
+      expect(Object.keys(row).sort()).toEqual([
+        'id',
+        'identity',
+        'kind',
+        'owner',
+        'provider',
+        'sharing',
+      ])
+    }
+  })
+
+  it('a member and an agent are refused, and nothing is read', async () => {
+    for (const capability of [MEMBER_CAPABILITY, AGENT_CAPABILITY]) {
+      const { caller, registry } = await harness({ capability })
+      const summaries = vi.spyOn(registry.sessionStore.accounts, 'summaries')
+      await registry.sessionStore.accounts.connect(key(OTHER, ANTHROPIC, SECRETS[0] as string))
+      const refusal = await refusalOf(caller.accounts.keys({}))
+      expect(refusal.code).toBe('FORBIDDEN')
+      expect(summaries).not.toHaveBeenCalled()
+    }
   })
 })
 

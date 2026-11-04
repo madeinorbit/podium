@@ -166,6 +166,27 @@ export const ACCOUNT_COMMANDS_TRPC = {
       return { ok: true as const }
     }) satisfies AccountHandler<z.infer<(typeof ACCOUNT_CONTRACTS)['share']['input']>, unknown>,
   },
+  keys: {
+    contract: ACCOUNT_CONTRACTS.keys,
+    // Admin floor from the contract; the target check refuses agents, so an
+    // agent holding an admin's capability cannot list its human's keys.
+    targetPermitted: callersOwnAccount,
+    handler: (async (state) => {
+      // Built field by field: the credential is never selected, and a field
+      // added to the stored row later cannot reach the answer by being additive.
+      return (await state.accounts.summaries()).map((row) => ({
+        owner: row.ownerUserId,
+        id: row.accountKey,
+        provider: row.provider,
+        kind: row.kind,
+        ...(row.identity ? { identity: row.identity } : {}),
+        sharing: {
+          everyone: row.sharedWith.includes(SHARED_WITH_EVERYONE),
+          users: row.sharedWith.filter((grantee) => grantee !== SHARED_WITH_EVERYONE),
+        },
+      }))
+    }) satisfies AccountHandler<z.infer<(typeof ACCOUNT_CONTRACTS)['keys']['input']>, unknown>,
+  },
 } as const satisfies Record<AccountContractName, AccountCommand>
 
 export type AccountCommandName = keyof typeof ACCOUNT_COMMANDS_TRPC

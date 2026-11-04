@@ -31,6 +31,8 @@ export {
   accountsConnectInput,
   accountsDisconnectContract,
   accountsDisconnectInput,
+  accountsKeysContract,
+  accountsKeysInput,
   accountsLoginContract,
   accountsLoginInput,
   accountsShareContract,
