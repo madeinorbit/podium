@@ -112,6 +112,7 @@ const ALL_KINDS: readonly ReplicaKind[] = [
   'conversations',
   'automations',
   'automationRuns',
+  'effects',
   'userLayouts',
 ]
 
@@ -487,6 +488,7 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
         conversations: project('conversations'),
         automations: project('automations'),
         automationRuns: project('automationRuns'),
+        effects: project('effects'),
         userLayouts: project('userLayouts'),
         cursor: facade.getCursor(),
         feedCursor: facade.getFeedCursor(),

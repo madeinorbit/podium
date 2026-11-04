@@ -25,6 +25,7 @@ import {
   ChangeProvenanceFields,
   ChangeSeqField,
   ConversationSummaryWire,
+  EffectRecordWire,
   IssueDepProjection,
   IssueGitStateProjection,
   IssueProjection,
@@ -75,6 +76,7 @@ const PAYLOAD_OF_KIND: Record<string, z.ZodTypeAny> = {
   automationRun: AutomationRunWire,
   shipOrder: ShipOrderProjection,
   shipLane: ShipLaneProjection,
+  effect: EffectRecordWire,
 }
 
 const kindOf = (arm: Arm): string =>
@@ -102,10 +104,10 @@ const delta = (
 })
 
 describe('the v2 change row composes the shared vocabulary', () => {
-  it('has all thirteen entity arms, so the per-arm loops below are not vacuous', () => {
+  it('has all fourteen entity arms, so the per-arm loops below are not vacuous', () => {
     // The counterfactual guard POD-305 named: if `.options` stopped resolving,
     // every loop here would iterate nothing and pass silently.
-    expect(arms).toHaveLength(13)
+    expect(arms).toHaveLength(14)
     expect(arms.map(kindOf).sort()).toEqual(Object.keys(PAYLOAD_OF_KIND).sort())
   })
 

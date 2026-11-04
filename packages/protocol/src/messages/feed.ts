@@ -56,6 +56,7 @@ import {
   ChangeCursorSeqField,
   ChangeProvenanceFields,
   ConversationSummaryWire,
+  EffectRecordWire,
   IssueDepProjection,
   IssueGitStateProjection,
   IssueProjection,
@@ -110,6 +111,7 @@ export const FeedChange = z.discriminatedUnion('entity', [
   feedChangeArm(z.literal('sessionUserState'), SessionUserStateWire),
   feedChangeArm(z.literal('machine'), MachineProjection),
   feedChangeArm(z.literal('issueGitState'), IssueGitStateProjection),
+  feedChangeArm(z.literal('effect'), EffectRecordWire),
 ])
 export type FeedChange = z.infer<typeof FeedChange>
 

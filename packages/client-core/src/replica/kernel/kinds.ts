@@ -50,6 +50,8 @@ const ENTITY_TO_KIND = {
   conversation: 'conversations',
   automation: 'automations',
   automationRun: 'automationRuns',
+  /** POD-6357's one-shot effects and their standard status. */
+  effect: 'effects',
   // POD-1350's per-user layout rows. The hub has demuxed this entity since that
   // issue and the authority has always included it in bootstrap; it was absent
   // HERE, so the rows reached the client and landed in no collection. That is

@@ -70,6 +70,7 @@ const KIND_BY_ENTITY: Record<string, ReplicaKind> = {
   conversation: 'conversations',
   automation: 'automations',
   automationRun: 'automationRuns',
+  effect: 'effects',
 }
 
 type SnapshotKind = Extract<

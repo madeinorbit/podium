@@ -4,6 +4,7 @@ import type {
   AutomationRunWire,
   AutomationWire,
   ConversationSummaryWire,
+  EffectRecordWire,
   IssueDepProjection,
   IssueEventWire,
   IssueGitStateProjection,
@@ -84,6 +85,10 @@ export interface ReplicaRows {
   conversations: ConversationSummaryWire
   automations: AutomationWire
   automationRuns: AutomationRunWire
+  /** One-shot effects (merge, file write, scans, clone, interrupt) and their
+   *  standard status [POD-6357]. Bounded by the server: ended records leave after
+   *  the retention window, failed and unknown ones when dismissed. */
+  effects: EffectRecordWire
   /**
    * This principal's replicated shell layout [POD-1350] — sidebar section folds,
    * Flight Deck folded, right-panel tab, per-session presentation.
@@ -124,6 +129,7 @@ export interface ReplicaHydrateResult {
   conversations: ConversationSummaryWire[]
   automations: AutomationWire[]
   automationRuns: AutomationRunWire[]
+  effects: EffectRecordWire[]
   /** Persisted layout rows (POD-571). The engine seeds the replicated-layout
    *  controller's base from these BEFORE any subscriber reads, so the shell's
    *  first frame paints the stored layout rather than the defaults. */

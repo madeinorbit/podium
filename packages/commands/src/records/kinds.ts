@@ -200,11 +200,11 @@ export const NOT_YET_GENERIC: Readonly<
   shipLane: { reason: 'Shipping is system-owned.', by: 'POD-6359' },
   conversation: { reason: 'Titles convert with the conversations family.', by: 'POD-6359' },
   automation: { reason: 'Automations convert with their family.', by: 'POD-6359' },
-  automationRun: { reason: 'A run is an effect record.', by: 'POD-6357' },
+  automationRun: { reason: 'A run conforms to the effect status with its family.', by: 'POD-6359' },
   userLayout: { reason: 'Layout converts as a plain edit.', by: 'POD-6355' },
   userReadPosition: { reason: 'Read positions convert with their family.', by: 'POD-6359' },
   issueEvent: { reason: 'An append-only history; never edited.', by: 'never (append)' },
-  pendingInteraction: { reason: 'Answers are one-off effects.', by: 'POD-6357' },
+  pendingInteraction: { reason: 'Answers are one-off effects.', by: 'POD-6359' },
   message: { reason: 'Chat delivery is an effect on its own record.', by: 'POD-6357' },
   issueUserState: {
     reason:
@@ -215,5 +215,10 @@ export const NOT_YET_GENERIC: Readonly<
   issueGitState: {
     reason: 'All status: observed by the server, never client-written.',
     by: 'never (status)',
+  },
+  effect: {
+    reason:
+      'A state machine (`cmd`), not plain data: created, cancelled and dismissed by its own commands (`effects.*`).',
+    by: 'never (effects.*)',
   },
 }

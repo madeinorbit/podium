@@ -148,6 +148,7 @@ const DEMO_SLICE_KINDS = [
   'conversations',
   'automations',
   'automationRuns',
+  'effects',
   'userLayouts',
 ] as const
 
