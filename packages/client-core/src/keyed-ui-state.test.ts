@@ -1,5 +1,4 @@
 import { expect, it } from 'vitest'
-import type { PodiumClientApi } from './api'
 import { createReplicatedLayoutController } from './engine/replicated-layout'
 import type { StoreNotices } from './engine/types'
 import type { EngineOutbox } from './engine/wiring'
@@ -11,7 +10,6 @@ import { createRoutedUiState } from './ui-state'
 it('notifies the canonical key and every declared alias without unrelated keys', () => {
   const side = createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] })
   const controller = createReplicatedLayoutController({
-    api: {} as PodiumClientApi,
     outbox: { awaiting: () => [], pending: () => [] } as unknown as EngineOutbox,
     notices: { error: () => {}, info: () => {} } as StoreNotices,
   })
@@ -72,7 +70,6 @@ it('publishes only changed layout keys through optimism, queue drain and authori
   const outbox = {
     pending: () => pending,
     awaiting: () => [],
-    retireAwaiting: () => {},
     enqueue: (kind: string, input: unknown) => {
       const entry = {
         kind,
@@ -86,7 +83,6 @@ it('publishes only changed layout keys through optimism, queue drain and authori
     },
   } as unknown as EngineOutbox
   controller = createReplicatedLayoutController({
-    api: {} as PodiumClientApi,
     outbox,
     notices: { error: () => {}, info: () => {} } as StoreNotices,
     seed: { 'sidebar.section.one': 'saved' },

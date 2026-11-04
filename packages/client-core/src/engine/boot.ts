@@ -1,8 +1,8 @@
 /**
  * THE NETWORK ENRICHMENTS (POD-404, split out of the old `engine.ts`).
  *
- * Repos, pins, tab orders, personal settings and the replicated layout are
- * fetched over tRPC rather than replicated. They are ENRICHMENTS, not the source
+ * Repos, pins, tab orders and personal settings are fetched over tRPC rather
+ * than replicated. They are ENRICHMENTS, not the source
  * of truth for the principal's slice: a cold offline boot must keep serving the
  * persisted replica rather than replacing it with a connection error, so every
  * caller runs these detached and swallows the failure.
@@ -13,13 +13,11 @@
  */
 
 import type { PodiumClientApi } from '../api'
-import type { ReplicatedLayoutController } from './replicated-layout'
 import type { EngineState } from './state'
 
 export interface BootFetchPorts<TApi extends PodiumClientApi> {
   readonly api: TApi
   readonly publish: (patch: Partial<EngineState>) => void
-  readonly replicatedLayout: ReplicatedLayoutController
 }
 
 export class BootFetches<TApi extends PodiumClientApi> {
@@ -112,10 +110,5 @@ export class BootFetches<TApi extends PodiumClientApi> {
   async refreshPersonalSettings(): Promise<void> {
     const settings = await this.ports.api.settings.get.query()
     this.ports.publish({ sidebarSettings: settings.sidebar })
-  }
-
-  async refreshReplicatedLayout(mutationIds: readonly string[]): Promise<void> {
-    const snapshot = await this.ports.api.layout.get.query()
-    this.ports.replicatedLayout.reconcile(snapshot, mutationIds)
   }
 }

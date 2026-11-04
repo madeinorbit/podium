@@ -59,7 +59,6 @@ import type {
   ReadPositionWire,
   SessionId,
 } from '@podium/model'
-import { asUserId } from '@podium/model'
 import { isShortSessionIdentifier, type SessionIdentifierResolution } from '@podium/protocol'
 import type { OutboxRejectionReason } from '@podium/sync/outbox'
 import { runInAction } from 'mobx'
@@ -380,8 +379,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   /** The keyed inputs (POD-5426 §4.10): locals by key, lists by id, drafts per session. */
   private readonly inputs: KeyedInputsChannel
   private pendingReactions = new Set<keyof EngineState>()
-  /** True when this runtime runs on the wire-v2 feed (POD-1223). */
-  private readonly onFeed: boolean
   readonly drafts: DraftStore
   private conversationCache: ConversationCache | undefined
   private readonly networkEnabled: boolean
@@ -425,7 +422,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         ? { heartbeatIntervalMs: init.heartbeatIntervalMs }
         : {}),
     })
-    this.onFeed = init.feed !== undefined
     this.headerPolling = createHeaderPollingService({ api: this.api, replica: this.replica })
     this.headerInputs = this.headerPolling.inputs
     this.outbox = (init.createOutboxFn ?? createEngineOutbox)({
@@ -475,7 +471,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.boot = new BootFetches<TApi>({
       api: this.api,
       publish: (patch) => this.apply(patch),
-      replicatedLayout: this.replicatedLayout,
     })
     this.routerUi = createRouterUiState({
       local: localUi,
@@ -656,11 +651,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         }
       }),
     )
-    offs.push(
-      this.hub.on('userLayouts', (rows: LayoutWire[]) => {
-        this.replicatedLayout.replace(Object.fromEntries(rows.map((row) => [row.key, row.value])))
-      }),
-    )
     // A read position moved on this person's OTHER device (POD-1380). The feed
     // is scoped per-user, so every row here is already this principal's — the
     // filter is belt-and-braces against a widened feed, not the primary guard.
@@ -760,7 +750,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     if (!this.booted) {
       this.booted = true
       if (this.networkEnabled) {
-        void this.replicatedLayout.hydrate().catch(() => {})
         void this.readPosition.hydrate().catch(() => {})
         // Sidebar prefs load out of band so boot fans out only repos + pins + tab
         // orders (never gated on settings or a conversation scan).
@@ -1490,13 +1479,13 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
    */
   private onMutationApplied(entry: OutboxEntry): void {
     if (this.destroyed) return
-    this.reconcileActionState(entry, 'applied')
+    this.refreshRuntimeOwnedTruth(entry)
     this.emitOutcome({ type: 'applied', mutationId: entry.mutationId, entry })
   }
 
   private onMutationDropped(entry: OutboxEntry, reason?: OutboxRejectionReason): void {
     if (this.destroyed) return
-    this.reconcileActionState(entry, 'dropped')
+    this.refreshRuntimeOwnedTruth(entry)
     this.emitOutcome({
       type: 'rejected',
       mutationId: entry.mutationId,
@@ -1527,32 +1516,15 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   }
 
   /** Runtime-owned kinds are non-optimistic for pool rows (POD-5426 §5).
-   * Their local paint belongs to actions/the layout controller; settlement
+   * Pins, tab orders and personal settings are not replicated, so settlement
    * refetches their truth instead of retaining a pool transaction overlay.
-   * Returns null for entity kinds whose optimism the pool owns. */
-  private reconcileActionState(entry: OutboxEntry, outcome: 'applied' | 'dropped'): boolean | null {
-    if (entry.kind === 'layoutSet' || entry.kind === 'layoutClear') {
-      if (outcome === 'dropped') {
-        this.replicatedLayout.commandDropped(entry)
-        return false
-      }
-      const hold = this.replicatedLayout.commandApplied(entry)
-      if (hold) void this.boot.refreshReplicatedLayout([entry.mutationId]).catch(() => {})
-      return hold
-    }
-    if (entry.kind === 'pinSet') {
-      void this.boot.refreshPins().catch(() => {})
-      return false
-    }
-    if (entry.kind === 'tabSetOrder') {
-      void this.boot.refreshTabOrders().catch(() => {})
-      return false
-    }
-    if (entry.kind === 'settingsUpdatePersonal') {
+   * Layout needs nothing here: its entries paint from the outbox until the
+   * replica's covering commit retires them (POD-6278). */
+  private refreshRuntimeOwnedTruth(entry: OutboxEntry): void {
+    if (entry.kind === 'pinSet') void this.boot.refreshPins().catch(() => {})
+    else if (entry.kind === 'tabSetOrder') void this.boot.refreshTabOrders().catch(() => {})
+    else if (entry.kind === 'settingsUpdatePersonal')
       void this.boot.refreshPersonalSettings().catch(() => {})
-      return false
-    }
-    return null
   }
 
   // ------------------------------------------------------------------- actions
@@ -1612,7 +1584,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       router: this.router,
       notices: this.notices,
       layoutSeed: layoutSnapshotFromRows(this.replica.rows('userLayouts')),
-      onLayoutBaseInstalled: (snapshot) => this.persistLayoutBase(snapshot),
       state: () => this.state,
       apply: (patch) => this.apply(patch),
       navigate: (intent) => this.navigate(intent),
@@ -1644,35 +1615,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       // consequence, and none of it can hold the typing up.
       setSessionDraft: (sessionId, text) => this.drafts.set(sessionId, text),
     })
-  }
-
-  /**
-   * Cache an authoritative layout base so the NEXT boot paints it on frame one.
-   *
-   * Only on the legacy wire. The kernel feed carries `userLayout` like every
-   * other entity and its cache has exactly one ordered writer — `applySnapshot`
-   * REFUSES there by design, and it is right to: those rows arrive through the
-   * feed and need nothing from us. The legacy wire carries no layout at all, so
-   * `api.layout.get.query()` is the only truth this device ever sees and this is
-   * the one place it can be kept.
-   *
-   */
-  private persistLayoutBase(snapshot: LayoutSnapshot): void {
-    if (this.onFeed) return
-    const userId = asUserId(this.principal.userId)
-    try {
-      this.replica.applySnapshot(
-        'userLayouts',
-        Object.entries(snapshot).map(([key, value]) => ({ userId, key, value })),
-      )
-    } catch (err) {
-      // This runs INSIDE `installBase`, so a throw here would take the caller's
-      // `emit()` with it and the base we just installed would never repaint —
-      // trading a cold next boot for a broken current one. A cache write is
-      // never worth that; the replica's own writes fail the same way, loudly in
-      // the log and harmlessly to the app.
-      log.warn('could not cache the layout base for the next boot', { err })
-    }
   }
 
   private buildStatics(actions: EngineActions<TApi>): EngineStatics<TApi> {

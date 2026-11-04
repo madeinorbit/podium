@@ -163,7 +163,6 @@ it('keeps upgraded-account tips seen when a remote layout snapshot replaces hydr
   const snapshot = { ...seeded, 'tips.enabled': 'false' }
   type Init = Parameters<typeof createReplicatedLayoutController>[0]
   const replicated = createReplicatedLayoutController({
-    api: { layout: { get: { query: async () => snapshot } } } as unknown as Init['api'],
     outbox: { awaiting: () => [], pending: () => [] } as unknown as Init['outbox'],
     notices: { error: () => {}, info: () => {} } as Init['notices'],
   })
@@ -173,6 +172,8 @@ it('keeps upgraded-account tips seen when a remote layout snapshot replaces hydr
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
   attachPreferenceSource(pool, ui)
   disposers.push(() => pool.dispose())
+  // The replica's rows are the base: the bootstrap installs the account slice.
+  replicated.replace(snapshot)
   const log = new AccountTipLog(pool, ui, () => replicated.hydrate())
   const rendered = { ready: false, seen: [] as boolean[] }
   disposers.push(

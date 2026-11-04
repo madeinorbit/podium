@@ -253,8 +253,6 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
   /** Layout base persisted by an earlier session, for hydrate-first paint
    *  (POD-571). The runtime reads it out of the replica; absent means cold. */
   readonly layoutSeed?: LayoutSnapshot
-  /** Write an authoritative layout base back to durable storage (POD-571). */
-  onLayoutBaseInstalled?(snapshot: LayoutSnapshot): void
   state(): Readonly<ActionState>
   apply(patch: Partial<ActionState>): void
   navigate(intent: NavigationIntent): boolean
@@ -470,12 +468,8 @@ export function createEngineActions<TApi extends PodiumClientApi>(
   }
   const replicatedLayout = createReplicatedLayoutController({
     outbox: rt.outbox,
-    api,
     notices: rt.notices,
     ...(rt.layoutSeed !== undefined ? { seed: rt.layoutSeed } : {}),
-    ...(rt.onLayoutBaseInstalled !== undefined
-      ? { onBaseInstalled: (snapshot) => rt.onLayoutBaseInstalled?.(snapshot) }
-      : {}),
   })
   /**
    * ONE WRITE PATH for the tab workspaces (POD-710). Every action below rewrites
@@ -554,7 +548,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
   // Runtime-owned writes (POD-5426 §5): pins, tab order and personal settings
   // are deliberately non-optimistic for pool rows. Their local runtime paint
   // stays here; enqueue failure restores it, and settlement refetches truth in
-  // reconcileActionState. These calls use the same durable outbox as rt.write,
+  // refreshRuntimeOwnedTruth. These calls use the same durable outbox as rt.write,
   // with no second queue or PoolTransactions reducer. Archive's pin cleanup
   // below follows the same rule. Entity edits always use rt.write.
   return {

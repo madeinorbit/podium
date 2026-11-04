@@ -35,7 +35,6 @@ describe('BootFetches.refreshRepos', () => {
     const boot = new BootFetches({
       api,
       publish,
-      replicatedLayout: {} as never,
     })
 
     await boot.refreshRepos()
@@ -104,7 +103,7 @@ describe('BootFetches.refreshRepos', () => {
       },
     } as unknown as PodiumClientApi
     const publish = vi.fn<(patch: Partial<EngineState>) => void>()
-    const boot = new BootFetches({ api, publish, replicatedLayout: {} as never })
+    const boot = new BootFetches({ api, publish })
 
     // Coalescing (see `refreshRepos`) means the second trigger does not race the
     // first on the wire — it joins the trailing run — so the two responses
@@ -150,7 +149,6 @@ function makeFetches() {
     // layout controller are never touched by refreshRepos.
     api: api as never,
     publish: (patch) => patches.push(patch),
-    replicatedLayout: {} as never,
   })
   return { fetches, deferreds, patches, calls: () => calls }
 }
