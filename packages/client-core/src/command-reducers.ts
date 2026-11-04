@@ -528,6 +528,7 @@ function recordOverlays(entry: OutboxEntry, viewer: ReducerViewer): PendingOverl
     patch?: OverlayPatch
     unset?: readonly string[]
     fields?: OverlayPatch
+    expectedRevision?: number
   }
   const d = recordDeclaration(input.kind)
   const home = RECORD_HOMES[input.kind]
@@ -535,7 +536,15 @@ function recordOverlays(entry: OutboxEntry, viewer: ReducerViewer): PendingOverl
   const row = home.row(input.id)
   switch (recordOpOf(entry.kind)) {
     case 'edit': {
-      const patch = wireCells(d, input.patch ?? {})
+      // A kind with a spec revision paints the revision this edit will make
+      // (POD-6399), so "not answered yet" reads the same before the receipt as
+      // after it: revision ahead of the observed one.
+      const patch: OverlayPatch = {
+        ...wireCells(d, input.patch ?? {}),
+        ...(d.revisionField !== undefined && typeof input.expectedRevision === 'number'
+          ? { [d.revisionField]: input.expectedRevision + 1 }
+          : {}),
+      }
       // A cleared cell paints absent (POD-6403): the fold spreads `undefined`.
       for (const name of input.unset ?? []) if (name in d.fields) patch[name] = undefined
       return Object.keys(patch).length === 0

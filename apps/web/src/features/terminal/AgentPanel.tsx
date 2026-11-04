@@ -74,6 +74,7 @@ import {
   HibernatedBanner,
   HibernatedPane,
   IssueOutcomeBanner,
+  LifecycleTransitionBar,
   MachineOfflineBanner,
 } from './SessionLifecyclePanes'
 import { SessionWatchers } from './SessionWatchers'
@@ -932,6 +933,7 @@ export function AgentPanel({
           </span>
         </div>
       )}
+      {session && <LifecycleTransitionBar session={session} />}
       {handover && <HandoverPane view={handover} background={termBg} />}
       {surface.kind === 'pending' ? (
         // WAITING TO BE TOLD WHICH VIEW THIS SESSION HAS [POD-2290]. One

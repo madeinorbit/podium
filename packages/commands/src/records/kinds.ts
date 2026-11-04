@@ -211,6 +211,7 @@ export const SESSION_RECORD = defineSyncedKind({
   wire: SessionMeta,
   ref: SessionIdField,
   conflict: 'exp-rev',
+  revisionField: 'revision',
   fields: {
     desired: spec(SessionDesired, ROW.sessionDesiredState),
     // Qualifies THIS edit of `desired`: a stop that discards unsaved work. An

@@ -14,12 +14,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
  * that anything happened at all.
  */
 
-vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (sel: (s: unknown) => unknown) =>
-    sel({ resurrectSession: vi.fn(), killSession: vi.fn() } as never),
+const actions = vi.hoisted(() => ({
+  endSession: vi.fn(async () => ({ ok: true })),
+  hibernateSession: vi.fn(async () => {}),
 }))
 
-const { ExitedBanner, HibernatedBanner } = await import('./SessionLifecyclePanes')
+vi.mock('@/app/store', () => ({
+  useRuntimeSelector: (sel: (s: unknown) => unknown) =>
+    sel({
+      resurrectSession: vi.fn(),
+      killSession: vi.fn(),
+      endSession: actions.endSession,
+      hibernateSession: actions.hibernateSession,
+    } as never),
+}))
+
+const { ExitedBanner, HibernatedBanner, LifecycleTransitionBar } = await import(
+  './SessionLifecyclePanes'
+)
 
 let container: HTMLDivElement
 let root: Root
@@ -72,5 +84,70 @@ describe('the exited bar', () => {
     expect(container.textContent).toContain('Waking the agent')
     expect(container.querySelector('[data-testid="lifecycle-resume"]')).toBeNull()
     expect(container.querySelector('.pane-state-bar-waking')).not.toBeNull()
+  })
+})
+
+describe('the lifecycle transition bar (POD-6399)', () => {
+  const id = asSessionId('s1')
+
+  it('shows nothing for a session nobody has edited', () => {
+    act(() => {
+      root.render(<LifecycleTransitionBar session={{ sessionId: id }} />)
+    })
+    expect(container.textContent).toBe('')
+  })
+
+  it('says the session is on its way while the server has not acted', () => {
+    act(() => {
+      root.render(
+        <LifecycleTransitionBar session={{ sessionId: id, desired: 'stopped', revision: 3, observedRevision: 2 }} />,
+      )
+    })
+    expect(container.querySelector('[data-testid="lifecycle-transition"]')?.textContent).toContain(
+      'Stopping…',
+    )
+    expect(container.querySelector('[data-testid="lifecycle-retry"]')).toBeNull()
+  })
+
+  it('shows a refused stop with its reason and ends anyway on request', async () => {
+    act(() => {
+      root.render(
+        <LifecycleTransitionBar
+          session={{
+            sessionId: id,
+            desired: 'stopped',
+            revision: 3,
+            observedRevision: 3,
+            lifecycleFailure: { revision: 3, reason: 'unsaved changes in the working tree' },
+          }}
+        />,
+      )
+    })
+    const bar = container.querySelector('[data-testid="lifecycle-refused"]')
+    expect(bar?.textContent).toContain("Couldn't end — unsaved changes in the working tree")
+    const button = container.querySelector<HTMLButtonElement>('[data-testid="lifecycle-retry"]')
+    expect(button?.textContent).toBe('End anyway')
+    await act(async () => button?.click())
+    expect(actions.endSession).toHaveBeenCalledWith(id, true)
+  })
+
+  it('offers to try a refused hibernate again', async () => {
+    act(() => {
+      root.render(
+        <LifecycleTransitionBar
+          session={{
+            sessionId: id,
+            desired: 'hibernated',
+            revision: 2,
+            observedRevision: 2,
+            lifecycleFailure: { revision: 2, reason: 'agent is working' },
+          }}
+        />,
+      )
+    })
+    const button = container.querySelector<HTMLButtonElement>('[data-testid="lifecycle-retry"]')
+    expect(button?.textContent).toBe('Try again')
+    await act(async () => button?.click())
+    expect(actions.hibernateSession).toHaveBeenCalledWith(id)
   })
 })

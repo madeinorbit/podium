@@ -207,3 +207,18 @@ describe('a generic edit in the pool (POD-6392)', () => {
     p.dispose()
   })
 })
+
+describe('a session lifecycle edit in the pool (POD-6399)', () => {
+  it('paints the desired state and the revision it will make, so the session reads as on its way', async () => {
+    const p = pool('sessions', SESSION, { sessionId: SESSION, status: 'live', revision: 2, observedRevision: 2 })
+    await p.records.edit({ kind: 'session', id: SESSION }, { desired: 'stopped' }, 2)
+    expect(p.shown()).toMatchObject({ desired: 'stopped', revision: 3, observedRevision: 2 })
+    // Confirmed: the server's row carries the same revision until the controller acts.
+    p.apply('m-1')
+    p.truth({ sessionId: SESSION, status: 'live', desired: 'stopped', revision: 3, observedRevision: 2 })
+    p.retire('m-1')
+    expect(p.painted()).toBe(0)
+    expect(p.shown()).toMatchObject({ desired: 'stopped', revision: 3, observedRevision: 2 })
+    p.dispose()
+  })
+})

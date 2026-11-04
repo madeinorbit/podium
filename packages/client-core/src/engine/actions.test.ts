@@ -34,6 +34,7 @@ function nestedKeys(value: unknown): string[] {
 function harness(
   layout: { seed?: LayoutSnapshot; fetch?: () => Promise<LayoutSnapshot> } = {},
   hub?: { reportTabRelease: (sessionId: SessionId) => void },
+  extra: { sessionRevision?: (id: SessionId) => number | undefined } = {},
 ) {
   const queued: { kind: keyof OutboxKinds; input: unknown }[] = []
   const pending: OutboxEntry[] = []
@@ -153,6 +154,7 @@ function harness(
     spawnDraftAgent: vi.fn(() => ({ sessionId, issueId: asIssueId('issue-1') })),
     waitForSpawnConfirmed: vi.fn(async () => {}),
     setSessionDraft: vi.fn(),
+    ...extra,
   } as unknown as EngineActionRuntime<PodiumClientApi>
   const navigation = fixtureNavigation({
     issues: () => state.issueProjections as IssueProjection[],
@@ -866,5 +868,43 @@ describe('S5 gesture batch', () => {
     })
     expect(order).toEqual(['inside'])
     expect(h.navigated).toHaveLength(1)
+  })
+})
+
+describe('session lifecycle as edits of the session record (POD-6399)', () => {
+  const sessionEdit = (input: unknown) => input as { kind: string; id: string; patch: unknown; expectedRevision?: number }
+
+  it('stop, hibernate and resume queue records.session edits against the replica revision', async () => {
+    const h = harness({}, undefined, { sessionRevision: () => 4 })
+    expect(await h.actions.endSession(sessionId)).toEqual({ ok: true })
+    await h.actions.hibernateSession(sessionId)
+    expect(await h.actions.resurrectSession(sessionId)).toEqual({ ok: true })
+    const edits = h.queued.filter((q) => q.kind === 'recordEdit').map((q) => sessionEdit(q.input))
+    expect(edits.map((e) => [e.kind, e.id, e.patch])).toEqual([
+      ['session', sessionId, { desired: 'stopped' }],
+      ['session', sessionId, { desired: 'hibernated' }],
+      ['session', sessionId, { desired: 'running' }],
+    ])
+    expect(edits.every((e) => e.expectedRevision === 4)).toBe(true)
+  })
+
+  it('a second edit queued behind an unconfirmed one names the revision the first will make', async () => {
+    const h = harness({}, undefined, { sessionRevision: () => 2 })
+    h.pending.push({
+      mutationId: asMutationId('m-earlier'),
+      kind: 'recordEdit',
+      input: { kind: 'session', id: sessionId, patch: { desired: 'stopped' }, expectedRevision: 2 },
+      queuedAt: 0,
+    } as OutboxEntry)
+    await h.actions.endSession(sessionId, true)
+    const edit = sessionEdit(h.queued.filter((q) => q.kind === 'recordEdit').at(-1)?.input)
+    expect(edit).toMatchObject({ patch: { desired: 'stopped', force: true }, expectedRevision: 3 })
+  })
+
+  it('kill removes the session record against its revision', async () => {
+    const h = harness({}, undefined, { sessionRevision: () => undefined })
+    await h.actions.killSession(sessionId)
+    const removes = h.queued.filter((q) => q.kind === 'recordRemove').map((q) => sessionEdit(q.input))
+    expect(removes).toEqual([{ kind: 'session', id: sessionId, expectedRevision: 1 }])
   })
 })

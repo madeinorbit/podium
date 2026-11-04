@@ -819,31 +819,22 @@ describe('engine lifecycle', () => {
   })
 })
 
-describe('session resurrection', () => {
-  it('reports a rejected resurrection instead of silently swallowing it', async () => {
+describe('session resurrection (POD-6399)', () => {
+  // Resume is an edit of the session record now; how it went shows on the
+  // session (`sessionTransition`), so the old call's refusal toasts are gone.
+  it('is an edit of the session record, never the old resurrect call', async () => {
     const api = makeApi()
-    api.sessions.resurrect = {
-      mutate: vi.fn(async () => ({ ok: false, reason: 'worktree unavailable' })),
-    }
+    const resurrect = vi.fn(async () => ({ ok: true }))
+    api.sessions.resurrect = { mutate: resurrect }
     const { engine, errors } = makeEngine({ api })
 
-    await engine.access.resurrectSession(asSessionId('sleeping'))
+    const result = await engine.access.resurrectSession(asSessionId('sleeping'))
 
-    expect(errors).toEqual(["Couldn't resume the session — worktree unavailable"])
-  })
-
-  it('reports a resurrection transport failure', async () => {
-    const api = makeApi()
-    api.sessions.resurrect = {
-      mutate: vi.fn(async () => {
-        throw new Error('server offline')
-      }),
-    }
-    const { engine, errors } = makeEngine({ api })
-
-    await engine.access.resurrectSession(asSessionId('sleeping'))
-
-    expect(errors).toEqual(["Couldn't resume the session — server offline"])
+    expect(resurrect).not.toHaveBeenCalled()
+    // This fixture attaches no pool writer: the edit is refused, and says so.
+    expect(result.ok).toBe(false)
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toMatch(/^Couldn't change the session — /)
   })
 })
 

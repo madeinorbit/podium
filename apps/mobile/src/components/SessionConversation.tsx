@@ -12,6 +12,7 @@ import { useConversation, useStoreHandle } from '@podium/client-core/react'
 import { REPLICA_TRANSCRIPT_ITEM_CAP, type IssueViewModel } from '@podium/client-core/replica'
 import type { SessionModel } from '@podium/client-graph/models'
 import type { SessionView } from '@podium/client-core/session-values'
+import { sessionTransition, sessionTransitionLabel } from '@podium/client-core/values'
 import {
   composerState,
   defaultChatCapable,
@@ -29,7 +30,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { action, observable, reaction, when } from 'mobx'
 import { observer } from 'mobx-react-lite'
 import { useMobilePool } from '../client/mobile-pool'
-import { AppState, StyleSheet, Text, View } from 'react-native'
+import { AppState, Pressable, StyleSheet, Text, View } from 'react-native'
 import Svg, { Circle } from 'react-native-svg'
 import type { MobileTrpc } from '../client/trpc'
 import {
@@ -379,6 +380,8 @@ const SessionConversationBody = observer(function SessionConversationBody({
       dismissOffer: s.dismissOffer,
       resurrectSession: s.resurrectSession,
       killSession: s.killSession,
+      endSession: s.endSession,
+      hibernateSession: s.hibernateSession,
       httpOrigin: s.httpOrigin,
     }
   }, [storeHandle])
@@ -705,6 +708,12 @@ const SessionConversationBody = observer(function SessionConversationBody({
         onResume={store.resurrectSession}
         onRemove={store.killSession}
       />
+      <MobileLifecycleTransition
+        session={session}
+        onEndAnyway={(id) => void store.endSession(id, true)}
+        onResume={(id) => void store.resurrectSession(id)}
+        onHibernate={(id) => void store.hibernateSession(id)}
+      />
       {offlineMachineName ? (
         <View
           style={styles.offlineBanner}
@@ -818,6 +827,30 @@ const styles = StyleSheet.create({
    * the same live-terminal predicate and the same live presence, cleared on
    * reattach. Danger tone, bar chrome like the lifecycle banner above it.
    */
+  /** The session on its way somewhere (POD-6399): the bar chrome, neutral. */
+  transitionBanner: {
+    flexShrink: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    backgroundColor: color.bar,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: color.hairlineBar,
+    paddingHorizontal: space.md,
+    paddingVertical: space.xs + 1,
+  },
+  transitionText: {
+    ...sans(500),
+    flex: 1,
+    color: color.textDim,
+    fontSize: font.tiny,
+    lineHeight: leading(font.tiny, 'prose'),
+  },
+  transitionAction: {
+    ...sans(600),
+    color: color.dangerText,
+    fontSize: font.tiny,
+  },
   offlineBanner: {
     flexShrink: 0,
     flexDirection: 'row',
@@ -876,3 +909,52 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 })
+
+/**
+ * WHAT THE SESSION IS ON ITS WAY TO, OR WHY THE SERVER REFUSED IT
+ * (ADR 12 D5 E1, POD-6399): the phone's copy of the desktop's
+ * `LifecycleTransitionBar`, from the same `sessionTransition`. A refused stop
+ * offers to end anyway; a refused resume or hibernate, to try again.
+ */
+function MobileLifecycleTransition({
+  session,
+  onEndAnyway,
+  onResume,
+  onHibernate,
+}: {
+  session: Pick<
+    SessionView,
+    'sessionId' | 'desired' | 'revision' | 'observedRevision' | 'lifecycleFailure'
+  >
+  onEndAnyway(sessionId: SessionView['sessionId']): void
+  onResume(sessionId: SessionView['sessionId']): void
+  onHibernate(sessionId: SessionView['sessionId']): void
+}) {
+  const transition = sessionTransition(session)
+  if (transition === undefined) return null
+  const refused = transition.kind === 'refused'
+  const retry = !refused
+    ? undefined
+    : transition.desired === 'stopped'
+      ? { label: 'End anyway', run: () => onEndAnyway(session.sessionId) }
+      : transition.desired === 'running'
+        ? { label: 'Try again', run: () => onResume(session.sessionId) }
+        : { label: 'Try again', run: () => onHibernate(session.sessionId) }
+  return (
+    <View
+      style={refused ? styles.offlineBanner : styles.transitionBanner}
+      testID={refused ? 'lifecycle-refused' : 'lifecycle-transition'}
+      accessibilityRole={refused ? 'alert' : 'text'}
+      accessibilityLiveRegion="polite"
+    >
+      <Text style={refused ? styles.offlineText : styles.transitionText}>
+        {sessionTransitionLabel(transition)}
+      </Text>
+      {retry ? (
+        <Pressable onPress={retry.run} accessibilityRole="button" testID="lifecycle-retry" hitSlop={8}>
+          <Text style={styles.transitionAction}>{retry.label}</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  )
+}

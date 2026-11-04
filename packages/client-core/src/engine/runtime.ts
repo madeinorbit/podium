@@ -1613,6 +1613,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       // goes out, whether it went out, when it is written to disk) is a
       // consequence, and none of it can hold the typing up.
       setSessionDraft: (sessionId, text) => this.drafts.set(sessionId, text),
+      // One row by id; a replica without the by-id read answers "unknown" (1),
+      // and the outbox's own queued edits still raise it.
+      sessionRevision: (sessionId) => this.replica.row?.('sessions', sessionId)?.revision,
     })
   }
 

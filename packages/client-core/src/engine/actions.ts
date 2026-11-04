@@ -255,6 +255,12 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
   readonly api: TApi
   readonly hub: SocketHub
   readonly outbox: EngineOutbox
+  /**
+   * The session's spec revision as the replica holds it (POD-6399): what an
+   * edit of its desired state is made against, before this device's own
+   * queued edits of it are counted. Absent: 1.
+   */
+  sessionRevision?(sessionId: SessionId): number | undefined
   /** Resolution waiters for queued entries, by id (POD-4762). */
   readonly outboxSettlements: OutboxSettlements
   readonly router: Router
@@ -437,10 +443,56 @@ function waitForState<T>(
   })
 }
 
+/**
+ * The revision an edit of this session is made against NOW (POD-6399): the
+ * replica's, past every edit of it this device has queued and not yet seen
+ * confirmed, because the server applies them in order and each moves it by one.
+ */
+function sessionRevisionNow(
+  rt: Pick<EngineActionRuntime<PodiumClientApi>, 'outbox' | 'sessionRevision'>,
+  sessionId: SessionId,
+): number {
+  let revision = rt.sessionRevision?.(sessionId) ?? 1
+  for (const entry of [...rt.outbox.pending(), ...rt.outbox.awaiting()]) {
+    if (entry.kind !== 'recordEdit' && entry.kind !== 'recordRemove') continue
+    const input = entry.input as { kind?: unknown; id?: unknown; expectedRevision?: unknown }
+    if (input.kind !== 'session' || input.id !== sessionId) continue
+    if (typeof input.expectedRevision === 'number') {
+      revision = Math.max(revision, input.expectedRevision + 1)
+    }
+  }
+  return revision
+}
+
 export function createEngineActions<TApi extends PodiumClientApi>(
   rt: EngineActionRuntime<TApi>,
 ): EngineActions<TApi> {
   const api = rt.api
+  const records = createRecordsApi((kind, input) => rt.write(kind, input))
+  /**
+   * WHAT THE SESSION SHOULD BE, as an edit of its record (ADR 12 D5 E1,
+   * POD-6399): queued, shown at once, replay-safe, and refused by its revision
+   * if a newer edit landed first. The server's controller makes it true; how it
+   * went shows on the session itself (`sessionTransition`), on every device.
+   */
+  const editSessionLifecycle = async (
+    sessionId: SessionId,
+    desired: 'running' | 'stopped' | 'hibernated',
+    force = false,
+  ): Promise<{ ok: boolean; reason?: string }> => {
+    try {
+      await records.edit(
+        { kind: 'session', id: sessionId },
+        { desired, ...(force ? { force: true } : {}) },
+        sessionRevisionNow(rt, sessionId),
+      )
+      return { ok: true }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'unknown error'
+      rt.notices.error(`Couldn't change the session — ${reason}`)
+      return { ok: false, reason }
+    }
+  }
   let transcriptRevealNonce = 0
   // The navigation reaction and the row gesture can request the same read
   // before durable enqueue has painted its overlay. Share that in-flight act.
@@ -960,7 +1012,12 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     spawnDraftAgent: (args) => rt.spawnDraftAgent(args),
     spawnIssueAgent: (args) => rt.spawnIssueAgent(args),
     killSession: async (sessionId) => {
-      await api.sessions.kill.mutate({ sessionId }).catch(() => {})
+      // Kill deletes the session (records.session.remove), against its
+      // revision: a kill queued offline that arrives after a newer start is
+      // refused rather than ending the process the user resumed (POD-6399).
+      await records
+        .remove({ kind: 'session', id: sessionId }, sessionRevisionNow(rt, sessionId))
+        .catch(() => {})
       const state = rt.state()
       // A killed session's tabs are views onto something that no longer exists —
       // the one case where a tab goes away without the operator closing it. The
@@ -990,42 +1047,16 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     },
     closeAutoContinuePrompt: () => rt.apply({ autoContinuePromptSessionId: null }),
     hibernateSession: async (sessionId) => {
-      await api.sessions.hibernate.mutate({ sessionId }).catch(() => {})
+      await editSessionLifecycle(sessionId, 'hibernated')
     },
-    // Clean end [spec:SP-9904]. The server RETURNS its refusals rather than
-    // throwing (POD-379 pins that for the tRPC arm), so a dirty working tree
-    // arrives as `ok: false` with a reason.
-    //
-    // A RETURNED REFUSAL IS NOT TOASTED. It is an answer the caller asked for
-    // and can act on — `guardedEnd` turns "the tree is dirty" into an offer to
-    // force — so notifying here would put an error banner on screen underneath
-    // the dialog resolving it, and would report a failure the operator is about
-    // to convert into a success. Only a THROW is unexpected, and only a throw
-    // notifies. Unlike `resurrectSession`, whose refusal has no second move.
-    endSession: async (sessionId, force) => {
-      try {
-        return await api.sessions.stop.mutate({
-          sessionId,
-          ...(force === true ? { force: true } : {}),
-        })
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : 'unknown error'
-        rt.notices.error(`Couldn't end the session — ${reason}`)
-        return { ok: false, reason }
-      }
-    },
-    resurrectSession: async (sessionId) => {
-      try {
-        const result = await api.sessions.resurrect.mutate({ sessionId })
-        if (!result.ok)
-          rt.notices.error(`Couldn't resume the session — ${result.reason ?? 'unknown error'}`)
-        return result
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : 'unknown error'
-        rt.notices.error(`Couldn't resume the session — ${reason}`)
-        return { ok: false, reason }
-      }
-    },
+    // Clean end [spec:SP-9904], as an edit (POD-6399). `ok` means the edit is
+    // queued; a refusal (an unsaved working tree) arrives later as the
+    // session's `lifecycleFailure`, which the session's own bar shows with the
+    // force offer, on every device. Only a call the API refuses outright
+    // notifies here.
+    endSession: async (sessionId, force) =>
+      await editSessionLifecycle(sessionId, 'stopped', force === true),
+    resurrectSession: async (sessionId) => await editSessionLifecycle(sessionId, 'running'),
     sendChat: async (input, mutationId) => {
       // Optimistic spawn paints the session id before the server has it. A send
       // in that window dead-letters as "unknown session" and used to be treated
@@ -1088,7 +1119,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     // and no rollback to write — the overlay retires itself on covering truth or
     // drops on a definitive refusal, and the poison toast is the failure surface.
     updateIssue: async (id, patch) => rt.write('issueUpdate', { id, patch }),
-    records: createRecordsApi((kind, input) => rt.write(kind, input)),
+    records,
     archiveIssue: async (id) => rt.write('issueArchive', { id }),
     deleteIssue: async (id) => rt.write('issueDelete', { id }),
     closeIssue: async (id, reason) => rt.write('issueClose', { id, reason }),

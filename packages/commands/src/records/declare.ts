@@ -128,6 +128,13 @@ export interface SyncedKindDeclaration<
   /** A NEW id, minted on the device (ADR 12 D4). Required iff the kind offers create. */
   readonly newId?: z.ZodTypeAny
   readonly conflict: RecordConflict
+  /**
+   * The kind's SPEC REVISION field, when it has one (POD-6399): a `status` field
+   * that every accepted edit moves by exactly one, so a client paints an edit
+   * made against revision r as revision r + 1 until it is confirmed, and reads
+   * "the server has not answered this yet" as revision ahead of its observed one.
+   */
+  readonly revisionField?: string
   readonly fields: F
   /**
    * What a create needs to PLACE the record that is not a field of it, such as
@@ -192,6 +199,9 @@ export function declarationProblems(d: SyncedKindDeclaration): string[] {
   for (const name of Object.keys(d.placement ?? {})) {
     if (name in d.fields) out.push(`placement ${name} is also a field`)
     if (d.ops.create === undefined) out.push(`placement ${name} without a create`)
+  }
+  if (d.revisionField !== undefined && d.fields[d.revisionField]?.role !== 'status') {
+    out.push(`revisionField ${d.revisionField} is not a status field`)
   }
   if (!RECORD_CONFLICTS.includes(d.conflict)) {
     out.push(`conflict ${d.conflict} is not a rule generic edits apply`)
