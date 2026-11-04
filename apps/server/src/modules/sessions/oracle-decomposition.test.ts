@@ -9,6 +9,7 @@ import { attachTestClient } from '../../test-support/client-transport'
  */
 
 import {
+  asAccountId,
   asMachineId,
   type Attribution,
   actorUser,
@@ -22,7 +23,6 @@ import type { ServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentCommandPrincipal } from '../../command-principal'
-import { OPERATOR } from '../../test-support/capabilities'
 import { mailHarness } from '../messages/characterization-support'
 import {
   disposeOracles,
@@ -60,7 +60,9 @@ function delegatedAgent(sessionId: SessionId, onBehalfOf: UserId): AgentCommandP
     kind: 'agent',
     agentSessionId: sessionId,
     onBehalfOf,
-    capability: { ...OPERATOR, actorSessionId: sessionId, onBehalfOf },
+    // A persisted unscoped delegation, held to its own human's member rights
+    // (design §2.3, §4.1; POD-6288). It names its human, not the first admin.
+    capability: { role: 'admin', scope: { kind: 'all' }, actorSessionId: sessionId, onBehalfOf },
     chain: [],
   }
 }
@@ -75,10 +77,42 @@ function sessionStatePrincipal(agent: AgentCommandPrincipal): SessionStatePrinci
   }
 }
 
+/**
+ * The member's own OpenAI connection, sent to the host and selected for coding.
+ * The host is the first admin's machine, so its native logins are the admin's:
+ * Alice's and Bob's codex runs there use only their own connection, which each
+ * sent to it (design §2.4, §2.5; POD-6300).
+ */
+async function ownConnectionOnHost(
+  store: Awaited<ReturnType<typeof makeOracle>>['store'],
+  owner: UserId,
+): Promise<void> {
+  const id = asAccountId('managed:openai')
+  await store.accounts.upsert({
+    id,
+    ownerUserId: owner,
+    provider: 'openai',
+    kind: 'api-key',
+    credential: `sk-${owner}`,
+    identity: `${owner}@example.com`,
+    scope: 'role',
+    createdAt: 1,
+  })
+  await store.accounts.markSent(owner, id, store.hostMachineId, '2026-11-04T00:00:00.000Z')
+  const settings = await store.settings.getSettingsFor(owner)
+  await store.settings.setSettingsFor(
+    owner,
+    { ...settings, roles: { ...settings.roles, coding: { ...settings.roles.coding, accountId: id } } },
+    '2026-11-04T00:00:00.000Z',
+  )
+}
+
 async function twoUserOracle() {
   const o = await makeOracle()
   seedUser(o.store, ALICE, 'Alice')
   seedUser(o.store, BOB, 'Bob')
+  await ownConnectionOnHost(o.store, ALICE)
+  await ownConnectionOnHost(o.store, BOB)
   const alice = await o.reg.modules.sessions.createSession({
     sessionId: ALICE_SESSION,
     agentKind: 'codex',
@@ -128,14 +162,10 @@ describe('oracle: two-user SessionService fixture', () => {
 
   it(`${MUST_NOT_CHANGE}: binding-owned sessions persist each human owner and remain private to the other viewer`, async () => {
     const f = await twoUserOracle()
-    expect(await f.o.reg.modules.sessions.sessionOwner(f.alice.sessionId)).toEqual({
-      owner: ALICE,
-      grants: [],
-    })
-    expect(await f.o.reg.modules.sessions.sessionOwner(f.bob.sessionId)).toEqual({
-      owner: BOB,
-      grants: [],
-    })
+    // The owner is the whole answer: session grants are inert (design §4.1,
+    // a30edff62f), so no grant list is read or returned.
+    expect(await f.o.reg.modules.sessions.sessionOwner(f.alice.sessionId)).toEqual({ owner: ALICE })
+    expect(await f.o.reg.modules.sessions.sessionOwner(f.bob.sessionId)).toEqual({ owner: BOB })
     const narrowBob: SessionStatePrincipal = {
       ...sessionStatePrincipal(f.agents.bob),
       capability: { role: 'worker', scope: { kind: 'self', userId: BOB } },
@@ -167,36 +197,45 @@ describe('oracle: durable per-user session state (not live co-presence)', () => 
       },
       alice,
     )
-    await f.sessionState.execute('snoozes.set', { sessionId: f.alice.sessionId, until: bobUntil }, bob)
+    // Sessions are private (design §2.3, POD-6283): Bob's agent cannot snooze
+    // Alice's session, and snoozes his own.
+    expect(
+      (await f.sessionState.execute('snoozes.set', { sessionId: f.alice.sessionId, until: bobUntil }, bob))
+        .outcome,
+    ).toBe('denied')
+    await f.sessionState.execute('snoozes.set', { sessionId: f.bob.sessionId, until: bobUntil }, bob)
     await f.sessionState.execute(
       'pins.set',
       { kind: 'panel', id: f.alice.sessionId, pinned: true },
       alice,
     )
     await f.sessionState.execute('pins.set', { kind: 'panel', id: f.bob.sessionId, pinned: true }, bob)
-    await f.sessionState.execute(
-      'tabs.setOrder',
-      { worktree: '/work', sessionIds: [f.alice.sessionId, f.bob.sessionId] },
-      alice,
-    )
-    await f.sessionState.execute(
-      'tabs.setOrder',
-      { worktree: '/work', sessionIds: [f.bob.sessionId, f.alice.sessionId] },
-      bob,
-    )
+    // A tab order may name only sessions the caller can read, and a session is
+    // its owner's alone (design §2.3, POD-6283): naming the other's is refused.
+    expect(
+      (
+        await f.sessionState.execute(
+          'tabs.setOrder',
+          { worktree: '/work', sessionIds: [f.alice.sessionId, f.bob.sessionId] },
+          alice,
+        )
+      ).outcome,
+    ).toBe('denied')
+    await f.sessionState.execute('tabs.setOrder', { worktree: '/work', sessionIds: [f.alice.sessionId] }, alice)
+    await f.sessionState.execute('tabs.setOrder', { worktree: '/work', sessionIds: [f.bob.sessionId] }, bob)
     expect(await f.o.store.sessions.listSnoozes(ALICE)).toEqual({
       [f.alice.sessionId]: aliceUntil,
     })
     expect(await f.o.store.sessions.listSnoozes(BOB)).toEqual({
-      [f.alice.sessionId]: bobUntil,
+      [f.bob.sessionId]: bobUntil,
     })
     expect((await f.o.store.sessions.listPins(ALICE)).panels).toEqual([f.alice.sessionId])
     expect((await f.o.store.sessions.listPins(BOB)).panels).toEqual([f.bob.sessionId])
     expect(await f.o.store.sessions.listTabOrders(ALICE)).toEqual({
-      '/work': [f.alice.sessionId, f.bob.sessionId],
+      '/work': [f.alice.sessionId],
     })
     expect(await f.o.store.sessions.listTabOrders(BOB)).toEqual({
-      '/work': [f.bob.sessionId, f.alice.sessionId],
+      '/work': [f.bob.sessionId],
     })
   })
 

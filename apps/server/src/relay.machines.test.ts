@@ -2,6 +2,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  asAccountId,
   asAgentIdentityId,
   asMachineId,
   asRepoId,
@@ -179,12 +180,16 @@ describe('rule 46 grant snapshots at relay composition', () => {
     const { reg, grantReads, revokeAfterFirstGrantRead } = await regWithRevocableMachineGrant()
     revokeAfterFirstGrantRead()
 
+    // A member logs in only on a machine in their own custody (design §2.4,
+    // §2.5; POD-6300 26568b8f5f): a `use` grant on the colleague's machine
+    // never selects it, since logging in there would replace the colleague's
+    // login. The pass still reads the grants once.
     await expect(
       reg.modules.nativeLogin.start({
         harness: 'codex',
         ownerUserId: firstAdminMemberId(),
       }),
-    ).resolves.toBeDefined()
+    ).rejects.toThrow('no online machine of yours can run codex login')
     expect(grantReads()).toBe(1)
 
     await expect(
@@ -551,6 +556,34 @@ async function handoffRegistry(
       actorId: firstAdminMemberId(),
       onBehalfOf: firstAdminMemberId(),
     })
+    // On the admin's machine Bob's run uses only Bob's own connection, which he
+    // sent there; the admin's native login is never used for him (design §2.4,
+    // §2.5; 26568b8f5f). Selected on Bob's coding role and sent to both machines.
+    const accountId = asAccountId('managed:anthropic')
+    await store.accounts.upsert({
+      id: accountId,
+      ownerUserId: opts.secondMember,
+      provider: 'anthropic',
+      kind: 'api-key',
+      credential: 'sk-ant-bob',
+      identity: 'bob@example.com',
+      scope: 'role',
+      createdAt: 1,
+    })
+    for (const machineId of ['m1', 'm2'] as const) {
+      await store.accounts.markSent(
+        opts.secondMember,
+        accountId,
+        asMachineId(machineId),
+        '2026-11-04T00:00:00.000Z',
+      )
+    }
+    const settings = await store.settings.getSettingsFor(opts.secondMember)
+    await store.settings.setSettingsFor(
+      opts.secondMember,
+      { ...settings, roles: { ...settings.roles, coding: { ...settings.roles.coding, accountId } } },
+      '2026-11-04T00:00:00.000Z',
+    )
   }
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   const source: ControlMessage[] = []

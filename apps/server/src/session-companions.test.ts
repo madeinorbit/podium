@@ -46,7 +46,13 @@ async function fixture() {
   // Sessions are private (POD-6283): B's session and A's session, each seen by
   // its owner only, so every per-user row below is its owner's.
   const { sessionId } = await sessions.createSession({ agentKind: 'shell', cwd: '/p', ownerUserId: B })
-  const { sessionId: aSessionId } = await sessions.createSession({ agentKind: 'shell', cwd: '/a' })
+  // A start names its owner: with three members an ownerless start is refused
+  // (POD-6285, design §2.3), never handed to the first admin.
+  const { sessionId: aSessionId } = await sessions.createSession({
+    agentKind: 'shell',
+    cwd: '/a',
+    ownerUserId: A,
+  })
   const a = await sessions.view.principalForTrustedUser(A)
   const b = await sessions.view.principalForTrustedUser(B)
   const stateRows = async (user: typeof A) => {
@@ -298,6 +304,9 @@ describe('S1 session companion records', () => {
           id,
           name: verb === 'rename' ? 'Renamed' : verb === 'enroll' ? 'Enrolled' : 'Host',
           loggedOutHarnesses: [],
+          // The record names its custodian (POD-6291 9dd00e1e43, design §4.2):
+          // the person who receives its tasks' worktree paths.
+          custodian: f.A,
         },
       },
     ])
@@ -316,6 +325,7 @@ describe('S1 session companion records', () => {
       id: machine,
       name: 'Renamed',
       loggedOutHarnesses: [],
+      custodian: f.A,
     })
     const dirty = vi.spyOn(f.sessions.repository, 'markVolatileSessionDirty')
     dirty.mockClear()
@@ -326,12 +336,14 @@ describe('S1 session companion records', () => {
       id: machine,
       name: 'Enrolled',
       loggedOutHarnesses: [],
+      custodian: f.A,
     })
     await f.reg.modules.machines.revokeMachine(machine)
     expect(await f.reg.changeLedger.authority.snapshot('machine')).toContainEqual({
       id: machine,
       name: 'Enrolled',
       loggedOutHarnesses: [],
+      custodian: f.A,
     })
   })
 
@@ -348,6 +360,7 @@ describe('S1 session companion records', () => {
       id: f.store.hostMachineId,
       name: 'Host',
       loggedOutHarnesses: ['codex'],
+      custodian: f.A,
     })
     await f.reg.modules.machines.recordInventory(f.store.hostMachineId, {
       os: 'linux',
@@ -359,6 +372,7 @@ describe('S1 session companion records', () => {
       id: f.store.hostMachineId,
       name: 'Host',
       loggedOutHarnesses: [],
+      custodian: f.A,
     })
   })
 
@@ -367,9 +381,12 @@ describe('S1 session companion records', () => {
     await f.store.repos.addRepo('/repo', f.store.hostMachineId)
     const repoId = await f.store.repos.resolveRepoIdForPath('/repo', f.store.hostMachineId)
     await f.store.repos.ensurePrefixForRepoId(repoId, 'REF')
+    // A start names its owner: with three members an ownerless start is refused
+    // (POD-6285, design §2.3).
     const { sessionId: draft } = await f.sessions.createSession({
       agentKind: 'shell',
       cwd: '/repo',
+      ownerUserId: f.A,
     })
     expect(await f.sessions.sessionById(draft)).toMatchObject({ refRepoId: repoId, refDraft: 1 })
     const birth = await f.reg.issues.crud.create({ repoPath: '/repo', title: 'Birth', startNow: false })

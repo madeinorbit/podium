@@ -824,11 +824,27 @@ describe('AC6 · the machine `use` gate is on the only remaining path', () => {
     expect((await o.meta(target.sessionId)).machineId).toBe(o.store.hostMachineId)
     // A colleague authenticated to this instance: not the installer, no grant.
     const ctx = await ctxFor(o, human(COLLEAGUE), { ownership: ownershipTable(new Map()) })
+    const before = (await o.meta(target.sessionId)).status
 
-    const message = await messageOf(() =>
+    // Sessions are private (design §2.3, POD-6283): the installer's session is
+    // invisible to the colleague, so the kill stops at the session gate, before
+    // the machine gate, and answers exactly as a kill of a session that never
+    // existed. Nothing reaches the host.
+    const real = await settle(() =>
       dispatchSessionCommand(ctx, 'kill', { sessionId: target.sessionId }),
     )
-    // Outside the see set, so it reads exactly like a machine that was never paired.
+    const ghost = await settle(() => dispatchSessionCommand(ctx, 'kill', { sessionId: GHOST }))
+    expect(real).toEqual(ghost)
+    expect((await o.meta(target.sessionId)).status).toBe(before)
+    // The machine gate still stands behind it: a create on the host, which names
+    // no session, reads exactly like a machine that was never paired.
+    const message = await messageOf(() =>
+      dispatchSessionCommand(ctx, 'create', {
+        agentKind: 'shell',
+        cwd: '/p',
+        machineId: o.store.hostMachineId,
+      }),
+    )
     expect(message).toBe(`unknown machine '${o.store.hostMachineId}'`)
   })
 

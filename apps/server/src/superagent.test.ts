@@ -1,5 +1,12 @@
 import { clientSessionViews } from './test-support/session-views'
-import { asSessionId, asThreadId, asUserId, firstAdminMemberId, type TranscriptItem } from '@podium/model'
+import {
+  asAccountId,
+  asSessionId,
+  asThreadId,
+  asUserId,
+  firstAdminMemberId,
+  type TranscriptItem,
+} from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import {
@@ -210,6 +217,28 @@ describe('start_agent tool wiring (issue #60)', () => {
   it("opens a non-admin's thread in a terminal as that owner, never joining a task they cannot write", async () => {
     const { registry, sa } = await harness()
     const colleague = asUserId('colleague')
+    // The host is the admin's machine: the colleague's run there uses only the
+    // colleague's own connection, sent to it, never the admin's native login
+    // (design §2.4, §2.5; 26568b8f5f).
+    const store = registry.sessionStore
+    const accountId = asAccountId('managed:anthropic')
+    await store.accounts.upsert({
+      id: accountId,
+      ownerUserId: colleague,
+      provider: 'anthropic',
+      kind: 'api-key',
+      credential: 'sk-ant-colleague',
+      identity: 'colleague@example.com',
+      scope: 'role',
+      createdAt: 1,
+    })
+    await store.accounts.markSent(colleague, accountId, store.hostMachineId, '2026-11-04T00:00:00.000Z')
+    const settings = await store.settings.getSettingsFor(colleague)
+    await store.settings.setSettingsFor(
+      colleague,
+      { ...settings, roles: { ...settings.roles, coding: { ...settings.roles.coding, accountId } } },
+      '2026-11-04T00:00:00.000Z',
+    )
     const task = await registry.issues.crud.create({ repoPath: '/r', title: 'Admin work', startNow: false })
     await registry.issues.crud.update(task.id, { worktreePath: '/r/.worktrees/a' })
     const threadId = 'concierge_colleague'

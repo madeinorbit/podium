@@ -349,14 +349,17 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
     const { registry } = await setup()
     const sent: unknown[] = []
     await registry.gateway.attachDaemon('m1', (message) => sent.push(message))
+    // The session is the machine custodian's own: a claude-code run for anyone
+    // else on m1 is refused at spawn (design §2.4, §2.5; 26568b8f5f), so the
+    // OTHER person here is the reader.
     const { sessionId } = await registry.modules.sessions.createSession({
-      ownerUserId: asUserId('usr_transcript_owner'),
+      ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
       cwd: '/private',
     })
     const result = await registry.modules.rpc.readTranscript(
       { sessionId, direction: 'before', limit: 10 },
-      { kind: 'user', id: firstAdminMemberId() },
+      { kind: 'user', id: asUserId('usr_transcript_reader') },
     )
     expect(result).toEqual({ items: [], hasMore: false })
     expect(sent.some((message) => (message as { type?: string }).type === 'transcriptRead')).toBe(

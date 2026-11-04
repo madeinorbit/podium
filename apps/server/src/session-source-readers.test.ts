@@ -145,9 +145,12 @@ describe('S4 server consumers', () => {
       cwd: '/source',
       ownerUserId: B,
     })
+    // A start names its owner: with two members an ownerless start is refused
+    // (POD-6285, design §2.3), never handed to the first admin.
     const { sessionId: privateId } = await sessions.createSession({
       agentKind: 'shell',
       cwd: '/private',
+      ownerUserId: A,
     })
     const a = await sessions.view.principalForTrustedUser(A)
     const b = await sessions.view.principalForTrustedUser(B)

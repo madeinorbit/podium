@@ -14,6 +14,7 @@
 
 import type { MachineId } from '@podium/model'
 import {
+  asAccountId,
   asIssueId,
   asMachineId,
   asSessionId,
@@ -604,6 +605,7 @@ describe('draft launch compensation', () => {
   it('joins the task that owns the cwd only for a starter who may write to it', async () => {
     const o = await makeOracle()
     await provisionHost(o)
+    await colleagueConnectionOnHost(o)
     const host = o.store.hostMachineId
     const task = await o.reg.issues.crud.create({ repoPath: '/p', title: 'Admin work', startNow: false })
     await o.reg.issues.crud.update(task.id, { worktreePath: '/p/.worktrees/a' })
@@ -644,6 +646,7 @@ describe('draft launch compensation', () => {
   it('gives a non-admin fresh resume in someone else\'s task worktree a draft of its own', async () => {
     const o = await makeOracle()
     await provisionHost(o)
+    await colleagueConnectionOnHost(o)
     const host = o.store.hostMachineId
     const task = await o.reg.issues.crud.create({ repoPath: '/p', title: 'Admin work', startNow: false })
     await o.reg.issues.crud.update(task.id, { worktreePath: '/p/.worktrees/a' })
@@ -780,6 +783,33 @@ async function oracleWithPairedMachine(): Promise<{
  * and presence/availability derive from that socket live, so no re-attach is
  * needed after the row appears.
  */
+/**
+ * The colleague's own OpenAI connection, sent to the admin's host (design §2.4,
+ * POD-6300). On a machine someone else looks after, a run uses only the
+ * starter's own connection, which they sent there: the custodian's native login
+ * is never used for them. Selected on the colleague's own coding role.
+ */
+async function colleagueConnectionOnHost(o: Oracle): Promise<void> {
+  const id = asAccountId('managed:openai')
+  await o.store.accounts.upsert({
+    id,
+    ownerUserId: COLLEAGUE,
+    provider: 'openai',
+    kind: 'api-key',
+    credential: 'sk-colleague',
+    identity: 'colleague@example.com',
+    scope: 'role',
+    createdAt: 1,
+  })
+  await o.store.accounts.markSent(COLLEAGUE, id, o.store.hostMachineId, '2026-11-04T00:00:00.000Z')
+  const settings = await o.store.settings.getSettingsFor(COLLEAGUE)
+  await o.store.settings.setSettingsFor(
+    COLLEAGUE,
+    { ...settings, roles: { ...settings.roles, coding: { ...settings.roles.coding, accountId: id } } },
+    '2026-11-04T00:00:00.000Z',
+  )
+}
+
 async function provisionHost(o: Oracle): Promise<void> {
   const host = o.store.hostMachineId
   // Fill the boot gap only: if a future makeOracle provisions the host
@@ -1241,6 +1271,10 @@ describe('attribution and ownership come from the principal', () => {
     // this test prove nothing about attribution.
     const { o, rows } = await oracleWithPairedMachine()
     rows.set('box', { owner: COLLEAGUE, grants: [], name: 'The Box' })
+    // The store's custodian agrees with the table: the spawn's account check
+    // reads it, and on someone else's machine a native login is refused
+    // (design §2.4, POD-6300).
+    await o.store.machines.setMachineOwner(asMachineId('box'), COLLEAGUE)
     const ownership = ownershipTable(rows)
     const ctx = await ctxFor(o, human(COLLEAGUE), { ownership })
     const { sessionId } = (await dispatchSessionCommand(ctx, 'create', {

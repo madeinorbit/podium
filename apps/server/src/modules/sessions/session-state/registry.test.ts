@@ -21,6 +21,7 @@ import { soleHumanSessionStatePrincipal } from '../../../test-support/session-st
 
 import { asSessionId, asUserId, type SessionId, firstAdminMemberId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
+import { userCommandPrincipal } from '../../../command-principal'
 import { SessionRegistry } from '../../../relay'
 import { OPERATOR } from '../../../test-support/capabilities'
 import { openTestStore } from '../../../test-support/open-test-store'
@@ -61,9 +62,12 @@ async function fixture() {
     onBehalfOf: asUserId(userId),
     humanDirect: true,
   })
+  /** The person themselves, with the capability production mints for them:
+   *  their OWN member scope (design §4.1, POD-6288). The shared `OPERATOR`
+   *  fixture names the first admin, so it is nobody else's capability. */
   const asVisibleUser = (userId: string): SessionStatePrincipal => ({
     userId: asUserId(userId),
-    capability: OPERATOR,
+    capability: userCommandPrincipal(asUserId(userId), 'admin').capability,
     onBehalfOf: asUserId(userId),
     humanDirect: true,
   })
@@ -219,7 +223,10 @@ describe('per-user writes are SELF-SCOPED', () => {
 
     // THE COUNTERFACTUAL: the identical call with a coherent principal applies. So
     // the denial above is the scope check talking, not a broken fixture.
-    const coherent: SessionStatePrincipal = { ...mismatched, capability: OPERATOR }
+    const coherent: SessionStatePrincipal = {
+      ...mismatched,
+      capability: userCommandPrincipal(ALICE, 'admin').capability,
+    }
     expect((await sessionState.execute('snoozes.set', { sessionId, until: null }, coherent)).outcome).toBe(
       'applied',
     )
