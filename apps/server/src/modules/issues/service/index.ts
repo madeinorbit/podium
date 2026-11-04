@@ -77,6 +77,7 @@ export type IssueAttentionCapability = Pick<
   | 'subscriptionRemove'
   | 'subscriptionList'
   | 'subscriptionPage'
+  | 'subscriptionOwnPage'
   | 'subscriptionSetEnabled'
   | 'subscriptionGet'
   | 'archive'

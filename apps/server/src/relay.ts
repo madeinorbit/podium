@@ -2998,6 +2998,9 @@ export class SessionRegistry {
         rows: async (ids) => await readIssues(this.store.issues, ids),
         store: { grants: this.store.grants, sessions: this.store.sessions },
       },
+      // A task mailbox read outside the caller's subtree shows only the mail
+      // the caller may read (POD-6284, POD-6288).
+      mailVisibleIds: async (capability, ids) => await messageGate.visibleMailIds(capability, ids),
       repoPaths: async () => await this.store.repos.listRepoPaths(),
       inferRepoFromPath: async (path) =>
         inferRepoFromRoots(await this.store.repos.listRepoPaths(), path),

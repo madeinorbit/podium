@@ -6,7 +6,6 @@
  * is why no scope target and no `--outside-scope` confirmation apply.
  */
 
-import { isAdminPersonCapability } from '@podium/model'
 import type { ContractInput, mailReplyContract } from '@podium/commands'
 import { senderFromPrincipal } from '../service'
 import type { MailHandlerContext } from './context'
@@ -19,10 +18,9 @@ export async function replyHandler(
   const svc = deps.messages
   const original = await svc.message(input.id)
   if (!original) throw new Error(`unknown message ${input.id}`)
-  // Only the RECIPIENT (or an admin in person, the reach the old scope `all`
-  // gave, POD-6288) replies — the reply routes to the original's sender, so
-  // recipient-ship is the natural authz boundary.
-  if (!isAdminPersonCapability(caller.capability) && !access.isRecipient(caller.capability, original)) {
+  // Only the RECIPIENT replies — the reply routes to the original's sender, so
+  // recipient-ship is the natural authz boundary (`mayReplyAs`, POD-6288).
+  if (!(await access.mayReplyAs(ctx.caller, original))) {
     throw new Error('only the recipient of a message may reply to it')
   }
   const r = await svc.sendReply(senderFromPrincipal(caller.principal), {

@@ -14,7 +14,6 @@ import {
   actorUser,
   asAgentIdentityId,
   asIssueId,
-  isAdminPersonCapability,
   isAgentComputing,
   isDecisionIssue,
   isIssueClosed,
@@ -129,6 +128,60 @@ async function refuseTaskSharing(ctx: IssueCommandCtx, id: string): Promise<neve
   // An unknown task answers as one, like every other targeted command.
   if (!(await ctx.reports.getMeta(id))) throw new IssueNotFound(id)
   throw new IssueRefusal(TASKS_VISIBLE_TO_ALL_MEMBERS)
+}
+
+/** The person calling, in person (not an agent): whose subscriptions a
+ *  subscription command may touch (POD-6288). */
+function personHuman(ctx: IssueCommandCtx): UserId | undefined {
+  return isPersonCapability(ctx.caller.capability) ? ctx.markerUser() : undefined
+}
+
+async function sessionOwnedBy(ctx: IssueCommandCtx, sessionId: string, human: UserId): Promise<boolean> {
+  const rows = await ctx.deps.executionFacts.store.sessions.getSessions([sessionId])
+  return rows.get(sessionId)?.ownerUserId === human
+}
+
+/**
+ * A SUBSCRIBER IS A PERSON'S OWN (POD-6288) when it is a session they own or a
+ * task assigned to them. Per-user state (design §4.1): admins get the same.
+ * Returns the subscriber with a task ref resolved to its id, or refuses.
+ */
+async function ownSubscriberOrRefuse(
+  ctx: IssueCommandCtx,
+  subscriber: { kind: 'session' | 'issue'; id: string },
+  human: UserId,
+): Promise<{ kind: 'session' | 'issue'; id: string }> {
+  if (subscriber.kind === 'session') {
+    if (await sessionOwnedBy(ctx, subscriber.id, human)) return subscriber
+  } else {
+    const row = await ctx.reports.getMeta(subscriber.id).catch(() => null)
+    if (row && row.ownerUserId === human) return { kind: 'issue', id: row.id }
+  }
+  throw new TRPCError({
+    code: 'FORBIDDEN',
+    message: 'you may subscribe only your own sessions or tasks assigned to you',
+  })
+}
+
+/** Refuse a remove or toggle of a subscription that is not the caller's own:
+ *  a person's own subscriber (above), or an agent's derived subscriber. */
+async function assertOwnSubscription(ctx: IssueCommandCtx, id: string, verb: 'remove' | 'toggle'): Promise<void> {
+  const human = personHuman(ctx)
+  let owned: boolean
+  if (human !== undefined) {
+    const sub = await ctx.attention.subscriptionGet(id)
+    owned =
+      sub !== undefined &&
+      (sub.subscriberKind === 'session'
+        ? await sessionOwnedBy(ctx, sub.subscriberId, human)
+        : (await ctx.reports.getMeta(sub.subscriberId).catch(() => null))?.ownerUserId === human)
+  } else {
+    const subscriber = ctx.deriveSubscriber()
+    owned = (await ctx.attention.subscriptionList({ subscriberId: subscriber.id })).some((s) => s.id === id)
+  }
+  if (!owned) {
+    throw new TRPCError({ code: 'FORBIDDEN', message: `not allowed to ${verb} a subscription you do not own` })
+  }
 }
 
 /** The human starting a session on a task (POD-6283): the person, or the human
@@ -1486,12 +1539,26 @@ const defs = {
       // WHICH session is reading [POD-1379]: the mailbox is shared by every
       // agent on the issue, so the read is consumed per reader. Server-stamped
       // from the caller (mailIdentity pattern); client input never contributes.
-      return await ctx.commentsMail.mailInbox(asIssueId(id), {
+      const rows = await ctx.commentsMail.mailInbox(asIssueId(id), {
         markRead,
         ...(ctx.caller.capability.actorSessionId
           ? { sessionId: ctx.caller.capability.actorSessionId }
           : {}),
       })
+      // MAIL IS PRIVATE (POD-6284, POD-6288). An agent reads its own subtree's
+      // boxes whole; anyone else, a person included, sees only the rows the mail
+      // read rule gives them, the same as show, status, the ledger and inbox.
+      const scope = ctx.caller.capability.scope
+      const resolved = await ctx.reports.resolveRef(id)
+      const inSubtree =
+        scope.kind === 'subtree' &&
+        (scope.rootId === resolved || (await ctx.hierarchy.ancestorIds(resolved)).includes(scope.rootId))
+      if (inSubtree || !ctx.deps.mailVisibleIds) return rows
+      const visible = await ctx.deps.mailVisibleIds(
+        ctx.caller.capability,
+        rows.map((row) => row.id),
+      )
+      return rows.filter((row) => visible.has(row.id))
     },
   }),
   // Write, scoped to the caller's own subtree; the target issue lives behind the
@@ -1574,18 +1641,27 @@ const defs = {
   subscriptionAdd: def('subscriptionAdd', {
     kind: 'mutation',
     handler: async (ctx, input) => {
-      // Operator (scope 'all') may create a subscription for an explicit subscriber
-      // (#129 Phase C — the Automations UI); constrained agents always subscribe
-      // THEMSELVES, so an agent-supplied subscriber is ignored, not an error.
-      const subscriber =
-        input.subscriber && isAdminPersonCapability(ctx.caller.capability)
-          ? input.subscriber
-          : ctx.deriveSubscriber()
-      // Constrained callers may only watch a source WITHIN their subtree; the
-      // operator (scope 'all') is unconstrained. Relationship sources resolve
-      // dynamically against the subscriber's own subtree, so they are always in-scope.
-      if (!isAdminPersonCapability(ctx.caller.capability) && input.source.kind !== 'relationship') {
-        await ctx.assertSourceInSubtree(input.source)
+      // A PERSON names the subscriber (#129 Phase C — the Automations UI), but
+      // only one of their own: a session they own or a task assigned to them.
+      // Subscriptions are per-user state and a nudge drives the subscriber's
+      // agent, so nobody subscribes another member's session, admins included
+      // (design §4.1, POD-6288). Agents always subscribe THEMSELVES, so an
+      // agent-supplied subscriber is ignored, not an error.
+      const human = personHuman(ctx)
+      let subscriber: { kind: 'session' | 'issue'; id: string }
+      if (human !== undefined && input.subscriber) {
+        subscriber = await ownSubscriberOrRefuse(ctx, input.subscriber, human)
+        // A person watches any task (tasks are shared) but only their own
+        // sessions: another member's session events are private.
+        if (input.source.kind === 'session' && !(await sessionOwnedBy(ctx, input.source.ref, human))) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'you may watch only your own sessions' })
+        }
+      } else {
+        subscriber = ctx.deriveSubscriber()
+        // Constrained callers may only watch a source WITHIN their subtree.
+        // Relationship sources resolve dynamically against the subscriber's own
+        // subtree, so they are always in-scope.
+        if (input.source.kind !== 'relationship') await ctx.assertSourceInSubtree(input.source)
       }
       return await ctx.attention.subscriptionAdd({
         subscriberKind: subscriber.kind,
@@ -1601,19 +1677,8 @@ const defs = {
   subscriptionRemove: def('subscriptionRemove', {
     kind: 'mutation',
     handler: async (ctx, input) => {
-      // Constrained callers may only remove their OWN subscriptions.
-      if (!isAdminPersonCapability(ctx.caller.capability)) {
-        const subscriber = ctx.deriveSubscriber()
-        const owned = (await ctx.attention.subscriptionList({ subscriberId: subscriber.id })).some(
-          (s) => s.id === input.id,
-        )
-        if (!owned) {
-          throw new TRPCError({
-            code: 'FORBIDDEN',
-            message: 'not allowed to remove a subscription you do not own',
-          })
-        }
-      }
+      // Every caller may only remove their OWN subscriptions.
+      await assertOwnSubscription(ctx, input.id, 'remove')
       return await ctx.attention.subscriptionRemove(input.id)
     },
   }),
@@ -1623,19 +1688,8 @@ const defs = {
   subscriptionSetEnabled: def('subscriptionSetEnabled', {
     kind: 'mutation',
     handler: async (ctx, input) => {
-      // Constrained callers may only toggle their OWN subscriptions.
-      if (!isAdminPersonCapability(ctx.caller.capability)) {
-        const subscriber = ctx.deriveSubscriber()
-        const owned = (await ctx.attention.subscriptionList({ subscriberId: subscriber.id })).some(
-          (s) => s.id === input.id,
-        )
-        if (!owned) {
-          throw new TRPCError({
-            code: 'FORBIDDEN',
-            message: 'not allowed to toggle a subscription you do not own',
-          })
-        }
-      }
+      // Every caller may only toggle their OWN subscriptions.
+      await assertOwnSubscription(ctx, input.id, 'toggle')
       return ctx.attention.subscriptionSetEnabled(input.id, input.enabled)
     },
   }),
@@ -1643,12 +1697,11 @@ const defs = {
     kind: 'query',
     // The input is optional, so `query()` (no args) stays valid on every client.
     handler: async (ctx, input) => {
-      // Operator sees every subscription, one keyset page at a time (POD-6208;
-      // the first page when it names none, POD-6209). A constrained caller sees
-      // only its own.
-      if (isAdminPersonCapability(ctx.caller.capability)) {
-        return await ctx.attention.subscriptionPage(input ?? {})
-      }
+      // A person sees their own subscriptions, one keyset page at a time
+      // (POD-6208; the first page when it names none, POD-6209; narrowed to
+      // their own by POD-6288). An agent sees its own.
+      const human = personHuman(ctx)
+      if (human !== undefined) return await ctx.attention.subscriptionOwnPage(human, input ?? {})
       const subscriber = ctx.deriveSubscriber()
       return await ctx.attention.subscriptionList({ subscriberId: subscriber.id })
     },

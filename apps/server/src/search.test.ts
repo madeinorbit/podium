@@ -10,6 +10,7 @@ import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
 import { forceFeature } from './test-support/features'
+import { fixtureInventory } from './test-support/daemon-inventory'
 import { attachHostDaemon, confirmingRetirement } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
 import { countStatements, quietShipping, type StatementTally } from './test-support/statement-count'
@@ -30,18 +31,36 @@ const READER = { kind: 'user' as const, id: firstAdminMemberId() }
  * fixture repos (POD-4631): placement refuses a machine with no row assigned
  * `agentExecution`, and an issue's repo resolves only through a reporting machine.
  */
-async function attachFixtureDaemon(registry: SessionRegistry): Promise<void> {
+async function attachFixtureDaemon(
+  registry: SessionRegistry,
+  machine = 'm1',
+  custodian = firstAdminMemberId(),
+): Promise<void> {
   const store = registry.sessionStore
   await store.machines.upsertMachine({
-    id: 'm1',
-    name: 'm1',
-    hostname: 'm1',
-    tokenHash: 'm1',
-    ownerUserId: firstAdminMemberId(),
+    id: machine,
+    name: machine,
+    hostname: machine,
+    tokenHash: machine,
+    ownerUserId: custodian,
     assignment: { server: false, agentExecution: true },
   })
-  for (const path of ['/repo', '/private']) await store.repos.addRepo(path, asMachineId('m1'))
-  await registry.gateway.attachDaemon('m1', confirmingRetirement(registry, 'm1', () => {}))
+  for (const path of ['/repo', '/private']) await store.repos.addRepo(path, asMachineId(machine))
+  await registry.gateway.attachDaemon(machine, confirmingRetirement(registry, machine, () => {}))
+}
+
+/** Bob's own machine, in his custody: his agents run on his own login there
+ *  (MU-28, POD-6300), the way the two-member fixture places them. */
+const BOB_MACHINE = 'm-bob'
+
+/** Admin's `m1` and Bob's own machine, both with an installed harness, so each
+ *  member's agent session is placed on a machine they look after. */
+async function attachBothMembersMachines(registry: SessionRegistry, bob: ReturnType<typeof asUserId>) {
+  await attachFixtureDaemon(registry)
+  await attachFixtureDaemon(registry, BOB_MACHINE, bob)
+  for (const machine of ['m1', BOB_MACHINE]) {
+    await registry.modules.machines.recordInventory(asMachineId(machine), fixtureInventory())
+  }
 }
 
 /** The statements of `tally` that read `table`, and the queries for a failure message. */
@@ -395,15 +414,16 @@ describe('search.query tRPC', () => {
     const store = await openTestStore(':memory:')
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
-    await attachFixtureDaemon(registry)
     const bob = asUserId('usr_bob')
+    await attachBothMembersMachines(registry, bob)
     const { sessionId } = await registry.modules.sessions.createSession({
       ownerUserId: bob,
       agentKind: 'claude-code',
       cwd: '/classifiedneedle',
+      machineId: asMachineId(BOB_MACHINE),
     })
     await registry.modules.sessions.renameSession({ sessionId, name: 'classifiedneedle session' })
-    registry.gateway.routeDaemonFrame('m1', {
+    registry.gateway.routeDaemonFrame(BOB_MACHINE, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'classified-native' },
@@ -413,12 +433,12 @@ describe('search.query tRPC', () => {
         id: 'classified-native',
         agentKind: 'claude-code',
         providerId: 'claude-code-jsonl',
-        machineId: asMachineId('m1'),
+        machineId: asMachineId(BOB_MACHINE),
         title: 'classifiedneedle conversation',
       },
     ])
     await store.conversations.transcriptIndex.append(
-      asMachineId('m1'),
+      asMachineId(BOB_MACHINE),
       'classified-native',
       [
         {
@@ -473,16 +493,18 @@ describe('search.query tRPC', () => {
     const store = await openTestStore(':memory:')
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
-    await attachFixtureDaemon(registry)
     const bob = asUserId('usr_bob')
+    await attachBothMembersMachines(registry, bob)
+    const machineOf = (ownerUserId: typeof bob) => (ownerUserId === bob ? BOB_MACHINE : 'm1')
     const bind = async (ownerUserId: typeof bob, nativeId: string, cwd: string) => {
       const { sessionId } = await registry.modules.sessions.createSession({
         ownerUserId,
         agentKind: 'claude-code',
         cwd,
+        machineId: asMachineId(machineOf(ownerUserId)),
       })
       // The visibility snapshot needs the persisted native-session binding.
-      await registry.gateway.routeDaemonFrame('m1', {
+      await registry.gateway.routeDaemonFrame(machineOf(ownerUserId), {
         type: 'sessionResumeRef',
         sessionId,
         resume: { kind: 'claude-session', value: nativeId },
@@ -506,7 +528,7 @@ describe('search.query tRPC', () => {
     expect(before?.id).toBe('visible-rank-message')
     await bind(bob, 'hidden-rank', '/hidden')
     await store.conversations.transcriptIndex.append(
-      asMachineId('m1'),
+      asMachineId(BOB_MACHINE),
       'hidden-rank',
       [
         {

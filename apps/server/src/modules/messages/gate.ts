@@ -285,6 +285,39 @@ export class MessageGate {
     )
   }
 
+  /**
+   * WHICH OF THESE MAIL ROWS THE CALLER MAY SEE (POD-6288), by the read rule
+   * of show, status, the ledger and the inbox (`MailAccess.visibleTo`). For a
+   * task's mailbox read outside the caller's own subtree. A row with no
+   * unified twin predates the substrate: it is judged as the sessionless,
+   * unattributed row it is.
+   */
+  async visibleMailIds(capability: Capability, ids: readonly string[]): Promise<Set<string>> {
+    if (ids.length === 0) return new Set()
+    const principal = await this.principalOf(capability)
+    const policy = await this.policyFor?.(principal)
+    const access = policy ? new MailAccess(this.deps, policy.ceiling, policy.machines) : this.access
+    const rows = await Promise.all(
+      ids.map(
+        async (id) =>
+          (await this.deps.messages.message(id)) ??
+          ({ id, toKind: 'issue', fromSession: null, deliveredTo: null } as unknown as MessageRow),
+      ),
+    )
+    const visible = await access.visibleTo({ capability, principal }, rows)
+    return new Set(visible.map((row) => row.id))
+  }
+
+  private async principalOf(capability: Capability): Promise<CommandPrincipal> {
+    return (
+      (await this.principalForCapability?.(capability)) ??
+      (await resolvePrincipalAsync(capability, {
+        parentSessionOf: async (sessionId) =>
+          spawnedByParentSessionId((await this.deps.sessionById(sessionId))?.spawnedBy),
+      }))
+    )
+  }
+
   private async dispatchInScope(
     capability: Capability,
     overrideScope: boolean | undefined,

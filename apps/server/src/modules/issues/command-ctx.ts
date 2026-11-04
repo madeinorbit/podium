@@ -113,6 +113,13 @@ export interface IssueCommandDeps {
     rows(ids: readonly string[]): Promise<ReadonlyMap<string, IssueRow>>
     readonly store: ExecutionFactsStore
   }
+  /** Which of these mail rows the caller may see (POD-6288): the mail read
+   *  rule (`MessageGate.visibleMailIds`), for a task mailbox read outside the
+   *  caller's own subtree. Absent (a single-member harness): no filter. */
+  mailVisibleIds?(
+    capability: import('@podium/model').Capability,
+    ids: readonly string[],
+  ): Promise<ReadonlySet<string>>
   /** Registered repo paths, all machines (RepoRegistry.list() semantics). */
   repoPaths(): string[] | Promise<string[]>
   /** cwd → repo inference (RepoRegistry.inferFromPath semantics) — serves the

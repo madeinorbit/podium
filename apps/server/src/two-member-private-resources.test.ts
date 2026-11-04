@@ -553,3 +553,89 @@ describe('task artifacts belong to the shared task (D4)', () => {
     expect(await store().auth.listClientSessionsOfUser(MEMBERS.carol.id)).toEqual([])
   })
 })
+
+/**
+ * NO ADMIN REACH OVER A PERSON'S MAIL OR SUBSCRIPTIONS (POD-6288, design §4.1).
+ * Mail is private and subscriptions are per-user state: replying to Bob's
+ * agent, reading its mail to his task, or subscribing his session to events is
+ * driving Bob's agent, which admin Alice may not do.
+ */
+describe('admin Alice gets no reach over Bob’s mail or subscriptions', () => {
+  /** Bob's agent mails `to` on Bob's behalf. */
+  const bobsAgentMails = async (to: { kind: 'operator' } | { kind: 'issue'; id: string }, body: string) =>
+    (
+      await registry().modules.messages.send(
+        {
+          kind: 'agent',
+          issueId: f.tasks.bob,
+          sessionId: f.sessions.bob,
+          attribution: {
+            actor: actorAgent(asAgentIdentityId(`session:${f.sessions.bob}`)),
+            onBehalfOf: MEMBERS.bob.id,
+          },
+        },
+        { to, body },
+      )
+    ).message.id
+
+  it('Alice cannot reply to a message Bob’s agent sent to Bob; Bob can', async () => {
+    const id = await bobsAgentMails({ kind: 'operator' }, 'bob, a question for you')
+    await expect(
+      (await trpc('alice')).messages.reply.mutate({ id, body: 'alice answers' } as never),
+    ).rejects.toThrow(/only the recipient/)
+    await expect(
+      (await trpc('bob')).messages.reply.mutate({ id, body: 'bob answers' } as never),
+    ).resolves.toMatchObject({ ok: true })
+  })
+
+  it('Alice’s peek at Bob’s task mailbox shows none of Bob’s agent’s mail; Bob’s shows it', async () => {
+    await bobsAgentMails({ kind: 'issue', id: f.tasks.bob }, 'mail to bob’s task')
+    const bodies = async (name: MemberName) => ({
+      inbox: (
+        (await (await trpc(name)).messages.inbox.mutate({ issue: f.tasks.bob } as never)) as Array<{
+          body: string
+        }>
+      ).map((row) => row.body),
+      taskMailbox: (
+        (await (await trpc(name)).issues.mailInbox.mutate({ id: f.tasks.bob } as never)) as Array<{
+          body: string
+        }>
+      ).map((row) => row.body),
+    })
+    const bob = await bodies('bob')
+    expect(bob.inbox).toContain('mail to bob’s task')
+    expect(bob.taskMailbox).toContain('mail to bob’s task')
+    const alice = await bodies('alice')
+    expect(alice.inbox).not.toContain('mail to bob’s task')
+    expect(alice.taskMailbox).not.toContain('mail to bob’s task')
+  })
+
+  it('Alice can neither add, list, toggle nor remove a subscription for Bob’s session; Bob can', async () => {
+    const alice = (await trpc('alice')).issues
+    const bob = (await trpc('bob')).issues
+    const forBob = {
+      event: 'issue.closed',
+      source: { kind: 'relationship', ref: 'children' },
+      subscriber: { kind: 'session', id: f.sessions.bob },
+    }
+    await expect(alice.subscriptionAdd.mutate(forBob as never)).rejects.toThrow(
+      /only your own sessions/,
+    )
+    // Control, and the Automations UI path: Bob names his own session.
+    const sub = (await bob.subscriptionAdd.mutate(forBob as never)) as { id: string }
+    const listed = async (who: typeof alice) =>
+      ((await who.subscriptionList.query({} as never)) as Array<{ id: string }>).map((row) => row.id)
+    expect(await listed(bob)).toContain(sub.id)
+    expect(await listed(alice)).not.toContain(sub.id)
+    await expect(
+      alice.subscriptionSetEnabled.mutate({ id: sub.id, enabled: false } as never),
+    ).rejects.toThrow(/do not own/)
+    await expect(alice.subscriptionRemove.mutate({ id: sub.id } as never)).rejects.toThrow(/do not own/)
+    await expect(
+      bob.subscriptionSetEnabled.mutate({ id: sub.id, enabled: false } as never),
+    ).resolves.toMatchObject({ updated: true })
+    await expect(bob.subscriptionRemove.mutate({ id: sub.id } as never)).resolves.toMatchObject({
+      removed: true,
+    })
+  })
+})

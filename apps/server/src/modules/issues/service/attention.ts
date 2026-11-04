@@ -540,6 +540,15 @@ export class IssueAttentionModule {
     return await this.store.deps.store.events.listSubscriptionsPage(page)
   }
 
+  /** One keyset page of ONE MEMBER'S subscriptions (POD-6288): those whose
+   *  subscriber is a session they own or a task assigned to them. */
+  async subscriptionOwnPage(
+    userId: string,
+    page: { after?: SubscriptionPageCursor; limit?: number },
+  ): Promise<Subscription[]> {
+    return await this.store.deps.store.events.listOwnSubscriptionsPage(userId, page)
+  }
+
   /** Toggle a subscription on/off (Automations UI). Custom subscriptions only affect
    *  the additive dispatcher pass, so disabling one never touches the built-in
    *  handlers — it is safe and reversible. */

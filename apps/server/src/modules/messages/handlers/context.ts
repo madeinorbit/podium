@@ -375,7 +375,7 @@ export class MailAccess {
   }
 
   mayView(capability: Capability, m: MessageRow): boolean {
-    if (isAdminPersonCapability(capability)) return true
+    // No admin arm (POD-6288): mail is private, and the admin role adds nothing.
     if (this.isRecipient(capability, m)) return true
     // The sender may re-read what it sent.
     if (m.fromSession && m.fromSession === capability.actorSessionId) return true
@@ -431,6 +431,28 @@ export class MailAccess {
     if (await this.ownsAnEnd(human, m)) return true
     const sessionless = !m.fromSession && !m.deliveredTo && m.toKind !== 'session'
     return sessionless && isAdminPersonCapability(caller.capability)
+  }
+
+  /**
+   * MAY THIS CALLER REPLY TO THIS ROW (POD-6288). A reply routes to the
+   * original's sender, so it is the recipient's to send. An AGENT is the
+   * recipient by its capability (`isRecipient`). A PERSON is the recipient of
+   * a row delivered to a session they own (replying for their own agent), and
+   * of an operator-box row meant for them: sent on their behalf, or from a
+   * session of theirs. Nobody else, admins included: replying to Bob's agent
+   * is driving it. A row from before attribution with no session at either
+   * end stays with whoever may read it (`mayViewAs`).
+   */
+  async mayReplyAs(caller: MailCaller, m: MessageRow): Promise<boolean> {
+    const human = personOf(caller)
+    if (human === undefined) return this.isRecipient(caller.capability, m)
+    const receiver = m.deliveredTo ?? (m.toKind === 'session' ? m.toId : null)
+    if (receiver) return (await this.deps.sessionOwnerUserId?.(asSessionId(receiver))) === human
+    if (m.toKind !== 'operator') return false
+    const onBehalfOf = m.attribution?.onBehalfOf
+    if (onBehalfOf) return onBehalfOf === human
+    if (m.fromSession) return (await this.deps.sessionOwnerUserId?.(asSessionId(m.fromSession))) === human
+    return await this.mayViewAs(caller, m)
   }
 
   /** The rows of `rows` this caller may see, in order. */

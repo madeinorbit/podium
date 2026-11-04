@@ -10,6 +10,7 @@ import { ISSUE_EVENTS_DEFAULT_LIMIT, ProviderCursor } from '@podium/protocol'
 import { RuntimeEvent } from '@podium/protocol/daemon'
 import { and, asc, desc, eq, gt, inArray, isNull, lt, lte, max, not, or, type SQL, sql } from 'drizzle-orm'
 import {
+  issues as issuesTable,
   podiumEvents,
   runtimeEventCheckpoints,
   runtimeEventProjectionCursors,
@@ -510,6 +511,35 @@ const deleteSubscription = prepared((db: StoreDrizzle) =>
   db
     .delete(subscriptions)
     .where(eq(subscriptions.id, param(subscriptions.id, 'id')))
+    .prepare(),
+)
+
+/** One keyset page of ONE MEMBER'S subscriptions, oldest first (POD-6288):
+ *  the rows whose subscriber is a session they own or a task assigned to them.
+ *  Subscriptions are per-user state (design §4.1), so this is every person's
+ *  listing, admins included. Walks `idx_subscriptions_created` like the
+ *  unfiltered page and answers each row's owner by primary key. */
+const ownSubscriptionsPage = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(subscriptions)
+    .where(
+      and(
+        sql`(${subscriptions.createdAt}, ${subscriptions.id}) > (${param(subscriptions.createdAt, 'afterCreatedAt')}, ${param(subscriptions.id, 'afterId')})`,
+        or(
+          and(
+            eq(subscriptions.subscriberKind, 'session'),
+            sql`EXISTS (SELECT 1 FROM ${sessionsTable} WHERE ${sessionsTable.id} = ${subscriptions.subscriberId} AND ${sessionsTable.ownerUserId} = ${sql.placeholder('userId')})`,
+          ),
+          and(
+            eq(subscriptions.subscriberKind, 'issue'),
+            sql`EXISTS (SELECT 1 FROM ${issuesTable} WHERE ${issuesTable.id} = ${subscriptions.subscriberId} AND ${issuesTable.ownerUserId} = ${sql.placeholder('userId')})`,
+          ),
+        ),
+      ),
+    )
+    .orderBy(asc(subscriptions.createdAt), asc(subscriptions.id))
+    .limit(sql.placeholder('limit'))
     .prepare(),
 )
 
@@ -1220,6 +1250,25 @@ export class EventsRepository {
   ): Promise<Subscription[]> {
     const after = opts.after ?? { createdAt: '', id: '' }
     const rows = await subscriptionsPage(this.db).all({
+      afterCreatedAt: after.createdAt,
+      afterId: after.id,
+      limit: Math.min(
+        Math.max(1, Math.trunc(opts.limit ?? SUBSCRIPTION_PAGE_DEFAULT)),
+        SUBSCRIPTION_PAGE_MAX,
+      ),
+    })
+    return rows.map(rowToSubscription)
+  }
+
+  /** {@link listSubscriptionsPage} narrowed to one member's own subscriptions
+   *  (POD-6288): subscriber = a session they own or a task assigned to them. */
+  async listOwnSubscriptionsPage(
+    userId: string,
+    opts: { after?: SubscriptionPageCursor; limit?: number } = {},
+  ): Promise<Subscription[]> {
+    const after = opts.after ?? { createdAt: '', id: '' }
+    const rows = await ownSubscriptionsPage(this.db).all({
+      userId,
       afterCreatedAt: after.createdAt,
       afterId: after.id,
       limit: Math.min(
