@@ -1071,6 +1071,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'opaque',
     why: 'a persist-options callback, supplied at the call site inside the span',
   },
+  'apps/server/src/modules/issues/service/core.ts#IssueStore.afterWrite': {
+    kind: 'opaque',
+    why: 'a persist-options callback, supplied at the call site inside the span (POD-6289: the description and brief history rows)',
+  },
   'packages/sync/src/authority/ports.ts#AuthorityCommit.write': {
     kind: 'opaque',
     why: "the commit's own write body; it is a SPAN ROOT in its own right",
