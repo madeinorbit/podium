@@ -2,11 +2,10 @@
  * order; the painted direction is dependency dot -> dependent arrowhead. */
 export type DependencyPoint = { right: number; y: number }
 export type DependencyLink = { dependentId: string; dependencyId: string }
-/** The strip right of the rows that the lines live in (POD-6245): while lines
- * show, the rows end this far before the panel edge, so a line never crosses
- * text. Hooks of 9/14/19px start 3px past the row. The CSS opens the same
- * width (`.flight-full-groups[data-edge-gutter]`). */
-export const FULL_EDGE_GUTTER = 28
+/** The strip at a row's right end that the lines run in: they start this far
+ * inside the row, and hooks of 9/14/19px stay inside it. The words under it
+ * fade while lines show (POD-6245). */
+export const FULL_EDGE_INSET = 28
 
 export function dependencyPoint(
   rect: Pick<DOMRectReadOnly, 'right' | 'top' | 'height'>,
@@ -63,7 +62,7 @@ export function dependencyHook(
   /** The dependent row shows a start dot of its own; stop short of it. */
   stopAtDot = false,
 ) {
-  const x = Math.max(dependency.right, dependent.right) + 3
+  const x = Math.max(dependency.right, dependent.right) - FULL_EDGE_INSET + 3
   const hook = 9 + (index % 3) * 5
   const full: Cubic = [
     { x, y: dependency.y },
