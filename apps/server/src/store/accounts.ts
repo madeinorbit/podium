@@ -123,7 +123,8 @@ const sentMachines = prepared((db: StoreDrizzle) =>
     .from(accountMachineSends)
     .innerJoin(accounts, eq(accounts.id, accountMachineSends.accountId))
     .where(and(ownerIs(), refIs()))
-    .orderBy(asc(accountMachineSends.sentAt))
+    // The primary key's order after `account_id`: no sort (query-plan audit).
+    .orderBy(asc(accountMachineSends.machineId))
     .prepare(),
 )
 

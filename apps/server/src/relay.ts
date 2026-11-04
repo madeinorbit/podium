@@ -3951,14 +3951,18 @@ export class SessionRegistry {
     if (!backgroundDisabled) this.issueGitWatch.start()
     // Reads through the same fan-out `quota.summary` serves, so the sampler adds
     // no new path to the daemons — only a clock behind the one that exists.
+    // A recorded window belongs to the reporting machine's custodian (POD-6300).
+    const quotaOwnerOf = async (machineId: string) => await this.store.machines.custodian(machineId)
     this.quotaSampler = new QuotaSampler(
       this.store.quotaHistory,
       async () => await this.modules.rpc.agentQuotaAll(),
+      { ownerOf: quotaOwnerOf },
     )
     if (!backgroundDisabled) this.quotaSampler.start()
     this.quotaBackfill = new QuotaBackfill(
       this.store.quotaHistory,
       async (sinceMs) => await this.modules.rpc.quotaHistoryAll(sinceMs),
+      { ownerOf: quotaOwnerOf },
     )
     if (!backgroundDisabled) this.quotaBackfill.start()
     // Automations scheduler timer RETIRED [POD-925]: janitor owns automation-fire.

@@ -27,7 +27,6 @@ import {
   IssueIdField,
   type MachineId,
   MachineIdField,
-  quotaAccountKey,
   type SessionId,
   type TaskCostComparisonWire,
   ThreadIdField,
@@ -252,28 +251,6 @@ async function custodyMachines(s: FamilyState): Promise<ReadonlySet<MachineId>> 
   return new Set([...standing].filter(([, kind]) => kind === 'custody').map(([id]) => id))
 }
 
-/**
- * The quota ledger series the caller owns: every key a native login on one of
- * the caller's own machines is recorded under (`quotaAccountKey`: by email when
- * the provider reports one, else by machine). Read from each machine's current
- * inventory, so a login that moves to someone else's machine follows its
- * custodian.
- */
-async function ownedQuotaAccountKeys(s: FamilyState): Promise<ReadonlySet<string>> {
-  const custody = await custodyMachines(s)
-  const keys = new Set<string>()
-  for (const machine of await s.store.machines.listMachines()) {
-    if (!custody.has(machine.id)) continue
-    for (const agent of machine.inventory?.agents ?? []) {
-      keys.add(quotaAccountKey(agent.kind, undefined, machine.id))
-      for (const email of [agent.login.account, agent.login.identity?.email]) {
-        if (email) keys.add(quotaAccountKey(agent.kind, email, machine.id))
-      }
-    }
-  }
-  return keys
-}
-
 export const QUOTA_QUERIES = {
   /** Per-agent plan-quota (5h/weekly % used + reset times), read live on the
    *  daemon host from each agent's own usage endpoint. Fans out to every online
@@ -289,7 +266,12 @@ export const QUOTA_QUERIES = {
    *  Best-effort: a failed fold never fails the read. */
   summary: q(noInput, async (s) => {
     const machines = await s.modules.rpc.agentQuotaAll()
-    await recordQuotaSamples(s.store.quotaHistory, machines)
+    await recordQuotaSamples(
+      s.store.quotaHistory,
+      machines,
+      undefined,
+      async (machineId) => await s.store.machines.custodian(machineId),
+    )
     // A machine's plan quota is the quota of its native logins, and those
     // belong to the person who looks after the machine (POD-6300; design
     // §4.6). Every reading is folded into the ledger above, but the caller is
@@ -307,11 +289,13 @@ export const QUOTA_QUERIES = {
       const days = input?.days ?? QUOTA_HISTORY_DEFAULT_DAYS
       const now = Date.now()
       // A window ledger row is keyed by the provider account, not by machine
-      // (POD-6284's seam). It answers only to that account's owner: the person
-      // looking after a machine where the account is logged in (POD-6300).
-      const owned = await ownedQuotaAccountKeys(s)
-      return (await s.store.quotaHistory.list(now - days * 24 * 60 * 60 * 1000, now)).filter(
-        (row) => owned.has(row.accountKey),
+      // (POD-6284's seam), so it records its owner when it opens: the custodian
+      // of the machine that reported it (POD-6300). It stays theirs after the
+      // login or the machine is gone, and nobody else's.
+      return await s.store.quotaHistory.listFor(
+        asUserId(s.caller.userId),
+        now - days * 24 * 60 * 60 * 1000,
+        now,
       )
     },
   ),

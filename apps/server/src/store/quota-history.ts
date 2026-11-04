@@ -30,10 +30,11 @@ import {
   type QuotaSample,
   type QuotaWindowHistoryWire,
   type QuotaWindowInstance,
+  type UserId,
 } from '@podium/model'
 import { and, asc, desc, eq, gte, lt, sql } from 'drizzle-orm'
 import { quotaWindows } from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import { param, prepared } from './executor/sync-drizzle'
 
 /** Quantisation behind the uniqueness constraint only — never an identity test. */
@@ -129,7 +130,13 @@ const bucketIs = () =>
   )
 
 const newestWindowOfSeries = prepared((db: StoreDrizzle) =>
-  db.select().from(quotaWindows).where(seriesIs()).orderBy(desc(quotaWindows.resetsAtMs)).limit(1).prepare(),
+  db
+    .select()
+    .from(quotaWindows)
+    .where(seriesIs())
+    .orderBy(desc(quotaWindows.resetsAtMs))
+    .limit(1)
+    .prepare(),
 )
 
 const windowOfBucket = prepared((db: StoreDrizzle) =>
@@ -167,6 +174,7 @@ const insertWindow = prepared((db: StoreDrizzle) =>
       agent: sql.placeholder('agent'),
       windowKey: sql.placeholder('windowKey'),
       resetsAtBucket: sql.placeholder('bucket'),
+      ownerUserId: sql.placeholder('owner'),
       ...windowPlaceholders,
     })
     .onConflictDoUpdate({
@@ -197,12 +205,35 @@ const windowsSince = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/** One owner's windows that reset at or after `sinceMs`, in the served order,
+ *  read along `idx_quota_windows_owner` (POD-6300). */
+const ownerWindowsSince = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(quotaWindows)
+    .where(
+      and(
+        eq(quotaWindows.ownerUserId, param(quotaWindows.ownerUserId, 'owner')),
+        gte(quotaWindows.resetsAtMs, param(quotaWindows.resetsAtMs, 'sinceMs')),
+      ),
+    )
+    .orderBy(
+      asc(quotaWindows.accountKey),
+      asc(quotaWindows.windowKey),
+      asc(quotaWindows.resetsAtMs),
+    )
+    .prepare(),
+)
+
 const trailOfBucket = prepared((db: StoreDrizzle) =>
   db.select({ trailJson: quotaWindows.trailJson }).from(quotaWindows).where(bucketIs()).prepare(),
 )
 
 const pruneWindows = prepared((db: StoreDrizzle) =>
-  db.delete(quotaWindows).where(lt(quotaWindows.resetsAtMs, param(quotaWindows.resetsAtMs, 'cutoffMs'))).prepare(),
+  db
+    .delete(quotaWindows)
+    .where(lt(quotaWindows.resetsAtMs, param(quotaWindows.resetsAtMs, 'cutoffMs')))
+    .prepare(),
 )
 
 const windowCount = prepared((db: StoreDrizzle) =>
@@ -250,7 +281,17 @@ export class QuotaHistoryRepository {
    * the sampler logs those, because a reset is the one event in this feature
    * that is worth a line in the log.
    */
-  async record(sample: QuotaSample, samplingIntervalMs: number): Promise<{ openedWindow: boolean }> {
+  /**
+   * `ownerUserId` is the custodian of the machine the sample came from (POD-6300).
+   * It is written only when the sample OPENS a row: a window stays with whoever
+   * owned it when it was first seen. Null (no custodian) leaves the row
+   * answering to nobody.
+   */
+  async record(
+    sample: QuotaSample,
+    samplingIntervalMs: number,
+    ownerUserId: UserId | null = null,
+  ): Promise<{ openedWindow: boolean }> {
     return await this.createOrJoinTransaction(async () => {
       // The candidate is the newest window we hold for this series. A sample
       // older than it (backfill walking files out of order) is matched against it
@@ -263,7 +304,10 @@ export class QuotaHistoryRepository {
       if (candidate) {
         const instance = toInstance(candidate)
         if (isSameInstance(instance, sample)) {
-          await this.update(candidate.resetsAtBucket, foldSample(instance, sample, samplingIntervalMs))
+          await this.update(
+            candidate.resetsAtBucket,
+            foldSample(instance, sample, samplingIntervalMs),
+          )
           return { openedWindow: false }
         }
         // An older window arriving after a newer one — a backfill reaching further
@@ -278,7 +322,7 @@ export class QuotaHistoryRepository {
           }
         }
       }
-      await this.insert(openInstance(sample, samplingIntervalMs))
+      await this.insert(openInstance(sample, samplingIntervalMs), ownerUserId)
       return { openedWindow: true }
     })
   }
@@ -291,13 +335,14 @@ export class QuotaHistoryRepository {
     })
   }
 
-  private async insert(instance: QuotaWindowInstance): Promise<void> {
+  private async insert(instance: QuotaWindowInstance, ownerUserId: UserId | null): Promise<void> {
     // The upsert's conflict arm is explained at `insertWindow`.
     await insertWindow(this.db).run({
       accountKey: instance.accountKey,
       agent: instance.agent,
       windowKey: instance.windowKey,
       bucket: bucketOf(instance.resetsAtMs),
+      owner: ownerUserId,
       ...windowValues(instance),
     })
   }
@@ -312,14 +357,29 @@ export class QuotaHistoryRepository {
     })
   }
 
-  /** Every window that reset at or after `sinceMs`, oldest first. */
+  /** Every window that reset at or after `sinceMs`, oldest first, WHOEVER owns
+   *  it. For the ledger's own tests and maintenance; never served to a member. */
   async list(sinceMs: number, nowMs: number): Promise<QuotaWindowHistoryWire[]> {
     const rows = await windowsSince(this.db).all({ sinceMs })
     return rows.map((r) => toWire(r, nowMs))
   }
 
+  /** One member's windows that reset at or after `sinceMs` (POD-6300). */
+  async listFor(
+    ownerUserId: UserId,
+    sinceMs: number,
+    nowMs: number,
+  ): Promise<QuotaWindowHistoryWire[]> {
+    const rows = await ownerWindowsSince(this.db).all({ owner: ownerUserId, sinceMs })
+    return rows.map((r) => toWire(r, nowMs))
+  }
+
   /** The stored burn curve for one window instance. Empty when unknown. */
-  async trail(accountKey: string, windowKey: string, resetsAtMs: number): Promise<[number, number][]> {
+  async trail(
+    accountKey: string,
+    windowKey: string,
+    resetsAtMs: number,
+  ): Promise<[number, number][]> {
     const row = await trailOfBucket(this.db).get({
       accountKey,
       windowKey,

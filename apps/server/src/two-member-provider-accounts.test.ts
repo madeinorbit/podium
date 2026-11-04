@@ -11,13 +11,13 @@
  *   sends a connection there. A missing or conflicting connection fails clearly.
  *
  * Every act goes through the production transport as the member (their own
- * login cookie); only selections and quota samples are seeded through the store.
+ * login cookie); only selections are seeded through the store, and the fake
+ * daemons report the machines' plan quota.
  */
 
 import {
   asAccountId,
   type MachineId,
-  quotaAccountKey,
   type SessionId,
   SHARED_MACHINE_ACCOUNT_WARNING,
   type UserId,
@@ -170,46 +170,53 @@ describe('MU-26: each member’s connections are their own', () => {
     expect((await view('alice', 'native:codex'))?.loginAttempt?.sessionId).toBe(attempt.sessionId)
   })
 
-  it('plan quota and its history answer only to the member whose login it is', async () => {
-    // Each machine reports its custodian's Claude login by email.
-    for (const [who, machineId] of [
-      ['alice', f.machines.alice],
-      ['bob', f.machines.bob],
-    ] as const) {
-      await f.handle.registry.modules.machines.recordInventory(
-        machineId,
-        fixtureInventory({
-          agents: fixtureInventory().agents.map((agent) =>
-            agent.kind === 'claude-code'
-              ? { ...agent, login: { state: 'in' as const, account: MEMBERS[who].email } }
-              : agent,
-          ),
-        }),
-      )
-    }
+  // Each machine's daemon reports its custodian's Claude login. `quota.summary`
+  // folds every reading into the window ledger, whoever asks.
+  const reading = (who: 'alice' | 'bob', usedPercent: number) => {
     const now = Date.now()
-    for (const who of ['alice', 'bob'] as const) {
-      await store().quotaHistory.record(
-        {
-          accountKey: quotaAccountKey('claude-code', MEMBERS[who].email, 'unused'),
-          agent: 'claude-code',
-          windowKey: 'five_hour',
-          label: '5h',
-          usedPercent: who === 'alice' ? 40 : 70,
-          resetsAtMs: now + 60 * 60 * 1000,
-          windowMinutes: 300,
-          atMs: now - 60_000,
-          source: 'live',
-        },
-        15 * 60 * 1000,
-      )
-    }
-    const history = async (who: MemberName) =>
-      (
-        (await (await trpc(who)).quota.history.query({ days: 1 })) as Array<{ accountKey: string }>
-      ).map((row) => row.accountKey)
+    return [
+      {
+        agent: 'claude-code' as const,
+        status: 'ok' as const,
+        account: { email: MEMBERS[who].email },
+        windows: [
+          {
+            key: 'five_hour',
+            label: '5h',
+            usedPercent,
+            resetsAt: new Date(now + 60 * 60 * 1000).toISOString(),
+            windowMinutes: 300,
+          },
+        ],
+        fetchedAt: new Date(now - 60_000).toISOString(),
+      },
+    ]
+  }
+  const summaryMachines = async (who: MemberName) =>
+    ((await (await trpc(who)).quota.summary.query()) as Array<{ machineId: string }>).map(
+      (machine) => machine.machineId,
+    )
+  const history = async (who: MemberName) =>
+    (
+      (await (await trpc(who)).quota.history.query({ days: 1 })) as Array<{ accountKey: string }>
+    ).map((row) => row.accountKey)
+
+  it('plan quota and its history answer only to the member whose login it is', async () => {
+    f.setQuota(f.machines.alice, reading('alice', 40))
+    f.setQuota(f.machines.bob, reading('bob', 70))
+    expect(await summaryMachines('alice')).toEqual([f.machines.alice])
+    expect(await summaryMachines('bob')).toEqual([f.machines.bob])
     expect(await history('alice')).toEqual([`claude-code::${MEMBERS.alice.email}`])
     expect(await history('bob')).toEqual([`claude-code::${MEMBERS.bob.email}`])
+  })
+
+  it('a member keeps their quota history after the login leaves the machine, and nobody else gains it', async () => {
+    // Bob logs out on his machine: it reports no quota and no login any more.
+    f.setQuota(f.machines.bob, [])
+    await f.handle.registry.modules.machines.recordInventory(f.machines.bob, fixtureInventory())
+    expect(await summaryMachines('bob')).toEqual([f.machines.bob])
+    expect(await history('bob')).toEqual([`claude-code::${MEMBERS.bob.email}`])
+    expect(await history('alice')).toEqual([`claude-code::${MEMBERS.alice.email}`])
   })
 })
 

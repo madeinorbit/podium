@@ -170,6 +170,8 @@ export interface TwoMemberInstance {
   /** Every control frame the server sent to that machine's fake daemon, in order.
    *  A file read the server refused never shows up here. */
   daemonFrames(machineId: MachineId): readonly ControlMessage[]
+  /** What that machine's fake daemon answers a plan-quota read with from now on. */
+  setQuota(machineId: MachineId, agents: FakeQuotaAgents): void
   close(): Promise<void>
 }
 
@@ -190,10 +192,18 @@ export function snapshotIds(snapshot: FeedSnapshot): { sessions: string[]; issue
   }
 }
 
+/** What each fake daemon reports as its plan quota; empty unless a test sets it
+ *  with `setQuota` (POD-6300). */
+type FakeQuotaAgents = Extract<DaemonMessage, { type: 'agentQuotaResult' }>['agents']
+
 /** The fake daemon's answer to a file, transcript, usage or quota read: the
  *  requested path, session or machine named in the reply, so a test can see the
  *  read reached the machine and what it asked for. */
-function fakeDaemonAnswer(machineId: MachineId, msg: ControlMessage): DaemonMessage | undefined {
+function fakeDaemonAnswer(
+  machineId: MachineId,
+  msg: ControlMessage,
+  quota: ReadonlyMap<MachineId, FakeQuotaAgents> = new Map(),
+): DaemonMessage | undefined {
   if (msg.type === 'fileAssetRequest') {
     const bytes = Buffer.from(`fixture bytes of ${msg.path}`)
     return {
@@ -220,7 +230,12 @@ function fakeDaemonAnswer(machineId: MachineId, msg: ControlMessage): DaemonMess
     return { type: 'usageResult', requestId: msg.requestId, hostname: machineId, buckets: [] }
   }
   if (msg.type === 'agentQuotaRequest') {
-    return { type: 'agentQuotaResult', requestId: msg.requestId, hostname: machineId, agents: [] }
+    return {
+      type: 'agentQuotaResult',
+      requestId: msg.requestId,
+      hostname: machineId,
+      agents: quota.get(machineId) ?? [],
+    }
   }
   if (msg.type === 'transcriptRead') {
     return {
@@ -295,6 +310,7 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
     const machines = { alice: asMachineId('machine-alice'), bob: asMachineId('machine-bob') }
     const relayFor = new Map<MachineId, Awaited<ReturnType<typeof startAgentRelayServer>>>()
     const daemonFrames = new Map<MachineId, ControlMessage[]>()
+    const quota = new Map<MachineId, FakeQuotaAgents>()
     for (const [name, machineId] of Object.entries(machines) as Array<[MemberName, MachineId]>) {
       await store.machines.upsertMachine({
         id: machineId,
@@ -313,7 +329,7 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
       await attachDaemonWithInventory(registry, machineId, (msg: ControlMessage) => {
         received.push(msg)
         if (msg.type === 'agentRelayResult') hub.onResult(msg)
-        const answer = fakeDaemonAnswer(machineId, msg)
+        const answer = fakeDaemonAnswer(machineId, msg, quota)
         if (answer) queueMicrotask(() => void registry.gateway.routeDaemonFrame(machineId, answer))
       })
       const relay = await startAgentRelayServer({ port: 0, relay: (req) => hub.relay(req) })
@@ -484,6 +500,9 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
       agent,
       legacyDeviceFeed,
       daemonFrames: (machineId) => daemonFrames.get(machineId) ?? [],
+      setQuota: (machineId, agents) => {
+        quota.set(machineId, agents)
+      },
       close,
     }
   } catch (error) {

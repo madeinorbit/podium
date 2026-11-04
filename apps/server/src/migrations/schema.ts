@@ -3031,9 +3031,25 @@ export const quotaWindows = sqliteTable(
     source: text().notNull(),
     /** `[[minutesFromStart, percent], …]` — the burn curve, decimated on write. */
     trailJson: text('trail_json').notNull(),
+    /**
+     * WHOSE WINDOW THIS IS (POD-6300): the custodian of the machine that
+     * recorded it, fixed when the row is opened. A machine's native logins are
+     * its custodian's, so their quota is too, and it stays theirs after the
+     * login or the machine is gone. Null when that machine had no custodian:
+     * such a row answers to nobody. Rows from before owners existed went to the
+     * earliest active admin on upgrade.
+     */
+    ownerUserId: text('owner_user_id').$type<UserId>(),
   },
   (table) => [
     index('idx_quota_windows_series').on(table.accountKey, table.windowKey, table.resetsAtMs),
+    // One owner's ledger in its served order (POD-6300).
+    index('idx_quota_windows_owner').on(
+      table.ownerUserId,
+      table.accountKey,
+      table.windowKey,
+      table.resetsAtMs,
+    ),
     index('idx_quota_windows_resets').on(table.resetsAtMs),
     primaryKey({
       columns: [table.accountKey, table.windowKey, table.resetsAtBucket],
