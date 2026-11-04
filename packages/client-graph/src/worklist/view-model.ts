@@ -3,6 +3,7 @@ import { observable, observableRef, action } from 'mobx'
 import { lazy, companion } from '@podium/mobx-helpers'
 import type { IssueModel, ModelHost, SessionModel } from '../models'
 import type { MobxPool } from '../pool'
+import { memberRoster } from '../member-roster'
 import type { LocalsKey, SliceLocals } from '../shared/slice-types'
 import { worklistGroups } from './groups'
 import { WorklistIssue } from './issue'
@@ -25,6 +26,23 @@ export class Worklist {
     catch (error) { if (error === LOADING) return false; throw error }
   }
   @observableRef accessor layout: SidebarState = {}
+
+  /**
+   * THE SIDEBAR IS PERSONAL (POD-6294; design §2.2, D3). On an instance with
+   * two or more members a row is the viewer's only when the task is in their
+   * personal set (POD-6290): started, joined, or assigned to them and not
+   * dismissed. Seeing, searching or opening a task adds nothing. On a
+   * one-member instance every task is already in that set, so the gate is off
+   * and the worklist keeps its exact former rule.
+   */
+  @lazy get personalOnly(): boolean {
+    return memberRoster(this.pool).shared
+  }
+
+  /** The viewer's member id once the roster knows it; display only. */
+  @lazy get viewerMemberId(): string | undefined {
+    return memberRoster(this.pool).currentMemberId
+  }
   readonly host: ModelHost
   readonly desktop: SidebarIndex
   readonly rowInputs: RollupInputs = {

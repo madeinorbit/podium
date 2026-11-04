@@ -5,6 +5,7 @@ import { MemberInvites } from './member-invites'
 import { registerMemberRoutes } from './member-routes'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
+
 type CreatedInvite = {
   url: string
   invite: { id: string; token: string; expiresAt: string }
@@ -115,4 +116,59 @@ test('without a configured URL, desktop requests get an HTTP invite link', async
   expect(((await response.json()) as CreatedInvite).url).toMatch(
     /^https:\/\/workspace.example\/#invite=/,
   )
+})
+test('every signed-in member reads the directory; only admins see other members’ emails (POD-6294)', async () => {
+  const alice = firstAdminMemberId()
+  const bob = asUserId('mem_bob_directory')
+  const carol = asUserId('mem_carol_directory')
+  const at = new Date().toISOString()
+  await store.users.create(
+    {
+      id: bob,
+      displayName: 'Bob',
+      email: 'bob@example.com',
+      role: 'member',
+      createdAt: at,
+      disabledAt: null,
+    },
+    'hash',
+  )
+  await store.users.create(
+    {
+      id: carol,
+      displayName: 'Carol',
+      email: 'carol@example.com',
+      role: 'member',
+      createdAt: at,
+      disabledAt: null,
+    },
+    'hash',
+  )
+  await store.users.disable(carol, at)
+  const read = async (as: string | undefined) => {
+    const hono = new Hono()
+    registerMemberRoutes(hono, {
+      users: store.users,
+      invites: new MemberInvites(store.users),
+      resolveUserId: async () => (as === undefined ? undefined : asUserId(as)),
+      appUrl: () => undefined,
+    })
+    return await hono.request('https://workspace.example/auth/members/directory')
+  }
+  type Directory = {
+    members: { id: string; displayName: string; email: string | null; disabledAt: string | null }[]
+    currentMemberId: string
+  }
+  const asBob = (await (await read(bob)).json()) as Directory
+  expect(asBob.currentMemberId).toBe(bob)
+  const byId = new Map(asBob.members.map((member) => [member.id, member]))
+  expect(byId.get(bob)).toMatchObject({ displayName: 'Bob', email: 'bob@example.com' })
+  expect(byId.get(alice)?.email).toBeNull()
+  // A disabled member is not one to assign or filter by.
+  expect(byId.has(carol)).toBe(false)
+  const asAlice = (await (await read(alice)).json()) as Directory
+  expect(asAlice.members.find((member) => member.id === bob)?.email).toBe('bob@example.com')
+  // No caller, or a disabled one, reads nothing.
+  expect((await read(undefined)).status).toBe(401)
+  expect((await read(carol)).status).toBe(401)
 })

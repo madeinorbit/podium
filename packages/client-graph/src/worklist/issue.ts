@@ -30,6 +30,24 @@ import { DEFER_NEXT_MESSAGE } from '@podium/model/browser'
 export class WorklistIssue implements HeldIssue, RowView {
   constructor(readonly issue: IssueModel, readonly worklist: Worklist) {}
   get id(): string { return this.issue.id }
+
+  // Personal sidebar (POD-6294; design §2.2)
+
+  /** On a shared instance, a task outside the viewer's personal set earns no
+   *  row: it stands excluded, exactly like an archived one, so it is neither
+   *  flat nor a rescue for its parent. */
+  @lazy get outsidePersonalSet(): boolean {
+    return this.worklist.personalOnly && !this.issue.inPersonalSet
+  }
+
+  /** The assignee's member id when the row is someone else's (the viewer
+   *  started, joined or was given work on another member's task); undefined on
+   *  the viewer's own rows and on a one-member instance. */
+  @lazy get ownerBadge(): string | undefined {
+    if (!this.worklist.personalOnly) return undefined
+    const viewer = this.worklist.viewerMemberId, owner = this.issue.assignee
+    return viewer && owner && owner !== viewer ? owner : undefined
+  }
   @lazy({ equals: compareStructural }) get voice() {
     const progress = this.progress
     return rowVoice({
@@ -92,7 +110,7 @@ export class WorklistIssue implements HeldIssue, RowView {
     if (row === undefined) return undefined
     const issue = this.issue, work = this
     return standingOf(row, {
-      get excluded() { return (work.issue.excluded) }, get finished() { return issue.finished ?? false },
+      get excluded() { return work.issue.excluded || work.outsidePersonalSet }, get finished() { return issue.finished ?? false },
       get awaitingMerge() { return (work.issue.awaitingMerge) }, get parentId() { return issue.parentRef },
       get finishedMs() { return issue.finishedMs }, get updatedMs() { return issue.updatedMs },
       get formalParent() { return issue.formalParent },
@@ -557,7 +575,7 @@ export class WorklistIssue implements HeldIssue, RowView {
     if (!this.hasStanding) return undefined
     const model = this
     return {
-      get excluded() { return (model.issue.excluded) },
+      get excluded() { return model.issue.excluded || model.outsidePersonalSet },
       get finished() { return (model.issue.finished ?? false) },
       get activeHuman() { return model.activeHuman },
       get awaitingMerge() { return (model.issue.awaitingMerge) },
