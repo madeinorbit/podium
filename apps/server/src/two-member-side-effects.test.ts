@@ -221,6 +221,26 @@ describe('archiving a shared task archives only the archiver’s own sessions', 
     expect((await f.handle.registry.issues.reports.getMeta(task.id))?.archived).toBe(true)
   })
 
+  it('the read-gated sweep acts for the assignee: Alice’s read archives her task and her session, not Bob’s', async () => {
+    const task = await taskOf('alice', 'Alice nunatak atlas')
+    const alices = await sessionOn('alice', task.id, 'alice-nunatak-atlas')
+    const bobs = await sessionOn('bob', task.id, 'bob-nunatak-atlas')
+    await (await trpc('alice')).issues.close.mutate({ id: task.id } as never)
+    // Alice read it after its last activity; ten days later it is due.
+    await f.handle.registry.sessionStore.issues.setIssueUserState(
+      MEMBERS.alice.id,
+      asIssueId(task.id),
+      {
+        readAt: new Date(Date.now() + 1000).toISOString(),
+      },
+    )
+    const later = Date.now() + 10 * 86_400_000
+    const swept = await f.handle.registry.issues.attention.sweepAutoArchive(later)
+    expect(swept.map((w) => w.id)).toContain(task.id)
+    expect(await archived(alices)).toBe(true)
+    expect(await archived(bobs)).toBe(false)
+  })
+
   it('Alice archiving her own task archives her sessions on it, as today', async () => {
     const task = await taskOf('alice', 'Alice arete map')
     const alices = await sessionOn('alice', task.id, 'alice-arete')

@@ -753,7 +753,11 @@ export class IssueAttentionModule {
     })
     // Same teardown as the manual archive path — the sweep must not leave a
     // session-less worktree row (issue #133) or a checkout (POD-567) behind.
-    await this.onIssueArchived(draft)
+    // The sweep fires only on the assignee's read (POD-6291), so it archives
+    // for the assignee: their sessions go with the task, nobody else's
+    // (POD-6368). Another member's stopped sessions are archived on their own
+    // owner's read (POD-6285).
+    await this.onIssueArchived(draft, draft.ownerUserId ?? undefined)
     return wire
   }
 
@@ -818,9 +822,10 @@ export class IssueAttentionModule {
    *  ONLY THE ARCHIVER'S OWN SESSIONS (POD-6368, design §2.3), as a close stops
    *  only the closer's (POD-6287). Archiving a shared task is the archiver
    *  putting away their own work on it; another member's sessions there stay
-   *  as they were and show the task as archived. An archive with no human
-   *  behind it (the read-gated sweep, or the server's own write) and a
-   *  session that records no human (older rows) archive as before. */
+   *  as they were and show the task as archived. The read-gated sweep acts
+   *  for the assignee, whose read it fires on. A server write with no human
+   *  behind it, and a session that records no human (older rows), archive
+   *  as before. */
   public async cascadeArchiveSessions(row: IssueRow, archivedBy?: UserId): Promise<void> {
     const setArchived = this.store.deps.setSessionArchived
     if (!setArchived) return
