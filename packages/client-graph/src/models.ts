@@ -1162,7 +1162,7 @@ interface IssueEdits {
 // presence fields above keep their scalar types, and no row is stored here.
 export interface SessionModel extends Readonly<Omit<SessionView, 'archived' | 'condition' | 'messageDraft'>>, RelationGetters<'session'> {}
 
-export interface IssueModel extends Readonly<Pick<IssueProjection, 'priority' | 'visibility' | 'acceptance'>>, Readonly<Omit<SliceIssue, 'title' | 'stage' | 'readAt' | 'description' | 'gitState'>>, IssueEdits, RelationGetters<'issue'> {
+export interface IssueModel extends Readonly<Pick<IssueProjection, 'priority' | 'visibility' | 'acceptance' | 'assignee'>>, Readonly<Omit<SliceIssue, 'title' | 'stage' | 'readAt' | 'description' | 'gitState'>>, IssueEdits, RelationGetters<'issue'> {
   /** The stored projection uses the full wire contract; summaries only gate loading. */
   readonly gitState?: IssueGitState | null
 }

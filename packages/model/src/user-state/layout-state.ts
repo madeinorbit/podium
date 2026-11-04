@@ -84,6 +84,8 @@ export const LAYOUT_EXACT_KEYS = [
   'homeMode',
   /** Issues list display mode. */
   'issues.display',
+  /** Tasks filters that follow the member: Assigned to, Show agent tasks (POD-6294). */
+  'issues.filters',
   /** HTML file tab presentation modes, map of tabId → mode. */
   'htmlmode',
   /** Markdown file tab presentation modes, map of tabId → mode. */
@@ -153,6 +155,7 @@ export const LAYOUT_KEY_FROM_LEGACY: Readonly<Record<string, LayoutExactKey>> = 
   'podium.sidebarTab': 'sidebarTab',
   'podium.homeMode': 'homeMode',
   'podium.issues.display': 'issues.display',
+  'podium.issues.filters': 'issues.filters',
   'podium.htmlmode': 'htmlmode',
   'podium.mdmode': 'mdmode',
   'podium.jsonmode': 'jsonmode',

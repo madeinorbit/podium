@@ -44,6 +44,7 @@ import type { LaunchMachine } from '@/features/issues/LaunchBox'
 import { useIssueStatusApply } from '@/features/issues/use-issue-status-apply'
 import { renderReadoutMarkdown } from '@/lib/markdown'
 import { setKnownRefPrefixes } from '@/lib/markdown-references'
+import { MemberName } from '@/lib/member-roster'
 import {
   closeMiniview,
   getMiniviewState,
@@ -788,7 +789,9 @@ function IssueSummary({ issue }: { issue: RefIssueLike }): JSX.Element {
     meta.push(
       <span key="a" className="inline-flex min-w-0 items-center gap-1">
         <User size={11} className="flex-none" aria-hidden="true" />
-        <span className="truncate">{issue.assignee}</span>
+        <span className="truncate">
+          <MemberName memberId={issue.assignee} />
+        </span>
       </span>,
     )
   if (parentRef)

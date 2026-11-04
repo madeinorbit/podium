@@ -285,12 +285,16 @@ export function PriorityGlyph({
   )
 }
 
-/** Initials avatar; dotted outline when unassigned (Linear's placeholder). */
+/** Initials avatar; dotted outline when unassigned (Linear's placeholder).
+ *  `name` is the assignee's display name; the initials and the label read it,
+ *  never the member id (POD-6294). */
 export function AssigneeAvatar({
   assignee,
+  name,
   size = 18,
 }: {
   assignee?: string
+  name?: string
   size?: number
 }): JSX.Element {
   if (!assignee) {
@@ -305,12 +309,12 @@ export function AssigneeAvatar({
   }
   return (
     <span
-      aria-label={`Assignee: ${assignee}`}
-      title={assignee}
+      aria-label={`Assignee: ${name ?? assignee}`}
+      title={name ?? assignee}
       className="inline-flex shrink-0 items-center justify-center rounded-full bg-primary/15 font-medium shell-type-micro text-primary"
       style={{ width: size, height: size }}
     >
-      {assigneeInitials(assignee)}
+      {assigneeInitials(name ?? assignee)}
     </span>
   )
 }

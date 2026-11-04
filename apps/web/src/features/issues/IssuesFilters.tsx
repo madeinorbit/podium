@@ -1,3 +1,6 @@
+import type { IssuesAssignedTo } from '@podium/client-core/values'
+import type { MemberRoster } from '@podium/client-graph/member-roster'
+import { observer } from '@podium/client-graph/react'
 import {
   ALL_ISSUE_STATUSES,
   ISSUE_STAGES,
@@ -35,10 +38,10 @@ import type { IssuesDisplayPatch } from './issues-view-model'
 
 export type PropMenuKind = 's' | 'p' | 'a' | 'l'
 
-export function AnchoredIssueMenu({
+export const AnchoredIssueMenu = observer(function AnchoredIssueMenu({
   issue,
   kind,
-  assignees,
+  roster,
   labelPool,
   onMoveIssue,
   onSetPriority,
@@ -48,7 +51,8 @@ export function AnchoredIssueMenu({
 }: {
   issue: IssueViewModel
   kind: PropMenuKind
-  assignees: string[]
+  /** The instance's members: Set assignee picks from the active ones (POD-6294). */
+  roster: Pick<MemberRoster, 'members'> | undefined
   labelPool: string[]
   onMoveIssue: (id: IssueId, stage: IssueStage) => void
   onSetPriority: (id: IssueId, priority: number) => void
@@ -60,6 +64,7 @@ export function AnchoredIssueMenu({
     typeof document === 'undefined' ? null : document.querySelector(`[data-issue-id="${issue.id}"]`)
   const rect = element?.getBoundingClientRect()
   const addable = labelPool.filter((label) => !issue.labels.includes(label))
+  const assignees = roster?.members ?? []
   return (
     <DropdownMenu open modal={false} onOpenChange={(open) => !open && onClose()}>
       <DropdownMenuTrigger
@@ -91,18 +96,19 @@ export function AnchoredIssueMenu({
               <PriorityGlyph priority={priority} />P{priority}
             </DropdownMenuItem>
           ))}
-        {kind === 'a' && (
-          <>
-            <DropdownMenuItem onClick={() => onSetAssignee(issue.id, '')}>
-              Unassigned
-            </DropdownMenuItem>
-            {assignees.map((assignee) => (
-              <DropdownMenuItem key={assignee} onClick={() => onSetAssignee(issue.id, assignee)}>
-                {assignee}
+        {/* Every task has one accountable member (POD-6287), so there is no
+            Unassigned pick: the choices are the instance's active members. */}
+        {kind === 'a' &&
+          (assignees.length === 0 ? (
+            <DropdownMenuItem disabled>No members</DropdownMenuItem>
+          ) : (
+            assignees.map((member) => (
+              <DropdownMenuItem key={member.id} onClick={() => onSetAssignee(issue.id, member.id)}>
+                {issue.assignee === member.id && <Check className="size-3.5" aria-hidden="true" />}
+                {member.displayName}
               </DropdownMenuItem>
-            ))}
-          </>
-        )}
+            ))
+          ))}
         {kind === 'l' && (
           <>
             {issue.labels.map((label) => (
@@ -123,7 +129,7 @@ export function AnchoredIssueMenu({
       </DropdownMenuContent>
     </DropdownMenu>
   )
-}
+})
 
 export function BulkBar({
   count,
@@ -204,42 +210,99 @@ const STATUS_OPTIONS: NonNullable<BoardFilter['status']>[] = [
   'deferred',
 ]
 
-export function FilterMenu({
+/**
+ * THE TASKS FILTER (POD-6294; design §2.2, MU-09). Assigned to (on a shared
+ * instance) and Show agent tasks are the member's own saved filters; the other
+ * facets belong to this screen. The trigger counts what differs from Reset
+ * (your own tasks, agent tasks hidden); Reset puts all of it back.
+ */
+export const FilterMenu = observer(function FilterMenu({
   filter,
   onChange,
+  assignedTo,
+  onAssignedTo,
+  showAgentTasks,
+  onShowAgentTasks,
+  roster,
+  count,
+  onReset,
 }: {
   filter: BoardFilter
   onChange: (filter: BoardFilter) => void
+  assignedTo: IssuesAssignedTo
+  onAssignedTo: (assignedTo: IssuesAssignedTo) => void
+  showAgentTasks: boolean
+  onShowAgentTasks: (show: boolean) => void
+  roster: Pick<MemberRoster, 'shared' | 'members' | 'currentMemberId'> | undefined
+  count: number
+  onReset: () => void
 }): JSX.Element {
   const set = (patch: Partial<BoardFilter>): void => onChange({ ...filter, ...patch })
-  // Free-text search has its own field beside this trigger, so it is not one of
-  // the facets this menu reports as engaged.
-  const filtering =
-    filter.priority !== undefined ||
-    filter.status !== undefined ||
-    filter.stage !== undefined ||
-    !!filter.archived ||
-    !!filter.deleted
+  const shared = roster?.shared === true
+  const others = shared
+    ? (roster?.members ?? []).filter((member) => member.id !== roster?.currentMemberId)
+    : []
   return (
     <DropdownMenu>
       {/* The command bar's grammar, not the generic outline button's: a ringed
           chip there means ENGAGED, and an always-ringed menu trigger made a
           dropdown look identical to the active mode tab. Bare at rest, ringed
-          once a filter is actually narrowing the board. */}
+          once a filter differs from Reset. */}
       <DropdownMenuTrigger
         render={
           <button
             data-pressable
             type="button"
-            className={cn('topbar-tool-toggle', filtering && 'topbar-tool-toggle-on')}
-            title={filtering ? 'Filters are narrowing this board' : 'Filter the board'}
+            data-testid="tasks-filter-trigger"
+            className={cn('topbar-tool-toggle', count > 0 && 'topbar-tool-toggle-on')}
+            title={
+              count > 0
+                ? `${count} ${count === 1 ? 'filter differs' : 'filters differ'} from the default`
+                : 'Filter the board'
+            }
           >
             <ListFilter size={13} aria-hidden="true" />
             <span className="topbar-tool-label">Filter</span>
+            {count > 0 && (
+              <span
+                data-testid="tasks-filter-count"
+                aria-label={`${count} active`}
+                className="ml-0.5 min-w-4 rounded-full bg-primary/15 px-1 text-center font-medium text-[10px] text-primary tabular-nums"
+              >
+                {count}
+              </span>
+            )}
           </button>
         }
       />
-      <DropdownMenuContent align="end" className="w-44">
+      <DropdownMenuContent align="end" className="w-52">
+        {shared && (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>Assigned to</DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-52">
+              <DropdownMenuRadioGroup
+                value={assignedTo}
+                onValueChange={(value) => onAssignedTo(value as IssuesAssignedTo)}
+              >
+                <DropdownMenuRadioItem value="me">Me</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="all">All users</DropdownMenuRadioItem>
+                {others.length > 0 && <DropdownMenuSeparator />}
+                {others.map((member) => (
+                  <DropdownMenuRadioItem key={member.id} value={member.id}>
+                    {member.displayName}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        )}
+        <DropdownMenuCheckboxItem
+          checked={showAgentTasks}
+          onCheckedChange={(checked) => onShowAgentTasks(checked === true)}
+        >
+          Show agent tasks
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuSeparator />
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>Priority</DropdownMenuSubTrigger>
           <DropdownMenuSubContent>
@@ -288,10 +351,16 @@ export function FilterMenu({
         >
           Show deleted
         </DropdownMenuCheckboxItem>
+        {count > 0 && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={onReset}>Reset filters</DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )
-}
+})
 
 export function ProjectMenu({
   paths,
@@ -411,13 +480,8 @@ export function DisplayMenu({
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuCheckboxItem
-          checked={display.showAgentTasks}
-          onCheckedChange={(checked) => onChange({ showAgentTasks: checked === true })}
-        >
-          Show agent tasks
-        </DropdownMenuCheckboxItem>
+        {/* Show agent tasks moved to Filter (POD-6294): it decides which tasks
+            are listed, not how they look. */}
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
           <DropdownMenuLabel>Badges</DropdownMenuLabel>

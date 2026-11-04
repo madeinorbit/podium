@@ -83,6 +83,8 @@ export const UI_STATE_KEYS = {
   jsonmode: 'podium.jsonmode',
   /** Issues list layout/ordering preferences. */
   issuesDisplay: 'podium.issues.display',
+  /** Tasks filters that follow the member: Assigned to and Show agent tasks (POD-6294). */
+  issuesFilters: 'podium.issues.filters',
   /** Guided VPS onboarding lane; replicated so it survives the server-origin transfer. */
   onboardingVps: 'podium.onboarding.vps',
   /** The mobile-handoff promo card, dismissed for good (POD-1320). */
@@ -112,6 +114,7 @@ export const HTML_MODE_MAP_KEY = UI_STATE_KEYS.htmlmode
 export const MD_MODE_MAP_KEY = UI_STATE_KEYS.mdmode
 export const JSON_MODE_MAP_KEY = UI_STATE_KEYS.jsonmode
 export const ISSUES_DISPLAY_KEY = UI_STATE_KEYS.issuesDisplay
+export const ISSUES_FILTERS_KEY = UI_STATE_KEYS.issuesFilters
 export const ONBOARDING_VPS_KEY = UI_STATE_KEYS.onboardingVps
 export const MOBILE_PROMO_DISMISSED_KEY = UI_STATE_KEYS.mobilePromoDismissed
 export const LAST_LAUNCH_PICK_KEY = UI_STATE_KEYS.launchLastPick
@@ -235,6 +238,10 @@ export const UI_STATE_ROUTES = {
   [UI_STATE_KEYS.issuesDisplay]: {
     home: 'per-user-replicated',
     reason: 'Issues list display options are a personal preference.',
+  },
+  [UI_STATE_KEYS.issuesFilters]: {
+    home: 'per-user-replicated',
+    reason: 'Assigned to and Show agent tasks are each member’s own Tasks filters.',
   },
   [UI_STATE_KEYS.onboardingVps]: {
     home: 'per-user-replicated',
