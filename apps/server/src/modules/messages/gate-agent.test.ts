@@ -494,6 +494,19 @@ describe('agent spawn (gate)', () => {
     expect(spawns[0]).toMatchObject({ issueId: 'iss_new' })
   })
 
+  it('--new under another member’s task is assigned to the agent’s own human (POD-6287)', async () => {
+    // Alice's task; the agent works on it for the instance's first admin. The
+    // new task is the creating human's, not the parent's owner's (design §2.2).
+    const onAlicesTask: Capability = { ...PARENT, scope: { kind: 'subtree', rootId: asIssueId(ISSUE.id) } }
+    const { gate, created } = await harness({ issueOverrides: { ownerUserId: 'mem_alice' } })
+    await gate.dispatch(onAlicesTask, undefined, 'spawnAgent', { newTitle: 'side task', prompt: 'go' })
+    expect(created[0]).toMatchObject({
+      parentId: ISSUE.id,
+      ownerUserId: firstAdminMemberId(),
+      createdByOnBehalfOf: firstAdminMemberId(),
+    })
+  })
+
   it('rejects --issue AND --new together, and neither', async () => {
     const { gate } = await harness()
     await expect(

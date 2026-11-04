@@ -61,19 +61,20 @@ async function spawnOnce(
     // otherwise --repo names the repository explicitly.
     //
     // OWNERSHIP (contract `ownership`, ADR 9 D5 A4 / §3 O4): the issue created
-    // here is owned by the on-behalf-of HUMAN with the spawning agent as actor,
-    // and when it has a parent issue it inherits that issue's owner rather than
-    // the actor's (tasks are shared, so there are no grants to inherit).
-    // The rule lives in the contract; this is the site that obeys it.
+    // here is owned by the on-behalf-of HUMAN with the spawning agent as actor.
+    // Its assignee is that human even under someone else's task (POD-6287,
+    // design §2.2: a new task defaults to the creating human, for an agent its
+    // delegating human); it used to take the parent's owner, which handed Bob's
+    // agent's new task to Alice. The rule lives in the contract; this is the
+    // site that obeys it.
     const scopeIssue =
       caller.capability.scope.kind === 'subtree'
         ? await issues.reports.getMeta(caller.capability.scope.rootId ?? '')
         : null
     const repoPath = input.repo ?? scopeIssue?.repoPath
     if (!repoPath) throw new Error('--new needs --repo (no issue scope to inherit a repo from)')
-    const inheritedOwner = scopeIssue ? (scopeIssue.ownerUserId ?? callerOwner) : callerOwner
     issueId = (await deps.createIssue({
-      ownerUserId: inheritedOwner,
+      ownerUserId: callerOwner,
       createdByActor: attribution.actor,
       createdByOnBehalfOf: callerOwner,
       repoPath,
