@@ -1,47 +1,38 @@
-import {
-  type MemberRoster,
-  type MemberRosterAnswer,
-  memberRoster,
-} from '@podium/client-graph/member-roster'
 import { observer } from '@podium/client-graph/react'
-import { followVisibleRequest } from '@podium/client-graph/visible-request'
+import { type RosterFacts, rosterFacts } from '@podium/client-graph/worklist/view-model'
 import { useEffect } from 'react'
 import { useWorklistPool } from '@/app/store-worklist-pool'
-import { serverConfig } from '@/app/trpc'
-import { memberRequest } from '@/features/setup/member-api'
-
-/** Members change rarely and nothing pushes them; refresh while shown. */
-const REFRESH_MS = 5 * 60_000
+import { throughRestarts } from '@/lib/chunk-recovery'
 
 /**
  * The pool's member roster (POD-6294). `load` is for the surfaces that own the
  * demand, the sidebar and the Tasks view: they read `/auth/members/directory`
  * when shown and every few minutes after. Leaves pass nothing and only read.
  *
+ * The answer is the startup roster facts the worklist reads; the directory
+ * request and its visibility follower load behind a dynamic import, so the
+ * first paint carries no request code (POD-6299).
+ *
  * A roster that cannot load (an older server, demo mode, no network) stays
  * empty, which is the one-member answer: the views keep their former rules.
  */
-export function useMemberRoster(load = false): MemberRoster | undefined {
+export function useMemberRoster(load = false): RosterFacts | undefined {
   const pool = useWorklistPool()
-  const roster = pool ? memberRoster(pool) : undefined
+  const roster = pool ? rosterFacts(pool) : undefined
   useEffect(() => {
-    if (!load || !roster || typeof window === 'undefined' || typeof document === 'undefined') return
-    const origin = serverConfig(window.location).httpOrigin
-    return followVisibleRequest(
-      () => {
-        if (!roster.loading)
-          void roster.read(() => memberRequest<MemberRosterAnswer>(origin, 'directory'))
-      },
-      {
-        visible: () => document.visibilityState !== 'hidden',
-        subscribe: (changed) => {
-          document.addEventListener('visibilitychange', changed)
-          return () => document.removeEventListener('visibilitychange', changed)
-        },
-      },
-      REFRESH_MS,
-    )
-  }, [load, roster])
+    if (!load || !pool || typeof window === 'undefined' || typeof document === 'undefined') return
+    let stop: (() => void) | undefined
+    let stopped = false
+    void throughRestarts(() => import('./member-roster-loader'))
+      .then(({ followMemberRoster }) => {
+        if (!stopped) stop = followMemberRoster(pool)
+      })
+      .catch(() => {})
+    return () => {
+      stopped = true
+      stop?.()
+    }
+  }, [load, pool])
   return roster
 }
 
@@ -62,7 +53,7 @@ export const MemberName = observer(function MemberName({
 })
 
 export function memberDisplayName(
-  roster: Pick<MemberRoster, 'nameOf'> | undefined,
+  roster: Pick<RosterFacts, 'nameOf'> | undefined,
   memberId: string | null | undefined,
   fallback?: string,
 ): string {

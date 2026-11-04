@@ -1,19 +1,17 @@
 import { lazy } from '@podium/mobx-helpers'
 import type { MemberView } from '@podium/model'
 import { action, compareShallow } from 'mobx'
-import { here } from './lookup'
 import type { MobxPool, PoolRows } from './pool'
 import { RequestAnswer } from './request-answer'
 import type { MemberModel } from './requested-models'
 import { ingestRequested } from './requested-record-source'
+import { type RosterFacts, rosterFacts } from './worklist/view-model'
 
 /** `/auth/members/directory`: the active members, and who is asking. */
 export interface MemberRosterAnswer {
   members: MemberView[]
   currentMemberId: string
 }
-
-type Roster = { memberIds: readonly string[]; currentMemberId: string }
 
 /**
  * THE INSTANCE'S MEMBERS, AS THE TASK VIEWS NAME THEM (POD-6294; design §2.2).
@@ -31,7 +29,7 @@ type Roster = { memberIds: readonly string[]; currentMemberId: string }
  * One roster per pool (`memberRoster`), loaded by the app shell and kept for the
  * pool's lifetime: the always-on sidebar reads it as well as the Tasks view.
  */
-export class MemberRoster extends RequestAnswer<Roster> {
+export class MemberRoster extends RequestAnswer<true> {
   constructor(private readonly pool: MobxPool) {
     super()
   }
@@ -44,58 +42,43 @@ export class MemberRoster extends RequestAnswer<Roster> {
         members as PoolRows['member'][],
         (row) => row.id,
       )
+      const facts = rosterFacts(this.pool)
       const present = new Set(memberIds)
-      const removed = (this.answer?.memberIds ?? []).filter((id) => !present.has(id))
+      const removed = facts.memberIds.filter((id) => !present.has(id))
       if (removed.length)
         this.pool.apply({
           type: 'update',
           rows: removed.map((id) => ({ kind: 'member', id, value: undefined })),
         })
-      return { memberIds, currentMemberId }
+      // The answer lives in the startup roster facts the worklist reads.
+      facts.accept(memberIds, currentMemberId)
+      return true as const
     })
   }
 
   /** The active members, in the directory's order (earliest first). */
   @lazy({ equals: compareShallow }) get members(): MemberModel[] {
-    return (this.answer?.memberIds ?? []).flatMap((id) => {
-      const member = here(this.pool.model('member', id))
-      return member && !member.disabledAt ? [member] : []
-    })
+    return rosterFacts(this.pool).members
   }
 
   /** The viewer's member id, for display and filtering only. */
   @lazy get currentMemberId(): string | undefined {
-    return this.answer?.currentMemberId
+    return rosterFacts(this.pool).currentMemberId
   }
 
   /** Two or more active members: the multi-user task rules apply. */
   @lazy get shared(): boolean {
-    return this.members.length > 1
+    return rosterFacts(this.pool).shared
   }
 
   /** Display names two or more active members share (POD-6295). */
   @lazy({ equals: compareShallow }) get sharedNames(): string[] {
-    const counts = new Map<string, number>()
-    for (const member of this.members) {
-      const name = member.displayName?.trim()
-      if (name) counts.set(name, (counts.get(name) ?? 0) + 1)
-    }
-    return [...counts]
-      .filter(([, count]) => count > 1)
-      .map(([name]) => name)
-      .sort()
+    return rosterFacts(this.pool).sharedNames
   }
 
-  /**
-   * A member's display name, or undefined while unknown (not loaded, or not an
-   * active member any more). A name another active member also uses carries a
-   * short tag from the member id, `Sam (k3f9)`, so two people never read as
-   * one. Never the email: another member's email is the admins' (MU-13).
-   */
+  /** A member's display name, or undefined while unknown; see {@link RosterFacts.nameOf}. */
   nameOf(id: string | null | undefined): string | undefined {
-    if (!id) return undefined
-    const name = here(this.pool.model('member', id))?.displayName?.trim() || undefined
-    return name && this.sharedNames.includes(name) ? `${name} (${memberTag(id)})` : name
+    return rosterFacts(this.pool).nameOf(id)
   }
 
   dispose() {
@@ -104,9 +87,7 @@ export class MemberRoster extends RequestAnswer<Roster> {
 }
 
 /** The short, stable tag that tells two same-named members apart. */
-export function memberTag(id: string): string {
-  return id.replace(/^mem_/, '').slice(-4)
-}
+export { memberTag } from './worklist/view-model'
 
 /** The pool's one roster. */
 export function memberRoster(pool: MobxPool): MemberRoster {

@@ -1,9 +1,9 @@
 import { here, omitGone } from '../lookup'
-import { observable, observableRef, action } from 'mobx'
+import { observable, observableRef, action, compareShallow } from 'mobx'
 import { lazy, companion } from '@podium/mobx-helpers'
 import type { IssueModel, ModelHost, SessionModel } from '../models'
 import type { MobxPool } from '../pool'
-import { memberRoster } from '../member-roster'
+import type { MemberModel } from '../requested-models'
 import type { LocalsKey, SliceLocals } from '../shared/slice-types'
 import { worklistGroups } from './groups'
 import { WorklistIssue } from './issue'
@@ -12,6 +12,67 @@ import { SidebarIndex, type SidebarState } from './sidebar'
 import { MobileSectionsView } from './mobile'
 import { PhoneWorklist } from './phone'
 import { LOADING, type RollupInputs, type RollupParts } from './rollup'
+
+/**
+ * THE ROSTER FACTS THE ALWAYS-ON WORKLIST READS (POD-6294; startup split in
+ * POD-6299). Which members the directory lists and who the viewer is: the
+ * sidebar's personal rule and owner badges need these at first paint. The
+ * directory read itself (`member-roster.ts`, a request answer followed while
+ * visible) is optional screen code and loads behind the views that ask for it;
+ * it writes its answer here. Until it has, the instance reads as one member,
+ * which is the former rule.
+ */
+export class RosterFacts {
+  @observableRef accessor memberIds: readonly string[] = []
+  @observableRef accessor currentMemberId: string | undefined = undefined
+  constructor(private readonly pool: MobxPool) {}
+
+  /** The active members, in the directory's order (earliest first). */
+  @lazy({ equals: compareShallow }) get members(): MemberModel[] {
+    return this.memberIds.flatMap(id => {
+      const member = here(this.pool.model('member', id))
+      return member && !member.disabledAt ? [member] : []
+    })
+  }
+
+  /** Two or more active members: the multi-user task rules apply. */
+  @lazy get shared(): boolean { return this.members.length > 1 }
+
+  /** Display names two or more active members share (POD-6295). */
+  @lazy({ equals: compareShallow }) get sharedNames(): string[] {
+    const counts = new Map<string, number>()
+    for (const member of this.members) {
+      const name = member.displayName?.trim()
+      if (name) counts.set(name, (counts.get(name) ?? 0) + 1)
+    }
+    return [...counts].filter(([, count]) => count > 1).map(([name]) => name).sort()
+  }
+
+  /**
+   * A member's display name, or undefined while unknown (not loaded, or not an
+   * active member any more). A name another active member also uses carries a
+   * short tag from the member id, `Sam (k3f9)`, so two people never read as
+   * one. Never the email: another member's email is the admins' (MU-13).
+   */
+  nameOf(id: string | null | undefined): string | undefined {
+    if (!id) return undefined
+    const name = here(this.pool.model('member', id))?.displayName?.trim() || undefined
+    return name && this.sharedNames.includes(name) ? `${name} (${memberTag(id)})` : name
+  }
+
+  @action accept(memberIds: readonly string[], currentMemberId: string): void {
+    this.memberIds = memberIds
+    this.currentMemberId = currentMemberId
+  }
+}
+
+/** The short, stable tag that tells two same-named members apart. */
+export function memberTag(id: string): string { return id.replace(/^mem_/, '').slice(-4) }
+
+/** The pool's one set of roster facts. */
+export function rosterFacts(pool: MobxPool): RosterFacts {
+  return pool.sources.view('members.rosterFacts', () => new RosterFacts(pool))
+}
 
 /** One view of the worklist, drawn by the desktop sidebar and phone Work tab. */
 export class Worklist {
@@ -36,12 +97,12 @@ export class Worklist {
    * and the worklist keeps its exact former rule.
    */
   @lazy get personalOnly(): boolean {
-    return memberRoster(this.pool).shared
+    return rosterFacts(this.pool).shared
   }
 
   /** The viewer's member id once the roster knows it; display only. */
   @lazy get viewerMemberId(): string | undefined {
-    return memberRoster(this.pool).currentMemberId
+    return rosterFacts(this.pool).currentMemberId
   }
   readonly host: ModelHost
   readonly desktop: SidebarIndex
