@@ -1,18 +1,18 @@
+import { MemberDirectory, type MemberDirectoryAnswer } from '@podium/client-graph/member-directory'
+import { useOpeningView } from '@podium/client-graph/react'
+import type { MemberModel } from '@podium/client-graph/requested-models'
 import { followVisibleRequest } from '@podium/client-graph/visible-request'
 import { observer } from 'mobx-react-lite'
-import { useOpeningView } from '@podium/client-graph/react'
-import { MemberDirectory, type MemberDirectoryAnswer } from '@podium/client-graph/member-directory'
+import { useCallback, useEffect, useState } from 'react'
 import { useWorklistPool } from '@/app/store-worklist-pool'
-import { useCallback } from 'react'
-import { useEffect, useState } from 'react'
 import { serverConfig } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { memberRequest } from '@/features/setup/member-api'
 import { Section } from './shared'
 
-import type { MemberModel } from '@podium/client-graph/requested-models'
-const createDirectory = (pool: import('@podium/client-graph/pool').MobxPool) => new MemberDirectory(pool)
+const createDirectory = (pool: import('@podium/client-graph/pool').MobxPool) =>
+  new MemberDirectory(pool)
 
 export const MembersSection = observer(function MembersSection() {
   const origin = serverConfig(window.location).httpOrigin
@@ -26,11 +26,28 @@ export const MembersSection = observer(function MembersSection() {
   const [link, setLink] = useState('')
   const [notice, setNotice] = useState('')
   const [removing, setRemoving] = useState<MemberModel>()
-  const reload = useCallback(() => data?.read(() => memberRequest<MemberDirectoryAnswer>(origin, 'list')), [data, origin])
-  useEffect(() => followVisibleRequest(() => { if (!data?.loading) void reload() }, {
-    visible: () => document.visibilityState !== 'hidden',
-    subscribe: changed => { document.addEventListener('visibilitychange', changed); return () => document.removeEventListener('visibilitychange', changed) },
-  }), [data, reload])
+  // Removing a member needs the admin's current password (POD-6298).
+  const [current, setCurrent] = useState('')
+  const reload = useCallback(
+    () => data?.read(() => memberRequest<MemberDirectoryAnswer>(origin, 'list')),
+    [data, origin],
+  )
+  useEffect(
+    () =>
+      followVisibleRequest(
+        () => {
+          if (!data?.loading) void reload()
+        },
+        {
+          visible: () => document.visibilityState !== 'hidden',
+          subscribe: (changed) => {
+            document.addEventListener('visibilitychange', changed)
+            return () => document.removeEventListener('visibilitychange', changed)
+          },
+        },
+      ),
+    [data, reload],
+  )
   async function mutate(action: string, body: unknown) {
     setBusy(true)
     setError('')
@@ -48,6 +65,7 @@ export const MembersSection = observer(function MembersSection() {
         )
       }
       setRemoving(undefined)
+      setCurrent('')
       await reload()
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Unable to save')
@@ -70,6 +88,7 @@ export const MembersSection = observer(function MembersSection() {
                   <strong>{member.displayName}</strong>
                   <p className="settings-prose">
                     {member.email || 'No email'} · {member.role}
+                    {member.disabledAt ? ' · disabled' : ''}
                   </p>
                 </div>
                 {member.id !== data.currentMemberId && (
@@ -86,14 +105,29 @@ export const MembersSection = observer(function MembersSection() {
                 Remove {removing.displayName}? They will lose access. Their issues and sessions will
                 be kept.
               </p>
+              <label className="block max-w-sm">
+                Your password
+                <Input
+                  type="password"
+                  autoComplete="current-password"
+                  value={current}
+                  onChange={(e) => setCurrent(e.target.value)}
+                />
+              </label>
               <Button
                 variant="destructive"
                 disabled={busy}
-                onClick={() => void mutate('remove', { id: removing.id })}
+                onClick={() => void mutate('remove', { id: removing.id, current })}
               >
                 Confirm removal
               </Button>
-              <Button variant="ghost" onClick={() => setRemoving(undefined)}>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setRemoving(undefined)
+                  setCurrent('')
+                }}
+              >
                 Cancel
               </Button>
             </div>
@@ -107,6 +141,7 @@ export const MembersSection = observer(function MembersSection() {
                 ...(email.trim() ? { email } : {}),
                 role,
                 sendEmail,
+                ...(role === 'admin' && !memberId ? { current } : {}),
               })
             }}
           >
@@ -123,11 +158,13 @@ export const MembersSection = observer(function MembersSection() {
                 }}
               >
                 <option value="">New member</option>
-                {data.members.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.displayName}
-                  </option>
-                ))}
+                {data.members
+                  .filter((m) => !m.disabledAt)
+                  .map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.displayName}
+                    </option>
+                  ))}
               </select>
             </label>
             <label className="block">
@@ -150,6 +187,17 @@ export const MembersSection = observer(function MembersSection() {
                   <option value="member">Member</option>
                   <option value="admin">Admin</option>
                 </select>
+              </label>
+            )}
+            {role === 'admin' && !memberId && (
+              <label className="block">
+                Your password
+                <Input
+                  type="password"
+                  autoComplete="current-password"
+                  value={current}
+                  onChange={(e) => setCurrent(e.target.value)}
+                />
               </label>
             )}
             {data.mailAvailable && (

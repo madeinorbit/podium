@@ -2,6 +2,7 @@ import '@/test-support/mock-request-pool.test.fixture'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import { MembersSection } from './members'
+
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
@@ -100,11 +101,13 @@ test('invites an existing member by mail and requires confirmation to remove', a
   fireEvent.click(screen.getByRole('button', { name: 'Remove Anna' }))
   expect(screen.getByRole('alertdialog')).toBeTruthy()
   expect(fetchMock.mock.calls.filter(([url]) => url.endsWith('/remove'))).toHaveLength(0)
+  // The admin confirms with their own password (POD-6298).
+  fireEvent.change(screen.getByLabelText('Your password'), { target: { value: 'admin-password' } })
   fireEvent.click(screen.getByRole('button', { name: 'Confirm removal' }))
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringMatching(/\/remove$/),
-      expect.objectContaining({ body: JSON.stringify({ id: 'anna' }) }),
+      expect.objectContaining({ body: JSON.stringify({ id: 'anna', current: 'admin-password' }) }),
     ),
   )
 })
