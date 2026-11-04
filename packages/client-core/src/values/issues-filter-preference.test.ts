@@ -2,7 +2,7 @@
  * THE TASKS FILTERS THAT FOLLOW THE MEMBER (POD-6294; MU-09).
  */
 import { describe, expect, it } from 'vitest'
-import { filterBoardIssues } from './issue-board-filter'
+import { type BoardFilterIssue, filterBoardIssues } from './issue-board-filter'
 import { readSharedIssuesDisplay } from './issues-display-preference'
 import {
   activeFilterCount,
@@ -70,7 +70,7 @@ describe('Assigned to', () => {
     ready: true,
     blocked: false,
     deferred: false,
-  }))
+  })) as unknown as (BoardFilterIssue & { id: string })[]
   const listed = (assignee: string | undefined) =>
     filterBoardIssues(tasks, assignee ? { assignee } : {}).map((task) => task.id)
 
