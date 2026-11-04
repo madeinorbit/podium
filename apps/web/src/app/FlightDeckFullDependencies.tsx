@@ -18,7 +18,6 @@ import {
   type DependencyPoint,
   dependencyDrawing,
   dependencyPoint,
-  FULL_EDGE_GUTTER,
 } from './flight-deck-full-edges'
 
 /** Only transient view state lives here. Topology, phases and scheduling
@@ -88,16 +87,18 @@ export const useFullDependencyInteraction = () => useContext(DependencyContext)
 type Layout = {
   width: number
   height: number
-  expanded: boolean
   points: ReadonlyMap<string, DependencyPoint>
 }
-const emptyLayout: Layout = { width: 0, height: 0, expanded: false, points: new Map() }
+const emptyLayout: Layout = { width: 0, height: 0, points: new Map() }
+
+/** What a blocker line crosses at a row's right end: the state words and the
+ * phase meter. They fade while lines show (POD-6245). */
+const UNDER_LINES = '.flight-v6-state, .flight-full-phase-meter, .flight-full-phase-counter'
 
 function sameLayout(a: Layout, b: Layout): boolean {
   return (
     a.width === b.width &&
     a.height === b.height &&
-    a.expanded === b.expanded &&
     a.points.size === b.points.size &&
     [...a.points].every(([id, point]) => {
       const other = b.points.get(id)
@@ -194,7 +195,6 @@ export const FlightDeckFullDependencies = observer(function FlightDeckFullDepend
       const next: Layout = {
         width: box.width / scale,
         height: box.height / scale,
-        expanded: panel.clientWidth >= 860,
         points,
       }
       setLayout((previous) => (sameLayout(previous, next) ? previous : next))
@@ -236,46 +236,44 @@ export const FlightDeckFullDependencies = observer(function FlightDeckFullDepend
         for (const dependencyId of dependencies) links.push({ dependentId: id, dependencyId })
     }
   const currentIds = new Set(Array.isArray(rowIds) ? rowIds : [])
-  // ROWS SHORTEN TO MAKE ROOM (POD-6245). The gutter opens only while lines
-  // show: always in an expanded deck that has links, otherwise while the
-  // hovered or focused row has a link. It follows the links that exist, not
-  // the ones measured on screen: measuring depends on the gutter.
-  const hasLinks =
-    Array.isArray(rowIds) &&
-    rowIds.some((id) => {
-      const dependencies = settled(() => full.task(id).blockedByIds)
-      return Array.isArray(dependencies) && dependencies.some((dep) => currentIds.has(dep))
-    })
-  const active = interaction.activeId
-  const gutter =
-    hasLinks &&
-    (layout.expanded ||
-      (active !== null &&
-        [...interaction.directIds].some((id) => id !== active && currentIds.has(id))))
-  // The row under the pointer. Over the open gutter that is the row at the
-  // same height: the rows shortened under the pointer, and losing the hover
-  // there would close the gutter, grow the row back and flicker.
-  const pointedRow = (target: EventTarget | null, event: { clientX: number; clientY: number }) => {
-    const row = rowId(target)
-    const container = root.current
-    if (row || !gutter || !container || !(target instanceof Node) || !container.contains(target))
-      return row
-    const box = container.getBoundingClientRect()
-    if (event.clientX < box.right - FULL_EDGE_GUTTER) return null
-    return rowId(document.elementFromPoint(box.right - FULL_EDGE_GUTTER - 8, event.clientY))
-  }
   const points = new Map([...layout.points].filter(([id]) => currentIds.has(id)))
-  const { edges, heads } = dependencyDrawing(links, points, layout.expanded, interaction.activeId)
+  // LINES OVER THE TEXT, TEXT HIDES (POD-6245). Lines draw only for the
+  // hovered or focused row, at every width: they run over the right end of
+  // the rows, and drawn at rest they would hide those words for good.
+  const { edges, heads } = dependencyDrawing(links, points, false, interaction.activeId)
+  // Every state word and phase meter between a shown line's two ends fades
+  // until the lines go. Measured after each render, in the overlay's layout
+  // pixels; a data attribute, so the remeasuring observer ignores it.
+  const bands = edges.map((edge) => [
+    Math.min(edge.sourceY, edge.targetY) - 1,
+    Math.max(edge.sourceY, edge.targetY) + 1,
+  ])
+  useLayoutEffect(() => {
+    const container = root.current
+    if (!container) return
+    if (bands.length === 0) {
+      for (const node of container.querySelectorAll<HTMLElement>('[data-under-lines]'))
+        delete node.dataset.underLines
+      return
+    }
+    const box = container.getBoundingClientRect()
+    const scale = container.offsetWidth > 0 ? box.width / container.offsetWidth : 1
+    for (const node of container.querySelectorAll<HTMLElement>(UNDER_LINES)) {
+      const rect = node.getBoundingClientRect()
+      const y = (rect.top + rect.height / 2 - box.top) / scale
+      if (bands.some(([top, bottom]) => y >= top! && y <= bottom!)) node.dataset.underLines = 'true'
+      else delete node.dataset.underLines
+    }
+  })
   return (
     <DependencyContext.Provider value={interaction}>
       <div
         ref={root}
         className="flight-full-groups"
         data-testid="flight-deck-full-groups"
-        data-edge-gutter={gutter || undefined}
-        onPointerOver={(event) => interaction.hover(pointedRow(event.target, event))}
-        onPointerMove={(event) => interaction.hover(pointedRow(event.target, event))}
-        onPointerOut={(event) => interaction.hover(pointedRow(event.relatedTarget, event))}
+        onPointerOver={(event) => interaction.hover(rowId(event.target))}
+        onPointerMove={(event) => interaction.hover(rowId(event.target))}
+        onPointerOut={(event) => interaction.hover(rowId(event.relatedTarget))}
         onPointerLeave={() => interaction.hover(null)}
         onFocusCapture={(event) => interaction.focus(rowId(event.target))}
         onBlurCapture={(event) =>
