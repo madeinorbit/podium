@@ -144,6 +144,7 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['apps/server/src/store/machines.ts:machinesByIds', SIZES],
   ['apps/server/src/store/users.ts:accountsByIds', SIZES],
   ['apps/server/src/store/issues.ts:worktreeOwnersOf', SIZES],
+  ['apps/server/src/store/issues.ts:liveWorktreesOnMachines', SIZES],
   ['apps/server/src/store/issues.ts:issueClosureRowsOf', SIZES],
   ['apps/server/src/store/grants.ts:upsertGrant', ['set', 'keep']],
   ['apps/server/src/store/grants.ts:deleteGrantsOfResource', ['retain', 'all']],
