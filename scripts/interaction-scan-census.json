@@ -20032,12 +20032,12 @@
       "file": "packages/client-core/src/values/issue-activity.ts",
       "holder": "IssueActivityHistory/appendEvents",
       "rule": "loop:for-of",
-      "tokens": "95b97c5c34f9a804293c0197f5a61aaebee0f11abaffb87dda826364ea7047f1",
+      "tokens": "86b8db227e076ad47771866960ac6d0f5fbc7901977f59b553cced4a28e69784",
       "gate": [],
       "origin": [
         "f812520ce4a887e1a11173f742d445794e8ea590c5d1ad7400c98f44ca3e3a0c"
       ],
-      "fingerprint": "4e24da5856bee9e05f91201e60c768fdfe93095c90d316d8fccff60c7cd8348d",
+      "fingerprint": "8a47fe771fbc34af8c9dd13d0e8db7345ae8fbe61410c58325f755140255a74c",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5618",
@@ -20050,12 +20050,12 @@
       "file": "packages/client-core/src/values/issue-activity.ts",
       "holder": "buildActivityFeed",
       "rule": "loop:for-of",
-      "tokens": "448a7e1393d5c503edf5da7776a7fb8c97e8b2421ddf6da8ae438b1c8ff5ad33",
+      "tokens": "e1ba0b62cbb67000bf8d0b02be2f4ef4d504b4017a8285f3b33dc88f82dbd18c",
       "gate": [],
       "origin": [
         "ef9069ac27326a7d041164b1a38337c5d39a7c4d88ec300905e20345e1a4509b"
       ],
-      "fingerprint": "4a52f9a01a80f47ee6675390845682da38ce24bc2b93a3d876beeaaa9fd92398",
+      "fingerprint": "61e4f03018a5b2de7d8e9c43ef1d5d16cc8d2048d6ae94f6ade34de3a5408c9f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
