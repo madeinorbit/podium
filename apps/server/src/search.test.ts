@@ -233,7 +233,7 @@ describe('MemoryService omni-search', () => {
     // The limit trims the tail, not the head: the best hits survive.
     expect(results[0]?.score).toBeGreaterThanOrEqual(results[1]?.score ?? 0)
   })
-  it('uses one live-session snapshot and reads issue owners and grants in one batch per pass', async () => {
+  it('uses one live-session snapshot and reads issues in one batch per pass, and no grants', async () => {
     const { store, registry } = await seed()
     // A second transcript candidate, so a segment read per candidate shows.
     await store.conversations.registry.ensure({
@@ -278,15 +278,15 @@ describe('MemoryService omni-search', () => {
     // those asks only inside a scope; without the search's own read scope
     // (POD-6214) this fixture ran a statement per candidate: 4 issue reads and
     // 4 grant reads. Now the issue text match, the commented issues and the
-    // candidate issues are one read each, and the grants are one read for the
-    // candidate issues. Sessions read no grants at all since POD-6284: a
-    // session is its owner's, decided from its own row. Several issues are
-    // resolved, so a read per candidate would show:
+    // candidate issues are one read each. No grant is read: sessions are
+    // their owner's since POD-6284, and tasks every member's since POD-6288,
+    // both decided from their own rows. Several issues are resolved, so a read
+    // per candidate would show:
     expect(issueRows.filter((row) => !row.deletedAt).length).toBeGreaterThan(1)
     const issues = readsOf(counted, 'issues')
     const grants = readsOf(counted, 'grants')
     expect(issues.count, issues.queries).toBe(3)
-    expect(grants.count, grants.queries).toBe(1)
+    expect(grants.count, grants.queries).toBe(0)
     // The conversation and transcript candidates' segments are read once per
     // source pass, two reads each (podium ids, then segments), and every check
     // is answered from them (POD-6215). Asked per candidate, the one
@@ -391,7 +391,7 @@ describe('search.query tRPC', () => {
     for (const r of registries.splice(0)) await r.dispose()
   })
 
-  it('excludes every private memory source owned by another user', async () => {
+  it('excludes every private memory source owned by another user, and shares the task', async () => {
     const store = await openTestStore(':memory:')
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
@@ -454,7 +454,11 @@ describe('search.query tRPC', () => {
       content: 'classifiedneedle private thread body',
     })
 
-    expect(await registry.modules.memory.search(READER, { text: 'classifiedneedle' })).toEqual([])
+    // Bob's TASK is shared (design §2.2, POD-6288): it is the one hit another
+    // member gets. His session, conversation, transcript and thread stay his.
+    expect(
+      (await registry.modules.memory.search(READER, { text: 'classifiedneedle' })).map((hit) => hit.kind),
+    ).toEqual(['issue'])
     const bobHits = await registry.modules.memory.search(
       { kind: 'user', id: bob },
       { text: 'classifiedneedle' },

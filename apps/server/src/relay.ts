@@ -3149,6 +3149,14 @@ export class SessionRegistry {
       },
       applyPatch: shipwrightApplyPatchThroughRelay(rpc),
     })
+    /** SHIPPING'S LIFECYCLE CONTRACT (design §2.2, POD-6288): every member
+     *  edits every task, but only its assignee or an admin ships it. */
+    const mayShipTask = async (
+      humanId: string,
+      role: import('@podium/model').UserRole,
+      issueId: string,
+    ): Promise<boolean> =>
+      role === 'admin' || (await readIssue(this.store.issues, issueId))?.ownerUserId === humanId
     const shipping = new ShippingService({
       repository: this.store.shipping,
       // The lease projection is process-owned memory installed behind a
@@ -3203,6 +3211,16 @@ export class SessionRegistry {
           return { actor: actorSystem(principal.job), onBehalfOf: null }
         },
         authorize: async ({ principal, action, issue, overrideScope }) => {
+          // SHIPPING IS A LIFECYCLE COMMAND (design §2.2, POD-6288): editing a
+          // task is every member's, shipping it is its assignee's or an
+          // admin's. Receipt reads are reads of a shared task.
+          const assertMayShip = async (
+            humanId: string,
+            role: import('@podium/model').UserRole,
+          ): Promise<void> => {
+            if (await mayShipTask(humanId, role, issue.id)) return
+            throw new Error(`only the task's assignee or an admin may ${action} a shipping order`)
+          }
           if (principal.kind === 'system') {
             throw new Error(`system job ${principal.job} cannot ${action} a shipping order`)
           }
@@ -3231,6 +3249,7 @@ export class SessionRegistry {
             action === 'read-receipt' ? 'read' : 'write',
             issue.id,
           )
+          if (action !== 'read-receipt') await assertMayShip(humanId, liveRole)
         },
         reauthorize: async ({ order, issue, machineId, effect }) => {
           const attribution = order.requestedBy
@@ -3270,6 +3289,9 @@ export class SessionRegistry {
               'write',
               issue.id,
             )
+          }
+          if (!(await mayShipTask(userId, role, issue.id))) {
+            throw new Error(`shipping requester ${userId} is no longer the task's assignee or an admin`)
           }
           const machineAccess = checkMachineUse(
             principal,

@@ -160,10 +160,11 @@ describe('issues.answerQuestion (issue #53)', () => {
     const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
     await call('setNeedsHuman', { id: a.id, question: 'merge?' })
     expect((await svc.reports.get(a.id))!.humanQuestionAskedBy).toBe('sess_self')
-    // The OPERATOR may attribute explicitly (superagent-on-behalf, hub-side
+    // A PERSON may attribute explicitly (superagent-on-behalf, hub-side
     // execution of node-forwarded mutations) — see the deputy gate below for
-    // why constrained agents may not.
-    await call('setNeedsHuman', { id: a.id, question: 'merge?', askedBy: 'sess_other' })
+    // why agents may not. A caller with an agent session is an agent, whatever
+    // role it carries (POD-6288).
+    await call('setNeedsHuman', { id: a.id, question: 'merge?', askedBy: 'sess_other' }, { capability: OPERATOR })
     expect((await svc.reports.get(a.id))!.humanQuestionAskedBy).toBe('sess_other')
   })
 

@@ -212,13 +212,23 @@ export interface Capability {
  * question the agent guardrails ask (proposals, spawn budgets, mail envelopes),
  * and it is the same answer for every member.
  *
- * A person's capability has no agent session and names the same human as actor
- * and on-behalf-of; a machine or a system job names no on-behalf-of (D21.2).
+ * A person's capability carries the member scope, has no agent session and
+ * names the same human as actor and on-behalf-of; a machine or a system job
+ * names no on-behalf-of (D21.2).
  */
 export function isPersonCapability(
-  cap: Pick<Capability, 'actorSessionId' | 'actorUser' | 'onBehalfOf'>,
+  cap: Pick<Capability, 'scope' | 'actorSessionId' | 'actorUser' | 'onBehalfOf'>,
 ): boolean {
-  return cap.actorSessionId === undefined && cap.onBehalfOf !== undefined && cap.actorUser === cap.onBehalfOf
+  // A person's scope is the member scope (a legacy `all` still parses as
+  // one); a subtree- or none-scoped caller is constrained like an agent even
+  // with no session behind it.
+  const personScope = cap.scope.kind === 'owned' || cap.scope.kind === 'all'
+  return (
+    personScope &&
+    cap.actorSessionId === undefined &&
+    cap.onBehalfOf !== undefined &&
+    cap.actorUser === cap.onBehalfOf
+  )
 }
 
 /**
@@ -228,7 +238,7 @@ export function isPersonCapability(
  * An agent never has it, whatever role or persisted scope it carries.
  */
 export function isAdminPersonCapability(
-  cap: Pick<Capability, 'role' | 'actorSessionId' | 'actorUser' | 'onBehalfOf'>,
+  cap: Pick<Capability, 'role' | 'scope' | 'actorSessionId' | 'actorUser' | 'onBehalfOf'>,
 ): boolean {
   return cap.role === 'admin' && isPersonCapability(cap)
 }

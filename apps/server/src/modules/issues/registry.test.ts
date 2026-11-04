@@ -741,6 +741,8 @@ describe('Shipping command boundary', () => {
         users: { roleOf: (id: UserId) => Promise<'admin' | 'member' | undefined> }
       }
     }
+    // A plain member reads and edits every task (POD-6288), but shipping is a
+    // lifecycle command: only the task's assignee or an admin runs it.
     const roleOf = vi.spyOn(store.store.users, 'roleOf').mockResolvedValue('member')
     await expect(
       authorization.authorize({
@@ -749,7 +751,7 @@ describe('Shipping command boundary', () => {
         issue: root,
         overrideScope: true,
       }),
-    ).rejects.toThrow(/unknown issue/)
+    ).rejects.toThrow(/only the task's assignee or an admin/)
 
     roleOf.mockResolvedValue(undefined)
     await expect(
@@ -762,7 +764,7 @@ describe('Shipping command boundary', () => {
     ).rejects.toThrow(/no longer active/)
   })
 
-  it('authorizes receipt reads from the active human owner or grant, not agent write scope', async () => {
+  it('authorizes receipt reads for any active member, not by agent write scope (POD-6288)', async () => {
     const registry = await reportingRegistry()
     registries.push(registry)
     const attached = await registry.issues.crud.create({
@@ -810,14 +812,15 @@ describe('Shipping command boundary', () => {
         overrideScope: false,
       }),
     ).resolves.toBeUndefined()
+    // Another person's task is a shared task: its receipt reads like the task.
     await expect(
       authorization.authorize({
         principal: caller.principal,
         action: 'read-receipt',
         issue: hiddenOutside,
-        overrideScope: true,
+        overrideScope: false,
       }),
-    ).rejects.toThrow(/unknown issue/)
+    ).resolves.toBeUndefined()
   })
 })
 
