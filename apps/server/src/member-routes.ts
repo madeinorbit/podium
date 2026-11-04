@@ -26,6 +26,58 @@ export const REAUTH_REQUIRED = 'reauth_required'
 
 const MemberTarget = z.object({ id: z.string().min(1), current: z.string().max(1024).optional() })
 
+/** What an admin may do to one member, as the People section offers it (POD-6299). */
+export const MEMBER_ACTIONS = [
+  'setRole',
+  'disable',
+  'enable',
+  'remove',
+  'recovery',
+  'invite',
+  'signOutEverywhere',
+] as const
+export type MemberAction = (typeof MEMBER_ACTIONS)[number]
+
+/**
+ * THE ALLOWED ACTIONS PER MEMBER, decided here so the client draws only what
+ * the server would accept (POD-6299). A rendering hint, not authority: every
+ * route re-checks at apply time, and a concurrent change can still be refused
+ * (the last admin, a stale role). An admin acts on themselves only to sign out
+ * everywhere; the last active admin cannot be demoted, disabled or removed.
+ */
+export function memberActions(
+  members: readonly {
+    id: string
+    role: string
+    disabledAt: string | null
+    accountId?: string | null
+  }[],
+  actor: UserId,
+  withPassword: ReadonlySet<UserId>,
+): Record<string, MemberAction[]> {
+  const activeAdmins = members.filter((m) => m.role === 'admin' && !m.disabledAt).length
+  const actions: Record<string, MemberAction[]> = {}
+  for (const member of members) {
+    const id = member.id as UserId
+    if (id === actor) {
+      actions[id] = ['signOutEverywhere']
+      continue
+    }
+    if (member.disabledAt) {
+      actions[id] = ['enable', 'remove']
+      continue
+    }
+    const lastAdmin = member.role === 'admin' && activeAdmins <= 1
+    actions[id] = [
+      ...(lastAdmin ? [] : (['setRole', 'disable', 'remove'] as const)),
+      ...(withPassword.has(id) ? (['recovery'] as const) : []),
+      ...(!withPassword.has(id) && !member.accountId ? (['invite'] as const) : []),
+      'signOutEverywhere',
+    ]
+  }
+  return actions
+}
+
 export function registerMemberRoutes(
   app: Hono,
   options: {
@@ -95,12 +147,14 @@ export function registerMemberRoutes(
   routes.get('/list', async (c) => {
     const actor = await admin(c.req.raw)
     if (!actor) return c.json({ error: 'Administrator required' }, 403)
+    // Disabled and removed members too: they are the ones to enable or re-invite.
+    const members = await users.listIncludingDisabled()
     return c.json({
-      // Disabled and removed members too: they are the ones to enable or re-invite.
-      members: await users.listIncludingDisabled(),
+      members,
       invites: await invites.list(actor),
       mailAvailable: Boolean(options.sendMail),
       currentMemberId: actor,
+      actions: memberActions(members, actor, await users.membersWithPassword()),
     })
   })
   /**

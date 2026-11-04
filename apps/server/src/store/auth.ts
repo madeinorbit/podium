@@ -25,9 +25,9 @@
  */
 
 import type { UserId } from '@podium/model'
-import { and, desc, eq, lte, sql } from 'drizzle-orm'
+import { and, desc, eq, gt, lte, sql } from 'drizzle-orm'
 import { clientSessions, users } from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import { executeRaw, param, prepared } from './executor/sync-drizzle'
 
 // Every query this repository runs, prepared once per store [POD-6147].
@@ -142,6 +142,39 @@ const deleteClientSessionsExpiredBy = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/**
+ * Every sign-in that has not expired, latest expiry first, for the admin area's Access
+ * section (POD-6299). No token hash: the row is shown, never usable.
+ */
+const unexpiredClientSessionsNewestFirst = prepared((db: StoreDrizzle) =>
+  db
+    .select({
+      userId: clientSessions.userId,
+      createdAt: clientSessions.createdAt,
+      expiresAt: clientSessions.expiresAt,
+      label: clientSessions.label,
+      deviceName: clientSessions.deviceName,
+      platform: clientSessions.platform,
+      lastSeenAt: clientSessions.lastSeenAt,
+    })
+    .from(clientSessions)
+    .where(gt(clientSessions.expiresAt, param(clientSessions.expiresAt, 'nowIso')))
+    .orderBy(desc(clientSessions.expiresAt))
+    .limit(sql.placeholder('limit'))
+    .prepare(),
+)
+
+/** A sign-in as the admin area shows it: who, how and when, never its token. */
+export interface SignInRow {
+  userId: UserId
+  label: string
+  deviceName: string | null
+  platform: string | null
+  createdAt: string
+  expiresAt: string
+  lastSeenAt: string | null
+}
+
 export interface ClientSessionMetadata {
   sessionId?: string
   deviceId?: string
@@ -164,7 +197,9 @@ export interface ClientSessionRow {
 }
 
 export class DisabledMemberError extends Error {
-  constructor() { super('Member disabled') }
+  constructor() {
+    super('Member disabled')
+  }
 }
 
 export class AuthRepository {
@@ -238,13 +273,25 @@ export class AuthRepository {
     }))
   }
 
+  /** Unexpired sign-ins of every member, latest expiry first, at most `limit` (POD-6299). */
+  async listUnexpiredSignIns(nowIso: string, limit: number): Promise<SignInRow[]> {
+    const rows = await unexpiredClientSessionsNewestFirst(this.db).all({ nowIso, limit })
+    return rows.map((r) => ({
+      userId: r.userId,
+      label: r.label,
+      deviceName: r.deviceName ?? null,
+      platform: r.platform ?? null,
+      createdAt: r.createdAt,
+      expiresAt: r.expiresAt,
+      lastSeenAt: r.lastSeenAt ?? null,
+    }))
+  }
+
   /** Revoke every session minted under `label`, leaving the other classes alone.
    *  Returns how many rows went. */
   async deleteClientSessionsByLabel(label: string): Promise<number> {
     // `changes` is number|bigint across the two drivers; the count here is always small.
-    return Number(
-      (await deleteClientSessionsWithLabel(this.db).run({ label })).changes,
-    )
+    return Number((await deleteClientSessionsWithLabel(this.db).run({ label })).changes)
   }
 
   async getClientSession(
@@ -275,10 +322,15 @@ export class AuthRepository {
   }
 
   async listMobileClientSessions(userId: UserId): Promise<ClientSessionRow[]> {
-    return (await this.listClientSessionsOfUser(userId)).filter((session) => session.label === 'mobile')
+    return (await this.listClientSessionsOfUser(userId)).filter(
+      (session) => session.label === 'mobile',
+    )
   }
 
-  async deleteOwnedMobileClientSession(sessionId: string, userId: UserId): Promise<string | undefined> {
+  async deleteOwnedMobileClientSession(
+    sessionId: string,
+    userId: UserId,
+  ): Promise<string | undefined> {
     const row = await ownedMobileClientSessionTokenHash(this.db).get({ sessionId, userId })
     if (!row) return undefined
     await deleteClientSessionByTokenHash(this.db).run({ tokenHash: row.tokenHash })

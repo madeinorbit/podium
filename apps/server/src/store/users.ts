@@ -236,6 +236,17 @@ const anyPerUserCredential = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/** Who signs in with a password: the members a recovery link can help (POD-6299). */
+const memberIdsWithPassword = prepared((db: StoreDrizzle) =>
+  db
+    .select({ userId: userCredentials.userId })
+    .from(userCredentials)
+    .where(
+      and(eq(userCredentials.source, 'per-user-scrypt'), isNotNull(userCredentials.passwordHash)),
+    )
+    .prepare(),
+)
+
 const insertCredential = prepared((db: StoreDrizzle) =>
   db
     .insert(userCredentials)
@@ -793,6 +804,11 @@ export class UsersRepository {
       passwordHash: row.passwordHash,
       updatedAt: row.updatedAt,
     }
+  }
+
+  /** The members who sign in with a password, in one read (POD-6299). */
+  async membersWithPassword(): Promise<ReadonlySet<UserId>> {
+    return new Set((await memberIdsWithPassword(this.db).all()).map((row) => row.userId))
   }
 
   async hasPerUserCredentials(): Promise<boolean> {

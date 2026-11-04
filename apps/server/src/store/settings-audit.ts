@@ -44,11 +44,11 @@
  */
 
 import type { RedactionReport } from '@podium/commands'
-import { asc, sql } from 'drizzle-orm'
+import { and, asc, desc, inArray, like, lt, or, sql } from 'drizzle-orm'
 import { attributionOf, type CommandPrincipal } from '../command-principal'
 import { settingsAuditEvents } from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { prepared } from './executor/sync-drizzle'
+import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
+import { param, prepared } from './executor/sync-drizzle'
 
 /** Whether the command was carried out or refused. A refusal is an audit fact:
  *  a trail that records only successes cannot answer "who TRIED to rotate this
@@ -146,6 +146,45 @@ const auditInOrder = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/**
+ * THE SECURITY EVENTS (POD-6299; design §2.6): member, role, admission, custody
+ * and machine events, the secret writes and comment moderation. Preference
+ * patches are not security events, and their detail carries preference values.
+ */
+export const SECURITY_EVENT_PREFIXES = ['members.', 'machines.'] as const
+export const SECURITY_EVENT_COMMANDS = [
+  'takeover',
+  'settings.setSecret',
+  'settings.clearSecret',
+  'issues.editComment',
+  'issues.deleteComment',
+] as const
+
+const securityEventsNewestFirst = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(settingsAuditEvents)
+    .where(
+      and(
+        lt(settingsAuditEvents.id, param(settingsAuditEvents.id, 'beforeId')),
+        or(
+          ...SECURITY_EVENT_PREFIXES.map((prefix) =>
+            like(settingsAuditEvents.command, `${prefix}%`),
+          ),
+          inArray(settingsAuditEvents.command, [...SECURITY_EVENT_COMMANDS]),
+        ),
+      ),
+    )
+    .orderBy(desc(settingsAuditEvents.id))
+    .limit(sql.placeholder('limit'))
+    .prepare(),
+)
+
+/** One stored security event, with its row id as the page cursor. */
+export interface SecurityEventRow extends SettingsAuditRow {
+  readonly id: number
+}
+
 export class SettingsAuditRepository {
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
@@ -193,9 +232,26 @@ export class SettingsAuditRepository {
    * re-redacted before it ships. Said here so the next person adding one meets
    * the constraint rather than discovering it.
    */
+  /**
+   * The security events, newest first, `limit` at most, older than `beforeId`
+   * when given (POD-6299). The admin area projects these; it never sends a
+   * row's detail as stored.
+   */
+  async securityEvents(limit: number, beforeId?: number): Promise<SecurityEventRow[]> {
+    const rows = await securityEventsNewestFirst(this.db).all({
+      limit,
+      beforeId: beforeId ?? Number.MAX_SAFE_INTEGER,
+    })
+    return rows.map((r) => ({ id: r.id, ...this.rowOf(r) }))
+  }
+
   async list(limit = 100): Promise<SettingsAuditRow[]> {
     const rows = await auditInOrder(this.db).all({ limit })
-    return rows.map((r) => ({
+    return rows.map((r) => this.rowOf(r))
+  }
+
+  private rowOf(r: typeof settingsAuditEvents.$inferSelect): SettingsAuditRow {
+    return {
       command: r.command,
       // `outcome` and `actor_kind` are plain text() columns held to their
       // vocabularies by CHECK constraints rather than by a drizzle `$type`, so
@@ -208,7 +264,7 @@ export class SettingsAuditRepository {
       detail: parseJson(r.detailJson),
       redactedPaths: (parseJson(r.redactedPaths) as string[] | undefined) ?? [],
       createdAt: r.createdAt,
-    }))
+    }
   }
 }
 

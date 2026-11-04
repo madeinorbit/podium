@@ -54,13 +54,20 @@ export class MemberInvites {
         throw new Error('Member already has a password; issue a recovery link instead')
       if (member?.email && data.email && member.email !== data.email)
         throw new Error('Use the member’s existing email')
-      return await this.issue({
+      const invite = await this.issue({
         memberId: member ? (member.id as UserId) : null,
         email: member?.email ?? data.email ?? null,
         role: member?.role ?? data.role,
         createdBy: actor,
         ttlMs: data.expiresInDays * 86_400_000,
       })
+      // Admission is a security event (POD-6299): ids and the role, never the token or email.
+      await this.users.audit('members.invite', actor, {
+        inviteId: invite.id,
+        memberId: invite.memberId,
+        role: invite.role,
+      })
+      return invite
     })
   }
 
@@ -165,7 +172,9 @@ export class MemberInvites {
   async revoke(actor: UserId, id: string): Promise<void> {
     await this.users.claimTransaction(async () => {
       if ((await this.users.roleOf(actor)) !== 'admin') throw new Error('Administrator required')
-      await this.users.deleteInvite(InviteId.parse(id))
+      const inviteId = InviteId.parse(id)
+      if (await this.users.deleteInvite(inviteId))
+        await this.users.audit('members.inviteRevoked', actor, { inviteId })
     })
   }
 
@@ -266,6 +275,12 @@ export class MemberInvites {
         )
       if (invite && !(await this.users.deleteInvite(invite.id)))
         throw new Error('Invite is no longer available')
+      // The new member admitted themselves with the link (POD-6299).
+      await this.users.audit('members.join', member.id as UserId, {
+        memberId: member.id,
+        inviteId: invite?.id ?? null,
+        role: member.role,
+      })
       return (await this.users.get(member.id as UserId))!
     })
   }

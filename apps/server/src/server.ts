@@ -86,6 +86,7 @@ import {
 import { listenUserSocket, serverControlSocketPath } from '@podium/runtime/user-socket'
 import { prepareLedgerBoot } from '@podium/sync'
 import { Hono } from 'hono'
+import { registerAdminRoutes } from './admin-routes'
 import {
   type ClientCredentialHeaders,
   clientAuthGuard,
@@ -1733,26 +1734,40 @@ export async function startServer(
     onLogin: (event) => registry.modules.bus.emit('auth.login', event),
   })
   const memberInvites = new MemberInvites(store.users)
+  const memberOfRequest = async (request: Request) =>
+    controlPlaneAvailable(readiness())
+      ? (
+          await requestPrincipal(
+            {
+              cookieHeader: request.headers.get('cookie') ?? undefined,
+              authorizationHeader: request.headers.get('authorization') ?? undefined,
+            },
+            request,
+          )
+        )?.user
+      : undefined
   registerMemberRoutes(app, {
     users: store.users,
     invites: memberInvites,
-    resolveUserId: async (request) =>
-      controlPlaneAvailable(readiness())
-        ? (
-            await requestPrincipal(
-              {
-                cookieHeader: request.headers.get('cookie') ?? undefined,
-                authorizationHeader: request.headers.get('authorization') ?? undefined,
-              },
-              request,
-            )
-          )?.user
-        : undefined,
+    resolveUserId: memberOfRequest,
     appUrl: () =>
       resolveAppUrl(loadConfig(), process.env) || resolvePublicUrl(loadConfig(), process.env),
     allowedOrigins,
     sendMail: opts.sendMemberInviteMail,
     ...(opts.sendMemberRecoveryMail ? { sendRecoveryMail: opts.sendMemberRecoveryMail } : {}),
+  })
+  // The admin area's viewer, Access and Audit reads (POD-6299).
+  registerAdminRoutes(app, {
+    users: store.users,
+    auth: store.auth,
+    audit: store.settingsAudit,
+    machineNames: async (ids) =>
+      new Map(
+        [...(await store.machines.getMachines(ids))].map(([id, machine]) => [id, machine.name]),
+      ),
+    resolveUserId: memberOfRequest,
+    loginRequired: credentialsRequired,
+    allowedOrigins,
   })
   registerMobilePairingRoutes(app, {
     store: store.auth,
