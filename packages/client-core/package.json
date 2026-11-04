@@ -35,6 +35,11 @@
       "types": "./src/principal.ts",
       "import": "./src/principal.ts"
     },
+    "./records": {
+      "@podium/source": "./src/records.ts",
+      "types": "./src/records.ts",
+      "import": "./src/records.ts"
+    },
     "./transport": {
       "@podium/source": "./src/transport.ts",
       "types": "./src/transport.ts",

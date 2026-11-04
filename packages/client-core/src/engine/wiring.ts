@@ -14,6 +14,7 @@ import {
   type SessionId,
   type WorkState,
 } from '@podium/model'
+import { type SyncSubmitRefusal, SyncSubmitReply } from '@podium/protocol'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import {
   ENQUEUEABLE_DELIVERY,
@@ -38,6 +39,17 @@ import {
   recoverableAuthoredText,
   sessionGoneNotice,
 } from '../outbox-recovery-copy'
+import {
+  isRecordOutboxKind,
+  RECORD_HOMES,
+  type RecordKind,
+  type RecordOutboxInputs,
+  type RecordOutboxKind,
+  recordDeclaration,
+  recordOpOf,
+  recordWireCommand,
+  recordWireInput,
+} from '../records'
 import type { Replica } from '../replica/kernel/facade'
 import { applyLegacyMetadataState } from '../replica/legacy-wire-v1-binding'
 import { LegacyWireV1Feed } from '../replica/legacy-wire-v1-feed'
@@ -150,7 +162,19 @@ export type OutboxKinds = {
    */
   issueSetPlacement: { id: string; placement: 'own' | 'mission'; originId: string }
   issueRestore: { id: string }
+  /**
+   * GENERIC SYNCED EDITS (ADR 12 D3, POD-6392): one kind per OP, for every
+   * declared record kind. The input names the record kind, so the wire command
+   * (`records.<kind>.<op>`) comes from the input rather than from this table
+   * ({@link outboxCommandOf}). See `../records.ts`.
+   */
+  recordCreate: RecordOutboxInputs['recordCreate']
+  recordEdit: RecordOutboxInputs['recordEdit']
+  recordRemove: RecordOutboxInputs['recordRemove']
 }
+
+/** The kinds that name one fixed contract. The record kinds name theirs by input. */
+export type FixedOutboxKind = Exclude<keyof OutboxKinds, RecordOutboxKind>
 
 /** The engine-facing queue contract. Kernel-backed web clients inject this
  * implementation; legacy and mobile clients keep the compatibility queue. */
@@ -261,7 +285,7 @@ const delivery = ENQUEUEABLE_DELIVERY as OutboxCommand['delivery']
  * here changes with it.
  */
 export const OUTBOX_COMMANDS: Record<
-  keyof OutboxKinds,
+  FixedOutboxKind,
   OutboxCommand & { confirmation: ConfirmationRule }
 > = {
   pinSet: { name: 'pins.set', version: 1, delivery, confirmation: 'none' },
@@ -376,6 +400,11 @@ export const OUTBOX_DEAD_LETTER_HANDLING: Record<keyof OutboxKinds, OutboxDeadLe
   issueSetLabels: 'recover',
   issueSetPlacement: 'recover',
   issueRestore: 'recover',
+  // A refused plain edit snaps back and is toasted; one carrying typed text
+  // parks for recovery (`shouldParkDeadLetter` reads the input).
+  recordCreate: 'recover',
+  recordEdit: 'recover',
+  recordRemove: 'recover',
 }
 
 export function deadLetterHandlingFor(kind: string): OutboxDeadLetterHandling {
@@ -619,6 +648,21 @@ export const OUTBOX_ROUTING: {
     partitionKey: `issue:${i.id}`,
     collapseKey: `issue-deleted:${i.id}`,
   }),
+
+  // GENERIC RECORD WRITES (POD-6392) share the partition of the pool row they
+  // land on, so a generic edit keeps its order with the per-command writes to
+  // the same issue or session. None collapses: an edit is a PARTIAL patch (the
+  // `issueUpdate` rule), and a create or a remove is one act each.
+  recordCreate: (i) => ({ partitionKey: recordPartition(i) }),
+  recordEdit: (i) => ({ partitionKey: recordPartition(i) }),
+  recordRemove: (i) => ({ partitionKey: recordPartition(i) }),
+}
+
+/** The ordering domain of one record: its pool row's. */
+function recordPartition(input: { kind: RecordKind; id: string }): string {
+  const home = RECORD_HOMES[input.kind]
+  const row = home.row(input.id)
+  return home.target === 'sessionUserStates' ? `session:${row}` : `issue:${row}`
 }
 
 /** Route one queued write. Falls back to the entry's own private partition — D12's
@@ -659,12 +703,104 @@ export const OUTBOX_COMMAND_MAX_AGE_MS: Readonly<Record<string, number>> = {
   [OUTBOX_COMMANDS.resumeAndSend.name]: CHAT_SEND_MAX_AGE_MS,
 }
 
-/** The contract behind one queued kind, or `undefined` for a kind with no
- *  executor. */
+/** The contract behind one queued entry, or `undefined` for a kind with no
+ *  executor. A record kind's contract depends on its input's record kind, so
+ *  without the input it has none. */
 export const outboxCommandFor = (
   kind: string,
-): (OutboxCommand & { confirmation: ConfirmationRule }) | undefined =>
-  OUTBOX_COMMANDS[kind as keyof OutboxKinds]
+  input?: unknown,
+): (OutboxCommand & { confirmation: ConfirmationRule }) | undefined => {
+  if (isRecordOutboxKind(kind)) {
+    const recordKind = (input as { kind?: unknown } | undefined)?.kind
+    if (typeof recordKind !== 'string') return undefined
+    const d = recordDeclaration(recordKind)
+    const op = d?.ops[recordOpOf(kind)]
+    if (d === undefined || op === undefined) return undefined
+    return {
+      name: recordWireCommand(kind, d.kind),
+      version: 1,
+      delivery,
+      confirmation: op.policy.confirmation,
+    }
+  }
+  return OUTBOX_COMMANDS[kind as FixedOutboxKind]
+}
+
+/** The contract one queued write is sent under. Total over the kinds. */
+export function outboxCommandOf<K extends keyof OutboxKinds & string>(
+  kind: K,
+  input: OutboxKinds[K],
+): OutboxCommand & { confirmation: ConfirmationRule } {
+  const command = outboxCommandFor(kind, input)
+  if (command === undefined) throw new Error(`no command for a queued ${kind}`)
+  return command
+}
+
+/**
+ * An older server: it has no `sync.submit`, so tRPC answers `NOT_FOUND` naming the
+ * path. Only that answer. `sync.submit` itself never throws `NOT_FOUND` — a missing
+ * target is a `rejected` reply — but `classifyRefusal` reads any 404 as a definitive
+ * refusal, and a write dead-lettered for want of a route is the one outcome the
+ * fixed kinds must never produce.
+ */
+export function isMissingSyncSubmit(error: unknown): boolean {
+  const data = (error as { data?: { code?: unknown; httpStatus?: unknown } } | null)?.data
+  if (data?.code !== 'NOT_FOUND' && data?.httpStatus !== 404) return false
+  const message = error instanceof Error ? error.message : ''
+  return /no procedure found/i.test(message) && message.includes('sync.submit')
+}
+
+/** The tRPC error code `classifyRefusal` reads back as each refusal. */
+const REFUSAL_CODES: Readonly<Record<SyncSubmitRefusal['kind'], string>> = {
+  unauthorized: 'FORBIDDEN',
+  'target-not-found': 'NOT_FOUND',
+  conflict: 'CONFLICT',
+  invalid: 'BAD_REQUEST',
+  'confirmation-required': 'PRECONDITION_FAILED',
+}
+
+type WithMutationId = { readonly mutationId: MutationId }
+
+/**
+ * Send one record write on `sync.submit`, for the queues that call an executor
+ * (the compatibility queue, and the kernel queue's per-kind fallback). A record
+ * command exists ONLY on `sync.submit`: there is no per-command route to fall
+ * back to. A server without the entry point cannot serve it at all, so that is a
+ * definitive refusal (it snaps back and says it could not save) rather than a
+ * retry that would paint a write no server of this version will ever take.
+ */
+async function submitRecord(
+  api: PodiumClientApi,
+  kind: RecordOutboxKind,
+  input: RecordOutboxInputs[RecordOutboxKind] & { mutationId: MutationId },
+): Promise<unknown> {
+  const { mutationId, ...entry } = input
+  const command = outboxCommandFor(kind, entry)
+  if (command === undefined) throw new Error(`no command for a queued ${kind} of ${entry.kind}`)
+  const unserved = () =>
+    Object.assign(new Error(`this server does not serve ${command.name}`), {
+      data: { code: 'BAD_REQUEST' },
+    })
+  const submit = api.sync?.submit
+  if (submit === undefined) throw unserved()
+  let raw: unknown
+  try {
+    raw = await submit.mutate({
+      mutationId,
+      command: command.name,
+      version: command.version,
+      input: recordWireInput(entry),
+    })
+  } catch (error) {
+    if (isMissingSyncSubmit(error)) throw unserved()
+    throw error
+  }
+  const reply = SyncSubmitReply.parse(raw)
+  if (reply.outcome === 'applied') return reply.result
+  throw Object.assign(new Error(`${command.name} refused: ${reply.refusal.kind}`), {
+    data: { code: REFUSAL_CODES[reply.refusal.kind] },
+  })
+}
 
 /** SocketHub construction seam — injectable so engine unit tests run a fake hub. */
 export type CreateHub = (opts: ConstructorParameters<typeof SocketHub>[0]) => SocketHub
@@ -840,6 +976,11 @@ export function outboxExecutors(
     issueSetLabels: (i) => api.issues.setLabels.mutate(i),
     issueSetPlacement: (i) => api.issues.setPlacement.mutate(i),
     issueRestore: (i) => api.issues.restore.mutate(i),
+    // Both queues hand an executor the entry's input WITH its mutationId
+    // (`OutboxExecutors`); a record write needs it for its own submit.
+    recordCreate: (i) => submitRecord(api, 'recordCreate', i as typeof i & WithMutationId),
+    recordEdit: (i) => submitRecord(api, 'recordEdit', i as typeof i & WithMutationId),
+    recordRemove: (i) => submitRecord(api, 'recordRemove', i as typeof i & WithMutationId),
   }
 }
 

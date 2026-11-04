@@ -36,6 +36,11 @@
       "@podium/source": "./src/settings/write-plan.ts",
       "types": "./src/settings/write-plan.ts",
       "import": "./src/settings/write-plan.ts"
+    },
+    "./records": {
+      "@podium/source": "./src/records/index.ts",
+      "types": "./src/records/index.ts",
+      "import": "./src/records/index.ts"
     }
   },
   "scripts": {

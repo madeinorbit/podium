@@ -16,12 +16,19 @@
  *
  * A spawn placeholder is not an outbox entry. It retires when a base row with
  * its client-minted id exists, which is exact.
+ *
+ * GENERIC RECORD WRITES (ADR 12 D3, POD-6392) take ONE case for every declared
+ * kind: the entry's patch is the paint, spelled as the kind's wire row spells
+ * it; a create inserts its row; a remove hides the row. Nothing in that case
+ * names a kind (`recordOverlays`).
  */
 
+import type { SyncedKindDeclaration } from '@podium/commands/records'
 import type { SessionMeta, SessionUserStateWire, WorkState } from '@podium/model'
 import { IssueProjection, IssueUserStateWire, UNSNOOZE_BACKDATE_MS } from '@podium/model'
 import type { OutboxKinds } from './engine/wiring'
 import type { OutboxEntry } from './outbox'
+import { isRecordOutboxKind, RECORD_HOMES, recordDeclaration, recordOpOf } from './records'
 
 /** The entities a per-row reader may paint from transactions (the pool's row
  *  source reads exactly these). Conversations carry no optimistic writes. */
@@ -70,6 +77,18 @@ export type PendingOverlay =
       id: string
       /** The whole placeholder row, shown until a base row (same id) lands. */
       insert: SessionMeta | IssueProjection | IssueUserStateWire | SessionUserStateWire
+    }
+  | {
+      /**
+       * A queued or awaiting removal (POD-6392): the row is absent from here on
+       * in queue order, as it will be once the removal lands. A later patch
+       * folds over the target's absent row, if it has one.
+       */
+      op: 'remove'
+      /** Stable identity: the outbox entry's mutationId. */
+      key: string
+      entity: OverlayTarget
+      id: string
     }
 
 /**
@@ -211,6 +230,7 @@ export function overlaysForOutboxEntry(entry: OutboxEntry): PendingOverlay[] {
 }
 
 function overlayOf(entry: OutboxEntry): PendingOverlay | PendingOverlay[] | null {
+  if (isRecordOutboxKind(entry.kind)) return recordOverlays(entry)
   switch (entry.kind as keyof OutboxKinds) {
     case 'rename': {
       const i = entry.input as OutboxKinds['rename']
@@ -470,6 +490,82 @@ function overlayOf(entry: OutboxEntry): PendingOverlay | PendingOverlay[] | null
 }
 
 /**
+ * THE ONE GENERIC CASE (ADR 12 D3, POD-6392): what a record write paints, for
+ * every declared kind, read off the declaration and nothing else.
+ *
+ *  - edit: the patch, on the kind's row in the pool;
+ *  - create: the record's row, but only when the create's fields make a WHOLE
+ *    row of the kind's wire schema. A kind whose server fills required cells in
+ *    (an issue's `seq`, its stage, owner and timestamps) paints nothing, and the
+ *    row shows when it lands: a half row would be a value no reader expects,
+ *    and a guessed default would be per-kind display code;
+ *  - remove: the row is hidden.
+ *
+ * The values are the entry's own, which the API already parsed with the
+ * command's schema (`records.ts`), so they are what the server stores. The
+ * pool row a record lands on is its kind's home (`RECORD_HOMES`).
+ */
+function recordOverlays(entry: OutboxEntry): PendingOverlay[] {
+  if (!isRecordOutboxKind(entry.kind)) return []
+  const input = entry.input as {
+    kind: keyof typeof RECORD_HOMES
+    id: string
+    patch?: OverlayPatch
+    fields?: OverlayPatch
+  }
+  const d = recordDeclaration(input.kind)
+  const home = RECORD_HOMES[input.kind]
+  if (d === undefined || home === undefined) return []
+  const row = home.row(input.id)
+  switch (recordOpOf(entry.kind)) {
+    case 'edit': {
+      const patch = wireCells(d, input.patch ?? {})
+      return Object.keys(patch).length === 0
+        ? []
+        : [patchOverlay(home.target, row, entry.mutationId, patch)]
+    }
+    case 'create': {
+      const fields = wireCells(d, input.fields ?? {})
+      const whole = { ...fields, ...('id' in d.wire.shape ? { id: input.id } : {}) }
+      if (!d.wire.safeParse(whole).success) return []
+      return [
+        {
+          op: 'insert',
+          key: entry.mutationId,
+          entity: home.target,
+          id: row,
+          insert: whole as Extract<PendingOverlay, { op: 'insert' }>['insert'],
+        },
+      ]
+    }
+    case 'remove':
+      return [{ op: 'remove', key: entry.mutationId, entity: home.target, id: row }]
+  }
+}
+
+/** A patch's values as the kind's wire row spells them: only declared fields,
+ *  and an op-stream document (`{ value, … }` on the wire) as `{ value }`. */
+function wireCells(d: SyncedKindDeclaration, values: OverlayPatch): OverlayPatch {
+  const out: OverlayPatch = {}
+  for (const [name, value] of Object.entries(values)) {
+    if (value === undefined || !(name in d.fields)) continue
+    out[name] = isDocumentCell(d.wire.shape[name]) ? { value } : value
+  }
+  return out
+}
+
+/** Whether a wire cell is an op-stream document: an object whose keys are the
+ *  document's (`value`, `revision`, `opsTail`) and that has a `value`. */
+function isDocumentCell(schema: unknown): boolean {
+  let s = schema as { _def?: { innerType?: unknown }; shape?: unknown } | undefined
+  while (s?._def?.innerType !== undefined) s = s._def.innerType as typeof s
+  const shape = s?.shape
+  if (shape === null || typeof shape !== 'object') return false
+  const keys = Object.keys(shape)
+  return keys.includes('value') && keys.every((k) => DOC_KEYS.has(k))
+}
+
+/**
  * THE CONTRACT ↔ REDUCER MAP (POD-380).
  *
  * POD-311 puts an "optional command-specific optimistic reducer" on the contract.
@@ -528,6 +624,20 @@ export function foldRowOverlays<T extends object>(
   overlays: readonly PendingOverlay[],
 ): T | undefined {
   if (overlays.length === 0) return base
+  // A removal hides the row and everything folded before it; what comes after
+  // it folds over the absent row, as it will once the removal lands.
+  let last = -1
+  for (let i = overlays.length - 1; i >= 0; i--) {
+    if (overlays[i]!.op === 'remove') {
+      last = i
+      break
+    }
+  }
+  if (last >= 0) {
+    base = undefined
+    overlays = overlays.slice(last + 1)
+    if (overlays.length === 0) return undefined
+  }
   let row = base
   let absent = false
   if (row === undefined) {

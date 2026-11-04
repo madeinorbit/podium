@@ -27,6 +27,7 @@ import type { RetrySatisfaction } from '@podium/sync/outbox'
 import type { PodiumClientApi } from '../api'
 import type { OutboxDeadLetterEntry } from '../outbox'
 import type { ReadPositionPort } from '../read-position'
+import type { RecordsApi } from '../records'
 import type { Replica } from '../replica/kernel/facade'
 import type { SocketHub } from '../socket-transport'
 import type { SpawnDraftAgentArgs, SpawnTarget, TaskSpawnOutcome } from '../spawn-agent'
@@ -499,6 +500,13 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    * growing a case per field.
    */
   updateIssue: (id: string, patch: IssueUpdatePatch) => Promise<void>
+  /**
+   * GENERIC SYNCED EDITS (ADR 12 D3, POD-6392): create, edit and remove any
+   * declared record kind. Each paints at once and is confirmed by receipt like
+   * every other write; the promise settles when the outbox entry is durable and
+   * rejects, painting nothing, for an input the kind's declaration refuses.
+   */
+  records: RecordsApi
   /**
    * DISMISS an issue — `issues.archive`, the sidebar's one-way archive.
    *

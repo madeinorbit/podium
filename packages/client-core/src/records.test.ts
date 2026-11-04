@@ -1,0 +1,267 @@
+/**
+ * GENERIC SYNCED EDITS ON THE CLIENT (ADR 12 D3/D4, POD-6392): the one API, the
+ * one overlay case, and the outbox rows behind them, held to the declarations.
+ */
+
+import { RECORD_CONTRACTS, SYNCED_KINDS } from '@podium/commands'
+import { asMutationId, asSessionId, asUserId, sessionUserStateRowId } from '@podium/model'
+import { describe, expect, it } from 'vitest'
+import type { PodiumClientApi } from './api'
+import { foldRowOverlays, overlaysForOutboxEntry } from './command-reducers'
+import {
+  deadLetterHandlingFor,
+  OUTBOX_ROUTING,
+  outboxCommandFor,
+  outboxCommandOf,
+  outboxExecutors,
+} from './engine/wiring'
+import { classifyRefusal, type OutboxEntry } from './outbox'
+import {
+  createRecordsApi,
+  newRecordId,
+  RECORD_HOMES,
+  RECORD_KINDS,
+  RecordInputError,
+  recordEditEntry,
+  recordWireCommands,
+} from './records'
+
+const ISSUE = 'iss_00000000-0000-4000-8000-000000000001'
+const USER = asUserId('u-1')
+const SESSION = asSessionId('00000000-0000-4000-8000-0000000000aa')
+const READ_ROW = sessionUserStateRowId(USER, SESSION)
+
+const entry = (kind: string, input: unknown, id = 'm-1'): OutboxEntry => ({
+  mutationId: asMutationId(id),
+  kind,
+  input,
+  queuedAt: 0,
+})
+
+describe('the record kinds the client knows', () => {
+  it('are exactly the declared synced kinds', () => {
+    expect(Object.values(RECORD_KINDS)).toEqual(expect.arrayContaining([...SYNCED_KINDS]))
+    expect(Object.keys(RECORD_KINDS).sort()).toEqual(SYNCED_KINDS.map((d) => d.kind).sort())
+    for (const [name, d] of Object.entries(RECORD_KINDS)) expect(d.kind).toBe(name)
+  })
+
+  it('reach every generated record command, and only those', () => {
+    expect(
+      recordWireCommands()
+        .map(([name]) => name)
+        .sort(),
+    ).toEqual(Object.keys(RECORD_CONTRACTS).sort())
+  })
+
+  it('mint new ids of the declared shape', () => {
+    for (const d of SYNCED_KINDS) {
+      if (d.ops.create === undefined) continue
+      const id = newRecordId(d.kind as keyof typeof RECORD_KINDS)
+      expect(d.newId?.safeParse(id).success, id).toBe(true)
+    }
+  })
+
+  it('send each op under its own contract, with the contract’s confirmation', () => {
+    for (const [name, outboxKind] of recordWireCommands()) {
+      const [, kind] = name.split('.') as [string, keyof typeof RECORD_KINDS]
+      const command = outboxCommandOf(outboxKind, { kind, id: 'x', patch: {}, fields: {} } as never)
+      const contract = RECORD_CONTRACTS[name]!
+      expect(command).toMatchObject({
+        name,
+        version: contract.version,
+        confirmation: contract.policy.confirmation,
+      })
+    }
+    // Without its input a record kind has no contract to name.
+    expect(outboxCommandFor('recordEdit')).toBeUndefined()
+    expect(deadLetterHandlingFor('recordEdit')).toBe('recover')
+  })
+
+  it('order with the per-command writes to the same row', () => {
+    expect(OUTBOX_ROUTING.recordEdit({ kind: 'issueProjection', id: ISSUE, patch: {} })).toEqual({
+      partitionKey: OUTBOX_ROUTING.issueUpdate({ id: ISSUE, patch: {} }).partitionKey,
+    })
+    expect(
+      OUTBOX_ROUTING.recordRemove({ kind: 'sessionUserState', id: READ_ROW }).partitionKey,
+    ).toBe(OUTBOX_ROUTING.sessionMarkRead({ sessionId: SESSION }).partitionKey)
+  })
+})
+
+describe('the generic API refuses what the declaration refuses, before anything paints', () => {
+  const writes: unknown[] = []
+  const api = createRecordsApi(async (kind, input) => {
+    writes.push({ kind, input })
+  })
+
+  it.each([
+    ['a status field', { revision: 3 }],
+    ['a label field', { seq: 12 }],
+    ['an undeclared field', { stage: 'done' }],
+  ])('%s', async (_what, patch) => {
+    writes.length = 0
+    await expect(
+      api.edit({ kind: 'issueProjection', id: ISSUE }, patch as never, 1),
+    ).rejects.toBeInstanceOf(RecordInputError)
+    expect(writes).toEqual([])
+  })
+
+  it('a key field', () => {
+    expect(() =>
+      recordEditEntry({ kind: 'sessionUserState', id: READ_ROW }, { userId: 'u-2' } as never),
+    ).toThrow(RecordInputError)
+  })
+
+  it('an exp-rev edit without its revision', async () => {
+    await expect(
+      api.edit({ kind: 'issueProjection', id: ISSUE }, { title: 'x' }),
+    ).rejects.toBeInstanceOf(RecordInputError)
+  })
+
+  it('an op the kind does not offer, and a human ref as a new id', async () => {
+    await expect(api.remove({ kind: 'issueProjection', id: ISSUE }, 1)).rejects.toThrow(
+      /does not offer remove/,
+    )
+    await expect(api.create('sessionUserState', READ_ROW, {})).rejects.toThrow(
+      /does not offer create/,
+    )
+    await expect(
+      api.create('issueProjection', 'POD-12', { title: 'x', repoPath: '/r' }),
+    ).rejects.toBeInstanceOf(RecordInputError)
+  })
+
+  it('stores the value as the server will: parsed by the command’s schema', async () => {
+    writes.length = 0
+    await api.edit({ kind: 'issueProjection', id: ISSUE }, { title: '  Renamed  ' }, 4)
+    expect(writes).toEqual([
+      {
+        kind: 'recordEdit',
+        input: {
+          kind: 'issueProjection',
+          id: ISSUE,
+          patch: { title: 'Renamed' },
+          expectedRevision: 4,
+        },
+      },
+    ])
+  })
+})
+
+describe('the one generic overlay case', () => {
+  it('an edit paints its patch on the kind’s row, in the wire spelling', () => {
+    expect(
+      overlaysForOutboxEntry(
+        entry('recordEdit', {
+          kind: 'issueProjection',
+          id: ISSUE,
+          patch: { title: 'Mine', description: 'Text' },
+          expectedRevision: 1,
+        }),
+      ),
+    ).toEqual([
+      {
+        op: 'patch',
+        key: 'm-1',
+        entity: 'issueProjections',
+        id: ISSUE,
+        patch: { title: 'Mine', description: { value: 'Text' } },
+      },
+    ])
+  })
+
+  it('a per-user row lands on its entity in the pool', () => {
+    const [overlay] = overlaysForOutboxEntry(
+      entry('recordEdit', { kind: 'sessionUserState', id: READ_ROW, patch: { readAt: null } }),
+    )
+    expect(overlay).toMatchObject({ entity: 'sessionUserStates', id: SESSION })
+    expect(RECORD_HOMES.sessionUserState.row(READ_ROW)).toBe(SESSION)
+  })
+
+  it('a remove hides the row; a later patch folds over the absent row', () => {
+    const [removal] = overlaysForOutboxEntry(
+      entry('recordRemove', { kind: 'sessionUserState', id: READ_ROW }),
+    )
+    expect(removal).toEqual({ op: 'remove', key: 'm-1', entity: 'sessionUserStates', id: SESSION })
+    const truth = { userId: USER, sessionId: SESSION, readAt: '2026-11-01T00:00:00.000Z' }
+    expect(foldRowOverlays(truth, [removal!])).toBeUndefined()
+    const absent = { userId: USER, sessionId: SESSION, readAt: null }
+    const later = {
+      op: 'patch' as const,
+      key: 'm-2',
+      entity: 'sessionUserStates' as const,
+      id: SESSION,
+      patch: { readAt: '2026-11-02T00:00:00.000Z' },
+      absent,
+    }
+    expect(foldRowOverlays(truth, [removal!, later])).toEqual({
+      ...absent,
+      readAt: '2026-11-02T00:00:00.000Z',
+    })
+  })
+
+  it('a create paints nothing when its fields are not a whole row: the server fills the rest', () => {
+    expect(
+      overlaysForOutboxEntry(
+        entry('recordCreate', {
+          kind: 'issueProjection',
+          id: ISSUE,
+          fields: { title: 'New', repoPath: '/repo' },
+        }),
+      ),
+    ).toEqual([])
+  })
+})
+
+describe('the executor the compatibility queue calls', () => {
+  function serverAnswering(reply: unknown) {
+    const submits: unknown[] = []
+    const api = {
+      sync: {
+        submit: {
+          mutate: async (envelope: unknown) => {
+            submits.push(envelope)
+            return reply
+          },
+        },
+      },
+    } as unknown as PodiumClientApi
+    return { submits, execute: outboxExecutors(api).recordEdit }
+  }
+  const input = {
+    kind: 'issueProjection' as const,
+    id: ISSUE,
+    patch: { title: 'Mine' },
+    expectedRevision: 2,
+    mutationId: asMutationId('m-9'),
+  }
+
+  it('submits the command under its record name, without the entry’s kind', async () => {
+    const receipt = { feedId: 'f', epoch: 'e', seq: 3 }
+    const { submits, execute } = serverAnswering({
+      outcome: 'applied',
+      result: { ok: true },
+      receipt,
+      replayed: false,
+    })
+    await expect(execute(input)).resolves.toEqual({ ok: true })
+    expect(submits).toEqual([
+      {
+        mutationId: 'm-9',
+        command: 'records.issueProjection.edit',
+        version: 1,
+        input: { id: ISSUE, patch: { title: 'Mine' }, expectedRevision: 2 },
+      },
+    ])
+  })
+
+  it('a refusal in the reply is the same refusal to the queue', async () => {
+    const { execute } = serverAnswering({ outcome: 'rejected', refusal: { kind: 'conflict' } })
+    const error = await execute(input).catch((e: unknown) => e)
+    expect(classifyRefusal(error)).toEqual({ kind: 'conflict' })
+  })
+
+  it('a server without the entry point cannot serve it: refused, not retried', async () => {
+    const execute = outboxExecutors({ sync: {} } as unknown as PodiumClientApi).recordEdit
+    const error = await execute(input).catch((e: unknown) => e)
+    expect(classifyRefusal(error)).toEqual({ kind: 'invalid' })
+  })
+})

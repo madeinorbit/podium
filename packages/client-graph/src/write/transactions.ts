@@ -29,7 +29,6 @@ import { type ObservableMap, observable, runInAction } from 'mobx'
 import { debugName } from '../debug-name'
 import type { PendingRows, PooledPending, RowSourceRepaint } from '../shared/row-source'
 
-type PatchOverlay = Extract<PendingOverlay, { op: 'patch' }>
 type InsertOverlay = Extract<PendingOverlay, { op: 'insert' }>
 type AnyKind = keyof OutboxKinds & string
 type PoolRow = { readonly kind: 'session' | 'issue'; readonly id: string }
@@ -39,7 +38,8 @@ interface Awaiting {
   readonly mutationId: MutationId
   /** The entry's input the overlays were reduced from. */
   readonly input: unknown
-  readonly overlays: readonly PatchOverlay[]
+  /** Patches, and a generic record write's insert or removal (POD-6392). */
+  readonly overlays: readonly PendingOverlay[]
 }
 
 const TARGETS: readonly OverlayTarget[] = [
@@ -123,8 +123,6 @@ export interface PoolTransactions {
   size(): number
   dispose(): void
 }
-
-const isPatch = (o: PendingOverlay): o is PatchOverlay => o.op === 'patch'
 
 function poolRowOf(o: PendingOverlay): PoolRow {
   return {
@@ -438,7 +436,9 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
     return {
       mutationId: entry.mutationId,
       input: entry.input,
-      overlays: (overlays ?? reduce(entry)).filter(isPatch),
+      // Everything the entry paints. A spawn placeholder is never an entry's
+      // overlay, so an insert here is a record create's, retired with it.
+      overlays: overlays ?? reduce(entry),
     }
   }
 

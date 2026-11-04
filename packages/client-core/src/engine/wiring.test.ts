@@ -1,15 +1,15 @@
-import { asMutationId, asSessionId } from '@podium/model'
+import { asMutationId, asSessionId, asUserId, sessionUserStateRowId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 
 import {
   deadLetterHandlingFor,
-  shouldParkDeadLetter,
   isInitialConnectivityError,
   OUTBOX_COMMANDS,
   OUTBOX_DEAD_LETTER_HANDLING,
   OUTBOX_ROUTING,
   type OutboxKinds,
   outboxRoutingFor,
+  shouldParkDeadLetter,
 } from './wiring'
 
 describe('isInitialConnectivityError', () => {
@@ -76,9 +76,26 @@ const SAMPLE: { [K in keyof OutboxKinds]: OutboxKinds[K] } = {
     originId: 'POD-2',
   } as OutboxKinds['issueSetPlacement'],
   issueRestore: { id: 'POD-1' } as OutboxKinds['issueRestore'],
+  recordCreate: {
+    kind: 'issueProjection',
+    id: 'iss_00000000-0000-4000-8000-000000000001',
+    fields: { title: 'New', repoPath: '/repo' },
+  },
+  recordEdit: {
+    kind: 'issueProjection',
+    id: 'iss_00000000-0000-4000-8000-000000000001',
+    patch: { title: 'Renamed' },
+    expectedRevision: 1,
+  },
+  recordRemove: {
+    kind: 'sessionUserState',
+    id: sessionUserStateRowId(asUserId('u-1'), asSessionId('s-1')),
+  },
 }
 
-const kinds = Object.keys(OUTBOX_COMMANDS) as (keyof OutboxKinds)[]
+/** Every queued kind: the fixed contracts, and the generic record writes
+ *  (POD-6392), whose contract comes from their input. */
+const kinds = Object.keys(SAMPLE) as (keyof OutboxKinds)[]
 
 const route = <K extends keyof OutboxKinds>(kind: K, input: OutboxKinds[K]) =>
   outboxRoutingFor(kind, input, asMutationId('mid-1'))
@@ -94,8 +111,12 @@ describe('automatic bookkeeping recovery policy', () => {
 
   it('parks only writes that carry the author’s own words', () => {
     expect(shouldParkDeadLetter('rename', { sessionId: 's1', name: 'mine' })).toBe(true)
-    expect(shouldParkDeadLetter('issueUpdate', { id: 'i1', patch: { title: 'Renamed' } })).toBe(true)
-    expect(shouldParkDeadLetter('issueUpdate', { id: 'i1', patch: { stage: 'review' } })).toBe(false)
+    expect(shouldParkDeadLetter('issueUpdate', { id: 'i1', patch: { title: 'Renamed' } })).toBe(
+      true,
+    )
+    expect(shouldParkDeadLetter('issueUpdate', { id: 'i1', patch: { stage: 'review' } })).toBe(
+      false,
+    )
     expect(shouldParkDeadLetter('issueSetTucked', { id: 'i1', tucked: true })).toBe(false)
     expect(shouldParkDeadLetter('issueMarkRead', { id: 'i1' })).toBe(false)
     expect(shouldParkDeadLetter('future-authored-command', { id: 'i1' })).toBe(true)
@@ -114,6 +135,12 @@ describe('POD-785 — outbox routing keys every write by its target', () => {
     // Every kind has an entry — the typed Record is the real guard, this catches
     // a table that drifted out of sync with OUTBOX_COMMANDS at runtime.
     expect(Object.keys(OUTBOX_ROUTING).sort()).toEqual([...kinds].sort())
+    // The only kinds without a fixed contract are the generic record writes.
+    expect(kinds.filter((kind) => !(kind in OUTBOX_COMMANDS)).sort()).toEqual([
+      'recordCreate',
+      'recordEdit',
+      'recordRemove',
+    ])
   })
 
   it('gives different targets different partitions, so one refusal cannot wedge the rest', () => {
@@ -152,14 +179,16 @@ describe('POD-785 — outbox routing keys every write by its target', () => {
     expect(a).toBe(b)
   })
 
-  it('orders a session\'s chat sends in ONE partition, apart from its curation writes (POD-4762)', () => {
+  it("orders a session's chat sends in ONE partition, apart from its curation writes (POD-4762)", () => {
     const s1 = asSessionId('s-1')
     const live = route('sendText', { sessionId: s1, text: 'first' }).partitionKey
     const wake = route('resumeAndSend', { sessionId: s1, text: 'second' }).partitionKey
     // Live and waking sends to one session keep the order they were written in.
     expect(live).toBe(wake)
     // Another session's messages never wait behind these.
-    expect(live).not.toBe(route('sendText', { sessionId: asSessionId('s-2'), text: 'x' }).partitionKey)
+    expect(live).not.toBe(
+      route('sendText', { sessionId: asSessionId('s-2'), text: 'x' }).partitionKey,
+    )
     // A parked rename must not hold every later message to the session.
     expect(live).not.toBe(route('rename', { sessionId: s1, name: 'n' }).partitionKey)
   })

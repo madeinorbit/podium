@@ -42,16 +42,19 @@ import {
   platformOnlineEvents,
 } from '../outbox'
 import { couldNotSaveNotice, sessionGoneNotice } from '../outbox-recovery-copy'
+import { isRecordOutboxKind, recordWireCommands, recordWireInput } from '../records'
 import { outboxOverlayPort } from '../replica-assembly/outbox-overlay'
 import {
   type CreateEngineOutbox,
   deadLetterHandlingFor,
   type EngineOutbox,
   type EngineOutboxCallbacks,
+  isMissingSyncSubmit,
   OUTBOX_COMMAND_MAX_AGE_MS,
   OUTBOX_COMMANDS,
   type OutboxExecutorHooks,
   type OutboxKinds,
+  outboxCommandOf,
   outboxExecutors,
   outboxRoutingFor,
   readOutboxReply,
@@ -106,30 +109,17 @@ export type KernelEngineOutboxFactory = CreateEngineOutbox & {
   confirmThrough(cursor: Cursor): Promise<readonly MutationId[]>
 }
 
-/**
- * An older server: it has no `sync.submit`, so tRPC answers `NOT_FOUND` naming the
- * path. Only that answer. `sync.submit` itself never throws `NOT_FOUND` — a missing
- * target is a `rejected` reply — but `classifyRefusal` reads any 404 as a definitive
- * refusal, and a write dead-lettered for want of a route is the one outcome this
- * must never produce.
- */
-function isMissingSyncSubmit(error: unknown): boolean {
-  const data = (error as { data?: { code?: unknown; httpStatus?: unknown } } | null)?.data
-  if (data?.code !== 'NOT_FOUND' && data?.httpStatus !== 404) return false
-  const message = error instanceof Error ? error.message : ''
-  return /no procedure found/i.test(message) && message.includes('sync.submit')
-}
-
 /** How long a server that lacked `sync.submit` is believed to still lack it.
  *  Bounded, so a server upgraded under an open app is found again. */
 const LEGACY_SERVER_RECHECK_MS = 10 * 60_000
 
-const kindByCommand = new Map<string, keyof OutboxKinds>(
-  Object.entries(OUTBOX_COMMANDS).map(([kind, command]) => [
-    command.name,
-    kind as keyof OutboxKinds,
-  ]),
-)
+const kindByCommand = new Map<string, keyof OutboxKinds>([
+  ...Object.entries(OUTBOX_COMMANDS).map(
+    ([kind, command]) => [command.name, kind as keyof OutboxKinds] as const,
+  ),
+  // Every `records.<kind>.<op>` a generic record write is sent as (POD-6392).
+  ...recordWireCommands(),
+])
 
 /** The chat sends, whose mutationId IS the message id the server stores and
  *  the daemon types under (POD-4763) — so it takes a message id's shape. */
@@ -212,6 +202,14 @@ function commandInput(envelope: OutboxEnvelope): Record<string, unknown> {
   }
 }
 
+/** The command's input on `sync.submit`. A record write's entry names its record
+ *  kind, which the command's name already carries, so that key stays home. The
+ *  per-kind executors take the entry whole: they name the command from it. */
+function submitInput(kind: keyof OutboxKinds, envelope: OutboxEnvelope): Record<string, unknown> {
+  const input = commandInput(envelope)
+  return isRecordOutboxKind(kind) ? recordWireInput(input) : input
+}
+
 /** What one submit came back with, whichever route carried it. */
 type Answered =
   | { readonly kind: 'applied'; readonly result: unknown; readonly receipt?: CoveringCursor }
@@ -239,7 +237,7 @@ async function submitEnvelope(
         mutationId: envelope.mutationId,
         command: envelope.command,
         version: envelope.version,
-        input: commandInput(envelope),
+        input: submitInput(kind, envelope),
         ...revisionOf(envelope),
         ...(envelope.confirmed === true ? { confirmed: true as const } : {}),
       })
@@ -415,7 +413,8 @@ class KernelEngineOutbox implements EngineOutbox {
   ): Promise<OutboxEntry> {
     // A caller-supplied id (POD-1053: the optimistic ledger files its overlay
     // under the id before the entry exists) or one minted here.
-    const mutationId = opts?.mutationId ?? mintMutationId(OUTBOX_COMMANDS[kind])
+    const command = outboxCommandOf(kind, input)
+    const mutationId = opts?.mutationId ?? mintMutationId(command)
     // POD-785: routed per TARGET, not into one global partition. See
     // OUTBOX_ROUTING for why the single `client-outbox` key wedged the queue.
     const route = outboxRoutingFor(kind, input, mutationId)
@@ -431,7 +430,7 @@ class KernelEngineOutbox implements EngineOutbox {
     try {
       const record = await this.kernel.enqueue({
         mutationId,
-        command: OUTBOX_COMMANDS[kind],
+        command,
         input,
         partitionKey: route.partitionKey,
         ...(route.collapseKey === undefined ? {} : { collapseKey: route.collapseKey }),

@@ -1,0 +1,291 @@
+/**
+ * GENERIC SYNCED EDITS ON THE CLIENT (ADR 12 D3/D4, POD-6392).
+ *
+ * Apps get one way to write plain synced data:
+ *
+ *     records.create(kind, id, fields)
+ *     records.edit(ref, patch, expectedRevision?)
+ *     records.remove(ref, expectedRevision?)
+ *
+ * typed and checked from the kind's declaration in `@podium/commands/records`.
+ * Each call is one outbox entry (`recordCreate`, `recordEdit`, `recordRemove`)
+ * sent on `sync.submit` as `records.<kind>.<op>`. The entry's own input is the
+ * optimistic value: `command-reducers.ts` paints it with ONE generic case and the
+ * paint lives exactly as long as the entry, which retires by receipt or
+ * provenance like every other write (ADR 12 D7). There is no per-kind display
+ * code and no per-kind command.
+ *
+ * WHAT IS CHECKED HERE, BEFORE ANYTHING PAINTS. The input is parsed with the
+ * command's own schema, so a value is stored and painted the way the server will
+ * store it (a title is trimmed). A field that is not a `spec` field, a missing
+ * revision on an `exp-rev` kind, and an op the kind does not offer are refused
+ * at the call: they are caller bugs the server would refuse anyway, and a paint
+ * that is certain to snap back helps nobody.
+ */
+
+import {
+  ISSUE_RECORD,
+  type RecordField,
+  type RecordOp,
+  recordCommandName,
+  recordCreateInput,
+  recordEditInput,
+  recordRemoveInput,
+  SESSION_USER_STATE_RECORD,
+  type SyncedKindDeclaration,
+  specFields,
+} from '@podium/commands/records'
+import { type DeviceIdPrefix, mintDeviceId, parseSessionUserStateRowId } from '@podium/model'
+import type { z } from 'zod'
+
+/**
+ * Every kind that takes generic edits, by name. `records.test.ts` holds this
+ * table EQUAL to `SYNCED_KINDS`, so a kind declared there and not here (or the
+ * reverse) fails a test rather than an edit.
+ */
+export const RECORD_KINDS = {
+  issueProjection: ISSUE_RECORD,
+  sessionUserState: SESSION_USER_STATE_RECORD,
+} as const satisfies Record<string, SyncedKindDeclaration>
+
+export type RecordKind = keyof typeof RECORD_KINDS
+
+type FieldsOf<K extends RecordKind> = (typeof RECORD_KINDS)[K]['fields']
+type ValueOf<F> = F extends RecordField<infer S> ? z.input<S> : never
+type FieldsWithRole<K extends RecordKind, R extends string> = {
+  [F in keyof FieldsOf<K>]: FieldsOf<K>[F] extends { readonly role: R } ? F : never
+}[keyof FieldsOf<K>]
+
+/** What an edit may set: the kind's `spec` fields. */
+export type RecordPatch<K extends RecordKind> = {
+  readonly [F in FieldsWithRole<K, 'spec'>]?: ValueOf<FieldsOf<K>[F]>
+}
+
+/** What a create may carry: spec and key fields, and the kind's placement
+ *  inputs (an issue's `repoPath`). The command's schema says which are required. */
+export type RecordCreateFields<K extends RecordKind> = {
+  readonly [F in FieldsWithRole<K, 'spec' | 'key'>]?: ValueOf<FieldsOf<K>[F]>
+} & Readonly<Record<string, unknown>>
+
+/** An existing record, as the feed names it. */
+export interface RecordRef<K extends RecordKind = RecordKind> {
+  readonly kind: K
+  readonly id: string
+}
+
+/** The outbox inputs. `kind` picks the declaration; the rest is the command's
+ *  input as the server parses it. */
+export interface RecordCreateEntry {
+  readonly kind: RecordKind
+  readonly id: string
+  readonly fields: Readonly<Record<string, unknown>>
+}
+export interface RecordEditEntry {
+  readonly kind: RecordKind
+  readonly id: string
+  readonly patch: Readonly<Record<string, unknown>>
+  readonly expectedRevision?: number
+}
+export interface RecordRemoveEntry {
+  readonly kind: RecordKind
+  readonly id: string
+  readonly expectedRevision?: number
+}
+
+/** The outbox kind behind each op. */
+export const RECORD_OUTBOX_KINDS = {
+  create: 'recordCreate',
+  edit: 'recordEdit',
+  remove: 'recordRemove',
+} as const satisfies Record<RecordOp, string>
+
+export type RecordOutboxKind = (typeof RECORD_OUTBOX_KINDS)[RecordOp]
+
+const OP_OF: Readonly<Record<RecordOutboxKind, RecordOp>> = {
+  recordCreate: 'create',
+  recordEdit: 'edit',
+  recordRemove: 'remove',
+}
+
+export const isRecordOutboxKind = (kind: string): kind is RecordOutboxKind => kind in OP_OF
+
+export const recordOpOf = (kind: RecordOutboxKind): RecordOp => OP_OF[kind]
+
+export function recordDeclaration(kind: string): SyncedKindDeclaration | undefined {
+  return Object.hasOwn(RECORD_KINDS, kind) ? RECORD_KINDS[kind as RecordKind] : undefined
+}
+
+/** The wire command one queued record write is sent as. */
+export const recordWireCommand = (kind: RecordOutboxKind, recordKind: string): string =>
+  recordCommandName(recordKind as RecordKind, OP_OF[kind])
+
+/** Every wire command a record write can be sent as, with its outbox kind. */
+export function recordWireCommands(): ReadonlyArray<readonly [string, RecordOutboxKind]> {
+  const out: (readonly [string, RecordOutboxKind])[] = []
+  for (const d of Object.values(RECORD_KINDS) as SyncedKindDeclaration[]) {
+    for (const op of Object.keys(d.ops) as RecordOp[]) {
+      out.push([recordCommandName(d.kind, op), RECORD_OUTBOX_KINDS[op]])
+    }
+  }
+  return out
+}
+
+/** The command's input as the server parses it: the entry without its `kind`. */
+export function recordWireInput(input: object): Record<string, unknown> {
+  const { kind: _kind, ...rest } = input as Record<string, unknown>
+  return rest
+}
+
+/**
+ * WHERE A KIND'S ROW LIVES IN THE POOL: the overlay target and the target's row
+ * id for a record id. Addressing, not display: a per-user row's feed id names
+ * its user and entity, and the pool keys that row by the entity alone.
+ */
+export const RECORD_HOMES: {
+  readonly [K in RecordKind]: {
+    readonly target: 'issueProjections' | 'sessionUserStates'
+    readonly row: (id: string) => string
+  }
+} = {
+  issueProjection: { target: 'issueProjections', row: (id) => id },
+  sessionUserState: {
+    target: 'sessionUserStates',
+    row: (id) => parseSessionUserStateRowId(id).sessionId,
+  },
+}
+
+/** A new id's prefix per kind that offers create. `records.test.ts` mints one
+ *  and holds it to the declaration's own `newId` shape. */
+const NEW_ID_PREFIX: Partial<Record<RecordKind, DeviceIdPrefix>> = {
+  issueProjection: 'iss_',
+}
+
+/** A caller's mistake the server would refuse: refused before anything paints. */
+export class RecordInputError extends Error {
+  override readonly name = 'RecordInputError'
+}
+
+function declarationFor(kind: RecordKind, op: RecordOp): SyncedKindDeclaration {
+  const d = recordDeclaration(kind)
+  if (d === undefined) throw new RecordInputError(`${kind} takes no generic edits`)
+  if (d.ops[op] === undefined) throw new RecordInputError(`${kind} does not offer ${op}`)
+  return d
+}
+
+function parsed<T>(schema: z.ZodTypeAny, value: unknown, what: string): T {
+  const result = schema.safeParse(value)
+  if (!result.success) throw new RecordInputError(`${what}: ${result.error.message}`)
+  return result.data as T
+}
+
+function requireRevision(d: SyncedKindDeclaration, expectedRevision: number | undefined): void {
+  if (d.conflict === 'exp-rev' && expectedRevision === undefined) {
+    throw new RecordInputError(
+      `${d.kind} is exp-rev: name the revision this write was made against`,
+    )
+  }
+}
+
+/** A new id for a kind, minted on this device (ADR 12 D4). */
+export function newRecordId(kind: RecordKind): string {
+  const d = declarationFor(kind, 'create')
+  const prefix = NEW_ID_PREFIX[kind]
+  if (prefix === undefined) throw new RecordInputError(`${d.kind} has no device id prefix`)
+  return mintDeviceId(prefix)
+}
+
+export function recordCreateEntry<K extends RecordKind>(
+  kind: K,
+  id: string,
+  fields: RecordCreateFields<K>,
+): RecordCreateEntry {
+  const d = declarationFor(kind, 'create')
+  const input = parsed<{ id: string; fields: Record<string, unknown> }>(
+    recordCreateInput(d),
+    { id, fields },
+    recordCommandName(kind, 'create'),
+  )
+  return { kind, id: input.id, fields: input.fields }
+}
+
+export function recordEditEntry<K extends RecordKind>(
+  ref: RecordRef<K>,
+  patch: RecordPatch<K>,
+  expectedRevision?: number,
+): RecordEditEntry {
+  const d = declarationFor(ref.kind, 'edit')
+  const writable = new Set(specFields(d))
+  const forbidden = Object.keys(patch).filter(
+    (name) => (patch as Record<string, unknown>)[name] !== undefined && !writable.has(name),
+  )
+  if (forbidden.length > 0) {
+    throw new RecordInputError(`${d.kind}: ${forbidden.join(', ')} is not a field a client writes`)
+  }
+  requireRevision(d, expectedRevision)
+  const input = parsed<{ id: string; patch: Record<string, unknown>; expectedRevision?: number }>(
+    recordEditInput(d),
+    { id: ref.id, patch, ...(expectedRevision === undefined ? {} : { expectedRevision }) },
+    recordCommandName(ref.kind, 'edit'),
+  )
+  return {
+    kind: ref.kind,
+    id: input.id,
+    patch: input.patch,
+    ...(input.expectedRevision === undefined ? {} : { expectedRevision: input.expectedRevision }),
+  }
+}
+
+export function recordRemoveEntry<K extends RecordKind>(
+  ref: RecordRef<K>,
+  expectedRevision?: number,
+): RecordRemoveEntry {
+  const d = declarationFor(ref.kind, 'remove')
+  requireRevision(d, expectedRevision)
+  const input = parsed<{ id: string; expectedRevision?: number }>(
+    recordRemoveInput(d),
+    { id: ref.id, ...(expectedRevision === undefined ? {} : { expectedRevision }) },
+    recordCommandName(ref.kind, 'remove'),
+  )
+  return {
+    kind: ref.kind,
+    id: input.id,
+    ...(input.expectedRevision === undefined ? {} : { expectedRevision: input.expectedRevision }),
+  }
+}
+
+/** The one generic write API apps get (on the store as `records`). Each call
+ *  paints at once and settles when the outbox entry is durable. */
+export interface RecordsApi {
+  create<K extends RecordKind>(kind: K, id: string, fields: RecordCreateFields<K>): Promise<void>
+  edit<K extends RecordKind>(
+    ref: RecordRef<K>,
+    patch: RecordPatch<K>,
+    expectedRevision?: number,
+  ): Promise<void>
+  remove<K extends RecordKind>(ref: RecordRef<K>, expectedRevision?: number): Promise<void>
+  /** A new id for `kind`, minted on this device. */
+  newId(kind: RecordKind): string
+}
+
+/** The outbox input each record kind carries. */
+export interface RecordOutboxInputs {
+  recordCreate: RecordCreateEntry
+  recordEdit: RecordEditEntry
+  recordRemove: RecordRemoveEntry
+}
+
+/** Build the API over the outbox's single write path. An input the declaration
+ *  refuses rejects the call's promise, and nothing paints. */
+export function createRecordsApi(
+  write: (kind: RecordOutboxKind, input: RecordOutboxInputs[RecordOutboxKind]) => Promise<void>,
+): RecordsApi {
+  return {
+    create: async (kind, id, fields) =>
+      await write('recordCreate', recordCreateEntry(kind, id, fields)),
+    edit: async (ref, patch, expectedRevision) =>
+      await write('recordEdit', recordEditEntry(ref, patch, expectedRevision)),
+    remove: async (ref, expectedRevision) =>
+      await write('recordRemove', recordRemoveEntry(ref, expectedRevision)),
+    newId: newRecordId,
+  }
+}

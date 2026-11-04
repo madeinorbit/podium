@@ -49,8 +49,12 @@ import type {
 
 export type RecordFieldRole = 'spec' | 'status' | 'label' | 'key'
 
-export interface RecordField<S extends z.ZodTypeAny = z.ZodTypeAny> {
-  readonly role: RecordFieldRole
+export interface RecordField<
+  S extends z.ZodTypeAny = z.ZodTypeAny,
+  R extends RecordFieldRole = RecordFieldRole,
+> {
+  /** Kept literal, so a client's patch type can be the kind's spec fields. */
+  readonly role: R
   readonly schema: S
   /** The ADR 1 matrix row (field group) this field belongs to. */
   readonly row: MatrixRowId
@@ -59,12 +63,12 @@ export interface RecordField<S extends z.ZodTypeAny = z.ZodTypeAny> {
 }
 
 const field =
-  (role: RecordFieldRole) =>
+  <R extends RecordFieldRole>(role: R) =>
   <S extends z.ZodTypeAny>(
     schema: S,
     row: MatrixRowId,
     opts: { required?: true } = {},
-  ): RecordField<S> => ({ role, schema, row, ...opts })
+  ): RecordField<S, R> => ({ role, schema, row, ...opts })
 
 /** People and agents write it. */
 export const spec = field('spec')
