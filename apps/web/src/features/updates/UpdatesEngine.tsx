@@ -221,8 +221,20 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
   // worth a moment and nothing more; the operation is in history either way.
   // Keyed on the situation so a SECOND finished update re-arms the timer.
   const doneKey = view.state === 'done' ? situation : null
+  const [reading, setReading] = useState<{ key: string; active: boolean }>()
+  const onReadingChange = useCallback(
+    (active: boolean) => {
+      setReading((current) =>
+        current?.key === situation && current.active === active
+          ? current
+          : { key: situation, active },
+      )
+    },
+    [situation],
+  )
+  const readingDone = reading?.key === doneKey && reading.active
   useEffect(() => {
-    if (doneKey === null) return
+    if (doneKey === null || readingDone) return
     const timer = window.setTimeout(() => {
       setCollapsed(true)
       // "the indicator clears" (§6.2.4) — a finished update is not a standing
@@ -230,7 +242,7 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
       acknowledge()
     }, DONE_COLLAPSE_MS)
     return () => window.clearTimeout(timer)
-  }, [acknowledge, doneKey])
+  }, [acknowledge, doneKey, readingDone])
 
   const hasPanelContent = view.state !== 'none' || showingProposal
   const open = hasPanelContent && !collapsed
@@ -372,7 +384,9 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
   }
   return (
     <UpdatePanel
+      key={situation}
       view={view}
+      onReadingChange={onReadingChange}
       pending={pending}
       onAction={onAction}
       onHide={hide}

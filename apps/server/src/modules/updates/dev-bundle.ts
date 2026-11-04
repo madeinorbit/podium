@@ -1782,6 +1782,7 @@ export function devTarget(
     schemaMigrations?: string[]
     /** What this build previews: the Unreleased section at its commit. Absent means none. */
     notes?: UpdateNotes
+    changes?: Pick<UpdateTarget, 'commits' | 'commitCount' | 'branch' | 'addedMigrations'>
   } = {},
 ): UpdateTarget {
   const hostPlatform = opts.platform ?? developmentPlatformTarget()
@@ -1811,6 +1812,7 @@ export function devTarget(
     version: built.version,
     daemonWire: opts.daemonWire ?? { min: MIN_DAEMON_WIRE_VERSION, max: DAEMON_WIRE_VERSION },
     ...(opts.notes ? { notes: opts.notes } : {}),
+    ...opts.changes,
     critical: false,
     minRequired: { desktopBridge: 1 },
     schema: { migrations },
@@ -2172,6 +2174,28 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
       ? deps.notesAt(sha, version).catch(() => undefined)
       : readReleaseNotesAt(deps.root ?? SOURCE_ROOT, sha, version)
 
+  // Read at the built commit, relative to the booted server (the same baseline
+  // as the approval). Never read HEAD's log as a substitute for the built bytes.
+  const readChangesAt = async (headSha: string): Promise<ReleaseProposalFacts | undefined> => {
+    const root = deps.root ?? SOURCE_ROOT
+    const input = {
+      headSha,
+      ...(deps.proposalRunningSha
+        ? { runningSha: deps.proposalRunningSha }
+        : {
+            runningVersion: deps.proposalRunningVersion ?? resolveCheckoutReleaseBase(deps, root),
+          }),
+    }
+    try {
+      return deps.proposalFacts
+        ? await deps.proposalFacts(input)
+        : await releaseProposalFacts({ root, ...input })
+    } catch {
+      // Like notes, unavailable history must not prevent delivery of valid bytes.
+      return undefined
+    }
+  }
+
   const recordFailure = (error: unknown, sha: string | null) => {
     const reason = describeError(error)
     unavailable = reason
@@ -2476,6 +2500,7 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
       schemaMigrations: settled.migrations,
       daemonWire: await deps.daemonWireAt?.(settled.headSha),
       notes: await readNotesAt(settled.headSha, built.version),
+      changes: await readChangesAt(settled.headSha),
     })
   }
 
@@ -2512,6 +2537,7 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
         branch: facts.branch,
         runningVersion,
         commits: facts.commits,
+        ...(facts.commitCount !== undefined ? { commitCount: facts.commitCount } : {}),
         addedMigrations: facts.addedMigrations,
         state: 'pending',
       }
@@ -2551,6 +2577,7 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
       schemaMigrations: migrations,
       daemonWire: await deps.daemonWireAt?.(builtSha),
       notes: await readNotesAt(builtSha, built.version),
+      changes: await readChangesAt(builtSha),
     })
   }
 

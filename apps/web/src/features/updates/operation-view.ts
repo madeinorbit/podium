@@ -35,7 +35,14 @@
  *  - absent is never an error: an operation with no `steps`, no `updatedAt` and
  *    no `error` still renders.
  */
-import type { AwaitingAsk, Operation, OperationError, OperationStep } from '@podium/protocol'
+import type {
+  AwaitingAsk,
+  Operation,
+  OperationError,
+  OperationStep,
+  UpdateTarget,
+} from '@podium/protocol'
+import { isDevChannelVersion } from '@podium/protocol/update-dev-version'
 import type { IndicatorState } from './indicator-state'
 import {
   describeUpdateFailure,
@@ -81,6 +88,8 @@ export interface StepRow {
   state: StepRowState
   /** "1 of 3 · vmi3407763 downloading 62%" — always says what it is doing, never a bare bar. */
   substatus?: string
+  /** A real percentage reported by the named place, never a step-count estimate. */
+  percent?: number
 }
 
 export type PrimaryActionKind =
@@ -123,6 +132,14 @@ export interface UpdatePanelView {
   subtitle?: string
   operationId?: string
   version?: string
+  channel?: 'stable' | 'edge' | 'dev'
+  commits?: UpdateTarget['commits']
+  commitCount?: number
+  branch?: string
+  impactSummary?: { label: string; kind: 'interrupts' | 'background' | 'data' | 'needs-you' }[]
+  dismiss?: { label: string; primary?: boolean; hint?: string }
+  /** Freshness in the footer; elapsed running time stays in the subtitle. */
+  freshness?: string
   /** The plan, in order. Empty for an offer (no operation exists yet). */
   steps: StepRow[]
   /** "Step 2 of 4" — honest because the steps are the plan's own named steps. */
@@ -221,10 +238,63 @@ export function formatDuration(ms: number): string {
   return `${Math.round(minutes / 6) / 10} h`
 }
 
-function targetVersion(operation: Operation): string | undefined {
-  const details = operation.details as { target?: { version?: unknown } } | undefined
-  const version = details?.target?.version
-  return typeof version === 'string' ? version : undefined
+function operationTarget(operation: Operation): Partial<UpdateTarget> | undefined {
+  const target = (operation.details as { target?: unknown } | undefined)?.target
+  return target && typeof target === 'object' ? (target as Partial<UpdateTarget>) : undefined
+}
+
+function displayVersion(version: string): string {
+  return version.split('+')[0] ?? version
+}
+
+function channelFor(version: string): 'stable' | 'edge' | 'dev' {
+  return isDevChannelVersion(version) ? 'dev' : version.includes('-edge.') ? 'edge' : 'stable'
+}
+
+function offerSubtitle(
+  offer: Extract<UpdateView, { state: 'available' | 'required' }>,
+): string | undefined {
+  const parts = offer.runningVersion ? [`You're on ${displayVersion(offer.runningVersion)}`] : []
+  if (channelFor(offer.version) === 'dev') {
+    const count = offer.commitCount ?? offer.commits?.length
+    if (count !== undefined)
+      parts.push(
+        `${count} new ${count === 1 ? 'commit' : 'commits'}${offer.branch ? ` on ${offer.branch}` : ''}`,
+      )
+    else if (offer.branch) parts.push(offer.branch)
+  } else if (offer.releasedAt) {
+    const date = new Date(offer.releasedAt)
+    if (Number.isFinite(date.getTime()))
+      parts.push(
+        `released ${new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long', timeZone: 'UTC' }).format(date)}`,
+      )
+  }
+  return parts.join(' · ') || offer.restartNote
+}
+
+function impactSummary(
+  offer: Extract<UpdateView, { state: 'available' | 'required' }>,
+): NonNullable<UpdatePanelView['impactSummary']> {
+  const summary: NonNullable<UpdatePanelView['impactSummary']> = []
+  if (offer.places.some((p) => p.kind === 'server'))
+    summary.push({ label: 'Server restarts', kind: 'interrupts' })
+  if (offer.machineCount)
+    summary.push({
+      label: `${offer.machineCount} ${offer.machineCount === 1 ? 'machine' : 'machines'}`,
+      kind: 'background',
+    })
+  else if (offer.places.some((p) => p.kind === 'machines'))
+    summary.push({ label: 'Machines update', kind: 'background' })
+  if (offer.places.some((p) => p.kind === 'database'))
+    summary.push({ label: 'Database migrates', kind: 'data' })
+  if (summary.length === 0) {
+    for (const place of offer.places)
+      summary.push({
+        label: `${place.label} ${place.kind === 'this-app' ? 'reloads' : 'updates'}`,
+        kind: place.impact ?? 'background',
+      })
+  }
+  return summary
 }
 
 function stepTitle(step: OperationStep): string {
@@ -284,7 +354,7 @@ const PLACE_RESTING: ReadonlySet<string> = new Set(['pending', 'offline'])
 const PLACE_VERDICT: ReadonlySet<string> = new Set(['rejected', 'stuck'])
 
 /** The place a human wants named: the one actually moving, else the first one left. */
-function interestingPlace(step: OperationStep): string | undefined {
+function interestingPlace(step: OperationStep) {
   const places = step.places ?? []
   const left = places.filter(
     (place) => place.state === undefined || !PLACE_CONVERGED.has(place.state),
@@ -298,7 +368,7 @@ function interestingPlace(step: OperationStep): string | undefined {
   // Nothing is moving, so the machine that said why is the news — and on a
   // stalled or failed step it is the only place a machine gets named at all.
   const verdict = left.find((place) => place.state !== undefined && PLACE_VERDICT.has(place.state))
-  return placeLine(moving ?? verdict ?? left[0] ?? places[0] ?? {})
+  return moving ?? verdict ?? left[0] ?? places[0]
 }
 
 function substatusFor(step: OperationStep): string | undefined {
@@ -306,7 +376,7 @@ function substatusFor(step: OperationStep): string | undefined {
   if (step.progress && Number.isFinite(step.progress.total) && step.progress.total > 0) {
     parts.push(`${step.progress.done} of ${step.progress.total}`)
   }
-  const place = interestingPlace(step)
+  const place = placeLine(interestingPlace(step) ?? {})
   if (place) parts.push(place)
   if (step.detail) parts.push(step.detail)
   return parts.length > 0 ? parts.join(' · ') : undefined
@@ -337,11 +407,19 @@ export function stepRows(operation: Operation): StepRow[] {
     .filter((step) => step.state !== 'skipped')
     .map((step) => {
       const substatus = substatusFor(step)
+      const percent = interestingPlace(step)?.percent
       return {
         id: step.id,
         title: stepTitle(step),
         state: rowState(step),
         ...(substatus ? { substatus } : {}),
+        ...(typeof percent === 'number' &&
+        Number.isFinite(percent) &&
+        percent >= 0 &&
+        percent <= 100 &&
+        (step.state === 'running' || step.state === 'stalled')
+          ? { percent }
+          : {}),
       }
     })
 }
@@ -749,9 +827,13 @@ function offerView(input: OperationViewInput): UpdatePanelView {
   }
   return {
     state: 'offer',
-    title: offer.state === 'required' ? 'Update required' : 'Update available',
-    // The one fact people want before pressing the button, so it leads.
-    subtitle: offer.restartNote,
+    title: `Podium ${displayVersion(offer.version)}`,
+    subtitle: offerSubtitle(offer),
+    channel: channelFor(offer.version),
+    commits: offer.commits,
+    commitCount: offer.commitCount,
+    branch: offer.branch,
+    impactSummary: impactSummary(offer),
     version: offer.version,
     steps: [],
     places: offer.places,
@@ -814,7 +896,11 @@ export function operationView(input: OperationViewInput): UpdatePanelView {
   // The note is about the last thing that happened to the USER (a refused
   // cancel, a spent reload budget), not about the operation, so it rides on
   // whatever the operation happens to be saying right now.
-  return input.note && view.state !== 'none' ? { ...view, note: input.note } : view
+  const dismiss =
+    view.state === 'done'
+      ? { label: 'Got it', primary: true, hint: 'Closes by itself when you get back to work' }
+      : { label: view.state === 'offer' ? 'Later' : view.state === 'failed' ? 'Close' : 'Hide' }
+  return { ...view, dismiss, ...(input.note && view.state !== 'none' ? { note: input.note } : {}) }
 }
 
 function failureCanRetry(code: string | undefined): boolean {
@@ -881,7 +967,8 @@ function computeView(input: OperationViewInput): UpdatePanelView {
 
   const rows = stepRows(operation)
   const position = stepPositionOf(rows)
-  const version = targetVersion(operation)
+  const target = operationTarget(operation)
+  const version = typeof target?.version === 'string' ? target.version : undefined
   const deferred = deferredNote(operation)
   const hasDeliveryRefusal =
     (operation.deferred ?? []).some((place) => place.reason !== 'offline') ||
@@ -894,6 +981,7 @@ function computeView(input: OperationViewInput): UpdatePanelView {
     steps: rows,
     ...(position ? { stepPosition: position } : {}),
     ...(version ? { version } : {}),
+    ...(target?.notes ? { notes: target.notes } : {}),
     ...(deferred ? { deferredNote: deferred } : {}),
     awaitingElsewhere: elsewhere,
   }
@@ -952,8 +1040,14 @@ function computeView(input: OperationViewInput): UpdatePanelView {
           ? `Updated, except ${deferredSubject(operation.deferred ?? [])}`
           : hasDeliveryRefusal
             ? 'Updated, except some machines'
-            : 'Podium is up to date',
-      ...(deferred ? { subtitle: deferred } : {}),
+            : version
+              ? `You're on Podium ${displayVersion(version)}`
+              : 'Podium is up to date',
+      ...(deferred
+        ? { subtitle: deferred }
+        : operation.startedAt !== undefined && operation.finishedAt != null
+          ? { subtitle: `Updated in ${formatDuration(operation.finishedAt - operation.startedAt)}` }
+          : {}),
       indicator: permanentlyDeferred ? 'attention' : 'idle-dot',
       indicatorLabel: permanentlyDeferred
         ? 'Manual fix needed'
@@ -1038,9 +1132,14 @@ function computeView(input: OperationViewInput): UpdatePanelView {
   return {
     ...base,
     state: 'running',
-    title: 'Updating…',
-    subtitle: 'Your sessions keep running.',
+    title: version ? `Updating to ${displayVersion(version)}` : 'Updating…',
+    subtitle: `Your agents keep working. ${liveness}.`,
     liveness,
+    freshness: liveness.startsWith('No progress')
+      ? liveness
+      : (step?.lastProgressAt ?? operation.updatedAt) !== undefined
+        ? `Live · updated ${formatDuration(input.now - (step?.lastProgressAt ?? operation.updatedAt ?? input.now))} ago`
+        : 'Working…',
     cancel: { label: 'Cancel', operationId: operation.id },
     indicator: stalled ? 'attention' : 'animating',
     indicatorLabel: position

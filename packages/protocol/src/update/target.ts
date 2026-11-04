@@ -1,5 +1,6 @@
-import { WireVersionRange } from '../version'
 import { z } from 'zod'
+import { WireVersionRange } from '../version'
+import { ReleaseProposalCommit } from './release-proposal'
 
 export const PlatformAsset = z.object({
   url: z.string().min(1),
@@ -106,6 +107,14 @@ export const UpdateTarget = z
     schema: SchemaDeclaration.optional(),
     daemonWire: WireVersionRange.optional(),
     notes: UpdateNotes.optional(),
+    /** Optional release context; older feeds and clients need none of it. */
+    releasedAt: z.string().optional(),
+    branch: z.string().optional(),
+    /** Newest first, bounded by the publisher. */
+    commits: z.array(ReleaseProposalCommit).optional(),
+    /** Total range size, including commits omitted from the bounded list. */
+    commitCount: z.number().int().nonnegative().optional(),
+    addedMigrations: z.array(z.string()).optional(),
     critical: z.boolean().default(false),
     minRequired: MinRequired.optional(),
     artifacts: z

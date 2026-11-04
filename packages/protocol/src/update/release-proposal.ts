@@ -42,6 +42,7 @@ export const ReleaseProposal = z
     /** Version captured from the server process that would build this proposal. */
     runningVersion: z.string().min(1).optional(),
     commits: z.array(ReleaseProposalCommit),
+    commitCount: z.number().int().nonnegative().optional(),
     addedMigrations: z.array(z.string()),
     state: z.enum(['pending', 'building', 'failed']),
     approval: ReleaseProposalApproval.optional(),
