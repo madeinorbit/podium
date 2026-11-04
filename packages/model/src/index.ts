@@ -65,6 +65,7 @@ export * from './entities/repo'
 export * from './entities/machine'
 export * from './entities/machine-projection'
 // The message delivery lifecycle, declared as a forward-only machine (POD-4765).
+export * from './entities/effect'
 export * from './entities/message-delivery'
 export * from './entities/session'
 export * from './entities/transcript'

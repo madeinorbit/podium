@@ -124,6 +124,9 @@ export const ROW = {
   approvals: id('approval-requests'),
   pendingInteractions: id('pending-interactions'),
   automations: id('automations-and-runs'),
+  /** One-shot effects as data (ADR 12 D5 E2, POD-6357): merge, file write,
+   *  scans, clone, interrupt, each with the standard effect status. */
+  effectRecords: id('effect-records'),
   // POD-1211's coordination-shaped adoptions. Each is server-internal
   // bookkeeping the SWEEP found with no row at all; see `serverBookkeeping`
   // for why they are `personal`-with-no-owner rather than substrate.
@@ -2405,6 +2408,50 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
       mutable: true,
       verbs: ['share', 'unshare', 'revoke', 'account-disable'],
       note: 'PHASE 2 MUST HANDLE: and note that disabling the creator’s ACCOUNT must stop the automation — live intersection, not a stored capability.',
+    },
+    open: [],
+  },
+  {
+    id: ROW.effectRecords,
+    section: 'coordination',
+    title: 'Effect records',
+    sites: ['packages/model/src/entities/effect.ts', '`effects`', 'apps/server/src/modules/effects'],
+    home: 'server',
+    idMinting: 'Device id (`eff_<uuid>`, ADR 12 D4)',
+    writers: ['operator', 'agent-session', 'system'],
+    replication: 'server-to-clients',
+    conflict: 'cmd',
+    conflictNote:
+      'A state machine (`EffectLifecycle`): a person creates the record `pending`, may ask to cancel it, and may dismiss it once it has ended; every status move is the executor’s, written as a guarded UPDATE on the states the machine allows into the target status, so a second trigger claims nothing.',
+    tombstone: 'soft-delete',
+    tombstoneNote:
+      'Dismissed or pruned records leave the feed as a tombstone (the feed scopes a `remove` after the write, and the audience is read off the target), and are deleted after the feed’s retention window. `failed` and `unknown` stay until dismissed (ADR 12 O5).',
+    offline: 'offline-eligible',
+    secret: 'public',
+    secretNote:
+      'An executor kind publishes only what it declares of its input (a file write publishes path and hash, never the text); the whole input stays on the server.',
+    owner: {
+      kind: 'user',
+      resolves: 'on-behalf-of-human',
+      note: 'The person who asked for the effect (an agent’s on-behalf-of human); everyone who may read its target sees it too.',
+    },
+    visibility: 'personal',
+    grants: {
+      kind: 'inherits',
+      from: ROW.issueCore,
+      note: 'Inherits the TARGET it acts on: an issue, a session, or (creator only, for now) a machine.',
+    },
+    attribution: { actor: 'required', onBehalfOf: 'required' },
+    systemWriter: 'may-write',
+    systemWriterRule: SYSTEM_WRITER_RULE,
+    inheritanceOnCreate: {
+      kind: 'on-behalf-of-human',
+      note: 'DECLARED: the creating principal’s human; the audience beyond the creator follows the target.',
+    },
+    visibilityMutability: {
+      mutable: true,
+      verbs: ['share', 'unshare', 'revoke'],
+      note: 'PHASE 2 MUST HANDLE: follows its target.',
     },
     open: [],
   },
