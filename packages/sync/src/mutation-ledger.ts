@@ -90,6 +90,30 @@ export interface MutationApplication<T> {
   value: T
 }
 
+/**
+ * Runs `fn` as ONE unit of work: everything it writes commits together or not at
+ * all. The server passes its store's `transact`.
+ */
+export type MutationUnitOfWork = <T>(fn: () => Promise<T>) => Promise<T>
+
+export interface MutationApplyOptions {
+  /**
+   * THE DEDUP RECORD INSIDE THE UNIT (ADR 2 D10, ADR 12 D2 step 7; POD-6273).
+   *
+   * Without a unit the body runs, and its result is recorded AFTER it returns, in
+   * a write of its own. A failure between the two leaves a write that applied with
+   * no record of it, and the client's retry applies it a second time.
+   *
+   * With a unit, the body and the record run inside it: they commit together, and
+   * a rollback takes both, so the retry finds no record and runs again. The
+   * durable lookup and the in-flight join stay outside the unit, so a replay opens
+   * no transaction at all.
+   *
+   * With no `mutationId` the body still runs inside the unit; nothing is recorded.
+   */
+  readonly unit?: MutationUnitOfWork
+}
+
 export class MutationLedger {
   /**
    * Mutations admitted by this ledger instance, held through durable recording.
@@ -116,8 +140,13 @@ export class MutationLedger {
     mutationId: MutationId | undefined,
     proc: string,
     body: () => T | Promise<T>,
+    options: MutationApplyOptions = {},
   ): Promise<MutationApplication<Awaited<T>>> {
-    if (!mutationId) return { outcome: 'applied', value: await body() }
+    const unit = options.unit
+    if (!mutationId) {
+      const value = unit ? await unit(async () => await body()) : await body()
+      return { outcome: 'applied', value }
+    }
 
     const inFlight = this.inFlight.get(mutationId)
     if (inFlight !== undefined) {
@@ -131,9 +160,13 @@ export class MutationLedger {
       if (prior !== undefined) {
         return { outcome: 'replayed', value: JSON.parse(prior) as Awaited<T> }
       }
-      const value = await body()
-      await this.record(mutationId, proc, value)
-      return { outcome: 'applied', value: value as Awaited<T> }
+      const run = async (): Promise<Awaited<T>> => {
+        const value = await body()
+        await this.record(mutationId, proc, value)
+        return value
+      }
+      const value = unit ? await unit(run) : await run()
+      return { outcome: 'applied', value }
     })()
     // Share the promise the owner awaits: a derived value-only promise would
     // reject unobserved when no concurrent delivery joins it.
@@ -150,8 +183,9 @@ export class MutationLedger {
     mutationId: MutationId | undefined,
     proc: string,
     body: () => T | Promise<T>,
+    options: MutationApplyOptions = {},
   ): Promise<Awaited<T>> {
-    return (await this.apply(mutationId, proc, body)).value
+    return (await this.apply(mutationId, proc, body, options)).value
   }
 
   private async record(mutationId: MutationId, proc: string, value: unknown): Promise<void> {

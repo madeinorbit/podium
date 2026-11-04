@@ -95,6 +95,7 @@ import { settingsFamilyProcedures } from './modules/settings/trpc'
 import { specsInputs } from './modules/specs/service'
 import { specFamilyProcedures } from './modules/specs/trpc'
 import { superagentFamilyProcedures } from './modules/superagent/trpc'
+import { syncWriteProcedures } from './modules/sync-write/trpc'
 import { updateProcedures } from './modules/updates/trpc'
 import type { RegistryModules } from './relay'
 import { canonicalizeRepoOrigin } from './repo-id'
@@ -309,7 +310,10 @@ export const appRouter = t.router({
     // so the audit still refuses a hand-written one here.
     ask: mailMutation('ask'),
   }),
-  sync: t.router(queryProcedures('sync', SYNC_QUERIES)),
+  // THE SYNC WRITE ENTRY POINT (ADR 12 D2, POD-6273): `sync.submit` takes an
+  // outbox envelope and replies with the result and a receipt. Every write to
+  // synced data moves onto it (POD-6350, POD-6359).
+  sync: t.router({ ...queryProcedures('sync', SYNC_QUERIES), ...syncWriteProcedures() }),
   // PER-USER STATE (POD-380 / POD-1350): each list is the CALLER's, not the instance's.
   // layout: sidebar/tab chrome that follows a person across devices (not device-local
   // route/selection/pane geometry — those stay in client ui-state, POD-403).

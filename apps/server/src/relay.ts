@@ -35,6 +35,7 @@ import type {
   LocalPortableStateControl,
   UpdateKeyRotation,
   VisibilityResolver,
+  WriteReceipt,
 } from '@podium/protocol'
 import {
   formatIssueRef,
@@ -74,6 +75,7 @@ import {
   systemPrincipal,
   userCommandPrincipal,
 } from './command-principal'
+import { currentWriteProvenance } from './write-provenance'
 import { composeReactions, REACTIONS, type ReactionDefinition } from './composition/reactions'
 import { getFeatureStates, isFeatureEnabled } from './features'
 import { makeFeedVisibility } from './feed-visibility'
@@ -116,6 +118,8 @@ import { AgentRelayGate } from './modules/issues/relay-gate'
 import { IssueService } from './modules/issues/service'
 import { seatText } from './modules/issues/service/seat'
 import { LayoutService } from './modules/layout/service'
+import { SyncWriteEntry } from './modules/sync-write/entry'
+import { SyncWriteRegistry } from './modules/sync-write/registry'
 import { LockCommandDispatcher } from './modules/lock/registry'
 import { LockService } from './modules/lock/service'
 import { FleetLogLevelDirector } from './modules/logs/fleet-director'
@@ -346,6 +350,12 @@ export interface RegistryModules {
   settings: SettingsService
   /** Per-user sidebar/tab layout (POD-1350) — store + feed publish behind one service. */
   layout: LayoutService
+  /**
+   * THE SYNC WRITE ENTRY POINT (ADR 12 D2, POD-6273): every write to synced data
+   * from a transport goes through `syncWrite.submit`. Families register their
+   * commands on `syncWrite.registry`.
+   */
+  syncWrite: SyncWriteEntry
   /** Server-owned dock-shell mapping (POD-4436) — per user, per worktree → shell session. */
   dockShells: DockShellService
   /** Per-user event-stream read positions (POD-1380) — same shape, monotonic merge. */
@@ -1001,6 +1011,11 @@ export class SessionRegistry {
       // take the fold with it, or process memory keeps claiming rows the
       // database never kept [POD-3328, spec §3.3 mechanism 1].
       applyCommit: { spanOpen, onCommit: applyAfterCommit },
+      // WHICH COMMAND IS APPENDING (ADR 2 D8, POD-6273): the sync write entry
+      // point opens a provenance scope around each command's unit of work, and
+      // the Authority stamps every row it appends there with the command's
+      // mutationId and causationId. Outside a scope it stamps nothing.
+      provenance: { current: currentWriteProvenance },
       onPruneMetrics: (metrics) => {
         perf.record('phase', 'changeLogPrune.total', metrics.totalDurationMs, DEPLOYMENT)
         perf.record('phase', 'changeLogPrune.maxSlice', metrics.maxUninterruptedSliceMs, DEPLOYMENT)
@@ -3410,6 +3425,19 @@ export class SessionRegistry {
     // Layout service is composed here (not reached from tRPC via sessionStore) so
     // the transport only names familyState(ctx).modules.layout — router-triple-access.
     const layout = new LayoutService({ layout: this.store.layout, ledger })
+    // THE SYNC WRITE ENTRY POINT (ADR 12 D2, POD-6273), over the one dedup ledger,
+    // the one write-seam Ledger and the store's unit of work. It starts with no
+    // registrations: the outbox commands move onto it in POD-6350, the rest in
+    // POD-6359, each family registering on `syncWrite.registry`.
+    const syncWrite = new SyncWriteEntry({
+      registry: new SyncWriteRegistry(),
+      mutations,
+      unitOfWork: async (fn) => await this.store.transact(fn),
+      afterCommit: (step, label) => this.store.effect(step, label),
+      spanOpen,
+      ledger,
+      receipt: async () => await this.writeReceiptNow(),
+    })
     // Same composition seam for the read-cursor family (POD-1380).
     const readPosition = new ReadPositionService({
       cursors: this.store.readPositions,
@@ -3702,6 +3730,7 @@ export class SessionRegistry {
       hosts,
       settings,
       layout,
+      syncWrite,
       dockShells,
       readPosition,
       headless,
@@ -4003,6 +4032,17 @@ export class SessionRegistry {
   /** Write-seam ledger — layout (and other non-session modules) capture entity rows here. */
   get changeLedger(): Ledger {
     return this.ledger
+  }
+
+  /**
+   * THE RECEIPT, read now (ADR 12 D2 step 8, POD-6273): the persisted feed
+   * identity and the change-log head. The entry point reads it after the call's
+   * commit, so the head covers every row the call wrote, and a no-op that wrote
+   * none (plan Decision 1).
+   */
+  async writeReceiptNow(): Promise<WriteReceipt> {
+    const identity = await this.syncDelta.serving.identity()
+    return { feedId: identity.feedId, epoch: identity.epoch, seq: await this.ledger.cursor() }
   }
 
   /** Register the daemon-local upload fence for the all-in-one process. */

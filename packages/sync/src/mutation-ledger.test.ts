@@ -312,3 +312,108 @@ describe('MutationLedger async suspension admission', () => {
     },
   )
 })
+
+/**
+ * THE DEDUP RECORD INSIDE THE UNIT OF WORK (ADR 12 D2 step 7, POD-6273).
+ *
+ * Without a `unit`, the body commits and THEN the record is written: a crash or a
+ * failed insert between the two leaves a write that applied with nothing to say
+ * so, and the retry applies it again. With a `unit`, body and record run inside
+ * one unit of work, so they commit or roll back together.
+ */
+describe('MutationLedger with a unit of work', () => {
+  /** A unit double that stages the store's records and keeps them only on commit. */
+  function transactionalStore() {
+    const committed = new Map<string, string>()
+    let staged: Map<string, string> | undefined
+    const store: AppliedMutationStore = {
+      getAppliedMutation: (id) => staged?.get(id) ?? committed.get(id),
+      recordAppliedMutation: (id, _proc, result) => {
+        const target = staged ?? committed
+        if (!target.has(id)) target.set(id, result)
+      },
+    }
+    const events: string[] = []
+    const unit = async <T>(fn: () => Promise<T>): Promise<T> => {
+      staged = new Map()
+      events.push('open')
+      try {
+        const value = await fn()
+        for (const [k, v] of staged) committed.set(k, v)
+        events.push('commit')
+        return value
+      } catch (error) {
+        events.push('rollback')
+        throw error
+      } finally {
+        staged = undefined
+      }
+    }
+    return { store, committed, unit, events }
+  }
+
+  it('records the result inside the unit, before it commits', async () => {
+    const { store, committed, unit, events } = transactionalStore()
+    const led = new MutationLedger(store, () => 1_000)
+    const seenInside: Array<string | undefined> = []
+    const wrapped = async <T>(fn: () => Promise<T>): Promise<T> =>
+      await unit(async () => {
+        const value = await fn()
+        // Still inside the unit: the record must already be staged here.
+        seenInside.push(await store.getAppliedMutation(asMutationId('m-u')))
+        return value
+      })
+
+    const applied = await led.apply(asMutationId('m-u'), 'test.write', async () => 'ok', {
+      unit: wrapped,
+    })
+
+    expect(applied).toEqual({ outcome: 'applied', value: 'ok' })
+    expect(seenInside).toEqual([JSON.stringify('ok')])
+    expect(events).toEqual(['open', 'commit'])
+    expect(committed.get(asMutationId('m-u'))).toBe(JSON.stringify('ok'))
+  })
+
+  it('a unit that rolls back after the record keeps nothing, so a retry runs again', async () => {
+    const { store, committed, unit } = transactionalStore()
+    const led = new MutationLedger(store, () => 1_000)
+    const failing = async <T>(fn: () => Promise<T>): Promise<T> =>
+      await unit(async () => {
+        await fn()
+        throw new Error('commit refused')
+      })
+
+    await expect(
+      led.apply(asMutationId('m-r'), 'test.write', async () => 'first', { unit: failing }),
+    ).rejects.toThrow('commit refused')
+    expect(committed.has(asMutationId('m-r'))).toBe(false)
+
+    const retry = await led.apply(asMutationId('m-r'), 'test.write', async () => 'second', { unit })
+    expect(retry).toEqual({ outcome: 'applied', value: 'second' })
+  })
+
+  it('a recorded id replays without opening the unit', async () => {
+    const { store, unit, events } = transactionalStore()
+    const led = new MutationLedger(store, () => 1_000)
+    await led.apply(asMutationId('m-p'), 'test.write', async () => 1, { unit })
+    events.length = 0
+    const body = vi.fn(async () => 2)
+
+    const replay = await led.apply(asMutationId('m-p'), 'test.write', body, { unit })
+
+    expect(replay).toEqual({ outcome: 'replayed', value: 1 })
+    expect(body).not.toHaveBeenCalled()
+    expect(events).toEqual([])
+  })
+
+  it('without a mutationId the body still runs inside the unit and nothing is recorded', async () => {
+    const { store, committed, unit, events } = transactionalStore()
+    const led = new MutationLedger(store, () => 1_000)
+
+    const applied = await led.apply(undefined, 'test.write', async () => 'x', { unit })
+
+    expect(applied).toEqual({ outcome: 'applied', value: 'x' })
+    expect(events).toEqual(['open', 'commit'])
+    expect(committed.size).toBe(0)
+  })
+})
