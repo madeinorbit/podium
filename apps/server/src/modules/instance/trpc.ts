@@ -36,7 +36,11 @@ const instanceService = (state: {
         machines: {
           refreshFleetChannel(): void | Promise<void>
           grantHostMachineIfUnowned(ownerUserId: UserId): Promise<boolean>
-          completeHostSetup(ownerUserId: UserId, agentExecution: boolean, passwordHash?: string): Promise<void>
+          completeHostSetup(
+            ownerUserId: UserId,
+            agentExecution: boolean,
+            passwordHash?: string,
+          ): Promise<void>
         }
         updates: { refreshTarget(channel: string): Promise<unknown> }
       }
@@ -59,7 +63,8 @@ const instanceService = (state: {
     transcriptMirrorSetting: async () =>
       (await state.store?.settings.getSettings())?.transcripts.mirror,
     completeHostSetup: state.modules
-      ? async (actor, agentExecution, passwordHash) => await state.modules!.machines.completeHostSetup(actor, agentExecution, passwordHash)
+      ? async (actor, agentExecution, passwordHash) =>
+          await state.modules!.machines.completeHostSetup(actor, agentExecution, passwordHash)
       : undefined,
     // POD-4640: a URL written from Settings reaches Connect now, not in 5 minutes.
     onPublicUrlChanged: state.connect ? () => state.connect?.publicUrlChanged() : undefined,
@@ -96,6 +101,10 @@ export const setupFamilyProcedures = (): SetupProcedures =>
   derivedFamilyProcedures({
     family: 'setup',
     service: instanceService,
+    // Instance setup, login policy and telemetry are the instance's, not a
+    // member's: their admin floors are enforced here (POD-6298). `auth.setPassword`
+    // and `auth.setEmail` are `member`, each member's own.
+    enforceRoleFloor: true,
     commands: SETUP_COMMANDS_TRPC,
     queries: SETUP_QUERIES,
   })
@@ -108,6 +117,10 @@ export const authFamilyProcedures = (): AuthProcedures =>
   derivedFamilyProcedures({
     family: 'auth',
     service: instanceService,
+    // Instance setup, login policy and telemetry are the instance's, not a
+    // member's: their admin floors are enforced here (POD-6298). `auth.setPassword`
+    // and `auth.setEmail` are `member`, each member's own.
+    enforceRoleFloor: true,
     commands: AUTH_COMMANDS_TRPC,
     queries: AUTH_QUERIES,
   })
@@ -119,6 +132,10 @@ export const telemetryFamilyProcedures = (): TelemetryProcedures =>
   derivedFamilyProcedures({
     family: 'telemetry',
     service: instanceService,
+    // Instance setup, login policy and telemetry are the instance's, not a
+    // member's: their admin floors are enforced here (POD-6298). `auth.setPassword`
+    // and `auth.setEmail` are `member`, each member's own.
+    enforceRoleFloor: true,
     commands: TELEMETRY_COMMANDS_TRPC,
     queries: TELEMETRY_QUERIES,
   })

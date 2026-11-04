@@ -1,4 +1,5 @@
 import { syncFeedPrincipal } from '../sync/route-support'
+
 /**
  * THE ONE DERIVED-FAMILY BUILDER (POD-314, the 3.4 cutover).
  *
@@ -57,12 +58,10 @@ import { syncFeedPrincipal } from '../sync/route-support'
  * objects, not by grepping for an absence.
  */
 
-import type { UserId } from '@podium/model'
 import type { AnyCommandContract, TransportTag } from '@podium/commands'
-import {
-  type Principal,
-} from '@podium/protocol'
-import type { TRPCMutationProcedure, TRPCQueryProcedure } from '@trpc/server'
+import type { UserId } from '@podium/model'
+import type { Principal } from '@podium/protocol'
+import { TRPCError, type TRPCMutationProcedure, type TRPCQueryProcedure } from '@trpc/server'
 import type { z } from 'zod'
 import type { Capability } from '../issue-authz'
 import { type PrivateResourceAccess, privateResourceAccess } from '../private-resources'
@@ -338,6 +337,15 @@ export interface DerivedFamily<
   readonly service: (state: FamilyState) => Svc
   readonly commands: C
   readonly queries: Q
+  /**
+   * REFUSE A COMMAND BELOW ITS CONTRACT'S `roleFloor` before the handler runs
+   * (POD-6298). For a family whose service does not check the floor itself: a
+   * human caller (or an agent, through its human) whose live account role is
+   * below `admin` is refused an admin-floor command. A system principal passes.
+   * Opt-in per family, so a family that already gates in its service or its
+   * own authz is not checked twice.
+   */
+  readonly enforceRoleFloor?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -470,6 +478,18 @@ export const familyState = (ctx: Context): FamilyState => ({
   superagent: ctx.superagent,
 })
 
+async function requireRoleFloor(
+  ctx: Context,
+  name: string,
+  contract: AnyCommandContract,
+): Promise<void> {
+  if (contract.policy.roleFloor !== 'admin' || ctx.principal?.kind === 'system') return
+  const role = await ctx.registry.sessionStore.users.roleOf(callerUserId(ctx))
+  if (role !== 'admin') {
+    throw new TRPCError({ code: 'FORBIDDEN', message: `${name} requires an admin account` })
+  }
+}
+
 export function derivedFamilyProcedures<
   Svc,
   C extends Record<string, AnyDerivedCommand>,
@@ -485,7 +505,11 @@ export function derivedFamilyProcedures<
       // the handler, and the handler never sees a ctx. `input` is erased at this
       // point because the table is heterogeneous — each pairing is checked where
       // it is declared, and re-derived for the client by `MutationProcedures`.
-      .mutation(({ ctx, input }) => command.handler(spec.service(familyState(ctx)), input))
+      .mutation(async ({ ctx, input }) => {
+        if (spec.enforceRoleFloor)
+          await requireRoleFloor(ctx, `${spec.family}.${name}`, command.contract)
+        return await command.handler(spec.service(familyState(ctx)), input)
+      })
   }
 
   for (const [name, query] of Object.entries(spec.queries)) {
