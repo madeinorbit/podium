@@ -430,6 +430,13 @@ const custodianOf = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/** The machines one member holds custody of: their sole manage edges. */
+const custodyOf = prepared((db: StoreDrizzle) =>
+  db.select({ id: grants.resourceId }).from(grants)
+    .where(and(eq(grants.resourceKind, 'machine'), eq(grants.grantee, param(grants.grantee, 'grantee')), eq(grants.verb, 'manage'), eq(grants.custody, true)))
+    .prepare(),
+)
+
 const enrollmentPlaceholders = {
   id: sql.placeholder('id'),
   name: sql.placeholder('name'),
@@ -814,6 +821,11 @@ export class MachinesRepository {
   async custodian(id: string): Promise<UserId | null> {
     const edge = await custodianOf(this.db).get({ id })
     return edge ? edge.grantee as UserId : null
+  }
+
+  /** The ids of the machines this member holds custody of (POD-6301). */
+  async custodyMachineIds(grantee: UserId): Promise<MachineId[]> {
+    return (await custodyOf(this.db).all({ grantee })).map((row) => row.id as MachineId)
   }
 
   /** Change personal custody and its rights in the same transaction. Existing

@@ -2897,6 +2897,65 @@ export const accountMachineSends = sqliteTable(
   ],
 )
 
+/**
+ * THE D11 CHECKBOX (POD-6301; design §2.5, §4.6, September addendum §4).
+ *
+ * One row per native login a member decided about: "use this connection on all
+ * machines I hold custody of, now and in future". A native login is named by
+ * its harness and the identity fingerprint its daemon reports, so a different
+ * account found later is a different row and starts unticked. Unticking keeps
+ * the row with `enabled = 0`: nothing already installed is recalled.
+ *
+ * `revision` grows on every change. A transfer remembers the revision it was
+ * exported under and is refused at install if the row moved since (a stale
+ * transfer).
+ */
+export const nativeLoginOptIns = sqliteTable(
+  'native_login_opt_ins',
+  {
+    ownerUserId: text('owner_user_id').$type<UserId>().notNull(),
+    harness: text().notNull(),
+    fingerprint: text().notNull(),
+    enabled: integer().notNull(),
+    revision: integer().notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.ownerUserId, table.harness, table.fingerprint],
+      name: 'native_login_opt_ins_pk',
+    }),
+  ],
+)
+
+/**
+ * WHAT HAPPENED THE LAST TIME A TICKED LOGIN WAS COPIED TO A MACHINE (POD-6301).
+ *
+ * One row per (owner, login, destination machine), replaced on every attempt
+ * that reached a decision: `installed`, or `preserved` when the machine already
+ * had a different login, which Podium leaves in place and reports. It holds no
+ * credential bytes.
+ */
+export const nativeLoginTransfers = sqliteTable(
+  'native_login_transfers',
+  {
+    ownerUserId: text('owner_user_id').$type<UserId>().notNull(),
+    harness: text().notNull(),
+    fingerprint: text().notNull(),
+    machineId: text('machine_id').$type<MachineId>().notNull(),
+    outcome: text().notNull(),
+    revision: integer().notNull(),
+    at: text().notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.ownerUserId, table.harness, table.fingerprint, table.machineId],
+      name: 'native_login_transfers_pk',
+    }),
+    check('native_login_transfers_outcome', sql`outcome IN ('installed', 'preserved')`),
+  ],
+)
+
 export const automations = sqliteTable(
   'automations',
   {

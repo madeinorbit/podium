@@ -670,14 +670,15 @@ export class DaemonRpcService {
     const machineIds = this.deps.onlineMachineIds()
     if (machineIds.length === 0) return []
     const perMachine = await Promise.all(
-      machineIds.map(async (machineId) =>
-        await this.request(
-          QUOTA_HISTORY,
-          120_000,
-          () => ({ samples: [] }),
-          (requestId) => ({ type: 'quotaHistoryRequest', requestId, sinceMs }),
-          machineId,
-        ),
+      machineIds.map(
+        async (machineId) =>
+          await this.request(
+            QUOTA_HISTORY,
+            120_000,
+            () => ({ samples: [] }),
+            (requestId) => ({ type: 'quotaHistoryRequest', requestId, sinceMs }),
+            machineId,
+          ),
       ),
     )
     return perMachine.flatMap((r) => r.samples)
@@ -800,7 +801,7 @@ export class DaemonRpcService {
       35_000,
       () => ({ ok: false, output: 'no daemon answered the git request in time' }),
       (requestId) => ({ type: 'repoOpRequest', requestId, op, cwd, ...(args ? { args } : {}) }),
-      asMachineId(machineId ?? await this.deps.resolveMachine(undefined, cwd)),
+      asMachineId(machineId ?? (await this.deps.resolveMachine(undefined, cwd))),
     )
   }
 
@@ -935,12 +936,14 @@ export class DaemonRpcService {
         at: new Date().toISOString(),
       }),
       (requestId) => ({
-        ...(input.rowId ? {
-          type: 'runtimeDurableSendRequest' as const,
-          rowId: input.rowId,
-          deliveryRecovery: input.deliveryRecovery === true,
-          initialPrompt: input.initialPrompt === true,
-        } : { type: 'runtimeSendRequest' as const }),
+        ...(input.rowId
+          ? {
+              type: 'runtimeDurableSendRequest' as const,
+              rowId: input.rowId,
+              deliveryRecovery: input.deliveryRecovery === true,
+              initialPrompt: input.initialPrompt === true,
+            }
+          : { type: 'runtimeSendRequest' as const }),
         requestId,
         turnId: input.turnId ?? requestId,
         sessionId: input.sessionId,
@@ -956,7 +959,9 @@ export class DaemonRpcService {
         ...(input.sessionUuid ? { sessionUuid: input.sessionUuid } : {}),
         ...(input.accountId ? { accountId: input.accountId } : {}),
         ...(input.requestDigest ? { requestDigest: input.requestDigest } : {}),
-        ...(input.structuredPermissions ? { structuredPermissions: input.structuredPermissions } : {}),
+        ...(input.structuredPermissions
+          ? { structuredPermissions: input.structuredPermissions }
+          : {}),
         ...(input.contextPrompt ? { contextPrompt: input.contextPrompt } : {}),
         ...(input.systemPrompt ? { systemPrompt: input.systemPrompt } : {}),
         ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
@@ -1053,7 +1058,12 @@ export class DaemonRpcService {
   }
 
   async runtimeAnswer(
-    input: { sessionId: SessionId; interactionId: string; principal?: { kind: 'user' | 'agent' | 'system'; ref: string }; answer: Record<string, unknown> },
+    input: {
+      sessionId: SessionId
+      interactionId: string
+      principal?: { kind: 'user' | 'agent' | 'system'; ref: string }
+      answer: Record<string, unknown>
+    },
     machineId: MachineId,
   ): Promise<InteractionAnswerOutcome> {
     return await this.request(
@@ -1127,7 +1137,7 @@ export class DaemonRpcService {
   async credentialExport(
     kinds: PortableCredentialKind[],
     machineId: MachineId,
-    options?: { propagation?: boolean },
+    options?: { propagation?: boolean; expectedFingerprint?: string },
   ): Promise<Omit<CredentialExportResultMessage, 'type' | 'requestId'>> {
     return await this.request(
       CREDENTIAL_EXPORT,
@@ -1138,6 +1148,9 @@ export class DaemonRpcService {
         requestId,
         kinds,
         ...(options?.propagation ? { propagation: true } : {}),
+        ...(options?.expectedFingerprint
+          ? { expectedFingerprint: options.expectedFingerprint }
+          : {}),
       }),
       machineId,
     )
@@ -1147,7 +1160,7 @@ export class DaemonRpcService {
   async credentialInstall(
     bundles: PortableCredentialBundle[],
     machineId: MachineId,
-    options?: { propagation?: boolean },
+    options?: { propagation?: boolean; expectedFingerprint?: string },
   ): Promise<Omit<CredentialInstallResultMessage, 'type' | 'requestId'>> {
     return await this.request(
       CREDENTIAL_INSTALL,
@@ -1158,6 +1171,9 @@ export class DaemonRpcService {
         requestId,
         bundles,
         ...(options?.propagation ? { propagation: true } : {}),
+        ...(options?.expectedFingerprint
+          ? { expectedFingerprint: options.expectedFingerprint }
+          : {}),
       }),
       machineId,
     )
@@ -1404,7 +1420,9 @@ export class DaemonRpcService {
         }),
         session?.machineId ?? input.machineId,
       )
-    return this.deps.portableStateFence ? await this.deps.portableStateFence.runWriter(write) : await write()
+    return this.deps.portableStateFence
+      ? await this.deps.portableStateFence.runWriter(write)
+      : await write()
   }
 
   /** The recorded segment path for a session's conversation, shaped for message
@@ -1439,7 +1457,7 @@ export class DaemonRpcService {
     const recordTotal = (): void => {
       perf.record('phase', 'transcriptRead.total', performance.now() - startedAt, DEPLOYMENT)
     }
-    if (!await this.deps.memory.canReadSession(reader, input.sessionId)) {
+    if (!(await this.deps.memory.canReadSession(reader, input.sessionId))) {
       recordTotal()
       return { items: [], hasMore: false }
     }
@@ -1525,7 +1543,7 @@ export class DaemonRpcService {
             // Segment evidence beats cwd derivation: the recorded absolute path (from
             // discovery scans) survives worktree moves; the daemon still falls back to
             // derivation + sweep when absent/stale (conversation registry §3.3).
-            ...(await this.transcriptPathHint(reader, session) ?? {}),
+            ...((await this.transcriptPathHint(reader, session)) ?? {}),
             ...(input.anchor ? { anchor: input.anchor } : {}),
             direction: input.direction,
             limit: input.limit,
@@ -1580,7 +1598,8 @@ export class DaemonRpcService {
   ): Promise<Omit<FileReadResultMessage, 'type' | 'requestId'>> {
     if ('sessionId' in input) {
       const session = await this.deps.getSession(input.sessionId)
-      if (!session) return await Promise.resolve({ ok: false, path: input.path, error: 'no session' })
+      if (!session)
+        return await Promise.resolve({ ok: false, path: input.path, error: 'no session' })
       const knownPath = knownPathsFor(session.transcriptItems()).has(input.path)
       return await this.request(
         FILE_READ,
@@ -1625,7 +1644,8 @@ export class DaemonRpcService {
   ): Promise<Omit<FileAssetResultMessage, 'type' | 'requestId'>> {
     if ('sessionId' in input) {
       const session = await this.deps.getSession(input.sessionId)
-      if (!session) return await Promise.resolve({ ok: false, path: input.path, error: 'no session' })
+      if (!session)
+        return await Promise.resolve({ ok: false, path: input.path, error: 'no session' })
       const knownPath = knownPathsFor(session.transcriptItems()).has(input.path)
       return await this.request(
         FILE_ASSET,
@@ -1784,11 +1804,15 @@ export class DaemonRpcService {
       })
     const manifest = input.manifest as ServerTransferManifest
     const placement = this.deps.serverPlacement
-    if (placement?.kind !== 'fleet') return {
-      transferId: input.transferId, operation: 'prepare', ok: false, state: 'aborted',
-      error: 'server is external or its placement is unavailable; no source machine for transfer',
-      errorCode: 'identity-mismatch',
-    }
+    if (placement?.kind !== 'fleet')
+      return {
+        transferId: input.transferId,
+        operation: 'prepare',
+        ok: false,
+        state: 'aborted',
+        error: 'server is external or its placement is unavailable; no source machine for transfer',
+        errorCode: 'identity-mismatch',
+      }
     const sourceMachineId = placement.machineId
     if (
       manifest.transferId !== input.transferId ||
