@@ -54,6 +54,7 @@ import {
   AutomationRunWire,
   AutomationWire,
   ChangeCursorSeqField,
+  ChangeProvenanceFields,
   ConversationSummaryWire,
   IssueDepProjection,
   IssueGitStateProjection,
@@ -83,9 +84,17 @@ import { changeRowArm } from './change-row'
  * express inside a discriminated-union arm. It is NOT left to producers here
  * (that is how v1 stated it): {@link validateFeedDelta} enforces it on the frame,
  * where the range rules are enforced too.
+ *
+ * PROVENANCE (ADR 2 D8, POD-6274). `originId`, `causationId` and `mutationId` —
+ * the model's {@link ChangeProvenanceFields} instances — follow `value`, so the
+ * pinned `seq, entity, entityId, op, value` prefix is unchanged and a row
+ * without provenance encodes byte-identically to before. They are what lets a
+ * client recognise its own command coming back in a frame. v2 only: the v1
+ * `messages/sync.ts` row is left as it is, and an older v2 reader drops the
+ * keys because no arm is `.strict()`.
  */
 const feedChangeArm = <E extends z.ZodTypeAny, V extends z.ZodTypeAny>(entity: E, value: V) =>
-  changeRowArm('entityId', entity, ScopedChangeOp, value)
+  changeRowArm('entityId', entity, ScopedChangeOp, value).extend(ChangeProvenanceFields.shape)
 
 export const FeedChange = z.discriminatedUnion('entity', [
   feedChangeArm(z.literal('session'), SessionMeta),

@@ -1,7 +1,7 @@
 /** Live WebSocket feed admission and publication. Snapshots and catch-up are HTTP reads. */
 
 import { createLogger } from '@podium/logger'
-import type { ConversationDiagnosticWire } from '@podium/model'
+import type { ChangeProvenanceFields, ConversationDiagnosticWire } from '@podium/model'
 import {
   asSubscriberId,
   type FeedChange,
@@ -719,6 +719,7 @@ function toWireFrame(frame: ServerFrame, atSeq: number): FeedFrame {
         entityId: change.entityId,
         op: change.op,
         ...(change.op === 'upsert' ? { value: change.payload } : {}),
+        ...provenanceOf(change),
       })) as FeedDeltaMessage['changes'],
     }
     return delta
@@ -769,7 +770,22 @@ export function toFeedChange(change: ScopedChange): FeedChange {
   const base = { seq: change.seq, entity: change.entity, entityId: change.entityId }
   return (
     change.op === 'upsert'
-      ? { ...base, op: 'upsert', value: change.value }
-      : { ...base, op: change.op }
+      ? { ...base, op: 'upsert', value: change.value, ...provenanceOf(change) }
+      : { ...base, op: change.op, ...provenanceOf(change) }
   ) as FeedChange
+}
+
+/**
+ * The command that caused a row (ADR 2 D8, POD-6274), in the wire's key order
+ * after `value`. Only DEFINED fields are written: an `undefined` key would make a
+ * row the Authority made on its own behalf differ from the same row before this
+ * change, and JSON would drop it anyway, so the two paths would disagree on what
+ * a frame contains.
+ */
+function provenanceOf(change: ChangeProvenanceFields): ChangeProvenanceFields {
+  return {
+    ...(change.originId === undefined ? {} : { originId: change.originId }),
+    ...(change.causationId === undefined ? {} : { causationId: change.causationId }),
+    ...(change.mutationId === undefined ? {} : { mutationId: change.mutationId }),
+  }
 }
