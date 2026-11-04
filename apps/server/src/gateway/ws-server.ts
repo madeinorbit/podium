@@ -8,7 +8,7 @@
  */
 
 import type { MachineWire, ServerReadiness, UserId, UserRole } from '@podium/model'
-import { CAP_SYNC_HTTP_V1, WireVersionOffer, negotiateVersion, CLIENT_WIRE_VERSION, MIN_CLIENT_WIRE_VERSION, DAEMON_WIRE_VERSION, MIN_DAEMON_WIRE_VERSION } from '@podium/protocol'
+import { CAP_SYNC_HTTP_V1, fencedMemberOf, memberFenceRefuses, WireVersionOffer, negotiateVersion, CLIENT_WIRE_VERSION, MIN_CLIENT_WIRE_VERSION, DAEMON_WIRE_VERSION, MIN_DAEMON_WIRE_VERSION } from '@podium/protocol'
 import { measureTask } from '@podium/runtime/task-attribution'
 
 export interface NativeServer<T> {
@@ -561,7 +561,10 @@ export function attachWebSockets(
           (auth.principalForClient && resolved === undefined) ||
           (auth.userForClient && userId === undefined) ||
           (auth.roleForClient && userRole === undefined) ||
-          (auth.authorizeClient && !auth.authorizeClient(request))
+          (auth.authorizeClient && !auth.authorizeClient(request)) ||
+          // THE MEMBER FENCE (POD-6292, MU-12): a client opened for one member
+          // never opens a socket with another member's cookie.
+          memberFenceRefuses(fencedMemberOf(request), userId)
         ) {
           return new Response('Unauthorized', {
             status: 401,

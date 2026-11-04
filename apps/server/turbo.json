@@ -2482,6 +2482,7 @@
         "src/trpc.test.ts",
         "src/trpc.ts",
         "src/tunnel-health.ts",
+        "src/two-member-account-switch.test.ts",
         "src/two-member-gaps.test.ts",
         "src/two-member-identity.test.ts",
         "src/two-member-instance.test.ts",

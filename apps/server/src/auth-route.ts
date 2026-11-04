@@ -1,5 +1,3 @@
-import { DisabledMemberError } from './store/auth'
-import { enabledProviderPrincipal, type ProviderPrincipal } from './plugin-auth'
 import { createHash, randomBytes } from 'node:crypto'
 import {
   asUserId,
@@ -9,10 +7,18 @@ import {
   type UserId,
   type UserRole,
 } from '@podium/model'
-import { NativeClientLoginRequest, SESSION_COOKIE } from '@podium/protocol'
+import {
+  fencedMemberOf,
+  MEMBER_FENCE_REFUSAL,
+  memberFenceRefuses,
+  NativeClientLoginRequest,
+  SESSION_COOKIE,
+} from '@podium/protocol'
 import { verifyPasswordHash } from '@podium/runtime/auth-store'
 import type { Context, Hono, MiddlewareHandler } from 'hono'
 import { deleteCookie, setCookie } from 'hono/cookie'
+import { enabledProviderPrincipal, type ProviderPrincipal } from './plugin-auth'
+import { DisabledMemberError } from './store/auth'
 
 /** The subset of the store the auth surface needs (the human-UI login sessions). */
 export interface ClientSessionStore {
@@ -278,7 +284,14 @@ export function clientAuthGuard(opts: {
       ? await opts.principalForRequest(c.req.raw)
       : await enabledProviderPrincipal(await opts.principalSource?.(c.req.raw), opts.users)
     if (supplied === false) return c.json({ error: 'unauthorized' }, 401)
-    if (supplied) return await next()
+    // THE MEMBER FENCE (POD-6292, MU-12): a client opened for one member never
+    // acts with another member's credential. It can only refuse; identity still
+    // comes from the credential alone.
+    const fenced = fencedMemberOf(c.req.raw)
+    if (supplied) {
+      if (memberFenceRefuses(fenced, supplied.memberId)) return memberFenceRefusal(c)
+      return await next()
+    }
     // The credential first: a caller holding a valid one is admitted whether or not login is
     // required, so the "is login required" read is only paid by a caller without one (POD-6220).
     const store = opts.store
@@ -300,6 +313,7 @@ export function clientAuthGuard(opts: {
       if (openToThisCaller) return await next()
       return c.json({ error: 'unauthorized' }, 401)
     }
+    if (memberFenceRefuses(fenced, credential.session.userId)) return memberFenceRefusal(c)
     // Sliding renewal: if this session was last renewed more than a day ago, push the expiry
     // back out and refresh the cookie so an actively-used client never gets logged out. Same
     // token. Bounded to ~one renewal write per session per day.
@@ -317,6 +331,11 @@ export function clientAuthGuard(opts: {
     }
     return await next()
   }
+}
+
+/** 401, so every client treats it as the end of its signed-in session and rebinds. */
+function memberFenceRefusal(c: Context): Response {
+  return c.json({ error: 'signed in as a different member', code: MEMBER_FENCE_REFUSAL }, 401)
 }
 
 export interface AccountCredentialStore {
