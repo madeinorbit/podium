@@ -862,6 +862,10 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       estimateMin: z.coerce.number().int().optional(),
       // Closing through update (`--stage done`, `--closed-reason`) takes close's guard.
       confirmInterrupt: z.boolean().optional(),
+      // The revision the edit was cut from (POD-6295), from `show --json`: a
+      // task that has moved on since refuses the write, naming its current
+      // revision, so nobody's description or brief is overwritten unseen.
+      expectedRevision: z.coerce.number().int().positive().optional(),
     }),
     positionals: ['id'],
     async run(c, a) {
@@ -900,6 +904,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         id: a.id as string,
         patch: patch as never,
         ...(a.confirmInterrupt ? { confirmInterrupt: true } : {}),
+        ...(a.expectedRevision != null ? { expectedRevision: a.expectedRevision as number } : {}),
       })) as { seq: number; acceptance?: string | null }
       const handoff = patch.stage === 'review' || patch.stage === 'done'
       return { text: `updated #${i.seq}${handoff ? acceptanceReminder(i) : ''}`, data: i }
