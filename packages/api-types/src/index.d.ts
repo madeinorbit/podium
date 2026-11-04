@@ -2203,6 +2203,14 @@ type Input_superagent_sendTurn = {
     text: string;
     threadId?: string | undefined;
 };
+type Input_sync_submit = {
+    command: string;
+    confirmed?: true | undefined;
+    expectedRevision?: number | undefined;
+    input?: unknown;
+    mutationId: string;
+    version: number;
+};
 type Input_workflows_checkpoint = {
     evidence?: undefined | {
         artifacts?: string[] | undefined;
@@ -8715,6 +8723,11 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 }[];
                 throughSeq: number;
             };
+            meta: unknown;
+        }>;
+        "submit": TRPC.TRPCMutationProcedure<{
+            input: Input_sync_submit;
+            output: Protocol.SyncSubmitReply;
             meta: unknown;
         }>;
     };
