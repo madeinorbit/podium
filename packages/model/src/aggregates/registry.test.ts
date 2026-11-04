@@ -430,6 +430,7 @@ const ISSUE_AGGREGATE_KEYS = [
   'landedAt',
   'landedSha',
   'lastLifecycleActor',
+  'legacyAssignee',
   'linearId',
   'linearIdentifier',
   'linearUrl',
@@ -463,7 +464,7 @@ describe('the canonical key sets are pinned exactly', () => {
     expect(Object.keys(SessionAggregate.shape).sort()).toEqual(SESSION_AGGREGATE_KEYS)
   })
 
-  it('IssueAggregate carries exactly these 58 keys and no others', () => {
+  it('IssueAggregate carries exactly these 59 keys and no others', () => {
     expect(Object.keys(IssueAggregate.shape).sort()).toEqual(ISSUE_AGGREGATE_KEYS)
   })
 
