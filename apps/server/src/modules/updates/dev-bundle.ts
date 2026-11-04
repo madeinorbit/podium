@@ -1,5 +1,3 @@
-import { targetDaemonWireRefusal } from './wave'
-import { DAEMON_WIRE_VERSION, MIN_DAEMON_WIRE_VERSION, WireVersionRange } from '@podium/protocol'
 import { execFile } from 'node:child_process'
 import { createHash, createPrivateKey, createPublicKey } from 'node:crypto'
 import { createReadStream, type Dirent, existsSync, readFileSync, renameSync } from 'node:fs'
@@ -10,14 +8,19 @@ import { promisify } from 'node:util'
 import { createLogger, describeError } from '@podium/logger'
 import {
   commitShaFromDevVersion,
+  DAEMON_WIRE_VERSION,
   isFlatPublisherDevVersion,
   isHeadlessPlatform,
   isPublisherDevVersion,
+  MIN_DAEMON_WIRE_VERSION,
   mintDevVersion,
   parsePublisherDevVersion,
   platformTargetFor,
   type ReleaseProposal,
+  releaseNotesFor,
+  type UpdateNotes,
   UpdateTarget,
+  WireVersionRange,
 } from '@podium/protocol'
 import { resolveInstanceId, stateDir } from '@podium/runtime/config'
 import { instanceBuildSliceName } from '@podium/runtime/instance'
@@ -58,6 +61,7 @@ import {
   desktopReleaseManifestUrl,
   validateDesktopFeedManifest,
 } from './release-target'
+import { targetDaemonWireRefusal } from './wave'
 
 const log = createLogger('server:updates')
 
@@ -104,8 +108,31 @@ async function git(root: string, args: readonly string[]): Promise<string> {
 /** Read the advertised range from the artifact's commit, never the publisher binary. */
 export async function readDaemonWireAt(root: string, sha: string): Promise<WireVersionRange> {
   const source = await git(root, ['show', `${sha}:packages/protocol/src/version.ts`])
-  const read = (name: string): number => Number(source.match(new RegExp(`export const ${name}\\s*=\\s*(\\d+)`))?.[1])
-  return WireVersionRange.parse({ min: read('MIN_DAEMON_WIRE_VERSION'), max: read('DAEMON_WIRE_VERSION') })
+  const read = (name: string): number =>
+    Number(source.match(new RegExp(`export const ${name}\\s*=\\s*(\\d+)`))?.[1])
+  return WireVersionRange.parse({
+    min: read('MIN_DAEMON_WIRE_VERSION'),
+    max: read('DAEMON_WIRE_VERSION'),
+  })
+}
+
+/**
+ * The release notes a dev build of `version` carries, read from the build's own commit: the
+ * `## [Unreleased]` section of its CHANGELOG.md, which is what a dev build previews. Notes are
+ * a courtesy, never a gate: a commit without a changelog, or one whose Unreleased section is
+ * empty, publishes without notes.
+ */
+export async function readReleaseNotesAt(
+  root: string,
+  sha: string,
+  version: string,
+): Promise<UpdateNotes | undefined> {
+  try {
+    const markdown = await git(root, ['show', `${sha}:CHANGELOG.md`])
+    return releaseNotesFor(markdown, version) ?? undefined
+  } catch {
+    return undefined
+  }
 }
 
 /**
@@ -1753,6 +1780,8 @@ export function devTarget(
     webDigest?: string
     daemonWire?: WireVersionRange
     schemaMigrations?: string[]
+    /** What this build previews: the Unreleased section at its commit. Absent means none. */
+    notes?: UpdateNotes
   } = {},
 ): UpdateTarget {
   const hostPlatform = opts.platform ?? developmentPlatformTarget()
@@ -1781,6 +1810,7 @@ export function devTarget(
   return {
     version: built.version,
     daemonWire: opts.daemonWire ?? { min: MIN_DAEMON_WIRE_VERSION, max: DAEMON_WIRE_VERSION },
+    ...(opts.notes ? { notes: opts.notes } : {}),
     critical: false,
     minRequired: { desktopBridge: 1 },
     schema: { migrations },
@@ -1983,6 +2013,8 @@ export interface DevBundlePublisherDeps extends Omit<DevBundleBuildDeps, 'headSh
    */
   daemonWireAt?: (sha: string) => Promise<WireVersionRange>
   migrationsAt?: (sha: string) => Promise<string[] | undefined>
+  /** The notes a build of `version` at `sha` carries. Seam for tests; defaults to the commit's CHANGELOG.md. */
+  notesAt?: (sha: string, version: string) => Promise<UpdateNotes | undefined>
   /**
    * Fetches one channel's standing shell manifest. Seam for tests; production reads GitHub.
    *
@@ -2134,6 +2166,11 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
       return undefined
     }
   }
+
+  const readNotesAt = (sha: string, version: string): Promise<UpdateNotes | undefined> =>
+    deps.notesAt
+      ? deps.notesAt(sha, version).catch(() => undefined)
+      : readReleaseNotesAt(deps.root ?? SOURCE_ROOT, sha, version)
 
   const recordFailure = (error: unknown, sha: string | null) => {
     const reason = describeError(error)
@@ -2438,6 +2475,7 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
       sourceRoot: deps.root,
       schemaMigrations: settled.migrations,
       daemonWire: await deps.daemonWireAt?.(settled.headSha),
+      notes: await readNotesAt(settled.headSha, built.version),
     })
   }
 
@@ -2512,6 +2550,7 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
       sourceRoot: deps.root,
       schemaMigrations: migrations,
       daemonWire: await deps.daemonWireAt?.(builtSha),
+      notes: await readNotesAt(builtSha, built.version),
     })
   }
 

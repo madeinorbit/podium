@@ -1,3 +1,4 @@
+export * from './changelog'
 export * from './convergence'
 export * from './dev-version'
 export * from './platforms'

@@ -241,3 +241,87 @@ describe('UpdatePanel', () => {
     expect(container.firstChild).toBeNull()
   })
 })
+
+const NOTES = `**One flight deck for the whole mission.**
+
+### What's new
+
+- **Flight deck.** The whole mission in one view.
+- **Agent profiles.** Pick one for a task.`
+
+describe('UpdatePanel release notes', () => {
+  it('renders the changelog Markdown instead of printing its syntax', () => {
+    render(
+      <UpdatePanel
+        view={{ ...RUNNING, notes: { summary: NOTES } }}
+        pending={null}
+        onAction={vi.fn()}
+        onHide={vi.fn()}
+      />,
+    )
+    const notes = screen.getByTestId('update-notes')
+    expect(notes.textContent).not.toContain('**')
+    expect(notes.textContent).not.toContain('###')
+    expect(notes.querySelectorAll('li')).toHaveLength(2)
+    expect(notes.querySelector('h3')?.textContent).toBe("What's new")
+    expect(notes.querySelector('strong')?.textContent).toBe(
+      'One flight deck for the whole mission.',
+    )
+  })
+
+  it('links a stable release to its page, and offers no toggle while everything fits', () => {
+    render(
+      <UpdatePanel
+        view={{
+          ...RUNNING,
+          notes: {
+            summary: NOTES,
+            url: 'https://github.com/madeinorbit/podium/releases/tag/v0.3.0',
+          },
+        }}
+        pending={null}
+        onAction={vi.fn()}
+        onHide={vi.fn()}
+      />,
+    )
+    const link = screen.getByTestId('update-notes-link') as HTMLAnchorElement
+    expect(link.href).toBe('https://github.com/madeinorbit/podium/releases/tag/v0.3.0')
+    expect(link.target).toBe('_blank')
+    expect(screen.queryByTestId('update-notes-toggle')).toBeNull()
+  })
+
+  it('offers Show all when the notes are cut, and Show less once they are open', () => {
+    const scrollHeight = vi
+      .spyOn(HTMLElement.prototype, 'scrollHeight', 'get')
+      .mockImplementation(function (this: HTMLElement) {
+        return this.classList.contains('update-notes') ? 900 : 0
+      })
+    const clientHeight = vi
+      .spyOn(HTMLElement.prototype, 'clientHeight', 'get')
+      .mockImplementation(function (this: HTMLElement) {
+        return this.classList.contains('update-notes') ? 120 : 0
+      })
+    try {
+      render(
+        <UpdatePanel
+          view={{ ...RUNNING, notes: { summary: NOTES } }}
+          pending={null}
+          onAction={vi.fn()}
+          onHide={vi.fn()}
+        />,
+      )
+      const body = screen.getByTestId('update-notes').querySelector('.update-notes')
+      expect(body?.getAttribute('data-cut')).toBe('true')
+      const toggle = screen.getByTestId('update-notes-toggle')
+      expect(toggle.textContent).toBe('Show all')
+      fireEvent.click(toggle)
+      expect(toggle.textContent).toBe('Show less')
+      expect(toggle.getAttribute('aria-expanded')).toBe('true')
+      expect(body?.getAttribute('data-open')).toBe('true')
+      expect(screen.queryByTestId('update-notes-link')).toBeNull()
+    } finally {
+      scrollHeight.mockRestore()
+      clientHeight.mockRestore()
+    }
+  })
+})

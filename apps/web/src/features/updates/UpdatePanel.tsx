@@ -13,8 +13,10 @@
  * had its own reason to exist and nobody owned the question "which one should
  * this person press?" — the view model owns it now.
  */
-import type { JSX } from 'react'
+import { ChevronDown, ChevronUp, ExternalLink } from 'lucide-react'
+import { type JSX, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
+import { renderReadoutMarkdown } from '@/lib/markdown'
 import type { UpdatePanelView } from './operation-view'
 import type { ReloadHandshakeStatus } from './reload-handshake'
 import type { Place, PlaceImpact } from './update-view'
@@ -157,6 +159,85 @@ function StepList({ view }: { view: UpdatePanelView }): JSX.Element | null {
   )
 }
 
+/**
+ * RELEASE NOTES, AS MUCH AS FITS. The notes are the changelog section the release shipped with,
+ * so they are Markdown: a headline, headings, bold-led bullets. They render as a readout (no
+ * anchors; the panel owns the one link out) and take whatever height the panel has left after
+ * the states above them, fading out where they are cut. "Show all" lets them take their full
+ * height, and the panel body scrolls; a stable release also links to its GitHub page, which
+ * carries the same text.
+ */
+export function ReleaseNotes({ summary, url }: { summary?: string; url?: string }): JSX.Element {
+  const html = useMemo(() => (summary ? renderReadoutMarkdown(summary.trim()) : ''), [summary])
+  const [open, setOpen] = useState(false)
+  const [cut, setCut] = useState(false)
+  const bodyRef = useRef<HTMLDivElement | null>(null)
+  const bodyId = useId()
+  // biome-ignore lint/correctness/useExhaustiveDependencies: new notes can overflow a box whose size never changes, so re-measure on them
+  useLayoutEffect(() => {
+    const body = bodyRef.current
+    if (!body || open) return
+    const measure = () => setCut(body.scrollHeight > body.clientHeight + 1)
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(body)
+    return () => observer.disconnect()
+  }, [html, open])
+  return (
+    <section
+      data-testid="update-notes"
+      aria-label="Release notes"
+      className={open ? 'flex shrink-0 flex-col gap-1.5' : 'flex min-h-28 shrink flex-col gap-1.5'}
+    >
+      {html && (
+        <div
+          ref={bodyRef}
+          id={bodyId}
+          className="update-notes min-h-0 flex-1"
+          data-open={open}
+          data-cut={!open && cut}
+          // biome-ignore lint/security/noDangerouslySetInnerHtml: renderReadoutMarkdown sanitizes through DOMPurify and drops every anchor
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      )}
+      {((html && (cut || open)) || url) && (
+        <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+          {html && (cut || open) && (
+            <button
+              type="button"
+              data-testid="update-notes-toggle"
+              className="inline-flex items-center gap-1 font-medium text-muted-foreground hover:text-foreground"
+              aria-expanded={open}
+              aria-controls={bodyId}
+              onClick={() => setOpen(!open)}
+            >
+              {open ? 'Show less' : 'Show all'}
+              {open ? (
+                <ChevronUp size={11} aria-hidden="true" />
+              ) : (
+                <ChevronDown size={11} aria-hidden="true" />
+              )}
+            </button>
+          )}
+          {url && (
+            <a
+              data-testid="update-notes-link"
+              className="inline-flex items-center gap-1 font-medium text-primary underline-offset-3 hover:underline"
+              href={url}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {html ? 'Release page' : "What's new"}
+              <ExternalLink size={10} aria-hidden="true" />
+            </a>
+          )}
+        </div>
+      )}
+    </section>
+  )
+}
+
 export function UpdatePanel({
   view,
   pending,
@@ -174,9 +255,9 @@ export function UpdatePanel({
       role="dialog"
       aria-modal="false"
       aria-label="Podium update"
-      className="fixed right-4 bottom-9 z-50 w-[min(28rem,calc(100vw-2rem))] max-h-[min(42rem,calc(100vh-4rem))] overflow-y-auto rounded-xl border border-border bg-popover text-popover-foreground shadow-[0_14px_34px_rgb(0_0_0_/_0.65),0_2px_8px_rgb(0_0_0_/_0.5)]"
+      className="fixed right-4 bottom-9 z-50 flex w-[min(28rem,calc(100vw-2rem))] max-h-[min(42rem,calc(100vh-4rem))] flex-col overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-[0_14px_34px_rgb(0_0_0_/_0.65),0_2px_8px_rgb(0_0_0_/_0.5)]"
     >
-      <div className="flex flex-col gap-0.5 border-b border-border px-4 pt-4 pb-3">
+      <div className="flex shrink-0 flex-col gap-0.5 border-b border-border px-4 pt-4 pb-3">
         <h2 className="text-[14px] font-semibold tracking-[-0.01em] break-words">{view.title}</h2>
         {view.version && (
           <p
@@ -191,7 +272,12 @@ export function UpdatePanel({
         )}
       </div>
 
-      <div className="flex flex-col gap-3 px-4 py-4">
+      {/*
+        The body takes the height left between header and footer. Everything in it keeps its
+        natural height except the release notes, which shrink to what is left; when even that
+        is not enough (or the notes are shown in full), the body scrolls.
+      */}
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-4">
         {/* The offer's place rows: what this update touches, ordered by how much you'll notice. */}
         {view.places && view.places.length > 0 && <PlaceList places={view.places} />}
 
@@ -291,22 +377,12 @@ export function UpdatePanel({
           </div>
         )}
 
-        {view.notes?.summary && (
-          <p className="text-[11px] leading-[1.5] text-muted-foreground">{view.notes.summary}</p>
-        )}
-        {view.notes?.url && (
-          <a
-            className="w-fit text-[11px] font-medium text-primary underline-offset-3 hover:underline"
-            href={view.notes.url}
-            target="_blank"
-            rel="noreferrer"
-          >
-            What's new
-          </a>
+        {(view.notes?.summary || view.notes?.url) && (
+          <ReleaseNotes summary={view.notes.summary} url={view.notes.url} />
         )}
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/30 px-4 py-3">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/30 px-4 py-3">
         {/*
           ONE DISMISS BUTTON (§6.1). It collapses to the indicator and discards
           nothing. Later while the update can still come back for the user;

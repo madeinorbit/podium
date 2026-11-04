@@ -89,6 +89,19 @@ describe('releaseNotesFor', () => {
     expect(releaseNotesFor(CHANGELOG, '0.5.0')).toBeNull()
   })
 
+  it('gives a dev build the Unreleased notes, in both dev version forms', () => {
+    expect(releaseNotesFor(CHANGELOG, '0.2.0-dev.76+bcca0ff')?.summary).toContain(
+      'not yet released',
+    )
+    expect(releaseNotesFor(CHANGELOG, '0.2.0-dev.76')?.summary).toContain('not yet released')
+    expect(releaseNotesFor(CHANGELOG, 'dev+bcca0ff')?.summary).toContain('not yet released')
+  })
+
+  it('does not read a prerelease that merely contains "dev" as a preview', () => {
+    expect(releaseNotesFor(CHANGELOG, '0.5.0-devtools.1')).toBeNull()
+    expect(releaseNotesFor(CHANGELOG, '0.5.0-rc.1')).toBeNull()
+  })
+
   it('has nothing for an edge build when Unreleased is empty', () => {
     const empty = CHANGELOG.replace('### Added\n\n- Something not yet released.\n\n', '')
     expect(releaseNotesFor(empty, '0.5.0-edge.3')).toBeNull()

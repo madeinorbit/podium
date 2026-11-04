@@ -24,6 +24,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, isAbsolute, join } from 'node:path'
+import { releaseNotesFor } from '../packages/protocol/src/update/changelog'
 // Imported from source, not the `@podium/protocol` entry point: that entry resolves to
 // `dist/`, which the release workflow never builds (`bun install --ignore-scripts`), so a
 // bare specifier fails at runtime in CI. Same convention as the other scripts/ imports.
@@ -44,7 +45,6 @@ import {
   type PackagedHeadlessBundle,
   packageHeadlessForFreshClients,
 } from './build-bun'
-import { releaseNotesFor } from './changelog'
 import {
   assertNoCallerSuppliedClientRootDigest,
   CLIENT_ROOT_DIGEST_FILE,
@@ -617,6 +617,21 @@ export function stableReleasePageNotesArgs(notesFile: string | undefined): strin
   return notesFile ? ['--notes-file', notesFile] : ['--generate-notes']
 }
 
+/**
+ * Where the update panel sends someone for the whole text. Only a stable release's GitHub page
+ * carries the changelog notes (see {@link stableReleasePageNotesArgs}); an edge cut's rolling
+ * page and a dev build have no page of their own, so the panel shows their notes in place.
+ */
+export function releaseNotesWithPage(
+  notes: { summary: string } | null,
+  channel: PublishChannel,
+  tag: string,
+): { summary: string; url?: string } | null {
+  if (!notes) return null
+  if (channel !== 'stable' || !tag) return notes
+  return { ...notes, url: `https://github.com/madeinorbit/podium/releases/tag/${tag}` }
+}
+
 export function publishPreparedHeadless(p: {
   channel: PublishChannel
   tag: string
@@ -631,7 +646,11 @@ export function publishPreparedHeadless(p: {
   if (p.channel === 'stable' && !p.tag) throw new Error('stable release needs --tag vX.Y.Z')
   const { version, prepared } = loadPreparedHeadless(p.dir, p.requiredTargets)
   const manifestName = 'podium-update.json'
-  const notes = releaseNotesFor(readFileSync(p.changelogPath ?? 'CHANGELOG.md', 'utf8'), version)
+  const notes = releaseNotesWithPage(
+    releaseNotesFor(readFileSync(p.changelogPath ?? 'CHANGELOG.md', 'utf8'), version),
+    p.channel,
+    p.tag,
+  )
   writeFileSync(
     join(p.dir, manifestName),
     `${JSON.stringify(
