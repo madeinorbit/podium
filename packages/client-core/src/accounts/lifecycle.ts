@@ -301,5 +301,25 @@ export function createSingleServerAccounts(args: {
         if (saved.profiles[0]) await remove(saved.profiles[0])
         await drain()
       }),
+    /**
+     * THE SERVER REFUSED THIS ACCOUNT (POD-6293; design §4.5). The member was
+     * disabled, removed or signed out elsewhere, maybe while this device was
+     * offline: erase that member's stored data, and only theirs. A profile
+     * another tab has since saved for someone else is left alone; with no
+     * profile left for the refused member, their namespace is erased anyway.
+     */
+    removePrincipal: (principal: string) =>
+      writes.run(async () => {
+        const identity = parseReplicaNamespaceKey(principal)
+        if (!identity) return
+        const saved = await profiles.loadServerProfiles()
+        const profile = saved.profiles.find(
+          (row) =>
+            row.syncBoundaryId === identity.syncBoundaryId && row.memberId === identity.memberId,
+        )
+        if (profile) await remove(profile)
+        else await args.erasePrincipal(principal)
+        await drain()
+      }),
   }
 }

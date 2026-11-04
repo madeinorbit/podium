@@ -448,14 +448,15 @@ export class AutomationsService {
   private async apply(decision: AutomationDecision): Promise<void> {
     const automation = await this.deps.store.get(decision.automationId)
     if (!automation) return
-    // A DISABLED OR REMOVED OWNER'S SCHEDULE DOES NOT FIRE (POD-6293). Nothing
-    // is recorded and nothing re-arms: the occurrence stays due, and fires under
-    // the owner's live authority only if they are enabled again.
-    if (!(await this.deps.principalForOwner(automation.ownerUserId))) return
     const runId = automationOccurrenceRunId(automation.id, decision.firedAt)
     const existing = await this.deps.store.getRun(runId)
     // Fully settled occurrence — idempotent no-op.
     if (existing && existing.detail !== 'reserved') return
+    // A DISABLED OR REMOVED OWNER'S SCHEDULE DOES NOT FIRE (POD-6293). A new
+    // occurrence records nothing and re-arms nothing: it stays due, and fires
+    // under the owner's live authority only if they are enabled again. One
+    // reserved before the owner lost access still settles below, as refused.
+    if (!existing && !(await this.deps.principalForOwner(automation.ownerUserId))) return
 
     const rearmed: AutomationRow = {
       ...automation,

@@ -66,6 +66,36 @@ const nativeCredentials = (): AccountCredentials => ({
 describe('browser account metadata storage', () => {
   afterEach(() => vi.unstubAllGlobals())
 
+  it("a refused account erases only that member's stored data (POD-6293)", async () => {
+    const values = new Map<string, string>()
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    })
+    const erase = vi.fn(async () => {})
+    const accounts = createSingleServerAccounts({
+      httpOrigin: 'https://a.example',
+      metadataPrefix: 'podium.accounts.web.refused',
+      storage: browserProfileMetadataStorage,
+      erasePrincipal: erase,
+    })
+    // Bob was signed in on this device when the server refused him.
+    await accounts.recordPrincipal(BOB)
+    await accounts.removePrincipal(BOB)
+    expect(erase).toHaveBeenCalledExactlyOnceWith(BOB)
+    expect((await accounts.profiles.loadServerProfiles()).profiles).toEqual([])
+    expect(await accounts.profiles.loadPendingProfileCleanups()).toEqual([])
+    // Alice has signed in since; a late refusal naming Bob still erases Bob's
+    // namespace and leaves Alice's sign-in and data alone.
+    erase.mockClear()
+    await accounts.recordPrincipal(ALICE)
+    await accounts.removePrincipal(BOB)
+    expect(erase).toHaveBeenCalledExactlyOnceWith(BOB)
+    expect((await accounts.profiles.loadServerProfiles()).profiles).toMatchObject([
+      { memberId: 'alice' },
+    ])
+  })
+
   it('keeps scoped profiles and cleanup journals separate without clearing UI state', async () => {
     const values = new Map([['podium.view', 'sessions']])
     vi.stubGlobal('localStorage', {

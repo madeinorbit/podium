@@ -11,7 +11,6 @@
  * Each test boots its own instance: these tests change who may act.
  */
 
-import { asDelegationRef } from '@podium/protocol'
 import {
   actorAgent,
   actorUser,
@@ -20,6 +19,7 @@ import {
   type SessionId,
   type UserId,
 } from '@podium/model'
+import { asDelegationRef } from '@podium/protocol'
 import { afterEach, expect, it } from 'vitest'
 import type { ClientConn } from './gateway/client-registry'
 import type { InboxPrincipalReference } from './modules/sessions/inbox'
@@ -197,9 +197,11 @@ it("ending a delegation refuses its agent's calls and the work queued under it",
   await inst.handle.registry.modules.sessions.killSession({ sessionId }).catch(() => {})
 
   await expect(edit('after the delegation ended')).rejects.toThrow()
-  expect(await dispatch(inst, inst.sessions.bobOnAliceTask, agentQueued, Date.now())).toMatchObject({
-    ok: false,
-  })
+  expect(await dispatch(inst, inst.sessions.bobOnAliceTask, agentQueued, Date.now())).toMatchObject(
+    {
+      ok: false,
+    },
+  )
 })
 
 it("Bob's daemon reconnecting after Bob is disabled gets none of his queued work", async () => {
@@ -217,9 +219,16 @@ it("Bob's daemon reconnecting after Bob is disabled gets none of his queued work
       sessionId: inst.sessions.bob,
       data: marker,
     })
-    machines.toMachine(inst.machines.bob, { type: 'kill', sessionId: asSessionId(inst.sessions.bob) })
+    machines.toMachine(inst.machines.bob, {
+      type: 'kill',
+      sessionId: asSessionId(inst.sessions.bob),
+    })
     await tick()
-    await inst.handle.registry.sessionStore.users.disable(bob.id, new Date().toISOString(), alice.id)
+    await inst.handle.registry.sessionStore.users.disable(
+      bob.id,
+      new Date().toISOString(),
+      alice.id,
+    )
   })
 
   const sent = inst.daemonFrames(inst.machines.bob).slice(before)

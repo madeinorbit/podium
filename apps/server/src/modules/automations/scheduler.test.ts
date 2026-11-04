@@ -600,6 +600,21 @@ describe('AutomationsService.tick — spawn', () => {
     expect((await h.store.automations.get(a.id))?.nextRunAt).not.toBe(firedAt)
   })
 
+  it("a disabled owner's schedule does not fire: no run, no spawn, nothing re-armed (POD-6293)", async () => {
+    const h = await harness()
+    const a = await daily(h)
+    const armed = (await h.store.automations.get(a.id))?.nextRunAt
+    h.revokeOwner()
+    h.setNow(new Date(2026, 6, 15, 9, 0, 10))
+    await h.service.tick()
+    await h.service.tick()
+    expect(h.createIssue).not.toHaveBeenCalled()
+    expect(h.createSession).not.toHaveBeenCalled()
+    expect(h.deliverPrompt).not.toHaveBeenCalled()
+    expect(await h.service.runs(a.id)).toEqual([])
+    expect((await h.store.automations.get(a.id))?.nextRunAt).toBe(armed)
+  })
+
   it('re-authorizes a reserved occurrence on replay after its owner is revoked', async () => {
     const h = await harness()
     const a = await daily(h)

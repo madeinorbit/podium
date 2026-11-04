@@ -3,11 +3,23 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useAccount } from '@/lib/account-context'
 import { LoginGate, LoginView } from './LoginGate'
 
+// The refused account's erase (POD-6293) is observed, not run: jsdom has no
+// IndexedDB to erase. Every other account operation is the real one.
+const removePrincipal = vi.fn(async (_principal: string) => {})
+vi.mock('@/lib/accounts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/accounts')>()
+  return {
+    ...actual,
+    webAccounts: (origin: string) => ({ ...actual.webAccounts(origin), removePrincipal }),
+  }
+})
+
 afterEach(() => {
   cleanup()
   localStorage.clear()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
+  removePrincipal.mockClear()
 })
 
 const child = <div>APP-READY</div>
@@ -640,6 +652,7 @@ it('ignores a late expiry from an account that is no longer mounted (POD-6292)',
   await new Promise((resolve) => setTimeout(resolve, 20))
   expect(screen.getByText('APP-READY')).toBeTruthy()
   expect(fetchMock.mock.calls.length).toBe(probes)
+  expect(removePrincipal).not.toHaveBeenCalled()
   // Bob's own expiry still ends Bob's session.
   fetchMock.mockResolvedValue({
     ok: true,
@@ -653,6 +666,30 @@ it('ignores a late expiry from an account that is no longer mounted (POD-6292)',
     }),
   )
   expect(await screen.findByLabelText(/password/i)).toBeTruthy()
+})
+
+it("a refused account's stored data is erased before the sign-in shows again (POD-6293)", async () => {
+  // Bob was disabled or signed out elsewhere while this device was offline.
+  const BOB = JSON.stringify(['installation-a', 'bob'])
+  const fetchMock = statusFetch({
+    needsAuth: true,
+    authed: true,
+    userId: 'bob',
+    memberId: 'bob',
+    syncBoundaryId: 'installation-a',
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  render(<LoginGate>{child}</LoginGate>)
+  expect(await screen.findByText('APP-READY')).toBeTruthy()
+  fetchMock.mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => ({ needsAuth: true, authed: false }),
+  })
+  fireEvent(window, new CustomEvent('podium:sync-auth-expired', { detail: { principal: BOB } }))
+  expect(await screen.findByLabelText(/password/i)).toBeTruthy()
+  expect(screen.queryByText('APP-READY')).toBeNull()
+  expect(removePrincipal).toHaveBeenCalledExactlyOnceWith(BOB)
 })
 
 describe('the sign-out control is offered only where a login is required (POD-6292)', () => {

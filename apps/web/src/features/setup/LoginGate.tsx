@@ -536,7 +536,18 @@ export function LoginGate({
       authGeneration.current += 1
       setAuth(undefined)
       setPhase('loading')
-      setAuthAttempt((n) => n + 1)
+      // The server refused this account: disabled, removed or signed out
+      // elsewhere, possibly while this device was offline. Its stored data
+      // goes before anything is shown again (POD-6293); a failed erase is
+      // retried from the cleanup intent at the next start.
+      const refused = named ?? (mounted.kind === 'principal' ? mounted.principal : undefined)
+      void (
+        refused === undefined
+          ? Promise.resolve()
+          : webAccounts(serverConfig(window.location).httpOrigin).removePrincipal(refused)
+      )
+        .catch(() => {})
+        .finally(() => setAuthAttempt((n) => n + 1))
     }
     window.addEventListener(SYNC_AUTH_EXPIRED_EVENT, expired)
     return () => window.removeEventListener(SYNC_AUTH_EXPIRED_EVENT, expired)
