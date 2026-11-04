@@ -4998,7 +4998,9 @@ describe('MessageDeliveryService under the async store (POD-3806)', () => {
     // NOT ONE notify ran inside the span. An alarm raised there is a savepoint
     // on the caller's frame, and it would also announce work a rollback unmakes.
     expect(notifiedInsideTheSpan).toBe(0)
-    expect(attention).toHaveLength(1)
+    // The delivery attempt that raises it is itself an after-commit effect
+    // inside a span (POD-6349), so it lands a turn after the commit.
+    await vi.waitFor(() => expect(attention).toHaveLength(1))
   })
 
   it('marking the mirror read does not break the span the self-suppression runs in', async () => {
@@ -5008,14 +5010,22 @@ describe('MessageDeliveryService under the async store (POD-3806)', () => {
       mirrorOpensTransaction: true,
     })
 
+    let id = ''
     await store.transact(async () => {
       const r = await svc.send(
         { kind: 'agent', issueId: ISSUE.id, sessionId: asSessionId('s1') },
         { to: { kind: 'issue', id: ISSUE.id }, body: 'status to self' },
       )
-      expect(r.message.deliveryStatus).toBe('confirmed')
+      // Inside a span the delivery attempt waits for the commit (POD-6349):
+      // the row is stored and the send answers queued.
+      expect(r.message.deliveryStatus).toBe('stored')
+      id = r.message.id
       await store.issues.getIssue(asIssueId('iss_after'))
     })
+    // After the commit the self-suppression consumes the row to the ledger.
+    await vi.waitFor(async () =>
+      expect((await store.messages.getMessage(id))?.deliveryStatus).toBe('confirmed'),
+    )
   })
 })
 

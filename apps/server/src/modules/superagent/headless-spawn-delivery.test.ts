@@ -402,6 +402,7 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
       resetPriorities: () => {},
       pushPriorities: () => {},
       parkArchivedSession: async () => {},
+      retireArchivedSurvivor: async () => {},
       reattachMessage: async () => {
         throw new Error('no headed probe expected for live headless rows')
       },

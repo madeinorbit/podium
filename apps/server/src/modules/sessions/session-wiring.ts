@@ -170,6 +170,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     resetPriorities: () => bag.state.resetPriorities(),
     pushPriorities: () => bag.pushPriorities(),
     parkArchivedSession: (sessionId) => bag.parkArchivedSession(sessionId),
+    retireArchivedSurvivor: (sessionId) => bag.retireArchivedSurvivor(sessionId),
     reattachMessage: (session, machineId) => sessionClientPlane.reattachMessageFor(session, machineId),
     parkedOn: async (machineId) =>
       (await bag.records.onMachine(machineId, 'machineReconciler')).filter((s: SessionSubject) => !isRunningStatus(s.status)),

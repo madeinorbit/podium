@@ -32,6 +32,8 @@
  */
 
 import type { SessionResidency } from './residency'
+import { createLogger } from '@podium/logger'
+import { afterCommit, spanOpen } from '../../store/executor/executor'
 import type { SessionId, SessionMeta, MachineId, IssueId, UserId } from '@podium/model'
 import { isIssueClosed } from '@podium/model'
 import { AUTO_ARCHIVE_READ_WINDOW_MS } from '@podium/protocol'
@@ -54,6 +56,8 @@ import type { SessionTerminalProof } from './terminal-proof'
 import { buildShellLifetimeInputs, decideShellLifetime, shellQuietMs } from './terminal-lifetime'
 import { resolveShellOwningIssue } from '../shells/service'
 import type { SessionView } from './view'
+
+const log = createLogger('server:session-teardown')
 
 /** Only the ledger face killSession needs — avoids importing lifecycle for a type. */
 /**
@@ -162,9 +166,41 @@ export class SessionTeardown {
       draft.stopReason = 'parent'
     })
     await this.failUnresumableMessages(sessionId)
+    // THE STOP WAITS FOR THE COMMIT [POD-6349]. It is a round trip to the
+    // agent's machine, and from inside a unit of work it would retire an agent
+    // for an archive that can still roll back, while holding the write
+    // connection for the daemon's answer. The auto-archive sweep already calls
+    // this from its maintenance span, and `sessions.setArchived` will once it
+    // runs on the sync entry point. Inside a span the unconfirmed stop is logged,
+    // because the archive has committed and the caller has its answer; the
+    // durable census retires a survivor the next time the machine reports it.
+    // With no span open the stop runs here and is awaited, as before.
+    if (spanOpen()) {
+      afterCommit(async () => {
+        if (!await this.gracefulStopThenKill(session))
+          log.warn('archive park: process retirement was not confirmed', { sessionId })
+      }, 'archive-park-retirement')
+      this.ports.broadcastSessions()
+      return
+    }
     if (!await this.gracefulStopThenKill(session))
       throw new Error('process retirement was not confirmed')
     this.ports.broadcastSessions()
+  }
+
+  /**
+   * Retire the process of an ARCHIVED session whose row already says parked
+   * but whose machine reports it still running [POD-6349]. Archive means
+   * stopped, so unlike any other parked-but-alive row it is re-killed, never
+   * revived. This is the recovery for a server that committed an archive park
+   * and died before its stop went out.
+   */
+  async retireArchivedSurvivor(sessionId: SessionId): Promise<void> {
+    const session = this.ports.sessions.get(sessionId)
+    if (!session?.archived) return
+    if (session.status !== 'hibernated' && session.status !== 'exited') return
+    if (!await this.gracefulStopThenKill(session))
+      log.warn('archived survivor: process retirement was not confirmed', { sessionId })
   }
 
   /**

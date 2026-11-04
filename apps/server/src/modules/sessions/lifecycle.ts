@@ -641,6 +641,9 @@ export class SessionLifecycle {
   private parkArchivedSession(sessionId: SessionId): Promise<void> {
     return this.sessionTeardown.parkArchivedSession(sessionId)
   }
+  private retireArchivedSurvivor(sessionId: SessionId): Promise<void> {
+    return this.sessionTeardown.retireArchivedSurvivor(sessionId)
+  }
   tryAutoArchiveStoppedObserved(
     ...args: Parameters<SessionMetaOps['tryAutoArchiveStoppedObserved']>
   ): ReturnType<SessionMetaOps['tryAutoArchiveStoppedObserved']> {

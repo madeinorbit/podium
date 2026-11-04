@@ -82,7 +82,7 @@ import type {
 } from '../../store'
 import type { EventsRepository } from '../../store/events'
 import { type MessagePageCursor, type MessagesRepository, moved } from '../../store/messages'
-import { afterCommit } from '../../store/executor/executor'
+import { afterCommit, spanOpen } from '../../store/executor/executor'
 import { withReadScope } from '../../store/executor/read-scope'
 import { withOwnOperation } from '../../store/executor/operation-scope'
 import type { NotificationFactsRepository } from '../../store/notification-facts'
@@ -1147,6 +1147,14 @@ export class MessageDeliveryService {
 
     const legacy = await this.mirrorToIssueMailbox(message, from)
 
+    // Inside a unit of work the hand-on waits for the commit [POD-6349].
+    if (spanOpen()) {
+      return {
+        message: (await this.deps.messages.getMessage(id)) ?? message,
+        ...this.deliverAfterCommit(message),
+        legacy,
+      }
+    }
     const outcome = await this.attemptDelivery(message)
     // A pushed row may already be in the SessionInbox FIFO with an exact
     // driver-facing position. Fill the common result boundary from a live read;
@@ -1241,6 +1249,7 @@ export class MessageDeliveryService {
       throw new Error(`message id ${stored.id} is already used by a different message`)
     }
     if (stored.deliveryStatus === 'stored' && stored.deliveredTo === null) {
+      if (spanOpen()) return { message: stored, ...this.deliverAfterCommit(stored) }
       const outcome = await this.attemptDelivery(stored)
       const position =
         outcome.position ?? (outcome.queued ? await this.queuePositionForMessage(stored) : undefined)
@@ -1252,6 +1261,41 @@ export class MessageDeliveryService {
       }
     }
     return { message: stored, ...(await this.standingOf(stored)) }
+  }
+
+  /**
+   * HAND A STORED ROW ON AFTER THE COMMIT [POD-6349], and answer "queued".
+   *
+   * A delivery attempt is a round trip to the agent's machine: it types into
+   * the agent, queues a wake, resurrects a parked session or spawns one. From
+   * inside a unit of work it would deliver a message the unit of work can still
+   * roll back, and hold the write connection for the daemon's answer. So when a
+   * span is open the row commits first and the attempt is an external effect.
+   *
+   * The reply cannot carry the attempt's outcome, so it says what is true at
+   * the commit: the row is stored and waiting. The row is the record of what
+   * happens next (ADR 12 D5 E2): a dead letter found by this attempt notifies
+   * the sender, exactly as one found by a sweep does, because no sender was
+   * waiting on the reply to hear it. A lost attempt (the server died after the
+   * commit) leaves the row `stored`, and the boot reconcile and the delivery
+   * sweep hand it on.
+   *
+   * With no span open the send keeps attempting inline and answering with the
+   * outcome, which is every caller today.
+   */
+  private deliverAfterCommit(message: MessageRow): DeliveryOutcome {
+    afterCommit(async () => {
+      try {
+        await this.attemptDelivery(message, { viaSweep: true })
+        await this.scheduleQueuedWakeRetry(message)
+      } catch (error) {
+        log.warn('message delivery after commit failed; the stored row waits for the next pass', {
+          err: error,
+          messageId: message.id,
+        })
+      }
+    }, 'message-delivery')
+    return { ok: true, queued: true, disposition: 'queued' }
   }
 
   /** Where a stored message stands, in the words a send answers with. */

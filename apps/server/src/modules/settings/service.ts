@@ -18,6 +18,7 @@ import type { CommandPrincipal } from '../../command-principal'
 import { ModelCatalog, type ModelCatalogSnapshot, type ModelProbe } from '../../model-catalog'
 import type { TelegramConfig } from '../../notify'
 import type { SessionStore } from '../../store'
+import { afterCommit, spanOpen } from '../../store/executor/executor'
 import type { SettingsAuditOutcome } from '../../store/settings-audit'
 import type { EventBus } from '../bus'
 import { recordSettingsCommand, type SettingsAuditPort } from './audit'
@@ -468,6 +469,19 @@ export class SettingsService {
    */
   private async emitSettingsChanged(previous: PodiumSettings, next: PodiumSettings): Promise<void> {
     if (JSON.stringify(previous) === JSON.stringify(next)) return
+    // AFTER THE COMMIT inside a unit of work [POD-6349]. Subscribers reach the
+    // network (the Telegram adapter reconfigures, notify replays to targets) and
+    // the sessions (auto-continue re-arms), so from inside a unit of work they
+    // would act on a change that can still roll back. Their recovery is the row:
+    // each one reads the current settings at boot. With no span open the event
+    // fires here and is awaited, as before.
+    if (spanOpen()) {
+      afterCommit(
+        async () => await this.bus.emitSettled('settings.changed', { previous, next }),
+        'settings-changed',
+      )
+      return
+    }
     await this.bus.emitSettled('settings.changed', { previous, next })
   }
 
