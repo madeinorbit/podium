@@ -29,15 +29,15 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { agentLaunchCommand } from '@podium/harness'
-import { asAccountId, asSessionId, type SessionId } from '@podium/model'
+import { asAccountId, asMachineId, asSessionId, asUserId, type SessionId } from '@podium/model'
 import { directPtyDurableForTests } from '@podium/process/durable'
 import { SpawnMessage } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DaemonContext } from '../apps/daemon/src/control/context'
-import { SessionRegistry } from '../apps/daemon/src/session/registry.js'
 import { sessionHandlers } from '../apps/daemon/src/control/session'
+import { SessionRegistry } from '../apps/daemon/src/session/registry.js'
 import { resolveAccountEnv } from '../apps/server/src/modules/sessions/account-env'
 import { AccountsRepository } from '../apps/server/src/store/accounts'
 import { createBunStoreExecutor } from '../apps/server/src/store/executor'
@@ -56,10 +56,23 @@ function openAccountsDatabase() {
     credential TEXT NOT NULL,
     identity TEXT NOT NULL,
     scope TEXT NOT NULL,
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    owner_user_id TEXT,
+    ref TEXT
   )`)
+  db.exec('CREATE UNIQUE INDEX accounts_owner_ref ON accounts (owner_user_id, ref)')
   return db
 }
+
+/** The one member who connects the account and runs on their own machine. */
+const OWNER = asUserId('mem_owner')
+const ownMachine = asMachineId('machine-owner')
+/** Resolution ports: the member looks after the machine that spawns (POD-6300). */
+const portsFor = (accounts: AccountsRepository) => ({
+  accounts,
+  machines: { custodian: async () => OWNER, getMachine: async () => ({ name: 'own' }) },
+})
+const target = { ownerUserId: OWNER, machineId: ownMachine }
 
 /** The server side: a managed anthropic api-key account, resolved to spawn env. */
 async function managedAccountEnv(): Promise<Record<string, string> | undefined> {
@@ -69,6 +82,7 @@ async function managedAccountEnv(): Promise<Record<string, string> | undefined> 
   const accounts = new AccountsRepository(queries)
   await accounts.upsert({
     id: asAccountId('managed:anthropic'),
+    ownerUserId: OWNER,
     provider: 'anthropic',
     kind: 'api-key',
     credential: CREDENTIAL,
@@ -76,7 +90,9 @@ async function managedAccountEnv(): Promise<Record<string, string> | undefined> 
     scope: 'role',
     createdAt: 1,
   })
-  const env = (await resolveAccountEnv(accounts, asAccountId('managed:anthropic'))).env
+  const env = (
+    await resolveAccountEnv(portsFor(accounts), asAccountId('managed:anthropic'), target)
+  ).env
   db.close()
   return env
 }
@@ -301,6 +317,7 @@ describe('managed account -> real spawned process env (#216)', () => {
     const accounts = new AccountsRepository(queries)
     await accounts.upsert({
       id: asAccountId('managed:claude-oauth'),
+      ownerUserId: OWNER,
       provider: 'anthropic',
       kind: 'oauth',
       credential: 'oat-test-1',
@@ -308,7 +325,11 @@ describe('managed account -> real spawned process env (#216)', () => {
       scope: 'role',
       createdAt: 1,
     })
-    const { env } = await resolveAccountEnv(accounts, asAccountId('managed:claude-oauth'))
+    const { env } = await resolveAccountEnv(
+      portsFor(accounts),
+      asAccountId('managed:claude-oauth'),
+      target,
+    )
     db.close()
     expect(env).toEqual({ CLAUDE_CODE_OAUTH_TOKEN: 'oat-test-1' })
 
