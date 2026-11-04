@@ -722,9 +722,17 @@ const defs = {
       // The log holds every member's history (POD-6291): a person, or an agent
       // for one, reads only what is theirs to see. See `event-visibility.ts`.
       const member = ctx.markerUser()
-      return member === undefined
-        ? events
-        : await eventsForMember(events, member, ctx.deps.executionFacts)
+      if (member === undefined) return events
+      const visibleMail = ctx.deps.mailVisibleIds
+      return await eventsForMember(events, member, {
+        ...ctx.deps.executionFacts,
+        ...(visibleMail
+          ? {
+              visibleMessageIds: async (ids: readonly string[]) =>
+                await visibleMail(ctx.caller.capability, ids),
+            }
+          : {}),
+      })
     },
   }),
   // hits the external Linear API — 'write' keeps read-only callers from driving it

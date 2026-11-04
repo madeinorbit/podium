@@ -1,32 +1,52 @@
-import type { AutomationRunWire, AutomationWire, MachineProjection, MachineWire } from '@podium/model'
-import { EntityModel, registerModels, type ModelHost } from './models'
+import type {
+  AutomationRunWire,
+  AutomationWire,
+  MachineProjection,
+  MachineWire,
+} from '@podium/model'
+import { EntityModel, type ModelHost, registerModels } from './models'
 import type { FieldSource, ModelSchema } from './shared/schema'
 
 /** Deferred definitions only. Record storage and ingestion stay in the generic
  * pool tables; field access uses the shared schema installer. */
 const machineWire = (): FieldSource => ({ schema: 'MachineWire', arrivesOn: 'engine:machines' })
-const machineProjection = (): FieldSource => ({ schema: 'MachineProjection', arrivesOn: 'replica:machines' })
-const automationWire = (): FieldSource => ({ schema: 'AutomationWire', arrivesOn: 'replica:automations' })
-const automationRunWire = (): FieldSource => ({ schema: 'AutomationRunWire', arrivesOn: 'replica:automationRuns' })
+const machineProjection = (): FieldSource => ({
+  schema: 'MachineProjection',
+  arrivesOn: 'replica:machines',
+})
+const automationWire = (): FieldSource => ({
+  schema: 'AutomationWire',
+  arrivesOn: 'replica:automations',
+})
+const automationRunWire = (): FieldSource => ({
+  schema: 'AutomationRunWire',
+  arrivesOn: 'replica:automationRuns',
+})
 
 /** Stored identity, presence, execution and update fields are schema-installed. */
 export class MachineModel extends EntityModel {
   declare readonly id: MachineWire['id']
-  constructor(id: string, host: ModelHost) { super('machine', id, host) }
+  constructor(id: string, host: ModelHost) {
+    super('machine', id, host)
+  }
 }
 export interface MachineModel extends Readonly<MachineWire>, Readonly<MachineProjection> {}
 
 /** Stored target, schedule and agent instruction fields are schema-installed. */
 export class AutomationModel extends EntityModel {
   declare readonly id: AutomationWire['id']
-  constructor(id: string, host: ModelHost) { super('automation', id, host) }
+  constructor(id: string, host: ModelHost) {
+    super('automation', id, host)
+  }
 }
 export interface AutomationModel extends Readonly<AutomationWire> {}
 
 /** Stored occurrence and link fields are schema-installed. */
 export class AutomationRunModel extends EntityModel {
   declare readonly id: AutomationRunWire['id']
-  constructor(id: string, host: ModelHost) { super('automationRun', id, host) }
+  constructor(id: string, host: ModelHost) {
+    super('automationRun', id, host)
+  }
 }
 export interface AutomationRunModel extends Readonly<AutomationRunWire> {}
 
@@ -35,10 +55,20 @@ const schema = {
     key: 'id',
     why: 'One fleet identity shared by settings, placement, headers and session joins.',
     components: {
-      projection: { schema: 'MachineProjection', arrivesOn: 'replica:machines', joinKey: 'id', precedence: 0,
-        why: 'Replicated name and logged-out harness facts remain available without live presence.' },
-      live: { schema: 'MachineWire', arrivesOn: 'engine:machines', joinKey: 'id', precedence: 1,
-        why: 'Principal-scoped machine detail; the existing applying path preserves live/replicated precedence.' },
+      projection: {
+        schema: 'MachineProjection',
+        arrivesOn: 'replica:machines',
+        joinKey: 'id',
+        precedence: 0,
+        why: 'Replicated name and logged-out harness facts remain available without live presence.',
+      },
+      live: {
+        schema: 'MachineWire',
+        arrivesOn: 'engine:machines',
+        joinKey: 'id',
+        precedence: 1,
+        why: 'Principal-scoped machine detail; the existing applying path preserves live/replicated precedence.',
+      },
     },
     fields: {
       // Identity and custody
@@ -72,14 +102,24 @@ const schema = {
       serverMoveEligibility: { type: 'object', optional: true, source: machineWire() },
       // Build and update authority
       updateChannel: { type: 'enum', optional: true, source: machineWire() },
-      updateChannelOverride: { type: 'enum', optional: true, nullable: true, source: machineWire() },
+      updateChannelOverride: {
+        type: 'enum',
+        optional: true,
+        nullable: true,
+        source: machineWire(),
+      },
       appVersion: { type: 'string', optional: true, nullable: true, source: machineWire() },
       wireSchemaDigest: { type: 'string', optional: true, nullable: true, source: machineWire() },
       installKind: { type: 'string', optional: true, nullable: true, source: machineWire() },
       buildReportedAt: { type: 'isoDate', optional: true, nullable: true, source: machineWire() },
       versionState: { type: 'enum', optional: true, source: machineWire() },
       targetVersion: { type: 'string', optional: true, nullable: true, source: machineWire() },
-      targetUnavailableReason: { type: 'string', optional: true, nullable: true, source: machineWire() },
+      targetUnavailableReason: {
+        type: 'string',
+        optional: true,
+        nullable: true,
+        source: machineWire(),
+      },
     },
     relations: {},
     cold: { kind: 'never', why: 'The currently synced fleet stays resident, as before.' },
@@ -87,8 +127,15 @@ const schema = {
   automation: {
     key: 'id',
     why: 'One scheduled definition shared by its list, card and editor.',
-    components: { automation: { schema: 'AutomationWire', arrivesOn: 'replica:automations', joinKey: 'id', precedence: 0,
-      why: 'The definition already arrives as one replica row.' } },
+    components: {
+      automation: {
+        schema: 'AutomationWire',
+        arrivesOn: 'replica:automations',
+        joinKey: 'id',
+        precedence: 0,
+        why: 'The definition already arrives as one replica row.',
+      },
+    },
     fields: {
       // Identity and target
       id: { type: 'id', source: automationWire() },
@@ -116,8 +163,15 @@ const schema = {
   automationRun: {
     key: 'id',
     why: 'One scheduled occurrence shared by every history window showing its ID.',
-    components: { run: { schema: 'AutomationRunWire', arrivesOn: 'replica:automationRuns', joinKey: 'id', precedence: 0,
-      why: 'Runs already arrive through sync; a history request selects IDs only.' } },
+    components: {
+      run: {
+        schema: 'AutomationRunWire',
+        arrivesOn: 'replica:automationRuns',
+        joinKey: 'id',
+        precedence: 0,
+        why: 'Runs already arrive through sync; a history request selects IDs only.',
+      },
+    },
     fields: {
       // Identity and links
       id: { type: 'id', source: automationRunWire() },
@@ -129,8 +183,15 @@ const schema = {
       detail: { type: 'string', nullable: true, source: automationRunWire() },
     },
     relations: {},
-    cold: { kind: 'never', why: 'The currently synced run set stays resident; history windows keep only IDs.' },
+    cold: {
+      kind: 'never',
+      why: 'The currently synced run set stays resident; history windows keep only IDs.',
+    },
   },
 } satisfies Pick<ModelSchema, 'machine' | 'automation' | 'automationRun'>
 
-registerModels(schema, { machine: MachineModel, automation: AutomationModel, automationRun: AutomationRunModel })
+registerModels(schema, {
+  machine: MachineModel,
+  automation: AutomationModel,
+  automationRun: AutomationRunModel,
+})

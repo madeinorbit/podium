@@ -92,6 +92,8 @@ const PRIVATE_KEYS = [
   'startedBySession',
   'humanQuestionAskedBy',
   'asked',
+  // Legacy artifact entries may name an absolute worktree path (POD-6291).
+  'panel',
 ] as const
 
 const carriesPrivateField = (row: Record<string, unknown>): boolean =>

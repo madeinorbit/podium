@@ -215,6 +215,121 @@ describe('MU-13: what crosses owners, and what never does', () => {
   })
 })
 
+describe('MU-13: artifact entries and the rest of the event log, per member', () => {
+  it('a legacy artifact entry’s absolute worktree path reaches only the machine’s custodian', async () => {
+    const id = f.tasks.alice
+    const store = f.handle.registry.issues.reports.store
+    // As a server before artifact snapshots stored it: the file's absolute path.
+    const draft = await store.draft(id)
+    if (!draft) throw new Error('alice task missing')
+    draft.panel = JSON.stringify({
+      todos: [],
+      deferred: [],
+      artifacts: [
+        {
+          path: '/wt/alice-task/docs/shot.png',
+          title: 'shot',
+          addedAt: '2026-11-01T00:00:00.000Z',
+        },
+        { path: '/home/alice/notes/plan.md', addedAt: '2026-11-01T00:00:00.000Z' },
+      ],
+    })
+    const bobFeed = await (await f.as('bob')).feed()
+    try {
+      await store.persist(draft)
+      const paths = (value: unknown) =>
+        ((value as { panel?: { artifacts?: Array<{ path: string }> } }).panel?.artifacts ?? []).map(
+          (artifact) => artifact.path,
+        )
+      const get = async (member: 'alice' | 'bob') =>
+        await (await f.as(member)).trpc.issues.get.query({ id } as never)
+      expect(paths(await get('alice'))).toEqual([
+        '/wt/alice-task/docs/shot.png',
+        '/home/alice/notes/plan.md',
+      ])
+      expect(paths(await get('bob'))).toEqual(['docs/shot.png', 'plan.md'])
+      // The feed: Bob's bootstrap and the delta the write pushed.
+      expect(
+        paths((await bobFeed.bootstrap()).issueProjections?.find((issue) => issue.id === id)),
+      ).toEqual(['docs/shot.png', 'plan.md'])
+      await bobFeed.until(() => changedIds(bobFeed.deltas(), 'issueProjection').includes(id))
+      for (const change of bobFeed.deltas()) {
+        if (change.entity === 'issueProjection' && change.entityId === id) {
+          expect(JSON.stringify((change as { value?: unknown }).value)).not.toMatch(
+            /\/wt\/|\/home\//,
+          )
+        }
+      }
+    } finally {
+      bobFeed.close()
+    }
+  })
+
+  it('an event about a message reaches only those the mail read rule gives that message', async () => {
+    // Alice, signed in, writes to her own agent.
+    const sent = await (await f.as('alice')).trpc.messages.send.mutate({
+      to: f.sessions.alice,
+      body: 'alice to her own agent',
+    } as never)
+    const messageId = /msg_[0-9a-f-]+/.exec(JSON.stringify(sent))?.[0]
+    if (!messageId) throw new Error(`no message id in ${JSON.stringify(sent)}`)
+    // As the maintenance sweep logs an expiry (`message.expired`, subject: the message).
+    await f.handle.registry.sessionStore.events.appendEvent({
+      ts: new Date().toISOString(),
+      kind: 'message.expired',
+      subject: messageId,
+      payload: { toKind: 'session', toId: f.sessions.alice },
+    })
+    const expired = async (member: 'alice' | 'bob') =>
+      (await eventsAs(member, { kinds: ['message.expired'] })).filter(
+        (e) => e.subject === messageId,
+      )
+    expect((await expired('alice')).length).toBe(1)
+    expect(await expired('bob')).toEqual([])
+  })
+
+  it('a lock event reaches the owners of the sessions it names, each seeing only their own', async () => {
+    // As the lock service logs a steal (`lock.stolen`): Bob's agent took
+    // Alice's agent's lock.
+    await f.handle.registry.sessionStore.events.appendEvent({
+      ts: new Date().toISOString(),
+      kind: 'lock.stolen',
+      subject: 'repo:merge:main',
+      payload: {
+        previousHolder: {
+          sessionId: f.sessions.alice,
+          issueId: f.tasks.alice,
+          label: `session:${f.sessions.alice}`,
+        },
+        newHolder: `session:${f.sessions.bob}`,
+      },
+    })
+    // And a lock only Alice's agent ever held.
+    await f.handle.registry.sessionStore.events.appendEvent({
+      ts: new Date().toISOString(),
+      kind: 'lock.stolen',
+      subject: 'repo:alice-only',
+      payload: {
+        previousHolder: {
+          sessionId: f.sessions.alice,
+          issueId: null,
+          label: `session:${f.sessions.alice}`,
+        },
+        newHolder: 'operator',
+      },
+    })
+    const locks = async (member: 'alice' | 'bob') =>
+      await eventsAs(member, { kinds: ['lock.stolen'] })
+    const alice = await locks('alice')
+    const bob = await locks('bob')
+    expect(alice.map((e) => e.subject).sort()).toEqual(['repo:alice-only', 'repo:merge:main'])
+    expect(bob.map((e) => e.subject)).toEqual(['repo:merge:main'])
+    expect(JSON.stringify(bob)).not.toContain(f.sessions.alice)
+    expect(JSON.stringify(alice)).not.toContain(f.sessions.bob)
+    expect(JSON.stringify(alice)).toContain(f.sessions.alice)
+  })
+})
+
 describe('losing custody evicts the private fields from connected clients, deleting nothing', () => {
   it('Alice takes custody of Bob’s machine: Bob’s open feed loses his task’s worktree, Alice’s gains it', async () => {
     const id = f.tasks.bob

@@ -635,8 +635,11 @@ export class SessionRegistry {
     // The read itself is the factory's (POD-3256): the gate below closes over the
     // value, and closing over a promise is not the same object.
     let currentSettings = boot.settings
-    this.bus.on('settings.changed', ({ next }) => {
-      currentSettings = next
+    // THE PROCESS'S SNAPSHOT IS THE INSTANCE TIER (POD-6291). A member's
+    // change carries that member's resolved view, personal leaves included;
+    // it stays with that member, and the snapshot re-reads the instance blob.
+    this.bus.on('settings.changed', async ({ next, member }) => {
+      currentSettings = member === undefined ? next : await this.store.settings.getSettings()
     })
     const featureEnabled = (id: Parameters<typeof isFeatureEnabled>[0]) =>
       isFeatureEnabled(id, currentSettings)

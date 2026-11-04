@@ -28,6 +28,11 @@
  */
 
 import type { UserId } from '../ids/brands'
+import {
+  isAbsoluteMachinePath,
+  machinePathBasename,
+  machinePathRelativeToRoot,
+} from '../machine-path'
 
 /** The projection keys that point into someone's private work. */
 export const ISSUE_EXECUTION_PRIVATE_FIELDS = [
@@ -111,9 +116,12 @@ export function withoutHiddenExecutionFields<T extends object>(
 ): T {
   const out = { ...(task as Record<string, unknown>) }
   if (!access.workspace) {
+    const root = typeof out.worktreePath === 'string' ? out.worktreePath : undefined
     if (opts.unset === 'null' && 'worktreePath' in out) out.worktreePath = null
     else delete out.worktreePath
     delete out.machineId
+    const panel = withoutAbsoluteArtifactPaths(out.panel, root)
+    if (panel !== out.panel) out.panel = panel
   }
   for (const key of ['coordinatorSessionId', 'startedBySession', 'humanQuestionAskedBy'] as const) {
     const id = out[key]
@@ -239,4 +247,40 @@ export function eventSessionIds(kind: string, payload: unknown): string[] {
   if (typeof actor === 'string' && actor.startsWith('session:'))
     ids.push(actor.slice('session:'.length))
   return ids
+}
+
+/**
+ * A TASK'S ARTIFACT ENTRIES WITHOUT MACHINE PATHS (POD-6291, MU-13). Entries
+ * written before artifacts were snapshotted kept the absolute path of the file
+ * in the worktree. For a reader who may not see the worktree, an absolute path
+ * becomes the path inside the worktree, or its file name when it lies outside
+ * it; relative paths (every snapshot since [spec:SP-0fc9]) are untouched.
+ */
+function withoutAbsoluteArtifactPaths(panel: unknown, root: string | undefined): unknown {
+  if (panel === null || typeof panel !== 'object') return panel
+  const artifacts = (panel as { artifacts?: unknown }).artifacts
+  if (!Array.isArray(artifacts)) return panel
+  const local = (path: unknown): unknown => {
+    if (typeof path !== 'string' || !isAbsoluteMachinePath(path, root)) return path
+    const inside = root === undefined ? null : machinePathRelativeToRoot(root, path)
+    return inside !== null && inside !== '' ? inside : machinePathBasename(path, root ?? path)
+  }
+  const localList = (paths: unknown): unknown =>
+    Array.isArray(paths) ? paths.map((path) => local(path)) : paths
+  let changed = false
+  const next = artifacts.map((entry: unknown) => {
+    if (entry === null || typeof entry !== 'object') return entry
+    const e = entry as Record<string, unknown>
+    const reduced: Record<string, unknown> = { ...e, path: local(e.path) }
+    if ('sourcePaths' in e) reduced.sourcePaths = localList(e.sourcePaths)
+    if ('untrackedPaths' in e) reduced.untrackedPaths = localList(e.untrackedPaths)
+    const moved =
+      reduced.path !== e.path ||
+      JSON.stringify(reduced.sourcePaths) !== JSON.stringify(e.sourcePaths) ||
+      JSON.stringify(reduced.untrackedPaths) !== JSON.stringify(e.untrackedPaths)
+    if (!moved) return entry
+    changed = true
+    return reduced
+  })
+  return changed ? { ...(panel as Record<string, unknown>), artifacts: next } : panel
 }

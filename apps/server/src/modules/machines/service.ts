@@ -532,7 +532,8 @@ export class MachinesService {
       }
     })
     // Isolated fixtures hand in a store without the grants repository.
-    const grantWrites = (deps.store as { grants?: Partial<SessionStore['grants']> }).grants?.committed
+    const grantWrites = (deps.store as { grants?: Partial<SessionStore['grants']> }).grants
+      ?.committed
     this.unsubscribeGrantWrites = grantWrites
       ? grantWrites.subscribe((change) => this.onGrantsCommitted(change.rows))
       : () => {}
