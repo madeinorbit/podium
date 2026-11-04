@@ -267,7 +267,8 @@ describe('runIssueCli', () => {
   })
 
   it('invalid args name the offending field', async () => {
-    await expect(runIssueCli(['claim', '--id', '1'], client)).rejects.toThrow(/assignee/)
+    // `claim --assignee` became optional (POD-6287); `--priority` still validates.
+    await expect(runIssueCli(['update', '1', '--priority', 'high'], client)).rejects.toThrow(/priority/)
   })
 
   it('forwards --confirm-rehome on attach as a boolean', async () => {

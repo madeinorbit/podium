@@ -189,7 +189,8 @@ describe('issueRowToProjection [POD-796]', () => {
     )
     expect(p).not.toHaveProperty('worktreePath')
     expect(p).not.toHaveProperty('branch')
-    expect(p).not.toHaveProperty('assignee')
+    // The legacy label column (POD-6287); `assignee` itself is the owner.
+    expect(p).not.toHaveProperty('legacyAssignee')
     expect(p).not.toHaveProperty('deferUntil')
     expect(p).not.toHaveProperty('color')
   })
@@ -201,8 +202,9 @@ describe('issueRowToProjection [POD-796]', () => {
     // absent and reads back as null — a lossy round-trip a mapping pair claiming
     // to be a bijection may not inherit. This pair omits on `=== null`, so ''
     // survives. Measured as safe against the live DB (assignee='' on 2 rows).
+    // The column is the legacy label since POD-6287 (`legacyAssignee` on the wire).
     const p = issueRowToProjection(row({ assignee: '', acceptance: '' }), NO_LABELS)
-    expect(p.assignee).toBe('')
+    expect(p.legacyAssignee).toBe('')
     expect(p.acceptance).toBe('')
   })
 
