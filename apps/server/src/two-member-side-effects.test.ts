@@ -35,7 +35,10 @@ beforeAll(async () => {
   await settings.setSettings({ ...(await settings.getSettings()), steward: { enabled: true } })
   // The janitor's first poll seeds the cursor past history; later polls read on.
   await f.handle.registry.runStewardTick()
-}, 60_000)
+  // Sign both in once here, so no test pays for the password checks.
+  await f.as('alice')
+  await f.as('bob')
+}, 120_000)
 afterAll(async () => {
   await f?.close()
 })
