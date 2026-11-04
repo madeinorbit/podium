@@ -379,12 +379,12 @@ export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
   },
   {
     file: 'packages/sync/src/authority/authority.ts',
-    line: 130,
+    line: 132,
     why: 'the property that HOLDS the transact port; the port itself is named by its own entry in packages/sync/src/authority/ports.ts.',
   },
   {
     file: 'packages/sync/src/ledger.ts',
-    line: 115,
+    line: 121,
     why: 'the Ledger deps property; it is handed straight to the Authority, so every call goes through the port entry above.',
   },
   {
