@@ -34,6 +34,7 @@ import type { IssueMenuPoolInputs } from '@/features/issues/issue-menu-pool-inpu
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { useAgeNow } from '@/lib/clock-hooks'
 import { issueIdTitle } from '@/lib/issue-labels'
+import { memberDisplayName, useMemberRoster } from '@/lib/member-roster'
 import { PhaseTimer, WorkingMark } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
@@ -390,6 +391,7 @@ function UnifiedIssueRowInner({
                 · internal
               </span>
             )}
+            {model?.ownerBadge && <OwnerBadge memberId={model.ownerBadge} />}
           </>
         }
         onContextMenu={onContextMenu}
@@ -402,6 +404,21 @@ function UnifiedIssueRowInner({
     </>
   )
 }
+
+/** Someone else's task in the viewer's personal sidebar (POD-6294): who it
+ *  is assigned to, by name. */
+const OwnerBadge = observer(function OwnerBadge({ memberId }: { memberId: string }) {
+  const name = memberDisplayName(useMemberRoster(), memberId)
+  return (
+    <span
+      className="flex-none truncate text-text-faint"
+      data-testid="owner-badge"
+      title={`Assigned to ${name}`}
+    >
+      · {name}
+    </span>
+  )
+})
 
 function fallbackEmptyProgress(): MissionProgress {
   return { total: 0, done: 0, working: 0, waiting: 0, todo: 0 }

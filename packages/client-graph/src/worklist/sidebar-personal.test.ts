@@ -9,14 +9,18 @@
  * the sidebar is exactly what it was.
  */
 import type { ReplicaAddressedBatch, ReplicaKind } from '@podium/client-core/replica'
+import { assigneeFacet, type IssuesAssignedTo } from '@podium/client-core/values'
 import { asIssueId, asUserId, issueUserStateRowId } from '@podium/model'
 import { autorun } from 'mobx'
 import { expect, it } from 'vitest'
 import { EMPTY_PENDING } from '../../../../tests/worklist/shared/src/row-source'
 import { createWorklistPool } from '../create'
+import type { BoardOptions } from '../issue-board-schema'
+import { createIssueBoardSource } from '../issue-board-source'
 import { memberRoster } from '../member-roster'
 import { fixedLocals } from '../shared/locals-source'
 import { createRowSource } from '../shared/row-source'
+import { LOADING } from './rollup'
 import { sidebarView } from './sidebar'
 import { worklistView } from './view-model'
 
@@ -153,6 +157,53 @@ it('keeps the former sidebar on a one-member instance', async () => {
     expect(f.rowIds()).toEqual(['alice-joined', 'alice-task', 'assigned-to-bob', 'bob-task'])
     expect(worklistView(f.pool).row(f.pool.issueObject('alice-joined')).ownerBadge).toBeUndefined()
   } finally {
+    f.dispose()
+  }
+})
+
+it('lists Alice’s tasks on Bob’s Tasks board with All users, and his sidebar does not change', async () => {
+  const f = fixture()
+  const board = createIssueBoardSource(f.pool)
+  const sidebar: string[][] = []
+  const stop = autorun(() => {
+    sidebar.push(f.rowIds())
+  })
+  const listed = (assignedTo: IssuesAssignedTo) => {
+    const roster = memberRoster(f.pool)
+    const assignee = assigneeFacet(assignedTo, {
+      shared: roster.shared,
+      viewer: roster.currentMemberId,
+    })
+    const options: BoardOptions = {
+      display: { layout: 'board', ordering: 'priority', showAgentTasks: false },
+      filter: assignee ? { assignee } : {},
+      expanded: [],
+      isMobile: false,
+      windowed: false,
+      openIssueId: null,
+      now,
+    }
+    const data = board.board(options)
+    if (data === LOADING || !data) throw new Error('board not loaded')
+    return [...data.activeIds].sort()
+  }
+  try {
+    await f.roster([member(ALICE, 'Alice'), member(BOB, 'Bob')])
+    const personal = ['alice-joined', 'assigned-to-bob', 'bob-task']
+    expect(f.rowIds()).toEqual(personal)
+    const before = sidebar.length
+    // Me, the default: Bob's own tasks only.
+    expect(listed('me')).toEqual(['assigned-to-bob', 'bob-task'])
+    // All users: Alice's tasks too, including the one Bob only opened.
+    expect(listed('all')).toEqual(['alice-joined', 'alice-task', 'assigned-to-bob', 'bob-task'])
+    // A named member.
+    expect(listed(ALICE)).toEqual(['alice-joined', 'alice-task'])
+    // The sidebar never moved while the board's filter changed.
+    expect(f.rowIds()).toEqual(personal)
+    expect(sidebar.length).toBe(before)
+  } finally {
+    stop()
+    board.dispose()
     f.dispose()
   }
 })
