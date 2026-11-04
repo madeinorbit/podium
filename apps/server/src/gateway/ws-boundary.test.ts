@@ -25,6 +25,11 @@ function sourceFiles(dir: string, acc: string[] = []): string[] {
       sourceFiles(full, acc)
       continue
     }
+    // Test-only code is a CLIENT of the boundary, so it may use `ws` like the
+    // `.test.ts` files do: `test-support/` holds the shared two-member fixture
+    // (20d8e1347b), which opens a real `/client` socket with a session cookie.
+    // The closure walks below still prove no server module reaches `ws`.
+    if (relative(SERVER_SRC, full).startsWith('test-support/')) continue
     if (entry.endsWith('.ts') && !entry.endsWith('.test.ts')) acc.push(full)
   }
   return acc
