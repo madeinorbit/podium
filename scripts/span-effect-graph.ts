@@ -1071,6 +1071,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'opaque',
     why: 'a persist-options callback, supplied at the call site inside the span',
   },
+  'apps/server/src/modules/issues/service/core.ts#IssueStore.decide': {
+    kind: 'contained',
+    why: 'a personal-record decision (POD-6290): maps the stored user-state row to a patch, computation only',
+  },
   'apps/server/src/modules/issues/service/core.ts#IssueStore.afterWrite': {
     kind: 'opaque',
     why: 'a persist-options callback, supplied at the call site inside the span (POD-6289: the description and brief history rows)',
