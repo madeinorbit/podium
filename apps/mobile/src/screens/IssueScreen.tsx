@@ -21,9 +21,15 @@ import { ScrollView, StyleSheet, View } from 'react-native'
 import { useConnected, useStoreActions, useTrpc } from '../client/hooks'
 import { issueObserver as observer } from '../client/issue-observer'
 import { IssueOpening, useIssueOpening } from '../client/issue-opening'
+import { useMobileMemberRoster } from '../client/member-roster'
 import { useMobilePool } from '../client/mobile-pool'
 import { useIssueCloseGuard } from '../client/use-issue-close'
-import { resolveEdgeFromPool, useHasIssueMates, useIssueModel, useIssueTargets } from '../client/use-issue-model'
+import {
+  resolveEdgeFromPool,
+  useHasIssueMates,
+  useIssueModel,
+  useIssueTargets,
+} from '../client/use-issue-model'
 import {
   useSessionContextBooting as useBooting,
   useSessionContextIssue as useIssue,
@@ -60,6 +66,7 @@ import {
 } from '../components/task-detail/IssueModelSections'
 import { IssueNow } from '../components/task-detail/IssueNow'
 import { IssueProperties, PropertyBar } from '../components/task-detail/IssueProperties'
+import { IssueSharedSection } from '../components/task-detail/IssueSharedSection'
 import { IssueSubIssues } from '../components/task-detail/IssueSubIssues'
 import { PromptSheet } from '../components/task-detail/PromptSheet'
 import { EmptyState } from '../components/ui'
@@ -213,6 +220,9 @@ const IssueContent = observer(function IssueContent({
   const hasCloseBlockers = useIssueCloseGuard()
   const { sendChat } = actions
   const pool = useMobilePool()
+  // The task page owns the roster's demand while shown: on a shared instance
+  // it names the assignee and other members' sessions (POD-6297).
+  const roster = useMobileMemberRoster()
   const views = useIssueOpening()
   const detail = views?.row(issue.id)
 
@@ -309,19 +319,19 @@ const IssueContent = observer(function IssueContent({
       backAs={dismiss ? 'text' : 'chevron'}
       backLabel={dismiss ? 'Done' : undefined}
       leading={
-          <IdSquare
-            issue={issue}
-            size={22}
-            state={
-              isFinished(issue)
-                ? 'done'
-                : issue.needsHuman
-                  ? 'waiting'
-                  : agents.length > 0
-                    ? 'working'
-                    : 'queued'
-            }
-          />
+        <IdSquare
+          issue={issue}
+          size={22}
+          state={
+            isFinished(issue)
+              ? 'done'
+              : issue.needsHuman
+                ? 'waiting'
+                : agents.length > 0
+                  ? 'working'
+                  : 'queued'
+          }
+        />
       }
       right={
         <HeaderButton label="More actions" onPress={() => setSheet({ kind: 'menu' })}>
@@ -377,6 +387,12 @@ const IssueContent = observer(function IssueContent({
             onStage={() => setSheet({ kind: 'stage' })}
             onPriority={() => setSheet({ kind: 'priority' })}
             onType={() => setSheet({ kind: 'type' })}
+          />
+          <IssueSharedSection
+            issue={issue}
+            roster={roster}
+            busy={busy}
+            onReassign={(assignee) => commands.update({ assignee })}
           />
 
           <PhoneNow issue={issue} onOpenSession={openSession} />

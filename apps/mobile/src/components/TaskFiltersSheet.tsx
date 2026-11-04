@@ -1,17 +1,19 @@
-import type { BoardFilter, IssuesOrdering } from '@podium/client-core/values'
+import type { BoardFilter, IssuesAssignedTo, IssuesOrdering } from '@podium/client-core/values'
+import type { MemberRoster } from '@podium/client-graph/member-roster'
 import { ALL_ISSUE_STATUSES, ISSUE_STATUS_LABELS, type IssueStatus } from '@podium/model'
-import { ChevronLeft, ChevronRight } from './icons'
 import { useState } from 'react'
 import { StyleSheet, Switch, Text, View } from 'react-native'
+import { memberDisplayName } from '../client/member-roster'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
+import { NativePicker, type NativePickerOption } from './action-sheet-native'
 import { BottomSheet } from './BottomSheet'
 import { Icon } from './Icon'
+import { ChevronLeft, ChevronRight } from './icons'
 import { PressableScale } from './PressableScale'
-import { NativePicker, type NativePickerOption } from './action-sheet-native'
 
 const ANY = '__any__'
 
-type Facet = 'priority' | 'status' | 'stage' | 'ordering'
+type Facet = 'assignedTo' | 'priority' | 'status' | 'stage' | 'ordering'
 
 interface FacetConfig {
   label: string
@@ -20,25 +22,47 @@ interface FacetConfig {
   apply: (value: string) => void
 }
 
+/**
+ * THE TASK FILTERS SHEET. Assigned to (on a shared instance) and Agent tasks
+ * are the member's own saved filters, the same ones the web's Filter menu
+ * writes (POD-6294, POD-6297); the other facets belong to this screen. The
+ * head counts what differs from Reset (your own tasks, agent tasks hidden) and
+ * Reset puts all of it back.
+ */
 export function TaskFiltersSheet({
   visible,
   filter,
   ordering,
   showAgentTasks,
+  assignedTo = 'me',
+  roster,
+  count,
   onFilter,
   onOrdering,
   onShowAgentTasks,
+  onAssignedTo,
+  onReset,
   onClose,
 }: {
   visible: boolean
   filter: BoardFilter
   ordering: IssuesOrdering
   showAgentTasks: boolean
+  assignedTo?: IssuesAssignedTo
+  roster?: Pick<MemberRoster, 'shared' | 'members' | 'currentMemberId' | 'nameOf'> | undefined
+  /** Filters that differ from Reset; defaults to the sheet's own facets. */
+  count?: number
   onFilter: (filter: BoardFilter) => void
   onOrdering: (ordering: IssuesOrdering) => void
   onShowAgentTasks: (show: boolean) => void
+  onAssignedTo?: (assignedTo: IssuesAssignedTo) => void
+  onReset?: () => void
   onClose: () => void
 }) {
+  const shared = roster?.shared === true && onAssignedTo !== undefined
+  const others = shared
+    ? (roster?.members ?? []).filter((member) => member.id !== roster?.currentMemberId)
+    : []
   const [step, setStep] = useState<Facet | null>(null)
   const set = <K extends keyof BoardFilter>(key: K, value: BoardFilter[K] | undefined) => {
     const next: BoardFilter = { ...filter }
@@ -46,7 +70,20 @@ export function TaskFiltersSheet({
     else Object.assign(next, { [key]: value })
     onFilter(next)
   }
-  const configs: Record<Facet, FacetConfig> = {
+  const assignedToConfig: FacetConfig = {
+    label: 'Assigned to',
+    value: assignedTo,
+    options: [
+      { value: 'me', label: 'Me' },
+      { value: 'all', label: 'All users' },
+      ...others.map((member) => ({
+        value: member.id,
+        label: memberDisplayName(roster, member.id),
+      })),
+    ],
+    apply: (value) => onAssignedTo?.(value),
+  }
+  const facets: Record<Exclude<Facet, 'assignedTo'>, FacetConfig> = {
     priority: {
       label: 'Priority',
       value: filter.priority == null ? ANY : String(filter.priority),
@@ -90,8 +127,11 @@ export function TaskFiltersSheet({
       apply: (value) => onOrdering(value as IssuesOrdering),
     },
   }
-  const current = step ? configs[step] : null
-  const activeCount = Object.keys(filter).filter((key) => key !== 'text').length
+  const configs: Partial<Record<Facet, FacetConfig>> = shared
+    ? { assignedTo: assignedToConfig, ...facets }
+    : facets
+  const current = step ? (configs[step] ?? null) : null
+  const activeCount = count ?? Object.keys(filter).filter((key) => key !== 'text').length
 
   const close = () => {
     setStep(null)
@@ -127,7 +167,9 @@ export function TaskFiltersSheet({
             <PressableScale
               accessibilityRole="button"
               accessibilityLabel="Clear all task filters"
-              onPress={() => onFilter(filter.text ? { text: filter.text } : {})}
+              onPress={() =>
+                onReset ? onReset() : onFilter(filter.text ? { text: filter.text } : {})
+              }
               style={styles.clear}
             >
               <Text style={styles.clearText}>Clear all</Text>
@@ -149,6 +191,7 @@ export function TaskFiltersSheet({
         <View style={styles.group}>
           {(Object.keys(configs) as Facet[]).map((facet, index) => {
             const config = configs[facet]
+            if (!config) return null
             return (
               <NativePicker
                 key={facet}

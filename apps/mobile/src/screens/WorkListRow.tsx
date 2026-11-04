@@ -15,6 +15,7 @@ import { observer } from 'mobx-react-lite'
 import { memo, useCallback, useEffect, useId, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 import { useMobilePool } from '../client/mobile-pool'
+import { AssigneeName } from '../components/AssigneeName'
 import { NotSavedMark } from '../components/NotSavedMark'
 import { PressableScale } from '../components/PressableScale'
 import { WorkingMark } from '../components/WorkingMark'
@@ -136,6 +137,9 @@ export const WorkRow = observer(function WorkRow({
           <Text style={rowStyles.fact} numberOfLines={1}>
             {voice.sub}
           </Text>
+        ) : null}
+        {row.ownerBadge ? (
+          <AssigneeName assignee={row.ownerBadge} prefix="· " style={rowStyles.fact} />
         ) : null}
         <NotSavedMark kind="issue" id={row.id} />
         <View style={rowStyles.spacer} />

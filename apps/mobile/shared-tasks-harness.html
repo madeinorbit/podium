@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Phone shared tasks — mobile harness (POD-6297)</title>
+    <style>
+      html,
+      body,
+      #root {
+        margin: 0;
+        background: #16171a;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- Metro defines `global`; a browser does not, and react-native-web's
+         reduced-motion listener reaches for it. -->
+    <script>
+      window.global = window
+    </script>
+    <script type="module" src="/harness/shared-tasks-entry.tsx"></script>
+  </body>
+</html>

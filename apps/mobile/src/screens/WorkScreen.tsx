@@ -10,6 +10,7 @@ import { parseIssueStatusValue, type SessionId } from '@podium/model'
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useStoreActions } from '../client/hooks'
+import { useMobileMemberRoster } from '../client/member-roster'
 import { useMobilePool, useMobilePoolProjection } from '../client/mobile-pool'
 import { useIssueCloseGuard } from '../client/use-issue-close'
 import { useSessionContextBooting } from '../client/use-session-context'
@@ -70,6 +71,9 @@ const PoolWorkScreen = observer(function PoolWorkScreen() {
   const bottomInset = useContentBottomInset()
   const hasCloseBlockers = useIssueCloseGuard()
   const layout = useMobilePoolProjection(readLayout, EMPTY_LAYOUT)
+  // Work is the phone's sidebar, and it is personal on a shared instance
+  // (POD-6294, POD-6297): the roster it loads is what turns that rule on.
+  useMobileMemberRoster()
   useEffect(() => {
     model?.setLayout(layout)
   }, [model, layout])

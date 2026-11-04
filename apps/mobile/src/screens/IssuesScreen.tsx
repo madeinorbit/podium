@@ -1,7 +1,10 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { ISSUES_DISPLAY_KEY } from '@podium/client-core/ui-state'
 import {
+  activeFilterCount,
+  assigneeFacet,
   type BoardFilter,
+  DEFAULT_ISSUES_FILTERS,
   type filterChips,
   issueRepoName,
   type RankedTaskIssue,
@@ -28,9 +31,11 @@ import { observer } from 'mobx-react-lite'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Animated, SectionList, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useBooting, useStoreActions } from '../client/hooks'
+import { useMobileMemberRoster } from '../client/member-roster'
 import { useMobilePool } from '../client/mobile-pool'
 import { useIssueCloseGuard } from '../client/use-issue-close'
 import { ActionSheet } from '../components/ActionSheet'
+import { AssigneeName } from '../components/AssigneeName'
 import { Icon } from '../components/Icon'
 import { IdSquare } from '../components/IdSquare'
 import { IssueCloseSheet } from '../components/IssueCloseSheet'
@@ -48,6 +53,7 @@ import { TaskFiltersSheet } from '../components/TaskFiltersSheet'
 import { EmptyState, Pill } from '../components/ui'
 import { useCollapsed } from '../hooks/useCollapsed'
 import { useContentBottomInset } from '../hooks/useContentBottomInset'
+import { useIssuesFilters } from '../hooks/useIssuesFilters'
 import { useMinimizeTabBarOnScroll } from '../hooks/useMinimizeTabBarOnScroll'
 import { usePersistedUiState } from '../hooks/usePersistedUiState'
 import { useReduceMotion } from '../hooks/useReduceMotion'
@@ -92,6 +98,17 @@ export const IssuesScreen = observer(function IssuesScreen() {
     readMobileTaskDisplay,
     writeMobileTaskDisplay,
   )
+  // Assigned to and Show agent tasks are the member's own saved filters, on
+  // the row the web writes too (POD-6294, POD-6297); the other facets belong
+  // to this screen. On a one-member instance, or until the roster loads,
+  // Assigned to narrows nothing and is not offered.
+  const [savedFilters, setSavedFilters] = useIssuesFilters()
+  const roster = useMobileMemberRoster()
+  const shared = roster?.shared === true
+  const assignee = assigneeFacet(savedFilters.assignedTo, {
+    shared,
+    viewer: roster?.currentMemberId,
+  })
   const { listRef, refreshControl, refreshAccessibilityProps, refreshing, onRefresh, connected } =
     useRefreshableTab('issues')
   const bottomInset = useContentBottomInset()
@@ -101,6 +118,7 @@ export const IssuesScreen = observer(function IssuesScreen() {
   const booting = useBooting() || !pool
   // The board holds the view's options (show done, open parents, filter and
   // search) and its lists; it is built once per pool.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: built once per pool; showDisplay below carries later display and filter changes
   const board = useMemo(
     () =>
       pool
@@ -109,17 +127,19 @@ export const IssuesScreen = observer(function IssuesScreen() {
             expanded: [],
             filter: {},
             ordering: display.ordering,
-            showAgentTasks: display.showAgentTasks,
+            showAgentTasks: savedFilters.showAgentTasks,
           })
         : null,
     [pool],
   )
-  // The display preference stays saved in ui-state until the UiStore (POD-5797)
-  // holds it; the board follows it from here.
+  // The display and filter preferences stay saved in ui-state until the
+  // UiStore (POD-5797) holds them; the board follows them from here.
+  const showAgentTasks = savedFilters.showAgentTasks
   useEffect(() => {
-    board?.showDisplay(display)
-  }, [board, display])
+    board?.showDisplay({ ordering: display.ordering, showAgentTasks, assignee })
+  }, [board, display.ordering, showAgentTasks, assignee])
   const chips = board?.chips ?? NO_CHIPS
+  const filterCount = activeFilterCount(board?.filter ?? NO_FILTER, savedFilters, shared)
   const showDone = board?.showDone ?? false
 
   // Proposals are inert until the operator decides [spec:SP-6144] — the deck
@@ -144,10 +164,10 @@ export const IssuesScreen = observer(function IssuesScreen() {
             </HeaderButton>
           )}
           <HeaderButton
-            label={chips.length > 0 ? `Task filters, ${chips.length} active` : 'Task filters'}
+            label={filterCount > 0 ? `Task filters, ${filterCount} active` : 'Task filters'}
             onPress={() => setFiltersOpen(true)}
           >
-            <Icon as={Filter} size={19} color={chips.length > 0 ? color.accentTint : color.text} />
+            <Icon as={Filter} size={19} color={filterCount > 0 ? color.accentTint : color.text} />
           </HeaderButton>
           <PressableScale
             accessibilityRole="button"
@@ -206,10 +226,21 @@ export const IssuesScreen = observer(function IssuesScreen() {
         visible={filtersOpen}
         filter={board?.filter ?? NO_FILTER}
         ordering={display.ordering}
-        showAgentTasks={display.showAgentTasks}
+        showAgentTasks={showAgentTasks}
+        assignedTo={savedFilters.assignedTo}
+        roster={roster}
+        count={filterCount}
         onFilter={(filter) => board?.setFilter(filter)}
         onOrdering={(ordering) => setDisplay({ ...display, ordering })}
-        onShowAgentTasks={(showAgentTasks) => setDisplay({ ...display, showAgentTasks })}
+        onShowAgentTasks={(show) =>
+          setSavedFilters({ assignedTo: savedFilters.assignedTo, showAgentTasks: show })
+        }
+        onAssignedTo={(assignedTo) => setSavedFilters({ assignedTo, showAgentTasks })}
+        onReset={() => {
+          const filter = board?.filter ?? NO_FILTER
+          board?.setFilter(filter.text ? { text: filter.text } : {})
+          setSavedFilters({ ...DEFAULT_ISSUES_FILTERS })
+        }}
         onClose={() => setFiltersOpen(false)}
       />
       <ActionSheet
@@ -661,10 +692,7 @@ const TaskRow = observer(function TaskRow({
         }}
         onPress={() => onOpen(issue.id)}
         onLongPress={() => onOpenActions(issue)}
-        style={({ pressed }) => [
-          styles.card,
-          pressed && styles.cardPressed,
-        ]}
+        style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
       >
         <View style={styles.topRow}>
           <IdSquare
@@ -714,6 +742,7 @@ const TaskRow = observer(function TaskRow({
           {parentModel ? (
             <Text style={styles.from}>from {issueDisplayRef(parentModel)}</Text>
           ) : null}
+          <AssigneeName assignee={issue.assignee} style={styles.from} />
           <Text style={styles.repo} numberOfLines={1}>
             {repo}
           </Text>

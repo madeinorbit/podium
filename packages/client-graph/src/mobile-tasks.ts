@@ -1,13 +1,13 @@
-import { omitGone } from './lookup'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import type { IssueModel, ModelOf } from './models'
 import type { BoardFilter, IssuesOrdering } from '@podium/client-core/values'
 import { clearChip, filterChips, orderIssues } from '@podium/client-core/values'
-import { asIssueId, ISSUE_STATUS_LABELS, isFinished } from '@podium/model/browser'
 import { companion, lazy } from '@podium/mobx-helpers'
+import { asIssueId, ISSUE_STATUS_LABELS, isFinished } from '@podium/model/browser'
 import { action, compareShallow, compareStructural, observable, observableRef } from 'mobx'
 import type { BoardListRow, BoardQuery } from './issue-board-schema'
+import { omitGone } from './lookup'
 import { MOBILE_TASK_STAGES, type MobileTasksOptions } from './mobile-screens-schema'
+import type { IssueModel, ModelOf } from './models'
 import type { MobxPool } from './pool'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -27,7 +27,12 @@ const requireRow = <T>(row: Loaded<T>): T | undefined => {
   if (row === LOADING) throw LOADING
   return row
 }
-const CLOSED_STATUSES: ReadonlySet<string> = new Set(['done', 'cancelled', 'duplicate', 'superseded'])
+const CLOSED_STATUSES: ReadonlySet<string> = new Set([
+  'done',
+  'cancelled',
+  'duplicate',
+  'superseded',
+])
 /** A filter that asks for closed work shows done work whatever the toggle says. */
 export const filterShowsDone = (filter: BoardFilter): boolean =>
   filter.status === 'closed' || (filter.stage !== undefined && CLOSED_STATUSES.has(filter.stage))
@@ -268,6 +273,10 @@ export class MobileTasksBoard {
   // UiStore (POD-5797) holds it; the screen passes it in with showDisplay().
   @observable accessor ordering: IssuesOrdering
   @observable accessor showAgentTasks: boolean
+  /** The resolved Assigned to filter (POD-6297): a member id, or undefined
+   * for every assignee's tasks. The member's saved choice is resolved by the
+   * screen (`assigneeFacet`); it is not a sheet chip, so `filter` never holds it. */
+  @observable accessor assignee: string | undefined = undefined
 
   constructor(
     readonly pool: MobxPool,
@@ -311,14 +320,20 @@ export class MobileTasksBoard {
     this.filter = clearChip(this.filter, key)
   }
 
-  @action showDisplay(display: { ordering: IssuesOrdering; showAgentTasks: boolean }) {
+  @action showDisplay(display: {
+    ordering: IssuesOrdering
+    showAgentTasks: boolean
+    assignee?: string | undefined
+  }) {
     this.ordering = display.ordering
     this.showAgentTasks = display.showAgentTasks
+    this.assignee = display.assignee
   }
 
-  /** The filter the lists use: the sheet's choices plus the search text. */
+  /** The filter the lists use: the sheet's choices, Assigned to and the search text. */
   @lazy({ equals: compareStructural }) get searchFilter(): BoardFilter {
-    return this.query.trim() ? { ...this.filter, text: this.query } : this.filter
+    const filter = this.assignee ? { ...this.filter, assignee: this.assignee } : this.filter
+    return this.query.trim() ? { ...filter, text: this.query } : filter
   }
 
   @lazy({ equals: compareStructural }) get chips() {
@@ -426,7 +441,9 @@ export class MobileTasksBoard {
 
   // --- What the screen draws
 
-  readonly lanes: readonly BoardLane[] = MOBILE_TASK_STAGES.map((stage) => new BoardLane(stage, this))
+  readonly lanes: readonly BoardLane[] = MOBILE_TASK_STAGES.map(
+    (stage) => new BoardLane(stage, this),
+  )
 
   @lazy({ equals: compareShallow }) get sections(): readonly MobileTaskIds[] | typeof LOADING {
     try {

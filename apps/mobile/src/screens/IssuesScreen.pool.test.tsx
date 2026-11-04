@@ -18,6 +18,9 @@ vi.mock('../client/use-issue-close', () => ({ useIssueCloseGuard: () => () => fa
 vi.mock('../hooks/usePersistedUiState', () => ({
   usePersistedUiState: () => [{ ordering: 'priority', showAgentTasks: false }, () => {}],
 }))
+vi.mock('../hooks/useIssuesFilters', () => ({
+  useIssuesFilters: () => [{ assignedTo: 'me', showAgentTasks: false, source: {} }, () => {}],
+}))
 vi.mock('../hooks/useCollapsed', () => ({
   useCollapsed: (_key: string, initial: boolean) => useState(initial),
 }))

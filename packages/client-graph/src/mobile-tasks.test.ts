@@ -1,4 +1,3 @@
-
 import { autorun, runInAction } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
 import {
@@ -233,8 +232,9 @@ function assertPhoneWork(one: WorkCounts, four: WorkCounts) {
       // POD-5561 owns the shared title/ref pass. Per-reader counts keep a row
       // scan visible even when both readers visit the same catalog identities.
       if (kind === 'elementsBy' && reader === 'IssueBoard.textIds') continue
-      expect(four[kind]?.[reader] ?? 0, `${kind} ${reader}`)
-        .toBeLessThanOrEqual(one[kind]?.[reader] ?? 0)
+      expect(four[kind]?.[reader] ?? 0, `${kind} ${reader}`).toBeLessThanOrEqual(
+        one[kind]?.[reader] ?? 0,
+      )
     }
   }
 }
@@ -252,4 +252,25 @@ it('keeps phone board row calls, derivations and collection elements flat at a f
   const planted1 = await workAt(1, true),
     planted4 = await workAt(4, true)
   expect(() => assertPhoneWork(planted1[3]!, planted4[3]!)).toThrow()
+})
+
+it('narrows the phone Tasks board to the resolved Assigned to member, and lists everyone without one (POD-6297)', async () => {
+  const { pool } = await setup([
+    issue('root', { assignee: 'alice' }),
+    issue('bobs', { assignee: 'bob', seq: 2 }),
+  ])
+  const board = new MobileTasksBoard(pool, options)
+  disposals.push(autorun(() => board.sections))
+  const ids = () => layout(board).flatMap((section) => section.rows.map((row) => row.id))
+  // Me, resolved by the screen to the viewer.
+  board.showDisplay({ ordering: 'priority', showAgentTasks: false, assignee: 'alice' })
+  expect(ids()).toEqual(['root'])
+  // A member by name.
+  board.showDisplay({ ordering: 'priority', showAgentTasks: false, assignee: 'bob' })
+  expect(ids()).toEqual(['bobs'])
+  // All users, or a one-member instance: nothing narrows.
+  board.showDisplay({ ordering: 'priority', showAgentTasks: false })
+  expect(ids().sort()).toEqual(['bobs', 'root'])
+  // Assigned to is not a sheet chip.
+  expect(board.chips).toEqual([])
 })

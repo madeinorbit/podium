@@ -35,28 +35,20 @@ import {
  * degradation notice, and this principal's local erase. They live in `./shell`,
  * which says why each one cannot come from a snapshot.
  *
-  * Demo mode (`?demo=1`) is now a REAL store over a kernel-backed facade seeded
-  * with the fixtures (POD-5277), rather than a second hand-written value object: the design
-  * surface therefore exercises the same pool readers as the product.
+ * Demo mode (`?demo=1`) is now a REAL store over a kernel-backed facade seeded
+ * with the fixtures (POD-5277), rather than a second hand-written value object: the design
+ * surface therefore exercises the same pool readers as the product.
  */
 
+import { profileServerIdentity, watchAccountSwitch } from '@podium/client-core/accounts'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { type CreateEngineOutbox, OUTBOX_COMMANDS } from '@podium/client-core/engine'
-import { profileServerIdentity, watchAccountSwitch } from '@podium/client-core/accounts'
 import {
   browserWakeSource,
   createFeedRelay,
   type FeedBroadcastChannelFactory,
   observeLiveConnection,
 } from '@podium/client-core/live-connection'
-import {
-  browserFollowAdopt,
-  type FollowEvent,
-  type FollowPorts,
-  followHub,
-  type ServerIdentity,
-} from '@podium/client-core/server-follow'
-import { CONNECT_DEFAULT_BASE_URL } from '@podium/protocol/server-locate'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import {
@@ -67,6 +59,7 @@ import {
   type Replica,
   type StorageApi,
 } from '@podium/client-core/replica'
+import type { LegacyIdentityEvidence } from '@podium/client-core/replica-assembly'
 import {
   classifyAuthStatus,
   openReplicaAssembly,
@@ -77,24 +70,31 @@ import {
   startReplicaBoot,
 } from '@podium/client-core/replica-assembly'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
+import {
+  browserFollowAdopt,
+  type FollowEvent,
+  type FollowPorts,
+  followHub,
+  type ServerIdentity,
+} from '@podium/client-core/server-follow'
 import type { FeedSinkPort } from '@podium/client-core/socket-transport'
 import type { HttpSyncSourceDeps } from '@podium/client-core/sync-stream'
 import { createLogger } from '@podium/logger'
 import { asUserId, type SessionId } from '@podium/model'
-import type { LegacyIdentityEvidence } from '@podium/client-core/replica-assembly'
+import { CONNECT_DEFAULT_BASE_URL } from '@podium/protocol/server-locate'
 
 export { BOOT_STALL_MS, STORE_REFRESH_NOTICE } from '@podium/client-core/replica-assembly'
 
+import { setClockWakeSource } from '@podium/mobx-helpers'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Platform } from 'react-native'
-import { setClockWakeSource } from '@podium/mobx-helpers'
-import { platformClockWakeSource } from './clock-wake-source'
 import { BootSplash } from '../components/BootSplash'
 import { BootTroubleScreen } from '../components/BootTroubleScreen'
 import { mobileAccountCredentials } from './account-credentials'
 import { checkLiveAuth, fetchAuthStatus } from './auth'
 import { useAuthStatus } from './auth-context'
+import { platformClockWakeSource } from './clock-wake-source'
 // From `./launch-ready`, not `./launch`: the boundary itself imports
 // expo-router's SplashScreen, and the composition root has no business pulling
 // the router in just to report that its boot failed.
@@ -125,9 +125,12 @@ const followLog = createLogger('mobile:server-follow')
 /** Why the phone is or is not following, for whoever reads the log (POD-5921). */
 function logFollowEvent(event: FollowEvent): void {
   if (event.kind === 'miss') followLog.info('server not found elsewhere yet', { ...event.miss })
-  else if (event.kind === 'found') followLog.info('server found at a new address', { origin: event.origin })
-  else if (event.kind === 'adopted') followLog.info('followed the server', { ...event.move, claimToken: undefined })
-  else if (event.kind === 'adopt-failed') followLog.warn('could not follow the server', { err: event.error })
+  else if (event.kind === 'found')
+    followLog.info('server found at a new address', { origin: event.origin })
+  else if (event.kind === 'adopted')
+    followLog.info('followed the server', { ...event.move, claimToken: undefined })
+  else if (event.kind === 'adopt-failed')
+    followLog.warn('could not follow the server', { err: event.error })
 }
 
 import { type MobileTrpc, makeMobileTrpc, readServerConfig } from './trpc'
@@ -147,6 +150,7 @@ export { MOBILE_REPLICA_DB } from './replica-storage-constants'
 
 import { mobileAccountEraser } from './account-data'
 import { mobileBrowserAccounts } from './browser-accounts'
+import { discardRefusedMember, refusedPrincipal } from './refused-member'
 import { MOBILE_REPLICA_DB } from './replica-storage-constants'
 
 /** Test-only/legacy fallback. Production passes AuthStatus.userId explicitly; an
@@ -329,14 +333,14 @@ export function MobileClientProvider({ children }: { children: ReactNode }) {
  * the slice in production and from the fixture object in demo, and only one of
  * them was ever looked at.
  *
-  * Now the fixtures are ROWS in the kernel's own vocabulary. A kernel-backed
-  * facade (`createDemoReplica` — the same `createKernelReplica` the product
-  * assembly hands the pool) is seeded with them and the ordinary
-  * `StoreProvider` runs over it, so every screen exercises the same
-  * pool readers and the same store actions it does in the
-  * product. What is stubbed is only the network: a tRPC surface that answers the
-  * handful of reads the fixture flows make and resolves mutations without
-  * changing the world.
+ * Now the fixtures are ROWS in the kernel's own vocabulary. A kernel-backed
+ * facade (`createDemoReplica` — the same `createKernelReplica` the product
+ * assembly hands the pool) is seeded with them and the ordinary
+ * `StoreProvider` runs over it, so every screen exercises the same
+ * pool readers and the same store actions it does in the
+ * product. What is stubbed is only the network: a tRPC surface that answers the
+ * handful of reads the fixture flows make and resolves mutations without
+ * changing the world.
  *
  * The boot enrichments (repos, pins, tab orders, superagent threads) fail
  * harmlessly against that stub — the engine already runs every one of them
@@ -587,15 +591,53 @@ function LiveProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     authExpiryHandled.current = false
   }, [bearer, config.httpOrigin, config.workspaceId])
+  // The member the open replica belongs to: whose data a refusal erases.
+  const openedPrincipalRef = useRef<string | undefined>(undefined)
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new credential needs a fresh expiry handler
-  const expireLiveCredential = useCallback(() => {
-    if (!updateCredential || authExpiryHandled.current) return
-    authExpiryHandled.current = true
-    void updateCredential(null).catch((cause: unknown) => {
-      authExpiryHandled.current = false
-      reportError(cause instanceof Error ? cause.message : String(cause))
-    })
-  }, [bearer, updateCredential, reportError])
+  const endLiveCredential = useCallback(
+    (refused: boolean) => {
+      if (!updateCredential || authExpiryHandled.current) return
+      authExpiryHandled.current = true
+      const report = (cause: unknown) =>
+        reportError(cause instanceof Error ? cause.message : String(cause))
+      const clearCredential = () => updateCredential(null)
+      // The server refused this member (POD-6297, the phone's half of
+      // POD-6293): their stored data goes first, then the credential. Another
+      // tab's switch is not a refusal: the tab that signed out already erased.
+      const ended = refused
+        ? discardRefusedMember({
+            principal: refusedPrincipal(
+              openedPrincipalRef.current,
+              serverProfileRef.current?.profile,
+            ),
+            web: Platform.OS === 'web',
+            erase: mobileAccountEraser.erase,
+            removeWebPrincipal: (principal) =>
+              mobileBrowserAccounts(
+                config.httpOrigin,
+                config.workspaceId,
+                config.workspaceSlug,
+              ).removePrincipal(principal),
+            clearCredential,
+            report,
+          })
+        : clearCredential()
+      void ended.catch((cause: unknown) => {
+        authExpiryHandled.current = false
+        report(cause)
+      })
+    },
+    [
+      bearer,
+      updateCredential,
+      reportError,
+      config.httpOrigin,
+      config.workspaceId,
+      config.workspaceSlug,
+    ],
+  )
+  const expireLiveCredential = useCallback(() => endLiveCredential(true), [endLiveCredential])
+  const endSwitchedCredential = useCallback(() => endLiveCredential(false), [endLiveCredential])
   // biome-ignore lint/correctness/useExhaustiveDependencies: profile identity changes must replace the verification callback
   const verifyLiveCredential = useCallback(() => {
     if (activation === 'offline-cache') {
@@ -778,6 +820,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
       onState: (state) => {
         if (state.status === 'ready') {
           replicaForCleanup = state.value
+          openedPrincipalRef.current = state.value.principal
           setOpenedReplica(state.value)
           setBootFailure(null)
           setBootCause(null)
@@ -853,7 +896,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
         config.workspaceSlug,
       ).profilesKey,
       identity: { syncBoundaryId: boundBoundary, memberId: boundMember },
-      onSwitched: expireLiveCredential,
+      onSwitched: endSwitchedCredential,
     })
   }, [
     boundMember,
@@ -861,7 +904,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
     config.httpOrigin,
     config.workspaceId,
     config.workspaceSlug,
-    expireLiveCredential,
+    endSwitchedCredential,
   ])
   // The engine's `notices` come from the same channel as `reportError` above: one
   // error on screen at a time, drawn by the banner `MobileShellSurface` mounts
