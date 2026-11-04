@@ -412,6 +412,39 @@ export {
   readPositionAdvanceInput,
 } from './read-position/contracts'
 export {
+  RECORD_CONTRACTS,
+  recordContracts,
+  recordContractTable,
+  recordCreateInput,
+  recordEditInput,
+  recordRemoveInput,
+} from './records/contracts'
+export {
+  createFields,
+  declarationProblems,
+  defineSyncedKind,
+  key as recordKeyField,
+  label as recordLabelField,
+  RECORD_CONFLICTS,
+  RECORD_OPS,
+  type RecordConflict,
+  type RecordField,
+  type RecordFieldRole,
+  type RecordOp,
+  type RecordOpPolicy,
+  recordCommandName,
+  type SyncedKindDeclaration,
+  spec as recordSpecField,
+  specFields,
+  status as recordStatusField,
+} from './records/declare'
+export {
+  ISSUE_RECORD,
+  NOT_YET_GENERIC,
+  SESSION_USER_STATE_RECORD,
+  SYNCED_KINDS,
+} from './records/kinds'
+export {
   applyRedaction,
   applyRedactionWithReport,
   messageMentionsRedactedValue,

@@ -65,6 +65,7 @@ import {
   MachineIdField,
   MessageId,
   MutationIdField,
+  NewIssueId,
   Revision,
   SessionIdField,
   ShipHoldAction,
@@ -277,8 +278,10 @@ export const panelApplyInput = z.object({
 
 export const createInput = z.object({
   // Client-minted identities let insert-shaped optimistic UI reconcile in place.
-  // The service refuses collisions before it creates or starts anything.
-  id: IssueIdField.optional(),
+  // The service refuses collisions before it creates or starts anything. ADR 12
+  // D4: a new id is `iss_` and a random UUID, nothing else; above all not a
+  // string that looks like a human ref (`#12`, `POD-12`).
+  id: NewIssueId.pipe(IssueIdField).optional(),
   startSessionId: SessionIdField.optional(),
   repoPath: z.string(),
   title: z.string().min(1),
