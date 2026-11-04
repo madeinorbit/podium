@@ -237,6 +237,31 @@ export const collapseKeyOf = (source: CollapseKey): CollapseKey =>
  * discarded) and it is also the ONLY payload the record holds: no Authority
  * state, no target content, nothing the author did not already have.
  */
+/**
+ * A position in one feed: the receipt an applied reply carries, and the cursor a
+ * replica commit certifies. Structurally the replica's `Cursor`; restated here so
+ * the outbox does not depend on the replica. Epochs compare by EQUALITY only
+ * (`feed/identity.ts`: there is no `>` on an epoch).
+ */
+export interface CoveringCursor {
+  readonly feedId: string
+  readonly epoch: string
+  readonly seq: number
+}
+
+/**
+ * What one replica commit proves it now holds (ADR 2 D9, ADR 12). `Outbox.confirm`
+ * retires the entries it covers, in that same commit when given its span.
+ */
+export interface ConfirmationEvidence {
+  /** Mutation ids named by provenance on rows the replica committed (ADR 2 D8). */
+  readonly confirmed: readonly MutationId[]
+  /** The cursor that commit certifies. */
+  readonly through: CoveringCursor
+  /** The commit is a bootstrap install: a new truth that supersedes other epochs. */
+  readonly install: boolean
+}
+
 export interface OutboxRecord extends EnvelopeConfirmation {
   /** Client-minted idempotency key; also the dedupe key at the Authority
    *  (ADR 2 D8 / ADR 3 D11). */
@@ -299,6 +324,13 @@ export interface OutboxRecord extends EnvelopeConfirmation {
   readonly nextAttemptAt?: number
   readonly acceptedAt?: number
   readonly appliedAt?: number
+  /**
+   * The covering cursor the Authority's reply named (ADR 12): the change-log head
+   * after the command's last commit. Stored with `appliedAt`, durably, so a reload
+   * between the reply and the covering frame still knows which truth retires the
+   * entry. Absent on entries from older builds and replies from older servers.
+   */
+  readonly receipt?: CoveringCursor
   /** Set when the entry reached `rejected` or `expired`. */
   readonly reason?: OutboxRejectionReason
   readonly deadLetteredAt?: number

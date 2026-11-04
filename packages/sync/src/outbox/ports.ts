@@ -10,6 +10,7 @@ import type { SyncSpan } from '../span'
 import type { BackoffPolicy } from './limits'
 import type { AuthorityRefusal, OutboxRejectionReason } from './reasons'
 import type {
+  CoveringCursor,
   DeadLetterRecord,
   EnvelopeConfirmation,
   OutboxCommand,
@@ -71,6 +72,14 @@ export type OutboxSubmitOutcome =
        * anything else): the ordinary applied path, unchanged.
        */
       readonly retire?: true
+      /**
+       * The covering cursor the reply names (ADR 12): the change-log head after the
+       * command's last commit. Stored on the entry, which then retires once the
+       * replica commits a cursor at or past it (`Outbox.confirm`). Absent from
+       * servers without the sync entry point; such an entry is covered by any
+       * confirmation evidence.
+       */
+      readonly receipt?: CoveringCursor
       /**
        * Runs after the verdict's own commit lands (this issue). A terminal
        * reply is REPORTED the moment it arrives but only DURABLE once its
