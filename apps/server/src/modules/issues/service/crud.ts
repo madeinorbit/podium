@@ -1374,7 +1374,8 @@ export class IssueCrudModule {
       // validating at this seam would turn a create the tracker accepts today into
       // a throw — a decoder/encoder change, and not this issue's.
       type: (input.type || 'task') as StoredIssue['type'],
-      ...(input.assignee ? { assignee: asUserId(input.assignee) } : {}),
+      // No `assignee`: a new task's assignee is its owner, the creating human
+      // (POD-6287). The column is only a legacy display label now.
       // Keyed into the scope it will LAND in: the parent's children when this
       // is a subtask create (parentId is applied after persist via reparent,
       // so the scope is resolved from the input here).
@@ -1481,6 +1482,21 @@ export class IssueCrudModule {
       /** Whose pin a `pinned` patch sets (POD-6288): the calling member.
        *  Absent = the broadcast viewer, for the server's own updates. */
       viewer?: UserId
+      /**
+       * The human this write acts for, when a person or their agent made it
+       * (POD-6287). A close stops this person's sessions on the task and
+       * nobody else's; absent, it stops the assignee's. A reassignment is
+       * attributed to them.
+       */
+      caller?: UserId
+      /**
+       * REASSIGN (POD-6287, design §2.2/§4.3): make this member the task's
+       * assignee, its owner. INTERNAL, like `repoPath`: the command layer has
+       * already resolved `me`, checked the member is active and refused an
+       * agent, so nothing here re-decides who may. Written in the same draft
+       * as the rest of the patch, under its revision pin.
+       */
+      owner?: UserId
     },
   ): Promise<IssueProjection> {
     // Resolved BEFORE the draft is cut: a lookup by name, never a row field.
@@ -1598,6 +1614,9 @@ export class IssueCrudModule {
     } else {
       Object.assign(row, rowPatch)
     }
+    const previousOwner = row.ownerUserId
+    const reassigned = opts?.owner !== undefined && opts.owner !== previousOwner
+    if (reassigned) row.ownerUserId = opts.owner
     // `update` is also an adoption seam for worktrees reported by a harness or
     // supplied by an operator. Only a patch that actually supplies a worktree can
     // establish placement; unrelated updates must not guess for historical NULL rows.
@@ -1632,9 +1651,12 @@ export class IssueCrudModule {
     // Closed-flip anchor [spec:SP-6144]: closedAt moves ONLY on actual predicate
     // flips, so post-close touches (notes, deps, steward writes) never restart
     // the sidebar's completion-decay window the way updatedAt would.
-    if (!wasClosed && this.store.isClosed(row)) row.closedAt = this.store.now()
-    else if (wasClosed && !this.store.isClosed(row)) {
+    if (!wasClosed && this.store.isClosed(row)) {
+      row.closedAt = this.store.now()
+      row.closedByUserId = opts?.caller ?? null
+    } else if (wasClosed && !this.store.isClosed(row)) {
       row.closedAt = null
+      row.closedByUserId = null
       // Reopening retires the dismissal (POD-333): reopened work must not inherit
       // a tuck from a PRIOR close, or the next time it finishes it would fold
       // itself away without the operator ever seeing it. A later close offers
@@ -1646,8 +1668,12 @@ export class IssueCrudModule {
     // not advance updatedAt past readAt or computeUnread re-marks the issue
     // unread after a purely human board edit (POD-325).
     const wire = await this.store.persist(row, {
-      touch: isOrganizationalOnlyPatch(patch) ? false : undefined,
+      touch: isOrganizationalOnlyPatch(patch) && !reassigned ? false : undefined,
+      ...(reassigned ? { reassign: true as const } : {}),
     })
+    if (reassigned && previousOwner && row.ownerUserId) {
+      await this.announceReassignment(row, previousOwner, row.ownerUserId, opts?.caller)
+    }
     // A REORDER DELIBERATELY DOES NOT COMPACT (POD-1102), and the asymmetry is
     // the point: CREATE is the only thing that makes keys longer, so create is
     // the only thing that has to shorten them. A drag re-keys one row between
@@ -1703,9 +1729,8 @@ export class IssueCrudModule {
       // (POD-3802). Awaiting is cheap: the cleanup registers its own tail with
       // `afterCommit` and returns, so the close still does not wait for the
       // worktree stop.
-      await this.onIssueClosed?.({
-        issueId: row.id,
-      })
+      const closedBy = opts?.caller ?? row.ownerUserId
+      if (closedBy) await this.onIssueClosed?.({ issueId: row.id, closedBy })
 
       try {
         // AWAITED inside the try: with no span open the follow-up runs here and
@@ -2115,12 +2140,52 @@ export class IssueCrudModule {
     await this.setCoordinator(parent.id, sessionId, { cause: 'first-child', childId })
   }
 
+  /** Is `userId` a member who can act: a `users` row, not disabled (POD-6287).
+   *  Only such a member can be a task's assignee. */
+  async isActiveMember(userId: string): Promise<boolean> {
+    return (await this.store.deps.store.users.get(asUserId(userId))) !== undefined
+  }
+
+  /**
+   * CLAIM (POD-6287): start work on the task. It moves the stage, and only a
+   * person's claim names an assignee (`owner`, already resolved by the command
+   * layer). An agent's claim never touches who is accountable for the task.
+   */
   async claim(
     id: string,
-    assignee: UserId,
-    opts?: { actorSessionId?: SessionId },
+    opts?: { actorSessionId?: SessionId; owner?: UserId; caller?: UserId },
   ): Promise<IssueProjection> {
-    return await this.update(id, { assignee, stage: 'in_progress' }, opts)
+    return await this.update(id, { stage: 'in_progress' }, opts)
+  }
+
+  /**
+   * The reassignment's two durable traces, after its write committed: an
+   * attributed `issue.reassigned` event and a notice in the old and the new
+   * assignee's inbox. Sessions, credentials, approvals and spending are not
+   * touched: existing work keeps running for whoever started it (§2.3).
+   */
+  private async announceReassignment(
+    row: IssueRow,
+    from: UserId,
+    to: UserId,
+    by: UserId | undefined,
+  ): Promise<void> {
+    await this.store.emitEvent('issue.reassigned', row.id, {
+      seq: row.seq,
+      from,
+      to,
+      ...(by ? { by } : {}),
+    })
+    if (by) {
+      await this.store.deps.onIssueReassigned?.({
+        issueId: row.id,
+        seq: row.seq,
+        title: row.title,
+        from,
+        to,
+        by,
+      })
+    }
   }
 
   /** Claim / set / clear the issue's designated coordinator session

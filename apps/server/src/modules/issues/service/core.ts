@@ -847,7 +847,10 @@ export class IssueStore {
     } catch {}
   }
   /** Persist one row and publish only its normalized data. */
-  async persist(row: IssueRow, opts?: { touch?: boolean }): Promise<IssueProjection> {
+  async persist(
+    row: IssueRow,
+    opts?: { touch?: boolean; reassign?: true },
+  ): Promise<IssueProjection> {
     return await this.persistWith(row, undefined, opts)
   }
 
@@ -877,6 +880,10 @@ export class IssueStore {
       extraChanges?:
         | readonly EntityChangeSpec[]
         | (() => readonly EntityChangeSpec[] | Promise<readonly EntityChangeSpec[]>)
+      /** This write moves the task's owner, its assignee (POD-6287). Refused
+       *  for a row that is not a pinned draft: a reassignment is always
+       *  revision-checked. */
+      reassign?: true
     },
   ): Promise<IssueProjection> {
     // `row` is a DRAFT (POD-3259) — a private copy pinned to the revision it was
@@ -884,6 +891,9 @@ export class IssueStore {
     // guard: `expectedRevision` refuses the write durably, inside the
     // transaction, if the row moved after the draft was cut.
     const pin = this.draftPin(row)
+    if (opts?.reassign && pin === undefined) {
+      throw new Error(`issue ${row.id}: a reassignment must be written from a pinned draft`)
+    }
     // One spelling for absent (POD-820): `''` on a nullable text column is a
     // second encoding of `null` that no reader can tell apart. Collapsed here —
     // the choke point every row write passes through — and BEFORE the backup is
@@ -908,7 +918,9 @@ export class IssueStore {
           const worktreeWas = await this.worktreeBefore(row)
           await this.deps.store.issues.upsertIssue(
             row,
-            pin === undefined ? undefined : { expectedRevision: pin },
+            pin === undefined
+              ? undefined
+              : { expectedRevision: pin, ...(opts?.reassign ? { reassign: true as const } : {}) },
           )
           this.announceWorktreeMove(row.id, worktreeWas, worktreeOf(row))
           // The projection depends only on the committed draft and its labels.

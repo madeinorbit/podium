@@ -914,6 +914,9 @@ const deleteCommentsOf = prepared((db: StoreDrizzle) =>
  * and that move used to reach only the in-memory issue map: the stored row kept
  * the old path and a restart put it back.
  */
+/** The statement-family key prefix of an upsert that also rewrites the owner. */
+const REASSIGN_SHAPE_PREFIX = 'reassign|'
+
 const UPSERT_ISSUE_SET_COLUMNS = [
   'repoPath',
   'repoId',
@@ -948,6 +951,7 @@ const UPSERT_ISSUE_SET_COLUMNS = [
   'deferUntil',
   'closedReason',
   'closedAt',
+  'closedByUserId',
   'landedAt',
   'landedSha',
   'supersededBy',
@@ -1261,7 +1265,17 @@ export class IssuesRepository {
      * cutting a draft and committing it — and that is the point: it is armed
      * before the awaits arrive, not after.
      */
-    opts?: { expectedRevision: number | null },
+    opts?: {
+      expectedRevision: number | null
+      /**
+       * REASSIGNMENT (POD-6287, design §2.2/§4.3): rewrite `owner_user_id`, the
+       * task's one accountable human, which every other write leaves alone. Only
+       * the reassign path passes it, and only with a pinned revision, so of two
+       * reassignments cut from one revision the second is refused rather than
+       * silently overwriting the first.
+       */
+      reassign?: true
+    },
   ): Promise<void> {
     await this.invalidateRowCache()
     if (
@@ -1364,6 +1378,7 @@ export class IssuesRepository {
       deferUntil: row.deferUntil,
       closedReason: row.closedReason,
       closedAt: row.closedAt ?? null,
+      closedByUserId: row.closedByUserId ?? null,
       landedAt: row.landedAt ?? null,
       landedSha: row.landedSha ?? null,
       supersededBy: row.supersededBy,
@@ -1395,10 +1410,13 @@ export class IssuesRepository {
     // The SHAPE is the set of keys this row actually sets: drizzle renders an
     // undefined `values` key as NULL and drops an undefined `set` key, so a
     // row with an undefined column is a different statement, as it always was.
-    const upsert = (this.issueWrites.upsert ??= preparedFamily((db: StoreDrizzle, shape: string) => {
-      const placeholders = placeholdersFor(shape)
+    const upsert = (this.issueWrites.upsert ??= preparedFamily((db: StoreDrizzle, key: string) => {
+      const reassign = key.startsWith(REASSIGN_SHAPE_PREFIX)
+      const placeholders = placeholdersFor(reassign ? key.slice(REASSIGN_SHAPE_PREFIX.length) : key)
       const set: Record<string, Placeholder> = {}
-      for (const column of UPSERT_ISSUE_SET_COLUMNS) {
+      for (const column of reassign
+        ? [...UPSERT_ISSUE_SET_COLUMNS, 'ownerUserId' as const]
+        : UPSERT_ISSUE_SET_COLUMNS) {
         const placeholder = placeholders[column]
         if (placeholder !== undefined) set[column] = placeholder
       }
@@ -1413,7 +1431,11 @@ export class IssuesRepository {
         .prepare()
     }))
     await this.writeRows(
-      async () => await upsert(this.db, shapeOf(values)).all(values),
+      async () =>
+        await upsert(
+          this.db,
+          opts?.reassign ? `${REASSIGN_SHAPE_PREFIX}${shapeOf(values)}` : shapeOf(values),
+        ).all(values),
       'upsert',
     )
   }
@@ -2598,6 +2620,7 @@ export function issueFromRow(r: typeof issues.$inferSelect): IssueRow {
     deferUntil: r.deferUntil,
     closedReason: r.closedReason,
     closedAt: r.closedAt,
+    closedByUserId: r.closedByUserId ?? null,
     landedAt: r.landedAt,
     landedSha: r.landedSha,
     supersededBy: r.supersededBy,

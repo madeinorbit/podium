@@ -37,6 +37,7 @@ export type IssueCrudCapability = Pick<
   | 'setLabels'
   | 'refuseUnknownLabels'
   | 'claim'
+  | 'isActiveMember'
   | 'setCoordinator'
   | 'close'
   | 'applySuggestion'

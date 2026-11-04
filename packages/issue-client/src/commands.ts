@@ -1080,13 +1080,14 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'claim',
-    summary: 'Claim an issue (set assignee + in_progress): claim <id> --assignee me.',
-    args: z.strictObject({ id: idArg, assignee: z.string() }),
+    summary:
+      'Claim an issue (in_progress): claim <id> [--assignee me|<member id>]. A person claiming becomes its assignee (or names one); an agent claiming starts work and never changes the assignee.',
+    args: z.strictObject({ id: idArg, assignee: z.string().optional() }),
     positionals: ['id'],
     async run(c, a) {
       const i = (await c.issues.claim.mutate({
         id: a.id as string,
-        assignee: a.assignee as string,
+        ...(a.assignee ? { assignee: a.assignee as string } : {}),
       })) as { seq: number }
       return { text: `claimed #${i.seq}`, data: i }
     },

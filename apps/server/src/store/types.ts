@@ -441,7 +441,8 @@ export interface IssueRow {
   deletedAt?: string | null
   priority: number
   type: string
-  assignee: UserId | null
+  /** The legacy free-text assignee label (POD-6287); the assignee is `ownerUserId`. */
+  assignee: string | null
   parentId: IssueId | null
   acceptance: string | null
   dueAt: string | null
@@ -449,6 +450,8 @@ export interface IssueRow {
   closedReason: string | null
   /** When the closed-predicate last flipped true; null while open. [spec:SP-6144] */
   closedAt: string | null
+  /** The member whose close this is (POD-6287); see the column. Storage-only. */
+  closedByUserId?: UserId | null
   /** ISO time Podium's own `merge --ff-only` landed this branch [POD-1085].
    *  An OBSERVED EVENT, not a verdict re-derived from history: a later rebase of
    *  the landing branch destroys ancestry, and destroys it for every branch that

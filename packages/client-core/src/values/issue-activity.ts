@@ -141,6 +141,10 @@ export function formatIssueEvent(event: IssueEvent): IssueEventLine | null {
               ? 'agent became coordinator (first sub-issue)'
               : 'coordinator changed',
       }
+    // A new assignee (POD-6287). The payload names members by id; the line
+    // stays generic until the client resolves member names.
+    case 'issue.reassigned':
+      return { icon: 'generic', text: 'reassigned' }
     case 'issue.needs_human':
       return { icon: 'flagged', text: 'flagged for a human' }
     case 'issue.needs_human_cleared':

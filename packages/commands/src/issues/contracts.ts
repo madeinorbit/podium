@@ -609,7 +609,10 @@ export const setPlacementInput = z.object({
  */
 export const EXPECTED_REVISION = z.object({ expectedRevision: Revision.optional() })
 
-export const claimInput = z.object({ id: IssueIdField, assignee: UserIdField })
+/** `assignee` names who answers for the task (POD-6287): a member id or `me`,
+ *  and only a person's claim applies it. An agent's claim moves the stage and
+ *  leaves the assignee alone; omitted, a person's claim means `me`. */
+export const claimInput = z.object({ id: IssueIdField, assignee: UserIdField.optional() })
 
 export const setCoordinatorInput = z.object({
   id: IssueIdField,

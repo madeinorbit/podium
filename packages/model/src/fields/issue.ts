@@ -114,9 +114,14 @@ export const IssueLifecycle = z.object({
 })
 export type IssueLifecycle = z.infer<typeof IssueLifecycle>
 
-/** PRIORITISATION AND ROUTING. `assignee` becomes a branded `UserId` (free text
- *  today, inventory §9) — ownership-adjacent rather than attribution, but the
- *  same brand.
+/** PRIORITISATION AND ROUTING.
+ *
+ *  `assignee` IS THE OWNER (POD-6287, design §2.2/§4.3): the task's one
+ *  accountable human, the same member as the projection's `owner`, and never
+ *  written on its own. It is reassigned to another active member, by a person
+ *  only. `legacyAssignee` is what the old free-text column held when it named
+ *  no member (an agent label such as `agent:codex`, or `me`): a display label
+ *  kept from before, read-only, that never makes anyone accountable.
  *
  *  `pinned` is DELIBERATELY ABSENT: it is per-user state (inventory §7.1), and
  *  it is a SECOND pin mechanism beside the `pins` table which POD-1076 collapses. */
@@ -124,6 +129,7 @@ export const IssueTriage = z.object({
   priority: z.number().int(),
   type: IssueType,
   assignee: UserIdField.optional(),
+  legacyAssignee: z.string().optional(),
   labels: z.array(z.string()),
   estimateMin: z.number().int().optional(),
   /** Fractional sort key, lexicographic ascending = top of the scope. */

@@ -221,12 +221,12 @@ export function fromStorage(row: IssueRow): StoredIssue {
     // --- IssueTriage (labels live in issue_labels, not on the row) --------
     priority: row.priority,
     type: row.type as IssueType,
-    // POD-1246: `opt`, not a truthiness spread. A stored `assignee: ''` is a real
-    // value and dropping it makes the round-trip lossy — it reaches the wire
-    // absent and reads back as null. Every other free-text column here already
-    // omits on `== null` for that reason; this one was the holdout, and main had
-    // settled the same question the same way before the merge.
-    ...opt('assignee', row.assignee),
+    // THE ASSIGNEE IS THE OWNER (POD-6287): derived from `owner_user_id`, never
+    // from the `assignee` column, which now holds only a legacy display label.
+    // POD-1246: `opt`, not a truthiness spread, for the label: a stored `''` is
+    // a real value and dropping it makes the round-trip lossy.
+    ...(row.ownerUserId ? { assignee: row.ownerUserId } : {}),
+    ...opt('legacyAssignee', row.assignee),
     ...(row.estimateMin != null ? { estimateMin: row.estimateMin } : {}),
     ...opt('sortKey', row.sortKey),
     ...opt('dueAt', row.dueAt),
@@ -351,7 +351,8 @@ export function toStorage(
     // --- IssueTriage -------------------------------------------------------
     priority: issue.priority,
     type: issue.type,
-    assignee: issue.assignee ?? null,
+    // The column is the legacy label; `assignee` is the owner, stored as such.
+    assignee: issue.legacyAssignee ?? null,
     estimateMin: issue.estimateMin ?? null,
     sortKey: issue.sortKey ?? null,
     dueAt: issue.dueAt ?? null,

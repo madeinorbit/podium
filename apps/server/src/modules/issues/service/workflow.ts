@@ -2,7 +2,6 @@ import { deepestOwner } from '../folder-owner'
 import { createLogger } from '@podium/logger'
 import {
   asMachineId,
-  asUserId,
   DEFER_NEXT_MESSAGE,
   type IssueId,
   type IssueProjection,
@@ -638,13 +637,11 @@ export class IssueGitWorkflowModule {
       await this.store.writeIssueUserState(row.id, { tuckedAt: null })
     }
     /** What a failed spawn puts back (POD-6119), read off the draft this start writes. */
-    const before = { stage: row.stage, assignee: row.assignee ?? null }
+    const before = { stage: row.stage }
     row.stage = 'in_progress'
-    // `assignee` is a branded `UserId` by POD-361's recorded decision ('free text
-    // today, inventory §9'), and an `agent:<kind>` tag is not a user. The cast is
-    // named rather than hidden: adjudicating whether the column holds a UserId or
-    // an actor TAG is POD-1075's (accounts) call, not this sweep's.
-    row.assignee = asUserId(`agent:${launch.agent}`)
+    // A start no longer stamps `agent:<kind>` into `assignee` (POD-6287): the
+    // assignee is the task's accountable human, and an agent starting work
+    // never changes who that is.
     const wire = await this.store.persistRow(row)
     if (wasClosed) {
       await this.store.emitEvent('issue.reopened', row.id, {
@@ -706,7 +703,7 @@ export class IssueGitWorkflowModule {
         ...(row.machineId ? { machineId: row.machineId } : {}),
       })
       .catch(async (err: unknown) => {
-        if (before.stage === 'proposed') await this.returnToProposals(row.id, before.assignee)
+        if (before.stage === 'proposed') await this.returnToProposals(row.id)
         throw err
       })
     return {
@@ -740,15 +737,11 @@ export class IssueGitWorkflowModule {
    * resume in {@link startOnce}). Best effort: the spawn's own error is what the
    * caller must see, so a failure here is only logged.
    */
-  private async returnToProposals(
-    id: string,
-    assignee: IssueRow['assignee'] | null,
-  ): Promise<void> {
+  private async returnToProposals(id: string): Promise<void> {
     try {
       const row = await this.store.draftOrThrow(id)
       if (row.stage !== 'in_progress' || (await this.store.factsFor(row)).length > 0) return
       row.stage = 'proposed'
-      row.assignee = assignee
       await this.store.persistRow(row)
     } catch (err) {
       log.warn('could not return a proposal to proposed after its start failed', {

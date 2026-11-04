@@ -334,7 +334,25 @@ export interface IssueDeps {
    * defers its own tail past the commit, so the close does not wait on worktree
    * work.
    */
-  onIssueClosed?(input: { issueId: IssueId }): Promise<void>
+  onIssueClosed?(input: {
+    issueId: IssueId
+    /** Whose sessions the close stops (POD-6287, MU-24): the human who closed
+     *  it, else the task's assignee. Nobody else's. */
+    closedBy: UserId
+  }): Promise<void>
+  /**
+   * A task's assignee changed (POD-6287, design §2.2/§4.3). The composition
+   * root tells both people in their inbox. Called after the write committed;
+   * `by` is the member who reassigned it.
+   */
+  onIssueReassigned?(input: {
+    issueId: IssueId
+    seq: number
+    title: string
+    from: UserId
+    to: UserId
+    by: UserId
+  }): Promise<void>
   /**
    * An issue came into existence, for a composition root that publishes it
    * (podium-cloud's analytics subscriber).
@@ -479,7 +497,6 @@ export interface CreateIssueInput
       | 'machineId'
       | 'priority'
       | 'type'
-      | 'assignee'
       | 'parentId'
       | 'draft'
     > {
@@ -523,7 +540,6 @@ export type IssuePatch = Partial<
     | 'archived'
     | 'priority'
     | 'type'
-    | 'assignee'
     | 'parentId'
     | 'acceptance'
     | 'dueAt'

@@ -1574,7 +1574,9 @@ export const issues = sqliteTable(
     prUrl: text('pr_url'),
     priority: integer().default(2).notNull(),
     type: text().default('task').notNull(),
-    assignee: text().$type<UserId>(),
+    // A LEGACY DISPLAY LABEL (POD-6287), not a member: the assignee is
+    // `owner_user_id`. Kept for the agent labels and `me` older releases wrote.
+    assignee: text(),
     parentId: brandedRef(
       text('parent_id').$type<IssueId>(),
       (): AnySQLiteColumn<{ data: IssueId }> => issues.id,
@@ -1587,6 +1589,10 @@ export const issues = sqliteTable(
     // When the closed-predicate last flipped true; null while open. The stable
     // completion-decay anchor (updatedAt churns on any touch). [spec:SP-6144]
     closedAt: text('closed_at'),
+    /** Who closed it (POD-6287): whose sessions the close and the closed-task
+     *  sweep stop. NULL for a row closed before this column, or by the
+     *  server; the sweep then stops only the assignee's. */
+    closedByUserId: text('closed_by_user_id').$type<UserId>(),
     // Landing stamp [POD-1085]. Written the moment Podium's own `merge --ff-only`
     // succeeds, so "this landed" is an OBSERVED EVENT rather than a verdict
     // re-derived from history on every probe. Ancestry (`merge-base --is-ancestor`)

@@ -1,5 +1,5 @@
 import { createLogger } from '@podium/logger'
-import { type IssueId, type IssueProjection, isIssueClosed } from '@podium/model'
+import { type IssueId, type IssueProjection, isIssueClosed, type UserId } from '@podium/model'
 import type { Ledger } from '@podium/sync'
 import { systemPrincipal } from '../command-principal'
 import { afterCommit } from '../store/executor/executor'
@@ -72,6 +72,8 @@ export class IssueSessionLifecycle {
   async stopClosedIssue(input: {
     issueId: IssueId
     reason: ClosedIssueSweepReason
+    /** Whose sessions the close stops (POD-6287): the closer's, nobody else's. */
+    closedBy?: UserId
   }): Promise<void> {
     // AFTER THE COMMIT, not inside the span [POD-3806]. The `void` is the point
     // of this method — the close must not wait for worktree work — but under the
@@ -93,6 +95,7 @@ export class IssueSessionLifecycle {
   private async stopClosedIssueNow(input: {
     issueId: IssueId
     reason: ClosedIssueSweepReason
+    closedBy?: UserId
   }): Promise<void> {
     let issueId: IssueId
     try {
@@ -111,9 +114,17 @@ export class IssueSessionLifecycle {
     const task = (async (): Promise<void> => {
       const current = await this.deps.issues.reports.get(issueId)
       if (!current || current.deletedAt || !isIssueClosed(current)) return
+      // ONLY THE CLOSER'S SESSIONS (POD-6287, MU-24). A close is the closer
+      // stopping their own work on the task; another member's agent on it
+      // keeps running. The sweep, which has no caller, reads the closer off
+      // the row; a row closed before that was recorded, or by the server,
+      // stops the assignee's.
+      const meta = input.closedBy ? undefined : await this.deps.issues.reports.getMeta(issueId)
+      const ownedBy = input.closedBy ?? meta?.closedByUserId ?? meta?.ownerUserId ?? current.owner
       log.info('closed issue stop requested', { issueId, reason: input.reason })
       const result = await this.stopIssue({
         issueId,
+        ownedBy,
         // ONLY THE CLOSE ITSELF RE-REAPS [POD-3845]. `reapParked` is the sole
         // way `stopSession` reaches `gracefulStopThenKill` for a row that is
         // ALREADY parked (session-teardown.ts), so asking for it on every sweep
@@ -272,7 +283,13 @@ export class IssueSessionLifecycle {
   /** Soft-delete an issue and tombstone all of its local member sessions.
    *  Both durable entity changes land in one ledger transaction; PTY teardown and
    *  broadcasts happen only after the commit succeeds. */
-  async deleteIssue(id: string): Promise<DeleteIssueResult> {
+  async deleteIssue(
+    id: string,
+    /** Whose sessions the deletion ends (POD-6287, MU-24): the deleter's own.
+     *  Another member's session on the task keeps running. Absent, for the
+     *  server's own deletions: every member session. */
+    by?: UserId,
+  ): Promise<DeleteIssueResult> {
     // Membership and no-op results use durable facts, without report joins.
     const current = await this.deps.issues.reports.getMeta(id)
     if (!current) throw new IssueNotFound(id)
@@ -282,6 +299,7 @@ export class IssueSessionLifecycle {
     const sessionPlan = await this.deps.sessions.prepareIssueSessionDelete(
       current.id,
       current.worktreePath,
+      by,
     )
     const issuePlan = await this.deps.issues.crud.prepareSoftDelete(current.id)
 

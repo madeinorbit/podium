@@ -156,7 +156,9 @@ function listingWhere(shape: IssueListingShape): SQL | undefined {
   if (shape.stage) where.push(eq(issues.stage, param(issues.stage, 'stage')))
   if (shape.priority) where.push(eq(issues.priority, param(issues.priority, 'priority')))
   if (shape.type) where.push(eq(issues.type, param(issues.type, 'type')))
-  if (shape.assignee) where.push(eq(issues.assignee, param(issues.assignee, 'assignee')))
+  // THE ASSIGNEE IS THE OWNER (POD-6287, design §4.3): `issues.assignee` is
+  // only a legacy display label now, so the filter matches the accountable human.
+  if (shape.assignee) where.push(eq(issues.ownerUserId, param(issues.ownerUserId, 'assignee')))
   if (shape.parent) where.push(eq(issues.parentId, param(issues.parentId, 'parent')))
   if (shape.label) {
     where.push(
@@ -229,7 +231,8 @@ export function listingValues(shape: IssueListingShape, input: IssueListingInput
   return values
 }
 
-/** Counted per (stage, priority, type, assignee) for `issues.count`; the
+/** Counted per (stage, priority, type, assignee) for `issues.count`, the
+ *  assignee being the owner (POD-6287); the
  *  minimum (repo path, sequence) of each group keeps the boot map's order of
  *  first appearance. */
 export const issueCountGroups = preparedFamily((db: StoreDrizzle, key: string) => {
@@ -239,13 +242,13 @@ export const issueCountGroups = preparedFamily((db: StoreDrizzle, key: string) =
       stage: issues.stage,
       priority: issues.priority,
       type: issues.type,
-      assignee: issues.assignee,
+      assignee: issues.ownerUserId,
       n: count(),
       first: sql<string>`min(${issues.repoPath} || char(0) || printf('%020d', ${issues.seq}))`,
     })
     .from(issues)
     .where(listingWhere(shape))
-    .groupBy(issues.stage, issues.priority, issues.type, issues.assignee)
+    .groupBy(issues.stage, issues.priority, issues.type, issues.ownerUserId)
     .prepare()
 })
 

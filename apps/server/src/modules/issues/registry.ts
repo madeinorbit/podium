@@ -7,13 +7,14 @@ import {
   ISSUE_CONTRACTS,
   type IssueContractName,
 } from '@podium/commands'
-import type { IssueId, IssueSessionSummaryEntry, SessionId, UserId } from '@podium/model'
+import type { IssueId, IssueSessionSummaryEntry, MutationId, SessionId, UserId } from '@podium/model'
 import {
   actorAgent,
   actorSystem,
   actorUser,
   asAgentIdentityId,
   asIssueId,
+  asUserId,
   isAgentComputing,
   isDecisionIssue,
   isIssueClosed,
@@ -128,6 +129,50 @@ async function refuseTaskSharing(ctx: IssueCommandCtx, id: string): Promise<neve
   // An unknown task answers as one, like every other targeted command.
   if (!(await ctx.reports.getMeta(id))) throw new IssueNotFound(id)
   throw new IssueRefusal(TASKS_VISIBLE_TO_ALL_MEMBERS)
+}
+
+/**
+ * THE ASSIGNEE A COMMAND NAMES (POD-6287, design §2.2, §4.3).
+ *
+ * The assignee is the task's owner, its one accountable human. Only a person
+ * changes it, to any active member; `me` is that person. An agent never does,
+ * not even to its own human: an agent acting does not change who answers for
+ * the task (MU-24). The refusal names the rule, because an agent following an
+ * old habit (`claim --assignee me`) is told what happened instead of guessing.
+ */
+async function assigneeNamed(ctx: IssueCommandCtx, raw: string): Promise<UserId> {
+  const human = personHuman(ctx)
+  if (human === undefined) {
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message:
+        "an agent cannot change a task's assignee: the assignee is a person, and only a person reassigns",
+    })
+  }
+  const target = raw.trim() === 'me' ? human : asUserId(raw.trim())
+  if (!(await ctx.crud.isActiveMember(target))) {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: `cannot assign to ${raw}: the assignee must be an active member (a member id, or "me")`,
+    })
+  }
+  return target
+}
+
+/**
+ * A REASSIGNING WRITE'S MUTATION ID, PER MEMBER (POD-6287, MU-17). The
+ * mutation ledger keys a receipt on the id alone, so a second member sending
+ * the same id would be answered with the first member's recorded result and
+ * have nothing applied. A reassignment is keyed to the member who sent it:
+ * each member's own retry still replays, and nobody is answered with someone
+ * else's receipt.
+ */
+function memberMutationId(
+  ctx: IssueCommandCtx,
+  mutationId: MutationId | undefined,
+): MutationId | undefined {
+  const human = ctx.markerUser()
+  return mutationId && human ? (`${mutationId}@${human}` as MutationId) : mutationId
 }
 
 /** The person calling, in person (not an agent): whose subscriptions a
@@ -805,13 +850,23 @@ const defs = {
             code: 'FORBIDDEN',
             message: 'issue creation requires an accountable human owner',
           })
+        // THE ASSIGNEE OF A NEW TASK (POD-6287): the creating human, or for an
+        // agent its delegating human. A person may name another member; an
+        // agent naming anyone but its own human is refused like a reassignment.
+        const { assignee, ...fields } = input
+        const named =
+          assignee === undefined ||
+          (personHuman(ctx) === undefined &&
+            (assignee.trim() === 'me' || assignee.trim() === attribution.onBehalfOf))
+            ? attribution.onBehalfOf
+            : await assigneeNamed(ctx, assignee)
         const created = await ctx.gitWorkflow.createAndMaybeStart(
           {
-            ...input,
+            ...fields,
             origin,
             audience,
             startedBySession,
-            ownerUserId: attribution.onBehalfOf,
+            ownerUserId: named,
             visibility: 'personal' as const,
             createdByActor: attribution.actor,
             createdByOnBehalfOf: attribution.onBehalfOf,
@@ -877,7 +932,11 @@ const defs = {
     kind: 'mutation',
     target: targetId,
     handler: async (ctx, input) =>
-      await ctx.withMutation(input.mutationId, async () => {
+      await ctx.withMutation(
+        input.patch.assignee !== undefined
+          ? memberMutationId(ctx, input.mutationId)
+          : input.mutationId,
+        async () => {
         // B1/B2 [spec:SP-6144]: the update patch can move an issue out of the
         // lane through MORE than `stage` — archived (dismissal), closedReason
         // (close), parentId (no longer top-level). All of them are lifecycle
@@ -896,12 +955,18 @@ const defs = {
         if (p.type !== undefined && p.type !== 'decision') {
           await assertDecisionNotClosedByAgent(ctx, input.id, 'retype')
         }
+        // `assignee` is a REASSIGNMENT, not a free-text field (POD-6287): it
+        // moves the owner, with the reassignment's rules.
+        const { assignee, ...patch } = p
+        const owner = assignee === undefined ? undefined : await assigneeNamed(ctx, assignee)
         const viewer = ctx.markerUser()
-        return await ctx.crud.update(input.id, input.patch, {
+        return await ctx.crud.update(input.id, patch, {
           actorSessionId: ctx.caller.capability.actorSessionId,
-          ...(viewer ? { viewer } : {}),
+          ...(viewer ? { viewer, caller: viewer } : {}),
+          ...(owner ? { owner } : {}),
         })
-      }),
+        },
+      ),
   }),
   promote: def('promote', {
     kind: 'mutation',
@@ -1398,11 +1463,19 @@ const defs = {
     handler: async (ctx, input) => {
       await assertNotProposedForAgent(ctx, input.id, 'claim')
       const actorSessionId = ctx.caller.capability.actorSessionId
-      return await ctx.crud.claim(
-        input.id,
-        input.assignee,
-        actorSessionId ? { actorSessionId } : undefined,
-      )
+      // An AGENT's claim starts work and leaves the assignee alone, whatever it
+      // names (POD-6287): agents never change the human assignee, and
+      // `claim --assignee me` is every agent's habit. A PERSON's claim names
+      // the assignee, `me` by default.
+      const person = personHuman(ctx)
+      const owner =
+        person === undefined ? undefined : await assigneeNamed(ctx, input.assignee ?? 'me')
+      const caller = ctx.markerUser()
+      return await ctx.crud.claim(input.id, {
+        ...(actorSessionId ? { actorSessionId } : {}),
+        ...(owner ? { owner } : {}),
+        ...(caller ? { caller } : {}),
+      })
     },
   }),
   /** Claim / set / clear the issue's designated coordinator session
@@ -1447,8 +1520,10 @@ const defs = {
       return await ctx.withMutation(input.mutationId, async () => {
         const before = declined ? await ctx.reports.get(input.id) : null
         const wasOpen = before != null && !isIssueClosed(before)
+        const caller = ctx.markerUser()
         const closed = await ctx.crud.close(input.id, declined ? 'cancelled' : input.reason, {
           actorSessionId: ctx.caller.capability.actorSessionId,
+          ...(caller ? { caller } : {}),
         })
         return wasOpen
           ? await ctx.commentsMail.addCallerComment(input.id, 'Declined.', ctx.requirePrincipal())

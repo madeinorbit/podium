@@ -553,6 +553,14 @@ export class SessionTeardown {
        * to `systemPrincipal('stop')`.
        */
       principal?: CommandPrincipal
+      /**
+       * Stop only this member's sessions (POD-6287, MU-24). Stopping a task or
+       * closing it is never a way to stop another person's work: a session
+       * belongs to whoever started it, whoever's task it sits on. The worktree
+       * pass below then frees the worktree only if nobody else's session still
+       * runs in it. Absent, for a caller with no human: every member session.
+       */
+      ownedBy?: UserId
     },
     issues: SessionIssueWorkflowPort,
   ): Promise<{
@@ -566,7 +574,9 @@ export class SessionTeardown {
     if (!issue) return { ok: false, reason: 'unknown issue', stopped: [], worktreeFreed: false }
     // sessionsForIssue matches on the canonical issue id; input.issueId may be a
     // human ref/seq that getMeta resolved above but a raw string compare would miss [POD-985].
-    const members = await this.ports.view.listForIssue(issue.worktreePath ?? null, issue.id)
+    const members = (await this.ports.view.listForIssue(issue.worktreePath ?? null, issue.id)).filter(
+      (m) => input.ownedBy === undefined || m.ownerUserId === input.ownedBy,
+    )
     const stopped: string[] = []
     let deferredKill = false
     const principal = input.principal ?? systemPrincipal('stop')
