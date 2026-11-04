@@ -9,7 +9,9 @@ describe('scopeWithin under a legacy persisted `all` parent', () => {
   const alice = asUserId('alice')
   const bob = asUserId('bob')
   it('admits a subtree, none, and the parent human’s own scopes', () => {
-    expect(scopeWithin({ kind: 'subtree', rootId: asIssueId('iss_1') }, { kind: 'all' }, alice)).toBe(true)
+    expect(
+      scopeWithin({ kind: 'subtree', rootId: asIssueId('iss_1') }, { kind: 'all' }, alice),
+    ).toBe(true)
     expect(scopeWithin({ kind: 'none' }, { kind: 'all' }, alice)).toBe(true)
     expect(scopeWithin({ kind: 'owned', userId: alice }, { kind: 'all' }, alice)).toBe(true)
     expect(scopeWithin({ kind: 'self', userId: alice }, { kind: 'all' }, alice)).toBe(true)

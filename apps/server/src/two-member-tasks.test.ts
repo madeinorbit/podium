@@ -110,7 +110,9 @@ describe('MU-05: every member reads and edits every task, without a grant', () =
 
   it('Carol (disabled) cannot sign in, and a caller with no login reaches no task', async () => {
     expect((await f.login('carol')).ok).toBe(false)
-    const anonymous = await fetch(`${f.origin}/trpc/issues.get?input=${encodeURIComponent(JSON.stringify({ id: f.tasks.alice }))}`)
+    const anonymous = await fetch(
+      `${f.origin}/trpc/issues.get?input=${encodeURIComponent(JSON.stringify({ id: f.tasks.alice }))}`,
+    )
     expect(anonymous.ok).toBe(false)
   })
 
@@ -128,7 +130,11 @@ describe('MU-05: every member reads and edits every task, without a grant', () =
     const before = await store.grants.loadForResource('issue', f.tasks.bob)
     for (const proc of ['share', 'unshare'] as const) {
       await expect(
-        bob.issues[proc].mutate({ id: f.tasks.bob, grantee: MEMBERS.alice.id, verb: 'write' } as never),
+        bob.issues[proc].mutate({
+          id: f.tasks.bob,
+          grantee: MEMBERS.alice.id,
+          verb: 'write',
+        } as never),
       ).rejects.toThrow(TASKS_VISIBLE_TO_ALL_MEMBERS)
     }
     expect(await store.grants.loadForResource('issue', f.tasks.bob)).toEqual(before)
@@ -151,7 +157,8 @@ describe('MU-05: Bob’s agent writes its own subtree freely and other tasks onl
     // Alice's session is hers alone (design §2.3), --outside-scope or not:
     // re-homing it onto Bob's task leaves it where it was.
     const sessions = f.handle.registry.sessionStore.sessions
-    const home = async () => (await sessions.getSessions([f.sessions.alice])).get(f.sessions.alice)?.issueId
+    const home = async () =>
+      (await sessions.getSessions([f.sessions.alice])).get(f.sessions.alice)?.issueId
     const before = await home()
     await f
       .agent(f.sessions.bob, { outsideScope: true })
@@ -163,10 +170,9 @@ describe('MU-05: Bob’s agent writes its own subtree freely and other tasks onl
 
 describe('MU-06: no path carries Alice’s execution-private task fields to Bob', () => {
   it('issues.get: Alice receives her pointers, Bob only the D13 summary', async () => {
-    const alice = (await (await f.as('alice')).trpc.issues.get.query({ id: started } as never)) as Record<
-      string,
-      unknown
-    >
+    const alice = (await (
+      await f.as('alice')
+    ).trpc.issues.get.query({ id: started } as never)) as Record<string, unknown>
     expect(alice).toMatchObject({
       worktreePath: '/wt/alice-started',
       machineId: f.machines.alice,
@@ -200,7 +206,10 @@ describe('MU-06: no path carries Alice’s execution-private task fields to Bob'
     const bob = (await f.as('bob')).trpc
     const alice = (await f.as('alice')).trpc
     expectNoPrivateFields(await bob.issues.list.query({ repoPath: REPO_PATH } as never), started)
-    expectNoPrivateFields(await bob.issues.search.query({ text: 'alice started task' } as never), started)
+    expectNoPrivateFields(
+      await bob.issues.search.query({ text: 'alice started task' } as never),
+      started,
+    )
     expectNoPrivateFields(await bob.issues.graph.query({ repoPath: REPO_PATH } as never), started)
     // A child of the started task carries the parent into the tree and children reads.
     const child = await alice.issues.create.mutate({
@@ -209,7 +218,12 @@ describe('MU-06: no path carries Alice’s execution-private task fields to Bob'
       parentId: started,
       startNow: false,
     } as never)
-    expect(copiesOf(await bob.issues.children.query({ id: started } as never), (child as { id: string }).id).length).toBe(1)
+    expect(
+      copiesOf(
+        await bob.issues.children.query({ id: started } as never),
+        (child as { id: string }).id,
+      ).length,
+    ).toBe(1)
     expectNoPrivateFields(await bob.issues.tree.query({ id: started } as never), started)
     // Counts hold every task for every member.
     expect(await bob.issues.count.query({ repoPath: REPO_PATH } as never)).toEqual(
@@ -256,7 +270,9 @@ describe('Self: per-user markers are each member’s own, on any task', () => {
     const store = f.handle.registry.sessionStore.issues
     const finished = asIssueId(
       (
-        (await (await f.as('alice')).trpc.issues.create.mutate({
+        (await (
+          await f.as('alice')
+        ).trpc.issues.create.mutate({
           repoPath: REPO_PATH,
           title: 'alice finished task',
           startNow: false,
@@ -301,7 +317,9 @@ describe('Self: per-user markers are each member’s own, on any task', () => {
   it('task defer is a shared edit: Bob defers Alice’s task and Alice sees it', async () => {
     const until = new Date(Date.now() + 86_400_000).toISOString()
     await (await f.as('bob')).trpc.issues.defer.mutate({ id: f.tasks.alice, until } as never)
-    const seen = (await (await f.as('alice')).trpc.issues.get.query({ id: f.tasks.alice } as never)) as {
+    const seen = (await (
+      await f.as('alice')
+    ).trpc.issues.get.query({ id: f.tasks.alice } as never)) as {
       deferUntil?: string | null
     }
     expect(seen.deferUntil).toBe(until)

@@ -35,7 +35,11 @@ export interface ExecutionFactsStore {
 export function executionPointersOf(
   row: Pick<
     IssueRow,
-    'ownerUserId' | 'machineId' | 'coordinatorSessionId' | 'startedBySession' | 'humanQuestionAskedBy'
+    | 'ownerUserId'
+    | 'machineId'
+    | 'coordinatorSessionId'
+    | 'startedBySession'
+    | 'humanQuestionAskedBy'
   >,
 ): IssueExecutionPointers {
   return {
@@ -67,7 +71,9 @@ export async function readExecutionFacts(
     machineIds.length === 0
       ? new Map<string, GrantRow[]>()
       : store.grants.loadForResources('machine', machineIds),
-    sessionIds.length === 0 ? new Map<string, SessionRow>() : store.sessions.getSessions(sessionIds),
+    sessionIds.length === 0
+      ? new Map<string, SessionRow>()
+      : store.sessions.getSessions(sessionIds),
   ])
   return {
     custodianOf: (machineId) => custodianFromEdges(machineGrants.get(machineId)),

@@ -1,5 +1,5 @@
-import { readIssues } from '../modules/issues/issue-reader'
 import type { IssueCommandDeps } from '../modules/issues/command-ctx'
+import { readIssues } from '../modules/issues/issue-reader'
 import type { SessionStore } from '../store'
 
 /** The execution-private field reads (POD-6288) over a test's own store, as
