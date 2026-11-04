@@ -326,6 +326,28 @@ describe('a legacy persisted `all` is the member rule, not a bypass', () => {
     ).toBe('forbidden')
   })
 
+  it('an old persisted delegation with scope `all` gives admin Alice’s agent nothing on Bob’s private resources', () => {
+    // The shape a `sessions.delegation` row written before POD-6288 parses to:
+    // an agent session of Alice, an admin, with the old unscoped `all`.
+    const alicesAgent: Capability = {
+      role: 'admin',
+      scope: { kind: 'all' },
+      actorSessionId: asSessionId('alice-agent'),
+      onBehalfOf: A_MEMBER,
+    }
+    const bob = asUserId('bob')
+    for (const action of ['read', 'write', 'manage'] as const) {
+      expect(authorize(alicesAgent, action, { kind: 'private', id: 'bobs-session', owner: bob })).toBe(
+        'forbidden',
+      )
+      expect(authorize(alicesAgent, action, session(bob))).toBe('forbidden')
+      expect(authorize(alicesAgent, action, { kind: 'per-user-row', userId: bob })).toBe('forbidden')
+    }
+    // The counterfactual: the same capability reaches Alice's own and shared tasks.
+    expect(authorize(alicesAgent, 'write', { kind: 'private', id: 'hers', owner: A_MEMBER })).toBe('allow')
+    expect(authorize(alicesAgent, 'write', { id: 'any-task' })).toBe('allow')
+  })
+
   it('decides exactly as the member scope of the same human', () => {
     const member: Capability = { ...UNCONSTRAINED_ADMIN, scope: { kind: 'owned', userId: A_MEMBER } }
     const targets = [
