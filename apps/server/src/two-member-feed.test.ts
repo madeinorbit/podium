@@ -69,17 +69,17 @@ describe('Bob’s feed and Bob’s view of a task never carry Alice’s per-user
       await alice.issues.update.mutate({ id, patch: { pinned: true } } as never)
       await alice.issues.setTucked.mutate({ id, tucked: true } as never)
 
-      // The task's activity: Alice sees her own transitions, Bob sees none.
+      // The task's activity: Bob sees none of Alice's transitions, Alice all of them.
       const markerKinds = ['issue.read', 'issue.unread', 'issue.pinned']
+      const bobSees = (await eventsAs('bob', { subject: id })).filter((e) =>
+        markerKinds.includes(e.kind),
+      )
+      expect(bobSees).toEqual([])
       const aliceSees = (await eventsAs('alice', { subject: id })).filter((e) =>
         markerKinds.includes(e.kind),
       )
       expect(aliceSees.map((e) => e.kind).sort()).toEqual(['issue.pinned', 'issue.read'])
       expect(aliceSees.every((e) => e.payload.userId === MEMBERS.alice.id)).toBe(true)
-      const bobSees = (await eventsAs('bob', { subject: id })).filter((e) =>
-        markerKinds.includes(e.kind),
-      )
-      expect(bobSees).toEqual([])
       // Nor through the unfiltered log read.
       expect(
         (await eventsAs('bob', { kinds: markerKinds })).filter(
@@ -129,15 +129,15 @@ describe('Bob’s feed and Bob’s view of a task never carry Alice’s per-user
     const id = await finishedTaskOf('bob', 'bob finished, alice read it')
     const issues = f.handle.registry.issues
     const store = f.handle.registry.sessionStore.issues
-    const longAgo = new Date(Date.now() - 30 * 86_400_000).toISOString()
-    await store.setIssueUserState(MEMBERS.alice.id, id, { readAt: longAgo })
-    // Activity happened before the read, so only whose read it is decides.
+    // Alice read it after its last activity, ten days before the sweep: on
+    // her read alone the task is due. It is Bob's task, so her read decides nothing.
+    const readAfterActivity = new Date(Date.now() + 1000).toISOString()
+    await store.setIssueUserState(MEMBERS.alice.id, id, { readAt: readAfterActivity })
     const later = Date.now() + 10 * 86_400_000
     expect((await issues.attention.sweepAutoArchive(later)).map((w) => w.id)).not.toContain(id)
     expect((await issues.reports.get(id))?.archived).toBe(false)
-    await store.setIssueUserState(MEMBERS.bob.id, id, {
-      readAt: new Date(Date.now() + 1000).toISOString(),
-    })
+    // Bob's own read, the same moment, makes it due.
+    await store.setIssueUserState(MEMBERS.bob.id, id, { readAt: readAfterActivity })
     expect((await issues.attention.sweepAutoArchive(later)).map((w) => w.id)).toContain(id)
   })
 })
