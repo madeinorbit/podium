@@ -61,6 +61,14 @@ export interface EffectExecutor<In = unknown> {
   readonly deadlineMs: number
   /** What the feed carries of the input. Default: the input as given. */
   publish?(input: In): unknown
+  /**
+   * Whether the record can start NOW, asked before the claim (POD-6398). False
+   * leaves it `pending` and untouched (no attempt counted): the sweep asks
+   * again, a `poke` asks at once, and its deadline still expires it unrun. For
+   * work that needs something only the world can supply, such as a machine
+   * whose daemon is attached. Absent: always ready.
+   */
+  ready?(record: EffectRow, input: In): boolean | Promise<boolean>
   run(ctx: EffectRunContext<In>): Promise<EffectOutcome>
   /**
    * A record found `running` with no live run (the server stopped mid-run).

@@ -24,6 +24,7 @@ import {
 import { asMutationId, asSessionId, spawnedByParentSessionId } from '@podium/model'
 import type { RegistryModules } from '../../relay'
 import { asyncSessionIssueAccess } from './session-access'
+import { createThroughLaunchEffect } from './session-launch-effect'
 import {
   type LifecycleEditsPort,
   SessionCommandCtx,
@@ -192,6 +193,11 @@ function lifecycleEditsFor(
       })
       return reply.outcome === 'applied'
     },
+    // `sessions.create` as a `session.launch` effect record (POD-6398).
+    create: async (input) =>
+      modules.sessionLaunches === undefined
+        ? undefined
+        : await createThroughLaunchEffect(modules, principal, modules.sessionLaunches, input),
   }
 }
 

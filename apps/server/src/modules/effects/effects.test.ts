@@ -359,3 +359,63 @@ describe('an executor that throws', () => {
     expect(h.runs).toEqual([id])
   })
 })
+
+describe('an executor that is not ready yet (POD-6398)', () => {
+  const READY_KIND = 'test.ready'
+
+  async function readyHarness() {
+    const h = await harness()
+    const state = { ready: false, runs: [] as string[] }
+    h.effects.executors.register<Input>({
+      kind: READY_KIND,
+      input: Input,
+      target: async () => NO_TARGET,
+      deadlineMs: 60_000,
+      ready: () => state.ready,
+      run: async (ctx) => {
+        state.runs.push(ctx.record.id)
+        return { status: 'succeeded' }
+      },
+    })
+    const runner = await manualRunner(h)
+    const create = (id: string) =>
+      envelope(
+        'effects.create',
+        { id, kind: READY_KIND, target: { kind: 'issue', id: 'iss_x' }, input: { text: 'hi' } },
+        `m-${crypto.randomUUID()}`,
+      )
+    return { h, state, runner, create }
+  }
+
+  it('stays pending, unclaimed, until it is ready; then a poke runs it once', async () => {
+    const { h, state, runner, create } = await readyHarness()
+    const id = newId()
+    appliedReply(await submit(h.o, create(id)))
+    await runner.sweep()
+    await runner.idle()
+    expect(state.runs).toEqual([])
+    expect(await h.o.store.effects.get(id)).toMatchObject({ status: 'pending', attempts: 0 })
+
+    state.ready = true
+    await runner.poke(READY_KIND)
+    await runner.poke(READY_KIND)
+    await runner.idle()
+    expect(state.runs).toEqual([id])
+    expect(await statusOf(h, id)).toBe('succeeded')
+  })
+
+  it('a record that is never ready expires at its deadline and never runs', async () => {
+    const { h, state, runner, create } = await readyHarness()
+    const id = newId()
+    appliedReply(await submit(h.o, create(id)))
+    await runner.poke(READY_KIND)
+    h.clock += 60_001
+    await runner.sweep()
+    await runner.idle()
+    expect(state.runs).toEqual([])
+    expect(await h.o.store.effects.get(id)).toMatchObject({
+      status: 'expired',
+      error: { code: 'deadline' },
+    })
+  })
+})

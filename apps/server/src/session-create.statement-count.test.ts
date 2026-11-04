@@ -153,6 +153,11 @@ describe('session create: pinned statement counts at 5 and 200', () => {
   // with their machine (dc09092a07); over tRPC 29 -> 51, the draft task the
   // create now makes (5677f213d2, POD-2156): the issue, its ref letters, event,
   // projection, its feed window eviction and their visibility reads.
+  // POD-6398: over tRPC 51 -> 82, the route is an adapter onto a `session.launch`
+  // effect record: the entry point's dedup read and record, the record's insert,
+  // claim and settlement, their change rows and feed-visibility audience reads,
+  // the waiter's reads of the record, and the writer's row for the act-time
+  // check. Constant at 5 and 200 sessions, as before.
   it('in process, a draft session in a repo', async () => {
     await expectConstantStatements(draft, 34)
   })
@@ -173,10 +178,10 @@ describe('session create: pinned statement counts at 5 and 200', () => {
     await f.call.sessions.create({ agentKind: 'codex', cwd: '/repo/new' }))
 
   it('over tRPC', async () => {
-    await expectConstantStatements(trpc, 51)
+    await expectConstantStatements(trpc, 82)
   })
 
   it('tRPC pin is armed', async () => {
-    await expectArmed(trpc, 51, plantPerSession)
+    await expectArmed(trpc, 82, plantPerSession)
   })
 })

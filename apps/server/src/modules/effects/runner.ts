@@ -143,6 +143,24 @@ export class EffectsRunner {
     void promise.finally(() => this.work.delete(promise))
   }
 
+  /**
+   * Dispatch the pending records of one kind now (POD-6398): what a kind with
+   * `ready` asks for when the world changes (a machine attached), instead of
+   * waiting for the next sweep. The dispatch asks `ready` again.
+   */
+  async poke(kind: string): Promise<void> {
+    if (this.stopped) return
+    const rows = await this.deps.repo.listInStatus('pending', EFFECT_SWEEP_BATCH)
+    const runs: Promise<void>[] = []
+    for (const row of rows) {
+      if (row.kind !== kind || this.live.has(row.id)) continue
+      const run = this.dispatch(row.id)
+      this.track(run)
+      runs.push(run)
+    }
+    await Promise.all(runs)
+  }
+
   /** The recovery path. One sweep at a time; a sweep asked for during one joins it. */
   async sweep(): Promise<void> {
     if (this.stopped) return
@@ -200,6 +218,8 @@ export class EffectsRunner {
         )
         return
       }
+      // Not ready (POD-6398): stays pending, untouched, for the sweep or a poke.
+      if (executor.ready !== undefined && !(await executor.ready(row, parsed.data))) return
       const claimed = await this.write(id, async () => await repo.claim(id, now()))
       if (claimed === undefined) return
       const outcome = await this.runExecutor(executor, claimed, parsed.data, abort, 'run')

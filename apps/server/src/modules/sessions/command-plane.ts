@@ -80,6 +80,7 @@ import type { SendDisposition } from '../messages/service'
 import { type AnswerChoice, inboxPrincipalFromCommand } from './inbox'
 import type { SessionLifecycle } from './lifecycle'
 import type { LifecycleOutcome } from './lifecycle-controller'
+import type { SessionSpawnResult } from './session-start'
 import {
   ambiguousSessionPrefixMessage,
   assertMayCommandSession,
@@ -176,6 +177,14 @@ export interface LifecycleEditsPort {
   ): Promise<LifecycleOutcome | undefined>
   /** True when the kill went through `records.session.remove`. */
   kill(sessionId: SessionId): Promise<boolean>
+  /**
+   * `sessions.create` through `records.session.create` (POD-6398): the launch
+   * this caller's create started, in the route's shape; it throws the launch's
+   * refusal as the route always did. `undefined` when it went nothing through
+   * the path (the machine has no daemon, the edit was refused) and nothing is
+   * left pending: the route then starts the session itself, as before.
+   */
+  create(input: CreateInput): Promise<SessionSpawnResult | undefined>
 }
 
 export interface SessionCommandDeps {
@@ -471,7 +480,7 @@ export function createdOwnership(
  * time either side gains a field. `scripts/rearch-audit.ts` counts exactly that
  * as debt, and it counted these two before they were derived.
  */
-type CreateInput = z.infer<typeof sessionCommandPlaneInputs.create>
+export type CreateInput = z.infer<typeof sessionCommandPlaneInputs.create>
 type ResumeInput = z.infer<typeof sessionCommandPlaneInputs.resume>
 type InterruptInput = z.infer<typeof sessionCommandPlaneInputs.interrupt>
 type SendInput = z.infer<typeof sessionCommandPlaneInputs.sendText>
@@ -684,8 +693,13 @@ type Handler = (ctx: SessionCommandCtx, input: any) => unknown
  * so adding a contract without a handler — or a handler for a command no
  * contract declares — is a compile error rather than a 404 at runtime.
  */
-export const SESSION_COMMAND_HANDLERS = {
-  create: async (ctx: SessionCommandCtx, input: CreateInput) => {
+/**
+ * START A SESSION NOW, in the request (the body `sessions.create` always had).
+ * Since POD-6398 the route submits `records.session.create` and the lifecycle
+ * launcher runs this after the commit, under the writer's principal; the route
+ * runs it directly only when nothing could be submitted.
+ */
+export async function createSessionNow(ctx: SessionCommandCtx, input: CreateInput) {
     const { draftIssue, draftArtifacts, attachments, mutationId: _mutationId, ...rest } = input
     // A shell has no driver to hand files to, so it refuses them before any
     // claim or spawn, as a send to one does (POD-2148).
@@ -752,6 +766,16 @@ export const SESSION_COMMAND_HANDLERS = {
       if (createdDraftId) await ctx.deps.discardUnlaunchedDraft(createdDraftId)
       throw error
     }
+}
+
+export const SESSION_COMMAND_HANDLERS = {
+  create: async (ctx: SessionCommandCtx, input: CreateInput) => {
+    // The legacy browser bytes (POD-2148) never go into a stored launch spec.
+    if (!input.draftArtifacts?.length) {
+      const launched = await ctx.deps.lifecycleEdits?.create(input)
+      if (launched) return launched
+    }
+    return await createSessionNow(ctx, input)
   },
 
   resume: async (ctx: SessionCommandCtx, input: ResumeInput) => {

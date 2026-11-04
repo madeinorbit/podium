@@ -676,6 +676,10 @@ export class SessionLifecycle {
   setWorkState(...args: Parameters<SessionMetaOps['setWorkState']>): Promise<void> {
     return this.leased(args[0].sessionId, 'setWorkState', () => this.sessionMetaOps.setWorkState(...args))
   }
+  /** Whether any row, deleted ones included, holds this id (POD-6398). */
+  async sessionRowExists(sessionId: SessionId): Promise<boolean> {
+    return (await this.store.sessions.getSession(sessionId)) !== undefined
+  }
   /**
    * A session's lifecycle as its ROW holds it (POD-6356), what the lifecycle
    * controller and the generic edit's revision check decide on. A deleted
