@@ -22,11 +22,19 @@ export type NativeLoginAttempt = Pick<SessionMeta, 'sessionId'> &
   }
 
 /** Coordinates native CLI authentication without ever seeing provider tokens.
- * The PTY and inventory remain the two sources of truth. */
+ * The PTY and inventory remain the two sources of truth.
+ *
+ * Attempts are PER USER (POD-6360): every user signs in their own harness
+ * accounts, so one user's running attempt (and its terminal session) is never
+ * handed to another user who asks to sign in to the same harness. */
 export class NativeLoginService {
   private readonly required = new Set<string>()
-  private readonly attempts = new Map<string, NativeLoginAttempt>()
-  private readonly bySession = new Map<string, HarnessAgent>()
+  /** Keyed by {@link attemptKey}: one attempt per (user, harness). */
+  private readonly attempts = new Map<
+    string,
+    NativeLoginAttempt & { readonly harness: HarnessAgent }
+  >()
+  private readonly bySession = new Map<string, string>()
 
   constructor(
     private readonly deps: {
@@ -57,8 +65,12 @@ export class NativeLoginService {
     return [...this.required].some((key) => key.endsWith(`:${harness}`))
   }
 
-  attempt(harness: HarnessAgent): NativeLoginAttempt | undefined {
-    return this.attempts.get(harness)
+  /** This user's latest attempt for this harness, if any. */
+  attempt(ownerUserId: UserId, harness: HarnessAgent): NativeLoginAttempt | undefined {
+    const found = this.attempts.get(attemptKey(ownerUserId, harness))
+    if (!found) return undefined
+    const { harness: _harness, ...attempt } = found
+    return attempt
   }
 
   async start(input: {
@@ -74,7 +86,8 @@ export class NativeLoginService {
     machineId?: MachineId
     ownerUserId: UserId
   }): Promise<NativeLoginAttempt> {
-    const existing = this.attempts.get(input.harness)
+    const key = attemptKey(input.ownerUserId, input.harness)
+    const existing = this.attempt(input.ownerUserId, input.harness)
     if (existing && (existing.status === 'running' || existing.status === 'refreshing'))
       return existing
 
@@ -117,39 +130,40 @@ export class NativeLoginService {
       machineName: machine.name,
       status: 'running',
     }
-    this.attempts.set(input.harness, attempt)
-    this.bySession.set(spawned.sessionId, input.harness)
+    this.attempts.set(key, { ...attempt, harness: input.harness })
+    this.bySession.set(spawned.sessionId, key)
     return attempt
   }
 
   private onExit(sessionId: SessionId, code: number): void {
-    const harness = this.bySession.get(sessionId)
-    if (!harness) return
-    const attempt = this.attempts.get(harness)
+    const key = this.bySession.get(sessionId)
+    if (!key) return
+    const attempt = this.attempts.get(key)
     if (!attempt) return
     this.bySession.delete(sessionId)
     if (code !== 0) {
-      this.attempts.set(harness, {
+      this.attempts.set(key, {
         ...attempt,
         status: 'failed',
         error: `login command exited ${code}`,
       })
       return
     }
-    this.attempts.set(harness, { ...attempt, status: 'refreshing' })
+    this.attempts.set(key, { ...attempt, status: 'refreshing' })
     this.deps.machines.toMachine(attempt.machineId, { type: 'inventoryRequest' })
   }
 
   private async onInventory(machineId: MachineId): Promise<void> {
-    for (const [harness, attempt] of this.attempts) {
+    for (const [key, attempt] of this.attempts) {
       if (attempt.machineId !== machineId || attempt.status !== 'refreshing') continue
+      const harness = attempt.harness
       const machine = (await this.deps.machines.listMachines()).find((row) => row.id === machineId)
       const login = machine?.inventory?.agents.find((agent) => agent.kind === harness)?.login
       if (login?.state === 'in') {
-        this.attempts.set(harness, { ...attempt, status: 'succeeded' })
+        this.attempts.set(key, { ...attempt, status: 'succeeded' })
         this.required.delete(`${machineId}:${harness}`)
       } else {
-        this.attempts.set(harness, {
+        this.attempts.set(key, {
           ...attempt,
           status: 'failed',
           error: 'login command finished but the refreshed inventory is still logged out',
@@ -158,3 +172,6 @@ export class NativeLoginService {
     }
   }
 }
+
+const attemptKey = (ownerUserId: UserId, harness: HarnessAgent): string =>
+  `${ownerUserId}\u0000${harness}`

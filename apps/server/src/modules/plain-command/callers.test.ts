@@ -27,18 +27,21 @@
 import type { AnyCommandContract } from '@podium/commands'
 import {
   asIssueId,
+  asMachineId,
   asSessionId,
   asUserId,
   type Capability,
   firstAdminMemberId,
 } from '@podium/model'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   type CommandPrincipal,
   resolvePrincipal,
   userCommandPrincipal,
 } from '../../command-principal'
+import { NativeLoginService } from '../accounts/native-login'
 import { ACCOUNT_COMMANDS_TRPC } from '../accounts/registry'
+import { EventBus } from '../bus'
 import { coarselyPermitted, contractFrontDoor } from '../front-door'
 import {
   AUTH_COMMANDS_TRPC,
@@ -49,6 +52,7 @@ import { LOGS_COMMANDS_TRPC } from '../logs/registry'
 import { MODEL_COMMANDS_TRPC } from '../models/registry'
 import { PERF_COMMANDS_TRPC } from '../perf/commands'
 import { SETTINGS_COMMANDS_TRPC } from '../settings/registry'
+import type { PlainTargetCheck } from './entry'
 
 const CONTRACTS = new Map<string, AnyCommandContract>(
   [
@@ -61,6 +65,15 @@ const CONTRACTS = new Map<string, AnyCommandContract>(
     ...Object.values(PERF_COMMANDS_TRPC),
     ...Object.values(SETTINGS_COMMANDS_TRPC),
   ].map((c) => [c.contract.name, c.contract as AnyCommandContract]),
+)
+
+/** The commands whose table entry declares a target check (`entry.ts`, step 4). */
+const TARGET_CHECKS = new Map<string, PlainTargetCheck>(
+  Object.values(ACCOUNT_COMMANDS_TRPC).flatMap((c) =>
+    'targetPermitted' in c && c.targetPermitted
+      ? [[c.contract.name, c.targetPermitted] as const]
+      : [],
+  ),
 )
 
 const MEMBER = asUserId('user:caller-member')
@@ -90,7 +103,8 @@ const PRINCIPALS = {
 } satisfies Record<string, CommandPrincipal>
 
 type Who = keyof typeof PRINCIPALS
-/** `ok`: admitted. `floor`: refused, as before. `lost`: refused now, worked before. */
+/** `ok`: admitted (role floor and, where declared, the target check). `floor`:
+ *  refused, as before. `lost`: refused now, worked before. */
 type Expect = 'ok' | 'floor' | 'lost'
 
 const CALLERS: readonly { command: string; who: Who; caller: string; expect: Expect }[] = [
@@ -117,11 +131,26 @@ const CALLERS: readonly { command: string; who: Who; caller: string; expect: Exp
   // Shown to members, with nothing refusing them before:
   { command: 'accounts.connect', who: 'member', caller: 'Settings → Accounts', expect: 'lost' },
   { command: 'accounts.disconnect', who: 'member', caller: 'Settings → Accounts', expect: 'lost' },
+  // Every user signs in their OWN harness accounts (user decision 2026-11-04):
+  // the terminal is spawned as the member, on a machine the member may use. The
+  // refusals for another user's machine or running attempt are pinned below.
   {
     command: 'accounts.login',
     who: 'member',
-    caller: 'Settings → Accounts; agent panel sign-in terminal',
-    expect: 'lost',
+    caller: 'Settings → Accounts, own account',
+    expect: 'ok',
+  },
+  {
+    command: 'accounts.login',
+    who: 'member',
+    caller: "agent panel's sign-in terminal",
+    expect: 'ok',
+  },
+  {
+    command: 'accounts.login',
+    who: 'member',
+    caller: 'first task activation sign-in',
+    expect: 'ok',
   },
   { command: 'telemetry.set', who: 'member', caller: 'Settings → Privacy', expect: 'lost' },
   { command: 'telemetry.resetId', who: 'member', caller: 'Settings → Privacy', expect: 'lost' },
@@ -174,6 +203,8 @@ const CALLERS: readonly { command: string; who: Who; caller: string; expect: Exp
   { command: 'perf.report', who: 'agent', caller: 'none today', expect: 'ok' },
   { command: 'telemetry.set', who: 'agent', caller: 'none today', expect: 'floor' },
   { command: 'telemetry.resetId', who: 'agent', caller: 'none today', expect: 'floor' },
+  // An agent may not sign its human in: refused by the target check.
+  { command: 'accounts.login', who: 'agent', caller: 'none today', expect: 'floor' },
 ]
 
 describe('every current caller of the 25 non-sync commands', () => {
@@ -188,7 +219,70 @@ describe('every current caller of the 25 non-sync commands', () => {
     CALLERS.filter((row) => !row.command.startsWith('settings.update')),
   )('$command as $who ($caller): $expect', ({ command, who, expect: expected }) => {
     const contract = CONTRACTS.get(command)!
-    const admitted = coarselyPermitted(contractFrontDoor(contract), PRINCIPALS[who], 'trpc')
+    const target = TARGET_CHECKS.get(command)
+    const admitted =
+      coarselyPermitted(contractFrontDoor(contract), PRINCIPALS[who], 'trpc') &&
+      (target === undefined || target(PRINCIPALS[who], {}))
     expect(admitted).toBe(expected === 'ok')
+  })
+})
+
+describe("a member's harness sign-in touches only their own account (POD-6360)", () => {
+  const OTHER = asUserId('user:caller-other')
+  const MINE = asMachineId('machine-member')
+  const THEIRS = asMachineId('machine-other')
+
+  function loginService() {
+    const machine = (id: typeof MINE) => ({
+      id,
+      name: id,
+      online: true,
+      inventory: {
+        os: 'linux',
+        arch: 'x64',
+        tools: [],
+        agents: [{ kind: 'codex', installed: true, login: { state: 'out' } }],
+      },
+    })
+    let spawned = 0
+    const createSession = vi.fn(async () => ({ sessionId: asSessionId(`ses_login_${++spawned}`) }))
+    // Each user may use only their own machine, as `codexAuthorizerFor` answers.
+    const ownMachine: Record<string, typeof MINE> = { [MEMBER]: MINE, [OTHER]: THEIRS }
+    const service = new NativeLoginService({
+      bus: new EventBus(),
+      machines: { listMachines: async () => [machine(MINE), machine(THEIRS)] } as never,
+      sessions: { createSession } as never,
+      authorizerFor: (owner) => (machineId) =>
+        ownMachine[owner] === machineId
+          ? undefined
+          : 'you do not have access to start login on this machine',
+      cwdForMachine: () => '/repo',
+    })
+    return { service, createSession }
+  }
+
+  it('a member signs in on their own machine, as themselves', async () => {
+    const { service, createSession } = loginService()
+    await expect(service.start({ harness: 'codex', ownerUserId: MEMBER })).resolves.toMatchObject({
+      machineId: MINE,
+    })
+    expect(createSession).toHaveBeenCalledWith(expect.objectContaining({ ownerUserId: MEMBER }))
+  })
+
+  it("a member naming another user's machine is refused, and nothing is spawned", async () => {
+    const { service, createSession } = loginService()
+    await expect(
+      service.start({ harness: 'codex', machineId: THEIRS, ownerUserId: MEMBER }),
+    ).rejects.toThrow('you do not have access to start login on this machine')
+    expect(createSession).not.toHaveBeenCalled()
+  })
+
+  it("a member is never handed another user's running sign-in terminal", async () => {
+    const { service } = loginService()
+    const theirs = await service.start({ harness: 'codex', ownerUserId: OTHER })
+    const mine = await service.start({ harness: 'codex', ownerUserId: MEMBER })
+    expect(mine.sessionId).not.toBe(theirs.sessionId)
+    expect(mine.machineId).toBe(MINE)
+    expect(service.attempt(MEMBER, 'codex')?.sessionId).toBe(mine.sessionId)
   })
 })

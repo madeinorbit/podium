@@ -54,13 +54,24 @@ export interface PlainCommandCall<Out> {
   readonly transport: FrontDoorTransport
   /** The input as the transport received it, unparsed. */
   readonly input: unknown
+  /** The command's target check, after the parse; absent when the coarse check
+   *  is the whole answer. A refusal here is `unauthorized`, like the coarse one. */
+  readonly targetPermitted?: PlainTargetCheck | undefined
   /** The plain handler, given the parsed input. */
   readonly run: (input: unknown) => Out | Promise<Out>
 }
 
 /**
- * Run one plain command: coarse check, parse, then the handler inside the plain
- * scope. A refusal is a reply; a handler's throw propagates unchanged.
+ * Step 4, for a command whose rows belong to someone: may THIS principal touch the
+ * target this input names? The role floor (step 2) says which commands a principal
+ * may attempt; it never decides whose rows (ADR 3 Amendment 1 D15). Declared on the
+ * command's table entry, next to its handler.
+ */
+export type PlainTargetCheck = (principal: CommandPrincipal, input: unknown) => boolean
+
+/**
+ * Run one plain command: coarse check, parse, the command's target check, then the
+ * handler inside the plain scope. A refusal is a reply; a handler's throw propagates unchanged.
  */
 export async function runPlainCommand<Out>(
   call: PlainCommandCall<Out>,
@@ -75,6 +86,9 @@ export async function runPlainCommand<Out>(
       outcome: 'rejected',
       refusal: { kind: 'invalid', details: parsed.details, error: parsed.error },
     }
+  }
+  if (call.targetPermitted && !call.targetPermitted(call.principal, parsed.input)) {
+    return { outcome: 'rejected', refusal: { kind: 'unauthorized' } }
   }
   const result = await withPlainCommand(contract.name, async () => await call.run(parsed.input))
   return { outcome: 'applied', result }

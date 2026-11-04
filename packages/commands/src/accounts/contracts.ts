@@ -227,20 +227,25 @@ export const accountsLoginContract = {
   visibility: 'owned-compute',
   input: accountsLoginInput,
   policy: {
-    action: 'manage',
-    roleFloor: 'admin',
+    action: 'write',
+    roleFloor: 'member',
     resource: 'machine',
     confirmation: 'none',
     machineVerb: 'use',
     rationale:
-      'Starts an interactive provider CLI on owned compute. It is admin-only and machine-use gated because it changes the native account available to every agent on that host.',
+      'Starts an interactive provider CLI on owned compute, as the caller. Every user signs in their ' +
+      'OWN harness accounts (POD-6360, user decision 2026-11-04), so the floor is `member` and the ' +
+      'action `write` (`manage` is admin-only). The target check keeps it to the caller: the login ' +
+      'terminal is spawned as the signed-in user, only on a machine that user may use (machine ' +
+      '`use`), a running attempt is never handed to another user, and an agent may not start one ' +
+      'for its human.',
   },
   exposure: SERVED_ON,
   delivery: {
     class: 'online-only',
     outboxReconciliation:
       'Never queued: an operator must be present for the interactive login PTY.',
-    applyTimeReauthorization: 'Machine use and admin authority are checked live at apply time.',
+    applyTimeReauthorization: 'Machine use, for the calling user, is checked live at apply time.',
   },
   redaction: {
     reviewed: true,

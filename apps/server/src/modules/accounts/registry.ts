@@ -20,10 +20,17 @@ import {
   registryClassificationErrors,
   type TransportTag,
 } from '@podium/commands'
-import { asAccountId, asUserId, type HarnessAgent, type MachineId, type UserId } from '@podium/model'
+import {
+  asAccountId,
+  asUserId,
+  type HarnessAgent,
+  type MachineId,
+  type UserId,
+} from '@podium/model'
 import type { z } from 'zod'
 import { maskCredential } from '../../accounts'
 import type { RegistryModules, SessionRegistry } from '../../relay'
+import type { PlainTargetCheck } from '../plain-command/entry'
 
 /** Exactly what the account family reaches, named. */
 export interface AccountState {
@@ -51,20 +58,32 @@ export interface AccountState {
    */
   readonly resolveCodexServerAi?:
     | (() => Promise<
-        {
-          harness: HarnessAgent
-          machineId?: MachineId
-          machineName?: string
-          lastError?: string
-        } | undefined
+        | {
+            harness: HarnessAgent
+            machineId?: MachineId
+            machineName?: string
+            lastError?: string
+          }
+        | undefined
       >)
     | undefined
 }
 
 export type AccountHandler<In, Out> = (state: AccountState, input: In) => Out
 
+/**
+ * THE TARGET CHECK FOR A USER'S OWN HARNESS ACCOUNTS (POD-6360). Every user
+ * manages their own accounts, and only their own: the handler acts for the
+ * signed-in caller (the login terminal is spawned as them, on a machine they may
+ * use), so the target is the caller by construction. What is left to refuse is a
+ * principal that is not that user: an agent may not sign its human in. Agents and
+ * the system principal are refused; a signed-in user, admin or member, passes.
+ */
+export const callersOwnAccount: PlainTargetCheck = (principal) => principal.kind === 'user'
+
 export interface AccountCommand {
   readonly contract: AnyCommandContract
+  readonly targetPermitted?: PlainTargetCheck
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous table; each entry's
   // input type is pinned by its own contract through the `satisfies` below.
   readonly handler: AccountHandler<any, unknown>
@@ -73,6 +92,7 @@ export interface AccountCommand {
 export const ACCOUNT_COMMANDS_TRPC = {
   login: {
     contract: ACCOUNT_CONTRACTS.login,
+    targetPermitted: callersOwnAccount,
     handler: ((state, input) =>
       state.nativeLogin.start({
         harness: input.harness,

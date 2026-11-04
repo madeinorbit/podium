@@ -71,7 +71,7 @@ export const ACCOUNT_QUERIES = {
     )).map(async (account) => {
       if (account.source !== 'native' || !account.harness) return account
       const harness = account.harness as import('@podium/model').HarnessAgent
-      const attempt = state.nativeLogin.attempt(harness)
+      const attempt = state.nativeLogin.attempt(state.callerUserId, harness)
       const loginMachines = serviceMachines
         .filter(
           (machine) =>

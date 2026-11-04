@@ -27,7 +27,15 @@ import {
   type FamilyProcedures,
   familyState,
 } from '../derived-family'
-import { assertPlainContract, type PlainCommandRefusal, runPlainCommand } from './entry'
+import {
+  assertPlainContract,
+  type PlainCommandRefusal,
+  type PlainTargetCheck,
+  runPlainCommand,
+} from './entry'
+
+/** A plain command's table entry may carry its target check (`entry.ts`, step 4). */
+type PlainCommandEntry = AnyDerivedCommand & { readonly targetPermitted?: PlainTargetCheck }
 
 /** The input is parsed by the plain entry, after the coarse check. */
 const unparsed = (raw: unknown): unknown => raw
@@ -56,7 +64,7 @@ export function plainFamilyProcedures<
 >(spec: DerivedFamily<Svc, C, Q>): FamilyProcedures<C, Q> {
   const built: Record<string, unknown> = derivedFamilyProcedures({ ...spec, commands: {} })
 
-  for (const [name, command] of Object.entries(spec.commands)) {
+  for (const [name, command] of Object.entries(spec.commands) as [string, PlainCommandEntry][]) {
     const { contract } = command
     assertPlainContract(contract)
     if (!contract.exposure.includes('trpc')) continue
@@ -66,6 +74,7 @@ export function plainFamilyProcedures<
         principal: ctx.principal,
         transport: 'trpc',
         input,
+        targetPermitted: command.targetPermitted,
         run: (parsed) => command.handler(spec.service(familyState(ctx)), parsed),
       })
       if (reply.outcome === 'rejected') throw plainRefusalError(contract, reply.refusal)

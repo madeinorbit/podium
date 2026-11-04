@@ -11,10 +11,10 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Capability } from '@podium/model'
-import { asUserId } from '@podium/model'
+import { asIssueId, asSessionId, asUserId } from '@podium/model'
 import { hashPassword } from '@podium/runtime/auth-store'
 import { TRPCError } from '@trpc/server'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { type CommandPrincipal, resolvePrincipal, systemPrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
@@ -57,6 +57,14 @@ const MEMBER_CAPABILITY: Capability = {
   role: 'worker',
   scope: { kind: 'owned', userId: MEMBER },
   actorUser: MEMBER,
+  onBehalfOf: MEMBER,
+}
+
+/** The capability `SessionAuthz.capabilityForSession` mints for a relayed agent. */
+const AGENT_CAPABILITY: Capability = {
+  role: 'worker',
+  scope: { kind: 'subtree', rootId: asIssueId('iss_plain_family') },
+  actorSessionId: asSessionId('ses_plain_family'),
   onBehalfOf: MEMBER,
 }
 
@@ -162,6 +170,21 @@ describe('role floors on the plain path', () => {
     const refusal = await refusalOf(caller.settings.secretPresence({}))
     expect(refusal.code).toBe('NOT_FOUND')
     expect(refusal.message).toBe(SECRET_SURFACE_ABSENT)
+  })
+
+  it("a member's harness sign-in reaches the login service, as that member", async () => {
+    const { caller, registry } = await harness({ capability: MEMBER_CAPABILITY })
+    const start = vi.spyOn(registry.modules.nativeLogin, 'start').mockResolvedValue({} as never)
+    await caller.accounts.login({ harness: 'codex' })
+    expect(start).toHaveBeenCalledWith({ harness: 'codex', ownerUserId: MEMBER })
+  })
+
+  it('an agent may not start a sign-in for its human', async () => {
+    const { caller, registry } = await harness({ capability: AGENT_CAPABILITY })
+    const start = vi.spyOn(registry.modules.nativeLogin, 'start')
+    const refusal = await refusalOf(caller.accounts.login({ harness: 'codex' }))
+    expect(refusal.code).toBe('FORBIDDEN')
+    expect(start).not.toHaveBeenCalled()
   })
 
   it('an admin with invalid input gets the validation error', async () => {
