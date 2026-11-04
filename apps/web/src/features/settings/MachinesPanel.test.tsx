@@ -1,12 +1,14 @@
 import '@/test-support/mock-pool-store-handle'
-import { renderSettingsPool } from '@/test-support/mock-settings-pool-fixture'
-import type { ReactNode } from 'react'
 import type { MachineWire } from '@podium/model'
 import { asMachineId } from '@podium/model'
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { renderSettingsPool } from '@/test-support/mock-settings-pool-fixture'
 import type { ReferenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
+
 type Store = ReferenceState<import('@/app/trpc').Trpc>
+
+import type { ReactElement } from 'react'
 import type { NativeDesktopBridge } from '@/lib/nativeDesktop'
 
 // [spec:SP-3701] Hosting affordances in the machines panel: standalone card for
@@ -29,11 +31,13 @@ vi.mock('@/features/setup/RepoScanFlow', () => ({ RepoScanFlow: () => null }))
 import { MachinesPanel } from './MachinesPanel'
 import { SettingsOpening } from './SettingsOpening'
 
-function render(ui: ReactNode) {
+/** The panel reads its machines through the Settings opening (its machine
+ * readers over the pool), so every render mounts that root, as Settings does. */
+function render(ui: ReactElement) {
   const view = renderSettingsPool(<SettingsOpening>{ui}</SettingsOpening>)
   return {
     ...view,
-    rerender: (next: ReactNode) => view.rerender(<SettingsOpening>{next}</SettingsOpening>),
+    rerender: (next: ReactElement) => view.rerender(<SettingsOpening>{next}</SettingsOpening>),
   }
 }
 
@@ -283,7 +287,9 @@ describe('MachinesPanel version skew', () => {
     expect(pending.className).not.toContain('warning')
     waiting.unmount()
 
-    storeState.machines = [machine({ ...behind, online: true, appVersion: '0.5.0', versionState: 'current' })]
+    storeState.machines = [
+      machine({ ...behind, online: true, appVersion: '0.5.0', versionState: 'current' }),
+    ]
     setTrpcWithVersion('0.5.0', [
       {
         id: storeState.machines[0]?.id,
@@ -451,7 +457,9 @@ describe('MachinesPanel update rows', () => {
     setUpdateTrpc()
     render(<MachinesPanel />)
 
-    expect(await screen.findByText('Cannot take delivery: Managed by Desktop updater.')).toBeTruthy()
+    expect(
+      await screen.findByText('Cannot take delivery: Managed by Desktop updater.'),
+    ).toBeTruthy()
     expect(applyButton().hasAttribute('disabled')).toBe(true)
   })
 
@@ -602,7 +610,6 @@ describe('MachinesPanel ownership transfer', () => {
     expect(screen.getByRole('dialog')).toBeTruthy()
   })
 })
-
 
 describe('MachinesPanel update action', () => {
   const managed = (over: Partial<MachineWire> = {}): MachineWire =>
@@ -808,41 +815,52 @@ it('shows recorded harness versions and a quiet unverified marker', () => {
   expect(screen.queryByRole('alert')).toBeNull()
 })
 
- describe('MachinesPanel adoption', () => {
-   it('shows unowned explicitly and adopts through the server', async () => {
-     const mutate = vi.fn().mockResolvedValue([])
-     storeState.machines = [machine({ unowned: true, adoptable: true, use: 'denied' })]
-     setTrpc(vi.fn())
-     storeState.trpc.machines.adopt = { mutate } as unknown as Store['trpc']['machines']['adopt']
-     render(<MachinesPanel />)
-     expect(screen.getByText('Unowned')).toBeTruthy()
-     fireEvent.click(screen.getByRole('button', { name: 'Adopt' }))
-     await waitFor(() => expect(mutate).toHaveBeenCalledWith({ id: 'm-1' }))
-   })
-   it('withholds Adopt without affirmative authorization', () => {
-     storeState.machines = [machine({ unowned: true })]
-     setTrpc(vi.fn())
-     render(<MachinesPanel />)
-     expect(screen.getByText('Unowned')).toBeTruthy()
-     expect(screen.queryByRole('button', { name: 'Adopt' })).toBeNull()
-   })
-   it('shows adoption errors and permits retry', async () => {
-     const mutate = vi.fn().mockRejectedValue(new Error('machine already has an owner'))
-     storeState.machines = [machine({ unowned: true, adoptable: true })]
-     setTrpc(vi.fn())
-     storeState.trpc.machines.adopt = { mutate } as unknown as Store['trpc']['machines']['adopt']
-     render(<MachinesPanel />)
-     fireEvent.click(screen.getByRole('button', { name: 'Adopt' }))
-     expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'machine already has an owner')
-     expect(screen.getByRole('button', { name: 'Adopt' })).toHaveProperty('disabled', false)
-   })
- })
-
+describe('MachinesPanel adoption', () => {
+  it('shows unowned explicitly and adopts through the server', async () => {
+    const mutate = vi.fn().mockResolvedValue([])
+    storeState.machines = [machine({ unowned: true, adoptable: true, use: 'denied' })]
+    setTrpc(vi.fn())
+    storeState.trpc.machines.adopt = { mutate } as unknown as Store['trpc']['machines']['adopt']
+    render(<MachinesPanel />)
+    expect(screen.getByText('Unowned')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Adopt' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledWith({ id: 'm-1' }))
+  })
+  it('withholds Adopt without affirmative authorization', () => {
+    storeState.machines = [machine({ unowned: true })]
+    setTrpc(vi.fn())
+    render(<MachinesPanel />)
+    expect(screen.getByText('Unowned')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Adopt' })).toBeNull()
+  })
+  it('shows adoption errors and permits retry', async () => {
+    const mutate = vi.fn().mockRejectedValue(new Error('machine already has an owner'))
+    storeState.machines = [machine({ unowned: true, adoptable: true })]
+    setTrpc(vi.fn())
+    storeState.trpc.machines.adopt = { mutate } as unknown as Store['trpc']['machines']['adopt']
+    render(<MachinesPanel />)
+    fireEvent.click(screen.getByRole('button', { name: 'Adopt' }))
+    expect(await screen.findByRole('alert')).toHaveProperty(
+      'textContent',
+      'machine already has an owner',
+    )
+    expect(screen.getByRole('button', { name: 'Adopt' })).toHaveProperty('disabled', false)
+  })
+})
 
 describe('daemon recovery status', () => {
-  it.each(['inventory pending', '2 quarantined', 'retrying handshake'])('shows not ready with %s and the count', async (reason) => {
+  it.each([
+    'inventory pending',
+    '2 quarantined',
+    'retrying handshake',
+  ])('shows not ready with %s and the count', async (reason) => {
     setTrpc(vi.fn())
-    storeState.machines = [machine({ online: true, daemonReadiness: { state: 'recovering', reason, quarantinedBindings: 2 } })]
+    storeState.machines = [
+      machine({
+        online: true,
+        daemonReadiness: { state: 'recovering', reason, quarantinedBindings: 2 },
+      }),
+    ]
     render(<MachinesPanel />)
     expect(await screen.findByText(`Not ready · ${reason}`)).toBeTruthy()
     expect(screen.getAllByText('2 quarantined').length).toBeGreaterThan(0)
@@ -850,7 +868,6 @@ describe('daemon recovery status', () => {
     expect(screen.queryByText(/Restart Podium on this machine/)).toBeNull()
   })
 })
-
 
 describe('MachinesPanel revoke result', () => {
   function setRevoke(mutate: () => Promise<unknown>) {
@@ -860,12 +877,18 @@ describe('MachinesPanel revoke result', () => {
   }
 
   it('keeps a refused revoke open, shows the server reason, and permits retry', async () => {
-    const mutate = vi.fn().mockRejectedValueOnce(new Error('machines.revoke requires an admin account')).mockResolvedValue([])
+    const mutate = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('machines.revoke requires an admin account'))
+      .mockResolvedValue([])
     setRevoke(mutate)
     render(<MachinesPanel />)
     fireEvent.click(screen.getByRole('button', { name: 'Revoke' }))
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Revoke' }))
-    expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'machines.revoke requires an admin account')
+    expect(await screen.findByRole('alert')).toHaveProperty(
+      'textContent',
+      'machines.revoke requires an admin account',
+    )
     const dialog = screen.getByRole('dialog')
     expect(within(dialog).getByRole('button', { name: 'Revoke' })).toHaveProperty('disabled', false)
     expect(storeState.machines[0]?.revokedAt).toBeUndefined()
@@ -882,7 +905,9 @@ describe('MachinesPanel revoke result', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Revoke' }))
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Revoke' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-    storeState.machines = [machine({ name: 'builder', revokedAt: '2026-09-17T12:00:00.000Z', online: false })]
+    storeState.machines = [
+      machine({ name: 'builder', revokedAt: '2026-09-17T12:00:00.000Z', online: false }),
+    ]
     view.rerender(<MachinesPanel />)
     expect(screen.getByText('builder')).toBeTruthy()
     expect(screen.getByText('Revoked')).toBeTruthy()
@@ -894,11 +919,19 @@ describe('MachinesPanel revoke result', () => {
 
 describe('explicit machine supersession', () => {
   it('requires a selected replacement ID, explains cancellation, and retains server errors for retry', async () => {
-    const mutate = vi.fn().mockRejectedValueOnce(new Error('replacement is retired')).mockResolvedValueOnce([])
+    const mutate = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('replacement is retired'))
+      .mockResolvedValueOnce([])
     storeState.machines = [
       machine({ id: asMachineId('old'), name: 'old laptop', supersedable: true }),
       machine({ id: asMachineId('new'), name: 'new laptop', supersedable: true, online: true }),
-      machine({ id: asMachineId('retired'), name: 'retired', supersedable: true, revokedAt: 'now' }),
+      machine({
+        id: asMachineId('retired'),
+        name: 'retired',
+        supersedable: true,
+        revokedAt: 'now',
+      }),
     ]
     setTrpc(vi.fn())
     Object.assign(storeState.trpc.machines, { supersede: { mutate } })
