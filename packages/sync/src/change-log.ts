@@ -1,6 +1,10 @@
-import { type MetadataChange, MetadataEntityKind } from '@podium/protocol'
+import { MetadataEntityKind } from '@podium/protocol'
 import { runTimeBudgetedJob, type TimeBudgetedJobMetrics } from '@podium/runtime/time-budget'
-import type { ChangeLogReadRow, ChangeLogWriteRow } from './authority/change-lifecycle'
+import type {
+  ChangeLogReadRow,
+  ChangeLogWriteRow,
+  SequencedChange,
+} from './authority/change-lifecycle'
 
 /**
  * Internals of the durable metadata change log [spec:SP-3fe2] (#253): change
@@ -145,7 +149,10 @@ export function detectionKey(entity: MetadataEntityKind, value: unknown, json: s
  * corrupt row counts as "not there" [POD-6156]: its next upsert re-records it
  * and a remove of it is dropped.
  */
-export function storedKeyOf(entity: MetadataEntityKind, payload: string | undefined): string | undefined {
+export function storedKeyOf(
+  entity: MetadataEntityKind,
+  payload: string | undefined,
+): string | undefined {
   if (payload === undefined) return undefined
   try {
     return detectionKey(entity, JSON.parse(payload), payload)
@@ -208,13 +215,20 @@ export class ChangeRangeBootstrapRequired extends Error {
   }
 }
 
-/** Read a fixed target in bounded pages, checking retention once before reading. */
+/**
+ * Read a fixed target in bounded pages, checking retention once before reading.
+ *
+ * Yields KERNEL rows ({@link SequencedChange}): `entityId`, the parsed value, and
+ * the provenance exactly as stored (POD-6272). It used to yield the pre-cutover
+ * wire `MetadataChange`, which has no provenance and spells the id `id`, and its
+ * one caller renamed the id back.
+ */
 export async function* readChangesRange(
   store: Pick<ChangeLogStore, 'minChangeSeq' | 'changesInRange'>,
   from: number,
   through: number,
   pageRows: number,
-): AsyncIterable<MetadataChange[]> {
+): AsyncIterable<SequencedChange[]> {
   if (!Number.isSafeInteger(pageRows) || pageRows <= 0)
     throw new RangeError('pageRows must be positive')
   if (!Number.isSafeInteger(from) || !Number.isSafeInteger(through) || from < 0 || from > through) {
@@ -226,10 +240,19 @@ export async function* readChangesRange(
   while (from < through) {
     const rows = await store.changesInRange(from, through, pageRows)
     if (rows.length === 0) return
-    const changes: MetadataChange[] = []
+    const changes: SequencedChange[] = []
     for (const r of rows) {
       if (!MetadataEntityKind.safeParse(r.entity).success) continue
-      const base = { seq: r.seq, id: r.entityId, op: r.op, entity: r.entity as MetadataEntityKind }
+      const base: SequencedChange = {
+        seq: r.seq,
+        entity: r.entity as MetadataEntityKind,
+        entityId: r.entityId,
+        op: r.op,
+      }
+      // Absent stays absent: the store maps a NULL column to no key.
+      if (r.originId !== undefined) base.originId = r.originId
+      if (r.causationId !== undefined) base.causationId = r.causationId
+      if (r.mutationId !== undefined) base.mutationId = r.mutationId
       if (r.op === 'upsert') {
         if (r.payload == null) throw new ChangeRangeBootstrapRequired('corrupt-payload')
         let value: unknown
@@ -238,9 +261,9 @@ export async function* readChangesRange(
         } catch {
           throw new ChangeRangeBootstrapRequired('corrupt-payload')
         }
-        changes.push({ ...base, value } as MetadataChange)
+        changes.push({ ...base, value })
       } else {
-        changes.push(base as MetadataChange)
+        changes.push(base)
       }
     }
     from = rows[rows.length - 1]!.seq

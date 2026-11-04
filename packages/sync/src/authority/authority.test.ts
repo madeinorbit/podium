@@ -5,17 +5,22 @@
  * observable rollback, so the atomicity claims are measured rather than asserted.
  */
 
-import { describe, expect, it, vi } from 'vitest'
-import { OWNERSHIP_MATRIX, type MatrixRow } from '@podium/model'
-import { Authority } from './authority'
-import type { ChangeLogReadRow, ScopedChange, StagedChangeSpec } from './change-lifecycle'
 import {
-  DeviceGradeNoAnchors,
-  DeviceGradeUnscopedPolicy,
-  DEVICE_GRADE_PRINCIPAL,
-} from '../feed/visibility'
+  asMutationId,
+  type ChangeProvenanceFields,
+  type MatrixRow,
+  OWNERSHIP_MATRIX,
+} from '@podium/model'
+import { describe, expect, it, vi } from 'vitest'
 import type { ChangeLogStore } from '../change-log'
 import { installedWorldOver } from '../conformance/installed-reads'
+import {
+  DEVICE_GRADE_PRINCIPAL,
+  DeviceGradeNoAnchors,
+  DeviceGradeUnscopedPolicy,
+} from '../feed/visibility'
+import { Authority } from './authority'
+import type { ChangeLogReadRow, ScopedChange, StagedChangeSpec } from './change-lifecycle'
 
 const rowWith = (rule: string): string => {
   const row = (OWNERSHIP_MATRIX as readonly MatrixRow[]).find((r) => r.conflict === rule)
@@ -519,5 +524,145 @@ describe('the arbitration clock is the AUTHORITY’s', () => {
         changes: () => [],
       }),
     ).toMatchObject({ outcome: 'committed' })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// PROVENANCE — ADR 2 D8, ADR 12 (POD-6272)
+// ---------------------------------------------------------------------------
+
+describe('provenance rides the change log', () => {
+  const M = asMutationId('m-1')
+  const OTHER = asMutationId('m-explicit')
+
+  /** `build()` with an ambient provenance port whose answer a test can change. */
+  function withProvenance(initial: ChangeProvenanceFields | undefined) {
+    let ambient = initial
+    const mem = memoryStore()
+    const authority = new Authority({
+      store: mem.store,
+      now: () => 1000,
+      transact: mem.transact,
+      visibility: new DeviceGradeUnscopedPolicy(),
+      anchors: new DeviceGradeNoAnchors(),
+      provenance: { current: () => ambient },
+    })
+    return {
+      mem,
+      authority,
+      set: (next: ChangeProvenanceFields | undefined) => {
+        ambient = next
+      },
+    }
+  }
+
+  it('capture stamps the ambient provenance on the stored row and its broadcast', async () => {
+    const { mem, authority } = withProvenance({ mutationId: M, causationId: M })
+    const delivered: ScopedChange[] = []
+    subscribe(authority, (changes) => delivered.push(...changes))
+    const returned = await authority.capture([upsert('s1', { a: 1 })])
+    expect(mem.rows.at(-1)).toMatchObject({ mutationId: M, causationId: M })
+    expect(delivered[0]).toMatchObject({ mutationId: M, causationId: M })
+    expect(returned[0]).toMatchObject({ mutationId: M, causationId: M })
+  })
+
+  it('commit stamps the ambient provenance on every row it appends', async () => {
+    const { mem, authority } = withProvenance({ originId: 'peer-1', mutationId: M })
+    const outcome = await authority.commit({
+      write: async () => 'ok',
+      changes: () => [upsert('s1', { a: 1 }), upsert('s2', { b: 1 })],
+    })
+    expect(mem.rows).toEqual([
+      expect.objectContaining({ entityId: 's1', originId: 'peer-1', mutationId: M }),
+      expect.objectContaining({ entityId: 's2', originId: 'peer-1', mutationId: M }),
+    ])
+    expect(outcome).toMatchObject({
+      outcome: 'committed',
+      changes: [{ mutationId: M }, { mutationId: M }],
+    })
+  })
+
+  it('reads the ambient provenance once, at the call, not after the write', async () => {
+    // The port answers from the CALLER's async context. A commit whose write
+    // awaits must still stamp what was current when the call began.
+    const { mem, authority, set } = withProvenance({ mutationId: M })
+    await authority.commit({
+      write: async () => {
+        set({ mutationId: OTHER })
+        return 'ok'
+      },
+      changes: () => [upsert('s1', { a: 1 })],
+    })
+    expect(mem.rows[0]).toMatchObject({ mutationId: M })
+  })
+
+  it('an explicit spec provenance wins over the ambient one', async () => {
+    const { mem, authority } = withProvenance({ mutationId: M, causationId: M })
+    await authority.capture([{ ...upsert('s1', { a: 1 }), mutationId: OTHER }])
+    expect(mem.rows[0]).toMatchObject({ mutationId: OTHER })
+    // The WHOLE group comes from the spec: an ambient causation id is not
+    // grafted onto a row whose writer named its own provenance.
+    expect(mem.rows[0]).not.toHaveProperty('causationId')
+  })
+
+  it('reconcile appends rows without provenance', async () => {
+    const { mem, authority } = withProvenance({ mutationId: M })
+    await authority.reconcile('session', [{ id: 's1', value: { a: 1 } }])
+    expect(mem.rows).toHaveLength(1)
+    expect(mem.rows[0]).not.toHaveProperty('mutationId')
+    expect(mem.rows[0]).not.toHaveProperty('causationId')
+    expect(mem.rows[0]).not.toHaveProperty('originId')
+  })
+
+  it('absent stays absent: no port, or a port with nothing current, adds no keys', async () => {
+    for (const { authority, mem } of [build(), withProvenance(undefined)]) {
+      await authority.capture([upsert('s1', { a: 1 })])
+      expect(Object.keys(mem.rows[0] as object).sort()).toEqual([
+        'entity',
+        'entityId',
+        'op',
+        'payload',
+        'seq',
+      ])
+    }
+  })
+
+  it('a key the port reports as undefined is not written as a key', async () => {
+    const { mem, authority } = withProvenance({ mutationId: M, causationId: undefined })
+    await authority.capture([upsert('s1', { a: 1 })])
+    expect(mem.rows[0]).not.toHaveProperty('causationId')
+  })
+
+  it('a no-op write under a new mutation id still appends nothing', async () => {
+    // ADR 2 D8's reason provenance lives on the envelope: dedup compares the
+    // payload only, so a resubmitted unchanged value is still a no-op. The
+    // reply's receipt (Task 2) is what confirms such a write.
+    const { mem, authority, set } = withProvenance({ mutationId: M })
+    await authority.capture([upsert('s1', { a: 1 })])
+    set({ mutationId: OTHER })
+    expect(await authority.capture([upsert('s1', { a: 1 })])).toEqual([])
+    expect(mem.rows).toHaveLength(1)
+  })
+
+  it('changesRange returns the provenance it stored', async () => {
+    const { authority, set } = withProvenance({ mutationId: M, causationId: M })
+    await authority.capture([upsert('s1', { a: 1 })])
+    set(undefined)
+    await authority.capture([upsert('s2', { b: 1 })])
+    const reply = await authority.changesSince(0, DEVICE_GRADE_PRINCIPAL)
+    expect(reply?.kind).toBe('batch')
+    const changes = reply?.kind === 'batch' ? reply.changes : []
+    expect(changes).toEqual([
+      {
+        seq: 1,
+        entity: 'session',
+        entityId: 's1',
+        op: 'upsert',
+        value: { a: 1 },
+        mutationId: M,
+        causationId: M,
+      },
+      { seq: 2, entity: 'session', entityId: 's2', op: 'upsert', value: { b: 1 } },
+    ])
   })
 })

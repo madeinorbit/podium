@@ -27,12 +27,25 @@
 
 import type { MutationId, SessionId } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
-import { and, asc, count, eq, gt, gte, inArray, isNull, lt, lte, max, min, or, sql } from 'drizzle-orm'
+import {
+  and,
+  asc,
+  count,
+  eq,
+  gt,
+  gte,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  max,
+  min,
+  or,
+  sql,
+} from 'drizzle-orm'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 import type { ChangeLogReadRow, ChangeLogWriteRow } from '../../authority/change-lifecycle'
 import type { ChangePrunePlan } from '../../change-log'
-import { appliedMutations, changeLatest, changes, feedIdentity } from './schema'
-import type { QueuedMessagesTable, SyncServerTables, UpstreamOutboxTable } from './server-tables'
 import {
   inListOf,
   inListSize,
@@ -42,7 +55,9 @@ import {
   prepared,
   preparedFamily,
 } from './prepared'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './store-queries'
+import { appliedMutations, changeLatest, changes, feedIdentity } from './schema'
+import type { QueuedMessagesTable, SyncServerTables, UpstreamOutboxTable } from './server-tables'
+import type { StoreDrizzle, StoreQueries, TransactionRunner } from './store-queries'
 
 /**
  * SQLite's OWN autoincrement bookkeeping table, declared so that
@@ -101,8 +116,9 @@ const deleteLatestChangeState = prepared((db: StoreDrizzle) =>
 /**
  * One append chunk, keyed by its ROW COUNT (1 to the 100-row chunk of
  * {@link SyncRepository.appendChanges}): a VALUES list cannot be padded the way
- * an IN list can. Row `i` fills `entity${i}`, `entityId${i}`, `op${i}` and
- * `payload${i}`; every row shares `eventTime`.
+ * an IN list can. Row `i` fills `entity${i}`, `entityId${i}`, `op${i}`,
+ * `payload${i}` and the provenance triple `originId${i}`, `causationId${i}`,
+ * `mutationId${i}` (POD-6272); every row shares `eventTime`.
  */
 const insertChangeRows = preparedFamily((db: StoreDrizzle, rows: number) =>
   db
@@ -114,6 +130,9 @@ const insertChangeRows = preparedFamily((db: StoreDrizzle, rows: number) =>
         op: sql.placeholder(`op${i}`),
         payload: sql.placeholder(`payload${i}`),
         eventTime: sql.placeholder('eventTime'),
+        originId: sql.placeholder(`originId${i}`),
+        causationId: sql.placeholder(`causationId${i}`),
+        mutationId: sql.placeholder(`mutationId${i}`),
       })),
     )
     .prepare(),
@@ -134,9 +153,10 @@ const lowestRetainedSeq = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-// FIVE COLUMNS OF NINE, named rather than spread [spec rule 39]: the original
-// statement projected a subset, and a spread would read the four provenance
-// and clock columns nobody here asks for.
+// EIGHT COLUMNS OF NINE, named rather than spread [spec rule 39]: the five the
+// original statement projected plus the provenance triple a reader now needs to
+// confirm a client's write (POD-6272). `event_time` stays unread: no range
+// reader asks for the clock.
 const changesAfter = prepared((db: StoreDrizzle) =>
   db
     .select({
@@ -145,6 +165,9 @@ const changesAfter = prepared((db: StoreDrizzle) =>
       entityId: changes.entityId,
       op: changes.op,
       payload: changes.payload,
+      originId: changes.originId,
+      causationId: changes.causationId,
+      mutationId: changes.mutationId,
     })
     .from(changes)
     .where(gt(changes.seq, param(changes.seq, 'cursor')))
@@ -161,9 +184,17 @@ const changesBetween = prepared((db: StoreDrizzle) =>
       entityId: changes.entityId,
       op: changes.op,
       payload: changes.payload,
+      originId: changes.originId,
+      causationId: changes.causationId,
+      mutationId: changes.mutationId,
     })
     .from(changes)
-    .where(and(gt(changes.seq, param(changes.seq, 'from')), lte(changes.seq, param(changes.seq, 'through'))))
+    .where(
+      and(
+        gt(changes.seq, param(changes.seq, 'from')),
+        lte(changes.seq, param(changes.seq, 'through')),
+      ),
+    )
     .orderBy(asc(changes.seq))
     .limit(sql.placeholder('limit'))
     .prepare(),
@@ -405,15 +436,22 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
       db
         .select({ sessionId: queued.sessionId, n: count() })
         .from(queued)
-        .where(scope === 'all' ? undefined : scope === 'one'
-          ? eq(queued.sessionId, param(queued.sessionId, 'sessionId'))
-          : inListOf(queued.sessionId, scope, 'ids'))
+        .where(
+          scope === 'all'
+            ? undefined
+            : scope === 'one'
+              ? eq(queued.sessionId, param(queued.sessionId, 'sessionId'))
+              : inListOf(queued.sessionId, scope, 'ids'),
+        )
         .groupBy(queued.sessionId)
         .prepare(),
     ),
 
     deleteQueued: prepared((db: StoreDrizzle) =>
-      db.delete(queued).where(eq(queued.id, param(queued.id, 'id'))).prepare(),
+      db
+        .delete(queued)
+        .where(eq(queued.id, param(queued.id, 'id')))
+        .prepare(),
     ),
 
     deleteUnreservedQueued: prepared((db: StoreDrizzle) =>
@@ -426,7 +464,9 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
     requestQueuedRetract: prepared((db: StoreDrizzle) =>
       db
         .update(queued)
-        .set({ retractRequestedAt: sql`coalesce(${queued.retractRequestedAt}, ${sql.placeholder('at')})` })
+        .set({
+          retractRequestedAt: sql`coalesce(${queued.retractRequestedAt}, ${sql.placeholder('at')})`,
+        })
         .where(eq(queued.id, param(queued.id, 'id')))
         .prepare(),
     ),
@@ -440,15 +480,19 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
     ),
 
     reserveQueuedDelivery: prepared((db: StoreDrizzle) =>
-      db.update(queued)
+      db
+        .update(queued)
         .set({ deliveryOwner: 'daemon', attempts: sql`max(${queued.attempts}, 1)` })
-        .where(eq(queued.id, param(queued.id, 'id'))).prepare(),
+        .where(eq(queued.id, param(queued.id, 'id')))
+        .prepare(),
     ),
 
     releaseQueuedDelivery: prepared((db: StoreDrizzle) =>
-      db.update(queued)
+      db
+        .update(queued)
         .set({ deliveryOwner: null, attempts: sql.placeholder('attempts') })
-        .where(and(eq(queued.id, param(queued.id, 'id')), eq(queued.deliveryOwner, 'daemon'))).prepare(),
+        .where(and(eq(queued.id, param(queued.id, 'id')), eq(queued.deliveryOwner, 'daemon')))
+        .prepare(),
     ),
 
     bumpQueuedAttempts: prepared((db: StoreDrizzle) =>
@@ -468,7 +512,10 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
     ),
 
     deleteQueuedOfSession: prepared((db: StoreDrizzle) =>
-      db.delete(queued).where(eq(queued.sessionId, param(queued.sessionId, 'sessionId'))).prepare(),
+      db
+        .delete(queued)
+        .where(eq(queued.sessionId, param(queued.sessionId, 'sessionId')))
+        .prepare(),
     ),
 
     // THREE COLUMNS OF FIVE, named [spec rule 39]: `input` is the parked payload
@@ -503,14 +550,23 @@ function mapChangeLogReadRow(r: {
   entityId: string
   op: string
   payload: string | null
+  originId?: string | null
+  causationId?: string | null
+  mutationId?: MutationId | null
 }): ChangeLogReadRow {
-  return {
+  const row: ChangeLogReadRow = {
     seq: r.seq,
     entity: r.entity as ChangeLogReadRow['entity'],
     entityId: r.entityId,
     op: r.op as ChangeLogReadRow['op'],
     payload: r.payload,
   }
+  // A NULL provenance column is an ABSENT key, never `null` (POD-6272): the
+  // row had no causing command, and the model's fields are optional, not nullable.
+  if (r.originId != null) row.originId = r.originId
+  if (r.causationId != null) row.causationId = r.causationId
+  if (r.mutationId != null) row.mutationId = r.mutationId
+  return row
 }
 
 export class SyncRepository {
@@ -556,15 +612,15 @@ export class SyncRepository {
   async appendChanges(rows: readonly ChangeLogWriteRow[], eventTime: number): Promise<number[]> {
     if (rows.length === 0) return []
     const seqs: number[] = []
-    // Stay below SQLite's conservative 999-parameter builds (100 × 5 = 500)
+    // Stay below SQLite's conservative 999-parameter builds (100 × 8 = 800)
     // while collapsing a live-scale reconcile from hundreds of statements to a
     // handful. One outer transaction preserves the contiguous, non-interleaved
     // sequence contract across every chunk.
     //
-    // STILL FIVE PARAMETERS PER ROW after the conversion, verified by printing
-    // the statement: drizzle names all nine columns but emits a literal `null`
-    // for `seq` and for the three provenance columns rather than binding them,
-    // so the chunk size still buys the same headroom it was chosen for.
+    // EIGHT PARAMETERS PER ROW since POD-6272 bound the provenance triple
+    // (previously five: drizzle emitted a literal `null` for those three
+    // columns). `seq` is still a literal `null`, so 100 rows bind 800 plus the
+    // shared `eventTime`, which keeps the chunk under the 999 ceiling.
     const chunkSize = 100
     await this.createOrJoinTransaction(async () => {
       for (let start = 0; start < rows.length; start += chunkSize) {
@@ -581,6 +637,9 @@ export class SyncRepository {
           values[`entityId${i}`] = row.entityId
           values[`op${i}`] = row.op
           values[`payload${i}`] = row.payload
+          values[`originId${i}`] = row.originId ?? null
+          values[`causationId${i}`] = row.causationId ?? null
+          values[`mutationId${i}`] = row.mutationId ?? null
         })
         const result = await insertChangeRows(this.db, chunk.length).run(values)
         const last = Number(result.lastInsertRowid)
@@ -605,7 +664,10 @@ export class SyncRepository {
    * transaction are what make "last write in the batch wins" true here for the
    * same reason it is true in the log.
    */
-  private async applyLatestChangeStates(rows: readonly ChangeLogWriteRow[], firstSeq: number): Promise<void> {
+  private async applyLatestChangeStates(
+    rows: readonly ChangeLogWriteRow[],
+    firstSeq: number,
+  ): Promise<void> {
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i] as ChangeLogWriteRow
       // A payload-less upsert is the corrupt row every reader of the fold already
@@ -674,8 +736,12 @@ export class SyncRepository {
    * recur inside every bounded delete unit. Rows appended after the snapshot are
    * intentionally handled by the next job.
    */
-  async planChangePrune(opts: { keepRows: number; maxAgeMs: number; now: number }): Promise<ChangePrunePlan> {
-    const rowCapSeq = await this.maxChangeSeq() - opts.keepRows
+  async planChangePrune(opts: {
+    keepRows: number
+    maxAgeMs: number
+    now: number
+  }): Promise<ChangePrunePlan> {
+    const rowCapSeq = (await this.maxChangeSeq()) - opts.keepRows
     // `INDEXED BY` HAS NO BUILDER FORM, so the FROM clause is an `sql` fragment —
     // which rule 1 allows inside a builder query, and which keeps the WHERE, the
     // aggregate and the row decoding on the builder where the rest of this file
@@ -699,7 +765,10 @@ export class SyncRepository {
       throw new RangeError('batchSize must be a positive integer')
     }
     if (plan.thresholdSeq <= 0) return 0
-    const result = await deleteChangeHead(this.db).run({ thresholdSeq: plan.thresholdSeq, batchSize })
+    const result = await deleteChangeHead(this.db).run({
+      thresholdSeq: plan.thresholdSeq,
+      batchSize,
+    })
     return Number(result.changes)
   }
 
@@ -744,7 +813,9 @@ export class SyncRepository {
   async installedStates(
     keys: readonly { readonly entity: string; readonly entityId: string }[],
   ): Promise<ChangeLogReadRow[]> {
-    const distinct = [...new Map(keys.map((key) => [`${key.entity}\u0000${key.entityId}`, key])).values()]
+    const distinct = [
+      ...new Map(keys.map((key) => [`${key.entity}\u0000${key.entityId}`, key])).values(),
+    ]
     const out: ChangeLogReadRow[] = []
     for (let start = 0; start < distinct.length; start += KEY_CHUNK) {
       const chunk = distinct.slice(start, start + KEY_CHUNK)
@@ -803,7 +874,6 @@ export class SyncRepository {
     }
     return [...new Map(out.map((row) => [row.entityId, row])).values()]
   }
-
 
   // ---- outbox write path (docs/spec/outbox-write-path.md) ----
 
@@ -931,11 +1001,14 @@ export class SyncRepository {
   }
 
   /** Read current queue sizes, optionally restricted to one session or one set. */
-  async queuedMessageCounts(sessionId?: SessionId | readonly SessionId[]): Promise<Map<SessionId, number>> {
+  async queuedMessageCounts(
+    sessionId?: SessionId | readonly SessionId[],
+  ): Promise<Map<SessionId, number>> {
     if (sessionId === undefined || typeof sessionId === 'string') {
-      const rows = sessionId === undefined
-        ? await this.serverTables.queuedCounts(this.db, 'all').all()
-        : await this.serverTables.queuedCounts(this.db, 'one').all({ sessionId })
+      const rows =
+        sessionId === undefined
+          ? await this.serverTables.queuedCounts(this.db, 'all').all()
+          : await this.serverTables.queuedCounts(this.db, 'one').all({ sessionId })
       return new Map(rows.map((r) => [r.sessionId, r.n]))
     }
     // One query per 500 ids keeps a fleet-sized set below SQLite's parameter limit.
@@ -944,7 +1017,9 @@ export class SyncRepository {
     for (let i = 0; i < unique.length; i += 500) {
       const chunk = unique.slice(i, i + 500)
       const size = inListSize(chunk.length)
-      for (const r of await this.serverTables.queuedCounts(this.db, size).all(inListValues(chunk, size, 'ids'))) {
+      for (const r of await this.serverTables
+        .queuedCounts(this.db, size)
+        .all(inListValues(chunk, size, 'ids'))) {
         out.set(r.sessionId, r.n)
       }
     }
@@ -1016,7 +1091,9 @@ export class SyncRepository {
    * boot) tells the operator they exist. A read with no writer cannot resurrect the
    * forwarding path; a table quietly dropped would have taken the evidence with it.
    */
-  async listParkedUpstreamMutations(): Promise<{ mutationId: MutationId; proc: string; queuedAt: number }[]> {
+  async listParkedUpstreamMutations(): Promise<
+    { mutationId: MutationId; proc: string; queuedAt: number }[]
+  > {
     const rows = await this.serverTables.parkedUpstream(this.db).all()
     return rows.map((r) => ({
       mutationId: r.mutationId,
@@ -1048,10 +1125,17 @@ export class SyncRepository {
    * hold two would leave "which epoch is this feed on?" answered by whichever row
    * a query happened to return first.
    */
-  async writeFeedIdentity(identity: { feedId: string; epoch: string }, mintedAt: number): Promise<void> {
+  async writeFeedIdentity(
+    identity: { feedId: string; epoch: string },
+    mintedAt: number,
+  ): Promise<void> {
     // TARGETED ON THE PRIMARY KEY, which is `feed_identity`'s ONLY uniqueness
     // constraint — checked with `pragma index_list` on the migrated table
     // [spec rule 31a].
-    await upsertFeedIdentity(this.db).run({ feedId: identity.feedId, epoch: identity.epoch, mintedAt })
+    await upsertFeedIdentity(this.db).run({
+      feedId: identity.feedId,
+      epoch: identity.epoch,
+      mintedAt,
+    })
   }
 }

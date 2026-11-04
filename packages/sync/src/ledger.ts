@@ -6,7 +6,12 @@ import type {
   StagedChangeSpec as KernelChangeSpec,
   ScopedChange,
 } from './authority/change-lifecycle'
-import type { AuthorityCommit, BaselineFoldPort, PostCommitFollowUpPort } from './authority/ports'
+import type {
+  AuthorityCommit,
+  BaselineFoldPort,
+  PostCommitFollowUpPort,
+  ProvenancePort,
+} from './authority/ports'
 import {
   CHANGE_KEEP_ROWS,
   CHANGE_MAX_AGE_MS,
@@ -89,9 +94,10 @@ const log = createLogger('sync:ledger')
  * Composed from {@link KernelChangeSpec} (`StagedChangeSpec`) rather than
  * restated (POD-1251): the only intentional difference is the target-id key
  * name — this facade still says `id`, the kernel says `entityId`. Provenance
- * remains optional on the kernel shape and is simply unused by current call
- * sites; it is not stripped, so a future writer can pass it without a second
- * type.
+ * (`originId`, `causationId`, `mutationId`) is optional here as on the kernel
+ * shape, and `toKernelSpec` carries it through unchanged (POD-6272; before that
+ * the facade rebuilt every spec from three keys and dropped it). A spec that
+ * names none is stamped by the Authority from {@link LedgerDeps.provenance}.
  *
  * `toKernelSpec` is the ONE place the two spellings meet.
  */
@@ -134,6 +140,9 @@ export interface LedgerDeps {
   visibility?: FeedVisibilityPolicy
   anchors?: VisibilityAnchorPort
   listenerPrincipal?: Principal
+  /** The command now appending, passed straight to the Authority — see
+   *  `AuthorityDeps.provenance` (POD-6272). Unset stamps nothing. */
+  provenance?: ProvenancePort
 }
 
 export interface LedgerBootOptions {
@@ -223,6 +232,7 @@ export class Ledger {
       now: deps.now,
       transact: deps.transact,
       ...(deps.postCommit === undefined ? {} : { postCommit: deps.postCommit }),
+      ...(deps.provenance === undefined ? {} : { provenance: deps.provenance }),
       // THE DEVICE-GRADE HALF, DECLARED RATHER THAN DEFAULTED (POD-1077).
       //
       // POD-1075 landed real `UserAccount`s, per-user `client_sessions` and grant
@@ -362,7 +372,10 @@ export class Ledger {
    * diff path — so changes made while the server was down land in the log before
    * the first client reads it.
    */
-  async reconcile(entity: MetadataEntityKind, rows: { id: string; value: unknown }[]): Promise<MetadataChange[]> {
+  async reconcile(
+    entity: MetadataEntityKind,
+    rows: { id: string; value: unknown }[],
+  ): Promise<MetadataChange[]> {
     return (await this.authority.reconcile(entity, rows)).map(toWireChange)
   }
 
@@ -448,8 +461,9 @@ export class Ledger {
 /** This facade's `id` spelling → the kernel's `entityId`. The ONE place the two
  *  vocabularies meet, so the rename POD-306/POD-308 finish is one deletion. */
 function toKernelSpec(spec: EntityChangeSpec): KernelChangeSpec {
-  const base = { entity: spec.entity, entityId: spec.id, op: spec.op }
-  return spec.op === 'upsert' ? { ...base, value: spec.value } : base
+  const { id, value, ...rest } = spec
+  const base = { ...rest, entityId: id }
+  return spec.op === 'upsert' ? { ...base, value } : base
 }
 
 /** The kernel's sequenced change → the pre-cutover wire row. */

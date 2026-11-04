@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { addSink } from '@podium/logger'
+import { asMutationId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SyncRepository } from './adapters/sqlite/sync-repository'
 import {
@@ -740,5 +741,36 @@ describe('Codex review-round hardening (#253)', () => {
     }
     expect(lastLen).toBe(1)
     expect(seen).toHaveLength(70)
+  })
+})
+
+describe('Ledger provenance (POD-6272)', () => {
+  // End to end through the facade, onto the REAL SQLite change log: the facade
+  // used to rebuild every spec from three keys and drop the rest.
+  it('passes the ambient provenance port to its Authority', async () => {
+    const repo = createTestSyncRepository()
+    const ledger = new Ledger({
+      repo,
+      now: Date.now,
+      transact: passthrough,
+      provenance: { current: () => ({ mutationId: asMutationId('m-1'), causationId: 'm-1' }) },
+    })
+    await commit(ledger, [issueSpec('i1', 1)])
+    expect(await repo.changesSince(0)).toEqual([
+      expect.objectContaining({ entityId: 'i1', mutationId: 'm-1', causationId: 'm-1' }),
+    ])
+  })
+
+  it('keeps a spec’s own provenance through toKernelSpec', async () => {
+    const repo = createTestSyncRepository()
+    const ledger = makeLedger(repo)
+    await ledger.capture([
+      { ...issueSpec('i1', 1), mutationId: asMutationId('m-own'), originId: 'peer' },
+    ])
+    await ledger.capture([{ ...removeSpec('i1'), causationId: 'c-rm' }])
+    expect(await repo.changesSince(0)).toEqual([
+      expect.objectContaining({ op: 'upsert', mutationId: 'm-own', originId: 'peer' }),
+      expect.objectContaining({ op: 'remove', causationId: 'c-rm' }),
+    ])
   })
 })
