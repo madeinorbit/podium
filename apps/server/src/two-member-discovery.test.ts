@@ -13,7 +13,13 @@
  * two-member files expect them.
  */
 
-import { inPersonalSet, type IssueUserStateWire } from '@podium/model'
+import {
+  asIssueId,
+  type IssueUserStateWire,
+  inPersonalSet,
+  type MachineId,
+  type SessionId,
+} from '@podium/model'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   MEMBERS,
@@ -70,6 +76,35 @@ async function personalSet(name: MemberName): Promise<string[]> {
 }
 
 const ids = (rows: readonly { id: string }[]) => rows.map((row) => row.id)
+
+/** An agent session of `owner` on `issueId`, started the way `sessions.create` starts one. */
+async function sessionOn(owner: 'alice' | 'bob', issueId: string, title: string) {
+  const sessionId = (
+    await f.handle.registry.modules.sessions.createSession({
+      ownerUserId: MEMBERS[owner].id,
+      agentKind: 'claude-code',
+      cwd: `/wt/${owner}-${title}`,
+      title,
+      machineId: f.machines[owner],
+      issueId: asIssueId(issueId),
+      binding: { principal: { kind: 'user', userId: MEMBERS[owner].id } },
+    })
+  ).sessionId
+  machineOf.set(sessionId, f.machines[owner])
+  return sessionId
+}
+
+const machineOf = new Map<SessionId, MachineId>()
+
+/** The agent of a session this file started, over its machine's relay. */
+const actor = (sessionId: SessionId) => f.agent(sessionId, { machineId: machineOf.get(sessionId)! })
+
+/** The session claims the coordinator seat of its own issue, as an agent does. */
+async function claims(sessionId: SessionId, task: Wire): Promise<void> {
+  await actor(sessionId).cli(['coordinator', String(task.seq), '--claim'])
+}
+
+const seatOf = async (sessionId: SessionId): Promise<string> => await actor(sessionId).cli(['seat'])
 
 describe('MU-04: Bob finds Alice’s task under All users, in search and through his agent', () => {
   it('Bob’s list and search hold Alice’s task, named with Alice as assignee', async () => {
@@ -153,7 +188,9 @@ describe('ready work defaults to the agent’s own human', () => {
   it('Bob in person gets the same default, and his agent’s `me` is Bob, not the task’s assignee', async () => {
     const hers = await taskOf('alice', 'Alice ready serac survey')
     const his = await taskOf('bob', 'Bob ready serac survey')
-    const own = (await (await trpc('bob')).issues.ready.query({
+    const own = (await (
+      await trpc('bob')
+    ).issues.ready.query({
       repoPath: REPO_PATH,
     } as never)) as Wire[]
     expect(ids(own)).toContain(his.id)
@@ -199,5 +236,58 @@ describe('tree and deck narrow to one assignee and keep the path to it', () => {
       root: { children: Array<{ id: string }> }
     }
     expect(ids(full.root.children)).toEqual(expect.arrayContaining([hersBelow.id, hisBelow.id]))
+  })
+})
+
+describe('the seat rule: "the user" is the session’s own human', () => {
+  it('Bob’s worker under a task Alice’s agent coordinates asks Bob’s nearest coordinator, skipping Alice’s', async () => {
+    const mission = await taskOf('bob', 'Bob glacier mission')
+    const middle = await taskOf('alice', 'Alice glacier phase', mission.id)
+    const leaf = await taskOf('bob', 'Bob glacier leaf', middle.id)
+    const bobsLead = await sessionOn('bob', mission.id, 'bob-mission-lead')
+    const alicesLead = await sessionOn('alice', middle.id, 'alice-phase-lead')
+    await claims(bobsLead, mission)
+    await claims(alicesLead, middle)
+    const worker = await sessionOn('bob', leaf.id, 'bob-leaf-worker')
+
+    const seat = await seatOf(worker)
+    expect(seat).toContain('you work under the coordinator of')
+    expect(seat).toContain('(Bob glacier mission)')
+    expect(seat).not.toContain('Alice glacier phase')
+    // Alice's own worker under her lead still asks her lead.
+    const alicesWorker = await sessionOn('alice', leaf.id, 'alice-leaf-worker')
+    expect(await seatOf(alicesWorker)).toContain('(Alice glacier phase)')
+  })
+
+  it('with no coordinator of Bob’s above, Bob’s worker talks to Bob, never to Alice’s coordinator', async () => {
+    const mission = await taskOf('alice', 'Alice firn mission')
+    const leaf = await taskOf('bob', 'Bob firn leaf', mission.id)
+    const alicesLead = await sessionOn('alice', mission.id, 'alice-firn-lead')
+    await claims(alicesLead, mission)
+    const worker = await sessionOn('bob', leaf.id, 'bob-firn-worker')
+
+    expect(await seatOf(worker)).toContain(
+      'no coordinator sits above you, so you talk to the user (Bob, the person you act for) directly',
+    )
+  })
+
+  it('a top coordinator of Bob’s on Alice’s task asks Bob, and may post offers; Alice’s lead above is skipped', async () => {
+    const mission = await taskOf('alice', 'Alice ablation mission')
+    const task = await taskOf('alice', 'Alice ablation task', mission.id)
+    const alicesLead = await sessionOn('alice', mission.id, 'alice-ablation-lead')
+    await claims(alicesLead, mission)
+    const bobsLead = await sessionOn('bob', task.id, 'bob-ablation-lead')
+    await claims(bobsLead, task)
+
+    const seat = await seatOf(bobsLead)
+    expect(seat).toContain('you talk to the user (Bob, the person you act for) directly')
+    expect(seat).toContain('You coordinate this issue')
+    // `podium offer` is gated on the same seat: Bob's lead may put it in front of Bob.
+    await expect(
+      actor(bobsLead).client.offer.set.mutate({
+        message: 'Ablation stakes ready',
+        actions: [{ label: 'Merge', prompt: 'merge it' }],
+      } as never),
+    ).resolves.toBeDefined()
   })
 })

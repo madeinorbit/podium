@@ -894,6 +894,13 @@ interface IssueArtifactContent {
  * exists unarchived — so a coordinator that is gone never leaves a session blocked
  * with nobody to ask. The walk skips the session's OWN marker: a phase lead asks the
  * coordinator above it, and the top coordinator asks nobody.
+ *
+ * ONE HUMAN PER CHAIN (POD-6296, design §2.3). "The user" is the session's own
+ * human: the person it belongs to. A coordinator counts only while it acts for that
+ * same human, so Bob's worker under a task Alice's agent coordinates skips Alice's
+ * coordinator and asks the nearest of Bob's, or Bob. A top coordinator of Bob's on
+ * Alice's task asks Bob, never the task's assignee. On a one-member instance every
+ * session has the same human and nothing is skipped.
  */
 
 interface SeatCoordinator {
@@ -5242,6 +5249,7 @@ type Output_issues_seat = ({
     askUserRefusal?: string | undefined;
     claimable?: string;
     coordinates: boolean;
+    human?: string;
     kind: "top";
     text: string;
 }) | ({

@@ -169,8 +169,9 @@ export interface TwoMemberInstance {
   feedWith(cookie: string): Promise<FeedView>
   /** Drop that machine's fake daemon and attach it again, as a daemon reconnect does. */
   reconnectDaemon(machineId: MachineId, whileAway?: () => Promise<void>): Promise<void>
-  /** Act as a session's agent over the daemon relay. */
-  agent(sessionId: SessionId, opts?: { outsideScope?: boolean }): AgentActor
+  /** Act as a session's agent over the daemon relay. A session a test started
+   *  itself names its machine. */
+  agent(sessionId: SessionId, opts?: { outsideScope?: boolean; machineId?: MachineId }): AgentActor
   /** The feed as the legacy device-grade principal sees it (design gap 7). */
   legacyDeviceFeed(): Promise<FeedSnapshot>
   /** Every control frame the server sent to that machine's fake daemon, in order.
@@ -485,8 +486,11 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
       }
     }
 
-    const agent = (sessionId: SessionId, opts: { outsideScope?: boolean } = {}): AgentActor => {
-      const machineId = machineOfSession.get(sessionId)
+    const agent = (
+      sessionId: SessionId,
+      opts: { outsideScope?: boolean; machineId?: MachineId } = {},
+    ): AgentActor => {
+      const machineId = opts.machineId ?? machineOfSession.get(sessionId)
       const relay = machineId ? relayFor.get(machineId) : undefined
       if (!relay) throw new Error(`no fixture relay for session ${sessionId}`)
       const client = makeRelayIssueClient(relay.endpointFor(sessionId), opts)

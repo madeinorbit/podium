@@ -1373,7 +1373,7 @@ export class IssueReportsModule {
     // (POD-6160), not every session on the box.
     const self = await this.store.deps.readSessionFactsById(sessionId)
     const own = issueId ?? self?.issueId ?? (self ? await this.issueForCwd(self.cwd) : null)
-    return await resolveSeat(sessionId, own, {
+    const seat = await resolveSeat(sessionId, own, {
       row: async (id) => await this.store.row(id),
       isClosed: (row) => this.store.isClosed(row),
       sessionLive: async (id) => {
@@ -1381,7 +1381,17 @@ export class IssueReportsModule {
         return facts !== undefined && !facts.archived
       },
       ref: async (row) => await this.niceRef(row),
+      // The owner is the human a session acts for (POD-6283, POD-6296).
+      sessionHuman: async (id) =>
+        id === sessionId
+          ? self?.ownerUserId
+          : (await this.store.deps.readSessionFactsById(id))?.ownerUserId,
     })
+    if (seat.kind !== 'top' || !self?.ownerUserId) return seat
+    const users = this.store.deps.store.users
+    if (!(await users.hasSeveralActiveMembers())) return seat
+    const member = await users.get(self.ownerUserId)
+    return { ...seat, human: member?.displayName || member?.email || self.ownerUserId }
   }
 
   /** Agent-facing context at session start / on demand. Bound = the issue + open
