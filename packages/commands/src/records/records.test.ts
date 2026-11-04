@@ -193,6 +193,22 @@ describe('what a new record looks like (POD-6400)', () => {
     expect(row).toMatchObject({ description: { value: 'why' } })
   })
 
+  it('places a new issue under the one repo this device holds at its path, else nowhere', () => {
+    const at = (rows: Record<string, string[]>) => ({
+      ...ctx,
+      known: (entity: string, field: string, value: unknown) =>
+        entity === 'repo' && field === 'repoPath' ? (rows[String(value)] ?? []) : [],
+    })
+    const fields = { title: 'new', repoPath: '/p' }
+    expect(freshRow(ISSUE_RECORD, id, fields, at({ '/p': ['repo_a'] }))?.repoId).toBe('repo_a')
+    // Two repos at one path, or none: the server decides; nothing is guessed.
+    expect(
+      freshRow(ISSUE_RECORD, id, fields, at({ '/p': ['repo_a', 'repo_b'] })),
+    ).not.toHaveProperty('repoId')
+    expect(freshRow(ISSUE_RECORD, id, fields, at({}))).not.toHaveProperty('repoId')
+    expect(freshRow(ISSUE_RECORD, id, fields, ctx)).not.toHaveProperty('repoId')
+  })
+
   it('every label and status field is pending: a paint never shows an invented value as known', () => {
     for (const [name, f] of Object.entries(ISSUE_RECORD.fields)) {
       if (f.role === 'label' || f.role === 'status') {

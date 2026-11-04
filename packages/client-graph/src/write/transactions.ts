@@ -94,6 +94,9 @@ export interface PoolTransactionsPorts {
   readonly addressed: (listener: (batch: ReplicaAddressedBatch) => void) => () => void
   readonly now?: () => number
   readonly mintId?: () => MutationId
+  /** The ids of the held rows of `entity` whose `field` equals `value`: a new
+   *  record's placement guess (an issue's repo by path, POD-6400). */
+  readonly known?: (entity: string, field: string, value: unknown) => readonly string[]
   /** The shared command reducer. Only a test replaces it, to plant a wrong
    *  one and prove the differential check against an independent log fails. */
   readonly reduce?: typeof overlaysForOutboxEntry
@@ -162,7 +165,7 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
   // default minter ran on every UI write there (POD-5931).
   const mintId = ports.mintId ?? (() => asMutationId(randomUUID()))
   const reduceWith = ports.reduce ?? overlaysForOutboxEntry
-  const viewer = { userId: ports.userId }
+  const viewer = { userId: ports.userId, ...(ports.known ? { known: ports.known } : {}) }
   const reduce = (entry: Parameters<typeof overlaysForOutboxEntry>[0]) => reduceWith(entry, viewer)
 
   let source: RowSourceRepaint | null = null

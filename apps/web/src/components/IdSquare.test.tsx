@@ -74,6 +74,15 @@ describe('IdSquare identity', () => {
     ).toBe('ENG')
   })
 
+  it('a new issue the server has not numbered reads as pending, never POD-0 (POD-6400)', () => {
+    expect(idSquareLabel({ ...issue({ seq: 0 }), displayRef: 'POD-…' })).toEqual({
+      prefix: 'POD',
+      number: '…',
+      full: 'POD-…',
+    })
+    expect(idSquareLabel(issue({ seq: 0 }))).toEqual({ prefix: '#', number: '…', full: '#…' })
+  })
+
   it.each([
     { size: 20, radius: 5, fontSize: '7px' },
     { size: 26, radius: 7, fontSize: '9.1px' },

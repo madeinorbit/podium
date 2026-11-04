@@ -31,22 +31,29 @@
 import type { z } from 'zod'
 import type { SyncedKindDeclaration } from './declare'
 
+type Values = Readonly<Record<string, unknown>>
+
 /** What the creating device knows when it paints a placeholder. */
 export interface FreshContext {
   /** When the create was queued, as an ISO timestamp. */
   readonly at: string
   /** The person creating it, when the device knows; `null` otherwise. */
   readonly by: string | null
+  /**
+   * The ids of the rows of `entity` this device holds whose `field` equals
+   * `value`, for a placeholder that places the record by what the create names
+   * (an issue's repo, by its path). A guess for display only: the server's
+   * value replaces it when the row lands. Absent: the device knows no rows.
+   */
+  readonly known?: (entity: string, field: string, value: unknown) => readonly string[]
 }
 
 export interface FreshRecord {
   /** Wire cells that are not fields, and the constant every new record holds. */
   readonly cells: Readonly<Record<string, unknown>>
   /** Wire cells the server assigns, and what the device paints until it does. */
-  readonly pending: Readonly<Record<string, (ctx: FreshContext) => unknown>>
+  readonly pending: Readonly<Record<string, (ctx: FreshContext, fields: Values) => unknown>>
 }
-
-type Values = Readonly<Record<string, unknown>>
 
 /** The fields a create may carry (spec and key), as `./declare.ts#createFields`. */
 const createable = (d: SyncedKindDeclaration): string[] =>
@@ -108,7 +115,7 @@ export function freshRow(
   if (d.fresh === undefined) return undefined
   const row: Record<string, unknown> = {}
   for (const [name, placeholder] of Object.entries(d.fresh.pending)) {
-    const value = placeholder(ctx)
+    const value = placeholder(ctx, fields)
     if (value !== undefined) row[name] = value
   }
   Object.assign(row, d.fresh.cells, wireCells(d, freshCreateFields(d, fields)))
@@ -150,7 +157,7 @@ export function freshProblems(d: SyncedKindDeclaration): string[] {
       out.push(`pending cell ${name} is a ${f.role} field a create carries`)
     }
     for (const ctx of SAMPLE_CONTEXTS) {
-      const value = placeholder(ctx)
+      const value = placeholder(ctx, {})
       const ok =
         value === undefined ? acceptsAbsent(shape[name]) : shape[name]?.safeParse(value).success
       if (!ok) {

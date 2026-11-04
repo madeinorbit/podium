@@ -1,5 +1,6 @@
 import type { SessionId } from '@podium/model'
 import { machinePathBasename } from '@podium/model'
+import { issueRefText } from '@podium/protocol'
 import { type AttentionGroup, attentionGroup, attentionSummary, relativeTime } from '../focus'
 import type { SessionView } from '../session-values'
 import type { IssueViewModel } from '../values/issue-type'
@@ -33,7 +34,7 @@ export function sessionCardModel(
     sessionId: session.sessionId,
     title: sessionTitle(session),
     subtitle: `${panelLabel(session.agentKind)} · ${session.status}${now === undefined ? '' : ` · ${relativeTime(session.lastActiveAt, now)}`}`,
-    issueLabel: issue ? `#${issue.seq} ${issue.title}` : null,
+    issueLabel: issue ? `${issueRefText(issue.seq)} ${issue.title}` : null,
     summary: attentionSummary(session),
     group: attentionGroup(session),
     dotTone: sessionDotTone(session),

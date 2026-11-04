@@ -1,3 +1,4 @@
+import { issueRefText } from '@podium/protocol'
 import { omitGone } from '../lookup'
 import { parseMs } from '../views'
 import { compareShallow, compareStructural, untracked } from 'mobx'
@@ -1081,7 +1082,7 @@ export class WorklistIssue implements HeldIssue, RowView {
     const origin = this.loadedOrigin
     return origin === undefined || origin === LOADING ? null : {
       id: origin.id, seq: origin.seq, title: origin.title,
-      ref: this.host.inputs.parts(origin.id)?.label.displayRef ?? `#${origin.seq}`,
+      ref: this.host.inputs.parts(origin.id)?.label.displayRef ?? issueRefText(origin.seq),
     }
   }
   @lazy({ equals: compareStructural }) get progress(): SidebarProgress | typeof LOADING {
@@ -1119,7 +1120,7 @@ export class WorklistIssue implements HeldIssue, RowView {
     if (this.targetId) return { kind: this.issue.supersededBy ? 'continued' : 'duplicate',
       ref: this.host.inputs.parts(this.targetId)?.label.displayRef ?? 'another task' }
     const destination = this.continuationTip?.target
-    return destination ? { kind: 'continued', ref: this.host.inputs.parts(destination.id)?.label.displayRef ?? `#${destination.seq}` } : null
+    return destination ? { kind: 'continued', ref: this.host.inputs.parts(destination.id)?.label.displayRef ?? issueRefText(destination.seq) } : null
   }
   private readLifecycle() { return sidebarLifecycle(this.issue as unknown as SliceIssue, this.visibleAsking, this.host.inputs.passed, this.host.inputs.reached, this.issue) }
   @lazy get returnedFromDefer() { return this.readLifecycle().unsnoozed }

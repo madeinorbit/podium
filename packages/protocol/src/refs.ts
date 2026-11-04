@@ -386,10 +386,39 @@ export function bareSelfRefCount(text: string, ref: string): number {
 }
 
 /**
+ * THE NUMBER A NEW ISSUE SHOWS BEFORE THE SERVER GIVES IT ONE (POD-6400).
+ *
+ * A device that creates an issue paints it at once, before the server has
+ * numbered it, with this `seq`. Server numbers start at 1, so 0 is never a real
+ * one. Every display of an issue ref reads it through {@link issueRefText} (or
+ * {@link issueNumberText}), which shows it as pending (`POD-…`), never `POD-0`.
+ */
+export const PENDING_ISSUE_SEQ = 0
+/** What a pending issue number reads as. */
+export const PENDING_ISSUE_NUMBER = '…'
+
+/** Whether an issue's number is still the creating device's placeholder. */
+export const isPendingIssueSeq = (seq: number): boolean => seq === PENDING_ISSUE_SEQ
+
+/** The number part of an issue ref as people read it: the seq, or `…` while pending. */
+export const issueNumberText = (seq: number): string =>
+  isPendingIssueSeq(seq) ? PENDING_ISSUE_NUMBER : String(seq)
+
+/**
+ * An issue ref as people read it: `PREFIX-n`, else `#n` when the repo has no
+ * prefix; a pending number reads `PREFIX-…` / `#…`. For DISPLAY only: a lookup
+ * key or a parsed ref uses {@link formatIssueRef}.
+ */
+export function issueRefText(seq: number, prefix?: string | null): string {
+  const n = issueNumberText(seq)
+  return prefix ? `${prefix}-${n}` : `#${n}`
+}
+
+/**
  * The human-facing reference for an issue-like wire object. Prefers the
  * server-derived `displayRef`; falls back to `#seq` for legacy/mock payloads
  * that predate the field. The single accessor every UI render site should use.
  */
 export function issueDisplayRef(issue: { displayRef?: string; seq: number }): string {
-  return issue.displayRef ?? `#${issue.seq}`
+  return issue.displayRef ?? issueRefText(issue.seq)
 }

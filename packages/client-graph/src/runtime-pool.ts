@@ -10,7 +10,7 @@ import { optimisticDraftSortKey } from '@podium/client-core/values'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { asUserId } from '@podium/model'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
-import { Reaction, runInAction } from 'mobx'
+import { Reaction, runInAction, untracked } from 'mobx'
 import { _observerFinalizationRegistry } from 'mobx-react-lite'
 import { createWorklistPool, type WorklistPoolHandle } from './create'
 import { attachHeaderSource } from './header-source'
@@ -259,6 +259,17 @@ export function createRuntimeTransactions(runtime: WorklistRuntime): PoolTransac
     outcomes: rt.subscribeOutboxOutcomes,
     enqueue: async (kind, input, opts) => { await rt.outbox!.enqueue(kind, input, opts) },
     addressed: subscribeAddressed,
+    // A new record's placement guess (POD-6400): the held repos whose field
+    // matches (an issue's repo by its path). Repos only: a handful of rows, read
+    // when a create is reduced, never observed. Any other table answers none.
+    // untracked-read: fresh-record-placement
+    known: (entity, field, value) => untracked(() => {
+      const repos = entity === 'repo' ? spawnPools.get(runtime)?.tables.repo : undefined
+      if (!repos) return []
+      const ids: string[] = []
+      for (const [id, row] of repos) if ((row as Record<string, unknown>)[field] === value) ids.push(id)
+      return ids
+    }),
     spawn: {
       api: (runtime as unknown as { access: { trpc: import('@podium/client-core').PodiumClientApi } }).access.trpc,
       userId: asUserId(rt.principal.userId),

@@ -232,10 +232,12 @@ export function overlaysForOutboxEntry(
   return projected === null ? [] : Array.isArray(projected) ? projected : [projected]
 }
 
-/** What the reducing device knows about who it is. Only a record create reads
- *  it: a fresh record's server-assigned owner is painted as this person. */
+/** What the reducing device knows. Only a record create reads it: a fresh
+ *  record's owner is painted as this person, and its placement (an issue's
+ *  repo) guessed from the rows the device holds (POD-6400). */
 export interface ReducerViewer {
   readonly userId?: string
+  readonly known?: (entity: string, field: string, value: unknown) => readonly string[]
 }
 
 function overlayOf(
@@ -540,6 +542,7 @@ function recordOverlays(entry: OutboxEntry, viewer: ReducerViewer): PendingOverl
       const whole = freshRow(d, input.id, input.fields ?? {}, {
         at: new Date(entry.queuedAt).toISOString(),
         by: viewer.userId ?? null,
+        ...(viewer.known === undefined ? {} : { known: viewer.known }),
       })
       // A declaration check holds every create kind to a whole row; a row that
       // still does not parse (an entry from an older build) paints nothing.

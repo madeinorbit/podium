@@ -1,3 +1,4 @@
+import { issueRefText } from '@podium/protocol'
 import type { Store } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -236,7 +237,7 @@ function createShellViews(pool: MobxPool) {
       ...(full ? input : Object.fromEntries(SHELL_SUMMARIES.issue.map((key) => [key, input[key]]))),
       id,
       prefix,
-      displayRef: prefix ? `${prefix}-${input.seq}` : `#${input.seq}`,
+      displayRef: issueRefText(input.seq as number, prefix),
     } as unknown as ShellIssue
   }
   function sessions(): Loaded<SessionView[]> {

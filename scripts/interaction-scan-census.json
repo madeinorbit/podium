@@ -10784,20 +10784,20 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useLayoutEffect:callback",
       "rule": "helper-consumer",
-      "tokens": "9639a029f6381d6de956489681399a76ee5744e47156cb93d99ead78086f3e16",
+      "tokens": "3c2e3573e74e1921b52641c32292a91515289f1e823c3b45ee76d12e9938f874",
       "gate": [],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "840d1564f2c4885f340c3a03323dff9ded81cf83256fb7591a372343b43b4323",
+      "fingerprint": "a0134f12f7f52716226b36efb404c0489a4b9f940101d33bed0285e052d890c8",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5872",
       "trigger": "A provider-free screen fixture mounts or publishes its synthetic snapshot.",
       "bound": "Only the finite synthetic record arrays supplied by the mounted test fixture; this module has no production import caller.",
-      "reason": "The fixture adapter publishes its existing input into the real pool so warm services keep canonical session identities. The copied snapshot and publication are test-only setup.",
+      "reason": "The fixture adapter publishes its existing input into the real pool so warm services keep canonical session identities. The copied snapshot and publication are test-only setup. POD-6400: a helper it reaches now formats issue refs through issueRefText; its enumeration is unchanged. Predecessor: 840d1564f2c4885f340c3a03323dff9ded81cf83256fb7591a372343b43b4323.",
       "guard": "apps/web/src/features/chat/ChatView.test.tsx preserves all 37 original assertions; production build excludes the Vitest fixture. Exact fingerprint and multiplicity remain enforced."
     },
     {
@@ -12433,20 +12433,20 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/records/callback",
       "rule": "helper-consumer",
-      "tokens": "e6704fbfde2c70e52a3a207898f2d899a904967a5b3e99230ebcc20629e0ce9a",
+      "tokens": "ab0c108b54722e37097801f7a8c9ea98cce8e5c99b6e3e9cafb4613cab658311",
       "gate": [],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "789ed0db44187b00a33b30a0c8ef8d7ec384269af8cdae0694a319ddb2e08661",
+      "fingerprint": "a7aff3bce5a944b81856bda4bb5070c4a82ec6a4fcbbbefac0ffe5dee3641b83",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5888",
       "trigger": "Provider-free screen fixtures load their declared synthetic records.",
       "bound": "The component suite supplies the complete synthetic snapshot; this test-only bridge seeds the real fixture pool.",
-      "reason": "Fixture normalization belongs to the test ingestion boundary; board and detail consumers exercise real models and readers.",
+      "reason": "Fixture normalization belongs to the test ingestion boundary; board and detail consumers exercise real models and readers. POD-6400: a helper it reaches now formats issue refs through issueRefText; its enumeration is unchanged. Predecessor: 789ed0db44187b00a33b30a0c8ef8d7ec384269af8cdae0694a319ddb2e08661.",
       "guard": "Focused IssuesView.bulk-close and IssuePanelView.subissue-nav component suites; this helper is test-support only."
     },
     {
@@ -27739,20 +27739,20 @@
       "file": "packages/client-graph/src/chat-context.ts",
       "holder": "chatMentionIssues",
       "rule": "loop:for-of",
-      "tokens": "ec4372516960659a42c6080397065b400f27eee62d3a67f63e88e2afceaeb84a",
+      "tokens": "5b18548cfd8ea06ef46f00e3e4bdb18dcf327fca80869f5909cde53fe00cdc3d",
       "gate": [
         "exit:then:8071dc9669d474d4a7790228d2e534879cec1212f961abc7b8b2958c66b48a7a"
       ],
       "origin": [
         "c590f274705443e80f2449456407c0144a830068008eac7ad06d35cf7f54313c"
       ],
-      "fingerprint": "6fa2a0e73440b146834296fa786a5b4ba19e22332978cb16e0acfd22ed34bcd1",
+      "fingerprint": "e2d326a808f7336b892f05d7e901b41cbcb7634a7cbec0131b75444767214754",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of chatMentionIssues",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5872: Reference summaries project declared fields explicitly instead of spreading a row; mention enumeration is unchanged. Predecessor: 4659641bc2c43763e5caeb88042eceb81bc3fe296b1cb6f108d9bb961b95b4fb.",
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5872: Reference summaries project declared fields explicitly instead of spreading a row; mention enumeration is unchanged. Predecessor: 4659641bc2c43763e5caeb88042eceb81bc3fe296b1cb6f108d9bb961b95b4fb. POD-6400: the reference text goes through issueRefText (a pending number reads PREFIX-…); mention enumeration is unchanged. Predecessor: 6fa2a0e73440b146834296fa786a5b4ba19e22332978cb16e0acfd22ed34bcd1.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -33007,18 +33007,18 @@
       "file": "packages/client-graph/src/shell-views.ts",
       "holder": "createShellViews/issues/memo:callback",
       "rule": "loop:for-of",
-      "tokens": "bd03b3b22d44cefd07deaa3750d3bc2f505004f8c49e8a85f786f8e34db2f365",
+      "tokens": "3a457330d9f5c09a12771c56b3319899349c6a1bf237911b4b1bd5e6d3dfe23f",
       "gate": [],
       "origin": [
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1"
       ],
-      "fingerprint": "477fde86d95d1e8a29b15ba82cc2d1ec5a044993a21f97ef83b4631c83db67b9",
+      "fingerprint": "242214cdf6fbc8a29d5dbe85f658366fa14bec6158030c077375c2c879dc139b",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of createShellViews/issues/memo:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6400: the displayRef goes through issueRefText (a pending number reads PREFIX-…); the issue enumeration is unchanged. Predecessor: 477fde86d95d1e8a29b15ba82cc2d1ec5a044993a21f97ef83b4631c83db67b9.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -36077,6 +36077,27 @@
       "bound": "One reconciled snapshot, only above 2 × initialLimit and only while following; an addressed boundary ID limits the retained suffix. Incremental frame trimming uses the existing item-position index.",
       "reason": "Complete active turn membership must survive the following window. This scan locates the requested boundary in the incoming snapshot before committing its ordered contents; no computed screen scan or global cache is added.",
       "guard": "transcript-log.test.ts proves stream and newest-refresh retention, normal-window release, and explicit reset; conversation-presentation.test.ts and TranscriptFeed.turn-line.test.tsx cross both 300-row and 400-item limits."
+    },
+    {
+      "file": "packages/client-graph/src/runtime-pool.ts",
+      "holder": "createRuntimeTransactions/known/callback/untracked:callback",
+      "rule": "loop:for-of",
+      "tokens": "b822cb336460980dabd0df34d764b26e51d453fe30e55563751c41c18b2f1b20",
+      "gate": [
+        "exit:then:e31afdedcedc7682267fabaea3f744e2c7540dcec3539601b5d078d6df07c456",
+        "exit:then:9a1d56df20f35e5ea4c49655b4b47586ac5ad129a413c20314d33f2f11e69ed3"
+      ],
+      "origin": [
+        "7235ecdb9a32dca8b18b56d9469f387c40cad462e15a5a5b6f251b5e1b020bcb"
+      ],
+      "fingerprint": "0925870d3cbd533314ece57b140d6b4b8597e7b500b974dd7f0fe42f71a2ee51",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6400",
+      "trigger": "One generic record create reduced by the pool write log (a press, a boot replay or a rebase of that entry).",
+      "bound": "The repo table only (entity other than repo answers none): the handful of repos this principal holds, once per reduced create.",
+      "reason": "A new issue is placed under the one repo the device holds at the create's repo path (the fresh-record placement guess); no issue, session or lane rows are enumerated.",
+      "guard": "packages/client-graph/src/write/fresh-issue.pool.test.ts proves the queued issue joins its repo through the real pool and fails when the guess is disabled; packages/commands/src/records/records.test.ts proves none or several matches place nothing."
     }
   ]
 }

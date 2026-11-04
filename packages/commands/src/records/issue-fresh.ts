@@ -9,6 +9,7 @@
  */
 
 import { actorUser, asUserId } from '@podium/model'
+import { isPendingIssueSeq, PENDING_ISSUE_SEQ } from '@podium/protocol'
 import type { FreshContext, FreshRecord } from './fresh'
 
 /** What a create that leaves the field out stores. */
@@ -35,13 +36,13 @@ export const ISSUE_FRESH_CELLS = {
   isDraftVessel: false,
 } as const
 
-/** The `seq` a device paints before the server numbers the issue. The server's
- *  numbers start at 1, so 0 is never a real one: a reader shows it as pending. */
-export const PENDING_ISSUE_SEQ = 0
+/** The `seq` a device paints before the server numbers the issue: 0, never a
+ *  real number. Every ref display shows it as pending (`issueRefText`). */
+export { PENDING_ISSUE_SEQ }
 
 /** Whether an issue row's number is still the device's placeholder. */
 export const issueSeqPending = (row: { readonly seq: number }): boolean =>
-  row.seq === PENDING_ISSUE_SEQ
+  isPendingIssueSeq(row.seq)
 
 const by = (ctx: FreshContext) => asUserId(ctx.by ?? '')
 
@@ -50,8 +51,14 @@ export const ISSUE_FRESH: FreshRecord = {
   pending: {
     // The server numbers it inside the create (`nextIssueSeq`).
     seq: () => PENDING_ISSUE_SEQ,
-    // Resolved from the create's repo path; painted absent until then.
-    repoId: () => undefined,
+    // Resolved by the server from the create's repo path. The device guesses it
+    // only when exactly one repo it holds is at that path, so the new issue
+    // shows under its repo; otherwise absent until the row lands.
+    repoId: (ctx, fields) => {
+      if (typeof fields.repoPath !== 'string') return undefined
+      const ids = ctx.known?.('repo', 'repoPath', fields.repoPath) ?? []
+      return ids.length === 1 ? ids[0] : undefined
+    },
     revision: () => undefined,
     // The repository's base branch, the instance default or the detected one.
     parentBranch: () => '',

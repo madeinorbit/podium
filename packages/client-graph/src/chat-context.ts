@@ -7,7 +7,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueId, IssuePanelArtifact, MachineWire } from '@podium/model'
 import { dedupeSessionsByResume } from '@podium/model'
 import { companion, lazy } from '@podium/mobx-helpers'
-import type { PendingInteractionWire } from '@podium/protocol'
+import { issueRefText, type PendingInteractionWire } from '@podium/protocol'
 import { CHAT_CONTEXT_SUMMARIES } from './chat-context-schema'
 import { headerIds } from './enumerate'
 import type { SessionModel } from './models'
@@ -48,7 +48,7 @@ export function chatIssue(pool: MobxPool, id: string): Loaded<IssueViewModel> {
     id: row.id, seq: row.seq, title: row.title, linearIdentifier: row.linearIdentifier,
     archived: row.archived, deletedAt: row.deletedAt, updatedAt: row.updatedAt, repoId: row.repoId,
     prefix: repo?.prefix,
-    displayRef: repo?.prefix ? `${repo.prefix}-${row.seq}` : `#${row.seq}`,
+    displayRef: issueRefText(row.seq, repo?.prefix),
   } as IssueViewModel
 }
 export function chatMentionIssues(pool: MobxPool, counts = readerCounts(pool)) {

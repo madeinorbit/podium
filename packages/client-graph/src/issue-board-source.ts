@@ -1,3 +1,4 @@
+import { issueRefText } from '@podium/protocol'
 import { omitGone } from './lookup'
 import { headerView } from './header-views'
 import { keyedComputed } from '@podium/mobx-helpers'
@@ -84,7 +85,7 @@ export function createIssueBoardSource(
       labels: raw.labels ?? [],
       deps: raw.deps ?? [],
       prefix,
-      displayRef: prefix ? `${prefix}-${raw.seq}` : `#${raw.seq}`,
+      displayRef: issueRefText(raw.seq as number, prefix),
       blocked: raw.blocked ?? false,
       deferred,
       ready: !raw.blocked && !deferred && !isFinished(raw),

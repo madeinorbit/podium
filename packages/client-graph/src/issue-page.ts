@@ -1,3 +1,4 @@
+import { issueRefText } from '@podium/protocol'
 import { here, omitGone } from './lookup'
 import { companion, clearCompanions, lazy, keyedComputed } from '@podium/mobx-helpers'
 import type { ModelOf, SessionModel } from './models'
@@ -432,7 +433,7 @@ export function createIssuePageViews(pool: MobxPool) {
       ...fields,
       id,
       prefix: p,
-      displayRef: p ? `${p}-${value.seq}` : `#${value.seq}`,
+      displayRef: issueRefText(value.seq as number, p),
       labels: value.labels ?? [],
       deps: value.deps ?? [],
       dependents: inverse ?? [],
