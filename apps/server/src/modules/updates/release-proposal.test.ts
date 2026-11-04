@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -62,6 +62,7 @@ describe('releaseProposalFacts', () => {
       'log',
       '-z',
       '--format=%H%x00%s',
+      '--max-count=200',
       'aaaaaaa..bbbbbbb',
     ])
     expect(calls).toContainEqual([
@@ -74,6 +75,39 @@ describe('releaseProposalFacts', () => {
       '--',
       'apps/server/src/migrations/drizzle',
     ])
+  })
+
+  it('bounds the newest-first commit list and carries the full range count', async () => {
+    const calls: string[][] = []
+    const facts = await releaseProposalFacts({
+      root: '/repo',
+      runningSha: 'aaaaaaa',
+      headSha: 'bbbbbbb',
+      git: async (args) => {
+        calls.push([...args])
+        if (args[0] === 'log')
+          return Array.from(
+            { length: 200 },
+            (_, index) =>
+              `${(9999999 - index).toString(16).padStart(7, '0')}\0Change ${207 - index}\0`,
+          ).join('')
+        if (args[0] === 'rev-list') return '207\n'
+        if (args[0] === 'rev-parse') return 'dev/mw\n'
+        return ''
+      },
+    })
+    expect(facts.commits).toHaveLength(200)
+    expect(facts.commits[0]?.summary).toBe('Change 207')
+    expect(facts.commits[199]?.summary).toBe('Change 8')
+    expect(facts.commitCount).toBe(207)
+    expect(calls).toContainEqual([
+      'log',
+      '-z',
+      '--format=%H%x00%s',
+      '--max-count=200',
+      'aaaaaaa..bbbbbbb',
+    ])
+    expect(calls).toContainEqual(['rev-list', '--count', 'aaaaaaa..bbbbbbb'])
   })
 
   it('uses the running server commit when the publisher is behind the build target', async () => {

@@ -217,8 +217,8 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
     })
   }, [collapsed, situation])
 
-  // "Auto-collapses after a few seconds" (§6.2.4). The success announcement is
-  // worth a moment and nothing more; the operation is in history either way.
+  // "Auto-collapses after a few seconds" (§6.2.4). The success announcement
+  // stays open while the pointer, focus or scrolled notes show it is being read.
   // Keyed on the situation so a SECOND finished update re-arms the timer.
   const doneKey = view.state === 'done' ? situation : null
   const [reading, setReading] = useState<{ key: string; active: boolean }>()
@@ -384,7 +384,7 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
   }
   return (
     <UpdatePanel
-      key={situation}
+      key={view.operationId ?? view.version ?? situation}
       view={view}
       onReadingChange={onReadingChange}
       pending={pending}

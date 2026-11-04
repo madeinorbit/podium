@@ -152,7 +152,7 @@ export interface UpdatePanelView {
   /** "Running for 40 s" / "No progress for 2 min" — never ambiguous (P4). */
   liveness?: string
   primary?: PrimaryAction
-  /** Offered only while every started step is still reversible (§3.2). */
+  /** Requests cancellation; the server owns the reversibility verdict (§3.2). */
   cancel?: { label: string; operationId: string }
   error?: ErrorPresentation
   /** A sentence about the last thing the user tried that the server declined (e.g. cancel). */
@@ -244,7 +244,7 @@ function operationTarget(operation: Operation): Partial<UpdateTarget> | undefine
 }
 
 function displayVersion(version: string): string {
-  return version.split('+')[0] ?? version
+  return version.startsWith('dev+') ? version : (version.split('+')[0] ?? version)
 }
 
 function channelFor(version: string): 'stable' | 'edge' | 'dev' {
@@ -290,7 +290,7 @@ function impactSummary(
   if (summary.length === 0) {
     for (const place of offer.places)
       summary.push({
-        label: `${place.label} ${place.kind === 'this-app' ? 'reloads' : 'updates'}`,
+        label: `${place.label} ${place.kind === 'phone' ? 'needs a reload' : 'updates'}`,
         kind: place.impact ?? 'background',
       })
   }
@@ -306,6 +306,12 @@ function stepTitle(step: OperationStep): string {
  * vocabulary (`downloading`, `restarting`, …) and is printed as it arrives:
  * a renderer that only knew a closed list would go silent on the first new one.
  */
+function realPercent(value: number | undefined): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100
+    ? value
+    : undefined
+}
+
 function placeLine(place: {
   name?: string
   state?: string
@@ -319,7 +325,8 @@ function placeLine(place: {
     const reason = place.detail ? `: ${place.detail}` : ''
     return `${subject} cannot take delivery${reason}`
   }
-  const percent = typeof place.percent === 'number' ? ` ${Math.round(place.percent)}%` : ''
+  const percent =
+    realPercent(place.percent) !== undefined ? ` ${Math.round(place.percent ?? 0)}%` : ''
   if (name && state) return `${name} ${state}${percent}`
   if (name) return name
   if (state) return `${state}${percent}`
@@ -413,10 +420,7 @@ export function stepRows(operation: Operation): StepRow[] {
         title: stepTitle(step),
         state: rowState(step),
         ...(substatus ? { substatus } : {}),
-        ...(typeof percent === 'number' &&
-        Number.isFinite(percent) &&
-        percent >= 0 &&
-        percent <= 100 &&
+        ...(realPercent(percent) !== undefined &&
         (step.state === 'running' || step.state === 'stalled')
           ? { percent }
           : {}),
@@ -1035,19 +1039,27 @@ function computeView(input: OperationViewInput): UpdatePanelView {
     return {
       ...base,
       state: 'done',
-      title:
-        (operation.deferred ?? []).length > 0
-          ? `Updated, except ${deferredSubject(operation.deferred ?? [])}`
-          : hasDeliveryRefusal
-            ? 'Updated, except some machines'
-            : version
-              ? `You're on Podium ${displayVersion(version)}`
-              : 'Podium is up to date',
-      ...(deferred
-        ? { subtitle: deferred }
-        : operation.startedAt !== undefined && operation.finishedAt != null
-          ? { subtitle: `Updated in ${formatDuration(operation.finishedAt - operation.startedAt)}` }
-          : {}),
+      title: version ? `You're on Podium ${displayVersion(version)}` : 'Podium is up to date',
+      subtitle:
+        [
+          deferred
+            ? `Updated, except ${deferredSubject(operation.deferred ?? [])}. ${deferred}`
+            : hasDeliveryRefusal
+              ? `Updated, except some machines. ${(operation.steps ?? [])
+                  .flatMap((step) =>
+                    (step.places ?? [])
+                      .filter((place) => place.state === 'cannot-take-delivery')
+                      .map((place) => placeLine(place)),
+                  )
+                  .filter(Boolean)
+                  .join(' · ')}`
+              : undefined,
+          operation.startedAt !== undefined && operation.finishedAt != null
+            ? `Updated in ${formatDuration(operation.finishedAt - operation.startedAt)}`
+            : undefined,
+        ]
+          .filter(Boolean)
+          .join(' ') || undefined,
       indicator: permanentlyDeferred ? 'attention' : 'idle-dot',
       indicatorLabel: permanentlyDeferred
         ? 'Manual fix needed'

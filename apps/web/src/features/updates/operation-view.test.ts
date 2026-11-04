@@ -101,7 +101,7 @@ describe('operationView — the seven states', () => {
       now: NOW,
     })
     expect(result.state).toBe('offer')
-    expect(result.title).toBe('Update available')
+    expect(result.title).toBe('Podium 0.4.3')
     expect(result.subtitle).toBe('Your sessions keep running.')
     expect(result.version).toBe('0.4.3')
     expect(result.places?.map((place) => place.label)).toEqual(['This app', 'vmi3407763'])
@@ -219,8 +219,8 @@ describe('operationView — the seven states', () => {
   it('renders the running checklist with the step position and substatus', () => {
     const result = view(operationPayload())
     expect(result.state).toBe('running')
-    expect(result.title).toBe('Updating…')
-    expect(result.subtitle).toBe('Your sessions keep running.')
+    expect(result.title).toBe('Updating to 0.4.3')
+    expect(result.subtitle).toBe('Your agents keep working. Running for 30 s.')
     expect(result.stepPosition).toEqual({ current: 2, total: 4 })
     expect(result.steps).toEqual([
       { id: 'prepare', title: 'Preparing the update', state: 'done' },
@@ -229,6 +229,7 @@ describe('operationView — the seven states', () => {
         title: 'Updating your machines',
         state: 'current',
         substatus: '1 of 3 · vmi3407763 downloading 62%',
+        percent: 62,
       },
       { id: 'server', title: 'Updating your server', state: 'pending' },
       { id: 'web', title: 'Serving the new app', state: 'pending' },
@@ -453,7 +454,7 @@ describe('operationView — the seven states', () => {
     })
     const result = view(payload)
     expect(result.state).toBe('done')
-    expect(result.title).toBe('Updated, except macbook, laptop')
+    expect(result.subtitle).toContain('Updated, except macbook, laptop')
     expect(result.deferredNote).toBe('macbook, laptop will update when they reconnect.')
     expect(result.indicator).toBe('idle-dot')
   })
@@ -468,7 +469,7 @@ describe('operationView — the seven states', () => {
         { id: 'm_b', reason: 'legacy-instance-trust' },
       ],
     })
-    expect(view(payload).title).toBe('Updated, except 2 machines')
+    expect(view(payload).subtitle).toContain('Updated, except 2 machines')
   })
 
   it('does not tell a surface that cannot reload to reload', () => {
@@ -507,7 +508,7 @@ describe('operationView — the seven states', () => {
     })
     const result = view(payload)
     expect(result.state).toBe('done')
-    expect(result.title).toBe('Updated, except flatblock')
+    expect(result.subtitle).toContain('Updated, except flatblock')
     expect(result.deferredNote).toMatch(/flatblock needs a manual fix/i)
     expect(result.deferredNote).toMatch(/reconnecting won't fix it/i)
     expect(result.deferredNote).toContain('scripts/repair-stranded-update.sh')
@@ -585,7 +586,7 @@ describe('operationView — the seven states', () => {
 
     const result = view(payload)
     expect(result.state).toBe('done')
-    expect(result.title).toBe('Updated, except some machines')
+    expect(result.subtitle).toContain('Updated, except some machines')
     expect(result.steps[0]?.substatus).toContain(
       'macbook cannot take delivery: managed by Desktop updater',
     )
@@ -692,6 +693,7 @@ describe('operationView — the frozen contract (P8, §8)', () => {
         title: 'Entangling the fleet',
         state: 'current',
         substatus: 'vmi teleporting 10%',
+        percent: 10,
       },
     ])
     expect(result.stepPosition).toEqual({ current: 1, total: 1 })
@@ -1125,5 +1127,133 @@ describe('helpers', () => {
     expect(cancelRefusalSentence('irreversible', 'server')).toContain('will finish or fail')
     expect(cancelRefusalSentence('already-finished')).toBe('This update already finished.')
     expect(cancelRefusalSentence('not-found')).toBe('This update is no longer running.')
+  })
+})
+
+describe('redesigned release context', () => {
+  it('names the target, channel, running version and known date in stable offers', () => {
+    const result = operationView({
+      operation: null,
+      offer: {
+        ...OFFER,
+        runningVersion: '0.4.1',
+        releasedAt: '2026-11-04T23:00:00Z',
+        machineCount: 2,
+      },
+      local: NOT_BEHIND,
+      surface: 'web',
+      now: NOW,
+    })
+    expect(result.title).toBe('Podium 0.4.3')
+    expect(result.channel).toBe('stable')
+    expect(result.subtitle).toBe("You're on 0.4.1 · released 4 November")
+    expect(result.dismiss).toEqual({ label: 'Later' })
+    expect(result.primary?.kind).toBe('start')
+  })
+
+  it('omits an unknown date and puts bounded dev commit context in the view', () => {
+    const commits = [{ sha: 'abcdef1', summary: 'New change' }]
+    const input: OperationViewInput = {
+      operation: null,
+      offer: {
+        ...OFFER,
+        runningVersion: '0.4.2-dev.1+1111111',
+        version: '0.4.3-dev.2+abcdef1',
+        branch: 'dev/mw',
+        commits,
+        commitCount: 203,
+      },
+      local: NOT_BEHIND,
+      surface: 'web',
+      now: NOW,
+    }
+    const result = operationView(input)
+    expect(result.title).toBe('Podium 0.4.3-dev.2')
+    expect(result.channel).toBe('dev')
+    expect(result.subtitle).toBe("You're on 0.4.2-dev.1 · 203 new commits on dev/mw")
+    expect(result.commits).toBe(commits)
+    expect(result.commitCount).toBe(203)
+    const stable = operationView({ ...input, offer: { ...OFFER, runningVersion: '0.4.1' } })
+    expect(stable.subtitle).toBe("You're on 0.4.1")
+  })
+
+  it('summarizes only places known to be affected', () => {
+    const result = operationView({
+      operation: null,
+      offer: {
+        ...OFFER,
+        machineCount: 2,
+        places: [
+          { kind: 'server', label: 'Server', effect: 'Restarts' },
+          { kind: 'machines', label: 'Two machines', effect: 'Background' },
+          { kind: 'database', label: 'Database', effect: 'Backed up first' },
+        ],
+      },
+      local: NOT_BEHIND,
+      surface: 'web',
+      now: NOW,
+    })
+    expect(result.impactSummary?.map((item) => item.label)).toEqual([
+      'Server restarts',
+      '2 machines',
+      'Database migrates',
+    ])
+  })
+
+  it('keeps the operation’s own notes through running, waiting, failure and completion', () => {
+    const notes = {
+      summary: '**Built notes.**\n\n- **Updates.** More reliable.',
+      url: 'https://example.com/release',
+    }
+    for (const state of ['running', 'waiting', 'failed', 'done']) {
+      const result = view(
+        operationPayload({ state, details: { target: { version: '0.4.3', notes } } }),
+      )
+      expect(result.notes).toEqual(notes)
+      if (state === 'done') {
+        expect(result.title).toBe("You're on Podium 0.4.3")
+        expect(result.dismiss).toMatchObject({ label: 'Got it', primary: true })
+        expect(result.primary).toBeUndefined()
+      }
+    }
+  })
+
+  it('reports heartbeat freshness separately from elapsed time and keeps stalled wording', () => {
+    const result = view(operationPayload())
+    expect(result.freshness).toBe('Live · updated 1 s ago')
+    expect(result.liveness).toBe('Running for 30 s')
+    const stalled = view(
+      operationPayload({
+        updatedAt: NOW - STALE_AFTER_MS,
+        steps: [
+          {
+            id: 'slow',
+            title: 'Waiting for machine',
+            state: 'stalled',
+            lastProgressAt: NOW - STALE_AFTER_MS,
+          },
+        ],
+      }),
+    )
+    expect(stalled.freshness).toBe('No progress for 1 min')
+  })
+
+  it('never turns a step count into a percentage or renders non-finite place percentages', () => {
+    for (const percent of [undefined, NaN, Infinity, -1, 101]) {
+      const result = view(
+        operationPayload({
+          steps: [
+            {
+              id: 'machines',
+              state: 'running',
+              progress: { done: 1, total: 2 },
+              places: [{ id: 'm', name: 'Machine', state: 'downloading', percent }],
+            },
+          ],
+        }),
+      )
+      expect(result.steps[0]?.percent).toBeUndefined()
+      expect(result.steps[0]?.substatus ?? '').not.toMatch(/NaN%|Infinity%|-1%|101%/)
+    }
   })
 })

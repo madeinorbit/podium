@@ -11785,6 +11785,9 @@ button.waterfall-fold:hover {
   flex: none;
   padding: 16px 18px 0;
 }
+.update-card-head:has(+ .update-card-foot) {
+  padding-bottom: 16px;
+}
 .update-card-title-row {
   display: flex;
   align-items: center;
@@ -12210,6 +12213,9 @@ button.waterfall-fold:hover {
   text-align: left;
   cursor: pointer;
 }
+.update-card-head + .update-card-peek {
+  margin-top: 14px;
+}
 .update-card-peek b {
   font-weight: 600;
   color: var(--text-strong);
@@ -12228,6 +12234,18 @@ button.waterfall-fold:hover {
   gap: 8px;
   padding: 10px 12px 12px 18px;
   border-top: 1px solid var(--border);
+}
+.update-card-foot [data-slot="button"] {
+  height: 30px;
+  padding: 0 12px;
+  font-size: 12px;
+  border-radius: 6px;
+}
+.update-card-foot .btn-primary-rim {
+  font-weight: 600;
+}
+.update-card-dismiss {
+  color: var(--muted-foreground);
 }
 .update-card-spacer {
   flex: 1;

@@ -1,3 +1,4 @@
+// biome-ignore-all lint/a11y/noNoninteractiveTabindex: scroll regions need keyboard focus for arrow and page scrolling
 import type { ReleaseProposalCommit } from '@podium/protocol'
 import { Check } from 'lucide-react'
 import { type JSX, type ReactNode, useLayoutEffect, useRef, useState } from 'react'
@@ -52,7 +53,7 @@ export function UpdateScrollArea({
   labelledBy?: string
   testId?: string
 }): JSX.Element {
-  const ref = useRef<HTMLDivElement>(null)
+  const ref = useRef<HTMLElement>(null)
   const [edges, setEdges] = useState({ top: true, end: true })
   // biome-ignore lint/correctness/useExhaustiveDependencies: content changes can overflow without changing the box's dimensions
   useLayoutEffect(() => {
@@ -70,14 +71,13 @@ export function UpdateScrollArea({
     return () => observer?.disconnect()
   }, [children])
   return (
-    <div
+    <section
       ref={ref}
       className={`update-card-scroll ${className}`}
       data-at-top={edges.top}
       data-at-end={edges.end}
       data-testid={testId}
       tabIndex={0}
-      role="region"
       aria-labelledby={labelledBy}
       aria-label={labelledBy ? undefined : 'Update details'}
       onScroll={(event) => {
@@ -90,7 +90,7 @@ export function UpdateScrollArea({
       }}
     >
       {children}
-    </div>
+    </section>
   )
 }
 

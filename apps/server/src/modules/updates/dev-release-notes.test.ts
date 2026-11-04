@@ -72,8 +72,18 @@ describe('dev build release notes', () => {
       platform: 'linux-x86_64',
       schemaMigrations: ['20260715135845_baseline'],
       notes: { summary: '- Preview.' },
+      changes: {
+        branch: 'dev/mw',
+        commits: [{ sha: '1234567', summary: 'Preview' }],
+        commitCount: 201,
+      },
     })
-    expect(UpdateTarget.parse(target).notes).toEqual({ summary: '- Preview.' })
+    expect(UpdateTarget.parse(target)).toMatchObject({
+      notes: { summary: '- Preview.' },
+      branch: 'dev/mw',
+      commits: [{ sha: '1234567', summary: 'Preview' }],
+      commitCount: 201,
+    })
     expect('notes' in devTarget(built, { schemaMigrations: ['20260715135845_baseline'] })).toBe(
       false,
     )

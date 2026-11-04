@@ -3,7 +3,7 @@
  *
  * One non-modal `aside` in the bottom-right corner — the position the old dialog
  * already had right — into which every state renders. It never becomes a toast,
- * a banner, or a second dialog, and it has exactly one dismiss verb: **Hide**,
+ * a banner, or a second dialog, and it has exactly one dismiss action,
  * which collapses it to the toolbar indicator and discards nothing (the update
  * lives on the server now, so there is nothing here to lose).
  *
@@ -173,6 +173,13 @@ function DevOfferContent({
           <button
             type="button"
             role="tab"
+            aria-label={
+              name === 'commits'
+                ? count !== undefined
+                  ? `Commits (${count})`
+                  : 'Commits'
+                : 'Notes'
+            }
             key={name}
             id={`${id}-${name}`}
             aria-selected={tab === name}
@@ -192,7 +199,12 @@ function DevOfferContent({
           </button>
         ))}
       </div>
-      <div className="update-card-tab-content" id={`${id}-content`} role="tabpanel" aria-labelledby={`${id}-${tab}`}>
+      <div
+        className="update-card-tab-content"
+        id={`${id}-content`}
+        role="tabpanel"
+        aria-labelledby={`${id}-${tab}`}
+      >
         {tab === 'commits' ? (
           <UpdateScrollArea labelledBy={`${id}-commits`} onRead={onRead}>
             {view.commits ? (
@@ -414,7 +426,13 @@ export function UpdatePanel({
       <footer className="update-card-foot">
         {view.dismiss?.hint && <span className="update-card-hint">{view.dismiss.hint}</span>}
         {!view.dismiss?.primary && (
-          <Button type="button" variant="ghost" size="sm" onClick={onHide}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="update-card-dismiss"
+            onClick={onHide}
+          >
             {view.dismiss?.label ?? 'Hide'}
           </Button>
         )}
