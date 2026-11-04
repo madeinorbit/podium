@@ -30,7 +30,7 @@ export function renderIssueDeck(deck: IssueDeck): string {
     const pad = '  '.repeat(depth)
     const counter = node.counter.total ? ` · ${node.counter.done}/${node.counter.total}` : ''
     out.push(
-      `${pad}${node.type === 'phase' ? 'Phase: ' : ''}${node.displayRef} ${node.title} — ${TASK_WORD_LABEL[node.word]}${node.type === 'decision' ? ' [decision]' : ''}${counter}`,
+      `${pad}${node.type === 'phase' ? 'Phase: ' : ''}${node.displayRef} ${node.title} — ${TASK_WORD_LABEL[node.word]}${node.type === 'decision' ? ' [decision]' : ''}${counter}${node.assigneeName ? ` · assignee: ${node.assigneeName}` : ''}`,
     )
     details(node, `${pad}  `)
     for (const child of node.children) walk(child, depth + 1)

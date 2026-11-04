@@ -97,6 +97,10 @@ export interface IssueCommand {
 
 const repoArg = { repoPath: z.string() }
 const optRepo = { repoPath: z.string().optional() }
+/** `--assignee me|all|<member>` (POD-6296): resolved by the server. */
+const assigneeArg = { assignee: z.string().min(1).optional() }
+const ASSIGNEE_HELP =
+  '--assignee me|all|<member id, email or name> narrows to one accountable person'
 
 /** Issue references accept the internal `iss_…` id, the prefixed display id create
  *  prints (`POD-10`), or a bare/`#` seq (`10` / `#10`); MCP callers may pass the seq
@@ -260,10 +264,12 @@ function line(i: {
   priority?: number
   stage?: string
   closedReason?: string | null
+  /** Sent on a shared instance only (POD-6296), so one-member output is unchanged. */
+  assigneeName?: string
 }): string {
   const p = i.priority != null ? `P${i.priority} ` : ''
   const s = i.stage ? `[${statusWord(i)}] ` : ''
-  return `#${i.seq} ${p}${s}${i.title}`
+  return `#${i.seq} ${p}${s}${i.title}${i.assigneeName ? ` · assignee: ${i.assigneeName}` : ''}`
 }
 
 /**
@@ -525,10 +531,12 @@ type TreeNode = Omit<IssueTreeNode<ShowSession>, 'sessions' | 'children'> & {
 export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'ready',
-    summary: 'List issues ready to work (open, not deferred, unblocked).',
-    args: z.strictObject(optRepo),
+    summary: `List issues ready to work (open, not deferred, unblocked). On a shared instance the default is your own person's tasks (an agent's: the person it acts for); ${ASSIGNEE_HELP}.`,
+    args: z.strictObject({ ...optRepo, ...assigneeArg }),
     async run(c, a) {
-      const rows = (await c.issues.ready.query(a as { repoPath?: string })) as Row[]
+      const rows = (await c.issues.ready.query(
+        a as { repoPath?: string; assignee?: string },
+      )) as Row[]
       return listResult(rows, '(no ready issues)')
     },
   },
@@ -543,10 +551,12 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'list',
-    summary: 'List all issues in the repo.',
-    args: z.strictObject(optRepo),
+    summary: `List all issues in the repo, everyone's by default; ${ASSIGNEE_HELP}.`,
+    args: z.strictObject({ ...optRepo, ...assigneeArg }),
     async run(c, a) {
-      const rows = (await c.issues.list.query(a as { repoPath?: string })) as Row[]
+      const rows = (await c.issues.list.query(
+        a as { repoPath?: string; assignee?: string },
+      )) as Row[]
       return listResult(rows, '(no issues)')
     },
   },
@@ -621,11 +631,13 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       id: idArg,
       maxDepth: z.coerce.number().int().min(0).max(20).optional(),
       maxNodes: z.coerce.number().int().min(1).max(1000).optional(),
+      ...assigneeArg,
     }),
     positionals: ['id'],
     async run(c, a) {
       const t = (await c.issues.tree.query({
         id: a.id as string,
+        ...(a.assignee ? { assignee: a.assignee as string } : {}),
         ...(a.maxDepth != null ? { maxDepth: a.maxDepth as number } : {}),
         ...(a.maxNodes != null ? { maxNodes: a.maxNodes as number } : {}),
       })) as {
@@ -636,6 +648,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         // footer still names a cap rather than `undefined`.
         maxDepth?: number
         maxNodes?: number
+        assigneeHidden?: number
       }
       const out: string[] = []
       const walk = (n: TreeNode, depth: number): void => {
@@ -648,7 +661,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
               ? 'READY'
               : n.stage
         const extras = [
-          n.assignee ? `assignee=${n.assignee}` : null,
+          n.assignee ? `assignee=${n.assigneeName ?? n.assignee}` : null,
           n.branch ? `branch=${n.branch}` : null,
           n.blocksDeps.length ? `waits-on=${n.blocksDeps.map((s) => `#${s}`).join(',')}` : null,
           n.needsHuman ? `NEEDS HUMAN${n.humanQuestion ? `: ${n.humanQuestion}` : ''}` : null,
@@ -665,6 +678,11 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         if (n.omittedChildren > 0) out.push(`${'  '.repeat(depth + 1)}(+${n.omittedChildren} more)`)
       }
       walk(t.root, 0)
+      if (t.assigneeHidden)
+        out.push(
+          '',
+          `${t.assigneeHidden} issue${t.assigneeHidden === 1 ? '' : 's'} with another assignee hidden by --assignee ${a.assignee}.`,
+        )
       // A capped tree used to just end (POD-1342): nothing said the walk stopped
       // early, so `(+3 more)` deep in the output was the only hint and an empty
       // branch looked like a leaf. Name the cap that bit and the exact rerun.
@@ -694,12 +712,14 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'deck',
-    summary:
-      'The user’s flight deck: deck <id> [--json] — ordered phases and tasks, shared state words, session seats, unmet blockers, proposals and leaf task counts.',
-    args: z.strictObject({ id: idArg }),
+    summary: `The user’s flight deck: deck <id> [--json] — ordered phases and tasks, shared state words, session seats, unmet blockers, proposals and leaf task counts. Everyone's tasks by default; ${ASSIGNEE_HELP} (counts stay the mission's).`,
+    args: z.strictObject({ id: idArg, ...assigneeArg }),
     positionals: ['id'],
     async run(c, a) {
-      const deck = (await c.issues.deck.query({ id: a.id as string })) as IssueDeck
+      const deck = (await c.issues.deck.query({
+        id: a.id as string,
+        ...(a.assignee ? { assignee: a.assignee as string } : {}),
+      })) as IssueDeck
       return { text: renderIssueDeck(deck), data: deck }
     },
   },
@@ -1443,9 +1463,10 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'search',
-    summary: 'Search issues (--text --status --priority --type --label …).',
+    summary: `Search issues (--text --status --priority --type --label --assignee …), everyone's by default; ${ASSIGNEE_HELP}.`,
     args: z.strictObject({
       ...optRepo,
+      ...assigneeArg,
       text: z.string().optional(),
       status: z.string().optional(),
       priority: z.coerce.number().int().optional(),
@@ -1842,10 +1863,12 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'prime',
     summary:
-      "Print this session's issue context (bound issue + children/blockers, or ready-work lobby).",
-    args: z.strictObject(optRepo),
+      "Print this session's issue context (bound issue + children/blockers, or ready-work lobby). On a shared instance it names the person you act for, the task's assignee and your scope, and the lobby lists your person's ready work unless --assignee says otherwise.",
+    args: z.strictObject({ ...optRepo, ...assigneeArg }),
     async run(c, a) {
-      const text = (await c.issues.prime.query(a as { repoPath?: string })) as string
+      const text = (await c.issues.prime.query(
+        a as { repoPath?: string; assignee?: string },
+      )) as string
       return { text, data: { prime: text } }
     },
   },
