@@ -206,7 +206,7 @@ import { readIssue, readIssues } from './modules/issues/issue-reader'
 import { inferRepoFromRoots } from './repo-registry'
 import { JANITOR_STEWARD_EVENT_LIMIT, StewardService, stewardNoticeSender } from './steward'
 import { SessionStore } from './store'
-import { applyAfterCommit, spanOpen } from './store/executor/executor'
+import { afterCommit, applyAfterCommit, spanOpen } from './store/executor/executor'
 import { currentReadScope, readScopeSlot } from './store/executor/read-scope'
 import type { SyncDeltaPorts } from './sync/route-support'
 import { autoContinueSender, systemIssueNotice } from './system-notices'
@@ -2142,7 +2142,15 @@ export class SessionRegistry {
       onIssueCreated: (event) => this.bus.emit('issue.created', event),
       onIssueWorktreeMoved: (event) => this.bus.emit('issue.worktreeMoved', event),
       onIssueClosed: async (input) => await stopClosedIssue?.(input),
-      onIssueReassigned: async (facts) => await noticeReassignment?.(facts),
+      // AFTER THE COMMIT: a notice for a reassignment the span rolls back would
+      // tell two people something that did not happen (POD-6287).
+      onIssueReassigned: async (facts) => {
+        afterCommit(() => {
+          void noticeReassignment?.(facts).catch((err) => {
+            log.warn('reassignment notices failed', { err, issueId: facts.issueId })
+          })
+        }, 'issue-reassign-notice')
+      },
     })
     const applySessionDerived = async (event: EventMap['issue.sessionDerived']): Promise<void> => {
       switch (event.kind) {

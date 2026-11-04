@@ -913,6 +913,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'observable',
     why: 'starts session teardown, which tears down processes outside this one',
   },
+  'apps/server/src/modules/issues/service/types.ts#IssueDeps.onIssueReassigned': {
+    kind: 'contained',
+    why: 'the composition root only registers an afterCommit step; the two inbox notices are sent after the commit (POD-6287)',
+  },
   'apps/server/src/modules/issues/service/types.ts#IssueDeps.onMailSent': {
     kind: 'observable',
     why: 'the mail delivery nudge — POD-3260 ledger A row 2',
