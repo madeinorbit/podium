@@ -569,6 +569,14 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'opaque',
     why: "The messages repository's own write callback, handed to its write funnel [POD-4764]; every caller's query is declared in the same file and is checked there, exactly as CommittedRows.query is.",
   },
+  'apps/server/src/store/effects.ts#EffectsRepository.query': {
+    kind: 'opaque',
+    why: "The effects repository's own write callback, handed to its write funnel [POD-6357]; every caller's query is declared in the same file and is checked there, exactly as MessagesRepository.query is.",
+  },
+  'apps/server/src/store/effects.ts#EffectFeedCapture.EffectFeedCapture': {
+    kind: 'contained',
+    why: "The effect record feed's capture [POD-6357]: it appends the rows' feed changes to the change log through Ledger.capture, which joins this same transaction and defers subscriber delivery past the outermost commit. The trigger is registered separately with afterCommit. A rollback takes the appended changes with it and nothing outside the process saw them.",
+  },
   'apps/server/src/store/messages.ts#MessagesRepository.fail': {
     kind: 'opaque',
     why: "The status move a failure runs beside its sender's notice [POD-4778], handed to the repository's own failWith; every such move is declared in the same file, through its write funnel, and is checked there, exactly as MessagesRepository.query is.",
