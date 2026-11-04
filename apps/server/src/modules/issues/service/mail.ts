@@ -5,8 +5,8 @@ import type { IssueMessageRow } from '../../../store'
 import { settingsAuditAttribution } from '../../../store/settings-audit'
 import type { IssueStore } from './core'
 import { countContextAwarePendingMail } from './mail-pending'
-import type { IssueReportsModule } from './reads'
 import { IssueNotFound } from './not-found'
+import type { IssueReportsModule } from './reads'
 import { IssueForbidden, IssueRefusal } from './refusal'
 
 /**
@@ -129,9 +129,7 @@ export class IssueCommentsMailModule {
       principal.kind === 'user' &&
       (await this.store.deps.store.users.get(principal.user))?.role === 'admin'
     if (!authored && !moderating) {
-      throw new IssueForbidden(
-        `only the comment's author can ${change.kind} comment ${commentId}`,
-      )
+      throw new IssueForbidden(`only the comment's author can ${change.kind} comment ${commentId}`)
     }
     const attribution = attributionOf(principal)
     const at = this.store.now()

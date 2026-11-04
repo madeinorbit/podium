@@ -999,7 +999,6 @@ const defs = {
   // A task's description or brief history (POD-6289): read like the task.
   textRevisions: def('textRevisions', {
     kind: 'query',
-    target: targetId,
     handler: async (ctx, input) =>
       await ctx.readIssue(
         input.id,

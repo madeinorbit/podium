@@ -36,6 +36,9 @@ const EXPECTED_PROC_ACTION: Record<string, 'read' | 'write' | 'manage'> = {
   setCoordinator: 'write',
   update: 'write',
   addComment: 'write',
+  editComment: 'write',
+  deleteComment: 'write',
+  restoreTextRevision: 'write',
   defer: 'write',
   undefer: 'write',
   setNeedsHuman: 'write',
@@ -96,6 +99,9 @@ const OLD_SCOPED_TARGET_FIELD: Record<string, 'id' | 'fromId' | 'oldId' | 'none'
   setNeedsHuman: 'id',
   clearNeedsHuman: 'id',
   addComment: 'id',
+  editComment: 'id',
+  deleteComment: 'id',
+  restoreTextRevision: 'id',
   panelApply: 'id',
   setState: 'id',
   action: 'id',
@@ -208,8 +214,8 @@ describe('issue command registry completeness', () => {
     const unscoped = ISSUE_COMMAND_NAMES.filter(
       (n) => ISSUE_CONTRACTS[n].policy.resource !== 'issue',
     )
-    expect(scoped.length).toBe(40)
-    expect(unscoped.length).toBe(40)
+    expect(scoped.length).toBe(42)
+    expect(unscoped.length).toBe(43)
     // The predicate the assertion above applies, run on PLANTED pairs so it is
     // observed saying NO before its silence is read as agreement.
     const agrees = (hasExtractor: boolean, resource: string) =>
@@ -241,7 +247,7 @@ describe('handler↔contract schema identity', () => {
       expect(def?.input, name).toBe(ISSUE_CONTRACTS[name].input)
       checked += 1
     }
-    expect(checked).toBe(80)
+    expect(checked).toBe(85)
   })
 
   it('`toBe` here is load-bearing: an equal-but-separate schema would pass toEqual', () => {

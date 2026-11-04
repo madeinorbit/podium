@@ -73,7 +73,12 @@ async function aliceTask(
 ): Promise<Wire> {
   return (await (
     await trpc('alice')
-  ).issues.create.mutate({ repoPath: REPO_PATH, title, startNow: false, ...extra } as never)) as Wire
+  ).issues.create.mutate({
+    repoPath: REPO_PATH,
+    title,
+    startNow: false,
+    ...extra,
+  } as never)) as Wire
 }
 
 const read = async (id: string): Promise<Wire> =>
@@ -123,7 +128,12 @@ describe('MU-19: Bob’s edit to Alice’s task is his revision; restore is a ne
     ])
     expect(revs[1]?.issueRevision).toBe(edited.revision)
     expect(await textEvents(task.id)).toEqual([
-      expect.objectContaining({ field: 'description', actor: bob, by: bob, revision: edited.revision }),
+      expect.objectContaining({
+        field: 'description',
+        actor: bob,
+        by: bob,
+        revision: edited.revision,
+      }),
     ])
   })
 
@@ -217,26 +227,30 @@ describe('MU-19: Bob’s edit to Alice’s task is his revision; restore is a ne
 
     const bobs = await trpc('bob')
     await expect(
-      bobs.issues.editComment.mutate({ id: task.id, commentId: hers.id, body: 'bob was here' } as never),
+      bobs.issues.editComment.mutate({
+        id: task.id,
+        commentId: hers.id,
+        body: 'bob was here',
+      } as never),
     ).rejects.toThrow(/only the comment's author/)
     await expect(
       bobs.issues.deleteComment.mutate({ id: task.id, commentId: hers.id } as never),
     ).rejects.toThrow(/only the comment's author/)
     // Bob's agent acts for Bob, so it is refused too.
     await expect(
-      f
-        .agent(f.sessions.bobOnAliceTask, { outsideScope: true })
-        .client.issues.editComment.mutate({
-          id: task.id,
-          commentId: hers.id,
-          body: 'bob agent was here',
-        } as never),
+      f.agent(f.sessions.bobOnAliceTask, { outsideScope: true }).client.issues.editComment.mutate({
+        id: task.id,
+        commentId: hers.id,
+        body: 'bob agent was here',
+      } as never),
     ).rejects.toThrow(/only the comment's author/)
     expect((await comments('alice', task.id)).find((c) => c.id === hers.id)).toMatchObject({
       body: 'alice wrote this',
       authorId: alice,
     })
-    expect((await comments('alice', task.id)).find((c) => c.id === hers.id)?.editedAt).toBeUndefined()
+    expect(
+      (await comments('alice', task.id)).find((c) => c.id === hers.id)?.editedAt,
+    ).toBeUndefined()
 
     await (await trpc('alice')).issues.editComment.mutate({
       id: task.id,
@@ -250,9 +264,9 @@ describe('MU-19: Bob’s edit to Alice’s task is his revision; restore is a ne
       editedBy: alice,
     })
     // An author's own edit is not moderation: nothing in the audit trail.
-    expect((await moderationAudit()).filter((r) => JSON.stringify(r.detail).includes(hers.id))).toEqual(
-      [],
-    )
+    expect(
+      (await moderationAudit()).filter((r) => JSON.stringify(r.detail).includes(hers.id)),
+    ).toEqual([])
 
     await (await trpc('alice')).issues.deleteComment.mutate({
       id: task.id,
@@ -372,12 +386,9 @@ describe('an agent’s edit is attributed to the agent and its human', () => {
       brief: 'brief by alice',
       parentId: f.tasks.alice,
     })
-    await f.agent(f.sessions.bobOnAliceTask).cli([
-      'update',
-      String(child.id),
-      '--brief',
-      'brief by bob agent',
-    ])
+    await f
+      .agent(f.sessions.bobOnAliceTask)
+      .cli(['update', String(child.id), '--brief', 'brief by bob agent'])
     expect((await history('alice', child.id, 'brief')).at(-1)).toMatchObject({
       source: 'edit',
       body: 'brief by bob agent',
@@ -401,13 +412,11 @@ describe('an agent’s edit is attributed to the agent and its human', () => {
 
     // Alice is an admin, but her agent is not: moderation is a person's act.
     await expect(
-      f
-        .agent(f.sessions.alice)
-        .client.issues.editComment.mutate({
-          id: task.id,
-          commentId: written.id,
-          body: 'alice agent rewrote',
-        } as never),
+      f.agent(f.sessions.alice).client.issues.editComment.mutate({
+        id: task.id,
+        commentId: written.id,
+        body: 'alice agent rewrote',
+      } as never),
     ).rejects.toThrow(/only the comment's author/)
 
     await (await trpc('bob')).issues.editComment.mutate({
