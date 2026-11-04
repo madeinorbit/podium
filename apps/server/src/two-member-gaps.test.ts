@@ -14,7 +14,7 @@
  *
  * | Gap | What dev/mw does today                                 | Flipped by |
  * |-----|--------------------------------------------------------|------------|
- * | 1   | tasks are owner-or-grant: Bob cannot read Alice's task | POD-6288   |
+ * | 1   | tasks are owner-or-grant: Bob cannot read Alice's task | POD-6288 (flipped) |
  * | 2   | admin scope `all` covers other people's sessions       | POD-6283   |
  * | 3   | a session on a task takes the task owner as its owner  | POD-6283   |
  * | 7   | the legacy device principal reads every feed row       | POD-6285   |
@@ -50,12 +50,11 @@ describe('gap 1: tasks are owner-or-grant instead of member-wide (POD-6288)', ()
     expect((await feedOf('bob')).issues).toContain(f.tasks.bob)
   })
 
-  it.fails('POD-6288: Bob reads Alice’s task over tRPC', async () => {
-    // Today: "unknown issue".
+  it('POD-6288: Bob reads Alice’s task over tRPC', async () => {
     expect(await getTask('bob', f.tasks.alice)).toMatchObject({ title: "alice's task" })
   })
 
-  it.fails('POD-6288: Bob’s feed bootstrap carries Alice’s task', async () => {
+  it('POD-6288: Bob’s feed bootstrap carries Alice’s task', async () => {
     expect((await feedOf('bob')).issues).toContain(f.tasks.alice)
   })
 })
