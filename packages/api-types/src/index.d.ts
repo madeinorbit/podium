@@ -4680,6 +4680,7 @@ type Output_issues_get = (null) | ({
     repoPath: string;
     revision?: number | undefined;
     seq: number;
+    sessionSummaries: _podium_model.IssueSessionSummaryEntry[];
     sessions: {
         accountId?: (string & z.BRAND<"AccountId">) | undefined;
         agentColor?: string | undefined;

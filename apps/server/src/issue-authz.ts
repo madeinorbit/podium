@@ -34,10 +34,10 @@ export {
  *
  * Semantics (all pinned by characterization contract 6):
  *   - role gate: a role that can't perform `action` at all ⇒ FORBIDDEN;
- *   - scope gate: a constrained (non-'all') capability writing an EXISTING
- *     target issue outside its subtree ⇒ PRECONDITION_FAILED (overridable via
- *     `overrideScope` / --outside-scope), a scope kind that never allows it ⇒
- *     FORBIDDEN;
+ *   - scope gate: a member's own scope reaches every existing task (POD-6288);
+ *     an agent's capability writing an EXISTING target issue outside its
+ *     subtree ⇒ PRECONDITION_FAILED (overridable via `overrideScope` /
+ *     --outside-scope), a scope kind that never allows it ⇒ FORBIDDEN;
  *   - no target / unknown target (e.g. hub-mirrored issues, additive procs) ⇒
  *     role gate only.
  */
@@ -64,20 +64,17 @@ export async function checkIssueAccess(
   if (authorize(caller.capability, action) === 'forbidden') {
     throw new TRPCError({ code: 'FORBIDDEN', message: `not allowed to '${proc}' issues` })
   }
-  // Scope gate: only for constrained caps writing an existing target issue.
-  if (caller.capability.scope.kind === 'all') return
+  // Scope gate: only for an existing target issue. A member's own scope reaches
+  // every task (design §4.1, POD-6288); an agent's subtree scope asks for the
+  // target's ancestry; issue grants decide nothing.
   if (!targetId || !await issues.has(targetId)) return
-  if (caller.capability.scope.kind === 'owned') {
-    const target = await issues.ownedTarget?.(targetId, action)
-    if (!target || authorize(caller.capability, action, target) === 'forbidden') {
-      throw new TRPCError({ code: 'NOT_FOUND', message: 'unknown issue ' + targetId })
-    }
-    return
-  }
+  const scope = caller.capability.scope
   const decision = authorize(
     caller.capability,
     action,
-    { id: targetId, ancestorIds: await issues.ancestorIds(targetId) },
+    scope.kind === 'subtree'
+      ? { id: targetId, ancestorIds: await issues.ancestorIds(targetId) }
+      : { id: targetId },
     { override: caller.overrideScope },
   )
   if (decision === 'confirm-required') {

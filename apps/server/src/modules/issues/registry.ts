@@ -7,7 +7,7 @@ import {
   ISSUE_CONTRACTS,
   type IssueContractName,
 } from '@podium/commands'
-import type { SessionId, UserId } from '@podium/model'
+import type { IssueId, IssueSessionSummaryEntry, SessionId, UserId } from '@podium/model'
 import {
   actorAgent,
   actorSystem,
@@ -94,6 +94,29 @@ import { becameCoordinatorText, seatRefusal, seatText } from './service/seat'
  * pinned to `ISSUE_CONTRACTS` via `satisfies`, so handler↔contract drift is a
  * compile error in both directions.
  */
+
+/**
+ * THE D13 SUMMARY of every agent session on a task (design §2.3, POD-6288):
+ * whose it is, its title, and whether it is working. What a task reader learns
+ * about sessions that are not theirs; never their content, ids or controls.
+ */
+async function sessionSummaries(
+  ctx: IssueCommandCtx,
+  issue: { id: IssueId; worktreePath: string | null },
+): Promise<IssueSessionSummaryEntry[]> {
+  const all = (await ctx.deps.listSessionsForIssue(issue.worktreePath, issue.id)).filter(
+    (session) => session.agentKind !== 'shell',
+  )
+  if (all.length === 0) return []
+  const rows = await ctx.deps.executionFacts.store.sessions.getSessions(
+    all.map((session) => session.sessionId),
+  )
+  return all.map((session) => ({
+    owner: rows.get(session.sessionId)?.ownerUserId ?? null,
+    title: session.name ?? session.title,
+    state: isAgentComputing(session) ? 'live' : 'idle',
+  }))
+}
 
 /** The human starting a session on a task (POD-6283): the person, or the human
  *  at the root of an agent's delegation. That session is theirs, whoever owns
@@ -524,11 +547,11 @@ const defs = {
         // The issue's live sessions ride the read (ab75ab1e). `shell` panes are
         // not agents on the issue, so they are not listed as such.
         // Only the sessions this reader may read (POD-6285): sessions are private.
-        const reader = ctx.issueReader().readableBy() ?? undefined
+        const reader = ctx.issueReader().viewer() ?? undefined
         const sessions = (
           await ctx.deps.listSessionsForIssue(issue.worktreePath, issue.id, reader)
         ).filter((session) => session.agentKind !== 'shell')
-        return { ...issue, sessions }
+        return { ...issue, sessions, sessionSummaries: await sessionSummaries(ctx, issue) }
       }),
   }),
   resolveRefs: def('resolveRefs', {

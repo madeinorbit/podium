@@ -15,6 +15,7 @@
 
 // Authorization policy — the single enforcement function.
 export * from './authz/issue-authz'
+export * from './authz/issue-execution'
 // The one clock representation and its edge adapters (POD-299); the totality guard.
 export * from './clock'
 // Entity aggregates, their vocabularies, and their read projections (POD-300 —

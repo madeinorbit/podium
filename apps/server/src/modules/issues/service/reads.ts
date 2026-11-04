@@ -88,21 +88,21 @@ interface IssueReportBatch {
 type IssueReadPredicate = (id: string) => boolean | Promise<boolean>
 
 /**
- * WHO A REPORT IS FOR (POD-6191). A listing filters by visibility in SQL, so it
- * needs the reader's user; a per-issue check (a blocker, a parent) asks
- * `mayRead`. Both apply one rule: the user owns the issue or holds a
- * read-covering grant on it (`IssueCommandCtx.mayReadIssue`).
+ * WHO A REPORT IS FOR (POD-6191, POD-6288). Every member reads every task, so
+ * a listing is not filtered by its reader; `mayRead` answers for the single
+ * tasks a report shows beside it (a blocker, a parent) with the same rule
+ * (`IssueCommandCtx.mayReadIssue`). The reader still decides which SESSIONS
+ * ride a report: only their own (POD-6285).
  */
 export interface IssueReader {
-  /** The user a listing is filtered for, or `null` for the server's own,
-   *  unrestricted reads. Throws when the caller has no user, as `mayRead`
-   *  does. */
-  readonly readableBy: () => UserId | null
+  /** The person the report is handed to, or `null` for the server's own
+   *  reads. Throws when the caller has no human, as `mayRead` does. */
+  readonly viewer: () => UserId | null
   readonly mayRead: IssueReadPredicate
 }
 
 /** The server's own reads: every issue. */
-export const UNRESTRICTED_READER: IssueReader = { readableBy: () => null, mayRead: () => true }
+export const UNRESTRICTED_READER: IssueReader = { viewer: () => null, mayRead: () => true }
 
 /** A live child, a blocker or any row: finished by deletion, stage or reason. */
 function finished(row: ClosureFacts): boolean {
@@ -245,10 +245,10 @@ export class IssueReportsModule {
   ): Promise<IssueRow[]> {
     const scope = await this.scopeOf(repoPath)
     if (scope === null) return []
-    return await this.visible(reader, async (user) =>
+    return await this.visible(reader, async () =>
       await this.store.deps.store.issues.listIssueRowsWhere(
-        { ...shape, repo: scope !== undefined, readable: user !== undefined },
-        { ...input, ...(scope !== undefined ? { repoId: scope } : {}), ...(user ? { reader: user } : {}) },
+        { ...shape, repo: scope !== undefined },
+        { ...input, ...(scope !== undefined ? { repoId: scope } : {}) },
       ),
     )
   }
@@ -265,24 +265,20 @@ export class IssueReportsModule {
   }
 
   /**
-   * Run a listing for a reader. A reader that names a user is filtered in SQL;
-   * the server's own reads are unrestricted. A caller with no user is refused
-   * only when there is a row to refuse it, which is when the per-row check this
-   * replaces (`IssueCommandCtx.mayReadIssue`) refused it.
+   * Run a listing for a reader. Nothing is filtered by the reader (every
+   * member reads every task); a caller with no human is refused only when
+   * there is a row to refuse it, as the per-row check would have.
    */
-  private async visible<T>(
-    reader: IssueReader,
-    run: (user: UserId | undefined) => Promise<T[]>,
-  ): Promise<T[]> {
-    let user: UserId | null
+  private async visible<T>(reader: IssueReader, run: () => Promise<T[]>): Promise<T[]> {
     try {
-      user = reader.readableBy()
+      reader.viewer()
     } catch (refusal) {
-      if ((await run(undefined)).length > 0) throw refusal
+      if ((await run()).length > 0) throw refusal
       return []
     }
-    return await run(user ?? undefined)
+    return await run()
   }
+
 
   /** Reports for these rows, with every join read once for the set. */
   private async reportsFor(
@@ -424,7 +420,7 @@ export class IssueReportsModule {
   async closedWithWork(withMembers: ReadonlySet<string>): Promise<IssueId[]> {
     const issues = this.store.deps.store.issues
     const byId = new Map<string, IssueRow>()
-    const shape = { repo: false, live: true, readable: false, state: 'closed', order: 'repo-seq' } as const
+    const shape = { repo: false, live: true, state: 'closed', order: 'repo-seq' } as const
     for (const row of await issues.listIssueRowsWhere({ ...shape, hasWorktree: true })) byId.set(row.id, row)
     if (withMembers.size > 0) {
       for (const row of await issues.listIssueRowsWhere({ ...shape, ids: 1 }, { ids: [...withMembers] })) {
@@ -496,7 +492,7 @@ export class IssueReportsModule {
       ref,
       reader.mayRead,
       async (row) => await this.niceRef(row),
-      reader.readableBy() ?? undefined,
+      reader.viewer() ?? undefined,
     )
   }
 
@@ -692,7 +688,7 @@ export class IssueReportsModule {
         await this.store.deps.sessionsById(
           wiring.flatMap((entry) => entry.members.map((m) => m.sessionId)),
           // Only the sessions this reader may read (POD-6285).
-          reader.readableBy() ?? undefined,
+          reader.viewer() ?? undefined,
         )
       ).map((session) => [session.sessionId, session]),
     )
@@ -1017,10 +1013,10 @@ export class IssueReportsModule {
     const c: IssueCount = { byStage: {}, byPriority: {}, byType: {}, byAssignee: {} }
     const scope = await this.scopeOf(repoPath)
     if (scope === null) return c
-    const groups = await this.visible(reader, async (user) =>
+    const groups = await this.visible(reader, async () =>
       await this.store.deps.store.issues.countIssueGroups(
-        { live: true, order: 'path-seq', repo: scope !== undefined, readable: user !== undefined },
-        { ...(scope !== undefined ? { repoId: scope } : {}), ...(user ? { reader: user } : {}) },
+        { live: true, order: 'path-seq', repo: scope !== undefined },
+        { ...(scope !== undefined ? { repoId: scope } : {}) },
       ),
     )
     const bump = (m: Record<string, number>, k: string, n: number): void => {
@@ -1038,18 +1034,14 @@ export class IssueReportsModule {
   async stats(repoPath?: string, reader: IssueReader = UNRESTRICTED_READER): Promise<IssueStats> {
     const scope = await this.scopeOf(repoPath)
     if (scope === null) return { total: 0, closed: 0, open: 0, ready: 0, blocked: 0, deferred: 0 }
-    const shape = (user: UserId | undefined): IssueListingShape => ({
-      live: true, order: 'path-seq', repo: scope !== undefined, readable: user !== undefined,
-    })
-    const input = (user: UserId | undefined): IssueListingInput => ({
-      ...(scope !== undefined ? { repoId: scope } : {}), ...(user ? { reader: user } : {}),
-    })
+    const shape: IssueListingShape = { live: true, order: 'path-seq', repo: scope !== undefined }
+    const input: IssueListingInput = { ...(scope !== undefined ? { repoId: scope } : {}) }
     const issues = this.store.deps.store.issues
-    const [totals] = await this.visible(reader, async (user) => [await issues.issueStatTotals(shape(user), input(user))])
+    const [totals] = await this.visible(reader, async () => [await issues.issueStatTotals(shape, input)])
     if (!totals) return { total: 0, closed: 0, open: 0, ready: 0, blocked: 0, deferred: 0 }
     // Deferral is Date.parse's rule, so it is decided over the few rows that
     // carry one.
-    const deferrals = (await this.visible(reader, async (user) => await issues.deferralsIn(shape(user), input(user))))
+    const deferrals = (await this.visible(reader, async () => await issues.deferralsIn(shape, input)))
       .filter((d) => this.store.isDeferred({ deferUntil: d.deferUntil } as IssueRow))
     return {
       total: totals.total,

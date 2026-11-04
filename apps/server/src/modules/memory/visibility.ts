@@ -9,11 +9,9 @@ import {
   type VisibilityClass,
   visibilityClassOf,
 } from '@podium/model'
-import { mayReadOwned } from '../../issue-authz'
 import { isPrivateOwner } from '../../private-resources'
 import type { IssueRow, SessionRow, SessionStore } from '../../store'
 import { spanOpen } from '../../store/executor/executor'
-import type { GrantRow } from '../../store/grants'
 import { readIssue } from '../issues/issue-reader'
 import type { MemoryReader } from './types'
 
@@ -81,8 +79,6 @@ type VisibilityRequest = {
   readonly sessionsByNativeKey: ReadonlyMap<string, readonly SessionRow[]>
   /** Per-request memo; `null` is a cached missing issue, not a cache miss. */
   readonly issues: Map<string, IssueRow | null>
-  /** Per-request memo of the grant edges used by the owner-or-grant rule. */
-  readonly grants: Map<string, string[]>
   /** Per-request memo of each native conversation's segments, by native key. */
   readonly siblings: Map<string, readonly NativeSegment[]>
 }
@@ -90,11 +86,6 @@ type VisibilityRequest = {
 type NativeSegment = { machineId: MachineId; nativeId: string }
 
 const nativeKey = (machineId: MachineId, nativeId: string): string => `${machineId}\0${nativeId}`
-
-const readGranteesFrom = (edges: readonly GrantRow[]): string[] =>
-  edges
-    .filter((edge) => edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage')
-    .map((edge) => edge.grantee)
 
 const visibilityRequestFor = (sessions: readonly SessionRow[]): VisibilityRequest => {
   const sessionsById = new Map<string, SessionRow>()
@@ -117,7 +108,6 @@ const visibilityRequestFor = (sessions: readonly SessionRow[]): VisibilityReques
     sessionsById,
     sessionsByNativeKey,
     issues: new Map(),
-    grants: new Map(),
     siblings: new Map(),
   }
 }
@@ -192,13 +182,10 @@ export class MemoryVisibilityPolicy {
         return row ? await this.mayReadSessionRow(userId, row) : false
       }
       case 'issue': {
+        // Every member reads every task (design §2.2, POD-6288); grants decide
+        // nothing. The reader is a member or a member's agent.
         const row = 'id' in ref ? await this.issueById(asIssueId(String(ref.id))) : undefined
-        if (!row) return false
-        return mayReadOwned(userId, {
-          id: row.id,
-          owner: row.ownerUserId,
-          grants: await this.readGranteesOf('issue', row.id),
-        })
+        return row !== null && row !== undefined
       }
       case 'conversation':
       case 'transcript':
@@ -282,25 +269,5 @@ export class MemoryVisibilityPolicy {
     const read = await this.store.conversations.registry.siblingSegments(machineId, nativeId)
     this.request.siblings.set(key, read)
     return read
-  }
-
-  /**
-   * The grantees whose edge on this resource admits READING it.
-   *
-   * A LOOKUP, not a decision. The previous form asked "does this user hold a
-   * read-ish grant" and answered it here, which meant this module carried its
-   * own view of which verbs imply read — including, silently, that `use` does
-   * not, a rule ADR 9 D6 M2 states for a reason and that belonged nowhere near
-   * a search index. Returning the grantee list hands `authorize` the FACT and
-   * leaves it the decision.
-   */
-  private async readGranteesOf(resourceKind: string, resourceId: string): Promise<string[]> {
-    const key = `${resourceKind}\0${resourceId}`
-    if (!spanOpen() && this.request?.grants.has(key)) return this.request.grants.get(key) ?? []
-    const grantees = readGranteesFrom(
-      await this.store.grants.loadForResource(resourceKind, resourceId),
-    )
-    this.request?.grants.set(key, grantees)
-    return grantees
   }
 }

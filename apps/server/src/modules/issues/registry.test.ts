@@ -1,4 +1,5 @@
 import { commandAccess } from './command-ctx'
+import { executionFactsOf } from '../../test-support/execution-facts'
 import { ISSUE_COMMAND_NAMES, ISSUE_CONTRACTS } from '@podium/commands'
 import { asIssueId, asSessionId, asUserId, firstAdminMemberId, type UserId} from '@podium/model'
 import { afterAll, describe, expect, it, vi } from 'vitest'
@@ -505,6 +506,7 @@ describe('Shipping command boundary', () => {
         deliveryReceipt: deliveryReceipt as never,
       },
       arbitration: { run: (_input, operation) => operation() },
+      executionFacts: executionFactsOf(registry.sessionStore),
       attachSession: () => {
         throw new Error('not used')
       },
@@ -1196,6 +1198,7 @@ describe('agent close while a session on the issue works [POD-5762]', () => {
       issues: registry.issues,
       shipping: {} as never,
       arbitration: { run: (_input, operation) => operation() },
+      executionFacts: executionFactsOf(registry.sessionStore),
       attachSession: () => {
         throw new Error('not used')
       },

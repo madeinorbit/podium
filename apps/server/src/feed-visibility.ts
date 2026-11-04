@@ -30,8 +30,12 @@ import {
   asIssueId,
   asUserId,
   canonicalShippingDestination,
+  type IssueExecutionFacts,
   type IssueId,
   issueDepFromPrefix,
+  issueExecutionAccess,
+  issueExecutionSessionIds,
+  withoutHiddenExecutionFields,
   parseInteractionRowId,
   parseIssueDepId,
   parseIssueEventRowId,
@@ -52,6 +56,7 @@ import type {
   VisibilityStatePort,
 } from '@podium/sync'
 import type { FeedVisibilityStore, GrantRow, IssueRow, SessionRow } from './hot-path-ports'
+import { custodianFromEdges, executionPointersOf } from './modules/issues/execution-visibility'
 import { perfPrincipal } from './modules/perf/principal'
 import { perf } from './modules/perf/registry'
 
@@ -94,7 +99,10 @@ type BootstrapVisibilityPrefetch = {
   /** Grant edges for this pass, one grouped read per resource kind.
    * ID sets distinguish an empty answer from an unprepared ref.
    */
-  readonly issueGrants: ReadonlyMap<string, readonly GrantRow[]>
+  /** The custodian of every machine a prepared task is homed on (POD-6288);
+   *  absent = nobody holds custody. Issue grants are no longer read: they
+   *  decide nothing about a task. */
+  readonly machineCustodians: ReadonlyMap<string, UserId>
   readonly automationIds: ReadonlySet<string>
   readonly automationOwners: ReadonlyMap<string, UserId | undefined>
   readonly automationRunIds: ReadonlySet<string>
@@ -189,32 +197,39 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     }
   }
 
-  const issueGrantAdmits = (edge: GrantRow, userId: string): boolean =>
-    edge.grantee === userId &&
-    (edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage')
-  const mayReadIssue = async (userId: UserId, issueId: IssueId): Promise<boolean> => {
+  /**
+   * MAY THIS PERSON READ THIS TASK: yes, for every task that exists (design
+   * §2.2, D4; POD-6288). Tasks are shared; issue grants are inert history and
+   * decide nothing. The person is an authenticated member: the feed serves no
+   * other human. The command layer decides the same question the same way
+   * (`IssueCommandCtx.mayReadIssue`, `checkIssueAccess`), so the two never
+   * disagree. What a reader may NOT receive of a task, its execution-private
+   * fields, is `shapeFor`'s business, not this one's.
+   */
+  const mayReadIssue = async (_userId: UserId, issueId: IssueId): Promise<boolean> => {
     // The repository commit installs the owned row map before publication.
     // Open mutation spans still read their own writes through the live fallback.
     const row = await measure(
       'visibility.issue.getIssue',
       async () => await readIssue(store.issues, issueId),
     )
-    if (row?.ownerUserId === userId) return true
-    return (await store.grants.loadForResource('issue', issueId)).some((edge) =>
-      issueGrantAdmits(edge, userId),
-    )
+    return row !== null
   }
 
   const mayReadIssueFromSnapshot = (
-    userId: string,
+    _userId: string,
     issueId: string,
     snapshot: BootstrapVisibilityPrefetch,
-  ): boolean => {
-    if (!snapshot.issueIds.has(issueId)) return false
-    if (snapshot.issues.get(issueId)?.ownerUserId === userId) return true
+  ): boolean => snapshot.issueIds.has(issueId) && snapshot.issues.has(issueId)
 
-    return (snapshot.issueGrants.get(issueId) ?? []).some((edge) => issueGrantAdmits(edge, userId))
-  }
+  /** The facts the execution-private rule reads for one prepared pass. */
+  const executionFactsOf = (snapshot: BootstrapVisibilityPrefetch): IssueExecutionFacts => ({
+    custodianOf: (machineId) => snapshot.machineCustodians.get(machineId) ?? null,
+    sessionOwnerOf: (sessionId) => {
+      const row = snapshot.sessions.get(sessionId)
+      return row === undefined ? undefined : (row.ownerUserId ?? null)
+    },
+  })
 
   const makeVisibilityState = (prefetch?: BootstrapVisibilityPrefetch): VisibilityStatePort => {
     /** MAY THIS PERSON SEE THIS SESSION — its owner only (design §2.3,
@@ -374,6 +389,21 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           return null
         }
       },
+      /**
+       * A TASK AS THIS PERSON MAY RECEIVE IT (design §4.2, POD-6288): its
+       * worktree and machine only for the machine's custodian, its session
+       * pointers only for those sessions' owners. Everything else on the row
+       * is shared. Decided from this pass's prefetch, like `mayRead`.
+       */
+      shapeFor: (userId, ref, value) => {
+        if (ref.entity !== 'issueProjection' || !prefetch) return value
+        const row = prefetch.issues.get(ref.entityId)
+        if (!row || value === null || typeof value !== 'object') return value
+        return withoutHiddenExecutionFields(
+          value,
+          issueExecutionAccess(userId, executionPointersOf(row), executionFactsOf(prefetch)),
+        )
+      },
       forBootstrap: (refs: readonly EntityRef[]) => prepareOver(refs),
       /**
        * THE SAME PREPARATION FOR ONE APPENDED BATCH [POD-3261].
@@ -482,6 +512,13 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
             'visibility.issue.getIssue',
             async () => await readIssues(store.issues, [...issueIds]),
           )
+    // The sessions a task's private fields point at are read with the rest:
+    // their owners decide who receives those pointers (POD-6288).
+    for (const row of issues.values()) {
+      for (const sessionId of issueExecutionSessionIds(executionPointersOf(row))) {
+        sessionIds.add(sessionId)
+      }
+    }
     const sessions =
       sessionIds.size === 0
         ? new Map<string, SessionRow>()
@@ -517,22 +554,25 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       'visibility.automationRun.runOwnerOf',
       (ids) => store.automations.runOwnersOf(ids),
     )
-    // One grouped read for the whole batch (POD-6217); every asked id gets an
-    // entry, `[]` for "no edges". Through the operation's loader (POD-6189): a
-    // batch published inside the operation that wrote it asks about the rows
-    // that operation already checked. Session edges are not read: sessions are
-    // private, so a legacy session grant decides nothing (POD-6283).
-    const asked = {
-      ...(issueIds.size > 0 ? { issue: [...issueIds] } : {}),
-    }
+    // One grouped read for the whole batch (POD-6217): the custody edges of
+    // the machines the batch's tasks are homed on. Through the operation's
+    // loader (POD-6189). Issue edges are not read: tasks are shared, so a legacy
+    // issue grant decides nothing (POD-6288); nor session edges (POD-6283).
+    const machineIds = [
+      ...new Set([...issues.values()].flatMap((row) => (row.machineId ? [row.machineId] : []))),
+    ]
     const found: ReadonlyMap<string, ReadonlyMap<string, readonly GrantRow[]>> =
-      Object.keys(asked).length === 0
+      machineIds.length === 0
         ? new Map()
         : await measure(
             'visibility.grants.listForResources',
-            async () => await store.grants.loadForResourcesOfKinds(asked),
+            async () => await store.grants.loadForResourcesOfKinds({ machine: machineIds }),
           )
-    const issueGrants = new Map(found.get('issue') ?? [])
+    const machineCustodians = new Map<string, UserId>()
+    for (const [machineId, edges] of found.get('machine') ?? []) {
+      const custodian = custodianFromEdges(edges)
+      if (custodian) machineCustodians.set(machineId, custodian)
+    }
     return makeVisibilityState({
       issueIds,
       issues,
@@ -544,7 +584,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       sessions,
       resumeValues,
       sessionsByResumeValue,
-      issueGrants,
+      machineCustodians,
       automationIds,
       automationOwners,
       automationRunIds,
@@ -684,16 +724,13 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     )
     const membersByLane = await store.shipping.laneMemberIssueIdsMany(laneOf.values())
     const memberIds = [...new Set([...membersByLane.values()].flat())]
-    const [memberRows, memberGrants] =
+    const memberRows =
       memberIds.length === 0
-        ? [new Map<string, IssueRow>(), new Map<string, GrantRow[]>()]
-        : await Promise.all([
-            measure('visibility.issue.getIssue', async () => await readIssues(store.issues, memberIds)),
-            measure(
-              'visibility.grants.listForResources',
-              async () => await store.grants.listForResources('issue', memberIds),
-            ),
-          ])
+        ? new Map<string, IssueRow>()
+        : await measure(
+            'visibility.issue.getIssue',
+            async () => await readIssues(store.issues, memberIds),
+          )
     for (const order of departed) {
       const owner = owners.get(order.issueId)?.ownerUserId
       const candidates = [
@@ -704,11 +741,9 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       const members = membersByLane.get(laneId) ?? []
       const audience: string[] = []
       for (const userId of candidates) {
-        const readable = members.some(
-          (issueId) =>
-            memberRows.get(issueId)?.ownerUserId === userId ||
-            (memberGrants.get(issueId) ?? []).some((edge) => issueGrantAdmits(edge, userId)),
-        )
+        // Every member reads every task (POD-6288), so a lane stays readable
+        // while it holds any task; an empty lane is removed by its own change.
+        const readable = members.some((issueId) => memberRows.has(issueId))
         if (!readable) audience.push(userId)
       }
       if (audience.length > 0) {

@@ -80,7 +80,7 @@ const SIZES = [1, 4] as const
  * reads.ts`), each scoped to a repository and filtered for a reader, and each
  * across every repository unrestricted; the search shape with every filter.
  */
-const LISTING_BASES: readonly Omit<IssueListingShape, 'repo' | 'readable'>[] = [
+const LISTING_BASES: readonly Omit<IssueListingShape, 'repo'>[] = [
   { live: false, order: 'repo-seq' },
   { live: true, state: 'ready', order: 'priority-seq' },
   { live: true, state: 'blocked', order: 'priority-seq' },
@@ -107,12 +107,12 @@ const LISTING_BASES: readonly Omit<IssueListingShape, 'repo' | 'readable'>[] = [
   { live: true, text: true, order: 'path-seq' },
 ]
 const LISTING_KEYS = LISTING_BASES.flatMap((base) => [
-  listingKey({ ...base, repo: true, readable: true }),
-  listingKey({ ...base, repo: false, readable: false }),
+  listingKey({ ...base, repo: true }),
+  listingKey({ ...base, repo: false }),
 ])
 const SCOPE_KEYS = [
-  listingKey({ live: true, order: 'path-seq', repo: true, readable: true }),
-  listingKey({ live: true, order: 'path-seq', repo: false, readable: false }),
+  listingKey({ live: true, order: 'path-seq', repo: true }),
+  listingKey({ live: true, order: 'path-seq', repo: false }),
 ]
 
 const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map<
@@ -183,7 +183,6 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['apps/server/src/store/issue-listings.ts:depsToIssues', SIZES],
   ['apps/server/src/store/issue-listings.ts:commentCountsOfIssues', SIZES],
   ['apps/server/src/store/issue-listings.ts:liveChildrenOf', SIZES],
-  ['apps/server/src/store/issue-listings.ts:readableAmong', SIZES],
   ['apps/server/src/store/issue-listings.ts:sortScopeOf', ['parent', 'top', 'top-unpinned']],
   ['apps/server/src/store/issues.ts:labelsNamed', SIZES],
   ['apps/server/src/store/issues.ts:patchLabel', ['color', 'description', 'color,description']],

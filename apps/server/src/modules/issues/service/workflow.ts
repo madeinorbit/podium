@@ -1827,7 +1827,7 @@ export class IssueGitWorkflowModule {
     if (!sess) return
     // The live issues carrying a deferral, in one SQL listing (POD-6194).
     const deferred = await this.store.deps.store.issues.listIssueRowsWhere({
-      repo: false, readable: false, live: true, deferred: true, order: 'path-seq',
+      repo: false, live: true, deferred: true, order: 'path-seq',
     })
     for (const row of deferred) {
       if (row.deferUntil !== DEFER_NEXT_MESSAGE || row.deletedAt) continue
@@ -2086,7 +2086,7 @@ export class IssueGitWorkflowModule {
     }
     // The live, unarchived issues with a worktree, in one SQL listing (POD-6194).
     const watched = await this.store.deps.store.issues.listIssueRowsWhere({
-      repo: false, readable: false, live: true, unarchived: true, hasWorktree: true, order: 'path-seq',
+      repo: false, live: true, unarchived: true, hasWorktree: true, order: 'path-seq',
     })
     for (const row of watched) {
       if (!watchesParentBranch(row)) continue

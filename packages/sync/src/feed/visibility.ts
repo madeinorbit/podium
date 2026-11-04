@@ -254,6 +254,14 @@ export interface VisibilityStatePort {
    * one read per row was one live read too many, not a stricter guarantee.
    */
   forBatch?(refs: readonly EntityRef[]): Promise<VisibilityStatePort>
+  /**
+   * The value of a row this HUMAN may read, as they may receive it (design
+   * §4.2, POD-6288). A row can be readable while some of its fields point into
+   * another person's private work; this returns the value without those.
+   * Absent, or returning the value itself, means the row has no such fields.
+   * Called only after `mayRead` admitted the row, on the same prepared state.
+   */
+  shapeFor?(user: UserRef, ref: EntityRef, value: unknown): unknown
 }
 
 /**
@@ -346,6 +354,22 @@ export interface FeedVisibilityPolicy {
    * implementation must not close over a principal.
    */
   forBatch?(refs: readonly EntityRef[]): Promise<FeedVisibilityPolicy>
+  /**
+   * The value of a VISIBLE row as this principal may receive it. Absent means
+   * every visible row is delivered as stored. Applied by the authority to every
+   * upsert it hands a principal: bootstrap, delta and re-admission alike.
+   */
+  shape?(principal: Principal, ref: EntityRef, value: unknown): unknown
+}
+
+/** A visible upsert's value as `principal` may receive it, through the policy. */
+export function shapedValue(
+  policy: FeedVisibilityPolicy,
+  principal: Principal,
+  ref: EntityRef,
+  value: unknown,
+): unknown {
+  return policy.shape ? policy.shape(principal, ref, value) : value
 }
 
 /**
@@ -413,6 +437,13 @@ export class GrantEdgeVisibilityPolicy implements FeedVisibilityPolicy {
     return prepared === undefined || prepared === this.state
       ? this
       : new GrantEdgeVisibilityPolicy(prepared, this.delegations)
+  }
+
+  shape(principal: Principal, ref: EntityRef, value: unknown): unknown {
+    // The server's own observers receive rows as stored.
+    if (principal === CHANGE_LOG_OBSERVER || !this.state.shapeFor) return value
+    const human = humanOf(principal)
+    return human === null ? value : this.state.shapeFor(human, ref, value)
   }
 
   decide(principal: Principal, ref: EntityRef): VisibilityDecision {

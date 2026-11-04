@@ -173,7 +173,7 @@ export class MemorySearchService {
     // match, by id (POD-6195). Both used to be found in every issue at once.
     const ascii = /^[\x00-\x7f]*$/.test(lower)
     const textIssues = await this.store.issues.listIssueRowsWhere(
-      { repo: false, readable: false, live: true, ...(ascii ? { text: true } : {}), order: 'path-seq' },
+      { repo: false, live: true, ...(ascii ? { text: true } : {}), order: 'path-seq' },
       ascii ? { text: lower } : {},
     )
     const comments = await this.store.issues.searchIssueComments(text, null)

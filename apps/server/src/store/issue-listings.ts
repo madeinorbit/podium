@@ -8,8 +8,10 @@
  * the visibility check and the order are SQL, and the joins a report needs are
  * read for the listed rows only.
  *
- * VISIBILITY is the rule `IssueCommandCtx.mayReadIssue` applies per row: the
- * reader owns the issue, or holds a `read`, `write` or `manage` grant on it.
+ * VISIBILITY is not a filter here: every member reads every task (design
+ * §2.2, POD-6288), so a listing holds every row its shape selects. What a
+ * reader may not receive of a task is taken out of the report afterwards
+ * (`modules/issues/execution-visibility.ts`).
  *
  * WHAT STAYS IN JAVASCRIPT, and why: deferral (`isIssueDeferred` parses
  * `deferUntil` with `Date.parse`, whose zone rules SQLite does not share) is
@@ -20,13 +22,11 @@
 import type { IssueId, RepoId, UserId } from '@podium/model'
 import { and, asc, type Column, count, eq, inArray, isNotNull, isNull, not, type SQL, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
-import { grants, issueComments, issueDeps, issueLabels, issues, issueUserState, labels } from '../migrations/schema'
+import { issueComments, issueDeps, issueLabels, issues, issueUserState, labels } from '../migrations/schema'
 import { inListOf, inListSize, inListValues, param, preparedFamily, type StoreDrizzle } from './executor/sync-drizzle'
 
 /** Board stages a ready queue may hold (`isReadyIssueStage` over the enum). */
 const READY_STAGES = ['backlog', 'planning', 'in_progress', 'review', 'done'] as const
-/** Grant verbs that cover reading (`IssueReportsModule.ownedTarget`). */
-const READ_VERBS = ['read', 'write', 'manage'] as const
 
 /** The columns these fragments read: the table or an alias of it. */
 type IssueColumns = Record<'id' | 'stage' | 'closedReason' | 'ownerUserId' | 'parentId' | 'deletedAt', Column>
@@ -39,13 +39,6 @@ function closedOf(table: IssueColumns): SQL {
 // The fragments below are SQL text, not query builders: each prepared
 // definition in this file builds its statement once and embeds them
 // (`prepared-guard.test.ts` admits no builder outside a definition).
-
-/** The reader owns the issue or holds a read-covering grant on it, by the
- *  grant's primary key (kind, resource, grantee, verb). */
-function readableBy(table: IssueColumns): SQL {
-  const verbs = sql.join(READ_VERBS.map((verb) => sql`${verb}`), sql`, `)
-  return sql`(${table.ownerUserId} = ${sql.placeholder('reader')} OR EXISTS (SELECT 1 FROM ${grants} WHERE ${grants.resourceKind} = 'issue' AND ${grants.resourceId} = ${table.id} AND ${grants.grantee} = ${sql.placeholder('reader')} AND ${grants.verb} IN (${verbs})))`
-}
 
 const blocker = alias(issues, 'blocker')
 
@@ -68,8 +61,6 @@ export interface IssueListingShape {
   repo: boolean
   /** `deleted_at IS NULL`. */
   live: boolean
-  /** Owned by or granted to `:reader`. */
-  readable: boolean
   /** `open`: not finished; `closed`: finished; `ready`: open, in a ready
    *  stage and not blocked (deferral is the caller's); `blocked`: open and
    *  blocked. */
@@ -113,7 +104,6 @@ export function listingKey(shape: IssueListingShape): string {
   return [
     shape.repo ? 'repo' : 'all',
     shape.live ? 'live' : 'any',
-    shape.readable ? 'readable' : 'unrestricted',
     shape.state ?? 'any-state',
     shape.parents === undefined ? 'any-parent' : `parents${shape.parents}`,
     shape.ids === undefined ? 'any-id' : `ids${shape.ids}`,
@@ -123,12 +113,11 @@ export function listingKey(shape: IssueListingShape): string {
 }
 
 function parseListingKey(key: string): IssueListingShape {
-  const [repo, live, readable, state, parents, ids, order, flags] = key.split(',')
+  const [repo, live, state, parents, ids, order, flags] = key.split(',')
   const set = new Set(flags === 'plain' ? [] : flags!.split('+'))
   const shape: IssueListingShape = {
     repo: repo === 'repo',
     live: live === 'live',
-    readable: readable === 'readable',
     ...(state !== 'any-state' ? { state: state as IssueListingShape['state'] } : {}),
     ...(parents !== 'any-parent' ? { parents: Number(parents!.slice('parents'.length)) } : {}),
     ...(ids !== 'any-id' ? { ids: Number(ids!.slice('ids'.length)) } : {}),
@@ -146,7 +135,6 @@ function listingWhere(shape: IssueListingShape): SQL | undefined {
   ]
   if (shape.repo) where.push(eq(issues.repoId, param(issues.repoId, 'repoId')))
   if (shape.live) where.push(isNull(issues.deletedAt))
-  if (shape.readable) where.push(readableBy(issues))
   if (shape.state === 'closed') where.push(closedOf(issues))
   else if (shape.state) where.push(not(closedOf(issues)))
   if (shape.state === 'ready') {
@@ -158,9 +146,8 @@ function listingWhere(shape: IssueListingShape): SQL | undefined {
   if (shape.ids !== undefined) where.push(inListOf(issues.id, shape.ids, 'id'))
   if (shape.updatedBefore) where.push(sql`julianday(${issues.updatedAt}) < julianday(${sql.placeholder('before')})`)
   if (shape.completeParent) {
-    const visible = shape.readable ? sql` AND ${readableBy(child)}` : sql``
     const liveVisibleChild = (extra: SQL) =>
-      sql`EXISTS (SELECT 1 FROM ${sql.raw('"issues" "child"')} WHERE ${child.parentId} = ${issues.id} AND ${child.deletedAt} IS NULL${visible} AND ${extra})`
+      sql`EXISTS (SELECT 1 FROM ${sql.raw('"issues" "child"')} WHERE ${child.parentId} = ${issues.id} AND ${child.deletedAt} IS NULL AND ${extra})`
     where.push(liveVisibleChild(sql`1`), sql`NOT ${liveVisibleChild(sql`NOT ${closedOf(child)}`)}`)
   }
   if (shape.deferred) where.push(isNotNull(issues.deferUntil))
@@ -216,7 +203,6 @@ export const issueListing = preparedFamily((db: StoreDrizzle, key: string) => {
 /** The values a listing of this shape binds. */
 export interface IssueListingInput {
   repoId?: RepoId
-  reader?: UserId
   parents?: readonly string[]
   ids?: readonly string[]
   /** ISO instant for `updatedBefore`. */
@@ -234,7 +220,6 @@ export interface IssueListingInput {
 export function listingValues(shape: IssueListingShape, input: IssueListingInput): Record<string, unknown> {
   const values: Record<string, unknown> = {}
   if (shape.repo) values.repoId = input.repoId
-  if (shape.readable) values.reader = input.reader
   if (shape.parents !== undefined) inListValues(input.parents ?? [], shape.parents, 'parent', values)
   if (shape.ids !== undefined) inListValues(input.ids ?? [], shape.ids, 'id', values)
   if (shape.updatedBefore) values.before = input.before
@@ -378,15 +363,6 @@ export const liveChildrenOf = preparedFamily((db: StoreDrizzle, size: number) =>
     .from(issues)
     .where(and(inListOf(issues.parentId, size, 'ids'), isNull(issues.deletedAt)))
     .orderBy(asc(issues.repoPath), asc(issues.seq), asc(issues.id))
-    .prepare(),
-)
-
-/** Which of these issues the reader may see. */
-export const readableAmong = preparedFamily((db: StoreDrizzle, size: number) =>
-  db
-    .select({ id: issues.id })
-    .from(issues)
-    .where(and(inListOf(issues.id, size, 'ids'), readableBy(issues)))
     .prepare(),
 )
 

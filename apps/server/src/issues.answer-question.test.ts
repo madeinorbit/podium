@@ -1,4 +1,5 @@
 import { asSessionId, firstAdminMemberId, type SessionId } from '@podium/model'
+import { executionFactsOf } from './test-support/execution-facts'
 import { normalizeSettings } from '@podium/runtime'
 import { MutationLedger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
@@ -60,6 +61,7 @@ async function harness(
       },
     },
     arbitration: { run: (_input, operation) => operation() },
+    executionFacts: executionFactsOf(store),
     deleteIssue: () => undefined,
     attachSession: async (_caller, input) => await svc.attention.attachSession(input),
     restoreIssue: () => undefined,

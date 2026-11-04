@@ -53,7 +53,7 @@ import type {
   VisibilityAnchorPort,
   VisibilityEdge,
 } from '../feed/visibility'
-import { humanOf } from '../feed/visibility'
+import { humanOf, shapedValue } from '../feed/visibility'
 import type { ScopedChange, SequencedChange } from './change-lifecycle'
 
 /**
@@ -202,7 +202,9 @@ export async function scopeBatch(
 
   for (const [index, change] of changes.entries()) {
     // 1. The ordinary path: is this row in this principal's slice right now?
-    if (scoped.policy.decide(principal, change).visible) visible.push(change)
+    if (scoped.policy.decide(principal, change).visible) {
+      visible.push(shapedChange(scoped.policy, principal, change))
+    }
 
     // 2. D14.3: did this row MOVE anyone's visibility? Asked of the port that
     //    owns the tables, never inferred from the payload — a payload-shaped
@@ -300,9 +302,21 @@ export async function scopeBootstrap(
     // holding a tombstone for an entity it was never told about.
     if (row.op !== 'upsert') continue
     if (!policy.decide(principal, row).visible) continue
-    changes.push(row as ScopedChange)
+    changes.push(shapedChange(policy, principal, row) as ScopedChange)
   }
   return { throughSeq, changes: changes.sort((a, b) => a.seq - b.seq) }
+}
+
+/** A visible change as `principal` may receive it: an upsert's value through the
+ *  policy's shape (design §4.2), anything else as it is. */
+function shapedChange<C extends SequencedChange>(
+  policy: FeedVisibilityPolicy,
+  principal: Principal,
+  change: C,
+): C {
+  if (change.op !== 'upsert' || !policy.shape) return change
+  const value = shapedValue(policy, principal, change, (change as { value?: unknown }).value)
+  return value === (change as { value?: unknown }).value ? change : { ...change, value }
 }
 
 /**
@@ -325,7 +339,13 @@ function anchorFor(
 ): ScopedChange {
   const base = { seq, entity: subject.entity, entityId: subject.entityId }
   if (deps.policy.decide(principal, subject).visible) {
-    if (currentValue !== undefined) return { ...base, op: 'upsert', value: currentValue }
+    if (currentValue !== undefined) {
+      return {
+        ...base,
+        op: 'upsert',
+        value: shapedValue(deps.policy, principal, subject, currentValue),
+      }
+    }
   }
   return { ...base, op: 'evict' }
 }

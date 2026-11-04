@@ -15,6 +15,7 @@ import {
   ChangeRangeBootstrapRequired,
   DEFAULT_RESCOPE_THRESHOLD,
   scopeChangesRange,
+  shapedValue,
 } from '@podium/sync/bootstrap-worker'
 import { perfPrincipal } from '../modules/perf/principal'
 import { perf } from '../modules/perf/registry'
@@ -259,7 +260,13 @@ async function* produceRecords(
         entity: row.entity,
         entityId: row.entity_id,
         op: 'upsert',
-        value: JSON.parse(row.payload),
+        // The row as this principal may receive it (design §4.2, POD-6288).
+        value: shapedValue(
+          policy,
+          job.principal,
+          { entity: row.entity, entityId: row.entity_id },
+          JSON.parse(row.payload),
+        ),
       }
       const size = utf8.encode(JSON.stringify(change)).byteLength
       if (utf8.encode(JSON.stringify(frame([change], false))).byteLength > SYNC_LINE_MAX_BYTES)

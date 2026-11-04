@@ -200,7 +200,7 @@ import { type ChannelFeed, resolveReleaseTarget } from './modules/updates/releas
 import type { ServerPlacement } from './modules/updates/service'
 import { UpdatesService } from './modules/updates/service'
 import { WorkflowService } from './modules/workflows/service'
-import { readIssue } from './modules/issues/issue-reader'
+import { readIssue, readIssues } from './modules/issues/issue-reader'
 import { inferRepoFromRoots } from './repo-registry'
 import { JANITOR_STEWARD_EVENT_LIMIT, StewardService, stewardNoticeSender } from './steward'
 import { SessionStore } from './store'
@@ -2993,6 +2993,11 @@ export class SessionRegistry {
           issueId,
           forUser ? await sessionsSvc.view.principalForTrustedUser(forUser) : undefined,
         ),
+      // The execution-private task fields' facts (design §4.2, POD-6288).
+      executionFacts: {
+        rows: async (ids) => await readIssues(this.store.issues, ids),
+        store: { grants: this.store.grants, sessions: this.store.sessions },
+      },
       repoPaths: async () => await this.store.repos.listRepoPaths(),
       inferRepoFromPath: async (path) =>
         inferRepoFromRoots(await this.store.repos.listRepoPaths(), path),

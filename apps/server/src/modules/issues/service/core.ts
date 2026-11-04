@@ -420,7 +420,6 @@ export class IssueStore {
     return await this.deps.store.issues.listIssueRowsWhere(
       {
         repo: false,
-        readable: false,
         live: opts.live === true,
         ...(opts.unarchived ? { unarchived: true } : {}),
         parents: 1,
@@ -442,7 +441,7 @@ export class IssueStore {
     let level = [rootId]
     while (level.length > 0) {
       const rows = await this.deps.store.issues.listIssueRowsWhere(
-        { repo: false, readable: false, live: opts.live === true, parents: 1, order: 'path-seq' },
+        { repo: false, live: opts.live === true, parents: 1, order: 'path-seq' },
         { parents: level },
       )
       level = []

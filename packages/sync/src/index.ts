@@ -49,6 +49,7 @@ export {
   type DelegationScopePort,
   entityKey,
   humanOf,
+  shapedValue,
   keyOfRef,
   type DelegatedScope,
   type EntityKey,

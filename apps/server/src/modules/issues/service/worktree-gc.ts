@@ -122,7 +122,7 @@ export class IssueWorktreeGcModule {
     // still claimed) are read, in one SQL listing (POD-6194); they used to be
     // found by scanning the issue map, with a machine resolved for every issue.
     const withWorktrees = await this.store.deps.store.issues.listIssueRowsWhere({
-      repo: false, readable: false, live: false, hasWorktree: true, order: 'path-seq',
+      repo: false, live: false, hasWorktree: true, order: 'path-seq',
     })
     const machineByRow = new Map<IssueId, MachineId>()
     for (const row of withWorktrees) {

@@ -318,7 +318,7 @@ export class IssueAttentionModule {
     const candidates = (
       anchor.repoId
         ? await this.store.deps.store.issues.listIssueRowsWhere(
-            { repo: true, readable: false, live: true, unarchived: true, state: 'open', topLevel: true, order: 'seq' },
+            { repo: true, live: true, unarchived: true, state: 'open', topLevel: true, order: 'seq' },
             { repoId: anchor.repoId },
           )
         : []
@@ -587,7 +587,7 @@ export class IssueAttentionModule {
     // viewer's markers for them in one read (POD-6193); they used to be found by
     // scanning the issue map with one marker read per closed issue.
     const closed = await this.store.deps.store.issues.listIssueRowsWhere({
-      repo: false, readable: false, live: true, unarchived: true, state: 'closed', topLevel: true, order: 'path-seq',
+      repo: false, live: true, unarchived: true, state: 'closed', topLevel: true, order: 'path-seq',
     })
     const markers = await this.store.issueUserStates(closed.map((row) => row.id))
     for (const row of closed) {

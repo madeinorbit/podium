@@ -68,16 +68,33 @@ const ROLE_ACTIONS: Record<IssueRole, IssueAction[]> = {
  * which would silently disable every totality check that guards the extension.
  */
 export type IssueScope =
+  /**
+   * RETAINED FOR DURABLE DELEGATIONS ONLY (POD-6288). No principal is minted
+   * with it any more: a person, admin or not, carries `owned` (design §4.1, an
+   * admin is a member plus the admin actions of its role). It stays in the
+   * union because `sessions.delegation` persists this vocabulary and a stored
+   * row must keep parsing. It grants nothing a member scope does not: it is
+   * decided by class, for the human the capability names (`onBehalfOf`).
+   */
   | { kind: 'all' }
   | { kind: 'none' }
   | { kind: 'subtree'; rootId: IssueId }
   /**
-   * OWNER-OR-GRANT (POD-380, docs/multi-user-readiness.md §3.1.1 personal class).
-   * The principal writes what it OWNS plus what has been explicitly GRANTED to it.
+   * A MEMBER'S OWN RIGHTS (POD-380; widened to the design §4.1 class policy by
+   * POD-6288). The scope every person carries, admins included. It decides by
+   * the class of the target:
+   *
+   *   - a shared TASK (an issue target): read and ordinary write for every
+   *     member; `manage` stays a role question (the admin role has it);
+   *   - an OWNED entity: its owner, plus what has been explicitly GRANTED;
+   *   - a PRIVATE entity: its owner only (checked before the scope);
+   *   - a PER-USER row: the member's own, never anybody else's.
+   *
    * `userId` is the principal's identity — for an agent, its delegating human,
    * because §3.1.3 A1 resolves an agent's rights as its scope intersected with its
    * human's CURRENT rights, so the identity a grant is matched against is always
-   * the human at the root of the delegation chain.
+   * the human at the root of the delegation chain. The name is historical: it
+   * meant owner-or-grant before tasks became shared.
    */
   | { kind: 'owned'; userId: UserId }
   /**
@@ -245,6 +262,37 @@ function outOfScope(opts?: { override?: boolean }): AuthDecision {
   return opts?.override ? 'allow' : 'confirm-required'
 }
 
+/**
+ * THE MEMBER RULE, BY CLASS (design §4.1, POD-6288): what a person's own
+ * capability allows on one target, once the role has allowed the action.
+ */
+function memberDecision(human: UserId | undefined, issue: AuthTarget | undefined): AuthDecision {
+  if (!issue) return 'allow' // additive: creating what you will own
+  switch (issue.kind) {
+    case undefined:
+    case 'issue':
+      // A SHARED TASK: every member reads it and makes ordinary edits (§2.2).
+      // Lifecycle commands are `manage`, which the role gate above decided.
+      return 'allow'
+    case 'owned':
+      // An UNOWNED entity is not ambient (§3.1.1 default-closed, and §3.1.4 M4's
+      // all-in-one case): absent ownership fails toward refusal. It is also NOT
+      // overridable — `--outside-scope` confirms crossing an ISSUE boundary
+      // (ADR 3 D2), and reusing it here would make it a general escalation.
+      if (issue.owner === null || human === undefined) return 'forbidden'
+      return issue.owner === human || (issue.grants ?? []).includes(human) ? 'allow' : 'forbidden'
+    case 'private':
+      // The owner check before the scope already passed: this is the caller's own.
+      return 'allow'
+    case 'per-user-row':
+      // §3.3 SELF: the member's own row, never anybody else's. Not grantable:
+      // there is no list here a grant could widen.
+      return human !== undefined && issue.userId === human ? 'allow' : 'forbidden'
+    default:
+      return assertUnreachable(issue)
+  }
+}
+
 /** THE authz decision for a caller — the single enforcement function (invariant 2
  *  of the extension contract above). Distinguishes a hard role denial
  *  ('forbidden') from a scope violation the caller may knowingly override
@@ -294,12 +342,11 @@ function outOfScope(opts?: { override?: boolean }): AuthDecision {
  *  forbidden row and hoped every projection dropped it (D19, rejected
  *  alternatives).
  *
- *  An ISSUE target under an `owned` scope stays `forbidden` for reads exactly as
- *  it already is for writes: {@link AuthTarget}'s issue arm carries no owner or
- *  grant facts, so ownership is UNDECIDABLE for it, and default-closed (§3.1.1)
- *  means undecidable resolves to refusal. Giving issues an owner is the extension
- *  point — add the facts to that arm, and this branch decides them with the rule
- *  it already has.
+ *  An ISSUE target under an `owned` scope is ALLOWED, for reads and writes
+ *  alike (POD-6288): tasks are the shared class of design §4.1, so a member's
+ *  own scope reaches every one. That is the whole of the member rule for a
+ *  task; `manage` (delete, restore and the other lifecycle commands) stays a
+ *  role question, decided before the scope.
  *
  *  The scope match is an EXHAUSTIVE switch: a new `IssueScope` member fails to
  *  compile here until it declares its own rule, rather than inheriting whatever
@@ -322,7 +369,9 @@ export function authorize(
   }
   switch (scope.kind) {
     case 'all':
-      return 'allow'
+      // No bypass (POD-6288): the member rule, for the human this capability
+      // names. A capability that names no human reaches only shared tasks.
+      return memberDecision(cap.onBehalfOf, issue)
     case 'none':
       if (action === 'read') return 'allow' // no person in this scope — see READS above
       // Additive (no existing target) is a role question, not a scope one.
@@ -341,32 +390,8 @@ export function authorize(
         issue.id === scope.rootId || (issue.ancestorIds ?? []).includes(scope.rootId)
       return inSubtree ? 'allow' : outOfScope(opts)
     }
-    case 'owned': {
-      if (!issue) return 'allow' // additive: creating what you will own
-      switch (issue.kind) {
-        case 'owned':
-          // An UNOWNED entity is not ambient (§3.1.1 default-closed, and §3.1.4 M4's
-          // all-in-one case): absent ownership fails toward refusal. It is also NOT
-          // overridable — `--outside-scope` confirms crossing an ISSUE boundary
-          // (ADR 3 D2), and reusing it here would make it a general escalation.
-          if (issue.owner === null) return 'forbidden'
-          return issue.owner === scope.userId || (issue.grants ?? []).includes(scope.userId)
-            ? 'allow'
-            : 'forbidden'
-        case 'private':
-          // The owner check above already passed: this is the caller's own.
-          return 'allow'
-        case 'per-user-row':
-          // §3.3: an owner-or-grant capability does not reach anybody's per-user
-          // rows, including its own — a per-user write needs a `self` scope, so
-          // this cannot silently become "the owner may set your readAt".
-          return 'forbidden'
-        default:
-          // An ISSUE target under an owned scope: this capability says nothing
-          // about issue trees, so it grants nothing over one.
-          return 'forbidden'
-      }
-    }
+    case 'owned':
+      return memberDecision(scope.userId, issue)
     case 'self': {
       if (!issue) return 'allow'
       // The ONE thing a self scope may write: its own row. Not another user's row,

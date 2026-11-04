@@ -47,6 +47,8 @@ import type {
 } from './service'
 import type { ShippingService } from '../shipping'
 import type { IssueReader } from './service/reads'
+import type { ExecutionFactsStore } from './execution-visibility'
+import type { IssueRow } from '../../store/types'
 
 /** Who is calling (authz identity) — the same pair the router Context carries. */
 export interface IssueCaller {
@@ -104,6 +106,13 @@ export interface IssueCommandDeps {
     issueId: IssueId,
     forUser?: import('@podium/model').UserId,
   ): Promise<SessionMeta[]>
+  /** The reads behind the execution-private field rule (design §4.2,
+   *  POD-6288): task rows by id plus the custodian and session-owner facts.
+   *  Every result a person or an agent receives is reduced through it. */
+  executionFacts: {
+    rows(ids: readonly string[]): Promise<ReadonlyMap<string, IssueRow>>
+    readonly store: ExecutionFactsStore
+  }
   /** Registered repo paths, all machines (RepoRegistry.list() semantics). */
   repoPaths(): string[] | Promise<string[]>
   /** cwd → repo inference (RepoRegistry.inferFromPath semantics) — serves the
@@ -225,20 +234,27 @@ export class IssueCommandCtx {
     return user
   }
 
+  /**
+   * MAY THE CALLER READ THIS TASK: yes, for every task that exists, when there
+   * is a human behind the call (design §2.2, D4; POD-6288). An agent reads what
+   * its human reads. Issue grants decide nothing. The feed decides the same way
+   * (`feed-visibility.ts` `mayReadIssue`), so the two never disagree; what a
+   * reader may not RECEIVE of a task is taken out of the result by the
+   * dispatcher (`execution-visibility.ts`).
+   */
   async mayReadIssue(id: string): Promise<boolean> {
-    const target = await this.reports.ownedTarget(id, 'read')
-    const user = this.readerUser()
-    return target !== undefined && (target.owner === user || target.grants.includes(user))
+    this.readerUser()
+    return await this.reports.has(id)
   }
 
   /**
-   * The caller as a report reader (POD-6191): a listing filters by its user in
-   * SQL with the rule {@link mayReadIssue} applies per row, and asks
-   * `mayRead` for the single issues it shows beside them.
+   * The caller as a report reader (POD-6191): every listing holds every task
+   * (no filter by reader), `mayRead` answers for the single issues a report
+   * shows beside them, and `viewer` decides whose sessions ride the report.
    */
   issueReader(): IssueReader {
     return {
-      readableBy: () => asUserId(this.readerUser()),
+      viewer: () => asUserId(this.readerUser()),
       mayRead: async (id) => await this.mayReadIssue(id),
     }
   }

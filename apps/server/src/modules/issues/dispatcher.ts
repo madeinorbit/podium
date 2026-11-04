@@ -28,6 +28,17 @@ import {
   type IssueCommandDeps,
 } from './command-ctx'
 import { type AnyIssueCommandDef, guardIssueCommand, issueRegistry } from './registry'
+import { withoutHiddenTaskFields } from './execution-visibility'
+import { onBehalfOfUser } from '../../command-principal'
+import type { UserId } from '@podium/model'
+
+/** Whose eyes a command's result is for: the person, or an agent's human. A
+ *  system job reads for the server itself (`null`). A bare in-process caller
+ *  with no principal is decided by the human its capability names. */
+function resultViewer(caller: IssueCaller): UserId | null {
+  if (caller.principal) return onBehalfOfUser(caller.principal)
+  return caller.capability.onBehalfOf ?? null
+}
 
 /**
  * The in-process command surface derived from the registry: runs one command as
@@ -47,11 +58,17 @@ export class IssueCommandDispatcher {
     def: D,
     input: z.infer<D['input']>,
   ): Promise<Awaited<ReturnType<D['handler']>>> {
+    // The result leaves for a person or an agent: the task fields that point
+    // into someone else's private work are taken out first (design §4.2).
     const execute = async (): Promise<Awaited<ReturnType<D['handler']>>> =>
-      (await def.handler(
-        new IssueCommandCtx(this.deps, caller, name, def.target),
-        input,
-      )) as Awaited<ReturnType<D['handler']>>
+      await withoutHiddenTaskFields(
+        (await def.handler(
+          new IssueCommandCtx(this.deps, caller, name, def.target),
+          input,
+        )) as Awaited<ReturnType<D['handler']>>,
+        resultViewer(caller),
+        this.deps.executionFacts,
+      )
     if (def.conflict !== 'exp-rev') return await execute()
 
     const envelope = (input ?? {}) as { expectedRevision?: number }

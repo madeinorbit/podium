@@ -41,7 +41,7 @@ export async function readDeck(
   // (repository path, then sequence), the order the in-memory issue map held
   // them in after boot (POD-6158).
   const candidates = await store.deps.store.issues.listIssueRowsWhere({
-    repo: false, readable: false, live: true, unarchived: true, order: 'path-seq',
+    repo: false, live: true, unarchived: true, order: 'path-seq',
   })
   for (const row of candidates) {
     if (row.deletedAt || row.archived || row.draft || !(await mayRead(row.id))) continue

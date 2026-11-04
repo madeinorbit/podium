@@ -5,7 +5,8 @@
  * This file pins the listings over edge fixtures: deleted, archived and
  * quarantined rows, nested parents across repositories, labels, blockers that
  * are deleted or gone, deferrals in every spelling, search filters, and
- * readers who own some issues or hold grants on them. Until POD-6158 removed
+ * readers who own some issues or hold grants on them (and, since POD-6288,
+ * read every task regardless). Until POD-6158 removed
  * the issue map, every listing was also compared with the map's code.
  */
 
@@ -32,14 +33,12 @@ function reportsOver(store: SessionStore, log = ''): IssueReportsModule {
   return new IssueReportsModule(issues)
 }
 
-/** The command context's reader, built the way `IssueCommandCtx` builds it. */
+/** The command context's reader, built the way `IssueCommandCtx` builds it:
+ *  every task that exists is readable (POD-6288). */
 function readerFor(reports: IssueReportsModule, user: UserId): IssueReader {
   return {
-    readableBy: () => user,
-    mayRead: async (id) => {
-      const target = await reports.ownedTarget(id, 'read')
-      return target !== undefined && (target.owner === user || target.grants.includes(user))
-    },
+    viewer: () => user,
+    mayRead: async (id) => await reports.has(id),
   }
 }
 
@@ -124,9 +123,12 @@ describe('issue listings over the database', () => {
     expect(ids(await reports.search({ priority: 0 }))).toEqual(['iss_14'])
     expect(ids(await reports.search({ assignee: asUserId('nobody') }))).toEqual([])
 
-    // Readers see what they own or hold a read-covering grant on.
-    expect(ids(await reports.search({}, readerFor(reports, BOB)))).toEqual(['iss_b1', 'iss_2', 'iss_15', 'iss_16'])
-    expect(ids(await reports.search({}, readerFor(reports, CAROL)))).toEqual(['iss_16'])
+    // Every member reads every task, whatever they own and whatever grants
+    // exist (POD-6288): a reader's search is the unrestricted one.
+    const everything = ids(await reports.search({}))
+    expect(everything.length).toBeGreaterThan(4)
+    expect(ids(await reports.search({}, readerFor(reports, BOB)))).toEqual(everything)
+    expect(ids(await reports.search({}, readerFor(reports, CAROL)))).toEqual(everything)
 
     // A parent's live children across repositories, by sequence number.
     expect(ids(await reports.children('iss_1'))).toEqual(['iss_b1', 'iss_2', 'iss_5', 'iss_15'])

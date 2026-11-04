@@ -75,7 +75,6 @@ import {
   listingValues,
   liveChildrenOf,
   perChunk,
-  readableAmong,
   sortScopeOf,
 } from './issue-listings'
 import { operationLoader } from './executor/operation-loader'
@@ -1685,13 +1684,6 @@ export class IssuesRepository {
     return rows.flatMap((r) => typeof r.id === 'string' && r.parentId
       ? [{ id: r.id as IssueId, parentId: r.parentId as IssueId, stage: r.stage, closedReason: r.closedReason, deletedAt: r.deletedAt }]
       : [])
-  }
-
-  /** Which of these issues `reader` may see (owner or read-covering grant). */
-  async readableAmong(ids: readonly string[], reader: UserId): Promise<Set<string>> {
-    const rows = await perChunk(ids, async (size, values) =>
-      await readableAmong(this.db, size).all({ ...values, reader }))
-    return new Set(rows.map((r) => r.id))
   }
 
   /** The closure columns of these issues (stage, close reason, deletion). */

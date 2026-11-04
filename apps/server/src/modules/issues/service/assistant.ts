@@ -97,7 +97,7 @@ export class IssueAssistantDigestModule {
       scope === null
         ? []
         : await this.store.deps.store.issues.listIssueRowsWhere(
-            { repo: true, readable: false, live: true, unarchived: true, order: 'repo-seq' },
+            { repo: true, live: true, unarchived: true, order: 'repo-seq' },
             { repoId: scope },
           )
     )

@@ -38,6 +38,7 @@ export {
   GrantEdgeVisibilityPolicy,
   entityKey,
   humanOf,
+  shapedValue,
   kernelVisibilityResolver,
   keyOfRef,
   type DelegatedScope,
