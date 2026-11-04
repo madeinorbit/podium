@@ -636,10 +636,22 @@ export class SessionRegistry {
     // value, and closing over a promise is not the same object.
     let currentSettings = boot.settings
     // THE PROCESS'S SNAPSHOT IS THE INSTANCE TIER (POD-6291). A member's
-    // change carries that member's resolved view, personal leaves included;
-    // it stays with that member, and the snapshot re-reads the instance blob.
-    this.bus.on('settings.changed', async ({ next, member }) => {
-      currentSettings = member === undefined ? next : await this.store.settings.getSettings()
+    // change carries that member's resolved view, personal leaves included.
+    // Its instance leaves are the instance's, so it is taken at once (the
+    // feature gate reads only those), then replaced by the instance blob so
+    // no member's personal values stay in a process-wide value. A generation
+    // keeps a late blob read from overwriting a newer change.
+    let settingsGeneration = 0
+    this.bus.on('settings.changed', ({ next, member }) => {
+      const generation = ++settingsGeneration
+      currentSettings = next
+      if (member === undefined) return
+      void this.store.settings
+        .getSettings()
+        .then((instance) => {
+          if (generation === settingsGeneration) currentSettings = instance
+        })
+        .catch(() => undefined)
     })
     const featureEnabled = (id: Parameters<typeof isFeatureEnabled>[0]) =>
       isFeatureEnabled(id, currentSettings)
