@@ -1,5 +1,5 @@
-import { AUTO_CONTINUE_BASE_DELAY_MS, AUTO_CONTINUE_MAX_DELAY_MS } from '@podium/runtime'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
+import { AUTO_CONTINUE_BASE_DELAY_MS, AUTO_CONTINUE_MAX_DELAY_MS } from '@podium/runtime'
 
 /** Everything the controller needs from the relay, injected so the loop is
  *  unit-testable with spies + fake timers and carries no relay knowledge. */
@@ -42,7 +42,8 @@ export class AutoContinueController {
   /** Relay calls this on every agent-state transition. Arms on a retryable error,
    *  stops (resetting backoff) the instant the agent is no longer in one. */
   async onStateChange(sessionId: SessionId, next: AgentRuntimeState): Promise<void> {
-    if ((await this.deps.isEnabled(sessionId)) && isRetryableErrored(next)) await this.arm(sessionId)
+    if ((await this.deps.isEnabled(sessionId)) && isRetryableErrored(next))
+      await this.arm(sessionId)
     else this.stop(sessionId)
   }
 
@@ -61,10 +62,17 @@ export class AutoContinueController {
   }
 
   /** Master switch flipped. On enable, arm any already-errored live sessions; on
-   *  disable, cancel every running loop. */
-  async onSettingsChanged(enabled: boolean, retryableErroredLiveIds: SessionId[]): Promise<void> {
+   *  disable, cancel the running loops — every loop, or with `only` the loops of
+   *  those sessions: the switch is personal (POD-6291), so one member turning it
+   *  off must not stop another member's retries. */
+  async onSettingsChanged(
+    enabled: boolean,
+    retryableErroredLiveIds: SessionId[],
+    only?: readonly SessionId[],
+  ): Promise<void> {
     if (!enabled) {
-      this.stopAll()
+      if (only === undefined) this.stopAll()
+      else for (const id of only) this.stop(id)
       return
     }
     for (const id of retryableErroredLiveIds) await this.arm(id)
@@ -95,7 +103,12 @@ export class AutoContinueController {
     const loop = this.loops.get(sessionId)
     if (!loop) return
     const snap = this.deps.getSession(sessionId)
-    if (!(await this.deps.isEnabled(sessionId)) || !snap || !snap.live || !isRetryableErrored(snap.state)) {
+    if (
+      !(await this.deps.isEnabled(sessionId)) ||
+      !snap ||
+      !snap.live ||
+      !isRetryableErrored(snap.state)
+    ) {
       this.stop(sessionId)
       return
     }

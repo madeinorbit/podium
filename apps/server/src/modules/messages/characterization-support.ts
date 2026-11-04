@@ -37,8 +37,8 @@ import {
 import type { TurnReceipt } from '@podium/protocol/daemon'
 import { normalizeSettings } from '@podium/runtime'
 import type { Capability } from '../../issue-authz'
-import type { SessionStore } from '../../store'
 import { isMemberCwd, sessionsForIssue } from '../../issue-util'
+import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
 import { metaAsFacts, sessionReadPorts } from '../../test-support/session-facts'
 import { type IssueDeps, IssueService } from '../issues/service'
@@ -304,8 +304,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
   const issues = await IssueService.create(issueDeps)
 
   const record =
-    (fn: Push['fn']) =>
-    async (i: { sessionId: SessionId; text: string; inputOrigin?: string }) => {
+    (fn: Push['fn']) => async (i: { sessionId: SessionId; text: string; inputOrigin?: string }) => {
       pushes.push({ fn, ...i })
       const fails =
         transport.ok === false &&
@@ -360,8 +359,8 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
   }
 
   const svc = new MessageDeliveryService({
-      soleActiveMember: async () => (await store.users.soleActiveMember())?.id as never,
-      legacyRowOwner: () => firstAdminMemberId(store),
+    soleActiveMember: async () => (await store.users.soleActiveMember())?.id as never,
+    legacyRowOwner: () => firstAdminMemberId(store),
     messages: store.messages,
     notificationFacts: store.notificationFacts,
     events: store.events,
@@ -370,7 +369,9 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       readSessionFactsByIssue: async (worktreePath, issueId) =>
         sessionsForIssue(worktreePath, sessions.map(metaAsFacts), issueId),
       readSessionFactsByWorktree: async (worktreePath) =>
-        worktreePath ? sessions.map(metaAsFacts).filter((s) => isMemberCwd(worktreePath, s.cwd)) : [],
+        worktreePath
+          ? sessions.map(metaAsFacts).filter((s) => isMemberCwd(worktreePath, s.cwd))
+          : [],
       sessionById: async (sessionId) => sessions.find((s) => s.sessionId === sessionId),
       listSessionsForIssue: async (worktreePath, issueId) =>
         sessionsForIssue(worktreePath, sessions, issueId),
@@ -388,8 +389,13 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
     // Production wires both legacy-mirror seams; the #463 regression class and
     // the read-consumption semantics both run through them.
     mirrorIssueMail: async (row) => await store.issues.addIssueMessage(row),
-    mirrorMarkIssueMailRead: async (issueId, ids) =>
-      await store.issues.markIssueMessagesRead(firstAdminMemberId(), issueId, ids, now()),
+    mirrorMarkIssueMailRead: async (issueId, ids, reader) =>
+      await store.issues.markIssueMessagesRead(
+        reader ? ((await store.sessions.getSession(reader))?.ownerUserId ?? null) : null,
+        issueId,
+        ids,
+        now(),
+      ),
     ...(opts?.authorizeAtApply ? { authorizeAtApply: opts.authorizeAtApply } : {}),
     ...(opts?.isAgentDriven ? { isAgentDriven: opts.isAgentDriven } : {}),
     // POD-1193: when a test supplies machines (or an explicit port), the wake
@@ -460,7 +466,9 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       sessionOwnerUserId:
         opts?.sessionOwnerUserId ??
         (async (id) =>
-          sessions.some((s) => s.sessionId === id) ? (owners.get(id) ?? firstAdminMemberId()) : undefined),
+          sessions.some((s) => s.sessionId === id)
+            ? (owners.get(id) ?? firstAdminMemberId())
+            : undefined),
       createIssue: async (input) => await issues.crud.create({ ...input, startNow: false }),
       appendEvent: async (e) => {
         await store.events.appendEvent(e)
@@ -552,8 +560,8 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       onBehalfOf: firstAdminMemberId(),
     }),
     events: async (kinds) =>
-      (await store.events
-        .listEventsSince(0, kinds ? { kinds, limit: 5000 } : { limit: 5000 }))
-        .map((e) => ({ kind: e.kind, subject: e.subject, payload: e.payload })),
+      (await store.events.listEventsSince(0, kinds ? { kinds, limit: 5000 } : { limit: 5000 })).map(
+        (e) => ({ kind: e.kind, subject: e.subject, payload: e.payload }),
+      ),
   }
 }

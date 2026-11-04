@@ -31,13 +31,13 @@
  * This is the shape POD-320 established for `issues/service`.
  */
 
+import type { IssueId, SessionId, SessionMeta } from '@podium/model'
 import { asIssueId, asSessionId, isMessagePending } from '@podium/model'
-import type { SessionId, SessionMeta, IssueId } from '@podium/model'
 import type { MessageKind, MessageLifecycle, MessageRow, MessageUrgency } from '../../store'
 import { type MessagesRepository, moved } from '../../store/messages'
 import type { NotificationArbiter } from '../../store/notification-facts'
-import type { QueuedRetract } from '../sessions/inbox'
 import type { IssueService } from '../issues/service'
+import type { QueuedRetract } from '../sessions/inbox'
 import type { MessageSender, MessageSendInput, MessageSendResult } from './types'
 
 /**
@@ -72,7 +72,13 @@ export interface MessageMailboxDeps {
    *  mailPending's legacy fallback keeps nagging. Drop with the table. */
   /** `Promise<void>`, not `void | Promise<void>` [POD-3820]: the mirror is a
    *  store write, and the loose union let a `void`-returning wiring through. */
-  mirrorMarkIssueMailRead?(issueId: IssueId, ids: string[]): Promise<void>
+  mirrorMarkIssueMailRead?(
+    issueId: IssueId,
+    ids: string[],
+    /** The session that read it, whose owner's read marker this is; `null`
+     *  when nobody did (POD-6291). */
+    reader: SessionId | null,
+  ): Promise<void>
   /** THE send path. A reply is an ordinary send with a server-computed
    *  recipient, so it goes through the same clamps, brakes and ledger. */
   send(from: MessageSender, input: MessageSendInput): MessageSendResult | Promise<MessageSendResult>
@@ -80,7 +86,11 @@ export interface MessageMailboxDeps {
    *  {@link QueuedRetract}. `not-queued` when no session queue holds it. */
   retractQueuedInput(message: MessageRow): Promise<QueuedRetract>
   /** The transition ledger — a read is a status transition like any other. */
-  emitTransition(message: MessageRow, kind: string, extra?: Record<string, unknown>): void | Promise<void>
+  emitTransition(
+    message: MessageRow,
+    kind: string,
+    extra?: Record<string, unknown>,
+  ): void | Promise<void>
   /** The rendered sender label, for a reminder's render-ready row. */
   fromLabel(message: MessageRow): string | Promise<string>
 }
@@ -92,10 +102,12 @@ export class MessageMailbox {
    *  sender is reached at its session when that session still exists, else at
    *  its issue; superagent/operator/system replies queue as operator rows (the
    *  superagent thread/UI inbox picks them up — stage 6). */
-  async replyTarget(original: MessageRow): Promise<{ kind: 'issue' | 'session' | 'operator'; id?: string }> {
+  async replyTarget(
+    original: MessageRow,
+  ): Promise<{ kind: 'issue' | 'session' | 'operator'; id?: string }> {
     if (original.fromKind === 'agent') {
       const fromSession = original.fromSession ? asSessionId(original.fromSession) : undefined
-      const known = fromSession ? await this.deps.sessionById(fromSession) !== undefined : false
+      const known = fromSession ? (await this.deps.sessionById(fromSession)) !== undefined : false
       if (original.fromSession && known) {
         return { kind: 'session', id: original.fromSession }
       }
@@ -119,7 +131,7 @@ export class MessageMailbox {
     const bare = ref.startsWith('issue:') ? ref.slice('issue:'.length) : ref
     try {
       const id = await issues.reports.resolveRef(bare)
-      return await issues.reports.has(id) ? id : null
+      return (await issues.reports.has(id)) ? id : null
     } catch {
       return null
     }
@@ -176,11 +188,13 @@ export class MessageMailbox {
    * exactly ONE reminder, persisted, then the steward fallback owns it. Returns
    * render-ready rows for the daemon's block reason.
    */
-  async pendingReminders(sessionId: SessionId): Promise<{ id: string; from: string; body: string }[]> {
+  async pendingReminders(
+    sessionId: SessionId,
+  ): Promise<{ id: string; from: string; body: string }[]> {
     const at = this.deps.now()
     const out: { id: string; from: string; body: string }[] = []
     for (const m of await this.deps.messages.listDeliveredUnacked(sessionId, at)) {
-      if (!await this.deps.messages.markReminded(m.id, at)) continue
+      if (!(await this.deps.messages.markReminded(m.id, at))) continue
       out.push({ id: m.id, from: await this.deps.fromLabel(m), body: m.body })
     }
     return out
@@ -258,7 +272,11 @@ export class MessageMailbox {
 
   /** The per-issue / per-session delivery ledger (#237) [spec:SP-34d7 web] —
    *  a pure read (never consumes queued status). */
-  async ledger(q: { issueId?: IssueId; sessionId?: SessionId; limit?: number }): Promise<MessageRow[]> {
+  async ledger(q: {
+    issueId?: IssueId
+    sessionId?: SessionId
+    limit?: number
+  }): Promise<MessageRow[]> {
     return await this.deps.messages.listLedger(q)
   }
 
@@ -288,11 +306,13 @@ export class MessageMailbox {
     principals: { kind: 'issue' | 'session' | 'operator'; id?: string | null }[],
     opts?: { limit?: number },
   ): Promise<MessageRow[]> {
-    const rows = (await Promise.all(
-      principals.map(async (p) =>
-        await this.deps.messages.listMessagesFor(p, { limit: opts?.limit ?? 50 }),
-      ),
-    )).flat()
+    const rows = (
+      await Promise.all(
+        principals.map(
+          async (p) => await this.deps.messages.listMessagesFor(p, { limit: opts?.limit ?? 50 }),
+        ),
+      )
+    ).flat()
     rows.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
     return rows.slice(-(opts?.limit ?? 50))
   }
@@ -315,28 +335,34 @@ export class MessageMailbox {
     )
     if (opts?.consume === undefined) return rows
     const at = this.deps.now()
-    return await Promise.all(rows.map(async (m) => {
-      // Per-READER receipt first [POD-1379]: this session has now been shown the
-      // row whatever a peer on the same issue mailbox already did to the shared
-      // delivery ledger — otherwise a message a peer consumed keeps nagging.
-      if (opts.consume) await this.deps.messages.recordRead(m.id, opts.consume, at)
-      if (!readable(m) || m.toKind === 'operator') return m
-      if (!(await this.deps.messages.markRead(m.id, opts.consume ?? null, at)).firstRead) return m
-      await this.retireNotificationFact(m, at)
-      if (m.toKind === 'issue' && m.toId) {
-        try {
-          await this.deps.mirrorMarkIssueMailRead?.(asIssueId(m.toId), [m.id])
-        } catch {}
-      }
-      const read = {
-        ...m,
-        deliveryStatus: 'confirmed' as const,
-        readAt: at,
-        deliveredTo: m.deliveredTo ?? opts.consume ?? null,
-      }
-      await this.deps.emitTransition(read, 'message.read')
-      return read
-    }))
+    return await Promise.all(
+      rows.map(async (m) => {
+        // Per-READER receipt first [POD-1379]: this session has now been shown the
+        // row whatever a peer on the same issue mailbox already did to the shared
+        // delivery ledger — otherwise a message a peer consumed keeps nagging.
+        if (opts.consume) await this.deps.messages.recordRead(m.id, opts.consume, at)
+        if (!readable(m) || m.toKind === 'operator') return m
+        if (!(await this.deps.messages.markRead(m.id, opts.consume ?? null, at)).firstRead) return m
+        await this.retireNotificationFact(m, at)
+        if (m.toKind === 'issue' && m.toId) {
+          try {
+            await this.deps.mirrorMarkIssueMailRead?.(
+              asIssueId(m.toId),
+              [m.id],
+              opts.consume ?? null,
+            )
+          } catch {}
+        }
+        const read = {
+          ...m,
+          deliveryStatus: 'confirmed' as const,
+          readAt: at,
+          deliveredTo: m.deliveredTo ?? opts.consume ?? null,
+        }
+        await this.deps.emitTransition(read, 'message.read')
+        return read
+      }),
+    )
   }
 
   /** Explicitly clear one recipient-owned message without opening the inbox.
@@ -352,11 +378,15 @@ export class MessageMailbox {
       firstRead = (await this.deps.messages.markRead(message.id, consume, at)).firstRead
       if (message.toKind === 'issue' && message.toId) {
         try {
-          await this.deps.mirrorMarkIssueMailRead?.(asIssueId(message.toId), [message.id])
+          await this.deps.mirrorMarkIssueMailRead?.(
+            asIssueId(message.toId),
+            [message.id],
+            consume ? asSessionId(consume) : null,
+          )
         } catch {}
       }
     }
-    const dismissed = await this.deps.messages.getMessage(messageId) ?? message
+    const dismissed = (await this.deps.messages.getMessage(messageId)) ?? message
     if (firstRead) await this.deps.emitTransition(dismissed, 'message.read')
     await this.retireNotificationFact(message, at)
     return dismissed

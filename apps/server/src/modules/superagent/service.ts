@@ -4,6 +4,7 @@ import {
   machinePathKey,
   machinePathsEqual,
 } from '@podium/model'
+import { eventsForMember } from '../issues/event-visibility'
 /**
  * The superagent (modules/superagent): the orchestrator with cross-project
  * context. The always-there 'global' thread plus per-session 'btw' threads and
@@ -1423,7 +1424,7 @@ export class SuperagentService {
     text: string
     focus?: SuperagentUserFocus
   }): Promise<{ threadId: ThreadId; podiumSessionId: SessionId; isNew: boolean }> {
-    if (!(await this.repos.list()).some(path => machinePathsEqual(path, repoPath))) {
+    if (!(await this.repos.list()).some((path) => machinePathsEqual(path, repoPath))) {
       throw new Error(`unknown repo: ${repoPath} — register it in Podium first`)
     }
     const baseThreadId = conciergeThreadId(repoPath)
@@ -1502,7 +1503,12 @@ export class SuperagentService {
    *  filter on `archived`/`headless`/`cwd` and then report a label, a kind and a
    *  phase — nothing the reader-scoped projection adds. */
   private async notExitedSessionFacts() {
-    return await this.modules.sessions.readSessionFactsWithStatuses(['starting', 'live', 'reconnecting', 'hibernated'])
+    return await this.modules.sessions.readSessionFactsWithStatuses([
+      'starting',
+      'live',
+      'reconnecting',
+      'hibernated',
+    ])
   }
   /** ONE session, without wiring the other 1100 [POD-1646]. */
   private async sessionById(sessionId: SessionId) {
@@ -1667,14 +1673,18 @@ export class SuperagentService {
       const maxEventId = await this.store.events.maxEventId()
       if (firstTurn) {
         const seed = buildConciergeSeed({
-          ...(await this.conciergeDigest(repoPath, maxEventId)),
+          ...(await this.conciergeDigest(repoPath, maxEventId, thread.ownerUserId)),
           maxEventId,
         })
         await this.store.superagent.setThreadWatermark(thread.id, String(maxEventId), now())
         return seed
       }
       const prevEventId = Number(thread.watermarkItemId ?? '0') || 0
-      const { events, overflowLastId } = await this.issueEventsSince(prevEventId, repoPath)
+      const { events, overflowLastId } = await this.issueEventsSince(
+        prevEventId,
+        repoPath,
+        thread.ownerUserId,
+      )
       if (events.length === 0) return undefined
       const all = await this.modules.issues.reports.list(repoPath)
       // On overflow, advance only to the last event actually digested — the
@@ -1737,7 +1747,10 @@ export class SuperagentService {
     // orchestrator's tools cover anything else it wants to know.
     if (thread.kind === 'global' && firstTurn) {
       const maxEventId = await this.store.events.maxEventId()
-      const seed = buildGlobalSeed({ ...(await this.globalDigest(maxEventId)), maxEventId })
+      const seed = buildGlobalSeed({
+        ...(await this.globalDigest(maxEventId, thread.ownerUserId)),
+        maxEventId,
+      })
       await this.store.superagent.setThreadWatermark(thread.id, String(maxEventId), now())
       return seed
     }
@@ -1796,6 +1809,8 @@ export class SuperagentService {
    *  questions, recent events. Inputs for buildGlobalSeed. */
   private async globalDigest(
     maxEventId: number,
+    /** The thread's member: whose view of the event log the digest carries. */
+    member?: UserId,
   ): Promise<Omit<Parameters<typeof buildGlobalSeed>[0], 'maxEventId'>> {
     const issues = this.modules.issues
     const repoPaths = await this.repos.list()
@@ -1846,7 +1861,13 @@ export class SuperagentService {
       questions,
       // The seed wants the NEWEST events; the log reads ascending, so anchor the
       // cursor a window back from the head instead of at 0.
-      events: (await this.issueEventsSince(Math.max(0, maxEventId - this.eventReadLimit))).events,
+      events: (
+        await this.issueEventsSince(
+          Math.max(0, maxEventId - this.eventReadLimit),
+          undefined,
+          member,
+        )
+      ).events,
     }
   }
 
@@ -1925,10 +1946,13 @@ export class SuperagentService {
   private async conciergeDigest(
     repoPath: string,
     maxEventId: number,
+    member?: UserId,
   ): Promise<Omit<Parameters<typeof buildConciergeSeed>[0], 'maxEventId'>> {
     const issues = this.modules.issues
     const all = await issues.reports.list(repoPath)
-    const byWorktree = new Map(all.filter((i) => i.worktreePath).map((i) => [machinePathKey(i.worktreePath!), i]))
+    const byWorktree = new Map(
+      all.filter((i) => i.worktreePath).map((i) => [machinePathKey(i.worktreePath!), i]),
+    )
     const sessions: ConciergeSessionInfo[] = (await this.notExitedSessionFacts())
       .filter(
         (s) =>
@@ -1956,8 +1980,9 @@ export class SuperagentService {
       sessions,
       // The seed wants the NEWEST events; the log reads ascending, so anchor the
       // cursor a window back from the head instead of at 0.
-      events: (await this.issueEventsSince(Math.max(0, maxEventId - this.eventReadLimit), repoPath))
-        .events,
+      events: (
+        await this.issueEventsSince(Math.max(0, maxEventId - this.eventReadLimit), repoPath, member)
+      ).events,
     }
   }
 
@@ -1968,14 +1993,28 @@ export class SuperagentService {
     sinceId: number,
     /** Omitted on the global thread: events across every repo. */
     repoPath?: string,
+    /** The thread's member (POD-6291): the digest carries only what they may
+     *  read of the log — their own markers, paths and sessions. */
+    member?: UserId,
   ): Promise<{ events: ConciergeEvent[]; overflowLastId?: number }> {
     const raw = await this.store.events.listEventsSince(sinceId, {
       ...(repoPath ? { repoPath } : {}),
       limit: this.eventReadLimit,
     })
-    const events = raw
-      .filter((e) => e.kind.startsWith('issue.'))
-      .map((e) => ({ ts: e.ts, kind: e.kind, subject: e.subject, payload: e.payload }))
+    const issueEvents = raw.filter((e) => e.kind.startsWith('issue.'))
+    const scoped =
+      member === undefined
+        ? issueEvents
+        : await eventsForMember(issueEvents, member, {
+            rows: async (ids) => await this.store.issues.getIssues(ids),
+            store: this.store,
+          })
+    const events = scoped.map((e) => ({
+      ts: e.ts,
+      kind: e.kind,
+      subject: e.subject,
+      payload: e.payload,
+    }))
     const last = raw[raw.length - 1]
     return {
       events,

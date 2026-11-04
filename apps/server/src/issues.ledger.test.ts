@@ -84,7 +84,11 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
   it('publishes personal markers from their keyed storage and removes an empty row', async () => {
     const { svc, store, ledger } = await harness()
     try {
-      const issue = await svc.crud.create({ repoPath: '/r', title: 'Personal state', startNow: false })
+      const issue = await svc.crud.create({
+        repoPath: '/r',
+        title: 'Personal state',
+        startNow: false,
+      })
       const user = await firstAdminMemberId(store)
       const key = issueUserStateRowId(user, issue.id)
       await svc.crud.update(issue.id, { pinned: true })
@@ -167,7 +171,11 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
   it('git publication appends only the changed observation', async () => {
     const { svc, store, ledger, appended } = await harness()
     try {
-      const issue = await svc.crud.create({ repoPath: '/r', title: 'Git observation', startNow: false })
+      const issue = await svc.crud.create({
+        repoPath: '/r',
+        title: 'Git observation',
+        startNow: false,
+      })
       const other = await svc.crud.create({ repoPath: '/r', title: 'Untouched', startNow: false })
       const cursor = await ledger.cursor()
       svc.reports.store.gitStates.set(issue.id, {
@@ -267,14 +275,22 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
   it('rolls back a personal marker and its feed declaration together', async () => {
     const { svc, store, ledger } = await harness()
     try {
-      const issue = await svc.crud.create({ repoPath: '/r', title: 'Atomic marker', startNow: false })
+      const issue = await svc.crud.create({
+        repoPath: '/r',
+        title: 'Atomic marker',
+        startNow: false,
+      })
       const before = await ledger.cursor()
       const append = vi
         .spyOn(store.sync, 'appendChanges')
         .mockRejectedValueOnce(new Error('marker append failed'))
-      await expect(svc.reports.store.writeIssueUserState(issue.id, { pinnedAt: '2026-07-02' })).rejects.toThrow(
-        'marker append failed',
-      )
+      await expect(
+        svc.reports.store.writeIssueUserState(
+          issue.id,
+          { pinnedAt: '2026-07-02' },
+          await firstAdminMemberId(store),
+        ),
+      ).rejects.toThrow('marker append failed')
       append.mockRestore()
       expect(
         await store.issues.getIssueUserState(await firstAdminMemberId(store), issue.id),
@@ -288,11 +304,19 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
   it('rolls back staged markers and requested reports with an enclosing span', async () => {
     const { svc, store, ledger } = await harness()
     try {
-      const issue = await svc.crud.create({ repoPath: '/r', title: 'Staged marker', startNow: false })
+      const issue = await svc.crud.create({
+        repoPath: '/r',
+        title: 'Staged marker',
+        startNow: false,
+      })
       const before = await ledger.cursor()
       await expect(
         store.transact(async () => {
-          await svc.reports.store.writeIssueUserState(issue.id, { pinnedAt: '2026-07-02' })
+          await svc.reports.store.writeIssueUserState(
+            issue.id,
+            { pinnedAt: '2026-07-02' },
+            await firstAdminMemberId(store),
+          )
           expect((await svc.reports.store.issueOverlay(issue.id)).pinned).toBe(true)
           expect((await svc.reports.list()).find((row) => row.id === issue.id)?.pinned).toBe(true)
           throw new Error('enclosing span failed')
@@ -304,7 +328,11 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       expect(await ledger.cursor()).toBe(before)
       expect((await svc.reports.store.issueOverlay(issue.id)).pinned).toBe(false)
       expect((await svc.reports.list()).find((row) => row.id === issue.id)?.pinned).toBe(false)
-      await svc.reports.store.writeIssueUserState(issue.id, { pinnedAt: '2026-07-03' })
+      await svc.reports.store.writeIssueUserState(
+        issue.id,
+        { pinnedAt: '2026-07-03' },
+        await firstAdminMemberId(store),
+      )
       expect((await svc.reports.list()).find((row) => row.id === issue.id)?.pinned).toBe(true)
       expect(
         ((await ledger.changesSince(before)) ?? []).find((row) => row.entity === 'issueUserState'),
@@ -406,9 +434,9 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     const spy = vi.spyOn(store.sync, 'appendChanges').mockImplementationOnce(() => {
       throw new Error('append failed')
     })
-    await expect(svc.crud.create({ repoPath: '/r', title: 'phantom', startNow: false })).rejects.toThrow(
-      'append failed',
-    )
+    await expect(
+      svc.crud.create({ repoPath: '/r', title: 'phantom', startNow: false }),
+    ).rejects.toThrow('append failed')
     spy.mockRestore()
     // Memory truth unchanged: the rows map never installed the rolled-back row…
     expect((await svc.reports.list()).map((w) => w.title)).toEqual(['pre-existing'])
@@ -417,7 +445,10 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     expect(await ledger.cursor()).toBe(cursorBefore)
     // A subsequent full-list reconcile appends NOTHING — no fabricated upsert
     // for a row the store never accepted.
-    const reconciled = await ledger.reconcile('issueProjection', (await svc.reports.store.allProjections()) ?? [])
+    const reconciled = await ledger.reconcile(
+      'issueProjection',
+      (await svc.reports.store.allProjections()) ?? [],
+    )
     expect(reconciled).toEqual([])
     expect(await ledger.cursor()).toBe(cursorBefore)
   })
@@ -441,7 +472,10 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     expect(await ledger.cursor()).toBe(cursorBefore)
     // A follow-up full-list reconcile appends NOTHING — the phantom title is
     // gone from memory, so nothing fabricates a durable upsert for it.
-    const reconciled = await ledger.reconcile('issueProjection', (await svc.reports.store.allProjections()) ?? [])
+    const reconciled = await ledger.reconcile(
+      'issueProjection',
+      (await svc.reports.store.allProjections()) ?? [],
+    )
     expect(reconciled).toEqual([])
     expect(await ledger.cursor()).toBe(cursorBefore)
     // A successful retry then works end to end.
@@ -475,7 +509,10 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     // stamp was restored — a reconcile sees byte-identical wire truth.
     expect(await store.issues.getIssueLabels(wire.id)).toEqual([])
     expect((await svc.reports.get(wire.id))?.updatedAt).toBe(updatedAtBefore)
-    const reconciled = await ledger.reconcile('issueProjection', (await svc.reports.store.allProjections()) ?? [])
+    const reconciled = await ledger.reconcile(
+      'issueProjection',
+      (await svc.reports.store.allProjections()) ?? [],
+    )
     expect(reconciled).toEqual([])
     expect(await ledger.cursor()).toBe(cursorBefore)
   })
@@ -495,7 +532,10 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     expect((await store.issues.listIssueRows()).some((r) => r.id === wire.id)).toBe(true)
     expect(await ledger.cursor()).toBe(cursorBefore)
     // A subsequent reconcile of the (unchanged) truth appends nothing.
-    const reconciled = await ledger.reconcile('issueProjection', (await svc.reports.store.allProjections()) ?? [])
+    const reconciled = await ledger.reconcile(
+      'issueProjection',
+      (await svc.reports.store.allProjections()) ?? [],
+    )
     expect(reconciled).toEqual([])
   })
 

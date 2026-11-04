@@ -26,13 +26,13 @@ import { isFeatureEnabled } from '../../features'
 import { BrowserOpenGateway } from '../../gateway/browser-open'
 import { ClientRegistry } from '../../gateway/client-registry'
 import { harnessDisplayName, harnessInterrupt } from '../../harness-manifest'
+import { machineUseDecision, ownershipSnapshotFromMachines } from '../../machine-access'
 import type { SessionStore } from '../../store'
 import { applyAfterCommit, spanOpen } from '../../store/executor/executor'
-import { machineUseDecision, ownershipSnapshotFromMachines } from '../../machine-access'
 import { HeadlessService } from '../superagent/headless'
+import { SessionActivityHistory } from './activity-history'
 import { SessionClientControl } from './client-control'
 import { machinesForPrincipal as projectMachinesForPrincipal } from './command-ctx'
-import { SessionActivityHistory } from './activity-history'
 import { AgentConcurrencyHistory } from './concurrency-history'
 import { SessionDaemonLifecycle } from './daemon-lifecycle'
 import { SessionDaemonProjection } from './daemon-projection'
@@ -82,7 +82,9 @@ import { SessionMachineReconciler } from './machine-reconciler'
 import { SessionNaming } from './naming'
 import { SessionBroadcastCoordinator } from './publication/broadcast'
 import { ReceiptSender } from './receipt-send'
+import { SessionRecords, type SessionSubject } from './records'
 import { SessionRepository } from './repository'
+import { SessionResidency } from './residency'
 import { RuntimeEventGate } from './runtime-event-gate'
 import type { RuntimeDurableQueuePort } from './runtime-gateway'
 import { SessionRuntimeGateway } from './runtime-gateway'
@@ -92,6 +94,7 @@ import { SessionBindingReceipts } from './session-binding'
 import { SessionClientPlane } from './session-client-plane'
 import { SessionKill, type SessionKillPorts } from './session-kill'
 import { SessionMetaOps } from './session-meta-ops'
+import { isRunningStatus } from './session-record'
 import { SessionRevival } from './session-revival'
 import { APPLIED_MUTATIONS_MAX_AGE_MS, DEFAULT_GEOMETRY } from './session-shared'
 import { SessionStart } from './session-start'
@@ -101,9 +104,6 @@ import { SessionTeardown } from './session-teardown'
 import { SessionTerminalProof } from './terminal-proof'
 import { TurnPreviewAccumulator } from './turn-preview'
 import { turnPreviewEnabled } from './turn-preview-flag'
-import { SessionRecords, type SessionSubject } from './records'
-import { isRunningStatus } from './session-record'
-import { SessionResidency } from './residency'
 import { SessionView } from './view'
 import { SessionWorkspace } from './workspace'
 
@@ -147,7 +147,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     sessions: () => bag.sessions.values(),
     session: (sessionId) => bag.sessions.get(sessionId),
     pendingForProof: (sessionId, atIso) => store.messages.pendingForSessionProof(sessionId, atIso),
-    queuedInputCount: async (sessionId) => (await store.sync.queuedMessageCounts(sessionId)).get(sessionId) ?? 0,
+    queuedInputCount: async (sessionId) =>
+      (await store.sync.queuedMessageCounts(sessionId)).get(sessionId) ?? 0,
     isDraining: (sessionId) => bag.inbox.isDraining(sessionId),
     autoContinueActive: (sessionId) => bag.autoContinue.isActive(sessionId),
   })
@@ -169,9 +170,12 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     resetPriorities: () => bag.state.resetPriorities(),
     pushPriorities: () => bag.pushPriorities(),
     parkArchivedSession: (sessionId) => bag.parkArchivedSession(sessionId),
-    reattachMessage: (session, machineId) => sessionClientPlane.reattachMessageFor(session, machineId),
+    reattachMessage: (session, machineId) =>
+      sessionClientPlane.reattachMessageFor(session, machineId),
     parkedOn: async (machineId) =>
-      (await bag.records.onMachine(machineId, 'machineReconciler')).filter((s: SessionSubject) => !isRunningStatus(s.status)),
+      (await bag.records.onMachine(machineId, 'machineReconciler')).filter(
+        (s: SessionSubject) => !isRunningStatus(s.status),
+      ),
     withSession: (sessionId, reason, fn) => bag.residency.withSession(sessionId, reason, fn),
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
     viewTiers: (sessionIds) => computePriorities([...bag.clients.values()], sessionIds),
@@ -222,7 +226,11 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     sessions: bag.sessions,
     ensureTranscript: (session) => bag.repository.ensureTranscript(session),
     recordSessionGitActivity: (sessionId, input) => {
-      if (bag.sessions.get(sessionId)?.hasBoundDriver || runtimeEventGate?.ready(sessionId) === true) return
+      if (
+        bag.sessions.get(sessionId)?.hasBoundDriver ||
+        runtimeEventGate?.ready(sessionId) === true
+      )
+        return
       bag.bus.emit('issue.sessionDerived', { kind: 'gitActivity', sessionId, ...input })
     },
     binding: bag.bindingReceipts,
@@ -317,7 +325,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     listSessionsForBootBaseline: () => bag.view.listInPages(undefined, 'bootstrap'),
     now: () => bag.now(),
     appliedMutationMaxAgeMs: APPLIED_MUTATIONS_MAX_AGE_MS,
-    onRoutingChanged: (sessionId, previous) => bag.bus.emit('session.routingChanged', { sessionId, previous }),
+    onRoutingChanged: (sessionId, previous) =>
+      bag.bus.emit('session.routingChanged', { sessionId, previous }),
     records: bag.records,
     withSession: (sessionId, reason, fn) => bag.residency.withSession(sessionId, reason, fn),
   })
@@ -341,7 +350,9 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       bag.sessionRevival?.resurrecting(sessionId) === true,
     evict: (session) => bag.repository.evictResident(session),
     evictParked: deps.residency?.evictParked !== false,
-    ...(deps.residency?.sweepIntervalMs !== undefined ? { sweepIntervalMs: deps.residency.sweepIntervalMs } : {}),
+    ...(deps.residency?.sweepIntervalMs !== undefined
+      ? { sweepIntervalMs: deps.residency.sweepIntervalMs }
+      : {}),
   })
   // CONSTRUCTED HERE, NOT EARLIER, AND THE POSITION IS LOAD-BEARING.
   // SessionStart takes view, repository and state as direct references, so it
@@ -360,7 +371,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     terminalProof: bag.terminalProof,
     durableLabelFor: (sessionId) => bag.deps.durableLabelFor(sessionId),
     hasSession: async (sessionId) =>
-      bag.sessions.has(sessionId) || (await store.sessions.getSession(sessionId))?.deletedAt === null,
+      bag.sessions.has(sessionId) ||
+      (await store.sessions.getSession(sessionId))?.deletedAt === null,
     registerSession: (session) => {
       bag.registerSession(session)
     },
@@ -425,7 +437,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     // closure stay legal per the file header.
     relay: () => bag.runtimeGateway,
     store: () => ({
-      history: (input) => bag.rpc.readTranscript(input, { kind: 'system', id: 'superagent-headless-turn' }),
+      history: (input) =>
+        bag.rpc.readTranscript(input, { kind: 'system', id: 'superagent-headless-turn' }),
       snapshot: (sessionId, machineId) => bag.rpc.runtimeSnapshot(sessionId, machineId),
     }),
   })
@@ -451,7 +464,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
           attachmentsJson: row.attachments?.length ? JSON.stringify(row.attachments) : null,
         })
       },
-      count: async (sessionId) => (await store.sync.queuedMessageCounts(sessionId)).get(sessionId) ?? 0,
+      count: async (sessionId) =>
+        (await store.sync.queuedMessageCounts(sessionId)).get(sessionId) ?? 0,
       list: async (sessionId) => {
         const rows: Promise<QueuedMessageRow[]> = store.sync.listQueuedMessages(sessionId)
         return (await rows).map((row: QueuedMessageRow) => ({
@@ -497,18 +511,23 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       handingOn: async ({ sourceMessageId, sessionId }) =>
         (await deps.handOffQueuedMessage?.(sourceMessageId, sessionId)) ?? true,
       applied: async ({ sourceMessageId, sessionId }) => {
-        const completion: Promise<void> | undefined =
-          deps.confirmQueuedMessageApplied?.(sourceMessageId, sessionId)
+        const completion: Promise<void> | undefined = deps.confirmQueuedMessageApplied?.(
+          sourceMessageId,
+          sessionId,
+        )
         await completion
       },
       injected: async ({ sourceMessageId, sessionId }) => {
-        const completion: Promise<void> | undefined =
-          deps.noteQueuedMessageInjected?.(sourceMessageId, sessionId)
+        const completion: Promise<void> | undefined = deps.noteQueuedMessageInjected?.(
+          sourceMessageId,
+          sessionId,
+        )
         await completion
       },
       interrupted: async ({ sourceMessageId }) => {
         if (sourceMessageId) {
-          const completion: Promise<void> | undefined = deps.interruptQueuedMessage?.(sourceMessageId)
+          const completion: Promise<void> | undefined =
+            deps.interruptQueuedMessage?.(sourceMessageId)
           await completion
         }
       },
@@ -520,8 +539,10 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         await completion
       },
       interruptedPending: async ({ sessionId, sourceMessageId }) => {
-        const retraction: Promise<void> | undefined =
-          deps.interruptPendingMessage?.(sessionId, sourceMessageId)
+        const retraction: Promise<void> | undefined = deps.interruptPendingMessage?.(
+          sessionId,
+          sourceMessageId,
+        )
         await retraction
       },
       rejected: async ({ sourceMessageId, reason, cause }) => {
@@ -576,7 +597,10 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         await completion
       },
       idMatched: async ({ messageId, sessionId, transcriptItem, harnessRef }) => {
-        await deps.reportQueuedMessageIdMatch?.(messageId, sessionId, { transcriptItem, harnessRef })
+        await deps.reportQueuedMessageIdMatch?.(messageId, sessionId, {
+          transcriptItem,
+          harnessRef,
+        })
       },
       harnessIds: async ({ messageId, sessionId, harnessRef }) => {
         const completion: Promise<void> | undefined = deps.keepQueuedMessageHarnessIds?.(
@@ -672,7 +696,9 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     // There is one route (POD-4427): agents go through the runtime gateway and
     // only plain-terminal shells keep the server's raw transport. The
     // contractDelivery predicate this replaced is deleted with the routing gate.
-    contractAnswer: (input) => bag.interactionAnswer?.(input) ?? Promise.resolve({ ok: false, reason: 'unknown-interaction' }),
+    contractAnswer: (input) =>
+      bag.interactionAnswer?.(input) ??
+      Promise.resolve({ ok: false, reason: 'unknown-interaction' }),
     // Late-bound on purpose: `bag.runtimeGateway` is constructed further down
     // this function, and the first drain that can need it runs strictly after
     // a bind frame — long past composition.
@@ -721,18 +747,21 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   // (POD-6160 D2f): the queue, the wake it asks for and the receipt read it.
   const leased = <T>(sessionId: SessionId, reason: string, fn: () => Promise<T>): Promise<T> =>
     bag.residency.withSession(sessionId, reason, fn)
-  bag.sendText = (input: any) => leased(input.sessionId, 'sendText', () => bag.inbox.sendText(input))
+  bag.sendText = (input: any) =>
+    leased(input.sessionId, 'sendText', () => bag.inbox.sendText(input))
   bag.interruptText = (input: any) => bag.inbox.interruptText(input)
   bag.interruptTurn = (input: any) => bag.inbox.interruptTurn(input)
   bag.configureSession = (input: any) => bag.inbox.configureSession(input)
-  bag.queueText = (input: any) => leased(input.sessionId, 'queueText', () => bag.inbox.queueText(input))
+  bag.queueText = (input: any) =>
+    leased(input.sessionId, 'queueText', () => bag.inbox.queueText(input))
   bag.retractQueuedMessage = (sessionId: SessionId, sourceMessageId: string) =>
     leased(sessionId, 'retract', () => bag.inbox.retract(sessionId, sourceMessageId))
   bag.hasQueuedMessage = (sessionId: SessionId, sourceMessageId: string) =>
     bag.inbox.hasQueuedMessage(sessionId, sourceMessageId)
   bag.queuedMessagePosition = (sessionId: SessionId, sourceMessageId: string) =>
     bag.inbox.queuedMessagePosition(sessionId, sourceMessageId)
-  bag.resumeAndSend = (input: any) => leased(input.sessionId, 'resumeAndSend', () => bag.inbox.resumeAndSend(input))
+  bag.resumeAndSend = (input: any) =>
+    leased(input.sessionId, 'resumeAndSend', () => bag.inbox.resumeAndSend(input))
   bag.answerAskUserQuestion = (input: any) =>
     bag.inbox.answerAskUserQuestion({
       ...input,
@@ -871,11 +900,19 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       const session = bag.sessions.get(sessionId)
       if (!session) return
       const lease = await store.observationCheckpoints.get(sessionId)
-      if (lease && (lease.observationGeneration !== event.observerGeneration ||
-          lease.bindingVersion !== event.bindingVersion)) return
+      if (
+        lease &&
+        (lease.observationGeneration !== event.observerGeneration ||
+          lease.bindingVersion !== event.bindingVersion)
+      )
+        return
       await bag.bindingReceipts.observeResumeRef(session.machineId, {
-        type: 'sessionResumeRef', sessionId, resume: event.resume,
-        confidence: event.confidence, ackRequested: event.ackRequested, receipt: event.receipt,
+        type: 'sessionResumeRef',
+        sessionId,
+        resume: event.resume,
+        confidence: event.confidence,
+        ackRequested: event.ackRequested,
+        receipt: event.receipt,
       })
     },
     delivery: (sessionId, event) => bag.inbox.deliveryOutcome(sessionId, event),
@@ -975,7 +1012,9 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       }
       await bag.interactionTurn?.(input)
     },
-    interaction: async (input) => { await bag.interactionResolved?.(input) },
+    interaction: async (input) => {
+      await bag.interactionResolved?.(input)
+    },
     state: ({ sessionId, change, at, draft }) => {
       const session = bag.sessions.get(sessionId)
       if (!session) return undefined
@@ -995,8 +1034,11 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       const session = bag.sessions.get(sessionId)
       if (!session) return
       const offer = session.offer
-      const retireOffer = offer !== undefined && prev?.phase !== 'working' &&
-        next.phase === 'working' && Date.parse(next.since) > Date.parse(offer.createdAt) &&
+      const retireOffer =
+        offer !== undefined &&
+        prev?.phase !== 'working' &&
+        next.phase === 'working' &&
+        Date.parse(next.since) > Date.parse(offer.createdAt) &&
         session.terminal.lastUserInputAtMs > Date.parse(offer.createdAt)
       await bag.autoContinue.onStateChange(sessionId, next)
       // These are the same unmigrated consumers fed by a compatibility
@@ -1069,8 +1111,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     })
     bag.runtimeGateway.onEvent(async (sessionId: SessionId, event: RuntimeEvent) => {
       previews.record(sessionId, event)
-    },
-    )
+    })
     bag.turnPreviews = previews
   }
   /**
@@ -1105,7 +1146,13 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     initializeRuntimeMetadata: async (sessionId, machineId) => {
       const session = bag.sessions.get(sessionId)
       const reply = await bag.rpc.runtimeSnapshot(sessionId, machineId)
-      if (!session || bag.sessions.get(sessionId) !== session || session.machineId !== machineId || !session.hasBoundDriver) return
+      if (
+        !session ||
+        bag.sessions.get(sessionId) !== session ||
+        session.machineId !== machineId ||
+        !session.hasBoundDriver
+      )
+        return
       if ('snapshot' in reply.result) {
         await bag.daemonProjection.metadataSnapshot(sessionId, reply.result.snapshot)
         // Reconnect: the driver's snapshot binding carries its current
@@ -1307,25 +1354,38 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   // Auto-continue re-arm on the settings flip — the reaction needs the sessions
   // map, so it lives here as a bus subscriber (this service is constructed AFTER
   // NotifyService, so the notification replay keeps firing first).
-  bag.bus.on('settings.changed', ({ previous, next }: { previous: any; next: any }) => {
-    // Keep the cached draftSync flag current (POD-859). Resolved through the
-    // canonical experiments system (channel/config/user) [spec:SP-f4b9].
-    bag.state.setDraftSyncEnabled(isFeatureEnabled('draft-sync', next))
-    const wasEnabled = previous.autoContinue.enabled
-    const nowEnabled = next.autoContinue.enabled
-    if (nowEnabled === wasEnabled) return
-    const ids = nowEnabled
-      ? [...bag.sessions.values()]
-          .filter(
-            (s) =>
-              (s.status === 'live' || s.status === 'starting') &&
-              s.agentState?.phase === 'errored' &&
-              s.agentState.error?.retryable === true,
-          )
-          .map((s) => s.sessionId)
-      : []
-    // NOT awaited: a bus listener returns void and has no caller to answer
-    // (rule 57). Arming is best-effort; each loop re-reads the switch itself.
-    void bag.autoContinue.onSettingsChanged(nowEnabled, ids)
-  })
+  bag.bus.on(
+    'settings.changed',
+    ({ previous, next, member }: { previous: any; next: any; member?: string }) => {
+      // Keep the cached draftSync flag current (POD-859). Resolved through the
+      // canonical experiments system (channel/config/user) [spec:SP-f4b9].
+      bag.state.setDraftSyncEnabled(isFeatureEnabled('draft-sync', next))
+      const wasEnabled = previous.autoContinue.enabled
+      const nowEnabled = next.autoContinue.enabled
+      if (nowEnabled === wasEnabled) return
+      const ids = nowEnabled
+        ? [...bag.sessions.values()]
+            .filter(
+              (s) =>
+                // Auto-continue is a personal switch (POD-6291): turning it on
+                // re-arms the writer's own sessions, nobody else's.
+                (member === undefined || s.ownerUserId === member) &&
+                (s.status === 'live' || s.status === 'starting') &&
+                s.agentState?.phase === 'errored' &&
+                s.agentState.error?.retryable === true,
+            )
+            .map((s) => s.sessionId)
+        : []
+      // NOT awaited: a bus listener returns void and has no caller to answer
+      // (rule 57). Arming is best-effort; each loop re-reads the switch itself.
+      // Turning it off stops only the writer's own loops (POD-6291).
+      const only =
+        member === undefined
+          ? undefined
+          : [...bag.sessions.values()]
+              .filter((s) => s.ownerUserId === member)
+              .map((s) => s.sessionId)
+      void bag.autoContinue.onSettingsChanged(nowEnabled, ids, only)
+    },
+  )
 }

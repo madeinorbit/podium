@@ -23,19 +23,22 @@
  * signature), so the table contributes no runtime edge back to this module.
  */
 
+import type { IssueId, MutationId, SessionId, SessionMeta } from '@podium/model'
 import { asSessionId, asUserId, isPersonCapability } from '@podium/model'
-import type { SessionId, SessionMeta, IssueId, MutationId } from '@podium/model'
 import type { MutationLedgerPort } from '@podium/sync'
 import { TRPCError } from '@trpc/server'
 import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import { authorize, type Capability, type IssueAccessReader } from '../../issue-authz'
-import type { IssueAuthorityArbitration } from './authority-arbitration'
+import type { IssueRow } from '../../store/types'
 import {
   type MessageSender,
   type MessageSendInput,
   type MessageSendResult,
   senderFromPrincipal,
 } from '../messages/service'
+import type { ShippingService } from '../shipping'
+import type { IssueAuthorityArbitration } from './authority-arbitration'
+import type { ExecutionFactsStore } from './execution-visibility'
 import type {
   IssueAttentionCapability,
   IssueCommentsMailCapability,
@@ -45,10 +48,7 @@ import type {
   IssueReportsCapability,
   IssueTrackerCapabilities,
 } from './service'
-import type { ShippingService } from '../shipping'
 import type { IssueReader } from './service/reads'
-import type { ExecutionFactsStore } from './execution-visibility'
-import type { IssueRow } from '../../store/types'
 
 /** Who is calling (authz identity) — the same pair the router Context carries. */
 export interface IssueCaller {
@@ -94,9 +94,7 @@ export interface IssueCommandDeps {
   /** ONE session by id, without the full reader-scoped pass [POD-1646].
    *  REQUIRED since POD-3857 — the full-list port it used to fall back to is
    *  gone, so the compiler keeps issue commands off the projection. */
-  sessionById(
-    sessionId: SessionId,
-  ): Promise<SessionMeta | undefined>
+  sessionById(sessionId: SessionId): Promise<SessionMeta | undefined>
   /** The member sessions of ONE issue, wired [POD-1639]. `issues.get` embeds
    *  them in its reply, so these do cross to a reader — but only an issue's
    *  own handful, never the fleet. `forUser` is the reader: a read handed to a
@@ -237,7 +235,7 @@ export class IssueCommandCtx {
   /**
    * WHOSE PER-USER MARKERS this command reads and writes (design §4.1 "Self",
    * POD-6288): the person calling, or an agent's human. `undefined` for a
-   * system job, whose marker writes stay with the broadcast viewer.
+   * system job, whose marker reads and writes fall to the task's assignee (POD-6291).
    */
   markerUser(): import('@podium/model').UserId | undefined {
     const principal = this.caller.principal
@@ -280,7 +278,7 @@ export class IssueCommandCtx {
   }
 
   async requireReadableIssue(id: string): Promise<void> {
-    if (!await this.mayReadIssue(id)) {
+    if (!(await this.mayReadIssue(id))) {
       throw new TRPCError({ code: 'NOT_FOUND', message: `unknown issue ${id}` })
     }
   }
@@ -407,7 +405,8 @@ export class IssueCommandCtx {
     if (id) {
       const scopeRepoPath =
         this.caller.capability.scope.kind === 'subtree'
-          ? ((await this.reports.getMeta(this.caller.capability.scope.rootId))?.repoPath ?? undefined)
+          ? ((await this.reports.getMeta(this.caller.capability.scope.rootId))?.repoPath ??
+            undefined)
           : undefined
       return await this.reports.resolveRef(id, scopeRepoPath)
     }
@@ -441,7 +440,10 @@ export class IssueCommandCtx {
    *  its subtree (mirrors the scope gate, which cannot reach into the `source`
    *  shape). Relationship sources are resolved against the caller's own subtree
    *  at match time, so they never reach here. */
-  async assertSourceInSubtree(source: { kind: 'relationship' | 'issue' | 'session'; ref: string }): Promise<void> {
+  async assertSourceInSubtree(source: {
+    kind: 'relationship' | 'issue' | 'session'
+    ref: string
+  }): Promise<void> {
     if (source.kind === 'issue') {
       const id = await this.reports.resolveRef(source.ref)
       const decision = authorize(

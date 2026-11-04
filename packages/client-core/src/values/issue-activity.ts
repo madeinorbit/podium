@@ -135,7 +135,9 @@ export function formatIssueEvent(event: IssueEvent): IssueEventLine | null {
       return {
         icon: 'attached',
         text:
-          p.sessionId == null
+          // A session id the reader may not see arrives as `sessionHidden`
+          // (POD-6291): still a change, never a clear.
+          p.sessionId == null && p.sessionHidden !== true
             ? 'coordinator cleared'
             : p.cause === 'first-child'
               ? 'agent became coordinator (first sub-issue)'
@@ -289,7 +291,8 @@ export class IssueActivityHistory {
       changed = true
     }
     for (const comment of comments) {
-      const id = commentId(comment), count = remaining.get(id) ?? 0
+      const id = commentId(comment),
+        count = remaining.get(id) ?? 0
       if (count === 0) continue
       this.appendComment(comment)
       remaining.set(id, count - 1)

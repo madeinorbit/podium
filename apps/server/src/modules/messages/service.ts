@@ -26,21 +26,6 @@
  *    operator is an invariant).
  */
 
-import { createLogger } from '@podium/logger'
-import {
-  asThreadId,
-  isMessageHandedOn,
-  isMessagePending,
-  isPersonCapability,
-  isSpawnedBy,
-  type IssueId,
-  type MachineId,
-  MessageDelivery,
-  type MessageDeliveryStatus,
-  type MessageHeld,
-  type HarnessRef,
-  type TranscriptItemRef,
-} from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import {
   AUTO_CONTINUE_SENDER,
@@ -49,6 +34,7 @@ import {
   type PlacementDecision,
   senderBrakeKey,
 } from '@podium/commands'
+import { createLogger } from '@podium/logger'
 import {
   type Attribution,
   actorAgent,
@@ -57,12 +43,24 @@ import {
   asAgentIdentityId,
   asIssueId,
   asSessionId,
-  isIssueClosed,
-  isNotInConversationCause,
+  asThreadId,
+  type HarnessRef,
+  type IssueId,
   type IssueScope,
+  isIssueClosed,
+  isMessageHandedOn,
+  isMessagePending,
+  isNotInConversationCause,
+  isPersonCapability,
+  isSpawnedBy,
+  type MachineId,
+  MessageDelivery,
+  type MessageDeliveryStatus,
+  type MessageHeld,
   type NotInConversationCause,
   type SessionId,
   type SessionMeta,
+  type TranscriptItemRef,
 } from '@podium/model'
 import { asDelegationRef } from '@podium/protocol'
 import type {
@@ -82,25 +80,20 @@ import type {
   MessageUrgency,
 } from '../../store'
 import type { EventsRepository } from '../../store/events'
-import { type MessagePageCursor, type MessagesRepository, moved } from '../../store/messages'
 import { afterCommit } from '../../store/executor/executor'
-import { withReadScope } from '../../store/executor/read-scope'
 import { withOwnOperation } from '../../store/executor/operation-scope'
+import { withReadScope } from '../../store/executor/read-scope'
+import { type MessagePageCursor, type MessagesRepository, moved } from '../../store/messages'
 import type { NotificationFactsRepository } from '../../store/notification-facts'
 import { NotificationArbiter } from '../../store/notification-facts'
 import type { IssueService } from '../issues/service'
-import type { InboxPrincipalReference, QueuedRetract } from '../sessions/inbox'
 import type { SessionFacts } from '../sessions/facts'
+import type { InboxPrincipalReference, QueuedRetract } from '../sessions/inbox'
 import { DeliveryBrakes, SPAWN_BUDGET_PER_DAY } from './brakes'
 import { MessageMailbox } from './mailbox'
 import { deliveredByAJob, INLINE_BODY_MAX, MessageRenderer, principalOfRow } from './render'
 import { type DeliveryRunner, DeliveryScheduler, type MessageDeliveryStats } from './scheduler'
-import type {
-  MessageSender,
-  MessageSendInput,
-  MessageSendResult,
-  SendDisposition,
-} from './types'
+import type { MessageSender, MessageSendInput, MessageSendResult, SendDisposition } from './types'
 import { SUPERAGENT_AGENT_IDENTITY } from './types'
 
 const log = createLogger('server:messages')
@@ -284,10 +277,7 @@ export interface MessageDeliveryDeps {
      *  REQUIRED since POD-3857 — the full-list port they used to fall back to is
      *  gone, so a fixture cannot silently reintroduce the pass. */
     sessionById(sessionId: SessionId): Promise<SessionMeta | undefined>
-    listSessionsForIssue(
-      worktreePath: string | null,
-      issueId: IssueId,
-    ): Promise<SessionMeta[]>
+    listSessionsForIssue(worktreePath: string | null, issueId: IssueId): Promise<SessionMeta[]>
     /** The member sessions of one issue, as cheap facts [POD-3857], read from
      *  the database where they are not resident (POD-6160). */
     readSessionFactsByIssue(worktreePath: string | null, issueId: IssueId): Promise<SessionFacts[]>
@@ -364,7 +354,13 @@ export interface MessageDeliveryDeps {
    *  substrate inbox read must consume the mirror row's unread status too, or
    *  mailPending's legacy fallback keeps nagging. Drop with the table.
    *  `Promise<void>` for the reason {@link MessageDeliveryDeps.mirrorIssueMail} gives. */
-  mirrorMarkIssueMailRead?(issueId: IssueId, ids: string[]): Promise<void>
+  mirrorMarkIssueMailRead?(
+    issueId: IssueId,
+    ids: string[],
+    /** The session that read it, whose owner's read marker this is; `null`
+     *  when nobody did (POD-6291). */
+    reader: SessionId | null,
+  ): Promise<void>
   /** Spawn-on-wake seam; absent = unresumable wakes surface needs-attention. */
   spawnOnWake?: SpawnOnWake
   /** Transaction seam (store.transact): an ack's row insert + acked_by stamp on
@@ -410,7 +406,10 @@ export interface MessageDeliveryDeps {
    */
   authorizeAtApply?(
     message: MessageRow,
-  ): { ok: true } | { ok: false; reason: string } | Promise<{ ok: true } | { ok: false; reason: string }>
+  ):
+    | { ok: true }
+    | { ok: false; reason: string }
+    | Promise<{ ok: true } | { ok: false; reason: string }>
   /**
    * WAKE-PATH MACHINE USE (POD-1193 / readiness §3.1.4 M2).
    *
@@ -701,8 +700,11 @@ export class MessageDeliveryService {
       now: deps.now,
       ...(deps.mirrorMarkIssueMailRead
         ? {
-            mirrorMarkIssueMailRead: async (issueId: IssueId, ids: string[]) =>
-              await deps.mirrorMarkIssueMailRead?.(issueId, ids),
+            mirrorMarkIssueMailRead: async (
+              issueId: IssueId,
+              ids: string[],
+              reader: SessionId | null,
+            ) => await deps.mirrorMarkIssueMailRead?.(issueId, ids, reader),
           }
         : {}),
       send: async (from, input) => await this.send(from, input),
@@ -712,7 +714,8 @@ export class MessageDeliveryService {
         if (!sessionId || !deps.sessions.retractQueuedMessage) return 'not-queued'
         return await deps.sessions.retractQueuedMessage(asSessionId(sessionId), message.id)
       },
-      emitTransition: async (message, kind, extra) => await this.emitTransition(message, kind, extra),
+      emitTransition: async (message, kind, extra) =>
+        await this.emitTransition(message, kind, extra),
       fromLabel: async (message) => await this.render.fromLabel(message),
     })
     this.render = new MessageRenderer({
@@ -786,7 +789,10 @@ export class MessageDeliveryService {
       this.queueDeliveryTarget({ kind: 'issue', id: issueId })
       const issue = await this.deps.issues.reports.getMeta(issueId)
       const worktreePath = issue?.worktreePath ?? null
-      for (const session of await this.deps.sessions.readSessionFactsByIssue(worktreePath, asIssueId(issueId))) {
+      for (const session of await this.deps.sessions.readSessionFactsByIssue(
+        worktreePath,
+        asIssueId(issueId),
+      )) {
         candidates.set(session.sessionId, session)
       }
       const previous = previousWorktrees.get(issueId)
@@ -834,30 +840,32 @@ export class MessageDeliveryService {
       // One operation of its own (a drained queue serves many senders): the
       // target issues are read once, together, and each attempt's own read of
       // its issue is answered from the operation's memo (POD-6158).
-      attemptPass: async (messages, failed) => await withOwnOperation(async () => {
-        await this.deps.issues.reports.preloadIssues(
-          messages.flatMap((message) =>
-            message.toKind === 'issue' && message.toId ? [message.toId] : [],
-          ),
-        )
-        // The cooldown key of every wake row, with the brake's cold reads
-        // answered in one read [POD-6174].
-        const wakeKeys = await this.wakeKeysOf(messages)
-        const members = new PassIssueMembers()
-        // A row the cooldown held back had its retry armed by the check itself;
-        // only the attempted ones are read back afterwards.
-        const attempted: MessageRow[] = []
-        for (const message of messages) {
-          try {
-            if (!await this.prepareQueuedAttemptSafely(message, wakeKeys.get(message.id))) continue
-            attempted.push(message)
-            await this.attemptDelivery(message, { viaSweep: true, members })
-          } catch (error) {
-            failed(message, error)
+      attemptPass: async (messages, failed) =>
+        await withOwnOperation(async () => {
+          await this.deps.issues.reports.preloadIssues(
+            messages.flatMap((message) =>
+              message.toKind === 'issue' && message.toId ? [message.toId] : [],
+            ),
+          )
+          // The cooldown key of every wake row, with the brake's cold reads
+          // answered in one read [POD-6174].
+          const wakeKeys = await this.wakeKeysOf(messages)
+          const members = new PassIssueMembers()
+          // A row the cooldown held back had its retry armed by the check itself;
+          // only the attempted ones are read back afterwards.
+          const attempted: MessageRow[] = []
+          for (const message of messages) {
+            try {
+              if (!(await this.prepareQueuedAttemptSafely(message, wakeKeys.get(message.id))))
+                continue
+              attempted.push(message)
+              await this.attemptDelivery(message, { viaSweep: true, members })
+            } catch (error) {
+              failed(message, error)
+            }
           }
-        }
-        await this.scheduleQueuedWakeRetries(attempted)
-      }),
+          await this.scheduleQueuedWakeRetries(attempted)
+        }),
     }
   }
 
@@ -920,7 +928,10 @@ export class MessageDeliveryService {
     return [...issueIds].map((id) => ({ kind: 'issue' as const, id }))
   }
 
-  private async prepareQueuedAttemptSafely(message: MessageRow, wakeKey?: string): Promise<boolean> {
+  private async prepareQueuedAttemptSafely(
+    message: MessageRow,
+    wakeKey?: string,
+  ): Promise<boolean> {
     try {
       return await this.prepareQueuedAttempt(message, wakeKey)
     } catch (error) {
@@ -1035,7 +1046,7 @@ export class MessageDeliveryService {
     if (lifecycle === 'wake' && !exemptFromWakeCooldown(principalOf(from))) {
       const issueKey =
         input.to.kind === 'issue' ? (toId ?? '') : await this.issueForSession(targetSession)
-      const key = `${(await this.senderKey(from))}|${issueKey ?? toId ?? ''}`
+      const key = `${await this.senderKey(from)}|${issueKey ?? toId ?? ''}`
       if (await this.brakes.isWakeHot(key)) {
         clamps.push({ lifecycle, reason: 'wake cooldown (1 per 10min per sender+issue)' })
         lifecycle = 'wait'
@@ -1170,7 +1181,7 @@ export class MessageDeliveryService {
       outcome.position ?? (outcome.queued ? await this.queuePositionForMessage(message) : undefined)
     await this.scheduleQueuedWakeRetry(message)
     return {
-      message: await this.deps.messages.getMessage(id) ?? message,
+      message: (await this.deps.messages.getMessage(id)) ?? message,
       ...outcome,
       ...(position !== undefined ? { position } : {}),
       legacy,
@@ -1258,7 +1269,8 @@ export class MessageDeliveryService {
     if (stored.deliveryStatus === 'stored' && stored.deliveredTo === null) {
       const outcome = await this.attemptDelivery(stored)
       const position =
-        outcome.position ?? (outcome.queued ? await this.queuePositionForMessage(stored) : undefined)
+        outcome.position ??
+        (outcome.queued ? await this.queuePositionForMessage(stored) : undefined)
       await this.scheduleQueuedWakeRetry(stored)
       return {
         message: (await this.deps.messages.getMessage(stored.id)) ?? stored,
@@ -1528,7 +1540,11 @@ export class MessageDeliveryService {
     // §3.1.4 M2 / POD-1193. Refuse before recordWake so a denied caller neither
     // starts a process nor burns the wake cooldown.
     {
-      const denied = await this.refuseWakeUnlessUsable(message, target.machineId, opts?.viaSweep === true)
+      const denied = await this.refuseWakeUnlessUsable(
+        message,
+        target.machineId,
+        opts?.viaSweep === true,
+      )
       if (denied) return denied
     }
     // A wake resumes the target, or spawns in its place: the pass reads the
@@ -1544,9 +1560,15 @@ export class MessageDeliveryService {
       // instead (issue.machineId), so re-check against that placement target.
       const issueId =
         (await this.issueForSession(target)) ?? (message.toId ? asIssueId(message.toId) : null)
-      const issueMachine = issueId ? (await this.deps.issues.reports.getMeta(issueId))?.machineId ?? undefined : undefined
+      const issueMachine = issueId
+        ? ((await this.deps.issues.reports.getMeta(issueId))?.machineId ?? undefined)
+        : undefined
       if (issueMachine && issueMachine !== target.machineId) {
-        const denied = await this.refuseWakeUnlessUsable(message, issueMachine, opts?.viaSweep === true)
+        const denied = await this.refuseWakeUnlessUsable(
+          message,
+          issueMachine,
+          opts?.viaSweep === true,
+        )
         if (denied) return denied
       }
       return await this.trySpawn(message, issueId)
@@ -1992,7 +2014,8 @@ export class MessageDeliveryService {
               ...(opts.endedIssueId !== undefined ? { issueEnded: true } : {}),
             }
       const notice = await this.failureNotice(message, failure)
-      if (!moved(await this.deps.messages.markDeadLetter(message.id, at, undefined, notice))) continue
+      if (!moved(await this.deps.messages.markDeadLetter(message.id, at, undefined, notice)))
+        continue
       const failed: MessageRow = { ...message, deliveryStatus: 'failed', deadLetteredAt: at }
       afterCommit(async () => {
         await this.emitTransition(failed, 'message.dead_letter', {
@@ -2055,7 +2078,10 @@ export class MessageDeliveryService {
     if (!this.deps.spawnOnWake) {
       // TODO(#237 stage 4/5): wire spawnOnWake to SessionLifecycle.spawn — the
       // message becomes the first prompt after prime.
-      await this.needsAttention(message, 'wake target is unresumable and spawn-on-wake is not wired')
+      await this.needsAttention(
+        message,
+        'wake target is unresumable and spawn-on-wake is not wired',
+      )
       return { ok: true, queued: true, reason: 'unresumable', disposition: 'held' }
     }
     this.brakes.chargeSpawn(key, day, count + 1)
@@ -2110,7 +2136,7 @@ export class MessageDeliveryService {
     // confirm it. Only a row the server still holds is ever pushed.
     if (message.deliveryStatus !== 'stored') return false
     if (checksWakeCooldown(message)) {
-      const key = wakeKey ?? await this.wakeKeyOfRow(message)
+      const key = wakeKey ?? (await this.wakeKeyOfRow(message))
       if (await this.brakes.isWakeHot(key)) {
         this.scheduleWakeRetry(key, message)
         return false
@@ -2144,7 +2170,9 @@ export class MessageDeliveryService {
   // service fronts its POD-320 capability modules.
 
   /** Where a reply to `original` goes: back to the sender principal. */
-  async replyTarget(original: MessageRow): Promise<{ kind: 'issue' | 'session' | 'operator'; id?: string }> {
+  async replyTarget(
+    original: MessageRow,
+  ): Promise<{ kind: 'issue' | 'session' | 'operator'; id?: string }> {
     return await this.mailbox.replyTarget(original)
   }
 
@@ -2174,7 +2202,9 @@ export class MessageDeliveryService {
   }
 
   /** The stop-hook's single-reminder set [POD-835 §04b]. */
-  async pendingReminders(sessionId: SessionId): Promise<{ id: string; from: string; body: string }[]> {
+  async pendingReminders(
+    sessionId: SessionId,
+  ): Promise<{ id: string; from: string; body: string }[]> {
     return await this.mailbox.pendingReminders(sessionId)
   }
 
@@ -2200,7 +2230,11 @@ export class MessageDeliveryService {
   }
 
   /** The per-issue / per-session delivery ledger (#237) — a pure read. */
-  async ledger(q: { issueId?: IssueId; sessionId?: SessionId; limit?: number }): Promise<MessageRow[]> {
+  async ledger(q: {
+    issueId?: IssueId
+    sessionId?: SessionId
+    limit?: number
+  }): Promise<MessageRow[]> {
     return await Promise.all(
       (await this.mailbox.ledger(q)).map(async (message) => await this.withQueuePosition(message)),
     )
@@ -2269,7 +2303,10 @@ export class MessageDeliveryService {
 
   /** Retract the named chat send, or the newest held send for a native terminal
    * interrupt that cannot carry the chat mutation id. */
-  async cancelPendingOperatorMessage(sessionId: SessionId, messageId?: string): Promise<MessageRow | null> {
+  async cancelPendingOperatorMessage(
+    sessionId: SessionId,
+    messageId?: string,
+  ): Promise<MessageRow | null> {
     const message = messageId
       ? await this.deps.messages.getMessage(messageId)
       : await this.deps.messages.latestPendingOperatorForSession(sessionId)
@@ -2326,7 +2363,9 @@ export class MessageDeliveryService {
 
   // ---- state helpers ----
 
-  private async issueForSession(s: Pick<SessionMeta, 'issueId' | 'cwd'> | undefined): Promise<IssueId | null> {
+  private async issueForSession(
+    s: Pick<SessionMeta, 'issueId' | 'cwd'> | undefined,
+  ): Promise<IssueId | null> {
     if (!s) return null
     if (s.issueId) return s.issueId
     try {
@@ -2346,7 +2385,8 @@ export class MessageDeliveryService {
     const unbound = sessions.filter((session) => !session.issueId)
     let owners = new Map<string, IssueId | null>()
     try {
-      if (unbound.length > 0) owners = await this.deps.issues.reports.issuesForCwds(unbound.map((s) => s.cwd))
+      if (unbound.length > 0)
+        owners = await this.deps.issues.reports.issuesForCwds(unbound.map((s) => s.cwd))
     } catch {
       owners = new Map()
     }
@@ -2444,7 +2484,9 @@ export class MessageDeliveryService {
   private async recordWake(message: MessageRow, target: SessionMeta | undefined): Promise<void> {
     if (exemptFromWakeCooldown(principalOfRow(message))) return
     const issueKey = message.toKind === 'issue' ? message.toId : await this.issueForSession(target)
-    await this.brakes.recordWake(`${this.senderKeyOfRow(message)}|${issueKey ?? message.toId ?? ''}`)
+    await this.brakes.recordWake(
+      `${this.senderKeyOfRow(message)}|${issueKey ?? message.toId ?? ''}`,
+    )
   }
 
   /** stored → dispatched: record the hand-off toward `sessionId` without
@@ -2579,7 +2621,7 @@ export class MessageDeliveryService {
             // AWAITED [POD-3820]: the mirror is a store write and the dep now
             // says so. A synchronous try/catch around a dropped promise caught
             // nothing that mattered.
-            await this.deps.mirrorMarkIssueMailRead?.(readIssueId, [message.id])
+            await this.deps.mirrorMarkIssueMailRead?.(readIssueId, [message.id], sessionId)
           } catch {}
         }, 'legacy-mail-mirror-read')
       }
@@ -2607,7 +2649,7 @@ export class MessageDeliveryService {
         afterCommit(async () => {
           try {
             // AWAITED, for the reason the delivery path above states.
-            await this.deps.mirrorMarkIssueMailRead?.(readIssueId, [message.id])
+            await this.deps.mirrorMarkIssueMailRead?.(readIssueId, [message.id], null)
           } catch {}
         }, 'legacy-mail-mirror-read')
       }
@@ -2627,7 +2669,10 @@ export class MessageDeliveryService {
    * proof the agent has it in context, so the row moves to confirmed.
    * Best-effort and idempotent: a late/duplicate echo finds it already there.
    */
-  async onTranscriptDelta(sessionId: SessionId, items: { id?: string; role?: string; text?: string }[]): Promise<void> {
+  async onTranscriptDelta(
+    sessionId: SessionId,
+    items: { id?: string; role?: string; text?: string }[],
+  ): Promise<void> {
     // Only a user turn echoes a pasted prompt; assistant/tool text quoting the
     // id must never self-confirm a message the agent merely referenced.
     const echoes = items.flatMap((item) => {
@@ -2656,7 +2701,8 @@ export class MessageDeliveryService {
       if (row.deliveredTo !== sessionId) continue
       if (row.deliveryStatus === 'failed') {
         await this.reportFailedHistoryMatch(row, sessionId, {
-          kind: 'wrapped-frame', frameId: id,
+          kind: 'wrapped-frame',
+          frameId: id,
           ...(item.id ? { transcriptItem: { id: item.id } } : {}),
         })
         continue
@@ -2687,8 +2733,10 @@ export class MessageDeliveryService {
     const session = await this.deps.sessions.sessionById(sessionId)
     const program = session?.agentKind ?? 'unknown'
     await this.reportDeliveryContradiction({
-      messageId: row.id, sessionId, program,
-      programVersion: await this.deps.programVersion?.(sessionId, program) ?? null,
+      messageId: row.id,
+      sessionId,
+      program,
+      programVersion: (await this.deps.programVersion?.(sessionId, program)) ?? null,
       failedCause: row.deliveryDeferredReason ?? null,
       evidence,
     })
@@ -2699,16 +2747,26 @@ export class MessageDeliveryService {
   async reportDeliveryContradiction(diagnostic: DeliveryContradiction): Promise<void> {
     try {
       const recorded = await this.deps.events.appendEventOnce({
-        ts: this.deps.now(), kind: 'message.delivery_contradiction',
-        subject: diagnostic.messageId, payload: diagnostic,
+        ts: this.deps.now(),
+        kind: 'message.delivery_contradiction',
+        subject: diagnostic.messageId,
+        payload: diagnostic,
       })
       if (recorded !== undefined) {
-        afterCommit(() => log.warn('message delivery contradiction', { diagnostic }), 'delivery-contradiction-warning')
+        afterCommit(
+          () => log.warn('message delivery contradiction', { diagnostic }),
+          'delivery-contradiction-warning',
+        )
       }
     } catch (error) {
-      afterCommit(() => log.warn('message delivery contradiction recording failed', {
-        diagnostic, err: error,
-      }), 'delivery-contradiction-recording-failed')
+      afterCommit(
+        () =>
+          log.warn('message delivery contradiction recording failed', {
+            diagnostic,
+            err: error,
+          }),
+        'delivery-contradiction-recording-failed',
+      )
     }
   }
 
@@ -2820,15 +2878,15 @@ export class MessageDeliveryService {
    * it was never typed), or stop waiting for a reply. `outcome` replaces "was
    * not delivered" where that would claim more than is known.
    */
-  private async failureWords(
-    message: MessageRow,
-    failure: SendFailure,
-  ): Promise<FailureWords> {
+  private async failureWords(message: MessageRow, failure: SendFailure): Promise<FailureWords> {
     const words = await (async (): Promise<FailureWords> => {
       switch (failure.kind) {
         case 'session-gone': {
-          const action = failure.issueEnded ? NOBODY_HOLDS_IT : await this.reachIssueInstead(message)
-          const session = message.toKind === 'issue' ? 'the session it was handed to' : 'that session'
+          const action = failure.issueEnded
+            ? NOBODY_HOLDS_IT
+            : await this.reachIssueInstead(message)
+          const session =
+            message.toKind === 'issue' ? 'the session it was handed to' : 'that session'
           if (failure.mayHaveArrived)
             return {
               outcome: 'may not have been delivered',
@@ -2838,7 +2896,9 @@ export class MessageDeliveryService {
           return { reason: `${session} has ended`, action }
         }
         case 'issue-ended': {
-          const issue = message.toId ? await this.deps.issues.reports.getMeta(message.toId) : undefined
+          const issue = message.toId
+            ? await this.deps.issues.reports.getMeta(message.toId)
+            : undefined
           const ref = issue ? await this.deps.issues.reports.niceRef(issue) : 'that issue'
           return {
             reason: failure.deleted ? `${ref} was deleted` : `${ref} is finished`,
@@ -3025,7 +3085,9 @@ export class MessageDeliveryService {
    * Re-authorize a durable inbox row immediately before its daemon apply.
    * Neither this method nor the inbox/gateway caches a capability or decision.
    */
-  async authorizeQueuedInput(messageId: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+  async authorizeQueuedInput(
+    messageId: string,
+  ): Promise<{ ok: true } | { ok: false; reason: string }> {
     const message = await this.deps.messages.getMessage(messageId)
     if (!message) return { ok: false, reason: 'session no longer exists' }
     return await this.applyAuth(message)
@@ -3209,7 +3271,11 @@ export class MessageDeliveryService {
   }
 
   /** One podium_events row per ledger transition (steward visibility, audit). */
-  private async emitTransition(message: MessageRow, kind: string, extra?: Record<string, unknown>): Promise<void> {
+  private async emitTransition(
+    message: MessageRow,
+    kind: string,
+    extra?: Record<string, unknown>,
+  ): Promise<void> {
     try {
       await this.deps.events.appendEvent({
         ts: this.deps.now(),

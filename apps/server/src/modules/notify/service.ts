@@ -90,16 +90,20 @@ export interface NotifyDeps {
   clients(ownerUserId?: UserId): Iterable<{ send(msg: ServerMessage): void; visible: boolean }>
   /** Resolve the notice projection for a session (undefined = unknown session),
    *  from the database where it is not resident (POD-6160). */
-  sessionInfo(sessionId: SessionId): SessionNoticeInfo | undefined | Promise<SessionNoticeInfo | undefined>
+  sessionInfo(
+    sessionId: SessionId,
+  ): SessionNoticeInfo | undefined | Promise<SessionNoticeInfo | undefined>
   /** Runtime state per not-exited session (running or hibernated) —
    *  notifyAttentionForNewExternalTargets replays the current blocked states to
    *  a freshly configured external target. From the database where a session
    *  is not resident (POD-6160). */
-  sessionStates(): Promise<Iterable<{
-    info: SessionNoticeInfo
-    state: AgentRuntimeState | undefined
-    ownerUserId?: UserId
-  }>>
+  sessionStates(): Promise<
+    Iterable<{
+      info: SessionNoticeInfo
+      state: AgentRuntimeState | undefined
+      ownerUserId?: UserId
+    }>
+  >
   /** Per-user route lookup and asynchronous delivery request. */
   telegramRouteAvailable?(ownerUserId: UserId): boolean | Promise<boolean>
   /**
@@ -126,10 +130,11 @@ export interface NotifyDeps {
  */
 export class NotifyService {
   /** The effective Telegram key (token + chat id) as of the last
-   *  `settings.changed`. `undefined` until the first one — see the comparison
-   *  in `notifyAttentionForNewExternalTargets` for why that case falls back to
+   *  `settings.changed`, PER MEMBER (POD-6291; `''` keys an instance-wide
+   *  change). Absent until the first one — see the comparison in
+   *  `notifyAttentionForNewExternalTargets` for why that case falls back to
    *  the blob-only reading rather than guessing. */
-  private lastTelegramKey: string | undefined
+  private readonly lastTelegramKeys = new Map<string, string>()
 
   constructor(
     private readonly deps: NotifyDeps,
@@ -153,8 +158,12 @@ export class NotifyService {
       // ownerless or disconnected session still has the same durable record.
       return this.notifyNotice(ownerUserId, info, { title, body })
     })
-    bus.on('settings.changed', ({ previous, next }) => {
-      return this.notifyAttentionForNewExternalTargets(previous.notifications, next.notifications)
+    bus.on('settings.changed', ({ previous, next, member }) => {
+      return this.notifyAttentionForNewExternalTargets(
+        previous.notifications,
+        next.notifications,
+        member,
+      )
     })
   }
 
@@ -194,9 +203,19 @@ export class NotifyService {
       ? await this.deps.telegramRouteAvailable(ownerUserId)
       : isTelegramEnabled(settings, botToken)
   }
+  /**
+   * Replay the current blocked states to a target that just became reachable.
+   *
+   * PER MEMBER (POD-6291). A personal change names its `member`: the new ntfy
+   * topic or chat is THAT member's, so only that member's sessions are replayed
+   * to it. Alice entering a topic must never send Bob's blocked agents to her
+   * phone. An instance-wide change (the bot token) names nobody, and each
+   * session's notice goes to its own owner's Telegram route.
+   */
   private async notifyAttentionForNewExternalTargets(
     previous: NotificationSettings,
     next: NotificationSettings,
+    member?: UserId,
   ): Promise<void> {
     const previousNtfy = previous.ntfyTopic.trim()
     if (this.deps.notificationsEnabled?.() === false) return
@@ -211,16 +230,19 @@ export class NotifyService {
     // that most needs it — the first time a bot token is configured.
     const botToken = await this.deps.telegramBotToken()
     const nextKey = normalizedTelegramKey(next, botToken)
-    const previousKey = this.lastTelegramKey ?? normalizedTelegramKey(previous, botToken)
+    const memo = member ?? ''
+    const previousKey = this.lastTelegramKeys.get(memo) ?? normalizedTelegramKey(previous, botToken)
     const previouslyEnabled = telegramKeyEnabled(previousKey)
     const sendTelegram =
       isTelegramEnabled(next, botToken) && (!previouslyEnabled || previousKey !== nextKey)
-    this.lastTelegramKey = nextKey
+    this.lastTelegramKeys.set(memo, nextKey)
     if (!sendNtfy && !sendTelegram) return
 
     const telegram = telegramConfig(next, botToken)
     for (const { info, state, ownerUserId } of await this.deps.sessionStates()) {
       if (!ownerUserId) continue
+      // A member's own new target hears only about that member's sessions.
+      if (member !== undefined && ownerUserId !== member) continue
       if (!state) continue
       const notice = attentionNotice(this.attentionNoticeName(info), undefined, state)
       if (!notice) continue
@@ -245,7 +267,9 @@ export class NotifyService {
    *    subscription's subscriber may be an issue.
    */
   async notifyExternal(notice: AttentionNotice, ownerUserId?: UserId): Promise<void> {
-    const settings = (await this.deps.getSettings()).notifications
+    // The RECIPIENT's own routing (POD-6291): a notice for Bob goes to Bob's
+    // ntfy topic and Bob's Telegram, never to whoever the instance read as.
+    const settings = (await this.deps.getSettings(ownerUserId)).notifications
     if (this.deps.notificationsEnabled?.() === false) return
     if (settings.ntfyTopic) this.pushers.ntfy(settings.ntfyTopic, notice)
     const botToken = await this.deps.telegramBotToken()

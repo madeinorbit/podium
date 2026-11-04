@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
-import { earliestAdminMember } from '@podium/runtime/earliest-admin'
 // A ROW OUT OF SQLITE IS A TRUE SERIALIZATION EDGE: the column is TEXT and the
 // value was minted by this system and written by it, so the brand is asserted
 // here rather than re-validated. This is the one place these casts belong.
@@ -52,6 +51,7 @@ import {
   worktreeGcRunKey,
 } from '@podium/protocol'
 import { stateDir } from '@podium/runtime/config'
+import { earliestAdminMember } from '@podium/runtime/earliest-admin'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { runTimeBudgetedJob } from '@podium/runtime/time-budget'
 
@@ -848,18 +848,11 @@ export class MaintenanceCommandsPrunePlanner {
  *
  * That reader is not a free choice here, it is the one the AUTHORITY already
  * picked: `IssueAttention.tryAutoArchiveObserved` and
- * `SessionService.tryAutoArchiveStoppedObserved` revalidate the proposal against
- * `issueOverlay(...)`/`viewerOverlay(...).readAt`, i.e. `broadcastViewer()` =
- * `firstAdminMemberId()`. A janitor that observed any other reader would emit
- * proposals the server rejects as `precondition` — auto-archive would be dead a
- * SECOND time, silently, with a green integration test. The janitor observes;
- * the server decides; both must ask the same person.
- *
- * The seam is the same one the server documents: when POD-1077 makes fan-out
- * per-principal, `archived` becomes per-user too and this constructor argument
- * becomes that principal. It is a parameter rather than an inlined constant so
- * that day is an edit at the composition root, and so the tests can prove the
- * reader is scoped by handing it a DIFFERENT user.
+ * `SessionService.tryAutoArchiveStoppedObserved` revalidate the proposal
+ * against the task's assignee and the session's owner. A janitor that observed
+ * any other reader would emit proposals the server rejects as `precondition` —
+ * auto-archive would be dead a SECOND time, silently, with a green integration
+ * test. The janitor observes; the server decides; both must ask the same person.
  *
  * POD-1229 closes the half of this POD-1210 left open. The agreement between
  * THIS constant and the server's `broadcastViewer()` used to be a coincidence of
@@ -870,15 +863,13 @@ export class MaintenanceCommandsPrunePlanner {
  * policy is unchanged; what changed is that a disagreement is now a refusal with
  * a reason instead of a sweep that finds nothing.
  */
-/** Resolve from this reader's database on every scan so member removal and
- * independent worker/store lifetimes cannot leave a stale viewer. ISSUES only:
- * a stopped SESSION is retired by its owner's read (`SessionAutoArchiveReader`,
- * POD-6285), because nobody else may read it. */
-const archiveViewer = (db: SqlDatabase): UserId => {
-  const member = earliestAdminMember(db)
-  if (!member) throw new Error('the first admin member is not resolved: no active administrator in this database')
-  return member
-}
+/*
+ * POD-6291 names THE VIEWER per task: the task's ASSIGNEE (`issues.owner_user_id`),
+ * the person accountable for it. On a one-member instance that is the first
+ * admin, exactly as before; with two members, Bob's read never archives Alice's
+ * finished task. The server revalidates against the same column
+ * (`IssueAttention.tryAutoArchiveObserved`), so both still ask the same person.
+ */
 
 /**
  * Durable auto-archive candidates only — closed + read past cutoff + not archived.
@@ -926,33 +917,30 @@ export class SessionAutoArchiveReader {
 }
 
 export class IssueAutoArchiveReader {
-  constructor(
-    private readonly db: SqlDatabase,
-    private readonly viewer?: UserId,
-  ) {}
+  constructor(private readonly db: SqlDatabase) {}
 
+  /** The reader is each task's ASSIGNEE (POD-6291). */
   async read(input: AutoArchiveReadInput): Promise<IssueAutoArchiveObservation[]> {
-    const viewer = this.viewer ?? archiveViewer(this.db)
     const candidates: IssueAutoArchiveObservation[] = []
     let cursor: { readAt: string; id: string } | undefined
     let done = false
     await runTimeBudgetedJob(() => {
       if (done || candidates.length >= input.limit) return 'done'
       const pageSize = Math.min(CANDIDATE_PAGE_SIZE, input.limit - candidates.length)
-      const params: Array<string | number> = [viewer, input.cutoffReadAt]
-      // The keyset key moves WITH the read timestamp: it now names the viewer's
+      const params: Array<string | number> = [input.cutoffReadAt]
+      // The keyset key moves WITH the read timestamp: it names the assignee's
       // `issue_user_state.read_at`, never `issues.read_at` (dropped). It stays a
-      // TOTAL order because the reader is pinned to ONE user, so at most one row
-      // per issue survives the join and `i.id` (the issues PK) breaks every tie
-      // in `read_at` uniquely — the same guarantee the singleton column gave.
+      // TOTAL order because the reader is pinned to ONE user per issue, so at
+      // most one row per issue survives the join and `i.id` (the issues PK)
+      // breaks every tie in `read_at` uniquely.
       const after = cursor ? 'AND (ius.read_at, i.id) > (?, ?)' : ''
       if (cursor) params.push(cursor.readAt, cursor.id)
       params.push(pageSize)
       const rows = this.db
         .prepare(
-          `SELECT i.id, i.stage, i.closed_reason, ius.read_at, i.archived, i.deleted_at
+          `SELECT i.id, i.stage, i.closed_reason, i.owner_user_id, ius.read_at, i.archived, i.deleted_at
            FROM issues i
-           JOIN issue_user_state ius ON ius.issue_id = i.id AND ius.user_id = ?
+           JOIN issue_user_state ius ON ius.issue_id = i.id AND ius.user_id = i.owner_user_id
            WHERE i.archived = 0
              AND i.deleted_at IS NULL
              AND ius.read_at IS NOT NULL
@@ -967,6 +955,7 @@ export class IssueAutoArchiveReader {
         id: string
         stage: string
         closed_reason: string | null
+        owner_user_id: string
         read_at: string
         archived: number
         deleted_at: string | null
@@ -979,7 +968,7 @@ export class IssueAutoArchiveReader {
           // See the session reader: the wire carries WHOSE read gated this, not
           // the timestamp. `ius.read_at` is still what the query filters and
           // what the keyset cursor below orders by.
-          readerUserId: viewer,
+          readerUserId: asUserId(row.owner_user_id),
           archived: false,
           deletedAt: null,
         })

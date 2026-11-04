@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { IssueId, IssueProjection, SessionId } from '@podium/model'
+import type { IssueId, IssueProjection, SessionId, UserId } from '@podium/model'
 import { attributionOf, type CommandPrincipal } from '../../../command-principal'
 import type { IssueMessageRow } from '../../../store'
 import type { IssueStore } from './core'
@@ -114,7 +114,14 @@ export class IssueCommentsMailModule {
    *  issue has now pulled) — it just no longer decides who gets nagged. */
   async mailInbox(
     issueId: IssueId,
-    opts?: { markRead?: boolean; sessionId?: SessionId },
+    opts?: {
+      markRead?: boolean
+      sessionId?: SessionId
+      /** Whose per-user read markers the read writes: the member the reading
+       *  agent acts for (POD-6291). Absent = no per-user marker, only the
+       *  shared delivery state moves. */
+      member?: UserId
+    },
   ): Promise<Array<IssueMessageRow & { wasUnread: boolean }>> {
     const id = await this.store.resolveRef(issueId)
     await this.store.rowOrThrow(id)
@@ -148,7 +155,7 @@ export class IssueCommentsMailModule {
             // PER-USER read markers (POD-1076): `status` is the mail's shared
             // delivery state, `read_at` is a fact about THIS reader.
             await this.store.deps.store.issues.markIssueMessagesRead(
-              await this.store.broadcastViewer(),
+              opts?.member ?? null,
               id,
               unreadIds,
               at,

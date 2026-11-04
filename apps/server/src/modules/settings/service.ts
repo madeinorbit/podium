@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { decodeSettingsPreferencePatch, readSettingsLeaf } from '@podium/commands'
 import {
   classifySettingsPath,
+  type MachineId,
   redeemTelegramClaimCode,
   SERVER_SECRET_KEYS,
   type SecretPresenceWire,
@@ -10,7 +11,6 @@ import {
   type TelegramClaimCode,
   telegramClaimCodeIsLive,
   type UserId,
-  type MachineId,
 } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import { configPath, onConfigChanged } from '@podium/runtime/config'
@@ -383,7 +383,10 @@ export class SettingsService {
    * save through the legacy command would fail. Only a CHANGE is refused, which
    * is precisely the write that must go through the secret commands.
    */
-  private async assertNoSecretChange(_previous: PodiumSettings, next: PodiumSettings): Promise<void> {
+  private async assertNoSecretChange(
+    _previous: PodiumSettings,
+    next: PodiumSettings,
+  ): Promise<void> {
     // POD-419 CHANGED WHAT "UNCHANGED" MEANS, and the comparison had to follow.
     //
     // POD-420 compared the incoming blob against the PREVIOUS BLOB, which was
@@ -398,15 +401,17 @@ export class SettingsService {
     // upgrade.
     const leaf = (blob: PodiumSettings, key: ServerSecretKey): string =>
       String(readSettingsLeaf(blob, key) ?? '')
-    const changes = await Promise.all(SERVER_SECRET_KEYS.map(async (key) => {
-      const incoming = leaf(next, key)
-      const stored = await this.secrets.getOrEmpty(key)
-      // A blank incoming member is the scrubbed blob coming home, never a
-      // request to clear: clearing is `settings.clearSecret`, which is
-      // online-only and admin-grade. Treating it as a clear would let any
-      // preference save from a client that never had the material delete it.
-      return incoming !== '' && incoming !== stored ? key : null
-    }))
+    const changes = await Promise.all(
+      SERVER_SECRET_KEYS.map(async (key) => {
+        const incoming = leaf(next, key)
+        const stored = await this.secrets.getOrEmpty(key)
+        // A blank incoming member is the scrubbed blob coming home, never a
+        // request to clear: clearing is `settings.clearSecret`, which is
+        // online-only and admin-grade. Treating it as a clear would let any
+        // preference save from a client that never had the material delete it.
+        return incoming !== '' && incoming !== stored ? key : null
+      }),
+    )
     const changed = changes.filter((key): key is ServerSecretKey => key !== null)
     if (changed.length === 0) return
     // Names the KEYS and never a value: the key vocabulary is public (the
@@ -437,7 +442,7 @@ export class SettingsService {
     await this.assertNoSecretChange(previous, settings)
     await this.store.setSettingsFor(userId, settings, new Date(this.now()).toISOString())
     const next = await this.store.getSettingsFor(userId)
-    await this.emitSettingsChanged(previous, next)
+    await this.emitSettingsChanged(previous, next, userId)
     // The CALLER is served what it now resolves to, not the shared blob: a client
     // that posted its own preferences must get them back, or the next render
     // would show it the instance defaults and look like the save was lost.
@@ -466,9 +471,15 @@ export class SettingsService {
    * whole blob on every edit, so an unchanged save must not make every
    * subscriber re-run.
    */
-  private async emitSettingsChanged(previous: PodiumSettings, next: PodiumSettings): Promise<void> {
+  private async emitSettingsChanged(
+    previous: PodiumSettings,
+    next: PodiumSettings,
+    member: UserId,
+  ): Promise<void> {
     if (JSON.stringify(previous) === JSON.stringify(next)) return
-    await this.bus.emitSettled('settings.changed', { previous, next })
+    // WHOSE view this is (POD-6291): the reactions to personal leaves are per
+    // member, so the event names the writer and they reach the writer only.
+    await this.bus.emitSettled('settings.changed', { previous, next, member })
   }
 
   // -------------------------------------------------------------------------
@@ -502,7 +513,10 @@ export class SettingsService {
    * {@link emitSettingsChanged} gives: the subscribers react to leaves that are
    * personal now, and the instance blob does not move when one of those changes.
    */
-  async updatePreferences(actor: UserId, values: Readonly<Record<string, unknown>>): Promise<PodiumSettings> {
+  async updatePreferences(
+    actor: UserId,
+    values: Readonly<Record<string, unknown>>,
+  ): Promise<PodiumSettings> {
     // THE SECRET REFUSAL SURVIVES THE ROUTING CHANGE (POD-1213).
     //
     // POD-420's patch write reached the blob through `setSettings`, so
@@ -528,7 +542,7 @@ export class SettingsService {
       decodeSettingsPreferencePatch(values),
       new Date(this.now()).toISOString(),
     )
-    await this.emitSettingsChanged(previous, next)
+    await this.emitSettingsChanged(previous, next, actor)
     return next
   }
 

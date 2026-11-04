@@ -992,11 +992,13 @@ export class IssueCrudModule {
   private async archiveClosedSubtree(parentId: string): Promise<void> {
     const skipped: Array<{ seq: number; why: string }> = []
     const children = await this.store.childRows(parentId, { live: true, unarchived: true })
+    // Each child's own ASSIGNEE's markers (POD-6291): the person accountable for
+    // that child is the one whose "seen it" lets a parent close sweep it.
     const markers = await this.store.issueUserStates(children.map((child) => child.id))
     for (const child of children) {
       if (!this.store.isClosed(child)) continue // open work is never swept by a parent close
-      // Per-user read state (POD-1076): the sweep asks the broadcast viewer,
-      // which is what "the operator has seen it" meant when this was a column.
+      // Per-user read state (POD-1076): "the operator has seen it" is now the
+      // assignee's read, never the first admin's.
       if ((markers.get(child.id)?.readAt ?? null) == null) {
         skipped.push({ seq: child.seq, why: 'unread' })
         continue
@@ -1062,7 +1064,7 @@ export class IssueCrudModule {
     repoId: RepoId | null | undefined,
     repoPath: string,
     parentId: string | null,
-    opts?: { includePinned?: boolean },
+    opts: { includePinned: true } | { unpinnedFor: UserId },
   ): Promise<SortScopeRow[]> {
     // One narrow read of the key space (POD-6192): every stored issue has a
     // repository id, so the top level is the repository's issues without a
@@ -1073,7 +1075,7 @@ export class IssueCrudModule {
       : repoId
         ? await issues.sortScope({
             repoId,
-            ...(opts?.includePinned === true ? {} : { unpinnedFor: await this.store.broadcastViewer() }),
+            ...('unpinnedFor' in opts ? { unpinnedFor: opts.unpinnedFor } : {}),
           })
         : []
     return rows
@@ -1135,7 +1137,8 @@ export class IssueCrudModule {
           'shipping stage is system-owned and cannot be changed by an issue move',
         )
       }
-      const keySpace = async () => await this.sortKeySpaceRows(row.repoId, row.repoPath, row.parentId ?? null)
+      const keySpace = async () =>
+        await this.sortKeySpaceRows(row.repoId, row.repoPath, row.parentId ?? null)
       let scope = await keySpace()
       if (!scope.some((sibling) => sibling.id === anchor.id)) {
         throw new IssueRefusal('move requires siblings with the same parent and repository')
@@ -1233,13 +1236,20 @@ export class IssueCrudModule {
     repoId: RepoId,
     repoPath: string,
     parentId: string | null,
+    /** Whose list the new task tops: its assignee's (POD-6291). Pins are per
+     *  member, so "the unpinned rows" is always somebody's. */
+    assignee: UserId,
   ): Promise<string> {
     // Measured over the unpinned rows, renumbered over the whole key space —
     // see `sortScopeRows` for why those two sets differ.
-    let min = this.minSortKey(await this.sortScopeRows(repoId, repoPath, parentId))
+    let min = this.minSortKey(
+      await this.sortScopeRows(repoId, repoPath, parentId, { unpinnedFor: assignee }),
+    )
     if (min !== null && min.length >= SORT_KEY_COMPACT_LEN) {
       await this.compactSortKeys(await this.sortKeySpaceRows(repoId, repoPath, parentId))
-      min = this.minSortKey(await this.sortScopeRows(repoId, repoPath, parentId))
+      min = this.minSortKey(
+        await this.sortScopeRows(repoId, repoPath, parentId, { unpinnedFor: assignee }),
+      )
     }
     return sortKeyBetween(null, min)
   }
@@ -1383,6 +1393,7 @@ export class IssueCrudModule {
         repoId,
         input.repoPath,
         input.parentId ? await this.store.resolveRef(input.parentId, input.repoPath) : null,
+        input.ownerUserId ?? (await firstAdminMemberId(this.store.deps.store)),
       ),
       needsHuman: false,
       createdAt: ts,
@@ -1480,7 +1491,7 @@ export class IssueCrudModule {
       repoPath?: string
       clearSuggestion?: boolean
       /** Whose pin a `pinned` patch sets (POD-6288): the calling member.
-       *  Absent = the broadcast viewer, for the server's own updates. */
+       *  Absent = the task's assignee, for the server's own updates (POD-6291). */
       viewer?: UserId
       /**
        * The human this write acts for, when a person or their agent made it
@@ -1553,7 +1564,9 @@ export class IssueCrudModule {
     // Attention-state before-values (issue #124): every pin/defer/archive path funnels
     // through update() (dedicated methods just call it), so a single before/after diff
     // here is the one place these transitions are detected and their events emitted.
-    const prevPinned = (await this.store.issueOverlay(row.id, opts?.viewer)).pinned
+    // WHOSE pin (POD-6291): the calling member's, else the assignee's.
+    const pinner = opts?.viewer ?? row.ownerUserId
+    const prevPinned = (await this.store.issueOverlay(row.id, pinner)).pinned
     const prevArchived = row.archived
     const prevDeferUntil = row.deferUntil
     const prevParentBranch = row.parentBranch
@@ -1597,11 +1610,12 @@ export class IssueCrudModule {
 
     if (pinnedPatch !== undefined) {
       // Re-pinning keeps the ORIGINAL stamp, same rule as the tuck-away.
-      const prevPinnedAt = (await this.store.issueUserState(row.id, opts?.viewer))?.pinnedAt ?? null
+      if (pinner === undefined) throw new IssueRefusal(`issue ${id} has no member to pin it for`)
+      const prevPinnedAt = (await this.store.issueUserState(row.id, pinner))?.pinnedAt ?? null
       await this.store.writeIssueUserState(
         row.id,
         { pinnedAt: pinnedPatch ? (prevPinnedAt ?? this.store.now()) : null },
-        opts?.viewer,
+        pinner,
       )
     }
     if ('parentId' in rowPatch) {
@@ -1661,8 +1675,9 @@ export class IssueCrudModule {
       // a tuck from a PRIOR close, or the next time it finishes it would fold
       // itself away without the operator ever seeing it. A later close offers
       // Tuck away again. Cleared here — on the closed-predicate flip itself — so
-      // every client converges on it through the same broadcast.
-      await this.store.writeIssueUserState(row.id, { tuckedAt: null })
+      // every client converges on it through the same broadcast. EVERY member's
+      // tuck (POD-6291): the reopen is about the task, so nobody's fold survives.
+      await this.store.clearIssueMarkerForAll(row.id, 'tuckedAt')
     }
     // Organizational-only patches (pin / sortKey reorder) are not activity: do
     // not advance updatedAt past readAt or computeUnread re-marks the issue
@@ -1748,9 +1763,15 @@ export class IssueCrudModule {
     }
     // Attention-state transitions S3 renders (issue #124). Emit only on an actual
     // change so a re-pin / re-archive / re-defer-to-same-time never duplicates.
-    const nowPinned = (await this.store.issueOverlay(row.id, opts?.viewer)).pinned
-    if (nowPinned !== prevPinned) {
-      await this.store.emitEvent('issue.pinned', row.id, { seq: row.seq, pinned: nowPinned })
+    // A pin is a transition of ONE member's marker (POD-6291): the event names
+    // that member, and the task's shared activity shows it to nobody else.
+    const nowPinned = (await this.store.issueOverlay(row.id, pinner)).pinned
+    if (nowPinned !== prevPinned && pinner !== undefined) {
+      await this.store.emitEvent('issue.pinned', row.id, {
+        seq: row.seq,
+        pinned: nowPinned,
+        userId: pinner,
+      })
     }
     if (row.archived !== prevArchived && row.archived) {
       await this.store.emitEvent('issue.archived', row.id, { seq: row.seq })
@@ -1799,8 +1820,9 @@ export class IssueCrudModule {
   /** Publish only the actor's read cursor and issue.read event. Automatic
    * receipts carry the observed activity; an explicit mark-read still covers
    * now, this issue's updates, descendants and their sessions (POD-912). */
-  async markIssueRead(id: string, observedAt?: string, viewer?: UserId): Promise<IssueProjection> {
+  async markIssueRead(id: string, observedAt?: string, member?: UserId): Promise<IssueProjection> {
     const row = await this.store.rowOrThrow(id)
+    const viewer = markerMemberOf(row, member)
     // Automatic receipts name what was actually seen, including across an
     // offline replay. Open-issue receipts avoid subtree discovery entirely;
     // read receipts never rewrite the issue.
@@ -1809,7 +1831,8 @@ export class IssueCrudModule {
     // A quiet closed issue keeps its existing post-read retention grace. Only
     // advance to receipt time after proving there is no newer unseen activity.
     if (
-      observedAt && this.store.isClosed(row) &&
+      observedAt &&
+      this.store.isClosed(row) &&
       (await this.coveringReadAt(row, row.updatedAt)) <= observedAt
     ) {
       const now = this.store.now()
@@ -1818,7 +1841,8 @@ export class IssueCrudModule {
     if (previous && previous >= readAt) return await this.store.projection(row)
     await this.store.writeIssueUserState(row.id, { readAt }, viewer)
     const wire = await this.store.projection(row)
-    await this.store.emitEvent('issue.read', row.id, { seq: row.seq })
+    // One member's marker (POD-6291): the event names whose, see `issue.pinned`.
+    await this.store.emitEvent('issue.read', row.id, { seq: row.seq, userId: viewer })
     return wire
   }
 
@@ -1843,11 +1867,12 @@ export class IssueCrudModule {
    *  flips back to true, persist + broadcast, and log issue.unread. Mirrors
    *  markIssueRead exactly, on the actor's own `(userId, issueId)` row (POD-1076);
    *  marking MY copy unread never touches yours. */
-  async markIssueUnread(id: string, viewer?: UserId): Promise<IssueProjection> {
+  async markIssueUnread(id: string, member?: UserId): Promise<IssueProjection> {
     const row = await this.store.rowOrThrow(id)
+    const viewer = markerMemberOf(row, member)
     await this.store.writeIssueUserState(row.id, { readAt: null }, viewer)
     const wire = await this.store.projection(row)
-    await this.store.emitEvent('issue.unread', row.id, { seq: row.seq })
+    await this.store.emitEvent('issue.unread', row.id, { seq: row.seq, userId: viewer })
     return wire
   }
 
@@ -1861,9 +1886,10 @@ export class IssueCrudModule {
    *  completion decay and re-mark the issue unread). Tucking an OPEN issue is
    *  rejected rather than stored: the fold is for finished work, and a stamp
    *  parked on an open row would fire the moment it later closed. */
-  async setIssueTucked(id: string, tucked: boolean, viewer?: UserId): Promise<IssueProjection> {
+  async setIssueTucked(id: string, tucked: boolean, member?: UserId): Promise<IssueProjection> {
     const row = await this.store.draft(await this.store.resolveRef(id))
     if (!row) throw new IssueNotFound(id)
+    const viewer = markerMemberOf(row, member)
     if (tucked && !this.store.isClosed(row)) throw new IssueRefusal(`issue ${id} is not finished`)
     // Re-tucking keeps the ORIGINAL stamp: a retried outbox entry (or a second
     // client pressing the same control) must not move the dismissal moment.
@@ -2263,4 +2289,17 @@ export class IssueCrudModule {
     row.suggestedReason = null
     return await this.store.persistRow(row)
   }
+}
+
+/**
+ * WHOSE MARKER a marker command writes (POD-6291): the member it acts for, else
+ * — the server acting for itself — the task's assignee. Never the first admin.
+ */
+function markerMemberOf(
+  row: Pick<IssueRow, 'id' | 'ownerUserId'>,
+  member: UserId | undefined,
+): UserId {
+  const owner = member ?? row.ownerUserId
+  if (owner === undefined) throw new IssueRefusal(`issue ${row.id} has no member to mark it for`)
+  return owner
 }

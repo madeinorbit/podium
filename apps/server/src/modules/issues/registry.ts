@@ -27,8 +27,9 @@ import { checkIssueAccess } from '../../issue-authz'
 import { withReadScope } from '../../store/executor/read-scope'
 import { ShippingOrderAccessError } from '../shipping/service'
 import type { IssueCaller, IssueCommandAccess, IssueCommandCtx } from './command-ctx'
-import type { IssueCommandResult } from './service/reads'
+import { eventsForMember } from './event-visibility'
 import { IssueNotFound } from './service/not-found'
+import type { IssueCommandResult } from './service/reads'
 import { IssueRefusal } from './service/refusal'
 import { becameCoordinatorText, seatRefusal, seatText } from './service/seat'
 
@@ -192,7 +193,11 @@ function personHuman(ctx: IssueCommandCtx): UserId | undefined {
   return isPersonCapability(ctx.caller.capability) ? ctx.markerUser() : undefined
 }
 
-async function sessionOwnedBy(ctx: IssueCommandCtx, sessionId: string, human: UserId): Promise<boolean> {
+async function sessionOwnedBy(
+  ctx: IssueCommandCtx,
+  sessionId: string,
+  human: UserId,
+): Promise<boolean> {
   const rows = await ctx.deps.executionFacts.store.sessions.getSessions([sessionId])
   return rows.get(sessionId)?.ownerUserId === human
 }
@@ -221,7 +226,11 @@ async function ownSubscriberOrRefuse(
 
 /** Refuse a remove or toggle of a subscription that is not the caller's own:
  *  a person's own subscriber (above), or an agent's derived subscriber. */
-async function assertOwnSubscription(ctx: IssueCommandCtx, id: string, verb: 'remove' | 'toggle'): Promise<void> {
+async function assertOwnSubscription(
+  ctx: IssueCommandCtx,
+  id: string,
+  verb: 'remove' | 'toggle',
+): Promise<void> {
   const human = personHuman(ctx)
   let owned: boolean
   if (human !== undefined) {
@@ -233,10 +242,15 @@ async function assertOwnSubscription(ctx: IssueCommandCtx, id: string, verb: 're
         : (await ctx.reports.getMeta(sub.subscriberId).catch(() => null))?.ownerUserId === human)
   } else {
     const subscriber = ctx.deriveSubscriber()
-    owned = (await ctx.attention.subscriptionList({ subscriberId: subscriber.id })).some((s) => s.id === id)
+    owned = (await ctx.attention.subscriptionList({ subscriberId: subscriber.id })).some(
+      (s) => s.id === id,
+    )
   }
   if (!owned) {
-    throw new TRPCError({ code: 'FORBIDDEN', message: `not allowed to ${verb} a subscription you do not own` })
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: `not allowed to ${verb} a subscription you do not own`,
+    })
   }
 }
 
@@ -460,7 +474,9 @@ function def<N extends IssueContractName, K extends IssueCommandKind, Out>(
       // checks share one batched grant read (POD-6149, server-data rule 2).
       if (d.kind === 'query') return await withReadScope(async () => await d.handler(ctx, input))
       const result = await d.handler(ctx, input)
-      return d.kind === 'mutation' ? await ctx.reports.commandResult(result, ctx.markerUser()) : result
+      return d.kind === 'mutation'
+        ? await ctx.reports.commandResult(result, ctx.markerUser())
+        : result
     },
     input: contract.input,
     action: contract.policy.action,
@@ -542,8 +558,7 @@ const defs = {
     handler: async (ctx, input) =>
       await ctx.readIssue(
         input.id,
-        async () =>
-          await ctx.reports.epicStatus(input.id, ctx.issueReader()),
+        async () => await ctx.reports.epicStatus(input.id, ctx.issueReader()),
       ),
   }),
   children: def('children', {
@@ -552,11 +567,7 @@ const defs = {
       await ctx.readIssue(
         input.id,
         async () =>
-          await ctx.reports.children(
-            input.id,
-            input.recursive ?? false,
-            ctx.issueReader(),
-          ),
+          await ctx.reports.children(input.id, input.recursive ?? false, ctx.issueReader()),
       ),
   }),
   tree: def('tree', {
@@ -573,21 +584,16 @@ const defs = {
   }),
   deck: def('deck', {
     kind: 'query',
-    handler: async (ctx, input) =>
-      await ctx.reports.deck(input.id, ctx.issueReader()),
+    handler: async (ctx, input) => await ctx.reports.deck(input.id, ctx.issueReader()),
   }),
   depReport: def('depReport', {
     kind: 'query',
-    handler: async (ctx, input) =>
-      await ctx.reports.depReport(input, ctx.issueReader()),
+    handler: async (ctx, input) => await ctx.reports.depReport(input, ctx.issueReader()),
   }),
   closeEligibleEpics: def('closeEligibleEpics', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.reports.closeEligibleEpics(
-        input.repoPath,
-        ctx.issueReader(),
-      ),
+      await ctx.reports.closeEligibleEpics(input.repoPath, ctx.issueReader()),
   }),
   labelList: def('labelList', {
     kind: 'query',
@@ -596,31 +602,20 @@ const defs = {
   findDuplicates: def('findDuplicates', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.reports.findDuplicates(
-        input.repoPath,
-        input.threshold,
-        ctx.issueReader(),
-      ),
+      await ctx.reports.findDuplicates(input.repoPath, input.threshold, ctx.issueReader()),
   }),
   stale: def('stale', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.reports.staleList(
-        input.repoPath,
-        input.days,
-        Date.now(),
-        ctx.issueReader(),
-      ),
+      await ctx.reports.staleList(input.repoPath, input.days, Date.now(), ctx.issueReader()),
   }),
   doctor: def('doctor', {
     kind: 'query',
-    handler: async (ctx, input) =>
-      await ctx.reports.doctor(input.repoPath, ctx.issueReader()),
+    handler: async (ctx, input) => await ctx.reports.doctor(input.repoPath, ctx.issueReader()),
   }),
   preflight: def('preflight', {
     kind: 'query',
-    handler: async (ctx, input) =>
-      await ctx.reports.preflight(input.repoPath, ctx.issueReader()),
+    handler: async (ctx, input) => await ctx.reports.preflight(input.repoPath, ctx.issueReader()),
   }),
   deliveryReceipt: def('deliveryReceipt', {
     kind: 'query',
@@ -647,18 +642,15 @@ const defs = {
   }),
   count: def('count', {
     kind: 'query',
-    handler: async (ctx, input) =>
-      await ctx.reports.count(input.repoPath, ctx.issueReader()),
+    handler: async (ctx, input) => await ctx.reports.count(input.repoPath, ctx.issueReader()),
   }),
   stats: def('stats', {
     kind: 'query',
-    handler: async (ctx, input) =>
-      await ctx.reports.stats(input.repoPath, ctx.issueReader()),
+    handler: async (ctx, input) => await ctx.reports.stats(input.repoPath, ctx.issueReader()),
   }),
   orphans: def('orphans', {
     kind: 'query',
-    handler: async (ctx, input) =>
-      await ctx.reports.orphans(input.repoPath, ctx.issueReader()),
+    handler: async (ctx, input) => await ctx.reports.orphans(input.repoPath, ctx.issueReader()),
   }),
   get: def('get', {
     kind: 'query',
@@ -717,8 +709,8 @@ const defs = {
   }),
   events: def('events', {
     kind: 'query',
-    handler: async (ctx, input) =>
-      await ctx.reports.listEvents(input.since, {
+    handler: async (ctx, input) => {
+      const events = await ctx.reports.listEvents(input.since, {
         ...(input.kinds ? { kinds: input.kinds } : {}),
         ...(input.excludeKinds ? { excludeKinds: input.excludeKinds } : {}),
         ...(input.repoPath ? { repoPath: input.repoPath } : {}),
@@ -726,7 +718,14 @@ const defs = {
         ...(input.limit != null ? { limit: input.limit } : {}),
         ...(input.before != null ? { before: input.before } : {}),
         ...(input.order ? { order: input.order } : {}),
-      }),
+      })
+      // The log holds every member's history (POD-6291): a person, or an agent
+      // for one, reads only what is theirs to see. See `event-visibility.ts`.
+      const member = ctx.markerUser()
+      return member === undefined
+        ? events
+        : await eventsForMember(events, member, ctx.deps.executionFacts)
+    },
   }),
   // hits the external Linear API — 'write' keeps read-only callers from driving it
   linearSearch: def('linearSearch', {
@@ -1011,8 +1010,9 @@ const defs = {
   attachSession: def('attachSession', {
     kind: 'mutation',
     handler: async (ctx, input) => {
-      const origin: 'human' | 'agent' =
-        isPersonCapability(ctx.caller.capability) ? 'human' : 'agent'
+      const origin: 'human' | 'agent' = isPersonCapability(ctx.caller.capability)
+        ? 'human'
+        : 'agent'
       // B2/M5 [spec:SP-6144]: a session may not re-home onto (or file a
       // sub-issue under) a proposed issue — the proposal subtree is inert.
       if (input.targetId != null) {
@@ -1629,11 +1629,14 @@ const defs = {
       // WHICH session is reading [POD-1379]: the mailbox is shared by every
       // agent on the issue, so the read is consumed per reader. Server-stamped
       // from the caller (mailIdentity pattern); client input never contributes.
+      const member = ctx.markerUser()
       const rows = await ctx.commentsMail.mailInbox(asIssueId(id), {
         markRead,
         ...(ctx.caller.capability.actorSessionId
           ? { sessionId: ctx.caller.capability.actorSessionId }
           : {}),
+        // The reading agent's human (POD-6291): their read marker, nobody else's.
+        ...(member ? { member } : {}),
       })
       // MAIL IS PRIVATE (POD-6284, POD-6288). An agent reads its own subtree's
       // boxes whole; anyone else, a person included, sees only the rows the mail
@@ -1642,7 +1645,8 @@ const defs = {
       const resolved = await ctx.reports.resolveRef(id)
       const inSubtree =
         scope.kind === 'subtree' &&
-        (scope.rootId === resolved || (await ctx.hierarchy.ancestorIds(resolved)).includes(scope.rootId))
+        (scope.rootId === resolved ||
+          (await ctx.hierarchy.ancestorIds(resolved)).includes(scope.rootId))
       if (inSubtree || !ctx.deps.mailVisibleIds) return rows
       const visible = await ctx.deps.mailVisibleIds(
         ctx.caller.capability,
@@ -1743,8 +1747,14 @@ const defs = {
         subscriber = await ownSubscriberOrRefuse(ctx, input.subscriber, human)
         // A person watches any task (tasks are shared) but only their own
         // sessions: another member's session events are private.
-        if (input.source.kind === 'session' && !(await sessionOwnedBy(ctx, input.source.ref, human))) {
-          throw new TRPCError({ code: 'FORBIDDEN', message: 'you may watch only your own sessions' })
+        if (
+          input.source.kind === 'session' &&
+          !(await sessionOwnedBy(ctx, input.source.ref, human))
+        ) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'you may watch only your own sessions',
+          })
         }
       } else {
         subscriber = ctx.deriveSubscriber()
@@ -1830,7 +1840,8 @@ export async function guardIssueCommand(
   // Target extraction: only for constrained caps writing an existing target
   // issue. A member's own scope (a person's, or a legacy persisted `all`)
   // reaches every task (design §4.1, POD-6288), so its target decides nothing.
-  const memberScope = caller.capability.scope.kind === 'owned' || caller.capability.scope.kind === 'all'
+  const memberScope =
+    caller.capability.scope.kind === 'owned' || caller.capability.scope.kind === 'all'
   const extract = memberScope ? undefined : def.target
   let targetId: string | undefined
   if (extract) {

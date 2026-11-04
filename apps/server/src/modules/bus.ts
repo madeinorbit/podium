@@ -170,6 +170,13 @@ export interface EventMap {
   'settings.changed': {
     previous: import('@podium/runtime').PodiumSettings
     next: import('@podium/runtime').PodiumSettings
+    /**
+     * The member whose RESOLVED view `previous`/`next` are (POD-6291). A
+     * personal leaf (notification routing, auto-continue) moved for this
+     * member only, so a reaction to it reaches this member's sessions only.
+     * Absent: an instance-wide change (a secret, the deployment tier).
+     */
+    member?: UserId
   }
   /**
    * THIS PROCESS wrote config.json (previous → next) — POD-3840.

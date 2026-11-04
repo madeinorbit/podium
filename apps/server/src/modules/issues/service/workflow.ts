@@ -1,4 +1,3 @@
-import { deepestOwner } from '../folder-owner'
 import { createLogger } from '@podium/logger'
 import {
   asMachineId,
@@ -6,7 +5,6 @@ import {
   type IssueId,
   type IssueProjection,
   type IssueRehomeTarget,
-  type UserId,
   isAgentFieldSet,
   isIssueStage,
   isSystemOwnedIssueStage,
@@ -15,6 +13,7 @@ import {
   type SessionId,
   type SessionMeta,
   spawnedByTag,
+  type UserId,
 } from '@podium/model'
 import { formatIssueRef, type WorktreeGcObservation } from '@podium/protocol'
 import { resolveSpawnDefaults } from '@podium/runtime'
@@ -30,6 +29,7 @@ import {
   shellQuietMs,
 } from '../../sessions/terminal-lifetime'
 import { resolveShellOwningIssue } from '../../shells/service'
+import { deepestOwner } from '../folder-owner'
 import { issueRefsPattern, probeGitState } from '../git-state'
 import { IssueAssistantDigestModule } from './assistant'
 import type { IssueAttentionModule } from './attention'
@@ -293,7 +293,10 @@ export class IssueGitWorkflowModule {
       return found
     }
     if (row.parentId) {
-      return (await chain(row.parentId)).find((ancestor) => ancestor.agentProfileId)?.agentProfileId ?? null
+      return (
+        (await chain(row.parentId)).find((ancestor) => ancestor.agentProfileId)?.agentProfileId ??
+        null
+      )
     }
     const originId = (await this.store.deps.store.issues.listIssueDeps(row.id)).find(
       (dep) => dep.type === 'discovered-from',
@@ -632,9 +635,9 @@ export class IssueGitWorkflowModule {
       row.duplicateOf = null
       // …including the tuck-away dismissal (POD-333), same as update()'s reopen:
       // work picked back up must not carry a stale fold into its next close.
-      // PER-USER (POD-1076): clears the broadcast viewer's fold, which is what
-      // this cleared when the stamp was a column.
-      await this.store.writeIssueUserState(row.id, { tuckedAt: null })
+      // EVERY member's fold (POD-6291): the start is about the task, so another
+      // member's tuck must not survive it either.
+      await this.store.clearIssueMarkerForAll(row.id, 'tuckedAt')
     }
     /** What a failed spawn puts back (POD-6119), read off the draft this start writes. */
     const before = { stage: row.stage }
@@ -1820,7 +1823,10 @@ export class IssueGitWorkflowModule {
     if (!sess) return
     // The live issues carrying a deferral, in one SQL listing (POD-6194).
     const deferred = await this.store.deps.store.issues.listIssueRowsWhere({
-      repo: false, live: true, deferred: true, order: 'path-seq',
+      repo: false,
+      live: true,
+      deferred: true,
+      order: 'path-seq',
     })
     for (const row of deferred) {
       if (row.deferUntil !== DEFER_NEXT_MESSAGE || row.deletedAt) continue
@@ -2079,7 +2085,11 @@ export class IssueGitWorkflowModule {
     }
     // The live, unarchived issues with a worktree, in one SQL listing (POD-6194).
     const watched = await this.store.deps.store.issues.listIssueRowsWhere({
-      repo: false, live: true, unarchived: true, hasWorktree: true, order: 'path-seq',
+      repo: false,
+      live: true,
+      unarchived: true,
+      hasWorktree: true,
+      order: 'path-seq',
     })
     for (const row of watched) {
       if (!watchesParentBranch(row)) continue

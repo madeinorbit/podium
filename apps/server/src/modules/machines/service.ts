@@ -60,6 +60,7 @@ import { enrollSetupMachine, readSetupEnrollment } from '../../setup-enrollment'
 import type { MachineRecord, SessionStore } from '../../store'
 import type { SettingsAuditRow } from '../../store/settings-audit'
 import type { EventBus } from '../bus'
+import { custodianFromEdges } from '../issues/execution-visibility'
 import type { Send } from '../sessions/session'
 import type { EnrollmentHost, MachineManagementContext } from './enrollment'
 import * as credentials from './enrollment'
@@ -519,6 +520,7 @@ export class MachinesService {
   private readonly enrollmentHost: EnrollmentHost
 
   private readonly unsubscribeMachineWrites: () => void
+  private readonly unsubscribeGrantWrites: () => void
 
   constructor(private readonly deps: MachinesDeps) {
     // Machine rows are read from the table (POD-6155); a committed write only
@@ -528,6 +530,9 @@ export class MachinesService {
         this.applyMachineWrite(raw.id, change.operation === 'delete' ? null : raw.revokedAt)
       }
     })
+    this.unsubscribeGrantWrites = deps.store.grants.committed.subscribe((change) =>
+      this.onGrantsCommitted(change.rows),
+    )
 
     // Built here, not as a field initializer: `deps` is a parameter property and
     // under ES2022 class-field semantics field initializers run BEFORE it lands.
@@ -1148,6 +1153,7 @@ export class MachinesService {
   dispose(): void {
     this.spaceRequests.close()
     this.unsubscribeMachineWrites()
+    this.unsubscribeGrantWrites()
   }
 
   /** Resolve the native login identity available on the machine that will run a session. */
@@ -1730,7 +1736,7 @@ export class MachinesService {
    */
   /** Small offline-replicated display record. No fleet listing or operational
    * details are copied into the authority row. */
-  private displayProjection(machine: MachineRecord): MachineProjection {
+  private displayProjection(machine: MachineRecord, custodian: UserId | null): MachineProjection {
     return {
       id: machine.id,
       name: machine.name,
@@ -1739,20 +1745,60 @@ export class MachinesService {
           (agent) => agent.kind === kind && agent.installed === true && agent.login.state === 'out',
         ),
       ),
+      custodian,
     }
   }
 
+  /** The custodian of each machine, from its custody edge, in one read. */
+  private async custodiansOf(ids: readonly string[]): Promise<Map<string, UserId | null>> {
+    const edges =
+      ids.length === 0 ? new Map() : await this.deps.store.grants.loadForResources('machine', ids)
+    return new Map(ids.map((id) => [id, custodianFromEdges(edges.get(id))]))
+  }
+
   async projectionRows(): Promise<{ id: MachineId; value: MachineProjection }[]> {
-    return (await this.machineRecords()).map((machine) => ({
+    const machines = await this.machineRecords()
+    const custodians = await this.custodiansOf(machines.map((machine) => machine.id))
+    return machines.map((machine) => ({
       id: machine.id,
-      value: this.displayProjection(machine),
+      value: this.displayProjection(machine, custodians.get(machine.id) ?? null),
     }))
   }
 
   private async publishDisplayProjection(id: MachineId): Promise<void> {
     if (!this.deps.publishMachineProjection) return
     const machine = await this.deps.store.machines.getMachine(id)
-    if (machine) await this.deps.publishMachineProjection(id, this.displayProjection(machine))
+    if (!machine) return
+    const custodian = (await this.custodiansOf([id])).get(id) ?? null
+    await this.deps.publishMachineProjection(id, this.displayProjection(machine, custodian))
+  }
+
+  /**
+   * A CUSTODY CHANGE IS A CHANGE OF THE MACHINE'S ROW (POD-6291). The custodian
+   * decides who receives the worktree paths of the tasks homed here, so the
+   * row is republished after a custody edge commits, and the feed re-sends
+   * those tasks to the members whose view moved (`feed-visibility.ts`).
+   */
+  private onGrantsCommitted(
+    rows: readonly {
+      resourceKind: string
+      resourceId: string
+      verb: string
+      custody?: boolean | number | null
+    }[],
+  ): void {
+    const machines = new Set(
+      rows
+        .filter(
+          (row) => row.resourceKind === 'machine' && row.verb === 'manage' && Boolean(row.custody),
+        )
+        .map((row) => asMachineId(row.resourceId)),
+    )
+    for (const id of machines) {
+      void this.publishDisplayProjection(id).catch((err: unknown) => {
+        log.warn('custody change could not republish the machine', { err, machineId: id })
+      })
+    }
   }
 
   async factsSnapshot(): Promise<MachineFactsSnapshot> {

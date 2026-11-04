@@ -47,6 +47,7 @@ async function fixture() {
     issues: {
       getIssue: async () => issue,
       getIssues: async () => new Map([[issue.id, issue]]),
+      liveWorktreeIssuesOnMachines: async () => new Map(),
     },
     sessions: {
       getSessions: async () => new Map([[session.id, session]]),
@@ -149,8 +150,7 @@ describe('feed visibility grant semantics', () => {
     // Every member reads every task, and its git state with it (POD-6288).
     expect(state.mayRead(stranger, git)).toBe(true)
     expect(
-      (await edgeOf(policy.anchors, { entity: 'issueProjection', entityId: 'shared' }))
-        ?.subjects,
+      (await edgeOf(policy.anchors, { entity: 'issueProjection', entityId: 'shared' }))?.subjects,
     ).toContainEqual(git)
   })
   it('reads grants through its store port but cannot write them', () => {
@@ -205,8 +205,7 @@ describe('feed visibility grant semantics', () => {
     expect(await policy.mayReadIssue(revoked, asIssueId('shared'))).toBe(true)
     // Revoked readers remain in the historical audience so they receive removals.
     expect(
-      (await edgeOf(policy.anchors, { entity: 'issueProjection', entityId: 'shared' }))
-        ?.audience,
+      (await edgeOf(policy.anchors, { entity: 'issueProjection', entityId: 'shared' }))?.audience,
     ).toEqual([reader, revoked])
   })
 

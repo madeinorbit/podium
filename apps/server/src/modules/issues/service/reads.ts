@@ -15,9 +15,9 @@ import {
   isIssueClosed,
   isIssueStage,
   isLabelColorSlot,
-  issueOverlayOf,
   isReadyIssueStage,
   isSystemOwnedIssueStage,
+  issueOverlayOf,
   machinePathKey,
   type OrphanIssue,
   type RepoId,
@@ -123,7 +123,11 @@ function blockedBy(
 
 const text = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 
-function groupBy<T, K, V>(items: readonly T[], key: (item: T) => K, value: (item: T) => V): Map<K, V[]> {
+function groupBy<T, K, V>(
+  items: readonly T[],
+  key: (item: T) => K,
+  value: (item: T) => V,
+): Map<K, V[]> {
   const out = new Map<K, V[]>()
   for (const item of items) {
     const k = key(item)
@@ -187,7 +191,7 @@ export class IssueReportsModule {
 
   /** Convert only requested command results. The mutation/publish path never builds reports.
    *  `viewer` is whose per-user markers the reports carry (POD-6288): the
-   *  member the command acted for; absent, the broadcast viewer's. */
+   *  member the command acted for; absent, each task's assignee's (POD-6291). */
   async commandResult<T>(value: T, viewer?: UserId): Promise<IssueCommandResult<T>> {
     const projections = new Map<string, IssueProjection>()
     const collect = (item: unknown): void => {
@@ -215,7 +219,9 @@ export class IssueReportsModule {
       found.map((entry) => entry.own),
       viewer ? { viewer: () => viewer, mayRead: () => true } : UNRESTRICTED_READER,
     )
-    const reports = new Map<string, IssueReport>(found.map((entry, index) => [entry.row.id, built[index]!] as const))
+    const reports = new Map<string, IssueReport>(
+      found.map((entry, index) => [entry.row.id, built[index]!] as const),
+    )
     const replace = (item: unknown): unknown => {
       if (Array.isArray(item)) return item.map(replace)
       if (!item || typeof item !== 'object') return item
@@ -232,7 +238,11 @@ export class IssueReportsModule {
   }
 
   async list(repoPath?: string, reader: IssueReader = UNRESTRICTED_READER): Promise<IssueReport[]> {
-    return await this.reportsFor(await this.listed(repoPath, reader, { live: false, order: 'repo-seq' }), undefined, reader)
+    return await this.reportsFor(
+      await this.listed(repoPath, reader, { live: false, order: 'repo-seq' }),
+      undefined,
+      reader,
+    )
   }
 
   /**
@@ -248,11 +258,13 @@ export class IssueReportsModule {
   ): Promise<IssueRow[]> {
     const scope = await this.scopeOf(repoPath)
     if (scope === null) return []
-    return await this.visible(reader, async () =>
-      await this.store.deps.store.issues.listIssueRowsWhere(
-        { ...shape, repo: scope !== undefined },
-        { ...input, ...(scope !== undefined ? { repoId: scope } : {}) },
-      ),
+    return await this.visible(
+      reader,
+      async () =>
+        await this.store.deps.store.issues.listIssueRowsWhere(
+          { ...shape, repo: scope !== undefined },
+          { ...input, ...(scope !== undefined ? { repoId: scope } : {}) },
+        ),
     )
   }
 
@@ -282,7 +294,6 @@ export class IssueReportsModule {
     return await run()
   }
 
-
   /** Reports for these rows, with every join read once for the set. */
   private async reportsFor(
     rows: readonly IssueRow[],
@@ -291,7 +302,9 @@ export class IssueReportsModule {
   ): Promise<IssueReport[]> {
     if (rows.length === 0) return []
     const batch = await this.reportBatchFor(rows, reader)
-    return await Promise.all(rows.map(async (row, index) => await this.report(row, batch, own?.[index])))
+    return await Promise.all(
+      rows.map(async (row, index) => await this.report(row, batch, own?.[index])),
+    )
   }
 
   /** Joins only for a requested report. No publication path calls this method. */
@@ -367,12 +380,24 @@ export class IssueReportsModule {
     const ids = rows.map((row) => row.id)
     const issues = this.store.deps.store.issues
     const labelsByIssue = await issues.labelsOfIssues(ids)
-    const depsByFrom = groupBy(await issues.depsFromIssues(ids), (dep) => dep.fromId, (dep) => ({ toId: dep.toId, type: dep.type }))
-    const dependentsByTo = groupBy(await issues.depsToIssues(ids), (dep) => dep.toId, (dep) => ({ fromId: dep.fromId, type: dep.type }))
-    const childrenByParent = groupBy(await issues.liveChildrenOf(ids), (child) => child.parentId, (child) => child)
+    const depsByFrom = groupBy(
+      await issues.depsFromIssues(ids),
+      (dep) => dep.fromId,
+      (dep) => ({ toId: dep.toId, type: dep.type }),
+    )
+    const dependentsByTo = groupBy(
+      await issues.depsToIssues(ids),
+      (dep) => dep.toId,
+      (dep) => ({ fromId: dep.fromId, type: dep.type }),
+    )
+    const childrenByParent = groupBy(
+      await issues.liveChildrenOf(ids),
+      (child) => child.parentId,
+      (child) => child,
+    )
     const commentCounts = await issues.commentCountsOfIssues(ids)
     // The reader's own markers (design §4.1 "Self", POD-6288); the server's
-    // own reads keep the broadcast viewer's.
+    // own reads read each task's assignee's (POD-6291).
     const markers = await this.store.issueUserStates(ids, reader.viewer() ?? undefined)
     const blockers = [...depsByFrom.values()].flatMap((deps) =>
       deps.flatMap((dep) => (dep.type === 'blocked-by' ? [dep.toId] : [])),
@@ -414,9 +439,10 @@ export class IssueReportsModule {
     const scope = await this.scopeOf(repoPath)
     if (scope === null) return undefined
     const issues = this.store.deps.store.issues
-    const refs = scope === undefined
-      ? await issues.issueRefsAt(seq)
-      : (await issues.issueRefsAt(seq, scope)).filter((ref) => ref.repoId === scope)
+    const refs =
+      scope === undefined
+        ? await issues.issueRefsAt(seq)
+        : (await issues.issueRefsAt(seq, scope)).filter((ref) => ref.repoId === scope)
     const first = refs.sort((a, b) => ((a.repoId ?? '') < (b.repoId ?? '') ? -1 : 1))[0]
     return first ? ((await this.get(first.id)) ?? undefined) : undefined
   }
@@ -430,9 +456,13 @@ export class IssueReportsModule {
     const issues = this.store.deps.store.issues
     const byId = new Map<string, IssueRow>()
     const shape = { repo: false, live: true, state: 'closed', order: 'repo-seq' } as const
-    for (const row of await issues.listIssueRowsWhere({ ...shape, hasWorktree: true })) byId.set(row.id, row)
+    for (const row of await issues.listIssueRowsWhere({ ...shape, hasWorktree: true }))
+      byId.set(row.id, row)
     if (withMembers.size > 0) {
-      for (const row of await issues.listIssueRowsWhere({ ...shape, ids: 1 }, { ids: [...withMembers] })) {
+      for (const row of await issues.listIssueRowsWhere(
+        { ...shape, ids: 1 },
+        { ids: [...withMembers] },
+      )) {
         byId.set(row.id, row)
       }
     }
@@ -443,18 +473,28 @@ export class IssueReportsModule {
       .map((row) => row.id)
   }
 
-  async readyList(repoPath?: string, reader: IssueReader = UNRESTRICTED_READER): Promise<IssueReport[]> {
+  async readyList(
+    repoPath?: string,
+    reader: IssueReader = UNRESTRICTED_READER,
+  ): Promise<IssueReport[]> {
     return await this.reportsFor(
-      (await this.listed(repoPath, reader, { live: true, state: 'ready', order: 'priority-seq' })).filter(
-        (row) => !this.store.isDeferred(row),
-      ),
+      (
+        await this.listed(repoPath, reader, { live: true, state: 'ready', order: 'priority-seq' })
+      ).filter((row) => !this.store.isDeferred(row)),
       undefined,
       reader,
     )
   }
 
-  async blockedList(repoPath?: string, reader: IssueReader = UNRESTRICTED_READER): Promise<IssueReport[]> {
-    return await this.reportsFor(await this.listed(repoPath, reader, { live: true, state: 'blocked', order: 'priority-seq' }), undefined, reader)
+  async blockedList(
+    repoPath?: string,
+    reader: IssueReader = UNRESTRICTED_READER,
+  ): Promise<IssueReport[]> {
+    return await this.reportsFor(
+      await this.listed(repoPath, reader, { live: true, state: 'blocked', order: 'priority-seq' }),
+      undefined,
+      reader,
+    )
   }
 
   async graph(repoPath?: string, reader: IssueReader = UNRESTRICTED_READER): Promise<IssueGraph> {
@@ -514,7 +554,12 @@ export class IssueReportsModule {
     shape: { live: boolean; unarchived?: boolean },
   ): Promise<IssueRow[]> {
     if (parents.length === 0) return []
-    return await this.listed(undefined, reader, { ...shape, parents: 1, order: 'path-seq' }, { parents })
+    return await this.listed(
+      undefined,
+      reader,
+      { ...shape, parents: 1, order: 'path-seq' },
+      { parents },
+    )
   }
 
   /**
@@ -549,7 +594,11 @@ export class IssueReportsModule {
   }
 
   /** Depth-first over a subtree, each level in the order it was read. */
-  private static depthFirst(byParent: ReadonlyMap<string, IssueRow[]>, rootId: string, recursive: boolean): IssueRow[] {
+  private static depthFirst(
+    byParent: ReadonlyMap<string, IssueRow[]>,
+    rootId: string,
+    recursive: boolean,
+  ): IssueRow[] {
     const out: IssueRow[] = []
     const walk = (pid: string, seen: Set<string>): void => {
       for (const row of byParent.get(pid) ?? []) {
@@ -572,9 +621,18 @@ export class IssueReportsModule {
     reader: IssueReader = UNRESTRICTED_READER,
   ): Promise<IssueReport[]> {
     const root = await this.store.rowOrThrow(id)
-    const byParent = await this.subtreeOf(root.id, reader, { live: true }, recursive ? undefined : 1)
+    const byParent = await this.subtreeOf(
+      root.id,
+      reader,
+      { live: true },
+      recursive ? undefined : 1,
+    )
     const rows = IssueReportsModule.depthFirst(byParent, root.id, recursive)
-    return await this.reportsFor(rows.sort((a, b) => a.seq - b.seq), undefined, reader)
+    return await this.reportsFor(
+      rows.sort((a, b) => a.seq - b.seq),
+      undefined,
+      reader,
+    )
   }
 
   /** One-call epic survey (issue #82): the root + its whole descendant subtree,
@@ -753,13 +811,23 @@ export class IssueReportsModule {
     }
     const ids = members.map((r) => r.id)
     const issues = this.store.deps.store.issues
-    const outgoing = groupBy(await issues.depsFromIssues(ids), (d) => d.fromId, (d) => d)
-    const incoming = groupBy(await issues.depsToIssues(ids), (d) => d.toId, (d) => d)
+    const outgoing = groupBy(
+      await issues.depsFromIssues(ids),
+      (d) => d.fromId,
+      (d) => d,
+    )
+    const incoming = groupBy(
+      await issues.depsToIssues(ids),
+      (d) => d.toId,
+      (d) => d,
+    )
     const ends = await this.store.rowsByIds([
       ...[...outgoing.values()].flat().map((d) => d.toId),
       ...[...incoming.values()].flat().map((d) => d.fromId),
     ])
-    const visible = new Set((await filterReadable([...ends.values()], reader.mayRead)).map((r) => r.id))
+    const visible = new Set(
+      (await filterReadable([...ends.values()], reader.mayRead)).map((r) => r.id),
+    )
     const ref = (row: IssueRow, type: string): DepReportRef => ({
       seq: row.seq,
       title: row.title,
@@ -813,7 +881,12 @@ export class IssueReportsModule {
     reader: IssueReader = UNRESTRICTED_READER,
   ): Promise<IssueReport[]> {
     return await this.reportsFor(
-      await this.listed(repoPath, reader, { live: true, state: 'open', completeParent: true, order: 'repo-seq' }),
+      await this.listed(repoPath, reader, {
+        live: true,
+        state: 'open',
+        completeParent: true,
+        order: 'repo-seq',
+      }),
       undefined,
       reader,
     )
@@ -861,10 +934,19 @@ export class IssueReportsModule {
     nowMs = Date.now(),
     reader: IssueReader = UNRESTRICTED_READER,
   ): Promise<IssueReport[]> {
-    return await this.reportsFor(await this.staleRows(repoPath, days, nowMs, reader), undefined, reader)
+    return await this.reportsFor(
+      await this.staleRows(repoPath, days, nowMs, reader),
+      undefined,
+      reader,
+    )
   }
 
-  private async staleRows(repoPath: string | undefined, days: number, nowMs: number, reader: IssueReader) {
+  private async staleRows(
+    repoPath: string | undefined,
+    days: number,
+    nowMs: number,
+    reader: IssueReader,
+  ) {
     const cutoff = nowMs - days * 24 * 60 * 60 * 1000
     // SQL narrows by julianday; the exact rule stays Date.parse's.
     return (
@@ -877,11 +959,17 @@ export class IssueReportsModule {
     ).filter((r) => Date.parse(r.updatedAt) < cutoff)
   }
 
-  async doctor(repoPath?: string, reader: IssueReader = UNRESTRICTED_READER): Promise<DoctorReport> {
+  async doctor(
+    repoPath?: string,
+    reader: IssueReader = UNRESTRICTED_READER,
+  ): Promise<DoctorReport> {
     return await this.doctorFromDb(repoPath, reader)
   }
 
-  private async doctorFromDb(repoPath: string | undefined, reader: IssueReader): Promise<DoctorReport> {
+  private async doctorFromDb(
+    repoPath: string | undefined,
+    reader: IssueReader,
+  ): Promise<DoctorReport> {
     // The boot map's order: the cycle walk starts from the rows in this order.
     const rows = await this.listed(repoPath, reader, { live: true, order: 'path-seq' })
     const ids = new Set(rows.map((r) => r.id))
@@ -942,7 +1030,11 @@ export class IssueReportsModule {
     if (!res.ok || !res.output) return []
     const log = res.output
     const out: OrphanIssue[] = []
-    for (const r of await this.listed(repoPath, reader, { live: true, state: 'open', order: 'seq' })) {
+    for (const r of await this.listed(repoPath, reader, {
+      live: true,
+      state: 'open',
+      order: 'seq',
+    })) {
       // Reference forms: the branch stem `issue/<seq>-`, or a `#<seq>` token.
       const hashRef = new RegExp(`#${r.seq}\\b`).exec(log)?.[0]
       const branchRef = log.includes(`issue/${r.seq}-`) ? `issue/${r.seq}-` : undefined
@@ -974,15 +1066,22 @@ export class IssueReportsModule {
     return await this.searchFromDb(filter, reader)
   }
 
-  private async searchFromDb(filter: IssueSearchFilter, reader: IssueReader): Promise<IssueReport[]> {
+  private async searchFromDb(
+    filter: IssueSearchFilter,
+    reader: IssueReader,
+  ): Promise<IssueReport[]> {
     const text = filter.text?.toLowerCase()
     // SQLite folds ASCII case only: other text is matched here, exactly.
     const asciiText = text !== undefined && /^[\x00-\x7f]*$/.test(text)
     const state =
-      filter.status === 'open' ? 'open'
-        : filter.status === 'closed' ? 'closed'
-          : filter.status === 'ready' ? 'ready'
-            : filter.status === 'blocked' ? 'blocked'
+      filter.status === 'open'
+        ? 'open'
+        : filter.status === 'closed'
+          ? 'closed'
+          : filter.status === 'ready'
+            ? 'ready'
+            : filter.status === 'blocked'
+              ? 'blocked'
               : undefined
     const rows = await this.listed(
       filter.repoPath,
@@ -1029,11 +1128,13 @@ export class IssueReportsModule {
     const c: IssueCount = { byStage: {}, byPriority: {}, byType: {}, byAssignee: {} }
     const scope = await this.scopeOf(repoPath)
     if (scope === null) return c
-    const groups = await this.visible(reader, async () =>
-      await this.store.deps.store.issues.countIssueGroups(
-        { live: true, order: 'path-seq', repo: scope !== undefined },
-        { ...(scope !== undefined ? { repoId: scope } : {}) },
-      ),
+    const groups = await this.visible(
+      reader,
+      async () =>
+        await this.store.deps.store.issues.countIssueGroups(
+          { live: true, order: 'path-seq', repo: scope !== undefined },
+          { ...(scope !== undefined ? { repoId: scope } : {}) },
+        ),
     )
     const bump = (m: Record<string, number>, k: string, n: number): void => {
       m[k] = (m[k] ?? 0) + n
@@ -1053,12 +1154,15 @@ export class IssueReportsModule {
     const shape: IssueListingShape = { live: true, order: 'path-seq', repo: scope !== undefined }
     const input: IssueListingInput = { ...(scope !== undefined ? { repoId: scope } : {}) }
     const issues = this.store.deps.store.issues
-    const [totals] = await this.visible(reader, async () => [await issues.issueStatTotals(shape, input)])
+    const [totals] = await this.visible(reader, async () => [
+      await issues.issueStatTotals(shape, input),
+    ])
     if (!totals) return { total: 0, closed: 0, open: 0, ready: 0, blocked: 0, deferred: 0 }
     // Deferral is Date.parse's rule, so it is decided over the few rows that
     // carry one.
-    const deferrals = (await this.visible(reader, async () => await issues.deferralsIn(shape, input)))
-      .filter((d) => this.store.isDeferred({ deferUntil: d.deferUntil } as IssueRow))
+    const deferrals = (
+      await this.visible(reader, async () => await issues.deferralsIn(shape, input))
+    ).filter((d) => this.store.isDeferred({ deferUntil: d.deferUntil } as IssueRow))
     return {
       total: totals.total,
       closed: totals.closed,
@@ -1133,8 +1237,13 @@ export class IssueReportsModule {
    *  worktree — an issue claiming it must not swallow every session spawned
    *  there ([spec:SP-595b] #582). */
   async soleOwnerForCwd(cwd: string): Promise<IssueId | null> {
-    const repoRoots = new Set((await this.store.deps.store.repos.listRepoPaths()).map(machinePathKey))
-    return soleOwner(await this.store.deps.store.issues.worktreeOwnerCandidates([cwd]), cwd, { any: repoRoots, home: repoRoots })
+    const repoRoots = new Set(
+      (await this.store.deps.store.repos.listRepoPaths()).map(machinePathKey),
+    )
+    return soleOwner(await this.store.deps.store.issues.worktreeOwnerCandidates([cwd]), cwd, {
+      any: repoRoots,
+      home: repoRoots,
+    })
   }
 
   /** Durable event-log read; cursor = the last event id the caller has seen. */

@@ -13,13 +13,13 @@ import {
   Attribution,
   asIssueId,
   type IssueId,
-  isValidMachinePath,
   IssueStage,
   IssueUserState,
   isIssueClosed,
+  isValidMachinePath,
+  type MachineId,
   machinePathAncestors,
   machinePathSeparator,
-  type MachineId,
   type RepoId,
   type UserId,
 } from '@podium/model'
@@ -60,23 +60,6 @@ import {
   sessions,
 } from '../migrations/schema'
 import { applyAfterCommit, spanOpen } from './executor/executor'
-import {
-  commentCountsOfIssues,
-  deferralsOf,
-  depsFromIssues,
-  depsToIssues,
-  issueCountGroups,
-  issueListing,
-  type IssueListingInput,
-  type IssueListingShape,
-  issueStatTotals,
-  labelsOfIssues,
-  listingKey,
-  listingValues,
-  liveChildrenOf,
-  perChunk,
-  sortScopeOf,
-} from './issue-listings'
 import { operationLoader } from './executor/operation-loader'
 import { currentReadScope, readScopeSlot } from './executor/read-scope'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
@@ -91,6 +74,23 @@ import {
   shapeOf,
 } from './executor/sync-drizzle'
 import { parseStringArray, requireUserId } from './helpers'
+import {
+  commentCountsOfIssues,
+  deferralsOf,
+  depsFromIssues,
+  depsToIssues,
+  type IssueListingInput,
+  type IssueListingShape,
+  issueCountGroups,
+  issueListing,
+  issueStatTotals,
+  labelsOfIssues,
+  listingKey,
+  listingValues,
+  liveChildrenOf,
+  perChunk,
+  sortScopeOf,
+} from './issue-listings'
 import { StaleIssueRevisionError } from './issue-revision'
 import { prefixUpperBound } from './prefix-range'
 import type { IssueCommentRow, IssueMessageRow, IssueRow, StoredIssueUserState } from './types'
@@ -119,10 +119,15 @@ const issueById = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-
-
 /** Closed or deleted, by the same rule as `isIssueClosed`; a NULL id is skipped. */
-function closedOf(rows: readonly { id: unknown; stage: unknown; closedReason: string | null; deletedAt: string | null }[]): Set<string> {
+function closedOf(
+  rows: readonly {
+    id: unknown
+    stage: unknown
+    closedReason: string | null
+    deletedAt: string | null
+  }[],
+): Set<string> {
   const out = new Set<string>()
   for (const r of rows) {
     if (typeof r.id !== 'string') continue
@@ -196,7 +201,11 @@ const issueRowsPage = preparedFamily((db: StoreDrizzle, from: 'start' | 'after')
   db
     .select()
     .from(issues)
-    .where(from === 'start' ? gte(issues.id, param(issues.id, 'id')) : gt(issues.id, param(issues.id, 'id')))
+    .where(
+      from === 'start'
+        ? gte(issues.id, param(issues.id, 'id'))
+        : gt(issues.id, param(issues.id, 'id')),
+    )
     .orderBy(asc(issues.id))
     .limit(sql.placeholder('limit'))
     .prepare(),
@@ -251,18 +260,42 @@ const worktreeOwnersOf = preparedFamily((db: StoreDrizzle, size: number) => {
   const folded = db
     .select(columns)
     .from(issues)
-    .where(and(
-      inArray(foldedWorktreePath, Array.from({ length: size }, (_, index) => sql.placeholder(`fold${index}`))),
-      isNotNull(issues.worktreePath),
-      isNull(issues.deletedAt),
-    ))
+    .where(
+      and(
+        inArray(
+          foldedWorktreePath,
+          Array.from({ length: size }, (_, index) => sql.placeholder(`fold${index}`)),
+        ),
+        isNotNull(issues.worktreePath),
+        isNull(issues.deletedAt),
+      ),
+    )
   return literal.unionAll(folded).prepare()
 })
+
+/**
+ * The live tasks with a worktree on these machines, with their assignees
+ * (POD-6291): the rows whose machine path changes hands with the machine's
+ * custody. Walks `idx_issues_worktree`, the live worktrees only, named with
+ * INDEXED BY for the reason `openChat` in `store/messages.ts` gives; read on a
+ * custody change, never per request.
+ */
+const liveWorktreesOnMachines = preparedFamily((db: StoreDrizzle, size: number) =>
+  db
+    .select({ id: issues.id, machineId: issues.machineId, ownerUserId: issues.ownerUserId })
+    .from(sql`${issues} INDEXED BY idx_issues_worktree`)
+    .where(
+      and(
+        sql`${issues.worktreePath} IS NOT NULL AND ${issues.deletedAt} IS NULL`,
+        inListOf(issues.machineId, size, 'machineIds'),
+      ),
+    )
+    .prepare(),
+)
 
 /** Candidate keys per statement and arm; two arms stay far below SQLite's
  *  bound-parameter limit. */
 const WORKTREE_OWNER_CHUNK = 2048
-
 
 const deleteRefLettersOf = prepared((db: StoreDrizzle) =>
   db
@@ -332,7 +365,12 @@ const issueIdAtSeq = prepared((db: StoreDrizzle) =>
   db
     .select({ id: issues.id })
     .from(issues)
-    .where(and(eq(issues.repoId, param(issues.repoId, 'repoId')), eq(issues.seq, param(issues.seq, 'seq'))))
+    .where(
+      and(
+        eq(issues.repoId, param(issues.repoId, 'repoId')),
+        eq(issues.seq, param(issues.seq, 'seq')),
+      ),
+    )
     .prepare(),
 )
 
@@ -377,7 +415,12 @@ const issueRefAtRepoSeq = prepared((db: StoreDrizzle) =>
   db
     .select(issueRefColumns)
     .from(issues)
-    .where(and(eq(issues.repoId, param(issues.repoId, 'repoId')), eq(issues.seq, param(issues.seq, 'seq'))))
+    .where(
+      and(
+        eq(issues.repoId, param(issues.repoId, 'repoId')),
+        eq(issues.seq, param(issues.seq, 'seq')),
+      ),
+    )
     .prepare(),
 )
 
@@ -487,10 +530,7 @@ const legacyWorktreeTerms = prepared((db: StoreDrizzle) => ({
 /** Counts the candidates the contradiction evidence tells the backfill to leave alone. */
 const legacyWorktreeSkippedBuilder = prepared((db: StoreDrizzle) => {
   const { legacyWorktreeRow, contradictorySession } = legacyWorktreeTerms(db)
-  return db
-    .select({ c: count() })
-    .from(issues)
-    .where(and(legacyWorktreeRow, contradictorySession))
+  return db.select({ c: count() }).from(issues).where(and(legacyWorktreeRow, contradictorySession))
 })
 
 const legacyWorktreeSkipped = prepared((db: StoreDrizzle) =>
@@ -874,7 +914,9 @@ const claimMessage = prepared((db: StoreDrizzle) =>
       claimedBy: sql.placeholder('claimedBy'),
       claimedAt: sql.placeholder('claimedAt'),
     })
-    .where(and(eq(issueMessages.id, param(issueMessages.id, 'id')), ne(issueMessages.status, 'claimed')))
+    .where(
+      and(eq(issueMessages.id, param(issueMessages.id, 'id')), ne(issueMessages.status, 'claimed')),
+    )
     .prepare(),
 )
 
@@ -996,10 +1038,18 @@ function sortListing(rows: IssueRow[], order: IssueListingShape['order']): Issue
   const text = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
   return rows.sort((a, b) => {
     if (order === 'repo-seq') return text(a.repoId ?? '', b.repoId ?? '') || a.seq - b.seq
-    if (order === 'path-seq') return text(a.repoPath, b.repoPath) || a.seq - b.seq || text(a.id, b.id)
-    if (order === 'updated') return Date.parse(a.updatedAt) - Date.parse(b.updatedAt) || text(a.repoPath, b.repoPath) || a.seq - b.seq
+    if (order === 'path-seq')
+      return text(a.repoPath, b.repoPath) || a.seq - b.seq || text(a.id, b.id)
+    if (order === 'updated')
+      return (
+        Date.parse(a.updatedAt) - Date.parse(b.updatedAt) ||
+        text(a.repoPath, b.repoPath) ||
+        a.seq - b.seq
+      )
     if (order === 'priority-seq') {
-      return a.priority - b.priority || a.seq - b.seq || text(a.repoPath, b.repoPath) || text(a.id, b.id)
+      return (
+        a.priority - b.priority || a.seq - b.seq || text(a.repoPath, b.repoPath) || text(a.id, b.id)
+      )
     }
     return a.seq - b.seq || text(a.repoPath, b.repoPath) || text(a.id, b.id)
   })
@@ -1011,7 +1061,12 @@ function sortListing(rows: IssueRow[], order: IssueListingShape['order']): Issue
  * stage or title is not a string poisons every consumer, so it is skipped and
  * logged, and stays absent (POD-6158).
  */
-function structurallySound(r: { id: unknown; repoPath: unknown; stage: unknown; title: unknown }): boolean {
+function structurallySound(r: {
+  id: unknown
+  repoPath: unknown
+  stage: unknown
+  title: unknown
+}): boolean {
   return (
     typeof r.id === 'string' &&
     typeof r.repoPath === 'string' &&
@@ -1032,14 +1087,26 @@ export interface IssueRefRow {
 /** Structurally corrupt rows are skipped, as every issue read quarantines them. */
 function issueRefRows(
   rows: readonly {
-    id: unknown; repoId: string | null; repoPath: unknown; machineId: string | null; seq: number
-    stage: unknown; title: unknown
+    id: unknown
+    repoId: string | null
+    repoPath: unknown
+    machineId: string | null
+    seq: number
+    stage: unknown
+    title: unknown
   }[],
 ): IssueRefRow[] {
   return rows.flatMap((row) =>
     structurallySound(row)
-      ? [{ id: asIssueId(row.id as string), repoId: (row.repoId ?? null) as RepoId | null,
-          repoPath: row.repoPath as string, machineId: (row.machineId ?? null) as MachineId | null, seq: row.seq }]
+      ? [
+          {
+            id: asIssueId(row.id as string),
+            repoId: (row.repoId ?? null) as RepoId | null,
+            repoPath: row.repoPath as string,
+            machineId: (row.machineId ?? null) as MachineId | null,
+            seq: row.seq,
+          },
+        ]
       : [],
   )
 }
@@ -1114,26 +1181,33 @@ export class IssuesRepository {
    * (POD-6158). Keyed `userId NUL issueId`; a report pass over many issues asks
    * for each in the same tick and this sends one `IN (...)` query per user.
    */
-  private readonly userStateLoader = operationLoader<string, StoredIssueUserState>(async (keys) => {
-    const byUser = new Map<string, IssueId[]>()
-    for (const key of keys) {
-      const at = key.indexOf('\u0000')
-      const user = key.slice(0, at)
-      const ids = byUser.get(user) ?? []
-      ids.push(asIssueId(key.slice(at + 1)))
-      byUser.set(user, ids)
-    }
-    const found = new Map<string, StoredIssueUserState>()
-    for (const [user, ids] of byUser) {
-      const size = inListSize(ids.length)
-      const values = inListValues(ids, size, 'ids')
-      values.userId = user
-      for (const r of await issueUserStatesOf(this.db, size).all(values)) {
-        found.set(`${user}\u0000${r.issueId}`, { readAt: r.readAt, tuckedAt: r.tuckedAt, pinnedAt: r.pinnedAt })
+  private readonly userStateLoader = operationLoader<string, StoredIssueUserState>(
+    async (keys) => {
+      const byUser = new Map<string, IssueId[]>()
+      for (const key of keys) {
+        const at = key.indexOf('\u0000')
+        const user = key.slice(0, at)
+        const ids = byUser.get(user) ?? []
+        ids.push(asIssueId(key.slice(at + 1)))
+        byUser.set(user, ids)
       }
-    }
-    return found
-  }, { copy: (state) => ({ ...state }), perOperation: true })
+      const found = new Map<string, StoredIssueUserState>()
+      for (const [user, ids] of byUser) {
+        const size = inListSize(ids.length)
+        const values = inListValues(ids, size, 'ids')
+        values.userId = user
+        for (const r of await issueUserStatesOf(this.db, size).all(values)) {
+          found.set(`${user}\u0000${r.issueId}`, {
+            readAt: r.readAt,
+            tuckedAt: r.tuckedAt,
+            pinnedAt: r.pinnedAt,
+          })
+        }
+      }
+      return found
+    },
+    { copy: (state) => ({ ...state }), perOperation: true },
+  )
   /**
    * Issue rows by id, batched per operation (POD-6158): the per-row reads of a
    * listing's authorization pass, asked together, are one `IN (...)` query.
@@ -1142,9 +1216,16 @@ export class IssuesRepository {
    */
   private readonly rowLoader = operationLoader<string, IssueRow>(
     async (ids) => await this.readIssuesByIds(ids),
-    { copy: (row) => ({ ...row, blockedBy: [...row.blockedBy],
-      humanQuestionOptions: row.humanQuestionOptions ? [...row.humanQuestionOptions] : row.humanQuestionOptions }),
-      perOperation: true },
+    {
+      copy: (row) => ({
+        ...row,
+        blockedBy: [...row.blockedBy],
+        humanQuestionOptions: row.humanQuestionOptions
+          ? [...row.humanQuestionOptions]
+          : row.humanQuestionOptions,
+      }),
+      perOperation: true,
+    },
   )
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
@@ -1234,7 +1315,8 @@ export class IssuesRepository {
   /** A marker write: invalidated after it and, inside a span, after its commit. */
   private userStateWritten(): void {
     this.userStateLoader.invalidate()
-    if (spanOpen()) applyAfterCommit(() => this.userStateLoader.invalidate(), 'issue-user-state:loader')
+    if (spanOpen())
+      applyAfterCommit(() => this.userStateLoader.invalidate(), 'issue-user-state:loader')
   }
 
   /** The current scope's cache, opened on first use and discarded when the
@@ -1520,7 +1602,9 @@ export class IssuesRepository {
     for (let i = 0; i < ids.length; i += 500) {
       const chunk = ids.slice(i, i + 500)
       const size = inListSize(chunk.length)
-      for (const r of await issuesByIds(this.db, size).all(inListValues(chunk.map(asIssueId), size, 'ids'))) {
+      for (const r of await issuesByIds(this.db, size).all(
+        inListValues(chunk.map(asIssueId), size, 'ids'),
+      )) {
         try {
           if (!structurallySound(r)) {
             log.error('quarantined a corrupt issue row — skipped', { issueId: r.id ?? null })
@@ -1553,7 +1637,6 @@ export class IssuesRepository {
     return await issueFromRow(r)
   }
 
-
   /** Does a row with this id exist, deleted or not (POD-6158)? */
   async hasIssue(id: string): Promise<boolean> {
     return (await issueRevision(this.db).get({ id: asIssueId(id) })) !== undefined
@@ -1567,7 +1650,9 @@ export class IssuesRepository {
     for (let at = 0; at < unique.length; at += 500) {
       const chunk = unique.slice(at, at + 500)
       const size = inListSize(chunk.length)
-      for (const row of issueRefRows(await issueRefsAtSeqsOf(this.db, size).all(inListValues(chunk, size, 'seqs')))) {
+      for (const row of issueRefRows(
+        await issueRefsAtSeqsOf(this.db, size).all(inListValues(chunk, size, 'seqs')),
+      )) {
         const rows = out.get(row.seq) ?? []
         rows.push(row)
         out.set(row.seq, rows)
@@ -1607,16 +1692,19 @@ export class IssuesRepository {
     input: IssueListingInput = {},
   ): Promise<IssueRow[]> {
     const list = input.parents ?? input.ids
-    const key = shape.parents !== undefined ? 'parents' : shape.ids !== undefined ? 'ids' : undefined
+    const key =
+      shape.parents !== undefined ? 'parents' : shape.ids !== undefined ? 'ids' : undefined
     const chunks = key && list ? chunked([...new Set(list)], 500) : [undefined]
     const raw: (typeof issues.$inferSelect)[] = []
     for (const chunk of chunks) {
       if (chunk !== undefined && chunk.length === 0) continue
-      const sized: IssueListingShape = chunk === undefined ? shape
-        : { ...shape, [key!]: inListSize(chunk.length) }
-      raw.push(...(await issueListing(this.db, listingKey(sized)).all(
-        listingValues(sized, { ...input, ...(chunk ? { [key!]: chunk } : {}) }),
-      )))
+      const sized: IssueListingShape =
+        chunk === undefined ? shape : { ...shape, [key!]: inListSize(chunk.length) }
+      raw.push(
+        ...(await issueListing(this.db, listingKey(sized)).all(
+          listingValues(sized, { ...input, ...(chunk ? { [key!]: chunk } : {}) }),
+        )),
+      )
     }
     const rows = await this.mapQuarantined(raw)
     return chunks.length > 1 ? sortListing(rows, shape.order) : rows
@@ -1627,7 +1715,9 @@ export class IssuesRepository {
   async countIssueGroups(
     shape: IssueListingShape,
     input: IssueListingInput = {},
-  ): Promise<{ stage: string; priority: number; type: string; assignee: string | null; n: number }[]> {
+  ): Promise<
+    { stage: string; priority: number; type: string; assignee: string | null; n: number }[]
+  > {
     const rows = await issueCountGroups(this.db, listingKey(shape)).all(listingValues(shape, input))
     return rows
       .sort((a, b) => (a.first < b.first ? -1 : a.first > b.first ? 1 : 0))
@@ -1640,8 +1730,12 @@ export class IssuesRepository {
     input: IssueListingInput = {},
   ): Promise<{ total: number; closed: number; ready: number; blocked: number }> {
     const row = await issueStatTotals(this.db, listingKey(shape)).get(listingValues(shape, input))
-    return { total: row?.total ?? 0, closed: Number(row?.closed ?? 0), ready: Number(row?.ready ?? 0),
-      blocked: Number(row?.blocked ?? 0) }
+    return {
+      total: row?.total ?? 0,
+      closed: Number(row?.closed ?? 0),
+      ready: Number(row?.ready ?? 0),
+      blocked: Number(row?.blocked ?? 0),
+    }
   }
 
   /** The rows of a listing shape that carry a deferral, and whether each would
@@ -1651,8 +1745,11 @@ export class IssuesRepository {
     input: IssueListingInput = {},
   ): Promise<{ id: IssueId; deferUntil: string; ready: boolean }[]> {
     const rows = await deferralsOf(this.db, listingKey(shape)).all(listingValues(shape, input))
-    return rows.flatMap((r) => typeof r.deferUntil === 'string'
-      ? [{ id: r.id as IssueId, deferUntil: r.deferUntil, ready: Number(r.ready) === 1 }] : [])
+    return rows.flatMap((r) =>
+      typeof r.deferUntil === 'string'
+        ? [{ id: r.id as IssueId, deferUntil: r.deferUntil, ready: Number(r.ready) === 1 }]
+        : [],
+    )
   }
 
   /** The narrow rows of one manual-order key space (`issue-listings.ts`
@@ -1661,19 +1758,29 @@ export class IssuesRepository {
   async sortScope(
     scope: { parentId: IssueId } | { repoId: RepoId; unpinnedFor?: UserId },
   ): Promise<{ id: IssueId; sortKey: string | null; createdAt: string; seq: number }[]> {
-    const rows = 'parentId' in scope
-      ? await sortScopeOf(this.db, 'parent').all({ parentId: scope.parentId })
-      : scope.unpinnedFor
-        ? await sortScopeOf(this.db, 'top-unpinned').all({ repoId: scope.repoId, viewer: scope.unpinnedFor })
-        : await sortScopeOf(this.db, 'top').all({ repoId: scope.repoId })
-    return rows.flatMap((r) => typeof r.id === 'string'
-      ? [{ id: r.id as IssueId, sortKey: r.sortKey ?? null, createdAt: r.createdAt, seq: r.seq }] : [])
+    const rows =
+      'parentId' in scope
+        ? await sortScopeOf(this.db, 'parent').all({ parentId: scope.parentId })
+        : scope.unpinnedFor
+          ? await sortScopeOf(this.db, 'top-unpinned').all({
+              repoId: scope.repoId,
+              viewer: scope.unpinnedFor,
+            })
+          : await sortScopeOf(this.db, 'top').all({ repoId: scope.repoId })
+    return rows.flatMap((r) =>
+      typeof r.id === 'string'
+        ? [{ id: r.id as IssueId, sortKey: r.sortKey ?? null, createdAt: r.createdAt, seq: r.seq }]
+        : [],
+    )
   }
 
   /** Labels of these issues, each issue's in name order. */
   async labelsOfIssues(ids: readonly string[]): Promise<Map<string, string[]>> {
     const out = new Map<string, string[]>()
-    for (const r of await perChunk(ids, async (size, values) => await labelsOfIssues(this.db, size).all(values))) {
+    for (const r of await perChunk(
+      ids,
+      async (size, values) => await labelsOfIssues(this.db, size).all(values),
+    )) {
       const names = out.get(r.issueId)
       if (names) names.push(r.label)
       else out.set(r.issueId, [r.label])
@@ -1682,38 +1789,84 @@ export class IssuesRepository {
   }
 
   /** The dependency edges FROM these issues, in (from, to, type) order. */
-  async depsFromIssues(ids: readonly string[]): Promise<{ fromId: IssueId; toId: IssueId; type: string }[]> {
-    return await perChunk(ids, async (size, values) => await depsFromIssues(this.db, size).all(values))
+  async depsFromIssues(
+    ids: readonly string[],
+  ): Promise<{ fromId: IssueId; toId: IssueId; type: string }[]> {
+    return await perChunk(
+      ids,
+      async (size, values) => await depsFromIssues(this.db, size).all(values),
+    )
   }
 
   /** The dependency edges TO these issues, in (to, from, type) order. */
-  async depsToIssues(ids: readonly string[]): Promise<{ fromId: IssueId; toId: IssueId; type: string }[]> {
-    return await perChunk(ids, async (size, values) => await depsToIssues(this.db, size).all(values))
+  async depsToIssues(
+    ids: readonly string[],
+  ): Promise<{ fromId: IssueId; toId: IssueId; type: string }[]> {
+    return await perChunk(
+      ids,
+      async (size, values) => await depsToIssues(this.db, size).all(values),
+    )
   }
 
   async commentCountsOfIssues(ids: readonly string[]): Promise<Map<string, number>> {
-    const rows = await perChunk(ids, async (size, values) => await commentCountsOfIssues(this.db, size).all(values))
+    const rows = await perChunk(
+      ids,
+      async (size, values) => await commentCountsOfIssues(this.db, size).all(values),
+    )
     return new Map(rows.map((r) => [r.issueId, r.n]))
   }
 
   /** Live children of these parents with their closure columns, in the boot
    *  map's order. */
   async liveChildrenOf(parentIds: readonly string[]): Promise<
-    { id: IssueId; parentId: IssueId; stage: string; closedReason: string | null; deletedAt: string | null }[]
+    {
+      id: IssueId
+      parentId: IssueId
+      stage: string
+      closedReason: string | null
+      deletedAt: string | null
+    }[]
   > {
     // A parent's children all come back in its own chunk, in their order.
-    const rows = await perChunk(parentIds, async (size, values) => await liveChildrenOf(this.db, size).all(values))
-    return rows.flatMap((r) => typeof r.id === 'string' && r.parentId
-      ? [{ id: r.id as IssueId, parentId: r.parentId as IssueId, stage: r.stage, closedReason: r.closedReason, deletedAt: r.deletedAt }]
-      : [])
+    const rows = await perChunk(
+      parentIds,
+      async (size, values) => await liveChildrenOf(this.db, size).all(values),
+    )
+    return rows.flatMap((r) =>
+      typeof r.id === 'string' && r.parentId
+        ? [
+            {
+              id: r.id as IssueId,
+              parentId: r.parentId as IssueId,
+              stage: r.stage,
+              closedReason: r.closedReason,
+              deletedAt: r.deletedAt,
+            },
+          ]
+        : [],
+    )
   }
 
   /** The closure columns of these issues (stage, close reason, deletion). */
-  async closureOf(ids: readonly string[]): Promise<Map<string, { stage: string; closedReason: string | null; deletedAt: string | null }>> {
-    const out = new Map<string, { stage: string; closedReason: string | null; deletedAt: string | null }>()
-    for (const r of await perChunk(ids, async (size, values) => await issueClosureRowsOf(this.db, size).all(values))) {
+  async closureOf(
+    ids: readonly string[],
+  ): Promise<
+    Map<string, { stage: string; closedReason: string | null; deletedAt: string | null }>
+  > {
+    const out = new Map<
+      string,
+      { stage: string; closedReason: string | null; deletedAt: string | null }
+    >()
+    for (const r of await perChunk(
+      ids,
+      async (size, values) => await issueClosureRowsOf(this.db, size).all(values),
+    )) {
       if (typeof r.id !== 'string') continue
-      out.set(r.id, { stage: typeof r.stage === 'string' ? r.stage : '', closedReason: r.closedReason, deletedAt: r.deletedAt })
+      out.set(r.id, {
+        stage: typeof r.stage === 'string' ? r.stage : '',
+        closedReason: r.closedReason,
+        deletedAt: r.deletedAt,
+      })
     }
     return out
   }
@@ -1723,7 +1876,8 @@ export class IssuesRepository {
     const out: IssueRow[] = []
     for (const r of rows) {
       try {
-        if (!structurallySound(r)) throw new Error('structurally corrupt row (non-string id/repo_path/stage/title)')
+        if (!structurallySound(r))
+          throw new Error('structurally corrupt row (non-string id/repo_path/stage/title)')
         out.push(await issueFromRow(r))
       } catch (err) {
         log.error('quarantined a corrupt issue row — skipped', { issueId: r.id ?? null, err })
@@ -1749,7 +1903,12 @@ export class IssuesRepository {
     for (let at = 0; at < unique.length; at += 500) {
       const chunk = unique.slice(at, at + 500)
       const size = inListSize(chunk.length)
-      for (const id of closedOf(await issueClosureRowsOf(this.db, size).all(inListValues(chunk.map(asIssueId), size, 'ids')))) out.add(id)
+      for (const id of closedOf(
+        await issueClosureRowsOf(this.db, size).all(
+          inListValues(chunk.map(asIssueId), size, 'ids'),
+        ),
+      ))
+        out.add(id)
     }
     return out
   }
@@ -1870,9 +2029,10 @@ export class IssuesRepository {
   async *issueRowPages(pageSize = 500): AsyncGenerator<IssueRow[]> {
     let after: string | null = null
     for (;;) {
-      const rows: (typeof issues.$inferSelect)[] = after === null
-        ? await issueRowsPage(this.db, 'start').all({ id: asIssueId(''), limit: pageSize })
-        : await issueRowsPage(this.db, 'after').all({ id: asIssueId(after), limit: pageSize })
+      const rows: (typeof issues.$inferSelect)[] =
+        after === null
+          ? await issueRowsPage(this.db, 'start').all({ id: asIssueId(''), limit: pageSize })
+          : await issueRowsPage(this.db, 'after').all({ id: asIssueId(after), limit: pageSize })
       const page: IssueRow[] = []
       for (const r of rows) {
         try {
@@ -1899,6 +2059,28 @@ export class IssuesRepository {
    * 2048 candidate keys per arm, served by `idx_issues_worktree` and
    * `idx_issues_worktree_folded`; never a whole-table read.
    */
+  /** {@link liveWorktreesOnMachines}: the live worktree tasks on these
+   *  machines, `machineId → [{ id, ownerUserId }]`, one read per 500 machines. */
+  async liveWorktreeIssuesOnMachines(
+    machineIds: readonly string[],
+  ): Promise<Map<string, { id: IssueId; ownerUserId: UserId }[]>> {
+    const out = new Map<string, { id: IssueId; ownerUserId: UserId }[]>()
+    const unique = [...new Set(machineIds)]
+    for (const id of unique) out.set(id, [])
+    for (const chunk of chunked(unique, 500)) {
+      const size = inListSize(chunk.length)
+      for (const row of await liveWorktreesOnMachines(this.db, size).all(
+        inListValues(chunk, size, 'machineIds'),
+      )) {
+        if (typeof row.machineId !== 'string') continue
+        out
+          .get(row.machineId)
+          ?.push({ id: row.id as IssueId, ownerUserId: row.ownerUserId as UserId })
+      }
+    }
+    return out
+  }
+
   async worktreeOwnerCandidates(cwds: Iterable<string>): Promise<WorktreeOwnerRow[]> {
     const literal = new Set<string>()
     const folded = new Set<string>()
@@ -1910,7 +2092,11 @@ export class IssuesRepository {
     const literalKeys = [...literal]
     const foldedKeys = [...folded]
     const byId = new Map<string, WorktreeOwnerRow>()
-    for (let at = 0; at < Math.max(literalKeys.length, foldedKeys.length); at += WORKTREE_OWNER_CHUNK) {
+    for (
+      let at = 0;
+      at < Math.max(literalKeys.length, foldedKeys.length);
+      at += WORKTREE_OWNER_CHUNK
+    ) {
       const literalChunk = literalKeys.slice(at, at + WORKTREE_OWNER_CHUNK)
       const foldedChunk = foldedKeys.slice(at, at + WORKTREE_OWNER_CHUNK)
       const size = inListSize(Math.max(literalChunk.length, foldedChunk.length, 1))
@@ -1920,9 +2106,14 @@ export class IssuesRepository {
       for (const row of await worktreeOwnersOf(this.db, size).all(values)) {
         // The structural quarantine every cwd reader applies.
         if (typeof row.id !== 'string' || typeof row.repoPath !== 'string') continue
-        byId.set(row.id, { id: asIssueId(row.id), repoPath: row.repoPath, seq: row.seq,
-          worktreePath: row.worktreePath, archived: row.archived,
-          machineId: (row.machineId ?? null) as MachineId | null })
+        byId.set(row.id, {
+          id: asIssueId(row.id),
+          repoPath: row.repoPath,
+          seq: row.seq,
+          worktreePath: row.worktreePath,
+          archived: row.archived,
+          machineId: (row.machineId ?? null) as MachineId | null,
+        })
       }
     }
     return byRepoPathThenSeq(byId.values())
@@ -1952,10 +2143,7 @@ export class IssuesRepository {
         .returning()
         .prepare(),
     ))
-    await this.writeRows(
-      async () => await remove(this.db).all({ id: asIssueId(id) }),
-      'delete',
-    )
+    await this.writeRows(async () => await remove(this.db).all({ id: asIssueId(id) }), 'delete')
   }
 
   /** Per-boot heal (POD-1926): drop letter counters whose issue is already gone —
@@ -2155,12 +2343,8 @@ export class IssuesRepository {
           .prepare()
       }))
       const backfilled = Number(
-        (
-          await this.writeRows(
-            async () => await backfill(this.db).all({ hostMachineId }),
-            'upsert',
-          )
-        ).changes,
+        (await this.writeRows(async () => await backfill(this.db).all({ hostMachineId }), 'upsert'))
+          .changes,
       )
       await insertLegacyWorktreeReceipt(this.db).run({
         value: JSON.stringify({ hostMachineId, backfilled, skipped }),
@@ -2435,17 +2619,20 @@ export class IssuesRepository {
    * having read a message somebody else already claimed is still true.
    */
   async markIssueMessagesRead(
-    userId: UserId,
+    /** The reading member, or `null` when nobody read it (a delivery to no
+     *  session): only the shared delivery state moves then (POD-6291). */
+    userId: UserId | null,
     issueId: IssueId,
     ids: string[],
     readAt: string,
   ): Promise<void> {
-    requireUserId(userId)
+    if (userId !== null) requireUserId(userId)
     for (const id of ids) {
       // Only `unread` flips, so a `claimed` message never regresses to `read`.
       await markMessageRead(this.db).run({ issueId, id })
       // Written for EVERY named message, not only the unread ones.
-      await upsertMessageReadAt(this.db).run({ userId, issueMessageId: id, readAt })
+      if (userId !== null)
+        await upsertMessageReadAt(this.db).run({ userId, issueMessageId: id, readAt })
     }
   }
 
@@ -2480,7 +2667,10 @@ export class IssuesRepository {
 
   /** {@link getIssueUserState}, batched with the other loads of this tick and
    *  memoized for the operation (POD-6158). */
-  async loadIssueUserState(userId: UserId, issueId: IssueId): Promise<StoredIssueUserState | undefined> {
+  async loadIssueUserState(
+    userId: UserId,
+    issueId: IssueId,
+  ): Promise<StoredIssueUserState | undefined> {
     requireUserId(userId)
     return await this.userStateLoader.load(`${userId}\u0000${issueId}`)
   }
@@ -2493,6 +2683,20 @@ export class IssuesRepository {
     requireUserId(userId)
     const loaded = await this.userStateLoader.loadMany(issueIds.map((id) => `${userId}\u0000${id}`))
     return new Map(issueIds.map((id) => [id, loaded.get(`${userId}\u0000${id}`)] as const))
+  }
+
+  /** Markers for mixed (person, issue) pairs in one batch, keyed by issue id:
+   *  each issue's markers are the named person's (POD-6291). */
+  async loadIssueUserStatesOfPairs(
+    pairs: readonly { userId: UserId; issueId: string }[],
+  ): Promise<Map<string, StoredIssueUserState | undefined>> {
+    for (const pair of pairs) requireUserId(pair.userId)
+    const loaded = await this.userStateLoader.loadMany(
+      pairs.map((p) => `${p.userId}\u0000${p.issueId}`),
+    )
+    return new Map(
+      pairs.map((p) => [p.issueId, loaded.get(`${p.userId}\u0000${p.issueId}`)] as const),
+    )
   }
 
   async getIssueUserState(

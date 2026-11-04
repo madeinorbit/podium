@@ -20,16 +20,45 @@
  */
 
 import type { IssueId, RepoId, UserId } from '@podium/model'
-import { and, asc, type Column, count, eq, inArray, isNotNull, isNull, not, type SQL, sql } from 'drizzle-orm'
+import {
+  and,
+  asc,
+  type Column,
+  count,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  not,
+  type SQL,
+  sql,
+} from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
-import { issueComments, issueDeps, issueLabels, issues, issueUserState, labels } from '../migrations/schema'
-import { inListOf, inListSize, inListValues, param, preparedFamily, type StoreDrizzle } from './executor/sync-drizzle'
+import {
+  issueComments,
+  issueDeps,
+  issueLabels,
+  issues,
+  issueUserState,
+  labels,
+} from '../migrations/schema'
+import {
+  inListOf,
+  inListSize,
+  inListValues,
+  param,
+  preparedFamily,
+  type StoreDrizzle,
+} from './executor/sync-drizzle'
 
 /** Board stages a ready queue may hold (`isReadyIssueStage` over the enum). */
 const READY_STAGES = ['backlog', 'planning', 'in_progress', 'review', 'done'] as const
 
 /** The columns these fragments read: the table or an alias of it. */
-type IssueColumns = Record<'id' | 'stage' | 'closedReason' | 'ownerUserId' | 'parentId' | 'deletedAt', Column>
+type IssueColumns = Record<
+  'id' | 'stage' | 'closedReason' | 'ownerUserId' | 'parentId' | 'deletedAt',
+  Column
+>
 
 /** Finished by board stage or a recorded close reason (`isIssueClosed`). */
 function closedOf(table: IssueColumns): SQL {
@@ -96,8 +125,19 @@ export interface IssueListingShape {
 }
 
 const FLAGS = [
-  'unarchived', 'updatedBefore', 'completeParent', 'deferred', 'hasWorktree', 'topLevel', 'stage', 'priority', 'type',
-  'assignee', 'parent', 'label', 'text',
+  'unarchived',
+  'updatedBefore',
+  'completeParent',
+  'deferred',
+  'hasWorktree',
+  'topLevel',
+  'stage',
+  'priority',
+  'type',
+  'assignee',
+  'parent',
+  'label',
+  'text',
 ] as const
 
 export function listingKey(shape: IssueListingShape): string {
@@ -144,7 +184,8 @@ function listingWhere(shape: IssueListingShape): SQL | undefined {
   if (shape.unarchived) where.push(eq(issues.archived, false))
   if (shape.parents !== undefined) where.push(inListOf(issues.parentId, shape.parents, 'parent'))
   if (shape.ids !== undefined) where.push(inListOf(issues.id, shape.ids, 'id'))
-  if (shape.updatedBefore) where.push(sql`julianday(${issues.updatedAt}) < julianday(${sql.placeholder('before')})`)
+  if (shape.updatedBefore)
+    where.push(sql`julianday(${issues.updatedAt}) < julianday(${sql.placeholder('before')})`)
   if (shape.completeParent) {
     const liveVisibleChild = (extra: SQL) =>
       sql`EXISTS (SELECT 1 FROM ${sql.raw('"issues" "child"')} WHERE ${child.parentId} = ${issues.id} AND ${child.deletedAt} IS NULL AND ${extra})`
@@ -219,10 +260,14 @@ export interface IssueListingInput {
   text?: string
 }
 
-export function listingValues(shape: IssueListingShape, input: IssueListingInput): Record<string, unknown> {
+export function listingValues(
+  shape: IssueListingShape,
+  input: IssueListingInput,
+): Record<string, unknown> {
   const values: Record<string, unknown> = {}
   if (shape.repo) values.repoId = input.repoId
-  if (shape.parents !== undefined) inListValues(input.parents ?? [], shape.parents, 'parent', values)
+  if (shape.parents !== undefined)
+    inListValues(input.parents ?? [], shape.parents, 'parent', values)
   if (shape.ids !== undefined) inListValues(input.ids ?? [], shape.ids, 'id', values)
   if (shape.updatedBefore) values.before = input.before
   for (const key of ['stage', 'priority', 'type', 'assignee', 'parent', 'label', 'text'] as const) {
@@ -288,29 +333,32 @@ export const deferralsOf = preparedFamily((db: StoreDrizzle, key: string) => {
 /**
  * One sort-key scope, narrow: a parent's live children (`parent`), or a
  * repository's live top-level issues (`top`), optionally without the ones the
- * broadcast viewer pinned (`top-unpinned`), which have their own section.
+ * named member pinned (`top-unpinned`), which have their own section.
  */
-export const sortScopeOf = preparedFamily((db: StoreDrizzle, key: 'parent' | 'top' | 'top-unpinned') =>
-  db
-    .select({
-      id: issues.id,
-      sortKey: issues.sortKey,
-      createdAt: issues.createdAt,
-      seq: issues.seq,
-    })
-    .from(issues)
-    .where(
-      and(
-        isNull(issues.deletedAt),
-        ...(key === 'parent'
-          ? [eq(issues.parentId, param(issues.parentId, 'parentId'))]
-          : [isNull(issues.parentId), eq(issues.repoId, param(issues.repoId, 'repoId'))]),
-        ...(key === 'top-unpinned'
-          ? [sql`NOT EXISTS (SELECT 1 FROM ${issueUserState} WHERE ${issueUserState.userId} = ${sql.placeholder('viewer')} AND ${issueUserState.issueId} = ${issues.id} AND ${issueUserState.pinnedAt} IS NOT NULL)`]
-          : []),
-      ),
-    )
-    .prepare(),
+export const sortScopeOf = preparedFamily(
+  (db: StoreDrizzle, key: 'parent' | 'top' | 'top-unpinned') =>
+    db
+      .select({
+        id: issues.id,
+        sortKey: issues.sortKey,
+        createdAt: issues.createdAt,
+        seq: issues.seq,
+      })
+      .from(issues)
+      .where(
+        and(
+          isNull(issues.deletedAt),
+          ...(key === 'parent'
+            ? [eq(issues.parentId, param(issues.parentId, 'parentId'))]
+            : [isNull(issues.parentId), eq(issues.repoId, param(issues.repoId, 'repoId'))]),
+          ...(key === 'top-unpinned'
+            ? [
+                sql`NOT EXISTS (SELECT 1 FROM ${issueUserState} WHERE ${issueUserState.userId} = ${sql.placeholder('viewer')} AND ${issueUserState.issueId} = ${issues.id} AND ${issueUserState.pinnedAt} IS NOT NULL)`,
+              ]
+            : []),
+        ),
+      )
+      .prepare(),
 )
 
 // ---- the joins a report needs, for the listed rows only -------------------

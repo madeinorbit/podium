@@ -35,7 +35,6 @@ import {
   issueDepFromPrefix,
   issueExecutionAccess,
   issueExecutionSessionIds,
-  withoutHiddenExecutionFields,
   parseInteractionRowId,
   parseIssueDepId,
   parseIssueEventRowId,
@@ -47,6 +46,8 @@ import {
   type RepoId,
   shipLaneId,
   type UserId,
+  withoutHiddenEventFields,
+  withoutHiddenExecutionFields,
 } from '@podium/model'
 import type { Principal } from '@podium/protocol'
 import type {
@@ -396,9 +397,32 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
        * is shared. Decided from this pass's prefetch, like `mayRead`.
        */
       shapeFor: (userId, ref, value) => {
-        if (ref.entity !== 'issueProjection' || !prefetch) return value
+        if (!prefetch || value === null || typeof value !== 'object') return value
+        if (ref.entity === 'issueEvent') {
+          // A task event's payload by the same rule as the task's fields
+          // (POD-6291): `issue.started` names the worktree, `session_attached`
+          // a session. A session the pass did not read points at no person,
+          // so its id goes to the task's assignee alone.
+          let subject: string
+          try {
+            subject = parseIssueEventRowId(ref.entityId).subject
+          } catch {
+            return value
+          }
+          const row = prefetch.issues.get(subject)
+          if (!row) return value
+          const event = value as { kind?: unknown; payload?: unknown }
+          const kind = typeof event.kind === 'string' ? event.kind : ''
+          const payload = withoutHiddenEventFields(
+            kind,
+            event.payload,
+            issueExecutionAccess(userId, executionPointersOf(row), executionFactsOf(prefetch)),
+          )
+          return payload === event.payload ? value : { ...event, payload }
+        }
+        if (ref.entity !== 'issueProjection') return value
         const row = prefetch.issues.get(ref.entityId)
-        if (!row || value === null || typeof value !== 'object') return value
+        if (!row) return value
         return withoutHiddenExecutionFields(
           value,
           issueExecutionAccess(userId, executionPointersOf(row), executionFactsOf(prefetch)),
@@ -561,13 +585,15 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     const machineIds = [
       ...new Set([...issues.values()].flatMap((row) => (row.machineId ? [row.machineId] : []))),
     ]
-    const found: ReadonlyMap<string, ReadonlyMap<string, readonly GrantRow[]>> =
-      machineIds.length === 0
-        ? new Map()
-        : await measure(
-            'visibility.grants.listForResources',
-            async () => await store.grants.loadForResourcesOfKinds({ machine: machineIds }),
-          )
+    const found: ReadonlyMap<
+      string,
+      ReadonlyMap<string, readonly GrantRow[]>
+    > = machineIds.length === 0
+      ? new Map()
+      : await measure(
+          'visibility.grants.listForResources',
+          async () => await store.grants.loadForResourcesOfKinds({ machine: machineIds }),
+        )
     const machineCustodians = new Map<string, UserId>()
     for (const [machineId, edges] of found.get('machine') ?? []) {
       const custodian = custodianFromEdges(edges)
@@ -629,7 +655,10 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     const wanted = new Set(issueIds)
     const [sessionRows, depRows, orderIds] = await Promise.all([
       store.sessions.findSessionsByIssueIds(issueIds.map((id) => asIssueId(id))),
-      store.sync.installedIdsWithPrefixes('issueDep', issueIds.map((id) => issueDepFromPrefix(id))),
+      store.sync.installedIdsWithPrefixes(
+        'issueDep',
+        issueIds.map((id) => issueDepFromPrefix(id)),
+      ),
       store.shipping.orderIdsForIssues(issueIds),
     ])
     for (const row of sessionRows) {
@@ -709,17 +738,25 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
   ): Promise<Map<string, VisibilityEdge | null>> => {
     const out = new Map<string, VisibilityEdge | null>(orderIds.map((id) => [id, null]))
     if (orderIds.length === 0) return out
-    const departed = (await store.shipping.ordersByIds(orderIds)).filter((order) => order.state !== 'queued')
+    const departed = (await store.shipping.ordersByIds(orderIds)).filter(
+      (order) => order.state !== 'queued',
+    )
     if (departed.length === 0) return out
     const departedIssueIds = [...new Set(departed.map((order) => order.issueId))]
     const [owners, audiences] = await Promise.all([
-      measure('visibility.issue.getIssue', async () => await readIssues(store.issues, departedIssueIds)),
+      measure(
+        'visibility.issue.getIssue',
+        async () => await readIssues(store.issues, departedIssueIds),
+      ),
       deps.audiencesFor('issue', departedIssueIds),
     ])
     const laneOf = new Map(
       departed.map((order) => [
         order.id,
-        shipLaneId(order.repoId, canonicalShippingDestination(order.destination, order.targetBranch)),
+        shipLaneId(
+          order.repoId,
+          canonicalShippingDestination(order.destination, order.targetBranch),
+        ),
       ]),
     )
     const membersByLane = await store.shipping.laneMemberIssueIdsMany(laneOf.values())
@@ -753,27 +790,71 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     return out
   }
 
+  /**
+   * WHO GAINED OR LOST A MACHINE'S WORKTREE PATHS (POD-6291, design §4.5).
+   *
+   * The custodian of a machine receives the worktree path and machine of every
+   * task homed there; everyone else receives the task without them (§4.2). A
+   * custody change therefore moves those fields between people while the task
+   * rows stay byte-identical, so no task change would ever carry it. The
+   * machine's row names its custodian, and its change anchors the tasks with a
+   * live worktree there for everyone who held a grant on the machine
+   * (`grant_audiences`, revoked custodians included) and for those tasks'
+   * assignees (who receive the fields while nobody holds custody). Each of
+   * them gets the task re-shaped as they may now see it: the path is gone from
+   * a former custodian's clients, and nothing is deleted.
+   */
+  const custodyEdges = async (
+    machineIds: readonly string[],
+  ): Promise<Map<string, VisibilityEdge | null>> => {
+    const out = new Map<string, VisibilityEdge | null>(machineIds.map((id) => [id, null]))
+    if (machineIds.length === 0) return out
+    const [tasks, audiences] = await Promise.all([
+      store.issues.liveWorktreeIssuesOnMachines(machineIds),
+      deps.audiencesFor('machine', machineIds),
+    ])
+    for (const machineId of machineIds) {
+      const homed = tasks.get(machineId) ?? []
+      if (homed.length === 0) continue
+      const audience = [
+        ...new Set([...(audiences.get(machineId) ?? []), ...homed.map((task) => task.ownerUserId)]),
+      ]
+      out.set(machineId, {
+        audience,
+        subjects: homed.map((task) => ({ entity: 'issueProjection' as const, entityId: task.id })),
+      })
+    }
+    return out
+  }
+
   const anchors: VisibilityAnchorPort = {
     visibilityEdges: async (refs) => {
       // An issue write is the audience-change edge for its normalized companions;
       // a ship order leaving its queue can take a lane away. Nothing else anchors.
       const issueIds = [
-        ...new Set(refs.filter((ref) => ref.entity === 'issueProjection').map((ref) => ref.entityId)),
+        ...new Set(
+          refs.filter((ref) => ref.entity === 'issueProjection').map((ref) => ref.entityId),
+        ),
       ]
       const orderIds = [
         ...new Set(refs.filter((ref) => ref.entity === 'shipOrder').map((ref) => ref.entityId)),
       ]
-      const [audiences, departures] = await Promise.all([
+      const machineIds = [
+        ...new Set(refs.filter((ref) => ref.entity === 'machine').map((ref) => ref.entityId)),
+      ]
+      const [audiences, departures, custody] = await Promise.all([
         issueIds.length === 0
           ? new Map<string, readonly string[]>()
           : deps.audiencesFor('issue', issueIds),
         laneDepartureEdges(orderIds),
+        custodyEdges(machineIds),
       ])
       // Only an issue with an audience can produce an edge; read for those only.
       const anchored = issueIds.filter((id) => (audiences.get(id) ?? []).length > 0)
       const rows = await issueEdgeRows(anchored)
       return refs.map((ref): VisibilityEdge | null => {
         if (ref.entity === 'shipOrder') return departures.get(ref.entityId) ?? null
+        if (ref.entity === 'machine') return custody.get(ref.entityId) ?? null
         if (ref.entity !== 'issueProjection') return null
         const audience = audiences.get(ref.entityId) ?? []
         if (audience.length === 0) return null
@@ -783,7 +864,10 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           subjects: [
             { entity: 'issueProjection' as const, entityId: ref.entityId },
             { entity: 'issueGitState' as const, entityId: ref.entityId },
-            ...issueSessions.map((session) => ({ entity: 'session' as const, entityId: session.id })),
+            ...issueSessions.map((session) => ({
+              entity: 'session' as const,
+              entityId: session.id,
+            })),
             ...issueSessions.flatMap((session) =>
               session.resumeValue
                 ? [{ entity: 'conversation' as const, entityId: session.resumeValue }]

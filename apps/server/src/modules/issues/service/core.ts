@@ -1,7 +1,6 @@
 import { createLogger } from '@podium/logger'
 import {
   asIssueId,
-  firstAdminMemberId,
   type Instant,
   type IssueDepProjection,
   type IssueGitState,
@@ -31,8 +30,6 @@ import type { EntityChangeSpec } from '@podium/sync'
 import { slugifyBranch } from '../../../issue-util'
 import type { IssueRow, StoredIssueUserState } from '../../../store'
 import { afterCommit } from '../../../store/executor/executor'
-import { currentOperation, operationSlot } from '../../../store/executor/operation-scope'
-import { readScopeSlot, currentReadScope } from '../../../store/executor/read-scope'
 import { decodePanel } from '../../../store/issue-storage'
 import type { SessionFacts } from '../../sessions/facts'
 import { normalizeBlankIssueText } from '../blank-text'
@@ -56,17 +53,28 @@ type IssueScopeRow = Pick<IssueRow, 'repoId' | 'repoPath' | 'machineId'>
  *  legacy row (no repo id yet) whose path resolves to it. First by repository
  *  path, then id. */
 function referenceInRepoOf(
-  atSeq: readonly { id: IssueId; repoId: string | null; repoPath: string; machineId: MachineId | null }[],
+  atSeq: readonly {
+    id: IssueId
+    repoId: string | null
+    repoPath: string
+    machineId: MachineId | null
+  }[],
   repoId: string,
   resolve: ((path: string, machineId?: MachineId | null) => string | null) | undefined,
 ): IssueId | null {
   const matches = atSeq.filter(
     (row) =>
       row.repoId === repoId ||
-      (row.repoId === null && resolve !== undefined && resolve(row.repoPath, row.machineId) === repoId),
+      (row.repoId === null &&
+        resolve !== undefined &&
+        resolve(row.repoPath, row.machineId) === repoId),
   )
   matches.sort((a, b) =>
-    a.repoPath === b.repoPath ? (a.id < b.id ? -1 : 1) : Buffer.compare(Buffer.from(a.repoPath), Buffer.from(b.repoPath)),
+    a.repoPath === b.repoPath
+      ? a.id < b.id
+        ? -1
+        : 1
+      : Buffer.compare(Buffer.from(a.repoPath), Buffer.from(b.repoPath)),
   )
   return matches[0]?.id ?? null
 }
@@ -122,24 +130,6 @@ export class IssueStore {
   }
 
   /**
-   * WHOSE per-user markers the broadcast carries. `firstAdminMemberId()` spelled
-   * out, never a default: an unidentified principal must fail closed rather than
-   * resolve to an operator identity (readiness §3.1.6 S4). POD-1077 replaces the
-   * body with the request's principal; every caller already asks the question.
-   */
-  async broadcastViewer(): Promise<UserId> {
-    // Asked once per row by a report pass and before and after a marker write;
-    // one answer per operation (or read pass). Only a change of administrators
-    // moves it, which no issue operation makes.
-    const held = currentOperation()?.slot(this.viewerOfOperation) ?? currentReadScope().slot(this.viewerSlot)
-    held.viewer ??= firstAdminMemberId(this.deps.store)
-    return await held.viewer
-  }
-
-  private readonly viewerSlot = readScopeSlot<{ viewer?: Promise<UserId> }>(() => ({}))
-  private readonly viewerOfOperation = operationSlot<{ viewer?: Promise<UserId> }>(() => ({}))
-
-  /**
    * THE MEMBER SESSIONS OF ONE ISSUE — the narrow read [POD-1639].
    *
    * Every caller here used to spell `sessionsForIssue(row.worktreePath,
@@ -167,16 +157,22 @@ export class IssueStore {
   }
 
   /**
-   * WHOSE MARKERS (POD-6288): the member a command acts for, when it names one,
-   * else the broadcast viewer. Per-user markers are the "Self" class of design
-   * §4.1: Bob's read, tuck and pin are Bob's rows, whoever owns the task.
+   * WHOSE MARKERS (POD-6288, POD-6291). Per-user markers are the "Self" class
+   * of design §4.1: Bob's read, tuck and pin are Bob's rows, whoever owns the
+   * task. A command names the member it acts for. The server reading for
+   * itself, with nobody to name, reads the task's assignee: the accountable
+   * person, and on a one-member instance the only one. There is no instance
+   * "viewer" any more; the first admin never stands in for anybody.
    */
-  private async markerUser(user: UserId | undefined): Promise<UserId> {
-    return user ?? (await this.broadcastViewer())
+  private async markerUserOf(
+    issueId: IssueId,
+    user: UserId | undefined,
+  ): Promise<UserId | undefined> {
+    return user ?? (await this.row(issueId))?.ownerUserId
   }
 
-  /** One issue's markers for `user` (default: the broadcast viewer), as the
-   *  wire wants them. */
+  /** One issue's markers for `user` (default: its assignee), as the wire
+   *  wants them. */
   async issueOverlay(issueId: IssueId, user?: UserId): Promise<IssueUserOverlay> {
     return issueOverlayOf(await this.issueUserState(issueId, user))
   }
@@ -184,28 +180,40 @@ export class IssueStore {
   /** The stored markers, for callers that need `pinnedAt` rather than `pinned`.
    *  Read from the database, batched per operation (POD-6158). */
   async issueUserState(issueId: IssueId, user?: UserId): Promise<StoredIssueUserState | undefined> {
-    return await this.deps.store.issues.loadIssueUserState(await this.markerUser(user), issueId)
+    const owner = await this.markerUserOf(issueId, user)
+    return owner === undefined
+      ? undefined
+      : await this.deps.store.issues.loadIssueUserState(owner, issueId)
   }
 
-  /** {@link issueUserState} for many issues: one batched read (POD-6191). */
+  /** {@link issueUserState} for many issues: one batched read (POD-6191).
+   *  Without a `user`, each issue's own assignee's markers. */
   async issueUserStates(
     ids: Iterable<string>,
     user?: UserId,
   ): Promise<Map<string, StoredIssueUserState | undefined>> {
-    return await this.deps.store.issues.loadIssueUserStates(await this.markerUser(user), [...new Set(ids)])
+    const unique = [...new Set(ids)]
+    if (user !== undefined) return await this.deps.store.issues.loadIssueUserStates(user, unique)
+    const rows = await this.deps.store.issues.getIssues(unique)
+    const pairs = unique.flatMap((issueId) => {
+      const owner = rows.get(issueId)?.ownerUserId
+      return owner ? [{ userId: owner, issueId }] : []
+    })
+    const loaded = await this.deps.store.issues.loadIssueUserStatesOfPairs(pairs)
+    return new Map(unique.map((id) => [id, loaded.get(id)] as const))
   }
 
   /**
-   * Write one of `user`'s markers (default: the broadcast viewer's). A PARTIAL
-   * patch — see the repository method — so marking an issue read cannot
-   * silently un-pin it.
+   * Write one of `user`'s markers. A PARTIAL patch — see the repository
+   * method — so marking an issue read cannot silently un-pin it. Always a named
+   * member: a marker write with nobody behind it has no row to land in.
    */
   async writeIssueUserState(
     issueId: IssueId,
     patch: Partial<StoredIssueUserState>,
-    user?: UserId,
+    user: UserId,
   ): Promise<void> {
-    const owner = await this.markerUser(user)
+    const owner = user
     await this.deps.ledger.commit({
       write: async () => {
         await this.deps.store.issues.setIssueUserState(owner, issueId, patch)
@@ -223,6 +231,41 @@ export class IssueStore {
             : { op: 'remove' as const }),
         },
       ],
+    })
+  }
+
+  /**
+   * Clear one marker for EVERY member who holds it (POD-6291). For events about
+   * the task itself — a reopen or a start retires every member's tuck, not one
+   * person's — so another member's fold cannot survive into the next close.
+   */
+  async clearIssueMarkerForAll(issueId: IssueId, marker: 'tuckedAt'): Promise<void> {
+    await this.deps.ledger.commit({
+      write: async () => {
+        const holders = (await this.deps.store.issues.listIssueUserStateRows(issueId)).filter(
+          (state) => state[marker] != null,
+        )
+        for (const state of holders) {
+          await this.deps.store.issues.setIssueUserState(state.userId, issueId, { [marker]: null })
+        }
+        return await Promise.all(
+          holders.map(async (state) => ({
+            userId: state.userId,
+            state: await this.deps.store.issues.getIssueUserState(state.userId, issueId),
+          })),
+        )
+      },
+      changes: (written) =>
+        written.map(({ userId, state }) => ({
+          entity: 'issueUserState' as const,
+          id: issueUserStateRowId(userId, issueId),
+          ...(state
+            ? {
+                op: 'upsert' as const,
+                value: issueUserStateToWire({ userId, entityId: issueId, ...state }),
+              }
+            : { op: 'remove' as const }),
+        })),
     })
   }
 
@@ -402,7 +445,8 @@ export class IssueStore {
   }
 
   /**
-   * Is `id` unread FOR THE BROADCAST VIEWER — the derivation above, as a READ.
+   * Is `id` unread for `user` (default: its assignee, the reader the archive
+   * sweep asks, POD-6291) — the derivation above, as a READ.
    *
    * WHY THIS EXISTS [POD-1246]. `unread` left the wire with the session embed
    * (POD-797): it was a function of the issue's own `updatedAt` joined against
@@ -420,11 +464,11 @@ export class IssueStore {
    *
    * Returns false for an issue this service does not hold.
    */
-  async unreadFor(id: IssueId): Promise<boolean> {
+  async unreadFor(id: IssueId, user?: UserId): Promise<boolean> {
     const row = await this.row(id)
     if (row === undefined) return false
     const sessions = await this.sessionsFor(row)
-    return this.computeUnread(row, sessions, (await this.issueOverlay(row.id)).readAt)
+    return this.computeUnread(row, sessions, (await this.issueOverlay(row.id, user)).readAt)
   }
 
   // ---- hierarchy reads from the database (POD-6192) ------------------------
@@ -434,7 +478,10 @@ export class IssueStore {
    * path, then sequence). `live` leaves out deleted ones, `unarchived`
    * archived ones.
    */
-  async childRows(parentId: string, opts: { live?: boolean; unarchived?: boolean } = {}): Promise<IssueRow[]> {
+  async childRows(
+    parentId: string,
+    opts: { live?: boolean; unarchived?: boolean } = {},
+  ): Promise<IssueRow[]> {
     return await this.deps.store.issues.listIssueRowsWhere(
       {
         repo: false,
@@ -490,14 +537,24 @@ export class IssueStore {
   async readyAmong(rows: readonly IssueRow[]): Promise<Set<string>> {
     const issues = this.deps.store.issues
     const deps = await issues.depsFromIssues(rows.map((row) => row.id))
-    const closure = await issues.closureOf(deps.filter((d) => d.type === 'blocked-by').map((d) => d.toId))
+    const closure = await issues.closureOf(
+      deps.filter((d) => d.type === 'blocked-by').map((d) => d.toId),
+    )
     const ready = new Set<string>()
     for (const row of rows) {
       const blocked = isIssueBlocked(
         row,
-        deps.filter((d) => d.fromId === row.id && d.type === 'blocked-by').map((d) => closure.get(d.toId)),
+        deps
+          .filter((d) => d.fromId === row.id && d.type === 'blocked-by')
+          .map((d) => closure.get(d.toId)),
       )
-      if (isIssueStage(row.stage) && isReadyIssueStage(row.stage) && !this.isClosed(row) && !this.isDeferred(row) && !blocked) {
+      if (
+        isIssueStage(row.stage) &&
+        isReadyIssueStage(row.stage) &&
+        !this.isClosed(row) &&
+        !this.isDeferred(row) &&
+        !blocked
+      ) {
         ready.add(row.id)
       }
     }
@@ -564,7 +621,9 @@ export class IssueStore {
     const seqs = parsed.flatMap((entry) => (entry.seq === undefined ? [] : [entry.seq]))
     const bySeq = await this.deps.store.issues.issueRefsAtSeqs(seqs)
     const prefixes = new Map<string, ReturnType<IssueDeps['store']['repos']['repoForPrefix']>>()
-    let resolver: Promise<Awaited<ReturnType<IssueDeps['store']['repos']['issueRepoIdResolver']>>> | undefined
+    let resolver:
+      | Promise<Awaited<ReturnType<IssueDeps['store']['repos']['issueRepoIdResolver']>>>
+      | undefined
     return await Promise.all(
       parsed.map(async ({ ref, nice, seq }) => {
         const atSeq = seq === undefined ? [] : (bySeq.get(seq) ?? [])
@@ -577,7 +636,9 @@ export class IssueStore {
           const repo = await lookup
           if (!repo) return { ref, id: null }
           const legacy = atSeq.some((row) => row.repoId === null)
-          const resolve = legacy ? await (resolver ??= this.deps.store.repos.issueRepoIdResolver()) : undefined
+          const resolve = legacy
+            ? await (resolver ??= this.deps.store.repos.issueRepoIdResolver())
+            : undefined
           return { ref, id: referenceInRepoOf(atSeq, repo.repoId, resolve) }
         }
         return { ref, id: atSeq.length === 1 ? (atSeq[0]?.id ?? null) : null }
@@ -606,7 +667,8 @@ export class IssueStore {
    *  the throw's job, not the type's. */
   async resolveRef(ref: string, scopeRepoPath?: string): Promise<IssueId> {
     // The internal id needs no lookup; any other existing id passes through too.
-    if (ref.startsWith('iss_') || (await this.deps.store.issues.hasIssue(ref))) return asIssueId(ref)
+    if (ref.startsWith('iss_') || (await this.deps.store.issues.hasIssue(ref)))
+      return asIssueId(ref)
     // Human-facing nice id `PREFIX-seq` (#474), read over the rows at its
     // sequence number (POD-6158). The prefix identifies the repo server-wide, so
     // this resolves without a path qualifier; a prefix no repo owns falls
@@ -1071,8 +1133,12 @@ export class IssueStore {
  */
 function inRepositoryOrder<T>(entries: readonly T[], rowOf: (entry: T) => IssueRow): T[] {
   const keyed = entries.map((entry) => ({ entry, row: rowOf(entry) }))
-  keyed.sort((a, b) =>
-    byCodePoint(a.row.repoPath, b.row.repoPath) || a.row.seq - b.row.seq || byCodePoint(a.row.id, b.row.id))
+  keyed.sort(
+    (a, b) =>
+      byCodePoint(a.row.repoPath, b.row.repoPath) ||
+      a.row.seq - b.row.seq ||
+      byCodePoint(a.row.id, b.row.id),
+  )
   return keyed.map(({ entry }) => entry)
 }
 

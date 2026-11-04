@@ -5,21 +5,25 @@
  * read behind them asks the database.
  */
 import type { SessionStore } from './store'
+
 export type { GrantRow } from './store/grants'
+export type { MessagePageCursor } from './store/messages'
 export type {
   IssueRow,
-  SessionRow,
   MessageRow,
   ObservationLeaseRecord,
+  SessionRow,
   TerminalCandidateFacts,
 } from './store/types'
-export type { MessagePageCursor } from './store/messages'
 
 export interface DaemonObservationStore {
   readonly observationCheckpoints: SessionStore['observationCheckpoints']
 }
 export interface FeedVisibilityStore {
-  readonly issues: Pick<SessionStore['issues'], 'getIssue' | 'getIssues'>
+  readonly issues: Pick<
+    SessionStore['issues'],
+    'getIssue' | 'getIssues' | 'liveWorktreeIssuesOnMachines'
+  >
   readonly sessions: Pick<
     SessionStore['sessions'],
     'getSessions' | 'findSessionsByResumeValues' | 'findSessionsByIssueIds'
@@ -29,7 +33,10 @@ export interface FeedVisibilityStore {
     'issueIdsForOrders' | 'laneMemberIssueIdsMany' | 'ordersByIds' | 'orderIdsForIssues'
   >
   readonly automations: Pick<SessionStore['automations'], 'ownersOf' | 'runOwnersOf'>
-  readonly grants: Pick<SessionStore['grants'], 'loadForResource' | 'loadForResources' | 'loadForResourcesOfKinds' | 'listForResources'>
+  readonly grants: Pick<
+    SessionStore['grants'],
+    'loadForResource' | 'loadForResources' | 'loadForResourcesOfKinds' | 'listForResources'
+  >
   readonly sync: Pick<SessionStore['sync'], 'installedStates' | 'installedIdsWithPrefixes'>
 }
 export type DeliveryMessages = Pick<

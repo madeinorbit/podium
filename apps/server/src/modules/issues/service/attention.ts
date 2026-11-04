@@ -318,7 +318,14 @@ export class IssueAttentionModule {
     const candidates = (
       anchor.repoId
         ? await this.store.deps.store.issues.listIssueRowsWhere(
-            { repo: true, live: true, unarchived: true, state: 'open', topLevel: true, order: 'seq' },
+            {
+              repo: true,
+              live: true,
+              unarchived: true,
+              state: 'open',
+              topLevel: true,
+              order: 'seq',
+            },
             { repoId: anchor.repoId },
           )
         : []
@@ -326,11 +333,14 @@ export class IssueAttentionModule {
     // Provenance can be removed, so retaining a positive across attaches would
     // permit unrelated reuse. Resolve anew for this attach; missing evidence denies.
     // One read of every candidate's dependencies.
-    const dependencies = await this.store.deps.store.issues.depsFromIssues(candidates.map((row) => row.id))
+    const dependencies = await this.store.deps.store.issues.depsFromIssues(
+      candidates.map((row) => row.id),
+    )
     return candidates
       .filter((row) =>
         dependencies.some(
-          (dep) => dep.fromId === row.id && dep.toId === anchor.id && dep.type === 'discovered-from',
+          (dep) =>
+            dep.fromId === row.id && dep.toId === anchor.id && dep.type === 'discovered-from',
         ),
       )
       .sort((a, b) => a.seq - b.seq)[0]
@@ -592,20 +602,25 @@ export class IssueAttentionModule {
   ): Promise<IssueProjection[]> {
     const cutoffReadMs = nowMs - AUTO_ARCHIVE_READ_WINDOW_MS
     const out: IssueProjection[] = []
-    // The closed, live, unarchived top-level issues in one SQL listing, and the
-    // viewer's markers for them in one read (POD-6193); they used to be found by
-    // scanning the issue map with one marker read per closed issue.
+    // The closed, live, unarchived top-level issues in one SQL listing, and each
+    // one's assignee's markers in one read (POD-6193, POD-6291); they used to be
+    // found by scanning the issue map with one marker read per closed issue.
     const closed = await this.store.deps.store.issues.listIssueRowsWhere({
-      repo: false, live: true, unarchived: true, state: 'closed', topLevel: true, order: 'path-seq',
+      repo: false,
+      live: true,
+      unarchived: true,
+      state: 'closed',
+      topLevel: true,
+      order: 'path-seq',
     })
     const markers = await this.store.issueUserStates(closed.map((row) => row.id))
     for (const row of closed) {
       if (row.archived || row.deletedAt) continue // idempotent: never re-archive deleted work
       if (!this.store.isClosed(row) || row.parentId) continue // only closed top-level work ages out [spec:SP-6144]
-      // "Read" is now a fact about a READER, so the sweep asks the broadcast
-      // viewer (POD-1076). Behaviour is unchanged on a one-person instance; the
-      // open question "auto-archived because WHO read it?" is POD-1136's, and it
-      // is now askable because the value has an owner.
+      // "Read" is a fact about a READER (POD-1076). `archived` is shared, so one
+      // reader gates it: the task's assignee, the person accountable for it
+      // (POD-6291). On a one-member instance that is the only member, as before;
+      // another member's read never archives somebody else's finished work.
       const viewerReadAt = markers.get(row.id)?.readAt
       if (viewerReadAt == null) continue // never read → still unread, leave it
       const readMs = Date.parse(viewerReadAt)
@@ -645,14 +660,12 @@ export class IssueAttentionModule {
       return 'precondition'
     }
     // WHOSE read (POD-1229). `archived` is a SHARED column, so exactly one
-    // reader may gate it — the viewer this service archives for. A proposal
-    // naming anyone else is REFUSED rather than quietly evaluated against the
-    // wrong person: that refusal is what makes "the janitor and the server must
-    // ask the same principal" a checked fact instead of two constants that
-    // happen to match. When `archived` becomes per-user (POD-1077), this
-    // comparison becomes "the principal whose flag you are setting" and the
-    // observation already carries it.
-    if (observed.readerUserId !== (await this.store.broadcastViewer())) return 'precondition'
+    // reader may gate it — the task's assignee (POD-6291). A proposal naming
+    // anyone else is REFUSED rather than quietly evaluated against the wrong
+    // person: that refusal is what makes "the janitor and the server must ask
+    // the same principal" a checked fact instead of two constants that happen
+    // to match.
+    if (observed.readerUserId !== row.ownerUserId) return 'precondition'
     const viewerReadAt = (
       await this.store.deps.store.issues.getIssueUserState(observed.readerUserId, row.id)
     )?.readAt

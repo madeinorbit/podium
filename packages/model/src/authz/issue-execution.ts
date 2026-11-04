@@ -139,3 +139,104 @@ export interface IssueSessionSummaryEntry {
   /** `live` while the agent is working, `idle` otherwise. */
   readonly state: 'live' | 'idle'
 }
+
+/**
+ * PER-MEMBER MARKER EVENTS (POD-6291). A read, unread or pin is a transition of
+ * ONE member's own marker (design §4.1 "Self"): the event names that member as
+ * `payload.userId`, and it reaches nobody else — not the task's shared
+ * activity, not the events feed, not a notification.
+ */
+export const ISSUE_MARKER_EVENT_KINDS: readonly string[] = [
+  'issue.read',
+  'issue.unread',
+  'issue.pinned',
+]
+
+/**
+ * Is this event `viewer`'s to see as far as markers go? Every other kind is.
+ * An event logged before markers named their member (no `userId`) is the
+ * task assignee's, the one member a pre-multi-user marker could belong to.
+ */
+export function markerEventVisibleTo(
+  event: { readonly kind: string; readonly payload: unknown },
+  viewer: string,
+  assignee: string | null | undefined,
+): boolean {
+  if (!ISSUE_MARKER_EVENT_KINDS.includes(event.kind)) return true
+  const payload = event.payload as { userId?: unknown } | null | undefined
+  const owner = typeof payload?.userId === 'string' ? payload.userId : (assignee ?? null)
+  return owner === viewer
+}
+
+/** Payload keys of a task's events that name a place on a machine. */
+const EVENT_WORKSPACE_KEYS = ['worktreePath', 'machineId', 'cwd'] as const
+/** Payload keys of a task's events that hold a session id. */
+const EVENT_SESSION_KEYS = ['sessionId', 'causedBySessionId', 'actorSessionId'] as const
+/** Kinds whose `from` is the previous session. */
+const EVENT_FROM_IS_SESSION = new Set(['issue.session_attached', 'issue.coordinator_set'])
+
+/**
+ * A TASK EVENT'S PAYLOAD AS `access` ALLOWS (design §4.2 applied to the task's
+ * activity, POD-6291). The same rule as the task's own fields: a machine path
+ * goes to the custodian of the task's machine, a session id to that session's
+ * owner. A hidden session id leaves `sessionHidden: true` behind, so "the
+ * coordinator changed" never reads as "the coordinator was cleared". An agent
+ * actor in the attribution keeps its kind and loses its id. Nothing else in the
+ * payload is touched.
+ */
+export function withoutHiddenEventFields(
+  kind: string,
+  payload: unknown,
+  access: IssueExecutionAccess,
+): unknown {
+  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) return payload
+  const out = { ...(payload as Record<string, unknown>) }
+  let changed = false
+  if (!access.workspace) {
+    for (const key of EVENT_WORKSPACE_KEYS) {
+      if (key in out && out[key] != null) {
+        delete out[key]
+        changed = true
+      }
+    }
+  }
+  const sessionKeys: string[] = [
+    ...EVENT_SESSION_KEYS,
+    ...(EVENT_FROM_IS_SESSION.has(kind) ? ['from'] : []),
+  ]
+  for (const key of sessionKeys) {
+    const id = out[key]
+    if (typeof id === 'string' && !access.session(id)) {
+      delete out[key]
+      if (key === 'sessionId') out.sessionHidden = true
+      changed = true
+    }
+  }
+  const attribution = out.attribution as { actor?: unknown } | undefined
+  if (
+    attribution &&
+    typeof attribution.actor === 'string' &&
+    attribution.actor.startsWith('session:')
+  ) {
+    if (!access.session(attribution.actor.slice('session:'.length))) {
+      out.attribution = { ...attribution, actor: 'session' }
+      changed = true
+    }
+  }
+  return changed ? out : payload
+}
+
+/** The session ids a task event's payload names, for the facts read. */
+export function eventSessionIds(kind: string, payload: unknown): string[] {
+  if (payload === null || typeof payload !== 'object') return []
+  const p = payload as Record<string, unknown>
+  const ids: string[] = []
+  for (const key of [...EVENT_SESSION_KEYS, ...(EVENT_FROM_IS_SESSION.has(kind) ? ['from'] : [])]) {
+    const id = p[key]
+    if (typeof id === 'string' && id.length > 0) ids.push(id)
+  }
+  const actor = (p.attribution as { actor?: unknown } | undefined)?.actor
+  if (typeof actor === 'string' && actor.startsWith('session:'))
+    ids.push(actor.slice('session:'.length))
+  return ids
+}

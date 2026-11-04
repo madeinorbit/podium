@@ -50,8 +50,6 @@ import type {
   RuntimeAttachmentRef,
 } from '@podium/protocol/daemon'
 import { resolveSpawnDefaults } from '@podium/runtime'
-import { resolveLaunchSelection } from './model-validation'
-import { soleMemberFor } from './sole-member'
 import { durableSessionLabel } from '@podium/runtime/instance'
 import { stateDir } from '@podium/runtime/local-machine'
 import { prepareSourceDaemonCutover } from '@podium/runtime/transfer-lifecycle'
@@ -90,7 +88,9 @@ import { checkIssueAccess, mayReachPrivate } from './issue-authz'
 import { type CodexTransport, llmClient } from './llm'
 import { checkMachineUse, ownershipSnapshotFromMachines } from './machine-access'
 import type { ModelProbe } from './model-catalog'
+import { resolveLaunchSelection } from './model-validation'
 import { NativeLoginService } from './modules/accounts/native-login'
+import { AgentProfileService } from './modules/agent-profiles/service'
 import { APPROVAL_STALL_SWEEP_MS, ApprovalService } from './modules/approvals/service'
 import { automationPromptSender } from './modules/automations/prompt'
 import { AutomationScheduler } from './modules/automations/scheduler'
@@ -111,6 +111,7 @@ import { IssueAuthorityArbitration } from './modules/issues/authority-arbitratio
 import { IssueAutoArchive } from './modules/issues/auto-archive'
 import { IssueCommandDispatcher } from './modules/issues/dispatcher'
 import { IssueGitWatch } from './modules/issues/git-watch'
+import { readIssue, readIssues } from './modules/issues/issue-reader'
 import { PENDING_UPLOAD_SWEEP_MS, PendingUploadStore } from './modules/issues/pending-uploads'
 import { repoProjectionRows } from './modules/issues/projection'
 import { makeAgentRelayDispatch } from './modules/issues/relay-dispatch'
@@ -163,7 +164,6 @@ import { readPromotedTargetMetadata } from './modules/server-transfer/target-sta
 import { machinesForPrincipal } from './modules/sessions/command-ctx'
 import { QUEUED_INPUT_SWEEP_MS, SYSTEM_INBOX_PRINCIPAL } from './modules/sessions/inbox'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
-import { AgentProfileService } from './modules/agent-profiles/service'
 import { SessionLifecycle } from './modules/sessions/lifecycle'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
 import { readSessionRefs } from './modules/sessions/refs'
@@ -202,8 +202,8 @@ import { type ChannelFeed, resolveReleaseTarget } from './modules/updates/releas
 import type { ServerPlacement } from './modules/updates/service'
 import { UpdatesService } from './modules/updates/service'
 import { WorkflowService } from './modules/workflows/service'
-import { readIssue, readIssues } from './modules/issues/issue-reader'
 import { inferRepoFromRoots } from './repo-registry'
+import { soleMemberFor } from './sole-member'
 import { JANITOR_STEWARD_EVENT_LIMIT, StewardService, stewardNoticeSender } from './steward'
 import { SessionStore } from './store'
 import { afterCommit, applyAfterCommit, spanOpen } from './store/executor/executor'
@@ -1188,7 +1188,8 @@ export class SessionRegistry {
       // A parked session is restored from its row for the read (POD-6160 D2f);
       // the view closes over the object, which stays readable if it is evicted.
       getSession: async (sessionId) => {
-        const session = liveSessions.get(sessionId) ?? (await sessionsSvc.residency.ensure(sessionId, 'rpc'))
+        const session =
+          liveSessions.get(sessionId) ?? (await sessionsSvc.residency.ensure(sessionId, 'rpc'))
         session?.freshenDurable()
         // A restored parked session's transcript is replayed for its reader (POD-6160).
         if (session) await sessionsSvc.repository.ensureTranscript(session)
@@ -1400,7 +1401,8 @@ export class SessionRegistry {
     // A mail sender's capability and a session ref's owner, from who the session
     // acts for (POD-6160: the resident session, else its row, read once per
     // operation). `sessionsSvc` is built below; these run only once it exists.
-    const capabilityForLiveSession = async (sessionId: SessionId) => await sessionsSvc.capabilityForSession(sessionId)
+    const capabilityForLiveSession = async (sessionId: SessionId) =>
+      await sessionsSvc.capabilityForSession(sessionId)
     // Sessions are private (POD-6283): the owner, and no grant.
     const liveSessionOwner = async (sessionId: SessionId) =>
       (await sessionsSvc.records.ownershipOf(sessionId, 'mailSessionRef'))?.ownerUserId
@@ -1413,10 +1415,12 @@ export class SessionRegistry {
         canSee: async (ref) => {
           if (principal.kind === 'system') return true
           if (userId === null) return false
-          if (ref.kind === 'issue')
-            return feedVisibility.mayReadIssue(userId, asIssueId(ref.id))
+          if (ref.kind === 'issue') return feedVisibility.mayReadIssue(userId, asIssueId(ref.id))
           if (ref.kind === 'session') {
-            return mayReachPrivate(userId, { id: ref.id, owner: await liveSessionOwner(asSessionId(ref.id)) })
+            return mayReachPrivate(userId, {
+              id: ref.id,
+              owner: await liveSessionOwner(asSessionId(ref.id)),
+            })
           }
           return false
         },
@@ -1738,7 +1742,9 @@ export class SessionRegistry {
     // many times the sample rebuilds its session list. Which issue owns a
     // folder does not change inside one host sample's scope.
     const folderOwnersSlot = readScopeSlot<Map<string, IssueId | null>>(() => new Map())
-    const folderOwnersInScope = async (cwds: Iterable<string>): Promise<Map<string, IssueId | null>> => {
+    const folderOwnersInScope = async (
+      cwds: Iterable<string>,
+    ): Promise<Map<string, IssueId | null>> => {
       const known = currentReadScope().slot(folderOwnersSlot)
       const missing = [...new Set(cwds)].filter((cwd) => !known.has(cwd))
       if (missing.length > 0) {
@@ -1822,7 +1828,10 @@ export class SessionRegistry {
           // attempt depends on.
           const closed = await closedIssueIdsInScope(
             samples.flatMap((session) => {
-              const owner = session.agentKind === 'shell' ? ownerIssueIds.get(session.sessionId) : session.issueId
+              const owner =
+                session.agentKind === 'shell'
+                  ? ownerIssueIds.get(session.sessionId)
+                  : session.issueId
               return owner != null ? [owner] : []
             }),
           )
@@ -1952,20 +1961,27 @@ export class SessionRegistry {
         // A prompt-failed notice can name an exited session (POD-6160): its
         // facts are read from the database when it is not resident.
         sessionInfo: async (sessionId) => {
-          const s = sessionsSvc.sessions.get(sessionId) ?? (await sessionsSvc.readSessionFactsById(sessionId))
+          const s =
+            sessionsSvc.sessions.get(sessionId) ??
+            (await sessionsSvc.readSessionFactsById(sessionId))
           return s ? noticeInfo(s) : undefined
         },
         // The not-exited sessions, running or hibernated (POD-6160): a stopped
         // session's last state is not replayed, as the live path above already
         // suppresses notices for stopped sessions.
         sessionStates: async () =>
-          (await sessionsSvc.readSessionFactsWithStatuses(['starting', 'live', 'reconnecting', 'hibernated'])).map(
-            (s) => ({
-              info: noticeInfo(s),
-              state: s.agentState,
-              ownerUserId: s.ownerUserId,
-            }),
-          ),
+          (
+            await sessionsSvc.readSessionFactsWithStatuses([
+              'starting',
+              'live',
+              'reconnecting',
+              'hibernated',
+            ])
+          ).map((s) => ({
+            info: noticeInfo(s),
+            state: s.agentState,
+            ownerUserId: s.ownerUserId,
+          })),
         notificationsEnabled: () => featureEnabled('notifications'),
       },
       notificationPushers,
@@ -2083,7 +2099,13 @@ export class SessionRegistry {
           ...(o.effort !== undefined ? { effort: o.effort } : {}),
           // Issue workflow already resolved both fields, including deliberate auto.
           ...(o.model !== undefined && o.effort !== undefined
-            ? { launchSelection: { model: o.model, effort: o.effort, forced: o.forceUnknownModel === true } }
+            ? {
+                launchSelection: {
+                  model: o.model,
+                  effort: o.effort,
+                  forced: o.forceUnknownModel === true,
+                },
+              }
             : {}),
           ...(o.forceUnknownModel ? { forceUnknownModel: true } : {}),
           ...(o.initialPrompt ? { initialPrompt: o.initialPrompt } : {}),
@@ -2182,7 +2204,11 @@ export class SessionRegistry {
             message.kind !== 'worktree'
           )
             break
-          if (message.repoRoot !== undefined && !machinePathsEqual(message.repoRoot, issue.repoPath)) break
+          if (
+            message.repoRoot !== undefined &&
+            !machinePathsEqual(message.repoRoot, issue.repoPath)
+          )
+            break
           if (await issueAccess.isIssueWorktree(message.cwd)) break
           await issues.crud.update(issue.id, {
             worktreePath: message.cwd,
@@ -2360,11 +2386,13 @@ export class SessionRegistry {
       isAgentDriven: (sessionId) => sessionsSvc.receiptSender.onContract(sessionId),
       mirrorIssueMail: async (row) =>
         await funnel.run({ write: async () => await this.store.issues.addIssueMessage(row) }),
-      mirrorMarkIssueMailRead: async (issueId, ids) =>
+      // The READING session's owner marks it read (POD-6291), never the first
+      // admin; a delivery to nobody moves only the shared delivery state.
+      mirrorMarkIssueMailRead: async (issueId, ids, reader) =>
         await funnel.run({
           write: async () =>
             await this.store.issues.markIssueMessagesRead(
-              await firstAdminMemberId(this.store),
+              reader ? ((await this.store.sessions.getSession(reader))?.ownerUserId ?? null) : null,
               issueId,
               ids,
               new Date().toISOString(),
@@ -2493,7 +2521,10 @@ export class SessionRegistry {
       await messagesSvc.onSessionRoutingChanged(previous)
     })
     this.bus.on('issue.worktreeMoved', async ({ issueId, previousWorktreePath }) => {
-      await messagesSvc.onIssuesEligibilityChanged([issueId], new Map([[issueId, previousWorktreePath]]))
+      await messagesSvc.onIssuesEligibilityChanged(
+        [issueId],
+        new Map([[issueId, previousWorktreePath]]),
+      )
     })
     const workflows = new WorkflowService(
       {
@@ -2792,11 +2823,13 @@ export class SessionRegistry {
       // Select on facts, wire only the survivors [POD-3857]; every selection is
       // a narrow read of the sessions it can name (POD-6160).
       readSessionFactsByIds: async (ids) => await sessionsSvc.readSessionFactsByIds(ids),
-      readSessionFactsByIdPrefix: async (prefix) => await sessionsSvc.readSessionFactsByIdPrefix(prefix),
+      readSessionFactsByIdPrefix: async (prefix) =>
+        await sessionsSvc.readSessionFactsByIdPrefix(prefix),
       readSessionFactsByBirthRef: async (ref) => await sessionsSvc.readSessionFactsByBirthRef(ref),
       readSessionFactsByIssue: async (worktreePath, issueId) =>
         await sessionsSvc.readSessionFactsByIssue(worktreePath, issueId),
-      readSessionFactsSpawnedBy: async (parentIds) => await sessionsSvc.readSessionFactsSpawnedBy(parentIds),
+      readSessionFactsSpawnedBy: async (parentIds) =>
+        await sessionsSvc.readSessionFactsSpawnedBy(parentIds),
       sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
       sessionsById: async (sessionIds) => await sessionsSvc.sessionsById(sessionIds),
       issues,
@@ -2847,7 +2880,8 @@ export class SessionRegistry {
         await issues.crud.update(issue.id, { stage: 'in_progress' })
         return { id: issue.id }
       },
-      liveSessionIds: async () => new Set(sessionsSvc.runningSessionFacts().map((s) => s.sessionId)),
+      liveSessionIds: async () =>
+        new Set(sessionsSvc.runningSessionFacts().map((s) => s.sessionId)),
       principalForOwner: async (ownerUserId) => {
         const role = await this.store.users.roleOf(ownerUserId)
         return role ? userCommandPrincipal(ownerUserId, role) : undefined
@@ -3048,7 +3082,10 @@ export class SessionRegistry {
         // Answering an agent's question is driving it (design §2.3, POD-6283):
         // only the session's own human may, even on someone else's task.
         if (!(await sessionsSvc.mayReachSession(caller.capability, sessionId))) {
-          return { ok: false, message: 'only the person this agent works for can answer its question' }
+          return {
+            ok: false,
+            message: 'only the person this agent works for can answer its question',
+          }
         }
         const r = await deliverAnswerToSession(
           {
@@ -3329,7 +3366,9 @@ export class SessionRegistry {
             )
           }
           if (!(await mayShipTask(userId, role, issue.id))) {
-            throw new Error(`shipping requester ${userId} is no longer the task's assignee or an admin`)
+            throw new Error(
+              `shipping requester ${userId} is no longer the task's assignee or an admin`,
+            )
           }
           const machineAccess = checkMachineUse(
             principal,
@@ -3897,7 +3936,8 @@ export class SessionRegistry {
       // The cheap fleet read [POD-3857]: the steward nudges running sessions
       // from facts and looks parked ones up by id (POD-6160).
       runningSessionFacts: () => sessionsSvc.runningSessionFacts(),
-      readSessionFactsByIds: async (sessionIds) => await sessionsSvc.readSessionFactsByIds(sessionIds),
+      readSessionFactsByIds: async (sessionIds) =>
+        await sessionsSvc.readSessionFactsByIds(sessionIds),
       // The by-id read [POD-1646]: one session, not the full pass.
       sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
       sessionOwner: async (sessionId) => (await sessionsSvc.sessionOwner(sessionId))?.owner,
@@ -3916,7 +3956,9 @@ export class SessionRegistry {
           void (async () => {
             if ((await messagesSvc.settleNotifiable(sessionId)).length === 0) return
             const meta = await sessionsSvc.sessionById(sessionId)
-            const issueId = meta ? (meta.issueId ?? (await issues.reports.issueForCwd(meta.cwd))) : null
+            const issueId = meta
+              ? (meta.issueId ?? (await issues.reports.issueForCwd(meta.cwd)))
+              : null
             const issue = issueId ? await issues.reports.getMeta(issueId) : null
             let lastCommit: string | undefined
             if (meta) {
