@@ -31,7 +31,7 @@ describe('readToolPins', () => {
     writeFileSync(
       join(root, 'mise.toml'),
       '[tools]\nzig = "9.9.9"\n' +
-        '"github:indygreg/apple-platform-rs" = { version = "apple-codesign/8.8.8", exe = "rcodesign" }\n',
+        '"github:indygreg/apple-platform-rs" = { version = "apple-codesign/8.8.8" }\n',
     )
     expect(readToolPins(root)).toEqual({ zig: '9.9.9', rcodesign: '8.8.8' })
   })

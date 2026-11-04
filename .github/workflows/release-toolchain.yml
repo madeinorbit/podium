@@ -1,0 +1,48 @@
+name: release-toolchain
+
+on:
+  pull_request:
+    paths:
+      - mise.toml
+      - scripts/tool-pins.ts
+      - .github/workflows/release-toolchain.yml
+  push:
+    branches: [main]
+    paths:
+      - mise.toml
+      - scripts/tool-pins.ts
+      - .github/workflows/release-toolchain.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-toolchain-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  signing-tool:
+    name: Apple signing tool (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # Linux builds all four headless targets; macOS builds desktop natively.
+        # Also cover arm64 Linux developers and the experimental Windows build.
+        runner: [ubuntu-latest, ubuntu-24.04-arm, macos-15, macos-15-intel, windows-latest]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      # Exercise the real backend before dependency installation or release cuts.
+      # Disable the cache so the preflight also checks download and extraction.
+      - uses: jdx/mise-action@v2
+        with:
+          cache: false
+          install_args: bun github:indygreg/apple-platform-rs
+      - name: Verify the installed signing tool matches the release pin
+        shell: bash
+        run: |
+          # Explicit tools keep mise exec from auto-installing the rest of the build toolchain.
+          mise exec bun github:indygreg/apple-platform-rs -- rcodesign --version
+          mise exec bun github:indygreg/apple-platform-rs -- bun -e 'import { resolveRcodesign } from "./scripts/tool-pins.ts"; console.log(resolveRcodesign())'
