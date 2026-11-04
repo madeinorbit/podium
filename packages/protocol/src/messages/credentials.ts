@@ -30,6 +30,12 @@ export const CredentialExportRequestMessage = z.object({
   kinds: z.array(PortableCredentialKind).max(4),
   /** Server-only native login propagation; absent keeps legacy pairing behavior. */
   propagation: z.boolean().optional(),
+  /**
+   * The identity fingerprint of the login the server means to copy (POD-6301).
+   * A daemon whose login has a different (or unknown) identity exports nothing:
+   * the D11 choice belongs to that one account, not to whatever is there now.
+   */
+  expectedFingerprint: z.string().min(1).max(256).optional(),
 })
 export const CredentialExportResultMessage = z.object({
   type: z.literal('credentialExportResult'),
@@ -45,11 +51,20 @@ export const CredentialInstallRequestMessage = z.object({
   bundles: z.array(PortableCredentialBundle).max(4),
   /** Server-only native login propagation; absent keeps legacy pairing behavior. */
   propagation: z.boolean().optional(),
+  /**
+   * The identity fingerprint of the login being installed (POD-6301). A
+   * destination already holding a login of a different or unknown identity
+   * keeps it and reports the kind under `preserved`.
+   */
+  expectedFingerprint: z.string().min(1).max(256).optional(),
 })
 export const CredentialInstallResultMessage = z.object({
   type: z.literal('credentialInstallResult'),
   requestId: z.string(),
   installed: z.array(PortableCredentialKind).max(4),
   failed: z.array(PortableCredentialKind).max(4),
+  /** Not installed because the destination holds a different login, which
+   *  stays in place (POD-6301). Also listed under `failed` for older servers. */
+  preserved: z.array(PortableCredentialKind).max(4).optional(),
 })
 export type CredentialInstallResultMessage = z.infer<typeof CredentialInstallResultMessage>

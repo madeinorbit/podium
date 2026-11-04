@@ -10,17 +10,18 @@
  * guarded writes, the propagation CAS fence — moved here VERBATIM from the
  * daemon's `control/credentials.ts`; they are correct.
  */
-import { homedir, platform as currentPlatform, userInfo } from 'node:os'
+import { platform as currentPlatform, homedir, userInfo } from 'node:os'
 import type { PortableCredentialBundle, PortableCredentialKind } from '@podium/protocol'
+import type { PortableCredentialStore } from '../manifest.js'
 import {
-  declaredValue,
-  resolveCredentialFilePath,
   type CredentialFileLayout,
+  credentialFileReader,
+  declaredValue,
   type HarnessCredentials,
+  resolveCredentialFilePath,
 } from '../manifest.js'
 import { AGENT_MANIFESTS } from '../registry.js'
 import { FileCredentialStore, MAX_CREDENTIAL_BYTES } from './credential-store.js'
-import type { PortableCredentialStore } from '../manifest.js'
 
 export interface PortableCredentialOptions {
   /** Use the credential home itself, never a configured/managed file redirect. */
@@ -32,6 +33,35 @@ export interface PortableCredentialOptions {
   osUsername?: string
   /** Resolved CLI versions by harness kind; keys flow as values. */
   versions?: ReadonlyMap<string, string | undefined>
+  /**
+   * The identity fingerprint of the login being copied (POD-6301). Export reads
+   * nothing unless the local login has exactly this identity; a guarded install
+   * keeps a local login of any other (or unknown) identity, throwing
+   * {@link PreservedLoginError}.
+   */
+  expectedFingerprint?: string
+}
+
+/**
+ * The destination already holds a login of a different or unknown identity, so
+ * the copy was not installed and that login stays (POD-6301, September addendum
+ * §5): Podium never replaces someone's login with another account's.
+ */
+export class PreservedLoginError extends Error {
+  constructor(kind: PortableCredentialKind) {
+    super(`a different ${kind} login is installed here; it was kept and nothing was copied`)
+    this.name = 'PreservedLoginError'
+  }
+}
+
+/** The fingerprint of the login the section's files describe under `home`. */
+function localFingerprint(
+  section: HarnessCredentials,
+  home: string,
+  options: PortableCredentialOptions,
+): string | undefined {
+  return section.identity(credentialFileReader(section, home, options.realHome ? {} : options.env))
+    ?.fingerprint
 }
 
 function credentialSections(): HarnessCredentials[] {
@@ -98,6 +128,13 @@ export async function readPortableCredential(
   if (!found) return null
   const { section, file } = found
   if (options.guarded && !file.propagatable) return null
+  if (
+    options.expectedFingerprint !== undefined &&
+    localFingerprint(section, home, options) !== options.expectedFingerprint
+  ) {
+    // The login here is no longer the account the owner ticked: export nothing.
+    return null
+  }
   const read = await credentialStore(section, file, home, options).read()
   if (read.state === 'absent') return null
   if (read.state === 'unavailable') throw new Error(`credential store unavailable: ${read.reason}`)
@@ -129,7 +166,8 @@ export async function installPortableCredential(
     const text = content.toString('utf8')
     const parsed = JSON.parse(text) as unknown
     const found = layoutFor(bundle.kind)
-    if (!found) throw new Error('credential propagation only supports native Codex and Claude files')
+    if (!found)
+      throw new Error('credential propagation only supports native Codex and Claude files')
     const { section, file } = found
     const store = credentialStore(section, file, home, options)
     if (options.guarded) {
@@ -138,6 +176,14 @@ export async function installPortableCredential(
       }
       if (!file.validate(text)) {
         throw new Error('credential propagation payload is not a valid native login')
+      }
+      if (options.expectedFingerprint !== undefined) {
+        const current = await store.read()
+        const occupied = current.state !== 'absent'
+        if (current.state === 'present') current.contents.fill(0)
+        if (occupied && localFingerprint(section, home, options) !== options.expectedFingerprint) {
+          throw new PreservedLoginError(bundle.kind)
+        }
       }
       return await store.guardedInstall(content, {
         valid: (current) => file.validate(current),
@@ -183,12 +229,14 @@ export interface CredentialExportMessage {
   requestId: string
   kinds: readonly PortableCredentialKind[]
   propagation?: boolean
+  expectedFingerprint?: string
 }
 
 export interface CredentialInstallMessage {
   requestId: string
   bundles: readonly PortableCredentialBundle[]
   propagation?: boolean
+  expectedFingerprint?: string
 }
 
 export async function handleCredentialExport(
@@ -216,6 +264,9 @@ export async function handleCredentialExport(
         ...options,
         realHome: msg.propagation === true,
         guarded: msg.propagation === true,
+        ...(msg.propagation === true && msg.expectedFingerprint !== undefined
+          ? { expectedFingerprint: msg.expectedFingerprint }
+          : {}),
       })
       if (bundle) bundles.push(bundle)
       else unavailable.push(kind)
@@ -234,6 +285,7 @@ export async function handleCredentialInstall(
   requestId: string
   installed: PortableCredentialKind[]
   failed: PortableCredentialKind[]
+  preserved?: PortableCredentialKind[]
 }> {
   const home = ports.homeDir ?? homedir()
   const runtime = await ports.snapshotRuntime().catch(() => undefined)
@@ -245,16 +297,21 @@ export async function handleCredentialInstall(
   }
   const installed: PortableCredentialKind[] = []
   const failed: PortableCredentialKind[] = []
+  const preserved: PortableCredentialKind[] = []
   for (const bundle of msg.bundles) {
     try {
       const didInstall = await installPortableCredential(bundle, home, {
         ...options,
         realHome: msg.propagation === true,
         guarded: msg.propagation === true,
+        ...(msg.propagation === true && msg.expectedFingerprint !== undefined
+          ? { expectedFingerprint: msg.expectedFingerprint }
+          : {}),
       })
       if (didInstall) installed.push(bundle.kind)
       else failed.push(bundle.kind)
-    } catch {
+    } catch (error: unknown) {
+      if (error instanceof PreservedLoginError) preserved.push(bundle.kind)
       failed.push(bundle.kind)
     }
   }
@@ -265,5 +322,11 @@ export async function handleCredentialInstall(
       // A failed re-probe must not fail the install acknowledgment.
     }
   }
-  return { type: 'credentialInstallResult', requestId: msg.requestId, installed, failed }
+  return {
+    type: 'credentialInstallResult',
+    requestId: msg.requestId,
+    installed,
+    failed,
+    ...(preserved.length > 0 ? { preserved } : {}),
+  }
 }
