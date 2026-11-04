@@ -1,7 +1,7 @@
 /** The smallest real sign-in checks for both built apps. Run with PODIUM_PASSWORD set. */
 import { mkdirSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { devices, expect, test } from '@playwright/test'
 
 const password = process.env.PODIUM_PASSWORD
@@ -9,7 +9,9 @@ test.skip(!password, 'This check needs a password-protected isolated harness (PO
 test.setTimeout(90_000)
 const evidence = fileURLToPath(new URL('../../../.tmp/accounts-check', import.meta.url))
 
-test('web signs in through the form and reloads with its cookie', async ({ page }) => {
+test('web signs in through the form, reloads with its cookie, and erases on sign-out', async ({
+  page,
+}) => {
   mkdirSync(evidence, { recursive: true })
   await page.goto('/')
   // The web form hides the email field and signs in the first admin (user:sole).
@@ -34,6 +36,31 @@ test('web signs in through the form and reloads with its cookie', async ({ page 
   await page.reload()
   await page.waitForFunction(() => (globalThis as any).__podiumReplicaPath === 'kernel')
   await expect(page.getByLabel('Password', { exact: true })).toBeHidden()
+  // Restored with the Settings sign-out control (b3039e1ae3 removed both; POD-6292).
+  await page.evaluate(() => {
+    history.pushState(null, '', `/settings/security${location.search}`)
+    dispatchEvent(new PopStateEvent('popstate'))
+  })
+  const settings = page.getByRole('dialog', { name: 'Settings' })
+  await expect(settings.getByRole('button', { name: 'Sign out', exact: true })).toBeVisible({
+    timeout: 30_000,
+  })
+  await page.screenshot({ path: resolve(evidence, 'web-account-removal.png'), fullPage: true })
+  await settings.getByRole('button', { name: 'Sign out', exact: true }).click()
+  await expect(page.getByLabel('Password', { exact: true })).toBeVisible()
+  expect(
+    await page.evaluate(() =>
+      Object.keys(localStorage).filter((key) => key.startsWith('podium.kernel-replica.principal.')),
+    ),
+  ).toEqual([])
+  expect(
+    await page.evaluate(() =>
+      fetch('/auth/status')
+        .then((response) => response.json())
+        .then((status) => status.authed),
+    ),
+  ).toBe(false)
+  await page.screenshot({ path: resolve(evidence, 'web-signed-out.png'), fullPage: true })
 })
 
 test.describe('phone Expo web', () => {
