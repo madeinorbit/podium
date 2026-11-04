@@ -689,6 +689,18 @@ function useFixturePool(): MobxPool {
           if (name === 'issue-page') return issuePages(records())
           if (name === 'issueBoardCards') return boardCards(records())
           if (name === 'sidebar') return fixture.sidebar
+          // The member roster (POD-6294): a fixture is a one-member instance
+          // unless it supplies its own, so the task views keep their former rules.
+          if (name === 'members.roster')
+            return (fixture.memberRoster ??= {
+              shared: false,
+              members: [],
+              currentMemberId: undefined,
+              loading: false,
+              nameOf: (): undefined => undefined,
+              read: async (): Promise<void> => {},
+              dispose: (): void => {},
+            })
           if (name === 'header.entities') return fixture.header
           if (name === 'header.views') return fixture.headerViews
           if (name === 'sessionPanes') return fixture.sessionPanes
