@@ -35,6 +35,8 @@ export {
   accountsLoginInput,
   accountsSendContract,
   accountsSendInput,
+  accountsUseOnMyMachinesContract,
+  accountsUseOnMyMachinesInput,
 } from './accounts/contracts'
 export {
   AGENT_PROFILE_CONTRACT_NAMES,

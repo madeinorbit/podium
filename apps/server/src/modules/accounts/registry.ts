@@ -40,6 +40,9 @@ export interface AccountState {
   readonly machineService: RegistryModules['machines']
   readonly settings: RegistryModules['settings']
   readonly nativeLogin: RegistryModules['nativeLogin']
+  /** Copies a just-ticked login to the caller's machines (POD-6301). Optional
+   *  so existing test states stay valid; absent, a tick copies on next use. */
+  readonly loginPropagation?: Pick<RegistryModules['loginPropagation'], 'trigger'> | undefined
   readonly callerUserId: UserId
   /** The caller's role. An admin sees the instance's legacy provider keys
    *  (instance settings); it never sees anyone's connections. */
@@ -154,6 +157,59 @@ export const ACCOUNT_COMMANDS_TRPC = {
       )
       return { ok: true as const, sent: true as const, warning: SHARED_MACHINE_ACCOUNT_WARNING }
     }) satisfies AccountHandler<z.infer<(typeof ACCOUNT_CONTRACTS)['send']['input']>, unknown>,
+  },
+  useOnMyMachines: {
+    contract: ACCOUNT_CONTRACTS.useOnMyMachines,
+    handler: (async (state, input) => {
+      const owner = asUserId(state.callerUserId)
+      const custody = [...(await state.machineStanding())]
+        .filter(([, standing]) => standing === 'custody')
+        .map(([id]) => id)
+      if (input.enabled) {
+        // Only a login observed on one of the caller's own machines can be
+        // ticked: it is theirs (design §2.5), and nobody else's is nameable.
+        const observed = [...(await state.machines.getMachines(custody)).values()].some(
+          (machine) =>
+            !machine.revokedAt &&
+            machine.inventory?.agents.some(
+              (agent) =>
+                agent.kind === input.harness &&
+                agent.login.state === 'in' &&
+                agent.login.identity?.fingerprint === input.fingerprint,
+            ),
+        )
+        if (!observed) {
+          throw new Error(`none of your machines is signed in to that ${input.harness} account`)
+        }
+      }
+      await state.accounts.setOptIn(
+        owner,
+        input.harness,
+        input.fingerprint,
+        input.enabled,
+        (state.now?.() ?? new Date()).toISOString(),
+      )
+      // A tick reaches the caller's current machines now; future ones get it
+      // when they enroll or first run that harness. Unticking copies nothing
+      // more and recalls nothing already installed.
+      if (input.enabled) {
+        for (const machineId of custody) {
+          await state.loginPropagation?.trigger({
+            targetMachineId: machineId,
+            agentKind: input.harness,
+            principalUserId: owner,
+            fingerprint: input.fingerprint,
+            // A machine that has not reported this harness yet still gets it;
+            // the daemon keeps any login already there.
+            force: true,
+          })
+        }
+      }
+      return { ok: true as const, enabled: input.enabled }
+    }) satisfies AccountHandler<
+      z.infer<(typeof ACCOUNT_CONTRACTS)['useOnMyMachines']['input']>,
+      unknown
+    >,
   },
 } as const satisfies Record<AccountContractName, AccountCommand>
 

@@ -38,8 +38,10 @@ export interface LoginPropagationTrigger {
   agentKind: AgentKind
   /** The server principal that owns the target machine/session. */
   principalUserId?: UserId
-  /** Used only for the enrollment relay, a fresh tick and harness-error retry. */
+  /** Copy without an observed logout: enrollment, a fresh tick, harness-error retry. */
   force?: boolean
+  /** Refresh the same account already there (a harness-error retry). */
+  refresh?: boolean
   /** Copy only this ticked login (the one just ticked). */
   fingerprint?: string
 }
@@ -252,8 +254,8 @@ export class LoginPropagationService {
             : 'the target is signed in to an account Podium cannot identify, which was kept',
         }
       }
-      // The same account is already there: reuse it, or refresh it on a forced retry.
-      if (!input.input.force) {
+      // The same account is already there: reuse it, or refresh it on a retry.
+      if (!input.input.refresh) {
         return { status: 'skipped', reason: 'the same account is already installed' }
       }
       wanted = same

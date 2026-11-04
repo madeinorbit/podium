@@ -6586,6 +6586,18 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             });
             meta: unknown;
         }>;
+        "useOnMyMachines": TRPC.TRPCMutationProcedure<{
+            input: {
+                enabled: boolean;
+                fingerprint: string;
+                harness: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
+            };
+            output: {
+                enabled: boolean;
+                ok: true;
+            };
+            meta: unknown;
+        }>;
     };
     "agentProfiles": {
         "create": TRPC.TRPCMutationProcedure<{

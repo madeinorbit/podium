@@ -76,6 +76,7 @@ export const accountFamilyProcedures = (): AccountProcedures =>
       machineService: state.modules.machines,
       settings: state.modules.settings,
       nativeLogin: state.modules.nativeLogin,
+      loginPropagation: state.modules.loginPropagation,
       callerUserId: state.caller.userId,
       callerRole: async () => await state.store.users.roleOf(asUserId(state.caller.userId)),
       machineStanding: async () => await state.privateAccess.machineStanding(),

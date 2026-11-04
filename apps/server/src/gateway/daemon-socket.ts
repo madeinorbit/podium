@@ -24,18 +24,18 @@
  * socket confers exactly what a remote pairing confers and nothing more.
  */
 
-import { createLogger } from '@podium/logger'
 import { CREDENTIAL_PROPAGATION_HARNESSES } from '@podium/harness/metadata'
+import { createLogger } from '@podium/logger'
 import {
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   type DaemonHandshakeReply,
-  type HandshakeAcceptor,
   type DaemonPtyInputBatch,
   type DaemonPtyOutputBatch,
   DaemonPtyOutputMetadata,
   decodeBinaryEnvelope,
   encodeBinaryEnvelope,
+  type HandshakeAcceptor,
   type MachinePrincipal,
   type MachineSupervisorControlMessage,
   MachineSupervisorMessage,
@@ -47,7 +47,6 @@ import {
   encodeDaemonMessage,
   parseDaemonMessage,
 } from '@podium/protocol/daemon'
-import type { PairingGrant } from '../modules/machines/service'
 import { DEPLOYMENT, perf } from '../modules/perf/registry'
 import type { SessionRegistry } from '../relay'
 import type { DaemonControlTransport } from './daemon-ports'
@@ -59,7 +58,7 @@ import {
   recordHelloBuild,
 } from './peer-handshake'
 import { DAEMON_PLANE_LIVENESS } from './plane-liveness'
-import { safeSendEncoded, type GatewaySocket, warnDroppedFrame } from './ws-send'
+import { type GatewaySocket, safeSendEncoded, warnDroppedFrame } from './ws-send'
 
 const log = createLogger('server:gateway:daemon')
 
@@ -259,7 +258,10 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
       const outcome = prepared.outcome
       // A pre-auth frame that is not a handshake is dropped on the floor: it never
       // reaches a port and no principal exists (unchanged behaviour).
-      if (outcome.kind === 'challenge') { ws.send(JSON.stringify(outcome.reply)); return }
+      if (outcome.kind === 'challenge') {
+        ws.send(JSON.stringify(outcome.reply))
+        return
+      }
       if (outcome.kind === 'ignored') return
       if (outcome.kind === 'rejected') {
         // Terminal at the daemon (`daemon.ts` treats helloRejected / pairRejected as
@@ -275,10 +277,13 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
         ws.terminate()
         return
       }
-      unregisterCredential = registry.modules.machines.registerCredentialConnection(outcome.principal.machine, () => {
-        failed = true
-        ws.terminate()
-      })
+      unregisterCredential = registry.modules.machines.registerCredentialConnection(
+        outcome.principal.machine,
+        () => {
+          failed = true
+          ws.terminate()
+        },
+      )
       principal = outcome.principal
       acceptedCaps = new Set(outcome.acceptedCaps)
       perf.record(
@@ -384,12 +389,12 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
         clearInterval(settle)
         clearTimeout(stopSettle)
       })
-      // The pairing grant rides back as the directory's opaque context: the
-      // handshake carries it and never interprets it (see `directoryContext`).
-      if (
-        !recoveryTransportOnly(registry) &&
-        (outcome.pairingGrant as PairingGrant | undefined)?.copyAgentCredentials
-      ) {
+      // A NEWLY PAIRED MACHINE gets its custodian's ticked logins (POD-6301,
+      // D11: "all machines I hold custody of, now and in future"). The pairing
+      // grant's `copyAgentCredentials` no longer copies anything by itself: the
+      // owner's per-login choice decides, and propagation reaches only the
+      // custodian's own machines and never replaces a login already there.
+      if (!recoveryTransportOnly(registry) && outcome.pairingGrant !== undefined) {
         // Every harness with a propagatable native login (POD-4737): derived
         // from the registry, so a third propagatable harness is picked up
         // with no second edit here.
@@ -530,7 +535,10 @@ export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry):
     resolved = prepared.acceptor ?? resolved
     const outcome = prepared.outcome
     if (principal === undefined) {
-      if (outcome.kind === 'challenge') { sendEncoded(outcome.reply); return }
+      if (outcome.kind === 'challenge') {
+        sendEncoded(outcome.reply)
+        return
+      }
       if (outcome.kind === 'ignored') return
       if (outcome.kind === 'rejected') {
         sendEncoded(outcome.reply)
@@ -561,10 +569,13 @@ export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry):
         ws.terminate()
         return
       }
-      unregisterCredential = registry.modules.machines.registerCredentialConnection(outcome.principal.machine, () => {
-        failed = true
-        ws.terminate()
-      })
+      unregisterCredential = registry.modules.machines.registerCredentialConnection(
+        outcome.principal.machine,
+        () => {
+          failed = true
+          ws.terminate()
+        },
+      )
       principal = outcome.principal
       sendEncoded(outcome.reply)
       send = sendEncoded

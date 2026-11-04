@@ -45,7 +45,12 @@ function codexMachine(id = 'desk'): MachineRecord {
 function stateWith(resolver: AccountState['resolveCodexServerAi']): AccountState {
   const machines = [codexMachine()]
   return {
-    accounts: { listFor: async () => [], sentTo: async () => [] },
+    accounts: {
+      listFor: async () => [],
+      sentTo: async () => [],
+      optInsFor: async () => [],
+      transfersFor: async () => [],
+    },
     machines: { listMachines: async () => machines },
     // The viewer looks after every machine in these fixtures (POD-6300).
     machineStanding: async () => new Map(machines.map((m) => [m.id, 'custody' as const])),
@@ -66,7 +71,12 @@ function stateWithMachines(
   onlineById: Record<string, boolean> = {},
 ): AccountState {
   return {
-    accounts: { listFor: async () => [], sentTo: async () => [] },
+    accounts: {
+      listFor: async () => [],
+      sentTo: async () => [],
+      optInsFor: async () => [],
+      transfersFor: async () => [],
+    },
     machines: { listMachines: async () => machines },
     // The viewer looks after every machine in these fixtures (POD-6300).
     machineStanding: async () => new Map(machines.map((m) => [m.id, 'custody' as const])),

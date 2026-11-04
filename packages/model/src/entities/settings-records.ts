@@ -38,6 +38,13 @@ export const AccountView = z.object({
   /** A managed connection: the other people's machines its owner may run on
    *  (a `use` grant) and has not sent it to yet. */
   sendableTo: z.array(z.object({ id: MachineId, name: z.string() })).optional(),
+  /** A native login with a known identity: the D11 box (POD-6301). True when
+   *  its owner chose to copy and use it on every machine in their custody, now
+   *  and in future; false when not (the default). Absent for other rows. */
+  useOnMyMachines: z.boolean().optional(),
+  /** The owner's machines where copying this login found a different login,
+   *  which Podium kept in place (POD-6301). */
+  keptOn: z.array(z.object({ id: MachineId, name: z.string() })).optional(),
 })
 export type AccountView = z.infer<typeof AccountView>
 

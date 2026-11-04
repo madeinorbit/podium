@@ -11,7 +11,7 @@
  */
 
 import type { TransportTag } from '@podium/commands'
-import { asUserId } from '@podium/model'
+import { asUserId, type MachineId } from '@podium/model'
 import { z } from 'zod'
 import { accountViews } from '../../accounts'
 import type { AccountState } from './registry'
@@ -76,6 +76,19 @@ export const ACCOUNT_QUERIES = {
       : undefined
     const legacyVisible = state.callerRole ? (await state.callerRole()) === 'admin' : true
     const managedRows = await state.accounts.listFor(viewer)
+    // The viewer's D11 choices and how their ticked logins' copies went (POD-6301).
+    const choiceKey = (harness: string, fingerprint: string) => `${harness}\u0000${fingerprint}`
+    const ticked = new Set(
+      (await state.accounts.optInsFor(viewer))
+        .filter((choice) => choice.enabled)
+        .map((choice) => choiceKey(choice.harness, choice.fingerprint)),
+    )
+    const keptOn = new Map<string, MachineId[]>()
+    for (const transfer of await state.accounts.transfersFor(viewer)) {
+      if (transfer.outcome !== 'preserved' || !custody.has(transfer.machineId)) continue
+      const key = choiceKey(transfer.harness, transfer.fingerprint)
+      keptOn.set(key, [...(keptOn.get(key) ?? []), transfer.machineId])
+    }
     const nameOf = new Map(serviceMachines.map((machine) => [machine.id, machine.name]))
     const sharedMachines = [...standing]
       .filter(([, s]) => s === 'use')
@@ -108,8 +121,20 @@ export const ACCOUNT_QUERIES = {
             machine.inventory?.agents.some((agent) => agent.kind === harness && agent.installed),
           )
           .map((machine) => ({ id: machine.id, name: machine.name }))
+        const choice = account.identityFingerprint
+          ? choiceKey(harness, account.identityFingerprint)
+          : undefined
         return {
           ...account,
+          ...(choice
+            ? {
+                useOnMyMachines: ticked.has(choice),
+                keptOn: (keptOn.get(choice) ?? []).map((id) => ({
+                  id,
+                  name: nameOf.get(id) ?? id,
+                })),
+              }
+            : {}),
           loginRequired:
             account.status === 'not-configured' || state.nativeLogin.isRequired(harness, custody),
           loginMachines,

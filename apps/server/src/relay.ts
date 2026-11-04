@@ -1746,6 +1746,7 @@ export class SessionRegistry {
         targetMachineId: session.machineId,
         agentKind: event.harness,
         force: true,
+        refresh: true,
         ...(event.ownerUserId ? { principalUserId: event.ownerUserId } : {}),
       })
     })

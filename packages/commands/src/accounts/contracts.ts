@@ -1,5 +1,6 @@
 /**
- * THE ACCOUNT CONTRACTS — `accounts.connect · accounts.disconnect · accounts.login · accounts.send`.
+ * THE ACCOUNT CONTRACTS — `accounts.connect · accounts.disconnect · accounts.login · accounts.send ·
+ * accounts.useOnMyMachines`.
  *
  * The Accounts & Keys hub (SP-6454): the managed credentials Podium holds and
  * injects at spawn. The `list` read stays a query — and note what it returns,
@@ -318,11 +319,74 @@ export const accountsSendContract = {
   conflictRule: 'Idempotent per (connection, machine); sending again changes nothing',
 } as const satisfies CommandContract<typeof accountsSendInput>
 
+/**
+ * `accounts.useOnMyMachines` — THE D11 CHECKBOX (POD-6301; design §2.5, §4.6;
+ * September addendum §4-5). One native login, named by harness and identity
+ * fingerprint, is ticked or unticked for "use this connection on all machines I
+ * hold custody of, now and in future".
+ */
+export const accountsUseOnMyMachinesInput = z.object({
+  harness: HarnessAgent,
+  /** The login's identity fingerprint, as the Accounts list reports it. */
+  fingerprint: z.string().min(1).max(256),
+  enabled: z.boolean(),
+})
+
+export const accountsUseOnMyMachinesContract = {
+  name: 'accounts.useOnMyMachines',
+  version: 1,
+  visibility: ACCOUNT_VISIBILITY,
+  input: accountsUseOnMyMachinesInput,
+  policy: {
+    action: 'manage',
+    roleFloor: 'member',
+    resource: 'secret',
+    confirmation: 'none',
+    rationale:
+      'Decides whether Podium copies the caller’s OWN native login to the other machines in the ' +
+      'caller’s custody and uses it there. Only the caller’s custody machines are ever reached, ' +
+      'so the member floor widens nobody’s reach. Ticking a login is refused unless it is ' +
+      'observed on one of the caller’s own machines. No confirmation: ticking copies only into ' +
+      'empty slots of the caller’s own machines, never over another login, and unticking only ' +
+      'stops future copies (it recalls nothing, which the UI says once beside the box).',
+  },
+  exposure: SERVED_ON,
+  delivery: ACCOUNT_DELIVERY,
+  redaction: {
+    reviewed: true,
+    inputPaths: [],
+    outputPaths: [],
+    note:
+      'The input names a harness and an identity fingerprint (a one-way hash of the account id), ' +
+      'never credential material. The result is `{ ok, enabled }`.',
+  } satisfies RedactionPolicy,
+  ownership: {
+    creates: ['native-login opt-in'],
+    owner: 'on-behalf-of-human',
+    visibility: ACCOUNT_VISIBILITY,
+    inheritanceOnCreate: 'on-behalf-of-human',
+    note: 'The choice belongs to the human it was made on behalf of; nobody else reads or changes it.',
+  },
+  attribution: ACCOUNT_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note:
+      'A fingerprint not observed on one of the caller’s own machines is refused exactly like one ' +
+      'that exists nowhere, so the command says nothing about other members’ logins.',
+  } satisfies ErrorConsistency,
+  conflict: 'cmd',
+  conflictRule:
+    'Last write wins per (member, harness, fingerprint); every change bumps the revision, so a copy exported under the old choice is refused as stale',
+} as const satisfies CommandContract<typeof accountsUseOnMyMachinesInput>
+
 export const ACCOUNT_CONTRACTS = {
   connect: accountsConnectContract,
   disconnect: accountsDisconnectContract,
   login: accountsLoginContract,
   send: accountsSendContract,
+  useOnMyMachines: accountsUseOnMyMachinesContract,
 } as const
 
 export type AccountContractName = keyof typeof ACCOUNT_CONTRACTS

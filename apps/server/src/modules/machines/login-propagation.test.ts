@@ -159,6 +159,7 @@ describe('login propagation coordinator', () => {
       createdAt: new Date(0).toISOString(),
       actorKind: 'user',
       actorId: other,
+      onBehalfOf: other,
     })
     const { svc, credentialExport } = service(s)
     const bobs = { targetMachineId: asMachineId('bobs'), agentKind: 'codex' as const }
