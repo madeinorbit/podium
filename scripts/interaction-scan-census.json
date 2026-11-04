@@ -15313,12 +15313,12 @@
       "file": "packages/client-core/src/engine/wiring.ts",
       "holder": "outboxExecutors/resumeAndSend/callback",
       "rule": "reader-summary",
-      "tokens": "1224ae74748e8ea6a59b33f5352bf2b81cdb816a9a9338497598693377cd3996",
+      "tokens": "b6d15a44481ada85ad58b5f3406442961db6cc0bf0d987d505a374846fefbc65",
       "gate": [],
       "origin": [
         "cc84418acad4634ca913a5696797a2d73116ad08885f1dc9a7167bd076e77e68"
       ],
-      "fingerprint": "948baf9d1eb2e50b322e41fa0cb990823369ef0c7429ab517b6678ad35d03d81",
+      "fingerprint": "97e6b1bd0272a6fc4d05723b85aae917f46ecfc418e72b7630a0aea534e2f74a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -15331,16 +15331,56 @@
       "file": "packages/client-core/src/engine/wiring.ts",
       "holder": "outboxExecutors/sendText/callback",
       "rule": "reader-summary",
-      "tokens": "de8bb55d96e2ee2bed20fa8ffc0a7f58e96bbadeab17e682dfe8fdde248325c4",
+      "tokens": "e1b116ccc2495dc588f05a4c4f06a2ae762c047d2343a0ca4cb801d7a44f699b",
       "gate": [],
       "origin": [
         "91447917745a87b25af9313d216c5ed23a182dbb4d5bfc267ffc61c2a4a99ba0"
       ],
-      "fingerprint": "8b9a053c7238e3c6155e91676529a3825443eba460e41aa1f4fc7499dc1ef0ce",
+      "fingerprint": "9a43149e236e075338f5c01a7c7fac557b94b85222d431f058dc8cc9f457fce1",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of outboxExecutors/sendText/callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/engine/wiring.ts",
+      "holder": "readOutboxReply",
+      "rule": "reader-summary",
+      "tokens": "0c7965cb3023233687f63790fb150ba409b01bd6950958a0fe6dfd99b0e75637",
+      "gate": [
+        "then:21b7f0714fa50c855765c013a2b94a47264a619bac6c20aa86f2824d52018df1"
+      ],
+      "origin": [
+        "cc84418acad4634ca913a5696797a2d73116ad08885f1dc9a7167bd076e77e68"
+      ],
+      "fingerprint": "9510dcca95de5e12384c4dcb92ef011e54f612613edd098d7a23b092f5e3a39b",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of readOutboxReply",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/engine/wiring.ts",
+      "holder": "readOutboxReply",
+      "rule": "reader-summary",
+      "tokens": "0c7965cb3023233687f63790fb150ba409b01bd6950958a0fe6dfd99b0e75637",
+      "gate": [
+        "then:21b7f0714fa50c855765c013a2b94a47264a619bac6c20aa86f2824d52018df1"
+      ],
+      "origin": [
+        "91447917745a87b25af9313d216c5ed23a182dbb4d5bfc267ffc61c2a4a99ba0"
+      ],
+      "fingerprint": "a7b9ca936547a71efdff6a3bdb5efea8f98d6274ac15ae3299e52e9536cdd934",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of readOutboxReply",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
