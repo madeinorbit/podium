@@ -564,7 +564,13 @@ it('the issue refusal audit admits only declared genuine bare-error sites', () =
       .map((name) => `service/${name}`),
   ]
   const faults: Record<string, string[]> = {
-    'service/core.ts': ['persist(', 'IssueStore read before init()'],
+    'service/core.ts': [
+      'persist(',
+      'IssueStore read before init()',
+      // A caller bug, not a precondition (POD-6287, design §4.3): a reassignment
+      // is only ever written from a draft pinned to the revision it was cut from.
+      'issue ${row.id}: a reassignment must be written from a pinned draft',
+    ],
     'service/crud.ts': [
       'illegal shipping issue-stage transition',
       'shipping batch requires an affected issue',

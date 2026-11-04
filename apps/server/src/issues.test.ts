@@ -2191,11 +2191,13 @@ describe('IssueService.start', () => {
     await expect(svc.gitWorkflow.start(created.id)).rejects.toThrow(/fatal: branch exists/)
   })
 
-  it('start auto-claims the issue (assignee = agent, stage = in_progress)', async () => {
+  // Design §4.3: the assignee is the task's accountable human; an agent's
+  // claim never touches it. Start still moves the task to in_progress.
+  it('start moves the issue to in_progress and leaves the human assignee in place', async () => {
     const { svc } = await harness()
     const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
     const started = await svc.gitWorkflow.start(a.id)
-    expect(started.assignee).toBe('agent:claude-code')
+    expect(started.assignee).toBe(firstAdminMemberId())
     expect(started.stage).toBe('in_progress')
   })
 
@@ -2214,7 +2216,8 @@ describe('IssueService.start', () => {
     const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
     const started = await svc.gitWorkflow.start(a.id, 'codex')
     expect(started.defaultAgent).toBe('codex')
-    expect(started.assignee).toBe('agent:codex')
+    // Design §4.3: the agent is the launch default, never the assignee.
+    expect(started.assignee).toBe(firstAdminMemberId())
     expect(deps.spawnSession).toHaveBeenCalledWith({
       cwd: '/r/.worktrees/issue-1-a',
       issueId: a.id,

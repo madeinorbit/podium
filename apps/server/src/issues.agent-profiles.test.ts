@@ -161,7 +161,8 @@ describe('issues with agent profiles', () => {
         issueId: issue.id,
       }),
     )
-    expect(started).toMatchObject({ agentProfileId: review.id, assignee: 'agent:claude-code' })
+    // Design §4.3: the agent never becomes the assignee; the human owner stays.
+    expect(started).toMatchObject({ agentProfileId: review.id, assignee: firstAdminMemberId() })
   })
 })
 
@@ -223,7 +224,8 @@ describe('agent profile inheritance on start', () => {
       effort: 'medium',
       agentProfileId: p.parent.id,
     })
-    expect(started).toMatchObject({ stage: 'in_progress', assignee: 'agent:codex' })
+    // Design §4.3: the agent never becomes the assignee; the human owner stays.
+    expect(started).toMatchObject({ stage: 'in_progress', assignee: firstAdminMemberId() })
     // Inherited, not adopted: the issue still names no profile of its own.
     expect(started).not.toHaveProperty('agentProfileId')
   })
@@ -406,7 +408,9 @@ describe('start failures and retries', () => {
     const failed = await svc.reports.get(proposal.id)
     expect(failed).toMatchObject({ stage: 'proposed' })
     expect(failed?.worktreePath).toBeTruthy()
-    expect(failed?.assignee ?? null).toBeNull()
+    // Design §4.3: the assignee is the task's human owner, which a start, and so
+    // a failed start, never touches (POD-6287).
+    expect(failed?.assignee).toBe(firstAdminMemberId())
 
     const retried = await svc.gitWorkflow.start(proposal.id)
     expect(spawnSession).toHaveBeenCalledTimes(2)
