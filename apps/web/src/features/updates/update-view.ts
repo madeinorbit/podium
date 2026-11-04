@@ -67,7 +67,7 @@ export type UpdateView =
   | { state: 'none' }
   | { state: 'checking' }
   | { state: 'current'; version: string }
-  | { state: 'local-stale'; version: string }
+  | { state: 'local-stale'; version: string; notes?: { summary?: string; url?: string } }
   | { state: 'blocked'; version: string; blockedNote: string }
   | {
       state: 'available' | 'required'
@@ -172,6 +172,22 @@ function targetNotes(
     ...(notes.summary !== undefined ? { summary: notes.summary } : {}),
     ...(notes.url !== undefined ? { url: notes.url } : {}),
   }
+}
+
+/** The notes for exactly `version`: a target or feed naming another build says nothing about it. */
+function notesForVersion(
+  input: UpdateInput,
+  version: string,
+): { summary?: string; url?: string } | undefined {
+  if (input.server.target?.version === version) return targetNotes(input.server.target.notes)
+  return input.desktopUpdate?.version === version && input.desktopUpdate.notes
+    ? { summary: input.desktopUpdate.notes }
+    : undefined
+}
+
+function localStale(input: UpdateInput, version: string): UpdateView {
+  const notes = notesForVersion(input, version)
+  return { state: 'local-stale', version, ...(notes ? { notes } : {}) }
 }
 
 /**
@@ -671,17 +687,14 @@ export function describeUpdate(input: UpdateInput): UpdateView {
    * would have named a build that reloading provably does not produce.
    */
   if (places.length === 0 && input.assetsReplaced === true) {
-    return {
-      state: 'local-stale',
-      version: input.server.web?.appVersion ?? input.server.appVersion ?? version,
-    }
+    return localStale(input, input.server.web?.appVersion ?? input.server.appVersion ?? version)
   }
   if (places.length === 0 && blockedNote !== undefined) {
     return { state: 'blocked', version, blockedNote }
   }
   if (!required && places.length === 0) return { state: 'none' }
   if (input.fleet.startability?.startable === false && input.desktopUpdate === undefined) {
-    return required && input.touched.app ? { state: 'local-stale', version } : { state: 'none' }
+    return required && input.touched.app ? localStale(input, version) : { state: 'none' }
   }
 
   const result: Extract<UpdateView, { state: 'available' | 'required' }> = {

@@ -51,6 +51,26 @@ describe('describeUpdate', () => {
     expect(v).toEqual({ state: 'local-stale', version: '0.4.2' })
   })
 
+  it('gives a stale page the notes of the version it is told to reload into', () => {
+    const notes = { summary: '**Calmer chat.**' }
+    const stale = (web: string) =>
+      describeUpdate({
+        ...base,
+        server: {
+          appVersion: web,
+          web: { appVersion: web },
+          target: { version: '0.4.2', critical: false, artifacts: {}, notes },
+        },
+        fleet: { ...base.fleet, behind: 0 },
+        touched: { app: false, server: false, machines: false },
+        assetsReplaced: true,
+      } as never)
+
+    expect(stale('0.4.2')).toEqual({ state: 'local-stale', version: '0.4.2', notes })
+    // A rollback: the server serves another build than its standing target.
+    expect(stale('0.4.1')).toEqual({ state: 'local-stale', version: '0.4.1' })
+  })
+
   it('projects a pre-channel-trust machine as a visible host-local repair blocker', () => {
     const v = describeUpdate({
       ...base,

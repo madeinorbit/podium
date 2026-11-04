@@ -45,7 +45,7 @@ export function UpdateIndicator({
       <span
         aria-hidden="true"
         className={
-          state === 'attention'
+          state === 'attention' || state === 'ready'
             ? 'status-strip-update-dot status-strip-update-dot-attention'
             : state === 'animating'
               ? 'status-strip-update-dot status-strip-update-dot-running'
@@ -53,7 +53,7 @@ export function UpdateIndicator({
         }
       />
       <span className="status-strip-update-label">
-        {state === 'attention' ? 'Update' : state === 'animating' ? 'Updating' : 'Update'}
+        {state === 'ready' ? label : state === 'animating' ? 'Updating' : 'Update'}
       </span>
     </button>
   )

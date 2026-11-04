@@ -1,9 +1,9 @@
 /**
  * WHAT THE STATUS STRIP NEEDS, AND NOTHING ELSE (POD-2190).
  *
- * The indicator's four states are shared between the eager half of the update
+ * The indicator's states are shared between the eager half of the update
  * surface (the strip cell, the store it reads) and the deferred half (the view
- * model that decides which of the four it is). They live in their own module so
+ * model that decides which one it is). They live in their own module so
  * the eager half depends on NOTHING in the deferred half — not even by a type.
  *
  * That is a structural guarantee rather than a lucky one. `import type` is erased
@@ -14,5 +14,8 @@
  * red in the first place. There is no value in this file to reach for.
  */
 
-/** No update; an offer waiting; an operation running; something needs a person. */
-export type IndicatorState = 'none' | 'idle-dot' | 'animating' | 'attention'
+/**
+ * No update; an offer waiting; an operation running; something needs a person; a new
+ * version only needs this surface to reload or restart, which the strip says outright.
+ */
+export type IndicatorState = 'none' | 'idle-dot' | 'animating' | 'attention' | 'ready'

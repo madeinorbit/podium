@@ -182,7 +182,7 @@ describe('operationView — the seven states', () => {
 
     expect(result.state).toBe('waiting-you')
     expect(result.primary).toMatchObject({ kind: 'reload', label: 'Reload' })
-    expect(result.indicatorLabel).toBe('Reload to finish')
+    expect(result.indicatorLabel).toBe('Reload to update')
   })
 
   it('offers a reload when only this page is stale and no operation exists', () => {
@@ -195,12 +195,12 @@ describe('operationView — the seven states', () => {
     })
 
     expect(result.state).toBe('waiting-you')
-    expect(result.title).toBe('Reload to finish')
+    expect(result.title).toBe('Podium 0.4.3 is ready')
     expect(result.subtitle).toBe(
-      'Your server and machines are updated. This tab is still on the old version.',
+      'Your server and machines are already on it. Reload this tab to catch up. Sessions keep running.',
     )
     expect(result.primary).toMatchObject({ kind: 'reload', label: 'Reload' })
-    expect(result.indicatorLabel).toBe('Reload to finish')
+    expect(result.indicatorLabel).toBe('Reload to update')
   })
 
   it('marks a required offer as attention', () => {
@@ -358,9 +358,9 @@ describe('operationView — the seven states', () => {
     const result = view(payload, { local: BEHIND })
     expect(result.state).toBe('waiting-you')
     expect(result.primary).toMatchObject({ kind: 'reload', label: 'Reload' })
-    expect(result.primary?.consequence).toContain('about 2 seconds')
-    expect(result.indicator).toBe('attention')
-    expect(result.indicatorLabel).toBe('Reload to finish')
+    expect(result.steps).toEqual([])
+    expect(result.indicator).toBe('ready')
+    expect(result.indicatorLabel).toBe('Reload to update')
   })
 
   it('offers Restart Podium instead of Reload inside the shell', () => {
@@ -606,11 +606,53 @@ describe('operationView — the seven states', () => {
     })
     expect(result.state).toBe('waiting-you')
     expect(result.primary).toMatchObject({ kind: 'install-desktop', label: 'Restart Podium' })
-    expect(result.title).toBe('Restart to finish')
+    expect(result.title).toBe('Podium 0.4.3 is ready')
     expect(result.subtitle).toBe(
-      'Your server and machines are updated. This app is still on the old version.',
+      'Your server and machines are already on it. Restart Podium to catch up. Sessions keep running.',
     )
-    expect(result.indicatorLabel).toBe('Restart to finish')
+    expect(result.indicatorLabel).toBe('Restart to update')
+  })
+
+  it('carries the release notes the operation started with into the ready card', () => {
+    const notes = { summary: '**Calmer chat.**', url: 'https://example.test/v0.4.3' }
+    const result = view(
+      operationPayload({
+        state: 'done',
+        finishedAt: NOW,
+        details: { target: { version: '0.4.3+a41c9e2', channel: 'dev', notes } },
+      }),
+      { local: BEHIND },
+    )
+    expect(result.title).toBe('Podium 0.4.3 is ready')
+    expect(result.notes).toEqual(notes)
+  })
+
+  it('takes the notes from a matching stale offer, and never from another version', () => {
+    const notes = { summary: '**Calmer chat.**' }
+    const stale = (version: string) =>
+      operationView({
+        operation: null,
+        offer: { state: 'local-stale', version, notes },
+        local: BEHIND,
+        surface: 'web',
+        now: NOW,
+      })
+    expect(stale('0.4.3').notes).toEqual(notes)
+
+    const elsewhere = view(operationPayload({ state: 'done', finishedAt: NOW }), {
+      local: BEHIND,
+      offer: { state: 'local-stale', version: '0.4.2', notes },
+    })
+    expect(elsewhere.notes).toBeUndefined()
+  })
+
+  it('keeps reporting when this surface has nothing it can do', () => {
+    const result = view(operationPayload({ state: 'done', finishedAt: NOW }), {
+      local: { behind: true, canReload: false, canInstallDesktop: false },
+    })
+    expect(result.title).toBe('Updated, except this app')
+    expect(result.primary).toBeUndefined()
+    expect(result.indicator).toBe('attention')
   })
 
   it('renders a failure in three layers with a single Try again', () => {

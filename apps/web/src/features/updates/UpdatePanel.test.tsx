@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { UpdatePanelView } from './operation-view'
+import { UpdateIndicator } from './UpdateIndicator'
 import { UpdatePanel, versionLine } from './UpdatePanel'
 
 afterEach(cleanup)
@@ -127,6 +128,64 @@ describe('UpdatePanel', () => {
     )
     expect(screen.getByTestId('update-primary').textContent).toContain('Reload')
     expect(screen.getByText(/about 2 seconds/)).toBeTruthy()
+  })
+
+  it('says what to do in the strip once only this surface is behind', () => {
+    render(
+      <UpdateIndicator state="ready" label="Reload to update" open={false} onToggle={vi.fn()} />,
+    )
+    expect(screen.getByTestId('update-indicator').textContent).toBe('Reload to update')
+  })
+
+  describe('ready card', () => {
+    const READY: UpdatePanelView = {
+      ...RUNNING,
+      state: 'waiting-you',
+      title: 'Podium 0.3.0 is ready',
+      version: '0.3.0',
+      steps: [],
+      cancel: undefined,
+      primary: { kind: 'reload', label: 'Reload', pendingLabel: 'Reloading…' },
+    }
+
+    function renderReady(notes?: { summary?: string; url?: string }) {
+      const onHide = vi.fn()
+      render(
+        <UpdatePanel
+          view={{ ...READY, ...(notes ? { notes } : {}) }}
+          pending={null}
+          onAction={vi.fn()}
+          onHide={onHide}
+        />,
+      )
+      return onHide
+    }
+
+    it('keeps the notes folded behind What’s new until asked', () => {
+      renderReady({ summary: '**Calmer chat.**' })
+      const toggle = screen.getByTestId('update-whats-new')
+      expect(toggle.getAttribute('aria-expanded')).toBe('false')
+      expect(screen.queryByTestId('update-notes')).toBeNull()
+
+      fireEvent.click(toggle)
+      expect(toggle.getAttribute('aria-expanded')).toBe('true')
+      expect(screen.getByTestId('update-notes').textContent).toContain('Calmer chat.')
+    })
+
+    it('links out when a release has only a page', () => {
+      renderReady({ url: 'https://example.test/v0.3.0' })
+      expect(screen.getByTestId('update-whats-new').getAttribute('href')).toBe(
+        'https://example.test/v0.3.0',
+      )
+    })
+
+    it('still offers Later with no notes, and does not repeat the version', () => {
+      const onHide = renderReady()
+      expect(screen.queryByTestId('update-whats-new')).toBeNull()
+      expect(screen.queryByTestId('update-version')).toBeNull()
+      fireEvent.click(screen.getByText('Later'))
+      expect(onHide).toHaveBeenCalledOnce()
+    })
   })
 
   it('dispatches the primary action’s kind, not a button identity', () => {

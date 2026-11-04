@@ -673,7 +673,6 @@ function localAction(input: OperationViewInput): PrimaryAction | undefined {
       kind: 'install-desktop',
       label: 'Restart Podium',
       pendingLabel: 'Installing…',
-      consequence: 'Installs the update and restarts Podium. Your sessions keep running.',
     }
   }
   if (input.local.canReload) {
@@ -681,7 +680,6 @@ function localAction(input: OperationViewInput): PrimaryAction | undefined {
       kind: 'reload',
       label: 'Reload',
       pendingLabel: 'Reloading…',
-      consequence: 'Takes about 2 seconds. Your sessions keep running.',
     }
   }
   return undefined
@@ -727,18 +725,11 @@ function offerView(input: OperationViewInput): UpdatePanelView {
     }
   }
   if (offer.state === 'local-stale') {
-    const primary = localAction(input)
     return {
-      state: 'waiting-you',
-      title: finishTitle(primary),
-      subtitle: staleSubtitle(primary),
       version: offer.version,
       steps: [],
-      ...(primary ? { primary } : {}),
       awaitingElsewhere: [],
-      indicator: 'attention',
-      indicatorLabel:
-        primary?.kind === 'install-desktop' ? 'Restart to finish' : 'Reload to finish',
+      ...finishView(input, offer.version),
     }
   }
   if (offer.state !== 'available' && offer.state !== 'required') return noneView()
@@ -765,16 +756,68 @@ function offerView(input: OperationViewInput): UpdatePanelView {
   }
 }
 
-/** Without a local action this surface cannot finish anything, so it only reports. */
-function finishTitle(primary: PrimaryAction | undefined): string {
-  if (!primary) return 'Updated, except this app'
-  return primary.kind === 'install-desktop' ? 'Restart to finish' : 'Reload to finish'
+/**
+ * THE READY CARD (POD-2338). The shared work is over and only this surface is
+ * behind, so the panel stops narrating and offers the new version: the finished
+ * steps are dropped and the release notes the offer showed come back.
+ *
+ * Without a local action this surface cannot finish anything, so it only reports.
+ */
+function finishView(
+  input: OperationViewInput,
+  version: string | undefined,
+): Pick<UpdatePanelView, 'state' | 'title' | 'subtitle' | 'indicator' | 'indicatorLabel'> &
+  Partial<Pick<UpdatePanelView, 'steps' | 'primary' | 'notes'>> {
+  const primary = localAction(input)
+  if (!primary) {
+    return {
+      state: 'waiting-you',
+      title: 'Updated, except this app',
+      subtitle: 'Your server and machines are updated. This tab is still on the old version.',
+      indicator: 'attention',
+      indicatorLabel: 'Reload to finish',
+    }
+  }
+  const notes = readyNotes(input, version)
+  const desktop = primary.kind === 'install-desktop'
+  return {
+    state: 'waiting-you',
+    // `+build` is metadata; the title names the release.
+    title: version ? `Podium ${version.split('+')[0]} is ready` : 'A new version is ready',
+    subtitle: desktop
+      ? 'Your server and machines are already on it. Restart Podium to catch up. Sessions keep running.'
+      : 'Your server and machines are already on it. Reload this tab to catch up. Sessions keep running.',
+    steps: [],
+    primary,
+    ...(notes ? { notes } : {}),
+    indicator: 'ready',
+    indicatorLabel: desktop ? 'Restart to update' : 'Reload to update',
+  }
 }
 
-function staleSubtitle(primary: PrimaryAction | undefined): string {
-  return primary?.kind === 'install-desktop'
-    ? 'Your server and machines are updated. This app is still on the old version.'
-    : 'Your server and machines are updated. This tab is still on the old version.'
+/**
+ * The notes of the version this surface is about to move to. The operation row
+ * carries the whole target it was started for, so its notes outlive the server
+ * restart; without an operation, the offer's are the ones it matched to a version.
+ */
+function readyNotes(
+  input: OperationViewInput,
+  version: string | undefined,
+): UpdatePanelView['notes'] {
+  const target = (
+    input.operation?.details as
+      | { target?: { version?: unknown; notes?: { summary?: unknown; url?: unknown } } }
+      | undefined
+  )?.target
+  if (target?.notes && target.version === version) {
+    const { summary, url } = target.notes
+    return {
+      ...(typeof summary === 'string' ? { summary } : {}),
+      ...(typeof url === 'string' ? { url } : {}),
+    }
+  }
+  const offer = input.offer
+  return offer && 'notes' in offer && offer.version === version ? offer.notes : undefined
 }
 
 /**
@@ -929,17 +972,7 @@ function computeView(input: OperationViewInput): UpdatePanelView {
   // panel, later step — never a second dialog.
   if (operation.state === 'done') {
     if (input.local.behind) {
-      const primary = localAction(input)
-      return {
-        ...base,
-        state: 'waiting-you',
-        title: finishTitle(primary),
-        subtitle: staleSubtitle(primary),
-        ...(primary ? { primary } : {}),
-        indicator: 'attention',
-        indicatorLabel:
-          primary?.kind === 'install-desktop' ? 'Restart to finish' : 'Reload to finish',
-      }
+      return { ...base, ...finishView(input, version) }
     }
     const permanentlyDeferred = (operation.deferred ?? []).some(
       (place) => place.reason === 'legacy-instance-trust',
@@ -999,9 +1032,7 @@ function computeView(input: OperationViewInput): UpdatePanelView {
     if (primary) {
       return {
         ...base,
-        state: 'waiting-you',
-        title: finishTitle(primary),
-        subtitle: staleSubtitle(primary),
+        ...finishView(input, version),
         // NO LIVENESS LINE HERE, on purpose. Liveness reports on WORK; the
         // shared work has finished and the operation is waiting on a person, so
         // the same heartbeat that means "alive" while running would read as
@@ -1009,10 +1040,6 @@ function computeView(input: OperationViewInput): UpdatePanelView {
         // an alarm about their own hesitation. What the panel says instead is
         // what pressing the button will do.
         ...(input.desktopProgress !== undefined ? { liveness } : {}),
-        primary,
-        indicator: 'attention',
-        indicatorLabel:
-          primary.kind === 'install-desktop' ? 'Restart to finish' : 'Reload to finish',
       }
     }
     return {

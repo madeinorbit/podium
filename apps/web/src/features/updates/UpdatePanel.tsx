@@ -12,6 +12,10 @@
  * The old dialog could show three co-equal primaries at once because each button
  * had its own reason to exist and nobody owned the question "which one should
  * this person press?" — the view model owns it now.
+ *
+ * THE READY CARD (POD-2338). With only this surface left to move, the same panel
+ * narrows and loses its bands: one sentence, the notes behind "What's new", and the
+ * buttons on one row. The title already names the version.
  */
 import { ChevronDown, ChevronUp, ExternalLink } from 'lucide-react'
 import { type JSX, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -238,6 +242,56 @@ export function ReleaseNotes({ summary, url }: { summary?: string; url?: string 
   )
 }
 
+/** The ready card's way to the notes: they unfold in place, or a link when only a page exists. */
+function WhatsNew({
+  notes,
+  open,
+  controls,
+  onToggle,
+}: {
+  notes: UpdatePanelView['notes']
+  open: boolean
+  controls: string
+  onToggle: () => void
+}): JSX.Element {
+  const className =
+    'inline-flex items-center gap-1 text-[13px] font-medium text-muted-foreground hover:text-foreground'
+  if (notes?.summary) {
+    return (
+      <button
+        type="button"
+        data-testid="update-whats-new"
+        className={className}
+        aria-expanded={open}
+        aria-controls={controls}
+        onClick={onToggle}
+      >
+        What's new
+        {open ? (
+          <ChevronUp size={12} aria-hidden="true" />
+        ) : (
+          <ChevronDown size={12} aria-hidden="true" />
+        )}
+      </button>
+    )
+  }
+  if (notes?.url) {
+    return (
+      <a
+        data-testid="update-whats-new"
+        className={className}
+        href={notes.url}
+        target="_blank"
+        rel="noreferrer"
+      >
+        What's new
+        <ExternalLink size={11} aria-hidden="true" />
+      </a>
+    )
+  }
+  return <span />
+}
+
 export function UpdatePanel({
   view,
   pending,
@@ -246,7 +300,12 @@ export function UpdatePanel({
   reloadStatus,
   onResetCachedInterface,
 }: UpdatePanelProps): JSX.Element | null {
+  const [notesOpen, setNotesOpen] = useState(false)
+  const notesId = useId()
   if (view.state === 'none') return null
+
+  const ready = view.state === 'waiting-you' && view.primary !== undefined
+  const hasNotes = Boolean(view.notes?.summary || view.notes?.url)
 
   return (
     <aside
@@ -255,11 +314,21 @@ export function UpdatePanel({
       role="dialog"
       aria-modal="false"
       aria-label="Podium update"
-      className="fixed right-4 bottom-9 z-50 flex w-[min(28rem,calc(100vw-2rem))] max-h-[min(42rem,calc(100vh-4rem))] flex-col overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-[0_14px_34px_rgb(0_0_0_/_0.65),0_2px_8px_rgb(0_0_0_/_0.5)]"
+      className={`fixed right-4 bottom-9 z-50 flex ${ready ? 'w-[min(24rem,calc(100vw-2rem))]' : 'w-[min(28rem,calc(100vw-2rem))]'} max-h-[min(42rem,calc(100vh-4rem))] flex-col overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-[0_14px_34px_rgb(0_0_0_/_0.65),0_2px_8px_rgb(0_0_0_/_0.5)]`}
     >
-      <div className="flex shrink-0 flex-col gap-0.5 border-b border-border px-4 pt-4 pb-3">
-        <h2 className="text-[14px] font-semibold tracking-[-0.01em] break-words">{view.title}</h2>
-        {view.version && (
+      <div
+        className={
+          ready
+            ? 'flex shrink-0 flex-col gap-1 px-4 pt-4 pb-3'
+            : 'flex shrink-0 flex-col gap-0.5 border-b border-border px-4 pt-4 pb-3'
+        }
+      >
+        <h2
+          className={`${ready ? 'text-[15px]' : 'text-[14px]'} font-semibold tracking-[-0.01em] break-words`}
+        >
+          {view.title}
+        </h2>
+        {view.version && !ready && (
           <p
             data-testid="update-version"
             className="font-mono text-[10.5px] break-all text-muted-foreground/80"
@@ -268,7 +337,11 @@ export function UpdatePanel({
           </p>
         )}
         {view.subtitle && (
-          <p className="text-[11px] leading-[1.5] text-muted-foreground">{view.subtitle}</p>
+          <p
+            className={`${ready ? 'text-[13px]' : 'text-[11px]'} leading-[1.5] text-muted-foreground`}
+          >
+            {view.subtitle}
+          </p>
         )}
       </div>
 
@@ -277,7 +350,14 @@ export function UpdatePanel({
         natural height except the release notes, which shrink to what is left; when even that
         is not enough (or the notes are shown in full), the body scrolls.
       */}
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-4">
+      <div
+        id={ready ? notesId : undefined}
+        className={
+          ready
+            ? 'flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-3 empty:hidden'
+            : 'flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-4'
+        }
+      >
         {/* The offer's place rows: what this update touches, ordered by how much you'll notice. */}
         {view.places && view.places.length > 0 && <PlaceList places={view.places} />}
 
@@ -289,7 +369,7 @@ export function UpdatePanel({
             data-testid="update-liveness"
             className="font-mono text-[10px] tracking-[0.06em] text-muted-foreground uppercase"
           >
-            {view.stepPosition
+            {view.stepPosition && view.steps.length > 0
               ? `Step ${view.stepPosition.current} of ${view.stepPosition.total} · ${view.liveness}`
               : view.liveness}
           </p>
@@ -377,21 +457,44 @@ export function UpdatePanel({
           </div>
         )}
 
-        {(view.notes?.summary || view.notes?.url) && (
-          <ReleaseNotes summary={view.notes.summary} url={view.notes.url} />
+        {hasNotes && !ready && <ReleaseNotes summary={view.notes?.summary} url={view.notes?.url} />}
+        {ready && notesOpen && view.notes?.summary && (
+          <div className="flex min-h-0 shrink flex-col border-t border-border pt-3">
+            <ReleaseNotes summary={view.notes.summary} url={view.notes.url} />
+          </div>
         )}
       </div>
 
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/30 px-4 py-3">
+      <div
+        className={
+          ready
+            ? 'flex shrink-0 flex-wrap items-center justify-between gap-2 px-4 pb-4'
+            : 'flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/30 px-4 py-3'
+        }
+      >
         {/*
           ONE DISMISS BUTTON (§6.1). It collapses to the indicator and discards
           nothing. Later while the update can still come back for the user;
           Close once it is over, since hiding a failure acknowledges it.
         */}
-        <Button type="button" variant="ghost" size="sm" onClick={onHide}>
-          {view.state === 'done' || view.state === 'failed' ? 'Close' : 'Later'}
-        </Button>
+        {ready ? (
+          <WhatsNew
+            notes={view.notes}
+            open={notesOpen}
+            controls={notesId}
+            onToggle={() => setNotesOpen(!notesOpen)}
+          />
+        ) : (
+          <Button type="button" variant="ghost" size="sm" onClick={onHide}>
+            {view.state === 'done' || view.state === 'failed' ? 'Close' : 'Later'}
+          </Button>
+        )}
         <div className="flex flex-wrap justify-end gap-2">
+          {ready && (
+            <Button type="button" variant="ghost" size="sm" onClick={onHide}>
+              Later
+            </Button>
+          )}
           {view.cancel && (
             <Button
               type="button"
