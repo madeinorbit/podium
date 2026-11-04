@@ -671,7 +671,8 @@ export class IssueReportsModule {
         ...(row.closedReason != null ? { closedReason: row.closedReason } : {}),
         priority: row.priority,
         type: row.type,
-        ...(row.assignee ? { assignee: row.assignee } : {}),
+        // The assignee is the owner (POD-6287), never the legacy label.
+        ...(row.ownerUserId ? { assignee: row.ownerUserId } : {}),
         ...(row.branch ? { branch: row.branch } : {}),
         needsHuman: row.needsHuman,
         ...(row.humanQuestion ? { humanQuestion: row.humanQuestion } : {}),

@@ -159,6 +159,17 @@ async function assigneeNamed(ctx: IssueCommandCtx, raw: string): Promise<UserId>
   return target
 }
 
+/** A search's `--assignee me` is the caller's own human (POD-6287): the person,
+ *  or for an agent the human it acts for. Any other value is a member id. */
+function assigneeMe<T extends { assignee?: UserId | undefined }>(ctx: IssueCommandCtx, filter: T): T {
+  if (filter.assignee?.trim() !== 'me') return filter
+  const human = ctx.markerUser()
+  if (!human) {
+    throw new TRPCError({ code: 'FORBIDDEN', message: '`--assignee me` needs a person behind the caller' })
+  }
+  return { ...filter, assignee: human }
+}
+
 /**
  * A REASSIGNING WRITE'S MUTATION ID, PER MEMBER (POD-6287, MU-17). The
  * mutation ledger keys a receipt on the id alone, so a second member sending
@@ -627,12 +638,12 @@ const defs = {
   search: def('search', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.reports.search(input, ctx.issueReader()),
+      await ctx.reports.search(assigneeMe(ctx, input), ctx.issueReader()),
   }),
   searchNormalized: def('searchNormalized', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.reports.searchNormalized(input, ctx.issueReader()),
+      await ctx.reports.searchNormalized(assigneeMe(ctx, input), ctx.issueReader()),
   }),
   count: def('count', {
     kind: 'query',

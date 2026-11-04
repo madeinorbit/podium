@@ -125,9 +125,9 @@ describe(`migration ${MIGRATION}`, () => {
 
       upgrade()
 
-      expect(
-        db.prepare('SELECT DISTINCT owner_user_id AS owner FROM issues').all(),
-      ).toEqual([{ owner: alice }])
+      expect(db.prepare('SELECT DISTINCT owner_user_id AS owner FROM issues').all()).toEqual([
+        { owner: alice },
+      ])
       expect(row(db, 'label').assignee).toBe('agent:claude-code')
       expect(row(db, 'me').assignee).toBe('me')
       expect(row(db, 'self').assignee).toBeNull()
