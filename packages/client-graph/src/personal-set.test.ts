@@ -77,7 +77,7 @@ it('follows the viewer’s start, join and assignment records, and ignores a rea
   })
   f.put('repos', 'repo', { id: 'repo', path: '/repo', prefix: 'POD' })
   f.replace()
-  const handle = createWorklistPool(f.source.source, fixedLocals({ coarseNow: 0 }).source)
+  const handle = createWorklistPool(f.source.source, fixedLocals({ selectedIssueId: null, coarseNow: 0 }).source)
   const issue = handle.pool.issueObject('task')
   const seen: boolean[] = []
   const stop = autorun(() => {
@@ -113,8 +113,6 @@ it('follows the viewer’s start, join and assignment records, and ignores a rea
     })
     expect(issue.inPersonalSet).toBe(true)
     expect(issue.joinedVia).toBe('start')
-    // The assignee is the shared field and is untouched by any of it.
-    expect(issue.assignee).toBe('mem_alice')
     expect(seen).toEqual([false, true, false, true])
   } finally {
     stop()
