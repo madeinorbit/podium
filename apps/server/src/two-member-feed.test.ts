@@ -175,6 +175,7 @@ describe('MU-13: what crosses owners, and what never does', () => {
       const started = (feed: typeof bobFeed) =>
         feed
           .deltas()
+          .map((c) => c as { entity: string; op: string })
           .filter((c) => c.entity === 'issueEvent' && c.op === 'upsert')
           .map(
             (c) =>

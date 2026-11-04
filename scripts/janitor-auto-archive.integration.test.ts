@@ -201,16 +201,18 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
     // never seen it. `archived` is a shared column; one colleague's read is not
     // the instance's read.
     expect(candidates).toEqual([])
-    // ...and the SAME fixture is a candidate when the reader IS that user, so
-    // the empty result above is scoping, not an accidentally-empty query.
-    const theirs = await new IssueAutoArchiveReader(db, OTHER_USER).read({
+    // ...and the same read IS a candidate on a task that user is the assignee
+    // of (POD-6291: the reader is each task's assignee), so the empty result
+    // above is scoping, not an accidentally-empty query.
+    await store.issues.upsertIssue(issueRow('iss_assigned_to_them', { ownerUserId: OTHER_USER }))
+    await store.issues.setIssueUserState(OTHER_USER, asIssueId('iss_assigned_to_them'), { readAt: READ_OLD })
+    const theirs = await new IssueAutoArchiveReader(db).read({
       cutoffReadAt: CUTOFF,
       limit: 100,
     })
-    expect(theirs.map((c) => c.issueId)).toEqual(['iss_theirs'])
-    // The proposal it WOULD send names that other user — which is precisely what
-    // the server refuses (POD-1229). Under the old unqualified `readAt` this
-    // proposal was indistinguishable on the wire from the viewer's own.
+    expect(theirs.map((c) => c.issueId)).toEqual(['iss_assigned_to_them'])
+    // The proposal names that user, the task's assignee, which is the reader the
+    // server revalidates against (POD-1229, POD-6291).
     expect(theirs[0]?.readerUserId).toBe(OTHER_USER)
   })
 
