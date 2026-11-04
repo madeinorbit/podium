@@ -89,7 +89,6 @@ export const TAB_PATHS = {
   // is instance configuration.
   appearance: [],
   accounts: [],
-  privacy: [],
   devices: [],
   // Your own sign-in name and password: personal, whoever you are (POD-6299).
   security: [],
@@ -113,7 +112,18 @@ export const TAB_PATHS = {
   // own identity. Tenant-visible, admin-managed, no classified leaf of its own.
   repos: [],
   network: [],
-  updates: [],
+  // The fleet's default update channel (`setup.setChannel`).
+  updates: ['deployment.updateChannel'],
+  // Telemetry consent and the transcript mirror: both are the instance's, not a
+  // person's (only admins run telemetry commands, POD-6298), so Privacy sits
+  // with the instance tabs in the admin area (POD-6299).
+  privacy: [
+    'transcripts',
+    'deployment.telemetryUsage',
+    'deployment.telemetryCrash',
+    'deployment.telemetryInstallId',
+    'deployment.telemetrySince',
+  ],
 
   // — Secrets ———————————————————————————————————————————————————————
   //
@@ -142,7 +152,6 @@ export const TAB_SURFACE = {
   notifications: 'your-preferences',
   appearance: 'your-preferences',
   accounts: 'your-preferences',
-  privacy: 'your-preferences',
   devices: 'your-preferences',
   security: 'your-preferences',
 
@@ -157,6 +166,7 @@ export const TAB_SURFACE = {
   repos: 'instance',
   network: 'instance',
   updates: 'instance',
+  privacy: 'instance',
 
   secrets: 'secrets',
 } as const satisfies Record<SettingsTab, SettingsSurface>
@@ -177,6 +187,10 @@ export const NOT_ON_THIS_SCREEN: Readonly<Record<string, string>> = {
   'sidebar.groupByRepo': 'The sidebar’s own grouping toggle.',
   'autoContinue.promptDismissed':
     'Written by dismissing the auto-continue prompt. A readAt/snooze-shaped fact (POD-351, POD-731): it records that THIS user dismissed something, and a settings row for it would invite an admin to un-dismiss it for everyone.',
+  'deployment.authOpenMode':
+    'Ended by an admin’s “require sign-in” control under Profile & security, drawn only for an admin (canManageInstance). That tab is personal, so it does not claim this instance leaf.',
+  'deployment.connectEnabled':
+    'No control ships for it. It is imported from config.json’s connect.enabled (settings-config-import.ts) or set by the deployment.',
   'steward.enabled':
     'No control ships for it. The steward is toggled by configuration, and adding a switch is a product decision rather than a classification one.',
 }
