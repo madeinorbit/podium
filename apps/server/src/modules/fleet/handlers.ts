@@ -41,7 +41,12 @@ export interface FleetPorts {
    * this instance has no public URL to join to. Built from `hub/machines-join`
    * at the composition root.
    */
-  joinCommand: (pairCode: string, podiumManaged?: boolean, workspaceId?: string, channel?: import('@podium/model').UpdateChannel) => string | null
+  joinCommand: (
+    pairCode: string,
+    podiumManaged?: boolean,
+    workspaceId?: string,
+    channel?: import('@podium/model').UpdateChannel,
+  ) => string | null
 }
 
 /**
@@ -79,14 +84,26 @@ const badRequest = (e: unknown): never => {
 // machines.* — hub role
 // ---------------------------------------------------------------------------
 
-export const machineSetAssignmentHandler = async ({ ctx, input }: FleetArgs<{
-  id: string; assignment: import('@podium/model').MachineServiceAssignment; requestId: string
+export const machineSetAssignmentHandler = async ({
+  ctx,
+  input,
+}: FleetArgs<{
+  id: string
+  assignment: import('@podium/model').MachineServiceAssignment
+  requestId: string
 }>) => {
-  await mods(ctx).machines.changeAssignment(asMachineId(input.id), input.assignment, input.requestId)
+  await mods(ctx).machines.changeAssignment(
+    asMachineId(input.id),
+    input.assignment,
+    input.requestId,
+  )
   return await machinesForPrincipal(mods(ctx), (await fleetAuthzDeps(ctx)).principal)
 }
 
-export const machineRenameHandler = async ({ ctx, input }: FleetArgs<{ id: string; name: string }>) => {
+export const machineRenameHandler = async ({
+  ctx,
+  input,
+}: FleetArgs<{ id: string; name: string }>) => {
   await mods(ctx).machines.renameMachine(asMachineId(input.id), input.name)
   return await machinesForPrincipal(mods(ctx), (await fleetAuthzDeps(ctx)).principal)
 }
@@ -112,7 +129,9 @@ export const machineSetUpdateChannelHandler = async ({
 
 export const machineApplyUpdateHandler = async ({ ctx, input }: FleetArgs<{ id: string }>) => {
   const modules = mods(ctx)
-  const machine = (await modules.machines.listMachines()).find((candidate) => candidate.id === input.id)
+  const machine = (await modules.machines.listMachines()).find(
+    (candidate) => candidate.id === input.id,
+  )
   if (!machine) throw new TRPCError({ code: 'NOT_FOUND', message: 'machine not found' })
   await modules.updates.refreshTarget(
     resolveMachineChannel(machine.updateChannel, modules.updates.fleetDefaultChannel()),
@@ -123,13 +142,21 @@ export const machineApplyUpdateHandler = async ({ ctx, input }: FleetArgs<{ id: 
     initiator: { kind: 'operator-apply' },
     eligibility: 'a person pressed Apply on this fleet row',
   })
-  return { machines: await machinesForPrincipal(modules, (await fleetAuthzDeps(ctx)).principal), outcome }
+  return {
+    machines: await machinesForPrincipal(modules, (await fleetAuthzDeps(ctx)).principal),
+    outcome,
+  }
 }
 
 export const machineShareHandler = async ({
   ctx,
   input,
-}: FleetArgs<{ id: string; grantee: string; verb: 'see' | 'use' | 'manage' }>) => {
+}: FleetArgs<{
+  id: string
+  grantee: string
+  verb: 'see' | 'use' | 'manage'
+  acknowledgeSharedMachine?: boolean
+}>) => {
   const authz = await fleetAuthzDeps(ctx)
   const principal = authz.principal
   const attribution = attributionOf(principal)
@@ -140,6 +167,8 @@ export const machineShareHandler = async ({
     actor: attribution.actor,
     onBehalfOf: attribution.onBehalfOf,
     manage: fleetUsePredicate(authz, 'manage'),
+    // A transport caller must have seen the shared-machine warning (POD-6300).
+    acknowledgeSharedMachine: input.acknowledgeSharedMachine === true,
   })
   return await machinesForPrincipal(mods(ctx), (await fleetAuthzDeps(ctx)).principal)
 }
@@ -153,7 +182,9 @@ export const machineUnshareHandler = async ({
   if (owner === null) {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'machine sharing requires a human owner' })
   }
-  await mods(ctx).machines.unshareMachine(asMachineId(input.id), input.grantee, input.verb, owner, { manage: fleetUsePredicate(authz, 'manage') })
+  await mods(ctx).machines.unshareMachine(asMachineId(input.id), input.grantee, input.verb, owner, {
+    manage: fleetUsePredicate(authz, 'manage'),
+  })
   return await machinesForPrincipal(mods(ctx), (await fleetAuthzDeps(ctx)).principal)
 }
 
@@ -180,7 +211,15 @@ export const machineTransferOwnershipHandler = async ({
     })
   }
   try {
-    await mods(ctx).machines.transferMachineOwnership(asMachineId(input.id), input.newOwnerUserId, owner, { manage: fleetUsePredicate(authz, 'manage'), attribution: settingsAuditAttribution(authz.principal) })
+    await mods(ctx).machines.transferMachineOwnership(
+      asMachineId(input.id),
+      input.newOwnerUserId,
+      owner,
+      {
+        manage: fleetUsePredicate(authz, 'manage'),
+        attribution: settingsAuditAttribution(authz.principal),
+      },
+    )
   } catch (e) {
     return badRequest(e)
   }
@@ -199,20 +238,31 @@ export const machineAdoptHandler = async ({
     throw new TRPCError({ code: 'FORBIDDEN', message: 'adoption requires a human recipient' })
   }
   try {
-    await mods(ctx).machines.adoptMachine(asMachineId(input.id), recipient, actor, { manage: fleetUsePredicate(authz, 'manage'), attribution: settingsAuditAttribution(authz.principal) })
+    await mods(ctx).machines.adoptMachine(asMachineId(input.id), recipient, actor, {
+      manage: fleetUsePredicate(authz, 'manage'),
+      attribution: settingsAuditAttribution(authz.principal),
+    })
   } catch (e) {
     return badRequest(e)
   }
   return await machinesForPrincipal(mods(ctx), (await fleetAuthzDeps(ctx)).principal)
 }
 
-export const machineSupersedeHandler = async ({ ctx, input }: FleetArgs<{ id: MachineId; replacementId: MachineId }>) => {
+export const machineSupersedeHandler = async ({
+  ctx,
+  input,
+}: FleetArgs<{ id: MachineId; replacementId: MachineId }>) => {
   const authz = await fleetAuthzDeps(ctx)
   const actor = onBehalfOfUser(authz.principal)
-  if (actor === null) throw new TRPCError({ code: 'FORBIDDEN', message: 'supersession requires a human administrator' })
+  if (actor === null)
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: 'supersession requires a human administrator',
+    })
   try {
     await mods(ctx).machines.supersedeMachine(input.id, input.replacementId, actor, {
-      manage: fleetUsePredicate(authz, 'manage'), attribution: settingsAuditAttribution(authz.principal),
+      manage: fleetUsePredicate(authz, 'manage'),
+      attribution: settingsAuditAttribution(authz.principal),
     })
   } catch (error) {
     return badRequest(error)
@@ -221,7 +271,9 @@ export const machineSupersedeHandler = async ({ ctx, input }: FleetArgs<{ id: Ma
 }
 
 export const machineRevokeHandler = async ({ ctx, input }: FleetArgs<{ id: string }>) => {
-  await mods(ctx).machines.revokeMachine(asMachineId(input.id), { attribution: settingsAuditAttribution((await fleetAuthzDeps(ctx)).principal) })
+  await mods(ctx).machines.revokeMachine(asMachineId(input.id), {
+    attribution: settingsAuditAttribution((await fleetAuthzDeps(ctx)).principal),
+  })
   return await machinesForPrincipal(mods(ctx), (await fleetAuthzDeps(ctx)).principal)
 }
 
@@ -279,7 +331,14 @@ export const machinePairingCodeHandler = async ({
   ctx,
   input,
   ports,
-}: FleetArgs<{ copyAgentCredentials?: boolean; podiumManaged?: boolean; replaceMachineId?: string; clientRegistration?: { machineId: string; publicKey?: string } } | undefined>): Promise<{
+}: FleetArgs<
+  {
+    copyAgentCredentials?: boolean
+    podiumManaged?: boolean
+    replaceMachineId?: string
+    clientRegistration?: { machineId: string; publicKey?: string }
+  } | undefined
+>): Promise<{
   code: string
   joinCommand: string | null
 }> => {
@@ -302,10 +361,25 @@ export const machinePairingCodeHandler = async ({
     return { code, joinCommand: null }
   }
   if (input?.replaceMachineId) {
-    const row = (await mods(ctx).machines.ownershipRows()).find((m) => m.id === input.replaceMachineId)
-    const authorized = principal.kind !== 'system' && (principal.capability.role === 'admin' || (pairer !== null && await mods(ctx).machines.effectiveOwner(asMachineId(input.replaceMachineId)) === pairer))
-    if (!authorized) throw new TRPCError({ code: 'FORBIDDEN', message: 'replacement requires an administrator or the machine grantee' })
-    if (!row?.revokedAt) throw new TRPCError({ code: 'BAD_REQUEST', message: 'replacement requires a revoked machine' })
+    const row = (await mods(ctx).machines.ownershipRows()).find(
+      (m) => m.id === input.replaceMachineId,
+    )
+    const authorized =
+      principal.kind !== 'system' &&
+      (principal.capability.role === 'admin' ||
+        (pairer !== null &&
+          (await mods(ctx).machines.effectiveOwner(asMachineId(input.replaceMachineId))) ===
+            pairer))
+    if (!authorized)
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'replacement requires an administrator or the machine grantee',
+      })
+    if (!row?.revokedAt)
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'replacement requires a revoked machine',
+      })
   } else if (principal.kind === 'system' || principal.capability.role !== 'admin') {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'new enrollment requires an administrator' })
   }
@@ -315,12 +389,21 @@ export const machinePairingCodeHandler = async ({
     podiumManaged: input?.podiumManaged ?? true,
   }
   const code = input?.replaceMachineId
-    ? await mods(ctx).machines.mintReplacementPairingCode(asMachineId(input.replaceMachineId), grant, principal.capability.role === 'admin')
+    ? await mods(ctx).machines.mintReplacementPairingCode(
+        asMachineId(input.replaceMachineId),
+        grant,
+        principal.capability.role === 'admin',
+      )
     : mods(ctx).machines.mintPairingCode(grant)
 
   return {
     code,
-    joinCommand: ports.joinCommand(code, input?.podiumManaged ?? true, ctx.workspaceId, mods(ctx).updates.fleetDefaultChannel()),
+    joinCommand: ports.joinCommand(
+      code,
+      input?.podiumManaged ?? true,
+      ctx.workspaceId,
+      mods(ctx).updates.fleetDefaultChannel(),
+    ),
   }
 }
 
@@ -338,7 +421,11 @@ export const machinePairingCodeHandler = async ({
  * gate, so this adds the structural and liveness ones — the two that were
  * missing.
  */
-const requireRepoHost = async (ctx: Context, machineId: MachineId, action: string): Promise<void> => {
+const requireRepoHost = async (
+  ctx: Context,
+  machineId: MachineId,
+  action: string,
+): Promise<void> => {
   try {
     await mods(ctx).machines.requireCapability(machineId, HOST_REPOS, action)
   } catch (e) {
@@ -501,16 +588,15 @@ export const repoRenameFolderHandler = async ({
   const source = normalizeRepoPath(joinMachinePath(input.parentPath, input.currentName))
   // The folder itself, or anything registered BELOW it: both sets of rows point
   // at paths the rename would invalidate.
-  const stranded = (await ctx.repos
-    .list(input.machineId))
-    .filter((repo) => isMachinePathWithinRoot(source, repo))
+  const stranded = (await ctx.repos.list(input.machineId)).filter((repo) =>
+    isMachinePathWithinRoot(source, repo),
+  )
   if (stranded.length > 0) {
     throw new TRPCError({
       code: 'PRECONDITION_FAILED',
-      message:
-        machinePathsEqual(stranded[0]!, source)
-          ? `${input.currentName} is registered in Podium. Remove it from your repositories first, then rename it.`
-          : `${input.currentName} holds a repository Podium has registered (${stranded[0]}). Remove it from your repositories first, then rename it.`,
+      message: machinePathsEqual(stranded[0]!, source)
+        ? `${input.currentName} is registered in Podium. Remove it from your repositories first, then rename it.`
+        : `${input.currentName} holds a repository Podium has registered (${stranded[0]}). Remove it from your repositories first, then rename it.`,
     })
   }
 
@@ -562,7 +648,7 @@ export const discoveryScanFolderHandler = async ({
   // machine — so guard the id that will actually be used, not the one supplied.
   await requireRepoHost(
     ctx,
-    input.machineId ?? await mods(ctx).machines.defaultMachine(),
+    input.machineId ?? (await mods(ctx).machines.defaultMachine()),
     'scan for repositories',
   )
   return await ctx.registry.modules.rpc.scanRepos(

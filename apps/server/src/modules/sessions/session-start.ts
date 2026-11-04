@@ -594,13 +594,14 @@ export class SessionStart {
         ? { effort: selection.effort }
         : {}),
     }
+    // THE OWNER'S OWN SELECTION (POD-6300): the account a run uses is the
+    // initiating member's choice, read from their preferences, whoever else's
+    // preferences the rest of the launch reads.
     const inheritedAccountId =
       input.agentKind === 'shell'
         ? undefined
-        : resolveRole(
-            await this.ports.store.settings.getSettingsFor(await this.ports.settingsViewer()),
-            'coding',
-          ).accountId
+        : resolveRole(await this.ports.store.settings.getSettingsFor(ownerUserId), 'coding')
+            .accountId
     // The harness-login rule lives in ONE place (POD-4827 review 2):
     // `selectHarnessAccountId` — the superagent's headless establishment
     // calls the same function with its superagent-or-coding preference, so
@@ -618,6 +619,13 @@ export class SessionStart {
       input.agentKind === 'shell' || selectedAccountId === undefined
         ? undefined
         : await this.ports.nativeAccountIdForMachine(machineId, input.agentKind, selectedAccountId)
+    // Resolved before anything is registered or persisted: a spawn refused for
+    // its account (no connection of the owner's, or another person's machine)
+    // leaves nothing behind.
+    const accountEnv = await this.ports.launchConfig.accountEnv(input.agentKind, selectedAccountId, {
+      ownerUserId,
+      machineId,
+    })
     const principal = input.binding?.principal ?? { kind: 'user' as const, userId: ownerUserId }
     const parent =
       principal.kind === 'agent'
@@ -733,7 +741,7 @@ export class SessionStart {
       geometry: { ...DEFAULT_GEOMETRY },
       ...launch,
       // The suffix is durable session attribution only; launch with the selected account unchanged.
-      ...(await this.ports.launchConfig.accountEnv(input.agentKind, selectedAccountId)),
+      ...accountEnv,
       ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
       ...(input.requestedDriverId !== undefined ? { requestedDriverId: input.requestedDriverId } : {}),
     })

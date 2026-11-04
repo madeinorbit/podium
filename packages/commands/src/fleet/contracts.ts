@@ -171,13 +171,18 @@ export const machineSetUpdateChannelInput = z.object({
 })
 
 export const machineApplyUpdateInput = z.object({ id: z.string() })
-export const machineShareInput = z.object({
+export const machineUnshareInput = z.object({
   id: z.string(),
   grantee: z.string().min(1),
   verb: z.enum(['see', 'use', 'manage']),
 })
 
-export const machineUnshareInput = machineShareInput
+/** Sharing `use` with someone other than the machine's custodian puts their
+ *  agents under the same OS account as the custodian's (POD-6300, Q1), so the
+ *  grantor acknowledges that warning; there is no accept step for the grantee. */
+export const machineShareInput = machineUnshareInput.extend({
+  acknowledgeSharedMachine: z.boolean().optional(),
+})
 
 export const machineRevokeInput = z.object({ id: z.string() })
 export const machineMoveServerInput = z.object({

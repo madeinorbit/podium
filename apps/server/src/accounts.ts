@@ -8,14 +8,15 @@
 import { providerOf, resolveDescriptors } from '@podium/harness/browser'
 import { harnessDetectLogin } from '@podium/harness/metadata'
 import { asAccountId, type HarnessAgent, type MachineId } from '@podium/model'
-import { isBuiltinHarnessKind, type HarnessDescriptorWire } from '@podium/protocol'
+import { type HarnessDescriptorWire, isBuiltinHarnessKind } from '@podium/protocol'
 import { buildLoginCatalog, catalogEntriesForHarness, type LoginCatalog } from './login-catalog'
-import type { AccountsRepository } from './store/accounts'
+import type { ManagedAccountRow } from './store/accounts'
 import type { MachineRecord } from './store/types'
 
 /** A row in the Accounts hub. Native rows are observed from the machine catalog;
  * managed rows reflect what Podium stores. */
 export type { AccountView } from '@podium/model'
+
 import type { AccountView } from '@podium/model'
 
 /** Display-only preview of a secret. The full value never leaves the server. */
@@ -77,11 +78,13 @@ function nativeFromCatalog(
   return pairs.flatMap(({ kind: harness, provider }): AccountView[] => {
     const entries = catalogEntriesForHarness(catalog, harness)
     if (entries.length === 0) {
-      const reports = machines.filter((machine) => !machine.revokedAt).flatMap((machine) =>
-        (machine.inventory?.agents ?? [])
-          .filter((agent) => agent.kind === harness)
-          .map((agent) => ({ machine, login: agent.login })),
-      )
+      const reports = machines
+        .filter((machine) => !machine.revokedAt)
+        .flatMap((machine) =>
+          (machine.inventory?.agents ?? [])
+            .filter((agent) => agent.kind === harness)
+            .map((agent) => ({ machine, login: agent.login })),
+        )
       const loggedIn = reports.filter(({ login }) => login.state === 'in')
       if (loggedIn.length > 0) {
         const labels = [...new Set(loggedIn.map(({ login }) => login.account).filter(Boolean))]
@@ -134,16 +137,19 @@ function nativeFromCatalog(
 const MANAGED_KEY_PROVIDERS = ['anthropic', 'openai', 'openrouter'] as const
 
 /**
- * All accounts for the hub: the catalog of native CLI logins plus the managed
- * credentials Podium holds. Managed rows are read from the accounts table, never
- * from the settings blob, so credential bytes cannot reach a client.
+ * All accounts for ONE member's hub: the catalog of native CLI logins on the
+ * machines passed in plus the managed credentials passed in. Managed rows are
+ * the member's own rows from the accounts table, never the settings blob, so
+ * credential bytes cannot reach a client. Who the member is, and therefore
+ * which machines and rows are theirs, is the caller's decision (POD-6300).
  *
  * The third argument accepts an explicit HOME only for legacy unit tests. The
  * production query passes machine records and therefore has no homedir fallback.
  */
 export async function accountViews(
   legacyApiKey: (provider: string) => string | undefined | Promise<string | undefined>,
-  accounts: AccountsRepository,
+  /** The viewing member's own managed connections. */
+  managedRows: readonly ManagedAccountRow[],
   machinesOrHome: readonly MachineRecord[] | string = [],
   /** Served descriptors across the fleet (one `machines.descriptors` report
    *  per machine); resolved over the bundled fallback, so an older daemon or
@@ -156,41 +162,43 @@ export async function accountViews(
       ? pairs.map(({ kind, provider }) => detectNative(machinesOrHome, kind, provider))
       : nativeFromCatalog(buildLoginCatalog(machinesOrHome), machinesOrHome, pairs)
 
-  const stored = new Map((await accounts.list()).map((a) => [a.id, a]))
-  const managed: AccountView[] = await Promise.all(MANAGED_KEY_PROVIDERS.map(async (provider) => {
-    const id = `managed:${provider}`
-    const row = stored.get(asAccountId(id))
-    const legacyKey = (await legacyApiKey(provider)) ?? ''
-    if (row) {
+  const stored = new Map(managedRows.map((a) => [a.id, a]))
+  const managed: AccountView[] = await Promise.all(
+    MANAGED_KEY_PROVIDERS.map(async (provider) => {
+      const id = `managed:${provider}`
+      const row = stored.get(asAccountId(id))
+      const legacyKey = (await legacyApiKey(provider)) ?? ''
+      if (row) {
+        return {
+          id,
+          provider,
+          source: 'managed' as const,
+          kind: 'api-key' as const,
+          identity: row.identity || undefined,
+          status: 'connected' as const,
+          credentialSource: 'stored' as const,
+        }
+      }
+      if (legacyKey) {
+        return {
+          id,
+          provider,
+          source: 'managed' as const,
+          kind: 'api-key' as const,
+          identity: maskCredential(legacyKey),
+          status: 'connected' as const,
+          credentialSource: 'legacy' as const,
+        }
+      }
       return {
         id,
         provider,
         source: 'managed' as const,
         kind: 'api-key' as const,
-        identity: row.identity || undefined,
-        status: 'connected' as const,
-        credentialSource: 'stored' as const,
+        status: 'not-configured' as const,
       }
-    }
-    if (legacyKey) {
-      return {
-        id,
-        provider,
-        source: 'managed' as const,
-        kind: 'api-key' as const,
-        identity: maskCredential(legacyKey),
-        status: 'connected' as const,
-        credentialSource: 'legacy' as const,
-      }
-    }
-    return {
-      id,
-      provider,
-      source: 'managed' as const,
-      kind: 'api-key' as const,
-      status: 'not-configured' as const,
-    }
-  }))
+    }),
+  )
 
   const oauthRow = stored.get(asAccountId('managed:claude-oauth'))
   const claudeOauth: AccountView = {

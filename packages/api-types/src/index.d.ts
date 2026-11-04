@@ -6504,6 +6504,23 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Output_accounts_login;
             meta: unknown;
         }>;
+        "send": TRPC.TRPCMutationProcedure<{
+            input: {
+                acknowledgeSharedMachine?: boolean | undefined;
+                id: string;
+                machineId: string;
+            };
+            output: ({
+                ok: true;
+                sent: false;
+                warning?: undefined;
+            }) | ({
+                ok: true;
+                sent: true;
+                warning: string;
+            });
+            meta: unknown;
+        }>;
     };
     "agentProfiles": {
         "create": TRPC.TRPCMutationProcedure<{
@@ -7752,6 +7769,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         }>;
         "share": TRPC.TRPCMutationProcedure<{
             input: {
+                acknowledgeSharedMachine?: boolean | undefined;
                 grantee: string;
                 id: string;
                 verb: "manage" | "see" | "use";

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { AccountConnectInput } from '@podium/commands'
-import { asAccountId, asMachineId, Inventory } from '@podium/model'
+import { asAccountId, asMachineId, asUserId, Inventory } from '@podium/model'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -18,6 +18,11 @@ let accounts: AccountsRepository
 const prevCodexHome = process.env.CODEX_HOME
 const prevGrokHome = process.env.GROK_HOME
 const prevClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR
+
+/** The member whose hub these tests render (POD-6300: the hub is per member). */
+const VIEWER = asUserId('mem_viewer')
+/** The viewer's own managed connections, as the list query passes them. */
+const mine = async () => await accounts.listFor(VIEWER)
 
 /** A fresh, empty managed-accounts store — the "no stored credential" baseline. */
 function emptyAccounts(): AccountsRepository {
@@ -99,9 +104,9 @@ function jwt(payload: Record<string, unknown>): string {
 
 describe('accountViews', () => {
   it('trusts an explicit logged-in report even when an older daemon omits identity metadata', async () => {
-    const claude = (await accountViews(settings(), accounts, [
-      machineWithLogin('in', 'mike@example.com'),
-    ])).find((view) => view.id === 'native:claude-code')!
+    const claude = (
+      await accountViews(settings(), await mine(), [machineWithLogin('in', 'mike@example.com')])
+    ).find((view) => view.id === 'native:claude-code')!
 
     expect(claude).toMatchObject({
       status: 'connected',
@@ -111,28 +116,30 @@ describe('accountViews', () => {
   })
 
   it('distinguishes an unavailable native status from an explicit logout', async () => {
-    const unknown = (await accountViews(settings(), accounts, [machineWithLogin('unknown')])).find(
-      (view) => view.id === 'native:claude-code',
-    )!
-    const loggedOut = (await accountViews(settings(), accounts, [machineWithLogin('out')])).find(
-      (view) => view.id === 'native:claude-code',
-    )!
+    const unknown = (
+      await accountViews(settings(), await mine(), [machineWithLogin('unknown')])
+    ).find((view) => view.id === 'native:claude-code')!
+    const loggedOut = (
+      await accountViews(settings(), await mine(), [machineWithLogin('out')])
+    ).find((view) => view.id === 'native:claude-code')!
 
     expect(unknown.status).toBe('unknown')
     expect(loggedOut.status).toBe('not-configured')
   })
 
   it('does not claim a fleet logout while another machine has an unknown status', async () => {
-    const claude = (await accountViews(settings(), accounts, [
-      machineWithLogin('out', undefined, 'logged-out'),
-      machineWithLogin('unknown', undefined, 'unreported'),
-    ])).find((view) => view.id === 'native:claude-code')!
+    const claude = (
+      await accountViews(settings(), await mine(), [
+        machineWithLogin('out', undefined, 'logged-out'),
+        machineWithLogin('unknown', undefined, 'unreported'),
+      ])
+    ).find((view) => view.id === 'native:claude-code')!
 
     expect(claude.status).toBe('unknown')
   })
 
   it('reports native logins as not-configured when nothing is present', async () => {
-    const views = await accountViews(settings(), accounts, home)
+    const views = await accountViews(settings(), await mine(), home)
     const claude = views.find((v) => v.id === 'native:claude-code')!
     expect(claude.status).toBe('not-configured')
     expect(views.find((v) => v.id === 'native:codex')!.status).toBe('not-configured')
@@ -146,7 +153,7 @@ describe('accountViews', () => {
       join(home, '.claude.json'),
       JSON.stringify({ oauthAccount: { emailAddress: 'mike@example.com' } }),
     )
-    const claude = (await accountViews(settings(), accounts, home)).find(
+    const claude = (await accountViews(settings(), await mine(), home)).find(
       (v) => v.id === 'native:claude-code',
     )!
     expect(claude.status).toBe('connected')
@@ -166,7 +173,7 @@ describe('accountViews', () => {
         },
       }),
     )
-    const codex = (await accountViews(settings(), accounts, home)).find(
+    const codex = (await accountViews(settings(), await mine(), home)).find(
       (view) => view.id === 'native:codex',
     )!
     expect(codex.identity).toBe('Mike Example · mike@example.com')
@@ -186,13 +193,19 @@ describe('accountViews', () => {
         },
       }),
     )
-    const grok = (await accountViews(settings(), accounts, home)).find((view) => view.id === 'native:grok')!
+    const grok = (await accountViews(settings(), await mine(), home)).find(
+      (view) => view.id === 'native:grok',
+    )!
     expect(grok.status).toBe('connected')
     expect(grok.identity).toBe('Grace Hopper · grace@example.com')
   })
 
   it('surfaces set API keys as connected managed accounts with a masked identity', async () => {
-    const views = await accountViews(settings({ anthropic: 'sk-ant-abcdefgh1234' }), accounts, home)
+    const views = await accountViews(
+      settings({ anthropic: 'sk-ant-abcdefgh1234' }),
+      await mine(),
+      home,
+    )
     const anthropic = views.find((v) => v.id === 'managed:anthropic')!
     expect(anthropic.source).toBe('managed')
     expect(anthropic.kind).toBe('api-key')
@@ -208,15 +221,14 @@ describe('accountViews', () => {
    *  (the button reported ok:true, deleted nothing, and the row stayed connected —
    *  an unbreakable loop for anyone with a pre-hub API key). */
   it('marks a legacy settings key as legacy, and a stored credential as stored', async () => {
-    const legacy = (await accountViews(
-      settings({ anthropic: 'sk-ant-abcdefgh1234' }),
-      accounts,
-      home,
-    )).find((v) => v.id === 'managed:anthropic')!
+    const legacy = (
+      await accountViews(settings({ anthropic: 'sk-ant-abcdefgh1234' }), await mine(), home)
+    ).find((v) => v.id === 'managed:anthropic')!
     expect(legacy.status).toBe('connected')
     expect(legacy.credentialSource).toBe('legacy')
 
     await accounts.upsert({
+      ownerUserId: VIEWER,
       id: asAccountId('managed:anthropic'),
       provider: 'anthropic',
       kind: 'api-key',
@@ -225,18 +237,18 @@ describe('accountViews', () => {
       scope: 'role',
       createdAt: 1,
     })
-    const stored = (await accountViews(
-      settings({ anthropic: 'sk-ant-abcdefgh1234' }),
-      accounts,
-      home,
-    )).find((v) => v.id === 'managed:anthropic')!
+    const stored = (
+      await accountViews(settings({ anthropic: 'sk-ant-abcdefgh1234' }), await mine(), home)
+    ).find((v) => v.id === 'managed:anthropic')!
     // The stored row wins over the legacy key, and IS disconnectable.
     expect(stored.credentialSource).toBe('stored')
     expect(stored.identity).toBe('sk-a…ored')
   })
 
   it('leaves an unconfigured managed row with no credential source', async () => {
-    const view = (await accountViews(settings(), accounts, home)).find((v) => v.id === 'managed:openai')!
+    const view = (await accountViews(settings(), await mine(), home)).find(
+      (v) => v.id === 'managed:openai',
+    )!
     expect(view.status).toBe('not-configured')
     expect(view.credentialSource).toBeUndefined()
   })
@@ -245,6 +257,7 @@ describe('accountViews', () => {
    *  still injects a live key at spawn — status keys off the ROW, not the string. */
   it('reports a stored row with an empty identity as connected, not not-configured', async () => {
     await accounts.upsert({
+      ownerUserId: VIEWER,
       id: asAccountId('managed:openai'),
       provider: 'openai',
       kind: 'api-key',
@@ -253,7 +266,9 @@ describe('accountViews', () => {
       scope: 'role',
       createdAt: 1,
     })
-    const view = (await accountViews(settings(), accounts, home)).find((v) => v.id === 'managed:openai')!
+    const view = (await accountViews(settings(), await mine(), home)).find(
+      (v) => v.id === 'managed:openai',
+    )!
     expect(view.status).toBe('connected')
     expect(view.credentialSource).toBe('stored')
     expect(JSON.stringify(view)).not.toContain('sk-live-key')
@@ -261,6 +276,7 @@ describe('accountViews', () => {
 
   it('shows a connected managed account as connected, masked, and never leaks the secret', async () => {
     await accounts.upsert({
+      ownerUserId: VIEWER,
       id: asAccountId('managed:anthropic'),
       provider: 'anthropic',
       kind: 'api-key',
@@ -270,7 +286,7 @@ describe('accountViews', () => {
       createdAt: 1,
     })
 
-    const views = await accountViews(settings(), accounts, home)
+    const views = await accountViews(settings(), await mine(), home)
     const view = views.find((v) => v.id === 'managed:anthropic')
 
     expect(view?.status).toBe('connected')
@@ -281,10 +297,13 @@ describe('accountViews', () => {
 
   it('shows a stored Claude setup-token as its own connected oauth account', async () => {
     expect(
-      (await accountViews(settings(), accounts, home)).find((v) => v.id === 'managed:claude-oauth')!.status,
+      (await accountViews(settings(), await mine(), home)).find(
+        (v) => v.id === 'managed:claude-oauth',
+      )!.status,
     ).toBe('not-configured')
 
     await accounts.upsert({
+      ownerUserId: VIEWER,
       id: asAccountId('managed:claude-oauth'),
       provider: 'anthropic',
       kind: 'oauth',
@@ -294,7 +313,7 @@ describe('accountViews', () => {
       createdAt: 2,
     })
 
-    const views = await accountViews(settings(), accounts, home)
+    const views = await accountViews(settings(), await mine(), home)
     const oauth = views.find((v) => v.id === 'managed:claude-oauth')!
     expect(oauth.status).toBe('connected')
     expect(oauth.kind).toBe('oauth')
@@ -304,6 +323,7 @@ describe('accountViews', () => {
 
   it('prefers a stored credential over the legacy settings key', async () => {
     await accounts.upsert({
+      ownerUserId: VIEWER,
       id: asAccountId('managed:openai'),
       provider: 'openai',
       kind: 'api-key',
@@ -312,7 +332,7 @@ describe('accountViews', () => {
       scope: 'role',
       createdAt: 3,
     })
-    const views = await accountViews(settings({ openai: 'sk-legacy-abcd1234' }), accounts, home)
+    const views = await accountViews(settings({ openai: 'sk-legacy-abcd1234' }), await mine(), home)
     const openai = views.find((v) => v.id === 'managed:openai')!
     expect(openai.identity).toBe('sk-s…9999')
     expect(JSON.stringify(views)).not.toContain('sk-stored-9999')
@@ -336,8 +356,8 @@ describe('accountViews catalog', () => {
       deliveryCaps: [],
       presenceSource: null,
       assignmentEvidence: null,
-    availability: null,
-    serviceAssignment: { server: false, agentExecution: true },
+      availability: null,
+      serviceAssignment: { server: false, agentExecution: true },
       serviceReport: null,
       buildReportedAt: null,
       components: ['daemon'],
@@ -359,10 +379,10 @@ describe('accountViews catalog', () => {
   }
 
   it('projects OpenCode inventory login state into a native account row', async () => {
-    const connected = (await accountViews(settings(), accounts, [opencodeMachine('in')])).find(
+    const connected = (await accountViews(settings(), await mine(), [opencodeMachine('in')])).find(
       (view) => view.id === 'native:opencode',
     )
-    const loggedOut = (await accountViews(settings(), accounts, [opencodeMachine('out')])).find(
+    const loggedOut = (await accountViews(settings(), await mine(), [opencodeMachine('out')])).find(
       (view) => view.id === 'native:opencode',
     )
 
@@ -399,8 +419,8 @@ describe('accountViews catalog', () => {
       deliveryCaps: [],
       presenceSource: null,
       assignmentEvidence: null,
-    availability: null,
-    serviceAssignment: { server: false, agentExecution: true },
+      availability: null,
+      serviceAssignment: { server: false, agentExecution: true },
       serviceReport: null,
       buildReportedAt: null,
       components: ['daemon'],
@@ -419,7 +439,7 @@ describe('accountViews catalog', () => {
   }
 
   it('keys native accounts by identity and lists every holding machine', async () => {
-    const views = await accountViews(settings(), accounts, [
+    const views = await accountViews(settings(), await mine(), [
       catalogMachine('m1', 'macbook', 'fp-a', 'a@example.com'),
       catalogMachine('m2', 'vmi', 'fp-a', 'a@example.com'),
       catalogMachine('m3', 'linux-box', 'fp-b', 'b@example.com'),
@@ -463,7 +483,7 @@ describe('accountViews provider source (POD-4529)', () => {
   it('reads the catalog-path provider off the served descriptor', async () => {
     const views = await accountViews(
       settings(),
-      accounts,
+      await mine(),
       [machineWithLogin('in', 'mike@example.com')],
       servedWithProvider('claude-code', 'served-provider-x'),
     )
@@ -475,7 +495,7 @@ describe('accountViews provider source (POD-4529)', () => {
   it('reads the legacy HOME-path provider off the served descriptor', async () => {
     const views = await accountViews(
       settings(),
-      accounts,
+      await mine(),
       home,
       servedWithProvider('codex', 'served-provider-y'),
     )
@@ -483,7 +503,7 @@ describe('accountViews provider source (POD-4529)', () => {
   })
 
   it('falls back to the bundled descriptor when no machine reported one', async () => {
-    const views = await accountViews(settings(), accounts, [
+    const views = await accountViews(settings(), await mine(), [
       machineWithLogin('in', 'mike@example.com'),
     ])
     expect(views.find((view) => view.id === 'native:claude-code')!.provider).toBe('anthropic')
@@ -497,9 +517,12 @@ describe('accountViews provider source (POD-4529)', () => {
     const [served] = servedWithProvider('claude-code', 'served-provider-x')
     const { provider: _p, ...older } = served!
     void _p
-    const views = await accountViews(settings(), accounts, [machineWithLogin('in', 'mike@example.com')], [
-      older,
-    ])
+    const views = await accountViews(
+      settings(),
+      await mine(),
+      [machineWithLogin('in', 'mike@example.com')],
+      [older],
+    )
     expect(views.find((view) => view.id === 'native:claude-code')!.provider).toBe('claude-code')
   })
 })

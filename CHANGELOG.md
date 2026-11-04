@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Upgrading
+
+- **Provider accounts become personal.** A managed account (an API key or a Claude setup-token under Settings → Accounts) now belongs to one person: nobody else sees it or runs with it, admins included. Podium does not know which machine an existing account came from, so on upgrade every existing managed account goes to the earliest admin. On a one-person instance that is you, and nothing changes. On an instance with several people, everyone else connects their own.
+
 ### Fixed
 
 - Fixed update failures in rare configurations.
@@ -66,6 +70,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Every client reloads once on first connect. Nothing is lost.
 - The text of each issue's "design" and "notes" fields is appended to its brief, under a heading.
 - Task colors are dropped.
+
 
 ## [0.2.0] - 2026-10-12
 

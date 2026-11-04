@@ -336,7 +336,9 @@ export const sessions = sqliteTable(
     // reads the few that can still get a ref, not every ref-less one in history.
     index('idx_sessions_refless_place')
       .on(table.machineId, table.cwd)
-      .where(sql`${table.refIssueId} IS NULL AND ${table.refDraft} IS NULL AND ${table.deletedAt} IS NULL`),
+      .where(
+        sql`${table.refIssueId} IS NULL AND ${table.refDraft} IS NULL AND ${table.deletedAt} IS NULL`,
+      ),
     index('idx_sessions_refless_issue')
       .on(table.issueId)
       .where(
@@ -347,9 +349,7 @@ export const sessions = sqliteTable(
     index('idx_sessions_status').on(table.status),
     // Headless sessions (POD-6160): resident for as long as their row exists,
     // so a boot restores them beside the running ones. A few rows; partial.
-    index('idx_sessions_headless')
-      .on(table.headless)
-      .where(sql`${table.headless} = 1`),
+    index('idx_sessions_headless').on(table.headless).where(sql`${table.headless} = 1`),
     check(
       'sessions_stop_reason_check',
       sql`stop_reason IS NULL OR stop_reason IN ('self', 'parent', 'forced', 'exited')`,
@@ -1395,7 +1395,11 @@ export const subscriptions = sqliteTable(
     // A subscriber's own rows, and the steward's relationship arm: the rows of
     // the subscribers an event can reach, narrowed by source kind and event
     // (POD-6208).
-    index('idx_subscriptions_subscriber_event').on(table.subscriberId, table.sourceKind, table.event),
+    index('idx_subscriptions_subscriber_event').on(
+      table.subscriberId,
+      table.sourceKind,
+      table.event,
+    ),
     // The steward's explicit-source arms: the rows watching one session or
     // issue for one event kind (POD-6208).
     index('idx_subscriptions_match').on(table.event, table.sourceKind, table.sourceRef),
@@ -2774,15 +2778,53 @@ export const workflowEvents = sqliteTable(
   ],
 )
 
-export const accounts = sqliteTable('accounts', {
-  id: text().$type<AccountId>().primaryKey(),
-  provider: text().notNull(),
-  kind: text().notNull(),
-  credential: text().notNull(),
-  identity: text().default('').notNull(),
-  scope: text().default('role').notNull(),
-  createdAt: integer('created_at').notNull(),
-})
+/**
+ * A MANAGED PROVIDER CONNECTION BELONGS TO ONE MEMBER (POD-6300; design §2.5).
+ *
+ * `id` is the physical row key. `ref` is the account id a member selects and a
+ * session records (`managed:anthropic`, `managed:claude-oauth`): the same `ref`
+ * exists once per owner, so Alice's and Bob's Anthropic keys are two rows.
+ * Rows written before owners existed keep their `id` (which was their `ref`)
+ * and went to the earliest active admin on upgrade (no row recorded the machine
+ * it came from); see the `provider-connection-owners` migration.
+ */
+export const accounts = sqliteTable(
+  'accounts',
+  {
+    id: text().$type<AccountId>().primaryKey(),
+    provider: text().notNull(),
+    kind: text().notNull(),
+    credential: text().notNull(),
+    identity: text().default('').notNull(),
+    scope: text().default('role').notNull(),
+    createdAt: integer('created_at').notNull(),
+    ownerUserId: text('owner_user_id').$type<UserId>(),
+    ref: text().$type<AccountId>(),
+  },
+  (table) => [uniqueIndex('accounts_owner_ref').on(table.ownerUserId, table.ref)],
+)
+
+/**
+ * WHICH MACHINES A MEMBER SENT A CONNECTION TO (POD-6300; design §2.4, Q1).
+ *
+ * A connection is used on its owner's own custody machines without this row. On
+ * a machine where the owner only holds `use`, the credential reaches the
+ * machine only after the owner explicitly sent it there, having been told that
+ * everyone running on that machine's OS account can read it.
+ */
+export const accountMachineSends = sqliteTable(
+  'account_machine_sends',
+  {
+    accountId: brandedRef(text('account_id').$type<AccountId>(), () => accounts.id, {
+      onDelete: 'cascade',
+    }).notNull(),
+    machineId: text('machine_id').$type<MachineId>().notNull(),
+    sentAt: text('sent_at').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.accountId, table.machineId], name: 'account_machine_sends_pk' }),
+  ],
+)
 
 export const automations = sqliteTable(
   'automations',

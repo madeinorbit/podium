@@ -50,6 +50,7 @@ function fixture(opts?: {
     // which resolves the owner once and returns the per-machine check.
     authorizerFor: opts?.authorizerFor ?? (() => () => undefined),
     cwdForMachine: () => '/repo',
+    custodianOf: async () => OWNER,
   })
   return {
     bus,
@@ -114,14 +115,14 @@ describe('NativeLoginService', () => {
 
     f.bus.emit('session.exited', { sessionId: SESSION, code: 0 })
     expect(f.toMachine).toHaveBeenCalledWith('machine-a', { type: 'inventoryRequest' })
-    expect(f.service.attempt('codex')?.status).toBe('refreshing')
+    expect(f.service.attempt(OWNER, 'codex')?.status).toBe('refreshing')
 
     f.bus.emit('machine.metadataChanged', { machineId: asMachineId('machine-a') })
-    expect(f.service.attempt('codex')?.status).toBe('refreshing')
+    expect(f.service.attempt(OWNER, 'codex')?.status).toBe('refreshing')
 
     f.setLogin('in')
     f.bus.emit('machine.metadataChanged', { machineId: asMachineId('machine-a'), inventory: true })
     await Promise.resolve()
-    expect(f.service.attempt('codex')?.status).toBe('succeeded')
+    expect(f.service.attempt(OWNER, 'codex')?.status).toBe('succeeded')
   })
 })

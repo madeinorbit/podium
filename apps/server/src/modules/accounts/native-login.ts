@@ -21,12 +21,22 @@ export type NativeLoginAttempt = Pick<SessionMeta, 'sessionId'> &
     error?: string
   }
 
+const attemptKey = (ownerUserId: UserId, harness: HarnessAgent): string =>
+  `${ownerUserId}\u0000${harness}`
+const harnessOfKey = (key: string): HarnessAgent =>
+  key.slice(key.indexOf('\u0000') + 1) as HarnessAgent
+
 /** Coordinates native CLI authentication without ever seeing provider tokens.
- * The PTY and inventory remain the two sources of truth. */
+ * The PTY and inventory remain the two sources of truth.
+ *
+ * PER MEMBER (POD-6300). A machine's native logins belong to the person who
+ * looks after it, so a member logs in only on a machine in their own custody:
+ * logging in on someone else's would replace that person's login. Attempts are
+ * kept per (member, harness), so Alice's attempt is never Bob's answer. */
 export class NativeLoginService {
   private readonly required = new Set<string>()
   private readonly attempts = new Map<string, NativeLoginAttempt>()
-  private readonly bySession = new Map<string, HarnessAgent>()
+  private readonly bySession = new Map<string, string>()
 
   constructor(
     private readonly deps: {
@@ -41,6 +51,8 @@ export class NativeLoginService {
         | ((machineId: MachineId) => string | undefined)
         | Promise<(machineId: MachineId) => string | undefined>
       cwdForMachine(machineId: MachineId): string | Promise<string>
+      /** The member who looks after the machine, or null when nobody does. */
+      custodianOf(machineId: MachineId): Promise<UserId | null>
     },
   ) {
     deps.bus.on('session.exited', ({ sessionId, code }) => this.onExit(sessionId, code))
@@ -53,12 +65,15 @@ export class NativeLoginService {
     this.required.add(`${machineId}:${harness}`)
   }
 
-  isRequired(harness: HarnessAgent): boolean {
-    return [...this.required].some((key) => key.endsWith(`:${harness}`))
+  /** A login is required for this harness on one of these machines (the
+   *  viewer's own: another person's logins are not the viewer's to repair). */
+  isRequired(harness: HarnessAgent, machineIds: ReadonlySet<MachineId>): boolean {
+    return [...machineIds].some((machineId) => this.required.has(`${machineId}:${harness}`))
   }
 
-  attempt(harness: HarnessAgent): NativeLoginAttempt | undefined {
-    return this.attempts.get(harness)
+  /** The member's own latest attempt for this harness. */
+  attempt(ownerUserId: UserId, harness: HarnessAgent): NativeLoginAttempt | undefined {
+    return this.attempts.get(attemptKey(ownerUserId, harness))
   }
 
   async start(input: {
@@ -74,7 +89,8 @@ export class NativeLoginService {
     machineId?: MachineId
     ownerUserId: UserId
   }): Promise<NativeLoginAttempt> {
-    const existing = this.attempts.get(input.harness)
+    const key = attemptKey(input.ownerUserId, input.harness)
+    const existing = this.attempts.get(key)
     if (existing && (existing.status === 'running' || existing.status === 'refreshing'))
       return existing
 
@@ -88,9 +104,17 @@ export class NativeLoginService {
     // filtering and the selected-machine recheck therefore share one lease
     // snapshot; the next start() opens a new lease and re-reads.
     const authorize = await this.deps.authorizerFor(input.ownerUserId)
+    const custodians = new Map(
+      await Promise.all(
+        candidates.map(
+          async (candidate) => [candidate.id, await this.deps.custodianOf(candidate.id)] as const,
+        ),
+      ),
+    )
+    const own = (machineId: MachineId) => custodians.get(machineId) === input.ownerUserId
     const authorized = input.machineId
       ? candidates
-      : candidates.filter((candidate) => authorize(candidate.id) === undefined)
+      : candidates.filter((candidate) => own(candidate.id) && authorize(candidate.id) === undefined)
     const machine = input.machineId
       ? authorized.find((candidate) => candidate.id === input.machineId)
       : (authorized.find((candidate) =>
@@ -98,9 +122,16 @@ export class NativeLoginService {
             (agent) => agent.kind === input.harness && agent.login.state !== 'in',
           ),
         ) ?? authorized[0])
-    if (!machine) throw new Error(`no online machine can run ${input.harness} login`)
+    if (!machine) throw new Error(`no online machine of yours can run ${input.harness} login`)
     const refusal = authorize(machine.id)
     if (refusal) throw new Error(refusal)
+    if (!own(machine.id)) {
+      throw new Error(
+        `${machine.name} is someone else's machine: its ${input.harness} login is theirs, and ` +
+          'logging in there would replace it. Log in on a machine you look after, or send one ' +
+          'of your connections to this machine.',
+      )
+    }
 
     const spawned = await this.deps.sessions.createSession({
       agentKind: 'shell',
@@ -117,39 +148,40 @@ export class NativeLoginService {
       machineName: machine.name,
       status: 'running',
     }
-    this.attempts.set(input.harness, attempt)
-    this.bySession.set(spawned.sessionId, input.harness)
+    this.attempts.set(key, attempt)
+    this.bySession.set(spawned.sessionId, key)
     return attempt
   }
 
   private onExit(sessionId: SessionId, code: number): void {
-    const harness = this.bySession.get(sessionId)
-    if (!harness) return
-    const attempt = this.attempts.get(harness)
+    const key = this.bySession.get(sessionId)
+    if (!key) return
+    const attempt = this.attempts.get(key)
     if (!attempt) return
     this.bySession.delete(sessionId)
     if (code !== 0) {
-      this.attempts.set(harness, {
+      this.attempts.set(key, {
         ...attempt,
         status: 'failed',
         error: `login command exited ${code}`,
       })
       return
     }
-    this.attempts.set(harness, { ...attempt, status: 'refreshing' })
+    this.attempts.set(key, { ...attempt, status: 'refreshing' })
     this.deps.machines.toMachine(attempt.machineId, { type: 'inventoryRequest' })
   }
 
   private async onInventory(machineId: MachineId): Promise<void> {
-    for (const [harness, attempt] of this.attempts) {
+    for (const [key, attempt] of this.attempts) {
       if (attempt.machineId !== machineId || attempt.status !== 'refreshing') continue
+      const harness = harnessOfKey(key)
       const machine = (await this.deps.machines.listMachines()).find((row) => row.id === machineId)
       const login = machine?.inventory?.agents.find((agent) => agent.kind === harness)?.login
       if (login?.state === 'in') {
-        this.attempts.set(harness, { ...attempt, status: 'succeeded' })
+        this.attempts.set(key, { ...attempt, status: 'succeeded' })
         this.required.delete(`${machineId}:${harness}`)
       } else {
-        this.attempts.set(harness, {
+        this.attempts.set(key, {
           ...attempt,
           status: 'failed',
           error: 'login command finished but the refreshed inventory is still logged out',

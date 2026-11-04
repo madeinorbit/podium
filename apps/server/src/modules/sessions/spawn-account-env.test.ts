@@ -12,7 +12,7 @@
  *     frame shape every existing user already spawns with.
  */
 
-import { asAccountId } from '@podium/model'
+import { asAccountId, firstAdminMemberId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
@@ -43,8 +43,10 @@ async function storeWith(
   return store
 }
 
+/** The connection of the instance's one member, who starts these sessions. */
 const MANAGED_ANTHROPIC = {
   id: asAccountId('managed:anthropic'),
+  ownerUserId: firstAdminMemberId(),
   provider: 'anthropic',
   kind: 'api-key',
   credential: 'sk-ant-managed',
@@ -54,7 +56,9 @@ const MANAGED_ANTHROPIC = {
 } as const
 
 /** Registry + the daemon's inbox of control frames. */
-async function makeRegistry(store: SessionStore): Promise<{ reg: SessionRegistry; daemon: ControlMessage[] }> {
+async function makeRegistry(
+  store: SessionStore,
+): Promise<{ reg: SessionRegistry; daemon: ControlMessage[] }> {
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   const daemon: ControlMessage[] = []
@@ -65,7 +69,10 @@ async function makeRegistry(store: SessionStore): Promise<{ reg: SessionRegistry
 const spawns = (daemon: ControlMessage[]) => daemon.filter((m) => m.type === 'spawn')
 
 /** The frame for a fresh create (call site 1: SessionLifecycle.spawn). */
-async function createFrame(store: SessionStore, agentKind: 'claude-code' | 'shell' = 'claude-code') {
+async function createFrame(
+  store: SessionStore,
+  agentKind: 'claude-code' | 'shell' = 'claude-code',
+) {
   const { reg, daemon } = await makeRegistry(store)
   await reg.modules.sessions.createSession({ agentKind, cwd: '/proj' })
   const frame = spawns(daemon).at(-1)

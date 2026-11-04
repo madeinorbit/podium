@@ -1698,6 +1698,7 @@ export class SessionRegistry {
         await codexAuthorizerFor({ users: this.store.users, machines }, ownerUserId, 'start login'),
       cwdForMachine: async (machineId) =>
         (await this.store.repos.listRepoPaths(machineId))[0] ?? '/',
+      custodianOf: async (machineId) => await this.store.machines.custodian(machineId),
     })
     this.bus.on('superagent.turnEnded', async (event) => {
       if (event.ok || event.harnessErrorKind !== 'provider-auth' || !event.harness) return

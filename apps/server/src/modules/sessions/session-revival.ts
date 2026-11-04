@@ -55,6 +55,7 @@ import type { SessionRepository } from './repository'
 import type { SessionRecordReads, SessionSubject } from './records'
 import type { Session } from './session'
 import type { SessionFacts } from './facts'
+import { SpawnAccountRefusal } from './account-env'
 import type { SessionStart } from './session-start'
 import type { SessionStateService } from './session-state/service'
 import type { SessionTerminalProof } from './terminal-proof'
@@ -486,6 +487,19 @@ export class SessionRevival {
       ...(session.agentProfileId ? { agentProfileId: session.agentProfileId } : {}),
       existingOnly: true,
     })
+    // The account is resolved BEFORE the session is marked starting, so a wake
+    // refused for its account (the owner's connection is gone, or the machine
+    // is someone else's: POD-6300) leaves the session as it was.
+    let accountEnv: { env?: Record<string, string> }
+    try {
+      accountEnv = await this.ports.launchConfig.accountEnv(session.agentKind, session.accountId, {
+        ownerUserId: session.ownerUserId,
+        machineId: session.machineId,
+      })
+    } catch (error) {
+      if (error instanceof SpawnAccountRefusal) return { ok: false, reason: error.message }
+      throw error
+    }
     await this.ports.repository.write(session, (draft) => {
       draft.cwd = cwd
       draft.status = 'starting'
@@ -547,7 +561,7 @@ export class SessionRevival {
       // selection supplied on this wake may set model or effort.
       ...(selection && selection.model !== 'auto' ? { model: selection.model } : {}),
       ...(selection && selection.effort !== 'auto' ? { effort: selection.effort } : {}),
-      ...await this.ports.launchConfig.accountEnv(session.agentKind, session.accountId),
+      ...accountEnv,
       ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
     })
     await preparedInstructions.commit()

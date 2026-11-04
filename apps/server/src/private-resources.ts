@@ -52,11 +52,19 @@ export interface PrivateResourceAccess {
   /** The caller may read checkouts on this machine (the default machine when
    *  none is named): it holds `use` there. */
   mayReadMachineFiles(machineId?: MachineId): Promise<boolean>
+  /**
+   * The caller's standing on each machine it may run on (POD-6300): `custody`
+   * where it looks after the machine (its native logins are the caller's),
+   * `use` where it only holds a `use` grant on someone else's. Machines it may
+   * not run on are absent. The admin role's `manage`/`see` adds nothing here.
+   */
+  machineStanding(): Promise<ReadonlyMap<MachineId, 'custody' | 'use'>>
 }
 
 const NOBODY: PrivateResourceAccess = {
   ownsSession: async () => false,
   mayReadMachineFiles: async () => false,
+  machineStanding: async () => new Map(),
 }
 
 export function privateResourceAccess(
@@ -72,6 +80,18 @@ export function privateResourceAccess(
       const target = machineId ?? (await deps.machines.defaultMachine())
       const ownership = await ownershipSnapshotFromMachines(deps.machines)
       return checkMachineUse(principal, target, ownership) === undefined
+    },
+    machineStanding: async () => {
+      const ownership = await ownershipSnapshotFromMachines(deps.machines)
+      const standing = new Map<MachineId, 'custody' | 'use'>()
+      for (const row of await deps.machines.ownershipRows()) {
+        if (checkMachineUse(principal, row.id, ownership) !== undefined) continue
+        standing.set(
+          row.id,
+          human !== null && ownership.rowFor(row.id)?.owner === human ? 'custody' : 'use',
+        )
+      }
+      return standing
     },
   }
 }

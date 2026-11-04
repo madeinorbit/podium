@@ -191,6 +191,8 @@ describe('MU-10: a `use` grant never grants session access', () => {
       id: f.machines.alice,
       grantee: MEMBERS.bob.id,
       verb: 'use',
+      // She was shown the shared-machine warning (POD-6300).
+      acknowledgeSharedMachine: true,
     })
   })
 

@@ -1,14 +1,14 @@
 /** Spawn companions shared by new sessions and revival: subagent model,
  * theme seed and account environment. Model/effort belong to the launch resolver. */
 
-import { harnessCapabilitiesFor } from '../../harness-manifest'
 import type { AccountId, AgentKind, MachineId, UserId } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
+import { harnessCapabilitiesFor } from '../../harness-manifest'
 import type { SessionStore } from '../../store'
-import { resolveAccountEnv } from './account-env'
+import { type AccountEnvTarget, resolveAccountEnv } from './account-env'
 
 export interface LaunchConfigPorts {
-  store: Pick<SessionStore, 'settings' | 'accounts'>
+  store: Pick<SessionStore, 'settings' | 'accounts' | 'machines'>
   /** Whose preferences a spawning read uses. Not this module's decision. */
   settingsViewer(): UserId | Promise<UserId>
 }
@@ -27,7 +27,9 @@ export class SessionLaunchConfig {
     _override?: { model?: string; effort?: string },
     _machineId?: MachineId,
   ): Promise<LaunchModelDefaults> {
-    const settings = await this.ports.store.settings.getSettingsFor(await this.ports.settingsViewer())
+    const settings = await this.ports.store.settings.getSettingsFor(
+      await this.ports.settingsViewer(),
+    )
     const coding = settings.roles.coding
     const subagentModel = coding.subagentModel
     return {
@@ -41,23 +43,22 @@ export class SessionLaunchConfig {
   }
 
   /**
-   * The managed credential (if any) for the coding role, as spawn env (#216).
-   * Native accounts yield {} — the CLI uses its own login and the frame is
-   * unchanged.
+   * The managed credential (if any) for the coding role, as spawn env (#216),
+   * resolved for the session's OWNER on its machine (POD-6300): the owner's own
+   * selection and the owner's own connection, never anyone else's. Native
+   * accounts yield {} on the owner's machine — the CLI uses its own login and
+   * the frame is unchanged. A refusal (`SpawnAccountRefusal`) says why.
    */
   async accountEnv(
     agentKind: AgentKind,
-    accountId?: AccountId,
+    accountId: AccountId | undefined,
+    target: AccountEnvTarget,
   ): Promise<{ env?: Record<string, string> }> {
-    // Resolve before the shell arm to preserve the old default-parameter timing:
-    // an omitted account still performs this live settings read for every call.
+    if (agentKind === 'shell') return {}
     const selectedAccountId =
       accountId ??
-      resolveRole(
-        await this.ports.store.settings.getSettingsFor((await this.ports.settingsViewer())),
-        'coding',
-      ).accountId
-    if (agentKind === 'shell') return {}
-    return await resolveAccountEnv(this.ports.store.accounts, selectedAccountId)
+      resolveRole(await this.ports.store.settings.getSettingsFor(target.ownerUserId), 'coding')
+        .accountId
+    return await resolveAccountEnv(this.ports.store, selectedAccountId, target)
   }
 }

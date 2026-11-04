@@ -20,7 +20,15 @@ import {
   registryClassificationErrors,
   type TransportTag,
 } from '@podium/commands'
-import { asAccountId, asUserId, type HarnessAgent, type MachineId, type UserId } from '@podium/model'
+import {
+  asAccountId,
+  asUserId,
+  type HarnessAgent,
+  type MachineId,
+  SHARED_MACHINE_ACCOUNT_WARNING,
+  type UserId,
+  type UserRole,
+} from '@podium/model'
 import type { z } from 'zod'
 import { maskCredential } from '../../accounts'
 import type { RegistryModules, SessionRegistry } from '../../relay'
@@ -33,6 +41,13 @@ export interface AccountState {
   readonly settings: RegistryModules['settings']
   readonly nativeLogin: RegistryModules['nativeLogin']
   readonly callerUserId: UserId
+  /** The caller's role. An admin sees the instance's legacy provider keys
+   *  (instance settings); it never sees anyone's connections. */
+  readonly callerRole?: (() => Promise<UserRole | undefined>) | undefined
+  /** The caller's standing on each machine it may run on: `custody` (its own)
+   *  or `use` (someone else's it was given use of). See `PrivateResourceAccess`. */
+  readonly machineStanding: () => Promise<ReadonlyMap<MachineId, 'custody' | 'use'>>
+  readonly now?: (() => Date) | undefined
   /**
    * The viewer's usable server-AI login (POD-4750): which native login the
    * server-side LLM would spend for the CALLER's background role, and on which
@@ -51,12 +66,13 @@ export interface AccountState {
    */
   readonly resolveCodexServerAi?:
     | (() => Promise<
-        {
-          harness: HarnessAgent
-          machineId?: MachineId
-          machineName?: string
-          lastError?: string
-        } | undefined
+        | {
+            harness: HarnessAgent
+            machineId?: MachineId
+            machineName?: string
+            lastError?: string
+          }
+        | undefined
       >)
     | undefined
 }
@@ -85,10 +101,12 @@ export const ACCOUNT_COMMANDS_TRPC = {
     handler: (async (state, input) => {
       // A Claude setup-token is its own account, distinct from an Anthropic API
       // key. Derived server-side, which is what makes the contract's
-      // `callerSuppliedTargetId: false` true rather than aspirational.
+      // `callerSuppliedTargetId: false` true rather than aspirational. The row
+      // is the CALLER's (POD-6300): the same id is another member's own row.
       const id = input.kind === 'oauth' ? 'managed:claude-oauth' : `managed:${input.provider}`
       await state.accounts.upsert({
         id: asAccountId(id),
+        ownerUserId: asUserId(state.callerUserId),
         provider: input.provider,
         kind: input.kind,
         credential: input.credential,
@@ -103,12 +121,39 @@ export const ACCOUNT_COMMANDS_TRPC = {
   disconnect: {
     contract: ACCOUNT_CONTRACTS.disconnect,
     handler: (async (state, input) => {
-      await state.accounts.remove(input.id)
+      await state.accounts.removeFor(asUserId(state.callerUserId), input.id)
       return { ok: true as const }
     }) satisfies AccountHandler<
       z.infer<(typeof ACCOUNT_CONTRACTS)['disconnect']['input']>,
       unknown
     >,
+  },
+  send: {
+    contract: ACCOUNT_CONTRACTS.send,
+    handler: (async (state, input) => {
+      const owner = asUserId(state.callerUserId)
+      if (!(await state.accounts.getFor(owner, input.id))) {
+        throw new Error(`you have no connection ${input.id} to send`)
+      }
+      const standing = (await state.machineStanding()).get(input.machineId)
+      if (standing === undefined) throw new Error(`unknown machine: ${input.machineId}`)
+      if (standing === 'custody') {
+        // The owner's own machine runs the owner's connections already.
+        return { ok: true as const, sent: false as const }
+      }
+      if (input.acknowledgeSharedMachine !== true) {
+        throw new Error(
+          `${SHARED_MACHINE_ACCOUNT_WARNING} Send again with the warning acknowledged to continue.`,
+        )
+      }
+      await state.accounts.markSent(
+        owner,
+        input.id,
+        input.machineId,
+        (state.now?.() ?? new Date()).toISOString(),
+      )
+      return { ok: true as const, sent: true as const, warning: SHARED_MACHINE_ACCOUNT_WARNING }
+    }) satisfies AccountHandler<z.infer<(typeof ACCOUNT_CONTRACTS)['send']['input']>, unknown>,
   },
 } as const satisfies Record<AccountContractName, AccountCommand>
 

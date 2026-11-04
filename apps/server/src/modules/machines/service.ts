@@ -27,6 +27,7 @@ import {
   machineRejection,
   machineRejectionMessage,
   resolveMachineChannel,
+  SHARED_MACHINE_ACCOUNT_WARNING,
   structuralEligibility,
   type UpdateChannel,
   type UserId,
@@ -1965,16 +1966,33 @@ export class MachinesService {
     id: MachineId,
     grantee: string,
     verb: MachineVerb,
-    attribution: { actor: string; onBehalfOf: string; manage?: (machineId: MachineId) => boolean },
+    attribution: {
+      actor: string
+      onBehalfOf: string
+      manage?: (machineId: MachineId) => boolean
+      /** `false` from a transport caller that has not acknowledged the
+       *  shared-machine warning; absent for in-process callers. */
+      acknowledgeSharedMachine?: boolean
+    },
   ): Promise<void> {
     const machine = await this.deps.store.machines.getMachine(id)
     if (!machine || machine.revokedAt) throw new Error(`unknown machine '${id}'`)
+    const custodian = await this.deps.store.machines.custodian(id)
     if (
       attribution.manage?.(id) === false ||
-      ((await this.deps.store.machines.custodian(id)) !== attribution.onBehalfOf &&
+      (custodian !== attribution.onBehalfOf &&
         (await this.deps.store.users.roleOf(asUserId(attribution.onBehalfOf))) !== 'admin')
     ) {
       throw new Error('only the machine owner or an admin may change sharing')
+    }
+    // THE GRANT-TIME WARNING (POD-6300; design §2.4, Q1). Giving another
+    // person `use` puts their agents under this machine's one OS account beside
+    // the custodian's. There is no accept step, so the grantor is shown the
+    // warning and acknowledges it before the grant is written.
+    if (verb === 'use' && attribution.acknowledgeSharedMachine === false && custodian !== grantee) {
+      throw new Error(
+        `${SHARED_MACHINE_ACCOUNT_WARNING} Share again with the warning acknowledged to give this person use of the machine.`,
+      )
     }
     const actorKind = attribution.actor.startsWith('session:')
       ? 'agent'

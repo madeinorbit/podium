@@ -1,11 +1,11 @@
 import type { HarnessAgent, Inventory, MachineId, UserId } from '@podium/model'
 import { userCommandPrincipal } from './command-principal'
-import { LlmConfigError } from './llm-error'
 import type { CodexTransport, LlmMessage, LlmTool } from './llm'
+import { LlmConfigError } from './llm-error'
 import {
+  type AsyncMachineRowSource,
   checkMachineUse,
   ownershipSnapshotFromMachines,
-  type AsyncMachineRowSource,
 } from './machine-access'
 import type { UsersRepository } from './store/users'
 
@@ -140,7 +140,11 @@ export async function codexAuthorizerFor(
   action: 'start login' | 'use' = 'use',
 ): Promise<(machineId: MachineId) => string | undefined> {
   const user = await deps.users.get(ownerUserId)
-  if (user?.role !== 'admin') return () => 'native provider login requires an admin account'
+  // A member logs in on their OWN machine (POD-6300): a machine's native logins
+  // belong to the person who looks after it, which `NativeLoginService` checks.
+  // Spending a native login for the server AI stays an admin's.
+  if (!user || (action === 'use' && user.role !== 'admin'))
+    return () => 'native provider login requires an admin account'
   const principal = userCommandPrincipal(ownerUserId, user.role)
   const ownership = await ownershipSnapshotFromMachines(deps.machines)
   return (machineId) => {
@@ -170,7 +174,12 @@ export interface CodexTransportDeps {
       tools: LlmTool[]
       effort: 'low' | 'medium' | 'high'
     },
-  ): Promise<{ ok: boolean; text?: string; toolCalls?: { id: string; name: string; arguments: string }[]; error?: string }>
+  ): Promise<{
+    ok: boolean
+    text?: string
+    toolCalls?: { id: string; name: string; arguments: string }[]
+    error?: string
+  }>
 }
 
 /**

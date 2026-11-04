@@ -1,13 +1,14 @@
 import { followVisibleRequest } from '@podium/client-graph/visible-request'
-import { observer } from 'mobx-react-lite'
-import { accountKey, useSettingsRecords } from '../record-readers'
+import { SHARED_MACHINE_ACCOUNT_WARNING } from '@podium/model'
 import type { HarnessAgent } from '@podium/runtime'
+import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
-import { useSettingsTrpc, useSettingsClient } from '../stable-access'
-import { useSettingsSessionPresent } from '../readers'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { useSettingsSessionPresent } from '../readers'
+import { accountKey, useSettingsRecords } from '../record-readers'
+import { useSettingsClient, useSettingsTrpc } from '../stable-access'
 import { type AccountView, harnessAgentLabel, providerLabel, Row, Section } from './shared'
 
 /** The Claude subscription token from `claude setup-token` — the ONLY OAuth
@@ -57,7 +58,11 @@ function StatusUnknown(): JSX.Element {
   )
 }
 
-const AccountStatus = observer(function AccountStatus({ account }: { account: AccountView }): JSX.Element {
+const AccountStatus = observer(function AccountStatus({
+  account,
+}: {
+  account: AccountView
+}): JSX.Element {
   if (account.status === 'connected') {
     return <StatusConnected identity={account.identity ?? 'connected'} />
   }
@@ -83,19 +88,28 @@ const NativeAccountRow = observer(function NativeAccountRow({
   useEffect(() => {
     if (attemptStatus !== 'running' && attemptStatus !== 'refreshing') return
     let initial = true
-    return followVisibleRequest(() => {
-      // The opening already requested this directory; subsequent visible ticks refresh it.
-      if (initial) { initial = false; return }
-      onChanged(true)
-    }, {
-      visible: () => document.visibilityState !== 'hidden',
-      subscribe: changed => { document.addEventListener('visibilitychange', changed); return () => document.removeEventListener('visibilitychange', changed) },
-    }, 1_000)
+    return followVisibleRequest(
+      () => {
+        // The opening already requested this directory; subsequent visible ticks refresh it.
+        if (initial) {
+          initial = false
+          return
+        }
+        onChanged(true)
+      },
+      {
+        visible: () => document.visibilityState !== 'hidden',
+        subscribe: (changed) => {
+          document.addEventListener('visibilitychange', changed)
+          return () => document.removeEventListener('visibilitychange', changed)
+        },
+      },
+      1_000,
+    )
   }, [attemptStatus, onChanged])
 
   useEffect(() => {
-    if (!pendingSessionId || !sessionPresent)
-      return
+    if (!pendingSessionId || !sessionPresent) return
     navigateToSession(pendingSessionId)
   }, [navigateToSession, pendingSessionId, sessionPresent])
 
@@ -182,7 +196,7 @@ const NativeAccountRow = observer(function NativeAccountRow({
   )
 })
 
- /** A carved panel grouping one class of accounts: a machine-voice mono label over
+/** A carved panel grouping one class of accounts: a machine-voice mono label over
  *  a bordered Panel-Navy surface whose rows self-divide by hairline seams. Groups
  *  the two account classes far more strongly than the old loose text lines, while
  *  staying carved (tone + seam), never floated. */
@@ -227,6 +241,7 @@ const ManagedAccountRow = observer(function ManagedAccountRow({
   const [secret, setSecret] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [sending, setSending] = useState(false)
 
   const isOauth = account.kind === 'oauth'
   const connected = account.status === 'connected'
@@ -281,6 +296,26 @@ const ManagedAccountRow = observer(function ManagedAccountRow({
     }
   }
 
+  // POD-6300: a connection runs on the owner's own machines. To run on someone
+  // else's (one the owner was given use of), the owner sends it there, after
+  // reading the shared-machine warning, which the server also requires.
+  const send = async (machineId: string): Promise<void> => {
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await trpc.accounts.send.mutate({ id: account.id, machineId, acknowledgeSharedMachine: true })
+      setSending(false)
+      onChanged()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  const sentTo = account.sentTo ?? []
+  const sendableTo = account.sendableTo ?? []
+
   const disconnect = async (): Promise<void> => {
     if (busy) return
     setBusy(true)
@@ -306,15 +341,28 @@ const ManagedAccountRow = observer(function ManagedAccountRow({
                 Replace
               </Button>
             ) : (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={busy}
-                onClick={() => void disconnect()}
-              >
-                Disconnect
-              </Button>
+              <>
+                {sendableTo.length > 0 && !sending ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => setSending(true)}
+                  >
+                    Send to a shared machine
+                  </Button>
+                ) : null}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => void disconnect()}
+                >
+                  Disconnect
+                </Button>
+              </>
             )}
           </div>
         ) : editing ? (
@@ -368,6 +416,43 @@ const ManagedAccountRow = observer(function ManagedAccountRow({
           </div>
         )}
       </Row>
+      {connected && !legacy && sentTo.length > 0 ? (
+        <p className="max-w-[62ch] pb-2.5 settings-prose">
+          Also runs on {sentTo.map((machine) => machine.name).join(', ')}, someone else's{' '}
+          {sentTo.length === 1 ? 'machine' : 'machines'} you sent it to.
+        </p>
+      ) : null}
+      {sending ? (
+        <div
+          role="alertdialog"
+          aria-label={`Send ${label} to a shared machine`}
+          className="mb-2.5 max-w-[62ch] space-y-2 rounded-md border border-warning/40 bg-warning/5 p-3"
+        >
+          <p className="settings-prose text-warning">{SHARED_MACHINE_ACCOUNT_WARNING}</p>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {sendableTo.map((machine) => (
+              <Button
+                key={machine.id}
+                type="button"
+                size="sm"
+                disabled={busy}
+                onClick={() => void send(machine.id)}
+              >
+                Send to {machine.name}
+              </Button>
+            ))}
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={busy}
+              onClick={() => setSending(false)}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : null}
       {error && <p className="max-w-[62ch] pb-2.5 settings-prose text-destructive">{error}</p>}
     </div>
   )
@@ -384,7 +469,12 @@ export const AccountsSection = observer(function AccountsSection(): JSX.Element 
   const readAccounts = useCallback(() => trpc.accounts.list.query(), [trpc])
   const { request, reload } = useSettingsRecords('account', readAccounts, accountKey, false)
   const accounts = request?.models
-  const refresh = useCallback((automatic = false) => { if (!automatic || !request?.loading) void reload() }, [request, reload])
+  const refresh = useCallback(
+    (automatic = false) => {
+      if (!automatic || !request?.loading) void reload()
+    },
+    [request, reload],
+  )
 
   const native = (accounts ?? []).filter((a) => a.source === 'native')
   const managed = (accounts ?? []).filter((a) => a.source === 'managed')
@@ -392,10 +482,10 @@ export const AccountsSection = observer(function AccountsSection(): JSX.Element 
   return (
     <Section
       title="Accounts & Keys"
-      hint="How Podium authenticates to LLMs. Native logins are collected from every connected machine (managed with their own `login` command). Managed accounts are credentials Podium stores and injects into an agent's environment when it spawns — so any connected machine can run on them."
+      hint="How Podium authenticates your agents to LLMs. These are yours alone: nobody else sees or uses them. Native logins are the CLI logins on the machines you look after. Managed accounts are credentials Podium stores and injects when your agents spawn on your machines, and on someone else's machine only after you send them there."
     >
       <div className="mt-3 space-y-5">
-        <AccountGroup label="Native logins" qualifier="all connected machines">
+        <AccountGroup label="Native logins" qualifier="your machines">
           {native.map((a) => (
             <NativeAccountRow key={a.id} account={a} onChanged={refresh} />
           ))}

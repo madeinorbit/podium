@@ -4,14 +4,14 @@
  */
 
 import { asUserId, type HarnessAgent, type MachineId } from '@podium/model'
-import { resolveRole, type ResolvedRole } from '@podium/runtime'
-import { derivedFamilyProcedures, type FamilyProcedures } from '../derived-family'
+import { type ResolvedRole, resolveRole } from '@podium/runtime'
 import {
+  type CodexLoginMachineSource,
   codexAuthorizerFor,
   codexLoginMachines,
-  type CodexLoginMachineSource,
   pickCodexMachine,
 } from '../../codex-machine'
+import { derivedFamilyProcedures, type FamilyProcedures } from '../derived-family'
 import { ACCOUNT_QUERIES } from './queries'
 import { ACCOUNT_COMMANDS_TRPC } from './registry'
 
@@ -56,10 +56,10 @@ export function assembleCodexServerAiMarker(opts: {
   const harness = opts.role.harness
   const errorPart = opts.lastError ? { lastError: opts.lastError } : {}
   try {
-    const picked = pickCodexMachine(
-      codexLoginMachines(opts.listings, opts.isOnline, harness),
-      { defaultMachineId: opts.defaultMachineId, authorize: opts.authorize },
-    )
+    const picked = pickCodexMachine(codexLoginMachines(opts.listings, opts.isOnline, harness), {
+      defaultMachineId: opts.defaultMachineId,
+      authorize: opts.authorize,
+    })
     return { harness, machineId: picked.machineId, machineName: picked.machineName, ...errorPart }
   } catch {
     return opts.lastError ? { harness, ...errorPart } : undefined
@@ -77,6 +77,8 @@ export const accountFamilyProcedures = (): AccountProcedures =>
       settings: state.modules.settings,
       nativeLogin: state.modules.nativeLogin,
       callerUserId: state.caller.userId,
+      callerRole: async () => await state.store.users.roleOf(asUserId(state.caller.userId)),
+      machineStanding: async () => await state.privateAccess.machineStanding(),
       // Which native login THIS viewer's server AI would spend — see
       // {@link assembleCodexServerAiMarker}. Undefined when the role runs on
       // no native login or none is usable for the viewer: rows omit the
@@ -85,7 +87,10 @@ export const accountFamilyProcedures = (): AccountProcedures =>
         if (!state.users) return undefined
         try {
           const viewer = asUserId(state.caller.userId)
-          const role = resolveRole(await state.modules.settings.getSettingsFor(viewer), 'background')
+          const role = resolveRole(
+            await state.modules.settings.getSettingsFor(viewer),
+            'background',
+          )
           const authorize = await codexAuthorizerFor(
             { users: state.users, machines: state.modules.machines },
             viewer,

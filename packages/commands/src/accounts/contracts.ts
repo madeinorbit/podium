@@ -1,5 +1,5 @@
 /**
- * THE TWO ACCOUNT CONTRACTS — `accounts.connect · accounts.disconnect`.
+ * THE ACCOUNT CONTRACTS — `accounts.connect · accounts.disconnect · accounts.login · accounts.send`.
  *
  * The Accounts & Keys hub (SP-6454): the managed credentials Podium holds and
  * injects at spawn. The `list` read stays a query — and note what it returns,
@@ -122,16 +122,16 @@ export const accountsConnectContract = {
   input: accountsConnectInput,
   policy: {
     action: 'manage',
-    roleFloor: 'admin',
+    roleFloor: 'member',
     resource: 'secret',
     confirmation: 'none',
     rationale:
       'Stores credential material Podium will INJECT INTO SPAWNED AGENT PROCESSES, so `resource: ' +
-      'secret` — which also forces `online-sensitive` through the lint — and `manage`/`admin`, ' +
-      'because whoever writes this decides which account every agent on this instance bills and ' +
-      'acts as. That is strictly stronger than any per-entity write, which is why it is not graded ' +
-      '`write` despite being a single row insert. No confirmation: connecting is additive and ' +
-      'reversible by `disconnect`, and the destructive direction carries the gate.',
+      'secret` — which also forces `online-sensitive` through the lint — graded `manage`. Every ' +
+      'member connects their OWN accounts (POD-6300, design §2.5): the row belongs to the caller ' +
+      'and is only ever used for the caller’s runs, so the member floor widens nobody’s reach. ' +
+      'No confirmation: connecting is additive and reversible by `disconnect`, and the destructive ' +
+      'direction carries the gate.',
   },
   exposure: SERVED_ON,
   delivery: ACCOUNT_DELIVERY,
@@ -154,8 +154,8 @@ export const accountsConnectContract = {
     note:
       'Mints a managed credential row owned by the human the write was made on behalf of, NOT by the ' +
       'agent that may have typed it (ADR 9 D5 A4). `inheritanceOnCreate: on-behalf-of-human` rather ' +
-      'than `parent` because there is no parent to inherit from: a credential is instance-scoped, ' +
-      'and the only meaningful owner is the person accountable for it.',
+      'than `parent` because there is no parent to inherit from: the only meaningful owner is the ' +
+      'person accountable for it, and nobody else may list, use or edit it (POD-6300).',
   },
   attribution: ACCOUNT_ATTRIBUTION,
   errorConsistency: {
@@ -179,11 +179,12 @@ export const accountsDisconnectContract = {
   input: accountsDisconnectInput,
   policy: {
     action: 'manage',
-    roleFloor: 'admin',
+    roleFloor: 'member',
     resource: 'secret',
     confirmation: 'confirm',
     rationale:
-      'Removes a stored credential. Same grade and resource as `connect`; what differs is ' +
+      'Removes one of the caller’s OWN stored credentials (POD-6300): another member’s connection ' +
+      'with the same id is not reachable. Same grade and resource as `connect`; what differs is ' +
       '`confirmation: "confirm"`, because this is the destructive direction and ADR 1’s row is ' +
       '`hard-delete` — the value is GONE, no tombstone, no recovery, and every agent spawning ' +
       'against it starts failing. ADR 3 D2 puts destructive writes behind a confirmation. Worth ' +
@@ -203,7 +204,7 @@ export const accountsDisconnectContract = {
   } satisfies RedactionPolicy,
   ownership: {
     creates: [],
-    note: 'Removes an existing credential row. Mints no entity; the row is hard-deleted rather than re-homed.',
+    note: 'Removes the caller’s own credential row. Mints no entity; the row is hard-deleted rather than re-homed.',
   },
   attribution: ACCOUNT_ATTRIBUTION,
   errorConsistency: {
@@ -228,12 +229,12 @@ export const accountsLoginContract = {
   input: accountsLoginInput,
   policy: {
     action: 'manage',
-    roleFloor: 'admin',
+    roleFloor: 'member',
     resource: 'machine',
     confirmation: 'none',
     machineVerb: 'use',
     rationale:
-      'Starts an interactive provider CLI on owned compute. It is admin-only and machine-use gated because it changes the native account available to every agent on that host.',
+      'Starts an interactive provider CLI on owned compute. It changes the native account every agent on that host runs with, and a machine’s native logins belong to the person who looks after it (POD-6300), so a member may log in only on a machine in their own custody; on anyone else’s it would replace that person’s login and is refused.',
   },
   exposure: SERVED_ON,
   delivery: {
@@ -257,13 +258,71 @@ export const accountsLoginContract = {
     note: 'A selected machine is caller supplied; machine-use errors distinguish access from reachability.',
   },
   conflict: 'cmd',
-  conflictRule: 'One active login attempt per harness is reused until it settles.',
+  conflictRule: 'One active login attempt per (member, harness) is reused until it settles.',
 } as const satisfies CommandContract<typeof accountsLoginInput>
+
+/**
+ * `accounts.send` (POD-6300; design §2.4, Q1). A connection runs on its owner's
+ * own machines without being sent. To run on SOMEONE ELSE'S machine (one the
+ * owner holds `use` on), the owner explicitly sends it there, and has to
+ * acknowledge that everyone running on that machine's OS account can read it.
+ */
+export const accountsSendInput = z.object({
+  id: AccountIdField,
+  machineId: MachineIdField,
+  /** The caller saw the shared-machine warning and sends anyway. */
+  acknowledgeSharedMachine: z.boolean().optional(),
+})
+
+export const accountsSendContract = {
+  name: 'accounts.send',
+  version: 1,
+  visibility: ACCOUNT_VISIBILITY,
+  input: accountsSendInput,
+  policy: {
+    action: 'manage',
+    roleFloor: 'member',
+    resource: 'secret',
+    confirmation: 'confirm',
+    rationale:
+      'Lets the caller’s OWN credential be injected into their runs on another person’s machine, ' +
+      'where everyone running under that OS account can read it. The confirmation is the ' +
+      'shared-machine warning, which the caller must acknowledge; the machine must be one the ' +
+      'caller may use, and only the caller’s own connection can be sent.',
+  },
+  exposure: SERVED_ON,
+  delivery: ACCOUNT_DELIVERY,
+  redaction: {
+    reviewed: true,
+    inputPaths: [],
+    outputPaths: [],
+    note: 'The input names an account id and a machine; the result is `{ ok, warning }`. No secret crosses.',
+  } satisfies RedactionPolicy,
+  ownership: {
+    creates: ['managed-credential machine send'],
+    owner: 'on-behalf-of-human',
+    visibility: ACCOUNT_VISIBILITY,
+    inheritanceOnCreate: 'parent',
+    note: 'The send record belongs to the credential it names, and goes with it on disconnect.',
+  },
+  attribution: ACCOUNT_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note:
+      'Another member’s connection with this id is the caller’s missing one; a machine the caller ' +
+      'may not use is refused the same as an unknown machine.',
+  } satisfies ErrorConsistency,
+  conflict: 'cmd',
+  conflictRule: 'Idempotent per (connection, machine); sending again changes nothing',
+} as const satisfies CommandContract<typeof accountsSendInput>
 
 export const ACCOUNT_CONTRACTS = {
   connect: accountsConnectContract,
   disconnect: accountsDisconnectContract,
   login: accountsLoginContract,
+  send: accountsSendContract,
 } as const
 
 export type AccountContractName = keyof typeof ACCOUNT_CONTRACTS

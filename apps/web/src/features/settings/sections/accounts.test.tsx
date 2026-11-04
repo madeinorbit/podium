@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import '@/test-support/mock-request-pool.test.fixture'
-import { asMachineId } from '@podium/model'
+import { asMachineId, SHARED_MACHINE_ACCOUNT_WARNING } from '@podium/model'
 import { Profiler, useRef, useSyncExternalStore } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AccountView } from './shared'
@@ -11,6 +11,7 @@ const trpc = {
     connect: { mutate: vi.fn() },
     disconnect: { mutate: vi.fn() },
     login: { mutate: vi.fn() },
+    send: { mutate: vi.fn() },
   },
 }
 const navigateToSession = vi.fn()
@@ -62,7 +63,11 @@ function publishUnchangedSelection(): void {
 
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
-  useStoreHandle: () => ({ get access() { return storeSnapshot } }),
+  useStoreHandle: () => ({
+    get access() {
+      return storeSnapshot
+    },
+  }),
 }))
 
 vi.mock('@/app/store', () => {
@@ -245,6 +250,38 @@ describe('AccountsSection', () => {
       expect(trpc.accounts.disconnect.mutate).toHaveBeenCalledWith({ id: 'managed:anthropic' }),
     )
     expect(await screen.findByRole('button', { name: 'Connect' })).toBeTruthy()
+  })
+
+  // POD-6300 (MU-28): sending one's own connection to someone else's machine
+  // shows the shared-machine warning first, and only then sends it.
+  it('sends a connection to a shared machine only after showing the warning', async () => {
+    const alice = { id: asMachineId('machine-alice'), name: 'alice-desk' }
+    const connected: AccountView = {
+      ...API_KEY_ROW,
+      identity: 'sk-a…f9x2',
+      status: 'connected',
+      credentialSource: 'stored',
+      sentTo: [],
+      sendableTo: [alice],
+    }
+    serveList([connected], [{ ...connected, sentTo: [alice], sendableTo: [] }])
+    trpc.accounts.send.mutate.mockResolvedValue({ ok: true, sent: true })
+    render(<AccountsSection />)
+
+    expect(screen.queryByText(SHARED_MACHINE_ACCOUNT_WARNING)).toBeNull()
+    fireEvent.click(await screen.findByRole('button', { name: 'Send to a shared machine' }))
+    expect(screen.getByText(SHARED_MACHINE_ACCOUNT_WARNING)).toBeTruthy()
+    expect(trpc.accounts.send.mutate).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send to alice-desk' }))
+    await waitFor(() =>
+      expect(trpc.accounts.send.mutate).toHaveBeenCalledWith({
+        id: 'managed:anthropic',
+        machineId: 'machine-alice',
+        acknowledgeSharedMachine: true,
+      }),
+    )
+    expect(await screen.findByText(/Also runs on alice-desk, someone else's machine/)).toBeTruthy()
   })
 
   it('surfaces a connect failure and keeps the form open', async () => {

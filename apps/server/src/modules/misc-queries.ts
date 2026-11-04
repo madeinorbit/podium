@@ -27,10 +27,11 @@ import {
   IssueIdField,
   type MachineId,
   MachineIdField,
+  quotaAccountKey,
   type SessionId,
+  type TaskCostComparisonWire,
   ThreadIdField,
 } from '@podium/model'
-import type { TaskCostComparisonWire } from '@podium/model'
 import { loadConfig } from '@podium/runtime/config'
 import { z } from 'zod'
 import { getFeatureStates } from '../features'
@@ -245,6 +246,34 @@ export const COST_QUERIES = {
   tasks: q(noInput, async (s) => await new CostService(s.store).tasks()),
 } as const
 
+/** The machines the caller looks after: their native logins are the caller's. */
+async function custodyMachines(s: FamilyState): Promise<ReadonlySet<MachineId>> {
+  const standing = await s.privateAccess.machineStanding()
+  return new Set([...standing].filter(([, kind]) => kind === 'custody').map(([id]) => id))
+}
+
+/**
+ * The quota ledger series the caller owns: every key a native login on one of
+ * the caller's own machines is recorded under (`quotaAccountKey`: by email when
+ * the provider reports one, else by machine). Read from each machine's current
+ * inventory, so a login that moves to someone else's machine follows its
+ * custodian.
+ */
+async function ownedQuotaAccountKeys(s: FamilyState): Promise<ReadonlySet<string>> {
+  const custody = await custodyMachines(s)
+  const keys = new Set<string>()
+  for (const machine of await s.store.machines.listMachines()) {
+    if (!custody.has(machine.id)) continue
+    for (const agent of machine.inventory?.agents ?? []) {
+      keys.add(quotaAccountKey(agent.kind, undefined, machine.id))
+      for (const email of [agent.login.account, agent.login.identity?.email]) {
+        if (email) keys.add(quotaAccountKey(agent.kind, email, machine.id))
+      }
+    }
+  }
+  return keys
+}
+
 export const QUOTA_QUERIES = {
   /** Per-agent plan-quota (5h/weekly % used + reset times), read live on the
    *  daemon host from each agent's own usage endpoint. Fans out to every online
@@ -261,12 +290,13 @@ export const QUOTA_QUERIES = {
   summary: q(noInput, async (s) => {
     const machines = await s.modules.rpc.agentQuotaAll()
     await recordQuotaSamples(s.store.quotaHistory, machines)
-    // A machine's plan quota is its users' (POD-6284): every reading is folded
-    // into the ledger above, but the caller is shown only machines it may use.
-    const usable = await Promise.all(
-      machines.map(async (machine) => await s.privateAccess.mayReadMachineFiles(machine.machineId)),
-    )
-    return machines.filter((_, index) => usable[index] === true)
+    // A machine's plan quota is the quota of its native logins, and those
+    // belong to the person who looks after the machine (POD-6300; design
+    // §4.6). Every reading is folded into the ledger above, but the caller is
+    // shown only the machines in its own custody: a `use` grant on someone
+    // else's machine does not make that person's plan the caller's.
+    const custody = await custodyMachines(s)
+    return machines.filter((machine) => custody.has(machine.machineId))
   }),
   /** The window ledger: one entry per run of a plan window, oldest first, over
    *  the requested lookback. `peakPercent` is what a window came to before it
@@ -276,7 +306,13 @@ export const QUOTA_QUERIES = {
     async (s, input) => {
       const days = input?.days ?? QUOTA_HISTORY_DEFAULT_DAYS
       const now = Date.now()
-      return await s.store.quotaHistory.list(now - days * 24 * 60 * 60 * 1000, now)
+      // A window ledger row is keyed by the provider account, not by machine
+      // (POD-6284's seam). It answers only to that account's owner: the person
+      // looking after a machine where the account is logged in (POD-6300).
+      const owned = await ownedQuotaAccountKeys(s)
+      return (await s.store.quotaHistory.list(now - days * 24 * 60 * 60 * 1000, now)).filter(
+        (row) => owned.has(row.accountKey),
+      )
     },
   ),
 } as const

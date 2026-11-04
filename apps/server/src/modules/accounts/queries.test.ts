@@ -45,8 +45,10 @@ function codexMachine(id = 'desk'): MachineRecord {
 function stateWith(resolver: AccountState['resolveCodexServerAi']): AccountState {
   const machines = [codexMachine()]
   return {
-    accounts: { list: async () => [] },
+    accounts: { listFor: async () => [], sentTo: async () => [] },
     machines: { listMachines: async () => machines },
+    // The viewer looks after every machine in these fixtures (POD-6300).
+    machineStanding: async () => new Map(machines.map((m) => [m.id, 'custody' as const])),
     machineService: {
       listMachines: async () => machines,
       harnessDescriptorsFor: async () => [],
@@ -64,8 +66,10 @@ function stateWithMachines(
   onlineById: Record<string, boolean> = {},
 ): AccountState {
   return {
-    accounts: { list: async () => [] },
+    accounts: { listFor: async () => [], sentTo: async () => [] },
     machines: { listMachines: async () => machines },
+    // The viewer looks after every machine in these fixtures (POD-6300).
+    machineStanding: async () => new Map(machines.map((m) => [m.id, 'custody' as const])),
     machineService: {
       listMachines: async () =>
         machines.map((m) => ({
@@ -218,7 +222,10 @@ describe('accounts list — server-AI login marker (POD-4750)', () => {
   })
 
   it('omits the marker when no login is usable for the viewer (no invention)', async () => {
-    const rows = await ACCOUNT_QUERIES.list.run(stateWith(async () => undefined), {})
+    const rows = await ACCOUNT_QUERIES.list.run(
+      stateWith(async () => undefined),
+      {},
+    )
     const codex = rows.find((row) => row.id === 'native:codex')
     expect(codex).toBeDefined()
     expect(codex?.serverAi).toBeUndefined()
@@ -238,7 +245,8 @@ describe('accounts list — server-AI login marker (POD-4750)', () => {
         harness: 'codex' as HarnessAgent,
         machineId: asMachineId('desk'),
         machineName: 'Desk',
-        lastError: "codex 400: The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account.",
+        lastError:
+          "codex 400: The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account.",
       })),
       {},
     )
@@ -246,7 +254,8 @@ describe('accounts list — server-AI login marker (POD-4750)', () => {
     expect(codex?.serverAi).toEqual({
       machineId: asMachineId('desk'),
       machineName: 'Desk',
-      lastError: "codex 400: The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account.",
+      lastError:
+        "codex 400: The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account.",
     })
   })
 

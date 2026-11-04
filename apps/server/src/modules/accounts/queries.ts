@@ -11,6 +11,7 @@
  */
 
 import type { TransportTag } from '@podium/commands'
+import { asUserId } from '@podium/model'
 import { z } from 'zod'
 import { accountViews } from '../../accounts'
 import type { AccountState } from './registry'
@@ -38,6 +39,15 @@ export const ACCOUNT_QUERIES = {
   // blob read being reinstated — taking either side wholesale would have
   // silently undone one of the two.
   list: query(noInput, async (state) => {
+    // ONE MEMBER'S HUB (POD-6300, design §2.5). The caller's own managed
+    // connections; the native logins of the machines in the caller's OWN
+    // custody (a machine's native logins belong to the person who looks after
+    // it); the instance's legacy provider keys to an admin only, because those
+    // are instance settings, not anyone's connection. Nothing of another
+    // member's reaches this list, admins included.
+    const viewer = asUserId(state.callerUserId)
+    const standing = await state.machineStanding()
+    const custody = new Set([...standing].filter(([, s]) => s === 'custody').map(([id]) => id))
     // ONE SOURCE (POD-4832): the online service listing — the same online +
     // inventory the picker (`codexLoginMachines` / `machinesForAgent`) and the
     // pane (`agentLoginCondition`) read — not the store copy, which includes
@@ -46,15 +56,16 @@ export const ACCOUNT_QUERIES = {
     // before the new daemon reports). A stale offline `in` must not keep the
     // hub `connected` when no online machine reports the login.
     const serviceMachines = await state.machineService.listMachines()
-    const onlineMachines = serviceMachines.filter((machine) => machine.online)
+    const ownOnline = serviceMachines.filter((machine) => machine.online && custody.has(machine.id))
     // Served descriptors across the fleet for the provider labels (POD-4529):
     // `accountViews` resolves these over the bundled fallback, so an older
-    // daemon that reported no descriptors still renders.
+    // daemon that reported no descriptors still renders. Labels only, so every
+    // online machine contributes, not just the viewer's.
     const served = (
       await Promise.all(
-        onlineMachines.map(
-          async (machine) => state.machineService.harnessDescriptorsFor(machine.id) ?? [],
-        ),
+        serviceMachines
+          .filter((machine) => machine.online)
+          .map(async (machine) => state.machineService.harnessDescriptorsFor(machine.id) ?? []),
       )
     ).flat()
     // Which native login this viewer's server AI would spend (POD-4750) — one
@@ -63,43 +74,65 @@ export const ACCOUNT_QUERIES = {
     const serverAi = state.resolveCodexServerAi
       ? await state.resolveCodexServerAi().catch(() => undefined)
       : undefined
-    return await Promise.all((await accountViews(
-      async (provider) => await state.settings.apiKeyFor(provider),
-      state.accounts,
-      onlineMachines as unknown as Parameters<typeof accountViews>[2],
-      served,
-    )).map(async (account) => {
-      if (account.source !== 'native' || !account.harness) return account
-      const harness = account.harness as import('@podium/model').HarnessAgent
-      const attempt = state.nativeLogin.attempt(harness)
-      const loginMachines = serviceMachines
-        .filter(
-          (machine) =>
-            machine.online &&
-            machine.inventory?.agents.some((agent) => agent.kind === harness && agent.installed),
+    const legacyVisible = state.callerRole ? (await state.callerRole()) === 'admin' : true
+    const managedRows = await state.accounts.listFor(viewer)
+    const nameOf = new Map(serviceMachines.map((machine) => [machine.id, machine.name]))
+    const sharedMachines = [...standing]
+      .filter(([, s]) => s === 'use')
+      .map(([id]) => ({ id, name: nameOf.get(id) ?? id }))
+    return await Promise.all(
+      (
+        await accountViews(
+          async (provider) =>
+            legacyVisible ? await state.settings.apiKeyFor(provider) : undefined,
+          managedRows,
+          ownOnline as unknown as Parameters<typeof accountViews>[2],
+          served,
         )
-        .map((machine) => ({ id: machine.id, name: machine.name }))
-      return {
-        ...account,
-        loginRequired: account.status === 'not-configured' || state.nativeLogin.isRequired(harness),
-        loginMachines,
-        ...(attempt ? { loginAttempt: attempt } : {}),
-        // Which native login this viewer's server AI would spend (POD-4750):
-        // resolved once above; rows match the returned harness by equality.
-        // The last refusal text (POD-4805) rides along when the issue
-        // assistant has recorded one — including when no machine could be
-        // picked, so Settings still says why.
-        ...(serverAi && harness === serverAi.harness
-          ? {
-              serverAi: {
-                ...(serverAi.machineId !== undefined ? { machineId: serverAi.machineId } : {}),
-                ...(serverAi.machineName !== undefined ? { machineName: serverAi.machineName } : {}),
-                ...(serverAi.lastError !== undefined ? { lastError: serverAi.lastError } : {}),
-              },
-            }
-          : {}),
-      }
-    }))
+      ).map(async (account) => {
+        if (account.source === 'managed') {
+          if (account.credentialSource !== 'stored') return account
+          // Where the viewer's own connection may run beyond their own machines.
+          const sent = new Set(await state.accounts.sentTo(viewer, account.id))
+          return {
+            ...account,
+            sentTo: sharedMachines.filter((machine) => sent.has(machine.id)),
+            sendableTo: sharedMachines.filter((machine) => !sent.has(machine.id)),
+          }
+        }
+        if (!account.harness) return account
+        const harness = account.harness as import('@podium/model').HarnessAgent
+        const attempt = state.nativeLogin.attempt(viewer, harness)
+        const loginMachines = ownOnline
+          .filter((machine) =>
+            machine.inventory?.agents.some((agent) => agent.kind === harness && agent.installed),
+          )
+          .map((machine) => ({ id: machine.id, name: machine.name }))
+        return {
+          ...account,
+          loginRequired:
+            account.status === 'not-configured' || state.nativeLogin.isRequired(harness, custody),
+          loginMachines,
+          ...(attempt ? { loginAttempt: attempt } : {}),
+          // Which native login this viewer's server AI would spend (POD-4750):
+          // resolved once above; rows match the returned harness by equality.
+          // The last refusal text (POD-4805) rides along when the issue
+          // assistant has recorded one — including when no machine could be
+          // picked, so Settings still says why.
+          ...(serverAi && harness === serverAi.harness
+            ? {
+                serverAi: {
+                  ...(serverAi.machineId !== undefined ? { machineId: serverAi.machineId } : {}),
+                  ...(serverAi.machineName !== undefined
+                    ? { machineName: serverAi.machineName }
+                    : {}),
+                  ...(serverAi.lastError !== undefined ? { lastError: serverAi.lastError } : {}),
+                },
+              }
+            : {}),
+        }
+      }),
+    )
   }),
 } as const
 
