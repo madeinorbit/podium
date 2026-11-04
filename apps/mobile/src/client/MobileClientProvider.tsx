@@ -42,7 +42,7 @@ import {
 
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { type CreateEngineOutbox, OUTBOX_COMMANDS } from '@podium/client-core/engine'
-import { profileServerIdentity } from '@podium/client-core/accounts'
+import { profileServerIdentity, watchAccountSwitch } from '@podium/client-core/accounts'
 import {
   browserWakeSource,
   createFeedRelay,
@@ -299,6 +299,16 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
     erase: erasePrincipalData,
     dispose: ownership.dispose,
   }
+}
+
+/** The workspace a request names: the immutable id when known, else the slug. */
+function workspaceSelectorOf(config: {
+  readonly workspaceId?: string
+  readonly workspaceSlug?: string
+}): { workspaceId: string } | { workspaceSlug: string } | undefined {
+  if (config.workspaceId) return { workspaceId: config.workspaceId }
+  if (config.workspaceSlug) return { workspaceSlug: config.workspaceSlug }
+  return undefined
 }
 
 export function MobileClientProvider({ children }: { children: ReactNode }) {
@@ -610,16 +620,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
   ])
   const trpc = useMemo(
     () =>
-      makeMobileTrpc(
-        config.httpOrigin,
-        bearer,
-        expireLiveCredential,
-        config.workspaceId
-          ? { workspaceId: config.workspaceId }
-          : config.workspaceSlug
-            ? { workspaceSlug: config.workspaceSlug }
-            : undefined,
-      ),
+      makeMobileTrpc(config.httpOrigin, bearer, expireLiveCredential, workspaceSelectorOf(config)),
     [bearer, config.httpOrigin, config.workspaceId, config.workspaceSlug, expireLiveCredential],
   )
   const inheritedAuthStatus = useAuthStatus()
@@ -699,6 +700,19 @@ function LiveProvider({ children }: { children: ReactNode }) {
         const identity = classifyAuthStatus(status)
         if (!('principal' in identity))
           throw new ReplicaGateError('authenticated replica identity is unavailable', identity)
+        // The member fence (POD-6292): the queue drains, and the feed is read,
+        // only as the member this replica opens for.
+        const member = status.memberId
+        const memberTrpc =
+          member === undefined
+            ? trpc
+            : makeMobileTrpc(
+                config.httpOrigin,
+                bearer,
+                expireLiveCredential,
+                workspaceSelectorOf(config),
+                { member },
+              )
         const opened = await openMobileReplica({
           // POD-541: web uses IndexedDB (ADR 6 D1). expo-sqlite's OPFS worker
           // times out under Chromium even with COOP/COEP + correct wasm MIME, so
@@ -724,7 +738,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
             ),
           // The same client the store gets, so the queue sends through the
           // transport the rest of the app is authenticated on (POD-2073).
-          api: trpc,
+          api: memberTrpc,
           broadcastChannelFactory: platformFeedChannel(),
           storage: bridge.storage,
           enumerateKeys: bridge.keys,
@@ -742,11 +756,8 @@ function LiveProvider({ children }: { children: ReactNode }) {
             streamingFetch: createMobileSyncFetch(
               bearer,
               undefined,
-              config.workspaceId
-                ? { workspaceId: config.workspaceId }
-                : config.workspaceSlug
-                  ? { workspaceSlug: config.workspaceSlug }
-                  : undefined,
+              workspaceSelectorOf(config),
+              member,
             ),
           },
           onDegraded: (message, tone) => setNotice({ message, tone: tone ?? 'warning' }),
@@ -801,6 +812,57 @@ function LiveProvider({ children }: { children: ReactNode }) {
     retryBoot,
   ])
   const routerWindow = useMemo(() => createMemoryRouterWindow(), [])
+  // The runtime's own client, fenced to the member its replica opened for
+  // (POD-6292). Same member, same client across re-renders.
+  const boundMember = openedReplica?.clientPrincipal
+  const boundBoundary = openedReplica
+    ? parseReplicaNamespaceKey(openedReplica.principal)?.syncBoundaryId
+    : undefined
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the selector is derived from the two workspace fields listed.
+  const storeTrpc = useMemo(
+    () =>
+      boundMember === undefined
+        ? trpc
+        : makeMobileTrpc(
+            config.httpOrigin,
+            bearer,
+            expireLiveCredential,
+            workspaceSelectorOf(config),
+            { member: boundMember },
+          ),
+    [
+      trpc,
+      boundMember,
+      bearer,
+      config.httpOrigin,
+      config.workspaceId,
+      config.workspaceSlug,
+      expireLiveCredential,
+    ],
+  )
+  // ANOTHER TAB SWITCHED THE ACCOUNT (POD-6292, MU-12). The browser build shares
+  // one cookie jar and one storage with every other tab: when the saved account
+  // stops naming this runtime's member, end it as an expired session ends.
+  useEffect(() => {
+    if (Platform.OS !== 'web' || boundMember === undefined || boundBoundary === undefined) return
+    return watchAccountSwitch({
+      source: window,
+      profilesKey: mobileBrowserAccounts(
+        config.httpOrigin,
+        config.workspaceId,
+        config.workspaceSlug,
+      ).profilesKey,
+      identity: { syncBoundaryId: boundBoundary, memberId: boundMember },
+      onSwitched: expireLiveCredential,
+    })
+  }, [
+    boundMember,
+    boundBoundary,
+    config.httpOrigin,
+    config.workspaceId,
+    config.workspaceSlug,
+    expireLiveCredential,
+  ])
   // The engine's `notices` come from the same channel as `reportError` above: one
   // error on screen at a time, drawn by the banner `MobileShellSurface` mounts
   // over every route (POD-4662). See ./shell-surface.
@@ -848,7 +910,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
   return (
     <StoreProvider
       config={config}
-      api={trpc}
+      api={storeTrpc}
       onFatalError={reportError}
       notices={notices}
       // The principal the auth status named, and the store opened for exactly

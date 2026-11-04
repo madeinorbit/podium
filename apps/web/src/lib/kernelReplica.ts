@@ -5,17 +5,17 @@ import {
   createFeedRelay,
   type FeedBroadcastChannel,
 } from '@podium/client-core/live-connection'
-import type { ClientPrincipal } from '@podium/client-core/principal'
+import { type ClientPrincipal, memberFencedFetch } from '@podium/client-core/principal'
 import { parseReplicaNamespaceKey, retainReplicaEntity } from '@podium/client-core/replica'
+import type { LegacyIdentityEvidence } from '@podium/client-core/replica-assembly'
 import { openReplicaAssembly } from '@podium/client-core/replica-assembly'
 import type { FeedSinkPort } from '@podium/client-core/socket-transport'
 import { createLogger } from '@podium/logger'
 import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
-import type { LegacyIdentityEvidence } from '@podium/client-core/replica-assembly'
 import type { Trpc } from '@/app/trpc'
+import { expireSignedInRuntime } from './account-context'
 import { type SyncProgressStore, WebSyncProgressStore } from './sync-progress'
 import { workspaceFetch } from './workspace-request'
-
 
 const log = createLogger('web:kernel-replica')
 export const KERNEL_REPLICA_DB = 'podium-kernel-replica'
@@ -70,8 +70,8 @@ export type KernelBroadcastChannel = FeedBroadcastChannel
 export async function openKernelAssembly(
   options: OpenKernelAssemblyOptions,
 ): Promise<KernelAssembly> {
-  if (!parseReplicaNamespaceKey(options.principal))
-    throw new Error('replica requires a server-authored boundary and member')
+  const identity = parseReplicaNamespaceKey(options.principal)
+  if (!identity) throw new Error('replica requires a server-authored boundary and member')
   const databaseName = options.databaseName ?? KERNEL_REPLICA_DB
   const assembly = await openReplicaAssembly({
     api: options.trpc,
@@ -92,13 +92,18 @@ export async function openKernelAssembly(
     },
     httpSync: {
       origin: options.httpOrigin ?? '',
-      streamingFetch: { fetch: workspaceFetch, credentials: 'include' },
+      // The member fence (POD-6292): the feed this assembly stores is only ever
+      // read as the member it was opened for.
+      streamingFetch: {
+        fetch: memberFencedFetch(workspaceFetch, identity.memberId),
+        credentials: 'include',
+      },
     },
     onDegraded: (detail) => {
       options.onDegraded?.(detail)
       log.warn('kernel replica degradation', { detail })
     },
-    onAuthExpired: () => window.dispatchEvent(new Event('podium:sync-auth-expired')),
+    onAuthExpired: () => expireSignedInRuntime(options.principal),
     createProgress: (now) => new WebSyncProgressStore(now),
   })
   let relay: ReturnType<typeof createFeedRelay>

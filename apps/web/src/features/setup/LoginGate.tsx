@@ -13,7 +13,7 @@ import {
 import { clientRegistration } from '@/app/client-registration'
 import { LoadingScreen } from '@/app/LoadingScreen'
 import { serverConfig } from '@/app/trpc'
-import { AccountContext } from '@/lib/account-context'
+import { AccountContext, expiredPrincipalOf, SYNC_AUTH_EXPIRED_EVENT } from '@/lib/account-context'
 import { webAccounts, webAuth } from '@/lib/accounts'
 import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
@@ -515,18 +515,31 @@ export function LoginGate({
   const [deniedReason, setDeniedReason] = useState<string>()
   const [phase, setPhase] = useState<GatePhase>('loading')
   const [auth, setAuth] = useState<AuthBootstrap>()
+  // Sign-out is offered only where a login is required: in open mode a sign-out
+  // would sign straight back in as the sole member (POD-6292).
+  const [loginRequired, setLoginRequired] = useState(false)
   const [authAttempt, setAuthAttempt] = useState(0)
   const authGeneration = useRef(0)
   const credentialOwner = authGeneration.current
+  const mountedAuth = useRef<AuthBootstrap | undefined>(undefined)
+  mountedAuth.current = auth
   useEffect(() => {
-    const expired = () => {
+    const expired = (event: Event) => {
+      // Only the mounted account can expire. A late refusal from one that is
+      // already gone (a request in flight across a sign-out) must not throw
+      // away the next person's sign-in (POD-6292).
+      const mounted = mountedAuth.current
+      if (mounted === undefined) return
+      const named = expiredPrincipalOf(event)
+      if (named !== undefined && mounted.kind === 'principal' && mounted.principal !== named)
+        return
       authGeneration.current += 1
       setAuth(undefined)
       setPhase('loading')
       setAuthAttempt((n) => n + 1)
     }
-    window.addEventListener('podium:sync-auth-expired', expired)
-    return () => window.removeEventListener('podium:sync-auth-expired', expired)
+    window.addEventListener(SYNC_AUTH_EXPIRED_EVENT, expired)
+    return () => window.removeEventListener(SYNC_AUTH_EXPIRED_EVENT, expired)
   }, [])
   const httpOrigin = serverConfig(window.location).httpOrigin
 
@@ -553,6 +566,7 @@ export function LoginGate({
           setPhase('login')
           return
         }
+        setLoginRequired(decision.status?.needsAuth === true)
         setAuth(decision.auth)
         setPhase('ready')
       })
@@ -613,7 +627,7 @@ export function LoginGate({
   if (phase === 'loading' || (phase === 'ready' && auth === undefined)) return <LoadingScreen />
   const app =
     auth === undefined ? null : (
-      <AccountContext.Provider value={account}>
+      <AccountContext.Provider value={loginRequired ? account : null}>
         {typeof children === 'function' ? children(auth) : children}
       </AccountContext.Provider>
     )
@@ -648,6 +662,7 @@ export function LoginGate({
           )
           if (credentialOwner !== authGeneration.current) return
           clientRegistration.retryAfterSignIn()
+          setLoginRequired(true)
           setAuth({ kind: 'principal', principal })
           setPhase('success')
         }}

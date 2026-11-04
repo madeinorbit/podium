@@ -1,4 +1,5 @@
-import { cookieCredentials } from '@podium/client-core/accounts'
+import { cookieCredentials, watchAccountSwitch } from '@podium/client-core/accounts'
+import { replicaNamespaceKey } from '@podium/client-core/replica'
 import { createSocketLogin, observeLiveConnection } from '@podium/client-core/live-connection'
 import { observer } from '@podium/client-graph/react'
 import type { JSX, ReactNode } from 'react'
@@ -36,6 +37,8 @@ import {
   ResizableAside,
   ResizableColumn,
 } from '@/features/worklist/sidebar-common'
+import { expireSignedInRuntime } from '@/lib/account-context'
+import { webAccounts } from '@/lib/accounts'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
@@ -280,12 +283,40 @@ export function AppShell({
   const pendingInitialPodiumHref = useRef(initialPodiumHref)
   // One tRPC client for the gate, memoized on the origin so the gate's effect
   // does not re-run (and re-open IndexedDB) on every render.
-  const [gateTrpc] = useState(() => makeTrpc(config.httpOrigin))
+  // The client is made for the member the gate resolves, so the assembly's
+  // outbox drains fenced to that member (POD-6292).
+  const [gateTrpc] = useState(
+    () =>
+      ({ principal, member }: { principal: string; member: string }) =>
+        makeTrpc(config.httpOrigin, {
+          member,
+          onMemberRefused: () => expireSignedInRuntime(principal),
+        }),
+  )
   const kernel = useKernelReplica({
-    trpc: gateTrpc,
+    trpcFor: gateTrpc,
     auth,
     httpOrigin: config.httpOrigin,
   })
+
+  // ANOTHER TAB SWITCHED THE ACCOUNT (POD-6292, MU-12). This tab's runtime ends
+  // the moment the saved account no longer names its member, exactly as an
+  // expired session ends it, so the next person never sees this one's world.
+  const boundPrincipal = kernel.status === 'kernel' ? kernel.principal : null
+  const boundMember = boundPrincipal?.userId
+  const boundBoundary = boundPrincipal?.syncBoundaryId
+  useEffect(() => {
+    if (boundMember === undefined || boundBoundary === undefined) return
+    return watchAccountSwitch({
+      source: window,
+      profilesKey: webAccounts(config.httpOrigin).profilesKey,
+      identity: { syncBoundaryId: boundBoundary, memberId: boundMember },
+      onSwitched: () =>
+        expireSignedInRuntime(
+          replicaNamespaceKey({ syncBoundaryId: boundBoundary, memberId: boundMember }),
+        ),
+    })
+  }, [boundMember, boundBoundary, config.httpOrigin])
 
   // Queued offline writes the boot migration could not simply carry across
   // (POD-1232). Shown once, as a toast rather than a console line, because the

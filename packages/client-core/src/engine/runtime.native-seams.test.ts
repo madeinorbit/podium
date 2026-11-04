@@ -16,6 +16,7 @@
  * them, and the browser defaults are unchanged.
  */
 
+import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 import { asUserId } from '@podium/model'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -23,7 +24,6 @@ import type { PodiumClientApi } from '../api'
 import type { OnlineEvents } from '../outbox'
 import { asClientPrincipal } from '../principal'
 import { memoryStorage } from '../replica/contract'
-import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 import type { SocketHub, SocketHubOptions } from '../socket-transport'
 import { openKernelEngineOutbox } from './kernel-outbox'
 import { createClientRuntime } from './runtime'
@@ -352,5 +352,14 @@ describe('heartbeat cadence', () => {
   it('says nothing when the platform has no opinion, so the hub keeps its own default', () => {
     const { hubOptions } = makeEngine()
     expect(hubOptions.at(0)?.heartbeatIntervalMs).toBeUndefined()
+  })
+})
+
+describe('the member fence (POD-6292, MU-12)', () => {
+  it('opens the socket fenced to the principal it serves', () => {
+    const { hubOptions } = makeEngine()
+    // A browser socket carries no headers, so the member rides the query. The
+    // server refuses the socket if the shared cookie jar holds anyone else's.
+    expect(new URL(hubOptions.at(0)?.url ?? '').searchParams.get('podium_member')).toBe('operator')
   })
 })

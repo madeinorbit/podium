@@ -90,6 +90,10 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
 
   const finishLocalLogout = async () => {
     await eraseLocalData()
+    // The browser build shares storage and cookies with every other tab. Removing
+    // the saved account is what tells them this member signed out, so none keeps
+    // painting this member's world for the next person (POD-6292, MU-12).
+    if (Platform.OS === 'web') await removeProfile(profile.id)
     setLoggedOut(true)
     await updateCredential(null)
     if (typeof window !== 'undefined') window.location.reload()

@@ -1,3 +1,5 @@
+import type { AppRouter } from '@podium/api-types'
+import { memberFencedFetch } from '@podium/client-core/principal'
 import {
   DEFAULT_RECOVERY_DELAYS_MS,
   type ReportingFetchOptions,
@@ -12,7 +14,6 @@ import {
   type ServerOrigin,
 } from '@podium/client-core/transport'
 import { createLogger } from '@podium/logger'
-import type { AppRouter } from '@podium/api-types'
 import { createTRPCClient, httpBatchLink, TRPCClientError } from '@trpc/client'
 import { workspaceRequestInit, workspaceSocketUrl } from '@/lib/workspace-request'
 
@@ -54,14 +55,27 @@ export interface MakeTrpcOptions extends ReportingFetchOptions {
   fetch?: typeof fetch
   /** Readiness retry schedule. Overridden with zero-delay entries by focused tests. */
   recoveryDelaysMs?: readonly number[]
+  /**
+   * The member this client acts for, when it belongs to one principal's runtime
+   * (POD-6292). Every call then carries the member fence, so a tab still bound to
+   * a member who signed out elsewhere is refused instead of acting with the next
+   * member's cookie. Absent for the pre-authentication clients.
+   */
+  member?: string
+  /** The member's runtime ends when the server refuses a call as someone else's. */
+  onMemberRefused?: () => void
 }
 
 export function makeTrpc(httpOrigin: string, options: MakeTrpcOptions = {}): Trpc {
   const {
-    fetch: base = fetch,
+    fetch: unfenced = fetch,
     recoveryDelaysMs = DEFAULT_RECOVERY_DELAYS_MS,
     report = true,
+    member,
+    onMemberRefused,
   } = options
+  const base =
+    member === undefined ? unfenced : memberFencedFetch(unfenced, member, onMemberRefused)
   // The login session (podium_session cookie) is the operator's authentication; the tracker
   // grants full authority to any authenticated /trpc caller (no separate issue credential).
   return createTRPCClient<AppRouter>({

@@ -69,7 +69,7 @@ import { DraftStore } from '../conversation/draft-store'
 import type { OnlineEvents, OutboxEntry } from '../outbox'
 import { bindSwitchTraceUi } from '../perf/switch-trace'
 import { hasDomWindow } from '../platform-globals'
-import type { ClientPrincipal } from '../principal'
+import { type ClientPrincipal, memberFencedSocketUrl } from '../principal'
 import { createReadPositionClient, type ReadPositionPort } from '../read-position'
 import type { Replica } from '../replica/kernel/facade'
 import type { FeedSinkPort, SocketHub } from '../socket-transport'
@@ -414,7 +414,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     bindStoreStatsOwner(this.replica, this)
     this.visibility = init.visibility ?? domVisibility()
     this.hub = createEngineHub({
-      wsClientUrl: init.config.wsClientUrl,
+      // The member fence (POD-6292): this socket is this principal's, and the
+      // server refuses it if the shared cookie jar now holds someone else's.
+      wsClientUrl: memberFencedSocketUrl(init.config.wsClientUrl, init.principal.userId),
       api: this.api,
       replica: this.replica,
       onFatalError: (m) => this.onFatalError(m),

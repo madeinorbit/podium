@@ -27,6 +27,7 @@ import { NetworkSection } from './sections/network'
 import { NotificationsSection, type TelegramSetupState } from './sections/notifications'
 import { PrivacySection } from './sections/privacy'
 import { type SecretSurfaceState, SecretsSection } from './sections/secrets'
+import { PodiumAccountSection } from './sections/podium-account'
 import { LoginPasswordSection } from './sections/security'
 import { SessionsSection } from './sections/sessions'
 import type { AccountView } from './sections/shared'
@@ -243,7 +244,12 @@ const SECTION_VIEWS: Record<SettingsTab, (ctx: SectionContext) => JSX.Element> =
   ),
   machines: () => <MachinesPanel />,
   members: () => <MembersSection />,
-  security: ({ trpc }) => <LoginPasswordSection trpc={trpc} />,
+  security: ({ trpc }) => (
+    <>
+      <PodiumAccountSection />
+      <LoginPasswordSection trpc={trpc} />
+    </>
+  ),
   // Self-persisting (config.json, not the settings blob) — see privacy.tsx.
   privacy: ({ settings, patch }) => <PrivacySection settings={settings} patch={patch} />,
   updates: () => (

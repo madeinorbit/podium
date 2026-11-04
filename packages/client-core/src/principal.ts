@@ -1,5 +1,6 @@
-import { replicaNamespaceKey } from './replica/principal-storage'
 import type { UserId } from '@podium/model'
+import { MEMBER_FENCE_HEADER, MEMBER_FENCE_PARAM, MEMBER_FENCE_REFUSAL } from '@podium/protocol'
+import { replicaNamespaceKey } from './replica/principal-storage'
 /**
  * THE CLIENT'S PRINCIPAL (POD-404, docs/multi-user-readiness.md §3.2).
  *
@@ -101,4 +102,60 @@ export function asClientPrincipal(userId: UserId, syncBoundaryId?: string): Clie
   }
   if (syncBoundaryId === '') throw new Error('sync boundary must not be empty')
   return { userId, ...(syncBoundaryId === undefined ? {} : { syncBoundaryId }) }
+}
+
+/**
+ * THE MEMBER FENCE, CLIENT HALF (POD-6292, MU-12; `@podium/protocol` member-fence.ts).
+ *
+ * A browser shares one cookie jar between every tab and window. A runtime bound
+ * to Alice that outlives her sign-out elsewhere would otherwise send her queued
+ * commands, and read the feed, with whoever's cookie the jar holds next. Every
+ * request a principal-bound transport makes therefore names its member, and the
+ * server refuses it (401) when the credential belongs to someone else. The 401
+ * ends this runtime's signed-in session the ordinary way, so the shell rebinds.
+ */
+export function memberFencedFetch(
+  base: typeof fetch,
+  memberId: string,
+  /** Called when the server refuses a call because another member holds the credential. */
+  onRefused?: () => void,
+): typeof fetch {
+  if (memberId.length === 0) throw new Error('a member fence needs a member')
+  return async (input, init) => {
+    const headers = new Headers(
+      init?.headers ?? (input instanceof Request ? input.headers : undefined),
+    )
+    headers.set(MEMBER_FENCE_HEADER, memberId)
+    const response = await base(input, { ...init, headers })
+    if (onRefused !== undefined && response.status === 401)
+      void isMemberFenceRefusal(response).then((refused) => {
+        if (refused) onRefused()
+      })
+    return response
+  }
+}
+
+/** Is this the fence's refusal, as opposed to an ordinary expired or missing session? */
+export async function isMemberFenceRefusal(response: Response): Promise<boolean> {
+  if (response.status !== 401) return false
+  try {
+    const body = (await response.clone().json()) as { code?: unknown } | null
+    return body?.code === MEMBER_FENCE_REFUSAL
+  } catch {
+    return false
+  }
+}
+
+/** The socket URL a runtime bound to `memberId` opens (a browser socket takes no headers). */
+export function memberFencedSocketUrl(url: string, memberId: string): string {
+  if (memberId.length === 0) throw new Error('a member fence needs a member')
+  try {
+    const parsed = new URL(url)
+    parsed.searchParams.set(MEMBER_FENCE_PARAM, memberId)
+    return parsed.toString()
+  } catch {
+    // A relative URL: keep it relative, stamped the same way.
+    const separator = url.includes('?') ? '&' : '?'
+    return `${url}${separator}${MEMBER_FENCE_PARAM}=${encodeURIComponent(memberId)}`
+  }
 }

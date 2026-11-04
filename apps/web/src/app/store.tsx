@@ -8,7 +8,7 @@
 
 import type { CreateEngineOutbox, CreateReplicaForPrincipal } from '@podium/client-core/engine'
 import { setSwitchTraceReporter } from '@podium/client-core/perf'
-import type { ClientPrincipal } from '@podium/client-core/principal'
+import { type ClientPrincipal, principalKey } from '@podium/client-core/principal'
 import {
   type Store as CoreStore,
   StoreProvider as CoreStoreProvider,
@@ -19,6 +19,7 @@ import type { FeedSinkPort } from '@podium/client-core/socket-transport'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useMemo } from 'react'
 import { toast } from 'sonner'
+import { expireSignedInRuntime } from '@/lib/account-context'
 import { elidePathHead, looksLikePath } from '@/lib/notice-path'
 import { registerReloadPreparation } from '@/lib/reload-preparation'
 import { formatAppError } from './AppErrorPage'
@@ -88,7 +89,21 @@ export function StoreProvider({
   makeSocket?: import('@podium/client-core/socket-transport').SocketHubOptions['makeSocket']
   children: ReactNode
 }): JSX.Element {
-  const trpc = useMemo(() => api ?? makeTrpc(config.httpOrigin), [api, config.httpOrigin])
+  // Fenced to the principal (POD-6292): this client's calls are this member's,
+  // and a refusal as someone else's ends this member's runtime.
+  const account = principal === null ? undefined : principalKey(principal)
+  const member = principal?.userId
+  const trpc = useMemo(
+    () =>
+      api ??
+      makeTrpc(
+        config.httpOrigin,
+        member === undefined || account === undefined
+          ? {}
+          : { member, onMemberRefused: () => expireSignedInRuntime(account) },
+      ),
+    [api, config.httpOrigin, member, account],
+  )
   // Ship finalized client switch traces [POD-701] to the server: fire-and-forget,
   // never throws into the UI (the collector also swallows reporter errors).
   useEffect(() => {

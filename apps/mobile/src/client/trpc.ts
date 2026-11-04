@@ -1,4 +1,5 @@
 import type { AppRouter, RouterOutputs } from '@podium/api-types'
+import { memberFencedFetch } from '@podium/client-core/principal'
 import {
   DEFAULT_RECOVERY_DELAYS_MS,
   reportingFetch,
@@ -160,11 +161,22 @@ export function makeMobileTrpc(
   bearer: string | null = null,
   onAuthExpired?: (error: MobileAuthExpiredError) => void,
   selector?: WorkspaceSelector,
-  options: { fetch?: typeof fetch; recoveryDelaysMs?: readonly number[] } = {},
+  options: {
+    fetch?: typeof fetch
+    recoveryDelaysMs?: readonly number[]
+    /** The member fence (POD-6292): every call is this member's, or refused. */
+    member?: string
+  } = {},
 ): MobileTrpc {
-  const base: typeof fetch =
+  const transport: typeof fetch =
     options.fetch ??
     ((url, init) => fetchMobileTransport(url, init, bearer, onAuthExpired, selector))
+  const base =
+    options.member === undefined
+      ? transport
+      : memberFencedFetch(transport, options.member, () =>
+          onAuthExpired?.(new MobileAuthExpiredError()),
+        )
   return createTRPCClient<AppRouter>({
     links: [
       restartRecoveryLink<AppRouter>({

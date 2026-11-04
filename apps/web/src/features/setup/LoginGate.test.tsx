@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { useAccount } from '@/lib/account-context'
 import { LoginGate, LoginView } from './LoginGate'
 
 afterEach(() => {
@@ -615,4 +616,68 @@ it('returns to the existing sign-in flow when HTTP sync reports expired auth', a
   fireEvent(window, new Event('podium:sync-auth-expired'))
   expect(await screen.findByLabelText(/password/i)).toBeTruthy()
   expect(screen.queryByText('APP-READY')).toBeNull()
+})
+
+it('ignores a late expiry from an account that is no longer mounted (POD-6292)', async () => {
+  const fetchMock = statusFetch({
+    needsAuth: true,
+    authed: true,
+    userId: 'bob',
+    memberId: 'bob',
+    syncBoundaryId: 'installation-a',
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  render(<LoginGate>{child}</LoginGate>)
+  expect(await screen.findByText('APP-READY')).toBeTruthy()
+  const probes = fetchMock.mock.calls.length
+  // A request Alice's runtime sent before the switch is refused after it.
+  fireEvent(
+    window,
+    new CustomEvent('podium:sync-auth-expired', {
+      detail: { principal: JSON.stringify(['installation-a', 'alice']) },
+    }),
+  )
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  expect(screen.getByText('APP-READY')).toBeTruthy()
+  expect(fetchMock.mock.calls.length).toBe(probes)
+  // Bob's own expiry still ends Bob's session.
+  fetchMock.mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => ({ needsAuth: true, authed: false }),
+  })
+  fireEvent(
+    window,
+    new CustomEvent('podium:sync-auth-expired', {
+      detail: { principal: JSON.stringify(['installation-a', 'bob']) },
+    }),
+  )
+  expect(await screen.findByLabelText(/password/i)).toBeTruthy()
+})
+
+describe('the sign-out control is offered only where a login is required (POD-6292)', () => {
+  function SignOutProbe() {
+    return <div>{useAccount() ? 'SIGN-OUT-OFFERED' : 'NO-SIGN-OUT'}</div>
+  }
+  const member = { memberId: 'alice', userId: 'alice', syncBoundaryId: 'installation-a' }
+
+  it('offers none in open mode, which would sign straight back in', async () => {
+    vi.stubGlobal('fetch', statusFetch({ needsAuth: false, authed: true, ...member }))
+    render(
+      <LoginGate>
+        <SignOutProbe />
+      </LoginGate>,
+    )
+    expect(await screen.findByText('NO-SIGN-OUT')).toBeTruthy()
+  })
+
+  it('offers it to a member signed in with a credential', async () => {
+    vi.stubGlobal('fetch', statusFetch({ needsAuth: true, authed: true, ...member }))
+    render(
+      <LoginGate>
+        <SignOutProbe />
+      </LoginGate>,
+    )
+    expect(await screen.findByText('SIGN-OUT-OFFERED')).toBeTruthy()
+  })
 })

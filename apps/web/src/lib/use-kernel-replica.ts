@@ -1,7 +1,8 @@
-import { resolveAccountPrincipal, type AuthBootstrap } from '@podium/client-core/accounts'
+import { type AuthBootstrap, resolveAccountPrincipal } from '@podium/client-core/accounts'
 import { webAccountEraser, webAccounts } from './accounts'
 
 export type { AuthBootstrap } from '@podium/client-core/accounts'
+
 import { workspaceFetch } from '@/lib/workspace-request'
 /**
  * THE BOOT GATE FOR THE PRIVATE REPLICA.
@@ -20,9 +21,9 @@ import { STORE_REFRESH_NOTICE, startReplicaBoot } from '@podium/client-core/repl
 export { STORE_REFRESH_NOTICE } from '@podium/client-core/replica-assembly'
 
 import type { ClientPrincipal } from '@podium/client-core/principal'
-import { inspectPrincipalNamespaces } from '@podium/client-core/replica'
-import { createLogger } from '@podium/logger'
+import { inspectPrincipalNamespaces, parseReplicaNamespaceKey } from '@podium/client-core/replica'
 import type { LegacyIdentityEvidence } from '@podium/client-core/replica-assembly'
+import { createLogger } from '@podium/logger'
 import { useEffect, useState } from 'react'
 import type { Trpc } from '@/app/trpc'
 import { KERNEL_SIDE_CACHE_PREFIX, type KernelAssembly, openKernelAssembly } from './kernelReplica'
@@ -162,7 +163,15 @@ declare global {
 }
 
 export function useKernelReplica(args: {
-  trpc: Trpc
+  /** A fixed client, for tests and stubs. */
+  trpc?: Trpc
+  /**
+   * The client for the member the gate resolves (POD-6292). The assembly's outbox
+   * drains through it, so it must carry that member's fence: a tab booted for
+   * Alice, even offline, never drains her queue with the next member's cookie.
+   * Wins over `trpc`; keep its identity stable.
+   */
+  trpcFor?: (account: { readonly principal: string; readonly member: string }) => Trpc
   /** Result of LoginGate's auth-first probe. Supplying it removes the second auth request. */
   auth?: AuthBootstrap
   /** The server origin every gate request targets — see ResolveReplicaPrincipalOptions. */
@@ -172,6 +181,7 @@ export function useKernelReplica(args: {
 }): KernelReplicaGate {
   const {
     trpc,
+    trpcFor,
     auth,
     httpOrigin,
     resolvePrincipal = resolveReplicaPrincipal,
@@ -194,8 +204,11 @@ export function useKernelReplica(args: {
         if (auth === undefined || auth.kind === 'provisional-failure')
           await webAccounts(httpOrigin).recordPrincipal(principal)
         let notice: string | undefined
+        const member = parseReplicaNamespaceKey(principal)?.memberId
+        const api = trpcFor && member !== undefined ? trpcFor({ principal, member }) : trpc
+        if (api === undefined) throw new Error('the replica gate has no client for this member')
         const assembly = await openAssembly({
-          trpc,
+          trpc: api,
           httpOrigin,
           principal,
           evidence: recordIdentityEvidence(principal),
@@ -234,7 +247,7 @@ export function useKernelReplica(args: {
         }
       },
     })
-  }, [authSemantics, httpOrigin, openAssembly, principalResolver, trpc])
+  }, [authSemantics, httpOrigin, openAssembly, principalResolver, trpc, trpcFor])
 
   return gate
 }

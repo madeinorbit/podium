@@ -1,16 +1,16 @@
+import { parseReplicaNamespaceKey } from '../replica/principal-storage'
 import { CredentialWriteQueue, StaleCredentialOwnerError } from './credential-ownership'
+import type { ServerPreflight } from './pairing'
 import {
   canOpenProfileOffline,
   classifyServerTransport,
   createServerProfiles,
   moveServerProfile,
   type ServerProfile,
-  type ServerProfiles,
   type ServerProfileState,
+  type ServerProfiles,
 } from './server-profiles'
-import type { ServerPreflight } from './pairing'
-import { cookieCredentials, type AccountCredentials, type ProfileMetadataStorage } from './storage'
-import { parseReplicaNamespaceKey } from '../replica/principal-storage'
+import { type AccountCredentials, cookieCredentials, type ProfileMetadataStorage } from './storage'
 
 export interface ProfileActivation {
   state: ServerProfileState
@@ -231,10 +231,11 @@ export function createSingleServerAccounts(args: {
   storage: ProfileMetadataStorage
   erasePrincipal(principal: string): Promise<void>
 }) {
+  const profilesKey = args.metadataPrefix + '.profiles.v1'
   const profiles = createServerProfiles({
     storage: args.storage,
     cookieTransport: true,
-    profilesKey: args.metadataPrefix + '.profiles.v1',
+    profilesKey,
     cleanupsKey: args.metadataPrefix + '.cleanups.v1',
   })
   const writes = new CredentialWriteQueue()
@@ -253,6 +254,8 @@ export function createSingleServerAccounts(args: {
     })
   return {
     profiles,
+    /** The storage key every sign-in and sign-out writes; other tabs watch it (POD-6292). */
+    profilesKey,
     drain: () => writes.run(drain),
     recordPrincipal: (principal: string, isCurrent: () => boolean = () => true) =>
       writes.run(async () => {
