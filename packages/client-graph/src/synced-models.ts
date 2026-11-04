@@ -44,6 +44,8 @@ const schema = {
       // Identity and custody
       id: { type: 'id', source: machineProjection() },
       name: { type: 'string', source: machineProjection() },
+      // Who holds custody (POD-6291): what moves a task's worktree between readers.
+      custodian: { type: 'id', optional: true, nullable: true, source: machineProjection() },
       hostname: { type: 'string', source: machineWire() },
       revokedAt: { type: 'isoDate', optional: true, nullable: true, source: machineWire() },
       supersededBy: { type: 'id', optional: true, nullable: true, source: machineWire() },

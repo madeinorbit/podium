@@ -531,9 +531,11 @@ export class MachinesService {
         this.applyMachineWrite(raw.id, change.operation === 'delete' ? null : raw.revokedAt)
       }
     })
-    this.unsubscribeGrantWrites = deps.store.grants.committed.subscribe((change) =>
-      this.onGrantsCommitted(change.rows),
-    )
+    // Isolated fixtures hand in a store without the grants repository.
+    const grantWrites = (deps.store as { grants?: Partial<SessionStore['grants']> }).grants?.committed
+    this.unsubscribeGrantWrites = grantWrites
+      ? grantWrites.subscribe((change) => this.onGrantsCommitted(change.rows))
+      : () => {}
 
     // Built here, not as a field initializer: `deps` is a parameter property and
     // under ES2022 class-field semantics field initializers run BEFORE it lands.
@@ -1752,8 +1754,12 @@ export class MachinesService {
 
   /** The custodian of each machine, from its custody edge, in one read. */
   private async custodiansOf(ids: readonly string[]): Promise<Map<string, UserId | null>> {
+    // An isolated fixture's store may hold no grants: nobody holds custody there.
+    const grants = (this.deps.store as { grants?: Partial<SessionStore['grants']> }).grants
     const edges =
-      ids.length === 0 ? new Map() : await this.deps.store.grants.loadForResources('machine', ids)
+      ids.length === 0 || !grants?.loadForResources
+        ? new Map()
+        : await grants.loadForResources('machine', ids)
     return new Map(ids.map((id) => [id, custodianFromEdges(edges.get(id))]))
   }
 
