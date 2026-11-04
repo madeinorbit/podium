@@ -128,6 +128,8 @@ export interface FeedView {
   bootstrap(): Promise<FeedSnapshot>
   /** Wait until a frame satisfies `pred` (or throw after `ms`). */
   until(pred: () => boolean, ms?: number): Promise<void>
+  /** Whether the server closed (or the test closed) the socket. */
+  closed(): boolean
   close(): void
 }
 
@@ -163,6 +165,10 @@ export interface TwoMemberInstance {
   as(member: MemberName): Promise<MemberSession>
   /** POST `/auth/login` for the member and return the raw response (Carol's is refused). */
   login(member: MemberName): Promise<Response>
+  /** Open the `/client` feed socket with any session cookie (a second device, say). */
+  feedWith(cookie: string): Promise<FeedView>
+  /** Drop that machine's fake daemon and attach it again, as a daemon reconnect does. */
+  reconnectDaemon(machineId: MachineId, whileAway?: () => Promise<void>): Promise<void>
   /** Act as a session's agent over the daemon relay. */
   agent(sessionId: SessionId, opts?: { outsideScope?: boolean }): AgentActor
   /** The feed as the legacy device-grade principal sees it (design gap 7). */
@@ -310,6 +316,7 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
     const machines = { alice: asMachineId('machine-alice'), bob: asMachineId('machine-bob') }
     const relayFor = new Map<MachineId, Awaited<ReturnType<typeof startAgentRelayServer>>>()
     const daemonFrames = new Map<MachineId, ControlMessage[]>()
+    const daemonTransports = new Map<MachineId, (msg: ControlMessage) => void>()
     const quota = new Map<MachineId, FakeQuotaAgents>()
     for (const [name, machineId] of Object.entries(machines) as Array<[MemberName, MachineId]>) {
       await store.machines.upsertMachine({
@@ -326,12 +333,14 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
       )
       const received: ControlMessage[] = []
       daemonFrames.set(machineId, received)
-      await attachDaemonWithInventory(registry, machineId, (msg: ControlMessage) => {
+      const transport = (msg: ControlMessage) => {
         received.push(msg)
         if (msg.type === 'agentRelayResult') hub.onResult(msg)
         const answer = fakeDaemonAnswer(machineId, msg, quota)
         if (answer) queueMicrotask(() => void registry.gateway.routeDaemonFrame(machineId, answer))
-      })
+      }
+      daemonTransports.set(machineId, transport)
+      await attachDaemonWithInventory(registry, machineId, transport)
       const relay = await startAgentRelayServer({ port: 0, relay: (req) => hub.relay(req) })
       relayServers.push(relay)
       relayFor.set(machineId, relay)
@@ -424,13 +433,22 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
       return session
     }
 
-    const openFeed = async (cookie: string, trpc: TRPCClient<AppRouter>): Promise<FeedView> => {
+    const openFeed = async (
+      cookie: string,
+      trpc: TRPCClient<AppRouter> = createTRPCClient<AppRouter>({
+        links: [httpLink({ url: `${origin}/trpc`, headers: () => ({ cookie }) })],
+      }),
+    ): Promise<FeedView> => {
       const ws = new WebSocket(
         `ws://127.0.0.1:${handle.port}/client?v=${CLIENT_WIRE_VERSION}&cap=sync.http.v1`,
         { headers: { cookie } },
       )
       sockets.push(ws)
       const frames: ServerMessage[] = []
+      let closed = false
+      ws.on('close', () => {
+        closed = true
+      })
       ws.on('message', (data) => frames.push(JSON.parse(String(data)) as ServerMessage))
       await new Promise<void>((resolve, reject) => {
         ws.on('error', reject)
@@ -462,6 +480,7 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
           return boot
         },
         until: async (pred, ms) => await until(pred, ms),
+        closed: () => closed,
         close: () => ws.close(),
       }
     }
@@ -497,6 +516,14 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
       sessions,
       as,
       login,
+      feedWith: async (cookie) => await openFeed(cookie),
+      reconnectDaemon: async (machineId, whileAway) => {
+        const transport = daemonTransports.get(machineId)
+        if (!transport) throw new Error(`no fake daemon for ${machineId}`)
+        registry.gateway.detachDaemon(machineId)
+        await whileAway?.()
+        await attachDaemonWithInventory(registry, machineId, transport)
+      },
       agent,
       legacyDeviceFeed,
       daemonFrames: (machineId) => daemonFrames.get(machineId) ?? [],

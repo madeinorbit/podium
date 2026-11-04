@@ -272,6 +272,12 @@ export class SessionAuthz {
   async capabilityForSession(sessionId: SessionId): Promise<Capability> {
     const s = await this.ports.records.ownershipOf(sessionId, 'capability')
     if (!s) return { role: 'worker', scope: { kind: 'none' } }
+    // A DELEGATION ACTS ONLY WHILE ITS HUMAN CAN (POD-6293; design §2.3, §4.5).
+    // A disabled or removed owner's agents keep running (POD-4152 lets them
+    // finish), but every call they make answers like an unknown session's.
+    if (s.ownerUserId && !(await this.ports.store.users.get(s.ownerUserId))) {
+      return { role: 'worker', scope: { kind: 'none' } }
+    }
     const attribution = { onBehalfOf: s.ownerUserId }
     // Explicit attachment wins over cwd containment (issue-as-workspace): an
     // attached / draft-bound session is scoped to ITS issue even when its cwd

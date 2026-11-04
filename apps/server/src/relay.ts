@@ -4134,10 +4134,17 @@ export class SessionRegistry {
     // ACCESS CHANGES TAKE EFFECT AT THEIR COMMIT (POD-6293). A disable, removal
     // or sign-out-everywhere closes the member's open connections; a role change
     // rescopes them and re-sends the role-dependent machine listing.
-    this.unsubscribeAccessChanges = this.store.users.onAccessChange((change) => {
-      const touched = this.clientGateway.applyAccessChange(change)
-      if (change.effect === 'rescoped' && touched.length > 0) machines.scheduleBroadcastMachines()
-    })
+    const accessChangeSubscriptions = [
+      this.store.users.onAccessChange((change) => {
+        this.clientGateway.applyAccessChange(change)
+      }),
+      this.store.users.afterAccessChange(async (change) => {
+        if (change.effect === 'rescoped') await machines.broadcastMachines()
+      }),
+    ]
+    this.unsubscribeAccessChanges = () => {
+      for (const unsubscribe of accessChangeSubscriptions) unsubscribe()
+    }
     this.gateway = new DaemonMux({
       bus: this.bus,
       ports: {

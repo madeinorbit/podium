@@ -21,11 +21,12 @@ import { GrantsRepository } from './grants'
  * capability.
  */
 
+import { createLogger } from '@podium/logger'
 import type { CredentialSource, UserId, UserRole } from '@podium/model'
 import { asUserId, CREDENTIAL_SOURCES, LoginEmail, USER_ROLES } from '@podium/model'
 import { and, asc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import { clientSessions, grants, memberInvites, settingsAuditEvents, userCredentials, users } from '../migrations/schema'
-import { applyAfterCommit, spanOpen } from './executor/executor'
+import { afterCommit, applyAfterCommit, spanOpen } from './executor/executor'
 import { operationLoader } from './executor/operation-loader'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import { inListOf, inListSize, inListValues, param, placeholdersFor, prepared, preparedFamily, shapeOf } from './executor/sync-drizzle'
@@ -106,6 +107,8 @@ const insertUserValues = {
 const insertUser = prepared((db: StoreDrizzle) =>
   db.insert(users).values(insertUserValues).prepare(),
 )
+
+const log = createLogger('server:users')
 
 const insertUserReturning = prepared((db: StoreDrizzle) =>
   db.insert(users).values(insertUserValues).returning().prepare(),
@@ -374,6 +377,7 @@ export class UsersRepository {
   }
 
   private readonly accessListeners = new Set<MemberAccessListener>()
+  private readonly accessEffects = new Set<(change: MemberAccessChange) => Promise<void>>()
 
   /**
    * Hear every committed change to a member's authority (POD-6293). The
@@ -384,6 +388,19 @@ export class UsersRepository {
     this.accessListeners.add(listener)
     return () => {
       this.accessListeners.delete(listener)
+    }
+  }
+
+  /**
+   * Run `effect` after every committed change to a member's authority, as an
+   * external effect of that commit: it may read and await, and its failure
+   * never undoes the change. For work that re-sends what a rescoped connection
+   * shows (its machine listing, say) rather than what it may do.
+   */
+  afterAccessChange(effect: (change: MemberAccessChange) => Promise<void>): () => void {
+    this.accessEffects.add(effect)
+    return () => {
+      this.accessEffects.delete(effect)
     }
   }
 
@@ -433,6 +450,15 @@ export class UsersRepository {
     applyAfterCommit(() => {
       for (const listener of this.accessListeners) listener(change)
     }, 'users:access-change')
+    afterCommit(async () => {
+      for (const effect of this.accessEffects) {
+        try {
+          await effect(change)
+        } catch (error) {
+          log.warn('an access-change effect failed after its commit', { error, reason })
+        }
+      }
+    }, 'users:access-change-effects')
     return row
   }
 
