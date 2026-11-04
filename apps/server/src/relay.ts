@@ -150,6 +150,11 @@ import { DEPLOYMENT, type PerfRegistry, perf } from './modules/perf/registry'
 import { QuotaBackfill } from './modules/quota-history/backfill'
 import { QuotaSampler } from './modules/quota-history/service'
 import { ReadPositionService } from './modules/read-position/service'
+import { awaitEffectSettled } from './modules/effects/await'
+import { makeEffectFeedCapture } from './modules/effects/feed'
+import { EffectExecutorRegistry } from './modules/effects/registry'
+import { EffectsRunner } from './modules/effects/runner'
+import { registerEffectCommands } from './modules/effects/sync-write'
 import { registerRecordCommands } from './modules/records/register'
 import {
   restartSourceAfterRecovery,
@@ -307,6 +312,14 @@ interface SessionRegistryOptions {
 /** The composed module set (issue #13 Phase 2): the typed seam every caller —
  *  router procs (ctx.modules), server assembly, superagent, tests — reaches
  *  services through. */
+/** One-shot effects as data (ADR 12 D5 E2, POD-6357): where a kind registers
+ *  its executor, and how an old route waits for a record to settle. */
+export interface EffectsModule {
+  readonly executors: EffectExecutorRegistry
+  readonly runner: EffectsRunner
+  awaitSettled(id: string, timeoutMs: number): ReturnType<typeof awaitEffectSettled>
+}
+
 export interface RegistryModules {
   bus: EventBus
   funnel: WriteFunnel
@@ -319,6 +332,11 @@ export interface RegistryModules {
    * that a feature registering a new kind does it in a diff a reviewer sees.
    */
   operations: OperationsModule
+  /**
+   * One-shot effects (POD-6357). OPTIONAL for the reason `updatesReconciler`
+   * gives: a module set assembled by hand without it serves no effect kinds.
+   */
+  effects?: EffectsModule
   /**
    * Background convergence for machines that were asleep when an update ran
    * (POD-2105, spec §3.6). OPTIONAL because it is pure choreography: a registry
@@ -513,6 +531,7 @@ export class SessionRegistry {
   private readonly issueAutoArchive: IssueAutoArchive
   /** Parent-branch movement watch (POD-384) — modules/issues. */
   private readonly issueGitWatch: IssueGitWatch
+  private readonly effectsRunner: EffectsRunner
   /** Cron tick for scheduled automations (#470) [spec:SP-17db] — modules/automations. */
   private readonly automationScheduler: AutomationScheduler
   private readonly store: SessionStore
@@ -589,6 +608,9 @@ export class SessionRegistry {
       }
     }
     bootStage('queued messages recovery', stageStarted)
+    // The effect trigger and its recovery sweep (POD-6357): the boot sweep
+    // expires, re-dispatches and recovers what a stop left behind.
+    if (!this.recoveryOnly && !rehearseBoot) this.effectsRunner.start()
   }
 
   /**
@@ -3470,6 +3492,17 @@ export class SessionRegistry {
     // the one write-seam Ledger and the store's unit of work. It starts with no
     // registrations: the outbox commands move onto it in POD-6350, the rest in
     // POD-6359, each family registering on `syncWrite.registry`.
+    // ONE-SHOT EFFECTS AS DATA (ADR 12 D5 E2, POD-6357). Every write to the
+    // effects table reaches the feed inside its own transaction; the runner is
+    // the one after-commit trigger and the recovery sweep. Kinds register their
+    // executors on `modules.effects.executors`.
+    const effectExecutors = new EffectExecutorRegistry()
+    this.store.effects.setFeedCapture(makeEffectFeedCapture(ledger, effectExecutors))
+    this.effectsRunner = new EffectsRunner({
+      repo: this.store.effects,
+      registry: effectExecutors,
+      now: this.now,
+    })
     const syncWrite = new SyncWriteEntry({
       registry: new SyncWriteRegistry(),
       mutations,
@@ -3755,6 +3788,12 @@ export class SessionRegistry {
     })
     this.bus.on('session.exited', async (e) => await interactions.onSessionExited(e.sessionId))
     this.modules = {
+      effects: {
+        executors: effectExecutors,
+        runner: this.effectsRunner,
+        awaitSettled: async (id, timeoutMs) =>
+          await awaitEffectSettled(this.store.effects, id, timeoutMs),
+      },
       bus: this.bus,
       funnel,
       sessions: sessionsSvc,
@@ -3812,6 +3851,11 @@ export class SessionRegistry {
     // The generic create, edit and remove of every declared synced kind (ADR 12
     // D3, POD-6391), beside the queued commands they replace one by one.
     registerRecordCommands(syncWrite.registry, { modules: () => this.modules })
+    registerEffectCommands(syncWrite.registry, {
+      repo: this.store.effects,
+      executors: effectExecutors,
+      now: this.now,
+    })
     const agentRelayGate = new AgentRelayGate({
       // issues/repos ops run through the registry dispatcher (guard + schema +
       // handler, router-equal); the specs router (pspec, #135) is served by the
@@ -4137,6 +4181,8 @@ export class SessionRegistry {
     // Same hazard, same window: the superagent's turn reaper is a periodic
     // write against the store this shutdown is about to close (POD-2772).
     this.adoptedSuperagent?.dispose()
+    // Effect runs write their outcome to the store this shutdown closes.
+    await this.effectsRunner.stop()
     this.eventRetention.dispose()
     this.quotaSampler.dispose()
     this.quotaBackfill.dispose()

@@ -52,6 +52,7 @@ import type {
   VisibilityStatePort,
 } from '@podium/sync'
 import type { FeedVisibilityStore, GrantRow, IssueRow, SessionRow } from './hot-path-ports'
+import type { EffectAudience } from './store/effects'
 import { perfPrincipal } from './modules/perf/principal'
 import { perf } from './modules/perf/registry'
 
@@ -66,6 +67,7 @@ type BootstrapReadPhase =
   | 'visibility.conversation.findSessionByResumeValue'
   | 'visibility.automation.ownerOf'
   | 'visibility.automationRun.runOwnerOf'
+  | 'visibility.effect.audiencesOf'
   | 'visibility.shipOrder.issueIdForOrder'
   | 'visibility.shipLane.memberIssueIds'
   | 'visibility.grants.listForResources'
@@ -100,6 +102,8 @@ type BootstrapVisibilityPrefetch = {
   readonly automationOwners: ReadonlyMap<string, UserId | undefined>
   readonly automationRunIds: ReadonlySet<string>
   readonly automationRunOwners: ReadonlyMap<string, UserId | undefined>
+  /** Each asked effect's creator and target, through the tombstone (POD-6357). */
+  readonly effectAudiences: ReadonlyMap<string, EffectAudience>
 }
 
 type IssueDepSubject = {
@@ -269,7 +273,10 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           entity === 'shipLane' ||
           entity === 'conversation' ||
           entity === 'automation' ||
-          entity === 'automationRun'
+          entity === 'automationRun' ||
+          // A one-shot effect (POD-6357). `personal`: readable by its creator and
+          // by whoever may read its target, the `mayRead` arm below.
+          entity === 'effect'
         )
           return 'personal'
         return null
@@ -352,6 +359,18 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
             prefetch.automationRunOwners.get(ref.entityId) === userId
           )
         }
+        if (ref.entity === 'effect') {
+          // Its creator, and the readers of what it acts on. A machine target
+          // admits the creator alone until the machine kinds define more.
+          const audience = prefetch.effectAudiences.get(ref.entityId)
+          if (audience === undefined) return false
+          if (audience.createdBy === userId) return true
+          if (audience.targetKind === 'issue') {
+            return mayReadIssueFromSnapshot(userId, audience.targetId, prefetch)
+          }
+          if (audience.targetKind === 'session') return maySeeSession(userId, audience.targetId)
+          return false
+        }
         // per-user-state is decided by keyedUserOf, not mayRead.
         return false
       },
@@ -422,6 +441,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     const resumeValues = new Set<string>()
     const automationIds = new Set<string>()
     const automationRunIds = new Set<string>()
+    const effectIds = new Set<string>()
     for (const ref of refs) {
       if (ref.entity === 'issueProjection' || ref.entity === 'issueGitState') {
         issueIds.add(ref.entityId)
@@ -463,7 +483,22 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         automationIds.add(ref.entityId)
       } else if (ref.entity === 'automationRun') {
         automationRunIds.add(ref.entityId)
+      } else if (ref.entity === 'effect') {
+        effectIds.add(ref.entityId)
       }
+    }
+    // Effects resolve to their targets before the issue, session and grant reads,
+    // for the reason ship orders do (one read for the whole batch).
+    const effectAudiences: ReadonlyMap<string, EffectAudience> =
+      effectIds.size === 0
+        ? new Map()
+        : await measure(
+            'visibility.effect.audiencesOf',
+            async () => await store.effects.audiencesOf([...effectIds]),
+          )
+    for (const audience of effectAudiences.values()) {
+      if (audience.targetKind === 'issue') issueIds.add(audience.targetId)
+      else if (audience.targetKind === 'session') sessionIds.add(audience.targetId)
     }
     const issueIdsByShipOrder =
       shipOrderIds.size === 0
@@ -563,6 +598,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       automationOwners,
       automationRunIds,
       automationRunOwners,
+      effectAudiences,
     })
   }
 

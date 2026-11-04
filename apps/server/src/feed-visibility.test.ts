@@ -60,6 +60,11 @@ async function fixture() {
       orderIdsForIssues: async () => [],
     },
     automations: { ownersOf: async () => new Map(), runOwnersOf: async () => new Map() },
+    effects: {
+      // Three effects: one on the shared issue, one on the shared session, one on
+      // a machine; each created by the stranger's neighbour `creator`.
+      audiencesOf: async (ids) => new Map([...EFFECT_AUDIENCES].filter(([id]) => ids.includes(id))),
+    },
     grants: store.grants,
     sync: store.sync,
   }
@@ -83,6 +88,12 @@ async function fixture() {
     })
   return { store, policy, grant }
 }
+const creator = asUserId('creator')
+const EFFECT_AUDIENCES = new Map([
+  ['eff_issue', { targetKind: 'issue', targetId: 'shared', createdBy: creator }],
+  ['eff_session', { targetKind: 'session', targetId: 'shared', createdBy: creator }],
+  ['eff_machine', { targetKind: 'machine', targetId: 'm1', createdBy: creator }],
+] as const)
 const refs: EntityRef[] = [
   { entity: 'issueProjection', entityId: 'shared' },
   { entity: 'session', entityId: 'shared' },
@@ -148,10 +159,28 @@ describe('feed visibility grant semantics', () => {
     expect(state.mayRead(reader, git)).toBe(true)
     expect(state.mayRead(stranger, git)).toBe(false)
     expect(
-      (await edgeOf(policy.anchors, { entity: 'issueProjection', entityId: 'shared' }))
-        ?.subjects,
+      (await edgeOf(policy.anchors, { entity: 'issueProjection', entityId: 'shared' }))?.subjects,
     ).toContainEqual(git)
   })
+  it('an effect is read by its creator and by the readers of its target (POD-6357)', async () => {
+    const { policy, grant } = await fixture()
+    await grant('issue', reader, 'read')
+    const effects: EntityRef[] = ['eff_issue', 'eff_session', 'eff_machine', 'eff_gone'].map(
+      (entityId) => ({ entity: 'effect', entityId }),
+    )
+    for (const prepare of [policy.state.forBootstrap!, policy.state.forBatch!]) {
+      const state = await prepare(effects)
+      expect(state.classOf('effect')).toBe('personal')
+      const readable = (user: typeof owner) =>
+        effects.filter((ref) => state.mayRead(user, ref)).map((ref) => ref.entityId)
+      expect(readable(creator)).toEqual(['eff_issue', 'eff_session', 'eff_machine'])
+      expect(readable(owner)).toEqual(['eff_issue', 'eff_session'])
+      // A read grant on the issue only: the session's grant is not there.
+      expect(readable(reader)).toEqual(['eff_issue'])
+      expect(readable(stranger)).toEqual([])
+    }
+  })
+
   it('reads grants through its store port but cannot write them', () => {
     expectTypeOf<FeedVisibilityStore['grants']>().toHaveProperty('listForResources')
     expectTypeOf<FeedVisibilityStore['grants']>().not.toHaveProperty('upsert')
@@ -204,8 +233,7 @@ describe('feed visibility grant semantics', () => {
     expect(await policy.mayReadIssue(revoked, asIssueId('shared'))).toBe(false)
     // Revoked readers remain in the historical audience so they receive removals.
     expect(
-      (await edgeOf(policy.anchors, { entity: 'issueProjection', entityId: 'shared' }))
-        ?.audience,
+      (await edgeOf(policy.anchors, { entity: 'issueProjection', entityId: 'shared' }))?.audience,
     ).toEqual([reader, revoked])
   })
 

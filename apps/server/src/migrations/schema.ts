@@ -2896,6 +2896,59 @@ export const operations = sqliteTable(
 )
 
 /**
+ * One-shot effects as data (ADR 12 D5 E2, POD-6357): merge, file write, scans,
+ * clone, interrupt. One row per effect record, created `pending` through
+ * `sync.submit` with a device-minted `eff_<uuid>` id; the executor registered
+ * for `kind` claims it (`pending` → `running`, a guarded UPDATE so a second
+ * trigger claims nothing) and writes its outcome back here.
+ *
+ * `status` is text without a CHECK, for the reason `operations.state` gives: a
+ * successor's new status must not be refused by its predecessor's schema.
+ * `input_json` is the whole input, server-side; the feed carries what the kind
+ * publishes of it. Times are epoch milliseconds.
+ */
+export const effects = sqliteTable(
+  'effects',
+  {
+    id: text().primaryKey(),
+    kind: text().notNull(),
+    targetKind: text('target_kind').notNull(),
+    targetId: text('target_id').notNull(),
+    inputJson: text('input_json').notNull(),
+    resultJson: text('result_json'),
+    cancelRequested: integer('cancel_requested', { mode: 'boolean' }).default(sql`0`).notNull(),
+    status: text().notNull(),
+    errorCode: text('error_code'),
+    errorMessage: text('error_message'),
+    /** A `pending` row past this expires and never runs. */
+    deadlineAt: integer('deadline_at'),
+    attempts: integer().default(0).notNull(),
+    stage: text(),
+    startedAt: integer('started_at'),
+    finishedAt: integer('finished_at'),
+    createdBy: text('created_by').$type<UserId>(),
+    createdAt: integer('created_at').notNull(),
+    updatedAt: integer('updated_at').notNull(),
+    revision: integer().default(1).notNull(),
+    /**
+     * Removed from the feed (dismissed, or pruned past retention). A TOMBSTONE,
+     * for the reason `automations.deletedAt` gives: the feed scopes a `remove`
+     * after the write, and an effect's audience is read off its target, so the
+     * row must outlive its removal. The sweep deletes tombstones later.
+     */
+    deletedAt: integer('deleted_at'),
+  },
+  (table) => [
+    // The sweep: pending by deadline, running, finished rows by age, tombstones.
+    index('idx_effects_status_deadline').on(table.status, table.deadlineAt),
+    index('idx_effects_status_finished').on(table.status, table.finishedAt),
+    index('idx_effects_deleted').on(table.deletedAt),
+    // An issue's, a session's or a machine's effects.
+    index('idx_effects_target').on(table.targetKind, table.targetId, table.createdAt),
+  ],
+)
+
+/**
  * PendingInteraction — the durable blocking-ask aggregate (POD-2020, spec §4).
  *
  * ONE ROW PER ASK, and the row outlives the ask: an answered interaction is the

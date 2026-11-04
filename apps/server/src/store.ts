@@ -80,6 +80,7 @@ import { AccountsRepository } from './store/accounts'
 import { ApprovalsRepository } from './store/approvals'
 import { AuthRepository } from './store/auth'
 import { AutomationsRepository } from './store/automations'
+import { EffectsRepository } from './store/effects'
 import { ConversationsRepository } from './store/conversations'
 import { EventsRepository } from './store/events'
 import {
@@ -230,6 +231,8 @@ export class SessionStore {
   readonly maintenance: MaintenanceRepository
   /** Scheduled automations + their run history (#470) [spec:SP-17db]. */
   readonly automations: AutomationsRepository
+  /** One-shot effects as data (ADR 12 D5 E2, POD-6357). */
+  readonly effects: EffectsRepository
   /** Normalized, restart-safe Shipping aggregate family. */
   readonly shipping: ShippingRepository
   /** Durable long-running operations (POD-2097) — updates now, server moves later. */
@@ -450,6 +453,7 @@ export class SessionStore {
     this.locks = new LocksRepository(this.queries)
     this.maintenance = new MaintenanceRepository(this.queries)
     this.automations = new AutomationsRepository(this.queries)
+    this.effects = new EffectsRepository(this.queries)
     this.shipping = new ShippingRepository(this.queries)
     // RESTORED. dev/mw constructed this here and the merge kept only the
     // declaration, which carried a definite-assignment `!` -- so the field was

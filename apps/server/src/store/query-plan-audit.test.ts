@@ -130,6 +130,12 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['apps/server/src/store/shipping.ts:queuedOrdersOfLanes', ['1x1', '1x4', '4x4']],
   ['apps/server/src/store/automations.ts:automationOwnersOfIds', SIZES],
   ['apps/server/src/store/automations.ts:runOwnersOfIds', SIZES],
+  ['apps/server/src/store/effects.ts:audiencesOfIds', SIZES],
+  [
+    'apps/server/src/store/effects.ts:settleEffect',
+    ['running', 'succeeded', 'failed', 'cancelled', 'expired', 'unknown'],
+  ],
+  ['apps/server/src/store/effects.ts:effectsInStatus', ['pending', 'running']],
   ['apps/server/src/store/user-layout.ts:layoutRowsPage', ['start', 'after']],
   ['apps/server/src/store/users.ts:insertInvite', ['id']],
   ['apps/server/src/store/conversations/registry.ts:segmentsWithPaths', SIZES],
