@@ -1,6 +1,6 @@
 import { CommittedRows } from './committed-rows'
-import { MachinesRepository } from './machines'
 import { GrantsRepository } from './grants'
+import { MachinesRepository } from './machines'
 /**
  * THE ACCOUNT ROLE READER (POD-1079) — the first reader the `users` table
  * (POD-1075) has had.
@@ -25,11 +25,27 @@ import { createLogger } from '@podium/logger'
 import type { CredentialSource, UserId, UserRole } from '@podium/model'
 import { asUserId, CREDENTIAL_SOURCES, LoginEmail, USER_ROLES } from '@podium/model'
 import { and, asc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
-import { clientSessions, grants, memberInvites, settingsAuditEvents, userCredentials, users } from '../migrations/schema'
+import {
+  clientSessions,
+  grants,
+  memberInvites,
+  settingsAuditEvents,
+  userCredentials,
+  users,
+} from '../migrations/schema'
 import { afterCommit, applyAfterCommit, spanOpen } from './executor/executor'
 import { operationLoader } from './executor/operation-loader'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { inListOf, inListSize, inListValues, param, placeholdersFor, prepared, preparedFamily, shapeOf } from './executor/sync-drizzle'
+import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
+import {
+  inListOf,
+  inListSize,
+  inListValues,
+  param,
+  placeholdersFor,
+  prepared,
+  preparedFamily,
+  shapeOf,
+} from './executor/sync-drizzle'
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
@@ -46,7 +62,11 @@ import { inListOf, inListSize, inListValues, param, placeholdersFor, prepared, p
  * executor's router runs it on that transaction.
  */
 const accountById = prepared((db: StoreDrizzle) =>
-  db.select().from(users).where(eq(users.id, param(users.id, 'id'))).prepare(),
+  db
+    .select()
+    .from(users)
+    .where(eq(users.id, param(users.id, 'id')))
+    .prepare(),
 )
 
 /** The accounts of a set of ids: the per-operation loader's batch [POD-6218]. */
@@ -56,7 +76,9 @@ const accountsByIds = preparedFamily((db: StoreDrizzle, size: number) =>
 
 // Two rows are enough to tell "exactly one" from "more than one".
 const firstTwoActiveMembers = prepared((db: StoreDrizzle) =>
-  db.select().from(users)
+  db
+    .select()
+    .from(users)
     .where(and(isNull(users.disabledAt), inArray(users.role, [...USER_ROLES])))
     .limit(2)
     .prepare(),
@@ -93,6 +115,11 @@ const userIdByAccount = prepared((db: StoreDrizzle) =>
 
 const userIdsByCreation = prepared((db: StoreDrizzle) =>
   db.select({ id: users.id }).from(users).orderBy(asc(users.createdAt)).prepare(),
+)
+
+/** Every member row, disabled ones included, for the admins' member list (POD-6298). */
+const everyUserByCreation = prepared((db: StoreDrizzle) =>
+  db.select().from(users).orderBy(asc(users.createdAt), asc(users.id)).prepare(),
 )
 
 const insertUserValues = {
@@ -180,7 +207,13 @@ const claimUserAccount = prepared((db: StoreDrizzle) =>
   db
     .update(users)
     .set({ cloudAccountId: sql.placeholder('cloudAccountId') })
-    .where(and(eq(users.id, param(users.id, 'id')), isNull(users.cloudAccountId), isNull(users.disabledAt)))
+    .where(
+      and(
+        eq(users.id, param(users.id, 'id')),
+        isNull(users.cloudAccountId),
+        isNull(users.disabledAt),
+      ),
+    )
     .prepare(),
 )
 
@@ -196,7 +229,9 @@ const anyPerUserCredential = prepared((db: StoreDrizzle) =>
   db
     .select({ present: sql<number>`1` })
     .from(userCredentials)
-    .where(and(eq(userCredentials.source, 'per-user-scrypt'), isNotNull(userCredentials.passwordHash)))
+    .where(
+      and(eq(userCredentials.source, 'per-user-scrypt'), isNotNull(userCredentials.passwordHash)),
+    )
     .limit(1)
     .prepare(),
 )
@@ -297,7 +332,10 @@ const inviteByTokenHash = prepared((db: StoreDrizzle) =>
 )
 
 const deleteInviteById = prepared((db: StoreDrizzle) =>
-  db.delete(memberInvites).where(eq(memberInvites.id, param(memberInvites.id, 'id'))).prepare(),
+  db
+    .delete(memberInvites)
+    .where(eq(memberInvites.id, param(memberInvites.id, 'id')))
+    .prepare(),
 )
 
 const deleteInvitesOfMember = prepared((db: StoreDrizzle) =>
@@ -359,6 +397,30 @@ export interface MemberAccessChange {
 }
 
 export type MemberAccessListener = (change: MemberAccessChange) => void
+
+/**
+ * WHY A MEMBER CHANGE WAS REFUSED (POD-6298). Thrown inside the change's own
+ * transaction, so the check and the write cannot be separated by another
+ * request's commit; the member routes turn the code into the HTTP status.
+ *
+ * - `admin-required`: the actor is not an enabled admin when the change applies.
+ * - `last-admin`: the change would leave the instance with no enabled admin.
+ * - `self`: an admin cannot disable or remove their own account.
+ * - `unavailable`: no such member, or one the change cannot apply to.
+ */
+export class MemberChangeRefused extends Error {
+  constructor(
+    readonly code: 'admin-required' | 'last-admin' | 'self' | 'unavailable',
+    message: string,
+  ) {
+    super(message)
+    this.name = 'MemberChangeRefused'
+  }
+}
+
+const adminRequired = () => new MemberChangeRefused('admin-required', 'Administrator required')
+const lastAdmin = (what: string) =>
+  new MemberChangeRefused('last-admin', `The last administrator cannot be ${what}`)
 
 export class UsersRepository {
   readonly committed: CommittedRows<typeof users.$inferSelect>
@@ -558,7 +620,10 @@ export class UsersRepository {
    * the operation (a daemon frame, a tRPC call, a delivery pass); every write of
    * `users` below invalidates it ({@link accountsWritten}).
    */
-  private readonly earliestAdminOfOperation = operationLoader<typeof EARLIEST_ADMIN, UserAccountRow>(
+  private readonly earliestAdminOfOperation = operationLoader<
+    typeof EARLIEST_ADMIN,
+    UserAccountRow
+  >(
     async () => {
       const row = await earliestAdminRow(this.db).get()
       const account = row ? userFromRow(row) : undefined
@@ -601,6 +666,48 @@ export class UsersRepository {
     })
   }
 
+  /**
+   * Every member with a readable role, DISABLED ONES INCLUDED, oldest first: the
+   * admins' member list, where a disabled or removed member is one to enable or
+   * re-invite (POD-6298). Not an authorization read; `get` stays the one that
+   * answers "may this member act".
+   */
+  async listIncludingDisabled(): Promise<UserAccountRow[]> {
+    return (await everyUserByCreation(this.db).all()).flatMap((row) => {
+      const role = parseRole(row.role)
+      if (role === undefined) return []
+      return [
+        {
+          id: row.id,
+          displayName: row.displayName,
+          email: row.email,
+          accountId: row.cloudAccountId,
+          avatar: row.avatar,
+          role,
+          createdAt: row.createdAt,
+          disabledAt: row.disabledAt,
+        },
+      ]
+    })
+  }
+
+  /**
+   * The actor is an enabled admin, read from the row inside the caller's
+   * transaction rather than from the per-operation memo: a concurrent request
+   * that demoted or disabled the actor has committed before this one's write
+   * lane opened, and that commit is what must decide (POD-6298, MU-03).
+   */
+  private async requireActiveAdmin(actor: UserId): Promise<void> {
+    const row = await accountById(this.db).get({ id: actor })
+    if (!row || userFromRow(row)?.role !== 'admin') throw adminRequired()
+  }
+
+  /** Whether removing `userId`'s admin rights would leave no enabled admin. */
+  private async isLastActiveAdmin(row: typeof users.$inferSelect): Promise<boolean> {
+    if (row.disabledAt !== null || parseRole(row.role) !== 'admin') return false
+    return !(await otherActiveAdmin(this.db).get({ id: asUserId(row.id) }))
+  }
+
   /** The only enabled, readable member, or `undefined` when there are none or several. */
   async soleActiveMember(): Promise<UserAccountRow | undefined> {
     const rows = await firstTwoActiveMembers(this.db).all()
@@ -629,20 +736,33 @@ export class UsersRepository {
   }
 
   private async setDisabled(
-    userId: UserId, disabledAt: string | null, at: string, actor?: UserId,
+    userId: UserId,
+    disabledAt: string | null,
+    at: string,
+    actor?: UserId,
   ): Promise<void> {
     await this.claimTransaction(async () => {
-      if (actor && (await this.roleOf(actor)) !== 'admin') throw new Error('Administrator required')
+      if (actor) await this.requireActiveAdmin(actor)
       const existing = await accountById(this.db).get({ id: userId })
-      if (!existing) throw new Error(`unknown user: ${userId}`)
+      if (!existing) throw new MemberChangeRefused('unavailable', `unknown user: ${userId}`)
       if ((existing.disabledAt !== null) === (disabledAt !== null)) return
+      // An admin disabling through member administration (every route passes
+      // the actor) cannot disable themselves or the last enabled admin. A
+      // system disable, in-process only, is not member administration.
+      if (disabledAt !== null && actor) {
+        if (actor === userId) throw new MemberChangeRefused('self', 'You cannot disable yourself')
+        if (await this.isLastActiveAdmin(existing)) throw lastAdmin('disabled')
+      }
       await this.committed.write(async () => {
         await setUserDisabledAt(this.db).all({ id: userId, disabledAt })
         this.accountsWritten()
         if (disabledAt !== null) {
           await deleteClientSessionsOf(this.db).run({ userId })
         }
-        const bumped = await this.bumpAuthorization(userId, disabledAt === null ? 'enabled' : 'disabled')
+        const bumped = await this.bumpAuthorization(
+          userId,
+          disabledAt === null ? 'enabled' : 'disabled',
+        )
         const rows = bumped ? [bumped] : []
         await insertSettingsAudit(this.db).run({
           command: disabledAt === null ? 'members.enable' : 'members.disable',
@@ -688,22 +808,26 @@ export class UsersRepository {
     // the account rather than a memoised "no account"; a rollback takes what
     // the span read after it with it (see `accounts`).
     await this.createOrJoinTransaction(async () => {
-      ;await this.committed.write(async () => await insertUserReturning(this.db).all({
-          // EXTERNAL INPUT BRAND DECODE: UserAccountRow is the account-import
-          // boundary and deliberately carries its source id as a string.
-          id: asUserId(account.id),
-          displayName: account.displayName,
-          email: account.email == null ? null : LoginEmail.parse(account.email),
-          role: account.role,
-          createdAt: account.createdAt,
-        }), 'upsert')
+      await this.committed.write(
+        async () =>
+          await insertUserReturning(this.db).all({
+            // EXTERNAL INPUT BRAND DECODE: UserAccountRow is the account-import
+            // boundary and deliberately carries its source id as a string.
+            id: asUserId(account.id),
+            displayName: account.displayName,
+            email: account.email == null ? null : LoginEmail.parse(account.email),
+            role: account.role,
+            createdAt: account.createdAt,
+          }),
+        'upsert',
+      )
       this.accountsWritten()
-      ;await insertCredential(this.db).run({
-          // Same external account id, branded independently for this write.
-          userId: asUserId(account.id),
-          passwordHash,
-          updatedAt: account.createdAt,
-        })
+      await insertCredential(this.db).run({
+        // Same external account id, branded independently for this write.
+        userId: asUserId(account.id),
+        passwordHash,
+        updatedAt: account.createdAt,
+      })
     })
   }
 
@@ -759,22 +883,29 @@ export class UsersRepository {
 
   async removeMember(userId: UserId, actor: UserId): Promise<void> {
     await this.claimTransaction(async () => {
-      if ((await this.roleOf(actor)) !== 'admin') throw new Error('Administrator required')
-      if (userId === actor) throw new Error('You cannot remove yourself')
+      await this.requireActiveAdmin(actor)
+      if (userId === actor) throw new MemberChangeRefused('self', 'You cannot remove yourself')
       // Read the retained row: a disabled member can still hold custody, and
       // retrying removal by member id must succeed without duplicate audits.
-      if (!(await accountById(this.db).get({ id: userId }))) throw new Error('Member unavailable')
+      const existing = await accountById(this.db).get({ id: userId })
+      if (!existing) throw new MemberChangeRefused('unavailable', 'Member unavailable')
+      if (await this.isLastActiveAdmin(existing)) throw lastAdmin('removed')
       const at = new Date().toISOString()
       await this.disable(userId, at, actor)
       const held = await custodyMachinesOf(this.db).all({ grantee: userId })
       for (const machine of held) {
         await this.machinesRepository.setMachineOwner(machine.id, null)
         await insertSettingsAudit(this.db).run({
-          command: 'members.remove', outcome: 'applied',
-          actorKind: 'user', actorId: actor, onBehalfOf: actor,
+          command: 'members.remove',
+          outcome: 'applied',
+          actorKind: 'user',
+          actorId: actor,
+          onBehalfOf: actor,
           detailJson: JSON.stringify({
-            memberId: userId, machineId: machine.id,
-            previousOwnerUserId: userId, newOwnerUserId: null,
+            memberId: userId,
+            machineId: machine.id,
+            previousOwnerUserId: userId,
+            newOwnerUserId: null,
           }),
           createdAt: at,
         })
@@ -797,12 +928,14 @@ export class UsersRepository {
    */
   async setRole(userId: UserId, role: UserRole, actor?: UserId): Promise<void> {
     await this.claimTransaction(async () => {
-      if (actor && (await this.roleOf(actor)) !== 'admin') throw new Error('Administrator required')
+      if (actor) await this.requireActiveAdmin(actor)
       const existing = await accountById(this.db).get({ id: userId })
-      if (!existing || existing.disabledAt !== null) throw new Error('Member unavailable')
+      if (!existing || existing.disabledAt !== null) {
+        throw new MemberChangeRefused('unavailable', 'Member unavailable')
+      }
       if (existing.role === role) return
-      if (existing.role === 'admin' && !(await otherActiveAdmin(this.db).get({ id: userId }))) {
-        throw new Error('The last administrator cannot be demoted')
+      if (existing.role === 'admin' && (await this.isLastActiveAdmin(existing))) {
+        throw lastAdmin('demoted')
       }
       await setUserRole(this.db).run({ id: userId, role })
       this.accountsWritten()
@@ -827,10 +960,10 @@ export class UsersRepository {
    */
   async signOutEverywhere(userId: UserId, actor?: UserId): Promise<void> {
     await this.claimTransaction(async () => {
-      if (actor && actor !== userId && (await this.roleOf(actor)) !== 'admin') {
-        throw new Error('Administrator required')
+      if (actor && actor !== userId) await this.requireActiveAdmin(actor)
+      if (!(await accountById(this.db).get({ id: userId }))) {
+        throw new MemberChangeRefused('unavailable', 'Member unavailable')
       }
-      if (!(await accountById(this.db).get({ id: userId }))) throw new Error('Member unavailable')
       await deleteClientSessionsOf(this.db).run({ userId })
       await this.bumpAuthorization(userId, 'signed-out')
       await insertSettingsAudit(this.db).run({
@@ -842,6 +975,40 @@ export class UsersRepository {
         detailJson: JSON.stringify({ memberId: userId }),
         createdAt: new Date().toISOString(),
       })
+    })
+  }
+
+  /**
+   * A recovery link was used (POD-6298): the member's password is replaced,
+   * every sign-in of theirs ends with their open connections, and every other
+   * outstanding link for them goes, all in the caller's transaction. The
+   * member keeps their id, role and history.
+   */
+  async recoverPassword(userId: UserId, passwordHash: string, at: string): Promise<void> {
+    await this.claimTransaction(async () => {
+      await this.setPasswordHash(userId, passwordHash, at)
+      await deleteClientSessionsOf(this.db).run({ userId })
+      await deleteInvitesOfMember(this.db).run({ memberId: userId })
+      await this.bumpAuthorization(userId, 'signed-out')
+      await this.audit('members.recover', null, { memberId: userId }, at)
+    })
+  }
+
+  /** One applied member-administration audit row; `actor` null is the host or the member. */
+  async audit(
+    command: string,
+    actor: UserId | null,
+    detail: Record<string, unknown>,
+    at = new Date().toISOString(),
+  ): Promise<void> {
+    await insertSettingsAudit(this.db).run({
+      command,
+      outcome: 'applied',
+      actorKind: actor ? 'user' : 'system',
+      actorId: actor,
+      onBehalfOf: actor,
+      detailJson: JSON.stringify(detail),
+      createdAt: at,
     })
   }
 
@@ -858,27 +1025,23 @@ export class UsersRepository {
   }
 
   async deleteInvite(id: import('@podium/model').InviteId): Promise<boolean> {
-    return (
-      Number(
-        (await deleteInviteById(this.db).run({ id })).changes,
-      ) === 1
-    )
+    return Number((await deleteInviteById(this.db).run({ id })).changes) === 1
   }
 }
 
 export function userFromRow(r: typeof users.$inferSelect): UserAccountRow | undefined {
-    const role = parseRole(r.role)
-    if (role === undefined) return undefined
-    const disabledAt = r.disabledAt
-    if (disabledAt !== null) return undefined
-    return {
-      id: r.id,
-      displayName: r.displayName,
-      email: r.email,
-      accountId: r.cloudAccountId,
-      avatar: r.avatar,
-      role,
-      createdAt: r.createdAt,
-      disabledAt,
-    }
+  const role = parseRole(r.role)
+  if (role === undefined) return undefined
+  const disabledAt = r.disabledAt
+  if (disabledAt !== null) return undefined
+  return {
+    id: r.id,
+    displayName: r.displayName,
+    email: r.email,
+    accountId: r.cloudAccountId,
+    avatar: r.avatar,
+    role,
+    createdAt: r.createdAt,
+    disabledAt,
+  }
 }
