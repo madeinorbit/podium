@@ -343,9 +343,10 @@ export class IssueStore {
 
   /**
    * A reassignment's personal rows (POD-6290): the new assignee gets an
-   * "assigned to you by `by`" row, and the previous assignee's assigned row,
-   * which no longer says anything true, is cleared. Start and join records are
-   * left alone on both sides.
+   * "assigned to you by `by`" row, or a join record when they assigned it to
+   * themselves, and the previous assignee's assigned row, which no longer says
+   * anything true, is cleared. Start and join records are left alone on both
+   * sides.
    */
   async recordAssignment(
     issueId: IssueId,
@@ -355,6 +356,12 @@ export class IssueStore {
   ): Promise<void> {
     const at = this.now()
     if (previous && previous !== assignee) await this.dismissAssignment(issueId, previous)
+    // Taking a task yourself is joining it, not being assigned it: the
+    // removable row is only for an assignment someone else made.
+    if (by === assignee) {
+      await this.recordParticipation(issueId, assignee, 'join')
+      return
+    }
     await this.commitUserState(issueId, assignee, () => ({ assignedAt: at, assignedBy: by }))
   }
 

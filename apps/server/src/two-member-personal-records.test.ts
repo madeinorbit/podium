@@ -222,6 +222,56 @@ describe('an assignment adds a removable row, and removing it changes nothing el
   })
 })
 
+describe('taking a task yourself is a join, not an assignment', () => {
+  it('Bob reassigning Alice’s task to himself joins it: no “assigned to you by you” row', async () => {
+    const task = await aliceTask('bob takes this')
+    await (await trpc('bob')).issues.update.mutate({
+      id: task.id,
+      patch: { assignee: 'me' },
+    } as never)
+    expect((await read('bob', task.id)).assignee).toBe(bob)
+    expect(await stored('bob', task.id)).toMatchObject({
+      joinedVia: 'join',
+      assignedAt: null,
+      assignedBy: null,
+    })
+    expect(await personalSet('bob')).toContain(task.id)
+    expect((await collaborators('bob', task.id)).map((c) => c.userId)).toEqual([alice, bob])
+  })
+
+  it('Bob claiming Alice’s task joins it', async () => {
+    const task = await aliceTask('bob claims this')
+    await (await trpc('bob')).issues.claim.mutate({ id: task.id } as never)
+    expect(await stored('bob', task.id)).toMatchObject({ joinedVia: 'join', assignedAt: null })
+    expect(await personalSet('bob')).toContain(task.id)
+  })
+
+  it('Bob’s agent claiming a task records Bob’s join as his agent’s, and moves no assignee', async () => {
+    const task = await aliceTask('bob’s agent claims this')
+    await f.agent(f.sessions.bob, { outsideScope: true }).client.issues.claim.mutate({
+      id: task.id,
+    } as never)
+    expect(await stored('bob', task.id)).toMatchObject({ joinedVia: 'agent', assignedAt: null })
+    expect((await read('bob', task.id)).assignee).toBe(alice)
+  })
+})
+
+describe('creating a task for someone else assigns it to them', () => {
+  it('Alice creating a task with Bob as assignee gives Bob the row; Alice keeps her start', async () => {
+    const task = (await (await trpc('alice')).issues.create.mutate({
+      repoPath: REPO_PATH,
+      title: 'made for bob',
+      startNow: false,
+      assignee: bob,
+    } as never)) as Wire
+    expect(task.assignee).toBe(bob)
+    expect(await stored('bob', task.id)).toMatchObject({ assignedBy: alice, joinedAt: null })
+    expect(await stored('alice', task.id)).toMatchObject({ joinedVia: 'start', assignedAt: null })
+    expect(await personalSet('bob')).toContain(task.id)
+    expect((await collaborators('bob', task.id)).map((c) => c.userId)).toEqual([alice])
+  })
+})
+
 describe('collaborators are the start and join records, and grant no access', () => {
   it('collaborators come from start and join records only', async () => {
     const task = await aliceTask('collaborated on')

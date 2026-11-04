@@ -12,9 +12,12 @@
 -- BACKFILL. Rows written before this release carry no record, so an upgraded
 -- instance would start with empty personal sets. Each existing task's assignee
 -- (`owner_user_id`) and its human creator (`created_by_on_behalf_of`), where
--- either names a member, get a 'start' record dated the task's creation. On a
--- one-member instance that member owns and created every task, so their set
--- holds every task they had before. A record already present is kept.
+-- either names a member, get a 'start' record dated the task's creation; so
+-- does each member who owns a session on the task, dated that session's
+-- creation, so collaborators match the work already done. On a one-member
+-- instance that member owns and created every task, so their set holds every
+-- task they had before. A record already present is kept, so a rerun writes
+-- nothing new.
 --
 -- Expand-only: four nullable columns and new rows in an existing table.
 -- Nothing is dropped, renamed or rebuilt; an older binary ignores the columns.
@@ -32,6 +35,15 @@ SET `joined_at` = COALESCE(`issue_user_state`.`joined_at`, excluded.`joined_at`)
 INSERT INTO `issue_user_state` (`user_id`, `issue_id`, `joined_at`, `joined_via`)
 SELECT `created_by_on_behalf_of`, `id`, `created_at`, 'start' FROM `issues`
 WHERE `created_by_on_behalf_of` IN (SELECT `id` FROM `users`)
+ON CONFLICT (`user_id`, `issue_id`) DO UPDATE
+SET `joined_at` = COALESCE(`issue_user_state`.`joined_at`, excluded.`joined_at`),
+    `joined_via` = COALESCE(`issue_user_state`.`joined_via`, excluded.`joined_via`);
+--> statement-breakpoint
+INSERT INTO `issue_user_state` (`user_id`, `issue_id`, `joined_at`, `joined_via`)
+SELECT `owner_user_id`, `issue_id`, MIN(`created_at`), 'start' FROM `sessions`
+WHERE `issue_id` IN (SELECT `id` FROM `issues`)
+  AND `owner_user_id` IN (SELECT `id` FROM `users`)
+GROUP BY `owner_user_id`, `issue_id`
 ON CONFLICT (`user_id`, `issue_id`) DO UPDATE
 SET `joined_at` = COALESCE(`issue_user_state`.`joined_at`, excluded.`joined_at`),
     `joined_via` = COALESCE(`issue_user_state`.`joined_via`, excluded.`joined_via`);

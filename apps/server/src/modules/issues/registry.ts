@@ -1594,7 +1594,7 @@ const defs = {
       return await ctx.crud.claim(input.id, {
         ...(actorSessionId ? { actorSessionId } : {}),
         ...(owner ? { owner } : {}),
-        ...(caller ? { caller } : {}),
+        ...(caller ? { caller, participation: person === undefined ? 'agent' : 'join' } : {}),
       })
     },
   }),

@@ -2327,9 +2327,21 @@ export class IssueCrudModule {
    */
   async claim(
     id: string,
-    opts?: { actorSessionId?: SessionId; owner?: UserId; caller?: UserId },
+    opts?: {
+      actorSessionId?: SessionId
+      owner?: UserId
+      caller?: UserId
+      /** How the claim enters the caller's personal set (POD-6290): a person's
+       *  claim is a join, their agent's claim is the agent's. */
+      participation?: 'join' | 'agent'
+    },
   ): Promise<IssueProjection> {
-    return await this.update(id, { stage: 'in_progress' }, opts)
+    const { participation, ...rest } = opts ?? {}
+    const wire = await this.update(id, { stage: 'in_progress' }, rest)
+    if (participation && rest.caller) {
+      await this.store.recordParticipation(wire.id, rest.caller, participation)
+    }
+    return wire
   }
 
   /**
