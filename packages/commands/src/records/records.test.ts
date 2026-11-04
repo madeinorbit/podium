@@ -9,8 +9,17 @@ import { MetadataEntityKind } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { classificationErrors } from '../contract'
-import { RECORD_CONTRACTS, recordContracts } from './contracts'
-import { declarationProblems, defineSyncedKind, label, spec, status } from './declare'
+import { RECORD_CONTRACTS, recordContracts, recordEditInput } from './contracts'
+import {
+  declarationProblems,
+  defineSyncedKind,
+  editNeedsRevision,
+  fieldConflict,
+  label,
+  spec,
+  status,
+  unsettableFields,
+} from './declare'
 import { freshCreateFields, freshRow, pendingCells } from './fresh'
 import { ISSUE_FIELD_DEFAULTS, issueSeqPending } from './issue-fresh'
 import { ISSUE_RECORD, NOT_YET_GENERIC, SESSION_USER_STATE_RECORD, SYNCED_KINDS } from './kinds'
@@ -309,5 +318,70 @@ describe('what a new record looks like (POD-6400)', () => {
         defineSyncedKind({ ...base, ops: { edit: must(ISSUE_RECORD.ops.edit) }, fields, fresh }),
       ).toThrow(/fresh record without a create/)
     })
+  })
+})
+
+describe('clearing a field, and a conflict rule per field (POD-6403)', () => {
+  const {
+    placement: _placement,
+    fresh: _fresh,
+    creates: _creates,
+    newId: _newId,
+    ...cells
+  } = ISSUE_RECORD
+  const NOTE = defineSyncedKind({
+    ...cells,
+    kind: 'conversation',
+    title: 'note',
+    wire: z.object({
+      id: z.string(),
+      title: z.string(),
+      note: z.string().optional(),
+      revision: z.number(),
+    }),
+    ref: z.string(),
+    conflict: 'exp-rev',
+    fields: {
+      title: spec(z.string(), ROW.issueCore),
+      // A plain field: the last writer wins, whatever the record's revision.
+      note: spec(z.string(), ROW.composerDraft, { conflict: 'field-LWW' }),
+      revision: status(z.number(), ROW.issueCore),
+    },
+    ops: { edit: must(ISSUE_RECORD.ops.edit) },
+  })
+
+  it('a field may carry its own rule; the kind’s rule is every other field’s', () => {
+    expect(fieldConflict(NOTE, 'note')).toBe('field-LWW')
+    expect(fieldConflict(NOTE, 'title')).toBe('exp-rev')
+  })
+
+  it('only an edit that names an exp-rev field must name a revision', () => {
+    expect(editNeedsRevision(NOTE, ['note'])).toBe(false)
+    expect(editNeedsRevision(NOTE, ['note', 'title'])).toBe(true)
+    expect(editNeedsRevision(SESSION_USER_STATE_RECORD, ['readAt'])).toBe(false)
+  })
+
+  it('an edit may clear an optional spec field, and nothing else', () => {
+    expect(unsettableFields(NOTE)).toEqual(['note'])
+    const input = recordEditInput(NOTE)
+    expect(input.safeParse({ id: 'n', patch: {}, unset: ['note'] }).success).toBe(true)
+    // A cell the wire always carries cannot be absent; a status is the server's.
+    expect(input.safeParse({ id: 'n', patch: {}, unset: ['title'] }).success).toBe(false)
+    expect(input.safeParse({ id: 'n', patch: {}, unset: ['revision'] }).success).toBe(false)
+    // An edit still says something, and never both sets and clears one field.
+    expect(input.safeParse({ id: 'n', patch: {} }).success).toBe(false)
+    expect(input.safeParse({ id: 'n', patch: { note: 'a' }, unset: ['note'] }).success).toBe(false)
+  })
+
+  it('a field rule generic edits cannot apply fails where it is written', () => {
+    expect(() =>
+      defineSyncedKind({
+        ...NOTE,
+        fields: {
+          ...NOTE.fields,
+          note: spec(z.string(), ROW.composerDraft, { conflict: 'cmd' as never }),
+        },
+      }),
+    ).toThrow(/note's conflict cmd/)
   })
 })

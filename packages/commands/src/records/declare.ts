@@ -25,6 +25,16 @@
  *  - `key`: part of the record's identity or placement, set by a create and never
  *    edited (an issue's `repoPath`, the user and entity of a per-user row).
  *
+ * A FIELD MAY CARRY ITS OWN CONFLICT RULE (POD-6403). The kind's rule is every
+ * other field's. A plain field (an issue's title, its priority) is `field-LWW`:
+ * the last writer wins per field, so an edit of one never conflicts with an edit
+ * of another, and no revision is asked for. Only an edit that names an `exp-rev`
+ * field must name the revision it was made against.
+ *
+ * AN EDIT MAY CLEAR a `spec` field whose wire cell is optional (`unset`), for
+ * the cells where absent and `null` are two facts: a session's `snoozedUntil` is
+ * `null` for "until the next message" and absent for no snooze at all.
+ *
  * THE CONFLICT RULE IS STATED HERE AND HELD EQUAL TO THE MATRIX ON THE SERVER.
  * This package is not Authority-side, so it may not read `conflictRuleFor`
  * (`arbitration-direction.test.ts`). The declaration names the rule, every field
@@ -59,6 +69,8 @@ export interface RecordField<
   readonly schema: S
   /** The ADR 1 matrix row (field group) this field belongs to. */
   readonly row: MatrixRowId
+  /** This field's ADR 1 rule, when it is not the kind's (POD-6403). */
+  readonly conflict?: RecordConflict
   /** A create must carry it. Only `spec` and `key` fields can be required. */
   readonly required?: true
   /**
@@ -75,7 +87,7 @@ const field =
   <S extends z.ZodTypeAny>(
     schema: S,
     row: MatrixRowId,
-    opts: { required?: true; default?: z.input<S> } = {},
+    opts: { required?: true; default?: z.input<S>; conflict?: RecordConflict } = {},
   ): RecordField<S, R> => ({ role, schema, row, ...opts })
 
 /** People and agents write it. */
@@ -161,6 +173,9 @@ export function declarationProblems(d: SyncedKindDeclaration): string[] {
   const wireKeys = new Set(Object.keys(d.wire.shape))
   for (const [name, f] of Object.entries(d.fields)) {
     if (!wireKeys.has(name)) out.push(`field ${name} is not on the ${d.kind} wire schema`)
+    if (f.conflict !== undefined && !RECORD_CONFLICTS.includes(f.conflict)) {
+      out.push(`field ${name}'s conflict ${f.conflict} is not a rule generic edits apply`)
+    }
     if (f.required && f.role !== 'spec' && f.role !== 'key') {
       out.push(`field ${name} is required but a ${f.role} field is never client-written`)
     }
@@ -202,6 +217,21 @@ export const specFields = (d: SyncedKindDeclaration): string[] =>
   Object.entries(d.fields)
     .filter(([, f]) => f.role === 'spec')
     .map(([name]) => name)
+
+/** One field's ADR 1 rule: its own, else the kind's (POD-6403). */
+export const fieldConflict = (d: SyncedKindDeclaration, name: string): RecordConflict =>
+  d.fields[name]?.conflict ?? d.conflict
+
+/** Whether an edit naming these fields (set or cleared) must name the revision
+ *  it was made against: iff one of them is `exp-rev`. */
+export const editNeedsRevision = (d: SyncedKindDeclaration, names: Iterable<string>): boolean => {
+  for (const name of names) if (fieldConflict(d, name) === 'exp-rev') return true
+  return false
+}
+
+/** The fields an edit may clear: spec fields whose wire cell may be absent. */
+export const unsettableFields = (d: SyncedKindDeclaration): string[] =>
+  specFields(d).filter((name) => d.wire.shape[name]?.isOptional() === true)
 
 /** The fields a create may carry: spec and key. Labels are the server's. */
 export const createFields = (d: SyncedKindDeclaration): string[] =>

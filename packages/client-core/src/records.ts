@@ -24,6 +24,7 @@
  */
 
 import {
+  editNeedsRevision,
   ISSUE_RECORD,
   type RecordField,
   type RecordOp,
@@ -35,6 +36,7 @@ import {
   SESSION_USER_STATE_RECORD,
   type SyncedKindDeclaration,
   specFields,
+  unsettableFields,
 } from '@podium/commands/records'
 import { type DeviceIdPrefix, mintDeviceId, parseSessionUserStateRowId } from '@podium/model'
 import type { z } from 'zod'
@@ -64,9 +66,17 @@ type FieldsWithRole<K extends RecordKind, R extends string> = {
   [F in keyof FieldsOf<K>]: FieldsOf<K>[F] extends { readonly role: R } ? F : never
 }[keyof FieldsOf<K>]
 
-/** What an edit may set: the kind's `spec` fields. */
+/**
+ * A patch value that CLEARS its field (POD-6403): `edit(ref, { snoozedUntil:
+ * UNSET })`. For the cells where absent and `null` are two facts. Only an
+ * optional spec cell can be cleared; the entry carries it as `unset`.
+ */
+export const UNSET: unique symbol = Symbol('podium.records.unset')
+export type Unset = typeof UNSET
+
+/** What an edit may set: the kind's `spec` fields, or {@link UNSET} to clear one. */
 export type RecordPatch<K extends RecordKind> = {
-  readonly [F in FieldsWithRole<K, 'spec'>]?: ValueOf<FieldsOf<K>[F]>
+  readonly [F in FieldsWithRole<K, 'spec'>]?: ValueOf<FieldsOf<K>[F]> | Unset
 }
 
 /** What a create may carry: spec and key fields, and the kind's placement
@@ -92,6 +102,8 @@ export interface RecordEditEntry {
   readonly kind: RecordKind
   readonly id: string
   readonly patch: Readonly<Record<string, unknown>>
+  /** Optional spec cells this edit makes absent (POD-6403). */
+  readonly unset?: readonly string[]
   readonly expectedRevision?: number
 }
 export interface RecordRemoveEntry {
@@ -187,10 +199,17 @@ function parsed<T>(schema: z.ZodTypeAny, value: unknown, what: string): T {
   return result.data as T
 }
 
-function requireRevision(d: SyncedKindDeclaration, expectedRevision: number | undefined): void {
-  if (d.conflict === 'exp-rev' && expectedRevision === undefined) {
+/** An edit naming an exp-rev field, or a remove of an exp-rev kind, must name
+ *  the revision it was made against. A plain field's last writer wins. */
+function requireRevision(
+  d: SyncedKindDeclaration,
+  expectedRevision: number | undefined,
+  fields?: readonly string[],
+): void {
+  const needed = fields === undefined ? d.conflict === 'exp-rev' : editNeedsRevision(d, fields)
+  if (needed && expectedRevision === undefined) {
     throw new RecordInputError(
-      `${d.kind} is exp-rev: name the revision this write was made against`,
+      `${d.kind}: ${fields?.join(', ') ?? 'a remove'} is exp-rev: name the revision this write was made against`,
     )
   }
 }
@@ -224,22 +243,43 @@ export function recordEditEntry<K extends RecordKind>(
 ): RecordEditEntry {
   const d = declarationFor(ref.kind, 'edit')
   const writable = new Set(specFields(d))
-  const forbidden = Object.keys(patch).filter(
-    (name) => (patch as Record<string, unknown>)[name] !== undefined && !writable.has(name),
-  )
+  const named = Object.entries(patch as Record<string, unknown>).filter(([, v]) => v !== undefined)
+  const forbidden = named.map(([name]) => name).filter((name) => !writable.has(name))
   if (forbidden.length > 0) {
     throw new RecordInputError(`${d.kind}: ${forbidden.join(', ')} is not a field a client writes`)
   }
-  requireRevision(d, expectedRevision)
-  const input = parsed<{ id: string; patch: Record<string, unknown>; expectedRevision?: number }>(
+  const unset = named.filter(([, v]) => v === UNSET).map(([name]) => name)
+  const clearable = new Set(unsettableFields(d))
+  const fixed = unset.filter((name) => !clearable.has(name))
+  if (fixed.length > 0) {
+    throw new RecordInputError(`${d.kind}: ${fixed.join(', ')} cannot be cleared, only set`)
+  }
+  const set = Object.fromEntries(named.filter(([, v]) => v !== UNSET))
+  requireRevision(
+    d,
+    expectedRevision,
+    named.map(([name]) => name),
+  )
+  const input = parsed<{
+    id: string
+    patch: Record<string, unknown>
+    unset?: string[]
+    expectedRevision?: number
+  }>(
     recordEditInput(d),
-    { id: ref.id, patch, ...(expectedRevision === undefined ? {} : { expectedRevision }) },
+    {
+      id: ref.id,
+      patch: set,
+      ...(unset.length === 0 ? {} : { unset }),
+      ...(expectedRevision === undefined ? {} : { expectedRevision }),
+    },
     recordCommandName(ref.kind, 'edit'),
   )
   return {
     kind: ref.kind,
     id: input.id,
     patch: input.patch,
+    ...(input.unset === undefined ? {} : { unset: input.unset }),
     ...(input.expectedRevision === undefined ? {} : { expectedRevision: input.expectedRevision }),
   }
 }

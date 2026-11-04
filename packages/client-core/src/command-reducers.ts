@@ -507,7 +507,8 @@ function overlayOf(
  * THE ONE GENERIC CASE (ADR 12 D3, POD-6392): what a record write paints, for
  * every declared kind, read off the declaration and nothing else.
  *
- *  - edit: the patch, on the kind's row in the pool;
+ *  - edit: the patch, on the kind's row in the pool; a cleared cell
+ *    (`unset`, POD-6403) paints absent;
  *  - create: the record's WHOLE row, as the kind declares a new one looks
  *    (POD-6400, `freshRow`): the create's fields with their defaults, the
  *    constant cells, and a placeholder for each cell the server assigns (an
@@ -525,6 +526,7 @@ function recordOverlays(entry: OutboxEntry, viewer: ReducerViewer): PendingOverl
     kind: keyof typeof RECORD_HOMES
     id: string
     patch?: OverlayPatch
+    unset?: readonly string[]
     fields?: OverlayPatch
   }
   const d = recordDeclaration(input.kind)
@@ -534,6 +536,8 @@ function recordOverlays(entry: OutboxEntry, viewer: ReducerViewer): PendingOverl
   switch (recordOpOf(entry.kind)) {
     case 'edit': {
       const patch = wireCells(d, input.patch ?? {})
+      // A cleared cell paints absent (POD-6403): the fold spreads `undefined`.
+      for (const name of input.unset ?? []) if (name in d.fields) patch[name] = undefined
       return Object.keys(patch).length === 0
         ? []
         : [patchOverlay(home.target, row, entry.mutationId, patch)]

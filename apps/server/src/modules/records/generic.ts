@@ -10,13 +10,22 @@
  *  - FIELD PERMISSION, in the target step (ADR 12 D2 step 4, before dedup): a
  *    patch may set `spec` fields only. A `status`, `label` or `key` field is
  *    refused `unauthorized`; an undeclared field never parsed.
- *  - THE CONFLICT RULE (ADR 1):
- *      `exp-rev`: the edit must name the revision it was made against; the
- *      record's current revision is read inside the unit of work (the write
- *      lease holds every other writer off) and a stale one is `conflict`.
+ *  - THE CONFLICT RULE (ADR 1), PER FIELD (POD-6403): a field's own rule, else
+ *    its kind's.
+ *      `exp-rev`: an edit that names such a field must name the revision it was
+ *      made against; the record's current revision is read inside the unit of
+ *      work (the write lease holds every other writer off) and a stale one is
+ *      `conflict`. A remove follows the kind's rule.
  *      `single-writer`, `field-LWW`: the patched fields alone are written, in
- *      commit order. Only the fields a patch names are touched, so two edits of
- *      different fields both land.
+ *      commit order, and no revision is asked for. Only the fields a patch names
+ *      are touched, so two edits of different fields both land.
+ *  - CLEARING (POD-6403): an edit's `unset` names optional spec cells to make
+ *    absent; the parse admits nothing else. The adapter receives them beside
+ *    the patch.
+ *  - THE REPLY: an edit or remove whose adapter reports the record's revision
+ *    after the write answers `{ revision }`, so the device that queued the next
+ *    edit of the same record can make it against that revision (its own chain,
+ *    POD-6403); any other answers `{ ok: true }`.
  *  - DEVICE IDS (ADR 12 D4): a create's id shape is checked at parse (the
  *    contract's `newId`); an id that exists is `conflict`, never overwritten; the
  *    same envelope again is the entry point's dedup replay. Labels (an issue's
@@ -32,6 +41,8 @@
 
 import {
   createFields,
+  editNeedsRevision,
+  fieldConflict,
   freshCreateFields,
   type RecordOp,
   recordContracts,
@@ -64,11 +75,14 @@ export interface RecordAdapter {
    */
   read?(id: string): Promise<{ readonly revision?: number } | undefined>
   create?(ctx: SyncWriteContext, id: string, fields: Fields): Promise<unknown>
+  /** `unset`: optional spec cells this edit makes absent (POD-6403). The
+   *  result may carry the record's `revision` after the write; it is the reply. */
   edit?(
     ctx: SyncWriteContext,
     id: string,
     patch: Fields,
     expectedRevision: number | undefined,
+    unset: readonly string[],
   ): Promise<unknown>
   remove?(ctx: SyncWriteContext, id: string, expectedRevision: number | undefined): Promise<unknown>
 }
@@ -76,6 +90,7 @@ export interface RecordAdapter {
 interface EditInput {
   readonly id: string
   readonly patch: Fields
+  readonly unset?: readonly string[]
   readonly expectedRevision?: number
 }
 interface CreateInput {
@@ -97,6 +112,19 @@ export function forbiddenPatchFields(d: SyncedKindDeclaration, patch: Fields): s
   return Object.keys(patch).filter((name) => patch[name] !== undefined && !writable.has(name))
 }
 
+/** The fields an edit names: those it sets and those it clears. */
+const namedFields = (input: EditInput): string[] => [
+  ...Object.keys(input.patch).filter((name) => input.patch[name] !== undefined),
+  ...(input.unset ?? []),
+]
+
+/** What an edit or remove answers: the record's revision after the write, when
+ *  the adapter reports one, so the device's next edit of it can chain. */
+function replyOf(result: unknown): { revision: number } | { ok: true } {
+  const revision = (result as { revision?: unknown } | null | undefined)?.revision
+  return typeof revision === 'number' ? { revision } : { ok: true }
+}
+
 /** Register one kind's generic commands on the entry point. */
 export function registerRecordKind(
   registry: SyncWriteRegistry,
@@ -104,17 +132,24 @@ export function registerRecordKind(
   adapter: RecordAdapter,
 ): void {
   const contracts = recordContracts(d)
-  const needsRead = d.conflict === 'exp-rev' || contracts.create !== undefined
+  const anyRevision =
+    d.conflict === 'exp-rev' ||
+    Object.keys(d.fields).some((name) => fieldConflict(d, name) === 'exp-rev')
+  const needsRead = anyRevision || contracts.create !== undefined
   if (needsRead && adapter.read === undefined) {
     throw new Error(`records: ${d.kind} must say how to read a record`)
   }
   const read = async (id: string) => await adapter.read?.(id)
 
   /** The revision an `exp-rev` write was made against, checked now. */
-  const arbitrate = async (id: string, expected: number | undefined): Promise<void> => {
+  const arbitrate = async (
+    id: string,
+    expected: number | undefined,
+    needsRevision: boolean,
+  ): Promise<void> => {
     const current = await read(id)
     if (current === undefined) refuse('target-not-found')
-    if (d.conflict !== 'exp-rev') return
+    if (!needsRevision) return
     if (expected === undefined) {
       throw new SyncWriteRefused({ kind: 'invalid', details: ['expectedRevision'] })
     }
@@ -127,15 +162,20 @@ export function registerRecordKind(
     registry.register({
       contract: contracts.edit,
       target: async (input, ctx) => {
-        const { id, patch } = input as EditInput
+        const { id, patch, unset = [] } = input as EditInput
         if (forbiddenPatchFields(d, patch).length > 0) return undefined
+        const writable = new Set(specFields(d))
+        if (unset.some((name) => !writable.has(name))) return undefined
         return await adapter.target('edit', id, ctx)
       },
       handle: async (ctx, input) => {
-        const { id, patch } = input as EditInput
-        const expected = (input as EditInput).expectedRevision ?? ctx.expectedRevision
-        if (needsRead) await arbitrate(id, expected)
-        return await edit(ctx, id, patch, expected)
+        const edited = input as EditInput
+        const { id, patch, unset = [] } = edited
+        const expected = edited.expectedRevision ?? ctx.expectedRevision
+        // Only an edit naming an exp-rev field is held to a revision; a plain
+        // field's last writer wins (POD-6403).
+        if (needsRead) await arbitrate(id, expected, editNeedsRevision(d, namedFields(edited)))
+        return replyOf(await edit(ctx, id, patch, expected, unset))
       },
     })
   }
@@ -174,8 +214,8 @@ export function registerRecordKind(
       handle: async (ctx, input) => {
         const { id } = input as RemoveInput
         const expected = (input as RemoveInput).expectedRevision ?? ctx.expectedRevision
-        if (needsRead) await arbitrate(id, expected)
-        return await remove(ctx, id, expected)
+        if (needsRead) await arbitrate(id, expected, d.conflict === 'exp-rev')
+        return replyOf(await remove(ctx, id, expected))
       },
     })
   }

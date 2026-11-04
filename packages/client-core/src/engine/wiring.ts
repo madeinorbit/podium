@@ -39,6 +39,7 @@ import {
   recoverableAuthoredText,
   sessionGoneNotice,
 } from '../outbox-recovery-copy'
+import { recordRevisionChainFor } from '../record-revisions'
 import {
   isRecordOutboxKind,
   RECORD_HOMES,
@@ -783,20 +784,27 @@ async function submitRecord(
     })
   const submit = api.sync?.submit
   if (submit === undefined) throw unserved()
+  // This device's own chain of edits on the record (POD-6403).
+  const chain = recordRevisionChainFor(api)
+  const against = chain.sendAgainst(kind, entry)
+  const wire = recordWireInput(entry)
   let raw: unknown
   try {
     raw = await submit.mutate({
       mutationId,
       command: command.name,
       version: command.version,
-      input: recordWireInput(entry),
+      input: against === undefined ? wire : { ...wire, expectedRevision: against },
     })
   } catch (error) {
     if (isMissingSyncSubmit(error)) throw unserved()
     throw error
   }
   const reply = SyncSubmitReply.parse(raw)
-  if (reply.outcome === 'applied') return reply.result
+  if (reply.outcome === 'applied') {
+    chain.applied(kind, entry, reply.result)
+    return reply.result
+  }
   throw Object.assign(new Error(`${command.name} refused: ${reply.refusal.kind}`), {
     data: { code: REFUSAL_CODES[reply.refusal.kind] },
   })

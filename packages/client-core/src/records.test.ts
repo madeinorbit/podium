@@ -30,6 +30,7 @@ import {
   RecordInputError,
   recordEditEntry,
   recordWireCommands,
+  UNSET,
 } from './records'
 
 const ISSUE = 'iss_00000000-0000-4000-8000-000000000001'
@@ -115,6 +116,26 @@ describe('the generic API refuses what the declaration refuses, before anything 
     expect(() =>
       recordEditEntry({ kind: 'sessionUserState', id: READ_ROW }, { userId: 'u-2' } as never),
     ).toThrow(RecordInputError)
+  })
+
+  it('a cell that can only be set, cleared (POD-6403)', () => {
+    // `readAt: null` is unread; the cell is never absent.
+    expect(() =>
+      recordEditEntry({ kind: 'sessionUserState', id: READ_ROW }, { readAt: UNSET }),
+    ).toThrow(/readAt cannot be cleared/)
+  })
+
+  it('a single-writer edit names no revision (POD-6403)', () => {
+    expect(
+      recordEditEntry(
+        { kind: 'sessionUserState', id: READ_ROW },
+        { readAt: '2026-11-01T00:00:00.000Z' },
+      ),
+    ).toEqual({
+      kind: 'sessionUserState',
+      id: READ_ROW,
+      patch: { readAt: '2026-11-01T00:00:00.000Z' },
+    })
   })
 
   it('an exp-rev edit without its revision', async () => {
@@ -285,6 +306,32 @@ describe('the executor the compatibility queue calls', () => {
         input: { id: ISSUE, patch: { title: 'Mine' }, expectedRevision: 2 },
       },
     ])
+  })
+
+  it('chains this device’s next edit of the record onto the revision its last one wrote (POD-6403)', async () => {
+    let revision = 2
+    const submits: { input: { expectedRevision?: number } }[] = []
+    const api = {
+      sync: {
+        submit: {
+          mutate: async (envelope: { input: { expectedRevision?: number } }) => {
+            submits.push(envelope)
+            revision += 1
+            return {
+              outcome: 'applied',
+              result: { revision },
+              receipt: { feedId: 'f', epoch: 'e', seq: revision },
+              replayed: false,
+            }
+          },
+        },
+      },
+    } as unknown as PodiumClientApi
+    const execute = outboxExecutors(api).recordEdit
+    await execute(input)
+    const next = { ...input, mutationId: asMutationId('m-10') }
+    await execute(next)
+    expect(submits.map((s) => s.input.expectedRevision)).toEqual([2, 3])
   })
 
   it('a refusal in the reply is the same refusal to the queue', async () => {

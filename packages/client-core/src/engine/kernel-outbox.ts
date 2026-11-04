@@ -42,6 +42,7 @@ import {
   platformOnlineEvents,
 } from '../outbox'
 import { couldNotSaveNotice, sessionGoneNotice } from '../outbox-recovery-copy'
+import { type RecordRevisionChain, recordRevisionChainFor } from '../record-revisions'
 import { isRecordOutboxKind, recordWireCommands, recordWireInput } from '../records'
 import { outboxOverlayPort } from '../replica-assembly/outbox-overlay'
 import {
@@ -210,6 +211,22 @@ function submitInput(kind: keyof OutboxKinds, envelope: OutboxEnvelope): Record<
   return isRecordOutboxKind(kind) ? recordWireInput(input) : input
 }
 
+/**
+ * A record write's input with its revision chained onto this device's own
+ * applied predecessor of the same record (POD-6403, `../record-revisions.ts`).
+ * A recovery's envelope revision is the user's choice on fresh truth: it stays.
+ */
+function chainedInput(
+  chain: RecordRevisionChain,
+  kind: keyof OutboxKinds,
+  envelope: OutboxEnvelope,
+  input: Record<string, unknown>,
+): Record<string, unknown> {
+  if (envelope.expectedRevision !== undefined) return input
+  const against = chain.sendAgainst(kind, envelope.input as object)
+  return against === undefined ? input : { ...input, expectedRevision: against }
+}
+
 /** What one submit came back with, whichever route carried it. */
 type Answered =
   | { readonly kind: 'applied'; readonly result: unknown; readonly receipt?: CoveringCursor }
@@ -231,13 +248,14 @@ async function submitEnvelope(
   const kind = kindByCommand.get(envelope.command)
   const syncSubmit = api.sync?.submit
   if (kind !== undefined && syncSubmit !== undefined && now() >= legacy.recheckAt) {
+    const chain = recordRevisionChainFor(api)
     let raw: unknown
     try {
       raw = await syncSubmit.mutate({
         mutationId: envelope.mutationId,
         command: envelope.command,
         version: envelope.version,
-        input: submitInput(kind, envelope),
+        input: chainedInput(chain, kind, envelope, submitInput(kind, envelope)),
         ...revisionOf(envelope),
         ...(envelope.confirmed === true ? { confirmed: true as const } : {}),
       })
@@ -251,6 +269,9 @@ async function submitEnvelope(
       // a guess at what the server did.
       const reply = SyncSubmitReply.parse(raw)
       if (reply.outcome === 'rejected') return { kind: 'rejected', refusal: reply.refusal }
+      if (envelope.expectedRevision === undefined) {
+        chain.applied(kind, envelope.input as object, reply.result)
+      }
       return {
         kind: 'applied',
         result: readOutboxReply(kind, envelope.input as never, reply.result, hooks),

@@ -407,7 +407,7 @@ describe('records.sessionUserState', () => {
  */
 async function fixtureKind() {
   const o = await makeOracle()
-  const records = new Map<string, { title: string; revision: number }>()
+  const records = new Map<string, { title: string; note?: string; revision: number }>()
   const writes: string[] = []
   // The issue's ADR 3 cells and ops, without its placement input.
   const { placement: _placement, ...cells } = ISSUE_RECORD
@@ -415,12 +415,19 @@ async function fixtureKind() {
     ...cells,
     kind: 'conversation',
     title: 'note',
-    wire: z.object({ id: z.string(), title: z.string(), revision: z.number() }),
+    wire: z.object({
+      id: z.string(),
+      title: z.string(),
+      note: z.string().optional(),
+      revision: z.number(),
+    }),
     ref: z.string(),
     newId: deviceIdSchema('nt_'),
     conflict: 'exp-rev',
     fields: {
       title: recordSpecField(z.string(), ROW.issueCore, { required: true }),
+      // A plain field (POD-6403): its last writer wins, whatever the revision.
+      note: recordSpecField(z.string(), ROW.composerDraft, { conflict: 'field-LWW' }),
       revision: recordStatusField(z.number(), ROW.issueCore),
     },
     // A new note is its title; the server numbers its first revision.
@@ -433,10 +440,15 @@ async function fixtureKind() {
       writes.push(`create ${id}`)
       records.set(id, { title: String(fields.title), revision: 1 })
     },
-    edit: async (_ctx, id, patch) => {
+    edit: async (_ctx, id, patch, _expected, unset) => {
       writes.push(`edit ${id}`)
-      const current = must(records.get(id))
-      records.set(id, { title: String(patch.title), revision: current.revision + 1 })
+      const next = { ...must(records.get(id)) }
+      if (patch.title !== undefined) next.title = String(patch.title)
+      if (patch.note !== undefined) next.note = String(patch.note)
+      if (unset.includes('note')) delete next.note
+      next.revision += 1
+      records.set(id, next)
+      return { revision: next.revision }
     },
   })
   return { o, records, writes }
@@ -502,5 +514,105 @@ describe('the generic layer, with an adapter that guards nothing', () => {
     expect(replay.replayed).toBe(true)
     expect(records.get(id)?.title).toBe('a')
     expect(writes).toEqual([`create ${id}`])
+  })
+})
+
+describe('plain fields, clearing, and the revision an edit wrote (POD-6403)', () => {
+  const create = async (o: Oracle, id: string) =>
+    appliedReply(
+      await submit(
+        o,
+        envelope('records.conversation.create', { id, fields: { title: 'a' } }, `c-${id}`),
+      ),
+    )
+
+  it('an edit of plain fields only needs no revision, and two made at one revision both land', async () => {
+    const { o, records } = await fixtureKind()
+    const id = `nt_${crypto.randomUUID()}`
+    await create(o, id)
+
+    appliedReply(
+      await submit(o, envelope('records.conversation.edit', { id, patch: { note: 'x' } }, 'p-1')),
+    )
+    appliedReply(
+      await submit(o, envelope('records.conversation.edit', { id, patch: { note: 'y' } }, 'p-2')),
+    )
+
+    expect(records.get(id)?.note).toBe('y')
+  })
+
+  it('an edit that also names an exp-rev field is still held to its revision', async () => {
+    const { o, writes } = await fixtureKind()
+    const id = `nt_${crypto.randomUUID()}`
+    await create(o, id)
+
+    const bare = await submit(
+      o,
+      envelope('records.conversation.edit', { id, patch: { note: 'x', title: 'b' } }, 'p-1'),
+    )
+    const stale = await submit(
+      o,
+      envelope(
+        'records.conversation.edit',
+        { id, patch: { note: 'x', title: 'b' }, expectedRevision: 7 },
+        'p-2',
+      ),
+    )
+
+    expect(refusal(bare)).toEqual({ kind: 'invalid', details: ['expectedRevision'] })
+    expect(refusal(stale)).toEqual({ kind: 'conflict' })
+    expect(writes).toEqual([`create ${id}`])
+  })
+
+  it('unset clears an optional spec cell; anything else is refused at parse', async () => {
+    const { o, records } = await fixtureKind()
+    const id = `nt_${crypto.randomUUID()}`
+    await create(o, id)
+    appliedReply(
+      await submit(o, envelope('records.conversation.edit', { id, patch: { note: 'x' } }, 'u-1')),
+    )
+
+    appliedReply(
+      await submit(
+        o,
+        envelope('records.conversation.edit', { id, patch: {}, unset: ['note'] }, 'u-2'),
+      ),
+    )
+    const notOptional = await submit(
+      o,
+      envelope('records.conversation.edit', { id, patch: {}, unset: ['title'] }, 'u-3'),
+    )
+
+    expect(records.get(id)).not.toHaveProperty('note')
+    expect(refusal(notOptional).kind).toBe('invalid')
+  })
+
+  it('answers with the revision the edit wrote', async () => {
+    const { o } = await fixtureKind()
+    const id = `nt_${crypto.randomUUID()}`
+    await create(o, id)
+
+    const reply = appliedReply(
+      await submit(
+        o,
+        envelope(
+          'records.conversation.edit',
+          { id, patch: { title: 'b' }, expectedRevision: 1 },
+          'r-1',
+        ),
+      ),
+    )
+
+    expect(reply.result).toEqual({ revision: 2 })
+  })
+
+  it('the issue answers with its revision too, so a device can chain its next edit', async () => {
+    const o = await makeOracle()
+    const id = await createIssue(o)
+    const at = (await meta(o, id)).revision ?? undefined
+
+    const reply = appliedReply(await submit(o, edit(id, { priority: 1 }, at, 'r-issue')))
+
+    expect(reply.result).toEqual({ revision: (await meta(o, id)).revision })
   })
 })

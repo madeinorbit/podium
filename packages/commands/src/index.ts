@@ -144,6 +144,17 @@ export {
   conversationsSetMetaInput,
 } from './conversations/contracts'
 export {
+  EFFECT_CONFLICT_RULE,
+  EFFECT_CONTRACTS,
+  EFFECT_MAX_DEADLINE_MS,
+  EffectsCancelInput,
+  EffectsCreateInput,
+  EffectsDismissInput,
+  effectsCancelContract,
+  effectsCreateContract,
+  effectsDismissContract,
+} from './effects/contracts'
+export {
   FILE_CONTRACT_NAMES,
   FILE_CONTRACTS,
   type FileContractName,
@@ -412,17 +423,6 @@ export {
   readPositionAdvanceInput,
 } from './read-position/contracts'
 export {
-  EFFECT_CONFLICT_RULE,
-  EFFECT_CONTRACTS,
-  EFFECT_MAX_DEADLINE_MS,
-  EffectsCancelInput,
-  EffectsCreateInput,
-  EffectsDismissInput,
-  effectsCancelContract,
-  effectsCreateContract,
-  effectsDismissContract,
-} from './effects/contracts'
-export {
   RECORD_CONTRACTS,
   recordContracts,
   recordContractTable,
@@ -434,6 +434,8 @@ export {
   createFields,
   declarationProblems,
   defineSyncedKind,
+  editNeedsRevision,
+  fieldConflict,
   key as recordKeyField,
   label as recordLabelField,
   RECORD_CONFLICTS,
@@ -448,6 +450,7 @@ export {
   spec as recordSpecField,
   specFields,
   status as recordStatusField,
+  unsettableFields,
 } from './records/declare'
 export {
   type FreshContext,

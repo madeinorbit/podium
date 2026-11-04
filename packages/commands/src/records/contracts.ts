@@ -27,6 +27,7 @@ import {
   type RecordOp,
   recordCommandName,
   type SyncedKindDeclaration,
+  unsettableFields,
 } from './declare'
 import { SYNCED_KINDS } from './kinds'
 
@@ -35,16 +36,18 @@ const CREATES_NOTHING = {
   note: 'Changes or removes an existing record; mints nothing, so there is no owner to assign.',
 } as const
 
-/** A non-empty patch over the declared fields. */
+/** A patch over the declared fields. */
 function patchSchema(d: SyncedKindDeclaration): z.ZodTypeAny {
   const shape: Record<string, z.ZodTypeAny> = {}
   for (const [name, f] of Object.entries(d.fields)) shape[name] = f.schema.optional()
-  return z
-    .object(shape)
-    .strict()
-    .refine((patch) => Object.values(patch).some((v) => v !== undefined), {
-      message: 'a patch names at least one field',
-    })
+  return z.object(shape).strict()
+}
+
+/** The fields an edit clears (POD-6403): optional spec cells only. */
+function unsetSchema(d: SyncedKindDeclaration): z.ZodTypeAny {
+  const names = unsettableFields(d)
+  const name = names.length === 0 ? z.never() : z.enum(names as [string, ...string[]])
+  return z.array(name).min(1).optional()
 }
 
 /** What a create carries: spec and key fields (required where declared) and the
@@ -61,11 +64,26 @@ function createFieldsSchema(d: SyncedKindDeclaration): z.ZodTypeAny {
 }
 
 export function recordEditInput(d: SyncedKindDeclaration) {
-  return z.object({
-    id: d.ref,
-    patch: patchSchema(d),
-    expectedRevision: Revision.optional(),
-  })
+  return z
+    .object({
+      id: d.ref,
+      patch: patchSchema(d),
+      unset: unsetSchema(d),
+      expectedRevision: Revision.optional(),
+    })
+    .refine(
+      (input) =>
+        Object.values(input.patch as object).some((v) => v !== undefined) ||
+        (input.unset?.length ?? 0) > 0,
+      { message: 'an edit sets or clears at least one field', path: ['patch'] },
+    )
+    .refine(
+      (input) =>
+        !(input.unset ?? []).some(
+          (name: string) => (input.patch as Record<string, unknown>)[name] !== undefined,
+        ),
+      { message: 'an edit never sets and clears one field', path: ['unset'] },
+    )
 }
 
 export function recordCreateInput(d: SyncedKindDeclaration) {

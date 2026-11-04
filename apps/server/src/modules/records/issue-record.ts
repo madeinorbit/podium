@@ -76,11 +76,14 @@ export function registerIssueRecord(registry: SyncWriteRegistry, deps: IssueReco
       return row !== null && row.id === id ? { revision: row.revision ?? undefined } : undefined
     },
     create: async (ctx, id, fields) => await run(ctx, 'create', { ...fields, id, startNow: false }),
-    edit: async (ctx, id, patch, expectedRevision) =>
-      await run(ctx, 'update', {
+    edit: async (ctx, id, patch, expectedRevision, unset) => {
+      // The family's update has no spelling for "make this cell absent" yet.
+      if (unset.length > 0) throw new SyncWriteRefused({ kind: 'invalid', details: ['unset'] })
+      return await run(ctx, 'update', {
         id,
         patch,
         ...(expectedRevision === undefined ? {} : { expectedRevision }),
-      }),
+      })
+    },
   })
 }

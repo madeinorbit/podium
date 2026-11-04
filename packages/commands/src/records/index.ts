@@ -10,6 +10,8 @@
 export { recordCreateInput, recordEditInput, recordRemoveInput } from './contracts'
 export {
   createFields,
+  editNeedsRevision,
+  fieldConflict,
   RECORD_OPS,
   type RecordConflict,
   type RecordField,
@@ -18,6 +20,7 @@ export {
   recordCommandName,
   type SyncedKindDeclaration,
   specFields,
+  unsettableFields,
 } from './declare'
 export {
   type FreshContext,

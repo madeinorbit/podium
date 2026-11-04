@@ -4,7 +4,7 @@
  * other write: by its receipt, not by its reply.
  */
 
-import { asMutationId } from '@podium/model'
+import { asMutationId, asSessionId, asUserId, sessionUserStateRowId } from '@podium/model'
 import type { SyncSubmitInput, SyncSubmitReply } from '@podium/protocol'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import type { Cursor } from '@podium/sync/replica'
@@ -19,7 +19,13 @@ import type { EngineOutboxCallbacks } from './wiring'
 const FEED = { feedId: 'feed-1', epoch: 'epoch-1' }
 const at = (seq: number): Cursor => ({ ...FEED, seq })
 const M1 = asMutationId('mut-1')
+const M2 = asMutationId('mut-2')
+const M3 = asMutationId('mut-3')
 const ISSUE = 'iss_00000000-0000-4000-8000-000000000001'
+const READ_ROW = sessionUserStateRowId(
+  asUserId('user-1'),
+  asSessionId('00000000-0000-4000-8000-0000000000aa'),
+)
 
 function memoryStorage(): OutboxStorage {
   let entries: OutboxEntry[] = []
@@ -165,10 +171,96 @@ describe('a generic record write on the kernel queue', () => {
     ])
     expect(outbox.pending()).toEqual([])
     expect(outbox.awaiting()).toEqual([])
-    expect(onDropped).toHaveBeenCalledWith(
-      expect.objectContaining({ mutationId: M1 }),
-      { code: 'invalid' },
+    expect(onDropped).toHaveBeenCalledWith(expect.objectContaining({ mutationId: M1 }), {
+      code: 'invalid',
+    })
+    outbox.dispose()
+  })
+})
+
+describe('one device’s chain of edits on one record (POD-6403)', () => {
+  /** A server that numbers each applied edit's revision from 4. */
+  function counting() {
+    let revision = 3
+    return (): SyncSubmitReply => ({
+      outcome: 'applied',
+      result: { revision: ++revision },
+      receipt: at(revision),
+      replayed: false,
+    })
+  }
+
+  it('an edit made against the revision its own applied predecessor was made against goes out against the one it wrote', async () => {
+    const { outbox, submits, goOnline } = await open(counting())
+    await outbox.enqueue('recordEdit', EDIT, { mutationId: M1 })
+    await outbox.enqueue('recordEdit', { ...EDIT, patch: { title: 'Again' } }, { mutationId: M2 })
+    await outbox.enqueue('recordEdit', { ...EDIT, patch: { title: 'Third' } }, { mutationId: M3 })
+    goOnline()
+    await outbox.drain()
+    await settle()
+
+    expect(submits.map((s) => (s.input as { expectedRevision?: number }).expectedRevision)).toEqual(
+      [3, 4, 5],
     )
+    outbox.dispose()
+  })
+
+  it('an edit made against another revision goes out as made', async () => {
+    const { outbox, submits, goOnline } = await open(counting())
+    await outbox.enqueue('recordEdit', EDIT, { mutationId: M1 })
+    await outbox.enqueue('recordEdit', { ...EDIT, expectedRevision: 9 }, { mutationId: M2 })
+    await outbox.enqueue(
+      'recordEdit',
+      { ...EDIT, id: 'iss_00000000-0000-4000-8000-000000000002' },
+      { mutationId: M3 },
+    )
+    goOnline()
+    await outbox.drain()
+    await settle()
+
+    // Two records, two partitions: read each send by its entry.
+    const sent = new Map(
+      submits.map((s) => [
+        s.mutationId,
+        (s.input as { expectedRevision?: number }).expectedRevision,
+      ]),
+    )
+    expect([sent.get(M1), sent.get(M2), sent.get(M3)]).toEqual([3, 9, 3])
+    outbox.dispose()
+  })
+
+  it('a plain-field edit names no revision and starts no chain', async () => {
+    const { outbox, submits, goOnline } = await open(counting())
+    const { expectedRevision: _r, ...plain } = EDIT
+    await outbox.enqueue('recordEdit', plain, { mutationId: M1 })
+    await outbox.enqueue('recordEdit', EDIT, { mutationId: M2 })
+    goOnline()
+    await outbox.drain()
+    await settle()
+
+    expect(submits.map((s) => (s.input as { expectedRevision?: number }).expectedRevision)).toEqual(
+      [undefined, 3],
+    )
+    outbox.dispose()
+  })
+
+  it('a cleared cell goes out as unset', async () => {
+    const { outbox, submits, goOnline } = await open(counting())
+    await outbox.enqueue(
+      'recordEdit',
+      { kind: 'sessionUserState', id: READ_ROW, patch: {}, unset: ['snoozedUntil'] },
+      { mutationId: M1 },
+    )
+    goOnline()
+    await outbox.drain()
+    await settle()
+
+    expect(submits[0]?.input).toEqual({
+      id: READ_ROW,
+      patch: {},
+      unset: ['snoozedUntil'],
+      mutationId: M1,
+    })
     outbox.dispose()
   })
 })
