@@ -1698,6 +1698,25 @@ export class IssueGitWorkflowModule {
   }
 
   /**
+   * THE MACHINE WORK ON THIS TASK RUNS ON (POD-6296, design §5 Q4): a task keeps
+   * one worktree on one machine. A started task's is where its worktree is; an
+   * unstarted one's is where a start would cut it: its pin, else its profile's
+   * machine, else the repository's. Read only, so a refusal costs nothing.
+   */
+  async workMachine(id: string, forUser?: UserId): Promise<MachineId> {
+    const row = await this.store.rowOrThrow(id)
+    if (row.machineId || row.worktreePath || row.branch)
+      return await this.store.resolveWorktreeMachine(row.machineId, row.repoPath)
+    const launch = await this.issueLaunch(
+      row,
+      { agent: row.defaultAgent, model: row.defaultModel, effort: row.defaultEffort },
+      row.repoPath,
+      forUser,
+    )
+    return await this.store.resolveWorktreeMachine(launch.machineId, row.repoPath)
+  }
+
+  /**
    * Spawn another agent (or shell) on an already-started issue.
    *
    * When the checkout was freed but the branch survived (stop / archive —

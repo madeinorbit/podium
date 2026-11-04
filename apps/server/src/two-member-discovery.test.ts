@@ -19,6 +19,7 @@ import {
   inPersonalSet,
   type MachineId,
   type SessionId,
+  SHARED_MACHINE_ACCOUNT_WARNING,
 } from '@podium/model'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
@@ -284,10 +285,84 @@ describe('the seat rule: "the user" is the session’s own human', () => {
     expect(seat).toContain('You coordinate this issue')
     // `podium offer` is gated on the same seat: Bob's lead may put it in front of Bob.
     await expect(
-      actor(bobsLead).client.offer.set.mutate({
+      (
+        actor(bobsLead).client as unknown as {
+          offer: { set: { mutate(input: unknown): Promise<unknown> } }
+        }
+      ).offer.set.mutate({
         message: 'Ablation stakes ready',
         actions: [{ label: 'Merge', prompt: 'merge it' }],
       } as never),
     ).resolves.toBeDefined()
+  })
+})
+
+describe('Q4: a task keeps one worktree on one machine', () => {
+  /** A task of Alice's with its worktree on her machine, homed as the fixture homes hers. */
+  async function aliceHomedTask(title: string): Promise<Wire> {
+    const task = await taskOf('alice', title)
+    await f.handle.registry.issues.crud.update(task.id, {
+      worktreePath: `/wt/alice-${task.seq}`,
+      machineId: f.machines.alice,
+    })
+    return task
+  }
+
+  it('without `use` there, Bob and his agent are refused and pointed to a sub-task', async () => {
+    const task = await aliceHomedTask('Alice terminus survey')
+    const bobs = await trpc('bob')
+    for (const attempt of [
+      () => bobs.issues.start.mutate({ id: task.id } as never),
+      () => bobs.issues.addSession.mutate({ id: task.id } as never),
+      () => bobs.issues.addShell.mutate({ id: task.id } as never),
+    ]) {
+      await expect(attempt()).rejects.toThrow(
+        /its worktree is on machine-alice, where you have no `use`\. Work on it through your own sub-task/,
+      )
+    }
+    const viaAgent = actor(await sessionOn('bob', task.id, 'bob-terminus'))
+    await expect(viaAgent.cli(['add-shell', String(task.seq)])).rejects.toThrow(
+      /podium issue create --parent-id REP-\d+ --title "…" --machine <your machine> --start/,
+    )
+    // Nothing reached Alice's machine for it.
+    expect(
+      f
+        .daemonFrames(f.machines.alice)
+        .some((frame) => JSON.stringify(frame).includes(`alice-${task.seq}`)),
+    ).toBe(false)
+
+    // Alice, on her own task and machine, is untouched by the gate.
+    const hers = (await (await trpc('alice')).issues.addShell.mutate({ id: task.id } as never)) as {
+      warning?: string
+    }
+    expect(hers.warning).toBeUndefined()
+  })
+
+  it('with `use` on Alice’s machine, Bob’s shell runs there after the shared-machine warning', async () => {
+    const task = await aliceHomedTask('Alice calving front')
+    await (await trpc('alice')).machines.share.mutate({
+      id: f.machines.alice,
+      grantee: bob,
+      verb: 'use',
+      acknowledgeSharedMachine: true,
+    } as never)
+
+    const added = (await (await trpc('bob')).issues.addShell.mutate({ id: task.id } as never)) as {
+      warning?: string
+    }
+    expect(added.warning).toContain("runs on machine-alice, a machine in someone else's custody")
+    expect(added.warning).toContain(SHARED_MACHINE_ACCOUNT_WARNING)
+    // The shell is Bob's, on Alice's machine.
+    const bobsOnIt = (await f.handle.registry.modules.sessions.readSessionFacts()).filter(
+      (s) => s.issueId === task.id && s.ownerUserId === bob,
+    )
+    expect(bobsOnIt.map((s) => [s.agentKind, s.machineId])).toEqual([['shell', f.machines.alice]])
+
+    // The CLI prints the warning after the result.
+    const text = await actor(await sessionOn('bob', task.id, 'bob-calving')).cli([
+      'add-shell',
+      String(task.seq),
+    ])
+    expect(text).toContain(`WARNING: REP-${task.seq} runs on machine-alice`)
   })
 })

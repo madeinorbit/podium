@@ -310,6 +310,9 @@ export function mailSendOutcomeText(ref: string, id: string, disposition?: strin
   }
 }
 
+/** A start's shared-machine warning (POD-6296), on its own line after the result. */
+const warned = (i: { warning?: string }): string => (i.warning ? `\nWARNING: ${i.warning}` : '')
+
 type Row = Parameters<typeof line>[0]
 const listResult = (rows: Row[], empty: string): IssueCommandResult => ({
   text: rows.length ? rows.map(line).join('\n') : empty,
@@ -840,12 +843,13 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         model?: string | null
         effort?: string | null
         machine?: string
+        warning?: string
       }
       const placement = i.agentId
         ? `\n  ${i.agentId} (${i.harness ?? 'unknown'}) model=${i.model ?? 'default'} effort=${i.effort ?? 'default'} machine=${i.machine ?? 'unknown'}`
         : ''
       return {
-        text: `started #${i.seq} (${i.branch ?? '?'} @ ${i.worktreePath ?? '?'})${placement}`,
+        text: `started #${i.seq} (${i.branch ?? '?'} @ ${i.worktreePath ?? '?'})${placement}${warned(i)}`,
         data: i,
       }
     },
@@ -1236,8 +1240,8 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         id: a.id as string,
         ...(a.agent ? { agentKind: a.agent as string } : {}),
         ...(a.forceUnknownModel ? { forceUnknownModel: true } : {}),
-      })) as { seq: number }
-      return { text: `session added to #${i.seq}`, data: i }
+      })) as { seq: number; warning?: string }
+      return { text: `session added to #${i.seq}${warned(i)}`, data: i }
     },
   },
   {
@@ -1246,8 +1250,11 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     args: z.strictObject({ id: idArg }),
     positionals: ['id'],
     async run(c, a) {
-      const i = (await c.issues.addShell.mutate({ id: a.id as string })) as { seq: number }
-      return { text: `shell added to #${i.seq}`, data: i }
+      const i = (await c.issues.addShell.mutate({ id: a.id as string })) as {
+        seq: number
+        warning?: string
+      }
+      return { text: `shell added to #${i.seq}${warned(i)}`, data: i }
     },
   },
   {

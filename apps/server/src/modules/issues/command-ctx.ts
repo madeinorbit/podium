@@ -119,6 +119,20 @@ export interface IssueCommandDeps {
     capability: import('@podium/model').Capability,
     ids: readonly string[],
   ): Promise<ReadonlySet<string>>
+  /**
+   * WHERE THE CALLER STANDS ON A MACHINE (POD-6296, design §2.4 and §5 Q4):
+   * whether it holds `use` there, through its own human's grants and narrowed
+   * by its delegation, and who has custody. Starting work in a task's worktree
+   * needs `use` on that task's machine. Absent (a bare test dispatcher): no gate.
+   */
+  machineStanding?(
+    principal: CommandPrincipal,
+    machineId: import('@podium/model').MachineId,
+  ): Promise<{
+    use: boolean
+    custodian: import('@podium/model').UserId | null
+    name: string
+  }>
   /** Registered repo paths, all machines (RepoRegistry.list() semantics). */
   repoPaths(): string[] | Promise<string[]>
   /** cwd → repo inference (RepoRegistry.inferFromPath semantics) — serves the

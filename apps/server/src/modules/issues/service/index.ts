@@ -118,6 +118,7 @@ export type IssueGitWorkflowCapability = Pick<
   | 'integrate'
   | 'addSession'
   | 'addShell'
+  | 'workMachine'
   | 'linearSearch'
   | 'onSessionAttention'
   | 'onSessionActivity'

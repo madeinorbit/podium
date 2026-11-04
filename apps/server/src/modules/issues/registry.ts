@@ -28,10 +28,11 @@ import {
   isIssueClosed,
   isPersonCapability,
   issueAllowedActions,
+  SHARED_MACHINE_ACCOUNT_WARNING,
 } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import type { z } from 'zod'
-import { attributionOf } from '../../command-principal'
+import { attributionOf, onBehalfOfUser } from '../../command-principal'
 import { checkIssueAccess } from '../../issue-authz'
 import { withReadScope } from '../../store/executor/read-scope'
 import { ShippingOrderAccessError } from '../shipping/service'
@@ -317,6 +318,58 @@ function startedOnBehalfOf(ctx: IssueCommandCtx): { onBehalfOf?: UserId } {
   const principal = ctx.caller.principal
   const human = principal ? attributionOf(principal).onBehalfOf : ctx.caller.capability.onBehalfOf
   return human ? { onBehalfOf: human } : {}
+}
+
+/**
+ * WORKING IN A TASK'S WORKTREE NEEDS `use` ON ITS MACHINE (POD-6296, design §5
+ * Q4). A task keeps one worktree on one machine. Bob may start work in Alice's
+ * task only where he holds `use`; reading or editing her task grants nothing
+ * on a machine (§2.4). Without it he works through his own sub-task, which
+ * gets its own worktree on his own machine. With it, the run goes ahead with
+ * the shared-machine warning: both people's agents share that OS account.
+ *
+ * The gate is the caller's human's own standing, narrowed by an agent's
+ * delegation; the assignee's rights are never consulted, so no start adopts
+ * them. It applies to work on someone else's task and to work on a machine in
+ * someone else's custody; a person's own task on their own machine (every task
+ * on a one-member instance) is untouched.
+ */
+async function workMachineGate(
+  ctx: IssueCommandCtx,
+  id: string,
+  verb: string,
+): Promise<{ warning?: string }> {
+  const principal = ctx.caller.principal
+  const human = principal ? (onBehalfOfUser(principal) ?? undefined) : undefined
+  if (!principal || !human || !ctx.deps.machineStanding) return {}
+  const row = await ctx.reports.getMeta(id)
+  if (!row) return {}
+  const machineId = await ctx.gitWorkflow.workMachine(row.id, human)
+  const standing = await ctx.deps.machineStanding(principal, machineId)
+  const theirs = row.ownerUserId !== human
+  const elsewhere = standing.custodian !== null && standing.custodian !== human
+  if (!theirs && !elsewhere) return {}
+  const ref = await ctx.reports.niceRef(row)
+  if (!standing.use) {
+    throw new IssueRefusal(
+      theirs
+        ? `cannot ${verb} ${ref}: its worktree is on ${standing.name}, where you have no \`use\`. ` +
+            `Work on it through your own sub-task instead; it gets its own worktree on your machine: ` +
+            `\`podium issue create --parent-id ${ref} --title "…" --machine <your machine> --start\``
+        : `cannot ${verb} ${ref}: it is homed on ${standing.name}, where you have no \`use\`. ` +
+            `Start it on your own machine: \`podium issue start ${ref} --machine <your machine>\``,
+    )
+  }
+  if (!elsewhere) return {}
+  return {
+    warning: `${ref} runs on ${standing.name}, a machine in someone else's custody. ${SHARED_MACHINE_ACCOUNT_WARNING}`,
+  }
+}
+
+/** The gate's warning on a start's result, which the CLI prints after it. */
+function withWarning<T>(gate: { warning?: string }, result: T): T {
+  if (!gate.warning || !result || typeof result !== 'object') return result
+  return { ...result, warning: gate.warning }
 }
 
 /** Guardrail 2 [spec:SP-6144]: lifecycle moves on a proposed issue are
@@ -1020,9 +1073,10 @@ const defs = {
           await assertNotProposedForAgent(ctx, anc, 'start work under')
         }
       }
-      return await ctx.withMutation(
-        input.mutationId,
-        async () =>
+      const gate = await workMachineGate(ctx, input.id, 'start')
+      return await ctx.withMutation(input.mutationId, async () =>
+        withWarning(
+          gate,
           await ctx.gitWorkflow.start(input.id, input.agentKind, {
             spawnedBy: ctx.spawnProvenance(),
             ...startedOnBehalfOf(ctx),
@@ -1032,6 +1086,7 @@ const defs = {
             ...(input.agentProfile ? { agentProfile: input.agentProfile } : {}),
             ...(input.forceUnknownModel ? { forceUnknownModel: true } : {}),
           }),
+        ),
       )
     },
   }),
@@ -1287,21 +1342,31 @@ const defs = {
   addSession: def('addSession', {
     kind: 'mutation',
     target: targetId,
-    handler: async (ctx, input) =>
-      await ctx.gitWorkflow.addSession(input.id, input.agentKind, {
-        spawnedBy: ctx.spawnProvenance(),
-        ...startedOnBehalfOf(ctx),
-        ...(input.forceUnknownModel ? { forceUnknownModel: true } : {}),
-      }),
+    handler: async (ctx, input) => {
+      const gate = await workMachineGate(ctx, input.id, 'add a session to')
+      return withWarning(
+        gate,
+        await ctx.gitWorkflow.addSession(input.id, input.agentKind, {
+          spawnedBy: ctx.spawnProvenance(),
+          ...startedOnBehalfOf(ctx),
+          ...(input.forceUnknownModel ? { forceUnknownModel: true } : {}),
+        }),
+      )
+    },
   }),
   addShell: def('addShell', {
     kind: 'mutation',
     target: targetId,
-    handler: async (ctx, input) =>
-      await ctx.gitWorkflow.addShell(input.id, {
-        spawnedBy: ctx.spawnProvenance(),
-        ...startedOnBehalfOf(ctx),
-      }),
+    handler: async (ctx, input) => {
+      const gate = await workMachineGate(ctx, input.id, 'add a shell to')
+      return withWarning(
+        gate,
+        await ctx.gitWorkflow.addShell(input.id, {
+          spawnedBy: ctx.spawnProvenance(),
+          ...startedOnBehalfOf(ctx),
+        }),
+      )
+    },
   }),
   applySuggestion: def('applySuggestion', {
     kind: 'mutation',

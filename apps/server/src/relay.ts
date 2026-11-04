@@ -86,7 +86,7 @@ import { PresenceRouting } from './gateway/presence-routing'
 import { driverFamilyForId } from './harness-manifest'
 import { checkIssueAccess, mayReachPrivate } from './issue-authz'
 import { type CodexTransport, llmClient } from './llm'
-import { checkMachineUse, ownershipSnapshotFromMachines } from './machine-access'
+import { checkMachineUse, machineCustodian, ownershipSnapshotFromMachines } from './machine-access'
 import type { ModelProbe } from './model-catalog'
 import { resolveLaunchSelection } from './model-validation'
 import { NativeLoginService } from './modules/accounts/native-login'
@@ -114,8 +114,8 @@ import { IssueGitWatch } from './modules/issues/git-watch'
 import { readIssue, readIssues } from './modules/issues/issue-reader'
 import { PENDING_UPLOAD_SWEEP_MS, PendingUploadStore } from './modules/issues/pending-uploads'
 import { repoProjectionRows } from './modules/issues/projection'
-import { makeAgentRelayDispatch } from './modules/issues/relay-dispatch'
 import { type ReassignmentFacts, reassignmentNotices } from './modules/issues/reassign-notice'
+import { makeAgentRelayDispatch } from './modules/issues/relay-dispatch'
 import { AgentRelayGate } from './modules/issues/relay-gate'
 import { IssueService } from './modules/issues/service'
 import { seatText } from './modules/issues/service/seat'
@@ -3100,6 +3100,16 @@ export class SessionRegistry {
       // A task mailbox read outside the caller's subtree shows only the mail
       // the caller may read (POD-6284, POD-6288).
       mailVisibleIds: async (capability, ids) => await messageGate.visibleMailIds(capability, ids),
+      // Starting work in a task's worktree needs `use` there (POD-6296, Q4).
+      machineStanding: async (principal, machineId) => {
+        const ownership = await ownershipSnapshotFromMachines(machines)
+        const row = ownership.rowFor(machineId)
+        return {
+          use: checkMachineUse(principal, machineId, ownership) === undefined,
+          custodian: row ? machineCustodian(row.grants) : null,
+          name: row?.name || machineId,
+        }
+      },
       repoPaths: async () => await this.store.repos.listRepoPaths(),
       inferRepoFromPath: async (path) =>
         inferRepoFromRoots(await this.store.repos.listRepoPaths(), path),
