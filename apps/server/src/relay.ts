@@ -774,6 +774,16 @@ export class SessionRegistry {
       ...(options.installationId ? { installationId: options.installationId } : {}),
       // Custody transitions require an existing recipient in the member directory.
       userExists: async (userId) => (await this.store.users.get(userId)) !== undefined,
+      // A daemon coming back gets nothing queued on behalf of an owner who can
+      // no longer act, or whose authority changed after it was queued (POD-6293).
+      fenceQueuedDelivery: async (sessionId, queuedAtMs) => {
+        const owner = (await this.store.sessions.getSession(sessionId))?.ownerUserId
+        if (!owner) return false
+        return (
+          !(await this.store.users.get(owner)) ||
+          (await this.store.users.queuedBeforeAuthorityChange(owner, queuedAtMs))
+        )
+      },
       onInventoryRecorded: async () => await seedSuperagentDefaults?.(),
       clients: () => clientRegistry.values(),
       machinesForPrincipal: async (principal, machineService) =>

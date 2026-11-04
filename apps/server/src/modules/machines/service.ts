@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { gateHarnessVersion, HARNESS_VERSION_POLICIES } from '@podium/harness/browser'
 import { createLogger } from '@podium/logger'
-import type { DaemonReadiness } from '@podium/model'
+import type { DaemonReadiness, SessionId } from '@podium/model'
 import {
   type AccountId,
   AgentKind,
@@ -82,9 +82,31 @@ export const MACHINE_PRESENCE_GRACE_MS = 30_000
  */
 export type MachineUseResolver = (machineId: MachineId) => MachineUseDecision
 
-type PendingDaemonDelivery =
+type PendingDaemonDelivery = (
   | { readonly kind: 'control'; readonly message: ControlMessage }
   | { readonly kind: 'input'; readonly input: DaemonPtyInputBatch }
+) & {
+  /** When it was queued (epoch ms): the reconnect fence's comparison point. */
+  readonly queuedAt: number
+}
+
+/**
+ * Frames that retire a session's work rather than carry its owner's authority.
+ * The reconnect fence never drops these: stopping a revoked member's agent is
+ * exactly what should still reach the machine.
+ */
+const RETIRING_CONTROL_TYPES: ReadonlySet<ControlMessage['type']> = new Set([
+  'kill',
+  'sessionBindingRetire',
+])
+
+/** The session whose owner's authority a queued frame carries, if any. */
+const fencedSessionOf = (delivery: PendingDaemonDelivery): SessionId | undefined => {
+  if (delivery.kind === 'input') return delivery.input.sessionId
+  if (RETIRING_CONTROL_TYPES.has(delivery.message.type)) return undefined
+  const sessionId = (delivery.message as { sessionId?: unknown }).sessionId
+  return typeof sessionId === 'string' ? (sessionId as SessionId) : undefined
+}
 
 const sendControl = (transport: DaemonControlPeer, message: ControlMessage): void => {
   if (typeof transport === 'function') transport(message)
@@ -293,6 +315,13 @@ export interface MachinesDeps {
   onInventoryRecorded?(): Promise<void>
   /** Compatibility-only for isolated fixtures without a bus. */
   publishMachineProjection?(id: MachineId, value: MachineProjection): Promise<void>
+  /**
+   * THE RECONNECT FENCE (POD-6293; design §4.5). Should a frame queued for this
+   * machine while its daemon was away, on behalf of `sessionId`'s owner, be
+   * dropped instead of sent? True when that owner can no longer act or their
+   * authority changed after `queuedAtMs`. Absent = nothing is fenced.
+   */
+  fenceQueuedDelivery?(sessionId: SessionId, queuedAtMs: number): Promise<boolean>
   /** Connected client fan-out (machinesChanged). */
   clients(): Iterable<{ principal: ClientPrincipal; send(msg: ServerMessage): void }>
   /** Principal-scoped projection supplied by the command-policy composition boundary. */
@@ -604,6 +633,9 @@ export class MachinesService {
     caps: readonly string[] = [],
   ): Promise<void> {
     if (this.revokedMachines.has(machineId)) throw new Error('machine is revoked')
+    // Before the transport is installed, so every send in the meantime still
+    // queues behind the frames being judged and the flush keeps their order.
+    await this.fenceQueued(machineId)
     this.daemons.set(machineId, transport)
     // WHAT THIS SOCKET CAN DO, for as long as this socket lasts (POD-3239). Kept
     // beside `daemons` and cleared with it: the question "does the daemon
@@ -829,6 +861,42 @@ export class MachinesService {
   /** Flush control messages buffered while this machine was offline (e.g. a boot
    *  session's spawn produced before the host daemon's ws connected). Every queue is
    *  keyed by a real machine id, so there is nothing to carry over on attach. */
+  /**
+   * THE RECONNECT FENCE (POD-6293). Drop every frame queued for this machine
+   * whose session owner lost their authority after it was queued, so a daemon
+   * coming back cannot be handed work its owner may no longer do. Frames queued
+   * while this runs are judged too, in order. Returns how many were dropped.
+   */
+  async fenceQueued(machineId: MachineId): Promise<number> {
+    const fence = this.deps.fenceQueuedDelivery
+    if (!fence) return 0
+    let dropped = 0
+    let judged = 0
+    for (;;) {
+      const pending = this.pendingByMachine.get(machineId)
+      if (!pending || judged >= pending.length) return dropped
+      const batch = pending.slice(judged)
+      const verdicts = await Promise.all(
+        batch.map(async (delivery) => {
+          const sessionId = fencedSessionOf(delivery)
+          return sessionId !== undefined && (await fence(sessionId, delivery.queuedAt))
+        }),
+      )
+      const fenced = new Set(batch.filter((_, index) => verdicts[index]))
+      if (fenced.size > 0) {
+        log.warn('dropped frames queued for a reconnecting daemon whose owner lost access', {
+          machineId,
+          dropped: fenced.size,
+        })
+        const kept = (this.pendingByMachine.get(machineId) ?? []).filter((d) => !fenced.has(d))
+        if (kept.length > 0) this.pendingByMachine.set(machineId, kept)
+        else this.pendingByMachine.delete(machineId)
+      }
+      dropped += fenced.size
+      judged += batch.length - fenced.size
+    }
+  }
+
   async flushQueued(machineId: MachineId): Promise<void> {
     const row = await this.deps.store.machines.getMachine(machineId)
     if (!row || row.revokedAt) {
@@ -971,7 +1039,7 @@ export class MachinesService {
       return
     }
     const q = this.pendingByMachine.get(machineId)
-    const delivery = { kind: 'control' as const, message: msg }
+    const delivery = { kind: 'control' as const, message: msg, queuedAt: Date.now() }
     if (q) q.push(delivery)
     else this.pendingByMachine.set(machineId, [delivery])
   }
@@ -986,7 +1054,7 @@ export class MachinesService {
       return
     }
     const q = this.pendingByMachine.get(machineId)
-    const delivery = { kind: 'input' as const, input }
+    const delivery = { kind: 'input' as const, input, queuedAt: Date.now() }
     if (q) q.push(delivery)
     else this.pendingByMachine.set(machineId, [delivery])
   }
