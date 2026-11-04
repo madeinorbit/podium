@@ -68,8 +68,12 @@ export const EFFECT_CONFLICT_RULE =
   'already applied. Every status move is the executor’s, written as `UPDATE … WHERE status IN ' +
   'allowedFrom(to)`, so of two triggers exactly one claims the record.'
 
-/** `sync.submit` is served over tRPC; the other adapters come with POD-6359. */
-const SUBMIT_ONLY: readonly TransportTag[] = ['trpc']
+/**
+ * `sync.submit` is served over tRPC. The relay is named too: an agent's
+ * `issues.action` (POD-6394) creates its effect record as the agent, over the
+ * transport it arrived on. The other adapters come with POD-6359.
+ */
+const SUBMIT_ONLY: readonly TransportTag[] = ['trpc', 'relay']
 
 const EFFECT_DELIVERY: DeliveryPolicy = {
   class: 'offline-eligible',

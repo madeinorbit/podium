@@ -151,6 +151,7 @@ import { QuotaBackfill } from './modules/quota-history/backfill'
 import { QuotaSampler } from './modules/quota-history/service'
 import { ReadPositionService } from './modules/read-position/service'
 import { awaitEffectSettled } from './modules/effects/await'
+import { issueGitEffectPort, registerIssueGitEffects } from './modules/issues/git-effects'
 import { makeEffectFeedCapture } from './modules/effects/feed'
 import { EffectExecutorRegistry } from './modules/effects/registry'
 import { EffectsRunner } from './modules/effects/runner'
@@ -3027,6 +3028,9 @@ export class SessionRegistry {
       return service
     }
     const issueCommands = new IssueCommandDispatcher({
+      // Git actions as effect records (POD-6394), read per call: the modules
+      // and the entry point are composed after this dispatcher.
+      gitEffects: issueGitEffectPort({ modules: () => this.modules }),
       arbitration: issueArbitration,
       attachSession: async (caller, input) => await issueAttach.execute(caller, input),
       issues,
@@ -3856,6 +3860,8 @@ export class SessionRegistry {
       executors: effectExecutors,
       now: this.now,
     })
+    // The effect kinds (POD-6394..6396): each family registers its executors.
+    registerIssueGitEffects({ modules: () => this.modules })
     const agentRelayGate = new AgentRelayGate({
       // issues/repos ops run through the registry dispatcher (guard + schema +
       // handler, router-equal); the specs router (pspec, #135) is served by the

@@ -25,7 +25,7 @@ import {
   effectsCreateContract,
   effectsDismissContract,
 } from '@podium/commands'
-import { onBehalfOfUser } from '../../command-principal'
+import { attributionOf, onBehalfOfUser } from '../../command-principal'
 import type { EffectRow, EffectsRepository } from '../../store/effects'
 import { SyncWriteRefused } from '../sync-write/entry'
 import type { SyncTargetContext, SyncWriteRegistry, SyncWriteTarget } from '../sync-write/registry'
@@ -102,6 +102,7 @@ export function registerEffectCommands(registry: SyncWriteRegistry, deps: Effect
           input: parsed.data,
           deadlineAt: now + (input.deadlineMs ?? executor.deadlineMs),
           createdBy: onBehalfOfUser(ctx.principal),
+          actor: attributionOf(ctx.principal).actor,
         },
         now,
       )

@@ -884,7 +884,11 @@ const defs = {
   action: def('action', {
     kind: 'mutation',
     target: targetId,
-    handler: async (ctx, input) => await ctx.gitWorkflow.action(input.id, input.kind),
+    // An effect record (POD-6394): every device sees it run; the reply is as before.
+    handler: async (ctx, input) =>
+      ctx.deps.gitEffects !== undefined
+        ? await ctx.deps.gitEffects.run(ctx.caller, input.kind, input.id)
+        : await ctx.gitWorkflow.action(input.id, input.kind),
   }),
   // Write, not manage: heavily guarded (closed + merged + clean only), so a
   // closing agent may clean up after itself. Acts on LOCAL git state — it removes a
@@ -932,7 +936,9 @@ const defs = {
     kind: 'mutation',
     target: targetId,
     handler: async (ctx, input) =>
-      await ctx.gitWorkflow.integrate(input.id, ctx.requirePrincipal()),
+      ctx.deps.gitEffects !== undefined
+        ? await ctx.deps.gitEffects.run(ctx.caller, 'integrate', input.id)
+        : await ctx.gitWorkflow.integrate(input.id, ctx.requirePrincipal()),
   }),
   ship: def('ship', {
     kind: 'mutation',

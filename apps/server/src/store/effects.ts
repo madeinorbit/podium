@@ -55,6 +55,8 @@ export interface EffectRow {
   readonly startedAt: number | undefined
   readonly finishedAt: number | undefined
   readonly createdBy: UserId | null
+  /** Who acted: `session:<id>` for an agent, the user id for a person. */
+  readonly actor: string | null
   readonly createdAt: number
   readonly updatedAt: number
   readonly revision: number
@@ -100,6 +102,7 @@ export function rowToEffect(r: EffectSelect): EffectRow {
     startedAt: orUndefined(r.startedAt),
     finishedAt: orUndefined(r.finishedAt),
     createdBy: r.createdBy,
+    actor: r.actor,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
     revision: r.revision,
@@ -126,6 +129,7 @@ const insertEffect = prepared((db: StoreDrizzle) =>
       status: P('status'),
       deadlineAt: P('deadlineAt'),
       createdBy: P('createdBy'),
+      actor: P('actor'),
       createdAt: P('now'),
       updatedAt: P('now'),
     })
@@ -343,6 +347,7 @@ export interface NewEffect {
   readonly input: unknown
   readonly deadlineAt: number | undefined
   readonly createdBy: UserId | null
+  readonly actor?: string | null
 }
 
 export interface EffectSettlement {
@@ -416,6 +421,7 @@ export class EffectsRepository {
           status: 'pending',
           deadlineAt: effect.deadlineAt ?? null,
           createdBy: effect.createdBy,
+          actor: effect.actor ?? null,
           now,
         }),
     )

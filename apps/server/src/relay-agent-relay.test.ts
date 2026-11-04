@@ -2,7 +2,7 @@ import type { SessionId } from '@podium/model'
 import { asIssueId, asMachineId, asSessionId, firstAdminMemberId } from '@podium/model'
 import { sessionTitleRule } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { attachHostDaemon, confirmingRetirement } from './test-support/host-daemon'
@@ -233,6 +233,40 @@ describe('server agent relay handler (P1b)', () => {
 
     const top = await setOffer('ir-offer-top', sA)
     expect(top.ok).toBe(true)
+  })
+
+  it('an agent merge through the relay runs as an effect record, as that agent (POD-6394)', async () => {
+    const wf = registry.modules.issues.gitWorkflow
+    const issue = await wf.projectionNow(A.id)
+    const landed = vi.spyOn(wf, 'branchLanded').mockResolvedValue(false)
+    const action = vi
+      .spyOn(wf, 'action')
+      .mockResolvedValue({ ok: true, output: 'Fast-forward', issue })
+    try {
+      const reply = captureReply(registry, machineId)
+      registry.gateway.routeDaemonFrame(machineId, {
+        type: 'agentRelayRequest',
+        requestId: 'ir-merge',
+        sessionId: asSessionId(sA),
+        router: 'issues',
+        proc: 'action',
+        input: { id: A.id, kind: 'merge' },
+      })
+      const r = await reply
+      expect(r.ok).toBe(true)
+      expect(r.result).toMatchObject({ ok: true, output: 'Fast-forward' })
+      const effectIds = (await store.sync.changesSince(0))
+        .filter((row) => row.entity === 'effect')
+        .map((row) => row.entityId)
+      expect(new Set(effectIds).size).toBe(1)
+      const record = await store.effects.get(effectIds[0] as string)
+      expect(record?.status).toBe('succeeded')
+      expect(record?.actor).toBe(`session:${sA}`)
+      expect(record?.target).toEqual({ kind: 'issue', id: A.id })
+    } finally {
+      landed.mockRestore()
+      action.mockRestore()
+    }
   })
 
   it('override lets a scoped op write outside its subtree', async () => {

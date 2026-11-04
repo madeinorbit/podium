@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { IssueId, IssueProjection, SessionId } from '@podium/model'
-import { attributionOf, type CommandPrincipal } from '../../../command-principal'
+import { attributionOf, type CommandAttribution, type CommandPrincipal } from '../../../command-principal'
 import type { IssueMessageRow } from '../../../store'
 import type { IssueStore } from './core'
 import { countContextAwarePendingMail } from './mail-pending'
@@ -41,11 +41,12 @@ export class IssueCommentsMailModule {
     id: string,
     author: string,
     body: string,
-    principal: CommandPrincipal,
+    principal: CommandPrincipal | CommandAttribution,
   ): Promise<IssueProjection> {
     const issueId = await this.store.resolveRef(id)
     const row = await this.store.draftOrThrow(issueId)
-    const attribution = attributionOf(principal)
+    // An effect's executor (POD-6394) has the stored attribution, not a live principal.
+    const attribution = 'kind' in principal ? attributionOf(principal) : principal
     return await this.store.persistWith(
       row,
       async () =>

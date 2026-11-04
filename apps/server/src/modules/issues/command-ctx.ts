@@ -42,6 +42,7 @@ import type {
 } from './service'
 import type { ShippingService } from '../shipping'
 import type { IssueReader } from './service/reads'
+import type { IssueGitEffectPort } from './git-effects'
 
 /** Who is calling (authz identity) — the same pair the router Context carries. */
 export interface IssueCaller {
@@ -53,6 +54,12 @@ export interface IssueCaller {
 }
 
 export interface IssueCommandDeps {
+  /**
+   * Merge, rebase, PR and integrate as effect records (POD-6394): the command
+   * creates the record and answers once it settles. Absent only in a dispatcher
+   * a test builds by hand, which then runs the git work inline as before.
+   */
+  gitEffects?: IssueGitEffectPort
   /** Fully constructed tracker; command dispatch is activated after features. */
   issues: IssueTrackerCapabilities
   /** Cross-aggregate Shipping application port. Command handlers may nominate

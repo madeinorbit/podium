@@ -2927,6 +2927,9 @@ export const effects = sqliteTable(
     startedAt: integer('started_at'),
     finishedAt: integer('finished_at'),
     createdBy: text('created_by').$type<UserId>(),
+    /** The attribution's actor half (`session:<id>` for an agent, the user id for
+     *  a person); `created_by` is its on-behalf-of half. Server-side only. */
+    actor: text(),
     createdAt: integer('created_at').notNull(),
     updatedAt: integer('updated_at').notNull(),
     revision: integer().default(1).notNull(),

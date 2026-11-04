@@ -18,7 +18,7 @@ import {
 } from '@podium/model'
 import { formatIssueRef, type WorktreeGcObservation } from '@podium/protocol'
 import { resolveSpawnDefaults } from '@podium/runtime'
-import { type CommandPrincipal, systemPrincipal } from '../../../command-principal'
+import { type CommandAttribution, type CommandPrincipal, systemPrincipal } from '../../../command-principal'
 import { sessionsForIssue } from '../../../issue-util'
 import { type LinearIssue, searchIssues } from '../../../linear'
 import { resolveLaunchSelection } from '../../../model-validation'
@@ -756,7 +756,12 @@ export class IssueGitWorkflowModule {
   async action(
     ref: string,
     kind: 'rebase' | 'pr' | 'merge',
+    opts: { onStage?: (stage: string) => Promise<void> } = {},
   ): Promise<{ ok: boolean; output: string; issue: IssueProjection }> {
+    // Progress for the effect record that runs this (POD-6394); a no-op otherwise.
+    const stage = async (name: string): Promise<void> => {
+      await opts.onStage?.(name)
+    }
     /**
      * NO DRAFT SPANS A GIT OP HERE [POD-3375].
      *
@@ -795,10 +800,12 @@ export class IssueGitWorkflowModule {
       await this.store.projection(await this.store.rowOrThrow(id))
     const gw = (await this.store.d.getSettings()).gitWorkflow
     if (kind === 'rebase') {
+      await stage('rebasing')
       const r = await this.store.d.repoOp('rebase', worktreePath, { parentBranch })
       return { ...r, issue: await issueNow() }
     }
     if (kind === 'pr') {
+      await stage('creating')
       const r = await this.store.d.repoOp('prCreate', worktreePath, { branch, parentBranch })
       const row = await this.store.draftOrThrow(id)
       if (r.ok) {
@@ -809,6 +816,7 @@ export class IssueGitWorkflowModule {
     }
     // merge
     if (gw.autoRebaseBeforeMerge) {
+      await stage('rebasing')
       const rb = await this.store.d.repoOp('rebase', worktreePath, { parentBranch })
       if (!rb.ok) return { ...rb, issue: await issueNow() }
     }
@@ -818,6 +826,7 @@ export class IssueGitWorkflowModule {
     // repo root is the LIVE deployment-source checkout and switching its branch can
     // crash-loop the backend. Instead, GUARD: only merge if the root is already on the
     // parent branch; otherwise fail clearly without merging.
+    await stage('checking')
     const st = await this.store.d.repoOp('status', repoPath)
     const current = this.parseCurrentBranch(st.output)
     if (current !== parentBranch) {
@@ -835,46 +844,91 @@ export class IssueGitWorkflowModule {
     const tip = await this.store.d
       .repoOp('revParseVerify', repoPath, { ref: branch }, machineId)
       .catch(() => ({ ok: false, output: '' }))
+    await stage('merging')
     const r = await this.store.d.repoOp('mergeFfOnly', repoPath, { branch })
     if (r.ok) {
-      const row = await this.store.draftOrThrow(id)
-      // Landing stamp [POD-1085]. Record that WE landed this, before anything
-      // else can rewrite history under it. `merge-base --is-ancestor` answers
-      // "is this sha reachable from main", which a later rebase of main makes
-      // false for work that unquestionably landed; this row does not lie later.
-      row.landedAt = new Date().toISOString()
-      if (tip.ok && tip.output.trim() !== '') row.landedSha = tip.output.trim()
-      await this.store.persistRow(row)
-      // The merge axis is a fact we just produced [POD-2151], not one to infer:
-      // write it before close() frees the worktree, so the close broadcast
-      // carries it and no later probe is needed to clear "ready to merge".
-      // After the stamp, not before: a probe finishing mid-commit still sees no
-      // `landedAt` and would overwrite it. The pre-merge dirt count goes too: a
-      // freed worktree has none, and one close keeps is re-probed below.
-      const cached = this.store.gitStates.get(id)
-      this.store.gitStates.set(id, {
-        branch: row.branch,
-        ...cached,
-        updatedAt: this.store.now(),
-        shared: false,
-        dirtyFiles: 0,
-        merged: true,
-        ahead: 0,
-      })
-      const issue = await this.crud().close(id, 'done')
-      // This branch just landed [POD-384]: settle its merge axis now, so the
-      // operator who pressed merge sees the "ready to merge" chip go rather than
-      // watching it outlive the merge until the next watch tick. Siblings whose
-      // own counts moved are the watch's job, not this action's.
-      // After the commit, not inside the span: the probe opens with a 10ms
-      // timer whose callback inherits this scope, and a span that has closed by
-      // then refuses every read the probe makes [POD-3806].
-      afterCommit(() => {
-        void this.refreshGitState(id).catch(() => {})
-      }, 'issue-git-state-landed')
-      return { ...r, issue }
+      await stage('closing')
+      const sha = tip.ok && tip.output.trim() !== '' ? tip.output.trim() : undefined
+      return { ...r, issue: await this.finishLanding(id, sha) }
     }
     return { ...r, issue: await issueNow() }
+  }
+
+  /**
+   * RECORD A LANDING THAT HAS HAPPENED, and close the issue: what a successful
+   * fast-forward is followed by. Public so a merge effect interrupted between the
+   * merge and its stamp can be finished by its recovery (POD-6394). Idempotent: a
+   * row already stamped keeps its stamp, and an issue already done is not closed
+   * again.
+   */
+  async finishLanding(id: string, sha?: string): Promise<IssueProjection> {
+    const now = await this.store.rowOrThrow(id)
+    if (now.landedAt && now.closedAt) return await this.store.projection(now)
+    // Landing stamp [POD-1085]. Record that WE landed this, before anything
+    // else can rewrite history under it. `merge-base --is-ancestor` answers
+    // "is this sha reachable from main", which a later rebase of main makes
+    // false for work that unquestionably landed; this row does not lie later.
+    if (!now.landedAt) {
+      const row = await this.store.draftOrThrow(id)
+      row.landedAt = new Date().toISOString()
+      if (sha !== undefined) row.landedSha = sha
+      await this.store.persistRow(row)
+    }
+    // The merge axis is a fact we just produced [POD-2151], not one to infer:
+    // write it before close() frees the worktree, so the close broadcast
+    // carries it and no later probe is needed to clear "ready to merge".
+    // After the stamp, not before: a probe finishing mid-commit still sees no
+    // `landedAt` and would overwrite it. The pre-merge dirt count goes too: a
+    // freed worktree has none, and one close keeps is re-probed below.
+    const cached = this.store.gitStates.get(id)
+    this.store.gitStates.set(id, {
+      branch: now.branch,
+      ...cached,
+      updatedAt: this.store.now(),
+      shared: false,
+      dirtyFiles: 0,
+      merged: true,
+      ahead: 0,
+    })
+    const issue = await this.crud().close(id, 'done')
+    // This branch just landed [POD-384]: settle its merge axis now, so the
+    // operator who pressed merge sees the "ready to merge" chip go rather than
+    // watching it outlive the merge until the next watch tick. Siblings whose
+    // own counts moved are the watch's job, not this action's.
+    // After the commit, not inside the span: the probe opens with a 10ms
+    // timer whose callback inherits this scope, and a span that has closed by
+    // then refuses every read the probe makes [POD-3806].
+    afterCommit(() => {
+      void this.refreshGitState(id).catch(() => {})
+    }, 'issue-git-state-landed')
+    return issue
+  }
+
+  /** The issue as committed now, for a git effect's adapter answer (POD-6394). */
+  async projectionNow(id: string): Promise<IssueProjection> {
+    return await this.store.projection(await this.store.rowOrThrow(id))
+  }
+
+  /**
+   * Is this started issue's branch already in its parent branch, on the machine
+   * that holds the repo? `undefined` when the machine cannot say (offline, git
+   * failed in a way that is not "not merged"). For a merge effect's recovery.
+   */
+  async branchLanded(id: string): Promise<boolean | undefined> {
+    const row = await this.store.rowOrThrow(id)
+    if (row.landedAt) return true
+    if (!row.branch) return false
+    try {
+      const r = await this.store.d.repoOp(
+        'isMergedInto',
+        row.repoPath,
+        { branch: row.branch, parentBranch: row.parentBranch },
+        row.machineId ?? undefined,
+      )
+      return r.ok
+    } catch {
+      return undefined
+    }
   }
 
   /**
@@ -1650,7 +1704,7 @@ export class IssueGitWorkflowModule {
    *  the same object. */
   async integrate(
     id: string,
-    principal: CommandPrincipal,
+    principal: CommandPrincipal | CommandAttribution,
   ): Promise<{ ok: boolean; output: string; issue: IssueProjection }> {
     return await this.integration.integrate(id, principal)
   }
