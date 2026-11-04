@@ -34,8 +34,8 @@ const rowExists = (row: string): boolean => OWNERSHIP_MATRIX.some((r) => (r.id a
 
 describe('the issue contract table', () => {
   it('is populated, is keyed by its own names, and every name is dotted `issues.*`', () => {
-    expect(ISSUE_CONTRACT_LIST).toHaveLength(81)
-    expect(ISSUE_COMMAND_NAMES).toHaveLength(81)
+    expect(ISSUE_CONTRACT_LIST).toHaveLength(88)
+    expect(ISSUE_COMMAND_NAMES).toHaveLength(88)
     expect([...ISSUE_COMMAND_NAMES]).toEqual([...ISSUE_COMMAND_NAMES].sort())
     for (const key of ISSUE_COMMAND_NAMES) {
       expect(ISSUE_CONTRACTS[key].name, key).toBe(`issues.${key}`)
@@ -81,7 +81,15 @@ describe('contract visibility against the ownership matrix', () => {
 
   it('the non-per-user contracts match their rows exactly', () => {
     for (const row of ISSUE_ROWS) expect([row, visibilityClassOf(row)]).toEqual([row, 'personal'])
-    const perUser = ['markRead', 'markUnread', 'setTucked', 'mailInbox'] as const
+    const perUser = [
+      'markRead',
+      'markUnread',
+      'setTucked',
+      'mailInbox',
+      // POD-6290: the caller's own start/join record and assigned row.
+      'join',
+      'dismissAssignment',
+    ] as const
     for (const key of ISSUE_COMMAND_NAMES) {
       const expected = (perUser as readonly string[]).includes(key) ? 'per-user-state' : 'personal'
       expect([key, ISSUE_CONTRACTS[key].visibility]).toEqual([key, expected])
@@ -131,7 +139,10 @@ describe('transport exposure', () => {
   const NOT_ON_CLI_OR_MCP = [
     'applySuggestion',
     'closeEligibleEpics',
+    'collaborators',
+    'dismissAssignment',
     'dismissSuggestion',
+    'join',
     'linearSearch',
     'markRead',
     'markUnread',
@@ -145,7 +156,7 @@ describe('transport exposure', () => {
   it('tRPC and relay serve every contract; CLI and MCP serve the public subset', () => {
     const onCli = ISSUE_COMMAND_NAMES.filter((n) => ISSUE_CONTRACTS[n].exposure.includes('cli'))
     const onMcp = ISSUE_COMMAND_NAMES.filter((n) => ISSUE_CONTRACTS[n].exposure.includes('mcp'))
-    expect(onCli).toHaveLength(70)
+    expect(onCli).toHaveLength(74)
     // CLI and MCP are the SAME table (issue-mcp.ts derives its tools from
     // ISSUE_COMMANDS), so they must be the same set — not merely the same size.
     expect(onCli).toEqual(onMcp)
@@ -265,7 +276,7 @@ describe('redaction', () => {
       if (declares) expRev += 1
     }
     // Non-vacuity: the loop met the 23 rows §2e extracted from main, not zero.
-    expect(expRev).toBe(25)
+    expect(expRev).toBe(26)
   })
 
   it('every `cmd` command states its rule, because the engine refuses one without', () => {
@@ -280,7 +291,7 @@ describe('redaction', () => {
       cmd += 1
       expect(contract.conflictRule?.trim().length ?? 0, key).toBeGreaterThan(0)
     }
-    expect(cmd).toBe(20)
+    expect(cmd).toBe(24)
   })
 
   it('every command declares a class, mutations a real one and reads `n/a`', () => {
@@ -303,8 +314,8 @@ describe('redaction', () => {
 
     const mutations = ISSUE_COMMAND_NAMES.filter((k) => classOf(k) !== 'n/a')
     const nonMutating = ISSUE_COMMAND_NAMES.filter((k) => classOf(k) === 'n/a')
-    expect(mutations.length).toBe(50)
-    expect(nonMutating.length).toBe(31)
+    expect(mutations.length).toBe(55)
+    expect(nonMutating.length).toBe(33)
     // The named case, kept from the original: write-grade authority, no row.
     expect(classOf('linearSearch')).toBe('n/a')
   })

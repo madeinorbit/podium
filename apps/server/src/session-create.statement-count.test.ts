@@ -153,19 +153,24 @@ describe('session create: pinned statement counts at 5 and 200', () => {
   // with their machine (dc09092a07); over tRPC 29 -> 51, the draft task the
   // create now makes (5677f213d2, POD-2156): the issue, its ref letters, event,
   // projection, its feed window eviction and their visibility reads.
+  // On integrate/pdm-107-multi-user the three ran 30, 33 and 50 before POD-6290
+  // (the pins had not followed). POD-6290 adds the starter's personal record:
+  // on an issue one read of their user-state row (the record already exists),
+  // over tRPC the draft task's creation record, one read, one upsert and its
+  // two feed rows, plus that read at the spawn: 30, 34 and 56.
   it('in process, a draft session in a repo', async () => {
-    await expectConstantStatements(draft, 34)
+    await expectConstantStatements(draft, 30)
   })
 
   it('in-process pin is armed', async () => {
-    await expectArmed(draft, 34, plantPerSession)
+    await expectArmed(draft, 30, plantPerSession)
   })
 
   it('in process, a session on an issue', async () => {
     await expectConstantStatements(
       pin('createSession (on an issue)', async (f) =>
         await f.reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/repo/w0', issueId: f.issueId })),
-      37,
+      34,
     )
   })
 
@@ -173,10 +178,10 @@ describe('session create: pinned statement counts at 5 and 200', () => {
     await f.call.sessions.create({ agentKind: 'codex', cwd: '/repo/new' }))
 
   it('over tRPC', async () => {
-    await expectConstantStatements(trpc, 51)
+    await expectConstantStatements(trpc, 56)
   })
 
   it('tRPC pin is armed', async () => {
-    await expectArmed(trpc, 51, plantPerSession)
+    await expectArmed(trpc, 56, plantPerSession)
   })
 })

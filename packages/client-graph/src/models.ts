@@ -11,7 +11,7 @@ export type { AutomationModel, AutomationRunModel, MachineModel } from './synced
 import { attentionGroup, effectiveRecency } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
 import { groupRelations, type IssueCloseMemberCounts, type IssueCloseScalarSubject, type ReferentExit, motionPhase as sessionMotion, type TaskProgress } from '@podium/client-core/values'
-import { asSessionId, type CoordinatedSeat, coordinatedSeat, sessionWorkingFact, isExcluded, isFinished, NO_INTERACTIONS, type SeatInteractions, type SeatRole, type SeatSessionFacts, type SessionWord, type SessionWordFacts, sessionWord, wordWantsAttention } from '@podium/model/browser'
+import { asSessionId, type CoordinatedSeat, coordinatedSeat, sessionWorkingFact, inPersonalSet, isExcluded, isFinished, NO_INTERACTIONS, type SeatInteractions, type SeatRole, type SeatSessionFacts, type SessionWord, type SessionWordFacts, sessionWord, wordWantsAttention } from '@podium/model/browser'
 import type { ReaderQueries } from './reader-queries'
 import type { IssueSessionFactReader } from './shared/issue-session-facts'
 
@@ -348,6 +348,16 @@ export class IssueModel extends EntityModel {
 
   @lazy get authoredTitle(): string {
     return String(this.storedField('title') ?? '')
+  }
+
+  // The viewer's personal set (POD-6290; design §2.2): the tasks they started
+  // or joined, plus the ones carrying their "assigned to you by X" row. What
+  // they can see, search or open is not in it. One rule, the model package's.
+  @lazy get inPersonalSet(): boolean {
+    return inPersonalSet({
+      joinedAt: this.storedField('joinedAt') as string | null | undefined,
+      assignedAt: this.storedField('assignedAt') as string | null | undefined,
+    })
   }
 
   // Chat uploads (POD-2148): the stored copy of each file attached in one of

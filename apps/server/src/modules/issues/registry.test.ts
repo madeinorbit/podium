@@ -215,7 +215,7 @@ describe('issue command registry completeness', () => {
       (n) => ISSUE_CONTRACTS[n].policy.resource !== 'issue',
     )
     expect(scoped.length).toBe(42)
-    expect(unscoped.length).toBe(43)
+    expect(unscoped.length).toBe(46)
     // The predicate the assertion above applies, run on PLANTED pairs so it is
     // observed saying NO before its silence is read as agreement.
     const agrees = (hasExtractor: boolean, resource: string) =>
@@ -247,7 +247,7 @@ describe('handler↔contract schema identity', () => {
       expect(def?.input, name).toBe(ISSUE_CONTRACTS[name].input)
       checked += 1
     }
-    expect(checked).toBe(85)
+    expect(checked).toBe(88)
   })
 
   it('`toBe` here is load-bearing: an equal-but-separate schema would pass toEqual', () => {

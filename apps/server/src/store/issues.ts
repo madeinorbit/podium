@@ -2922,10 +2922,15 @@ export class IssuesRepository {
     userId: UserId,
     issueId: IssueId,
     patch: Partial<StoredIssueUserState>,
-  ): Promise<void> {
+    /** The stored row the caller just read in this transaction, so the patch
+     *  is applied without reading it again; `null` = no row. */
+    known?: StoredIssueUserState | null,
+  ): Promise<Required<StoredIssueUserState> | undefined> {
     requireUserId(userId)
     if (!issueId) throw new Error('issue user-state issue id is empty')
-    const current = (await this.getIssueUserState(userId, issueId)) ?? NO_STORED_USER_STATE
+    const current =
+      (known !== undefined ? known : await this.getIssueUserState(userId, issueId)) ??
+      NO_STORED_USER_STATE
     const pick = <K extends keyof StoredIssueUserState>(key: K) =>
       (patch[key] !== undefined ? patch[key] : current[key]) ?? null
     const next = {
@@ -2940,10 +2945,11 @@ export class IssuesRepository {
     if (Object.values(next).every((value) => value === null)) {
       await deleteIssueUserStateOne(this.db).run({ userId, issueId })
       this.userStateWritten()
-      return
+      return undefined
     }
     await upsertIssueUserState(this.db).run({ userId, issueId, ...next })
     this.userStateWritten()
+    return next
   }
 
   /** Drop every user's per-user rows for an issue. Called from the issue's own

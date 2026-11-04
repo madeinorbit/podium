@@ -294,13 +294,16 @@ export class IssueStore {
   ): Promise<boolean> {
     const { result } = await this.deps.ledger.commit({
       write: async () => {
-        const patch = decide(await this.deps.store.issues.getIssueUserState(user, issueId))
+        const current = await this.deps.store.issues.getIssueUserState(user, issueId)
+        const patch = decide(current)
         if (patch === undefined) return { wrote: false as const }
-        await this.deps.store.issues.setIssueUserState(user, issueId, patch)
-        return {
-          wrote: true as const,
-          state: await this.deps.store.issues.getIssueUserState(user, issueId),
-        }
+        const state = await this.deps.store.issues.setIssueUserState(
+          user,
+          issueId,
+          patch,
+          current ?? null,
+        )
+        return { wrote: true as const, state }
       },
       changes: (written) =>
         written.wrote

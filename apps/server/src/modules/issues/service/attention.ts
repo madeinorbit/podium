@@ -112,11 +112,11 @@ export class IssueAttentionModule {
   /**
    * PERSONAL RECORDS (POD-6290; design §2.2, §4.4). `member` started work on
    * the task, their agent did, or they joined it: the task enters their
-   * personal set. The first record is kept.
+   * personal set. The first record is kept. Takes a resolved id: its callers
+   * (a session start or attach) already hold the task.
    */
-  async recordParticipation(id: string, member: UserId, via: IssueJoinVia): Promise<void> {
-    const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
-    await this.store.recordParticipation(row.id, member, via)
+  async recordParticipation(issueId: IssueId, member: UserId, via: IssueJoinVia): Promise<void> {
+    await this.store.recordParticipation(issueId, member, via)
   }
 
   /** An explicit join (`issues.join`): `member`'s join record, or their agent's
