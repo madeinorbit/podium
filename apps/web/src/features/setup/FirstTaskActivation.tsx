@@ -21,8 +21,8 @@ import {
 import type { JSX } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { SetupLoginTerminalDialog } from '@/app/SetupLoginTerminalDialog'
-import { useSettingsClient } from '@/features/settings/stable-access'
 import { useSettingsCatalog, useSettingsDraft } from '@/features/settings/readers'
+import { useSettingsClient } from '@/features/settings/stable-access'
 import { useResolvedDescriptors } from '@/lib/harness-descriptors'
 import {
   ISSUE_AGENT_KINDS,
@@ -35,7 +35,8 @@ import {
 import { cn } from '@/lib/utils'
 import { ActivationShell } from './ActivationShell'
 import type { ActivationRoute } from './activation-route'
-import { serializeFirstTaskDraft, readFirstTaskDraft } from './first-task-draft'
+import { readFirstTaskDraft, serializeFirstTaskDraft } from './first-task-draft'
+import { OnboardingAccountChoices } from './OnboardingAccountChoices'
 import { SetupError } from './SetupFeedback'
 
 /**
@@ -79,7 +80,11 @@ export function FirstTaskActivation({
       repos.filter((repo) => repo.kind !== 'worktree').sort((a, b) => a.path.localeCompare(b.path)),
     [repos],
   )
-  const [draft, setDraft] = useSettingsDraft(FIRST_TASK_ACTIVATION_DRAFT_KEY, readFirstTaskDraft, serializeFirstTaskDraft)
+  const [draft, setDraft] = useSettingsDraft(
+    FIRST_TASK_ACTIVATION_DRAFT_KEY,
+    readFirstTaskDraft,
+    serializeFirstTaskDraft,
+  )
   const [configuredAgent, setConfiguredAgent] = useState<IssueAgentKind | null>(null)
   const [loginBusyAgent, setLoginBusyAgent] = useState<IssueAgentKind | null>(null)
   const [loginSessionId, setLoginSessionId] = useState<SessionId | null>(null)
@@ -371,6 +376,8 @@ export function FirstTaskActivation({
           </div>
         )}
       </div>
+
+      <OnboardingAccountChoices />
 
       {error && (
         <div className="mt-3">

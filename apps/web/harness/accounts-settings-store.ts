@@ -7,6 +7,10 @@
  * a member who holds `use` on Alice's machine: his own Anthropic key, not yet
  * sent anywhere. `accounts.send` records the send, so the list then says where
  * it runs.
+ *
+ * POD-6301 adds Bob's detected Codex login with its D11 box, unticked.
+ * `accounts.useOnMyMachines` records the tick, and the list then reports the
+ * machine of Bob's where a different login was kept.
  */
 import { MobxPool } from '@podium/client-graph/pool'
 import type { AccountView } from '@podium/model'
@@ -14,6 +18,7 @@ import { asMachineId } from '@podium/model/browser'
 
 const alice = { id: asMachineId('machine-alice'), name: 'alice-desk' }
 let sent = false
+let ticked = false
 
 const rows = (): AccountView[] => [
   {
@@ -25,6 +30,19 @@ const rows = (): AccountView[] => [
     machines: ['bob-laptop'],
     status: 'connected',
     loginMachines: [{ id: asMachineId('machine-bob'), name: 'bob-laptop' }],
+  },
+  {
+    id: 'native:codex',
+    provider: 'openai',
+    source: 'native',
+    harness: 'codex',
+    identity: 'bob@example.com',
+    identityFingerprint: 'fp-bob-codex',
+    machines: ['bob-laptop'],
+    status: 'connected',
+    loginMachines: [{ id: asMachineId('machine-bob'), name: 'bob-laptop' }],
+    useOnMyMachines: ticked,
+    keptOn: ticked ? [{ id: asMachineId('machine-bob-desk'), name: 'bob-desk' }] : [],
   },
   {
     id: 'managed:anthropic',
@@ -67,6 +85,13 @@ const trpc = {
         await new Promise((resolve) => setTimeout(resolve, 250))
         sent = true
         return { ok: true, sent: true }
+      },
+    },
+    useOnMyMachines: {
+      async mutate(input: { enabled: boolean }) {
+        await new Promise((resolve) => setTimeout(resolve, 150))
+        ticked = input.enabled
+        return { ok: true, enabled: input.enabled }
       },
     },
     connect: { mutate: async () => ({ id: 'managed:openai' }) },

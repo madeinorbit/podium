@@ -20,6 +20,12 @@ const openSend: Act = async (page) => {
   await page.getByRole('button', { name: 'Send to a shared machine' }).click()
   await page.getByRole('alertdialog').waitFor()
 }
+const tickD11: Act = async (page) => {
+  await page
+    .getByRole('checkbox', { name: /Automatically transfer and use these credentials/ })
+    .click()
+  await page.getByText(/Not copied to bob-desk/).waitFor()
+}
 const shots: { name: string; query: string; act?: Act }[] = [
   { name: 'unsent-dark', query: '' },
   { name: 'warning-dark', query: '', act: openSend },
@@ -34,6 +40,11 @@ const shots: { name: string; query: string; act?: Act }[] = [
     },
   },
   { name: 'warning-narrow-dark', query: 'width=430', act: openSend },
+  // POD-6301: the D11 box, unticked, then ticked with a kept login reported.
+  { name: 'd11-unticked-light', query: 'theme=light' },
+  { name: 'd11-ticked-dark', query: '', act: tickD11 },
+  { name: 'd11-ticked-light', query: 'theme=light', act: tickD11 },
+  { name: 'd11-ticked-narrow-dark', query: 'width=430', act: tickD11 },
 ]
 
 for (const shot of shots) {
@@ -53,6 +64,7 @@ for (const shot of shots) {
   await page.screenshot({ path: `${out}/accounts-${shot.name}.png`, fullPage: true })
   const facts = await page.evaluate(() => ({
     warning: document.querySelector('[role="alertdialog"]')?.textContent ?? null,
+    d11: document.querySelector('[role="checkbox"]')?.getAttribute('aria-checked') ?? null,
     overflowX: document.documentElement.scrollWidth > window.innerWidth,
   }))
   console.log(shot.name, JSON.stringify(facts))

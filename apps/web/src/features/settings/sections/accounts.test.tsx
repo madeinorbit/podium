@@ -12,6 +12,7 @@ const trpc = {
     disconnect: { mutate: vi.fn() },
     login: { mutate: vi.fn() },
     send: { mutate: vi.fn() },
+    useOnMyMachines: { mutate: vi.fn() },
   },
 }
 const navigateToSession = vi.fn()
@@ -282,6 +283,65 @@ describe('AccountsSection', () => {
       }),
     )
     expect(await screen.findByText(/Also runs on alice-desk, someone else's machine/)).toBeTruthy()
+  })
+
+  // POD-6301 (D11): one unticked box per detected account; ticking it asks the
+  // server to copy that account to the person's other machines.
+  it('shows the D11 box unticked on a detected account and ticks it for that account', async () => {
+    const detected: AccountView = {
+      id: 'native:codex',
+      provider: 'openai',
+      source: 'native',
+      harness: 'codex',
+      identity: 'alice@example.com',
+      identityFingerprint: 'fp-alice',
+      machines: ['alice-laptop'],
+      status: 'connected',
+      useOnMyMachines: false,
+      keptOn: [],
+    }
+    serveList([detected], [{ ...detected, useOnMyMachines: true }])
+    trpc.accounts.useOnMyMachines.mutate.mockResolvedValue({ ok: true, enabled: true })
+    render(<AccountsSection />)
+
+    const box = await screen.findByRole('checkbox', {
+      name: /Automatically transfer and use these credentials on other machines I own/,
+    })
+    expect(box.getAttribute('aria-checked')).toBe('false')
+    expect(screen.getByText(/copies already made stay where they are/)).toBeTruthy()
+    fireEvent.click(box)
+    await waitFor(() =>
+      expect(trpc.accounts.useOnMyMachines.mutate).toHaveBeenCalledWith({
+        harness: 'codex',
+        fingerprint: 'fp-alice',
+        enabled: true,
+      }),
+    )
+    await waitFor(() => expect(box.getAttribute('aria-checked')).toBe('true'))
+  })
+
+  it('says where a different login was kept, and shows no box without a known identity', async () => {
+    serveList([
+      {
+        id: 'native:codex',
+        provider: 'openai',
+        source: 'native',
+        harness: 'codex',
+        identity: 'alice@example.com',
+        identityFingerprint: 'fp-alice',
+        status: 'connected',
+        useOnMyMachines: true,
+        keptOn: [{ id: asMachineId('alice-desk'), name: 'alice-desk' }],
+      },
+      { ...NATIVE, status: 'connected' },
+    ])
+    render(<AccountsSection />)
+    expect(
+      await screen.findByText(
+        'Not copied to alice-desk: a different login is signed in there, and Podium kept it.',
+      ),
+    ).toBeTruthy()
+    expect(screen.getAllByRole('checkbox')).toHaveLength(1)
   })
 
   it('surfaces a connect failure and keeps the form open', async () => {

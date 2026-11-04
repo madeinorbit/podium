@@ -10,6 +10,7 @@ import { useSettingsSessionPresent } from '../readers'
 import { accountKey, useSettingsRecords } from '../record-readers'
 import { useSettingsClient, useSettingsTrpc } from '../stable-access'
 import { type AccountView, harnessAgentLabel, providerLabel, Row, Section } from './shared'
+import { UseOnMyMachinesBox } from './use-on-my-machines'
 
 /** The Claude subscription token from `claude setup-token` — the ONLY OAuth
  *  account the server accepts (accounts.connect rejects kind 'oauth' for any
@@ -182,6 +183,7 @@ const NativeAccountRow = observer(function NativeAccountRow({
         </div>
       </Row>
       {status && <p className="max-w-[62ch] pb-2.5 settings-prose">{status}</p>}
+      <UseOnMyMachinesBox account={account} trpc={trpc} onChanged={() => onChanged()} />
       {account.serverAi?.machineName && (
         <p className="max-w-[62ch] pb-2.5 settings-prose">
           Server AI uses {account.serverAi.machineName}&rsquo;s login.

@@ -1,11 +1,14 @@
 import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 import { asMachineId } from '@podium/model'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FirstTaskActivation } from './FirstTaskActivation'
 
 const login = vi.fn()
+const useOnMyMachines = vi.fn()
+/** What `accounts.list` reports: no detected account unless a test says so. */
+let accounts: unknown[] = []
 const telemetryState = vi.fn()
 const telemetrySet = vi.fn()
 const uiValues = new Map<string, string>()
@@ -63,7 +66,10 @@ function store() {
           })),
         },
       },
-      accounts: { login: { mutate: login } },
+      accounts: {
+        login: { mutate: login },
+        useOnMyMachines: { mutate: useOnMyMachines },
+      },
       telemetry: {
         state: { query: telemetryState },
         set: { mutate: telemetrySet },
@@ -74,6 +80,13 @@ function store() {
 
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: (selector: (value: ReturnType<typeof store>) => unknown) => selector(store()),
+}))
+
+// The detected-accounts card reads `accounts.list` into the shared record pool,
+// which this screen-pool fixture does not host: serve its rows directly.
+vi.mock('@/features/settings/record-readers', async (original) => ({
+  ...(await original<typeof import('@/features/settings/record-readers')>()),
+  useSettingsRecords: () => ({ request: { models: accounts, loading: false }, reload: vi.fn() }),
 }))
 
 vi.mock('@/app/SetupLoginTerminalDialog', () => ({
@@ -101,6 +114,8 @@ afterEach(() => {
   cleanup()
   uiValues.clear()
   login.mockReset()
+  useOnMyMachines.mockReset()
+  accounts = []
   codexLogin = 'in'
 })
 
@@ -162,5 +177,67 @@ describe('FirstTaskActivation', () => {
     await waitFor(() => expect(onComplete).toHaveBeenCalledOnce())
     expect(telemetryState).not.toHaveBeenCalled()
     expect(telemetrySet).not.toHaveBeenCalled()
+  })
+
+  // POD-6301 (D11): onboarding shows the box, unticked, for each detected account.
+  it('shows an unticked "use on my machines" box for each detected account', async () => {
+    accounts = [
+      {
+        id: 'native:codex',
+        provider: 'openai',
+        source: 'native',
+        harness: 'codex',
+        identity: 'alice@example.com',
+        identityFingerprint: 'fp-alice',
+        status: 'connected',
+        useOnMyMachines: false,
+        keptOn: [],
+      },
+      {
+        id: 'native:claude-code',
+        provider: 'anthropic',
+        source: 'native',
+        harness: 'claude-code',
+        identity: 'alice@work.example',
+        identityFingerprint: 'fp-alice-work',
+        status: 'connected',
+        useOnMyMachines: false,
+        keptOn: [],
+      },
+      // No known identity, and a managed key: neither has the box.
+      {
+        id: 'native:grok',
+        provider: 'xai',
+        source: 'native',
+        harness: 'grok',
+        status: 'connected',
+      },
+      { id: 'managed:anthropic', provider: 'anthropic', source: 'managed', status: 'connected' },
+    ]
+    useOnMyMachines.mockResolvedValue({ ok: true, enabled: true })
+    render(<FirstTaskActivation route="agent" onRouteChange={vi.fn()} onComplete={vi.fn()} />)
+
+    const section = await screen.findByRole('region', { name: 'Detected accounts' })
+    const boxes = await within(section).findAllByRole('checkbox', {
+      name: /Automatically transfer and use these credentials on other machines I own/,
+    })
+    expect(boxes).toHaveLength(2)
+    expect(boxes.map((box) => box.getAttribute('aria-checked'))).toEqual(['false', 'false'])
+    expect(within(section).getByText('alice@example.com')).toBeTruthy()
+
+    fireEvent.click(boxes[0] as HTMLElement)
+    await waitFor(() =>
+      expect(useOnMyMachines).toHaveBeenCalledWith({
+        harness: 'codex',
+        fingerprint: 'fp-alice',
+        enabled: true,
+      }),
+    )
+  })
+
+  it('shows no account section when nothing was detected', async () => {
+    render(<FirstTaskActivation route="agent" onRouteChange={vi.fn()} onComplete={vi.fn()} />)
+    await screen.findByText('Ready')
+    expect(screen.queryByRole('region', { name: 'Detected accounts' })).toBeNull()
   })
 })
