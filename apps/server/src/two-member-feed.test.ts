@@ -175,13 +175,16 @@ describe('MU-13: what crosses owners, and what never does', () => {
       const started = (feed: typeof bobFeed) =>
         feed
           .deltas()
-          .map((c) => c as { entity: string; op: string })
-          .filter((c) => c.entity === 'issueEvent' && c.op === 'upsert')
           .map(
             (c) =>
-              (c as { value: { kind: string; subject: string; payload: Record<string, unknown> } })
-                .value,
+              c as unknown as {
+                entity: string
+                op: string
+                value: { kind: string; subject: string; payload: Record<string, unknown> }
+              },
           )
+          .filter((c) => c.entity === 'issueEvent' && c.op === 'upsert')
+          .map((c) => c.value)
           .find((e) => e.kind === 'issue.started' && e.subject === f.tasks.alice)
       await aliceFeed.until(() => started(aliceFeed) !== undefined)
       await bobFeed.until(() => started(bobFeed) !== undefined)
