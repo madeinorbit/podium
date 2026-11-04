@@ -1,5 +1,5 @@
 import type { AgentKind } from '@podium/model'
-import { asAccountId } from '@podium/model'
+import { asAccountId, firstAdminMemberId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
@@ -39,9 +39,7 @@ async function makeRegistry(store: SessionStore): Promise<{
   const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(registry)
   const daemon: ControlMessage[] = []
-  await attachHostDaemon(registry, (message) =>
-    daemon.push(message),
-  )
+  await attachHostDaemon(registry, (message) => daemon.push(message))
   return { registry, daemon }
 }
 
@@ -111,7 +109,9 @@ it('resolves an omitted incompatible native role account to the selected agent',
     agentKind: 'opencode',
     cwd: '/proj',
   })
-  expect((await registry.sessionStore.sessions.getSession(sessionId))?.accountId).toBe('native:opencode')
+  expect((await registry.sessionStore.sessions.getSession(sessionId))?.accountId).toBe(
+    'native:opencode',
+  )
 })
 
 it('normalizes an omitted colliding native harness prefix', async () => {
@@ -120,7 +120,9 @@ it('normalizes an omitted colliding native harness prefix', async () => {
     agentKind: 'opencode',
     cwd: '/proj',
   })
-  expect((await registry.sessionStore.sessions.getSession(sessionId))?.accountId).toBe('native:opencode')
+  expect((await registry.sessionStore.sessions.getSession(sessionId))?.accountId).toBe(
+    'native:opencode',
+  )
 })
 
 it.each([
@@ -128,7 +130,22 @@ it.each([
   'native:claude-code',
   'managed:anthropic',
 ])('preserves the explicit account %s exactly', async (accountId) => {
-  const { registry, daemon } = await makeRegistry(await storeWithClaudeDefaults())
+  const store = await storeWithClaudeDefaults()
+  // A managed account runs only with the starter's own stored connection
+  // (POD-6300): the instance's one member starts this session and has one.
+  if (accountId.startsWith('managed:')) {
+    await store.accounts.upsert({
+      id: asAccountId(accountId),
+      ownerUserId: firstAdminMemberId(),
+      provider: 'anthropic',
+      kind: 'api-key',
+      credential: 'sk-ant-preserved',
+      identity: 'sk-a…rved',
+      scope: 'role',
+      createdAt: 1,
+    })
+  }
+  const { registry, daemon } = await makeRegistry(store)
   const { sessionId } = await registry.modules.sessions.createSession({
     agentKind: 'opencode',
     cwd: '/proj',
