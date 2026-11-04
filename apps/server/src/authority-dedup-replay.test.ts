@@ -47,7 +47,37 @@ afterEach(async () => {
 })
 
 type Kind = MetadataEntityKind
-const KINDS = MetadataEntityKind.options
+/**
+ * THE KINDS THE FINGERPRINTS WERE RECORDED OVER, frozen. The generator picks a
+ * kind for nearly every op, so a kind added to `MetadataEntityKind` later moves
+ * every pick after it and every fingerprint with it, and the in-memory baseline
+ * that recorded them is gone, so they cannot be recorded again. A later kind
+ * takes the same generic dedup path (the Authority compares stored bytes per
+ * key, with no per-kind rule), and is listed in {@link KINDS_ADDED_SINCE} so that
+ * adding one stays a decision this file records rather than a silent change.
+ */
+const KINDS = [
+  'session',
+  'issueProjection',
+  'issueDep',
+  'repo',
+  'shipOrder',
+  'shipLane',
+  'conversation',
+  'automation',
+  'automationRun',
+  'userLayout',
+  'userReadPosition',
+  'issueEvent',
+  'pendingInteraction',
+  'message',
+  'issueUserState',
+  'sessionUserState',
+  'machine',
+  'issueGitState',
+] as const satisfies readonly Kind[]
+/** Feed kinds added after the recording: POD-6357's one-shot effects. */
+const KINDS_ADDED_SINCE = ['effect'] as const satisfies readonly Kind[]
 
 type Op =
   | { kind: 'commit'; specs: StagedChangeSpec[] }
@@ -272,6 +302,13 @@ const BASELINE_FINGERPRINTS: Record<number, string> = {
   5: '8c3b22f53e59ec5df7719512f0d92e1efbc2d913cbd13f96de2b6f5520eabc2b',
   6: '83615cb2ad82db4de92938bd29bb6c616a2677842befb16e398e49877e6f94d7',
 }
+
+describe('the recorded kind list', () => {
+  it('names every feed kind, as recorded or as added since', () => {
+    const named = [...KINDS, ...KINDS_ADDED_SINCE].sort()
+    expect(named).toEqual([...MetadataEntityKind.options].sort())
+  })
+})
 
 describe('Authority dedup: the database answers like the baseline did', () => {
   for (const seed of [1, 2, 3, 4, 5, 6]) {
