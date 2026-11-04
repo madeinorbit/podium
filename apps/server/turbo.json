@@ -2497,6 +2497,7 @@
         "src/tunnel-health.ts",
         "src/two-member-access-change.test.ts",
         "src/two-member-account-switch.test.ts",
+        "src/two-member-admission.test.ts",
         "src/two-member-assignee.test.ts",
         "src/two-member-discovery.test.ts",
         "src/two-member-edit-history.test.ts",
