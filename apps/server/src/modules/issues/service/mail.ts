@@ -10,6 +10,20 @@ import type { IssueReportsModule } from './reads'
 import { IssueForbidden, IssueRefusal } from './refusal'
 
 /**
+ * IS THIS COMMENT THE CALLER'S OWN (POD-6289, POD-6295; design §2.2)? Its
+ * author is the human it was written for, so a member's agent counts as that
+ * member. A comment with no recorded author is nobody's. The one rule behind
+ * both the edit and delete refusal and the task page's edit control.
+ */
+export function isCommentAuthor(
+  authorId: string | null | undefined,
+  principal: CommandPrincipal,
+): boolean {
+  const caller = onBehalfOfUser(principal)
+  return caller !== null && authorId === caller
+}
+
+/**
  * Comments and tracker-mail capability: an issue's comments, and the read side
  * of its mailbox (the messages addressed to the issue, mirrored in by the
  * message delivery service).
@@ -121,8 +135,7 @@ export class IssueCommentsMailModule {
     if (!comment || comment.issueId !== issueId) {
       throw new IssueNotFound(`comment ${commentId}`)
     }
-    const caller = onBehalfOfUser(principal)
-    const authored = caller !== null && comment.onBehalfOf === caller
+    const authored = isCommentAuthor(comment.onBehalfOf, principal)
     // Moderation is a PERSON's admin action: an admin's agent is not an admin.
     const moderating =
       !authored &&

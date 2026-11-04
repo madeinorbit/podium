@@ -2504,6 +2504,7 @@
         "src/two-member-personal-records.test.ts",
         "src/two-member-private-resources.test.ts",
         "src/two-member-provider-accounts.test.ts",
+        "src/two-member-task-detail.test.ts",
         "src/two-member-tasks.test.ts",
         "src/update-participant-skip.ts",
         "src/upstream-retirement.ts",

@@ -7,7 +7,14 @@ import {
   ISSUE_CONTRACTS,
   type IssueContractName,
 } from '@podium/commands'
-import type { IssueId, IssueSessionSummaryEntry, MutationId, SessionId, UserId } from '@podium/model'
+import type {
+  IssueAllowedActions,
+  IssueId,
+  IssueSessionSummaryEntry,
+  MutationId,
+  SessionId,
+  UserId,
+} from '@podium/model'
 import {
   actorAgent,
   actorSystem,
@@ -15,10 +22,12 @@ import {
   asAgentIdentityId,
   asIssueId,
   asUserId,
+  authorize,
   isAgentComputing,
   isDecisionIssue,
   isIssueClosed,
   isPersonCapability,
+  issueAllowedActions,
 } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import type { z } from 'zod'
@@ -28,6 +37,7 @@ import { withReadScope } from '../../store/executor/read-scope'
 import { ShippingOrderAccessError } from '../shipping/service'
 import type { IssueCaller, IssueCommandAccess, IssueCommandCtx } from './command-ctx'
 import { eventsForMember } from './event-visibility'
+import { isCommentAuthor } from './service/mail'
 import { IssueNotFound } from './service/not-found'
 import type { IssueCommandResult } from './service/reads'
 import { IssueRefusal } from './service/refusal'
@@ -122,6 +132,23 @@ async function sessionSummaries(
   }))
 }
 
+/**
+ * WHAT THIS READER MAY DO FROM THE TASK PAGE (POD-6295): the `write` decision
+ * the dispatcher would make for this task, without `--outside-scope` (the page
+ * cannot confirm one), and whether the reader is a person in person.
+ */
+async function allowedActions(ctx: IssueCommandCtx, id: IssueId): Promise<IssueAllowedActions> {
+  const capability = ctx.caller.capability
+  const write = authorize(
+    capability,
+    'write',
+    capability.scope.kind === 'subtree'
+      ? { id, ancestorIds: await ctx.hierarchy.ancestorIds(id) }
+      : { id },
+  )
+  return issueAllowedActions(write, personHuman(ctx) !== undefined)
+}
+
 /** What `issues.share` and `issues.unshare` answer (POD-6288). */
 export const TASKS_VISIBLE_TO_ALL_MEMBERS =
   'tasks are visible to all members; there is nothing to share or unshare'
@@ -171,11 +198,17 @@ async function assigneeNamed(ctx: IssueCommandCtx, raw: string): Promise<UserId>
 
 /** A search's `--assignee me` is the caller's own human (POD-6287): the person,
  *  or for an agent the human it acts for. Any other value is a member id. */
-function assigneeMe<T extends { assignee?: UserId | undefined }>(ctx: IssueCommandCtx, filter: T): T {
+function assigneeMe<T extends { assignee?: UserId | undefined }>(
+  ctx: IssueCommandCtx,
+  filter: T,
+): T {
   if (filter.assignee?.trim() !== 'me') return filter
   const human = ctx.markerUser()
   if (!human) {
-    throw new TRPCError({ code: 'FORBIDDEN', message: '`--assignee me` needs a person behind the caller' })
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: '`--assignee me` needs a person behind the caller',
+    })
   }
   return { ...filter, assignee: human }
 }
@@ -675,7 +708,12 @@ const defs = {
         const sessions = (
           await ctx.deps.listSessionsForIssue(issue.worktreePath, issue.id, reader)
         ).filter((session) => session.agentKind !== 'shell')
-        return { ...issue, sessions, sessionSummaries: await sessionSummaries(ctx, issue) }
+        return {
+          ...issue,
+          sessions,
+          sessionSummaries: await sessionSummaries(ctx, issue),
+          allowed: await allowedActions(ctx, issue.id),
+        }
       }),
   }),
   resolveRefs: def('resolveRefs', {
@@ -714,7 +752,15 @@ const defs = {
   comments: def('comments', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.readIssue(input.id, async () => await ctx.commentsMail.comments(input.id)),
+      await ctx.readIssue(input.id, async () => {
+        // Each comment says whether it is the reader's own (POD-6295): the
+        // page offers edit on those only.
+        const principal = ctx.caller.principal
+        return (await ctx.commentsMail.comments(input.id)).map((comment) => ({
+          ...comment,
+          mayEdit: principal ? isCommentAuthor(comment.authorId, principal) : false,
+        }))
+      }),
   }),
   events: def('events', {
     kind: 'query',
@@ -964,35 +1010,35 @@ const defs = {
           ? memberMutationId(ctx, input.mutationId)
           : input.mutationId,
         async () => {
-        // B1/B2 [spec:SP-6144]: the update patch can move an issue out of the
-        // lane through MORE than `stage` — archived (dismissal), closedReason
-        // (close), parentId (no longer top-level). All of them are lifecycle
-        // moves and all take the same operator-only guard.
-        const p = input.patch
-        const movesLifecycle =
-          (p.stage != null && p.stage !== 'proposed') ||
-          p.archived !== undefined ||
-          p.closedReason !== undefined ||
-          p.parentId !== undefined
-        if (movesLifecycle) await assertNotProposedForAgent(ctx, input.id, 'promote')
-        if (p.stage === 'done' || p.closedReason !== undefined) {
-          await assertDecisionNotClosedByAgent(ctx, input.id, 'close')
-          await assertNoWorkingSessionsForAgentClose(ctx, input.id, input.confirmInterrupt)
-        }
-        if (p.type !== undefined && p.type !== 'decision') {
-          await assertDecisionNotClosedByAgent(ctx, input.id, 'retype')
-        }
-        // `assignee` is a REASSIGNMENT, not a free-text field (POD-6287): it
-        // moves the owner, with the reassignment's rules.
-        const { assignee, ...patch } = p
-        const owner = assignee === undefined ? undefined : await assigneeNamed(ctx, assignee)
-        const viewer = ctx.markerUser()
-        return await ctx.crud.update(input.id, patch, {
-          actorSessionId: ctx.caller.capability.actorSessionId,
-          ...(viewer ? { viewer, caller: viewer } : {}),
-          ...(owner ? { owner } : {}),
-          ...textAttribution(ctx),
-        })
+          // B1/B2 [spec:SP-6144]: the update patch can move an issue out of the
+          // lane through MORE than `stage` — archived (dismissal), closedReason
+          // (close), parentId (no longer top-level). All of them are lifecycle
+          // moves and all take the same operator-only guard.
+          const p = input.patch
+          const movesLifecycle =
+            (p.stage != null && p.stage !== 'proposed') ||
+            p.archived !== undefined ||
+            p.closedReason !== undefined ||
+            p.parentId !== undefined
+          if (movesLifecycle) await assertNotProposedForAgent(ctx, input.id, 'promote')
+          if (p.stage === 'done' || p.closedReason !== undefined) {
+            await assertDecisionNotClosedByAgent(ctx, input.id, 'close')
+            await assertNoWorkingSessionsForAgentClose(ctx, input.id, input.confirmInterrupt)
+          }
+          if (p.type !== undefined && p.type !== 'decision') {
+            await assertDecisionNotClosedByAgent(ctx, input.id, 'retype')
+          }
+          // `assignee` is a REASSIGNMENT, not a free-text field (POD-6287): it
+          // moves the owner, with the reassignment's rules.
+          const { assignee, ...patch } = p
+          const owner = assignee === undefined ? undefined : await assigneeNamed(ctx, assignee)
+          const viewer = ctx.markerUser()
+          return await ctx.crud.update(input.id, patch, {
+            actorSessionId: ctx.caller.capability.actorSessionId,
+            ...(viewer ? { viewer, caller: viewer } : {}),
+            ...(owner ? { owner } : {}),
+            ...textAttribution(ctx),
+          })
         },
       ),
   }),

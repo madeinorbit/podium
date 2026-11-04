@@ -184,6 +184,10 @@ export const IssueComment = z.object({
    *  `authorId` exactly when an admin moderated the comment. */
   editedAt: z.string().optional(),
   editedBy: z.string().optional(),
+  /** The comment is the reader's own (POD-6295): the task page offers its
+   *  edit control. Computed per reader by `issues.comments`; an admin's
+   *  moderation stays a command and is not offered here. */
+  mayEdit: z.boolean().optional(),
 })
 export type IssueComment = z.infer<typeof IssueComment>
 

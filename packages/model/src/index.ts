@@ -13,11 +13,36 @@
  * identity predicates already there — its `UserId` brand is already in `ids/`.
  */
 
+// The CANONICAL R1 AGGREGATES (POD-365) — the one definition of what a session
+// and an issue ARE, composed from the field groups above plus Ownership and
+// Attribution. NOT one universal record: the storage row, the live class, the
+// wire projections and the narrow ports stay DISTINCT types that Pick from the
+// same vocabulary (ADR 4 D1). `registry.ts` carries the default-closed
+// classification obligation, with a fixture aggregate proving it fails.
+export * from './aggregates/issue'
+export * from './aggregates/registry'
+export * from './aggregates/session'
+// The ownership matrix as DATA (POD-304): the vocabulary, one fully annotated
+// row per replicated aggregate / field group, and the Authority-only arbitration
+// surface. `annotations/arbitration-direction.test.ts` fails when replica-side
+// code imports the arbitration reads — ADR 1 D1's direction, enforced.
+export * from './annotations/arbitration'
+// POD-643: the no-capability-snapshot audit (ADR 9 D5 A1). Exported because the
+// obligation is not handoff's alone — POD-368's audit runs it over every
+// retained representation.
+export * from './annotations/capability-snapshot'
+export * from './annotations/matrix'
+export * from './annotations/ownership'
+export * from './annotations/resolution'
+export * from './artifact-upload'
+export * from './authz/issue-actions'
 // Authorization policy — the single enforcement function.
 export * from './authz/issue-authz'
 export * from './authz/issue-execution'
 // The one clock representation and its edge adapters (POD-299); the totality guard.
 export * from './clock'
+// Pure derivations over entity shapes.
+export * from './dead-letter'
 // Entity aggregates, their vocabularies, and their read projections (POD-300 —
 // relocated out of @podium/protocol, which now imports them from here and keeps
 // only frames). Byte-identical to the pre-move wire; the golden fixtures in
@@ -27,15 +52,6 @@ export * from './entities/agent'
 export * from './entities/agent-profile'
 export * from './entities/automation'
 export * from './entities/conversation'
-export * from './entities/draft-doc'
-export * from './entities/handoff'
-export * from './entities/issue'
-export * from './entities/issue-git-state'
-export * from './entities/label-color'
-// The flat STATUS vocabulary (POD-1074): `stage` and `closedReason` joined into
-// the one list every picker renders, plus the legacy `wontfix` → `cancelled`
-// canonicalization. A leaf module beside `label-color`, for the same reason.
-export * from './entities/issue-status'
 // The issue DEPENDENCY EDGE and the LOGICAL REPO as first-class entities
 // (POD-822; decided POD-1254, ported from main at the POD-1246 catch-up). Each
 // carries R1, its R4 projection and one mapping pair. First-class because
@@ -49,16 +65,21 @@ export * from './entities/issue-status'
 // In the model because the server produces them and both clients read them, and
 // because the states are the contract the UI slices are written against.
 export * from './entities/cost'
+export * from './entities/draft-doc'
+export * from './entities/handoff'
+export * from './entities/issue'
 export * from './entities/issue-dep'
 export * from './entities/issue-event'
+export * from './entities/issue-git-state'
+// The flat STATUS vocabulary (POD-1074): `stage` and `closedReason` joined into
+// the one list every picker renders, plus the legacy `wontfix` → `cancelled`
+// canonicalization. A leaf module beside `label-color`, for the same reason.
+export * from './entities/issue-status'
+export * from './entities/label-color'
 // What one process's event loop did, per second and per minute. Rides on the
 // host metrics frame below and on `perf.snapshot` — see the file header for why
 // the schemas are here rather than in @podium/protocol.
 export * from './entities/loop'
-export * from './entities/pending-interaction-row'
-export * from './entities/message-record-row'
-export * from './entities/message-record'
-export * from './entities/repo'
 // The per-machine fact group: MachineWire, inventory, host metrics + memory,
 // usage + quota, and the repo/worktree/directory wires. One named group because
 // everything that is a fact ABOUT a machine inherits that machine's scoping
@@ -67,29 +88,19 @@ export * from './entities/machine'
 export * from './entities/machine-projection'
 // The message delivery lifecycle, declared as a forward-only machine (POD-4765).
 export * from './entities/message-delivery'
+export { MessageLedgerWire } from './entities/message-ledger'
+export * from './entities/message-record'
+export * from './entities/message-record-row'
+export * from './entities/pending-interaction-row'
+export * from './entities/repo'
 export * from './entities/session'
+export * from './entities/settings-records'
 export * from './entities/transcript'
-// Folding quota SAMPLES into window INSTANCES. Lives beside the wires because
-// both the server (live sampling) and the daemon-side backfill importer run the
-// identical identity rule — two copies of it would be two answers to "is this the
-// same window?", and the whole ledger rests on that answer.
-export * from './quota-history-fold'
-export * from './shipping'
-// The declared state-machine helper every persisted lifecycle builds on (POD-4765).
-export * from './state-machine'
-export * from './shipwright'
 // The wire-INPUT aliases: the unbranded side of the branded-id boundary, so a
 // producer of plain strings has a name for where it stands (POD-361; POD-362 /
 // POD-363 retire the uses).
 export * from './entities/wire-input'
 export * from './exhaustive'
-
-// The SHARED FIELD SCHEMAS (POD-365, 1.4b) — one vocabulary, composed by the
-// canonical aggregates and by every representation, never restated. See
-// `fields/README.md` for the four rules that keep them useful, in particular
-// rule 2: leave room for principal-dependent projection, do not build it.
-export * from './shape'
-export * from './fields/primitives'
 export * from './fields/attribution'
 // The legacy-attribution sweep (POD-1075): every device-level / role-level
 // attribution field readiness §3.2 names, with its decided shape and a totality
@@ -104,36 +115,12 @@ export * from './fields/issue'
 // The two vocabularies the POD-822 entities compose from — the dep edge's
 // `(id, fromId, toId, type)` and the logical repo's `(id, prefix)`.
 export * from './fields/issue-dep'
-export * from './fields/repo'
 export * from './fields/op-stream'
 export * from './fields/ownership'
 export * from './fields/per-user-key'
+export * from './fields/primitives'
+export * from './fields/repo'
 export * from './fields/session'
-
-// The per-user state family itself (POD-1076). Keyed `(userId, entityId)` over
-// POD-365's one fragment; `user-state/family.ts` is the totality list and records
-// which of inventory §7.1's facts have no server row, and why.
-export * from './user-state/family'
-// The event-stream read cursor (POD-1380) — the key POD-403's routing table
-// could not classify, because it had no server row to be per-user in.
-export * from './user-state/read-position-state'
-export * from './user-state/issue-state'
-export * from './user-state/layout-state'
-// The personal preference half (POD-1213) — the member POD-1076 recorded as
-// absent because its storage was still the instance-wide settings blob.
-export * from './user-state/preference-state'
-export * from './user-state/session-state'
-
-// The CANONICAL R1 AGGREGATES (POD-365) — the one definition of what a session
-// and an issue ARE, composed from the field groups above plus Ownership and
-// Attribution. NOT one universal record: the storage row, the live class, the
-// wire projections and the narrow ports stay DISTINCT types that Pick from the
-// same vocabulary (ADR 4 D1). `registry.ts` carries the default-closed
-// classification obligation, with a fixture aggregate proving it fails.
-export * from './aggregates/issue'
-export * from './aggregates/registry'
-export * from './aggregates/session'
-
 // Identity: of repos, worktrees and sessions — and, from POD-1075, of PEOPLE.
 // The User/account aggregate with credential material held in a separate,
 // never-replicated shape; the grant edge; the per-user client session; and the
@@ -153,20 +140,52 @@ export * from './identity/worktree'
 // package as their destination. THE single definition site for a brand.
 export * from './ids'
 export * from './machine-path'
-
-// The ownership matrix as DATA (POD-304): the vocabulary, one fully annotated
-// row per replicated aggregate / field group, and the Authority-only arbitration
-// surface. `annotations/arbitration-direction.test.ts` fails when replica-side
-// code imports the arbitration reads — ADR 1 D1's direction, enforced.
-export * from './annotations/arbitration'
-// POD-643: the no-capability-snapshot audit (ADR 9 D5 A1). Exported because the
-// obligation is not handoff's alone — POD-368's audit runs it over every
-// retained representation.
-export * from './annotations/capability-snapshot'
-export * from './annotations/matrix'
-export * from './annotations/ownership'
-export * from './annotations/resolution'
-
+export * from './predicates/active-work'
+export * from './predicates/agent-computing'
+export * from './predicates/idle-verdict'
+export { isClosed, isExcluded, isFinished } from './predicates/issue-lifecycle'
+export * from './predicates/issue-stage'
+export * from './predicates/machine-capability'
+export * from './predicates/machine-handoff'
+export * from './predicates/machine-selection'
+export * from './predicates/mobile-entry'
+export * from './predicates/seat-attention'
+export * from './predicates/server-readiness'
+export * from './predicates/session-priority'
+export * from './predicates/snooze'
+export * from './predicates/sort-key'
+export * from './predicates/state-word'
+export * from './predicates/stopped-send'
+export * from './predicates/unaddressable-send'
+export * from './projections/issue-deck'
+// Read projections (ADR 4 R4) that more than one workspace must name. Home for
+// the shapes the CLI used to hand-copy because `apps/cli` cannot import
+// `apps/server` (POD-366). Distinct from the aggregates above by role, not by
+// accident — ADR 4 D1 keeps storage / live / wire / read models apart.
+// The NORMALIZED issue feed payload (POD-796/POD-822) — R4 derived from
+// `IssueAggregate` under `shape.ts`'s wire convention, carrying no derived field
+// at all. `protocol/messages/sync.ts` names it on the `issueProjection` arm.
+export * from './projections/issue-projection'
+export * from './projections/issue-read'
+export * from './projections/session-read'
+// Replica provenance: how a row reached THIS replica (ADR 4 D3.8). Deliberately
+// NOT the home for owner / visibility / actor / on-behalf-of — those are durable
+// entity truth and must not be droppable at a boundary.
+export * from './provenance/envelope'
+// Folding quota SAMPLES into window INSTANCES. Lives beside the wires because
+// both the server (live sampling) and the daemon-side backfill importer run the
+// identical identity rule — two copies of it would be two answers to "is this the
+// same window?", and the whole ledger rests on that answer.
+export * from './quota-history-fold'
+// THE RETAINED-REPRESENTATION REGISTRY (POD-368, closing POD-302) — one entry per
+// representation ADR 4 D1 keeps as a distinct type, each carrying its purpose,
+// why its semantics differ from the canonical aggregate, what it composes, and a
+// declared ADR 9 D3 visibility class checked against ADR 1's matrix. The audit
+// items live in `checks.ts` and every one of them FIRES on a planted fixture:
+// unclassified, undocumented, per-user singleton, capability snapshot, instance
+// partition. `scripts/rearch-audit.ts` closes the loop over the tree.
+export * from './representations/checks'
+export * from './representations/registry'
 // SETTINGS, SPLIT BY MATRIX ROW (POD-418): the per-user preference aggregate,
 // the deployment-substrate one, and the server-owned secrets — which are a keyed
 // store whose wire projection is built INDEPENDENTLY and carries presence plus an
@@ -179,56 +198,25 @@ export * from './settings/path-tiers'
 export * from './settings/preferences'
 export * from './settings/scrub'
 export * from './settings/secrets'
-
-// Replica provenance: how a row reached THIS replica (ADR 4 D3.8). Deliberately
-// NOT the home for owner / visibility / actor / on-behalf-of — those are durable
-// entity truth and must not be droppable at a boundary.
-export * from './provenance/envelope'
-
-// Read projections (ADR 4 R4) that more than one workspace must name. Home for
-// the shapes the CLI used to hand-copy because `apps/cli` cannot import
-// `apps/server` (POD-366). Distinct from the aggregates above by role, not by
-// accident — ADR 4 D1 keeps storage / live / wire / read models apart.
-// The NORMALIZED issue feed payload (POD-796/POD-822) — R4 derived from
-// `IssueAggregate` under `shape.ts`'s wire convention, carrying no derived field
-// at all. `protocol/messages/sync.ts` names it on the `issueProjection` arm.
-export * from './projections/issue-projection'
-export * from './projections/issue-read'
-export * from './projections/issue-deck'
-export * from './projections/session-read'
-
-// THE RETAINED-REPRESENTATION REGISTRY (POD-368, closing POD-302) — one entry per
-// representation ADR 4 D1 keeps as a distinct type, each carrying its purpose,
-// why its semantics differ from the canonical aggregate, what it composes, and a
-// declared ADR 9 D3 visibility class checked against ADR 1's matrix. The audit
-// items live in `checks.ts` and every one of them FIRES on a planted fixture:
-// unclassified, undocumented, per-user singleton, capability snapshot, instance
-// partition. `scripts/rearch-audit.ts` closes the loop over the tree.
-export * from './representations/checks'
-export * from './representations/registry'
-
-// Pure derivations over entity shapes.
-export * from './dead-letter'
-export * from './predicates/active-work'
-export * from './predicates/agent-computing'
-export * from './predicates/seat-attention'
-export * from './predicates/idle-verdict'
-export * from './predicates/issue-stage'
-export { isFinished, isClosed, isExcluded } from './predicates/issue-lifecycle'
-export * from './predicates/machine-capability'
-export * from './predicates/machine-handoff'
-export * from './predicates/machine-selection'
-export * from './predicates/mobile-entry'
-export * from './predicates/session-priority'
-export * from './predicates/server-readiness'
-export * from './predicates/snooze'
-export * from './predicates/sort-key'
-export * from './predicates/state-word'
-export * from './predicates/stopped-send'
-export * from './predicates/unaddressable-send'
-
-export { MessageLedgerWire } from './entities/message-ledger'
-
-export * from './entities/settings-records'
-
-export * from './artifact-upload'
+// The SHARED FIELD SCHEMAS (POD-365, 1.4b) — one vocabulary, composed by the
+// canonical aggregates and by every representation, never restated. See
+// `fields/README.md` for the four rules that keep them useful, in particular
+// rule 2: leave room for principal-dependent projection, do not build it.
+export * from './shape'
+export * from './shipping'
+export * from './shipwright'
+// The declared state-machine helper every persisted lifecycle builds on (POD-4765).
+export * from './state-machine'
+// The per-user state family itself (POD-1076). Keyed `(userId, entityId)` over
+// POD-365's one fragment; `user-state/family.ts` is the totality list and records
+// which of inventory §7.1's facts have no server row, and why.
+export * from './user-state/family'
+export * from './user-state/issue-state'
+export * from './user-state/layout-state'
+// The personal preference half (POD-1213) — the member POD-1076 recorded as
+// absent because its storage was still the instance-wide settings blob.
+export * from './user-state/preference-state'
+// The event-stream read cursor (POD-1380) — the key POD-403's routing table
+// could not classify, because it had no server row to be per-user in.
+export * from './user-state/read-position-state'
+export * from './user-state/session-state'

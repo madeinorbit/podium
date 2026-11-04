@@ -4014,6 +4014,16 @@ type Output_issues_cancelShip = {
     };
     validationProfileDigest?: string | undefined;
 };
+type Output_issues_comments = Array<{
+    author: string;
+    authorId?: string | undefined;
+    body: string;
+    createdAt: string;
+    editedAt?: string | undefined;
+    editedBy?: string | undefined;
+    id: string;
+    mayEdit: boolean;
+}>;
 type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
@@ -4630,6 +4640,7 @@ type Output_issues_get = (null) | ({
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
     agentProfileId?: string | undefined;
+    allowed: _podium_model.IssueAllowedActions;
     archived: boolean;
     assignee?: (string & z.BRAND<"UserId">) | undefined;
     audience: "agent" | "human";
@@ -7151,7 +7162,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             input: {
                 id: string;
             };
-            output: Array<_podium_model.IssueComment>;
+            output: Output_issues_comments;
             meta: unknown;
         }>;
         "count": TRPC.TRPCQueryProcedure<{
