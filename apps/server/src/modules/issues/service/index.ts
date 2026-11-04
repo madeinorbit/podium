@@ -95,6 +95,10 @@ export type IssueAttentionCapability = Pick<
   | 'markIssueRead'
   | 'markIssueUnread'
   | 'setIssueTucked'
+  | 'recordParticipation'
+  | 'joinIssue'
+  | 'dismissAssignment'
+  | 'collaborators'
 >
 
 /** Public worktree, PR/merge and assistant contract. */

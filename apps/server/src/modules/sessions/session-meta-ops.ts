@@ -5,6 +5,7 @@
  * Dispose: none.
  */
 
+import { createLogger } from '@podium/logger'
 import type { SessionRecordReads } from './records'
 import type {
   Attribution,
@@ -31,6 +32,8 @@ import type { SessionStateService } from './session-state/service'
 import type { SessionDeletePlan, SessionRestorePlan } from './lifecycle'
 import type { Session, SessionDurableState } from './session'
 import type { SessionStateRegistry } from './session-state/registry'
+
+const log = createLogger('server:sessions:meta')
 
 export interface SessionMetaOpsPorts {
   broadcastSessions(): void
@@ -61,6 +64,8 @@ export interface SessionMetaOpsPorts {
     erroredTurn: string
   }) => Promise<{ ok: boolean; reason?: string }>
   view: Pick<SessionView, 'principalForTrustedUser' | 'prepareRefAllocation' | 'overlay' | 'wire' | 'buildProjectionPass'>
+  /** The owner's start record on a task the session is attached to (POD-6290). */
+  recordIssueParticipation?(issueId: IssueId, userId: UserId, via: 'start' | 'agent'): Promise<void>
 }
 
 export class SessionMetaOps {
@@ -275,6 +280,19 @@ export class SessionMetaOps {
     const additionalWrite = issueId ? await this.ports.view.prepareRefAllocation(draft) : undefined
     await this.ports.repository.persistDraft(session, draft, additionalWrite)
     this.ports.broadcastSessions()
+    // An attach lands the session on a task, which puts the task in its owner's
+    // set (POD-6290): their own start, or their agent's for a session an agent
+    // spawned. A detach records nothing and removes nothing.
+    const owner = session.delegation?.onBehalfOf ?? session.ownerUserId
+    if (issueId && owner) {
+      await this.ports
+        .recordIssueParticipation?.(
+          issueId,
+          owner,
+          session.delegation?.parentBindingId ? 'agent' : 'start',
+        )
+        .catch((error) => log.warn('failed to record the start on the task', { error, sessionId }))
+    }
   }
 
   /** Restamp the session's cwd after a hopscotch start minted a new checkout. */

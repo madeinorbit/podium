@@ -9,6 +9,7 @@ import type {
   Geometry,
   HarnessRefEntry,
   IssueId,
+  IssueJoinVia,
   MachineId,
   MachinePresenceSource,
   MachineServiceAssignment,
@@ -553,6 +554,11 @@ export interface StoredIssueUserState {
   readAt: string | null
   tuckedAt: string | null
   pinnedAt: string | null
+  /** Personal records (POD-6290). Absent reads as null: no record. */
+  joinedAt?: string | null
+  joinedVia?: IssueJoinVia | null
+  assignedAt?: string | null
+  assignedBy?: UserId | null
 }
 
 /** One "agent mail" message addressed to an ISSUE (issue #103). Status lifecycle:

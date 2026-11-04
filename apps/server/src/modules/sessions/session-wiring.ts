@@ -399,6 +399,9 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     ...(bag.deps.discardUnlaunchedDraft
       ? { discardUnlaunchedDraft: bag.deps.discardUnlaunchedDraft }
       : {}),
+    ...(bag.deps.recordIssueParticipation
+      ? { recordIssueParticipation: bag.deps.recordIssueParticipation }
+      : {}),
     sessionOwner: (sessionId) => ownership.sessionOwner(sessionId),
     queueInitialPrompt: (i) => bag.inbox.queueInitialPrompt(i),
     ...(bag.deps.recordSpawnPrompt ? { recordSpawnPrompt: bag.deps.recordSpawnPrompt } : {}),
@@ -1322,6 +1325,9 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     // An agent's continue is a message from system:auto-continue (POD-4846),
     // sent by the message ledger the composition root wires in.
     ...(bag.deps.sendContinue ? { sendContinue: bag.deps.sendContinue } : {}),
+    ...(bag.deps.recordIssueParticipation
+      ? { recordIssueParticipation: bag.deps.recordIssueParticipation }
+      : {}),
     view: bag.view,
   })
   // Revival needs sessionStart.spawn, workspace, repository, launchConfig,

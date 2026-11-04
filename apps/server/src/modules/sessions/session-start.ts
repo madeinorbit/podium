@@ -165,6 +165,9 @@ export interface SessionStartPorts {
   }): Promise<IssueId | undefined>
   /** Drop a draft made for a start that failed before its session existed. */
   discardUnlaunchedDraft?(issueId: IssueId): Promise<void>
+  /** Record that `userId` started work on the issue (POD-6290): their own start,
+   *  or their agent's. Absent = no personal records (unit fixtures). */
+  recordIssueParticipation?(issueId: IssueId, userId: UserId, via: 'start' | 'agent'): Promise<void>
   instructionsForStart(input: {
     sessionId: SessionId
     cwd: string
@@ -753,6 +756,19 @@ export class SessionStart {
       ...(input.requestedDriverId !== undefined ? { requestedDriverId: input.requestedDriverId } : {}),
     })
     this.ports.broadcastSessions()
+    // THE STARTER'S PERSONAL RECORD (POD-6290): a session landing on a task
+    // puts that task in its owner's set, as their own start, or as their
+    // agent's when an agent spawned it. After the spawn is sent: a record that
+    // fails to write must not strand a session the daemon never heard of.
+    if (input.issueId && ownerUserId) {
+      await this.ports
+        .recordIssueParticipation?.(
+          input.issueId,
+          ownerUserId,
+          principal.kind === 'agent' ? 'agent' : 'start',
+        )
+        .catch((error) => log.warn('failed to record the start on the task', { error, sessionId }))
+    }
     return {
       sessionId,
       agentId: sessionId,

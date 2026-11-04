@@ -243,6 +243,19 @@ export class IssueCommandCtx {
     return this.caller.capability.onBehalfOf
   }
 
+  /** The member a per-user write lands on; refused when the caller acts for
+   *  nobody (a system job has no personal rows). */
+  requireMarkerUser(): import('@podium/model').UserId {
+    const user = this.markerUser()
+    if (!user) {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'personal task records need a human principal',
+      })
+    }
+    return user
+  }
+
   private readerUser(): string {
     const principal = this.caller.principal
     const user = principal ? onBehalfOfUser(principal) : null

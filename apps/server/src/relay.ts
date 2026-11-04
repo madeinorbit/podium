@@ -1696,6 +1696,10 @@ export class SessionRegistry {
       discardUnlaunchedDraft: async (issueId) => {
         await this.issues.attention.discardUnlaunchedDraft(issueId)
       },
+      // A session landing on a task records its owner's start there (POD-6290).
+      recordIssueParticipation: async (issueId, userId, via) => {
+        await this.issues.attention.recordParticipation(issueId, userId, via)
+      },
       // POD-1081: clientCount is a degenerate view of session-room occupancy.
       // Attach still owns frame delivery; presence rooms own who-is-watching.
       // PTY attach auto-joins the room so the two stay one mechanism.

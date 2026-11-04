@@ -1,6 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import { createLogger } from '@podium/logger'
-import type { IssueId, IssueProjection, MachineId, SessionId, UserId } from '@podium/model'
+import type {
+  IssueId,
+  IssueJoinVia,
+  IssueProjection,
+  MachineId,
+  SessionId,
+  UserId,
+} from '@podium/model'
 import { DRAFT_ISSUE_TITLE } from '@podium/model'
 import {
   attributionOf,
@@ -13,7 +20,7 @@ import { isMemberCwd } from '../../../issue-util'
 import type { IssueRow, Subscription } from '../../../store'
 import type { SubscriptionPageCursor } from '../../../store/events'
 import { afterCommit } from '../../../store/executor/executor'
-import type { IssueStore } from './core'
+import type { IssueCollaborator, IssueStore } from './core'
 import type { IssueCrudModule } from './crud'
 import type { IssueReportsModule } from './reads'
 import { IssueRefusal } from './refusal'
@@ -100,6 +107,41 @@ export class IssueAttentionModule {
     ...args: Parameters<IssueCrudModule['setIssueTucked']>
   ): Promise<Awaited<ReturnType<IssueCrudModule['setIssueTucked']>>> {
     return await this.crud().setIssueTucked(...args)
+  }
+
+  /**
+   * PERSONAL RECORDS (POD-6290; design §2.2, §4.4). `member` started work on
+   * the task, their agent did, or they joined it: the task enters their
+   * personal set. The first record is kept.
+   */
+  async recordParticipation(id: string, member: UserId, via: IssueJoinVia): Promise<void> {
+    const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
+    await this.store.recordParticipation(row.id, member, via)
+  }
+
+  /** An explicit join (`issues.join`): `member`'s join record, or their agent's
+   *  when an agent joins for them. Answers the task's collaborators. */
+  async joinIssue(
+    id: string,
+    member: UserId,
+    via: Extract<IssueJoinVia, 'join' | 'agent'>,
+  ): Promise<IssueCollaborator[]> {
+    const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
+    await this.store.recordParticipation(row.id, member, via)
+    return await this.store.collaborators(row.id)
+  }
+
+  /** Remove `member`'s "assigned to you by X" row and nothing else. */
+  async dismissAssignment(id: string, member: UserId): Promise<{ dismissed: boolean }> {
+    const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
+    return { dismissed: await this.store.dismissAssignment(row.id, member) }
+  }
+
+  /** The task's collaborators: members with a start or join record. No access
+   *  follows from being one. */
+  async collaborators(id: string): Promise<IssueCollaborator[]> {
+    const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
+    return await this.store.collaborators(row.id)
   }
   /** Re-home a session onto another issue (agent self-organization).
    *  - `newSubissue`: create a child issue first (parent = the session's current

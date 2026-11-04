@@ -611,6 +611,14 @@ export const issueUserState = sqliteTable(
     readAt: text('read_at'),
     tuckedAt: text('tucked_at'),
     pinnedAt: text('pinned_at'),
+    // PERSONAL RECORDS (POD-6290): when and how this member first started or
+    // joined the task ('start' | 'agent' | 'join'), and the removable
+    // "assigned to you by X" row. They feed the member's sidebar and define the
+    // task's collaborators; they grant nothing.
+    joinedAt: text('joined_at'),
+    joinedVia: text('joined_via').$type<'start' | 'agent' | 'join'>(),
+    assignedAt: text('assigned_at'),
+    assignedBy: text('assigned_by').$type<UserId>(),
   },
   (table) => [
     primaryKey({ columns: [table.userId, table.issueId], name: 'issue_user_state_pk' }),

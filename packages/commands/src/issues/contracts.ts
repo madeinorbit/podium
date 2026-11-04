@@ -554,6 +554,24 @@ export const setTuckedInput = z.object({
   mutationId: z.string().max(128).pipe(MutationIdField).optional(),
 })
 
+/**
+ * PERSONAL RECORDS (POD-6290, design §2.2/§4.4). Joining a task puts it in the
+ * caller's own sidebar set and makes them one of its collaborators; it grants
+ * no access. Dismissing removes only the caller's "assigned to you by X" row.
+ */
+export const joinInput = z.object({
+  id: IssueIdField,
+  mutationId: z.string().max(128).pipe(MutationIdField).optional(),
+})
+
+export const dismissAssignmentInput = z.object({
+  id: IssueIdField,
+  mutationId: z.string().max(128).pipe(MutationIdField).optional(),
+})
+
+/** A task's collaborators: the members with a start or join record. */
+export const collaboratorsInput = z.object({ id: IssueIdField })
+
 export const setNeedsHumanInput = z.object({
   id: IssueIdField,
   question: z.string().optional(),
@@ -1193,6 +1211,29 @@ export const issueSetTuckedContract = {
   conflict: 'cmd',
   conflictRule: 'field-LWW sidebar curation; last tuck state wins',
 } as const satisfies MutatingCommandContract
+
+export const issueJoinContract = {
+  ...issueSetTuckedContract,
+  name: 'issues.join',
+  input: joinInput,
+  conflictRule:
+    'first-writer per-user record: the first start or join is kept; a repeat is a no-op',
+} as const satisfies MutatingCommandContract
+
+export const issueDismissAssignmentContract = {
+  ...issueSetTuckedContract,
+  name: 'issues.dismissAssignment',
+  input: dismissAssignmentInput,
+  conflictRule: 'field-LWW sidebar curation; clearing an absent assigned row is a no-op',
+} as const satisfies MutatingCommandContract
+
+export const issueCollaboratorsContract = {
+  ...issueCommentsContract,
+  name: 'issues.collaborators',
+  input: collaboratorsInput,
+  // No CLI verb or MCP tool reads it yet; the web task detail does (POD-6295).
+  exposure: SERVED_ON_WIRE,
+} as const satisfies CommandContract
 
 export const issueMailInboxContract = {
   name: 'issues.mailInbox',
@@ -2233,6 +2274,9 @@ export const ISSUE_CONTRACTS = {
   setNeedsHuman: issueSetNeedsHumanContract,
   setState: issueSetStateContract,
   setTucked: issueSetTuckedContract,
+  join: issueJoinContract,
+  dismissAssignment: issueDismissAssignmentContract,
+  collaborators: issueCollaboratorsContract,
   ship: issueShipContract,
   stale: issueStaleContract,
   start: issueStartContract,
@@ -2329,6 +2373,7 @@ const NON_MUTATING_NAMES = [
   'blocked',
   'children',
   'closeEligibleEpics',
+  'collaborators',
   'comments',
   'count',
   'deck',

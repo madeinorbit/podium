@@ -48,6 +48,17 @@ import { asIssueId, type IssueId, IssueIdField, type UserId } from '../ids'
 import { perUserKeyOfString } from './session-state'
 
 /**
+ * HOW A PERSON CAME TO A TASK (POD-6290). The first reason is kept.
+ * - `start`: the person started work on it themselves (created it, or started a
+ *   session of their own on it).
+ * - `agent`: one of their agents did (a session their agent spawned landed on it,
+ *   or their agent created or joined it): their own agent's elevation.
+ * - `join`: they joined it explicitly.
+ */
+export const IssueJoinVia = z.enum(['start', 'agent', 'join'])
+export type IssueJoinVia = z.infer<typeof IssueJoinVia>
+
+/**
  * ISSUE PER-USER STATE — `(userId, issueId)` → this person's read marker, tuck
  * marker and pin.
  *
@@ -64,8 +75,32 @@ export const IssueUserState = perUserKey(IssueIdField).extend({
   /** When this person pinned it. `null` = not pinned. See the header on why this
    *  is a timestamp and the wire keeps a boolean. */
   pinnedAt: z.string().nullable(),
+  /**
+   * PERSONAL RECORDS (POD-6290; docs/design/multi-user-instance.md §2.2, §4.4).
+   * When this person first started or joined the task, and how. Opening,
+   * searching or reading a task writes only `readAt`, never these. Optional on
+   * the wire so a row from an older server reads as "no record".
+   */
+  joinedAt: z.string().nullable().optional(),
+  joinedVia: IssueJoinVia.nullable().optional(),
+  /** The removable "assigned to you by X" row: when the task was assigned to this
+   *  person, and by whom. Cleared when it is reassigned away or dismissed. */
+  assignedAt: z.string().nullable().optional(),
+  assignedBy: z.string().nullable().optional(),
 })
 export type IssueUserState = z.infer<typeof IssueUserState>
+
+/** A task is in a person's personal set when they started or joined it, or it
+ *  carries their assigned row. One function, so the server and every client
+ *  spell it the same way. */
+export const inPersonalSet = (
+  row: Pick<IssueUserState, 'joinedAt' | 'assignedAt'> | undefined,
+): boolean => row != null && (row.joinedAt != null || row.assignedAt != null)
+
+/** A collaborator is a person with a start or join record (design §2.2). An
+ *  assignment alone does not make one, and being one grants no access. */
+export const isCollaboratorRecord = (row: Pick<IssueUserState, 'joinedAt'> | undefined): boolean =>
+  row?.joinedAt != null
 
 /**
  * TRACKER-MAIL READ STATE — `(userId, issueMessageId)` → when this person read
@@ -139,6 +174,12 @@ export const issueUserStateToWire = (row: IssueUserState): IssueUserStateWire =>
   userId: row.userId,
   entityId: row.entityId,
   ...issueOverlayOf(row),
+  // The personal records ride the same row (POD-6290), present only when set
+  // so a row without them keeps its exact former shape.
+  ...(row.joinedAt != null ? { joinedAt: row.joinedAt, joinedVia: row.joinedVia ?? null } : {}),
+  ...(row.assignedAt != null
+    ? { assignedAt: row.assignedAt, assignedBy: row.assignedBy ?? null }
+    : {}),
 })
 
 /** The family's canonical composite encoding, also used for removes/evictions. */

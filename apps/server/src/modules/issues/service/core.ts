@@ -6,9 +6,11 @@ import {
   type IssueGitState,
   IssueGitStateProjection,
   type IssueId,
+  type IssueJoinVia,
   type IssuePanel,
   type IssueProjection,
   type IssueUserOverlay,
+  isCollaboratorRecord,
   isIssueBlocked,
   isIssueClosed,
   isIssueDeferred,
@@ -77,6 +79,13 @@ function referenceInRepoOf(
       : Buffer.compare(Buffer.from(a.repoPath), Buffer.from(b.repoPath)),
   )
   return matches[0]?.id ?? null
+}
+
+/** One collaborator of a task (POD-6290): a member with a start or join record. */
+export interface IssueCollaborator {
+  userId: UserId
+  joinedAt: string
+  via: IssueJoinVia | null
 }
 
 /**
@@ -267,6 +276,109 @@ export class IssueStore {
             : { op: 'remove' as const }),
         })),
     })
+  }
+
+  /**
+   * PERSONAL RECORDS (POD-6290; design §2.2, §4.4). One member's start or join
+   * record and their "assigned to you by X" row live on that member's own
+   * user-state row, so they reach only that member's feed. `decide` reads the
+   * stored row INSIDE the commit and answers the patch to write, or undefined
+   * for none, so two racing records keep the first.
+   */
+  private async commitUserState(
+    issueId: IssueId,
+    user: UserId,
+    decide: (
+      current: StoredIssueUserState | undefined,
+    ) => Partial<StoredIssueUserState> | undefined,
+  ): Promise<boolean> {
+    const { result } = await this.deps.ledger.commit({
+      write: async () => {
+        const patch = decide(await this.deps.store.issues.getIssueUserState(user, issueId))
+        if (patch === undefined) return { wrote: false as const }
+        await this.deps.store.issues.setIssueUserState(user, issueId, patch)
+        return {
+          wrote: true as const,
+          state: await this.deps.store.issues.getIssueUserState(user, issueId),
+        }
+      },
+      changes: (written) =>
+        written.wrote
+          ? [
+              {
+                entity: 'issueUserState' as const,
+                id: issueUserStateRowId(user, issueId),
+                ...(written.state
+                  ? {
+                      op: 'upsert' as const,
+                      value: issueUserStateToWire({
+                        userId: user,
+                        entityId: issueId,
+                        ...written.state,
+                      }),
+                    }
+                  : { op: 'remove' as const }),
+              },
+            ]
+          : [],
+    })
+    return result.wrote
+  }
+
+  /**
+   * Record that `user` started or joined the task (POD-6290). The first record
+   * is kept: a later start, agent or join leaves the original time and reason.
+   * Answers whether a record was written. Opening, searching or reading a task
+   * never calls this.
+   */
+  async recordParticipation(issueId: IssueId, user: UserId, via: IssueJoinVia): Promise<boolean> {
+    const at = this.now()
+    return await this.commitUserState(issueId, user, (current) =>
+      current?.joinedAt != null ? undefined : { joinedAt: at, joinedVia: via },
+    )
+  }
+
+  /**
+   * A reassignment's personal rows (POD-6290): the new assignee gets an
+   * "assigned to you by `by`" row, and the previous assignee's assigned row,
+   * which no longer says anything true, is cleared. Start and join records are
+   * left alone on both sides.
+   */
+  async recordAssignment(
+    issueId: IssueId,
+    assignee: UserId,
+    by: UserId | null,
+    previous?: UserId | null,
+  ): Promise<void> {
+    const at = this.now()
+    if (previous && previous !== assignee) await this.dismissAssignment(issueId, previous)
+    await this.commitUserState(issueId, assignee, () => ({ assignedAt: at, assignedBy: by }))
+  }
+
+  /** Remove `user`'s assigned row (POD-6290). Nothing else changes: not the
+   *  assignee, not their start or join record, not anyone else's rows. */
+  async dismissAssignment(issueId: IssueId, user: UserId): Promise<boolean> {
+    return await this.commitUserState(issueId, user, (current) =>
+      current?.assignedAt == null && current?.assignedBy == null
+        ? undefined
+        : { assignedAt: null, assignedBy: null },
+    )
+  }
+
+  /**
+   * A task's collaborators (design §2.2): the members with a start or join
+   * record on it, earliest first. An assignment alone does not make one, and
+   * being one grants no access; nothing reads this list to decide one.
+   */
+  async collaborators(issueId: IssueId): Promise<IssueCollaborator[]> {
+    return (await this.deps.store.issues.listIssueUserStateRows(issueId))
+      .filter((state) => isCollaboratorRecord(state))
+      .map((state) => ({
+        userId: state.userId,
+        joinedAt: state.joinedAt as string,
+        via: state.joinedVia ?? null,
+      }))
+      .sort((a, b) => a.joinedAt.localeCompare(b.joinedAt) || a.userId.localeCompare(b.userId))
   }
 
   /** Ephemeral observations, published only as issueGitState rows. */

@@ -1,6 +1,6 @@
 // Generated from apps/server/src/router.ts. Run bun run api:types. Do not edit.
 import * as _podium_model from '@podium/model';
-import { MachineId, IssueId, UserId, SessionId, ArtifactId, UpdateChannel, MachinePresenceSource, GitRepositoryWire, GitDiscoveryDiagnosticWire, TranscriptItem, AgentKind, AccountId, AgentPhase } from '@podium/model';
+import { MachineId, IssueId, UserId, SessionId, IssueJoinVia, ArtifactId, UpdateChannel, MachinePresenceSource, GitRepositoryWire, GitDiscoveryDiagnosticWire, TranscriptItem, AgentKind, AccountId, AgentPhase } from '@podium/model';
 import { z } from 'zod';
 import * as Protocol from '@podium/protocol';
 import { ModelChoiceWire, ConvergenceState, MobileWebIdentity, FeatureState, FeatureVisibility } from '@podium/protocol';
@@ -848,6 +848,13 @@ interface DepReportEntry {
     deps: DepReportRef[];
     /** Incoming deps: issues waiting on this one. */
     dependents: DepReportRef[];
+}
+
+/** One collaborator of a task (POD-6290): a member with a start or join record. */
+interface IssueCollaborator {
+    userId: UserId;
+    joinedAt: string;
+    via: IssueJoinVia | null;
 }
 
 /** One artifact's stored content, as `panelArtifactRead` answers it. */
@@ -7133,6 +7140,13 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Array<_podium_model.IssueReport>;
             meta: unknown;
         }>;
+        "collaborators": TRPC.TRPCQueryProcedure<{
+            input: {
+                id: string;
+            };
+            output: Array<IssueCollaborator>;
+            meta: unknown;
+        }>;
         "comments": TRPC.TRPCQueryProcedure<{
             input: {
                 id: string;
@@ -7217,6 +7231,16 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Array<DepReportEntry>;
             meta: unknown;
         }>;
+        "dismissAssignment": TRPC.TRPCMutationProcedure<{
+            input: {
+                id: string;
+                mutationId?: string | undefined;
+            };
+            output: {
+                dismissed: boolean;
+            };
+            meta: unknown;
+        }>;
         "dismissSuggestion": TRPC.TRPCMutationProcedure<{
             input: {
                 expectedRevision?: number | undefined;
@@ -7290,6 +7314,18 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 id: string;
             };
             output: Output_issues_action;
+            meta: unknown;
+        }>;
+        "join": TRPC.TRPCMutationProcedure<{
+            input: {
+                id: string;
+                mutationId?: string | undefined;
+            };
+            output: Array<{
+                joinedAt: string;
+                userId: _podium_model.UserId;
+                via: _podium_model.IssueJoinVia | null;
+            }>;
             meta: unknown;
         }>;
         "labelList": TRPC.TRPCQueryProcedure<{

@@ -285,6 +285,8 @@ export interface SessionLifecycleDeps {
   /** The draft task an agent started outside every task joins; absent = none. */
   draftForStart?: SessionStartPorts['draftForStart']
   discardUnlaunchedDraft?: SessionStartPorts['discardUnlaunchedDraft']
+  /** A session's owner's start record on its task (POD-6290); absent = none. */
+  recordIssueParticipation?: SessionStartPorts['recordIssueParticipation']
   /**
    * Presence-room occupancy for a session (POD-1081). When provided,
    * `clientCount` is derived from it and attach/watch policy can consult the

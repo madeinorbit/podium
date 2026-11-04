@@ -1377,6 +1377,42 @@ const defs = {
         async () => await ctx.attention.setIssueTucked(input.id, input.tucked, ctx.markerUser()),
       ),
   }),
+  // PERSONAL RECORDS (POD-6290): join a task you can read. It enters your own
+  // sidebar set and you become a collaborator; nothing else changes and no
+  // access follows. An agent joining records its human's, as the agent's.
+  join: def('join', {
+    kind: 'mutation',
+    handler: async (ctx, input) =>
+      await ctx.withMutation(
+        input.mutationId,
+        async () =>
+          await ctx.readIssue(
+            input.id,
+            async () =>
+              await ctx.attention.joinIssue(
+                input.id,
+                ctx.requireMarkerUser(),
+                ctx.caller.principal?.kind === 'agent' ? 'agent' : 'join',
+              ),
+          ),
+      ),
+  }),
+  // Remove your own "assigned to you by X" row (POD-6290). The task stays
+  // assigned to you, and your start or join record, if any, stays.
+  dismissAssignment: def('dismissAssignment', {
+    kind: 'mutation',
+    handler: async (ctx, input) =>
+      await ctx.withMutation(
+        input.mutationId,
+        async () => await ctx.attention.dismissAssignment(input.id, ctx.requireMarkerUser()),
+      ),
+  }),
+  // A task's collaborators (POD-6290): read like the task.
+  collaborators: def('collaborators', {
+    kind: 'query',
+    handler: async (ctx, input) =>
+      await ctx.readIssue(input.id, async () => await ctx.attention.collaborators(input.id)),
+  }),
   setNeedsHuman: def('setNeedsHuman', {
     kind: 'mutation',
     target: targetId,

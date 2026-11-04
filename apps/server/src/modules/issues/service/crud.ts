@@ -1458,6 +1458,19 @@ export class IssueCrudModule {
     // clients, so a create still fans out the full list once (#22).
 
     await this.store.emitEvent('issue.created', row.id, { seq: row.seq, title: row.title })
+    // Creating a task starts it for the creating human (POD-6290): their own
+    // start, or their agent's when an agent created it for them.
+    if (row.createdByOnBehalfOf) {
+      await this.store.recordParticipation(
+        row.id,
+        row.createdByOnBehalfOf,
+        row.createdByActor && row.createdByActor !== row.createdByOnBehalfOf ? 'agent' : 'start',
+      )
+    }
+    // Created FOR someone else: that person gets an "assigned to you" row.
+    if (row.ownerUserId && row.createdByOnBehalfOf && row.ownerUserId !== row.createdByOnBehalfOf) {
+      await this.store.recordAssignment(row.id, row.ownerUserId, row.createdByOnBehalfOf)
+    }
     // Best-effort, isolated: an observer must never fail a create.
     try {
       this.store.deps.onIssueCreated?.({
@@ -2337,6 +2350,9 @@ export class IssueCrudModule {
       to,
       ...(by ? { by } : {}),
     })
+    // The new assignee's removable "assigned to you by X" row (POD-6290); the
+    // old assignee's assigned row goes, their start or join record stays.
+    await this.store.recordAssignment(row.id, to, by ?? null, from)
     if (by) {
       await this.store.deps.onIssueReassigned?.({
         issueId: row.id,

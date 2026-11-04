@@ -447,6 +447,36 @@ const legacyIssueRefsAtSeq = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+/** A user-state row with every marker and record null: what an absent row means. */
+const NO_STORED_USER_STATE: Required<StoredIssueUserState> = {
+  readAt: null,
+  tuckedAt: null,
+  pinnedAt: null,
+  joinedAt: null,
+  joinedVia: null,
+  assignedAt: null,
+  assignedBy: null,
+}
+
+/** A stored row's markers and personal records (POD-6290), as the store hands them out. */
+const storedUserStateOf = (r: {
+  readAt: string | null
+  tuckedAt: string | null
+  pinnedAt: string | null
+  joinedAt: string | null
+  joinedVia: 'start' | 'agent' | 'join' | null
+  assignedAt: string | null
+  assignedBy: UserId | null
+}): Required<StoredIssueUserState> => ({
+  readAt: r.readAt,
+  tuckedAt: r.tuckedAt,
+  pinnedAt: r.pinnedAt,
+  joinedAt: r.joinedAt,
+  joinedVia: r.joinedVia,
+  assignedAt: r.assignedAt,
+  assignedBy: r.assignedBy,
+})
+
 /** One user's markers for a set of issues; one shape per IN-list size. */
 const issueUserStatesOf = preparedFamily((db: StoreDrizzle, size: number) =>
   db
@@ -455,6 +485,10 @@ const issueUserStatesOf = preparedFamily((db: StoreDrizzle, size: number) =>
       readAt: issueUserState.readAt,
       tuckedAt: issueUserState.tuckedAt,
       pinnedAt: issueUserState.pinnedAt,
+      joinedAt: issueUserState.joinedAt,
+      joinedVia: issueUserState.joinedVia,
+      assignedAt: issueUserState.assignedAt,
+      assignedBy: issueUserState.assignedBy,
     })
     .from(issueUserState)
     .where(
@@ -938,6 +972,10 @@ const issueUserStateFeedColumns = {
   readAt: issueUserState.readAt,
   tuckedAt: issueUserState.tuckedAt,
   pinnedAt: issueUserState.pinnedAt,
+  joinedAt: issueUserState.joinedAt,
+  joinedVia: issueUserState.joinedVia,
+  assignedAt: issueUserState.assignedAt,
+  assignedBy: issueUserState.assignedBy,
 }
 
 const allIssueUserStateRows = prepared((db: StoreDrizzle) =>
@@ -958,6 +996,10 @@ const issueUserStateOne = prepared((db: StoreDrizzle) =>
       readAt: issueUserState.readAt,
       tuckedAt: issueUserState.tuckedAt,
       pinnedAt: issueUserState.pinnedAt,
+      joinedAt: issueUserState.joinedAt,
+      joinedVia: issueUserState.joinedVia,
+      assignedAt: issueUserState.assignedAt,
+      assignedBy: issueUserState.assignedBy,
     })
     .from(issueUserState)
     .where(
@@ -990,6 +1032,10 @@ const upsertIssueUserState = prepared((db: StoreDrizzle) =>
       readAt: sql.placeholder('readAt'),
       tuckedAt: sql.placeholder('tuckedAt'),
       pinnedAt: sql.placeholder('pinnedAt'),
+      joinedAt: sql.placeholder('joinedAt'),
+      joinedVia: sql.placeholder('joinedVia'),
+      assignedAt: sql.placeholder('assignedAt'),
+      assignedBy: sql.placeholder('assignedBy'),
     })
     .onConflictDoUpdate({
       target: [issueUserState.userId, issueUserState.issueId],
@@ -997,6 +1043,10 @@ const upsertIssueUserState = prepared((db: StoreDrizzle) =>
         readAt: sql.placeholder('readAt'),
         tuckedAt: sql.placeholder('tuckedAt'),
         pinnedAt: sql.placeholder('pinnedAt'),
+        joinedAt: sql.placeholder('joinedAt'),
+        joinedVia: sql.placeholder('joinedVia'),
+        assignedAt: sql.placeholder('assignedAt'),
+        assignedBy: sql.placeholder('assignedBy'),
       },
     })
     .prepare(),
@@ -1301,11 +1351,7 @@ export class IssuesRepository {
         const values = inListValues(ids, size, 'ids')
         values.userId = user
         for (const r of await issueUserStatesOf(this.db, size).all(values)) {
-          found.set(`${user}\u0000${r.issueId}`, {
-            readAt: r.readAt,
-            tuckedAt: r.tuckedAt,
-            pinnedAt: r.pinnedAt,
-          })
+          found.set(`${user}\u0000${r.issueId}`, storedUserStateOf(r))
         }
       }
       return found
@@ -2861,7 +2907,7 @@ export class IssuesRepository {
   ): Promise<StoredIssueUserState | undefined> {
     requireUserId(userId)
     const r = await issueUserStateOne(this.db).get({ userId, issueId })
-    return r ? { readAt: r.readAt, tuckedAt: r.tuckedAt, pinnedAt: r.pinnedAt } : undefined
+    return r ? storedUserStateOf(r) : undefined
   }
 
   /**
@@ -2879,28 +2925,24 @@ export class IssuesRepository {
   ): Promise<void> {
     requireUserId(userId)
     if (!issueId) throw new Error('issue user-state issue id is empty')
-    const current = (await this.getIssueUserState(userId, issueId)) ?? {
-      readAt: null,
-      tuckedAt: null,
-      pinnedAt: null,
+    const current = (await this.getIssueUserState(userId, issueId)) ?? NO_STORED_USER_STATE
+    const pick = <K extends keyof StoredIssueUserState>(key: K) =>
+      (patch[key] !== undefined ? patch[key] : current[key]) ?? null
+    const next = {
+      readAt: pick('readAt'),
+      tuckedAt: pick('tuckedAt'),
+      pinnedAt: pick('pinnedAt'),
+      joinedAt: pick('joinedAt'),
+      joinedVia: pick('joinedVia'),
+      assignedAt: pick('assignedAt'),
+      assignedBy: pick('assignedBy'),
     }
-    const next: StoredIssueUserState = {
-      readAt: patch.readAt !== undefined ? patch.readAt : current.readAt,
-      tuckedAt: patch.tuckedAt !== undefined ? patch.tuckedAt : current.tuckedAt,
-      pinnedAt: patch.pinnedAt !== undefined ? patch.pinnedAt : current.pinnedAt,
-    }
-    if (next.readAt === null && next.tuckedAt === null && next.pinnedAt === null) {
+    if (Object.values(next).every((value) => value === null)) {
       await deleteIssueUserStateOne(this.db).run({ userId, issueId })
       this.userStateWritten()
       return
     }
-    await upsertIssueUserState(this.db).run({
-      userId,
-      issueId,
-      readAt: next.readAt,
-      tuckedAt: next.tuckedAt,
-      pinnedAt: next.pinnedAt,
-    })
+    await upsertIssueUserState(this.db).run({ userId, issueId, ...next })
     this.userStateWritten()
   }
 
