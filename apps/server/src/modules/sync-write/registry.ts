@@ -19,21 +19,21 @@
  * Task 10 registers the outbox commands here; Task 16 the rest (plan POD-6241).
  */
 
-import {
-  type AnyCommandContract,
-  type CommandAction,
-  type CommandDef,
-  isExposedOn,
-  type RoleFloor,
-} from '@podium/commands'
+import type { AnyCommandContract, CommandDef } from '@podium/commands'
 import type { AuthTarget, MutationId } from '@podium/model'
 import type { Ledger } from '@podium/sync'
 import type { z } from 'zod'
 import type { CommandPrincipal } from '../../command-principal'
+import {
+  contractFrontDoor,
+  defFrontDoor,
+  type FrontDoorCommand,
+  type FrontDoorTransport,
+} from '../front-door'
 
-/** The transports with an adapter onto the entry point (ADR 12 D2). Each literal
- *  is spelled the same in both declaration formats' transport vocabularies. */
-export type SyncWriteTransport = 'trpc' | 'cli' | 'mcp' | 'relay'
+/** The transports with an adapter onto the entry point (ADR 12 D2): the front
+ *  door's, shared with the plain path. */
+export type SyncWriteTransport = FrontDoorTransport
 
 /**
  * A resolver's answer for a command that names NO existing record (a create, an
@@ -108,13 +108,10 @@ export interface DefRegistration<D extends CommandDef, Out> {
 }
 
 /** One command as the entry point reads it, whichever format declared it. */
-export interface SyncCommand {
+export interface SyncCommand extends FrontDoorCommand {
   readonly name: string
   readonly version: number
-  readonly action: CommandAction
-  readonly roleFloor: RoleFloor
   readonly input: z.ZodTypeAny
-  exposedOn(transport: SyncWriteTransport): boolean
   target(input: unknown, ctx: SyncTargetContext): MaybePromise<SyncWriteTarget>
   handle(ctx: SyncWriteContext, input: unknown): Promise<unknown>
 }
@@ -158,25 +155,14 @@ function normalise(
   if ('contract' in registration) {
     const { contract } = registration
     return {
+      ...contractFrontDoor(contract),
       name: contract.name,
       version: contract.version,
-      action: contract.policy.action,
-      roleFloor: contract.policy.roleFloor,
       input: contract.input,
-      exposedOn: (transport) => contract.exposure.includes(transport),
       target,
       handle,
     }
   }
   const { def, name } = registration
-  return {
-    name,
-    version: 1,
-    action: def.action,
-    roleFloor: 'member',
-    input: def.input,
-    exposedOn: (transport) => isExposedOn(def, transport),
-    target,
-    handle,
-  }
+  return { ...defFrontDoor(def), name, version: 1, input: def.input, target, handle }
 }

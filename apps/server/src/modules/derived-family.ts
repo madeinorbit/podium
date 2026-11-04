@@ -1,4 +1,5 @@
 import { syncFeedPrincipal } from '../sync/route-support'
+
 /**
  * THE ONE DERIVED-FAMILY BUILDER (POD-314, the 3.4 cutover).
  *
@@ -57,11 +58,9 @@ import { syncFeedPrincipal } from '../sync/route-support'
  * objects, not by grepping for an absence.
  */
 
-import type { UserId } from '@podium/model'
 import type { AnyCommandContract, TransportTag } from '@podium/commands'
-import {
-  type Principal,
-} from '@podium/protocol'
+import type { UserId } from '@podium/model'
+import type { Principal } from '@podium/protocol'
 import type { TRPCMutationProcedure, TRPCQueryProcedure } from '@trpc/server'
 import type { z } from 'zod'
 import type { Capability } from '../issue-authz'
@@ -266,12 +265,12 @@ export interface DerivedQuery<Svc> {
 // biome-ignore lint/suspicious/noExplicitAny: see the note above — the service
 // parameter is deliberately unconstrained here so it stays inferrable from the
 // selector; each family's registry pins it with `satisfies`.
-type AnyDerivedCommand = {
+export type AnyDerivedCommand = {
   readonly contract: AnyCommandContract
   readonly handler: (...args: any[]) => unknown
 }
 // biome-ignore lint/suspicious/noExplicitAny: as above.
-type AnyDerivedQuery = {
+export type AnyDerivedQuery = {
   readonly input: z.ZodTypeAny
   readonly exposure: readonly TransportTag[]
   readonly run: (...args: any[]) => unknown
@@ -349,7 +348,7 @@ export interface DerivedFamily<
  * at runtime is the "green gate that stopped looking" failure mode, and it looks
  * identical to a procedure nobody happened to call.
  */
-function assertSurfaceMatchesDeclarations(
+export function assertSurfaceMatchesDeclarations(
   family: string,
   commands: Record<string, AnyDerivedCommand>,
   queries: Record<string, AnyDerivedQuery>,

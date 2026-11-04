@@ -43,6 +43,7 @@ import type {
 import type { AuthorityRefusal, MutationLedger, OutboxEnvelope } from '@podium/sync'
 import type { CommandPrincipal } from '../../command-principal'
 import { outsideWriteProvenance, withWriteProvenance } from '../../write-provenance'
+import { coarselyPermitted, parseCommandInput } from '../front-door'
 import {
   isNoTarget,
   type SyncCommand,
@@ -123,14 +124,9 @@ export class SyncWriteEntry {
       return rejected({ kind: 'invalid', details: ['version'] })
 
     // 3. Parse.
-    const parsed = command.input.safeParse(envelope.input)
-    if (!parsed.success) {
-      return rejected({
-        kind: 'invalid',
-        details: [...new Set(parsed.error.issues.map((issue) => issue.path.join('.')))],
-      })
-    }
-    const input: unknown = parsed.data
+    const parsed = parseCommandInput(command.input, envelope.input)
+    if (!parsed.ok) return rejected({ kind: 'invalid', details: parsed.details })
+    const input: unknown = parsed.input
 
     // 4. The target check, live, on the parsed input.
     const denied = await this.targetRefusal(command, input, principal, envelope.confirmed === true)
@@ -204,25 +200,4 @@ export class SyncWriteEntry {
       afterCommit: (step, label) => afterCommit(() => outsideWriteProvenance(step), label),
     }
   }
-}
-
-/**
- * Step 2's question: may this principal use this command at all, over this
- * transport? It reads only the contract and the principal, never the input.
- *
- * A system principal is unreachable from every transport (ADR 3 Amendment D21):
- * server-originated writes go to the Authority directly, not through here.
- */
-function coarselyPermitted(
-  command: SyncCommand,
-  principal: CommandPrincipal,
-  transport: SyncWriteTransport,
-): boolean {
-  if (principal.kind === 'system') return false
-  if (!command.exposedOn(transport)) return false
-  const capability = principal.capability
-  if (command.roleFloor === 'admin' && capability.role !== 'admin') return false
-  // With no target, `authorize` answers the role question alone: may this role
-  // perform this action at all.
-  return authorize(capability, command.action) !== 'forbidden'
 }

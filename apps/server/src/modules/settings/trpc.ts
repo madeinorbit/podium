@@ -42,10 +42,17 @@ import { describeError } from '@podium/logger'
 import type { UserId } from '@podium/model'
 import { TRPCError, type TRPCMutationProcedure, type TRPCQueryProcedure } from '@trpc/server'
 import type { z } from 'zod'
-import { type Context, mods, t } from '../../trpc'
+import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
+import { type Context, type mods, t } from '../../trpc'
+import { assertPlainContract, runPlainCommand } from '../plain-command/entry'
+import { plainRefusalError } from '../plain-command/family'
 import { redactErrorMessage } from './audit'
-import { onBehalfOfUser } from '../../command-principal'
-import { settingsAuthzDeps, settingsAuthzFailure } from './authz'
+import {
+  SECRET_SURFACE_ABSENT,
+  type SettingsAuthzDeps,
+  settingsAuthzDeps,
+  settingsAuthzFailure,
+} from './authz'
 import {
   isSettingsCommandExposedOn,
   SETTINGS_COMMANDS_TRPC,
@@ -114,13 +121,29 @@ async function runSettingsCommand(
   ctx: Context,
   input: unknown,
 ): Promise<unknown | Promise<unknown>> {
-  const deps = await settingsAuthzDeps(ctx)
   // ONE `familyState(ctx).modules`, used for both the trail and the handler. Two calls would be
   // two `router-triple-access` sites where one is needed, and the audit
   // repository is deliberately NOT reached out of `familyState(ctx).store`:
   // it is a dependency of the SERVICE (`SettingsService.recordCommand`), so the
   // transport never touches the store.
-  const service = familyState(ctx).modules.settings
+  return await settingsCommandWith(
+    name,
+    await settingsAuthzDeps(ctx),
+    familyState(ctx).modules.settings,
+    input,
+  )
+}
+
+/** The settings service as the gate, the handler and the trail use it. */
+export type SettingsCommandService = ReturnType<typeof mods>['settings']
+
+/** {@link runSettingsCommand} over resolved dependencies, without a request context. */
+export async function settingsCommandWith(
+  name: SettingsCommandName,
+  deps: SettingsAuthzDeps,
+  service: SettingsCommandService,
+  input: unknown,
+): Promise<unknown> {
   const record = async (outcome: 'applied' | 'refused', error?: string): Promise<void> => {
     await service.recordCommand({
       command: name,
@@ -205,8 +228,105 @@ async function runSettingsCommand(
   return result
 }
 
+/**
+ * THE PLAIN SETTINGS COMMANDS (ADR 12 D8, POD-6360): the secret pair, the presence
+ * read and the Telegram ceremony. Their data is not synced, so they take the plain
+ * path: the shared front door (coarse check, then parse), then the family's gate,
+ * handler and trail inside the plain scope.
+ *
+ * Read off the contract rather than listed: a settings command a client may
+ * queue (`offline-eligible`: `updatePersonal`, `updateInstance`) is not plain and
+ * keeps the family's own path until it moves onto the sync write entry point.
+ */
+export const isPlainSettingsCommand = (name: SettingsCommandName): boolean =>
+  SETTINGS_COMMANDS_TRPC[name].contract.delivery.class !== 'offline-eligible'
+
+/**
+ * A FRONT-DOOR REFUSAL IN THIS FAMILY'S TERMS. The family's own gate decides the
+ * error when it refuses too; otherwise (an agent acting for an admin, say: the
+ * human's role passes, the agent's capability does not) the refusal is FORBIDDEN,
+ * except for the presence read, which refuses as absent for the reason
+ * `authz.ts` gives: its subject is an existence fact.
+ */
+export function settingsFrontDoorRefusal(
+  name: SettingsCommandName,
+  deps: SettingsAuthzDeps | undefined,
+): TRPCError {
+  const own = deps === undefined ? undefined : settingsAuthzFailure(name, deps)
+  if (own !== undefined) return own
+  const { policy } = SETTINGS_COMMANDS_TRPC[name].contract
+  if (policy.action === 'read' && policy.resource === 'secret') {
+    return new TRPCError({ code: 'NOT_FOUND', message: SECRET_SURFACE_ABSENT })
+  }
+  return new TRPCError({ code: 'FORBIDDEN', message: `${name} is not permitted for this caller` })
+}
+
+/**
+ * One plain settings command. A front-door refusal is recorded on the trail like
+ * every other refusal. Its input is NOT: the coarse check runs before the parse,
+ * so there is no parsed input whose redaction rule applies, and raw input stored
+ * on a refusal is exactly where a secret leaks.
+ *
+ * The dependencies are resolved AFTER the coarse check, because resolving them
+ * asks who the human is, which a principal the front door turns away (a system
+ * principal) does not have. A refusal still gets its family-shaped error.
+ */
+export async function plainSettingsCommandWith(
+  name: SettingsCommandName,
+  principal: CommandPrincipal,
+  resolve: () => Promise<{ deps: SettingsAuthzDeps; service: SettingsCommandService }>,
+  rawInput: unknown,
+): Promise<unknown> {
+  const { contract } = SETTINGS_COMMANDS_TRPC[name]
+  const reply = await runPlainCommand({
+    contract,
+    principal,
+    transport: 'trpc',
+    input: rawInput,
+    run: async (input) => {
+      const { deps, service } = await resolve()
+      return await settingsCommandWith(name, deps, service, input)
+    },
+  })
+  if (reply.outcome === 'applied') return reply.result
+  if (reply.refusal.kind === 'invalid') throw plainRefusalError(contract, reply.refusal)
+  if (principal.kind === 'system') {
+    // No human, so no trail principal and no role: the family's own refusal shape,
+    // read off the contract alone.
+    throw settingsFrontDoorRefusal(name, undefined)
+  }
+  const { deps, service } = await resolve()
+  const refusal = settingsFrontDoorRefusal(name, deps)
+  await service.recordCommand({
+    command: name,
+    outcome: 'refused',
+    principal: deps.principal,
+    input: {},
+    error: refusal.message,
+  })
+  throw refusal
+}
+
+/** The input is parsed by the plain entry, after the coarse check. */
+const unparsed = (raw: unknown): unknown => raw
+
 function buildProcedure(name: SettingsCommandName): unknown {
   const { contract } = SETTINGS_COMMANDS_TRPC[name]
+  if (isPlainSettingsCommand(name)) {
+    assertPlainContract(contract)
+    const proc = t.procedure.input(unparsed)
+    const call = async ({ ctx, input }: { ctx: Context; input: unknown }): Promise<unknown> =>
+      await plainSettingsCommandWith(
+        name,
+        ctx.principal,
+        async () => ({
+          deps: await settingsAuthzDeps(ctx),
+          service: familyState(ctx).modules.settings,
+        }),
+        input,
+      )
+    return contract.policy.action === 'read' ? proc.query(call) : proc.mutation(call)
+  }
   const proc = t.procedure.input(contract.input)
   const call = async ({ ctx, input }: { ctx: Context; input: unknown }): Promise<unknown> =>
     await runSettingsCommand(name, ctx, input)

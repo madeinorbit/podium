@@ -4,14 +4,15 @@
  */
 
 import { asUserId, type HarnessAgent, type MachineId } from '@podium/model'
-import { resolveRole, type ResolvedRole } from '@podium/runtime'
-import { derivedFamilyProcedures, type FamilyProcedures } from '../derived-family'
+import { type ResolvedRole, resolveRole } from '@podium/runtime'
 import {
+  type CodexLoginMachineSource,
   codexAuthorizerFor,
   codexLoginMachines,
-  type CodexLoginMachineSource,
   pickCodexMachine,
 } from '../../codex-machine'
+import type { FamilyProcedures } from '../derived-family'
+import { plainFamilyProcedures } from '../plain-command/family'
 import { ACCOUNT_QUERIES } from './queries'
 import { ACCOUNT_COMMANDS_TRPC } from './registry'
 
@@ -56,10 +57,10 @@ export function assembleCodexServerAiMarker(opts: {
   const harness = opts.role.harness
   const errorPart = opts.lastError ? { lastError: opts.lastError } : {}
   try {
-    const picked = pickCodexMachine(
-      codexLoginMachines(opts.listings, opts.isOnline, harness),
-      { defaultMachineId: opts.defaultMachineId, authorize: opts.authorize },
-    )
+    const picked = pickCodexMachine(codexLoginMachines(opts.listings, opts.isOnline, harness), {
+      defaultMachineId: opts.defaultMachineId,
+      authorize: opts.authorize,
+    })
     return { harness, machineId: picked.machineId, machineName: picked.machineName, ...errorPart }
   } catch {
     return opts.lastError ? { harness, ...errorPart } : undefined
@@ -68,7 +69,7 @@ export function assembleCodexServerAiMarker(opts: {
 
 /** THE DERIVED PROCEDURES, spread into `router.ts`'s `accounts` router. */
 export const accountFamilyProcedures = (): AccountProcedures =>
-  derivedFamilyProcedures({
+  plainFamilyProcedures({
     family: 'accounts',
     service: (state) => ({
       accounts: state.store.accounts,
@@ -85,7 +86,10 @@ export const accountFamilyProcedures = (): AccountProcedures =>
         if (!state.users) return undefined
         try {
           const viewer = asUserId(state.caller.userId)
-          const role = resolveRole(await state.modules.settings.getSettingsFor(viewer), 'background')
+          const role = resolveRole(
+            await state.modules.settings.getSettingsFor(viewer),
+            'background',
+          )
           const authorize = await codexAuthorizerFor(
             { users: state.users, machines: state.modules.machines },
             viewer,

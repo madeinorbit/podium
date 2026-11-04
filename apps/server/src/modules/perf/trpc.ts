@@ -8,7 +8,8 @@
  * by a field of the trace body.
  */
 
-import { derivedFamilyProcedures, type FamilyProcedures } from '../derived-family'
+import type { FamilyProcedures } from '../derived-family'
+import { plainFamilyProcedures } from '../plain-command/family'
 import { PERF_COMMANDS_TRPC } from './commands'
 import { PERF_QUERIES } from './queries'
 
@@ -16,7 +17,7 @@ export type PerfProcedures = FamilyProcedures<typeof PERF_COMMANDS_TRPC, typeof 
 
 /** THE DERIVED PROCEDURES, spread into `router.ts`'s `perf` router. */
 export const perfFamilyProcedures = (): PerfProcedures =>
-  derivedFamilyProcedures({
+  plainFamilyProcedures({
     family: 'perf',
     service: (state) => ({
       perf: state.modules.perf,

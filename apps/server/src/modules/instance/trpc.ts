@@ -10,7 +10,8 @@
  */
 
 import type { ServerReadiness, UserId } from '@podium/model'
-import { derivedFamilyProcedures, type FamilyProcedures } from '../derived-family'
+import type { FamilyProcedures } from '../derived-family'
+import { plainFamilyProcedures } from '../plain-command/family'
 import { AUTH_QUERIES, SETUP_QUERIES, TELEMETRY_QUERIES } from './queries'
 import { AUTH_COMMANDS_TRPC, SETUP_COMMANDS_TRPC, TELEMETRY_COMMANDS_TRPC } from './registry'
 import { type InstanceAccountStore, InstanceService } from './service'
@@ -36,7 +37,11 @@ const instanceService = (state: {
         machines: {
           refreshFleetChannel(): void | Promise<void>
           grantHostMachineIfUnowned(ownerUserId: UserId): Promise<boolean>
-          completeHostSetup(ownerUserId: UserId, agentExecution: boolean, passwordHash?: string): Promise<void>
+          completeHostSetup(
+            ownerUserId: UserId,
+            agentExecution: boolean,
+            passwordHash?: string,
+          ): Promise<void>
         }
         updates: { refreshTarget(channel: string): Promise<unknown> }
       }
@@ -59,7 +64,8 @@ const instanceService = (state: {
     transcriptMirrorSetting: async () =>
       (await state.store?.settings.getSettings())?.transcripts.mirror,
     completeHostSetup: state.modules
-      ? async (actor, agentExecution, passwordHash) => await state.modules!.machines.completeHostSetup(actor, agentExecution, passwordHash)
+      ? async (actor, agentExecution, passwordHash) =>
+          await state.modules!.machines.completeHostSetup(actor, agentExecution, passwordHash)
       : undefined,
     // POD-4640: a URL written from Settings reaches Connect now, not in 5 minutes.
     onPublicUrlChanged: state.connect ? () => state.connect?.publicUrlChanged() : undefined,
@@ -93,7 +99,7 @@ export type TelemetryProcedures = FamilyProcedures<
  *  screen reaches these instead of importing @podium/runtime/setup directly,
  *  which would pull node:fs (via ./config) into the browser bundle. */
 export const setupFamilyProcedures = (): SetupProcedures =>
-  derivedFamilyProcedures({
+  plainFamilyProcedures({
     family: 'setup',
     service: instanceService,
     commands: SETUP_COMMANDS_TRPC,
@@ -105,7 +111,7 @@ export const setupFamilyProcedures = (): SetupProcedures =>
  *  logged in to reach them; the CURRENT password is ALSO required for a
  *  change/disable, which defends against a hijacked session. */
 export const authFamilyProcedures = (): AuthProcedures =>
-  derivedFamilyProcedures({
+  plainFamilyProcedures({
     family: 'auth',
     service: instanceService,
     commands: AUTH_COMMANDS_TRPC,
@@ -116,7 +122,7 @@ export const authFamilyProcedures = (): AuthProcedures =>
  *  Reads/writes config.json (D8), NOT the settings blob, so the web toggles and
  *  `podium telemetry off` are the same switch. */
 export const telemetryFamilyProcedures = (): TelemetryProcedures =>
-  derivedFamilyProcedures({
+  plainFamilyProcedures({
     family: 'telemetry',
     service: instanceService,
     commands: TELEMETRY_COMMANDS_TRPC,
