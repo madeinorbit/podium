@@ -635,7 +635,12 @@ export class MachinesService {
     if (this.revokedMachines.has(machineId)) throw new Error('machine is revoked')
     // Before the transport is installed, so every send in the meantime still
     // queues behind the frames being judged and the flush keeps their order.
-    await this.fenceQueued(machineId)
+    // Only when frames DID queue while the daemon was away: with nothing to
+    // judge the transport is installed at once, as before the fence, so a frame
+    // sent right after attach reaches this daemon and never the socket it
+    // replaces (an awaited no-op fence let a synchronous agentRelayResult go to
+    // the previous transport).
+    if (this.pendingByMachine.has(machineId)) await this.fenceQueued(machineId)
     this.daemons.set(machineId, transport)
     // WHAT THIS SOCKET CAN DO, for as long as this socket lasts (POD-3239). Kept
     // beside `daemons` and cleared with it: the question "does the daemon
