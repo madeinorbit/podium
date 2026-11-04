@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import type { IssueId, IssueProjection, SessionId, UserId } from '@podium/model'
-import { attributionOf, type CommandPrincipal } from '../../../command-principal'
+import { attributionOf, type CommandPrincipal, onBehalfOfUser } from '../../../command-principal'
 import type { IssueMessageRow } from '../../../store'
+import { settingsAuditAttribution } from '../../../store/settings-audit'
 import type { IssueStore } from './core'
 import { countContextAwarePendingMail } from './mail-pending'
 import type { IssueReportsModule } from './reads'
-import { IssueRefusal } from './refusal'
+import { IssueNotFound } from './not-found'
+import { IssueForbidden, IssueRefusal } from './refusal'
 
 /**
  * Comments and tracker-mail capability: an issue's comments, and the read side
@@ -75,6 +77,94 @@ export class IssueCommentsMailModule {
     principal: CommandPrincipal,
   ): Promise<IssueProjection> {
     return await this.addComment(id, await this.authorOf(principal), body, principal)
+  }
+
+  /**
+   * EDIT OR DELETE A COMMENT (POD-6289, design §2.2/§4.4).
+   *
+   * Only the comment's author may: the human it was written for, so a
+   * member's agent edits its human's comments and nobody else's. An admin may
+   * moderate any comment. That is allowed, written to the audit trail in the
+   * same transaction, and the comment keeps its author: a moderated edit
+   * stamps the admin as `edited_on_behalf_of` and never touches the author
+   * columns. A comment with no recorded author (written before attribution)
+   * can only be moderated.
+   */
+  async editComment(
+    id: string,
+    commentId: string,
+    body: string,
+    principal: CommandPrincipal,
+  ): Promise<IssueProjection> {
+    return await this.changeComment(id, commentId, principal, { kind: 'edit', body })
+  }
+
+  async deleteComment(
+    id: string,
+    commentId: string,
+    principal: CommandPrincipal,
+  ): Promise<IssueProjection> {
+    return await this.changeComment(id, commentId, principal, { kind: 'delete' })
+  }
+
+  private async changeComment(
+    id: string,
+    commentId: string,
+    principal: CommandPrincipal,
+    change: { kind: 'edit'; body: string } | { kind: 'delete' },
+  ): Promise<IssueProjection> {
+    const issueId = await this.store.resolveRef(id)
+    const row = await this.store.draftOrThrow(issueId)
+    const issues = this.store.deps.store.issues
+    const comment = await issues.getIssueComment(commentId)
+    // Another task's comment is as unknown here as a missing one.
+    if (!comment || comment.issueId !== issueId) {
+      throw new IssueNotFound(`comment ${commentId}`)
+    }
+    const caller = onBehalfOfUser(principal)
+    const authored = caller !== null && comment.onBehalfOf === caller
+    // Moderation is a PERSON's admin action: an admin's agent is not an admin.
+    const moderating =
+      !authored &&
+      principal.kind === 'user' &&
+      (await this.store.deps.store.users.get(principal.user))?.role === 'admin'
+    if (!authored && !moderating) {
+      throw new IssueForbidden(
+        `only the comment's author can ${change.kind} comment ${commentId}`,
+      )
+    }
+    const attribution = attributionOf(principal)
+    const at = this.store.now()
+    return await this.store.persistWith(row, async () => {
+      if (change.kind === 'edit') {
+        await issues.editIssueComment({
+          id: commentId,
+          body: change.body,
+          editedAt: at,
+          editedBy: attribution.actor,
+          editedOnBehalfOf: attribution.onBehalfOf,
+        })
+      } else {
+        await issues.deleteIssueComment(commentId)
+      }
+      if (moderating) {
+        await this.store.deps.store.settingsAudit.append({
+          command: change.kind === 'edit' ? 'issues.editComment' : 'issues.deleteComment',
+          outcome: 'applied',
+          ...settingsAuditAttribution(principal),
+          // Ids only: the audit trail carries no comment text.
+          detail: {
+            moderation: true,
+            issueId,
+            commentId,
+            authorId: comment.onBehalfOf ?? null,
+            authorActor: comment.actor ?? null,
+          },
+          redactedPaths: [],
+          createdAt: at,
+        })
+      }
+    })
   }
 
   /** The display name a principal comments under: a human's own profile name,

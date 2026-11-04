@@ -1509,9 +1509,54 @@ export const issueComments = sqliteTable(
     createdAt: text('created_at').notNull(),
     actor: text('actor'),
     onBehalfOf: text('on_behalf_of'),
+    /** The last edit (POD-6289). Only the author edits a comment, so these name
+     *  the author, or an admin who moderated it: `edited_on_behalf_of` differs
+     *  from `on_behalf_of` exactly when the edit was moderation. The author
+     *  columns above never change. NULL = never edited. */
+    editedAt: text('edited_at'),
+    editedBy: text('edited_by'),
+    editedOnBehalfOf: text('edited_on_behalf_of'),
   },
   // Ordered as an issue's comments are read, so the read needs no sort (POD-6148).
   (table) => [index('idx_issue_comments_issue_time').on(table.issueId, table.createdAt, table.id)],
+)
+
+/**
+ * A task's description and brief history (POD-6289, design §2.2/§4.4).
+ *
+ * One row per text a field has held: the create (`source = 'create'`) and each
+ * edit append the new text, attributed to who wrote it (`actor`, the agent
+ * session for an agent) and the human it acted for (`on_behalf_of`). On a task
+ * written before this table, the first edit also records the text it replaced
+ * (`source = 'baseline'`, author unknown, so both attribution columns are
+ * NULL), so the original stays restorable. A
+ * restore appends a new row (`source = 'restore'`, `restored_from` = the row it
+ * copied); nothing here is ever rewritten. Written in the same transaction as
+ * the issue row, so history and current text never disagree.
+ *
+ * `issue_revision` is the issue's revision this text was current at.
+ */
+export const issueTextRevisions = sqliteTable(
+  'issue_text_revisions',
+  {
+    id: integer().primaryKey({ autoIncrement: true }),
+    issueId: brandedRef(text('issue_id').$type<IssueId>(), () => issues.id, {
+      onDelete: 'cascade',
+    }).notNull(),
+    field: text().notNull(),
+    body: text().notNull(),
+    source: text().notNull(),
+    restoredFrom: integer('restored_from'),
+    issueRevision: integer('issue_revision'),
+    actor: text('actor'),
+    onBehalfOf: text('on_behalf_of'),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => [
+    index('idx_issue_text_revisions_issue_field').on(table.issueId, table.field, table.id),
+    check('issue_text_revisions_field', sql`field IN ('description', 'brief')`),
+    check('issue_text_revisions_source', sql`source IN ('create', 'baseline', 'edit', 'restore')`),
+  ],
 )
 
 export const issueMessages = sqliteTable(

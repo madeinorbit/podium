@@ -53,6 +53,7 @@ import {
   issueMessageUserState,
   issueRefLetters,
   issues,
+  issueTextRevisions,
   issueUserState,
   labels,
   machines,
@@ -93,7 +94,14 @@ import {
 } from './issue-listings'
 import { StaleIssueRevisionError } from './issue-revision'
 import { prefixUpperBound } from './prefix-range'
-import type { IssueCommentRow, IssueMessageRow, IssueRow, StoredIssueUserState } from './types'
+import type {
+  IssueCommentRow,
+  IssueMessageRow,
+  IssueRow,
+  IssueTextField,
+  IssueTextRevisionRow,
+  StoredIssueUserState,
+} from './types'
 
 export const LEGACY_WORKTREE_MIGRATION = 'legacy_worktree_machine_ids_v1'
 
@@ -695,6 +703,97 @@ const commentsOf = prepared((db: StoreDrizzle) =>
     .from(issueComments)
     .where(eq(issueComments.issueId, param(issueComments.issueId, 'issueId')))
     .orderBy(asc(issueComments.createdAt), asc(issueComments.id))
+    .prepare(),
+)
+
+const commentById = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(issueComments)
+    .where(eq(issueComments.id, param(issueComments.id, 'id')))
+    .prepare(),
+)
+
+/** Rewrites the body and the edit stamp only: the author columns never move. */
+const editComment = prepared((db: StoreDrizzle) =>
+  db
+    .update(issueComments)
+    .set({
+      body: sql.placeholder('body') as unknown as string,
+      editedAt: sql.placeholder('editedAt') as unknown as string,
+      editedBy: sql.placeholder('editedBy') as unknown as string,
+      editedOnBehalfOf: sql.placeholder('editedOnBehalfOf') as unknown as string,
+    })
+    .where(eq(issueComments.id, param(issueComments.id, 'id')))
+    .prepare(),
+)
+
+const deleteComment = prepared((db: StoreDrizzle) =>
+  db
+    .delete(issueComments)
+    .where(eq(issueComments.id, param(issueComments.id, 'id')))
+    .prepare(),
+)
+
+const insertTextRevision = prepared((db: StoreDrizzle) =>
+  db
+    .insert(issueTextRevisions)
+    .values({
+      issueId: sql.placeholder('issueId'),
+      field: sql.placeholder('field'),
+      body: sql.placeholder('body'),
+      source: sql.placeholder('source'),
+      restoredFrom: sql.placeholder('restoredFrom'),
+      issueRevision: sql.placeholder('issueRevision'),
+      actor: sql.placeholder('actor'),
+      onBehalfOf: sql.placeholder('onBehalfOf'),
+      createdAt: sql.placeholder('createdAt'),
+    })
+    .prepare(),
+)
+
+/** One field's history, oldest first: the index order, so no sort. */
+const textRevisionsOf = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(issueTextRevisions)
+    .where(
+      and(
+        eq(issueTextRevisions.issueId, param(issueTextRevisions.issueId, 'issueId')),
+        eq(issueTextRevisions.field, sql.placeholder('field')),
+      ),
+    )
+    .orderBy(asc(issueTextRevisions.id))
+    .prepare(),
+)
+
+/** Does this field have any history yet? Index-only probe. */
+const anyTextRevisionOf = prepared((db: StoreDrizzle) =>
+  db
+    .select({ id: issueTextRevisions.id })
+    .from(issueTextRevisions)
+    .where(
+      and(
+        eq(issueTextRevisions.issueId, param(issueTextRevisions.issueId, 'issueId')),
+        eq(issueTextRevisions.field, sql.placeholder('field')),
+      ),
+    )
+    .limit(1)
+    .prepare(),
+)
+
+const textRevisionById = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(issueTextRevisions)
+    .where(eq(issueTextRevisions.id, sql.placeholder('id')))
+    .prepare(),
+)
+
+const deleteTextRevisionsOf = prepared((db: StoreDrizzle) =>
+  db
+    .delete(issueTextRevisions)
+    .where(eq(issueTextRevisions.issueId, param(issueTextRevisions.issueId, 'issueId')))
     .prepare(),
 )
 
@@ -2517,6 +2616,58 @@ export class IssuesRepository {
     return await commentsOf(this.db).all({ issueId })
   }
 
+  async getIssueComment(id: string): Promise<IssueCommentRow | undefined> {
+    return (await commentById(this.db).get({ id })) ?? undefined
+  }
+
+  /** Replace a comment's body and stamp who edited it (POD-6289). The author
+   *  columns are not part of the write. */
+  async editIssueComment(edit: {
+    id: string
+    body: string
+    editedAt: string
+    editedBy: string
+    editedOnBehalfOf: string | null
+  }): Promise<void> {
+    await editComment(this.db).run(edit)
+  }
+
+  async deleteIssueComment(id: string): Promise<void> {
+    await deleteComment(this.db).run({ id })
+  }
+
+  // ---- description and brief history (POD-6289) ----
+
+  async appendIssueTextRevision(r: Omit<IssueTextRevisionRow, 'id'>): Promise<void> {
+    await insertTextRevision(this.db).run({
+      issueId: r.issueId,
+      field: r.field,
+      body: r.body,
+      source: r.source,
+      restoredFrom: r.restoredFrom ?? null,
+      issueRevision: r.issueRevision ?? null,
+      actor: r.actor ?? null,
+      onBehalfOf: r.onBehalfOf ?? null,
+      createdAt: r.createdAt,
+    })
+  }
+
+  async listIssueTextRevisions(
+    issueId: IssueId,
+    field: IssueTextField,
+  ): Promise<IssueTextRevisionRow[]> {
+    return (await textRevisionsOf(this.db).all({ issueId, field })).map(textRevisionFromRow)
+  }
+
+  async hasIssueTextRevisions(issueId: IssueId, field: IssueTextField): Promise<boolean> {
+    return (await anyTextRevisionOf(this.db).get({ issueId, field })) !== undefined
+  }
+
+  async getIssueTextRevision(id: number): Promise<IssueTextRevisionRow | undefined> {
+    const row = await textRevisionById(this.db).get({ id })
+    return row ? textRevisionFromRow(row) : undefined
+  }
+
   /** Comment count for ONE issue — the single-issue toWire path (#175). */
   async countIssueComments(issueId: IssueId): Promise<number> {
     const r = await commentCountOf(this.db).get({ issueId })
@@ -2776,7 +2927,23 @@ export class IssuesRepository {
     await deleteLabelsOf(this.db).run({ issueId })
     await deleteDepsTouching(this.db).run({ issueId })
     await deleteCommentsOf(this.db).run({ issueId })
+    await deleteTextRevisionsOf(this.db).run({ issueId })
     await this.deleteIssueMessagesForIssue(issueId)
+  }
+}
+
+function textRevisionFromRow(r: typeof issueTextRevisions.$inferSelect): IssueTextRevisionRow {
+  return {
+    id: r.id,
+    issueId: r.issueId,
+    field: r.field as IssueTextField,
+    body: r.body,
+    source: r.source as IssueTextRevisionRow['source'],
+    restoredFrom: r.restoredFrom,
+    issueRevision: r.issueRevision,
+    actor: r.actor,
+    onBehalfOf: r.onBehalfOf,
+    createdAt: r.createdAt,
   }
 }
 

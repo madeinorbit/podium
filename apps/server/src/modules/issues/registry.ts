@@ -141,6 +141,15 @@ async function refuseTaskSharing(ctx: IssueCommandCtx, id: string): Promise<neve
  * the task (MU-24). The refusal names the rule, because an agent following an
  * old habit (`claim --assignee me`) is told what happened instead of guessing.
  */
+/** Who an edit is recorded under (POD-6289): the caller's actor and the human
+ *  it acts for, from the authenticated principal; nothing when there is none. */
+function textAttribution(ctx: IssueCommandCtx): {
+  attribution?: { actor: string | null; onBehalfOf: string | null }
+} {
+  const principal = ctx.caller.principal
+  return principal ? { attribution: attributionOf(principal) } : {}
+}
+
 async function assigneeNamed(ctx: IssueCommandCtx, raw: string): Promise<UserId> {
   const human = personHuman(ctx)
   if (human === undefined) {
@@ -982,9 +991,35 @@ const defs = {
           actorSessionId: ctx.caller.capability.actorSessionId,
           ...(viewer ? { viewer, caller: viewer } : {}),
           ...(owner ? { owner } : {}),
+          ...textAttribution(ctx),
         })
         },
       ),
+  }),
+  // A task's description or brief history (POD-6289): read like the task.
+  textRevisions: def('textRevisions', {
+    kind: 'query',
+    target: targetId,
+    handler: async (ctx, input) =>
+      await ctx.readIssue(
+        input.id,
+        async () => await ctx.crud.textRevisions(input.id, input.field),
+      ),
+  }),
+  // Restoring is an edit like any other (POD-6289): anyone who may edit the
+  // task may, under its revision, and it appends a revision of its own.
+  restoreTextRevision: def('restoreTextRevision', {
+    kind: 'mutation',
+    target: targetId,
+    handler: async (ctx, input) =>
+      await ctx.withMutation(input.mutationId, async () => {
+        const viewer = ctx.markerUser()
+        return await ctx.crud.restoreTextRevision(input.id, input.revisionId, {
+          actorSessionId: ctx.caller.capability.actorSessionId,
+          ...(viewer ? { viewer, caller: viewer } : {}),
+          ...textAttribution(ctx),
+        })
+      }),
   }),
   promote: def('promote', {
     kind: 'mutation',
@@ -1245,6 +1280,33 @@ const defs = {
         input.mutationId,
         async () =>
           await ctx.commentsMail.addCallerComment(input.id, input.body, ctx.requirePrincipal()),
+      ),
+  }),
+  // Only a comment's author edits or deletes it; an admin may moderate,
+  // audited, and the comment keeps its author (POD-6289).
+  editComment: def('editComment', {
+    kind: 'mutation',
+    target: targetId,
+    handler: async (ctx, input) =>
+      await ctx.withMutation(
+        input.mutationId,
+        async () =>
+          await ctx.commentsMail.editComment(
+            input.id,
+            input.commentId,
+            input.body,
+            ctx.requirePrincipal(),
+          ),
+      ),
+  }),
+  deleteComment: def('deleteComment', {
+    kind: 'mutation',
+    target: targetId,
+    handler: async (ctx, input) =>
+      await ctx.withMutation(
+        input.mutationId,
+        async () =>
+          await ctx.commentsMail.deleteComment(input.id, input.commentId, ctx.requirePrincipal()),
       ),
   }),
   depAdd: def('depAdd', {

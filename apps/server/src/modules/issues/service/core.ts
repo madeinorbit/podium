@@ -911,7 +911,11 @@ export class IssueStore {
   /** Persist one row and publish only its normalized data. */
   async persist(
     row: IssueRow,
-    opts?: { touch?: boolean; reassign?: true },
+    opts?: {
+      touch?: boolean
+      reassign?: true
+      afterWrite?: (row: IssueRow) => unknown | Promise<unknown>
+    },
   ): Promise<IssueProjection> {
     return await this.persistWith(row, undefined, opts)
   }
@@ -946,6 +950,10 @@ export class IssueStore {
        *  for a row that is not a pinned draft: a reassignment is always
        *  revision-checked. */
       reassign?: true
+      /** A repository write that needs the committed row, its new revision
+       *  included, inside the same transaction (POD-6289: the description and
+       *  brief history). Runs right after the row upsert. */
+      afterWrite?: (row: IssueRow) => unknown | Promise<unknown>
     },
   ): Promise<IssueProjection> {
     // `row` is a DRAFT (POD-3259) — a private copy pinned to the revision it was
@@ -984,6 +992,7 @@ export class IssueStore {
               ? undefined
               : { expectedRevision: pin, ...(opts?.reassign ? { reassign: true as const } : {}) },
           )
+          await opts?.afterWrite?.(row)
           this.announceWorktreeMove(row.id, worktreeWas, worktreeOf(row))
           // The projection depends only on the committed draft and its labels.
           const committedWire = await this.projection(row)

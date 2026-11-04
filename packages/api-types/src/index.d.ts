@@ -1,6 +1,6 @@
 // Generated from apps/server/src/router.ts. Run bun run api:types. Do not edit.
 import * as _podium_model from '@podium/model';
-import { MachineId, UserId, SessionId, IssueId, ArtifactId, UpdateChannel, MachinePresenceSource, GitRepositoryWire, GitDiscoveryDiagnosticWire, TranscriptItem, AgentKind, AccountId, AgentPhase } from '@podium/model';
+import { MachineId, IssueId, UserId, SessionId, ArtifactId, UpdateChannel, MachinePresenceSource, GitRepositoryWire, GitDiscoveryDiagnosticWire, TranscriptItem, AgentKind, AccountId, AgentPhase } from '@podium/model';
 import { z } from 'zod';
 import * as Protocol from '@podium/protocol';
 import { ModelChoiceWire, ConvergenceState, MobileWebIdentity, FeatureState, FeatureVisibility } from '@podium/protocol';
@@ -48,6 +48,23 @@ interface PinState {
     panels: string[];
     worktrees: string[];
     repos: string[];
+}
+/** The two task texts that keep a revision history (POD-6289). */
+type IssueTextField = 'description' | 'brief';
+/** One recorded text of a task's description or brief (POD-6289). */
+interface IssueTextRevisionRow {
+    id: number;
+    issueId: IssueId;
+    field: IssueTextField;
+    body: string;
+    /** `baseline`: the text a task from before this history held when its
+     *  first edit was recorded; its author is unknown. */
+    source: 'create' | 'baseline' | 'edit' | 'restore';
+    restoredFrom: number | null;
+    issueRevision: number | null;
+    actor: string | null;
+    onBehalfOf: string | null;
+    createdAt: string;
 }
 /** A durable event subscription (event-subscriptions design, Phase B). The steward
  *  matches enabled rows against every polled event; a match resolves `source` to the
@@ -7161,6 +7178,15 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: unknown;
             meta: unknown;
         }>;
+        "deleteComment": TRPC.TRPCMutationProcedure<{
+            input: {
+                commentId: string;
+                id: string;
+                mutationId?: string | undefined;
+            };
+            output: Output_issues_addComment;
+            meta: unknown;
+        }>;
         "deliveryReceipt": TRPC.TRPCQueryProcedure<{
             input: {
                 orderId: string;
@@ -7211,6 +7237,16 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 canonicalId: string;
                 expectedRevision?: number | undefined;
                 id: string;
+            };
+            output: Output_issues_addComment;
+            meta: unknown;
+        }>;
+        "editComment": TRPC.TRPCMutationProcedure<{
+            input: {
+                body: string;
+                commentId: string;
+                id: string;
+                mutationId?: string | undefined;
             };
             output: Output_issues_addComment;
             meta: unknown;
@@ -7424,6 +7460,16 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: unknown;
             meta: unknown;
         }>;
+        "restoreTextRevision": TRPC.TRPCMutationProcedure<{
+            input: {
+                expectedRevision?: number | undefined;
+                id: string;
+                mutationId?: string | undefined;
+                revisionId: number;
+            };
+            output: Output_issues_addComment;
+            meta: unknown;
+        }>;
         "search": TRPC.TRPCQueryProcedure<{
             input: Input_issues_search;
             output: Array<_podium_model.IssueReport>;
@@ -7568,6 +7614,14 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 oldId: string;
             };
             output: Output_issues_addComment;
+            meta: unknown;
+        }>;
+        "textRevisions": TRPC.TRPCQueryProcedure<{
+            input: {
+                field: "brief" | "description";
+                id: string;
+            };
+            output: Array<IssueTextRevisionRow>;
             meta: unknown;
         }>;
         "tree": TRPC.TRPCQueryProcedure<{

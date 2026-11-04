@@ -5,7 +5,7 @@ import { type Context, issueCaller, t } from '../../trpc'
 import { familyState } from '../derived-family'
 import { type AnyIssueCommandDef, guardIssueCommand } from './registry'
 import { isIssueNotFound } from './service/not-found'
-import { isIssueRefusal } from './service/refusal'
+import { isIssueForbidden, isIssueRefusal } from './service/refusal'
 
 /**
  * Derive the `issues:` tRPC sub-router from the command registry (#248
@@ -80,6 +80,9 @@ function rethrowAsTrpc(err: unknown): never {
   }
   if (isIssueRefusal(err)) {
     throw new TRPCError({ code: 'CONFLICT', message: err.message, cause: err })
+  }
+  if (isIssueForbidden(err)) {
+    throw new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err })
   }
   throw err
 }

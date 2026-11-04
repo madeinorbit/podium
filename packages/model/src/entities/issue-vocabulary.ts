@@ -172,9 +172,18 @@ export type IssueDepWire = z.infer<typeof IssueDepWire>
 
 export const IssueComment = z.object({
   id: z.string(),
+  /** Display name the comment was written under. Never changes. */
   author: z.string(),
   body: z.string(),
   createdAt: z.string(),
+  /** The member the comment belongs to (POD-6289): its author, or an agent's
+   *  human. Only this member edits or deletes it. Absent on comments written
+   *  before attribution was recorded. */
+  authorId: z.string().optional(),
+  /** Last edit, and the member who made it. `editedBy` differs from
+   *  `authorId` exactly when an admin moderated the comment. */
+  editedAt: z.string().optional(),
+  editedBy: z.string().optional(),
 })
 export type IssueComment = z.infer<typeof IssueComment>
 

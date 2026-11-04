@@ -33,6 +33,7 @@ import {
 import { resolveSpawnDefaults } from '@podium/runtime'
 import type { EntityChangeSpec } from '@podium/sync'
 import type { IssueRow } from '../../../store'
+import type { IssueTextField, IssueTextRevisionRow } from '../../../store/types'
 import { afterCommit, followUpAfterCommit } from '../../../store/executor/executor'
 import { type StoredIssue, toStorage } from '../../../store/issue-storage'
 import { readIssue } from '../issue-reader'
@@ -50,6 +51,14 @@ import { sameWorktreePath } from './worktree-safety'
  * `computeUnread`: lastActivity > readAt). Whitelist: any new IssuePatch field
  * defaults to content/activity behavior so accidental omission stays safe.
  */
+/** The task texts that keep a revision history (POD-6289). */
+const ISSUE_TEXT_FIELDS = ['description', 'brief'] as const satisfies readonly IssueTextField[]
+
+/** A row's description and brief, absent spelled `''` so a compare sees text. */
+function issueTexts(row: IssueRow): Record<IssueTextField, string> {
+  return { description: row.description ?? '', brief: row.brief ?? '' }
+}
+
 const ORGANIZATIONAL_PATCH_KEYS = new Set<keyof IssuePatch>(['pinned', 'sortKey'])
 
 function isOrganizationalOnlyPatch(patch: IssuePatch): boolean {
@@ -1431,7 +1440,20 @@ export class IssueCrudModule {
     row.createdByOnBehalfOf = input.createdByOnBehalfOf ?? row.ownerUserId
     // parentId handled after persist via reparent (edge-maintaining): the row
     // must exist first so wouldCycle/rowOrThrow find it.
-    let wire = await this.store.persist(row)
+    // The first text of each field is its first revision, the creator's (POD-6289).
+    let wire = await this.store.persist(row, {
+      afterWrite: async (committed) =>
+        await this.recordTextRevisions(
+          committed,
+          { description: '', brief: '' },
+          {
+            actor: committed.createdByActor ?? null,
+            onBehalfOf: committed.createdByOnBehalfOf ?? null,
+            source: 'create',
+            restoredFrom: null,
+          },
+        ),
+    })
     // New list MEMBERSHIP: single-issue deltas only patch known ids on legacy
     // clients, so a create still fans out the full list once (#22).
 
@@ -1508,6 +1530,16 @@ export class IssueCrudModule {
        * as the rest of the patch, under its revision pin.
        */
       owner?: UserId
+      /**
+       * WHO WROTE THIS (POD-6289): the actor (a member, or `session:<id>` for
+       * an agent) and the human it acted for. A description or brief change is
+       * recorded as a revision under it. Absent = the server's own write,
+       * recorded as `caller` (or nobody) with no separate actor.
+       */
+      attribution?: { actor: string | null; onBehalfOf: string | null }
+      /** INTERNAL: this write restores that recorded text (POD-6289). Only
+       *  {@link restoreTextRevision} sets it. */
+      restoredFrom?: number
     },
   ): Promise<IssueProjection> {
     // Resolved BEFORE the draft is cut: a lookup by name, never a row field.
@@ -1608,6 +1640,8 @@ export class IssueCrudModule {
         )
     }
 
+    // The texts before this patch, for the revision history (POD-6289).
+    const textBefore = issueTexts(row)
     if (pinnedPatch !== undefined) {
       // Re-pinning keeps the ORIGINAL stamp, same rule as the tuck-away.
       if (pinner === undefined) throw new IssueRefusal(`issue ${id} has no member to pin it for`)
@@ -1682,10 +1716,30 @@ export class IssueCrudModule {
     // Organizational-only patches (pin / sortKey reorder) are not activity: do
     // not advance updatedAt past readAt or computeUnread re-marks the issue
     // unread after a purely human board edit (POD-325).
+    const attribution = opts?.attribution ?? { actor: null, onBehalfOf: opts?.caller ?? null }
+    let revised: IssueTextField[] = []
     const wire = await this.store.persist(row, {
       touch: isOrganizationalOnlyPatch(patch) && !reassigned ? false : undefined,
       ...(reassigned ? { reassign: true as const } : {}),
+      // In the row's own transaction: the history never disagrees with the text.
+      afterWrite: async (committed) => {
+        revised = await this.recordTextRevisions(committed, textBefore, {
+          ...attribution,
+          source: opts?.restoredFrom !== undefined ? 'restore' : 'edit',
+          restoredFrom: opts?.restoredFrom ?? null,
+        })
+      },
     })
+    for (const field of revised) {
+      await this.store.emitEvent('issue.text_revised', row.id, {
+        seq: row.seq,
+        field,
+        revision: row.revision ?? null,
+        actor: attribution.actor,
+        by: attribution.onBehalfOf,
+        ...(opts?.restoredFrom !== undefined ? { restoredFrom: opts.restoredFrom } : {}),
+      })
+    }
     if (reassigned && previousOwner && row.ownerUserId) {
       await this.announceReassignment(row, previousOwner, row.ownerUserId, opts?.caller)
     }
@@ -1820,6 +1874,87 @@ export class IssueCrudModule {
   /** Publish only the actor's read cursor and issue.read event. Automatic
    * receipts carry the observed activity; an explicit mark-read still covers
    * now, this issue's updates, descendants and their sessions (POD-912). */
+  /**
+   * Append a revision for each task text this write changed (POD-6289). On a
+   * task from before this history, the first change also records the text it
+   * replaced as its `baseline`, whose author is unknown. Runs inside the
+   * row's transaction. Returns the fields it recorded.
+   */
+  private async recordTextRevisions(
+    row: IssueRow,
+    before: Record<IssueTextField, string>,
+    rev: {
+      actor: string | null
+      onBehalfOf: string | null
+      source: 'create' | 'edit' | 'restore'
+      restoredFrom: number | null
+    },
+  ): Promise<IssueTextField[]> {
+    const issues = this.store.deps.store.issues
+    const after = issueTexts(row)
+    const at = this.store.now()
+    const recorded: IssueTextField[] = []
+    for (const field of ISSUE_TEXT_FIELDS) {
+      if (after[field] === before[field]) continue
+      if (rev.source !== 'create' && before[field] !== '') {
+        if (!(await issues.hasIssueTextRevisions(row.id, field))) {
+          await issues.appendIssueTextRevision({
+            issueId: row.id,
+            field,
+            body: before[field],
+            source: 'baseline',
+            restoredFrom: null,
+            issueRevision: null,
+            actor: null,
+            onBehalfOf: null,
+            createdAt: at,
+          })
+        }
+      }
+      await issues.appendIssueTextRevision({
+        issueId: row.id,
+        field,
+        body: after[field],
+        source: rev.source,
+        restoredFrom: rev.restoredFrom,
+        issueRevision: row.revision ?? null,
+        actor: rev.actor,
+        onBehalfOf: rev.onBehalfOf,
+        createdAt: at,
+      })
+      recorded.push(field)
+    }
+    return recorded
+  }
+
+  /** A task's description or brief history, oldest first (POD-6289). */
+  async textRevisions(id: string, field: IssueTextField): Promise<IssueTextRevisionRow[]> {
+    const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
+    return await this.store.deps.store.issues.listIssueTextRevisions(row.id, field)
+  }
+
+  /**
+   * Put a recorded text back (POD-6289). Anyone who may edit the task may
+   * restore; the restore is an ordinary edit under the caller's name, so it
+   * appends a new revision (`source = 'restore'`) and rewrites none.
+   */
+  async restoreTextRevision(
+    id: string,
+    revisionId: number,
+    opts: NonNullable<Parameters<IssueCrudModule['update']>[2]>,
+  ): Promise<IssueProjection> {
+    const issueId = await this.store.resolveRef(id)
+    const revision = await this.store.deps.store.issues.getIssueTextRevision(revisionId)
+    if (!revision || revision.issueId !== issueId) {
+      throw new IssueRefusal(`revision ${revisionId} is not a revision of issue ${id}`)
+    }
+    return await this.update(
+      issueId,
+      { [revision.field]: revision.body },
+      { ...opts, restoredFrom: revision.id },
+    )
+  }
+
   async markIssueRead(id: string, observedAt?: string, member?: UserId): Promise<IssueProjection> {
     const row = await this.store.rowOrThrow(id)
     const viewer = markerMemberOf(row, member)

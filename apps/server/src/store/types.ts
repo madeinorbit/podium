@@ -512,6 +512,30 @@ export interface IssueCommentRow {
   createdAt: string
   actor?: string | null
   onBehalfOf?: string | null
+  /** Last edit (POD-6289); `editedOnBehalfOf` differs from `onBehalfOf` when
+   *  an admin moderated it. */
+  editedAt?: string | null
+  editedBy?: string | null
+  editedOnBehalfOf?: string | null
+}
+
+/** The two task texts that keep a revision history (POD-6289). */
+export type IssueTextField = 'description' | 'brief'
+
+/** One recorded text of a task's description or brief (POD-6289). */
+export interface IssueTextRevisionRow {
+  id: number
+  issueId: IssueId
+  field: IssueTextField
+  body: string
+  /** `baseline`: the text a task from before this history held when its
+   *  first edit was recorded; its author is unknown. */
+  source: 'create' | 'baseline' | 'edit' | 'restore'
+  restoredFrom: number | null
+  issueRevision: number | null
+  actor: string | null
+  onBehalfOf: string | null
+  createdAt: string
 }
 
 /**

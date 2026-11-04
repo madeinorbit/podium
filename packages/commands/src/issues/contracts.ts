@@ -482,6 +482,38 @@ export const addCommentInput = z.object({
   mutationId: z.string().max(128).pipe(MutationIdField).optional(),
 })
 
+/**
+ * EDITING OR DELETING A COMMENT (POD-6289, design §2.2/§4.4). Only the
+ * comment's author may, meaning the human it was written for (an agent's
+ * comment is its human's). An admin may moderate anyone's comment: allowed,
+ * written to the audit trail, and the comment keeps its author.
+ */
+export const editCommentInput = z.object({
+  id: IssueIdField,
+  commentId: z.string().min(1).max(200),
+  body: z.string().min(1),
+  mutationId: z.string().max(128).pipe(MutationIdField).optional(),
+})
+
+export const deleteCommentInput = z.object({
+  id: IssueIdField,
+  commentId: z.string().min(1).max(200),
+  mutationId: z.string().max(128).pipe(MutationIdField).optional(),
+})
+
+/** The two task texts that keep an attributed revision history (POD-6289). */
+export const IssueTextFieldInput = z.enum(['description', 'brief'])
+
+/** A task's description or brief history, oldest first. */
+export const textRevisionsInput = z.object({ id: IssueIdField, field: IssueTextFieldInput })
+
+/** Put a recorded text back. The restore is itself a new revision. */
+export const restoreTextRevisionInput = z.object({
+  id: IssueIdField,
+  revisionId: z.number().int().positive(),
+  mutationId: z.string().max(128).pipe(MutationIdField).optional(),
+})
+
 export const depAddInput = z.object({
   fromId: z.string(),
   toId: z.string(),
@@ -1531,6 +1563,41 @@ export const issueAddCommentContract = {
   conflict: 'append',
 } as const satisfies MutatingCommandContract
 
+export const issueEditCommentContract = {
+  name: 'issues.editComment',
+  version: 1,
+  visibility: ISSUE_VISIBILITY,
+  input: editCommentInput,
+  policy: WRITE_POLICY,
+  exposure: SERVED_EVERYWHERE,
+  delivery: WRITE_DELIVERY,
+  redaction: ISSUE_REDACTION,
+  ownership: CREATES_NOTHING,
+  attribution: ISSUE_ATTRIBUTION,
+  errorConsistency: TARGETED_ERRORS,
+  conflict: 'cmd',
+  conflictRule:
+    'single-author row: only the comment author (or an auditing admin) writes it; last edit wins',
+} as const satisfies MutatingCommandContract
+
+export const issueDeleteCommentContract = {
+  ...issueEditCommentContract,
+  name: 'issues.deleteComment',
+  input: deleteCommentInput,
+} as const satisfies MutatingCommandContract
+
+export const issueTextRevisionsContract = {
+  ...issueCommentsContract,
+  name: 'issues.textRevisions',
+  input: textRevisionsInput,
+} as const satisfies CommandContract
+
+export const issueRestoreTextRevisionContract = {
+  ...issueUpdateContract,
+  name: 'issues.restoreTextRevision',
+  input: restoreTextRevisionInput.merge(EXPECTED_REVISION),
+} as const satisfies MutatingCommandContract
+
 export const issueDepAddContract = {
   name: 'issues.depAdd',
   version: 1,
@@ -2119,6 +2186,7 @@ export const ISSUE_CONTRACTS = {
   create: issueCreateContract,
   defer: issueDeferContract,
   delete: issueDeleteContract,
+  deleteComment: issueDeleteCommentContract,
   depAdd: issueDepAddContract,
   depRemove: issueDepRemoveContract,
   depReport: issueDepReportContract,
@@ -2126,6 +2194,7 @@ export const ISSUE_CONTRACTS = {
   dismissSuggestion: issueDismissSuggestionContract,
   doctor: issueDoctorContract,
   duplicate: issueDuplicateContract,
+  editComment: issueEditCommentContract,
   epicStatus: issueEpicStatusContract,
   events: issueEventsContract,
   findDuplicates: issueFindDuplicatesContract,
@@ -2153,6 +2222,7 @@ export const ISSUE_CONTRACTS = {
   reparent: issueReparentContract,
   resolveShipHold: issueResolveShipHoldContract,
   restore: issueRestoreContract,
+  restoreTextRevision: issueRestoreTextRevisionContract,
   search: issueSearchContract,
   searchNormalized: issueSearchNormalizedContract,
   seat: issueSeatContract,
@@ -2174,6 +2244,7 @@ export const ISSUE_CONTRACTS = {
   subscriptionSetEnabled: issueSubscriptionSetEnabledContract,
   supersede: issueSupersedeContract,
   unshare: issueUnshareContract,
+  textRevisions: issueTextRevisionsContract,
   tree: issueTreeContract,
   deck: issueDeckContract,
   undefer: issueUndeferContract,
@@ -2283,6 +2354,7 @@ const NON_MUTATING_NAMES = [
   'stale',
   'stats',
   'subscriptionList',
+  'textRevisions',
   'tree',
   // The one write-grade command that mutates no replicated row — see above.
   'linearSearch',

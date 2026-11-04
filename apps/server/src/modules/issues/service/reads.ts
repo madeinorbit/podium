@@ -1210,6 +1210,9 @@ export class IssueReportsModule {
       author: c.author,
       body: c.body,
       createdAt: c.createdAt,
+      ...(c.onBehalfOf ? { authorId: c.onBehalfOf } : {}),
+      ...(c.editedAt ? { editedAt: c.editedAt } : {}),
+      ...(c.editedOnBehalfOf ? { editedBy: c.editedOnBehalfOf } : {}),
     }))
   }
 
