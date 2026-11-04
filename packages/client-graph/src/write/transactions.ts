@@ -1,4 +1,5 @@
 import { randomUUID } from '@podium/client-core/id'
+import { PoolLaunches } from './launches'
 import { type PoolSpawnPorts, PoolSpawns } from './spawns'
 /** PoolTransactions owns client optimism and spawn placeholders over one outbox.
  * A press reduces and paints inside one MobX action before the durable enqueue.
@@ -24,7 +25,7 @@ import type {
 } from '@podium/client-core/engine'
 import type { OutboxDeadLetterEntry, OutboxEntry } from '@podium/client-core/outbox'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
-import { asMutationId, type MutationId } from '@podium/model'
+import { asMutationId, type EffectRecordWire, type MutationId, type SessionId } from '@podium/model'
 import { type ObservableMap, observable, runInAction } from 'mobx'
 import { debugName } from '../debug-name'
 import type { PendingRows, PooledPending, RowSourceRepaint } from '../shared/row-source'
@@ -79,6 +80,9 @@ export interface PoolRejection {
 
 export interface PoolTransactionsPorts {
   readonly spawn?: Omit<PoolSpawnPorts, 'truth' | 'pending' | 'paint'>
+  /** The replica's `session.launch` effect records (POD-6408): what a draft
+   *  start paints from once its create is confirmed. Absent: none. */
+  readonly launchEffects?: () => Iterable<EffectRecordWire>
   /** The principal whose per-user rows the log paints. */
   readonly userId: string
   readonly outbox: Pick<EngineOutbox, 'pending' | 'awaiting' | 'subscribe' | 'deadLetters'>
@@ -103,7 +107,10 @@ export interface PoolTransactionsPorts {
 }
 
 export interface PoolTransactions {
-  spawnDraftAgent: PoolSpawns['spawnDraftAgent']
+  spawnDraftAgent: PoolLaunches['spawnDraftAgent']
+  /** Take a failed or expired draft start off the feed (POD-6408): true when
+   *  the session was one, so its Remove means Dismiss. */
+  dismissLaunch(sessionId: SessionId): boolean
   spawnIssueAgent: PoolSpawns['spawnIssueAgent']
   waitForSpawnConfirmed: PoolSpawns['waitForSpawnConfirmed']
   /** What the row source reads in `pooled` mode. */
@@ -570,6 +577,23 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
     commit(rowsOf(gone))
   }
 
+  // DRAFT STARTS ARE LAUNCH EFFECTS (POD-6408); the issue start keeps the
+  // placeholder transport below until it is an effect too (POD-6410).
+  const launchOwner: PoolLaunches | null = ports.spawn
+    ? new PoolLaunches({
+        userId: ports.spawn.userId,
+        notices: ports.spawn.notices,
+        truth,
+        sortKey: (target) => ports.spawn!.sortKey(target),
+        paint: (event) => runInAction(() => onSpawn(event)),
+        write: (kind, input) => begin(kind, input as never).committed,
+        queued: () => [...ports.outbox.awaiting(), ...ports.outbox.pending()],
+        refused: () => ports.outbox.deadLetters().map((dead) => dead.entry),
+        launchEffects: () => ports.launchEffects?.() ?? [],
+      })
+    : null
+  const reconcileLaunches = () => launchOwner?.reconcile()
+
   const spawnOwner = ports.spawn
     ? new PoolSpawns({
         ...ports.spawn,
@@ -588,12 +612,15 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
   // Awaiting confirmation first, in outbox order; then the queue.
   reconcile()
   runInAction(reconcileParked)
+  // Launches queued or waiting before a reload paint again from the data.
+  runInAction(reconcileLaunches)
   offs.push(
     ports.outbox.subscribe(() => {
       if (!disposed)
         runInAction(() => {
           reconcileParked()
           commit(new Map([...reconcile(), ...settle()]))
+          reconcileLaunches()
         })
     }),
     ports.outcomes((outcome) => {
@@ -615,6 +642,7 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
       if (disposed) return
       runInAction(() => {
         const touched = settle()
+        reconcileLaunches()
         // Rows this batch names are re-read by the row source's own flush.
         if (batch.type === 'update') {
           for (const row of batch.rows) {
@@ -684,14 +712,28 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
   return {
     pending,
     spawnDraftAgent: (args) => {
-      if (!spawnOwner) throw new Error('Pool spawn transport is not attached')
-      return spawnOwner.spawnDraftAgent(args)
+      if (!launchOwner) throw new Error('Pool spawn transport is not attached')
+      let started!: ReturnType<PoolLaunches['spawnDraftAgent']>
+      runInAction(() => {
+        started = launchOwner.spawnDraftAgent(args)
+      })
+      return started
+    },
+    dismissLaunch: (sessionId) => {
+      let dismissed = false
+      runInAction(() => {
+        dismissed = launchOwner?.dismiss(sessionId) ?? false
+      })
+      return dismissed
     },
     spawnIssueAgent: (args) => {
       if (!spawnOwner) throw new Error('Pool spawn transport is not attached')
       return spawnOwner.spawnIssueAgent(args)
     },
-    waitForSpawnConfirmed: (id) => spawnOwner?.waitForSpawnConfirmed(id) ?? Promise.resolve(),
+    waitForSpawnConfirmed: (id) =>
+      launchOwner?.owns(id)
+        ? launchOwner.waitForSpawnConfirmed(id)
+        : (spawnOwner?.waitForSpawnConfirmed(id) ?? Promise.resolve()),
     spawnPrompts,
     notSaved: (kind, id) => notSavedRows.has(`${kind}:${id}`),
 
@@ -721,6 +763,7 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
       if (disposed) return
       disposed = true
       spawnOwner?.dispose()
+      launchOwner?.dispose()
       for (const off of offs.splice(0)) off()
       txns.clear()
       for (const entity of TARGETS) byRow[entity].clear()

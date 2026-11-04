@@ -135,6 +135,29 @@ function pickFirstClaudeModel() {
   fireEvent.click(choice)
 }
 
+
+/**
+ * A draft start is a `session.launch` effect on `sync.submit` (POD-6408). The
+ * spy sees what the old `sessions.create` payload carried: the launch input.
+ */
+function launchApi(create: (input: unknown) => unknown) {
+  return {
+    sync: {
+      submit: {
+        mutate: async (envelope: { command: string; input: { input?: unknown } }) => {
+          if (envelope.command === 'effects.create') await create(envelope.input.input)
+          return {
+            outcome: 'applied',
+            result: {},
+            receipt: { feedId: 'f', epoch: 'e', seq: 0 },
+            replayed: false,
+          }
+        },
+      },
+    },
+  }
+}
+
 describe('phone launch demand bounds', () => {
   it('reads only root scan rows with flat demand at 1x/4x linked-worktree history', async () => {
     const readsByScale: number[] = []
@@ -377,7 +400,7 @@ describe('the phone launch sheet', () => {
     await renderWithMobileStore(<NewWorkButton />, {
       repos: [repo('/home/dev/podium')],
       machines: READY,
-      api: { sessions: { create: { mutate: create } } },
+      api: launchApi(create),
     })
     fireEvent.click(screen.getByLabelText('New work'))
     fireEvent.change(screen.getByLabelText('First prompt, optional'), {
@@ -392,18 +415,14 @@ describe('the phone launch sheet', () => {
     )
   })
 
-  it('keeps the first prompt until the optimistic spawn settles', async () => {
-    let confirmSpawn: ((value: { sessionId: string }) => void) | undefined
-    const create = vi.fn(
-      () =>
-        new Promise<{ sessionId: string }>((resolve) => {
-          confirmSpawn = resolve
-        }),
-    )
+  it('lets the first prompt go once the start is queued (POD-6408)', async () => {
+    // The launch effect carries the prompt durably (it survives a reload), so
+    // the composer needs no server answer before it clears.
+    const create = vi.fn(async (_request: unknown) => ({}))
     await renderWithMobileStore(<NewWorkButton />, {
       repos: [repo('/home/dev/podium')],
       machines: READY,
-      api: { sessions: { create: { mutate: create } } },
+      api: launchApi(create),
     })
     fireEvent.click(screen.getByLabelText('New work'))
     fireEvent.change(screen.getByLabelText('First prompt, optional'), {
@@ -412,11 +431,6 @@ describe('the phone launch sheet', () => {
     await pressStart()
 
     fireEvent.click(screen.getByLabelText('New work'))
-    expect((screen.getByLabelText('First prompt, optional') as HTMLInputElement).value).toBe(
-      'Keep this through settle',
-    )
-
-    confirmSpawn?.({ sessionId: 'created' })
     await waitFor(() =>
       expect((screen.getByLabelText('First prompt, optional') as HTMLInputElement).value).toBe(''),
     )
@@ -436,7 +450,7 @@ describe('the phone launch sheet', () => {
       await renderWithMobileStore(<NewWorkButton />, {
         repos: [repo('/home/dev/podium')],
         machines: [machine({ 'claude-code': 'out', opencode: 'in' })],
-        api: { sessions: { create: { mutate: create } } },
+        api: launchApi(create),
       })
       fireEvent.click(screen.getByLabelText('New work'))
       expect(screen.queryByText(NOT_READY)).toBeNull()
@@ -453,7 +467,7 @@ describe('the phone launch sheet', () => {
       await renderWithMobileStore(<NewWorkButton />, {
         repos: [repo('/home/dev/podium')],
         machines: READY,
-        api: { sessions: { create: { mutate: create } } },
+        api: launchApi(create),
       })
       fireEvent.click(screen.getByLabelText('New work'))
       await pressStart()
@@ -467,7 +481,7 @@ describe('the phone launch sheet', () => {
       await renderWithMobileStore(<NewWorkButton />, {
         repos: [repo('/home/dev/podium')],
         machines: [machine({})],
-        api: { sessions: { create: { mutate: create } } },
+        api: launchApi(create),
       })
       fireEvent.click(screen.getByLabelText('New work'))
 
@@ -489,7 +503,7 @@ describe('the phone launch sheet', () => {
           machine({ 'claude-code': 'out', opencode: 'in' }),
           machine({ 'claude-code': 'in' }, 'other', 'Laptop'),
         ],
-        api: { sessions: { create: { mutate: create } } },
+        api: launchApi(create),
       })
       fireEvent.click(screen.getByLabelText('New work'))
       expect(screen.getByLabelText('Machine, Studio')).toBeTruthy()
@@ -504,7 +518,7 @@ describe('the phone launch sheet', () => {
       await renderWithMobileStore(<NewWorkButton />, {
         repos: [repo('/home/dev/podium')],
         machines: [machine({ 'claude-code': 'out', opencode: 'in' })],
-        api: { sessions: { create: { mutate: create } } },
+        api: launchApi(create),
       })
       fireEvent.click(screen.getByLabelText('New work'))
       fireEvent.click(screen.getByLabelText(/^Model, Auto/))
@@ -529,7 +543,7 @@ describe('phone picker parity', () => {
     const create = vi.fn(async (_request: unknown) => ({ sessionId: 'created' }))
     const { runtime } = await renderWithMobileStore(<NewWorkButton />, {
       repos: [repo('/home/dev/podium')], machines: READY,
-      api: { sessions: { create: { mutate: create } } },
+      api: launchApi(create),
     })
     act(() => {
       runtime.access.uiState.set(NEW_WORK_MODEL_KEY, 'claude-code:retired')
@@ -552,7 +566,7 @@ describe('phone picker parity', () => {
     await renderWithMobileStore(<NewWorkButton />, {
       repos: [...projects, ...projects.map((project) => ({ ...project, machineId: 'remote' }) as GitRepositoryWire)],
       machines: [...READY, machine({ 'claude-code': 'in' }, 'remote', 'Remote')],
-      api: { sessions: { create: { mutate: create } } },
+      api: launchApi(create),
     })
     fireEvent.click(screen.getByLabelText('New work'))
     fireEvent.click(screen.getByLabelText('Model, Auto'))
@@ -602,7 +616,7 @@ describe('phone last launched pair', () => {
     const view = await renderWithMobileStore(<NewWorkButton />, {
       repos: [repo('/home/dev/podium'), { ...repo('/home/dev/podium'), machineId: 'remote' } as GitRepositoryWire],
       machines: [machine({ 'claude-code': 'in', codex: 'in' }), machine({ 'claude-code': 'in', codex: 'in' }, 'remote', 'Remote')],
-      api: { sessions: { create: { mutate: create } }, layout: { set: { mutate: layoutSet } } },
+      api: { ...launchApi(create), layout: { set: { mutate: layoutSet } } },
     })
     return { ...view, create, layoutSet }
   }

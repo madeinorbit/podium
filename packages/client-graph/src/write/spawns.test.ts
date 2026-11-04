@@ -31,15 +31,21 @@ function fixture() {
   return { owner, args, create, error, events, truth, pending }
 }
 
+// The NAMED-TASK start (issues.create { startNow }). A draft-agent start is a
+// launch effect now, painted from the data with no timer (launches.test.ts,
+// POD-6408); this path keeps its placeholders until POD-6410.
+const startTask = (f: ReturnType<typeof fixture>) =>
+  f.owner.spawnIssueAgent({ ...f.args, title: 'Task', description: 'Authored turn' })
+
 it('paints the session, task, personal markers and first turn before creation', async () => {
   const f = fixture()
   f.create.mockResolvedValue()
-  const result = f.owner.spawnDraftAgent({ ...f.args, firstPrompt: 'First turn', requestedDriverId: 'generic-pty' })
+  const result = startTask(f)
   expect(f.events).toHaveLength(1)
-  expect(f.events[0]).toMatchObject({ type: 'painted', sessionId: result.sessionId, prompt: 'First turn' })
+  expect(f.events[0]).toMatchObject({ type: 'painted', sessionId: result.sessionId, prompt: 'Authored turn' })
   if (f.events[0]?.type !== 'painted') throw new Error('missing paint')
   expect(f.events[0].overlays.map(o => o.entity)).toEqual(['sessions', 'sessionUserStates', 'issueProjections', 'issueUserStates'])
-  expect(f.create).toHaveBeenCalledWith(expect.objectContaining({ initialPrompt: 'First turn', requestedDriverId: 'generic-pty' }))
+  expect(f.create).toHaveBeenCalledWith(expect.objectContaining({ title: 'Task', startNow: true }))
   expect(await result.settled).toBe(true)
   f.owner.dispose()
 })
@@ -47,7 +53,7 @@ it('paints the session, task, personal markers and first turn before creation', 
 it('waits for truth before releasing a composer send', async () => {
   const f = fixture()
   f.create.mockResolvedValue()
-  const result = f.owner.spawnDraftAgent(f.args)
+  const result = startTask(f)
   const confirmed = vi.fn()
   void f.owner.waitForSpawnConfirmed(result.sessionId).then(confirmed)
   await Promise.resolve()
@@ -62,7 +68,7 @@ it('waits for truth before releasing a composer send', async () => {
 it('accepts a lost HTTP answer when the session arrives during the grace window', async () => {
   const f = fixture()
   f.create.mockRejectedValue(new Error('response lost'))
-  const result = f.owner.spawnDraftAgent(f.args)
+  const result = startTask(f)
   await vi.advanceTimersByTimeAsync(1000)
   f.truth.set(`sessions:${result.sessionId}`, {})
   await vi.advanceTimersByTimeAsync(1000)
@@ -75,7 +81,7 @@ it('accepts a lost HTTP answer when the session arrives during the grace window'
 it('rolls back both placeholders after a definitive spawn failure and releases waiters', async () => {
   const f = fixture()
   f.create.mockRejectedValue(new Error('refused'))
-  const result = f.owner.spawnDraftAgent(f.args)
+  const result = startTask(f)
   const waiter = f.owner.waitForSpawnConfirmed(result.sessionId)
   await vi.advanceTimersByTimeAsync(1999)
   expect(f.pending.has(result.sessionId)).toBe(true)
@@ -83,7 +89,7 @@ it('rolls back both placeholders after a definitive spawn failure and releases w
   await waiter
   expect(await result.settled).toBe(false)
   expect(f.events.at(-1)).toEqual({ type: 'removed', ids: [result.sessionId, result.issueId] })
-  expect(f.error).toHaveBeenCalledWith("Couldn't start the agent — refused")
+  expect(f.error).toHaveBeenCalledWith("Couldn't start the task — refused")
   f.owner.dispose()
 })
 
@@ -102,7 +108,7 @@ it('keeps an authoritative task when only starting its agent failed', async () =
 it('retires principal-owned timers and waiters on disposal', async () => {
   const f = fixture()
   f.create.mockRejectedValue(new Error('late failure'))
-  const result = f.owner.spawnDraftAgent(f.args)
+  const result = startTask(f)
   const waiter = f.owner.waitForSpawnConfirmed(result.sessionId)
   await Promise.resolve()
   await Promise.resolve()
@@ -118,7 +124,7 @@ it('ignores a create response arriving after the principal was disposed', async 
   const f = fixture()
   let finish!: () => void
   f.create.mockImplementation(() => new Promise(resolve => { finish = resolve }))
-  const result = f.owner.spawnDraftAgent(f.args)
+  const result = startTask(f)
   f.owner.dispose()
   expect(await result.settled).toBe(false)
   finish()

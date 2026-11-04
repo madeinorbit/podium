@@ -11,6 +11,9 @@ import { createPoolTransactions } from './transactions'
  *  read (pins, tab order, layout, personal settings) and the plain chat send.
  *  ADR 3 D6: absence is valid; they still show as pending. */
 const PAINTS_NOTHING = new Set([
+  // Effect records paint from their own data (PoolLaunches, POD-6408).
+  'effectCreate',
+  'effectDismiss',
   'pinSet',
   'tabSetOrder',
   'layoutSet',
@@ -40,7 +43,7 @@ const INPUT = {
 describe('PoolTransactions coverage (POD-5431)', () => {
   it('maps every queued command kind through the shared reducers', () => {
     const kinds = Object.keys(OUTBOX_COMMANDS)
-    expect(kinds).toHaveLength(27)
+    expect(kinds).toHaveLength(29)
     const silent = kinds.filter(
       (kind) =>
         overlaysForOutboxEntry({

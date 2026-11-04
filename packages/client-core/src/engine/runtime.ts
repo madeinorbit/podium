@@ -182,6 +182,8 @@ export interface PoolWriter {
   spawnDraftAgent?: Store['spawnDraftAgent']
   spawnIssueAgent?: Store['spawnIssueAgent']
   waitForSpawnConfirmed?: (id: SessionId) => Promise<void>
+  /** A failed draft start's Remove (POD-6408). */
+  dismissLaunch?: (id: SessionId) => boolean
   dispose?: () => void
   write<K extends keyof OutboxKinds & string>(kind: K, input: OutboxKinds[K]): Promise<void>
 }
@@ -1616,6 +1618,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       // One row by id; a replica without the by-id read answers "unknown" (1),
       // and the outbox's own queued edits still raise it.
       sessionRevision: (sessionId) => this.replica.row?.('sessions', sessionId)?.revision,
+      dismissLaunch: (sessionId) => this.poolWriter?.dismissLaunch?.(sessionId) ?? false,
     })
   }
 

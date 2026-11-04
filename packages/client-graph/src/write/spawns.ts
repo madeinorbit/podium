@@ -1,12 +1,14 @@
-/** Spawn creation belongs to the pool's transaction log. The transport can fail
- * after truth landed, so a failed create retains its grace window and partial
- * task outcome. No replica rows or whole-list snapshot are held here. */
+/** The NAMED-TASK start's placeholders (`issues.create { startNow }`). The
+ * transport can fail after truth landed, so a failed create retains its grace
+ * window and partial task outcome. A draft-agent start is a launch effect
+ * instead (`./launches.ts`, POD-6408); this goes when the issue start is an
+ * effect too (POD-6410). No replica rows or whole-list snapshot are held here. */
 import { asIssueId, asMutationId, asSessionId, IssueProjection,
   type AgentKind, type IssueId, type MutationId, type SessionId,
   type SessionMeta, type UserId } from '@podium/model'
 import type { PodiumClientApi } from '@podium/client-core/api'
-import { assertSpawnPlacement, createDraftAgent, createIssueAgent,
-  type SpawnDraftAgentArgs, type SpawnTarget, type TaskSpawnOutcome } from '@podium/client-core/spawn-agent'
+import { assertSpawnPlacement, createIssueAgent,
+  type SpawnTarget, type TaskSpawnOutcome } from '@podium/client-core/spawn-agent'
 import { randomUUID } from '@podium/client-core/id'
 import { insertOverlay, type OverlayTarget, type PendingOverlay } from '@podium/client-core/command-reducers'
 import type { StoreNotices, SpawnPlaceholderEvent } from '@podium/client-core/engine'
@@ -156,60 +158,6 @@ export class PoolSpawns {
       },
     )
     return { sessionId, issueId, settled, outcome }
-  }
-
-  /** The #119 placeholder pair: paint a starting session and its draft issue
-   *  before the create round-trips, and settle them when it answers. */
-  spawnDraftAgent(args: SpawnDraftAgentArgs): {
-    sessionId: SessionId
-    issueId: IssueId
-    settled: Promise<boolean>
-  } {
-    if (this.disposed) throw new Error('PoolSpawns: spawn after dispose')
-    assertSpawnPlacement(args.target)
-    const sessionId = args.sessionId ?? asSessionId(randomUUID())
-    const issueId = args.issueId ?? asIssueId(`iss_${randomUUID()}`)
-    const nowIso = new Date().toISOString()
-    const sortKey = this.ports.sortKey(args.target)
-    return this.paintSpawn({
-      sessionId,
-      issueId,
-      session: optimisticStartingSession({
-        sessionId,
-        issueId,
-        agentKind: args.agentKind,
-        cwd: args.target.path,
-        ...(args.target.machineId !== undefined ? { machineId: args.target.machineId } : {}),
-        nowIso,
-      }),
-      issue: optimisticDraftIssue({
-        userId: this.ports.userId,
-        issueId,
-        repoPath: args.target.repoPath,
-        repoId: args.target.repoId,
-        sortKey,
-        agentKind: args.agentKind,
-        nowIso,
-      }),
-      ...(args.firstPrompt ? { prompt: args.firstPrompt } : {}),
-      failureSubject: 'agent',
-      create: () =>
-        createDraftAgent({
-          trpc: this.ports.api,
-          sessionId,
-          issueId,
-          ...(args.mutationId ? { mutationId: args.mutationId } : {}),
-          ...(args.attachments?.length ? { attachments: args.attachments } : {}),
-          target: args.target,
-          agentKind: args.agentKind,
-          firstPrompt: args.firstPrompt,
-          ...(args.model ? { model: args.model } : {}),
-          ...(args.effort ? { effort: args.effort } : {}),
-          ...(args.requestedDriverId !== undefined
-            ? { requestedDriverId: args.requestedDriverId }
-            : {}),
-        }),
-    })
   }
 
   /** Paint a real named task, its first session and its first chat turn before

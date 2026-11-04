@@ -87,6 +87,13 @@ const SAMPLE: { [K in keyof OutboxKinds]: OutboxKinds[K] } = {
     patch: { title: 'Renamed' },
     expectedRevision: 1,
   },
+  effectCreate: {
+    id: 'eff_00000000-0000-4000-8000-000000000001',
+    kind: 'session.launch',
+    target: { kind: 'session', id: '00000000-0000-4000-8000-000000000002' },
+    input: { cwd: '/repo' },
+  },
+  effectDismiss: { id: 'eff_00000000-0000-4000-8000-000000000001' },
   recordRemove: {
     kind: 'sessionUserState',
     id: sessionUserStateRowId(asUserId('u-1'), asSessionId('s-1')),

@@ -8,7 +8,8 @@ import type { SessionPhaseChange } from '@podium/client-core/sound'
 import { attachSettingsSource } from './settings-source'
 import { optimisticDraftSortKey } from '@podium/client-core/values'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { asUserId } from '@podium/model'
+import { asUserId, type EffectRecordWire } from '@podium/model'
+import { SESSION_LAUNCH_KIND } from '@podium/client-core/spawn-agent'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { Reaction, runInAction, untracked } from 'mobx'
 import { _observerFinalizationRegistry } from 'mobx-react-lite'
@@ -253,7 +254,39 @@ export function createRuntimeTransactions(runtime: WorklistRuntime): PoolTransac
     !rt.attachPoolWriter || !subscribeAddressed) {
     throw new Error('Pool transactions require the runtime principal, outbox, outcome and addressed writer seams')
   }
-  return createPoolTransactions({
+  // THE DRAFT STARTS' LAUNCH RECORDS (POD-6408), indexed by id from the
+  // replica's batches so a reconcile reads the few launches, never every effect.
+  // Subscribed BEFORE the log, so the log's reconcile sees this batch's index.
+  const launchIds = new Set<string>()
+  const isLaunch = (row: unknown): boolean =>
+    (row as { kind?: unknown } | undefined)?.kind === SESSION_LAUNCH_KIND
+  const rescanLaunches = (): void => {
+    launchIds.clear()
+    for (const row of runtime.replica.rows('effects')) {
+      if (isLaunch(row)) launchIds.add((row as { id: string }).id)
+    }
+  }
+  rescanLaunches()
+  const stopLaunchIndex = subscribeAddressed((batch) => {
+    if (batch.type === 'replace') {
+      rescanLaunches()
+      return
+    }
+    for (const address of batch.rows) {
+      if (address.kind !== 'effects') continue
+      if (isLaunch(runtime.replica.row?.('effects', address.id))) launchIds.add(address.id)
+      else launchIds.delete(address.id)
+    }
+  })
+  const transactions = createPoolTransactions({
+    launchEffects: () => {
+      const records: EffectRecordWire[] = []
+      for (const id of launchIds) {
+        const row = runtime.replica.row?.('effects', id)
+        if (row !== undefined) records.push(row as unknown as EffectRecordWire)
+      }
+      return records
+    },
     userId: rt.principal.userId,
     outbox: rt.outbox,
     outcomes: rt.subscribeOutboxOutcomes,
@@ -285,6 +318,12 @@ export function createRuntimeTransactions(runtime: WorklistRuntime): PoolTransac
       }),
     },
   })
+  const dispose = transactions.dispose.bind(transactions)
+  transactions.dispose = () => {
+    stopLaunchIndex()
+    dispose()
+  }
+  return transactions
 }
 
 /** Route the runtime's queued actions through the log; returns the detach. */

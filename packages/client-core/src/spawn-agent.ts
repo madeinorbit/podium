@@ -78,49 +78,14 @@ export function agentAcceptsArgvPrompt(
 
 /**
  * Refuse a placement before any optimistic entity is painted or network request
- * is assembled. Engine calls this at its action boundary; createDraftAgent
- * repeats it as defense in depth for direct callers.
+ * is assembled. Engine calls this at its action boundary; `draftLaunchEffect`
+ * and `createIssueAgent` repeat it as defense in depth for direct callers.
  */
 export function assertSpawnPlacement(target: SpawnTarget): void {
   if (target.placement === 'unauthorized') throw new SpawnPlacementError('unauthorized')
   if (target.placement === 'unreachable') throw new SpawnPlacementError('unreachable')
 }
 
-export async function createDraftAgent(args: {
-  trpc: PodiumClientApi
-  sessionId: SessionId
-  issueId: IssueId
-  mutationId?: MutationId
-  attachments?: RuntimeAttachmentRef[]
-  target: SpawnTarget
-  agentKind: AgentKind
-  firstPrompt?: string
-  model?: string
-  effort?: string
-  /** The per-spawn driver override, forwarded verbatim — see `sessions.create`
-   *  in `api.ts`. Absent changes nothing, which is every caller today. */
-  requestedDriverId?: string
-}): Promise<void> {
-  assertSpawnPlacement(args.target)
-  const text = args.firstPrompt?.trim()
-  await args.trpc.sessions.create.mutate({
-    sessionId: args.sessionId,
-    ...(args.mutationId ? { mutationId: args.mutationId } : {}),
-    agentKind: args.agentKind,
-    cwd: args.target.path,
-    draftIssue: { repoPath: args.target.repoPath, issueId: args.issueId },
-    ...(args.attachments?.length ? { attachments: args.attachments } : {}),
-    ...(args.target.machineId ? { machineId: args.target.machineId } : {}),
-    ...(text ? { initialPrompt: text } : {}),
-    ...(args.model ? { model: args.model } : {}),
-    ...(args.effort ? { effort: args.effort } : {}),
-    ...(args.requestedDriverId !== undefined ? { requestedDriverId: args.requestedDriverId } : {}),
-  })
-}
-
-/** Create and start a named task with client-minted issue/session identities.
- * The matching optimistic rows can therefore stay mounted until replica truth
- * replaces them, including the task's first prompt and chat route. */
 export async function createIssueAgent(args: {
   trpc: PodiumClientApi
   sessionId: SessionId
@@ -151,4 +116,55 @@ export async function createIssueAgent(args: {
     startNow: true,
     mutationId: args.mutationId,
   })
+}
+
+/** The effect kind a session start is (POD-6398): the server's executor. */
+export const SESSION_LAUNCH_KIND = 'session.launch'
+
+/** What `effects.create` takes (POD-6357), as the outbox queues it. */
+export interface EffectCreateInput {
+  readonly id: string
+  readonly kind: string
+  readonly target: { readonly kind: 'issue' | 'session' | 'machine'; readonly id: string }
+  readonly input: Readonly<Record<string, unknown>>
+  readonly deadlineMs?: number
+}
+
+/**
+ * A draft-agent start as a `session.launch` effect record (POD-6408): the same
+ * spec `sessions.create` took, under an effect id and with the session id the
+ * device minted as its target. The record is what every device paints while
+ * the launch waits (also while its machine is offline), and the session row is
+ * born under that id when it succeeds.
+ */
+export function draftLaunchEffect(args: {
+  effectId: string
+  sessionId: SessionId
+  issueId: IssueId
+  attachments?: RuntimeAttachmentRef[]
+  target: SpawnTarget
+  agentKind: AgentKind
+  firstPrompt?: string
+  model?: string
+  effort?: string
+  requestedDriverId?: string
+}): EffectCreateInput {
+  assertSpawnPlacement(args.target)
+  const text = args.firstPrompt?.trim()
+  return {
+    id: args.effectId,
+    kind: SESSION_LAUNCH_KIND,
+    target: { kind: 'session', id: args.sessionId },
+    input: {
+      agentKind: args.agentKind,
+      cwd: args.target.path,
+      draftIssue: { repoPath: args.target.repoPath, issueId: args.issueId },
+      ...(args.attachments?.length ? { attachments: args.attachments } : {}),
+      ...(args.target.machineId ? { machineId: args.target.machineId } : {}),
+      ...(text ? { initialPrompt: text } : {}),
+      ...(args.model ? { model: args.model } : {}),
+      ...(args.effort ? { effort: args.effort } : {}),
+      ...(args.requestedDriverId !== undefined ? { requestedDriverId: args.requestedDriverId } : {}),
+    },
+  }
 }

@@ -1,52 +1,34 @@
-import { asIssueId, asMachineId, asMutationId, asSessionId } from '@podium/model'
-import { describe, expect, it, vi } from 'vitest'
-import type { PodiumClientApi } from './api'
-import { agentAcceptsArgvPrompt, createDraftAgent } from './spawn-agent'
-
-function api() {
-  const create = vi.fn(async (_input: unknown) => ({}))
-  const resumeAndSend = vi.fn(async () => ({}))
-  return {
-    trpc: {
-      sessions: { create: { mutate: create }, resumeAndSend: { mutate: resumeAndSend } },
-    } as unknown as PodiumClientApi,
-    create,
-    resumeAndSend,
-  }
-}
+import { asIssueId, asMachineId, asSessionId } from '@podium/model'
+import { describe, expect, it } from 'vitest'
+import { agentAcceptsArgvPrompt, draftLaunchEffect, SESSION_LAUNCH_KIND } from './spawn-agent'
 
 const base = {
+  effectId: 'eff_00000000-0000-4000-8000-000000000001',
   sessionId: asSessionId('session-1'),
   issueId: asIssueId('issue-1'),
   agentKind: 'codex' as const,
 }
 
+/**
+ * A draft-agent start is a `session.launch` effect record (POD-6408); these are
+ * the guarantees `sessions.create`'s payload carried, held on the effect input.
+ */
 describe('spawn machine-USE placement', () => {
   it.each([
     'unauthorized',
     'unreachable',
-  ] as const)('fails closed with the distinct %s reason before targeting the server', async (placement) => {
-    const { trpc, create } = api()
-    const result = createDraftAgent({
-      ...base,
-      trpc,
-      target: {
-        path: '/worktree',
-        repoPath: '/repo',
-        machineId: asMachineId('machine-1'),
-        placement,
-      },
-    })
-
-    await expect(result).rejects.toMatchObject({ reason: placement })
-    expect(create).not.toHaveBeenCalled()
+  ] as const)('fails closed with the distinct %s reason before anything is queued', (placement) => {
+    expect(() =>
+      draftLaunchEffect({
+        ...base,
+        target: { path: '/worktree', repoPath: '/repo', machineId: asMachineId('machine-1'), placement },
+      }),
+    ).toThrow(expect.objectContaining({ reason: placement }))
   })
 
-  it('sends only target and command fields, never client-authored attribution', async () => {
-    const { trpc, create } = api()
-    await createDraftAgent({
+  it('carries only target and command fields, never client-authored attribution', () => {
+    const create = draftLaunchEffect({
       ...base,
-      trpc,
       target: {
         path: '/worktree',
         repoPath: '/repo',
@@ -55,55 +37,32 @@ describe('spawn machine-USE placement', () => {
       },
     })
 
-    expect(create).toHaveBeenCalledWith({
-      sessionId: 'session-1',
-      agentKind: 'codex',
-      cwd: '/worktree',
-      draftIssue: { repoPath: '/repo', issueId: 'issue-1' },
-      machineId: asMachineId('machine-1'),
+    expect(create).toEqual({
+      id: base.effectId,
+      kind: SESSION_LAUNCH_KIND,
+      target: { kind: 'session', id: 'session-1' },
+      input: {
+        agentKind: 'codex',
+        cwd: '/worktree',
+        draftIssue: { repoPath: '/repo', issueId: 'issue-1' },
+        machineId: asMachineId('machine-1'),
+      },
     })
-    // Per-field: `not.toEqual(expect.arrayContaining([...]))` only fails when
-    // ALL of the listed fields are present at once, so a single leaked field
-    // passed silently (POD-1533).
-    const createdKeys = Object.keys(create.mock.calls[0]?.[0] ?? {})
-    for (const field of ['actor', 'owner', 'ownerId', 'origin']) {
-      expect(createdKeys, `spawn payload asserts attribution field '${field}'`).not.toContain(field)
+    // Per-field: a single leaked field must fail (POD-1533).
+    for (const field of ['actor', 'owner', 'ownerId', 'origin', 'createdBy']) {
+      expect(Object.keys(create.input), `launch input asserts attribution field '${field}'`).not.toContain(field)
     }
   })
 
-  it('carries stable mutation ids through create and fallback prompt retries', async () => {
-    const { trpc, create, resumeAndSend } = api()
-    await createDraftAgent({
-      ...base,
-      agentKind: 'opencode',
-      mutationId: asMutationId('launch-1'),
-      firstPrompt: 'retry safely',
-      trpc,
-      target: { path: '/worktree', repoPath: '/repo', placement: 'allowed' },
-    })
-
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({ mutationId: 'launch-1' }))
-    expect(resumeAndSend).toHaveBeenCalledWith({
-      sessionId: 'session-1',
-      text: 'retry safely',
-      mutationId: 'launch-1:first-prompt',
-    })
-  })
-
-  it('hands held uploads to the draft create rather than to the prompt (POD-2148)', async () => {
-    const { trpc, create } = api()
+  it('hands held uploads to the launch rather than to the prompt (POD-2148)', () => {
     const ref = { id: 'up-1', filename: 'mock.png', mediaType: 'image/png', kind: 'image' as const }
-    await createDraftAgent({
+    const create = draftLaunchEffect({
       ...base,
-      trpc,
       target: { path: '/worktree', repoPath: '/repo', placement: 'allowed' },
       firstPrompt: 'Review the mock',
       attachments: [ref],
     })
-
-    expect(create).toHaveBeenCalledWith(
-      expect.objectContaining({ initialPrompt: 'Review the mock', attachments: [ref] }),
-    )
+    expect(create.input).toMatchObject({ initialPrompt: 'Review the mock', attachments: [ref] })
   })
 })
 
@@ -112,54 +71,25 @@ describe('firstPrompt delivery (POD-549)', () => {
     'claude-code',
     'codex',
     'grok',
-  ] as const)('puts firstPrompt on create.initialPrompt for argv agent %s and does not resumeAndSend', async (agentKind) => {
-    const { trpc, create, resumeAndSend } = api()
-    await createDraftAgent({
+    'opencode',
+  ] as const)('puts firstPrompt on the launch as initialPrompt for %s', (agentKind) => {
+    const create = draftLaunchEffect({
       ...base,
       agentKind,
-      trpc,
       target: { path: '/worktree', repoPath: '/repo', placement: 'allowed' },
       firstPrompt: '  fix the bug  ',
     })
-
-    expect(create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        agentKind,
-        initialPrompt: 'fix the bug',
-      }),
-    )
-    expect(resumeAndSend).not.toHaveBeenCalled()
+    expect(create.input).toMatchObject({ agentKind, initialPrompt: 'fix the bug' })
   })
 
-  it('passes non-argv firstPrompt to create for server-owned durable delivery', async () => {
-    const { trpc, create, resumeAndSend } = api()
-    await createDraftAgent({
-      ...base,
-      agentKind: 'opencode',
-      trpc,
-      target: { path: '/worktree', repoPath: '/repo', placement: 'allowed' },
-      firstPrompt: 'do the thing',
-    })
-
-    expect(create).toHaveBeenCalledWith(
-      expect.objectContaining({ initialPrompt: 'do the thing', agentKind: 'opencode' }),
-    )
-    expect(resumeAndSend).not.toHaveBeenCalled()
-  })
-
-  it('omits initialPrompt and resumeAndSend when firstPrompt is blank', async () => {
-    const { trpc, create, resumeAndSend } = api()
-    await createDraftAgent({
+  it('omits initialPrompt when firstPrompt is blank', () => {
+    const create = draftLaunchEffect({
       ...base,
       agentKind: 'grok',
-      trpc,
       target: { path: '/worktree', repoPath: '/repo', placement: 'allowed' },
       firstPrompt: '   ',
     })
-
-    const payload = create.mock.calls[0]?.[0] as Record<string, unknown>
-    expect(payload).not.toHaveProperty('initialPrompt')
-    expect(resumeAndSend).not.toHaveBeenCalled()
+    expect(create.input).not.toHaveProperty('initialPrompt')
   })
 
   it('agentAcceptsArgvPrompt reads the descriptor argvPrompt flag (POD-4475)', () => {

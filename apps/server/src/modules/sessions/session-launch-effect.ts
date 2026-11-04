@@ -25,7 +25,7 @@
  *  - RECOVER: a row under the id is `succeeded`; none means nothing was
  *    spawned, so it is safely `failed` ("interrupted").
  *  - PUBLISH: the feed carries where it starts (agent, folder, machine, issue,
- *    model), never the first prompt or the attachments.
+ *    model, its draft task's place), never the first prompt or the attachments.
  *  - THE OLD ROUTE: `sessions.create` creates the record through `sync.submit`
  *    as its caller and waits for it to settle, answering its old shape.
  */
@@ -191,6 +191,9 @@ export function registerSessionLaunchEffect(deps: SessionLaunchEffectDeps): {
       ...(input.title !== undefined ? { title: input.title } : {}),
       ...(input.model !== undefined ? { model: input.model } : {}),
       ...(input.effort !== undefined ? { effort: input.effort } : {}),
+      // Where its draft task goes (POD-6408): a device that reloads while the
+      // launch waits paints the task's placeholder from this. Not a secret.
+      ...(input.draftIssue !== undefined ? { draftIssue: input.draftIssue } : {}),
     }),
     ready: (_record, input) => reachable(input.machineId),
     run: async (ctx) => await run(ctx.record, ctx.input),

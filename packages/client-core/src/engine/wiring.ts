@@ -172,6 +172,14 @@ export type OutboxKinds = {
   recordCreate: RecordOutboxInputs['recordCreate']
   recordEdit: RecordOutboxInputs['recordEdit']
   recordRemove: RecordOutboxInputs['recordRemove']
+  /**
+   * EFFECT RECORDS (ADR 12 D5 E2, POD-6408): a one-off action as data. Queued,
+   * so a session start made offline still lands; its status comes back on the
+   * record, never in the reply.
+   */
+  effectCreate: import('../spawn-agent').EffectCreateInput
+  /** Take an ended effect record off the feed (a failed start's Dismiss). */
+  effectDismiss: { id: string }
 }
 
 /** The kinds that name one fixed contract. The record kinds name theirs by input. */
@@ -292,6 +300,8 @@ export const OUTBOX_COMMANDS: Record<
   pinSet: { name: 'pins.set', version: 1, delivery, confirmation: 'none' },
   tabSetOrder: { name: 'tabs.setOrder', version: 1, delivery, confirmation: 'none' },
   layoutSet: { name: 'layout.set', version: 1, delivery, confirmation: 'none' },
+  effectCreate: { name: 'effects.create', version: 1, delivery, confirmation: 'none' },
+  effectDismiss: { name: 'effects.dismiss', version: 1, delivery, confirmation: 'none' },
   layoutClear: { name: 'layout.clear', version: 1, delivery, confirmation: 'none' },
   settingsUpdatePersonal: {
     name: 'settings.updatePersonal',
@@ -406,6 +416,8 @@ export const OUTBOX_DEAD_LETTER_HANDLING: Record<keyof OutboxKinds, OutboxDeadLe
   recordCreate: 'recover',
   recordEdit: 'recover',
   recordRemove: 'recover',
+  effectCreate: 'recover',
+  effectDismiss: 'recover',
 }
 
 export function deadLetterHandlingFor(kind: string): OutboxDeadLetterHandling {
@@ -657,6 +669,10 @@ export const OUTBOX_ROUTING: {
   recordCreate: (i) => ({ partitionKey: recordPartition(i) }),
   recordEdit: (i) => ({ partitionKey: recordPartition(i) }),
   recordRemove: (i) => ({ partitionKey: recordPartition(i) }),
+  // An effect on a record queues behind that record's own writes (a start
+  // behind nothing; a dismiss behind its create).
+  effectCreate: (i) => ({ partitionKey: `effect:${i.id}` }),
+  effectDismiss: (i) => ({ partitionKey: `effect:${i.id}` }),
 }
 
 /** The ordering domain of one record: its pool row's. */
@@ -761,6 +777,33 @@ const REFUSAL_CODES: Readonly<Record<SyncSubmitRefusal['kind'], string>> = {
 }
 
 type WithMutationId = { readonly mutationId: MutationId }
+
+/**
+ * Send one effect command on `sync.submit` (POD-6408), for the queues that call
+ * an executor. Like a record write it exists only there: a server without the
+ * entry point cannot take it, which is a definitive refusal.
+ */
+async function submitEffect(
+  api: PodiumClientApi,
+  name: 'effects.create' | 'effects.dismiss',
+  input: { readonly mutationId: MutationId },
+): Promise<unknown> {
+  const { mutationId, ...wire } = input as { mutationId: MutationId } & Record<string, unknown>
+  const submit = api.sync?.submit
+  if (submit === undefined) {
+    throw Object.assign(new Error(`this server does not serve ${name}`), {
+      data: { code: 'BAD_REQUEST' },
+    })
+  }
+  const raw = await submit.mutate({ mutationId, command: name, version: 1, input: wire })
+  const reply = raw as { outcome?: string; result?: unknown; refusal?: { kind: string } }
+  if (reply.outcome === 'rejected') {
+    throw Object.assign(new Error(`${name} was refused (${reply.refusal?.kind ?? 'unknown'})`), {
+      data: { code: REFUSAL_CODES[(reply.refusal?.kind ?? 'invalid') as SyncSubmitRefusal['kind']] },
+    })
+  }
+  return reply.result
+}
 
 /**
  * Send one record write on `sync.submit`, for the queues that call an executor
@@ -989,6 +1032,8 @@ export function outboxExecutors(
     recordCreate: (i) => submitRecord(api, 'recordCreate', i as typeof i & WithMutationId),
     recordEdit: (i) => submitRecord(api, 'recordEdit', i as typeof i & WithMutationId),
     recordRemove: (i) => submitRecord(api, 'recordRemove', i as typeof i & WithMutationId),
+    effectCreate: (i) => submitEffect(api, 'effects.create', i as typeof i & WithMutationId),
+    effectDismiss: (i) => submitEffect(api, 'effects.dismiss', i as typeof i & WithMutationId),
   }
 }
 

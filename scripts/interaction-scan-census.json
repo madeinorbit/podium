@@ -15790,132 +15790,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/spawn-agent.ts",
-      "holder": "createDraftAgent",
-      "rule": "spread",
-      "tokens": "91507048cf3a0aa918473b05a097d720856787d6fe7750a41761252d79ee985e",
-      "gate": [],
-      "origin": [
-        "7319ffc8c41b908b7545eadfc37f5d2ec0d2d227cf3b034b8f05ba8e6f087363"
-      ],
-      "fingerprint": "0f6f2a9f3e55eab22fd1625874a9d804d9182d4a12bdea56d47c99c9f067aa21",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createDraftAgent",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 004bf5034c7a665b56f04e8ad955da8f1c24b4b0775e72bde917a50d77a34516.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/spawn-agent.ts",
-      "holder": "createDraftAgent",
-      "rule": "spread",
-      "tokens": "6c6f73f46c2ed9761c6445db21c60df66f68cf696b7557c267fba9d81acc2970",
-      "gate": [],
-      "origin": [
-        "7319ffc8c41b908b7545eadfc37f5d2ec0d2d227cf3b034b8f05ba8e6f087363"
-      ],
-      "fingerprint": "64999e19f2c06980f0a7386417b52c8a27b892dfd9675c08b09b1d03ffa78f54",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createDraftAgent",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 6f7cccf6d1db235486634b4b0788fa8bd3b2ce60a13819dcd89f369190ac13c0.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/spawn-agent.ts",
-      "holder": "createDraftAgent",
-      "rule": "spread",
-      "tokens": "d951be76e189ea640c61c75fcd0e6668526e758dce38b8c2a60a0c34a5850b8f",
-      "gate": [],
-      "origin": [
-        "7319ffc8c41b908b7545eadfc37f5d2ec0d2d227cf3b034b8f05ba8e6f087363"
-      ],
-      "fingerprint": "844bbf0ba91508302edadce91665efcd240ce7f935c3642aff4a33b8849de3ad",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createDraftAgent",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 92e91c655724936ad936fa98f9121c641cc8e8d28a2cfe5177cff5fd15b7525e.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/spawn-agent.ts",
-      "holder": "createDraftAgent",
-      "rule": "spread",
-      "tokens": "13ef17782b6405cf4b9b35419df4cd34bf4a649ee723ae92cf63b01ff4197cee",
-      "gate": [],
-      "origin": [
-        "7319ffc8c41b908b7545eadfc37f5d2ec0d2d227cf3b034b8f05ba8e6f087363"
-      ],
-      "fingerprint": "98494e50b9d3c3ba596b7c6a593ed1770cef5b53a4112211d9ac940559a065f2",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createDraftAgent",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: a0e12fcc3437a2f79b661f3aba068647397acc37415dd43e60d02c070530f743.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/spawn-agent.ts",
-      "holder": "createDraftAgent",
-      "rule": "spread",
-      "tokens": "9d568caf5a90b51bebc99904094887220fe92b47cb9082ef9b1c6cb75a567483",
-      "gate": [],
-      "origin": [
-        "7319ffc8c41b908b7545eadfc37f5d2ec0d2d227cf3b034b8f05ba8e6f087363"
-      ],
-      "fingerprint": "db808fb7eb1896c45a144d9140220c81ba9163f104f85250c0358820bb9890e6",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createDraftAgent",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: adb57494c44e073e444990d8aedd47bb265787c6ac87c04c8f66aa91952de11a.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/spawn-agent.ts",
-      "holder": "createDraftAgent",
-      "rule": "spread",
-      "tokens": "8ab2f40bac70a6159fbb5e6fc6c177d5787b6f865de6e8f9a2047ee6fecf75b3",
-      "gate": [],
-      "origin": [
-        "7319ffc8c41b908b7545eadfc37f5d2ec0d2d227cf3b034b8f05ba8e6f087363"
-      ],
-      "fingerprint": "f163983bb70d549b052befa36b33dc3dfa3ed4a7b1aaad3e5eb1831c3cd964d3",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createDraftAgent",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: d2639c48c31f23b570ba5d9bb54f0a98b3287ab5f9c2f78ab85632abc4ee8bde.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/spawn-agent.ts",
-      "holder": "createDraftAgent",
-      "rule": "spread",
-      "tokens": "866a6befb1655f42ce0e92e099f7a939397bebb4495964602299db721c286e9d",
-      "gate": [],
-      "origin": [
-        "7319ffc8c41b908b7545eadfc37f5d2ec0d2d227cf3b034b8f05ba8e6f087363"
-      ],
-      "fingerprint": "f568288e889356ef2f0b4fa6275f7b61e7177961970e0820430598c536ecdf7e",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createDraftAgent",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: e7933da02000a2c2051c5598535f7d006ae873aa9fb575abc1d659f8582b4602.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
       "file": "packages/client-core/src/transcript/merge.ts",
       "holder": "dedupeTranscriptItems/unique",
       "rule": "consume:filter",
@@ -36079,8 +35953,116 @@
       "guard": "transcript-log.test.ts proves stream and newest-refresh retention, normal-window release, and explicit reset; conversation-presentation.test.ts and TranscriptFeed.turn-line.test.tsx cross both 300-row and 400-item limits."
     },
     {
+      "file": "packages/client-core/src/spawn-agent.ts",
+      "holder": "draftLaunchEffect/input",
+      "rule": "spread",
+      "tokens": "d951be76e189ea640c61c75fcd0e6668526e758dce38b8c2a60a0c34a5850b8f",
+      "gate": [],
+      "origin": [
+        "49e9cd3a7c387d58af6657855613ef891b6ce997322cac5e406f361d527921d1"
+      ],
+      "fingerprint": "59ff77482e33e510d3d0b8915d827ee9debb29bf1ee794860f5281fd42b2d0dd",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of draftLaunchEffect",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved from createDraftAgent by POD-6408 (the same launch spec, now a session.launch effect input). Predecessors: 0f6f2a9f3e55eab22fd1625874a9d804d9182d4a12bdea56d47c99c9f067aa21, 64999e19f2c06980f0a7386417b52c8a27b892dfd9675c08b09b1d03ffa78f54, 844bbf0ba91508302edadce91665efcd240ce7f935c3642aff4a33b8849de3ad, 98494e50b9d3c3ba596b7c6a593ed1770cef5b53a4112211d9ac940559a065f2, db808fb7eb1896c45a144d9140220c81ba9163f104f85250c0358820bb9890e6, f163983bb70d549b052befa36b33dc3dfa3ed4a7b1aaad3e5eb1831c3cd964d3, f568288e889356ef2f0b4fa6275f7b61e7177961970e0820430598c536ecdf7e.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/spawn-agent.ts",
+      "holder": "draftLaunchEffect/input",
+      "rule": "spread",
+      "tokens": "6c6f73f46c2ed9761c6445db21c60df66f68cf696b7557c267fba9d81acc2970",
+      "gate": [],
+      "origin": [
+        "49e9cd3a7c387d58af6657855613ef891b6ce997322cac5e406f361d527921d1"
+      ],
+      "fingerprint": "93175f76f015524f389d0030ddc127c35c904483acc338349bfe2fdb2a050c03",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of draftLaunchEffect",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved from createDraftAgent by POD-6408 (the same launch spec, now a session.launch effect input). Predecessors: 0f6f2a9f3e55eab22fd1625874a9d804d9182d4a12bdea56d47c99c9f067aa21, 64999e19f2c06980f0a7386417b52c8a27b892dfd9675c08b09b1d03ffa78f54, 844bbf0ba91508302edadce91665efcd240ce7f935c3642aff4a33b8849de3ad, 98494e50b9d3c3ba596b7c6a593ed1770cef5b53a4112211d9ac940559a065f2, db808fb7eb1896c45a144d9140220c81ba9163f104f85250c0358820bb9890e6, f163983bb70d549b052befa36b33dc3dfa3ed4a7b1aaad3e5eb1831c3cd964d3, f568288e889356ef2f0b4fa6275f7b61e7177961970e0820430598c536ecdf7e.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/spawn-agent.ts",
+      "holder": "draftLaunchEffect/input",
+      "rule": "spread",
+      "tokens": "9d568caf5a90b51bebc99904094887220fe92b47cb9082ef9b1c6cb75a567483",
+      "gate": [],
+      "origin": [
+        "49e9cd3a7c387d58af6657855613ef891b6ce997322cac5e406f361d527921d1"
+      ],
+      "fingerprint": "af0c9517f2618635abb8dcf42d41f71cb909a82c44be1981567d09bec72f1cd2",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of draftLaunchEffect",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved from createDraftAgent by POD-6408 (the same launch spec, now a session.launch effect input). Predecessors: 0f6f2a9f3e55eab22fd1625874a9d804d9182d4a12bdea56d47c99c9f067aa21, 64999e19f2c06980f0a7386417b52c8a27b892dfd9675c08b09b1d03ffa78f54, 844bbf0ba91508302edadce91665efcd240ce7f935c3642aff4a33b8849de3ad, 98494e50b9d3c3ba596b7c6a593ed1770cef5b53a4112211d9ac940559a065f2, db808fb7eb1896c45a144d9140220c81ba9163f104f85250c0358820bb9890e6, f163983bb70d549b052befa36b33dc3dfa3ed4a7b1aaad3e5eb1831c3cd964d3, f568288e889356ef2f0b4fa6275f7b61e7177961970e0820430598c536ecdf7e.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/spawn-agent.ts",
+      "holder": "draftLaunchEffect/input",
+      "rule": "spread",
+      "tokens": "91507048cf3a0aa918473b05a097d720856787d6fe7750a41761252d79ee985e",
+      "gate": [],
+      "origin": [
+        "49e9cd3a7c387d58af6657855613ef891b6ce997322cac5e406f361d527921d1"
+      ],
+      "fingerprint": "c6bbbaff49de6401eac2286c82fbdf68f834d87f7402a83fda60d1690b3a41d6",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of draftLaunchEffect",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved from createDraftAgent by POD-6408 (the same launch spec, now a session.launch effect input). Predecessors: 0f6f2a9f3e55eab22fd1625874a9d804d9182d4a12bdea56d47c99c9f067aa21, 64999e19f2c06980f0a7386417b52c8a27b892dfd9675c08b09b1d03ffa78f54, 844bbf0ba91508302edadce91665efcd240ce7f935c3642aff4a33b8849de3ad, 98494e50b9d3c3ba596b7c6a593ed1770cef5b53a4112211d9ac940559a065f2, db808fb7eb1896c45a144d9140220c81ba9163f104f85250c0358820bb9890e6, f163983bb70d549b052befa36b33dc3dfa3ed4a7b1aaad3e5eb1831c3cd964d3, f568288e889356ef2f0b4fa6275f7b61e7177961970e0820430598c536ecdf7e.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/spawn-agent.ts",
+      "holder": "draftLaunchEffect/input",
+      "rule": "spread",
+      "tokens": "13ef17782b6405cf4b9b35419df4cd34bf4a649ee723ae92cf63b01ff4197cee",
+      "gate": [],
+      "origin": [
+        "49e9cd3a7c387d58af6657855613ef891b6ce997322cac5e406f361d527921d1"
+      ],
+      "fingerprint": "c740114ce0ab6fde80d17ce190f961e77fad376123a73ae28e20070e5a6a4a25",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of draftLaunchEffect",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved from createDraftAgent by POD-6408 (the same launch spec, now a session.launch effect input). Predecessors: 0f6f2a9f3e55eab22fd1625874a9d804d9182d4a12bdea56d47c99c9f067aa21, 64999e19f2c06980f0a7386417b52c8a27b892dfd9675c08b09b1d03ffa78f54, 844bbf0ba91508302edadce91665efcd240ce7f935c3642aff4a33b8849de3ad, 98494e50b9d3c3ba596b7c6a593ed1770cef5b53a4112211d9ac940559a065f2, db808fb7eb1896c45a144d9140220c81ba9163f104f85250c0358820bb9890e6, f163983bb70d549b052befa36b33dc3dfa3ed4a7b1aaad3e5eb1831c3cd964d3, f568288e889356ef2f0b4fa6275f7b61e7177961970e0820430598c536ecdf7e.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/spawn-agent.ts",
+      "holder": "draftLaunchEffect/input",
+      "rule": "spread",
+      "tokens": "8ab2f40bac70a6159fbb5e6fc6c177d5787b6f865de6e8f9a2047ee6fecf75b3",
+      "gate": [],
+      "origin": [
+        "49e9cd3a7c387d58af6657855613ef891b6ce997322cac5e406f361d527921d1"
+      ],
+      "fingerprint": "cd5010126514b6f063005d75dbb6205ee05c39004110ac2c28ac924c6b1446f6",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of draftLaunchEffect",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Moved from createDraftAgent by POD-6408 (the same launch spec, now a session.launch effect input). Predecessors: 0f6f2a9f3e55eab22fd1625874a9d804d9182d4a12bdea56d47c99c9f067aa21, 64999e19f2c06980f0a7386417b52c8a27b892dfd9675c08b09b1d03ffa78f54, 844bbf0ba91508302edadce91665efcd240ce7f935c3642aff4a33b8849de3ad, 98494e50b9d3c3ba596b7c6a593ed1770cef5b53a4112211d9ac940559a065f2, db808fb7eb1896c45a144d9140220c81ba9163f104f85250c0358820bb9890e6, f163983bb70d549b052befa36b33dc3dfa3ed4a7b1aaad3e5eb1831c3cd964d3, f568288e889356ef2f0b4fa6275f7b61e7177961970e0820430598c536ecdf7e.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
       "file": "packages/client-graph/src/runtime-pool.ts",
-      "holder": "createRuntimeTransactions/known/callback/untracked:callback",
+      "holder": "createRuntimeTransactions/transactions/known/callback/untracked:callback",
       "rule": "loop:for-of",
       "tokens": "b822cb336460980dabd0df34d764b26e51d453fe30e55563751c41c18b2f1b20",
       "gate": [
@@ -36088,15 +36070,15 @@
         "exit:then:9a1d56df20f35e5ea4c49655b4b47586ac5ad129a413c20314d33f2f11e69ed3"
       ],
       "origin": [
-        "7235ecdb9a32dca8b18b56d9469f387c40cad462e15a5a5b6f251b5e1b020bcb"
+        "e031b3cd6296471d55dfc112cbeb02b8dd795612c4f3bb1f1cf6d968bc39d779"
       ],
-      "fingerprint": "0925870d3cbd533314ece57b140d6b4b8597e7b500b974dd7f0fe42f71a2ee51",
+      "fingerprint": "d580d70074e0dcc6bf8c6c74076a1b8497614904a976f0fcf2c9616bb1d26313",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6400",
       "trigger": "One generic record create reduced by the pool write log (a press, a boot replay or a rebase of that entry).",
       "bound": "The repo table only (entity other than repo answers none): the handful of repos this principal holds, once per reduced create.",
-      "reason": "A new issue is placed under the one repo the device holds at the create's repo path (the fresh-record placement guess); no issue, session or lane rows are enumerated.",
+      "reason": "A new issue is placed under the one repo the device holds at the create's repo path (the fresh-record placement guess); no issue, session or lane rows are enumerated. Predecessor: 0925870d3cbd533314ece57b140d6b4b8597e7b500b974dd7f0fe42f71a2ee51 (POD-6408 wrapped the composition).",
       "guard": "packages/client-graph/src/write/fresh-issue.pool.test.ts proves the queued issue joins its repo through the real pool and fails when the guess is disabled; packages/commands/src/records/records.test.ts proves none or several matches place nothing."
     }
   ]

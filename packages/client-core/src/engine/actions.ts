@@ -261,6 +261,12 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
    * queued edits of it are counted. Absent: 1.
    */
   sessionRevision?(sessionId: SessionId): number | undefined
+  /**
+   * Dismiss a draft start that failed or expired (POD-6408): its session row
+   * never existed, so its Remove takes the launch record off the feed. True when
+   * the session was one.
+   */
+  dismissLaunch?(sessionId: SessionId): boolean
   /** Resolution waiters for queued entries, by id (POD-4762). */
   readonly outboxSettlements: OutboxSettlements
   readonly router: Router
@@ -1012,11 +1018,14 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     spawnDraftAgent: (args) => rt.spawnDraftAgent(args),
     spawnIssueAgent: (args) => rt.spawnIssueAgent(args),
     killSession: async (sessionId) => {
+      // A draft start that never became a session is dismissed, not removed.
+      const dismissed = rt.dismissLaunch?.(sessionId) === true
       // Kill deletes the session (records.session.remove), against its
       // revision: a kill queued offline that arrives after a newer start is
       // refused rather than ending the process the user resumed (POD-6399).
-      await records
-        .remove({ kind: 'session', id: sessionId }, sessionRevisionNow(rt, sessionId))
+      if (!dismissed)
+        await records
+          .remove({ kind: 'session', id: sessionId }, sessionRevisionNow(rt, sessionId))
         .catch(() => {})
       const state = rt.state()
       // A killed session's tabs are views onto something that no longer exists —
