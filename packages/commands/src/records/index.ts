@@ -19,4 +19,18 @@ export {
   type SyncedKindDeclaration,
   specFields,
 } from './declare'
+export {
+  type FreshContext,
+  type FreshRecord,
+  freshCreateFields,
+  freshRow,
+  pendingCells,
+  wireCells,
+} from './fresh'
+export {
+  ISSUE_FIELD_DEFAULTS,
+  ISSUE_FRESH_CELLS,
+  issueSeqPending,
+  PENDING_ISSUE_SEQ,
+} from './issue-fresh'
 export { ISSUE_RECORD, SESSION_RECORD, SESSION_USER_STATE_RECORD, SYNCED_KINDS } from './kinds'

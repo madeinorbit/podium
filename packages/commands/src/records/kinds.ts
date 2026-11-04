@@ -42,6 +42,7 @@ import {
   TARGETED_ERRORS,
 } from '../issues/cells'
 import { defineSyncedKind, key, label, type SyncedKindDeclaration, spec, status } from './declare'
+import { ISSUE_FIELD_DEFAULTS as DEFAULT, ISSUE_FRESH } from './issue-fresh'
 
 /** `sync.submit` is served over tRPC; the other adapters come with POD-6359. */
 const SUBMIT_ONLY: readonly TransportTag[] = ['trpc']
@@ -90,9 +91,9 @@ export const ISSUE_RECORD = defineSyncedKind({
     // Resolved by the server from the create's repo path, inside the same write.
     repoId: label(z.string(), ROW.issueCore),
     title: spec(z.string().trim().min(1), ROW.issueCore, { required: true }),
-    description: spec(z.string(), ROW.issueDocumentFields),
-    priority: spec(z.number().int().min(0).max(4), ROW.issueCore),
-    type: spec(IssueType, ROW.issueCore),
+    description: spec(z.string(), ROW.issueDocumentFields, { default: DEFAULT.description }),
+    priority: spec(z.number().int().min(0).max(4), ROW.issueCore, { default: DEFAULT.priority }),
+    type: spec(IssueType, ROW.issueCore, { default: DEFAULT.type }),
     seq: label(z.number().int(), ROW.issueCore),
     revision: status(z.number().int(), ROW.issueCore),
     updatedAt: status(z.string(), ROW.issueCore),
@@ -114,6 +115,7 @@ export const ISSUE_RECORD = defineSyncedKind({
     inheritanceOnCreate: 'on-behalf-of-human',
     note: 'As `issues.create`: a top-level issue is owned by the creator’s on-behalf-of human.',
   },
+  fresh: ISSUE_FRESH,
 })
 
 // ---------------------------------------------------------------------------

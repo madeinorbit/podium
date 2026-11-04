@@ -9,7 +9,9 @@
 
 import {
   defineSyncedKind,
+  freshRow,
   ISSUE_RECORD,
+  pendingCells,
   RECORD_CONTRACTS,
   recordSpecField,
   recordStatusField,
@@ -148,6 +150,36 @@ describe('records.issueProjection.create', () => {
     // The label is the server's, filled inside the same write.
     expect(row.seq).toBeGreaterThan(0)
     expect(rows.some((r) => r.entity === 'issueProjection' && r.entityId === id)).toBe(true)
+  })
+
+  it('stores the row the creating device painted, on every cell the server does not assign (POD-6400)', async () => {
+    const o = await makeOracle()
+    await repo(o)
+    const id = newIssueId()
+    const fields = { repoPath: '/p', title: 'parity' }
+    appliedReply(
+      await submit(o, envelope('records.issueProjection.create', { id, fields }, 'm-parity')),
+    )
+    const change = (await rowsOf(o, 'm-parity')).find(
+      (r) => r.entity === 'issueProjection' && r.entityId === id,
+    )
+    const stored = ISSUE_RECORD.wire.parse(JSON.parse(String(must(change).payload)))
+
+    const painted = must(
+      freshRow(ISSUE_RECORD, id, fields, { at: new Date().toISOString(), by: stored.owner }),
+    )
+    const pending = new Set(pendingCells(ISSUE_RECORD))
+    const cells = new Set([...Object.keys(painted), ...Object.keys(stored)])
+    const differ = [...cells].filter(
+      (name) =>
+        !pending.has(name) &&
+        JSON.stringify((painted as Record<string, unknown>)[name]) !==
+          JSON.stringify((stored as Record<string, unknown>)[name]),
+    )
+    // Every cell the server does not assign is the one the device painted.
+    expect(differ).toEqual([])
+    // And the server did assign the pending ones: a real number, its own clock.
+    expect(stored.seq).toBeGreaterThan(0)
   })
 
   it('refuses an id that is not a device-minted one', async () => {
@@ -391,6 +423,8 @@ async function fixtureKind() {
       title: recordSpecField(z.string(), ROW.issueCore, { required: true }),
       revision: recordStatusField(z.number(), ROW.issueCore),
     },
+    // A new note is its title; the server numbers its first revision.
+    fresh: { cells: {}, pending: { revision: () => 1 } },
   })
   registerRecordKind(o.reg.modules.syncWrite.registry, NOTE, {
     target: async () => NO_TARGET,

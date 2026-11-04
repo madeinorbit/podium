@@ -39,6 +39,10 @@ import {
 import { type DeviceIdPrefix, mintDeviceId, parseSessionUserStateRowId } from '@podium/model'
 import type { z } from 'zod'
 
+/** Whether an issue row's number is still the creating device's placeholder
+ *  (POD-6400): a reader shows it as pending until the server's row lands. */
+export { issueSeqPending, PENDING_ISSUE_SEQ } from '@podium/commands/records'
+
 /**
  * Every kind that takes generic edits, by name. `records.test.ts` holds this
  * table EQUAL to `SYNCED_KINDS`, so a kind declared there and not here (or the

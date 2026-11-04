@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto'
+import { ISSUE_FIELD_DEFAULTS, ISSUE_FRESH_CELLS } from '@podium/commands'
 import {
   type ArtifactId,
   type ArtifactUploadPacket,
@@ -1338,6 +1339,11 @@ export class IssueCrudModule {
     const agentProfileId = input.agentProfile
       ? await this.agentProfileIdFor(input.agentProfile)
       : undefined
+    // What a new issue holds where the input is silent is DECLARED once
+    // (POD-6400, `@podium/commands` `records/issue-fresh.ts`): the creating
+    // device paints the same values before this answers.
+    const FIELD = ISSUE_FIELD_DEFAULTS
+    const CELL = ISSUE_FRESH_CELLS
     // Built as the IN-MEMORY issue (R1) and encoded ONCE, through the pair that
     // owns the R1 <-> R3 splits (ADR 4 §4.1). Everything absent here is absent by
     // R1's own optionality — the storage nulls are `toStorage`'s to write, and
@@ -1347,9 +1353,9 @@ export class IssueCrudModule {
       repoId: asRepoId(repoId),
       seq,
       title: input.title,
-      description: { value: input.description ?? '' },
+      description: { value: input.description ?? FIELD.description },
       ...(input.brief != null ? { brief: input.brief } : {}),
-      stage: (input.stage ?? 'backlog') as StoredIssue['stage'],
+      stage: (input.stage ?? CELL.stage) as StoredIssue['stage'],
       worktreePath: null,
       branch: null,
       parentBranch:
@@ -1358,22 +1364,22 @@ export class IssueCrudModule {
       // The issue stores picks only (POD-6133): an unnamed harness, model or effort
       // stays `auto`, so the profile and then the Settings current at each
       // session start decide it, and a stored harness is always a real pick.
-      defaultAgent: input.defaultAgent || 'auto',
-      defaultModel: input.defaultModel || 'auto',
-      defaultEffort: input.defaultEffort || 'auto',
+      defaultAgent: input.defaultAgent || CELL.defaultAgent,
+      defaultModel: input.defaultModel || CELL.defaultModel,
+      defaultEffort: input.defaultEffort || CELL.defaultEffort,
       ...(agentProfileId ? { agentProfileId } : {}),
       ...(input.machineId != null ? { machineId: input.machineId } : {}),
       ...(input.linear?.id != null ? { linearId: input.linear.id } : {}),
       ...(input.linear?.identifier != null ? { linearIdentifier: input.linear.identifier } : {}),
       ...(input.linear?.url != null ? { linearUrl: input.linear.url } : {}),
-      blockedByNotes: [],
-      priority: input.priority ?? 2,
+      blockedByNotes: [...CELL.blockedByNotes],
+      priority: input.priority ?? FIELD.priority,
       // NOT AN ID CAST — this site carried an edge-cast marker that POD-362 read and
       // removed: `type`/`stage` are ENUM-ish text, not entity ids, so no brand applies.
       // They stay unvalidated here because the DDL CHECK is the constraint and
       // validating at this seam would turn a create the tracker accepts today into
       // a throw — a decoder/encoder change, and not this issue's.
-      type: (input.type || 'task') as StoredIssue['type'],
+      type: (input.type || FIELD.type) as StoredIssue['type'],
       ...(input.assignee ? { assignee: asUserId(input.assignee) } : {}),
       // Keyed into the scope it will LAND in: the parent's children when this
       // is a subtask create (parentId is applied after persist via reparent,
@@ -1383,15 +1389,15 @@ export class IssueCrudModule {
         input.repoPath,
         input.parentId ? await this.store.resolveRef(input.parentId, input.repoPath) : null,
       ),
-      needsHuman: false,
+      needsHuman: CELL.needsHuman,
       createdAt: ts,
       updatedAt: ts,
-      archived: false,
+      archived: CELL.archived,
       // D-2's renames: the input keeps the wire's names, R1 uses the qualified
       // ones, and the pair maps them back onto the columns.
-      intentOrigin: input.origin ?? 'human',
-      audience: input.audience ?? 'human',
-      isDraftVessel: input.draft ?? false,
+      intentOrigin: input.origin ?? CELL.intentOrigin,
+      audience: input.audience ?? CELL.audience,
+      isDraftVessel: input.draft ?? CELL.isDraftVessel,
       // Bare session id (same format as humanQuestionAskedBy / coordinatorSessionId).
       // Absent for operator creates; registry stamps agent creates from actorSessionId.
       ...(input.startedBySession != null
@@ -1414,7 +1420,7 @@ export class IssueCrudModule {
     // owned by nobody and visible to nobody. Resolved now, like every other
     // ambient site; a caller that knows whose issue it is still says so.
     row.ownerUserId = input.ownerUserId ?? (await firstAdminMemberId(this.store.deps.store))
-    row.visibility = input.visibility ?? 'personal'
+    row.visibility = input.visibility ?? CELL.visibility
     row.createdByActor = input.createdByActor ?? row.ownerUserId
     row.createdByOnBehalfOf = input.createdByOnBehalfOf ?? row.ownerUserId
     // parentId handled after persist via reparent (edge-maintaining): the row
@@ -1779,7 +1785,8 @@ export class IssueCrudModule {
     // A quiet closed issue keeps its existing post-read retention grace. Only
     // advance to receipt time after proving there is no newer unseen activity.
     if (
-      observedAt && this.store.isClosed(row) &&
+      observedAt &&
+      this.store.isClosed(row) &&
       (await this.coveringReadAt(row, row.updatedAt)) <= observedAt
     ) {
       const now = this.store.now()

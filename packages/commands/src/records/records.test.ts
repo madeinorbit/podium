@@ -11,6 +11,8 @@ import { z } from 'zod'
 import { classificationErrors } from '../contract'
 import { RECORD_CONTRACTS, recordContracts } from './contracts'
 import { declarationProblems, defineSyncedKind, label, spec, status } from './declare'
+import { freshCreateFields, freshRow, pendingCells } from './fresh'
+import { ISSUE_FIELD_DEFAULTS, issueSeqPending } from './issue-fresh'
 import { ISSUE_RECORD, NOT_YET_GENERIC, SESSION_USER_STATE_RECORD, SYNCED_KINDS } from './kinds'
 
 const must = <T>(value: T | undefined): T => {
@@ -143,5 +145,153 @@ describe('the generated commands', () => {
     expect(input.safeParse({ id: `iss_${UUID}`, fields: { ...fields, seq: 7 } }).success).toBe(
       false,
     )
+  })
+})
+
+describe('what a new record looks like (POD-6400)', () => {
+  const ctx = { at: '2026-11-04T12:00:00.000Z', by: 'user_1' }
+  const id = `iss_${UUID}`
+
+  it('every kind that offers create declares a fresh record', () => {
+    for (const d of SYNCED_KINDS) {
+      expect(d.ops.create === undefined || d.fresh !== undefined, d.kind).toBe(true)
+    }
+  })
+
+  it('a new issue is a whole wire row from only what a person chose', () => {
+    const row = freshRow(ISSUE_RECORD, id, { title: 'new', repoPath: '/p' }, ctx)
+    expect(ISSUE_RECORD.wire.safeParse(row).success).toBe(true)
+    expect(row).toMatchObject({
+      id,
+      title: 'new',
+      description: { value: '' },
+      priority: ISSUE_FIELD_DEFAULTS.priority,
+      type: 'task',
+      stage: 'backlog',
+      owner: 'user_1',
+      createdAt: ctx.at,
+      updatedAt: ctx.at,
+    })
+    expect(issueSeqPending(row as { seq: number })).toBe(true)
+    // The placement input places the record; it is not a cell of it.
+    expect(row).not.toHaveProperty('repoPath')
+  })
+
+  it('a device that does not know its person still paints a whole row', () => {
+    const row = freshRow(ISSUE_RECORD, id, { title: 'new', repoPath: '/p' }, { ...ctx, by: null })
+    expect(ISSUE_RECORD.wire.safeParse(row).success).toBe(true)
+  })
+
+  it('what the create names wins over a default', () => {
+    expect(freshCreateFields(ISSUE_RECORD, { title: 't', priority: 0 })).toEqual({
+      title: 't',
+      priority: 0,
+      description: '',
+      type: 'task',
+    })
+    const row = freshRow(ISSUE_RECORD, id, { title: 't', description: 'why' }, ctx)
+    expect(row).toMatchObject({ description: { value: 'why' } })
+  })
+
+  it('every label and status field is pending: a paint never shows an invented value as known', () => {
+    for (const [name, f] of Object.entries(ISSUE_RECORD.fields)) {
+      if (f.role === 'label' || f.role === 'status') {
+        expect(pendingCells(ISSUE_RECORD), name).toContain(name)
+      }
+    }
+  })
+
+  describe('a fresh record that would not paint a whole row fails where it is written', () => {
+    const wire = z.object({
+      id: z.string(),
+      title: z.string(),
+      seq: z.number().int(),
+      stage: z.enum(['backlog', 'done']),
+    })
+    const base = {
+      kind: 'conversation' as const,
+      title: 'thing',
+      wire,
+      ref: z.string(),
+      newId: z.string(),
+      conflict: 'exp-rev' as const,
+      visibility: ISSUE_RECORD.visibility,
+      exposure: ISSUE_RECORD.exposure,
+      delivery: ISSUE_RECORD.delivery,
+      redaction: ISSUE_RECORD.redaction,
+      attribution: ISSUE_RECORD.attribution,
+      errorConsistency: ISSUE_RECORD.errorConsistency,
+      creates: ISSUE_RECORD.creates,
+      ops: { create: must(ISSUE_RECORD.ops.create) },
+    }
+    const fields = {
+      title: spec(z.string(), ROW.issueCore, { required: true }),
+      seq: label(z.number().int(), ROW.issueCore),
+    }
+    const fresh = { cells: { stage: 'backlog' }, pending: { seq: () => 0 } }
+
+    it('the well-formed one is accepted', () => {
+      expect(() => defineSyncedKind({ ...base, fields, fresh })).not.toThrow()
+    })
+
+    it('a create with no fresh record', () => {
+      expect(() => defineSyncedKind({ ...base, fields })).toThrow(/without a fresh record/)
+    })
+
+    it('a required wire cell nothing covers', () => {
+      expect(() => defineSyncedKind({ ...base, fields, fresh: { ...fresh, cells: {} } })).toThrow(
+        /a fresh thing has no stage/,
+      )
+    })
+
+    it('a label the paint does not mark pending', () => {
+      expect(() => defineSyncedKind({ ...base, fields, fresh: { ...fresh, pending: {} } })).toThrow(
+        /label field seq is not pending/,
+      )
+    })
+
+    it('a constant or placeholder that is not a value of its cell', () => {
+      expect(() =>
+        defineSyncedKind({ ...base, fields, fresh: { ...fresh, cells: { stage: 'later' } } }),
+      ).toThrow(/fresh cell stage does not parse/)
+      expect(() =>
+        defineSyncedKind({ ...base, fields, fresh: { ...fresh, pending: { seq: () => 'x' } } }),
+      ).toThrow(/pending cell seq's placeholder does not parse/)
+      expect(() =>
+        defineSyncedKind({
+          ...base,
+          fields,
+          fresh: { ...fresh, pending: { seq: () => undefined } },
+        }),
+      ).toThrow(/pending cell seq's placeholder does not parse/)
+    })
+
+    it('a default on a field the server fills, or one that is not a value of the field', () => {
+      expect(() =>
+        defineSyncedKind({
+          ...base,
+          fields: { ...fields, seq: label(z.number().int(), ROW.issueCore, { default: 1 }) },
+          fresh,
+        }),
+      ).toThrow(/seq has a default but a label field/)
+      expect(() =>
+        defineSyncedKind({
+          ...base,
+          fields: {
+            ...fields,
+            stage: spec(z.enum(['backlog', 'done']), ROW.issueCore, {
+              default: 'later' as 'backlog',
+            }),
+          },
+          fresh: { cells: {}, pending: fresh.pending },
+        }),
+      ).toThrow(/stage's default does not parse/)
+    })
+
+    it('a fresh record on a kind with no create', () => {
+      expect(() =>
+        defineSyncedKind({ ...base, ops: { edit: must(ISSUE_RECORD.ops.edit) }, fields, fresh }),
+      ).toThrow(/fresh record without a create/)
+    })
   })
 })

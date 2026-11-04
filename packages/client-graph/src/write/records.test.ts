@@ -8,8 +8,14 @@ import type { OverlayTarget } from '@podium/client-core/command-reducers'
 import { foldRowOverlays } from '@podium/client-core/command-reducers'
 import type { OutboxOutcome } from '@podium/client-core/engine'
 import type { OutboxEntry } from '@podium/client-core/outbox'
-import { createRecordsApi } from '@podium/client-core/records'
-import { asMutationId, asSessionId, asUserId, sessionUserStateRowId } from '@podium/model'
+import { createRecordsApi, issueSeqPending } from '@podium/client-core/records'
+import {
+  asMutationId,
+  asSessionId,
+  asUserId,
+  IssueProjection,
+  sessionUserStateRowId,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { createPoolTransactions } from './transactions'
 
@@ -169,15 +175,35 @@ describe('a generic edit in the pool (POD-6392)', () => {
     p.dispose()
   })
 
-  it('an issue create paints nothing, and its row shows when it lands', async () => {
+  it('an issue create paints a whole row at once, its number pending, and the landed row replaces it (POD-6400)', async () => {
     const p = pool('issueProjections', ISSUE, undefined)
     await p.records.create('issueProjection', ISSUE, { title: 'New', repoPath: '/repo' })
-    expect(p.shown()).toBeUndefined()
+    expect(IssueProjection.safeParse(p.shown()).success).toBe(true)
+    expect(p.shown()).toMatchObject({
+      id: ISSUE,
+      title: 'New',
+      stage: 'backlog',
+      seq: 0,
+      owner: USER,
+    })
+    expect(issueSeqPending(p.shown() as { seq: number })).toBe(true)
     p.apply('m-1')
+    // The reply came back; still the paint until the replica has the row.
+    expect(p.shown()).toMatchObject({ title: 'New', seq: 0 })
     p.truth({ id: ISSUE, title: 'New', seq: 12 })
-    expect(p.shown()).toMatchObject({ title: 'New', seq: 12 })
     p.retire('m-1')
-    expect(p.shown()).toMatchObject({ title: 'New', seq: 12 })
+    expect(p.painted()).toBe(0)
+    expect(p.shown()).toEqual({ id: ISSUE, title: 'New', seq: 12 })
+    p.dispose()
+  })
+
+  it('a refused issue create drops its row', async () => {
+    const p = pool('issueProjections', ISSUE, undefined)
+    await p.records.create('issueProjection', ISSUE, { title: 'New', repoPath: '/repo' })
+    expect(p.shown()).toMatchObject({ title: 'New' })
+    p.refuse('m-1')
+    expect(p.painted()).toBe(0)
+    expect(p.shown()).toBeUndefined()
     p.dispose()
   })
 })

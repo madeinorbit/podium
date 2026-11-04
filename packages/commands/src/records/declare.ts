@@ -46,6 +46,7 @@ import type {
   TransportTag,
   VisibilityClass,
 } from '../contract'
+import { type FreshRecord, freshProblems } from './fresh'
 
 export type RecordFieldRole = 'spec' | 'status' | 'label' | 'key'
 
@@ -60,6 +61,13 @@ export interface RecordField<
   readonly row: MatrixRowId
   /** A create must carry it. Only `spec` and `key` fields can be required. */
   readonly required?: true
+  /**
+   * What a create that leaves this field out stores, in the field's own
+   * spelling (an issue's `priority` is 2). The server's create applies it and
+   * the creating device paints it, from this one value (`./fresh.ts`). Only a
+   * `spec` or `key` field a create may leave out can have one.
+   */
+  readonly default?: z.input<S>
 }
 
 const field =
@@ -67,7 +75,7 @@ const field =
   <S extends z.ZodTypeAny>(
     schema: S,
     row: MatrixRowId,
-    opts: { required?: true } = {},
+    opts: { required?: true; default?: z.input<S> } = {},
   ): RecordField<S, R> => ({ role, schema, row, ...opts })
 
 /** People and agents write it. */
@@ -125,6 +133,14 @@ export interface SyncedKindDeclaration<
   readonly errorConsistency: ErrorConsistency
   /** What a create mints and who owns it. Required iff the kind offers create. */
   readonly creates?: CreationOwnership
+  /**
+   * What a NEW record looks like before the server has answered: every wire
+   * cell a create does not carry, either a constant the server stores
+   * (`cells`) or a cell the server assigns that the device paints as pending
+   * (`pending`). Required iff the kind offers create; with it, a create paints
+   * a whole row at once (`./fresh.ts`).
+   */
+  readonly fresh?: FreshRecord
 }
 
 /** Declare a kind, checked where it is written: a declaration that could never
@@ -148,6 +164,15 @@ export function declarationProblems(d: SyncedKindDeclaration): string[] {
     if (f.required && f.role !== 'spec' && f.role !== 'key') {
       out.push(`field ${name} is required but a ${f.role} field is never client-written`)
     }
+    if ('default' in f) {
+      if (f.role !== 'spec' && f.role !== 'key') {
+        out.push(`field ${name} has a default but a ${f.role} field is the server's`)
+      } else if (f.required) {
+        out.push(`field ${name} is required and has a default`)
+      } else if (!f.schema.safeParse(f.default).success) {
+        out.push(`field ${name}'s default does not parse as the field`)
+      }
+    }
   }
   for (const name of Object.keys(d.placement ?? {})) {
     if (name in d.fields) out.push(`placement ${name} is also a field`)
@@ -161,6 +186,9 @@ export function declarationProblems(d: SyncedKindDeclaration): string[] {
     if (d.creates === undefined || d.creates.creates.length === 0) {
       out.push('offers create without declaring what it creates')
     }
+    out.push(...freshProblems(d))
+  } else if (d.fresh !== undefined) {
+    out.push('declares a fresh record without a create')
   }
   if (d.ops.edit !== undefined && specFields(d).length === 0) {
     out.push('offers edit with no spec field to edit')

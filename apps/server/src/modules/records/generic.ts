@@ -21,6 +21,9 @@
  *    contract's `newId`); an id that exists is `conflict`, never overwritten; the
  *    same envelope again is the entry point's dedup replay. Labels (an issue's
  *    `seq`) are the adapter's to fill inside the same write.
+ *  - FRESH RECORDS (POD-6400): a field a create leaves out gets the kind's
+ *    declared default here, before the adapter runs, so the stored record is
+ *    the one the creating device painted (`@podium/commands` `records/fresh.ts`).
  *
  * The adapter's writes run inside the entry point's unit of work and provenance
  * scope, so its change rows carry the command's mutationId and the reply its
@@ -29,6 +32,7 @@
 
 import {
   createFields,
+  freshCreateFields,
   type RecordOp,
   recordContracts,
   type SyncedKindDeclaration,
@@ -154,7 +158,9 @@ export function registerRecordKind(
         // A create never overwrites (ADR 12 D4). The same envelope again never
         // reaches here: the entry point's dedup answers it as a replay.
         if ((await read(id)) !== undefined) refuse('conflict')
-        return await create(ctx, id, fields)
+        // The declared defaults (POD-6400), the same ones the creating device
+        // painted: a field the create left out is stored as declared.
+        return await create(ctx, id, freshCreateFields(d, fields))
       },
     })
   }

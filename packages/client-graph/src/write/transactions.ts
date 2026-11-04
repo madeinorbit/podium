@@ -161,7 +161,9 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
   // Not `crypto.randomUUID`: a browser on plain-HTTP LAN origins has none, and this
   // default minter ran on every UI write there (POD-5931).
   const mintId = ports.mintId ?? (() => asMutationId(randomUUID()))
-  const reduce = ports.reduce ?? overlaysForOutboxEntry
+  const reduceWith = ports.reduce ?? overlaysForOutboxEntry
+  const viewer = { userId: ports.userId }
+  const reduce = (entry: Parameters<typeof overlaysForOutboxEntry>[0]) => reduceWith(entry, viewer)
 
   let source: RowSourceRepaint | null = null
   let disposed = false

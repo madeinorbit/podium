@@ -23,7 +23,7 @@
  * names a kind (`recordOverlays`).
  */
 
-import type { SyncedKindDeclaration } from '@podium/commands/records'
+import { freshRow, wireCells } from '@podium/commands/records'
 import type { SessionMeta, SessionUserStateWire, WorkState } from '@podium/model'
 import { IssueProjection, IssueUserStateWire, UNSNOOZE_BACKDATE_MS } from '@podium/model'
 import type { OutboxKinds } from './engine/wiring'
@@ -224,13 +224,25 @@ export function issueUpdateRoute(patch: OverlayPatch): { issue: OverlayPatch; us
  * `issueUpdate`, whose patch may carry personal markers beside durable fields.
  * All parts share the mutationId and retire with its entry.
  */
-export function overlaysForOutboxEntry(entry: OutboxEntry): PendingOverlay[] {
-  const projected = overlayOf(entry)
+export function overlaysForOutboxEntry(
+  entry: OutboxEntry,
+  viewer: ReducerViewer = {},
+): PendingOverlay[] {
+  const projected = overlayOf(entry, viewer)
   return projected === null ? [] : Array.isArray(projected) ? projected : [projected]
 }
 
-function overlayOf(entry: OutboxEntry): PendingOverlay | PendingOverlay[] | null {
-  if (isRecordOutboxKind(entry.kind)) return recordOverlays(entry)
+/** What the reducing device knows about who it is. Only a record create reads
+ *  it: a fresh record's server-assigned owner is painted as this person. */
+export interface ReducerViewer {
+  readonly userId?: string
+}
+
+function overlayOf(
+  entry: OutboxEntry,
+  viewer: ReducerViewer,
+): PendingOverlay | PendingOverlay[] | null {
+  if (isRecordOutboxKind(entry.kind)) return recordOverlays(entry, viewer)
   switch (entry.kind as keyof OutboxKinds) {
     case 'rename': {
       const i = entry.input as OutboxKinds['rename']
@@ -494,18 +506,18 @@ function overlayOf(entry: OutboxEntry): PendingOverlay | PendingOverlay[] | null
  * every declared kind, read off the declaration and nothing else.
  *
  *  - edit: the patch, on the kind's row in the pool;
- *  - create: the record's row, but only when the create's fields make a WHOLE
- *    row of the kind's wire schema. A kind whose server fills required cells in
- *    (an issue's `seq`, its stage, owner and timestamps) paints nothing, and the
- *    row shows when it lands: a half row would be a value no reader expects,
- *    and a guessed default would be per-kind display code;
+ *  - create: the record's WHOLE row, as the kind declares a new one looks
+ *    (POD-6400, `freshRow`): the create's fields with their defaults, the
+ *    constant cells, and a placeholder for each cell the server assigns (an
+ *    issue's `seq` is 0, read as pending; its timestamps are the queue time).
+ *    The server's row replaces it when the entry retires;
  *  - remove: the row is hidden.
  *
  * The values are the entry's own, which the API already parsed with the
  * command's schema (`records.ts`), so they are what the server stores. The
  * pool row a record lands on is its kind's home (`RECORD_HOMES`).
  */
-function recordOverlays(entry: OutboxEntry): PendingOverlay[] {
+function recordOverlays(entry: OutboxEntry, viewer: ReducerViewer): PendingOverlay[] {
   if (!isRecordOutboxKind(entry.kind)) return []
   const input = entry.input as {
     kind: keyof typeof RECORD_HOMES
@@ -525,9 +537,13 @@ function recordOverlays(entry: OutboxEntry): PendingOverlay[] {
         : [patchOverlay(home.target, row, entry.mutationId, patch)]
     }
     case 'create': {
-      const fields = wireCells(d, input.fields ?? {})
-      const whole = { ...fields, ...('id' in d.wire.shape ? { id: input.id } : {}) }
-      if (!d.wire.safeParse(whole).success) return []
+      const whole = freshRow(d, input.id, input.fields ?? {}, {
+        at: new Date(entry.queuedAt).toISOString(),
+        by: viewer.userId ?? null,
+      })
+      // A declaration check holds every create kind to a whole row; a row that
+      // still does not parse (an entry from an older build) paints nothing.
+      if (whole === undefined || !d.wire.safeParse(whole).success) return []
       return [
         {
           op: 'insert',
@@ -541,28 +557,6 @@ function recordOverlays(entry: OutboxEntry): PendingOverlay[] {
     case 'remove':
       return [{ op: 'remove', key: entry.mutationId, entity: home.target, id: row }]
   }
-}
-
-/** A patch's values as the kind's wire row spells them: only declared fields,
- *  and an op-stream document (`{ value, … }` on the wire) as `{ value }`. */
-function wireCells(d: SyncedKindDeclaration, values: OverlayPatch): OverlayPatch {
-  const out: OverlayPatch = {}
-  for (const [name, value] of Object.entries(values)) {
-    if (value === undefined || !(name in d.fields)) continue
-    out[name] = isDocumentCell(d.wire.shape[name]) ? { value } : value
-  }
-  return out
-}
-
-/** Whether a wire cell is an op-stream document: an object whose keys are the
- *  document's (`value`, `revision`, `opsTail`) and that has a `value`. */
-function isDocumentCell(schema: unknown): boolean {
-  let s = schema as { _def?: { innerType?: unknown }; shape?: unknown } | undefined
-  while (s?._def?.innerType !== undefined) s = s._def.innerType as typeof s
-  const shape = s?.shape
-  if (shape === null || typeof shape !== 'object') return false
-  const keys = Object.keys(shape)
-  return keys.includes('value') && keys.every((k) => DOC_KEYS.has(k))
 }
 
 /**

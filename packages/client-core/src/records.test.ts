@@ -3,8 +3,14 @@
  * one overlay case, and the outbox rows behind them, held to the declarations.
  */
 
-import { RECORD_CONTRACTS, SYNCED_KINDS } from '@podium/commands'
-import { asMutationId, asSessionId, asUserId, sessionUserStateRowId } from '@podium/model'
+import { issueSeqPending, RECORD_CONTRACTS, SYNCED_KINDS } from '@podium/commands'
+import {
+  asMutationId,
+  asSessionId,
+  asUserId,
+  IssueProjection,
+  sessionUserStateRowId,
+} from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { PodiumClientApi } from './api'
 import { foldRowOverlays, overlaysForOutboxEntry } from './command-reducers'
@@ -198,14 +204,42 @@ describe('the one generic overlay case', () => {
     })
   })
 
-  it('a create paints nothing when its fields are not a whole row: the server fills the rest', () => {
+  it('a create paints the whole row a new record has, the server’s cells pending (POD-6400)', () => {
+    const [overlay] = overlaysForOutboxEntry(
+      entry('recordCreate', {
+        kind: 'issueProjection',
+        id: ISSUE,
+        fields: { title: 'New', repoPath: '/repo', priority: 1 },
+      }),
+      { userId: USER },
+    )
+    expect(overlay?.op).toBe('insert')
+    const row = (overlay as { insert: Record<string, unknown> }).insert
+    // A whole wire row, so every reader of the kind can show it.
+    expect(IssueProjection.safeParse(row).success).toBe(true)
+    expect(row).toMatchObject({
+      id: ISSUE,
+      title: 'New',
+      priority: 1,
+      // Defaults and constants, as the server stores them.
+      type: 'task',
+      description: { value: '' },
+      stage: 'backlog',
+      archived: false,
+      // Server-assigned: the placeholder, read as pending.
+      seq: 0,
+      owner: USER,
+      createdAt: '1970-01-01T00:00:00.000Z',
+    })
+    expect(issueSeqPending(row as { seq: number })).toBe(true)
+    // The placement input is not a wire cell.
+    expect(row).not.toHaveProperty('repoPath')
+  })
+
+  it('a create from an older build whose row is not whole paints nothing', () => {
     expect(
       overlaysForOutboxEntry(
-        entry('recordCreate', {
-          kind: 'issueProjection',
-          id: ISSUE,
-          fields: { title: 'New', repoPath: '/repo' },
-        }),
+        entry('recordCreate', { kind: 'issueProjection', id: ISSUE, fields: { repoPath: '/r' } }),
       ),
     ).toEqual([])
   })

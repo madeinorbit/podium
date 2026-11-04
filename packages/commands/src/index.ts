@@ -450,6 +450,21 @@ export {
   status as recordStatusField,
 } from './records/declare'
 export {
+  type FreshContext,
+  type FreshRecord,
+  freshCreateFields,
+  freshProblems,
+  freshRow,
+  pendingCells,
+  wireCells,
+} from './records/fresh'
+export {
+  ISSUE_FIELD_DEFAULTS,
+  ISSUE_FRESH_CELLS,
+  issueSeqPending,
+  PENDING_ISSUE_SEQ,
+} from './records/issue-fresh'
+export {
   ISSUE_RECORD,
   NOT_YET_GENERIC,
   SESSION_RECORD,
