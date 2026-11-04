@@ -3123,7 +3123,7 @@
       "count": 1,
       "classification": "bounded local work",
       "trigger": "Demanded visible session history response",
-      "bound": "One addressed session’s activity samples",
+      "bound": "One addressed session\u2019s activity samples",
       "reason": "Request answers belong to the opening, are fenced against stale responses, and never refresh on minute ticks.",
       "guard": "waterfall-view.parity.test.ts: history demand and closed/superseded response fences",
       "owner": "POD-5633"
@@ -3145,7 +3145,7 @@
       "count": 1,
       "classification": "bounded local work",
       "trigger": "Demanded visible session history response",
-      "bound": "One addressed session’s activity samples",
+      "bound": "One addressed session\u2019s activity samples",
       "reason": "Request answers belong to the opening, are fenced against stale responses, and never refresh on minute ticks.",
       "guard": "waterfall-view.parity.test.ts: history demand and closed/superseded response fences",
       "owner": "POD-5633"
@@ -4005,7 +4005,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5872",
-      "trigger": "Initialize or refresh one open conversation’s existing message-record port.",
+      "trigger": "Initialize or refresh one open conversation\u2019s existing message-record port.",
       "bound": "The addressed noticeSession membership only; no new numeric cap on held notices or records is asserted.",
       "reason": "The existing snapshot and row-version subscription moved from a manual computed to a lazy service field. Collection ownership and work are preserved; transcript refresh and subscription redesign belongs to POD-5800. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 5a80f4115b2dbeb6ff8b12905e2a116be7defbfb9ca7b491a74d8368f6488b55. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: 52b1428c198e0a4d9caae68a8dbe399b9648052a248cbadea6bee09fcbcb24ba.",
       "guard": "ChatView.test.tsx and conversation-service.parity.test.ts preserve delivery and record answers; exact fingerprint and multiplicity remain enforced. This entry does not claim a repaired collection bound."
@@ -4025,7 +4025,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5872",
-      "trigger": "Initialize or refresh one open conversation’s existing message-record port.",
+      "trigger": "Initialize or refresh one open conversation\u2019s existing message-record port.",
       "bound": "The addressed noticeSession membership only; no new numeric cap on held notices or records is asserted.",
       "reason": "The existing snapshot and row-version subscription moved from a manual computed to a lazy service field. Collection ownership and work are preserved; transcript refresh and subscription redesign belongs to POD-5800. POD-6093: superagent sends carry staged attachment paths in their text instead of refusing them; collection demand is unchanged. Predecessor: 51c998ca196a9a6c243e1bbe5d981eabc11baa7e3cef40d3f3e29834b5c00df1. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: f7ccab7429b608e010b0a2ef8b453da51946e2cd458267fbbefbe008d438ad14.",
       "guard": "ChatView.test.tsx and conversation-service.parity.test.ts preserve delivery and record answers; exact fingerprint and multiplicity remain enforced. This entry does not claim a repaired collection bound."
@@ -13688,7 +13688,7 @@
       "classification": "ingest",
       "owner": "POD-5621",
       "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
-      "bound": "One reconciled transcript snapshot while following. Keep the requested display-boundary suffix when it exceeds the normal 2 × initialLimit window; older complete turns can still leave. Incremental frames use the addressed item-position index instead.",
+      "bound": "One reconciled transcript snapshot while following. Keep the requested display-boundary suffix when it exceeds the normal 2 \u00d7 initialLimit window; older complete turns can still leave. Incremental frames use the addressed item-position index instead.",
       "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: 3e6e7ee56cb28529fd267359c2e8752fc65c764a705256e60cfe5f5e577a5827.",
       "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame. transcript-log.test.ts and conversation-presentation.test.ts cover boundary retention beyond 300/400 records, newest refresh, explicit reset, and release back to the normal window."
     },
@@ -20037,30 +20037,30 @@
       "file": "packages/client-core/src/values/issue-activity.ts",
       "holder": "IssueActivityHistory/appendEvents",
       "rule": "loop:for-of",
-      "tokens": "c87c646ae60a2ca22e4a022036ecc20161f7218dd11c35b6fbcf2ff436c281e3",
+      "tokens": "85a06ddf4bae9a517f1046d8f2c0eb5638d3bbe222d4a80b84cf03a38799f5ae",
       "gate": [],
       "origin": [
         "f812520ce4a887e1a11173f742d445794e8ea590c5d1ad7400c98f44ca3e3a0c"
       ],
-      "fingerprint": "667711299053a2054d84ed0b85a840adafd0cac7d231ea58fbb229d6cd7b0125",
+      "fingerprint": "17270b20f6acd91697b3088491969ecfde83a4b96453c46b2d32f1800644852f",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5618",
       "trigger": "A newly fetched issue event page is appended.",
       "bound": "One supplied page (the shared request owner asks for at most 50 rows per RPC); retained history is never enumerated for ID deduplication.",
       "reason": "The history owns its ID index and formats only new rows, with stable event/feed arrays and cursor advancement.",
-      "guard": "packages/client-graph/src/issue-activity.test.ts: append element work is 1→1 for 128/512 retained events; a planted retained-ID map/Set fails."
+      "guard": "packages/client-graph/src/issue-activity.test.ts: append element work is 1\u21921 for 128/512 retained events; a planted retained-ID map/Set fails."
     },
     {
       "file": "packages/client-core/src/values/issue-activity.ts",
       "holder": "buildActivityFeed",
       "rule": "loop:for-of",
-      "tokens": "e06f3dd8d2612abc9b897504f6e870a4a27859e4219311667cc610a05b872de6",
+      "tokens": "c7380d95184cb311e8cbfbb337599a78c2ceda902a875020976822700207696d",
       "gate": [],
       "origin": [
         "ef9069ac27326a7d041164b1a38337c5d39a7c4d88ec300905e20345e1a4509b"
       ],
-      "fingerprint": "240154f70222be5cac386ed616f338972a7c7ced6aa9fdb87823098f2bfd81cd",
+      "fingerprint": "827ad91ee76d10797fac239191687982fa62e039c5c01fd4cc6a946420bc2903",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -29341,7 +29341,7 @@
       "trigger": "Default LoadPanel metric question",
       "bound": "One stored source-order element, or one iterator.next() when no first ordered ID exists.",
       "reason": "The keys iterator is advanced once; it is never spread, looped or materialized. Named metric demand bypasses the iterator. No whole-table scan occurs.",
-      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132→516 elements."
+      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132\u2192516 elements."
     },
     {
       "file": "packages/client-graph/src/header-repositories.ts",
@@ -32184,7 +32184,7 @@
       "owner": "POD-6267",
       "trigger": "The open Repositories settings section renders each repository with its checkouts and worktrees.",
       "bound": "One checkout's worktree list.",
-      "reason": "Counts worktrees whose folder is gone for the checkout line's '· N missing' note.",
+      "reason": "Counts worktrees whose folder is gone for the checkout line's '\u00b7 N missing' note.",
       "guard": "settings-repositories.test.ts pins the grouping (registered worktrees fold into their checkout, one checkout per machine, loose worktrees stand alone, live worktree arrival); settings-launch-records.parity.test.ts compares the old two-scan fixture."
     },
     {
@@ -34667,7 +34667,7 @@
       "owner": "POD-5530",
       "trigger": "Invocation or observation of ObservedPoolWorkSections/ObservedPoolWorkSections",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "Desktop project-band rendering now uses canonical section fields. Viewport row mounting remains bounded; outer group metadata still has no cardinality cap. Predecessor: 74a629ec672ae8824310d0a26cded6e6321e3bab5c31cdaaa69db827a2cc7d98. POD-2074: the calm sidebar rebuild (lane switch, project folders, folder drag) moved this scan; its collection demand is unchanged. Predecessor: 1ccc53eb555e775472d36a495b6db5645304b7e1727bd5a8335dce8cb06e4eb0. POD-2069: integrating the sidebar with the New task overlay draft row moved this scan; its collection demand is unchanged. Predecessor: 29a412500aaf2c9dfbcf157a63d946af8f0e0ec1bcf8e664fbc7e21a87354bba. POD-2069: integrating the sidebar motion pass with the New task draft row moved this scan; its collection demand is unchanged. Predecessor: 65aa1ddcc361cb2ae02d5276cf54c14d2e49cf2550aebab8bc53bc7aa09fc510. POD-2099: project-band rendering no longer includes the overlay draft row. Collection demand and repair classification are unchanged. Predecessor: a2d66633effecafa96d8fe5e54978cd99f0e8454a3c4cba1fae57e0489328402. POD-2106: keeping the Closed lane summary card through empty-lane states changed the preceding return guards; this collection operation is unchanged. Predecessor: ccc861e4686a8708784a1099ecc4c55d6ade0b3487d99fdff5a987877871cf00. POD-2153: the project folder menu now passes the band's repository path for \"Base branch…\", which moved this scan; its collection demand is unchanged. Predecessor: 669ca7a725c38379bb33edc25ca55fce208183023a5f7923e7a591ccc4cb053a. POD-2153: project bands now carry their registered repoId for the base-branch menu, which moved this scan; its collection demand is unchanged. Predecessor: 7fc238ca890468ac8077565c9d6e246ca4f9edcd0deded6ed983fecd9e9ccd04.",
+      "reason": "Desktop project-band rendering now uses canonical section fields. Viewport row mounting remains bounded; outer group metadata still has no cardinality cap. Predecessor: 74a629ec672ae8824310d0a26cded6e6321e3bab5c31cdaaa69db827a2cc7d98. POD-2074: the calm sidebar rebuild (lane switch, project folders, folder drag) moved this scan; its collection demand is unchanged. Predecessor: 1ccc53eb555e775472d36a495b6db5645304b7e1727bd5a8335dce8cb06e4eb0. POD-2069: integrating the sidebar with the New task overlay draft row moved this scan; its collection demand is unchanged. Predecessor: 29a412500aaf2c9dfbcf157a63d946af8f0e0ec1bcf8e664fbc7e21a87354bba. POD-2069: integrating the sidebar motion pass with the New task draft row moved this scan; its collection demand is unchanged. Predecessor: 65aa1ddcc361cb2ae02d5276cf54c14d2e49cf2550aebab8bc53bc7aa09fc510. POD-2099: project-band rendering no longer includes the overlay draft row. Collection demand and repair classification are unchanged. Predecessor: a2d66633effecafa96d8fe5e54978cd99f0e8454a3c4cba1fae57e0489328402. POD-2106: keeping the Closed lane summary card through empty-lane states changed the preceding return guards; this collection operation is unchanged. Predecessor: ccc861e4686a8708784a1099ecc4c55d6ade0b3487d99fdff5a987877871cf00. POD-2153: the project folder menu now passes the band's repository path for \"Base branch\u2026\", which moved this scan; its collection demand is unchanged. Predecessor: 669ca7a725c38379bb33edc25ca55fce208183023a5f7923e7a591ccc4cb053a. POD-2153: project bands now carry their registered repoId for the base-branch menu, which moved this scan; its collection demand is unchanged. Predecessor: 7fc238ca890468ac8077565c9d6e246ca4f9edcd0deded6ed983fecd9e9ccd04.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -35339,7 +35339,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
       "bound": "One checkout's worktree list (a handful of lanes).",
       "reason": "Offers the branch names a checkout already reports so the picker needs no branch-listing request.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -35358,7 +35358,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
       "reason": "Finds a checkout of one logical repository (repoId-qualified, never by path alone) for the base-branch write; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -35376,7 +35376,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
       "reason": "Finds the checkout a repository base-branch write goes through; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -35395,7 +35395,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
       "reason": "Finds the checkout a repository base-branch write goes through; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -35414,7 +35414,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
       "reason": "Finds the checkout a repository base-branch write goes through; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -36039,9 +36039,223 @@
       "classification": "ingest",
       "owner": "POD-2304",
       "trigger": "A newest transcript snapshot would trim a boundary still owned by a mounted reader.",
-      "bound": "One reconciled snapshot, only above 2 × initialLimit and only while following; an addressed boundary ID limits the retained suffix. Incremental frame trimming uses the existing item-position index.",
+      "bound": "One reconciled snapshot, only above 2 \u00d7 initialLimit and only while following; an addressed boundary ID limits the retained suffix. Incremental frame trimming uses the existing item-position index.",
       "reason": "Complete active turn membership must survive the following window. This scan locates the requested boundary in the incoming snapshot before committing its ordered contents; no computed screen scan or global cache is added.",
       "guard": "transcript-log.test.ts proves stream and newest-refresh retention, normal-window release, and explicit reset; conversation-presentation.test.ts and TranscriptFeed.turn-line.test.tsx cross both 300-row and 400-item limits."
+    },
+    {
+      "fingerprint": "6257a069f98aa00b4e7d3f1f50e4935a8cc02249117cc78e22cca5ed54bd171f",
+      "file": "apps/web/src/features/issues/issue-page/IssueProperties.tsx",
+      "holder": "IssueProperties/IssueProperties",
+      "rule": "reader-summary",
+      "tokens": "3c8e1cbe79716d6700c5c634c096493aa8aae337a1db1b14b215bef7773964a6",
+      "gate": [],
+      "origin": [
+        "0f8043794047d51c881fd3f692838b0585d8cc066c1900243e238f2b440e76e3",
+        "ec2e106696ff67fda99e2206af2e029f705d297ffe5ec0b4726a348b7bb07daf"
+      ],
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6295",
+      "trigger": "The open task page rail renders.",
+      "bound": "One task: its own D13 session summaries and collaborators from issues.get and issues.collaborators.",
+      "reason": "The shared-detail store answers for the one open task only; the rail filters its session summaries to other members.",
+      "guard": "apps/web/src/features/issues/IssuePage.shared-task.test.tsx and packages/client-graph/src/issue-shared-detail.test.ts (POD-6295)"
+    },
+    {
+      "fingerprint": "9cc4d420e5072bcf2b60f3c5eedc1a826c58e759136c9b609f85c4a20e8b6556",
+      "file": "apps/web/src/features/issues/issue-page/IssueProperties.tsx",
+      "holder": "IssueProperties/IssueProperties",
+      "rule": "spread",
+      "tokens": "79b7fb2793c921d03e0b4a376fc29c834fc52965f30501020e1e79083204fa15",
+      "gate": [],
+      "origin": [
+        "0f8043794047d51c881fd3f692838b0585d8cc066c1900243e238f2b440e76e3",
+        "ec2e106696ff67fda99e2206af2e029f705d297ffe5ec0b4726a348b7bb07daf"
+      ],
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6295",
+      "trigger": "The open task page rail renders.",
+      "bound": "One task: its own D13 session summaries and collaborators from issues.get and issues.collaborators.",
+      "reason": "The shared-detail store answers for the one open task only; the rail filters its session summaries to other members.",
+      "guard": "apps/web/src/features/issues/IssuePage.shared-task.test.tsx and packages/client-graph/src/issue-shared-detail.test.ts (POD-6295)"
+    },
+    {
+      "fingerprint": "d4e1d846b085d837875b2a34f34e4ac0019e87d26bf5061a2276252feb781838",
+      "file": "apps/web/src/features/issues/issue-page/IssueProperties.tsx",
+      "holder": "IssueProperties/IssueProperties",
+      "rule": "helper-consumer",
+      "tokens": "acf0ace42b9231dfb3e7e69a7be3413350d1c57c6c6788b9592538a6f60f2c1e",
+      "gate": [],
+      "origin": [
+        "0f8043794047d51c881fd3f692838b0585d8cc066c1900243e238f2b440e76e3",
+        "ec2e106696ff67fda99e2206af2e029f705d297ffe5ec0b4726a348b7bb07daf"
+      ],
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6295",
+      "trigger": "The open task page rail renders.",
+      "bound": "One task: its own D13 session summaries and collaborators from issues.get and issues.collaborators.",
+      "reason": "The shared-detail store answers for the one open task only; the rail filters its session summaries to other members.",
+      "guard": "apps/web/src/features/issues/IssuePage.shared-task.test.tsx and packages/client-graph/src/issue-shared-detail.test.ts (POD-6295)"
+    },
+    {
+      "fingerprint": "30970fdabbf3ac367cbfc8a6244ecdca6a4afda8d8be53ff8252f7891536d393",
+      "file": "apps/web/src/features/issues/issue-page/IssueProperties.tsx",
+      "holder": "IssueProperties/IssueProperties/shared",
+      "rule": "reader-summary",
+      "tokens": "28c72d7a9ddf1fddca964854767f32603e48bc8736d0c733ec0b2fbeb62570f5",
+      "gate": [],
+      "origin": [
+        "0f8043794047d51c881fd3f692838b0585d8cc066c1900243e238f2b440e76e3",
+        "ec2e106696ff67fda99e2206af2e029f705d297ffe5ec0b4726a348b7bb07daf"
+      ],
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6295",
+      "trigger": "The open task page rail renders.",
+      "bound": "One task: its own D13 session summaries and collaborators from issues.get and issues.collaborators.",
+      "reason": "The shared-detail store answers for the one open task only; the rail filters its session summaries to other members.",
+      "guard": "apps/web/src/features/issues/IssuePage.shared-task.test.tsx and packages/client-graph/src/issue-shared-detail.test.ts (POD-6295)"
+    },
+    {
+      "fingerprint": "a7eb8065c34198004dab2c9f8f5d9f93fc9b05ec69d91d4e2eb02b397189bfea",
+      "file": "apps/web/src/features/issues/issue-text-save.ts",
+      "holder": "saveIssueText",
+      "rule": "reader-summary",
+      "tokens": "5a78113f9ef5857b8ec70f526023d13737e08ad1e2b1ff0b06f644e967c9a49d",
+      "gate": [
+        "then:bf433bd12b497d461115fb9e8f0e06cc3f75369c704ab09dc429bb4af6bbc0b6"
+      ],
+      "origin": [
+        "a51465c064bd0c1d17a13b677b7d22ed8ccdd87a04cf9c9d2cac5b1a457969f9"
+      ],
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6295",
+      "trigger": "A description edit on a shared task meets a revision conflict.",
+      "bound": "One issues.get answer for the edited task.",
+      "reason": "Reads the one task back to compare its text with the draft base.",
+      "guard": "apps/web/src/features/issues/IssuePage.shared-task.test.tsx and packages/client-graph/src/issue-shared-detail.test.ts (POD-6295)"
+    },
+    {
+      "fingerprint": "c9e6b6226d889393173a917397d89252df754cbb604009cfd97a3a9235962520",
+      "file": "apps/web/src/features/issues/issue-text-save.ts",
+      "holder": "saveIssueText",
+      "rule": "reader-summary",
+      "tokens": "9ae17dd9d6bac16872f7c87daed65429aa92df3ee8ae28864973840362c82c20",
+      "gate": [],
+      "origin": [
+        "a51465c064bd0c1d17a13b677b7d22ed8ccdd87a04cf9c9d2cac5b1a457969f9"
+      ],
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6295",
+      "trigger": "A description edit on a shared task meets a revision conflict.",
+      "bound": "One issues.get answer for the edited task.",
+      "reason": "Reads the one task back to compare its text with the draft base.",
+      "guard": "apps/web/src/features/issues/IssuePage.shared-task.test.tsx and packages/client-graph/src/issue-shared-detail.test.ts (POD-6295)"
+    },
+    {
+      "fingerprint": "5ba8c8387f6a4604513269ef083881edf508e8b9dc7c9d6dbfb7fdcc81183d28",
+      "file": "apps/web/src/features/issues/IssuePage.tsx",
+      "holder": "IssuePageBody/IssuePageBody/callback",
+      "rule": "reader-summary",
+      "tokens": "3cc1317aaf13206bb5ea70d99134a54eb77e916c757839e3d82dfdc395353c0e",
+      "gate": [
+        "&&:51514e3ceb18dc851bbf6ccdf3e2e5f8de86a78ceb0a17d9dc7a2cc5bab506fd"
+      ],
+      "origin": [
+        "395e19ae02d2f130777f0849647526aa85125a5f0441159a7c4a706676c2ce7c"
+      ],
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6295",
+      "trigger": "The open task page renders, or the reader opens a text history.",
+      "bound": "One task: its shared detail, or one field's revisions read on request.",
+      "reason": "The page reads only the open task; history loads when the reader opens it.",
+      "guard": "apps/web/src/features/issues/IssuePage.shared-task.test.tsx and packages/client-graph/src/issue-shared-detail.test.ts (POD-6295)"
+    },
+    {
+      "fingerprint": "946223c6fc676a00ed40f98de925693ab710eecfb9394b5f46309f867aebb0fa",
+      "file": "apps/web/src/features/issues/IssuePage.tsx",
+      "holder": "IssuePageBody/IssuePageBody/callback",
+      "rule": "reader-summary",
+      "tokens": "1a96e7aa009f039f8c76ee6239916c4c0a7b2f87e679f1317947f716d8ab521f",
+      "gate": [
+        "&&:51514e3ceb18dc851bbf6ccdf3e2e5f8de86a78ceb0a17d9dc7a2cc5bab506fd"
+      ],
+      "origin": [
+        "395e19ae02d2f130777f0849647526aa85125a5f0441159a7c4a706676c2ce7c"
+      ],
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6295",
+      "trigger": "The open task page renders, or the reader opens a text history.",
+      "bound": "One task: its shared detail, or one field's revisions read on request.",
+      "reason": "The page reads only the open task; history loads when the reader opens it.",
+      "guard": "apps/web/src/features/issues/IssuePage.shared-task.test.tsx and packages/client-graph/src/issue-shared-detail.test.ts (POD-6295)"
+    },
+    {
+      "fingerprint": "a7b43fc636c582558f8f907127496a6a6448a5150bcce5011391fbc3da5d15e0",
+      "file": "apps/web/src/features/issues/IssuePage.tsx",
+      "holder": "IssuePageBody/IssuePageBody/sharedDetail",
+      "rule": "reader-summary",
+      "tokens": "28c72d7a9ddf1fddca964854767f32603e48bc8736d0c733ec0b2fbeb62570f5",
+      "gate": [],
+      "origin": [
+        "0f8043794047d51c881fd3f692838b0585d8cc066c1900243e238f2b440e76e3",
+        "ec2e106696ff67fda99e2206af2e029f705d297ffe5ec0b4726a348b7bb07daf"
+      ],
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6295",
+      "trigger": "The open task page renders, or the reader opens a text history.",
+      "bound": "One task: its shared detail, or one field's revisions read on request.",
+      "reason": "The page reads only the open task; history loads when the reader opens it.",
+      "guard": "apps/web/src/features/issues/IssuePage.shared-task.test.tsx and packages/client-graph/src/issue-shared-detail.test.ts (POD-6295)"
+    },
+    {
+      "fingerprint": "1f1cd1aa8ff0bf7d3e75cecbfd3c2d2a47304227fea36da9c848153cbfd28caf",
+      "file": "packages/client-graph/src/issue-shared-detail.ts",
+      "holder": "otherMembersSessions",
+      "rule": "consume:filter",
+      "tokens": "207ea967246a7bb18023bf617edfd934001afebcbb6cdf521c4f21708119d7b5",
+      "gate": [
+        "exit:then:ad8cd184920bba5388764b72094c9cb78850885931562d40d99890935138fd7f"
+      ],
+      "origin": [
+        "0f8043794047d51c881fd3f692838b0585d8cc066c1900243e238f2b440e76e3",
+        "ec2e106696ff67fda99e2206af2e029f705d297ffe5ec0b4726a348b7bb07daf"
+      ],
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6295",
+      "trigger": "The rail shows other members' sessions on the open task.",
+      "bound": "One task's D13 session summaries from issues.get.",
+      "reason": "Drops the reader's own sessions from one task's summaries.",
+      "guard": "apps/web/src/features/issues/IssuePage.shared-task.test.tsx and packages/client-graph/src/issue-shared-detail.test.ts (POD-6295)"
+    },
+    {
+      "fingerprint": "c01ccbf308242a5aec5b7bf93bd7d416b3ec8c48fba2f36d29e6a4e05fc33582",
+      "file": "packages/client-graph/src/issue-shared-detail.ts",
+      "holder": "otherMembersSessions",
+      "rule": "consume:filter",
+      "tokens": "207ea967246a7bb18023bf617edfd934001afebcbb6cdf521c4f21708119d7b5",
+      "gate": [
+        "exit:then:ad8cd184920bba5388764b72094c9cb78850885931562d40d99890935138fd7f"
+      ],
+      "origin": [
+        "7c7e154832e2d372cef73001de5d720e8613abbfb82acd69fec95b305449d3ec"
+      ],
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6295",
+      "trigger": "The rail shows other members' sessions on the open task.",
+      "bound": "One task's D13 session summaries from issues.get.",
+      "reason": "Drops the reader's own sessions from one task's summaries.",
+      "guard": "apps/web/src/features/issues/IssuePage.shared-task.test.tsx and packages/client-graph/src/issue-shared-detail.test.ts (POD-6295)"
     }
   ]
 }
