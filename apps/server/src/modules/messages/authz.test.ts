@@ -104,13 +104,14 @@ describe('the sender is stamped from the capability, never from the payload (A1)
   })
 
   it('derives the sender principal from the capability scope, and never mistakes an issueless agent for the operator', () => {
-    // SINGLE-OPERATOR: scope 'all' IS the operator here, because there
-    // is exactly one such capability. POD-728 dissolves this into named people.
-    expect(senderFromCapability({ scope: { kind: 'all' } })).toEqual({ kind: 'operator' })
+    // A PERSON is the operator (POD-6288): no human carries scope `all` any
+    // more, and a legacy `all` held by an agent session stamps as that agent.
+    expect(senderFromCapability(OPERATOR)).toEqual({ kind: 'operator' })
     expect(
       senderFromCapability({ scope: { kind: 'all' }, actorSessionId: asSessionId('s1') }),
     ).toEqual({
-      kind: 'operator',
+      kind: 'agent',
+      sessionId: asSessionId('s1'),
     })
     // "unwrapped = the human" is an invariant the receiver's prime rules trust,
     // so an ISSUELESS agent session (scope 'none' + actorSessionId) must stamp as

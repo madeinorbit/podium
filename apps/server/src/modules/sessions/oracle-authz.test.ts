@@ -113,9 +113,10 @@ describe('oracle: the authenticated admin seam', () => {
   it(`${MUST_NOT_CHANGE}: an authenticated admin capability carries explicit user attribution`, async () => {
     const o = await makeOracle()
     // The context capability the router is constructed with IS the constant.
+    // POD-6288: the member scope plus the admin role; no person carries `all`.
     expect(OPERATOR).toEqual({
       role: 'admin',
-      scope: { kind: 'all' },
+      scope: { kind: 'owned', userId: firstAdminMemberId() },
       actorUser: firstAdminMemberId(),
       onBehalfOf: firstAdminMemberId(),
     })

@@ -615,14 +615,23 @@ describe('MessageDeliveryService.send', () => {
     )
   })
 
-  it('senderFromCapability: subtree → agent principal, all → operator', () => {
+  it('senderFromCapability: subtree → agent principal, a person → operator', () => {
     expect(
       senderFromCapability({
         scope: { kind: 'subtree', rootId: asIssueId('iss_b') },
         actorSessionId: asSessionId('s9'),
       }),
     ).toEqual({ kind: 'agent', issueId: 'iss_b', sessionId: asSessionId('s9') })
-    expect(senderFromCapability({ scope: { kind: 'all' } })).toEqual({ kind: 'operator' })
+    // A PERSON is the operator (POD-6288): the member scope, no agent session,
+    // the same human as actor and on-behalf-of. A legacy `all` held by an
+    // agent session is an agent.
+    const person = firstAdminMemberId()
+    expect(
+      senderFromCapability({ scope: { kind: 'owned', userId: person }, actorUser: person, onBehalfOf: person }),
+    ).toEqual({ kind: 'operator' })
+    expect(
+      senderFromCapability({ scope: { kind: 'all' }, actorSessionId: asSessionId('s9'), onBehalfOf: person }),
+    ).toEqual({ kind: 'agent', sessionId: asSessionId('s9') })
   })
 
   it('senderFromCapability: scope none (issueless agent session) is NEVER the operator', async () => {
