@@ -309,7 +309,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
       )
       const seq = /created (?:[A-Z]{2,5}-|#)(\d+)/.exec(created)?.[1]
       if (!seq) throw new Error(`no seq in: ${created}`)
-      await runIssueCli(['claim', seq, '--assignee', 'agent:test'], cli)
+      await runIssueCli(['claim', seq, '--assignee', 'me'], cli)
       await runIssueCli(['comment', seq, '--body', 'progress note'], cli)
       await runIssueCli(['close', seq, '--reason', 'done'], cli)
       const bId = await regB.issues.reports.resolveRef(seq)
@@ -323,7 +323,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
         description: 'characterize me',
         startNow: false,
       })
-      await trpc.issues.claim({ id: c.id, assignee: 'agent:test' })
+      await trpc.issues.claim({ id: c.id, assignee: 'me' })
       await trpc.issues.addComment({ id: c.id, body: 'progress note' })
       await trpc.issues.close({ id: c.id, reason: 'done' })
 
@@ -336,7 +336,8 @@ describe('characterization: issue lifecycle equivalence across entry points (con
       expect(obsA.wire).toMatchObject({
         stage: 'done',
         closedReason: 'done',
-        assignee: 'agent:test',
+        // The assignee is the owner (POD-6287): the operator's claim keeps it theirs.
+        assignee: firstAdminMemberId(),
       })
       expect((obsA.events as { kind: string }[]).map((e) => e.kind)).toEqual([
         'issue.boot_reconciled',

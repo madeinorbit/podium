@@ -209,6 +209,7 @@ describe('StoredIssue members ARE the shared field-group instances', () => {
     ['priority', IssueTriage.shape.priority],
     ['type', IssueTriage.shape.type],
     ['assignee', IssueTriage.shape.assignee],
+    ['legacyAssignee', IssueTriage.shape.legacyAssignee],
     ['estimateMin', IssueTriage.shape.estimateMin],
     ['sortKey', IssueTriage.shape.sortKey],
     ['dueAt', IssueTriage.shape.dueAt],
