@@ -185,8 +185,10 @@ export class IssueReportsModule {
     readonly visibilityPolicy: Readonly<IssueReportVisibilityPolicy> = DEFAULT_ISSUE_REPORT_VISIBILITY,
   ) {}
 
-  /** Convert only requested command results. The mutation/publish path never builds reports. */
-  async commandResult<T>(value: T): Promise<IssueCommandResult<T>> {
+  /** Convert only requested command results. The mutation/publish path never builds reports.
+   *  `viewer` is whose per-user markers the reports carry (POD-6288): the
+   *  member the command acted for; absent, the broadcast viewer's. */
+  async commandResult<T>(value: T, viewer?: UserId): Promise<IssueCommandResult<T>> {
     const projections = new Map<string, IssueProjection>()
     const collect = (item: unknown): void => {
       if (!item || typeof item !== 'object') return
@@ -211,6 +213,7 @@ export class IssueReportsModule {
     const built = await this.reportsFor(
       found.map((entry) => entry.row),
       found.map((entry) => entry.own),
+      viewer ? { viewer: () => viewer, mayRead: () => true } : UNRESTRICTED_READER,
     )
     const reports = new Map<string, IssueReport>(found.map((entry, index) => [entry.row.id, built[index]!] as const))
     const replace = (item: unknown): unknown => {

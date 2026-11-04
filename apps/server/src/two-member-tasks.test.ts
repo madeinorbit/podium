@@ -285,11 +285,15 @@ describe('Self: per-user markers are each member’s own, on any task', () => {
       await bob.issues.markRead.mutate({ id } as never)
       await bob.issues.update.mutate({ id, patch: { pinned: true } } as never)
     }
-    await bob.issues.setTucked.mutate({ id: finished, tucked: true } as never)
+    const tucked = (await bob.issues.setTucked.mutate({ id: finished, tucked: true } as never)) as {
+      tuckedAt?: string | null
+    }
     const mine = await store.getIssueUserState(MEMBERS.bob.id, finished)
     expect(mine?.readAt).toBeTruthy()
     expect(mine?.pinnedAt).toBeTruthy()
     expect(mine?.tuckedAt).toBeTruthy()
+    // The mutation's own answer carries Bob's markers, not the broadcast viewer's.
+    expect(tucked.tuckedAt).toBe(mine?.tuckedAt)
     expect((await store.getIssueUserState(MEMBERS.bob.id, f.tasks.bob))?.pinnedAt).toBeTruthy()
     expect(await store.getIssueUserState(MEMBERS.alice.id, finished)).toEqual(aliceBefore)
     // Bob's reads of the task report his own markers.

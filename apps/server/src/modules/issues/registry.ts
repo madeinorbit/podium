@@ -351,7 +351,7 @@ function def<N extends IssueContractName, K extends IssueCommandKind, Out>(
       // checks share one batched grant read (POD-6149, server-data rule 2).
       if (d.kind === 'query') return await withReadScope(async () => await d.handler(ctx, input))
       const result = await d.handler(ctx, input)
-      return d.kind === 'mutation' ? await ctx.reports.commandResult(result) : result
+      return d.kind === 'mutation' ? await ctx.reports.commandResult(result, ctx.markerUser()) : result
     },
     input: contract.input,
     action: contract.policy.action,
