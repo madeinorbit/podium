@@ -19,6 +19,7 @@ import { type IssueId, parseIssueStatusValue, type StoredIssueDepType } from '@p
 import type { IssueViewModel } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 import type { IssueAgentKind } from '@/lib/issue-agents'
+import { saveIssueText, type TextBase, TextConflict, type TextSaveApi } from './issue-text-save'
 
 /** The page's mutation runner: busy-gates and surfaces thrown errors verbatim
  *  as an error toast (owned by `useIssuePageModel`). */
@@ -70,8 +71,7 @@ export function issuePageCommands({
      *  queued, not when the server settles it: the picker awaits it so a failed
      *  enqueue shows inline, and a later server refusal reaches the user as the
      *  outbox's "Couldn't save issue branch" notice like every other edit. */
-    setParentBranch: (parentBranch: string): Promise<unknown> =>
-      updateIssue(id, { parentBranch }),
+    setParentBranch: (parentBranch: string): Promise<unknown> => updateIssue(id, { parentBranch }),
 
     // ---- banners ----
     applySuggestion: (): void => {
@@ -90,9 +90,36 @@ export function issuePageCommands({
       if (!title || title === issue.title) return
       update({ title })
     },
-    commitDescription: (value: string): void => {
+    /** Save the description. On a shared instance the editor passes the
+     *  `base` it opened on, and the edit names that revision (POD-6295): a
+     *  real conflict reaches `onConflict` with the current text, the draft
+     *  unsaved. Without a base (one member) the edit queues as before. */
+    commitDescription: (
+      value: string,
+      base?: TextBase,
+      onConflict?: (conflict: TextConflict) => void,
+    ): void => {
       if (value === issue.description) return
-      update({ description: value })
+      if (!base) {
+        update({ description: value })
+        return
+      }
+      void run(async () => {
+        try {
+          await saveIssueText(trpc as unknown as TextSaveApi, id, 'description', value, base)
+        } catch (err) {
+          if (err instanceof TextConflict && onConflict) onConflict(err)
+          else throw err
+        }
+      })
+    },
+    /** Put a recorded description or brief back (POD-6289); the restore is
+     *  itself a new revision. */
+    restoreTextRevision: (revisionId: number, onDone: () => void): void => {
+      void run(async () => {
+        await trpc.issues.restoreTextRevision.mutate({ id, revisionId })
+        onDone()
+      })
     },
     /** Long-form spec field agents write via `podium issue update` — same
      *  inline-editor pattern as the description. */
@@ -125,6 +152,14 @@ export function issuePageCommands({
       void run(async () => {
         await trpc.issues.addComment.mutate({ id, body })
         onPosted(body)
+      })
+    },
+    /** Edit one of the reader's own comments (POD-6289). The control is drawn
+     *  only on comments the server marked `mayEdit`. */
+    editComment: (commentId: string, body: string, onDone: () => void): void => {
+      void run(async () => {
+        await trpc.issues.editComment.mutate({ id, commentId, body })
+        onDone()
       })
     },
     refreshAssistant: (): void => {
@@ -230,6 +265,27 @@ export function issuePageCommands({
 // ---------------------------------------------------------------------------
 // Read-side loaders.
 // ---------------------------------------------------------------------------
+
+/** One revision of a task's description or brief (POD-6289). */
+export interface IssueTextRevision {
+  id: number
+  field: 'description' | 'brief'
+  body: string
+  source: 'create' | 'baseline' | 'edit' | 'restore'
+  restoredFrom: number | null
+  issueRevision: number | null
+  actor: string | null
+  onBehalfOf: string | null
+  createdAt: string
+}
+
+/** A task's description or brief history, oldest first. */
+export const loadIssueTextRevisions = (
+  trpc: Trpc,
+  id: string,
+  field: 'description' | 'brief',
+): Promise<IssueTextRevision[]> =>
+  trpc.issues.textRevisions.query({ id, field }) as Promise<IssueTextRevision[]>
 
 /** The lazy comment thread (#175: bodies no longer ride IssueViewModel). */
 export const loadIssueComments = (trpc: Trpc, id: string): Promise<ActivityComment[]> =>

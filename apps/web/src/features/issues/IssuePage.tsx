@@ -2,6 +2,7 @@ import type { IssueId } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import type { IssueViewModel } from '@/app/store'
+import { useMemberRoster } from '@/lib/member-roster'
 import { IssueCloseDialog, type IssueCloseReason, useIssueCloseGuard } from './issue-lifecycle'
 import { CommentComposer, IssueActivitySection, MailSection } from './issue-page/IssueActivity'
 import { IssueAgentActivity } from './issue-page/IssueAgentActivity'
@@ -18,11 +19,14 @@ import { PageComment, PageMail, PageTimeline } from './issue-page/IssueHistory'
 import { IssueNow } from './issue-page/IssueNow'
 import { IssueProperties } from './issue-page/IssueProperties'
 import { IssueSubIssues } from './issue-page/IssueSubIssues'
+import { IssueTextHistory } from './issue-page/IssueTextHistory'
 import { issueObserver as observer } from './issue-page/issue-observer'
 import { useDetailDesktop } from './issue-page/use-detail-viewport'
 import { useEvictionGuard } from './issue-page/use-eviction-guard'
+import { useIssueSharedDetail } from './issue-page/use-issue-shared-detail'
 import { issuePageCommands } from './issue-page-commands'
 import { useIssuePageModel } from './issue-page-model'
+import type { TextBase, TextConflict } from './issue-text-save'
 /**
  * The full issue page — an in-view (not overlay) replacement for the detail
  * drawer. A header with breadcrumb + prev/next + overflow menu, a scrolling main
@@ -94,6 +98,22 @@ export const IssuePageBody = observer(function IssuePageBody({
 
   const [editingTitle, setEditingTitle] = useState(false)
   const [editingDesc, setEditingDesc] = useState(false)
+  // A shared task's description edit names the revision it was cut from, and a
+  // conflict keeps the reader's draft beside the current text (POD-6295).
+  const roster = useMemberRoster()
+  const sharedDetail = useIssueSharedDetail(issue)
+  const allowed = sharedDetail?.allowed
+  const mayEdit = allowed?.edit ?? true
+  const [descBase, setDescBase] = useState<TextBase | null>(null)
+  const [descConflict, setDescConflict] = useState<{
+    conflict: TextConflict
+    draft: string
+  } | null>(null)
+  const editDescription = (editing: boolean): void => {
+    if (editing && !descConflict) setDescBase({ text: issue.description, revision: issue.revision })
+    if (!editing) setDescConflict(null)
+    setEditingDesc(editing)
+  }
   const [addingChild, setAddingChild] = useState(false)
   const [childTitle, setChildTitle] = useState('')
   const [closeReason, setCloseReason] = useState<IssueCloseReason | null>(null)
@@ -112,6 +132,8 @@ export const IssuePageBody = observer(function IssuePageBody({
   useEffect(() => {
     setEditingTitle(false)
     setEditingDesc(false)
+    setDescBase(null)
+    setDescConflict(null)
     setAddingChild(false)
     setChildTitle('')
   }, [issue.id])
@@ -144,8 +166,21 @@ export const IssuePageBody = observer(function IssuePageBody({
 
   const commitDescription = (value: string): void => {
     setEditingDesc(false)
-    commands.commitDescription(value)
+    setDescConflict(null)
+    commands.commitDescription(
+      value,
+      roster?.shared && descBase ? descBase : undefined,
+      (conflict) => {
+        // Reopen on the reader's own text, now cut from the current revision:
+        // saving again is a deliberate replace.
+        setDescBase({ text: conflict.currentText, revision: conflict.currentRevision ?? undefined })
+        setDescConflict({ conflict, draft: value })
+        setEditingDesc(true)
+      },
+    )
   }
+  const restore = (revisionId: number, done: () => void): void =>
+    commands.restoreTextRevision(revisionId, done)
 
   const createChild = (title: string): void => {
     commands.createSubIssue(title)
@@ -156,10 +191,7 @@ export const IssuePageBody = observer(function IssuePageBody({
   const [detailsOpen, setDetailsOpen] = useState(false)
 
   return (
-    <div
-      className="flex min-h-0 min-w-0 flex-1 flex-col"
-      data-testid="issue-page"
-    >
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-testid="issue-page">
       <IssueDetailHeader
         issue={issue}
         repoName={repoName}
@@ -189,7 +221,7 @@ export const IssuePageBody = observer(function IssuePageBody({
 
               <IssueTitle
                 issue={issue}
-                busy={busy}
+                busy={busy || !mayEdit}
                 editing={editingTitle}
                 onEditingChange={setEditingTitle}
                 onCommit={commitTitle}
@@ -206,11 +238,36 @@ export const IssuePageBody = observer(function IssuePageBody({
                 issue={issue}
                 busy={busy}
                 editing={editingDesc}
-                onEditingChange={setEditingDesc}
+                onEditingChange={editDescription}
                 onCommit={commitDescription}
-              />
+                mayEdit={mayEdit}
+                conflict={descConflict?.conflict ?? null}
+                {...(descConflict ? { draft: descConflict.draft } : {})}
+              >
+                {roster?.shared && (
+                  <IssueTextHistory
+                    issueId={issue.id}
+                    field="description"
+                    current={issue.description}
+                    mayRestore={allowed?.restore ?? true}
+                    busy={busy}
+                    onRestore={restore}
+                  />
+                )}
+              </IssueDescription>
 
-              <IssueBrief issue={issue} />
+              <IssueBrief issue={issue}>
+                {roster?.shared && (
+                  <IssueTextHistory
+                    issueId={issue.id}
+                    field="brief"
+                    current={issue.brief ?? ''}
+                    mayRestore={allowed?.restore ?? true}
+                    busy={busy}
+                    onRestore={restore}
+                  />
+                )}
+              </IssueBrief>
 
               {/* Long-form spec fields agents write via `podium issue update`. */}
               <LongFormFields issue={issue} busy={busy} commands={commands} />
@@ -265,7 +322,9 @@ export const IssuePageBody = observer(function IssuePageBody({
           {/* Pinned, not appended. A task with 26 artifacts and a day of events
               put the reply box six thousand pixels down the scroll, so replying
               meant first travelling past everything you were replying to. */}
-          <PageComment issue={issue} busy={busy} commands={commands} />
+          {(allowed?.comment ?? true) && (
+            <PageComment issue={issue} busy={busy} commands={commands} />
+          )}
         </div>
 
         {/* The rail takes its roomier width only where there is room to give:

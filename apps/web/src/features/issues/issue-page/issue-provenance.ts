@@ -46,14 +46,29 @@ export function humanizeActorId(id: string): string {
   return UUID_RE.test(bare) ? bare.slice(0, 8) : bare
 }
 
+/** A member's display name for an id, when the reader's roster knows it. */
+export type MemberNamer = (id: string) => string | undefined
+
+/**
+ * A person as the page names them (POD-6295): the member's display name when
+ * the roster knows it, never a raw `mem_` id; an id from before members (a
+ * bare label such as `alice`) reads as itself.
+ */
+export function personName(id: string, nameOf?: MemberNamer): string {
+  const bare = humanizeActorId(id)
+  const known = nameOf?.(id) ?? (bare !== id ? nameOf?.(bare) : undefined)
+  if (known) return known
+  return bare.startsWith('mem_') ? 'a member' : bare
+}
+
 /** The actor half as a noun phrase. A person is named; everything else is named
  *  AND typed, because "who did this" and "was it a person" are one question for
  *  a human reader and two fields underneath. */
-function actorPhrase(actor: Attribution['actor']): string {
+function actorPhrase(actor: Attribution['actor'], nameOf?: MemberNamer): string {
   const id = humanizeActorId(actorDisplayId(actor))
   switch (actor.kind) {
     case 'user':
-      return id
+      return personName(actorDisplayId(actor), nameOf)
     case 'agent':
       return `Agent ${id}`
     case 'machine':
@@ -81,13 +96,16 @@ function actorPhrase(actor: Attribution['actor']): string {
  *    it is the stamped fact: nobody delegated this write. Absence of a human
  *    and absence of a value are different, and only the first is representable.
  */
-export function createdByPhrase(attribution: Attribution): string {
+export function createdByPhrase(attribution: Attribution, nameOf?: MemberNamer): string {
   const { actor, onBehalfOf } = attribution
-  const who = actorPhrase(actor)
+  const who = actorPhrase(actor, nameOf)
   if (onBehalfOf === null) return actor.kind === 'user' ? who : `${who} · no human`
-  const human = humanizeActorId(onBehalfOf)
-  if (actor.kind === 'user' && humanizeActorId(actorDisplayId(actor)) === human) return who
-  return `${who}, for ${human}`
+  if (
+    actor.kind === 'user' &&
+    humanizeActorId(actorDisplayId(actor)) === humanizeActorId(onBehalfOf)
+  )
+    return who
+  return `${who}, for ${personName(onBehalfOf, nameOf)}`
 }
 
 /** The hover title for a created-by line: the ids exactly as stamped, including
@@ -120,16 +138,10 @@ export const AUDIENCE_TITLE: Record<string, string> = {
   agent: 'Agent-internal working detail, kept off the board',
 }
 
-/** ADR 9 D3's five visibility classes, said plainly. Issues are personal-class
- *  today; the other four are named rather than left to leak their slug if a
- *  future class ever reaches this surface. */
-export const VISIBILITY_PHRASE: Record<string, string> = {
-  personal: 'Private to its owner',
-  'per-user-state': 'Per-user state',
-  'owned-compute': 'Owned compute',
-  'deployment-substrate': 'Shared infrastructure',
-  secret: 'Secret',
-}
+/** Who can see a task (design §2.2, D4): every active member, always. There is
+ *  no private task and nothing to share, so this is a note, not a control,
+ *  whatever visibility class an older row still carries (POD-6295). */
+export const TASK_VISIBILITY_NOTE = 'Visible to all members'
 
 /** A lookup that never hides an unknown value: an unmapped class shows its own
  *  slug rather than nothing, so a new server vocabulary is visible instead of

@@ -1,7 +1,3 @@
-import { issueObserver as observer } from './issue-observer'
-import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { useIssuePageContext } from './issue-page-data'
-import type { SessionModel } from '@podium/client-graph/models'
 import type { SessionView } from '@podium/client-core/session-values'
 /**
  * The Sessions block of the properties aside: who is on this task, the ghosts of
@@ -33,8 +29,11 @@ import type { SessionView } from '@podium/client-core/session-values'
  *     alike as "another issue".
  */
 import { motionPhase, motionTiming } from '@podium/client-core/values'
-import { isFinished } from '@podium/model/browser'
+import type { SessionModel } from '@podium/client-graph/models'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
+import type { IssueSessionSummaryEntry } from '@podium/model'
 import type { SessionId } from '@podium/model/browser'
+import { isFinished } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { JSX } from 'react'
 import type { IssueViewModel } from '@/app/store'
@@ -44,9 +43,12 @@ import { cn } from '@/lib/utils'
 import { sessionDisplayName } from '@/lib/WorkerLabel'
 import { issueRefLong } from '../issue-card'
 import type { IssuePageCommands } from '../issue-page-commands'
-import { useIssueWorkBegun, LaunchBox, type LaunchMachine } from '../LaunchBox'
+import { LaunchBox, type LaunchMachine, useIssueWorkBegun } from '../LaunchBox'
 import { SectionHeading } from './chrome'
 import { edgeIssue, useIssueEdgeResolver } from './issue-edges'
+import { issueObserver as observer } from './issue-observer'
+import { useIssuePageContext } from './issue-page-data'
+import { type MemberNamer, personName } from './issue-provenance'
 
 /**
  * ONE ROSTER ROW — the harness mark, the session's name, and what it is doing.
@@ -74,9 +76,12 @@ const SessionRosterRow = observer(function SessionRosterRow({
 }): JSX.Element {
   const AgentIcon = agentIconFor(session.agentKind)
   const timing = motionTiming(session)
-  const phase = 'motion' in session
-    ? isFinished(issue) ? 'done' : (session as SessionModel).motion
-    : motionPhase(session, issue)
+  const phase =
+    'motion' in session
+      ? isFinished(issue)
+        ? 'done'
+        : (session as SessionModel).motion
+      : motionPhase(session, issue)
   return (
     <button
       data-pressable
@@ -116,6 +121,42 @@ const SessionRosterRow = observer(function SessionRosterRow({
   )
 })
 
+/**
+ * ANOTHER MEMBER'S SESSION, AS D13 LETS A TASK READER SEE IT (POD-6295;
+ * design §2.3): whose it is, its title, and whether it is live or idle. It is
+ * a plain row, not a button: the reader cannot open, read or drive another
+ * member's session, so nothing here offers to.
+ */
+const OtherMemberSessionRow = observer(function OtherMemberSessionRow({
+  summary,
+  owner,
+}: {
+  summary: IssueSessionSummaryEntry
+  owner: string
+}): JSX.Element {
+  const live = summary.state === 'live'
+  return (
+    <div
+      className="flex h-7 items-center gap-2 text-[12.5px]"
+      data-testid="other-member-session"
+      title={`${owner}'s session. Only ${owner} can open it.`}
+    >
+      <span
+        aria-hidden="true"
+        className={cn(
+          'size-[7px] flex-none rounded-full',
+          live ? 'bg-emerald-500' : 'border border-muted-foreground/50',
+        )}
+      />
+      <span className="min-w-0 flex-1 truncate text-foreground/85">{summary.title}</span>
+      <span className="flex-none truncate text-[11.5px] text-text-dim">{owner}</span>
+      <span className="flex-none font-mono shell-type-micro text-text-faint">
+        {live ? 'live' : 'idle'}
+      </span>
+    </div>
+  )
+})
+
 export const IssueSessionsBlock = observer(function IssueSessionsBlock({
   issue,
   busy,
@@ -124,10 +165,16 @@ export const IssueSessionsBlock = observer(function IssueSessionsBlock({
   movedOn: suppliedMoved,
   machines,
   onOpenSession,
+  otherSessions = [],
+  nameOf,
 }: {
   issue: IssueViewModel
   busy: boolean
   commands: IssuePageCommands
+  /** Other members' sessions on the task, as D13 summaries (POD-6295). */
+  otherSessions?: readonly IssueSessionSummaryEntry[]
+  /** A member's display name, for the summaries' owners. */
+  nameOf?: MemberNamer
   memberSessions?: SessionView[]
   /** Forwarding ghosts (POD-89): sessions BORN here that re-homed elsewhere.
    *  "No agents" was misread as work lost — the honest shape is "the agent moved
@@ -180,7 +227,21 @@ export const IssueSessionsBlock = observer(function IssueSessionsBlock({
           })}
         </div>
       )}
-      {!workBegun && <LaunchBox issue={issue} busy={busy} commands={commands} machines={machines} />}
+      {otherSessions.length > 0 && (
+        <div className="flex flex-col" data-testid="other-member-sessions">
+          {otherSessions.map((summary, index) => (
+            <OtherMemberSessionRow
+              // biome-ignore lint/suspicious/noArrayIndexKey: D13 carries no session id; owner, title and order are the row
+              key={`${summary.owner ?? ''}|${summary.title}|${index}`}
+              summary={summary}
+              owner={summary.owner ? personName(summary.owner, nameOf) : 'a member'}
+            />
+          ))}
+        </div>
+      )}
+      {!workBegun && (
+        <LaunchBox issue={issue} busy={busy} commands={commands} machines={machines} />
+      )}
     </section>
   )
 })

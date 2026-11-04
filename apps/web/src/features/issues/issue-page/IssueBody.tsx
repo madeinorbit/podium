@@ -1,6 +1,6 @@
+import { isClosed } from '@podium/model/browser'
 import { issueObserver as observer } from './issue-observer'
 import { useIssuePageContext } from './issue-page-data'
-import { isClosed } from '@podium/model/browser'
 /**
  * The issue's own text: inline-editable title, the at-a-glance status strip, the
  * description, the agent brief, and the long-form spec fields. Split out of
@@ -8,15 +8,16 @@ import { isClosed } from '@podium/model/browser'
  */
 
 import { relativeTime } from '@podium/client-core/focus'
-import { useAgeNow } from '@/lib/clock-hooks'
 import { ChevronRight, Pin } from 'lucide-react'
-import type { JSX } from 'react'
+import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { useAgeNow } from '@/lib/clock-hooks'
 import { cn } from '@/lib/utils'
 import type { IssuePageCommands } from '../issue-page-commands'
+import type { TextConflict } from '../issue-text-save'
 import { MACHINE_LABEL, SectionHeading, StatusChip } from './chrome'
 
 /** Inline-editable title. `editing` is owned by the page so Escape-to-board and
@@ -78,19 +79,48 @@ export const IssueDescription = observer(function IssueDescription({
   editing,
   onEditingChange,
   onCommit,
+  mayEdit = true,
+  conflict,
+  draft,
+  children,
 }: {
   issue: IssueViewModel
   busy: boolean
   editing: boolean
   onEditingChange: (editing: boolean) => void
   onCommit: (value: string) => void
+  /** The server's answer for this reader (`allowed.edit`, POD-6295). */
+  mayEdit?: boolean
+  /** Another member changed the text under this reader's edit: what it holds
+   *  now. The editor reopens on the reader's own `draft`. */
+  conflict?: TextConflict | null
+  draft?: string
+  /** The history line under the text. */
+  children?: ReactNode
 }): JSX.Element {
   return (
     <section className="group/section mb-9">
-      {editing ? (
+      {conflict && (
+        <div
+          role="alert"
+          className="mb-2 flex flex-col gap-1.5 rounded-lg border border-attention/40 bg-attention/8 px-3 py-2 text-[12.5px]"
+          data-testid="description-conflict"
+        >
+          <span className="text-foreground">{conflict.message}</span>
+          <span className="text-text-dim">The description now reads:</span>
+          <p className="whitespace-pre-wrap break-words text-muted-foreground">
+            {conflict.currentText || '(empty)'}
+          </p>
+          <span className="text-text-dim">
+            Your text is in the editor below. Save it to replace theirs, or press Escape to keep
+            theirs.
+          </span>
+        </div>
+      )}
+      {editing && mayEdit ? (
         <Textarea
-          key={`desc-${issue.id}`}
-          defaultValue={issue.description}
+          key={`desc-${issue.id}-${conflict?.currentRevision ?? ''}`}
+          defaultValue={draft ?? issue.description}
           aria-label="Task description"
           autoFocus
           disabled={busy}
@@ -106,7 +136,7 @@ export const IssueDescription = observer(function IssueDescription({
           }}
           onBlur={(e) => onCommit(e.currentTarget.value)}
         />
-      ) : (
+      ) : mayEdit ? (
         <button
           data-pressable
           type="button"
@@ -121,7 +151,12 @@ export const IssueDescription = observer(function IssueDescription({
         >
           {issue.description || 'Add a description…'}
         </button>
+      ) : (
+        <p className="whitespace-pre-wrap break-words text-[14.5px] text-foreground/90 leading-[1.6]">
+          {issue.description}
+        </p>
       )}
+      {children}
     </section>
   )
 })
@@ -129,8 +164,11 @@ export const IssueDescription = observer(function IssueDescription({
 /** The agent brief, collapsed by default — long, and written for agents. */
 export const IssueBrief = observer(function IssueBrief({
   issue,
+  children,
 }: {
   issue: IssueViewModel
+  /** The history line under the brief (POD-6295). */
+  children?: ReactNode
 }): JSX.Element | null {
   if (!issue.brief) return null
   return (
@@ -150,6 +188,7 @@ export const IssueBrief = observer(function IssueBrief({
       <div className="mt-3 whitespace-pre-wrap break-words text-[13px] text-muted-foreground leading-[1.6]">
         {issue.brief}
       </div>
+      {children}
     </details>
   )
 })

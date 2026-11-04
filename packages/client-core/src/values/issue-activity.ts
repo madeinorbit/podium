@@ -56,6 +56,13 @@ export interface IssueEventLine {
    * them is a thing a human decided or a thing that changed the issue's state.
    */
   minor?: boolean
+  /**
+   * The members the line names, by member id (POD-6295): who did it (`by`),
+   * and for a reassignment who had the task (`from`) and who has it now
+   * (`to`). The text stays the verb; the page puts names around it from its
+   * roster, so a name change shows everywhere without re-reading the log.
+   */
+  members?: { by?: string; from?: string; to?: string }
 }
 
 // Pure UI bookkeeping events fire as the interface synchronises state. In
@@ -72,6 +79,19 @@ const HIDDEN_KINDS = new Set(HIDDEN_ISSUE_EVENT_KINDS)
 
 function asRecord(payload: unknown): Record<string, unknown> {
   return payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
+}
+
+/** The named payload fields that hold a member id, as an event line's `members`. */
+function memberIds(
+  p: Record<string, unknown>,
+  ...keys: ('by' | 'from' | 'to')[]
+): IssueEventLine['members'] {
+  const out: NonNullable<IssueEventLine['members']> = {}
+  for (const key of keys) {
+    const value = p[key]
+    if (typeof value === 'string' && value) out[key] = value
+  }
+  return out
 }
 
 /** "issue.pinned" → "pinned"; "issue.snoozed_until" → "snoozed until". */
@@ -143,10 +163,20 @@ export function formatIssueEvent(event: IssueEvent): IssueEventLine | null {
               ? 'agent became coordinator (first sub-issue)'
               : 'coordinator changed',
       }
-    // A new assignee (POD-6287). The payload names members by id; the line
-    // stays generic until the client resolves member names.
+    // A new assignee (POD-6287). The payload names members by id; the page
+    // turns them into names (POD-6295).
     case 'issue.reassigned':
-      return { icon: 'generic', text: 'reassigned' }
+      return { icon: 'generic', text: 'reassigned', members: memberIds(p, 'by', 'from', 'to') }
+    // A description or brief edit or restore (POD-6289), under the member it
+    // was written for.
+    case 'issue.text_revised': {
+      const field = p.field === 'brief' ? 'brief' : 'description'
+      return {
+        icon: 'generic',
+        text: p.restoredFrom != null ? `restored an earlier ${field}` : `edited the ${field}`,
+        members: memberIds(p, 'by'),
+      }
+    }
     case 'issue.needs_human':
       return { icon: 'flagged', text: 'flagged for a human' }
     case 'issue.needs_human_cleared':
@@ -187,12 +217,50 @@ export interface ActivityComment {
   author: string
   body: string
   createdAt: string
+  /** The comment's own id, which an edit names (POD-6289). */
+  id?: string
+  /** The member it was written for. */
+  authorId?: string
+  /** When and by which member it was last edited. */
+  editedAt?: string
+  editedBy?: string
+  /** The server's answer: the reader may edit this comment (POD-6295). */
+  mayEdit?: boolean
 }
+
+/** What a comment row carries beyond its text: the fields its edit control and
+ *  its edited line read. Absent on an older server's comments. */
+export type ActivityCommentMeta = Pick<
+  ActivityComment,
+  'authorId' | 'editedAt' | 'editedBy' | 'mayEdit'
+> & { commentId?: string }
 
 /** A single row in the merged activity feed — a comment or a formatted event. */
 export type ActivityItem =
-  | { kind: 'comment'; id: string; ts: string; author: string; body: string }
+  | ({
+      kind: 'comment'
+      id: string
+      ts: string
+      author: string
+      body: string
+    } & ActivityCommentMeta)
   | { kind: 'event'; id: string; ts: string; line: IssueEventLine }
+
+/** The comment row for `c`; its feed id changes when the text does. */
+function commentItem(c: ActivityComment): ActivityItem {
+  return {
+    kind: 'comment',
+    id: commentId(c),
+    ts: c.createdAt,
+    author: c.author,
+    body: c.body,
+    ...(c.id !== undefined ? { commentId: c.id } : {}),
+    ...(c.authorId !== undefined ? { authorId: c.authorId } : {}),
+    ...(c.editedAt !== undefined ? { editedAt: c.editedAt } : {}),
+    ...(c.editedBy !== undefined ? { editedBy: c.editedBy } : {}),
+    ...(c.mayEdit !== undefined ? { mayEdit: c.mayEdit } : {}),
+  }
+}
 
 /**
  * Merge comments and events into one chronologically-ordered activity feed
@@ -201,22 +269,15 @@ export type ActivityItem =
  * chronological; the sort is stable, so equal-timestamp ties keep insertion
  * order (comments before events).
  */
-const commentId = (c: ActivityComment) => `c|${c.author}|${c.createdAt}|${c.body}`
+const commentId = (c: ActivityComment) =>
+  `c|${c.author}|${c.createdAt}|${c.body}${c.editedAt ? `|${c.editedAt}` : ''}${c.mayEdit ? '|own' : ''}`
 
 export function buildActivityFeed(
   comments: ActivityComment[],
   events: IssueEvent[],
 ): ActivityItem[] {
   const items: ActivityItem[] = []
-  for (const c of comments) {
-    items.push({
-      kind: 'comment',
-      id: commentId(c),
-      ts: c.createdAt,
-      author: c.author,
-      body: c.body,
-    })
-  }
+  for (const c of comments) items.push(commentItem(c))
   for (const e of events) {
     const line = formatIssueEvent(e)
     if (!line) continue
@@ -302,14 +363,7 @@ export class IssueActivityHistory {
   }
 
   appendComment(comment: ActivityComment): void {
-    const id = commentId(comment)
-    this.insert({
-      kind: 'comment',
-      id,
-      ts: comment.createdAt,
-      author: comment.author,
-      body: comment.body,
-    })
+    this.insert(commentItem(comment))
   }
 
   reset(): void {

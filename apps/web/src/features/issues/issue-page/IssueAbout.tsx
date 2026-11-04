@@ -18,19 +18,15 @@ import { issueObserver as observer } from './issue-observer'
  * subtitle is a rail with a fact in two homes. The rule the rest of the page
  * runs on (one fact, one home) applies to provenance too.
  *
- * STILL READ-ONLY, STILL NEVER DEFAULTED. Per the ADR 1 amendment (POD-1071)
- * owner and visibility are normative columns and are DISPLAYED here, with no
- * control to change either — per-feature sharing UX is deliberately deferred,
- * and inventing a share affordance would settle a question the doc leaves open.
- * `visibility`, `owner` and `createdBy` are PROJECTION fields an older row may
- * not carry, and an absent value renders as no row at all rather than as a
- * default. "Private" printed over a row that never said so is a claim the
- * server did not make, and on a visibility field that is the worst place to
- * guess.
+ * SHARED TASKS (POD-6295, design §2.2). Every active member reads every task,
+ * so the block says `Visible to all members` as a note and offers no sharing
+ * control: there is nothing to share. The owner is the task's Assignee, shown
+ * with its reassign control at the top of the rail, so it has no row here.
+ * People are named by their member display names, never by a raw member id.
+ * Collaborators are the members who started or joined the task.
  *
- * STRUCTURALLY ABLE TO GAIN A SHARE ENTRY, still: the rows are a DATA list
- * ({@link ABOUT_ROWS}) rendered by one component, so a `Shared with` line later
- * is one entry plus its accessor, with no call-site change anywhere.
+ * `createdBy` is a PROJECTION field an older row may not carry, and an absent
+ * value renders as the coarse origin, never as an invented name.
  */
 
 import type { JSX } from 'react'
@@ -41,39 +37,48 @@ import {
   AUDIENCE_TITLE,
   createdByPhrase,
   createdByTitle,
-  humanizeActorId,
+  type MemberNamer,
   ORIGIN_PHRASE,
+  personName,
   phraseOr,
-  VISIBILITY_PHRASE,
+  TASK_VISIBILITY_NOTE,
 } from './issue-provenance'
 import { PropertyRow } from './property-chrome'
+
+/** What the rows read beside the task: member names and the collaborators. */
+export interface AboutContext {
+  readonly nameOf?: MemberNamer
+  /** The collaborators' member ids, earliest first (POD-6290). */
+  readonly collaborators?: readonly string[]
+}
 
 /** One Origin line: a label, the sentence to show, and an optional hover title.
  *  Returning an empty string means "this row has nothing to say" and the row is
  *  dropped — the absent-vs-default rule in the module note. */
 interface AboutRowSpec {
   readonly label: string
-  readonly value: (issue: IssueViewModel) => string
+  readonly value: (issue: IssueViewModel, about: AboutContext) => string
   readonly title?: (issue: IssueViewModel) => string | undefined
   readonly testId?: string
 }
 
 /**
  * The Origin rows, in the order the questions get asked: who made this, who is
- * it for, whose is it, who can see it.
+ * it for, who else is on it, who can see it.
  *
  * `Created by` reads the stamped pair when the projection carries one and falls
  * back to `origin` when it does not. Those are two different fields answering
  * one question at two fidelities, and each is rendered from what it actually
- * says — the fallback names no id, because `origin` carries none.
+ * says — the fallback names no id, because `origin` carries none. An agent's
+ * line names the human it worked for.
  */
 export const ABOUT_ROWS: readonly AboutRowSpec[] = [
   {
     label: 'Created by',
     testId: 'about-created-by',
-    value: (issue) =>
+    value: (issue, about) =>
       issue.createdBy
-        ? createdByPhrase(issue.createdBy)
+        ? createdByPhrase(issue.createdBy, about.nameOf)
         : phraseOr(ORIGIN_PHRASE, issue.intentOrigin),
     title: (issue) =>
       issue.createdBy
@@ -87,29 +92,26 @@ export const ABOUT_ROWS: readonly AboutRowSpec[] = [
     title: (issue) => AUDIENCE_TITLE[issue.audience],
   },
   {
-    label: 'Owner',
-    testId: 'about-owner',
-    value: (issue) => (issue.owner ? humanizeActorId(issue.owner) : ''),
-    title: (issue) =>
-      issue.owner
-        ? `The one person this issue belongs to (ADR 9 D2): ${issue.owner}. Read-only here.`
-        : undefined,
+    label: 'Collaborators',
+    testId: 'about-collaborators',
+    value: (_issue, about) =>
+      (about.collaborators ?? []).map((id) => personName(id, about.nameOf)).join(', '),
+    title: () => 'Members who started or joined work on this task',
   },
   {
     label: 'Visibility',
     testId: 'about-visibility',
-    value: (issue) => phraseOr(VISIBILITY_PHRASE, issue.visibility),
-    title: (issue) =>
-      issue.visibility === 'personal'
-        ? 'Personal class — private to its owner unless explicitly shared'
-        : 'The ADR 9 D3 visibility class this row belongs to',
+    value: () => TASK_VISIBILITY_NOTE,
+    title: () => 'Every member of this Podium can read and edit this task',
   },
 ]
 
 export const IssueAbout = observer(function IssueAbout({
   issue,
+  about = {},
 }: {
   issue: IssueViewModel
+  about?: AboutContext
 }): JSX.Element {
   return (
     <section className="flex flex-col gap-2" data-testid="issue-about">
@@ -123,7 +125,7 @@ export const IssueAbout = observer(function IssueAbout({
           <AboutRow
             key={row.label}
             label={row.label}
-            value={row.value(issue)}
+            value={row.value(issue, about)}
             title={row.title?.(issue)}
             testId={row.testId}
           />
