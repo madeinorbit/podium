@@ -401,6 +401,23 @@ it('right-click retains the shared lifecycle menu without opening the session', 
   expect(f.actions.onSelectSession).not.toHaveBeenCalled()
 })
 
+it('compact tooltip preserves the shared context menu and keyboard opening', async () => {
+  const f = await open([issue('root', null, 1)], [session('worker', 'root')])
+  cleanup()
+  const onOpen = vi.fn()
+  const model = f.screen.reader.rawSession('worker')
+  if (!model || typeof model === 'symbol') throw new Error('Worker has not loaded')
+  const ui = render(<FlightDeckV6Session task={f.full.root}
+    session={model} compact={f.screen.compact.row('worker')}
+    active={false} onOpen={onOpen} />)
+  const button = ui.getByRole('button', { name: /^Agent worker ·/ })
+  fireEvent.contextMenu(button)
+  expect(ui.getByRole('menu').textContent).toContain('Session menu worker')
+  expect(onOpen).not.toHaveBeenCalled()
+  fireEvent.keyDown(button, { key: 'Enter' })
+  expect(onOpen).toHaveBeenLastCalledWith(true)
+})
+
 it('uses the shared Working current-turn clock and Done cumulative working duration', async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true })
   vi.setSystemTime(NOW)

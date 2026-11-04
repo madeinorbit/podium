@@ -544,8 +544,8 @@ describe('the cold deck (POD-1112)', () => {
     harness.selectedIssueId = 'v1'
     await deck()
     expect(screen.queryByTestId('flight-settling')).toBeNull()
-    // A lone mission has no filter bar (POD-2313); its header gauge is the drawn deck.
-    expect(screen.getByTestId('mission-gauge')).toBeTruthy()
+    expect(screen.getByTestId('flight-deck-scroller').dataset.layout).toBe('compact')
+    expect(screen.getByRole('img', { name: '0 of 1 sessions done' })).toBeTruthy()
   })
 
   it('names an unnamed mission from the shared draft fallback, not the harness title', async () => {
@@ -751,6 +751,10 @@ describe('Full mission header', () => {
     } satisfies TaskCostWire
     await deck()
     await waitFor(() => expect(screen.getByTestId('mission-cost-chip').textContent).toContain('≥$'))
+    expect(screen.getByTestId('mission-cost-chip').closest('.flight-compact-price-time')).toBeTruthy()
+    fireEvent.click(screen.getByTestId('mission-cost-chip'))
+    await waitFor(() => expect(screen.getByTestId('mission-cost-popover')).toBeTruthy())
+    fireEvent.click(screen.getByTestId('mission-cost-chip'))
     expect(screen.queryByTestId('mission-live-chip')).toBeNull()
     expect(screen.getByRole('button', { name: 'Collapse Flight Deck' })).toBeTruthy()
     captureHeader('Live crew · partial cost · Add agent')
@@ -1976,6 +1980,7 @@ describe('Full coordinator and session seats', () => {
     harness.paneA = 'coord'
     const view = await deck()
     const coordinator = row('coord')
+    expect(screen.getByTestId('flight-deck-scroller').dataset.layout).toBe('compact')
     expect(coordinator.dataset.word).toBe('needs-you')
     expect(coordinator.textContent).toContain('Needs you')
     expect(coordinator.textContent).not.toContain(offer.message)
@@ -1993,7 +1998,10 @@ describe('Full coordinator and session seats', () => {
     ]
     view.rerender(<DeckHarness />)
     await waitFor(() => expect(row('helper')).not.toBeNull())
-    expect(row('coord')).toBe(coordinator)
+    // Growing into Full changes the layout; conversation state and selection survive.
+    expect(screen.getByTestId('flight-deck-scroller').dataset.layout).toBe('full')
+    expect(row('coord').dataset.word).toBe(coordinator.dataset.word)
+    const expandedCoordinator = row('coord')
     expect(selected()).toEqual(['helper'])
     expect(document.querySelector('[data-flight-issue="child"]')).not.toBeNull()
     expect(document.querySelector('[data-flight-issue="root"]')).toBeNull()
@@ -2003,7 +2011,7 @@ describe('Full coordinator and session seats', () => {
     harness.issues = [...harness.issues, issue('phase', { parentId: 'root', type: 'phase', title: 'Verify' })]
     view.rerender(<DeckHarness />)
     await waitFor(() => expect(document.querySelector('[data-flight-phase="phase"]')).not.toBeNull())
-    expect(row('coord')).toBe(coordinator)
+    expect(row('coord')).toBe(expandedCoordinator)
     expect(row('coord').dataset.word).toBe('needs-you')
     expect(selected()).toEqual(['helper'])
     const card = screen.getByTestId('flight-full-coordinator')
@@ -2099,5 +2107,68 @@ describe('Full phase sections', () => {
     expect(order()).toEqual(['loose', 'phase', 'done', 'work'])
     expect(harness.closeIssue).not.toHaveBeenCalled()
     expect(harness.updateIssue).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('Compact flight deck', () => {
+  const simple = () => {
+    harness.issues = [issue('root', {
+      title: 'Refresh after sleep', coordinatorSessionId: 'coord',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    })]
+    harness.sessions = [
+      session('coord', { issueId: 'root', name: 'Repair refresh timer', nameSource: 'agent', agentState: { phase: 'working', since: '2026-01-01T00:00:00.000Z' } }),
+      session('ask', { issueId: 'root', name: 'Sleep regression', nameSource: 'agent', agentKind: 'codex', agentState: { phase: 'needs_user' } }),
+      session('done', { issueId: 'root', name: 'Reproduce logout', nameSource: 'agent', status: 'exited', stoppedAt: '2026-01-01T00:05:00.000Z' }),
+    ]
+    harness.paneA = 'ask'
+  }
+
+  it('draws the ordered compact roster, counts completed sessions and preserves session navigation', async () => {
+    simple()
+    await deck()
+    const panel = screen.getByTestId('flight-deck-scroller')
+    expect(panel.dataset.layout).toBe('compact')
+    expect([...panel.querySelectorAll('[data-flight-session]')].map(row => row.getAttribute('data-flight-session'))).toEqual(['ask', 'coord', 'done'])
+    expect(screen.getByRole('img', { name: '1 of 3 sessions done' })).toBeTruthy()
+    expect(screen.queryByTestId('mission-gauge')).toBeNull()
+    expect(screen.queryByText('No description yet.')).toBeNull()
+    expect(panel.querySelector('[data-flight-session="ask"]')?.getAttribute('data-selected')).toBe('true')
+    const open = screen.getByRole('button', { name: 'Sleep regression · Needs you' })
+    fireEvent.click(open)
+    expect(harness.openSessionTab).toHaveBeenLastCalledWith('ask', { permanent: false })
+    fireEvent.doubleClick(open)
+    expect(harness.openSessionTab).toHaveBeenLastCalledWith('ask', { permanent: true })
+    fireEvent.keyDown(open, { key: 'Enter' })
+    expect(harness.openSessionTab).toHaveBeenLastCalledWith('ask', { permanent: true })
+    fireEvent.keyDown(open, { key: ' ' })
+    expect(harness.openSessionTab).toHaveBeenLastCalledWith('ask', { permanent: true })
+    expect(screen.getByRole('button', { name: 'Add agent to mission' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Collapse Flight Deck' })).toBeTruthy()
+    expect(screen.getByTestId('issue-status-picker')).toBeTruthy()
+  })
+
+  it('retains description and acceptance detail access inside compact mode', async () => {
+    simple()
+    harness.issues = [issue('root', { description: 'The refresh timer needs a wake listener.', acceptance: 'A sleeping laptop remains signed in.' })]
+    await deck()
+    expect(screen.getByTestId('flight-deck-scroller').dataset.layout).toBe('compact')
+    fireEvent.click(screen.getByRole('button', { name: 'Read more' }))
+    expect(screen.getByRole('region', { name: 'Acceptance' }).textContent).toContain('A sleeping laptop remains signed in.')
+    expect(screen.getByRole('button', { name: 'Open task details' })).toBeTruthy()
+  })
+
+  it('keeps Full after a fourth session arrives and later leaves', async () => {
+    simple()
+    const view = await deck()
+    expect(screen.getByTestId('flight-deck-scroller').dataset.layout).toBe('compact')
+    harness.sessions = [...harness.sessions, session('fourth', { issueId: 'root' })]
+    view.rerender(<DeckHarness />)
+    await waitFor(() => expect(screen.getByTestId('flight-deck-scroller').dataset.layout).toBe('full'))
+    harness.sessions = harness.sessions.slice(0, 1)
+    view.rerender(<DeckHarness />)
+    await waitFor(() => expect(document.querySelectorAll('[data-flight-session]')).toHaveLength(1))
+    expect(screen.getByTestId('flight-deck-scroller').dataset.layout).toBe('full')
   })
 })

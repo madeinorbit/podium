@@ -94,8 +94,10 @@ import type { Trpc } from './trpc'
  */
 export const MissionCostChip = observer(function MissionCostChip({
   issueId,
+  compact = false,
 }: {
   issueId: string
+  compact?: boolean
 }): JSX.Element | null {
   const trpc = useStoreHandle<Trpc>().access.trpc
   const [open, setOpen] = useState(false)
@@ -107,14 +109,20 @@ export const MissionCostChip = observer(function MissionCostChip({
       <Popover.Trigger
         data-testid="mission-cost-chip"
         className={cn(
-          'shell-type-micro flex h-[26px] flex-none items-center gap-1.5 rounded-lg',
-          'border border-border-strong bg-background px-[9px] font-mono tabular-nums',
-          'text-text-dim hover:text-text-strong',
+          compact
+            ? 'flight-compact-cost'
+            : [
+                'shell-type-micro flex h-[26px] flex-none items-center gap-1.5 rounded-lg',
+                'border border-border-strong bg-background px-[9px] font-mono tabular-nums',
+                'text-text-dim hover:text-text-strong',
+              ],
         )}
         aria-label={`Mission cost ${formatCostExact(rollup.estCostUsd)} — open the breakdown`}
       >
-        <span className="tracking-[.12em] text-label">COST</span>
-        <span className="text-text-strong">{formatCostMark(rollup.estCostUsd, view.floor)}</span>
+        {!compact && <span className="tracking-[.12em] text-label">COST</span>}
+        <span className={compact ? undefined : 'text-text-strong'}>
+          {formatCostMark(rollup.estCostUsd, view.floor)}
+        </span>
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Positioner side="bottom" align="start" sideOffset={8} className="isolate z-50">

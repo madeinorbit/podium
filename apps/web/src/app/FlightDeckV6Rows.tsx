@@ -1,6 +1,7 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import { nativeSubagentRows, treeGuides } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph/loading'
+import type { CompactDeck, CompactDeckSession } from '@podium/client-graph/mission-compact-deck'
 import type { FullDeck, FullDeckTask } from '@podium/client-graph/mission-full-deck'
 import { settled } from '@podium/client-graph/mission-view'
 import type { SessionModel } from '@podium/client-graph/models'
@@ -18,12 +19,14 @@ import {
   useState,
 } from 'react'
 import { GhostBar } from '@/components/GhostPreview'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { IssueStatusPicker } from '@/features/issues/IssueStatusPicker'
 import { PhaseTimer } from '@/lib/motion'
 import { PoolSessionContextMenu } from '@/lib/PoolSessionContextMenu'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { useHarnessDescriptors } from '@/lib/use-harness-descriptors'
 import { KindIcon, SessionNameEditor, sessionDisplayName } from '@/lib/WorkerLabel'
+import { CompactSessionIdentity, CompactSessionState } from './FlightDeckCompact'
 import { useFullDependencyInteraction } from './FlightDeckFullDependencies'
 import {
   DeckRowPlaceholder,
@@ -35,7 +38,7 @@ import {
 } from './flight-deck-window'
 import { useSessionHovered } from './session-hover'
 import { useRuntimeSelector } from './store'
-import { TEAM_FORMS_SESSION_ANCHOR } from './TeamFormsTip'
+import { TEAM_FORMS_LEAD_ANCHOR, TEAM_FORMS_SESSION_ANCHOR } from './TeamFormsTip'
 
 const STRIP_HEIGHT = 32
 const SESSION_HEIGHT = 28
@@ -411,8 +414,14 @@ export const FlightDeckV6SessionSlot = observer(function FlightDeckV6SessionSlot
   task,
   id,
   window,
+  compact,
   ...actions
-}: FlightDeckV6Actions & { task: FullDeckTask; id: string; window?: DeckWindow }) {
+}: FlightDeckV6Actions & {
+  task: FullDeckTask
+  id: string
+  window?: DeckWindow
+  compact?: CompactDeck
+}) {
   const key = deckSessionKey(task.id, id)
   if (window?.enabled && !window.contains(key))
     return (
@@ -439,6 +448,7 @@ export const FlightDeckV6SessionSlot = observer(function FlightDeckV6SessionSlot
     <FlightDeckV6Session
       task={task}
       session={session}
+      compact={compact?.row(id)}
       active={actions.activeSessionId === id}
       measure={window?.enabled ? window.measure(key) : undefined}
       onOpen={(permanent) => actions.onSelectSession(task, session, permanent)}
@@ -452,12 +462,14 @@ export const FlightDeckV6Session = observer(function FlightDeckV6Session({
   active,
   measure,
   onOpen,
+  compact,
 }: {
   task: FullDeckTask
   session: SessionModel & SessionView
   active: boolean
   measure?: (node: HTMLElement | null) => void
   onOpen: (permanent: boolean) => void
+  compact?: CompactDeckSession
 }) {
   const renameSession = useRuntimeSelector((store) => store.renameSession)
   const [menu, setMenu] = useState<ContextMenuAnchor | null>(null)
@@ -466,22 +478,93 @@ export const FlightDeckV6Session = observer(function FlightDeckV6Session({
   const nativeId = useId()
   const pointed = useSessionHovered(session.sessionId)
   const natives = nativeSubagentRows(session)
-  const name = sessionDisplayName(session)
+  const name = compact?.title ?? sessionDisplayName(session)
   const seat = task.seat(session.sessionId)
   // The coordinator's card lists its native subagents openly; every other
   // session folds them behind a chip.
   const nativesInline = seat === 'coordinator'
   const nativesShown = nativesInline || nativeOpen
+  const openingButton = (
+    <button
+      type="button"
+      className="flight-v6-session-open deck-agent"
+      data-pressable
+      aria-pressed={active}
+      aria-label={compact ? `${name} · ${SESSION_WORD_LABEL[session.word]}` : undefined}
+      title={
+        compact
+          ? undefined
+          : [name, session.displayRef, seat, SESSION_WORD_LABEL[session.word]]
+              .filter(Boolean)
+              .join(' · ')
+      }
+      onClick={() => onOpen(false)}
+      onDoubleClick={() => onOpen(true)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          onOpen(true)
+        }
+      }}
+      onContextMenu={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        setMenu({ x: event.clientX, y: event.clientY })
+      }}
+    >
+      {compact ? (
+        <>
+          <CompactSessionIdentity row={compact} icon={<SessionEngine session={session} />} />
+          <CompactSessionState row={compact} />
+        </>
+      ) : (
+        <>
+          <SessionEngine session={session} />
+          {seat === 'coordinator' ? (
+            <span className="flight-full-coordinator-identity">
+              <span className="flight-v6-title">{name}</span>
+              <span className="flight-full-coordinator-caption">
+                <span>Coordinator</span>
+                <span className="flight-v6-ref">{session.displayRef}</span>
+              </span>
+            </span>
+          ) : (
+            <>
+              <span className="flight-v6-title">{name}</span>
+              <span className="flight-v6-ref">{session.displayRef}</span>
+              {seat !== 'worker' && (
+                <span className="flight-v6-role">
+                  {seat === 'phase-lead' ? 'phase lead' : 'helper'}
+                </span>
+              )}
+            </>
+          )}
+          {natives.length > 0 && !nativesInline && <span className="flight-v6-native-slot" />}
+          <SessionState session={session} />
+          {seat === 'coordinator' && (
+            <ArrowUpRight size={14} className="flight-full-conversation-arrow" aria-hidden />
+          )}
+        </>
+      )}
+    </button>
+  )
   return (
     <div
       ref={measure}
       data-flight-session={session.sessionId}
       className="flight-v6-session"
+      data-compact={compact ? true : undefined}
       data-selected={active}
       data-pointed={pointed}
       data-seat={seat}
       data-word={session.word}
-      data-tip-anchor={task.isRoot ? undefined : TEAM_FORMS_SESSION_ANCHOR}
+      data-tip-anchor={
+        compact?.coordinator
+          ? TEAM_FORMS_LEAD_ANCHOR
+          : task.isRoot
+            ? undefined
+            : TEAM_FORMS_SESSION_ANCHOR
+      }
     >
       <div className="flight-v6-session-line">
         {editing ? (
@@ -493,55 +576,15 @@ export const FlightDeckV6Session = observer(function FlightDeckV6Session({
             }}
             onCancel={() => setEditing(false)}
           />
+        ) : compact ? (
+          <TooltipProvider delay={500}>
+            <Tooltip>
+              <TooltipTrigger render={openingButton} />
+              <TooltipContent>{name}</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         ) : (
-          <button
-            type="button"
-            className="flight-v6-session-open deck-agent"
-            data-pressable
-            aria-pressed={active}
-            title={[name, session.displayRef, seat, SESSION_WORD_LABEL[session.word]]
-              .filter(Boolean)
-              .join(' · ')}
-            onClick={() => onOpen(false)}
-            onDoubleClick={() => onOpen(true)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault()
-                onOpen(true)
-              }
-            }}
-            onContextMenu={(event) => {
-              event.preventDefault()
-              event.stopPropagation()
-              setMenu({ x: event.clientX, y: event.clientY })
-            }}
-          >
-            <SessionEngine session={session} />
-            {seat === 'coordinator' ? (
-              <span className="flight-full-coordinator-identity">
-                <span className="flight-v6-title">{name}</span>
-                <span className="flight-full-coordinator-caption">
-                  <span>Coordinator</span>
-                  <span className="flight-v6-ref">{session.displayRef}</span>
-                </span>
-              </span>
-            ) : (
-              <>
-                <span className="flight-v6-title">{name}</span>
-                <span className="flight-v6-ref">{session.displayRef}</span>
-                {seat !== 'worker' && (
-                  <span className="flight-v6-role">
-                    {seat === 'phase-lead' ? 'phase lead' : 'helper'}
-                  </span>
-                )}
-              </>
-            )}
-            {natives.length > 0 && !nativesInline && <span className="flight-v6-native-slot" />}
-            <SessionState session={session} />
-            {seat === 'coordinator' && (
-              <ArrowUpRight size={14} className="flight-full-conversation-arrow" aria-hidden />
-            )}
-          </button>
+          openingButton
         )}
         {natives.length > 0 && !nativesInline && (
           <button

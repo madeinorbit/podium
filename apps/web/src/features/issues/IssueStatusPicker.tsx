@@ -15,6 +15,7 @@ import {
   Fragment,
   type JSX,
   type MouseEvent,
+  type ReactNode,
   useCallback,
   useId,
   useLayoutEffect,
@@ -79,6 +80,7 @@ export const IssueStatusPicker = observer(function IssueStatusPicker({
   align = 'start',
   className,
   calm = false,
+  mark,
   onPick,
 }: {
   /** Anything carrying the two fields the status projection reads. */
@@ -86,6 +88,8 @@ export const IssueStatusPicker = observer(function IssueStatusPicker({
   size?: number
   /** Draw the sidebar's calm dot instead of the progress circle. */
   calm?: boolean
+  /** A view-specific progress mark; status semantics and editing stay shared. */
+  mark?: ReactNode
   align?: 'start' | 'center' | 'end'
   className?: string
   /** The picked entry's encoded value — parse with `parseIssueStatusValue`. */
@@ -119,11 +123,12 @@ export const IssueStatusPicker = observer(function IssueStatusPicker({
         className={cn('grid flex-none place-items-center', className)}
         title={`${detail} · handled by the shipping service`}
       >
-        {calm ? (
-          <CalmStatusMark status={status} size={size} />
-        ) : (
-          <StatusGlyph status={status} size={size} />
-        )}
+        {mark ??
+          (calm ? (
+            <CalmStatusMark status={status} size={size} />
+          ) : (
+            <StatusGlyph status={status} size={size} />
+          ))}
       </span>
     )
   }
@@ -207,11 +212,12 @@ export const IssueStatusPicker = observer(function IssueStatusPicker({
         )
       }}
     >
-      {calm ? (
-        <CalmStatusMark status={status} size={size} />
-      ) : (
-        <StatusGlyph status={status} size={size} />
-      )}
+      {mark ??
+        (calm ? (
+          <CalmStatusMark status={status} size={size} />
+        ) : (
+          <StatusGlyph status={status} size={size} />
+        ))}
     </span>
   )
   return (

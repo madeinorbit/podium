@@ -62,12 +62,13 @@ import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { usePersistedUiValue } from '@/lib/use-persisted-ui-state'
 import { cn } from '@/lib/utils'
 import { useClickIntent } from './click-intent'
+import { CompactIssueElapsed, CompactProgress } from './FlightDeckCompact'
 import { FlightDeckFullControls } from './FlightDeckFullControls'
 import { FlightDeckFullGroups } from './FlightDeckFullGroups'
 import { FlightDeckFullArchivedSession, FlightDeckFullCoordinator } from './FlightDeckFullSeats'
 import PoolFlightDeck from './FlightDeckPool'
 import { FlightDeckProposals } from './FlightDeckProposals'
-import type { FlightDeckV6Actions } from './FlightDeckV6Rows'
+import { type FlightDeckV6Actions, FlightDeckV6SessionSlot } from './FlightDeckV6Rows'
 import { MissionCostChip } from './MissionCostChip'
 import { MissionGauge } from './MissionGauge'
 import { useMissionEndings } from './mission-endings'
@@ -81,6 +82,7 @@ import {
 } from './shell-state'
 import { useRuntimeSelector } from './store'
 import { useWorklistPoolProjection } from './store-worklist-pool'
+import { TeamFormsTip } from './TeamFormsTip'
 
 /**
  * `Add agent` — one more agent onto the mission root.
@@ -881,10 +883,12 @@ const DeckTitle = observer(function DeckTitle({
 const FullDeckBrief = observer(function FullDeckBrief({
   screen,
   onOpenDetails,
+  hideEmpty = false,
 }: {
   screen: MissionScreen
   onOpenDetails: () => void
-}): JSX.Element {
+  hideEmpty?: boolean
+}): JSX.Element | null {
   const description = screen.root.description.trim()
   const acceptance = screen.root.acceptance?.trim() ?? ''
   const descriptionHtml = useMemo(() => renderReadoutMarkdown(description), [description])
@@ -892,6 +896,7 @@ const FullDeckBrief = observer(function FullDeckBrief({
   const [open, setOpen] = useState(false)
   const contentId = useId()
   const hasDetails = Boolean(description || acceptance)
+  if (hideEmpty && !hasDetails) return null
   return (
     <div
       className="flight-full-description"
@@ -909,7 +914,7 @@ const FullDeckBrief = observer(function FullDeckBrief({
               // biome-ignore lint/security/noDangerouslySetInnerHtml: renderReadoutMarkdown sanitizes through DOMPurify and drops every anchor
               dangerouslySetInnerHTML={{ __html: descriptionHtml }}
             />
-          ) : (
+          ) : hideEmpty ? null : (
             <p className="flight-full-description-empty">No description yet.</p>
           )}
           {open && acceptance && (
@@ -947,6 +952,66 @@ const FullDeckBrief = observer(function FullDeckBrief({
     </div>
   )
 })
+
+/** The compact frame keeps the existing issue controls and detail access. */
+const CompactDeckHeader = observer(function CompactDeckHeader({
+  screen,
+  title,
+  brief,
+  controls,
+  onAdd,
+  onPickStatus,
+}: {
+  screen: MissionScreen
+  title: ReactNode
+  brief: ReactNode
+  controls: ReactNode
+  onAdd: (agentKind?: IssueAgentKind) => Promise<void>
+  onPickStatus: (value: string) => void
+}) {
+  const target = screen.rootAgentTarget
+  return (
+    <>
+      <TeamFormsTip full={screen.full} />
+      <div className="flight-compact-status-line">
+        <IssueStatusPicker
+          issue={screen.rootStatus}
+          onPick={onPickStatus}
+          mark={<CompactProgress deck={screen.compact} />}
+        />
+        <span className="flight-compact-issue-ref">{screen.rootRef}</span>
+        <span className="flight-compact-stage">
+          {screen.rootStage === 'review'
+            ? 'in review'
+            : STAGE_LABELS[screen.rootStage].toLowerCase()}
+        </span>
+        <span className="flight-compact-price-time">
+          <MissionCostChip issueId={screen.rootId} compact />
+          <CompactIssueElapsed deck={screen.compact} />
+        </span>
+      </div>
+      {title}
+      {brief}
+      <div className="flight-compact-controls">
+        {screen.rootClosable && (
+          <DeckAgentMenu
+            screen={screen}
+            defaultAgent={target.defaultAgent}
+            repoPath={target.repoPath}
+            machineId={target.machineId}
+            onAdd={onAdd}
+          />
+        )}
+        <span className="flex-1" />
+        {controls}
+      </div>
+    </>
+  )
+})
+
+function DeckFrame({ compact, children }: { compact: boolean; children: ReactNode }) {
+  return compact ? <section className="flight-compact-card">{children}</section> : children
+}
 
 /** The gauge, the price and the mission's one action, on one baseline. */
 const DeckGaugeRow = observer(function DeckGaugeRow({
@@ -1085,6 +1150,8 @@ export const FlightDeckContent = observer(function FlightDeckContent({
   source: FlightDeckSource
 }): JSX.Element {
   const fullReady = settled(() => screen.full.ready) === true
+  const compact = screen.compact.shown
+  useEffect(() => screen.compact.observe(), [screen])
   const IssueMenu = source.IssueMenu
   const rootId = screen.rootId
 
@@ -1450,142 +1517,203 @@ export const FlightDeckContent = observer(function FlightDeckContent({
       // Keep native composer edits from repainting the mission's unchanged rows.
       // The root already scrolls and clips its children; menus use portals.
       // Virtualized rows own their scroll position; browser anchoring would fight them.
-      className="engraved-column flight-full-panel relative overflow-y-auto [contain:layout_paint] [overflow-anchor:none]"
+      className={cn(
+        'engraved-column flight-full-panel relative overflow-y-auto [contain:layout_paint] [overflow-anchor:none]',
+        compact && 'flight-compact',
+      )}
+      data-layout={compact ? 'compact' : 'full'}
       data-testid="flight-deck-scroller"
       aria-label="Flight Deck"
       data-tip-anchor={FLIGHT_DECK_ANCHOR}
       ref={deckScrollerRef}
     >
-      {/* The mission chrome belongs to the one definite-height scrollport
+      <DeckFrame compact={compact}>
+        {/* The mission chrome belongs to the one definite-height scrollport
           but stays in view while its roster moves underneath. Header
           growth now changes content height, never the scrollport itself. */}
-      <div className="deck-chrome sticky top-0 z-10 flex-none">
-        {/* THE MISSION HEADER IS THE ROOT OF THE TREE (round 3 §2, §4, §10).
+        <div className={cn('deck-chrome flex-none', !compact && 'sticky top-0 z-10')}>
+          {compact ? (
+            // biome-ignore lint/a11y/noStaticElementInteractions: context menu covers the header; its controls provide keyboard actions.
+            <div
+              className="flight-compact-header"
+              onContextMenu={(event) => openIssueMenu(rootId as IssueId, event)}
+            >
+              <CompactDeckHeader
+                screen={screen}
+                controls={columnControls}
+                onAdd={addMissionAgent}
+                onPickStatus={(value) => pickRowStatus(rootId, value)}
+                title={
+                  <DeckTitle
+                    screen={screen}
+                    onPress={() =>
+                      rootRow &&
+                      headerIntent.press(
+                        () => selectIssue(rootRow, false),
+                        () => selectIssue(rootRow, true),
+                      )
+                    }
+                    onCommit={() =>
+                      rootRow && headerIntent.commit(() => selectIssue(rootRow, true))
+                    }
+                  />
+                }
+                brief={
+                  <FullDeckBrief
+                    screen={screen}
+                    hideEmpty
+                    onOpenDetails={() => rootRow && selectIssue(rootRow, true)}
+                  />
+                }
+              />
+            </div>
+          ) : (
+            <>
+              {/* THE MISSION HEADER IS THE ROOT OF THE TREE (round 3 §2, §4, §10).
           Roomy because it is read once where the strips below are scanned.
           Its surface comes from the column (POD-725). The geometry is a 32px
           eyebrow row followed by the title block, and the seam under it
           belongs to the filter bar. */}
-        {/* The header IS the root's strip (round 3 §4), so it takes the strips'
+              {/* The header IS the root's strip (round 3 §4), so it takes the strips'
           menu as well as their click: right-clicking the mission has to
           reach the mission's own actions, or the one task in the column with
           no strip would be the one task with no menu. */}
-        {/* biome-ignore lint/a11y/noStaticElementInteractions: context menu covers the header; its buttons provide keyboard actions. */}
-        <div
-          className="deck-header flight-full-header relative flex-none"
-          onContextMenu={(event) => openIssueMenu(rootId as IssueId, event)}
-        >
-          {/* THE EYEBROW MAY TAKE A SECOND LINE (POD-1146), and it stands on
+              {/* biome-ignore lint/a11y/noStaticElementInteractions: context menu covers the header; its buttons provide keyboard actions. */}
+              <div
+                className="deck-header flight-full-header relative flex-none"
+                onContextMenu={(event) => openIssueMenu(rootId as IssueId, event)}
+              >
+                {/* THE EYEBROW MAY TAKE A SECOND LINE (POD-1146), and it stands on
             the shell's one header datum (POD-1455). Identity and the chevron
             own line 1 and never shrink; the note and the seat drop underneath
             them, left-aligned on the same 16px datum. */}
-          <DeckEyebrow
-            screen={screen}
-            onPickStatus={(value) => pickRowStatus(rootId, value)}
-            controls={columnControls}
-          />
-          <div className="px-4 pt-0.5 pb-3.5">
-            <DeckTitle
-              screen={screen}
-              onPress={() =>
-                rootRow &&
-                headerIntent.press(
-                  () => selectIssue(rootRow, false),
-                  () => selectIssue(rootRow, true),
-                )
-              }
-              onCommit={() => rootRow && headerIntent.commit(() => selectIssue(rootRow, true))}
-            />
-            {/* THE BRIEF IS THE ONE THING HERE THAT IS READ RATHER THAN SCANNED. */}
-            <div className="mt-2.5">
-              <FullDeckBrief
-                key={rootId}
-                screen={screen}
-                onOpenDetails={() => rootRow && selectIssue(rootRow, true)}
-              />
-            </div>
-            {/* ONE 26px FAMILY, ON ONE BASELINE (POD-1146). */}
-            <DeckGaugeRow screen={screen} onAdd={addMissionAgent} />
-          </div>
-        </div>
-        <FlightDeckFullCoordinator full={screen.full} {...fullActions} />
-        {!screen.conversationMoved && <FlightDeckFullControls full={screen.full} />}
-      </div>
-      <div className="deck-rows flex-none pb-1.5 pr-2" data-testid="flight-deck-rows">
-        <FlightDeckFullGroups
-          full={screen.full}
-          revealSessionId={revealSessionId}
-          scrollRef={deckScrollerRef}
-          {...fullActions}
-        />
-        <div className="flex-none" data-testid="flight-deck-tail">
-          {fullReady &&
-            screen.full.rowIds.length === 0 &&
-            proposedRows.length === 0 &&
-            // A lone mission draws no filter bar, so neither can narrow it.
-            (query && screen.full.filterable ? (
-              <p className="shell-type-secondary px-4 py-6 text-text-dim">
-                Nothing in this mission matches that.
-              </p>
-            ) : screen.full.filter !== 'all' && screen.full.filterable ? (
-              <p className="shell-type-secondary px-4 py-6 text-text-dim">
-                No tasks match this filter.
-              </p>
-            ) : // A vacated root is not an empty spine — the region below says
-            // where the work went, and it says it once.
-            // A review nobody is working on asks the operator even with its
-            // stopped agents listed above, so it comes before that test.
-            rootContinuation ? null : rootEmptyNote?.kind === 'review' && rootRow ? (
-              <div className="py-4 pr-2" style={{ paddingLeft: GUTTER }}>
-                <ReviewSignpost
-                  hadAgent={rootRow.sessions.length > 0}
-                  onOpen={() => selectIssue(rootRow, true)}
-                  onClose={closeReviewedRoot}
+                <DeckEyebrow
+                  screen={screen}
+                  onPickStatus={(value) => pickRowStatus(rootId, value)}
+                  controls={columnControls}
                 />
+                <div className="px-4 pt-0.5 pb-3.5">
+                  <DeckTitle
+                    screen={screen}
+                    onPress={() =>
+                      rootRow &&
+                      headerIntent.press(
+                        () => selectIssue(rootRow, false),
+                        () => selectIssue(rootRow, true),
+                      )
+                    }
+                    onCommit={() =>
+                      rootRow && headerIntent.commit(() => selectIssue(rootRow, true))
+                    }
+                  />
+                  {/* THE BRIEF IS THE ONE THING HERE THAT IS READ RATHER THAN SCANNED. */}
+                  <div className="mt-2.5">
+                    <FullDeckBrief
+                      key={rootId}
+                      screen={screen}
+                      onOpenDetails={() => rootRow && selectIssue(rootRow, true)}
+                    />
+                  </div>
+                  {/* ONE 26px FAMILY, ON ONE BASELINE (POD-1146). */}
+                  <DeckGaugeRow screen={screen} onAdd={addMissionAgent} />
+                </div>
               </div>
-            ) : rootSessions.length > 0 ? null : rootRetired ? (
-              // THE MISSION ENDED HERE — a card, not a caption (POD-1268).
-              <div className="py-4 pr-2" style={{ paddingLeft: GUTTER }}>
-                <RetiredSignpost abandoned={screen.rootAbandoned} onTuck={tuckResolvedRoot} />
-              </div>
-            ) : (
-              <p className="shell-type-secondary px-4 py-6 text-text-dim">
-                {rootEmptyNote?.text ?? 'No sessions or sub-tasks are attached.'}
-              </p>
-            ))}
-          {/* THE SECTIONS BELOW THE TREE. PROPOSALS SINK: work being offered
+              <FlightDeckFullCoordinator full={screen.full} {...fullActions} />
+              {!screen.conversationMoved && <FlightDeckFullControls full={screen.full} />}
+            </>
+          )}
+        </div>
+        <div className="deck-rows flex-none pb-1.5 pr-2" data-testid="flight-deck-rows">
+          {compact ? (
+            <div className="flight-compact-sessions">
+              {screen.compact.sessionIds.map((id) => (
+                <FlightDeckV6SessionSlot
+                  key={id}
+                  task={screen.full.root}
+                  id={id}
+                  compact={screen.compact}
+                  {...fullActions}
+                />
+              ))}
+            </div>
+          ) : (
+            <FlightDeckFullGroups
+              full={screen.full}
+              revealSessionId={revealSessionId}
+              scrollRef={deckScrollerRef}
+              {...fullActions}
+            />
+          )}
+          <div className="flex-none" data-testid="flight-deck-tail">
+            {fullReady &&
+              screen.full.rowIds.length === 0 &&
+              proposedRows.length === 0 &&
+              // A lone mission draws no filter bar, so neither can narrow it.
+              (query && screen.full.filterable ? (
+                <p className="shell-type-secondary px-4 py-6 text-text-dim">
+                  Nothing in this mission matches that.
+                </p>
+              ) : screen.full.filter !== 'all' && screen.full.filterable ? (
+                <p className="shell-type-secondary px-4 py-6 text-text-dim">
+                  No tasks match this filter.
+                </p>
+              ) : // A vacated root is not an empty spine — the region below says
+              // where the work went, and it says it once.
+              // A review nobody is working on asks the operator even with its
+              // stopped agents listed above, so it comes before that test.
+              rootContinuation ? null : rootEmptyNote?.kind === 'review' && rootRow ? (
+                <div className="py-4 pr-2" style={{ paddingLeft: GUTTER }}>
+                  <ReviewSignpost
+                    hadAgent={rootRow.sessions.length > 0}
+                    onOpen={() => selectIssue(rootRow, true)}
+                    onClose={closeReviewedRoot}
+                  />
+                </div>
+              ) : rootSessions.length > 0 ? null : rootRetired ? (
+                // THE MISSION ENDED HERE — a card, not a caption (POD-1268).
+                <div className="py-4 pr-2" style={{ paddingLeft: GUTTER }}>
+                  <RetiredSignpost abandoned={screen.rootAbandoned} onTuck={tuckResolvedRoot} />
+                </div>
+              ) : (
+                <p className="shell-type-secondary px-4 py-6 text-text-dim">
+                  {rootEmptyNote?.text ?? 'No sessions or sub-tasks are attached.'}
+                </p>
+              ))}
+            {/* THE SECTIONS BELOW THE TREE. PROPOSALS SINK: work being offered
             to the operator is not part of the mission's shape. */}
-          <FlightDeckProposals
-            full={screen.full}
-            onMenu={(task, event) => openIssueMenu(asIssueId(task.id), event)}
-          />
-          {/* The archive is where the roster STOPS: a wider break (POD-1461). */}
-          <DeckArchive
-            screen={screen}
-            source={source}
-            revealSessionId={revealSessionId}
-            scrollRef={deckScrollerRef}
-            activeSessionId={activeSessionId}
-            onSelect={(session, permanent) =>
-              selectSession(session.issueId ?? null, session, { permanent })
-            }
-          />
-          {/* POD-679's departures — deliberately NOT folded into the proposals.
+            <FlightDeckProposals
+              full={screen.full}
+              onMenu={(task, event) => openIssueMenu(asIssueId(task.id), event)}
+            />
+            {/* The archive is where the roster STOPS: a wider break (POD-1461). */}
+            <DeckArchive
+              screen={screen}
+              source={source}
+              revealSessionId={revealSessionId}
+              scrollRef={deckScrollerRef}
+              activeSessionId={activeSessionId}
+              onSelect={(session, permanent) =>
+                selectSession(session.issueId ?? null, session, { permanent })
+              }
+            />
+            {/* POD-679's departures — deliberately NOT folded into the proposals.
             A proposal is work nobody has triaged yet; a departure is work that
             is already gone. Not filtered by the search either. */}
-          <WhereTheWorkWent
-            continuation={rootContinuation}
-            continuationState={screen.continuationState}
-            continuationFinished={rootFinished}
-            // `rootRow.sessions`, NOT `rootSessions`: the latter is
-            // `deckSessions(row, mode)`, which a mode can narrow.
-            continuationSessions={rootRow?.sessions ?? []}
-            moved={screen.conversationMoved}
-            departures={screen.otherDepartures}
-            onOpen={openDeparture}
-            onTuck={tuckResolvedRoot}
-          />
+            <WhereTheWorkWent
+              continuation={rootContinuation}
+              continuationState={screen.continuationState}
+              continuationFinished={rootFinished}
+              // `rootRow.sessions`, NOT `rootSessions`: the latter is
+              // `deckSessions(row, mode)`, which a mode can narrow.
+              continuationSessions={rootRow?.sessions ?? []}
+              moved={screen.conversationMoved}
+              departures={screen.otherDepartures}
+              onOpen={openDeparture}
+              onTuck={tuckResolvedRoot}
+            />
+          </div>
         </div>
-      </div>
+      </DeckFrame>
       {issueMenu && menuIssue && (
         <IssueMenu
           issues={[menuIssue]}
