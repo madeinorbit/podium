@@ -1723,7 +1723,7 @@ export class IssueCrudModule {
     }
     // Attention-state transitions S3 renders (issue #124). Emit only on an actual
     // change so a re-pin / re-archive / re-defer-to-same-time never duplicates.
-    const nowPinned = (await this.store.issueOverlay(row.id)).pinned
+    const nowPinned = (await this.store.issueOverlay(row.id, opts?.viewer)).pinned
     if (nowPinned !== prevPinned) {
       await this.store.emitEvent('issue.pinned', row.id, { seq: row.seq, pinned: nowPinned })
     }

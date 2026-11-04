@@ -292,6 +292,12 @@ describe('Self: per-user markers are each member’s own, on any task', () => {
     expect(mine?.readAt).toBeTruthy()
     expect(mine?.pinnedAt).toBeTruthy()
     expect(mine?.tuckedAt).toBeTruthy()
+    // Bob's pin is a transition of HIS marker, so it is logged as one.
+    const pinned = await f.handle.registry.sessionStore.events.listEventsSince(0, {
+      kinds: ['issue.pinned'],
+      subject: finished,
+    })
+    expect(pinned.length).toBe(1)
     // The mutation's own answer carries Bob's markers, not the broadcast viewer's.
     expect(tucked.tuckedAt).toBe(mine?.tuckedAt)
     expect((await store.getIssueUserState(MEMBERS.bob.id, f.tasks.bob))?.pinnedAt).toBeTruthy()
