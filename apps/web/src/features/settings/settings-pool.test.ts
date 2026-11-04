@@ -75,6 +75,10 @@ function fixture(sessions: SliceSession[] = []) {
     rows: sessions.map((row) => ({ kind: 'session' as const, id: row.sessionId, value: row })),
   })
   disposals.push(() => pool.dispose())
+  // Attaching feeds the live machine list into the pool at once (c7efbe9cac):
+  // that is the machines' own path. The reads these tests count are the
+  // settings rows', which load in a batch and never after disposal.
+  read.mockClear()
   return {
     pool,
     read,
