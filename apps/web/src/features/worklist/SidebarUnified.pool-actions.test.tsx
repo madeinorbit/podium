@@ -887,7 +887,9 @@ describe('real pool row mutations and receipts', () => {
     expect(worklistView(pool!).selectedWasFolded).toBe(true)
     // A mark-read is a record edit of my own issue row (POD-6404); this server has
     // no sync.submit, so it reaches `issues.markRead`.
-    for (const queued of runtime.outbox.pending().filter(isMarkRead))
+    for (const queued of runtime.outbox
+      .pending()
+      .filter((entry): entry is typeof entry & { input: { id: string } } => isMarkRead(entry)))
       await accept(
         await request('issues.markRead', parseIssueUserStateRowId(queued.input.id).entityId),
       )

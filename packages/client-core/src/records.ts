@@ -37,6 +37,7 @@ import {
   SESSION_USER_STATE_RECORD,
   type SyncedKindDeclaration,
   specFields,
+  USER_LAYOUT_RECORD,
   unsettableFields,
 } from '@podium/commands/records'
 import {
@@ -61,6 +62,8 @@ export const RECORD_KINDS = {
   sessionUserState: SESSION_USER_STATE_RECORD,
   // My read and tuck marks on an issue (POD-6404).
   issueUserState: ISSUE_USER_STATE_RECORD,
+  // One of my layout keys (POD-6404); the layout controller paints it.
+  userLayout: USER_LAYOUT_RECORD,
   // The lifecycle as desired state (POD-6356): an edit paints `desired` on the
   // session row until its entry retires.
   session: SESSION_RECORD,
@@ -167,13 +170,15 @@ export function recordWireInput(input: object): Record<string, unknown> {
 /**
  * WHERE A KIND'S ROW LIVES IN THE POOL: the overlay target and the target's row
  * id for a record id. Addressing, not display: a per-user row's feed id names
- * its user and entity, and the pool keys that row by the entity alone.
+ * its user and entity, and the pool keys that row by the entity alone. `null`:
+ * not a pool row (a layout key, which the layout controller paints from the
+ * same outbox entry).
  */
 export const RECORD_HOMES: {
   readonly [K in RecordKind]: {
     readonly target: 'issueProjections' | 'sessionUserStates' | 'issueUserStates' | 'sessions'
     readonly row: (id: string) => string
-  }
+  } | null
 } = {
   issueProjection: { target: 'issueProjections', row: (id) => id },
   sessionUserState: {
@@ -185,6 +190,7 @@ export const RECORD_HOMES: {
     row: (id) => parseIssueUserStateRowId(id).entityId,
   },
   session: { target: 'sessions', row: (id) => id },
+  userLayout: null,
 }
 
 /** A new id's prefix per kind that offers create. `records.test.ts` mints one

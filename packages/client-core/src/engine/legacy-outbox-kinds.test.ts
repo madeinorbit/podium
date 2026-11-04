@@ -11,6 +11,7 @@ import {
   asSessionId,
   asUserId,
   issueUserStateRowId,
+  layoutRowId,
   sessionUserStateRowId,
 } from '@podium/model'
 import type { SyncSubmitInput } from '@podium/protocol'
@@ -51,8 +52,16 @@ function olderServer() {
     },
   })
   const api = {
-    sessions: { markRead: route('sessions.markRead'), markUnread: route('sessions.markUnread') },
+    sessions: {
+      markRead: route('sessions.markRead'),
+      markUnread: route('sessions.markUnread'),
+      stop: route('sessions.stop'),
+      hibernate: route('sessions.hibernate'),
+      resurrect: route('sessions.resurrect'),
+      kill: route('sessions.kill'),
+    },
     snoozes: { set: route('snoozes.set'), clear: route('snoozes.clear') },
+    layout: { set: route('layout.set'), clear: route('layout.clear') },
     issues: {
       markRead: route('issues.markRead'),
       markUnread: route('issues.markUnread'),
@@ -105,6 +114,76 @@ describe('a record edit on a server without sync.submit', () => {
     await outboxExecutors(api).recordEdit({ ...edit, mutationId } as never)
 
     expect(calls).toEqual([{ path, input: { ...input, mutationId } }])
+  })
+
+  // The session lifecycle as desired state (POD-6399).
+  const lifecycle = (patch: Record<string, unknown>): RecordEditEntry => ({
+    kind: 'session',
+    id: SESSION,
+    patch,
+    expectedRevision: 3,
+  })
+  it.each([
+    ['stop', lifecycle({ desired: 'stopped' }), 'sessions.stop', { sessionId: SESSION }],
+    [
+      'stop, discarding unsaved work',
+      lifecycle({ desired: 'stopped', force: true }),
+      'sessions.stop',
+      { sessionId: SESSION, force: true },
+    ],
+    [
+      'hibernate',
+      lifecycle({ desired: 'hibernated' }),
+      'sessions.hibernate',
+      { sessionId: SESSION },
+    ],
+    ['resume', lifecycle({ desired: 'running' }), 'sessions.resurrect', { sessionId: SESSION }],
+  ] as const)('%s a session: its old route', async (_what, edit, path, input) => {
+    const { api, calls } = olderServer()
+    const mutationId = asMutationId('m-life')
+    await outboxExecutors(api).recordEdit({ ...edit, mutationId } as never)
+    expect(calls).toEqual([{ path, input: { ...input, mutationId } }])
+  })
+
+  it('a layout key: set is layout.set, a cleared value or a remove is layout.clear', async () => {
+    const { api, calls } = olderServer()
+    const id = layoutRowId(ME, 'sidebar.section.open')
+    const executors = outboxExecutors(api)
+    await executors.recordEdit({
+      kind: 'userLayout',
+      id,
+      patch: { value: '1' },
+      mutationId: asMutationId('l-1'),
+    } as never)
+    await executors.recordEdit({
+      kind: 'userLayout',
+      id,
+      patch: {},
+      unset: ['value'],
+      mutationId: asMutationId('l-2'),
+    } as never)
+    await executors.recordRemove({
+      kind: 'userLayout',
+      id,
+      mutationId: asMutationId('l-3'),
+    } as never)
+    expect(calls).toEqual([
+      { path: 'layout.set', input: { values: { 'sidebar.section.open': '1' }, mutationId: 'l-1' } },
+      { path: 'layout.clear', input: { keys: ['sidebar.section.open'], mutationId: 'l-2' } },
+      { path: 'layout.clear', input: { keys: ['sidebar.section.open'], mutationId: 'l-3' } },
+    ])
+  })
+
+  it('kill (a remove of the session record): sessions.kill', async () => {
+    const { api, calls } = olderServer()
+    const mutationId = asMutationId('m-kill')
+    await outboxExecutors(api).recordRemove({
+      kind: 'session',
+      id: SESSION,
+      expectedRevision: 3,
+      mutationId,
+    } as never)
+    expect(calls).toEqual([{ path: 'sessions.kill', input: { sessionId: SESSION, mutationId } }])
   })
 
   it('an edit of two cells is two old calls, each with its own replay id', async () => {

@@ -16,8 +16,6 @@ const PAINTS_NOTHING = new Set([
   'effectDismiss',
   'pinSet',
   'tabSetOrder',
-  'layoutSet',
-  'layoutClear',
   'settingsUpdatePersonal',
   'sendText',
 ])
@@ -42,10 +40,11 @@ const INPUT = {
 
 describe('PoolTransactions coverage (POD-5431)', () => {
   it('maps every queued command kind through the shared reducers', () => {
-    // The seven per-user marks became generic record edits (POD-6404), painted
-    // by the one record case (`records.test.ts`).
+    // The per-user marks and the layout keys became generic record edits
+    // (POD-6404), painted by the one record case (`records.test.ts`) and the
+    // layout controller.
     const kinds = Object.keys(OUTBOX_COMMANDS)
-    expect(kinds).toHaveLength(22)
+    expect(kinds).toHaveLength(20)
     const silent = kinds.filter(
       (kind) =>
         overlaysForOutboxEntry({

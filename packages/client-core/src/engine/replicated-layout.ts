@@ -6,17 +6,27 @@
  *
  * A key's value is the replica's base, then every layout entry still in the
  * outbox (pending and applied, in `queuedAt` order), then temporary paint for an
- * enqueue that has not reached the outbox yet. Nothing here holds, ignores or
+ * enqueue that has not reached the outbox yet. A layout entry is a generic
+ * record write of one key (`records.userLayout.edit` / `.remove`, ADR 12 D3,
+ * POD-6404): the edit's value is the paint. Nothing here holds, ignores or
  * refetches. An applied entry stays in the outbox until the replica commits the
  * truth that covers it, and leaves in that same commit (ADR 12, POD-6277), so
  * its paint ends exactly when that truth is installed. A refused entry leaves
  * the outbox, and its paint goes with it.
  */
 
-import { isLayoutKey, type LayoutSnapshot, layoutKeyFromLegacy } from '@podium/model'
+import {
+  isLayoutKey,
+  type LayoutSnapshot,
+  layoutKeyFromLegacy,
+  layoutRowId,
+  parseLayoutRowId,
+  type UserId,
+} from '@podium/model'
 import type { OutboxEntry } from '../outbox'
+import type { RecordEditEntry, RecordRemoveEntry } from '../records'
 import type { StoreNotices } from './types'
-import type { EngineOutbox, OutboxKinds } from './wiring'
+import type { EngineOutbox } from './wiring'
 
 type LayoutOperation =
   | { readonly kind: 'set'; readonly values: Readonly<Record<string, unknown>> }
@@ -38,14 +48,35 @@ function canonicalLayoutKey(key: string): string {
   throw new Error(`'${key}' is not a replicated layout key`)
 }
 
+function layoutKeyOf(id: string): string | null {
+  try {
+    return parseLayoutRowId(id).key
+  } catch {
+    return null
+  }
+}
+
 function operationForEntry(entry: Pick<OutboxEntry, 'kind' | 'input'>): LayoutOperation | null {
+  const record = entry.input as Partial<RecordEditEntry & RecordRemoveEntry> | undefined
+  if (
+    (entry.kind === 'recordEdit' || entry.kind === 'recordRemove') &&
+    record?.kind === 'userLayout' &&
+    typeof record.id === 'string'
+  ) {
+    const key = layoutKeyOf(record.id)
+    if (key === null) return null
+    if (entry.kind === 'recordRemove' || (record.unset ?? []).includes('value')) {
+      return { kind: 'clear', keys: [key] }
+    }
+    return { kind: 'set', values: { [key]: record.patch?.value } }
+  }
+  // LEGACY(remove-after: 2027-03): `layoutSet` / `layoutClear` entries an older
+  // build queued still paint until they retire (POD-6404).
   if (entry.kind === 'layoutSet') {
-    const input = entry.input as OutboxKinds['layoutSet']
-    return { kind: 'set', values: input.values }
+    return { kind: 'set', values: (entry.input as { values: Record<string, unknown> }).values }
   }
   if (entry.kind === 'layoutClear') {
-    const input = entry.input as OutboxKinds['layoutClear']
-    return { kind: 'clear', keys: input.keys }
+    return { kind: 'clear', keys: (entry.input as { keys: string[] }).keys }
   }
   return null
 }
@@ -94,6 +125,8 @@ export interface ReplicatedLayoutController extends ReplicatedLayoutPort {
 export function createReplicatedLayoutController(init: {
   outbox: EngineOutbox
   notices: StoreNotices
+  /** Whose layout rows these are: a key's record id names its user. */
+  userId: UserId
   /**
    * The persisted base this client last installed, read from the replica at
    * construction (POD-571).
@@ -185,12 +218,23 @@ export function createReplicatedLayoutController(init: {
     temporary = [...temporary, { token, operation }]
     emit(keysOf(operation))
 
+    // One key per operation (`set` and `clear` below), one record write each.
     let queued: OutboxEntry | Promise<OutboxEntry>
     try {
+      const [key] = keysOf(operation)
+      if (key === undefined) {
+        removeTemporary(token)
+        return
+      }
+      const id = layoutRowId(init.userId, key)
       queued =
         operation.kind === 'set'
-          ? outbox.enqueue('layoutSet', { values: operation.values })
-          : outbox.enqueue('layoutClear', { keys: [...operation.keys] })
+          ? outbox.enqueue('recordEdit', {
+              kind: 'userLayout',
+              id,
+              patch: { value: operation.values[key] },
+            })
+          : outbox.enqueue('recordRemove', { kind: 'userLayout', id })
     } catch (error) {
       removeTemporary(token)
       throw error

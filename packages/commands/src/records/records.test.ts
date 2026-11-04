@@ -115,6 +115,8 @@ describe('the generated commands', () => {
       'records.session.remove',
       'records.sessionUserState.edit',
       'records.sessionUserState.remove',
+      'records.userLayout.edit',
+      'records.userLayout.remove',
     ])
   })
 

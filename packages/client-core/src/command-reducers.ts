@@ -475,7 +475,7 @@ function recordOverlays(entry: OutboxEntry, viewer: ReducerViewer): PendingOverl
   }
   const d = recordDeclaration(input.kind)
   const home = RECORD_HOMES[input.kind]
-  if (d === undefined || home === undefined) return []
+  if (d === undefined || home === undefined || home === null) return []
   const row = home.row(input.id)
   switch (recordOpOf(entry.kind)) {
     case 'edit': {

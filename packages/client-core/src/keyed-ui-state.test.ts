@@ -1,3 +1,4 @@
+import { asUserId } from '@podium/model'
 import { expect, it } from 'vitest'
 import { createReplicatedLayoutController } from './engine/replicated-layout'
 import type { StoreNotices } from './engine/types'
@@ -12,6 +13,7 @@ it('notifies the canonical key and every declared alias without unrelated keys',
   const controller = createReplicatedLayoutController({
     outbox: { awaiting: () => [], pending: () => [] } as unknown as EngineOutbox,
     notices: { error: () => {}, info: () => {} } as StoreNotices,
+    userId: asUserId('u-1'),
   })
   const ui = createRoutedUiState({ local: side.uiState(), replicated: controller })
   const changes: string[][] = []
@@ -85,6 +87,7 @@ it('publishes only changed layout keys through optimism, queue drain and authori
   controller = createReplicatedLayoutController({
     outbox,
     notices: { error: () => {}, info: () => {} } as StoreNotices,
+    userId: asUserId('u-1'),
     seed: { 'sidebar.section.one': 'saved' },
   })
   const changes: string[][] = []

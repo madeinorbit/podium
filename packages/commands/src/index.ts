@@ -474,6 +474,7 @@ export {
   SESSION_RECORD,
   SESSION_USER_STATE_RECORD,
   SYNCED_KINDS,
+  USER_LAYOUT_RECORD,
 } from './records/kinds'
 export {
   applyRedaction,

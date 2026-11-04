@@ -20,9 +20,11 @@
  * caller's own human.
  */
 
-import { layoutClearContract, layoutSetContract } from '@podium/commands'
-import type { UserId, UserRole } from '@podium/model'
+import { layoutClearContract, layoutSetContract, USER_LAYOUT_RECORD } from '@podium/commands'
+import { parseLayoutRowId, type UserId, type UserRole } from '@podium/model'
 import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
+import { registerRecordKind } from '../records/generic'
+import { SyncWriteRefused } from '../sync-write/entry'
 import { NO_TARGET, type SyncWriteRegistry, type SyncWriteTarget } from '../sync-write/registry'
 import { layoutAuthzFailure } from './authz'
 import type { LayoutService } from './service'
@@ -74,5 +76,50 @@ export function registerLayoutCommands(
     contract: layoutClearContract,
     target: targetFor(deps, layoutClearContract.name),
     handle: async (ctx, input) => await deps.layout.clear(actorOf(ctx.principal), input.keys),
+  })
+  registerLayoutRecord(registry, deps, now)
+}
+
+/**
+ * ONE LAYOUT KEY AS A GENERIC RECORD (ADR 12 D3, POD-6404): `records.userLayout`
+ * edits set one key's value and removes forget it, through the same service and
+ * the same live role gate as `layout.set` / `layout.clear`. The row id names
+ * its user; anyone else's row is refused. A cleared `value` forgets the key too.
+ */
+function registerLayoutRecord(
+  registry: SyncWriteRegistry,
+  deps: LayoutSyncWriteDeps,
+  now: () => string,
+): void {
+  /** The key, when the row is the caller's own; else undefined. */
+  const ownKey = (id: string, actor: UserId | undefined): string | undefined => {
+    if (actor === undefined) return undefined
+    try {
+      const row = parseLayoutRowId(id)
+      return row.userId === actor ? row.key : undefined
+    } catch {
+      return undefined
+    }
+  }
+  const keyFor = (id: string, principal: CommandPrincipal): string => {
+    const key = ownKey(id, onBehalfOfUser(principal) ?? undefined)
+    if (key === undefined) throw new SyncWriteRefused({ kind: 'target-not-found' })
+    return key
+  }
+  registerRecordKind(registry, USER_LAYOUT_RECORD, {
+    target: async (op, id, { principal }) => {
+      // The family's own live role floor: an edit is a set, a remove a clear.
+      const family = op === 'remove' ? layoutClearContract : layoutSetContract
+      const actor = await gate(deps, family.name, principal)
+      return ownKey(id, actor) === undefined ? undefined : NO_TARGET
+    },
+    edit: async (ctx, id, patch, _expected, unset) => {
+      const key = keyFor(id, ctx.principal)
+      const actor = actorOf(ctx.principal)
+      if (unset.includes('value')) return await deps.layout.clear(actor, [key])
+      return await deps.layout.set(actor, { [key]: patch.value }, now())
+    },
+    remove: async (ctx, id) =>
+      await deps.layout.clear(actorOf(ctx.principal), [keyFor(id, ctx.principal)]),
   })
 }

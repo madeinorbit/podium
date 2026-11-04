@@ -5,6 +5,7 @@ import {
   asSessionId,
   asUserId,
   issueUserStateRowId,
+  layoutRowId,
   sessionUserStateRowId,
 } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
@@ -335,13 +336,15 @@ describe('engine action ownership boundary', () => {
 
     expect(h.actions.replicatedLayout.get('superOpen')).toBe('1')
     expect(h.actions.replicatedLayout.get('dockTab')).toBe('files')
+    // One key each: a record edit of my layout row (POD-6404).
+    const myLayout = (key: string, value: unknown) => ({
+      kind: 'recordEdit',
+      input: { kind: 'userLayout', id: layoutRowId(ME, key), patch: { value } },
+    })
     expect(h.queued).toEqual([
-      { kind: 'layoutSet', input: { values: { superOpen: '1' } } },
-      { kind: 'layoutSet', input: { values: { dockTab: 'files' } } },
-      {
-        kind: 'layoutSet',
-        input: { values: { panelMode: JSON.stringify({ [sessionId]: 'native' }) } },
-      },
+      myLayout('superOpen', '1'),
+      myLayout('dockTab', 'files'),
+      myLayout('panelMode', JSON.stringify({ [sessionId]: 'native' })),
     ])
   })
 
@@ -471,7 +474,7 @@ describe('engine action ownership boundary', () => {
 
       toggle() // expand again
       expect(layout.get(FOLDER)).toBeUndefined()
-      expect(h.queued.map((q) => q.kind)).toEqual(['layoutClear', 'layoutSet', 'layoutClear'])
+      expect(h.queued.map((q) => q.kind)).toEqual(['recordRemove', 'recordEdit', 'recordRemove'])
       expect(h.layoutGet).not.toHaveBeenCalled()
     })
 
@@ -893,7 +896,8 @@ describe('S5 gesture batch', () => {
 })
 
 describe('session lifecycle as edits of the session record (POD-6399)', () => {
-  const sessionEdit = (input: unknown) => input as { kind: string; id: string; patch: unknown; expectedRevision?: number }
+  const sessionEdit = (input: unknown) =>
+    input as { kind: string; id: string; patch: unknown; expectedRevision?: number }
 
   it('stop, hibernate and resume queue records.session edits against the replica revision', async () => {
     const h = harness({}, undefined, { sessionRevision: () => 4 })
@@ -925,7 +929,9 @@ describe('session lifecycle as edits of the session record (POD-6399)', () => {
   it('kill removes the session record against its revision', async () => {
     const h = harness({}, undefined, { sessionRevision: () => undefined })
     await h.actions.killSession(sessionId)
-    const removes = h.queued.filter((q) => q.kind === 'recordRemove').map((q) => sessionEdit(q.input))
+    const removes = h.queued
+      .filter((q) => q.kind === 'recordRemove')
+      .map((q) => sessionEdit(q.input))
     expect(removes).toEqual([{ kind: 'session', id: sessionId, expectedRevision: 1 }])
   })
 })

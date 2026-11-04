@@ -586,6 +586,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
   const replicatedLayout = createReplicatedLayoutController({
     outbox: rt.outbox,
     notices: rt.notices,
+    userId: rt.userId,
     ...(rt.layoutSeed !== undefined ? { seed: rt.layoutSeed } : {}),
   })
   /**

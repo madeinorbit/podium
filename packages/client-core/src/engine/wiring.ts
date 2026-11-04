@@ -47,6 +47,7 @@ import {
   type RecordKind,
   type RecordOutboxInputs,
   type RecordOutboxKind,
+  type RecordRemoveEntry,
   recordDeclaration,
   recordOpOf,
   recordWireCommand,
@@ -63,6 +64,7 @@ import {
   type LegacyOutboxKind,
   legacyOutboxExecutors,
   submitRecordEditAsLegacy,
+  submitRecordRemoveAsLegacy,
 } from './legacy-outbox-kinds'
 import { assertSendAccepted } from './send-outcome'
 import type { StoreNotices } from './types'
@@ -76,8 +78,6 @@ import type { StoreNotices } from './types'
 export type OutboxKinds = {
   pinSet: Omit<Parameters<PodiumClientApi['pins']['set']['mutate']>[0], 'mutationId'>
   tabSetOrder: Omit<Parameters<PodiumClientApi['tabs']['setOrder']['mutate']>[0], 'mutationId'>
-  layoutSet: Omit<Parameters<PodiumClientApi['layout']['set']['mutate']>[0], 'mutationId'>
-  layoutClear: Omit<Parameters<PodiumClientApi['layout']['clear']['mutate']>[0], 'mutationId'>
   settingsUpdatePersonal: Omit<
     Parameters<PodiumClientApi['settings']['updatePersonal']['mutate']>[0],
     'mutationId'
@@ -301,10 +301,8 @@ export const OUTBOX_COMMANDS: Record<
 > = {
   pinSet: { name: 'pins.set', version: 1, delivery, confirmation: 'none' },
   tabSetOrder: { name: 'tabs.setOrder', version: 1, delivery, confirmation: 'none' },
-  layoutSet: { name: 'layout.set', version: 1, delivery, confirmation: 'none' },
   effectCreate: { name: 'effects.create', version: 1, delivery, confirmation: 'none' },
   effectDismiss: { name: 'effects.dismiss', version: 1, delivery, confirmation: 'none' },
-  layoutClear: { name: 'layout.clear', version: 1, delivery, confirmation: 'none' },
   settingsUpdatePersonal: {
     name: 'settings.updatePersonal',
     version: 1,
@@ -377,8 +375,6 @@ export type OutboxDeadLetterHandling = 'recover' | 'discard-automatic'
 export const OUTBOX_DEAD_LETTER_HANDLING: Record<keyof OutboxKinds, OutboxDeadLetterHandling> = {
   pinSet: 'recover',
   tabSetOrder: 'recover',
-  layoutSet: 'recover',
-  layoutClear: 'recover',
   settingsUpdatePersonal: 'recover',
   sendText: 'recover',
   resumeAndSend: 'recover',
@@ -511,9 +507,6 @@ export const OUTBOX_ROUTING: {
     partitionKey: `tabs:${i.worktree}`,
     collapseKey: `tabs-order:${i.worktree}`,
   }),
-  // `values`/`keys` are PARTIAL — no collapse.
-  layoutSet: () => ({ partitionKey: 'layout' }),
-  layoutClear: () => ({ partitionKey: 'layout' }),
   // A partial patch of personal settings — no collapse.
   settingsUpdatePersonal: () => ({ partitionKey: 'settings' }),
 
@@ -669,9 +662,11 @@ function recordEditCollapseKey(input: RecordOutboxInputs['recordEdit']): string 
   return cells.length === 0 ? undefined : `record:${input.kind}:${input.id}:${cells.join(',')}`
 }
 
-/** The ordering domain of one record: its pool row's. */
+/** The ordering domain of one record: its pool row's. Layout keys keep the
+ *  one `layout` partition `layout.set` always had. */
 function recordPartition(input: { kind: RecordKind; id: string }): string {
   const home = RECORD_HOMES[input.kind]
+  if (home === null) return 'layout'
   const row = home.row(input.id)
   return home.target === 'sessionUserStates' ? `session:${row}` : `issue:${row}`
 }
@@ -828,7 +823,9 @@ async function submitRecord(
     const answer =
       kind === 'recordEdit'
         ? await submitRecordEditAsLegacy(api, { ...(entry as RecordEditEntry), mutationId })
-        : undefined
+        : kind === 'recordRemove'
+          ? await submitRecordRemoveAsLegacy(api, { ...(entry as RecordRemoveEntry), mutationId })
+          : undefined
     if (answer === undefined) throw unserved()
     return answer
   }
@@ -1013,8 +1010,6 @@ export function outboxExecutors(
   return {
     pinSet: (i) => api.pins.set.mutate(i),
     tabSetOrder: (i) => api.tabs.setOrder.mutate(i),
-    layoutSet: (i) => api.layout.set.mutate(i),
-    layoutClear: (i) => api.layout.clear.mutate(i),
     settingsUpdatePersonal: (i) => api.settings.updatePersonal.mutate(i),
     sendText: async (i) =>
       readOutboxReply('sendText', i, await api.sessions.sendText.mutate(i), hooks),

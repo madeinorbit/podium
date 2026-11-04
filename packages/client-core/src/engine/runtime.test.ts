@@ -491,29 +491,25 @@ describe('replicated layout routing', () => {
     const dock = makeEngine()
     dock.engine.access.setDockTab('git')
     await settle()
-    expect(dock.engine.outbox.pending()).toMatchObject([
-      { kind: 'layoutSet', input: { values: { dockTab: 'git' } } },
-    ])
+    // One key: a record edit of my layout row (POD-6404).
+    const layout = (key: string, value: unknown) => ({
+      kind: 'recordEdit',
+      input: { kind: 'userLayout', id: expect.stringContaining(key), patch: { value } },
+    })
+    expect(dock.engine.outbox.pending()).toMatchObject([layout('dockTab', 'git')])
     dock.engine.dispose()
 
     const superPanel = makeEngine()
     superPanel.engine.access.setSuperOpen(false)
     await settle()
-    expect(superPanel.engine.outbox.pending()).toMatchObject([
-      { kind: 'layoutSet', input: { values: { superOpen: '0' } } },
-    ])
+    expect(superPanel.engine.outbox.pending()).toMatchObject([layout('superOpen', '0')])
     superPanel.engine.dispose()
 
     const panelMode = makeEngine()
     panelMode.engine.access.setPanelMode(asSessionId('session-1'), 'native')
     await settle()
     expect(panelMode.engine.outbox.pending()).toMatchObject([
-      {
-        kind: 'layoutSet',
-        input: {
-          values: { panelMode: JSON.stringify({ 'session-1': 'native' }) },
-        },
-      },
+      layout('panelMode', JSON.stringify({ 'session-1': 'native' })),
     ])
     panelMode.engine.dispose()
   })

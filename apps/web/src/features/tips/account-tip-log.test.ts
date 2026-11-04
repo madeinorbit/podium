@@ -2,6 +2,7 @@ import { createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { createRoutedUiState, type ReplicatedUiStatePort } from '@podium/client-core/ui-state'
 import { MobxPool } from '@podium/client-graph'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
+import { asUserId } from '@podium/model'
 import { autorun } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
 import { createReplicatedLayoutController } from '../../../../../packages/client-core/src/engine/replicated-layout'
@@ -165,6 +166,7 @@ it('keeps upgraded-account tips seen when a remote layout snapshot replaces hydr
   const replicated = createReplicatedLayoutController({
     outbox: { awaiting: () => [], pending: () => [] } as unknown as Init['outbox'],
     notices: { error: () => {}, info: () => {} } as Init['notices'],
+    userId: asUserId('u-1'),
   })
   const side = createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] })
   disposers.push(() => side.dispose())

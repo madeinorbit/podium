@@ -49,8 +49,6 @@ const SAMPLE: { [K in keyof OutboxKinds]: OutboxKinds[K] } = {
     worktree: '/repo/wt-a',
     sessionIds: [asSessionId('s-1')],
   } as OutboxKinds['tabSetOrder'],
-  layoutSet: { values: { density: 'compact' } } as OutboxKinds['layoutSet'],
-  layoutClear: { keys: ['density'] } as OutboxKinds['layoutClear'],
   settingsUpdatePersonal: {
     values: { theme: 'dark' },
   } as OutboxKinds['settingsUpdatePersonal'],
@@ -230,8 +228,6 @@ describe('POD-785 — only writes a later one subsumes may collapse', () => {
     expect(route('resumeAndSend', SAMPLE.resumeAndSend).collapseKey).toBeUndefined()
     // Partial patches — a later one carries only the keys it touches, so it does
     // NOT subsume an earlier one. Collapsing these would drop fields silently.
-    expect(route('layoutSet', SAMPLE.layoutSet).collapseKey).toBeUndefined()
-    expect(route('layoutClear', SAMPLE.layoutClear).collapseKey).toBeUndefined()
     expect(
       route('settingsUpdatePersonal', SAMPLE.settingsUpdatePersonal).collapseKey,
     ).toBeUndefined()

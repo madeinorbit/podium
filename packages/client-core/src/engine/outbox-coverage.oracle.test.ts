@@ -121,6 +121,7 @@ import {
   asSessionId,
   asUserId,
   issueUserStateRowId,
+  layoutRowId,
   sessionUserStateRowId,
 } from '@podium/model'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
@@ -250,8 +251,17 @@ const myIssue = (id: string, patch: object) => ({
 const COVERED: { kind: keyof OutboxKinds & string; input: object; path: string }[] = [
   { kind: 'pinSet', input: { kind: 'panel', id: 's1', pinned: true }, path: 'pins.set' },
   { kind: 'tabSetOrder', input: { worktree: '/w', sessionIds: ['s1'] }, path: 'tabs.setOrder' },
-  { kind: 'layoutSet', input: { values: { superOpen: '0' } }, path: 'layout.set' },
-  { kind: 'layoutClear', input: { keys: ['superOpen'] }, path: 'layout.clear' },
+  // One layout key: a record edit or remove of my layout row (POD-6404).
+  {
+    kind: 'recordEdit',
+    input: { kind: 'userLayout', id: layoutRowId(READER, 'superOpen'), patch: { value: '0' } },
+    path: 'layout.set',
+  },
+  {
+    kind: 'recordRemove',
+    input: { kind: 'userLayout', id: layoutRowId(READER, 'superOpen') },
+    path: 'layout.clear',
+  },
   {
     kind: 'settingsUpdatePersonal',
     input: { values: { 'sidebar.repoSort': 'name' } },

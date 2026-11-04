@@ -25,6 +25,7 @@ import {
   firstAdminMemberId,
   type IssueId,
   issueUserStateRowId,
+  layoutRowId,
   OWNERSHIP_MATRIX_INDEX,
   ROW,
   type SessionId,
@@ -540,6 +541,54 @@ describe('records.issueUserState', () => {
 
     appliedReply(await submit(o, editIssueState(id, { tuckedAt: null }, 't-4')))
     expect((await o.store.issues.getIssueUserState(me, issue))?.tuckedAt ?? null).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// One of my layout keys (POD-6404)
+// ---------------------------------------------------------------------------
+
+describe('records.userLayout', () => {
+  const snapshot = (o: Oracle) => o.reg.modules.layout.getSnapshot(ME)
+
+  it('sets one key and forgets it, on the path', async () => {
+    const o = await makeOracle()
+    const id = layoutRowId(ME, 'sidebar.section.nulldisk')
+
+    await expectAppliedOnPath(
+      o,
+      envelope('records.userLayout.edit', { id, patch: { value: '1' } }, 'l-1'),
+      { writes: true },
+    )
+    expect((await snapshot(o))['sidebar.section.nulldisk']).toBe('1')
+
+    await expectAppliedOnPath(o, envelope('records.userLayout.remove', { id }, 'l-2'), {
+      writes: true,
+    })
+    expect(await snapshot(o)).not.toHaveProperty('sidebar.section.nulldisk')
+  })
+
+  it('refuses somebody else’s row and a key outside the vocabulary', async () => {
+    const o = await makeOracle()
+    const theirs = await submit(
+      o,
+      envelope(
+        'records.userLayout.edit',
+        { id: layoutRowId(SOMEONE_ELSE, 'sidebar.section.nulldisk'), patch: { value: '1' } },
+        'l-theirs',
+      ),
+    )
+    const unknownKey = await submit(
+      o,
+      envelope(
+        'records.userLayout.edit',
+        { id: layoutRowId(ME, 'not.a.layout.key'), patch: { value: '1' } },
+        'l-unknown',
+      ),
+    )
+    expect(refusal(theirs)).toEqual({ kind: 'unauthorized' })
+    expect(refusal(unknownKey).kind).toBe('invalid')
+    expect(await rowsOf(o, 'l-theirs')).toEqual([])
   })
 })
 

@@ -219,7 +219,7 @@ describe('the one generic overlay case', () => {
       entry('recordEdit', { kind: 'sessionUserState', id: READ_ROW, patch: { readAt: null } }),
     )
     expect(overlay).toMatchObject({ entity: 'sessionUserStates', id: SESSION })
-    expect(RECORD_HOMES.sessionUserState.row(READ_ROW)).toBe(SESSION)
+    expect(RECORD_HOMES.sessionUserState?.row(READ_ROW)).toBe(SESSION)
   })
 
   it('a remove hides the row; a later patch folds over the absent row', () => {

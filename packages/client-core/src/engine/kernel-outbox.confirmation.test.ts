@@ -13,7 +13,13 @@
  */
 
 import type { MutationId } from '@podium/model'
-import { asMutationId, asSessionId, UNADDRESSABLE_SEND_REASON } from '@podium/model'
+import {
+  asMutationId,
+  asSessionId,
+  asUserId,
+  layoutRowId,
+  UNADDRESSABLE_SEND_REASON,
+} from '@podium/model'
 import type { SyncSubmitInput, SyncSubmitReply } from '@podium/protocol'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import type { Cursor } from '@podium/sync/replica'
@@ -156,8 +162,15 @@ async function settle(): Promise<void> {
 
 const ids = (entries: readonly OutboxEntry[]): MutationId[] => entries.map((e) => e.mutationId)
 
+/** Forget one layout key: a remove of my layout row (POD-6404). The stranded
+ *  nulldisk write was exactly this. */
+const ME = asUserId('user-1')
 async function clear(outbox: EngineOutbox, mutationId: MutationId, key = 'folder.nulldisk') {
-  await outbox.enqueue('layoutClear', { keys: [key] }, { mutationId })
+  await outbox.enqueue(
+    'recordRemove',
+    { kind: 'userLayout', id: layoutRowId(ME, key) },
+    { mutationId },
+  )
 }
 
 describe('client write confirmation through sync.submit', () => {
@@ -172,9 +185,9 @@ describe('client write confirmation through sync.submit', () => {
     expect(submits).toEqual([
       {
         mutationId: M1,
-        command: 'layout.clear',
+        command: 'records.userLayout.remove',
         version: 1,
-        input: { keys: ['folder.nulldisk'], mutationId: M1 },
+        input: { id: layoutRowId(ME, 'folder.nulldisk'), mutationId: M1 },
       },
     ])
     outbox.dispose()

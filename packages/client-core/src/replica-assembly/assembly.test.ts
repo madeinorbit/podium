@@ -4,7 +4,7 @@ import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import { Outbox as KernelOutbox, type OutboxSubmitOutcome } from '@podium/sync/outbox'
 import { IDBFactory } from 'fake-indexeddb'
 import { describe, expect, it, vi } from 'vitest'
-import { OUTBOX_COMMANDS } from '../engine/wiring'
+import { outboxCommandFor } from '../engine/wiring'
 import { principalKeyPrefix, type StorageApi } from '../replica'
 import { openReplicaAssembly } from './assembly'
 
@@ -309,6 +309,12 @@ describe('shared replica write confirmation', () => {
    * nulldisk clear (no receipt, as older builds wrote it), one whose receipt the
    * persisted cursor covers, and one ahead of it (the reply landed, the frame did not).
    */
+  const legacyLayoutClear = (() => {
+    const command = outboxCommandFor('layoutClear')
+    if (command === undefined) throw new Error('layout.clear is no longer drained')
+    return command
+  })()
+
   async function leaveApplied(dev: ReturnType<typeof persistentDevice>): Promise<void> {
     const store = await dev.openStore()
     const kernel = await KernelOutbox.open({
@@ -332,7 +338,8 @@ describe('shared replica write confirmation', () => {
     for (const mutationId of [LEGACY_CLEAR, COVERED, AHEAD]) {
       await kernel.enqueue({
         mutationId,
-        command: OUTBOX_COMMANDS.layoutClear,
+        // An older build's spelling: the retired `layout.clear` (LEGACY, POD-6404).
+        command: legacyLayoutClear,
         input: { keys: ['folder.nulldisk'] },
         partitionKey: 'layout',
         attribution: { actor: actorUser(asUserId('alice')), onBehalfOf: asUserId('alice') },

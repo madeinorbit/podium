@@ -21,7 +21,11 @@ import {
   IssueProjection,
   IssueType,
   IssueUserStateWire,
+  isLayoutKey,
+  LayoutKeyField,
+  LayoutWire,
   NewIssueId,
+  parseLayoutRowId,
   parseUserEntityKey,
   ROW,
   SessionDesired,
@@ -247,6 +251,66 @@ export const ISSUE_USER_STATE_RECORD = defineSyncedKind({
 })
 
 // ---------------------------------------------------------------------------
+// userLayout (POD-6404)
+// ---------------------------------------------------------------------------
+
+/** The feed's id of one layout row: `layoutRowId(user, key)`, a key from the
+ *  closed vocabulary. */
+const LayoutRowRef = z.string().refine(
+  (id) => {
+    try {
+      return isLayoutKey(parseLayoutRowId(id).key)
+    } catch {
+      return false
+    }
+  },
+  { message: 'a layout row id' },
+)
+
+const LAYOUT_WRITE: CommandPolicy = {
+  action: 'write',
+  roleFloor: 'member',
+  resource: 'none',
+  confirmation: 'none',
+  rationale:
+    'A member writes their OWN layout row, as `layout.set` / `layout.clear`: the row id names its ' +
+    'user, and only that user may write it. No confirmation: every leaf is reversible.',
+}
+
+export const USER_LAYOUT_RECORD = defineSyncedKind({
+  kind: 'userLayout',
+  title: 'layout setting',
+  wire: LayoutWire,
+  ref: LayoutRowRef,
+  conflict: 'single-writer',
+  fields: {
+    userId: key(UserIdField, ROW.sidebarTabLayout),
+    key: key(LayoutKeyField, ROW.sidebarTabLayout),
+    value: spec(z.unknown(), ROW.sidebarTabLayout),
+  },
+  ops: {
+    edit: { policy: LAYOUT_WRITE, note: 'Set one layout key (a section collapse, a panel mode).' },
+    remove: { policy: LAYOUT_WRITE, note: 'Forget one layout key, so the default shows.' },
+  },
+  visibility: PER_USER_VISIBILITY,
+  exposure: SUBMIT_ONLY,
+  delivery: QUEUED,
+  redaction: {
+    reviewed: true,
+    inputPaths: [],
+    outputPaths: [],
+    note: 'Layout keys are shell chrome from a closed vocabulary; nothing on them is a credential.',
+  },
+  attribution: ISSUE_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note: 'Another user’s row fails as an unknown one; the key is from a closed public vocabulary.',
+  },
+})
+
+// ---------------------------------------------------------------------------
 // session: lifecycle as desired state (ADR 12 D5 E1, POD-6356)
 // ---------------------------------------------------------------------------
 
@@ -320,6 +384,7 @@ export const SYNCED_KINDS: readonly SyncedKindDeclaration[] = [
   ISSUE_RECORD,
   SESSION_USER_STATE_RECORD,
   ISSUE_USER_STATE_RECORD,
+  USER_LAYOUT_RECORD,
   SESSION_RECORD,
 ]
 
@@ -342,7 +407,6 @@ export const NOT_YET_GENERIC: Readonly<
   conversation: { reason: 'Titles convert with the conversations family.', by: 'POD-6359' },
   automation: { reason: 'Automations convert with their family.', by: 'POD-6359' },
   automationRun: { reason: 'A run conforms to the effect status with its family.', by: 'POD-6359' },
-  userLayout: { reason: 'Layout converts as a plain edit.', by: 'POD-6355' },
   userReadPosition: { reason: 'Read positions convert with their family.', by: 'POD-6359' },
   issueEvent: { reason: 'An append-only history; never edited.', by: 'never (append)' },
   pendingInteraction: { reason: 'Answers are one-off effects.', by: 'POD-6359' },

@@ -1,4 +1,3 @@
-import { asUserId } from '@podium/model'
 // @vitest-environment happy-dom
 // (the ROOT vitest run executes web tests under node; client-core/react pulls
 // terminal-client → xterm addons that need a browser-ish global at import time)
@@ -8,6 +7,7 @@ import { asClientPrincipal, type ClientPrincipal } from '@podium/client-core/pri
 import { StoreProvider, useRuntimeSelector } from '@podium/client-core/react'
 import { memoryStorage } from '@podium/client-core/replica'
 import { createReplicaFixture } from '@podium/client-core/test-support/replica'
+import { asUserId } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -31,7 +31,9 @@ type MemoryStorage = ReturnType<typeof memoryStorage>
 const makeApi = (): PodiumClientApi =>
   ({
     sync: { changesSince: { query: () => new Promise(() => {}) } },
-    discovery: { refreshRepos: { mutate: async () => ({ repositories: [], diagnostics: [], machines: [] }) } },
+    discovery: {
+      refreshRepos: { mutate: async () => ({ repositories: [], diagnostics: [], machines: [] }) },
+    },
     pins: { list: { query: async () => ({ panels: [], worktrees: [], repos: [] }) } },
     tabs: { listOrders: { query: async () => ({}) } },
     settings: {
@@ -58,7 +60,7 @@ class FakeWS {
 
 let lastHub: unknown = null
 function Probe(): null {
-  lastHub = useRuntimeSelector(s => s).hub
+  lastHub = useRuntimeSelector((s) => s).hub
   return null
 }
 
@@ -160,7 +162,7 @@ describe('provider runtime identity (#262 review)', () => {
 // "nothing leaked", and prove nothing because nothing was there to leak. So the
 // switch below happens with all four carriers LOADED at that instant —
 //
-//   a QUEUED WRITE   principal A's layoutSet, persisted in A's namespace
+//   a QUEUED WRITE   principal A's layout edit, persisted in A's namespace
 //   a LIVE CURSOR    A's feed cursor, advanced past zero
 //   a LIVE SOCKET    A's WebSocket, open
 //   a WARM CACHE     a mounted useRuntimeSelector holding A's selected value
@@ -188,7 +190,7 @@ interface Seen {
 let seen: Seen
 
 function PrincipalProbe(): null {
-  const store = useRuntimeSelector(s => s)
+  const store = useRuntimeSelector((s) => s)
   // A SELECTOR with a stable identity across renders, so its per-component
   // cache genuinely survives the switch instead of being reset by a new
   // closure. That is the only version of this assertion that can fail.
@@ -306,7 +308,7 @@ describe('the principal boundary tears down and rebuilds (POD-404)', () => {
     expect(
       JSON.stringify(storageFor('alice').snapshot()),
       "alice's queued command must actually be durable",
-    ).toContain('layoutSet')
+    ).toContain('userLayout')
 
     // ---- THE SWITCH -------------------------------------------------------
     await renderAs(BOB, api)
@@ -353,11 +355,11 @@ describe('the principal boundary tears down and rebuilds (POD-404)', () => {
     expect(
       JSON.stringify(storageFor('alice').snapshot()),
       'alice’s queued command must survive in her own namespace',
-    ).toContain('layoutSet')
+    ).toContain('userLayout')
     expect(
       JSON.stringify(storageFor('bob').snapshot()),
       'bob’s namespace must not contain alice’s queued command',
-    ).not.toContain('layoutSet')
+    ).not.toContain('userLayout')
   })
 
   it('does not replay the previous principal’s cached selector value', async () => {

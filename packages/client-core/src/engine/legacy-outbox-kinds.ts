@@ -1,4 +1,4 @@
-// LEGACY(remove-after: 2027-03): the per-command outbox kinds that became generic record edits (POD-6404..6406), kept only to drain entries an older build queued and to reach a server without `sync.submit`; removing it strands those queued writes and stops a newer app marking read, snoozing or tucking on an older server.
+// LEGACY(remove-after: 2027-03): the per-command outbox kinds that became generic record edits (POD-6404..6406), kept only to drain entries an older build queued and to reach a server without `sync.submit`; removing it strands those queued writes and stops a newer app marking read, snoozing, tucking or stopping a session on an older server.
 
 /**
  * THE RETIRED PLAIN-EDIT KINDS, TWO WAYS (ADR 12 D3, POD-6404).
@@ -18,9 +18,13 @@
  */
 
 import type { MutationId } from '@podium/model'
-import { parseIssueUserStateRowId, parseSessionUserStateRowId } from '@podium/model'
+import {
+  parseIssueUserStateRowId,
+  parseLayoutRowId,
+  parseSessionUserStateRowId,
+} from '@podium/model'
 import type { PodiumClientApi } from '../api'
-import type { RecordEditEntry } from '../records'
+import type { RecordEditEntry, RecordRemoveEntry } from '../records'
 
 /** The retired kinds and the command each was queued under. */
 export const LEGACY_OUTBOX_COMMANDS = {
@@ -31,6 +35,8 @@ export const LEGACY_OUTBOX_COMMANDS = {
   issueMarkRead: { name: 'issues.markRead', version: 1 },
   issueMarkUnread: { name: 'issues.markUnread', version: 1 },
   issueSetTucked: { name: 'issues.setTucked', version: 1 },
+  layoutSet: { name: 'layout.set', version: 1 },
+  layoutClear: { name: 'layout.clear', version: 1 },
 } as const
 
 export type LegacyOutboxKind = keyof typeof LEGACY_OUTBOX_COMMANDS
@@ -57,12 +63,33 @@ export function legacyOutboxExecutors(
     issueMarkRead: (i) => api.issues.markRead.mutate(call(i)),
     issueMarkUnread: (i) => api.issues.markUnread.mutate(call(i)),
     issueSetTucked: (i) => api.issues.setTucked.mutate(call(i)),
+    layoutSet: (i) => api.layout.set.mutate(call(i)),
+    layoutClear: (i) => api.layout.clear.mutate(call(i)),
   }
 }
 
-/** One old call a record edit stands for. */
+/**
+ * The session lifecycle routes a record edit of `desired` (and a remove) stood
+ * for before POD-6399. They were never queued, so they have no retired kind:
+ * only the old-server path reaches them.
+ */
+type LifecycleRoute = 'sessionStop' | 'sessionHibernate' | 'sessionResurrect' | 'sessionKill'
+
+function lifecycleRoutes(
+  api: PodiumClientApi,
+): Record<LifecycleRoute, (input: Input) => Promise<unknown>> {
+  const call = (input: Input) => input as never
+  return {
+    sessionStop: (i) => api.sessions.stop.mutate(call(i)),
+    sessionHibernate: (i) => api.sessions.hibernate.mutate(call(i)),
+    sessionResurrect: (i) => api.sessions.resurrect.mutate(call(i)),
+    sessionKill: (i) => api.sessions.kill.mutate(call(i)),
+  }
+}
+
+/** One old call a record write stands for. */
 interface LegacyCall {
-  readonly kind: LegacyOutboxKind
+  readonly kind: LegacyOutboxKind | LifecycleRoute
   readonly input: Record<string, unknown>
 }
 
@@ -111,6 +138,44 @@ export function legacyCallsForRecordEdit(entry: RecordEditEntry): LegacyCall[] |
       }
       return calls
     }
+    case 'userLayout': {
+      const { key } = parseLayoutRowId(entry.id)
+      if (unset.includes('value')) return [{ kind: 'layoutClear', input: { keys: [key] } }]
+      if (!known(['value'])) return undefined
+      return [{ kind: 'layoutSet', input: { values: { [key]: patch.value } } }]
+    }
+    case 'session': {
+      // The lifecycle (POD-6399): `desired`, and `force` with a stop.
+      if (!known(['desired', 'force'])) return undefined
+      const sessionId = entry.id
+      switch (patch.desired) {
+        case 'stopped':
+          return [
+            {
+              kind: 'sessionStop',
+              input: { sessionId, ...(patch.force === true ? { force: true } : {}) },
+            },
+          ]
+        case 'hibernated':
+          return [{ kind: 'sessionHibernate', input: { sessionId } }]
+        case 'running':
+          return [{ kind: 'sessionResurrect', input: { sessionId } }]
+        default:
+          return undefined
+      }
+    }
+    default:
+      return undefined
+  }
+}
+
+/** The old command a record remove stands for: a session's is kill. */
+export function legacyCallsForRecordRemove(entry: RecordRemoveEntry): LegacyCall[] | undefined {
+  switch (entry.kind) {
+    case 'session':
+      return [{ kind: 'sessionKill', input: { sessionId: entry.id } }]
+    case 'userLayout':
+      return [{ kind: 'layoutClear', input: { keys: [parseLayoutRowId(entry.id).key] } }]
     default:
       return undefined
   }
@@ -124,9 +189,25 @@ export async function submitRecordEditAsLegacy(
   api: PodiumClientApi,
   entry: RecordEditEntry & { readonly mutationId: MutationId },
 ): Promise<unknown> {
-  const calls = legacyCallsForRecordEdit(entry)
+  return await runLegacy(api, entry.mutationId, legacyCallsForRecordEdit(entry))
+}
+
+/** Send a record remove as its old command. */
+export async function submitRecordRemoveAsLegacy(
+  api: PodiumClientApi,
+  entry: RecordRemoveEntry & { readonly mutationId: MutationId },
+): Promise<unknown> {
+  return await runLegacy(api, entry.mutationId, legacyCallsForRecordRemove(entry))
+}
+
+async function runLegacy(
+  api: PodiumClientApi,
+  mutationId: MutationId,
+  calls: readonly LegacyCall[] | undefined,
+): Promise<unknown> {
   if (calls === undefined) return undefined
-  const executors = legacyOutboxExecutors(api)
+  const entry = { mutationId }
+  const executors = { ...legacyOutboxExecutors(api), ...lifecycleRoutes(api) }
   for (const [index, call] of calls.entries()) {
     const mutationId = (
       calls.length === 1 ? entry.mutationId : `${entry.mutationId}:${index}`
