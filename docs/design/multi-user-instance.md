@@ -181,8 +181,9 @@ The task row carries fields that belong to someone's private work. These include
 - coordinator and started-by session ids;
 - the worktree path;
 - the machine id the task is homed on;
-- agent defaults chosen by a person;
 - anything else that points into a session.
+
+The task's agent defaults (harness, model, effort, profile) are shared launch settings: they name no session, machine or credential.
 
 **Change.**
 - Classify every field of the issue projection as shared or execution-private.

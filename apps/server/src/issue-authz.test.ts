@@ -5,10 +5,12 @@ import { issueRegistry } from './modules/issues/registry'
 import { OPERATOR } from './test-support/capabilities'
 
 describe('OPERATOR', () => {
-  it('is an unconstrained admin over all issues', () => {
+  // POD-6288: the first admin as production mints it — the member scope plus
+  // the admin role, which still manages every task.
+  it('is the first admin: the member scope, managing every task by role', () => {
     expect(OPERATOR).toEqual({
       role: 'admin',
-      scope: { kind: 'all' },
+      scope: { kind: 'owned', userId: firstAdminMemberId() },
       actorUser: firstAdminMemberId(),
       onBehalfOf: firstAdminMemberId(),
     })

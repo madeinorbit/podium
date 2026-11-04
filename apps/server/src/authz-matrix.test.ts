@@ -189,9 +189,11 @@ describe('the transport table is not fiction', () => {
   it('capability shapes match their minting sites', () => {
     // Pinned against the REAL constant, so a change to `OPERATOR` reddens the
     // matrix instead of leaving it asserting a shape the product stopped using.
+    // POD-6288: no person is minted with scope `all`; an admin carries the
+    // member scope plus the admin role.
     expect(HUMAN_CAPABILITY).toEqual({
       role: 'admin',
-      scope: { kind: 'all' },
+      scope: { kind: 'owned', userId: OWNER },
       actorUser: OWNER,
       onBehalfOf: OWNER,
     })
@@ -514,14 +516,24 @@ describe('D19.2 — reads are scope-gated, with denial covered on trpc, cli, mcp
     expect(authorize(owningViewer, 'read', mySession)).toBe('allow')
   })
 
-  it('SINGLE-USER PARITY: today’s shipped capabilities still read everything', () => {
+  it('SINGLE-USER PARITY: today’s shipped capabilities still read everything one admin owns', () => {
     // The acceptance criterion "with one admin owning everything, the full authz
     // matrix reproduces today's behaviour". These are the capabilities the
     // transports ACTUALLY mint right now, unmodified.
     for (const transport of READ_LEGS) {
       const shipped = transport.capabilityFor(AGENT_OF_OWNER)
-      expect(authorize(shipped, 'read', someoneElsesSession), transport.tag).toBe('allow')
+      expect(authorize(shipped, 'read', mySession), transport.tag).toBe('allow')
       expect(authorize(shipped, 'read', { id: 'iss:unrelated' }), transport.tag).toBe('allow')
+    }
+  })
+
+  it('a person’s shipped capability no longer reads another person’s private row (POD-6288)', () => {
+    // The admin's old scope `all` read everything; the member scope it carries
+    // now refuses what belongs to someone else, admin role or not.
+    for (const transport of HUMAN_TRANSPORTS) {
+      expect(authorize(transport.capabilityFor(), 'read', someoneElsesSession), transport.tag).toBe(
+        'forbidden',
+      )
     }
   })
 })

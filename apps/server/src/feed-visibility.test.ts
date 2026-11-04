@@ -146,7 +146,8 @@ describe('feed visibility grant semantics', () => {
     expect(state.classOf(git.entity)).toBe('personal')
     expect(state.mayRead(owner, git)).toBe(true)
     expect(state.mayRead(reader, git)).toBe(true)
-    expect(state.mayRead(stranger, git)).toBe(false)
+    // Every member reads every task, and its git state with it (POD-6288).
+    expect(state.mayRead(stranger, git)).toBe(true)
     expect(
       (await edgeOf(policy.anchors, { entity: 'issueProjection', entityId: 'shared' }))
         ?.subjects,
@@ -158,30 +159,27 @@ describe('feed visibility grant semantics', () => {
     expectTypeOf<FeedVisibilityStore['grants']>().not.toHaveProperty('remove')
   })
 
-  it('observes committed writes and revocations but not rolled-back grants', async () => {
+  // Issue grants are inert history (design §4.1, POD-6288): writing or
+  // revoking one changes nobody's read of the task.
+  it('decides task reads without issue grants, before, during and after a revocation', async () => {
     const { store, policy, grant } = await fixture()
+    expect(await policy.mayReadIssue(reader, asIssueId('shared'))).toBe(true)
     await store.transact(async () => {
       await grant('issue', reader, 'read')
     })
     expect(await policy.mayReadIssue(reader, asIssueId('shared'))).toBe(true)
-    await expect(
-      store.transact(async () => {
-        await store.grants.remove('issue', 'shared', reader, 'read')
-        throw new Error('rollback')
-      }),
-    ).rejects.toThrow('rollback')
-    expect(await policy.mayReadIssue(reader, asIssueId('shared'))).toBe(true)
     await store.transact(async () => {
       await store.grants.remove('issue', 'shared', reader, 'read')
     })
-    expect(await policy.mayReadIssue(reader, asIssueId('shared'))).toBe(false)
+    expect(await policy.mayReadIssue(reader, asIssueId('shared'))).toBe(true)
+    expect(await policy.mayReadIssue(stranger, asIssueId('shared'))).toBe(true)
   })
 
   it.each([
     'read',
     'write',
     'manage',
-  ] as const)('preserves owner, grantee, stranger and revoked %s edges across kinds', async (verb) => {
+  ] as const)('reads %s-granted, stranger and revoked tasks alike, and sessions by owner only', async (verb) => {
     const { store, policy, grant } = await fixture()
     await grant('issue', reader, verb)
     await grant('session', reader, verb)
@@ -195,15 +193,16 @@ describe('feed visibility grant semantics', () => {
       const state = await prepare(refs)
       for (const ref of refs) {
         expect(state.mayRead(owner, ref)).toBe(true)
-        // A session grant is legacy and admits nobody (POD-6283); an issue
-        // grant still admits its issue (until POD-6288 widens tasks).
-        expect(state.mayRead(reader, ref)).toBe(ref.entity === 'issueProjection')
-        expect(state.mayRead(stranger, ref)).toBe(false)
-        expect(state.mayRead(revoked, ref)).toBe(false)
+        // A session grant is legacy and admits nobody (POD-6283); a task is
+        // read by every member, grant or none (POD-6288).
+        const shared = ref.entity === 'issueProjection'
+        expect(state.mayRead(reader, ref)).toBe(shared)
+        expect(state.mayRead(stranger, ref)).toBe(shared)
+        expect(state.mayRead(revoked, ref)).toBe(shared)
       }
     }
     expect(await policy.mayReadIssue(reader, asIssueId('shared'))).toBe(true)
-    expect(await policy.mayReadIssue(revoked, asIssueId('shared'))).toBe(false)
+    expect(await policy.mayReadIssue(revoked, asIssueId('shared'))).toBe(true)
     // Revoked readers remain in the historical audience so they receive removals.
     expect(
       (await edgeOf(policy.anchors, { entity: 'issueProjection', entityId: 'shared' }))

@@ -105,15 +105,17 @@ describe('the scope set is CLOSED, with compiler-enforced totality (POD-299)', (
    * the compiler stops guarding it, which is why this test names it.
    */
   const EXPECTED_FOR_EXISTING_ISSUE: Record<IssueScope['kind'], AuthDecision> = {
+    // POD-6288: a legacy persisted `all` is the member rule, and a task is the
+    // shared class every member writes (design §2.2, §4.1).
     all: 'allow',
     none: 'confirm-required',
     subtree: 'confirm-required',
-    // POD-380: an owner-or-grant capability says nothing about issue TREES, and a
-    // self capability reaches only its own per-user row. Both are 'forbidden' for
-    // an issue target rather than 'confirm-required' — deliberately NOT overridable,
-    // because `--outside-scope` confirms crossing an issue boundary (ADR 3 D2) and
-    // must not double as a general escalation into another class.
-    owned: 'forbidden',
+    // A member's own scope reaches every task (POD-6288).
+    owned: 'allow',
+    // A self capability reaches only its own per-user row: 'forbidden' for an
+    // issue target rather than 'confirm-required' — deliberately NOT
+    // overridable, because `--outside-scope` confirms crossing an issue boundary
+    // (ADR 3 D2) and must not double as a general escalation into another class.
     self: 'forbidden',
   }
 
@@ -132,7 +134,10 @@ describe('the scope set is CLOSED, with compiler-enforced totality (POD-299)', (
    * `Record<IssueScope['kind'], …>` is missing-key-checked, so it cannot now.
    */
   const EXPECTED_READ_OF_ANOTHERS_ENTITY: Record<IssueScope['kind'], AuthDecision> = {
-    all: 'allow',
+    // POD-6288: no bypass. A legacy `all` is the member rule for the human the
+    // capability names, and this one names none, so another person's entity
+    // is refused.
+    all: 'forbidden',
     none: 'allow',
     subtree: 'allow',
     // The two scopes that name a person: gated by ownership, exactly as writes are.
@@ -155,10 +160,10 @@ describe('the scope set is CLOSED, with compiler-enforced totality (POD-299)', (
     }
   })
 
-  it('the new scopes are not override-liftable on an issue target', () => {
+  it('the self scope is not override-liftable on an issue target', () => {
     // The claim above says "deliberately NOT overridable". This is the assertion
     // for it: without this, 'forbidden' could be a confirm-required in disguise.
-    for (const kind of ['owned', 'self'] as const) {
+    for (const kind of ['self'] as const) {
       expect(authorize(cap(SCOPES[kind]), 'write', { id: 'i1' }, { override: true }), kind).toBe(
         'forbidden',
       )
@@ -214,9 +219,22 @@ describe('owner-or-grant scope (the personal class)', () => {
     expect(authorize(alice, 'write', session('bob'), { override: true })).toBe('forbidden')
   })
 
-  it('does not reach ANY per-user row, including its own (§3.3 non-grantable)', () => {
-    expect(authorize(alice, 'write', { kind: 'per-user-row', userId: asUserId('alice') })).toBe('forbidden')
+  // POD-6288 (found by POD-6283): per-user state is the "Self" class for every
+  // member, so a member's own scope writes the member's OWN row, and still no
+  // one else's (§3.3 non-grantable): a grant list cannot widen it.
+  it('reaches its own per-user row and nobody else’s (§3.3 Self, non-grantable)', () => {
+    expect(authorize(alice, 'write', { kind: 'per-user-row', userId: asUserId('alice') })).toBe('allow')
     expect(authorize(alice, 'write', { kind: 'per-user-row', userId: asUserId('bob') })).toBe('forbidden')
+    expect(
+      authorize(alice, 'write', { kind: 'per-user-row', userId: asUserId('bob') }, { override: true }),
+    ).toBe('forbidden')
+  })
+
+  it('reads and writes every shared TASK, without a grant (design §2.2, POD-6288)', () => {
+    expect(authorize(alice, 'read', { id: 'bobs-task' })).toBe('allow')
+    expect(authorize(alice, 'write', { id: 'bobs-task' })).toBe('allow')
+    // Lifecycle commands stay a role question: a worker cannot manage.
+    expect(authorize(alice, 'manage', { id: 'bobs-task' })).toBe('forbidden')
   })
 
   /**
@@ -288,61 +306,43 @@ describe('self scope (per-user state)', () => {
   })
 })
 
-describe('the unconstrained admin capability keeps its reach across the new target kinds', () => {
-  it('writes an owned entity it does not own, and any per-user row', () => {
-    // Today's single shared password resolves to admin/all, and POD-380 must not
-    // change that: the migration is behaviour-preserving. `scope: 'all'`
-    // short-circuits before target kind is read.
-    expect(authorize(UNCONSTRAINED_ADMIN, 'write', session('somebody-else'))).toBe('allow')
-    expect(authorize(UNCONSTRAINED_ADMIN, 'write', { kind: 'per-user-row', userId: asUserId('bob') })).toBe(
-      'allow',
-    )
+/**
+ * NO PERSON IS UNCONSTRAINED ANY MORE (POD-6288, design §4.1). `all` stays in
+ * the scope union only because `sessions.delegation` persisted it and a stored
+ * row must keep parsing; nothing mints it. A parsed `all` gets exactly member
+ * rights for the human the capability names: every shared task, its own
+ * owned and per-user rows, and nothing of anybody else's.
+ */
+describe('a legacy persisted `all` is the member rule, not a bypass', () => {
+  it('reaches shared tasks and its own rows, never somebody else’s', () => {
+    expect(authorize(UNCONSTRAINED_ADMIN, 'write', { id: 'any-task' })).toBe('allow')
+    expect(authorize(UNCONSTRAINED_ADMIN, 'write', session(A_MEMBER))).toBe('allow')
+    expect(authorize(UNCONSTRAINED_ADMIN, 'write', session('somebody-else'))).toBe('forbidden')
+    expect(
+      authorize(UNCONSTRAINED_ADMIN, 'write', { kind: 'per-user-row', userId: A_MEMBER }),
+    ).toBe('allow')
+    expect(
+      authorize(UNCONSTRAINED_ADMIN, 'write', { kind: 'per-user-row', userId: asUserId('bob') }),
+    ).toBe('forbidden')
   })
 
-  /**
-   * REVISITED AT POD-1075, AND KEPT — with the qualifier narrowed to what is
-   * still true.
-   *
-   * POD-351 recorded that `authorize()` returns before the owner is ever read
-   * when the scope is `all`, which is why its revocation tests initially passed
-   * against an implementation with NO ownership check at all. Two pins carry
-   * that qualifier so the claim never reads wider than its evidence, and
-   * POD-1075 was named as the moment to look at them again: an ADMIN is a real
-   * scoped user, not an unconstrained operator.
-   *
-   * WHAT CHANGED: a first admin now EXISTS as a row, with `role = 'admin'` and
-   * `A_MEMBER` as its id.
-   *
-   * WHAT DID NOT: the short-circuit, and deliberately. `OPERATOR` is
-   * `admin`/`all`, and the two halves of that are independent gates — the
-   * ACCOUNT role (`admin`, an instance-level fact about a person, ADR 9 D1.4)
-   * and the CAPABILITY scope (`all`, what this call may reach). Narrowing the
-   * scope to `owned` is what makes an admin a scoped user, and it is an
-   * ENFORCEMENT change: ADR 9 D1.5 says `OPERATOR` *"survives only as a
-   * migration artefact"* and ADR 9's compliance checklist requires that no code
-   * path construct an unconstrained capability from "someone authenticated" —
-   * but the thing that would have to stop doing so is `resolvePrincipal`, and
-   * it cannot until the transport can tell two humans apart. That is Phase 3
-   * (POD-315/POD-290), and this issue's brief excludes authz enforcement in as
-   * many words.
-   *
-   * So the pins stay, and this test says what they are now pinning: not "there
-   * are no users" — there are — but "the shared-password transport still mints
-   * one unconstrained capability".
-   */
-  it('is the FIRST ADMIN’s reach, and the scope — not the role — is what is unconstrained', () => {
-    expect(UNCONSTRAINED_ADMIN.role).toBe('admin')
-    expect(UNCONSTRAINED_ADMIN.scope).toEqual({ kind: 'all' })
-
-    // The counterfactual that keeps the short-circuit honest: the SAME admin
-    // role, scoped to what it owns, does NOT reach somebody else's entity. So
-    // the reach above is the scope talking, and flipping `resolvePrincipal` to
-    // mint an `owned` scope is all that stands between here and a scoped admin.
-    const scopedAdmin: Capability = {
-      role: 'admin',
-      scope: { kind: 'owned', userId: asUserId('user:sole') },
+  it('decides exactly as the member scope of the same human', () => {
+    const member: Capability = { ...UNCONSTRAINED_ADMIN, scope: { kind: 'owned', userId: A_MEMBER } }
+    const targets = [
+      { id: 'any-task' },
+      session(A_MEMBER),
+      session('somebody-else'),
+      session('somebody-else', [A_MEMBER]),
+      session(null),
+      { kind: 'per-user-row', userId: A_MEMBER },
+      { kind: 'per-user-row', userId: asUserId('bob') },
+    ] as const
+    for (const action of ['read', 'write', 'manage'] as const) {
+      for (const target of targets) {
+        expect(authorize(UNCONSTRAINED_ADMIN, action, target), `${action} ${JSON.stringify(target)}`).toBe(
+          authorize(member, action, target),
+        )
+      }
     }
-    expect(authorize(scopedAdmin, 'write', session('somebody-else'))).toBe('forbidden')
-    expect(authorize(scopedAdmin, 'write', session('user:sole'))).toBe('allow')
   })
 })
