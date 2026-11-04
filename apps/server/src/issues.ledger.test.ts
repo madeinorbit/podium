@@ -81,7 +81,9 @@ function fold(changes: MetadataChange[]): Map<string, unknown> {
 }
 
 describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
-  it('publishes personal markers from their keyed storage and removes an empty row', async () => {
+  // The creator's start record (POD-6290, design §4.4) lives on the same row,
+  // so clearing the markers leaves the row holding that record, not empty.
+  it('publishes personal markers from their keyed storage and keeps the row its start record holds', async () => {
     const { svc, store, ledger } = await harness()
     try {
       const issue = await svc.crud.create({
@@ -119,8 +121,17 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       await svc.crud.update(issue.id, { pinned: false })
       expect(
         ((await ledger.changesSince(0)) ?? []).filter((c) => c.entity === 'issueUserState').at(-1),
-      ).toMatchObject({ id: key, op: 'remove' })
-      expect(await store.issues.getIssueUserState(user, issue.id)).toBeUndefined()
+      ).toMatchObject({
+        id: key,
+        op: 'upsert',
+        value: { userId: user, entityId: issue.id, pinned: false },
+      })
+      expect(await store.issues.getIssueUserState(user, issue.id)).toMatchObject({
+        readAt: null,
+        tuckedAt: null,
+        pinnedAt: null,
+        joinedVia: 'start',
+      })
     } finally {
       await store.close()
     }
@@ -280,6 +291,9 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
         title: 'Atomic marker',
         startNow: false,
       })
+      // The creator's start record (POD-6290) is already on the row: the
+      // rolled-back write must leave exactly that.
+      const prior = await store.issues.getIssueUserState(await firstAdminMemberId(store), issue.id)
       const before = await ledger.cursor()
       const append = vi
         .spyOn(store.sync, 'appendChanges')
@@ -294,7 +308,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       append.mockRestore()
       expect(
         await store.issues.getIssueUserState(await firstAdminMemberId(store), issue.id),
-      ).toBeUndefined()
+      ).toEqual(prior)
       expect((await svc.reports.store.issueOverlay(issue.id)).pinned).toBe(false)
       expect(await ledger.cursor()).toBe(before)
     } finally {
@@ -309,6 +323,8 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
         title: 'Staged marker',
         startNow: false,
       })
+      // The creator's start record (POD-6290) is already on the row.
+      const prior = await store.issues.getIssueUserState(await firstAdminMemberId(store), issue.id)
       const before = await ledger.cursor()
       await expect(
         store.transact(async () => {
@@ -324,7 +340,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       ).rejects.toThrow('enclosing span failed')
       expect(
         await store.issues.getIssueUserState(await firstAdminMemberId(store), issue.id),
-      ).toBeUndefined()
+      ).toEqual(prior)
       expect(await ledger.cursor()).toBe(before)
       expect((await svc.reports.store.issueOverlay(issue.id)).pinned).toBe(false)
       expect((await svc.reports.list()).find((row) => row.id === issue.id)?.pinned).toBe(false)
@@ -401,7 +417,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
   })
 
   it('internal draft purge emits the remove and the log replays to live state', async () => {
-    const { ledger, svc, appended } = await harness()
+    const { ledger, svc, appended, store } = await harness()
     const parent = await svc.crud.create({ repoPath: '/r', title: 'epic', startNow: false })
     const child = await svc.crud.create({
       repoPath: '/r',
@@ -422,9 +438,16 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
       | undefined
     expect(childChange?.value?.parentId).toBeUndefined()
     // Replica-style replay of the WHOLE durable log folds to the live truth.
-    const folded = fold((await ledger.changesSince(0)) ?? [])
+    const log = (await ledger.changesSince(0)) ?? []
+    const folded = fold(log.filter((c) => c.entity === 'issueProjection'))
     expect([...folded.keys()].sort()).toEqual((await svc.reports.list()).map((i) => i.id).sort())
     expect(folded.has(parent.id)).toBe(false)
+    // Each task's creator holds a start record (POD-6290, design §4.4); the
+    // purged draft's goes with it, in the database and in the replayed log.
+    const personal = fold(log.filter((c) => c.entity === 'issueUserState'))
+    const user = await firstAdminMemberId(store)
+    expect([...personal.keys()]).toEqual([issueUserStateRowId(user, child.id)])
+    expect(await store.issues.getIssueUserState(user, parent.id)).toBeUndefined()
   })
 
   it('a failed change append on create leaves NO phantom row in memory (map installs post-commit, #247)', async () => {

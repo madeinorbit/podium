@@ -261,10 +261,16 @@ describe('IssuesRepository: purgeIssueUserState (no test executes this today)', 
       await store.issues.getIssueUserState(firstAdminMemberId(), asIssueId('iss_1')),
     ).toBeUndefined()
     expect(await store.issues.getIssueUserState(other, asIssueId('iss_1'))).toBeUndefined()
+    // The row also carries the member's personal records (POD-6290, design
+    // §4.4), empty here.
     expect(await store.issues.getIssueUserState(firstAdminMemberId(), asIssueId('iss_2'))).toEqual({
       readAt: 't',
       tuckedAt: null,
       pinnedAt: null,
+      joinedAt: null,
+      joinedVia: null,
+      assignedAt: null,
+      assignedBy: null,
     })
     await store.close()
   })

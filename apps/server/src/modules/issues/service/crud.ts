@@ -17,6 +17,7 @@ import {
   isIssueStage,
   isSortKey,
   isSystemOwnedIssueStage,
+  issueUserStateRowId,
   type MachineId,
   machinePathBasename,
   machinePathRelativeToRoot,
@@ -2122,6 +2123,12 @@ export class IssueCrudModule {
     const purged = await this.store.rowOrThrow(id)
     await this.store.deps.ledger.commit({
       write: async () => {
+        // Every member's personal row for the draft goes with it (POD-6290: a
+        // start writes its starter's record, so a draft always has one). The
+        // table has no foreign key, so the rows are dropped by hand, and each
+        // one's remove reaches its member's feed in the same commit.
+        const personal = await this.store.deps.store.issues.listIssueUserStateRows(id)
+        await this.store.deps.store.issues.purgeIssueUserState(id)
         // Explicit draft rehome detaches every session it can SEE before calling
         // this, but it sees them through `loadSessions()`
         // — `deleted_at IS NULL` — so a TOMBSTONED session keeps pointing at the
@@ -2131,8 +2138,16 @@ export class IssueCrudModule {
         await this.store.deps.store.sessions.detachTombstonesFromIssue(id)
         await this.store.deps.store.issues.deleteIssue(id)
         this.store.announceWorktreeMove(purged.id, worktreeOf(purged), null)
+        return personal.map((state) => state.userId)
       },
-      changes: () => [{ entity: 'issueProjection', id, op: 'remove' }],
+      changes: (owners) => [
+        { entity: 'issueProjection', id, op: 'remove' },
+        ...owners.map((userId) => ({
+          entity: 'issueUserState' as const,
+          id: issueUserStateRowId(userId, id),
+          op: 'remove' as const,
+        })),
+      ],
     })
     // The full-list tail reconciles BOTH kinds (POD-796), so the purge reaches
     // the normalized feed as the remove reconcile derives from full truth. It
