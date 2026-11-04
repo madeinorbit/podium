@@ -36256,6 +36256,131 @@
       "bound": "One task's D13 session summaries from issues.get.",
       "reason": "Drops the reader's own sessions from one task's summaries.",
       "guard": "apps/web/src/features/issues/IssuePage.shared-task.test.tsx and packages/client-graph/src/issue-shared-detail.test.ts (POD-6295)"
+    },
+    {
+      "fingerprint": "bf09a98afa43316f580118e762c042ecae9cd234c6a31121d387d3af1a3eec59",
+      "file": "apps/mobile/src/components/task-detail/IssueSharedSection.tsx",
+      "holder": "IssueSharedSection/IssueSharedSection/detail",
+      "rule": "reader-summary",
+      "tokens": "79ed59fcb6c4f190b76ebc569a601b127b979324b9f2a8dbb215bbce891f56f0",
+      "gate": [],
+      "origin": [
+        "87ab53a903211519780a668dee6814884c9850ee8361fbcfca29e46f1191553b",
+        "a4cd9d6f9d01bf7a9ee6925c0a8fc3cc1b13459ae632b7f41963c42985b1ab7a"
+      ],
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6297",
+      "trigger": "The open phone task page renders on a shared instance.",
+      "bound": "One task: its shared detail from issues.get and issues.collaborators.",
+      "reason": "The shared-detail store answers for the one open task only; a one-member instance makes no read.",
+      "guard": "apps/mobile/harness/shared-tasks-shots.mjs and packages/client-graph/src/issue-shared-detail.test.ts (POD-6297)"
+    },
+    {
+      "fingerprint": "e575fe293d28651deda7fa568068aaceba347a6ed1c4ab0638463f7207ff91f5",
+      "file": "apps/mobile/src/components/task-detail/IssueSharedSection.tsx",
+      "holder": "IssueSharedSection/IssueSharedSection/collaborators",
+      "rule": "consume:map",
+      "tokens": "035cacf70312655fc6622bf9b8df1448c56504f003b4e918bcb7af0373f203df",
+      "gate": [
+        "exit:then:c8f8a367da2c51a30b0147bbbd3feebe4ca688ac3397af799577107766abf63f"
+      ],
+      "origin": [
+        "87ab53a903211519780a668dee6814884c9850ee8361fbcfca29e46f1191553b",
+        "a4cd9d6f9d01bf7a9ee6925c0a8fc3cc1b13459ae632b7f41963c42985b1ab7a"
+      ],
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6297",
+      "trigger": "The open phone task page renders on a shared instance.",
+      "bound": "One task's collaborators.",
+      "reason": "Names each collaborator of the one open task.",
+      "guard": "apps/mobile/harness/shared-tasks-shots.mjs and packages/client-graph/src/issue-shared-detail.test.ts (POD-6297)"
+    },
+    {
+      "fingerprint": "77cd9fd95e2a8811e6c214025c7da25905c162b53e0de414ea58b27d7bcb590c",
+      "file": "apps/mobile/src/components/task-detail/IssueSharedSection.tsx",
+      "holder": "IssueSharedSection/IssueSharedSection/others",
+      "rule": "reader-summary",
+      "tokens": "9467fe022158ef855b8ed32fe8aa1f07bacfab6b23c1e63ddeec06960a94faa0",
+      "gate": [
+        "exit:then:c8f8a367da2c51a30b0147bbbd3feebe4ca688ac3397af799577107766abf63f"
+      ],
+      "origin": [
+        "87ab53a903211519780a668dee6814884c9850ee8361fbcfca29e46f1191553b",
+        "a4cd9d6f9d01bf7a9ee6925c0a8fc3cc1b13459ae632b7f41963c42985b1ab7a"
+      ],
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6297",
+      "trigger": "The phone task page shows other members' sessions on the open task.",
+      "bound": "One task's D13 session summaries from issues.get.",
+      "reason": "Drops the reader's own sessions from one task's summaries.",
+      "guard": "apps/mobile/harness/shared-tasks-shots.mjs and packages/client-graph/src/issue-shared-detail.test.ts (POD-6297)"
+    },
+    {
+      "fingerprint": "bbd657100398cf6adf0eacd19e4a517412a51611cb2c6a490aa637dfe8f16b35",
+      "file": "apps/mobile/src/components/task-detail/IssueSharedSection.tsx",
+      "holder": "IssueSharedSection/IssueSharedSection/others",
+      "rule": "helper-consumer",
+      "tokens": "b864a81cecfece8b6de7188754608813ea081d337bc0ebc9695ac449e944281a",
+      "gate": [
+        "exit:then:c8f8a367da2c51a30b0147bbbd3feebe4ca688ac3397af799577107766abf63f"
+      ],
+      "origin": [
+        "87ab53a903211519780a668dee6814884c9850ee8361fbcfca29e46f1191553b",
+        "a4cd9d6f9d01bf7a9ee6925c0a8fc3cc1b13459ae632b7f41963c42985b1ab7a"
+      ],
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6297",
+      "trigger": "The phone task page shows other members' sessions on the open task.",
+      "bound": "One task's D13 session summaries from issues.get.",
+      "reason": "Drops the reader's own sessions from one task's summaries.",
+      "guard": "apps/mobile/harness/shared-tasks-shots.mjs and packages/client-graph/src/issue-shared-detail.test.ts (POD-6297)"
+    },
+    {
+      "fingerprint": "c16ee512ccde1a47c1d76aa8777b443a579e7a9e507f17f28be45f9bd5e7b04e",
+      "file": "apps/mobile/src/components/task-detail/IssueSharedSection.tsx",
+      "holder": "IssueSharedSection/IssueSharedSection",
+      "rule": "consume:map",
+      "tokens": "dcd33ca5cb569b446f8e94b9de83a9477a5b4fb18b0288afd8bd950e426cc300",
+      "gate": [
+        "exit:then:c8f8a367da2c51a30b0147bbbd3feebe4ca688ac3397af799577107766abf63f",
+        "then:f29d9fb66441072ddcdddfcff86649246b28c998cf4087190362734aa18117d9"
+      ],
+      "origin": [
+        "87ab53a903211519780a668dee6814884c9850ee8361fbcfca29e46f1191553b",
+        "a4cd9d6f9d01bf7a9ee6925c0a8fc3cc1b13459ae632b7f41963c42985b1ab7a"
+      ],
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6297",
+      "trigger": "The phone task page shows other members' sessions, or opens the reassign sheet.",
+      "bound": "One task: its other members' D13 summaries and the active members for the reassign sheet.",
+      "reason": "Draws one row per summary of the one open task, and one action per active member.",
+      "guard": "apps/mobile/harness/shared-tasks-shots.mjs and packages/client-graph/src/issue-shared-detail.test.ts (POD-6297)"
+    },
+    {
+      "fingerprint": "2d1f9a06f0b46e0672857b290bb8c576d3ea4bf79610a6feefbc1c12b52f7ed6",
+      "file": "packages/client-graph/src/issue-shared-detail.ts",
+      "holder": "otherMembersSessions",
+      "rule": "consume:filter",
+      "tokens": "207ea967246a7bb18023bf617edfd934001afebcbb6cdf521c4f21708119d7b5",
+      "gate": [
+        "exit:then:ad8cd184920bba5388764b72094c9cb78850885931562d40d99890935138fd7f"
+      ],
+      "origin": [
+        "87ab53a903211519780a668dee6814884c9850ee8361fbcfca29e46f1191553b",
+        "a4cd9d6f9d01bf7a9ee6925c0a8fc3cc1b13459ae632b7f41963c42985b1ab7a"
+      ],
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6297",
+      "trigger": "The phone task page shows other members' sessions on the open task.",
+      "bound": "One task's D13 session summaries from issues.get.",
+      "reason": "Drops the reader's own sessions from one task's summaries.",
+      "guard": "apps/mobile/harness/shared-tasks-shots.mjs and packages/client-graph/src/issue-shared-detail.test.ts (POD-6297)"
     }
   ]
 }
