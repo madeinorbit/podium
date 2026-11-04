@@ -616,8 +616,10 @@ export class IssueAttentionModule {
     return await this.store.deps.store.events.getSubscription(id)
   }
 
-  async archive(id: string): Promise<IssueProjection> {
-    return await this.crud().update(id, { archived: true })
+  /** `caller` is the human archiving (POD-6368): only their sessions on the
+   *  task are archived with it. */
+  async archive(id: string, caller?: UserId): Promise<IssueProjection> {
+    return await this.crud().update(id, { archived: true }, caller ? { caller } : undefined)
   }
 
   /**
@@ -779,8 +781,8 @@ export class IssueAttentionModule {
    * the worktree simply stays, exactly as it did before this existed, and the GC
    * sweep (POD-564) will offer it again.
    */
-  public async onIssueArchived(row: IssueRow): Promise<void> {
-    await this.cascadeArchiveSessions(row)
+  public async onIssueArchived(row: IssueRow, archivedBy?: UserId): Promise<void> {
+    await this.cascadeArchiveSessions(row, archivedBy)
     // THE FREE IS AN EXTERNAL EFFECT and waits for the commit [POD-3260, spec
     // §3.3 mechanism 3]. The auto-archive sweep reaches this from inside
     // `MaintenanceService`'s span (its `write()` wraps every pure job in
@@ -811,12 +813,22 @@ export class IssueAttentionModule {
    *  sessions. Reuses the session registry's own archive path (setSessionArchived →
    *  relay.setArchived) so each archived session persists + broadcasts. Skips
    *  already-archived sessions so a re-archive is a no-op with no redundant
-   *  broadcast. */
-  public async cascadeArchiveSessions(row: IssueRow): Promise<void> {
+   *  broadcast.
+   *
+   *  ONLY THE ARCHIVER'S OWN SESSIONS (POD-6368, design §2.3), as a close stops
+   *  only the closer's (POD-6287). Archiving a shared task is the archiver
+   *  putting away their own work on it; another member's sessions there stay
+   *  as they were and show the task as archived. An archive with no human
+   *  behind it (the read-gated sweep, or the server's own write) and a
+   *  session that records no human (older rows) archive as before. */
+  public async cascadeArchiveSessions(row: IssueRow, archivedBy?: UserId): Promise<void> {
     const setArchived = this.store.deps.setSessionArchived
     if (!setArchived) return
     for (const s of await this.store.sessionsFor(row)) {
       if (s.archived) continue
+      // The human the session acts for, as the server wrote it at start: no read.
+      const owner = s.delegation?.onBehalfOf ?? s.createdBy?.onBehalfOf
+      if (archivedBy && owner != null && owner !== archivedBy) continue
       await setArchived(s.sessionId, true)
     }
   }

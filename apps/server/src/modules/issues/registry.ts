@@ -1249,9 +1249,10 @@ const defs = {
       // The scope guard stays OUTSIDE the ledger, like `update`'s does: a
       // replayed archive must not be waved through on a cached receipt minted
       // when the subtree looked different (D8 re-authorizes at every apply).
+      // The archiver's own sessions go with the task, nobody else's (POD-6368).
       return await ctx.withMutation(
         input.mutationId,
-        async () => await ctx.attention.archive(input.id),
+        async () => await ctx.attention.archive(input.id, ctx.markerUser()),
       )
     },
   }),

@@ -60,6 +60,7 @@ import {
   messages as messagesTable,
   messageWakeCooldowns,
   sessions as sessionsTable,
+  subscriptions as subscriptionsTable,
 } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import {
@@ -598,6 +599,28 @@ const readBySession = prepared((db: StoreDrizzle) =>
 )
 
 /**
+ * "The `sessionId` placeholder subscribed to this issue's mail", the
+ * subscription POD-6296 delivers another person's task mail by (its own
+ * enabled `issue.mail` row sourced on the `issueId` placeholder). A builder,
+ * like {@link readBySession}.
+ */
+const subscribedToIssueMail = prepared((db: StoreDrizzle) =>
+  db
+    .select({ one: sql`1` })
+    .from(subscriptionsTable)
+    .where(
+      and(
+        eq(subscriptionsTable.subscriberId, param(subscriptionsTable.subscriberId, 'sessionId')),
+        eq(subscriptionsTable.sourceKind, 'issue'),
+        eq(subscriptionsTable.event, 'issue.mail'),
+        eq(subscriptionsTable.subscriberKind, 'session'),
+        eq(subscriptionsTable.sourceRef, param(subscriptionsTable.sourceRef, 'issueId')),
+        eq(subscriptionsTable.enabled, true),
+      ),
+    ),
+)
+
+/**
  * Pending-for-ONE-READER predicate, over the `issueId` and `sessionId`
  * placeholders. A row still nags the session when it is non-terminal, the
  * session did not send it, and the session has no receipt or durable delivery
@@ -606,6 +629,13 @@ const readBySession = prepared((db: StoreDrizzle) =>
  * nobody has consumed, so it is exactly the held handoff a newly-arrived
  * session must be told about. A session row that is gone (tests, pre-substrate
  * ids) falls back to the message's own timestamp, i.e. counts.
+ *
+ * ONLY MAIL THE READER WOULD BE HANDED (POD-6368, POD-6296's rule): another
+ * person's task mail is published on the task, not addressed to this reader,
+ * so it is not on its pointer. A row counts when no human is behind it (system
+ * mail, older rows), when the session's own human sent it, when it was handed
+ * to this session, or when the session subscribed to the task's mail. A
+ * session row that is gone falls back to the sender, i.e. counts.
  */
 function pendingForSession(db: StoreDrizzle, handedToSession: boolean): SQL {
   return and(
@@ -620,6 +650,15 @@ function pendingForSession(db: StoreDrizzle, handedToSession: boolean): SQL {
       ne(messagesTable.deliveredTo, param(messagesTable.deliveredTo, 'sessionId')),
     ),
     notOnItsWay(handedToSession),
+    or(
+      isNull(messagesTable.onBehalfOf),
+      eq(
+        messagesTable.onBehalfOf,
+        sql`COALESCE((SELECT ${sessionsTable.ownerUserId} FROM ${sessionsTable} WHERE ${sessionsTable.id} = ${sql.placeholder('sessionId')}), ${sql.identifier('messages')}.${sql.identifier('on_behalf_of')})`,
+      ),
+      eq(messagesTable.deliveredTo, param(messagesTable.deliveredTo, 'sessionId')),
+      exists(subscribedToIssueMail(db)),
+    ),
     or(
       pending(),
       gte(

@@ -194,7 +194,7 @@ interface IssueCrudHierarchyPort {
 }
 
 interface IssueCrudAttentionPort {
-  onIssueArchived(row: IssueRow): void | Promise<void>
+  onIssueArchived(row: IssueRow, archivedBy?: UserId): void | Promise<void>
   retireIssueOffers(row: IssueRow): void | Promise<void>
 }
 
@@ -958,7 +958,11 @@ export class IssueCrudModule {
    *  events append in one transaction, so the durable fanout is all-or-nothing.
    *  A failure is reported as a committed post-commit failure: the close stays
    *  committed, while the caller is told that its ready fanout did not land. */
-  private async emitReadyAfterClose(closed: IssueRow, actorSessionId?: SessionId): Promise<void> {
+  private async emitReadyAfterClose(
+    closed: IssueRow,
+    actorSessionId?: SessionId,
+    causedByUserId?: UserId,
+  ): Promise<void> {
     await followUpAfterCommit(async () => {
       const inScope = await this.store.repoScopeFilter(closed.repoPath)
       const ready: IssueRow[] = []
@@ -986,6 +990,7 @@ export class IssueCrudModule {
               seq: r.seq,
               unblockedBy: closed.seq,
               ...(actorSessionId ? { causedBySessionId: actorSessionId } : {}),
+              ...(causedByUserId ? { causedByUserId } : {}),
             },
           })
         }
@@ -999,7 +1004,7 @@ export class IssueCrudModule {
    *  work, unread results, and running agents are skipped (and surfaced via a
    *  single issue.cascade_skipped event on the parent) instead of vanishing
    *  from the live views out from under the operator. */
-  private async archiveClosedSubtree(parentId: string): Promise<void> {
+  private async archiveClosedSubtree(parentId: string, caller?: UserId): Promise<void> {
     const skipped: Array<{ seq: number; why: string }> = []
     const children = await this.store.childRows(parentId, { live: true, unarchived: true })
     // Each child's own ASSIGNEE's markers (POD-6291): the person accountable for
@@ -1022,11 +1027,15 @@ export class IssueCrudModule {
         skipped.push({ seq: child.seq, why: 'live session' })
         continue
       }
-      await this.archiveClosedSubtree(child.id)
+      await this.archiveClosedSubtree(child.id, caller)
       // Close-sweep must not take the explicit-archive descendant walk: an
       // open grandchild of a qualifying child has to stay live. The operator
       // archive path below is the one that dismisses the whole subtree.
-      await this.update(child.id, { archived: true }, { cascadeArchive: false })
+      await this.update(
+        child.id,
+        { archived: true },
+        { cascadeArchive: false, ...(caller ? { caller } : {}) },
+      )
     }
     if (skipped.length) {
       const parent = await this.store.row(parentId)
@@ -1042,9 +1051,9 @@ export class IssueCrudModule {
    *  independently visible is how they resurface as "new" work. Recurses
    *  through each child's own `update({ archived: true })` so session teardown
    *  and events stay on the same path as a direct archive. */
-  private async archiveLivingDescendants(parentId: string): Promise<void> {
+  private async archiveLivingDescendants(parentId: string, caller?: UserId): Promise<void> {
     for (const child of await this.store.childRows(parentId, { live: true, unarchived: true })) {
-      await this.update(child.id, { archived: true })
+      await this.update(child.id, { archived: true }, caller ? { caller } : undefined)
     }
   }
 
@@ -1779,6 +1788,8 @@ export class IssueCrudModule {
         ...(row.parentId ? { parentId: row.parentId } : {}),
         // And so those nudges can skip the session that caused the transition (#116).
         ...(opts?.actorSessionId ? { causedBySessionId: opts.actorSessionId } : {}),
+        // And type nothing into another person's session (POD-6368).
+        ...(opts?.caller ? { causedByUserId: opts.caller } : {}),
       })
     }
     // update() owns the closed/reopened emissions: EVERY close path funnels here
@@ -1791,6 +1802,7 @@ export class IssueCrudModule {
         seq: row.seq,
         ...(row.parentId ? { parentId: row.parentId } : {}),
         ...(opts?.actorSessionId ? { causedBySessionId: opts.actorSessionId } : {}),
+        ...(opts?.caller ? { causedByUserId: opts.caller } : {}),
       })
     }
     let readyFanoutFailure: unknown
@@ -1802,6 +1814,9 @@ export class IssueCrudModule {
         // (parent-nudge keys on parentId without a service lookup).
         ...(row.parentId ? { parentId: row.parentId } : {}),
         ...(opts?.actorSessionId ? { causedBySessionId: opts.actorSessionId } : {}),
+        // The human behind the close (POD-6368): the steward types its nudge
+        // only into that human's sessions.
+        ...(opts?.caller ? { causedByUserId: opts.caller } : {}),
       })
       // Closing completes the work: retire standing agent offers so a
       // delegate's "Merge / Send back" cannot demand a decision forever after
@@ -1820,14 +1835,14 @@ export class IssueCrudModule {
         // rejects here, and an unawaited call would settle outside this catch
         // and be reported as an unhandled rejection instead of as the fanout
         // failure the tail below re-raises (POD-3499).
-        await this.emitReadyAfterClose(row, opts?.actorSessionId)
+        await this.emitReadyAfterClose(row, opts?.actorSessionId, opts?.caller)
       } catch (error) {
         // Keep running the rest of this already-committed tail. The durable
         // follow-up error still reaches the caller below, after sibling cleanup
         // and transition events have had their turn.
         readyFanoutFailure = error
       }
-      await this.archiveClosedSubtree(row.id)
+      await this.archiveClosedSubtree(row.id, opts?.caller)
     }
     // Attention-state transitions S3 renders (issue #124). Emit only on an actual
     // change so a re-pin / re-archive / re-defer-to-same-time never duplicates.
@@ -1844,11 +1859,12 @@ export class IssueCrudModule {
     if (row.archived !== prevArchived && row.archived) {
       await this.store.emitEvent('issue.archived', row.id, { seq: row.seq })
       // Stops the member sessions AND gives the checkout back (POD-567); the
-      // sweep's own archive path calls the same seam.
-      await this.attention().onIssueArchived(row)
+      // sweep's own archive path calls the same seam. Only the archiver's own
+      // sessions (POD-6368): another member's stay as they were.
+      await this.attention().onIssueArchived(row, opts?.caller)
       // Explicit archive dismisses the whole subtree so children do not
       // promote into the live list as orphans of a hidden parent.
-      if (opts?.cascadeArchive !== false) await this.archiveLivingDescendants(row.id)
+      if (opts?.cascadeArchive !== false) await this.archiveLivingDescendants(row.id, opts?.caller)
     }
     if (row.deferUntil !== prevDeferUntil) {
       if (row.deferUntil != null) {
@@ -2292,8 +2308,10 @@ export class IssueCrudModule {
         question: question ?? null,
         ...(options.length > 0 ? { options } : {}),
         ...(meta?.askedBy ? { askedBy: meta.askedBy } : {}),
-        // Carried so a child needing a human can notify its parent's sessions.
+        // Carried so a child needing a human can notify its parent's sessions,
+        // and only its asker's human's (POD-6368).
         ...(parentId ? { parentId } : {}),
+        ...(meta?.attribution?.onBehalfOf ? { causedByUserId: meta.attribution.onBehalfOf } : {}),
       })
     }
     return wire
@@ -2424,7 +2442,7 @@ export class IssueCrudModule {
   async close(
     id: string,
     reason = 'done',
-    opts?: { actorSessionId?: SessionId },
+    opts?: { actorSessionId?: SessionId; caller?: UserId },
   ): Promise<IssueProjection> {
     // update() emits issue.closed; actorSessionId rides through so the steward
     // can skip nudging the session that requested the close.

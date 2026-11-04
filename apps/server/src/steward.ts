@@ -294,6 +294,32 @@ export const SESSION_PARENT_SUBS: Record<string, SessionParentSub> = {
   },
 }
 
+/**
+ * THE HUMAN BEHIND AN EVENT (POD-6368, design §2.3): the member whose act, or
+ * whose agent's act, caused it. Absent for the server's own acts and for events
+ * written before it was recorded; those nudge as they always have.
+ */
+export function eventCausedByUser(e: StewardEvent): UserId | undefined {
+  return (e.payload as { causedByUserId?: UserId } | null)?.causedByUserId ?? undefined
+}
+
+/**
+ * MAY ONE PERSON'S ACT BE TYPED INTO THIS SESSION? (POD-6368, MU-21.) A session
+ * is its own human's, and input into it drives it, spending a turn on that
+ * human's credentials. So a nudge caused by another person's act is not typed
+ * in: it is HELD, as task mail is (POD-6296). The session's human and their
+ * agents still read what happened on the task (the steward's comment, the
+ * event in its activity). A nudge with no human behind it (the server's own
+ * act), or caused by the session's own human or that human's agents, behaves
+ * as today. On a one-member instance every session is the actor's.
+ */
+export function causedByOwnHuman(
+  causers: ReadonlySet<UserId | undefined>,
+  session: Pick<SessionFacts, 'ownerUserId'>,
+): boolean {
+  return causers.size === 0 || causers.has(undefined) || causers.has(session.ownerUserId)
+}
+
 // The parent-session extraction that used to live here is now
 // `spawnedByParentSessionId` in `@podium/model` (POD-1133). It moved because it
 // was one of TWO hand-rolled parsers of the same tag — this one and the sidebar
@@ -1056,7 +1082,14 @@ export class StewardService {
     }
     const issue = await this.deps.issues.reports.getMeta(sub.subscriberId)
     if (!issue) return []
-    return sessionsForIssue(issue.worktreePath, sessions, issue.id)
+    // A task's subscription is its assignee's (POD-6288: a person subscribes
+    // only a task assigned to them), so it nudges only that human's sessions
+    // on the task (POD-6368). Another member's session there holds its own
+    // subscription if it wants one.
+    const owner = issue.ownerUserId
+    return sessionsForIssue(issue.worktreePath, sessions, issue.id).filter(
+      (s) => !owner || s.ownerUserId === owner,
+    )
   }
 
   /** For each newly-ready dependent: post an 'Unblocked by #<seq>' comment and
@@ -1069,6 +1102,8 @@ export class StewardService {
       if (closedSeq == null) continue
       // The session that closed the blocker already knows — skip self-nudge (#116).
       const causedBy = (e.payload as { causedBySessionId?: SessionId } | null)?.causedBySessionId
+      // Typed only into the closer's own human's sessions (POD-6368).
+      const causers = new Set([eventCausedByUser(e)])
       const dependent = await this.deps.issues.reports.getMeta(e.subject)
       if (!dependent) continue
       // Colon-anchored so '#5' never matches a prior '#55' comment. Single-server
@@ -1106,7 +1141,8 @@ export class StewardService {
         (s) =>
           (s.status === 'live' || s.status === 'starting') &&
           s.agentKind !== 'shell' &&
-          s.sessionId !== causedBy,
+          s.sessionId !== causedBy &&
+          causedByOwnHuman(causers, s),
       )
       const targets = preferIssueCoordinator(candidates, dependent.coordinatorSessionId)
       for (const s of targets) {
@@ -1247,6 +1283,9 @@ export class StewardService {
     // coalesced nudge excludes all of them (#116). Collected across the whole
     // batch (before dedup) so a self-triggered event never self-nudges.
     const causedBy = new Set<string>()
+    // The humans behind the batch's events: the nudge is typed only into their
+    // sessions (POD-6368). One event the server caused nudges as today.
+    const causers = new Set<UserId | undefined>()
     for (const e of batch) {
       const childSeq = (e.payload as { seq?: number } | null)?.seq
       if (childSeq == null) continue
@@ -1254,6 +1293,7 @@ export class StewardService {
       lastChangeTs = e.ts
       const causer = (e.payload as { causedBySessionId?: SessionId } | null)?.causedBySessionId
       if (causer) causedBy.add(causer)
+      causers.add(eventCausedByUser(e))
       // Colon-anchored so '#5' never matches a prior '#55' comment (see the
       // matching note on handleUnblock — same single-server dedup assumption).
       const marker = sub.marker(childSeq)
@@ -1295,7 +1335,8 @@ export class StewardService {
       (s) =>
         (s.status === 'live' || s.status === 'starting') &&
         s.agentKind !== 'shell' &&
-        !causedBy.has(s.sessionId),
+        !causedBy.has(s.sessionId) &&
+        causedByOwnHuman(causers, s),
     )
     const targets = preferIssueCoordinator(candidates, parent.coordinatorSessionId)
     for (const s of targets) {
