@@ -313,7 +313,7 @@ describe('MU-30: a reassignment leaves existing work where it is', () => {
     const after = await f.handle.registry.sessionStore.sessions.getSession(hers)
     expect(after?.ownerUserId).toBe(alice)
     expect(after?.delegation).toEqual(before?.delegation)
-    expect(after?.createdByOnBehalfOf ?? null).toBe(before?.createdByOnBehalfOf ?? null)
+    expect(after?.createdBy).toEqual(before?.createdBy)
 
     // The new assignee cannot read or drive it.
     const bobs = await trpc('bob')
