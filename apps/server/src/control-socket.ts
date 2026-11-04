@@ -30,6 +30,16 @@
  *       400 {"ok":false,"error":"..."}   empty, or not JSON
  *       409 {"ok":false,"error":"..."}   no admin account to hold it
  *
+ *   POST /v1/member-recovery   {"email": "..."}
+ *       Mint a single-use recovery link for the enabled member with that email
+ *       (POD-6298): the self-hosted way back in for someone, admins included,
+ *       who has lost their password and has no mail reset. Whoever owns this
+ *       OS account owns the server's state already; the link is audited as
+ *       issued by the host. `podium auth recovery-link` calls it.
+ *       200 {"ok":true,"url":"...","expiresAt":"..."}
+ *       400 {"ok":false,"error":"..."}   no email, or not JSON
+ *       409 {"ok":false,"error":"..."}   no such enabled member with a password
+ *
  * Every other method or path is a 404, and a body over 4 KiB a 413.
  */
 import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http'
@@ -49,6 +59,10 @@ export interface ControlSocketDeps {
     isSet(): Promise<boolean>
     set(password: string): Promise<{ ok: true } | { ok: false; error: string }>
   }
+  /** A recovery link for the member with this email (POD-6298). */
+  memberRecovery?: (
+    email: string,
+  ) => Promise<{ ok: true; url: string; expiresAt: string } | { ok: false; error: string }>
 }
 
 function reply(res: ServerResponse, status: number, body: unknown): void {
@@ -123,6 +137,17 @@ export function controlSocketHandler(deps: ControlSocketDeps): RequestListener {
           else reply(res, 409, { ok: false, error: result.error })
           return
         }
+      }
+      if (req.method === 'POST' && req.url === '/v1/member-recovery' && deps.memberRecovery) {
+        const input = await readJson(req, res)
+        if (!input) return
+        if (typeof input.email !== 'string' || input.email.trim() === '') {
+          reply(res, 400, { ok: false, error: 'expected {"email": non-empty string}' })
+          return
+        }
+        const result = await deps.memberRecovery(input.email.trim())
+        reply(res, result.ok ? 200 : 409, result)
+        return
       }
       if (req.method === 'GET' && req.url === '/v1/diagnostics' && deps.diagnostics) {
         reply(res, 200, deps.diagnostics())

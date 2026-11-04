@@ -4,6 +4,7 @@
  *   podium auth mint-session [--ttl <duration>] [--print-only]
  *   podium auth sessions
  *   podium auth revoke-sessions [--label <label>]
+ *   podium auth recovery-link <email>
  *
  * WHY: Podium's `/trpc` surface is gated by the browser login's `podium_session` cookie, and
  * before this there was no way for a host-local caller to obtain one — auth.json stores only
@@ -24,6 +25,7 @@ import {
   sessionTokenPath,
 } from '@podium/runtime/session-mint'
 import { declareFlags, flagTable, parseFlags, withUnknownFlagAs } from './argv'
+import { controlRequest } from './cli-doctor'
 
 export class AuthCliError extends Error {}
 
@@ -41,6 +43,10 @@ export const AUTH_USAGE = [
   '  revoke-sessions [--label <label>]',
   `      Revoke one class of session. Default '${BREAK_GLASS_LABEL}' — browser logins`,
   "      ('login') and node⇄hub tokens ('upstream') are left alone.",
+  '  recovery-link <email>',
+  '      Print a single-use link that sets a new password for that member. The way back',
+  '      in on this host when nobody can sign in and no mail reset is set up. Asks the',
+  '      running server over its local socket; the link is audited and expires in a day.',
   '',
   'Minting needs write access to this instance’s podium.db (ownership of everything',
   'in it). Agent scope does not survive that — ADR 3 D14 / POD-1402. PODIUM_STATE_DIR',
@@ -50,6 +56,33 @@ export const AUTH_USAGE = [
 export interface AuthCliIo {
   print(line: string): void
   printErr(line: string): void
+}
+
+/** The control-socket call `recovery-link` makes; injected by tests. */
+export type RecoveryLinkRequest = (email: string) => Promise<Record<string, unknown>>
+
+async function recoveryLink(
+  argv: string[],
+  io: AuthCliIo,
+  request: RecoveryLinkRequest,
+): Promise<void> {
+  const email = argv.find((arg) => !arg.startsWith('--'))
+  if (!email) throw new AuthCliError('usage: podium auth recovery-link <email>')
+  let answer: Record<string, unknown>
+  try {
+    answer = await request(email)
+  } catch (error) {
+    throw new AuthCliError(
+      error instanceof Error && error.message
+        ? `Podium refused the recovery link: ${error.message}`
+        : 'Podium is not running on this host, so it cannot issue a recovery link.',
+    )
+  }
+  io.print(String(answer.url))
+  io.printErr(
+    `Single use, expires ${String(answer.expiresAt)}. Opening it sets a new password and signs ` +
+      'that member out everywhere.',
+  )
 }
 
 /** Parse a human duration (`30s`, `10m`, `2h`, `30d`, bare seconds) to milliseconds. */
@@ -112,9 +145,15 @@ const AUTH_FLAGS = flagTable(declareFlags({ known: [] }), {
   'mint-session': { known: ['ttl'], booleans: ['print-only'] },
   sessions: {},
   'revoke-sessions': { known: ['label'] },
+  'recovery-link': {},
 })
 
-export async function authCliMain(argv: string[], io: AuthCliIo): Promise<void> {
+export async function authCliMain(
+  argv: string[],
+  io: AuthCliIo,
+  requestRecovery: RecoveryLinkRequest = async (email) =>
+    await controlRequest('/v1/member-recovery', { email }),
+): Promise<void> {
   const sub = argv[0]
   if (sub === undefined || sub === 'help' || sub === '--help' || sub === '-h') {
     io.print(AUTH_USAGE)
@@ -133,5 +172,6 @@ export async function authCliMain(argv: string[], io: AuthCliIo): Promise<void> 
   if (sub === 'mint-session') return mintSession(argv.slice(1), io)
   if (sub === 'sessions') return showSessions(io)
   if (sub === 'revoke-sessions') return revokeSessions(argv.slice(1), io)
+  if (sub === 'recovery-link') return await recoveryLink(argv.slice(1), io, requestRecovery)
   throw new AuthCliError(`unknown command '${sub}'\n\n${AUTH_USAGE}`)
 }

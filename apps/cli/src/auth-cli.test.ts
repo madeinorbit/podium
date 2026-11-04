@@ -137,3 +137,29 @@ describe('unknown flags on podium auth (POD-3836)', () => {
     )
   })
 })
+
+describe('recovery-link (POD-6298)', () => {
+  it('asks the running server for a link and prints it alone on stdout', async () => {
+    const asked: string[] = []
+    await authCliMain(['recovery-link', 'bob@example.com'], io, async (email) => {
+      asked.push(email)
+      return {
+        ok: true,
+        url: 'https://podium.example/#invite=tok',
+        expiresAt: '2026-11-05T00:00:00Z',
+      }
+    })
+    expect(asked).toEqual(['bob@example.com'])
+    expect(stdout()).toBe('https://podium.example/#invite=tok')
+    expect(stderr()).toContain('Single use')
+  })
+
+  it('needs an email and reports a refusal', async () => {
+    await expect(authCliMain(['recovery-link'], io, async () => ({}))).rejects.toThrow(/usage/)
+    await expect(
+      authCliMain(['recovery-link', 'nobody@example.com'], io, async () => {
+        throw new Error('No enabled member has that email')
+      }),
+    ).rejects.toThrow(/No enabled member/)
+  })
+})

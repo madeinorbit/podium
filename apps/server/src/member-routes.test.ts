@@ -172,3 +172,79 @@ test('every signed-in member reads the directory; only admins see other membersâ
   expect((await read(undefined)).status).toBe(401)
   expect((await read(carol)).status).toBe(401)
 })
+
+test('a mailed reset goes only to a member with a password, once per window, and says nothing either way (POD-6298)', async () => {
+  const bob = asUserId('mem_bob_reset')
+  await store.users.create(
+    {
+      id: bob,
+      displayName: 'Bob',
+      email: 'bob@example.com',
+      role: 'member',
+      createdAt: new Date().toISOString(),
+      disabledAt: null,
+    },
+    'hash',
+  )
+  const hono = new Hono()
+  const sendRecoveryMail = vi.fn(async () => {})
+  registerMemberRoutes(hono, {
+    users: store.users,
+    invites: new MemberInvites(store.users),
+    resolveUserId: async () => undefined,
+    appUrl: () => 'https://workspace.example/',
+    sendRecoveryMail,
+  })
+  const options = await hono.request('https://workspace.example/auth/members/recovery-options')
+  expect(await options.json()).toEqual({ mailReset: true })
+  // An unknown address and a known one get the same answer.
+  for (const email of ['nobody@example.com', 'bob@example.com', 'bob@example.com']) {
+    const response = await post(hono, 'reset-request', { email })
+    expect(response.status, email).toBe(200)
+    expect(await response.json()).toEqual({ ok: true })
+  }
+  // One mail: none for the unknown address, none for the repeat inside the window.
+  expect(sendRecoveryMail).toHaveBeenCalledTimes(1)
+  const sent = (
+    sendRecoveryMail.mock.calls[0] as unknown as [{ email: string; url: string; expiresAt: string }]
+  )[0]
+  expect(sent.email).toBe('bob@example.com')
+  expect(Date.parse(sent.expiresAt) - Date.now()).toBeLessThanOrEqual(60 * 60 * 1000)
+  const token = sent.url.split('#invite=')[1]!
+  expect((await (await post(hono, 'inspect', { token })).json()) as object).toMatchObject({
+    email: 'bob@example.com',
+    recovery: true,
+  })
+  const completed = await post(hono, 'complete', {
+    token,
+    email: 'bob@example.com',
+    password: 'bob-new-password',
+    displayName: 'Bob',
+  })
+  expect(completed.status).toBe(200)
+  expect(((await completed.json()) as { userId: string }).userId).toBe(bob)
+  expect((await store.users.credentialFor(bob))?.passwordHash).not.toBe('hash')
+  expect((await store.settingsAudit.list()).map((row) => row.command)).toEqual([
+    'members.resetMailed',
+    'members.recover',
+  ])
+})
+
+test('an invite cannot reset a member who has a password; that takes a recovery link', async () => {
+  const bob = asUserId('mem_bob_reinvite')
+  await store.users.create(
+    {
+      id: bob,
+      displayName: 'Bob',
+      email: 'bob@example.com',
+      role: 'member',
+      createdAt: new Date().toISOString(),
+      disabledAt: null,
+    },
+    'hash',
+  )
+  const { hono } = app({ admin: true })
+  expect((await post(hono, 'invite', { memberId: bob })).status).toBe(400)
+  const recovery = await post(hono, 'recovery', { id: bob })
+  expect(recovery.status).toBe(200)
+})

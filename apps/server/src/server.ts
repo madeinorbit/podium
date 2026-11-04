@@ -1,13 +1,3 @@
-import { bootStage } from './boot-timing'
-import { readNewestTargetPromotionMetadata } from './modules/server-transfer/target-status'
-import { adoptLegacyHostMachine, completePreauthorizedSetup } from './setup-enrollment'
-import { requestParentEnrollment } from '@podium/runtime/parent-control'
-import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
-import { readLegacyInstancePasswordHash, deleteLegacyInstancePasswordFile, hashPassword } from '@podium/runtime/auth-store'
-import { registerSyncRoutes } from './sync/routes'
-import { syncFeedPrincipal } from './sync/route-support'
-import { MemberInvites } from './member-invites'
-import { registerMemberRoutes, type MemberInviteMail } from './member-routes'
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { hostname } from 'node:os'
@@ -15,14 +5,11 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { trpcServer } from '@hono/trpc-server'
 import { createLogger } from '@podium/logger'
-import {
-  asMachineId,
-  asUserId,
-  controlPlaneAvailable,
-} from '@podium/model'
+import { asMachineId, asUserId, controlPlaneAvailable } from '@podium/model'
 import {
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
+  CLIENT_WIRE_VERSION,
   type DaemonPtyInputBatch,
   type LocalDaemonLink,
   MIN_CLIENT_WIRE_VERSION,
@@ -30,17 +17,21 @@ import {
   PeerHelloReply,
   type ServedWebIdentity,
   type UpdateTarget,
-  CLIENT_WIRE_VERSION,
   wireSchemaDigest,
 } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import {
+  deleteLegacyInstancePasswordFile,
+  hashPassword,
+  readLegacyInstancePasswordHash,
+} from '@podium/runtime/auth-store'
+import {
   assertAppUrlCompatible,
   loadConfig,
   resolveAllowedOrigins,
+  resolveAppUrl,
   resolveAuthMode,
   resolveAuthSignInUrl,
-  resolveAppUrl,
   resolveConnectBaseUrl,
   resolveConnectProbeKeys,
   resolveDevArtifactOrigin,
@@ -72,10 +63,13 @@ import {
   type LoopProfileCapture,
   takeProfileRequest,
 } from '@podium/runtime/loop-profile-capture'
+import { loadSupervisorState, targetTransferRecovery } from '@podium/runtime/machine-supervisor'
 import {
-  targetTransferRecovery,
-} from '@podium/runtime/machine-supervisor'
-import { clearParentOutcome, readParentOutcome } from '@podium/runtime/parent-control'
+  clearParentOutcome,
+  readParentOutcome,
+  requestParentEnrollment,
+} from '@podium/runtime/parent-control'
+import { applyPublicUrl } from '@podium/runtime/setup'
 import {
   formatTopQueries,
   queryAttributionTotals,
@@ -89,6 +83,7 @@ import {
   taskAttributionCoverage,
   taskAttributionTotals,
 } from '@podium/runtime/task-attribution'
+import { listenUserSocket, serverControlSocketPath } from '@podium/runtime/user-socket'
 import { prepareLedgerBoot } from '@podium/sync'
 import { Hono } from 'hono'
 import {
@@ -100,13 +95,14 @@ import {
   registerAuthRoute,
   requestUserId,
 } from './auth-route'
+import { bootStage } from './boot-timing'
 import { captureServerBuildVersion, serverBuildSourceDigest } from './build-version'
-import { updateParticipantSkip, updateParticipantSkipNote } from './update-participant-skip'
 import { createCloudRuntimeProviderFromEnv } from './cloud-runtime'
 import { userCommandPrincipal } from './command-principal'
+import { controlSocketHandler } from './control-socket'
 import { registerArtifactRoute } from './file-artifact-route'
 import { registerAssetRoute } from './file-asset-route'
-import { privateResourceAccess } from './private-resources'
+import { adoptStagedFirstAdminPassword, applyEnvFirstAdminPassword } from './first-admin-password'
 import {
   createDaemonAcceptor,
   prepareDaemonFrame,
@@ -120,17 +116,19 @@ import {
 } from './gateway/ws-server'
 import { podiumCors } from './http-cors'
 import { PairingManager } from './hub/pairing'
-import { adoptStagedFirstAdminPassword, applyEnvFirstAdminPassword } from './first-admin-password'
 import { IssueToolProvider } from './issue-mcp'
+import { registerLocateProofRoute } from './locate-proof-route'
 import { registerMcpRoute } from './mcp-route'
+import { MemberInvites } from './member-invites'
+import {
+  type MemberInviteMail,
+  type MemberRecoveryMail,
+  registerMemberRoutes,
+} from './member-routes'
 import { MobilePairingManager } from './mobile-pairing'
 import { clientAddressForRequest, registerMobilePairingRoutes } from './mobile-pairing-route'
 import { connectClient } from './modules/connect/client'
 import { ConnectPublisher } from './modules/connect/publisher'
-import { controlSocketHandler } from './control-socket'
-import { applyPublicUrl } from '@podium/runtime/setup'
-import { TunnelHealthStore } from './tunnel-health'
-import { listenUserSocket, serverControlSocketPath } from '@podium/runtime/user-socket'
 import { registerMaintenanceRoute } from './modules/maintenance/route'
 import { MaintenanceService } from './modules/maintenance/service'
 import { directSessionPort, MessagingService } from './modules/messaging'
@@ -145,6 +143,7 @@ import {
 import { serverMoveFaultHook } from './modules/server-transfer/operation'
 import { PortableStateFence } from './modules/server-transfer/portable-fence'
 import {
+  readNewestTargetPromotionMetadata,
   readPromotedTargetMetadata,
 } from './modules/server-transfer/target-status'
 import { SuperagentService } from './modules/superagent'
@@ -160,8 +159,8 @@ import {
 } from './modules/updates/installed-restart'
 import { startLocalUpdateParticipant } from './modules/updates/local-participant'
 import type { UpdateReality } from './modules/updates/operation'
-import type { ServerPlacement } from './modules/updates/service'
 import type { ChannelFeed } from './modules/updates/release-target'
+import type { ServerPlacement } from './modules/updates/service'
 import {
   readOrCreateDevArtifactToken,
   readOrCreateUpdateSigningKey,
@@ -174,8 +173,9 @@ import {
 } from './modules/updates/target-refresh'
 import { updateOperationContext, websiteDigestReader } from './modules/updates/trpc'
 import { originRefusalReporter } from './origin-refusal'
-import { enabledProviderPrincipal, type ProviderPrincipal, createPluginAuth } from './plugin-auth'
+import { createPluginAuth, enabledProviderPrincipal, type ProviderPrincipal } from './plugin-auth'
 import type { PodiumPlugin } from './plugins'
+import { privateResourceAccess } from './private-resources'
 import {
   authReadinessBoundary,
   isHostLocalRequest,
@@ -190,12 +190,17 @@ import { compressHttpResponse } from './response-compression'
 import { resolveServerRole, type ServerRoleConfig } from './roles'
 import { appRouter } from './router'
 import { createServerReadiness } from './server-readiness'
+import { adoptLegacyHostMachine, completePreauthorizedSetup } from './setup-enrollment'
 import { registerSetupRoute } from './setup-route'
 import { closeServerFast } from './shutdown'
 import { registerDesktopWebStatic, registerMobileRouting, registerWebStatic } from './static-web'
 import { defaultDbPath, SessionStore } from './store'
+import { syncFeedPrincipal } from './sync/route-support'
+import { registerSyncRoutes } from './sync/routes'
 import type { SyncWorkerClient } from './sync-worker/worker-client'
 import { wireTelemetry } from './telemetry'
+import { TunnelHealthStore } from './tunnel-health'
+import { updateParticipantSkip, updateParticipantSkipNote } from './update-participant-skip'
 import { reportParkedUpstreamMutations } from './upstream-retirement'
 import {
   describeBundleDiagnostic,
@@ -204,7 +209,6 @@ import {
   servedWebSourceDigest,
 } from './web-bundle-stamp'
 import { registerWellKnownRoute } from './well-known-route'
-import { registerLocateProofRoute } from './locate-proof-route'
 
 const log = createLogger('server:http')
 // Separate namespaces so an operator can turn the loop profiler up
@@ -581,6 +585,9 @@ export async function startServer(
     /** Stable hosted workspace identity carried by pairing commands. */
     workspaceId?: string
     sendMemberInviteMail?: MemberInviteMail
+    /** Mails a member the password-reset link they asked for (POD-6298). Absent:
+     *  recovery is an admin-issued link or the host-local tool. */
+    sendMemberRecoveryMail?: MemberRecoveryMail
     /** Keep `/` on the web shell while still serving Expo at `/mobile` (browser harness). */
     redirectPhoneRootToMobile?: boolean
     /**
@@ -792,7 +799,9 @@ export async function startServer(
     // root) so core (relay/machines) never imports hub/pairing — see roles.ts.
     // Node role = no manager = `pair` handshakes rejected, minting throws; the
     // local daemon's `hello` path is untouched.
-    ...(role.hub ? { pairing: new PairingManager({ installationId: installation.installationId }) } : {}),
+    ...(role.hub
+      ? { pairing: new PairingManager({ installationId: installation.installationId }) }
+      : {}),
     installationId: installation.installationId,
     updatePubkey: () => updateSigningKey.publicKey,
     // Under `updateScope: 'fleet-only'` this server's binary belongs to the
@@ -837,16 +846,35 @@ export async function startServer(
     const setupRequest = supervisorSetup.setupEnrollment
     if (setupRequest && !supervisorSetup.enrolledPublicKey) {
       const stagedHash = readLegacyInstancePasswordHash()
-      const passwordHash = stagedHash ?? (process.env.PODIUM_PASSWORD ? await hashPassword(process.env.PODIUM_PASSWORD) : undefined)
-      const receipt = await completePreauthorizedSetup(store, installation.installationId, setupRequest, passwordHash)
+      const passwordHash =
+        stagedHash ??
+        (process.env.PODIUM_PASSWORD ? await hashPassword(process.env.PODIUM_PASSWORD) : undefined)
+      const receipt =
+        (await completePreauthorizedSetup(
+          store,
+          installation.installationId,
+          setupRequest,
+          passwordHash,
+        )) ??
         // A host upgraded from 0.1.0 staged this request to re-key its legacy row (POD-5931).
-        ?? await adoptLegacyHostMachine(store, installation.installationId, setupRequest)
+        (await adoptLegacyHostMachine(store, installation.installationId, setupRequest))
       if (receipt) {
         // Credential activation and enrollment committed together. Files and parent RPC happen afterwards.
-        if (stagedHash && receipt.actor && (await store.users.credentialFor(receipt.actor))?.passwordHash === stagedHash) deleteLegacyInstancePasswordFile()
+        if (
+          stagedHash &&
+          receipt.actor &&
+          (await store.users.credentialFor(receipt.actor))?.passwordHash === stagedHash
+        )
+          deleteLegacyInstancePasswordFile()
         try {
-          if (!rehearsal) await requestParentEnrollment({ action: 'confirm', agentExecution: receipt.agentExecution,
-            setupRequestId: receipt.requestId, publicKey: receipt.publicKey, installationId: receipt.installationId })
+          if (!rehearsal)
+            await requestParentEnrollment({
+              action: 'confirm',
+              agentExecution: receipt.agentExecution,
+              setupRequestId: receipt.requestId,
+              publicKey: receipt.publicKey,
+              installationId: receipt.installationId,
+            })
         } catch (error) {
           log.warn('setup enrollment committed; parent confirmation will retry', { err: error })
         }
@@ -942,7 +970,8 @@ export async function startServer(
     issues: registry.modules.issues.reports,
     sessions: registry.modules.sessions,
     topics: store.messagingTopics,
-    sessionIssueId: async (sessionId) => await registry.modules.sessions.readSessionIssueId(sessionId),
+    sessionIssueId: async (sessionId) =>
+      await registry.modules.sessions.readSessionIssueId(sessionId),
     // Issue-topic entry recap [spec:SP-62c3]: last messages from the bound
     // superagent (or btw origin) session transcript.
     topicRecap: {
@@ -1008,16 +1037,20 @@ export async function startServer(
   const devPublisher = await wireDevBundlePublisher({
     sourceRoot: rehearsal ? undefined : developmentSourceRoot,
     instanceId,
-    artifactOrigin: !rehearsal && developmentSourceRoot ? resolveDevArtifactOrigin(config) : undefined,
+    artifactOrigin:
+      !rehearsal && developmentSourceRoot ? resolveDevArtifactOrigin(config) : undefined,
     localArtifactOrigin: () => `http://127.0.0.1:${boundPort}`,
     hasRemoteUpdateConsumers: async () =>
-      (await store.machines.listMachines()).some((machine) =>
-        !machine.revokedAt && isRemoteUpdateConsumer(machine, hostMachineId),
+      (await store.machines.listMachines()).some(
+        (machine) => !machine.revokedAt && isRemoteUpdateConsumer(machine, hostMachineId),
       ),
     // FLEET-SCOPED darwin production [spec:SP-6144 section 8b]: this host mints a Mac
     // bundle when a Mac has enrolled, and not otherwise. Read at build time, from the
     // inventories the daemons themselves reported.
-    fleetPlatforms: async () => fleetHeadlessPlatforms((await store.machines.listMachines()).filter((machine) => !machine.revokedAt)),
+    fleetPlatforms: async () =>
+      fleetHeadlessPlatforms(
+        (await store.machines.listMachines()).filter((machine) => !machine.revokedAt),
+      ),
     // A proposal answers what THIS running server would change by building HEAD.
     // Fleet skew belongs to rollout; it must never move the build's changelog baseline.
     proposalRunningVersion: appVersion,
@@ -1041,7 +1074,8 @@ export async function startServer(
   /** One real host participant when an installed parent can apply its grants. */
   const localUpdateParticipant =
     process.env.PODIUM_MACHINE_UPDATE_OWNER !== 'supervisor' &&
-    !recoveryOnly && !rehearsal &&
+    !recoveryOnly &&
+    !rehearsal &&
     process.env.PODIUM_E2E_DISABLE_LOCAL_UPDATE_PARTICIPANT !== '1' &&
     !developmentRuntime.runningFromSource &&
     prepareCoordinatorUpdate &&
@@ -1698,9 +1732,10 @@ export async function startServer(
     onCredentialRevoked: (tokenHash) => revokeConnectedMobileSession(tokenHash),
     onLogin: (event) => registry.modules.bus.emit('auth.login', event),
   })
+  const memberInvites = new MemberInvites(store.users)
   registerMemberRoutes(app, {
     users: store.users,
-    invites: new MemberInvites(store.users),
+    invites: memberInvites,
     resolveUserId: async (request) =>
       controlPlaneAvailable(readiness())
         ? (
@@ -1717,6 +1752,7 @@ export async function startServer(
       resolveAppUrl(loadConfig(), process.env) || resolvePublicUrl(loadConfig(), process.env),
     allowedOrigins,
     sendMail: opts.sendMemberInviteMail,
+    ...(opts.sendMemberRecoveryMail ? { sendRecoveryMail: opts.sendMemberRecoveryMail } : {}),
   })
   registerMobilePairingRoutes(app, {
     store: store.auth,
@@ -1807,10 +1843,16 @@ export async function startServer(
   registerSyncRoutes(app, {
     ...registry.syncDelta,
     worker: () => syncWorker,
-    principal: async (request) => syncFeedPrincipal(await requestPrincipal({
-      cookieHeader: request.headers.get('cookie') ?? undefined,
-      authorizationHeader: request.headers.get('authorization') ?? undefined,
-    }, request)),
+    principal: async (request) =>
+      syncFeedPrincipal(
+        await requestPrincipal(
+          {
+            cookieHeader: request.headers.get('cookie') ?? undefined,
+            authorizationHeader: request.headers.get('authorization') ?? undefined,
+          },
+          request,
+        ),
+      ),
   })
   app.use('/trpc/*', cors())
   app.use('/trpc/*', boundary)
@@ -2100,7 +2142,9 @@ export async function startServer(
         websocket: ws.websocket,
         async fetch(request, nativeServer) {
           if (rehearsal && !['/health', '/version'].includes(new URL(request.url).pathname)) {
-            return new Response('Upgrade rehearsal: session and API traffic disabled', { status: 503 })
+            return new Response('Upgrade rehearsal: session and API traffic disabled', {
+              status: 503,
+            })
           }
           if (!acceptingRequests) return new Response('Server is shutting down', { status: 503 })
           for (const plugin of opts.plugins ?? []) {
@@ -2400,7 +2444,12 @@ export async function startServer(
           return { established: false as const, reply }
         }
         const { principal } = outcome
-        const unregisterCredential = registry.modules.machines.registerCredentialConnection(principal.machine, () => { credentialLive = false })
+        const unregisterCredential = registry.modules.machines.registerCredentialConnection(
+          principal.machine,
+          () => {
+            credentialLive = false
+          },
+        )
         perf.record(
           'phase',
           outcome.acceptedCaps.includes(CAP_TERMINAL_OUTPUT_BINARY_V1)
@@ -2426,9 +2475,15 @@ export async function startServer(
         }
         if (!credentialLive) {
           unregisterCredential()
-          return { established: false as const, reply: { type: 'peerHelloRejected' as const, reason: 'unexpected-frame' as const } }
+          return {
+            established: false as const,
+            reply: { type: 'peerHelloRejected' as const, reason: 'unexpected-frame' as const },
+          }
         }
-        const send = (msg: ControlMessage): void => queueMicrotask(() => { if (credentialLive) deliver(msg) })
+        const send = (msg: ControlMessage): void =>
+          queueMicrotask(() => {
+            if (credentialLive) deliver(msg)
+          })
         const transport = {
           send,
           sendInput: (input: DaemonPtyInputBatch): void => {
@@ -2440,7 +2495,9 @@ export async function startServer(
                 DEPLOYMENT,
                 input.bytes.byteLength,
               )
-              queueMicrotask(() => { if (credentialLive) deliverInput(input) })
+              queueMicrotask(() => {
+                if (credentialLive) deliverInput(input)
+              })
               return
             }
             perf.record(
@@ -2484,7 +2541,9 @@ export async function startServer(
               msg.type !== 'serverEndpointResult'
             )
               return
-            queueMicrotask(() => { if (credentialLive) registry.gateway.routeDaemonFrame(principal, msg) })
+            queueMicrotask(() => {
+              if (credentialLive) registry.gateway.routeDaemonFrame(principal, msg)
+            })
           },
           deliverOutput: (batch) => {
             perf.record(
@@ -2494,7 +2553,9 @@ export async function startServer(
               DEPLOYMENT,
               batch.bytes.byteLength,
             )
-            queueMicrotask(() => { if (credentialLive) registry.gateway.routeDaemonOutput(principal, batch) })
+            queueMicrotask(() => {
+              if (credentialLive) registry.gateway.routeDaemonOutput(principal, batch)
+            })
           },
           close: () => {
             credentialLive = false
@@ -2519,13 +2580,14 @@ export async function startServer(
       // Only after the immediate resolve succeeds or records its per-channel
       // refusal do we expose health and arm the delayed retry. The delay remains
       // exactly the scheduler's 2–7 minute jitter; it is recovery, not boot.
-      const targetRefresh = recoveryOnly || rehearsal
-        ? { stop: () => {} }
-        : startTargetRefresh({
-            refresh: (channel) => registry.modules.updates.refreshTarget(channel),
-            operationActive: (channel) => registry.modules.updates.operationActive(channel),
-            schedule: timerSchedule,
-          })
+      const targetRefresh =
+        recoveryOnly || rehearsal
+          ? { stop: () => {} }
+          : startTargetRefresh({
+              refresh: (channel) => registry.modules.updates.refreshTarget(channel),
+              operationActive: (channel) => registry.modules.updates.operationActive(channel),
+              schedule: timerSchedule,
+            })
       targetsResolvedOnBoot = true
       bootStage('health exposed', healthStarted)
       if (!recoveryOnly && !rehearsal) connectPublisher.start()
@@ -2571,6 +2633,24 @@ export async function startServer(
                     await registry.modules.machines.grantHostMachineIfUnowned(userId)
                     return { ok: true }
                   },
+                },
+                // `podium auth recovery-link`: the host-local way back in (POD-6298).
+                memberRecovery: async (email) => {
+                  try {
+                    const invite = await memberInvites.createHostRecovery(email)
+                    const url = new URL(
+                      resolveAppUrl(loadConfig(), process.env) ||
+                        resolvePublicUrl(loadConfig(), process.env) ||
+                        `http://127.0.0.1:${server.port}`,
+                    )
+                    url.hash = `invite=${invite.token}`
+                    return { ok: true, url: url.href, expiresAt: invite.expiresAt }
+                  } catch (error) {
+                    return {
+                      ok: false,
+                      error: error instanceof Error ? error.message : 'recovery link refused',
+                    }
+                  }
                 },
               }),
               'server control socket',
