@@ -1353,19 +1353,15 @@ export class MessageDeliveryService {
    */
   private async ownMailMembers(
     message: MessageRow,
-    issue: { id: IssueId; worktreePath?: string | null },
+    issue: { id: IssueId },
     members: SessionMeta[],
   ): Promise<SessionMeta[]> {
     const sender = message.attribution?.onBehalfOf
     if (!sender || members.length === 0) return members
-    const owners = new Map(
-      (await this.deps.sessions.readSessionFactsByIssue(issue.worktreePath ?? null, issue.id)).map(
-        (facts) => [facts.sessionId, facts.ownerUserId],
-      ),
-    )
+    // The human a session acts for, as the server wrote it at start: no read.
     const foreign = members.filter((s) => {
-      const owner = owners.get(s.sessionId)
-      return owner !== undefined && owner !== sender
+      const owner = s.delegation?.onBehalfOf ?? s.createdBy?.onBehalfOf
+      return owner != null && owner !== sender
     })
     if (foreign.length === 0) return members
     const subscribed = new Set<string>()
