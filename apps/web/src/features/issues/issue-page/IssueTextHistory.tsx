@@ -14,11 +14,9 @@ import { RequestAnswer } from '@podium/client-graph/request-answer'
 import { History } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
-import { useRuntimeSelector } from '@/app/store'
-import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { useMemberRoster } from '@/lib/member-roster'
-import { type IssueTextRevision, loadIssueTextRevisions } from '../issue-page-commands'
+import type { IssueTextRevision } from '../issue-page-commands'
 import { IssueAge } from './IssueAge'
 import { issueObserver as observer } from './issue-observer'
 import { type MemberNamer, personName } from './issue-provenance'
@@ -46,6 +44,7 @@ export const IssueTextHistory = observer(function IssueTextHistory({
   mayRestore,
   busy,
   onRestore,
+  load,
 }: {
   issueId: string
   field: 'description' | 'brief'
@@ -55,12 +54,13 @@ export const IssueTextHistory = observer(function IssueTextHistory({
   mayRestore: boolean
   busy: boolean
   onRestore: (revisionId: number, done: () => void) => void
+  /** Read the field's revisions, oldest first (`issues.textRevisions`). */
+  load: () => Promise<IssueTextRevision[]>
 }): JSX.Element {
-  const trpc = useRuntimeSelector((store) => store.trpc) as Trpc
   const roster = useMemberRoster()
   const [open, setOpen] = useState(false)
   const [history] = useState(() => new RequestAnswer<IssueTextRevision[]>())
-  const read = () => void history.load(() => loadIssueTextRevisions(trpc, issueId, field))
+  const read = () => void history.load(load)
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-read on open and on a new task only
   useEffect(() => {
     if (open) read()

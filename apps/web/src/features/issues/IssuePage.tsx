@@ -24,7 +24,7 @@ import { issueObserver as observer } from './issue-page/issue-observer'
 import { useDetailDesktop } from './issue-page/use-detail-viewport'
 import { useEvictionGuard } from './issue-page/use-eviction-guard'
 import { useIssueSharedDetail } from './issue-page/use-issue-shared-detail'
-import { issuePageCommands } from './issue-page-commands'
+import { issuePageCommands, loadIssueTextRevisions } from './issue-page-commands'
 import { useIssuePageModel } from './issue-page-model'
 import type { TextBase, TextConflict } from './issue-text-save'
 /**
@@ -248,6 +248,7 @@ export const IssuePageBody = observer(function IssuePageBody({
                   <IssueTextHistory
                     issueId={issue.id}
                     field="description"
+                    load={() => loadIssueTextRevisions(model.trpc, issue.id, 'description')}
                     current={issue.description}
                     mayRestore={allowed?.restore ?? true}
                     busy={busy}
@@ -261,6 +262,7 @@ export const IssuePageBody = observer(function IssuePageBody({
                   <IssueTextHistory
                     issueId={issue.id}
                     field="brief"
+                    load={() => loadIssueTextRevisions(model.trpc, issue.id, 'brief')}
                     current={issue.brief ?? ''}
                     mayRestore={allowed?.restore ?? true}
                     busy={busy}

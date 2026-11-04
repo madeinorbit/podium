@@ -127,7 +127,7 @@ const SessionRosterRow = observer(function SessionRosterRow({
  * a plain row, not a button: the reader cannot open, read or drive another
  * member's session, so nothing here offers to.
  */
-const OtherMemberSessionRow = observer(function OtherMemberSessionRow({
+export const OtherMemberSessionRow = observer(function OtherMemberSessionRow({
   summary,
   owner,
 }: {
