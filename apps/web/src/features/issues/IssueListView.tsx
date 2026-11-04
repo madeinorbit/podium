@@ -12,7 +12,7 @@ import {
 import { observer } from '@podium/client-graph/react'
 import { NotSavedMark } from '@/components/NotSavedMark'
 import { Badge } from '@/components/ui/badge'
-import { memberDisplayName, useProvidedMemberRoster } from '@/lib/member-roster'
+import { memberDisplayName, useMemberRoster } from '@/lib/member-roster'
 import { cn } from '@/lib/utils'
 import { BoardPoolRow } from './board-pool-row'
 import { CardAge } from './CardAge'
@@ -23,10 +23,9 @@ import { isEpic } from './issue-hierarchy'
 import type { IssuesDisplay } from './issues-display'
 import { useBoundedVirtualList } from './use-bounded-virtual-list'
 
-/** The row's assignee by name (POD-6294): the wire carries a member id. The
- *  roster comes from the Tasks view, so the list stays presentational. */
+/** The row's assignee by name (POD-6294): the wire carries a member id. */
 const MemberAvatar = observer(function MemberAvatar({ memberId }: { memberId?: string }) {
-  const roster = useProvidedMemberRoster()
+  const roster = useMemberRoster()
   return memberId ? (
     <AssigneeAvatar assignee={memberId} name={memberDisplayName(roster, memberId)} />
   ) : (

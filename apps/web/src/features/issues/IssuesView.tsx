@@ -28,7 +28,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
-import { MemberRosterContext, useMemberRoster } from '@/lib/member-roster'
+import { useMemberRoster } from '@/lib/member-roster'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { BoardShortcutSheet } from './BoardShortcutSheet'
 import {
@@ -502,23 +502,20 @@ export function IssuesView(): JSX.Element {
         </div>
       )}
       {view.layout === 'list' ? (
-        // The list is presentational: its rows name assignees from this roster.
-        <MemberRosterContext.Provider value={roster}>
-          <ResponsiveIssueList
-            groups={view.rowGroups}
-            display={display}
-            onOpen={setOpenIssueId}
-            onCreateIn={createInStage}
-            focusId={focusId}
-            selected={selectedIds}
-            onToggleSelect={toggleSelectId}
-            onToggleExpand={toggleExpand}
-            onContextMenu={onIssueContextMenu}
-            onStatusPick={rowStatus}
-            initialScrollTop={issueScrollPositions.current.list}
-            onScrollTop={rememberListScroll}
-          />
-        </MemberRosterContext.Provider>
+        <ResponsiveIssueList
+          groups={view.rowGroups}
+          display={display}
+          onOpen={setOpenIssueId}
+          onCreateIn={createInStage}
+          focusId={focusId}
+          selected={selectedIds}
+          onToggleSelect={toggleSelectId}
+          onToggleExpand={toggleExpand}
+          onContextMenu={onIssueContextMenu}
+          onStatusPick={rowStatus}
+          initialScrollTop={issueScrollPositions.current.list}
+          onScrollTop={rememberListScroll}
+        />
       ) : (
         <ResponsiveIssuesKanban
           columns={view.orderedByStage}

@@ -5,7 +5,7 @@ import {
 } from '@podium/client-graph/member-roster'
 import { observer } from '@podium/client-graph/react'
 import { followVisibleRequest } from '@podium/client-graph/visible-request'
-import { createContext, useContext, useEffect } from 'react'
+import { useEffect } from 'react'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import { serverConfig } from '@/app/trpc'
 import { memberRequest } from '@/features/setup/member-api'
@@ -43,19 +43,6 @@ export function useMemberRoster(load = false): MemberRoster | undefined {
     )
   }, [load, roster])
   return roster
-}
-
-/**
- * The roster for PRESENTATIONAL views (POD-6294). The issue list renders
- * without a store in harnesses and tests, so its rows read the roster the Tasks
- * view provides here rather than the pool; with no provider a row names nobody.
- */
-export const MemberRosterContext = createContext<Pick<MemberRoster, 'nameOf'> | undefined>(
-  undefined,
-)
-
-export function useProvidedMemberRoster(): Pick<MemberRoster, 'nameOf'> | undefined {
-  return useContext(MemberRosterContext)
 }
 
 /**
