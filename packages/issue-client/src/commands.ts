@@ -1377,7 +1377,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     //   [--nudge] [--notify] · subscription list · subscription remove <id>.
     name: 'subscription',
     summary:
-      'Subscribe THIS agent to events: subscription add <event> --source-kind relationship|issue|session --source-ref <ref> [--nudge] [--notify] · subscription list · subscription remove <id>. Events: issue.closed, issue.stage_changed:review, session.finished/errored/waiting. Relationship refs: my-children, my-subtree.',
+      'Subscribe THIS agent to events: subscription add <event> --source-kind relationship|issue|session --source-ref <ref> [--nudge] [--notify] · subscription list · subscription remove <id>. Events: issue.closed, issue.stage_changed:review, session.finished/errored/waiting, issue.mail (receive other people’s mail to that task as input; without it their task mail is only in the task’s mailbox). Relationship refs: my-children, my-subtree.',
     args: z.strictObject({
       sub: z.enum(['add', 'remove', 'list']),
       ref: z.string().optional(),

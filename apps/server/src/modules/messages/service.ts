@@ -249,6 +249,10 @@ export interface DeliveryContradiction {
   evidence: DeliveryContradictionEvidence
 }
 
+/** The subscription a session takes to receive another person's mail to a
+ *  task it works on (POD-6296). The steward has no such event, so it nudges nothing. */
+export const TASK_MAIL_SUBSCRIPTION = 'issue.mail'
+
 export interface MessageDeliveryDeps {
   /**
    * Who a LIVE sender with no attribution acts for: the instance's only active
@@ -1338,6 +1342,50 @@ export class MessageDeliveryService {
     return await withReadScope(async () => await this.attemptDeliveryInScope(message, opts))
   }
 
+  /**
+   * TASK MAIL IS PUBLISHED COLLABORATION, NEVER INPUT INTO ANOTHER PERSON'S
+   * PRIVATE SESSION (POD-6296, design §2.3). Of a task's member sessions, mail
+   * is typed only into those of the sender's own human, or into a session that
+   * subscribed to the task's mail (its own `issue.mail` subscription sourced
+   * on the task: `podium issue subscription add issue.mail --source-kind issue
+   * --source-ref <task>`). Everyone reads the mail in the task's mailbox. System mail (no
+   * human behind it) and a one-member instance keep every member.
+   */
+  private async ownMailMembers(
+    message: MessageRow,
+    issue: { id: IssueId; worktreePath?: string | null },
+    members: SessionMeta[],
+  ): Promise<SessionMeta[]> {
+    const sender = message.attribution?.onBehalfOf
+    if (!sender || members.length === 0) return members
+    const owners = new Map(
+      (await this.deps.sessions.readSessionFactsByIssue(issue.worktreePath ?? null, issue.id)).map(
+        (facts) => [facts.sessionId, facts.ownerUserId],
+      ),
+    )
+    const foreign = members.filter((s) => {
+      const owner = owners.get(s.sessionId)
+      return owner !== undefined && owner !== sender
+    })
+    if (foreign.length === 0) return members
+    const subscribed = new Set<string>()
+    for (const s of foreign) {
+      for (const sub of await this.deps.issues.attention.subscriptionList({
+        subscriberId: s.sessionId,
+      })) {
+        if (
+          sub.enabled &&
+          sub.subscriberKind === 'session' &&
+          sub.event === TASK_MAIL_SUBSCRIPTION &&
+          sub.sourceKind === 'issue' &&
+          sub.sourceRef === issue.id
+        )
+          subscribed.add(s.sessionId)
+      }
+    }
+    return members.filter((s) => !foreign.includes(s) || subscribed.has(s.sessionId))
+  }
+
   private async attemptDeliveryInScope(
     message: MessageRow,
     opts?: DeliveryAttemptOptions,
@@ -1442,7 +1490,8 @@ export class MessageDeliveryService {
       // session from issue-recipient resolution, so an agent mailing its own
       // issue never picks itself. selectMailNudgeSession picks the most recently
       // active live member, which would otherwise BE the sender.
-      const members = allMembers.filter((s) => s.sessionId !== message.fromSession)
+      const others = allMembers.filter((s) => s.sessionId !== message.fromSession)
+      const members = await this.ownMailMembers(message, issue, others)
       // Prefer the issue's designated coordinator by ROLE (docs/agent-comms-target.html
       // §05 q1), for EVERY urgency [POD-1365] and every non-exited session status
       // [POD-1371]. Routing is by ROLE; urgency and lifecycle govern only HOW the
@@ -1483,6 +1532,14 @@ export class MessageDeliveryService {
               .filter((s) => s.agentKind !== 'shell')
               .sort((a, b) => (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''))
               .at(0)
+      }
+      if (!target && members.length < others.length) {
+        // Only other people's sessions work this task (POD-6296): the mail is
+        // published on the task, for them to read, and typed into nobody's
+        // session. HELD for a session of the sender's own human (or one that
+        // subscribed); a wake spawns nothing, since nothing of the sender's
+        // human is there to wake.
+        return { ok: true, queued: true, disposition: 'held' }
       }
       if (!target) {
         // The sender was the only member: ledger-only, not queued — otherwise

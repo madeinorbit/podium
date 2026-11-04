@@ -366,6 +366,42 @@ async function workMachineGate(
   }
 }
 
+/**
+ * A COORDINATOR SEAT IS ITS OWN HUMAN'S (POD-6296, MU-21). The coordinator
+ * marker decides whom sessions on a task ask and where its mail goes first, so
+ * setting it is an effect on the session it names. Bob may name only a session
+ * of his own human, and may not replace or clear a coordinator that acts for
+ * someone else while it still exists: Alice's agent keeps the seat she gave it.
+ * Bob coordinates his own work through his own sub-task. On a one-member
+ * instance every session is the caller's, and nothing changes.
+ */
+async function assertOwnCoordinatorSeat(
+  ctx: IssueCommandCtx,
+  id: string,
+  next: SessionId | null,
+): Promise<void> {
+  const human = ctx.markerUser()
+  if (!human) return
+  const row = await ctx.reports.getMeta(id)
+  if (!row) return
+  const current = row.coordinatorSessionId ?? null
+  const ids = [...new Set([next, current].filter((s): s is SessionId => s !== null))]
+  if (ids.length === 0) return
+  const sessions = await ctx.deps.executionFacts.store.sessions.getSessions(ids)
+  const ref = await ctx.reports.niceRef(row)
+  if (next !== null && sessions.get(next) && sessions.get(next)?.ownerUserId !== human) {
+    throw new IssueRefusal(
+      `cannot make ${next} the coordinator of ${ref}: that session is another person's. A coordinator acts for the person whose session it is`,
+    )
+  }
+  const holder = current !== null && current !== next ? sessions.get(current) : undefined
+  if (holder && !holder.deletedAt && !holder.archived && holder.ownerUserId !== human) {
+    throw new IssueRefusal(
+      `cannot change the coordinator of ${ref}: another person's session holds it. Coordinate your own work through your own sub-task: \`podium issue create --parent-id ${ref} --title "…"\``,
+    )
+  }
+}
+
 /** The gate's warning on a start's result, which the CLI prints after it. */
 function withWarning<T>(gate: { warning?: string }, result: T): T {
   if (!gate.warning || !result || typeof result !== 'object') return result
@@ -1768,6 +1804,7 @@ const defs = {
           message: 'pass claim:true, sessionId:<id>, or sessionId:null to clear',
         })
       }
+      await assertOwnCoordinatorSeat(ctx, input.id, sessionId)
       return await ctx.crud.setCoordinator(input.id, sessionId)
     },
   }),

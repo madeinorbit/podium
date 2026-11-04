@@ -2310,7 +2310,12 @@ export class IssueCrudModule {
   ): Promise<void> {
     const parent = await this.store.row(parentId)
     if (!parent || parent.coordinatorSessionId) return
-    if (!(await this.store.factsFor(parent)).some((s) => s.sessionId === sessionId)) return
+    const self = (await this.store.factsFor(parent)).find((s) => s.sessionId === sessionId)
+    if (!self) return
+    // Implicitly only for the task's own assignee's session (POD-6296): Bob's
+    // agent splitting Alice's task does not take her seat; it claims it only
+    // on purpose (`coordinator --claim`), and then acts for Bob alone.
+    if (self.ownerUserId !== parent.ownerUserId) return
     await this.setCoordinator(parent.id, sessionId, { cause: 'first-child', childId })
   }
 
