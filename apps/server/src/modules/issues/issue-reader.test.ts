@@ -80,7 +80,9 @@ async function replaceIssue(store: SessionStore, row: IssueRow) {
 
 // Expected authorization decisions are explicit.
 describe('issue authority', () => {
-  it('preserves owner, stranger, missing, deleted and transferred ownership', async () => {
+  // Every member reads every task (design §2.2, POD-6288): the memory search
+  // policy and the feed agree, and only the row's existence decides.
+  it('admits every member to every existing task, before and after an owner change', async () => {
     const { store } = await setup()
     const access = new DurableIssueAccessIndex(store.issues, store.grants, store.repos)
     const policy = new MemoryVisibilityPolicy(store)
@@ -93,42 +95,32 @@ describe('issue authority', () => {
       return memory
     }
     expect(await allowed(alice)).toBe(true)
-    expect(await allowed(bob)).toBe(false)
+    expect(await allowed(bob)).toBe(true)
     expect(await allowed(alice, 'absent')).toBe(false)
     expect(await access.has(asIssueId('absent'))).toBe(false)
-    expect((await access.ownedTarget(asIssueId('iss_x'), 'read'))?.owner).toBe(alice)
-    await store.transact(async () => {
-      await replaceIssue(store, issueRow({ ownerUserId: bob }))
-      expect(await allowed(alice)).toBe(false)
-      expect(await allowed(bob)).toBe(true)
-    })
-    expect(await allowed(alice)).toBe(false)
-    expect(await allowed(bob)).toBe(true)
-    await expect(store.transact(async () => {
-      await replaceIssue(store, issueRow({ ownerUserId: alice }))
-      expect(await allowed(alice)).toBe(true)
-      expect(await allowed(bob)).toBe(false)
-      throw new Error('rollback')
-    })).rejects.toThrow('rollback')
-    expect(await allowed(alice)).toBe(false)
+    await replaceIssue(store, issueRow({ ownerUserId: bob }))
+    expect(await allowed(alice)).toBe(true)
     expect(await allowed(bob)).toBe(true)
     // Existing policy does not filter soft deletion at this low-level seam.
     await store.issues.upsertIssue(issueRow({ ownerUserId: bob, deletedAt: '2026-09-11' }))
-    expect(await allowed(bob)).toBe(true)
+    expect(await allowed(alice)).toBe(true)
     await store.issues.deleteIssue('iss_x')
+    expect(await allowed(alice)).toBe(false)
     expect(await allowed(bob)).toBe(false)
   })
 
-  it('preserves grant verbs and missing-row denial', async () => {
+  it('decides nothing by issue grants: a member reads without one, and no verb changes it', async () => {
     const { store } = await setup()
     const policy = new MemoryVisibilityPolicy(store)
     for (const verb of ['read', 'write', 'manage', 'use'] as const) {
       await store.grants.upsert({ resourceKind: 'issue', resourceId: 'iss_x', grantee: bob,
         verb, owner: alice, visibility: 'personal', createdAt: '2026-09-11',
         actorKind: 'user', actorId: alice, onBehalfOf: alice })
-      expect(await policy.mayRead({ kind: 'user', id: bob }, { class: 'issue', id: 'iss_x' })).toBe(verb !== 'use')
+      expect(await policy.mayRead({ kind: 'user', id: bob }, { class: 'issue', id: 'iss_x' })).toBe(true)
       await store.grants.remove('issue', 'iss_x', bob, verb)
     }
+    expect(await policy.mayRead({ kind: 'user', id: bob }, { class: 'issue', id: 'iss_x' })).toBe(true)
+    expect(await policy.mayRead({ kind: 'user', id: bob }, { class: 'issue', id: 'absent' })).toBe(false)
   })
 })
 

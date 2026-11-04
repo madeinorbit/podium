@@ -1834,14 +1834,14 @@ export const issueShareContract = {
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
   conflict: 'cmd',
-  conflictRule: 'owner-only grant edge upsert and issue visibility update in one authority commit',
+  conflictRule: 'writes nothing: tasks are visible to all members (POD-6288)',
 } as const satisfies MutatingCommandContract
 
 export const issueUnshareContract = {
   ...issueShareContract,
   name: 'issues.unshare',
   input: unshareInput,
-  conflictRule: 'owner-only grant edge removal and issue visibility update in one authority commit',
+  conflictRule: 'writes nothing: tasks are visible to all members (POD-6288)',
 } as const satisfies MutatingCommandContract
 
 // -------------------------------------------------------------------------

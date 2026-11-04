@@ -37,6 +37,7 @@ import { isExposedOn, sessionCommandPlane, sessionHandoffInput } from '@podium/c
 import {
   asMachineId,
   asSessionId,
+  isPersonCapability,
   isSpawnedBy,
   type SessionMeta,
   type SessionId,
@@ -446,7 +447,7 @@ export function makeAgentRelayDispatch(
               targetIssueId,
             )
           } else {
-            const isOperator = capability.scope.kind === 'all'
+            const isOperator = isPersonCapability(capability)
             const isParent =
               capability.actorSessionId !== undefined &&
               isSpawnedBy(target.spawnedBy, {
@@ -537,7 +538,7 @@ export function makeAgentRelayDispatch(
             } else {
               // Issueless: parent/operator free; otherwise --outside-scope
               // asserts the agent got human OK [spec:SP-9904].
-              const isOperator = capability.scope.kind === 'all'
+              const isOperator = isPersonCapability(capability)
               const isParent =
                 actorSessionId !== undefined &&
                 isSpawnedBy(target.spawnedBy, { kind: 'session', id: actorSessionId })

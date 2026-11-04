@@ -166,41 +166,59 @@ export class IssueStore {
     return await this.deps.readSessionFactsByIssue(row.worktreePath, row.id)
   }
 
-  /** One issue's markers for the broadcast viewer, as the wire wants them. */
-  async issueOverlay(issueId: IssueId): Promise<IssueUserOverlay> {
-    return issueOverlayOf(await this.issueUserState(issueId))
+  /**
+   * WHOSE MARKERS (POD-6288): the member a command acts for, when it names one,
+   * else the broadcast viewer. Per-user markers are the "Self" class of design
+   * §4.1: Bob's read, tuck and pin are Bob's rows, whoever owns the task.
+   */
+  private async markerUser(user: UserId | undefined): Promise<UserId> {
+    return user ?? (await this.broadcastViewer())
+  }
+
+  /** One issue's markers for `user` (default: the broadcast viewer), as the
+   *  wire wants them. */
+  async issueOverlay(issueId: IssueId, user?: UserId): Promise<IssueUserOverlay> {
+    return issueOverlayOf(await this.issueUserState(issueId, user))
   }
 
   /** The stored markers, for callers that need `pinnedAt` rather than `pinned`.
    *  Read from the database, batched per operation (POD-6158). */
-  async issueUserState(issueId: IssueId): Promise<StoredIssueUserState | undefined> {
-    return await this.deps.store.issues.loadIssueUserState(await this.broadcastViewer(), issueId)
+  async issueUserState(issueId: IssueId, user?: UserId): Promise<StoredIssueUserState | undefined> {
+    return await this.deps.store.issues.loadIssueUserState(await this.markerUser(user), issueId)
   }
 
   /** {@link issueUserState} for many issues: one batched read (POD-6191). */
-  async issueUserStates(ids: Iterable<string>): Promise<Map<string, StoredIssueUserState | undefined>> {
-    return await this.deps.store.issues.loadIssueUserStates(await this.broadcastViewer(), [...new Set(ids)])
+  async issueUserStates(
+    ids: Iterable<string>,
+    user?: UserId,
+  ): Promise<Map<string, StoredIssueUserState | undefined>> {
+    return await this.deps.store.issues.loadIssueUserStates(await this.markerUser(user), [...new Set(ids)])
   }
 
   /**
-   * Write one of the broadcast viewer's markers. A PARTIAL patch — see the
-   * repository method — so marking an issue read cannot silently un-pin it.
+   * Write one of `user`'s markers (default: the broadcast viewer's). A PARTIAL
+   * patch — see the repository method — so marking an issue read cannot
+   * silently un-pin it.
    */
-  async writeIssueUserState(issueId: IssueId, patch: Partial<StoredIssueUserState>): Promise<void> {
-    const user = await this.broadcastViewer()
+  async writeIssueUserState(
+    issueId: IssueId,
+    patch: Partial<StoredIssueUserState>,
+    user?: UserId,
+  ): Promise<void> {
+    const owner = await this.markerUser(user)
     await this.deps.ledger.commit({
       write: async () => {
-        await this.deps.store.issues.setIssueUserState(user, issueId, patch)
-        return await this.deps.store.issues.getIssueUserState(user, issueId)
+        await this.deps.store.issues.setIssueUserState(owner, issueId, patch)
+        return await this.deps.store.issues.getIssueUserState(owner, issueId)
       },
       changes: (state) => [
         {
           entity: 'issueUserState',
-          id: issueUserStateRowId(user, issueId),
+          id: issueUserStateRowId(owner, issueId),
           ...(state
             ? {
                 op: 'upsert' as const,
-                value: issueUserStateToWire({ userId: user, entityId: issueId, ...state }),
+                value: issueUserStateToWire({ userId: owner, entityId: issueId, ...state }),
               }
             : { op: 'remove' as const }),
         },

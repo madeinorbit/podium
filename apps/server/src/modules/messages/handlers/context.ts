@@ -34,6 +34,8 @@ import {
   asIssueId,
   asSessionId,
   type IssueId,
+  isAdminPersonCapability,
+  isPersonCapability,
   isSpawnedBy,
   type MachineId,
   type SessionId,
@@ -51,8 +53,9 @@ import type { MessageDeliveryDeps } from '../service'
 export type WakePlacementPort = NonNullable<MessageDeliveryDeps['placementAtWake']>
 
 /** The signed-in PERSON behind a mail caller: a user principal with a
- *  person's scope (`all` for an admin, `owned` for a member). Undefined for an
- *  agent, and for a capability scoped to nothing, which has no mailbox. */
+ *  person's scope (`owned`, admins included since POD-6288; a legacy `all`
+ *  still parses as one). Undefined for an agent, and for a capability scoped
+ *  to nothing, which has no mailbox. */
 export function personOf(caller: MailCaller): UserId | undefined {
   const scope = caller.capability.scope.kind
   return caller.principal.kind === 'user' && (scope === 'all' || scope === 'owned')
@@ -343,7 +346,7 @@ export class MailAccess {
   callerPrincipals(
     capability: Capability,
   ): { kind: 'issue' | 'session' | 'operator'; id?: string }[] {
-    if (capability.scope.kind === 'all') return [{ kind: 'operator' }]
+    if (isPersonCapability(capability)) return [{ kind: 'operator' }]
     const out: { kind: 'issue' | 'session' | 'operator'; id?: string }[] = []
     if (capability.scope.kind === 'subtree') {
       out.push({ kind: 'issue', id: capability.scope.rootId })
@@ -372,7 +375,7 @@ export class MailAccess {
   }
 
   mayView(capability: Capability, m: MessageRow): boolean {
-    if (capability.scope.kind === 'all') return true
+    if (isAdminPersonCapability(capability)) return true
     if (this.isRecipient(capability, m)) return true
     // The sender may re-read what it sent.
     if (m.fromSession && m.fromSession === capability.actorSessionId) return true
@@ -427,7 +430,7 @@ export class MailAccess {
     if (onBehalfOf) return onBehalfOf === human || (await this.ownsAnEnd(human, m))
     if (await this.ownsAnEnd(human, m)) return true
     const sessionless = !m.fromSession && !m.deliveredTo && m.toKind !== 'session'
-    return sessionless && caller.capability.scope.kind === 'all'
+    return sessionless && isAdminPersonCapability(caller.capability)
   }
 
   /** The rows of `rows` this caller may see, in order. */

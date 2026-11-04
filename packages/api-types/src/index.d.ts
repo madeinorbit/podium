@@ -7469,7 +7469,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 id: string;
                 verb: "manage" | "read" | "write";
             };
-            output: Output_issues_addComment;
+            output: never;
             meta: unknown;
         }>;
         "ship": TRPC.TRPCMutationProcedure<{
@@ -7580,7 +7580,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 id: string;
                 verb: "manage" | "read" | "write";
             };
-            output: Output_issues_addComment;
+            output: never;
             meta: unknown;
         }>;
         "update": TRPC.TRPCMutationProcedure<{

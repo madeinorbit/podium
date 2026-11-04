@@ -7,6 +7,7 @@
  * mayView-filtered. A PERSON reads their own rows only (`humanInbox`).
  */
 
+import { isAdminPersonCapability } from '@podium/model'
 import type { ContractInput, mailInboxConsumeContract } from '@podium/commands'
 import type { MessageWire } from '../gate'
 import { type MailHandlerContext, personOf } from './context'
@@ -36,7 +37,7 @@ export async function inboxConsumeHandler(
     const scope = caller.capability.scope
     const own = scope.kind === 'subtree' && scope.rootId === id
     const inScope =
-      scope.kind === 'all' ||
+      isAdminPersonCapability(caller.capability) ||
       own ||
       (scope.kind === 'subtree' &&
         scope.rootId !== undefined &&

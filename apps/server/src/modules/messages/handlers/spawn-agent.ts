@@ -12,7 +12,7 @@ import { commandAccess } from '../../issues/command-ctx'
  * the machine the child is placed on.
  */
 
-import { asIssueId, asMutationId, spawnedByTag } from '@podium/model'
+import { asIssueId, asMutationId, isPersonCapability, spawnedByTag } from '@podium/model'
 import { type ContractInput, type spawnAgentContract, UNADDRESSABLE } from '@podium/commands'
 import { attributionOf, onBehalfOfUser } from '../../../command-principal'
 import { checkIssueAccess } from '../../../issue-authz'
@@ -62,8 +62,8 @@ async function spawnOnce(
     //
     // OWNERSHIP (contract `ownership`, ADR 9 D5 A4 / §3 O4): the issue created
     // here is owned by the on-behalf-of HUMAN with the spawning agent as actor,
-    // and when it has a parent issue it inherits that issue's owner and grants
-    // rather than the actor's — sharing an issue shares the work done on it.
+    // and when it has a parent issue it inherits that issue's owner rather than
+    // the actor's (tasks are shared, so there are no grants to inherit).
     // The rule lives in the contract; this is the site that obeys it.
     const scopeIssue =
       caller.capability.scope.kind === 'subtree'
@@ -71,9 +71,7 @@ async function spawnOnce(
         : null
     const repoPath = input.repo ?? scopeIssue?.repoPath
     if (!repoPath) throw new Error('--new needs --repo (no issue scope to inherit a repo from)')
-    const inheritedOwner = scopeIssue
-      ? ((await issues.reports.ownedTarget(scopeIssue.id, 'read'))?.owner ?? callerOwner)
-      : callerOwner
+    const inheritedOwner = scopeIssue ? (scopeIssue.ownerUserId ?? callerOwner) : callerOwner
     issueId = (await deps.createIssue({
       ownerUserId: inheritedOwner,
       createdByActor: attribution.actor,
@@ -82,7 +80,7 @@ async function spawnOnce(
       title: input.newTitle,
       description: input.prompt,
       ...(scopeIssue ? { parentId: scopeIssue.id } : {}),
-      origin: caller.capability.scope.kind === 'all' ? 'human' : 'agent',
+      origin: isPersonCapability(caller.capability) ? 'human' : 'agent',
     })).id
   } else {
     throw new Error('pass --issue <ref> or --new "title"')
@@ -94,7 +92,7 @@ async function spawnOnce(
   // agent (or its spawned children re-spawning) fork-bombs the host with
   // full PTY sessions. Human intent is never braked (contract: the exemption
   // attaches to a human principal, not to an admin grade).
-  const budgeted = caller.capability.scope.kind !== 'all'
+  const budgeted = !isPersonCapability(caller.capability)
   const budget = budgeted ? await deps.messages.takeSpawnBudget(asIssueId(issueId)) : null
   if (budget && !budget.ok) {
     try {
@@ -119,7 +117,7 @@ async function spawnOnce(
   const spawnedBy = spawnedByTag(
     caller.capability.actorSessionId
       ? { kind: 'session', id: caller.capability.actorSessionId }
-      : caller.capability.scope.kind === 'all'
+      : isPersonCapability(caller.capability)
         ? { kind: 'user' }
         : { kind: 'agent' },
   )

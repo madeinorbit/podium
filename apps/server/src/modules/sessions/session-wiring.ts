@@ -377,12 +377,10 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     broadcastSessions: () => bag.broadcastSessions(),
     soleOwnerForCwd: async (cwd, machineId) =>
       (await bag.deps.issueAccess.soleOwnerForCwd(cwd, machineId)) ?? undefined,
-    mayJoinIssue: async (issueId, userId) => {
-      const target = await bag.deps.issueAccess.ownedTarget(issueId, 'write')
-      if (!target) return false
-      if (target.owner === userId || target.grants.includes(userId)) return true
-      return (await store.users.roleOf(userId)) === 'admin'
-    },
+    // Every active member may put work into every task (design §2.2,
+    // POD-6288); issue grants decide nothing.
+    mayJoinIssue: async (issueId, userId) =>
+      (await bag.deps.issueAccess.has(issueId)) && (await store.users.roleOf(userId)) !== undefined,
     instructionsForStart: (i) => bag.deps.instructionsForStart(i),
     ...(bag.deps.agentLaunch ? { agentLaunch: bag.deps.agentLaunch } : {}),
     ...(bag.deps.draftForStart ? { draftForStart: bag.deps.draftForStart } : {}),

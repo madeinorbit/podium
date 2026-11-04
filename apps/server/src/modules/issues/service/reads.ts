@@ -229,7 +229,7 @@ export class IssueReportsModule {
   }
 
   async list(repoPath?: string, reader: IssueReader = UNRESTRICTED_READER): Promise<IssueReport[]> {
-    return await this.reportsFor(await this.listed(repoPath, reader, { live: false, order: 'repo-seq' }))
+    return await this.reportsFor(await this.listed(repoPath, reader, { live: false, order: 'repo-seq' }), undefined, reader)
   }
 
   /**
@@ -284,9 +284,10 @@ export class IssueReportsModule {
   private async reportsFor(
     rows: readonly IssueRow[],
     own?: readonly (IssueProjection | undefined)[],
+    reader: IssueReader = UNRESTRICTED_READER,
   ): Promise<IssueReport[]> {
     if (rows.length === 0) return []
-    const batch = await this.reportBatchFor(rows)
+    const batch = await this.reportBatchFor(rows, reader)
     return await Promise.all(rows.map(async (row, index) => await this.report(row, batch, own?.[index])))
   }
 
@@ -356,7 +357,10 @@ export class IssueReportsModule {
   /** Every join a report needs, read for these rows only (POD-6191): their
    *  labels, both edge directions, comment counts, live children, markers and
    *  the closure of their blockers. */
-  private async reportBatchFor(rows: readonly IssueRow[]): Promise<IssueReportBatch> {
+  private async reportBatchFor(
+    rows: readonly IssueRow[],
+    reader: IssueReader = UNRESTRICTED_READER,
+  ): Promise<IssueReportBatch> {
     const ids = rows.map((row) => row.id)
     const issues = this.store.deps.store.issues
     const labelsByIssue = await issues.labelsOfIssues(ids)
@@ -364,7 +368,9 @@ export class IssueReportsModule {
     const dependentsByTo = groupBy(await issues.depsToIssues(ids), (dep) => dep.toId, (dep) => ({ fromId: dep.fromId, type: dep.type }))
     const childrenByParent = groupBy(await issues.liveChildrenOf(ids), (child) => child.parentId, (child) => child)
     const commentCounts = await issues.commentCountsOfIssues(ids)
-    const markers = await this.store.issueUserStates(ids)
+    // The reader's own markers (design §4.1 "Self", POD-6288); the server's
+    // own reads keep the broadcast viewer's.
+    const markers = await this.store.issueUserStates(ids, reader.viewer() ?? undefined)
     const blockers = [...depsByFrom.values()].flatMap((deps) =>
       deps.flatMap((dep) => (dep.type === 'blocked-by' ? [dep.toId] : [])),
     )
@@ -439,17 +445,19 @@ export class IssueReportsModule {
       (await this.listed(repoPath, reader, { live: true, state: 'ready', order: 'priority-seq' })).filter(
         (row) => !this.store.isDeferred(row),
       ),
+      undefined,
+      reader,
     )
   }
 
   async blockedList(repoPath?: string, reader: IssueReader = UNRESTRICTED_READER): Promise<IssueReport[]> {
-    return await this.reportsFor(await this.listed(repoPath, reader, { live: true, state: 'blocked', order: 'priority-seq' }))
+    return await this.reportsFor(await this.listed(repoPath, reader, { live: true, state: 'blocked', order: 'priority-seq' }), undefined, reader)
   }
 
   async graph(repoPath?: string, reader: IssueReader = UNRESTRICTED_READER): Promise<IssueGraph> {
     const rows = await this.listed(repoPath, reader, { live: true, order: 'repo-seq' })
     if (rows.length === 0) return { nodes: [], edges: [] }
-    const batch = await this.reportBatchFor(rows)
+    const batch = await this.reportBatchFor(rows, reader)
     const nodes = await Promise.all(
       rows.map(async (r) => {
         const w = await this.report(r, batch)
@@ -563,7 +571,7 @@ export class IssueReportsModule {
     const root = await this.store.rowOrThrow(id)
     const byParent = await this.subtreeOf(root.id, reader, { live: true }, recursive ? undefined : 1)
     const rows = IssueReportsModule.depthFirst(byParent, root.id, recursive)
-    return await this.reportsFor(rows.sort((a, b) => a.seq - b.seq))
+    return await this.reportsFor(rows.sort((a, b) => a.seq - b.seq), undefined, reader)
   }
 
   /** One-call epic survey (issue #82): the root + its whole descendant subtree,
@@ -802,6 +810,8 @@ export class IssueReportsModule {
   ): Promise<IssueReport[]> {
     return await this.reportsFor(
       await this.listed(repoPath, reader, { live: true, state: 'open', completeParent: true, order: 'repo-seq' }),
+      undefined,
+      reader,
     )
   }
 
@@ -847,7 +857,7 @@ export class IssueReportsModule {
     nowMs = Date.now(),
     reader: IssueReader = UNRESTRICTED_READER,
   ): Promise<IssueReport[]> {
-    return await this.reportsFor(await this.staleRows(repoPath, days, nowMs, reader))
+    return await this.reportsFor(await this.staleRows(repoPath, days, nowMs, reader), undefined, reader)
   }
 
   private async staleRows(repoPath: string | undefined, days: number, nowMs: number, reader: IssueReader) {
@@ -1006,6 +1016,8 @@ export class IssueReportsModule {
         }
         return true
       }),
+      undefined,
+      reader,
     )
   }
 
@@ -1053,9 +1065,9 @@ export class IssueReportsModule {
     }
   }
 
-  async get(id: string): Promise<IssueReport | null> {
+  async get(id: string, reader: IssueReader = UNRESTRICTED_READER): Promise<IssueReport | null> {
     const r = await this.store.row(await this.store.resolveRef(id))
-    return r ? ((await this.reportsFor([r]))[0] ?? null) : null
+    return r ? ((await this.reportsFor([r], undefined, reader))[0] ?? null) : null
   }
 
   /**
@@ -1078,26 +1090,6 @@ export class IssueReportsModule {
   /** Session-free existence check for server-side issue references. [spec:SP-fb7e] */
   async has(id: string): Promise<boolean> {
     return (await this.store.row(await this.store.resolveRef(id))) !== undefined
-  }
-
-  /** Live authorization target: owner plus grantees whose verb covers this action. */
-  async ownedTarget(id: string, action: import('@podium/model').IssueAction) {
-    const row = await this.store.row(await this.store.resolveRef(id))
-    if (!row) return undefined
-    const covers = (verb: string): boolean =>
-      action === 'read'
-        ? verb === 'read' || verb === 'write' || verb === 'manage'
-        : action === 'write'
-          ? verb === 'write' || verb === 'manage'
-          : verb === 'manage'
-    return {
-      kind: 'owned' as const,
-      id: row.id,
-      owner: row.ownerUserId ?? null,
-      grants: (await this.store.deps.store.grants.loadForResource('issue', row.id))
-        .filter((edge) => covers(edge.verb))
-        .map((edge) => edge.grantee),
-    }
   }
 
   /** One issue's comment thread, oldest-first (#175): comment BODIES left

@@ -122,7 +122,6 @@ export function asyncSessionIssueAccess(
   return {
     has: (id) => reports.has(id),
     ancestorIds: (id) => hierarchy.ancestorIds(id),
-    ...(reports.ownedTarget ? { ownedTarget: reports.ownedTarget.bind(reports) } : {}),
     issueForCwd: async (cwd) => await reports.issueForCwd(cwd),
   }
 }

@@ -1478,6 +1478,9 @@ export class IssueCrudModule {
       cascadeArchive?: boolean
       repoPath?: string
       clearSuggestion?: boolean
+      /** Whose pin a `pinned` patch sets (POD-6288): the calling member.
+       *  Absent = the broadcast viewer, for the server's own updates. */
+      viewer?: UserId
     },
   ): Promise<IssueProjection> {
     // Resolved BEFORE the draft is cut: a lookup by name, never a row field.
@@ -1534,7 +1537,7 @@ export class IssueCrudModule {
     // Attention-state before-values (issue #124): every pin/defer/archive path funnels
     // through update() (dedicated methods just call it), so a single before/after diff
     // here is the one place these transitions are detected and their events emitted.
-    const prevPinned = (await this.store.issueOverlay(row.id)).pinned
+    const prevPinned = (await this.store.issueOverlay(row.id, opts?.viewer)).pinned
     const prevArchived = row.archived
     const prevDeferUntil = row.deferUntil
     const prevParentBranch = row.parentBranch
@@ -1578,10 +1581,12 @@ export class IssueCrudModule {
 
     if (pinnedPatch !== undefined) {
       // Re-pinning keeps the ORIGINAL stamp, same rule as the tuck-away.
-      const prevPinnedAt = (await this.store.issueUserState(row.id))?.pinnedAt ?? null
-      await this.store.writeIssueUserState(row.id, {
-        pinnedAt: pinnedPatch ? (prevPinnedAt ?? this.store.now()) : null,
-      })
+      const prevPinnedAt = (await this.store.issueUserState(row.id, opts?.viewer))?.pinnedAt ?? null
+      await this.store.writeIssueUserState(
+        row.id,
+        { pinnedAt: pinnedPatch ? (prevPinnedAt ?? this.store.now()) : null },
+        opts?.viewer,
+      )
     }
     if ('parentId' in rowPatch) {
       await this.hierarchy().setParentForUpdate(
@@ -1769,12 +1774,12 @@ export class IssueCrudModule {
   /** Publish only the actor's read cursor and issue.read event. Automatic
    * receipts carry the observed activity; an explicit mark-read still covers
    * now, this issue's updates, descendants and their sessions (POD-912). */
-  async markIssueRead(id: string, observedAt?: string): Promise<IssueProjection> {
+  async markIssueRead(id: string, observedAt?: string, viewer?: UserId): Promise<IssueProjection> {
     const row = await this.store.rowOrThrow(id)
     // Automatic receipts name what was actually seen, including across an
     // offline replay. Open-issue receipts avoid subtree discovery entirely;
     // read receipts never rewrite the issue.
-    const previous = (await this.store.issueOverlay(row.id)).readAt
+    const previous = (await this.store.issueOverlay(row.id, viewer)).readAt
     let readAt = observedAt ?? (await this.coveringReadAt(row))
     // A quiet closed issue keeps its existing post-read retention grace. Only
     // advance to receipt time after proving there is no newer unseen activity.
@@ -1786,7 +1791,7 @@ export class IssueCrudModule {
       if (now > readAt) readAt = now
     }
     if (previous && previous >= readAt) return await this.store.projection(row)
-    await this.store.writeIssueUserState(row.id, { readAt })
+    await this.store.writeIssueUserState(row.id, { readAt }, viewer)
     const wire = await this.store.projection(row)
     await this.store.emitEvent('issue.read', row.id, { seq: row.seq })
     return wire
@@ -1813,9 +1818,9 @@ export class IssueCrudModule {
    *  flips back to true, persist + broadcast, and log issue.unread. Mirrors
    *  markIssueRead exactly, on the actor's own `(userId, issueId)` row (POD-1076);
    *  marking MY copy unread never touches yours. */
-  async markIssueUnread(id: string): Promise<IssueProjection> {
+  async markIssueUnread(id: string, viewer?: UserId): Promise<IssueProjection> {
     const row = await this.store.rowOrThrow(id)
-    await this.store.writeIssueUserState(row.id, { readAt: null })
+    await this.store.writeIssueUserState(row.id, { readAt: null }, viewer)
     const wire = await this.store.projection(row)
     await this.store.emitEvent('issue.unread', row.id, { seq: row.seq })
     return wire
@@ -1831,17 +1836,19 @@ export class IssueCrudModule {
    *  completion decay and re-mark the issue unread). Tucking an OPEN issue is
    *  rejected rather than stored: the fold is for finished work, and a stamp
    *  parked on an open row would fire the moment it later closed. */
-  async setIssueTucked(id: string, tucked: boolean): Promise<IssueProjection> {
+  async setIssueTucked(id: string, tucked: boolean, viewer?: UserId): Promise<IssueProjection> {
     const row = await this.store.draft(await this.store.resolveRef(id))
     if (!row) throw new IssueNotFound(id)
     if (tucked && !this.store.isClosed(row)) throw new IssueRefusal(`issue ${id} is not finished`)
     // Re-tucking keeps the ORIGINAL stamp: a retried outbox entry (or a second
     // client pressing the same control) must not move the dismissal moment.
     // PER-USER (POD-1076): my fold is mine — tucking never hides your copy.
-    const prev = (await this.store.issueOverlay(row.id)).tuckedAt
-    await this.store.writeIssueUserState(row.id, {
-      tuckedAt: tucked ? (prev ?? this.store.now()) : null,
-    })
+    const prev = (await this.store.issueOverlay(row.id, viewer)).tuckedAt
+    await this.store.writeIssueUserState(
+      row.id,
+      { tuckedAt: tucked ? (prev ?? this.store.now()) : null },
+      viewer,
+    )
     return await this.store.persist(row, { touch: false })
   }
 
@@ -2021,54 +2028,6 @@ export class IssueCrudModule {
       row,
       async () => await this.store.deps.store.issues.setIssueLabels(asIssueId(id), labels),
     )
-  }
-
-  async share(
-    id: string,
-    grantee: UserId,
-    verb: GrantVerb,
-    attribution: { actor: string; onBehalfOf: UserId },
-  ): Promise<IssueProjection> {
-    const row = await this.store.draftOrThrow(await this.store.resolveRef(id))
-    if (!row.ownerUserId) throw new IssueRefusal('issue has no accountable owner')
-    const owner = row.ownerUserId
-    const actorKind = attribution.actor.startsWith('session:')
-      ? 'agent'
-      : attribution.actor.startsWith('system:')
-        ? 'system'
-        : 'user'
-    const actorId = attribution.actor.includes(':')
-      ? attribution.actor.slice(attribution.actor.indexOf(':') + 1)
-      : attribution.actor
-    const wire = await this.store.persistWith(
-      row,
-      async () =>
-        await this.store.deps.store.grants.upsert({
-          resourceKind: 'issue',
-          resourceId: row.id,
-          grantee,
-          verb,
-          owner,
-          visibility: 'personal',
-          createdAt: this.store.now(),
-          ...(attribution ? { actor: attribution.actor, onBehalfOf: attribution.onBehalfOf } : {}),
-          actorKind,
-          actorId,
-          onBehalfOf: attribution.onBehalfOf,
-        }),
-    )
-    await this.store.emitEvent('issue.shared', row.id, { grantee, verb, actor: attribution.actor })
-    return wire
-  }
-
-  async unshare(id: string, grantee: UserId, verb: GrantVerb): Promise<IssueProjection> {
-    const row = await this.store.draftOrThrow(await this.store.resolveRef(id))
-    const wire = await this.store.persistWith(
-      row,
-      async () => await this.store.deps.store.grants.remove('issue', row.id, grantee, verb),
-    )
-    await this.store.emitEvent('issue.unshared', row.id, { grantee, verb })
-    return wire
   }
 
   async defer(id: string, until: string | null): Promise<IssueProjection> {

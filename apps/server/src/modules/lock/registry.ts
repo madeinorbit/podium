@@ -1,3 +1,4 @@
+import { isPersonCapability } from '@podium/model'
 import { type CommandDef, defineCommands, type LockCommandName } from '@podium/commands'
 import { lockNameProblem } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
@@ -79,11 +80,11 @@ export class LockCommandCtx {
    */
   async callerIdentity(): Promise<LockCallerIdentity> {
     const cap = this.caller.capability
-    // Only the unconstrained operator (scope 'all', no actor session) maps to
+    // Only a person (no actor session, POD-6288) maps to
     // the null holder; a constrained caller with no known session gets the
     // UNKNOWN_RELAY_SESSION sentinel so it can never impersonate the operator.
     const sessionId: LockHolderId | null =
-      cap.actorSessionId ?? (cap.scope.kind === 'all' ? null : UNKNOWN_RELAY_SESSION)
+      cap.actorSessionId ?? (isPersonCapability(cap) ? null : UNKNOWN_RELAY_SESSION)
     const issueId = cap.scope.kind === 'subtree' ? cap.scope.rootId : null
     let label = 'operator'
     if (issueId) {

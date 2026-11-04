@@ -204,6 +204,35 @@ export interface Capability {
   onBehalfOf?: UserId
 }
 
+/**
+ * A PERSON IS CALLING (POD-6288): a member at the keyboard, admin or not, as
+ * opposed to an agent, a machine or a system job. The class decisions that used
+ * to read scope `all` as "the operator" ask this instead, because that scope no
+ * longer exists for a person (design §4.1): "the human, not an agent" is the
+ * question the agent guardrails ask (proposals, spawn budgets, mail envelopes),
+ * and it is the same answer for every member.
+ *
+ * A person's capability has no agent session and names the same human as actor
+ * and on-behalf-of; a machine or a system job names no on-behalf-of (D21.2).
+ */
+export function isPersonCapability(
+  cap: Pick<Capability, 'actorSessionId' | 'actorUser' | 'onBehalfOf'>,
+): boolean {
+  return cap.actorSessionId === undefined && cap.onBehalfOf !== undefined && cap.actorUser === cap.onBehalfOf
+}
+
+/**
+ * AN ADMIN IS CALLING, IN PERSON (POD-6288): {@link isPersonCapability} with the
+ * admin role. The "Admin extra" column of design §4.1, for the few checks that
+ * gave the old scope `all` an administrator's reach rather than a person's.
+ * An agent never has it, whatever role or persisted scope it carries.
+ */
+export function isAdminPersonCapability(
+  cap: Pick<Capability, 'role' | 'actorSessionId' | 'actorUser' | 'onBehalfOf'>,
+): boolean {
+  return cap.role === 'admin' && isPersonCapability(cap)
+}
+
 /** ADR 3 Amendment 1 D17's pair, read off a capability. `null` is a representable
  *  "none" for machine and system callers — never defaulted to an operator or to a
  *  row's owner. */

@@ -23,7 +23,7 @@
  * signature), so the table contributes no runtime edge back to this module.
  */
 
-import { asSessionId, asUserId } from '@podium/model'
+import { asSessionId, asUserId, isPersonCapability } from '@podium/model'
 import type { SessionId, SessionMeta, IssueId, MutationId } from '@podium/model'
 import type { MutationLedgerPort } from '@podium/sync'
 import { TRPCError } from '@trpc/server'
@@ -160,7 +160,6 @@ export type IssueCommandAccess = IssueAccessReader &
 export function commandAccess(tracker: IssueTrackerCapabilities): IssueCommandAccess {
   return {
     has: async (id) => await tracker.reports.has(id),
-    ownedTarget: async (id, action) => await tracker.reports.ownedTarget(id, action),
     ancestorIds: async (id) => await tracker.hierarchy.ancestorIds(id),
     getMeta: async (id) => await tracker.reports.getMeta(id),
     resolveRef: async (ref, scopeRepoPath) => await tracker.reports.resolveRef(ref, scopeRepoPath),
@@ -223,6 +222,17 @@ export class IssueCommandCtx {
         message: 'missing authenticated command principal',
       })
     return principal
+  }
+
+  /**
+   * WHOSE PER-USER MARKERS this command reads and writes (design §4.1 "Self",
+   * POD-6288): the person calling, or an agent's human. `undefined` for a
+   * system job, whose marker writes stay with the broadcast viewer.
+   */
+  markerUser(): import('@podium/model').UserId | undefined {
+    const principal = this.caller.principal
+    if (principal) return onBehalfOfUser(principal) ?? undefined
+    return this.caller.capability.onBehalfOf
   }
 
   private readerUser(): string {
@@ -348,7 +358,7 @@ export class IssueCommandCtx {
           : {}),
       }
     }
-    if (this.caller.capability.scope.kind === 'all') return { kind: 'operator' }
+    if (isPersonCapability(this.caller.capability)) return { kind: 'operator' }
     return {
       kind: 'agent',
       ...(this.caller.capability.actorSessionId
@@ -360,20 +370,11 @@ export class IssueCommandCtx {
   /** Server-derived provenance for a session spawned by an issue command.
    *  Preserve the exact initiating session when one exists; otherwise distinguish
    *  the operator from legacy constrained callers. [spec:SP-ccb2] */
-  async ownerAttribution(id: string): Promise<{ actor: string; onBehalfOf: import('@podium/model').UserId }> {
-    const principal = this.caller.principal
-    const row = await this.reports.getMeta(id)
-    if (principal?.kind !== 'user' || !row || row.ownerUserId !== principal.user) {
-      throw new TRPCError({ code: 'FORBIDDEN', message: 'only the issue owner may change sharing' })
-    }
-    return { actor: principal.user, onBehalfOf: principal.user }
-  }
-
   spawnProvenance(): string {
     if (this.caller.capability.actorSessionId) {
       return `session:${this.caller.capability.actorSessionId}`
     }
-    if (this.caller.capability.scope.kind === 'all') return 'user'
+    if (isPersonCapability(this.caller.capability)) return 'user'
     if (this.caller.capability.scope.kind === 'subtree') {
       return `issue:${this.caller.capability.scope.rootId}`
     }

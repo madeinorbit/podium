@@ -151,7 +151,8 @@ export interface SessionStartPorts {
   broadcastSessions(): void
   /** The issue that owns this cwd's worktree on `machineId`, if exactly one does. */
   soleOwnerForCwd(cwd: string, machineId: MachineId): Promise<IssueId | undefined>
-  /** Whether `userId` may put work into the issue: its owner, a write grantee or an admin. */
+  /** Whether `userId` may put work into the issue: every active member may
+   *  (tasks are shared, design §2.2). */
   mayJoinIssue(issueId: IssueId, userId: UserId): Promise<boolean>
   /** A new draft task for an agent started outside every task, in the repo
    *  the cwd belongs to on the machine the session runs on; undefined when the

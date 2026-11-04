@@ -127,7 +127,9 @@ export function userCommandPrincipal(user: UserId, role: UserRole): UserCommandP
     user,
     capability: {
       role: role === 'admin' ? 'admin' : 'worker',
-      scope: role === 'admin' ? { kind: 'all' } : { kind: 'owned', userId: user },
+      // One member scope for every person (design §4.1, POD-6288): an admin is
+      // a member plus the admin role's actions, never an unscoped bypass.
+      scope: { kind: 'owned', userId: user },
       actorUser: user,
       onBehalfOf: user,
     },

@@ -44,10 +44,6 @@ export {
 export interface IssueAccessReader {
   has(id: string): boolean | Promise<boolean>
   ancestorIds(id: string): string[] | Promise<string[]>
-  ownedTarget?(
-    id: string,
-    action: IssueAction,
-  ): Extract<Parameters<typeof authorize>[2], { kind: 'owned' }> | undefined | Promise<Extract<Parameters<typeof authorize>[2], { kind: 'owned' }> | undefined>
 }
 
 /** Server issue-access ports may read durable state and therefore may yield. */

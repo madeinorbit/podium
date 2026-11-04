@@ -31,6 +31,7 @@ import {
   asThreadId,
   isMessageHandedOn,
   isMessagePending,
+  isPersonCapability,
   isSpawnedBy,
   type IssueId,
   type MachineId,
@@ -447,7 +448,7 @@ export interface MessageDeliveryDeps {
 export const WAKE_PLACEMENT_DENIED_REASON = 'target is not available'
 
 /** Derive the sender principal from an authz capability (the relay/registry
- *  caller identity). ONLY the unconstrained scope ('all') is the operator —
+ *  caller identity). ONLY a person (any member, POD-6288) is the operator —
  *  "unwrapped = the human" is an invariant the receiver's prime rules trust,
  *  so an issueless agent session (scope 'none' + actorSessionId) must stamp
  *  as an agent (enveloped, peer-clamped, cooldown-subject), never operator.
@@ -457,8 +458,10 @@ export function senderFromCapability(capability: {
   // local shape re-erased the brands `IssueScope` carries.
   scope: IssueScope
   actorSessionId?: SessionId
+  actorUser?: string
+  onBehalfOf?: import('@podium/model').UserId
 }): MessageSender {
-  if (capability.scope.kind === 'all') return { kind: 'operator' }
+  if (isPersonCapability(capability)) return { kind: 'operator' }
   if (capability.scope.kind === 'subtree' && capability.scope.rootId) {
     return {
       kind: 'agent',

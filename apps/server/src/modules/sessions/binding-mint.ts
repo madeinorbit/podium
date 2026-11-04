@@ -31,8 +31,16 @@ import type {
 export function scopeWithin(
   child: SessionDelegation['grantedScope'],
   parent: SessionDelegation['grantedScope'],
+  parentHuman?: string | null,
 ): boolean {
-  if (child.kind === 'none' || parent.kind === 'all') return true
+  if (child.kind === 'none') return true
+  // A persisted `all` (no longer minted, POD-6288) is its human's member
+  // rights: it contains any task subtree and that same human's own scopes,
+  // never another person's.
+  if (parent.kind === 'all') {
+    if (child.kind === 'owned' || child.kind === 'self') return child.userId === parentHuman
+    return true
+  }
   if (child.kind !== parent.kind) return false
   switch (child.kind) {
     case 'subtree':
@@ -72,7 +80,7 @@ export function authorSpawnBinding(input: {
     ? { kind: 'subtree', rootId: issueId }
     : { kind: 'none' }
   const grantedScope = input.requestedScope ?? narrowDefault
-  if (principal.kind === 'agent' && !scopeWithin(grantedScope, parent!.grantedScope))
+  if (principal.kind === 'agent' && !scopeWithin(grantedScope, parent!.grantedScope, parent!.onBehalfOf))
     throw new Error('child delegation cannot widen its parent scope')
   if (
     principal.kind === 'user' &&

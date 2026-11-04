@@ -14,9 +14,11 @@ import {
   actorUser,
   asAgentIdentityId,
   asIssueId,
+  isAdminPersonCapability,
   isAgentComputing,
   isDecisionIssue,
   isIssueClosed,
+  isPersonCapability,
 } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import type { z } from 'zod'
@@ -26,6 +28,7 @@ import { withReadScope } from '../../store/executor/read-scope'
 import { ShippingOrderAccessError } from '../shipping/service'
 import type { IssueCaller, IssueCommandAccess, IssueCommandCtx } from './command-ctx'
 import type { IssueCommandResult } from './service/reads'
+import { IssueNotFound } from './service/not-found'
 import { IssueRefusal } from './service/refusal'
 import { becameCoordinatorText, seatRefusal, seatText } from './service/seat'
 
@@ -118,6 +121,16 @@ async function sessionSummaries(
   }))
 }
 
+/** What `issues.share` and `issues.unshare` answer (POD-6288). */
+export const TASKS_VISIBLE_TO_ALL_MEMBERS =
+  'tasks are visible to all members; there is nothing to share or unshare'
+
+async function refuseTaskSharing(ctx: IssueCommandCtx, id: string): Promise<never> {
+  // An unknown task answers as one, like every other targeted command.
+  if (!(await ctx.reports.getMeta(id))) throw new IssueNotFound(id)
+  throw new IssueRefusal(TASKS_VISIBLE_TO_ALL_MEMBERS)
+}
+
 /** The human starting a session on a task (POD-6283): the person, or the human
  *  at the root of an agent's delegation. That session is theirs, whoever owns
  *  the task. A system job has no human, and the task's owner stands in. */
@@ -130,7 +143,7 @@ function startedOnBehalfOf(ctx: IssueCommandCtx): { onBehalfOf?: UserId } {
 /** Guardrail 2 [spec:SP-6144]: lifecycle moves on a proposed issue are
  *  operator-only, and the check FAILS CLOSED — an id that doesn't resolve is
  *  rejected too, so a bad ref (or a hub mirror the local get() can't see) can
- *  never dodge the lane. Operator callers (scope 'all') pass through untouched.
+ *  never dodge the lane. A person (any member, POD-6288) passes through untouched.
  *  `verb` completes "only an operator may <verb> a proposed issue". */
 async function assertNotProposedForAgent(
   ctx: {
@@ -140,7 +153,7 @@ async function assertNotProposedForAgent(
   id: string,
   verb: string,
 ): Promise<void> {
-  if (ctx.caller.capability.scope.kind === 'all') return
+  if (isPersonCapability(ctx.caller.capability)) return
   let stage: string | undefined
   try {
     stage = (await ctx.reports.get(id))?.stage
@@ -169,7 +182,7 @@ async function assertNoWorkingSessionsForAgentClose(
   id: string,
   confirmInterrupt: boolean | undefined,
 ): Promise<void> {
-  if (ctx.caller.capability.scope.kind === 'all' || confirmInterrupt) return
+  if (isPersonCapability(ctx.caller.capability) || confirmInterrupt) return
   const issue = await ctx.reports.get(id)
   if (!issue) return
   const working = (
@@ -204,7 +217,7 @@ async function assertDecisionNotClosedByAgent(
   id: string,
   verb: string,
 ): Promise<void> {
-  if (ctx.caller.capability.scope.kind === 'all') return
+  if (isPersonCapability(ctx.caller.capability)) return
   const issue = await ctx.reports.get(id)
   if (!issue || !isDecisionIssue(issue)) return
   throw new TRPCError({
@@ -542,7 +555,8 @@ const defs = {
     kind: 'query',
     handler: async (ctx, input) =>
       await ctx.readIssue(input.id, async () => {
-        const issue = await ctx.reports.get(input.id)
+        // The reader's own markers ride the report (POD-6288).
+        const issue = await ctx.reports.get(input.id, ctx.issueReader())
         if (!issue) return null
         // The issue's live sessions ride the read (ab75ab1e). `shell` panes are
         // not agents on the issue, so they are not listed as such.
@@ -674,7 +688,7 @@ const defs = {
       //
       // Top-level agent discoveries are human-facing proposals. Stage, audience,
       // and start behavior are forced at this authenticated boundary. [spec:SP-6144]
-      const isOperator = ctx.caller.capability.scope.kind === 'all'
+      const isOperator = isPersonCapability(ctx.caller.capability)
       const origin: 'human' | 'agent' = isOperator ? 'human' : 'agent'
       // B3 [spec:SP-6144]: a parentId is validated BEFORE anything persists.
       // Previously the row was persisted+broadcast first and reparent threw
@@ -786,7 +800,7 @@ const defs = {
       // filed under a proposed parent cannot be started to run work under an
       // unapproved proposal, so the ancestor chain is checked, not just the row.
       await assertNotProposedForAgent(ctx, input.id, 'start')
-      if (ctx.caller.capability.scope.kind !== 'all') {
+      if (!isPersonCapability(ctx.caller.capability)) {
         for (const anc of await ctx.hierarchy.ancestorIds(input.id)) {
           await assertNotProposedForAgent(ctx, anc, 'start work under')
         }
@@ -829,8 +843,10 @@ const defs = {
         if (p.type !== undefined && p.type !== 'decision') {
           await assertDecisionNotClosedByAgent(ctx, input.id, 'retype')
         }
+        const viewer = ctx.markerUser()
         return await ctx.crud.update(input.id, input.patch, {
           actorSessionId: ctx.caller.capability.actorSessionId,
+          ...(viewer ? { viewer } : {}),
         })
       }),
   }),
@@ -838,7 +854,7 @@ const defs = {
     kind: 'mutation',
     target: targetId,
     handler: async (ctx, input) => {
-      if (ctx.caller.capability.scope.kind !== 'all') {
+      if (!isPersonCapability(ctx.caller.capability)) {
         throw new TRPCError({
           code: 'FORBIDDEN',
           message: 'only an operator may promote a proposed issue',
@@ -867,7 +883,7 @@ const defs = {
     kind: 'mutation',
     handler: async (ctx, input) => {
       const origin: 'human' | 'agent' =
-        ctx.caller.capability.scope.kind === 'all' ? 'human' : 'agent'
+        isPersonCapability(ctx.caller.capability) ? 'human' : 'agent'
       // B2/M5 [spec:SP-6144]: a session may not re-home onto (or file a
       // sub-issue under) a proposed issue — the proposal subtree is inert.
       if (input.targetId != null) {
@@ -1058,7 +1074,7 @@ const defs = {
       // createLabels; the operator creates-or-picks.
       await ctx.crud.refuseUnknownLabels(
         input.labels,
-        ctx.caller.capability.scope.kind === 'all' || input.createLabels === true,
+        isPersonCapability(ctx.caller.capability) || input.createLabels === true,
       )
       return await ctx.withMutation(
         input.mutationId,
@@ -1066,24 +1082,19 @@ const defs = {
       )
     },
   }),
+  // Tasks are visible to all members (design §2.2, §4.1, POD-6288): there is
+  // no per-task grant to write or remove, and existing issue grants are inert
+  // history. Both commands answer that, after the usual checks, and write
+  // nothing.
   share: def('share', {
     kind: 'mutation',
     target: targetId,
-    handler: async (ctx, input) =>
-      await ctx.crud.share(
-        input.id,
-        input.grantee,
-        input.verb,
-        await ctx.ownerAttribution(input.id),
-      ),
+    handler: async (ctx, input) => await refuseTaskSharing(ctx, input.id),
   }),
   unshare: def('unshare', {
     kind: 'mutation',
     target: targetId,
-    handler: async (ctx, input) => {
-      await ctx.ownerAttribution(input.id)
-      return await ctx.crud.unshare(input.id, input.grantee, input.verb)
-    },
+    handler: async (ctx, input) => await refuseTaskSharing(ctx, input.id),
   }),
   addComment: def('addComment', {
     kind: 'mutation',
@@ -1140,7 +1151,7 @@ const defs = {
     handler: async (ctx, input) =>
       await ctx.withMutation(
         input.mutationId,
-        async () => await ctx.attention.markIssueRead(input.id, input.readAt),
+        async () => await ctx.attention.markIssueRead(input.id, input.readAt, ctx.markerUser()),
       ),
   }),
   // Mark an issue UNREAD again (issue #138): clear read_at, flipping derived
@@ -1150,7 +1161,7 @@ const defs = {
     handler: async (ctx, input) =>
       await ctx.withMutation(
         input.mutationId,
-        async () => await ctx.attention.markIssueUnread(input.id),
+        async () => await ctx.attention.markIssueUnread(input.id, ctx.markerUser()),
       ),
   }),
   // Tuck a finished issue into the sidebar's Closed fold, or bring it back
@@ -1161,7 +1172,7 @@ const defs = {
     handler: async (ctx, input) =>
       await ctx.withMutation(
         input.mutationId,
-        async () => await ctx.attention.setIssueTucked(input.id, input.tucked),
+        async () => await ctx.attention.setIssueTucked(input.id, input.tucked, ctx.markerUser()),
       ),
   }),
   setNeedsHuman: def('setNeedsHuman', {
@@ -1181,7 +1192,7 @@ const defs = {
       // check protects, and the forwarded-node path depends on it.
       const actor = ctx.caller.capability.actorSessionId
       const askedBy = input.askedBy ?? actor
-      if (askedBy && ctx.caller.capability.scope.kind !== 'all' && askedBy !== actor) {
+      if (askedBy && !isPersonCapability(ctx.caller.capability) && askedBy !== actor) {
         throw new TRPCError({
           code: 'FORBIDDEN',
           message:
@@ -1295,7 +1306,7 @@ const defs = {
     kind: 'mutation',
     target: targetId,
     handler: async (ctx, input) => {
-      if (ctx.caller.capability.scope.kind !== 'all') {
+      if (!isPersonCapability(ctx.caller.capability)) {
         throw new TRPCError({
           code: 'FORBIDDEN',
           message: 'only an operator may decide where discovered work lives',
@@ -1567,13 +1578,13 @@ const defs = {
       // (#129 Phase C — the Automations UI); constrained agents always subscribe
       // THEMSELVES, so an agent-supplied subscriber is ignored, not an error.
       const subscriber =
-        input.subscriber && ctx.caller.capability.scope.kind === 'all'
+        input.subscriber && isAdminPersonCapability(ctx.caller.capability)
           ? input.subscriber
           : ctx.deriveSubscriber()
       // Constrained callers may only watch a source WITHIN their subtree; the
       // operator (scope 'all') is unconstrained. Relationship sources resolve
       // dynamically against the subscriber's own subtree, so they are always in-scope.
-      if (ctx.caller.capability.scope.kind !== 'all' && input.source.kind !== 'relationship') {
+      if (!isAdminPersonCapability(ctx.caller.capability) && input.source.kind !== 'relationship') {
         await ctx.assertSourceInSubtree(input.source)
       }
       return await ctx.attention.subscriptionAdd({
@@ -1591,7 +1602,7 @@ const defs = {
     kind: 'mutation',
     handler: async (ctx, input) => {
       // Constrained callers may only remove their OWN subscriptions.
-      if (ctx.caller.capability.scope.kind !== 'all') {
+      if (!isAdminPersonCapability(ctx.caller.capability)) {
         const subscriber = ctx.deriveSubscriber()
         const owned = (await ctx.attention.subscriptionList({ subscriberId: subscriber.id })).some(
           (s) => s.id === input.id,
@@ -1613,7 +1624,7 @@ const defs = {
     kind: 'mutation',
     handler: async (ctx, input) => {
       // Constrained callers may only toggle their OWN subscriptions.
-      if (ctx.caller.capability.scope.kind !== 'all') {
+      if (!isAdminPersonCapability(ctx.caller.capability)) {
         const subscriber = ctx.deriveSubscriber()
         const owned = (await ctx.attention.subscriptionList({ subscriberId: subscriber.id })).some(
           (s) => s.id === input.id,
@@ -1635,7 +1646,7 @@ const defs = {
       // Operator sees every subscription, one keyset page at a time (POD-6208;
       // the first page when it names none, POD-6209). A constrained caller sees
       // only its own.
-      if (ctx.caller.capability.scope.kind === 'all') {
+      if (isAdminPersonCapability(ctx.caller.capability)) {
         return await ctx.attention.subscriptionPage(input ?? {})
       }
       const subscriber = ctx.deriveSubscriber()
@@ -1673,8 +1684,11 @@ export async function guardIssueCommand(
   def: Pick<AnyIssueCommandDef, 'action' | 'target'>,
   rawInput: unknown,
 ): Promise<void> {
-  // Target extraction: only for constrained caps writing an existing target issue.
-  const extract = caller.capability.scope.kind !== 'all' ? def.target : undefined
+  // Target extraction: only for constrained caps writing an existing target
+  // issue. A member's own scope (a person's, or a legacy persisted `all`)
+  // reaches every task (design §4.1, POD-6288), so its target decides nothing.
+  const memberScope = caller.capability.scope.kind === 'owned' || caller.capability.scope.kind === 'all'
+  const extract = memberScope ? undefined : def.target
   let targetId: string | undefined
   if (extract) {
     const rawTarget = extract((rawInput ?? {}) as Record<string, unknown>)
