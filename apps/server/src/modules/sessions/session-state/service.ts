@@ -37,11 +37,11 @@ import {
   DEFAULT_LEASE_MS,
   type DraftDoc,
   emptyDraftDoc,
+  type IssueId,
   type MachineId,
   type SessionId,
   type SessionUserOverlay,
   sessionUserStateRowId,
-  type IssueId,
   type UserId,
   type WorkState,
 } from '@podium/model'
@@ -436,7 +436,12 @@ export class SessionStateService {
    * (POD-6160; there is no per-user cache to drop on every write).
    */
   async overlay(userId: UserId, sessionId: SessionId): Promise<SessionUserOverlay> {
-    return (await this.overlaySnapshot(userId, [sessionId])).get(sessionId) ?? { readAt: null, snoozedUntil: undefined }
+    return (
+      (await this.overlaySnapshot(userId, [sessionId])).get(sessionId) ?? {
+        readAt: null,
+        snoozedUntil: undefined,
+      }
+    )
   }
 
   /** One reader's overlays of a set of sessions, read together; the returned
@@ -449,7 +454,13 @@ export class SessionStateService {
     return new Map(
       sessionIds.map((id) => {
         const row = rows.get(id)
-        return [id, { readAt: row?.readAt ?? null, snoozedUntil: row && 'snoozedUntil' in row ? row.snoozedUntil : undefined }]
+        return [
+          id,
+          {
+            readAt: row?.readAt ?? null,
+            snoozedUntil: row && 'snoozedUntil' in row ? row.snoozedUntil : undefined,
+          },
+        ]
       }),
     )
   }
@@ -530,6 +541,38 @@ export class SessionStateService {
       sessionId,
       async () => await this.ports.store.sessions.markSessionUnread(principal.userId, sessionId),
     )
+  }
+
+  /**
+   * Set the caller's read mark to exactly this value (null marks the session
+   * unread): the generic record edit (ADR 12 D3, `modules/records`), where the
+   * patch the device shows IS the value written. `markRead`'s receipt rules
+   * (covering activity, post-read grace) belong to that command, not to a
+   * plain edit. False when the session is gone or not the caller's to read.
+   */
+  async setReadAt(
+    principal: SessionStatePrincipal,
+    sessionId: SessionId,
+    readAt: string | null,
+  ): Promise<boolean> {
+    if (!(await this.canReadSession(principal, sessionId))) return false
+    const store = this.ports.store.sessions
+    return this.persistPerUser(principal.userId, sessionId, async () =>
+      readAt === null
+        ? await store.markSessionUnread(principal.userId, sessionId)
+        : await store.markSessionRead(principal.userId, sessionId, readAt),
+    )
+  }
+
+  /** Forget the caller's own state on this session (read mark and snooze) in one
+   *  write: the generic record remove. */
+  async clearUserState(principal: SessionStatePrincipal, sessionId: SessionId): Promise<boolean> {
+    if (!(await this.canReadSession(principal, sessionId))) return false
+    const store = this.ports.store.sessions
+    return this.persistPerUser(principal.userId, sessionId, async () => {
+      await store.markSessionUnread(principal.userId, sessionId)
+      await store.clearSnooze(principal.userId, sessionId)
+    })
   }
 
   async rearmUnreadForAll(sessionId: SessionId): Promise<void> {
@@ -860,7 +903,10 @@ export class SessionStateService {
     // the documents this process holds taking precedence (POD-6160). The stored
     // ones are not cached: a draft is held once its session uses it.
     const stored = await this.ports.store.sessions.loadDraftDocs()
-    const candidates = new Set<SessionId>([...(Object.keys(stored) as SessionId[]), ...this.draftDocs.keys()])
+    const candidates = new Set<SessionId>([
+      ...(Object.keys(stored) as SessionId[]),
+      ...this.draftDocs.keys(),
+    ])
     const visibleIds: SessionId[] = []
     for (const sessionId of candidates) {
       if (await this.canReadSession(principal, sessionId)) visibleIds.push(sessionId)

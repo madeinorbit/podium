@@ -57,8 +57,9 @@ export interface IssueSyncWriteDeps {
   modules(): RegistryModules
 }
 
-/** `checkIssueAccess`'s decision, as the target it would authorize. */
-async function issueTarget(
+/** `checkIssueAccess`'s decision, as the target it would authorize. Shared with the
+ *  generic issue record (`modules/records/issue-record.ts`). */
+export async function issueTarget(
   modules: RegistryModules,
   def: AnyIssueCommandDef,
   input: unknown,

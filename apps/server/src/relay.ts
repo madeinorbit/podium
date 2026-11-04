@@ -150,6 +150,7 @@ import { DEPLOYMENT, type PerfRegistry, perf } from './modules/perf/registry'
 import { QuotaBackfill } from './modules/quota-history/backfill'
 import { QuotaSampler } from './modules/quota-history/service'
 import { ReadPositionService } from './modules/read-position/service'
+import { registerRecordCommands } from './modules/records/register'
 import {
   restartSourceAfterRecovery,
   retireSourceAfterTransfer,
@@ -3808,6 +3809,9 @@ export class SessionRegistry {
       modules: () => this.modules,
       roleOf: async (user) => await this.store.users.roleOf(user),
     })
+    // The generic create, edit and remove of every declared synced kind (ADR 12
+    // D3, POD-6391), beside the queued commands they replace one by one.
+    registerRecordCommands(syncWrite.registry, { modules: () => this.modules })
     const agentRelayGate = new AgentRelayGate({
       // issues/repos ops run through the registry dispatcher (guard + schema +
       // handler, router-equal); the specs router (pspec, #135) is served by the

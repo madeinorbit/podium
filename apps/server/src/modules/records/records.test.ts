@@ -1,0 +1,472 @@
+/**
+ * GENERIC SYNCED EDITS ON THE SYNC WRITE ENTRY POINT (ADR 12 D3/D4, POD-6391).
+ *
+ * Driven through the REAL composed server (`makeOracle`), over `sync.submit`, the
+ * path the apps' outbox takes: the generic commands are registered where
+ * `relay.ts` registers them, and every assertion reads back what was durably
+ * written.
+ */
+
+import {
+  defineSyncedKind,
+  ISSUE_RECORD,
+  RECORD_CONTRACTS,
+  recordSpecField,
+  recordStatusField,
+  SYNCED_KINDS,
+  specFields,
+} from '@podium/commands'
+import {
+  asUserId,
+  conflictRuleFor,
+  deviceIdSchema,
+  firstAdminMemberId,
+  type IssueId,
+  OWNERSHIP_MATRIX_INDEX,
+  ROW,
+  type SessionId,
+  sessionUserStateRowId,
+} from '@podium/model'
+import type { SyncSubmitReply } from '@podium/protocol'
+import { afterEach, describe, expect, it } from 'vitest'
+import { z } from 'zod'
+import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
+import {
+  appliedReply,
+  envelope,
+  expectAppliedOnPath,
+  rowsOf,
+  submit,
+} from '../sync-write/outbox-test-support'
+import { NO_TARGET } from '../sync-write/registry'
+import { registerRecordKind } from './generic'
+
+const must = <T>(value: T | undefined): T => {
+  if (value === undefined) throw new Error('expected a value')
+  return value
+}
+
+afterEach(() => disposeOracles())
+
+const newIssueId = (): IssueId => `iss_${crypto.randomUUID()}` as IssueId
+
+function refusal(reply: SyncSubmitReply) {
+  if (reply.outcome !== 'rejected')
+    throw new Error(`expected a refusal, got ${JSON.stringify(reply)}`)
+  return reply.refusal
+}
+
+describe('each declaration agrees with ADR 1’s ownership matrix', () => {
+  it('every field’s matrix row has the conflict rule its kind declares', () => {
+    for (const d of SYNCED_KINDS) {
+      for (const [name, field] of Object.entries(d.fields)) {
+        expect(conflictRuleFor(field.row), `${d.kind}.${name}`).toBe(d.conflict)
+      }
+    }
+  })
+
+  it('a spec field’s row admits a person or an agent as its writer', () => {
+    for (const d of SYNCED_KINDS) {
+      for (const name of specFields(d)) {
+        const row = OWNERSHIP_MATRIX_INDEX.get(must(d.fields[name]).row)
+        expect(
+          row?.writers.some((w) => w === 'operator' || w === 'agent-session'),
+          `${d.kind}.${name}`,
+        ).toBe(true)
+      }
+    }
+  })
+
+  it('the composed registry serves every declared command', async () => {
+    const o = await makeOracle()
+    const names = o.reg.modules.syncWrite.registry.names()
+    for (const name of Object.keys(RECORD_CONTRACTS)) expect(names, name).toContain(name)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The issue: exp-rev, a device-minted id, a server-filled label
+// ---------------------------------------------------------------------------
+
+async function repo(o: Oracle): Promise<void> {
+  if (!(await o.store.repos.listRepoPaths()).includes('/p')) {
+    await o.store.repos.addRepo('/p', o.store.hostMachineId)
+  }
+}
+
+async function createIssue(o: Oracle, title = 'generic', id = newIssueId()): Promise<IssueId> {
+  await repo(o)
+  appliedReply(
+    await submit(
+      o,
+      envelope(
+        'records.issueProjection.create',
+        { id, fields: { repoPath: '/p', title } },
+        `c-${id}`,
+      ),
+    ),
+  )
+  return id
+}
+
+async function meta(o: Oracle, id: IssueId) {
+  const row = await o.reg.modules.issues.reports.getMeta(id)
+  if (row === null) throw new Error(`no issue ${id}`)
+  return row
+}
+
+const edit = (
+  id: IssueId,
+  patch: Record<string, unknown>,
+  expectedRevision: number | undefined,
+  m: string,
+) =>
+  envelope(
+    'records.issueProjection.edit',
+    { id, patch, ...(expectedRevision === undefined ? {} : { expectedRevision }) },
+    m,
+  )
+
+describe('records.issueProjection.create', () => {
+  it('files the issue under the device-minted id, with its seq label, on the path', async () => {
+    const o = await makeOracle()
+    await repo(o)
+    const id = newIssueId()
+
+    const { rows } = await expectAppliedOnPath(
+      o,
+      envelope(
+        'records.issueProjection.create',
+        { id, fields: { repoPath: '/p', title: 'minted' } },
+        'm-create',
+      ),
+      { writes: true },
+    )
+
+    const row = await meta(o, id)
+    expect(row.title).toBe('minted')
+    // The label is the server's, filled inside the same write.
+    expect(row.seq).toBeGreaterThan(0)
+    expect(rows.some((r) => r.entity === 'issueProjection' && r.entityId === id)).toBe(true)
+  })
+
+  it('refuses an id that is not a device-minted one', async () => {
+    const o = await makeOracle()
+    await repo(o)
+    for (const id of ['#12', 'POD-12', crypto.randomUUID(), 'iss_12']) {
+      const reply = await submit(
+        o,
+        envelope(
+          'records.issueProjection.create',
+          { id, fields: { repoPath: '/p', title: 'x' } },
+          `m-${id}`,
+        ),
+      )
+      expect(refusal(reply).kind, id).toBe('invalid')
+    }
+  })
+
+  it('never overwrites: an existing id under another envelope is a conflict', async () => {
+    const o = await makeOracle()
+    const id = await createIssue(o, 'first')
+
+    const reply = await submit(
+      o,
+      envelope(
+        'records.issueProjection.create',
+        { id, fields: { repoPath: '/p', title: 'second' } },
+        'm-again',
+      ),
+    )
+
+    expect(refusal(reply)).toEqual({ kind: 'conflict' })
+    expect((await meta(o, id)).title).toBe('first')
+    expect(await rowsOf(o, 'm-again')).toEqual([])
+  })
+})
+
+describe('records.issueProjection.edit', () => {
+  it('applies a patch at the current revision, on the path', async () => {
+    const o = await makeOracle()
+    const id = await createIssue(o)
+    const before = await meta(o, id)
+
+    await expectAppliedOnPath(
+      o,
+      edit(id, { title: 'renamed', priority: 1 }, before.revision ?? undefined, 'm-edit'),
+      {
+        writes: true,
+      },
+    )
+
+    const after = await meta(o, id)
+    expect(after.title).toBe('renamed')
+    expect(after.priority).toBe(1)
+    expect(after.revision).toBeGreaterThan(before.revision ?? 0)
+  })
+
+  it('exp-rev: of two edits made at one revision, the second is refused', async () => {
+    const o = await makeOracle()
+    const id = await createIssue(o)
+    const at = (await meta(o, id)).revision ?? undefined
+
+    appliedReply(await submit(o, edit(id, { title: 'mine' }, at, 'm-first')))
+    const second = await submit(o, edit(id, { title: 'theirs' }, at, 'm-second'))
+
+    expect(refusal(second)).toEqual({ kind: 'conflict' })
+    expect((await meta(o, id)).title).toBe('mine')
+    expect(await rowsOf(o, 'm-second')).toEqual([])
+  })
+
+  it('exp-rev: an edit that names no revision is invalid', async () => {
+    const o = await makeOracle()
+    const id = await createIssue(o)
+
+    const reply = await submit(o, edit(id, { title: 'blind' }, undefined, 'm-blind'))
+
+    expect(refusal(reply)).toEqual({ kind: 'invalid', details: ['expectedRevision'] })
+  })
+
+  it('refuses a field the caller may not write, and writes nothing', async () => {
+    const o = await makeOracle()
+    const id = await createIssue(o)
+    const at = (await meta(o, id)).revision ?? undefined
+
+    for (const patch of [
+      { revision: 99 },
+      { seq: 3 },
+      { repoId: 'repo_x' },
+      { updatedAt: 'now' },
+    ]) {
+      const m = `m-${Object.keys(patch)[0]}`
+      const reply = await submit(o, edit(id, { title: 'sneaky', ...patch }, at, m))
+      expect(refusal(reply), m).toEqual({ kind: 'unauthorized' })
+      expect(await rowsOf(o, m)).toEqual([])
+    }
+    expect((await meta(o, id)).title).toBe('generic')
+  })
+
+  it('an undeclared field never parses', async () => {
+    const o = await makeOracle()
+    const id = await createIssue(o)
+    const at = (await meta(o, id)).revision ?? undefined
+
+    const reply = await submit(o, edit(id, { stage: 'done' }, at, 'm-stage'))
+
+    expect(refusal(reply).kind).toBe('invalid')
+  })
+
+  it('an edit of an issue that does not exist is refused', async () => {
+    const o = await makeOracle()
+    await repo(o)
+
+    const reply = await submit(o, edit(newIssueId(), { title: 'ghost' }, 1, 'm-ghost'))
+
+    expect(refusal(reply).kind).toBe('target-not-found')
+  })
+})
+
+describe('issues.create checks a device id’s shape (ADR 12 D4)', () => {
+  it('accepts iss_<uuid> and refuses anything else', async () => {
+    const o = await makeOracle()
+    await repo(o)
+    const id = newIssueId()
+
+    const created = await o.call.issues.create({ id, repoPath: '/p', title: 'ok', startNow: false })
+    expect(created.id).toBe(id)
+
+    for (const bad of ['POD-12', '#12', 'iss_12', crypto.randomUUID()]) {
+      await expect(
+        o.call.issues.create({ id: bad as IssueId, repoPath: '/p', title: 'bad', startNow: false }),
+        bad,
+      ).rejects.toThrow()
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// A person's session state: single-writer, the user in the key
+// ---------------------------------------------------------------------------
+
+async function shellSession(o: Oracle): Promise<SessionId> {
+  return (await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })).sessionId
+}
+
+const ME = firstAdminMemberId()
+const SOMEONE_ELSE = asUserId('mem_0000000000000000000000000000')
+
+const readAt = (o: Oracle, sessionId: SessionId) => o.store.sessions.getReadAt(ME, sessionId)
+
+const editState = (id: string, patch: Record<string, unknown>, m: string) =>
+  envelope('records.sessionUserState.edit', { id, patch }, m)
+
+describe('records.sessionUserState', () => {
+  it('sets my read mark to the patched value, on the path', async () => {
+    const o = await makeOracle()
+    const sessionId = await shellSession(o)
+    const id = sessionUserStateRowId(ME, sessionId)
+
+    await expectAppliedOnPath(o, editState(id, { readAt: '2026-11-04T10:00:00.000Z' }, 'm-read'), {
+      writes: true,
+    })
+
+    expect(await readAt(o, sessionId)).toBe('2026-11-04T10:00:00.000Z')
+  })
+
+  it('single-writer: my two edits apply in commit order; null marks it unread', async () => {
+    const o = await makeOracle()
+    const sessionId = await shellSession(o)
+    const id = sessionUserStateRowId(ME, sessionId)
+
+    appliedReply(await submit(o, editState(id, { readAt: '2026-11-04T10:00:00.000Z' }, 'm-1')))
+    appliedReply(await submit(o, editState(id, { readAt: '2026-11-04T09:00:00.000Z' }, 'm-2')))
+    expect(await readAt(o, sessionId)).toBe('2026-11-04T09:00:00.000Z')
+
+    appliedReply(await submit(o, editState(id, { readAt: null }, 'm-3')))
+    expect(await readAt(o, sessionId)).toBeNull()
+  })
+
+  it('refuses somebody else’s row, and the key fields', async () => {
+    const o = await makeOracle()
+    const sessionId = await shellSession(o)
+
+    const theirs = await submit(
+      o,
+      editState(
+        sessionUserStateRowId(SOMEONE_ELSE, sessionId),
+        { readAt: '2026-11-04T10:00:00.000Z' },
+        'm-theirs',
+      ),
+    )
+    expect(refusal(theirs)).toEqual({ kind: 'unauthorized' })
+
+    const mine = sessionUserStateRowId(ME, sessionId)
+    const rekey = await submit(o, editState(mine, { userId: SOMEONE_ELSE }, 'm-rekey'))
+    expect(refusal(rekey)).toEqual({ kind: 'unauthorized' })
+    expect(await rowsOf(o, 'm-theirs')).toEqual([])
+    expect(await rowsOf(o, 'm-rekey')).toEqual([])
+  })
+
+  it('remove forgets my read mark and my snooze together', async () => {
+    const o = await makeOracle()
+    const sessionId = await shellSession(o)
+    const id = sessionUserStateRowId(ME, sessionId)
+    appliedReply(await submit(o, editState(id, { readAt: '2026-11-04T10:00:00.000Z' }, 'm-read')))
+    await o.call.snoozes.set({ sessionId, until: '2099-01-01T00:00:00.000Z' })
+
+    await expectAppliedOnPath(o, envelope('records.sessionUserState.remove', { id }, 'm-remove'), {
+      writes: true,
+    })
+
+    expect(await readAt(o, sessionId)).toBeNull()
+    expect((await o.store.sessions.listSnoozes(ME))[sessionId]).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The generic layer ALONE: an adapter with no guards of its own
+// ---------------------------------------------------------------------------
+
+/**
+ * The issue family arbitrates its own revision and refuses its own id reuse, so
+ * against the real issue kind the generic checks are a second guard nobody can
+ * see fire. This kind's adapter checks nothing: a stale edit or a reused id that
+ * gets through here is the generic layer's failure alone.
+ */
+async function fixtureKind() {
+  const o = await makeOracle()
+  const records = new Map<string, { title: string; revision: number }>()
+  const writes: string[] = []
+  // The issue's ADR 3 cells and ops, without its placement input.
+  const { placement: _placement, ...cells } = ISSUE_RECORD
+  const NOTE = defineSyncedKind({
+    ...cells,
+    kind: 'conversation',
+    title: 'note',
+    wire: z.object({ id: z.string(), title: z.string(), revision: z.number() }),
+    ref: z.string(),
+    newId: deviceIdSchema('nt_'),
+    conflict: 'exp-rev',
+    fields: {
+      title: recordSpecField(z.string(), ROW.issueCore, { required: true }),
+      revision: recordStatusField(z.number(), ROW.issueCore),
+    },
+  })
+  registerRecordKind(o.reg.modules.syncWrite.registry, NOTE, {
+    target: async () => NO_TARGET,
+    read: async (id) => records.get(id),
+    create: async (_ctx, id, fields) => {
+      writes.push(`create ${id}`)
+      records.set(id, { title: String(fields.title), revision: 1 })
+    },
+    edit: async (_ctx, id, patch) => {
+      writes.push(`edit ${id}`)
+      const current = must(records.get(id))
+      records.set(id, { title: String(patch.title), revision: current.revision + 1 })
+    },
+  })
+  return { o, records, writes }
+}
+
+describe('the generic layer, with an adapter that guards nothing', () => {
+  it('refuses a stale revision before the adapter writes', async () => {
+    const { o, records, writes } = await fixtureKind()
+    const id = `nt_${crypto.randomUUID()}`
+    appliedReply(
+      await submit(
+        o,
+        envelope('records.conversation.create', { id, fields: { title: 'a' } }, 'f-1'),
+      ),
+    )
+    appliedReply(
+      await submit(
+        o,
+        envelope(
+          'records.conversation.edit',
+          { id, patch: { title: 'b' }, expectedRevision: 1 },
+          'f-2',
+        ),
+      ),
+    )
+
+    const stale = await submit(
+      o,
+      envelope(
+        'records.conversation.edit',
+        { id, patch: { title: 'c' }, expectedRevision: 1 },
+        'f-3',
+      ),
+    )
+
+    expect(refusal(stale)).toEqual({ kind: 'conflict' })
+    expect(records.get(id)).toEqual({ title: 'b', revision: 2 })
+    expect(writes).toEqual([`create ${id}`, `edit ${id}`])
+  })
+
+  it('refuses a create on an existing id before the adapter writes', async () => {
+    const { o, records, writes } = await fixtureKind()
+    const id = `nt_${crypto.randomUUID()}`
+    appliedReply(
+      await submit(
+        o,
+        envelope('records.conversation.create', { id, fields: { title: 'a' } }, 'f-1'),
+      ),
+    )
+
+    const again = await submit(
+      o,
+      envelope('records.conversation.create', { id, fields: { title: 'b' } }, 'f-2'),
+    )
+    const replay = appliedReply(
+      await submit(
+        o,
+        envelope('records.conversation.create', { id, fields: { title: 'a' } }, 'f-1'),
+      ),
+    )
+
+    expect(refusal(again)).toEqual({ kind: 'conflict' })
+    expect(replay.replayed).toBe(true)
+    expect(records.get(id)?.title).toBe('a')
+    expect(writes).toEqual([`create ${id}`])
+  })
+})
