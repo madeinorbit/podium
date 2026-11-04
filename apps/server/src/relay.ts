@@ -190,6 +190,7 @@ import { SpecsService } from './modules/specs/service'
 import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
 import type { HeadlessService } from './modules/superagent/headless'
 import { SyncWriteEntry } from './modules/sync-write/entry'
+import { registerOutboxCommands } from './modules/sync-write/outbox-commands'
 import { SyncWriteRegistry } from './modules/sync-write/registry'
 import { GRANT_EVENT_KIND } from './modules/updates/grant-cause'
 import {
@@ -3799,6 +3800,14 @@ export class SessionRegistry {
       fleetLogLevels,
       mutations,
     }
+    // THE OUTBOX COMMANDS ON THE ENTRY POINT (ADR 12 D2, POD-6350): every command
+    // the apps queue is registered on `syncWrite`, each family with its own
+    // target resolver and handler. Registered once the modules exist, because the
+    // session and issue handlers reach them per call.
+    registerOutboxCommands(syncWrite.registry, {
+      modules: () => this.modules,
+      roleOf: async (user) => await this.store.users.roleOf(user),
+    })
     const agentRelayGate = new AgentRelayGate({
       // issues/repos ops run through the registry dispatcher (guard + schema +
       // handler, router-equal); the specs router (pspec, #135) is served by the

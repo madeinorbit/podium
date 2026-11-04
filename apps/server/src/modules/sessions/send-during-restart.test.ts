@@ -9,7 +9,7 @@
  * daemon is detached must NOT come back dead_letter; it must leave a durable
  * row that is forwarded when the daemon re-attaches.
  */
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MESSAGE_PENDING } from '@podium/model'
 import type { MessageRow } from '../../store/types'
 import { disposeOracles, makeOracle } from './oracle-support'
@@ -47,8 +47,12 @@ describe('pod-4800: send queued across daemon restart', () => {
     expect(sent.ok).toBe(true)
 
     // Durable custody: the inbox FIFO holds the row while the daemon is away.
+    // The send is handed on after its write commits (POD-6349/POD-6350), so
+    // the row arrives a moment after the reply.
+    await vi.waitFor(async () =>
+      expect(await o.store.sync.listQueuedMessages(sessionId)).toHaveLength(1),
+    )
     const queued = await o.store.sync.listQueuedMessages(sessionId)
-    expect(queued).toHaveLength(1)
     expect(queued[0]?.text).toBe('are you there')
 
     // The ledger row stays queued (not dead-lettered) for the same send.
@@ -75,6 +79,8 @@ describe('pod-4800: send queued across daemon restart', () => {
     const woken = await o.call.sessions.resumeAndSend({ sessionId, text: 'wake up' })
     expect(woken.disposition).not.toBe('failed')
     expect(woken.ok).toBe(true)
-    expect(await o.store.sync.listQueuedMessages(sessionId)).toHaveLength(1)
+    await vi.waitFor(async () =>
+      expect(await o.store.sync.listQueuedMessages(sessionId)).toHaveLength(1),
+    )
   })
 })

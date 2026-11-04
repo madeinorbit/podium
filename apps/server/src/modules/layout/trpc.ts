@@ -15,15 +15,13 @@ import {
   layoutSetContract,
   layoutSetInput,
 } from '@podium/commands'
+import type { LayoutSnapshot } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import type { Context } from '../../trpc'
 import { t } from '../../trpc'
 import { familyState } from '../derived-family'
+import { routeThroughEntry } from '../sync-write/route-adapter'
 import { layoutActor, layoutAuthzDeps, layoutAuthzFailure } from './authz'
-
-function nowIso(): string {
-  return new Date().toISOString()
-}
 
 async function authorizeWrite(
   ctx: Context,
@@ -51,16 +49,24 @@ export function layoutFamilyProcedures() {
       return await familyState(ctx).modules.layout.getSnapshot(actor)
     }),
 
+    // THIN ADAPTERS ONTO `sync.submit` (POD-6350) until POD-6359 removes them:
+    // the gate runs first here only so a refused caller keeps the message it
+    // always got; the entry point runs it again, live, in its fixed order, and
+    // the write itself (one unit of work, deduplicated) is the entry point's.
     set: t.procedure.input(layoutSetInput).mutation(async ({ ctx, input }) => {
-      const { actor } = await authorizeWrite(ctx, layoutSetContract.name)
-      const parsed = layoutSetContract.input.parse(input)
-      return await familyState(ctx).modules.layout.set(actor, parsed.values, nowIso())
+      await authorizeWrite(ctx, layoutSetContract.name)
+      return (await routeThroughEntry(ctx, {
+        command: layoutSetContract.name,
+        input,
+      })) as LayoutSnapshot
     }),
 
     clear: t.procedure.input(layoutClearInput).mutation(async ({ ctx, input }) => {
-      const { actor } = await authorizeWrite(ctx, layoutClearContract.name)
-      const parsed = layoutClearContract.input.parse(input)
-      return await familyState(ctx).modules.layout.clear(actor, parsed.keys)
+      await authorizeWrite(ctx, layoutClearContract.name)
+      return (await routeThroughEntry(ctx, {
+        command: layoutClearContract.name,
+        input,
+      })) as LayoutSnapshot
     }),
   }
 }

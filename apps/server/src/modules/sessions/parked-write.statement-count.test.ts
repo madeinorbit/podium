@@ -24,6 +24,12 @@
  * - the publication's visibility pass reads the written row again (1).
  * Before POD-6210 the access check read the row with its own statement and the
  * lease read it a second time: 20.
+ *
+ * 20 since POD-6350, when the route became an adapter onto the sync write entry
+ * point. Gone: the machines and their grants for the machine-use snapshot (2),
+ * which only the command plane's context read; the route now takes the
+ * transport's principal. Added: the dedup lookup and its record (2), and the
+ * change-log head for the receipt (1).
  */
 import { asSessionId, firstAdminMemberId, type SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
@@ -148,7 +154,7 @@ describe('a write to a parked session: constant statements', () => {
         },
         teardown: async (f) => await f.reg.dispose(),
       },
-      19,
+      20,
     )
   })
 })

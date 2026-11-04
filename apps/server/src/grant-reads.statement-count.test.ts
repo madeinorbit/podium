@@ -15,7 +15,8 @@
  * Grant reads per operation, for a running session on an issue, before -> now:
  * - `sessions.rename` over tRPC: 3 -> 2 (the caller's machine grants, which
  *   the machine-use snapshot reads directly, and the issue's and the session's
- *   grants in one read at the access check);
+ *   grants in one read at the access check); 1 since POD-6350, whose adapter
+ *   onto the sync write entry point builds no machine-use snapshot;
  * - `issues.update` over tRPC: 2 -> 1 (the issue's and its session's grants,
  *   one read per kind in the visibility pass, now one);
  * - an `agentObservation` daemon frame: 2 -> 1 (the projection pass reads the
@@ -165,7 +166,7 @@ const observation = (sessionId: SessionId): AgentObservation => ({
 })
 
 describe('grant reads per change, a running session on an issue: pinned at 5 and 200', () => {
-  it('sessions.rename reads the machine grants and both of the session\'s grant sets once', async () => {
+  it('sessions.rename reads both of the session\'s grant sets once', async () => {
     const counts = await expectConstantStatements(
       pin(
         'sessions.rename (on an issue)',
@@ -174,7 +175,8 @@ describe('grant reads per change, a running session on an issue: pinned at 5 and
       ),
       RENAME,
     )
-    expectGrantReads(counts, 2)
+    // One since POD-6350: the route no longer builds the machine-use snapshot.
+    expectGrantReads(counts, 1)
   })
 
   it('issues.update reads the issue\'s and its session\'s grants in one statement', async () => {
@@ -210,6 +212,14 @@ describe('grant reads per change, a running session on an issue: pinned at 5 and
 // POD-6219: the session write's delivery trigger counted the session's and its
 // issue's pending mail (two statements); the flush now asks for both in one: -1.
 // POD-6218: the earliest admin is one statement, once per operation: issues.update -1.
-const RENAME = 12
-const ISSUE_UPDATE = 28
+// POD-6350: both routes are adapters onto the sync write entry point, which adds
+// the dedup lookup and its record and the change-log head for the receipt (+3).
+// The rename no longer builds the command plane's context, whose machine-use
+// snapshot read the machines and their grants (-2): rename 12 -> 13. The issue
+// update now computes its reply inside the entry point's unit of work, where the
+// read after the write cannot reuse the operation's memo, and the publication
+// after the commit reads again: the issue row and the caller's issue state once
+// more each (+2): issues.update 28 -> 33. The grant reads are unchanged.
+const RENAME = 13
+const ISSUE_UPDATE = 33
 const OBSERVATION = 12

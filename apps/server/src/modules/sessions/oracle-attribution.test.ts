@@ -15,7 +15,7 @@
 
 import { firstAdminMemberId, type SessionId } from '@podium/model'
 import { CLIENT_WIRE_VERSION } from '@podium/protocol'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { attachTestClient } from '../../test-support/client-transport'
 import {
   disposeOracles,
@@ -253,11 +253,14 @@ describe('oracle: who typed into this session', () => {
     // from controller-mediated user input. Agent/system delivery remains 'mail'.
     // EXACT sequence, not a substring: one human keystroke, one bracketed-paste
     // controller frame carrying the text and nothing else, plus its submit CR.
-    expect(ptyFrames(o.daemon)).toEqual([
-      { inputOrigin: 'human', data: 'x' },
-      { inputOrigin: 'controller', data: `${PASTE_START}via the substrate${PASTE_END}` },
-      { inputOrigin: 'controller', data: '\r' },
-    ])
+    // The send is typed once its write commits (POD-6349/POD-6350).
+    await vi.waitFor(() =>
+      expect(ptyFrames(o.daemon)).toEqual([
+        { inputOrigin: 'human', data: 'x' },
+        { inputOrigin: 'controller', data: `${PASTE_START}via the substrate${PASTE_END}` },
+        { inputOrigin: 'controller', data: '\r' },
+      ]),
+    )
   })
 })
 

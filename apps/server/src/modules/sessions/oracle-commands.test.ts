@@ -858,11 +858,14 @@ describe('oracle: sendText / resumeAndSend', () => {
 
     expect(result.ok).toBe(true)
     expect(typeof result.disposition).toBe('string')
-    // EXACT frame sequence, not a substring (POD-743).
-    expect(ptyFrames(o.daemon)).toEqual([
-      { inputOrigin: 'controller', data: `${PASTE_START}hello there${PASTE_END}` },
-      { inputOrigin: 'controller', data: '\r' },
-    ])
+    // EXACT frame sequence, not a substring (POD-743). Typed once the send's
+    // write has committed (POD-6349/POD-6350), so a moment after the reply.
+    await vi.waitFor(() =>
+      expect(ptyFrames(o.daemon)).toEqual([
+        { inputOrigin: 'controller', data: `${PASTE_START}hello there${PASTE_END}` },
+        { inputOrigin: 'controller', data: '\r' },
+      ]),
+    )
     expect(durableSends(o.daemon, sessionId)).toEqual([])
   })
 
@@ -899,10 +902,12 @@ describe('oracle: sendText / resumeAndSend', () => {
     expect(
       (await o.call.sessions.sendText({ sessionId: shell.sessionId, text: 'still lands' })).ok,
     ).toBe(true)
-    expect(ptyFrames(o.daemon)).toEqual([
-      { inputOrigin: 'controller', data: `${PASTE_START}still lands${PASTE_END}` },
-      { inputOrigin: 'controller', data: '\r' },
-    ])
+    await vi.waitFor(() =>
+      expect(ptyFrames(o.daemon)).toEqual([
+        { inputOrigin: 'controller', data: `${PASTE_START}still lands${PASTE_END}` },
+        { inputOrigin: 'controller', data: '\r' },
+      ]),
+    )
   })
 
   it(`${MUST_NOT_CHANGE}: resumeAndSend wakes a PARKED session (the send is not dropped)`, async () => {

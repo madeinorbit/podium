@@ -372,7 +372,11 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
       mutationId: id,
     })
 
-    expect(replayed).toEqual(first)
+    // Answered from the stored message: still queued, still the one message.
+    // The first reply came from inside the sync write entry point's unit of
+    // work (POD-6350), which answers `queued` without a queue position; the
+    // stored message's answer carries its position.
+    expect(replayed).toMatchObject({ ok: true, queued: true, disposition: first.disposition })
     expect(durableSends(o.daemon, sessionId)).toEqual(afterFirst)
     expect(await o.store.sync.listQueuedMessages(sessionId)).toHaveLength(1)
   })

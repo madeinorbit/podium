@@ -1,11 +1,13 @@
-import { commandAccess } from './command-ctx'
 import { TRPCError, type TRPCMutationProcedure, type TRPCQueryProcedure } from '@trpc/server'
 import type { z } from 'zod'
 import { type Context, issueCaller, t } from '../../trpc'
 import { familyState } from '../derived-family'
+import { refusalAsTrpcError, submitFromRoute } from '../sync-write/route-adapter'
+import { commandAccess } from './command-ctx'
 import { type AnyIssueCommandDef, guardIssueCommand } from './registry'
 import { isIssueNotFound } from './service/not-found'
 import { isIssueRefusal } from './service/refusal'
+import { QUEUED_ISSUE_COMMANDS } from './sync-write'
 
 /**
  * Derive the `issues:` tRPC sub-router from the command registry (#248
@@ -84,6 +86,20 @@ function rethrowAsTrpc(err: unknown): never {
   throw err
 }
 
+/**
+ * A queued issue command's route: A THIN ADAPTER ONTO `sync.submit` (POD-6350)
+ * until POD-6359 removes it. The guard middleware above still runs first, so a
+ * refused caller keeps the message it always got; the entry point then checks
+ * again, deduplicates and runs the handler in one unit of work. A handler's own
+ * error comes back as the refusal's cause and is answered exactly as before.
+ */
+async function throughEntry(ctx: Context, name: string, input: unknown): Promise<unknown> {
+  const { reply, cause } = await submitFromRoute(ctx, { command: `issues.${name}`, input })
+  if (reply.outcome === 'applied') return reply.result
+  if (cause !== undefined) return rethrowAsTrpc(cause)
+  throw refusalAsTrpcError(`issues.${name}`, reply.refusal)
+}
+
 export function routerFromCommands<T extends Record<string, AnyIssueCommandDef>>(registry: {
   defs: T
 }) {
@@ -94,7 +110,9 @@ export function routerFromCommands<T extends Record<string, AnyIssueCommandDef>>
     // reserves the mutation id before its durable lookup yields and keeps that
     // join point through receipt recording, so same-batch replays join the owner.
     // The resolver awaits dispatch here so its rejection is mapped to tRPC once.
+    const queued = (QUEUED_ISSUE_COMMANDS as readonly string[]).includes(name)
     const resolve = async (opts: { ctx: Context; input: unknown }) => {
+      if (queued) return await throughEntry(opts.ctx, name, opts.input)
       try {
         return await familyState(opts.ctx).modules.issueCommands.run(
           issueCaller(opts.ctx),

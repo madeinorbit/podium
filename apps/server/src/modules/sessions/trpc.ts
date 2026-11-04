@@ -79,6 +79,7 @@ import type { z } from 'zod'
 import type { PinState, SnoozeMap } from '../../store/types'
 import { type Context, mods, t } from '../../trpc'
 import { familyState } from '../derived-family'
+import { routeThroughEntry, submitFromRoute } from '../sync-write/route-adapter'
 import { sessionCommandCtx } from './command-ctx'
 import {
   dispatchSessionCommand,
@@ -86,8 +87,9 @@ import {
   type SessionCommandResult,
 } from './command-plane'
 import { handoffRefusalOf } from './handoff/refusal'
-import { dispatchRename } from './rename-adapter'
+import { dispatchRename, renamePath } from './rename-adapter'
 import { SessionStateRegistry, sessionStatePrincipalFor } from './session-state/registry'
+import { QUEUED_SEND_COMMANDS, QUEUED_SESSION_STATE_COMMANDS } from './sync-write'
 
 // ---------------------------------------------------------------------------
 // Durable session-state class
@@ -177,9 +179,19 @@ function sessionStateProcedure<N extends TrpcSessionStateName>(name: N): Session
   // A name no contract declares would produce a procedure that refuses everything —
   // the "green gate that stopped looking" failure. Fail at module load instead.
   if (!contract) throw new Error(`sessionStateProcedure: no contract named ${name}`)
+  const queued = (QUEUED_SESSION_STATE_COMMANDS as readonly string[]).includes(name)
   return t.procedure
     .input(sessionStateInputs[name])
     .mutation(async ({ ctx, input }): Promise<SessionStateOutputs[N]> => {
+      if (queued) {
+        // A THIN ADAPTER ONTO `sync.submit` (POD-6350) until POD-6359 removes
+        // it. The class's refusal shape is kept: every refusal is the silent
+        // no-op (§3.1.5), except invalid input, unreachable here and loud.
+        const { reply } = await submitFromRoute(ctx, { command: name, input })
+        if (reply.outcome === 'applied') return reply.result as SessionStateOutputs[N]
+        if (reply.refusal.kind === 'invalid') throw new Error(`invalid input for ${name}`)
+        return undefined as SessionStateOutputs[N]
+      }
       const result = await sessionStateRegistryFor(ctx).execute(
         name,
         input,
@@ -254,6 +266,21 @@ function renameProcedure(): SessionStateProcedure<'sessions.rename'> {
   return t.procedure
     .input(sessionStateInputs['sessions.rename'])
     .mutation(async ({ ctx, input }): Promise<void> => {
+      if (renamePath() !== 'legacy') {
+        // THE TARGET PATH IS NOW THE SYNC WRITE ENTRY POINT (POD-6350): this
+        // route is a thin adapter onto it until POD-6359 removes it. The
+        // rollback flag still takes the legacy envelope below.
+        const { reply, cause } = await submitFromRoute(ctx, {
+          command: RENAME_NAME,
+          input,
+        })
+        if (reply.outcome === 'applied') return
+        if (cause !== undefined) throw cause
+        if (reply.refusal.kind === 'invalid') {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid command input' })
+        }
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'command refused' })
+      }
       const modules = familyState(ctx).modules
       const dispatch = await dispatchRename(
         {
@@ -308,15 +335,20 @@ function planeProcedure<K extends SessionCommandKey>(key: K): PlaneProcedure<K> 
   // the same table, so `AppRouter` carries the real input and output types even
   // though this line does not.
   const schema = sessionCommandPlaneInputs[key] as z.ZodTypeAny
-  const built = t.procedure
-    .input(schema)
-    .mutation(async ({ ctx, input }): Promise<unknown> =>
-      await dispatchSessionCommand(
-        await sessionCommandCtx(familyState(ctx).modules, ctx.capability, ctx.overrideScope),
-        key,
-        input,
-      ),
+  const queuedSend = (QUEUED_SEND_COMMANDS as readonly string[]).includes(key)
+  const built = t.procedure.input(schema).mutation(async ({ ctx, input }): Promise<unknown> => {
+    // THE CHAT SENDS ARE THIN ADAPTERS ONTO `sync.submit` (POD-6350), except a
+    // send carrying a wake choice (--model/--effort), which stays on the plane
+    // until POD-6356 moves it.
+    if (queuedSend && !carriesWakeChoice(input)) {
+      return await routeThroughEntry(ctx, { command: `sessions.${key}`, input })
+    }
+    return await dispatchSessionCommand(
+      await sessionCommandCtx(familyState(ctx).modules, ctx.capability, ctx.overrideScope),
+      key,
+      input,
     )
+  })
   // The precise type is asserted ONCE, here, from the same tables the runtime uses:
   // `PlaneProcedure<K>` reads its input off `sessionCommandPlaneInputs[K]` and its
   // output off the handler table, so the client sees the real pair. The resolver's
@@ -324,6 +356,15 @@ function planeProcedure<K extends SessionCommandKey>(key: K): PlaneProcedure<K> 
   // infer means reconciling eleven input/output pairs in one signature, which it
   // does by picking one and rejecting the other ten.
   return built as unknown as PlaneProcedure<K>
+}
+
+/** Whether a chat send names a model, an effort or the unknown-model override. */
+function carriesWakeChoice(input: unknown): boolean {
+  if (input === null || typeof input !== 'object') return false
+  const send = input as { model?: unknown; effort?: unknown; forceUnknownModel?: unknown }
+  return (
+    send.model !== undefined || send.effort !== undefined || send.forceUnknownModel !== undefined
+  )
 }
 
 // ---------------------------------------------------------------------------

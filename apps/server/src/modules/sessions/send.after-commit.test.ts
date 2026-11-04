@@ -90,17 +90,47 @@ function watchDeliveryAttempts(o: Oracle) {
   return vi.spyOn(messages, 'attemptDelivery')
 }
 
+/**
+ * The send through the command plane, the way the sync write entry point's
+ * handler runs it (POD-6350). The tRPC route is now an adapter onto the entry
+ * point, which opens its own unit of work and refuses to run inside a caller's,
+ * so these tests open the unit themselves around the plane.
+ */
+async function planeSend(
+  o: Oracle,
+  key: 'sendText' | 'resumeAndSend',
+  input: { sessionId: SessionId; text: string; mutationId?: string },
+): Promise<unknown> {
+  return await dispatchSessionCommand(
+    await sessionCommandCtx(o.reg.modules, OPERATOR, false, 'trpc'),
+    key,
+    input,
+  )
+}
+
 describe('chat send delivers after the commit (POD-6349)', () => {
   it('with no unit of work open, a send attempts delivery before it replies (unchanged)', async () => {
     const o = await makeOracle()
     const sessionId = await liveSession(o)
     const attempts = watchDeliveryAttempts(o)
 
-    const reply = await o.call.sessions.sendText({ sessionId, text: 'inline' })
+    const reply = await planeSend(o, 'sendText', { sessionId, text: 'inline' })
 
     expect(reply).toMatchObject({ ok: true })
     expect(attempts).toHaveBeenCalledTimes(1)
     await vi.waitFor(() => expect(handOns(o.daemon, sessionId)).toHaveLength(1))
+  })
+
+  it('the tRPC route runs the send in the entry point\'s unit: it replies queued and hands on once', async () => {
+    const o = await makeOracle()
+    const sessionId = await liveSession(o)
+
+    const reply = await o.call.sessions.sendText({ sessionId, text: 'through the entry point' })
+
+    expect(reply).toEqual({ ok: true, queued: true, disposition: 'queued' })
+    await vi.waitFor(() => expect(handOns(o.daemon, sessionId)).toHaveLength(1))
+    await settle()
+    expect(handOns(o.daemon, sessionId)).toHaveLength(1)
   })
 
   it('a rolled-back send stores no row, attempts nothing and sends nothing to the daemon', async () => {
@@ -111,7 +141,7 @@ describe('chat send delivers after the commit (POD-6349)', () => {
     const mutationId = newMessageId()
     await expect(
       o.store.transact(async () => {
-        await o.call.sessions.sendText({ sessionId, text: 'never', mutationId })
+        await planeSend(o, 'sendText', { sessionId, text: 'never', mutationId })
         throw new Error('forced rollback')
       }),
     ).rejects.toThrow('forced rollback')
@@ -130,7 +160,7 @@ describe('chat send delivers after the commit (POD-6349)', () => {
     let reply: unknown
     let attemptsInsideTheUnitOfWork = -1
     await o.store.transact(async () => {
-      reply = await o.call.sessions.sendText({ sessionId, text: 'after commit' })
+      reply = await planeSend(o, 'sendText', { sessionId, text: 'after commit' })
       attemptsInsideTheUnitOfWork = attempts.mock.calls.length
     })
 
@@ -149,7 +179,7 @@ describe('chat send delivers after the commit (POD-6349)', () => {
 
     let attemptsInsideTheUnitOfWork = -1
     await o.store.transact(async () => {
-      await o.call.sessions.resumeAndSend({ sessionId, text: 'wake and send' })
+      await planeSend(o, 'resumeAndSend', { sessionId, text: 'wake and send' })
       attemptsInsideTheUnitOfWork = attempts.mock.calls.length
     })
 
@@ -166,7 +196,7 @@ describe('chat send delivers after the commit (POD-6349)', () => {
 
     const mutationId = newMessageId()
     await o.store.transact(async () => {
-      await o.call.sessions.sendText({ sessionId, text: 'retried', mutationId })
+      await planeSend(o, 'sendText', { sessionId, text: 'retried', mutationId })
     })
 
     // The send's own session write queued a delivery pass for the session,

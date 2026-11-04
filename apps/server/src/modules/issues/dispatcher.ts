@@ -18,6 +18,7 @@
 import { ISSUE_COMMAND_NAMES, type IssueContractName } from '@podium/commands'
 import type { IssueProc, IssueTrpc } from '@podium/issue-client'
 import { spawnedByParentSessionId } from '@podium/model'
+import type { MutationLedgerPort } from '@podium/sync'
 import { z } from 'zod'
 import { resolvePrincipalAsync } from '../../command-principal'
 import type { Capability } from '../../issue-authz'
@@ -29,6 +30,20 @@ import {
 } from './command-ctx'
 import { type AnyIssueCommandDef, guardIssueCommand, issueRegistry } from './registry'
 
+/** A ledger that runs the body every time and records nothing: see `withoutDedup`. */
+const RUN_EVERY_TIME: MutationLedgerPort = {
+  apply: async <T>(
+    _id: unknown,
+    _proc: string,
+    body: () => T | Promise<T>,
+  ): Promise<{ outcome: 'applied'; value: Awaited<T> }> => ({
+    outcome: 'applied',
+    value: await body(),
+  }),
+  once: async <T>(_id: unknown, _proc: string, body: () => T | Promise<T>): Promise<Awaited<T>> =>
+    await body(),
+}
+
 /**
  * The in-process command surface derived from the registry: runs one command as
  * `caller` with the full router-equivalent pipeline (guard on the RAW input,
@@ -38,6 +53,18 @@ import { type AnyIssueCommandDef, guardIssueCommand, issueRegistry } from './reg
  */
 export class IssueCommandDispatcher {
   constructor(private readonly deps: IssueCommandDeps) {}
+
+  /**
+   * This dispatcher with its handlers' dedup turned off, for the sync write
+   * entry point (POD-6350). The entry point has already deduplicated the call by
+   * the envelope's mutationId and holds that id in flight while the handler
+   * runs; a handler's own `withMutation` under the same id would join the
+   * in-flight owner, which is itself, and never return. Everything else (the
+   * arbitration, the services) is this dispatcher's.
+   */
+  withoutDedup(): IssueCommandDispatcher {
+    return new IssueCommandDispatcher({ ...this.deps, mutations: RUN_EVERY_TIME })
+  }
 
   /** Execute one ALREADY-guarded, ALREADY-parsed command (the tRPC path: the
    *  derived middleware guarded, tRPC parsed `def.input`). */

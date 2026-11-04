@@ -129,8 +129,8 @@ const DENIED: RenameDispatch = { outcome: 'denied' }
  * could pull apart, and it is what makes today's not-found behaviour and
  * tomorrow's invisible-session behaviour the same observable answer.
  */
-async function ownedTarget(
-  deps: RenameTargetDeps,
+export async function ownedTarget(
+  deps: Pick<RenameTargetDeps, 'sessions'>,
   sessionId: SessionId,
 ): Promise<AuthTarget | undefined> {
   const owner = await deps.sessions.sessionOwner(sessionId)
@@ -160,7 +160,7 @@ async function ownedTarget(
  * the offline case work — a drain hours later re-runs exactly this function
  * against the world as it is then.
  */
-function mayWrite(principal: CommandPrincipal, target: AuthTarget): boolean {
+export function mayWrite(principal: CommandPrincipal, target: AuthTarget): boolean {
   // A system principal (steward, expiry, boot reconcile) may act across owners but
   // never AS a person (§3.1.6 S5). It has no human, so there is no intersection to
   // evaluate — and no rename command routes to one today.
@@ -268,8 +268,8 @@ export async function renameOnTargetPath(
  * intermediate state this whole programme exists to stop creating, and the shadow
  * comparison would be comparing two implementations of the same bug.
  */
-async function applyRename(
-  deps: RenameTargetDeps,
+export async function applyRename(
+  deps: Pick<RenameTargetDeps, 'sessions'>,
   input: SessionRenameInput,
   principal: CommandPrincipal,
 ): Promise<SessionRenameOutcome> {

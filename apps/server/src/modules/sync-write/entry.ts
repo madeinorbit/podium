@@ -32,6 +32,7 @@
  * permanent one.
  */
 
+import { createLogger, describeError } from '@podium/logger'
 import type { MutationId } from '@podium/model'
 import { authorize } from '@podium/model'
 import type {
@@ -71,10 +72,26 @@ void [refusalKindsAgree, envelopeIsSubmitInput, replyRefusalIsAuthorityRefusal]
  * and the caller gets `{ outcome: 'rejected', refusal }`.
  */
 export class SyncWriteRefused extends Error {
-  constructor(readonly refusal: SyncSubmitRefusal) {
-    super(`sync write refused: ${refusal.kind}`)
+  /**
+   * `cause` is the family's own error, when the refusal translates one (an
+   * `IssueNotFound`, a 409 conflict). It never reaches the wire: the reply
+   * carries the refusal kind alone. An old per-command route reads it through
+   * {@link SyncWriteEntry.submitDetailed} to answer exactly as it did before it
+   * became an adapter (POD-6350).
+   */
+  constructor(
+    readonly refusal: SyncSubmitRefusal,
+    options?: { cause?: unknown },
+  ) {
+    super(`sync write refused: ${refusal.kind}`, options)
     this.name = 'SyncWriteRefused'
   }
+}
+
+/** A reply, and the family error behind a refusal when there is one. */
+export interface DetailedSubmit {
+  readonly reply: SyncSubmitReply
+  readonly cause?: unknown
 }
 
 export interface SyncWriteEntryDeps {
@@ -94,6 +111,8 @@ export interface SyncWriteEntryDeps {
   readonly receipt: () => Promise<WriteReceipt>
 }
 
+const log = createLogger('server:sync-write')
+
 const rejected = (refusal: SyncSubmitRefusal): SyncSubmitReply => ({ outcome: 'rejected', refusal })
 const UNAUTHORIZED: SyncSubmitRefusal = { kind: 'unauthorized' }
 
@@ -109,6 +128,21 @@ export class SyncWriteEntry {
     principal: CommandPrincipal,
     transport: SyncWriteTransport,
   ): Promise<SyncSubmitReply> {
+    return (await this.submitDetailed(envelope, principal, transport)).reply
+  }
+
+  /**
+   * {@link submit}, keeping the error behind a handler's refusal. For the old
+   * per-command routes, which stay as thin adapters onto this entry until
+   * POD-6359 removes them: their callers still read the message and the HTTP
+   * code they always got. Nothing else may use the cause; the wire is the reply.
+   */
+  async submitDetailed(
+    envelope: SyncSubmitInput,
+    principal: CommandPrincipal,
+    transport: SyncWriteTransport,
+  ): Promise<DetailedSubmit> {
+    const answer = (reply: SyncSubmitReply): DetailedSubmit => ({ reply })
     // The receipt is the head after THIS call's commit. Inside a caller's open
     // unit our commit is only a savepoint, and a receipt read there could name
     // rows that the caller then rolls back.
@@ -118,19 +152,19 @@ export class SyncWriteEntry {
 
     // 2. Contract lookup and the coarse check, before the input is looked at.
     const command = this.deps.registry.lookup(envelope.command)
-    if (command === undefined) return rejected({ kind: 'invalid', details: ['command'] })
-    if (!coarselyPermitted(command, principal, transport)) return rejected(UNAUTHORIZED)
+    if (command === undefined) return answer(rejected({ kind: 'invalid', details: ['command'] }))
+    if (!coarselyPermitted(command, principal, transport)) return answer(rejected(UNAUTHORIZED))
     if (envelope.version !== command.version)
-      return rejected({ kind: 'invalid', details: ['version'] })
+      return answer(rejected({ kind: 'invalid', details: ['version'] }))
 
     // 3. Parse.
     const parsed = parseCommandInput(command.input, envelope.input)
-    if (!parsed.ok) return rejected({ kind: 'invalid', details: parsed.details })
+    if (!parsed.ok) return answer(rejected({ kind: 'invalid', details: parsed.details }))
     const input: unknown = parsed.input
 
     // 4. The target check, live, on the parsed input.
     const denied = await this.targetRefusal(command, input, principal, envelope.confirmed === true)
-    if (denied !== undefined) return rejected(denied)
+    if (denied !== undefined) return answer(rejected(denied))
 
     // 5–7. Dedup; then provenance around one unit holding the handler and the record.
     const mutationId = envelope.mutationId
@@ -148,17 +182,29 @@ export class SyncWriteEntry {
         },
       )
     } catch (error) {
-      if (error instanceof SyncWriteRefused) return rejected(error.refusal)
+      // The unit has rolled back. A family that keeps a trail of refusals (the
+      // settings audit) writes it now, outside the write it is about.
+      try {
+        await command.rolledBack?.({ principal }, input, error)
+      } catch (trailError) {
+        log.warn('sync write: a rolled-back hook failed', {
+          command: command.name,
+          error: describeError(trailError),
+        })
+      }
+      if (error instanceof SyncWriteRefused) {
+        return { reply: rejected(error.refusal), cause: error.cause }
+      }
       throw error
     }
 
     // 8. The reply; the head is read after the commit has completed.
-    return {
+    return answer({
       outcome: 'applied',
       result: application.value,
       receipt: await this.deps.receipt(),
       replayed: application.outcome === 'replayed',
-    }
+    })
   }
 
   private async targetRefusal(

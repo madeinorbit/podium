@@ -92,11 +92,20 @@ export interface SyncWriteContext {
 
 type MaybePromise<T> = T | Promise<T>
 
+/**
+ * Called when the handler threw, AFTER its unit of work rolled back, with what it
+ * threw. For a family that keeps a trail of refused writes (the settings audit,
+ * POD-421): a trail row written inside the unit would roll back with the write
+ * it records. It runs outside any unit; it must not change the outcome.
+ */
+type RolledBack<In> = (ctx: SyncTargetContext, input: In, error: unknown) => Promise<void>
+
 /** A registration over an ADR 3 `CommandContract`. */
 export interface ContractRegistration<C extends AnyCommandContract, Out> {
   readonly contract: C
   target(input: z.infer<C['input']>, ctx: SyncTargetContext): MaybePromise<SyncWriteTarget>
   handle(ctx: SyncWriteContext, input: z.infer<C['input']>): Promise<Out>
+  readonly rolledBack?: RolledBack<z.infer<C['input']>>
 }
 
 /** A registration over a `defineCommands` entry, which carries no name of its own. */
@@ -105,6 +114,7 @@ export interface DefRegistration<D extends CommandDef, Out> {
   readonly def: D
   target(input: z.infer<D['input']>, ctx: SyncTargetContext): MaybePromise<SyncWriteTarget>
   handle(ctx: SyncWriteContext, input: z.infer<D['input']>): Promise<Out>
+  readonly rolledBack?: RolledBack<z.infer<D['input']>>
 }
 
 /** One command as the entry point reads it, whichever format declared it. */
@@ -114,6 +124,7 @@ export interface SyncCommand extends FrontDoorCommand {
   readonly input: z.ZodTypeAny
   target(input: unknown, ctx: SyncTargetContext): MaybePromise<SyncWriteTarget>
   handle(ctx: SyncWriteContext, input: unknown): Promise<unknown>
+  rolledBack?(ctx: SyncTargetContext, input: unknown, error: unknown): Promise<void>
 }
 
 export class SyncWriteRegistry {
@@ -152,6 +163,14 @@ function normalise(
   const target = (input: unknown, ctx: SyncTargetContext) =>
     registration.target(input as never, ctx)
   const handle = (ctx: SyncWriteContext, input: unknown) => registration.handle(ctx, input as never)
+  const hook = registration.rolledBack as RolledBack<unknown> | undefined
+  const rolledBack =
+    hook === undefined
+      ? {}
+      : {
+          rolledBack: (ctx: SyncTargetContext, input: unknown, error: unknown) =>
+            hook(ctx, input, error),
+        }
   if ('contract' in registration) {
     const { contract } = registration
     return {
@@ -161,8 +180,17 @@ function normalise(
       input: contract.input,
       target,
       handle,
+      ...rolledBack,
     }
   }
   const { def, name } = registration
-  return { ...defFrontDoor(def), name, version: 1, input: def.input, target, handle }
+  return {
+    ...defFrontDoor(def),
+    name,
+    version: 1,
+    input: def.input,
+    target,
+    handle,
+    ...rolledBack,
+  }
 }

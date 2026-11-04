@@ -436,25 +436,87 @@ export class SessionStateRegistry {
     input: Record<string, unknown>,
     principal: SessionStatePrincipal,
   ): Promise<typeof DENIED | 'allow'> {
-    if (principal.onBehalfOf !== undefined && principal.onBehalfOf !== principal.userId) {
-      return DENIED
+    const target = await targetFor(contract, registration, input, principal, this.deps)
+    if (!target || !contract.policy) return DENIED
+    return authorize(principal.capability, contract.policy.action, target) === 'allow'
+      ? 'allow'
+      : DENIED
+  }
+}
+
+/**
+ * Everything this envelope checks before `authorize`, answering the target it
+ * would authorize, or `undefined` to deny. One function for both callers: this
+ * envelope, and the sync write entry point's resolver (POD-6350), which runs
+ * `authorize` itself.
+ */
+async function targetFor(
+  contract: CommandDef,
+  registration: Registration,
+  input: Record<string, unknown>,
+  principal: SessionStatePrincipal,
+  deps: SessionStateDeps,
+): Promise<AuthTarget | undefined> {
+  if (principal.onBehalfOf !== undefined && principal.onBehalfOf !== principal.userId) {
+    return undefined
+  }
+  const policy = contract.policy
+  // A contract with no declared policy is refused, not waved through: the
+  // default-closed rule applies to policy exactly as it does to exposure.
+  if (!policy) return undefined
+  const target = await registration.target(input, principal, deps)
+  // Target absent = does not exist. Same answer as denied, one code path.
+  if (!target) return undefined
+  // The self-scoping check, stated positively rather than relying on the target
+  // resolver having built the row from the principal: a resolver that ever reads
+  // a userId out of the payload would be caught here.
+  if (
+    policy.scope === 'self' &&
+    (target.kind !== 'per-user-row' || target.userId !== principal.userId)
+  ) {
+    return undefined
+  }
+  return target
+}
+
+/**
+ * A SESSION-STATE COMMAND AS THE SYNC WRITE ENTRY POINT RUNS IT (POD-6350).
+ *
+ * The entry point owns exposure, parsing, `authorize`, dedup and the unit of
+ * work; this hands it the two halves that are this family's: the target (every
+ * check above except `authorize` itself) and the handler, with the command's
+ * session held resident as the envelope holds it. The handler runs WITHOUT this
+ * envelope's dedup: the entry point has already deduplicated by the envelope's
+ * mutationId, and a second `apply` under the same id would wait on itself.
+ */
+export function sessionStateCommandForSync(name: string):
+  | {
+      readonly def: CommandDef
+      target(
+        input: Record<string, unknown>,
+        principal: SessionStatePrincipal,
+        deps: SessionStateDeps,
+      ): Promise<AuthTarget | undefined>
+      handle(
+        input: Record<string, unknown>,
+        principal: SessionStatePrincipal,
+        deps: SessionStateDeps,
+      ): Promise<unknown>
     }
-    const policy = contract.policy
-    // A contract with no declared policy is refused, not waved through: the
-    // default-closed rule applies to policy exactly as it does to exposure.
-    if (!policy) return DENIED
-    const target = await registration.target(input, principal, this.deps)
-    // Target absent = does not exist. Same answer as denied, one code path.
-    if (!target) return DENIED
-    // The self-scoping check, stated positively rather than relying on the target
-    // resolver having built the row from the principal: a resolver that ever reads
-    // a userId out of the payload would be caught here.
-    if (
-      policy.scope === 'self' &&
-      (target.kind !== 'per-user-row' || target.userId !== principal.userId)
-    ) {
-      return DENIED
-    }
-    return authorize(principal.capability, policy.action, target) === 'allow' ? 'allow' : DENIED
+  | undefined {
+  const def = sessionStateCommand(name)
+  const registration = Object.hasOwn(REGISTRATIONS, name) ? REGISTRATIONS[name] : undefined
+  if (!def || !registration) return undefined
+  return {
+    def,
+    target: async (input, principal, deps) =>
+      await targetFor(def, registration, input, principal, deps),
+    handle: async (input, principal, deps) => {
+      const run = async () => await registration.handler(input, principal, deps)
+      const residency = deps.sessions.residency
+      return typeof input.sessionId === 'string' && residency
+        ? await residency.withSession(asSessionId(input.sessionId), name, run)
+        : await run()
+    },
   }
 }

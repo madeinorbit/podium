@@ -561,3 +561,64 @@ describe('sync write entry point: after-commit work', () => {
     ).rejects.toThrow(/open unit of work/)
   })
 })
+
+describe('sync write entry point: what an old route adapter needs (POD-6350)', () => {
+  it('a refusal keeps the error that caused it, for the route that reports it', async () => {
+    const h = await harness()
+    const cause = new Error('unknown issue iss_1')
+    registerPut(h, {
+      after: async () => {
+        throw new SyncWriteRefused({ kind: 'target-not-found' }, { cause })
+      },
+    })
+
+    const detailed = await h.entry.submitDetailed(
+      envelope('m-cause', { id: 'a', note: 'n' }),
+      h.admin,
+      'trpc',
+    )
+
+    expect(detailed.reply).toEqual({ outcome: 'rejected', refusal: { kind: 'target-not-found' } })
+    expect(detailed.cause).toBe(cause)
+    // The wire reply never carries it.
+    expect(
+      await h.entry.submit(envelope('m-cause-2', { id: 'a', note: 'n' }), h.admin, 'trpc'),
+    ).toEqual({ outcome: 'rejected', refusal: { kind: 'target-not-found' } })
+  })
+
+  it('a registration hears a handler failure after the rollback, and may write then', async () => {
+    const h = await harness()
+    const heard: Array<{ error: unknown; spanOpen: boolean; note: string }> = []
+    h.registry.register({
+      contract: putContract,
+      target: () => NO_TARGET,
+      handle: async (ctx, input) => {
+        await ctx.ledger.capture([conversation(input.id, input.note)])
+        throw new SyncWriteRefused({ kind: 'invalid' })
+      },
+      rolledBack: async (_ctx, input, error) => {
+        heard.push({ error, spanOpen: spanOpen(), note: input.note })
+        // Outside the rolled-back unit: this write stays.
+        await h.store.layout.set(
+          h.adminId,
+          'sidebar.section.trail',
+          input.note,
+          '2026-11-04T00:00:00.000Z',
+        )
+      },
+    })
+
+    const reply = await h.entry.submit(
+      envelope('m-trail', { id: 'a', note: 'kept' }),
+      h.admin,
+      'trpc',
+    )
+
+    expect(reply).toEqual({ outcome: 'rejected', refusal: { kind: 'invalid' } })
+    expect(heard).toHaveLength(1)
+    expect(heard[0]?.error).toBeInstanceOf(SyncWriteRefused)
+    expect(heard[0]?.spanOpen).toBe(false)
+    expect(await rows(h)).toHaveLength(0)
+    expect(await h.store.layout.get(h.adminId, 'sidebar.section.trail')).toBe('kept')
+  })
+})

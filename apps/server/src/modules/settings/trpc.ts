@@ -46,6 +46,7 @@ import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import { type Context, type mods, t } from '../../trpc'
 import { assertPlainContract, runPlainCommand } from '../plain-command/entry'
 import { plainRefusalError } from '../plain-command/family'
+import { submitFromRoute } from '../sync-write/route-adapter'
 import { redactErrorMessage } from './audit'
 import {
   SECRET_SURFACE_ABSENT,
@@ -60,6 +61,7 @@ import {
   settingsCommandsOn,
   settingsProcKey,
 } from './registry'
+import { updatePersonalRefusal } from './sync-write'
 
 /**
  * A READ is served as a QUERY, DERIVED from `policy.action` (POD-421).
@@ -310,6 +312,42 @@ export async function plainSettingsCommandWith(
 /** The input is parsed by the plain entry, after the coarse check. */
 const unparsed = (raw: unknown): unknown => raw
 
+/** A refused or failed settings write as the client receives it: the message
+ *  redacted by the same rule the trail uses (see `fail` above). */
+function asSettingsTrpcError(name: SettingsCommandName, input: unknown, e: unknown): TRPCError {
+  const raw = describeError(e)
+  const safe = redactErrorMessage(name, input, raw)
+  return e instanceof TRPCError && safe === raw
+    ? e
+    : new TRPCError({ code: 'BAD_REQUEST', message: safe })
+}
+
+/**
+ * `settings.updatePersonal` — A THIN ADAPTER ONTO `sync.submit` (POD-6350) until
+ * POD-6359 removes it. The gate, the write and the trail are the registration's
+ * (`sync-write.ts`), so a write through either door is checked, deduplicated and
+ * recorded once. The route keeps its wire: the redacted message on a refusal,
+ * and the gate's own error when the gate refused.
+ */
+async function updatePersonalThroughEntry(ctx: Context, input: unknown): Promise<unknown> {
+  const name = 'settings.updatePersonal' as const
+  let detailed: Awaited<ReturnType<typeof submitFromRoute>>
+  try {
+    detailed = await submitFromRoute(ctx, { command: name, input })
+  } catch (e) {
+    throw asSettingsTrpcError(name, input, e)
+  }
+  const { reply, cause } = detailed
+  if (reply.outcome === 'applied') return reply.result
+  if (cause !== undefined) throw asSettingsTrpcError(name, input, cause)
+  const refusal = await updatePersonalRefusal(
+    { roleOf: async (user) => await ctx.registry.sessionStore.users.roleOf(user) },
+    ctx.principal,
+  )
+  if (refusal?.error instanceof TRPCError) throw refusal.error
+  throw new TRPCError({ code: 'FORBIDDEN', message: refusal?.message ?? `${name} was refused` })
+}
+
 function buildProcedure(name: SettingsCommandName): unknown {
   const { contract } = SETTINGS_COMMANDS_TRPC[name]
   if (isPlainSettingsCommand(name)) {
@@ -329,7 +367,9 @@ function buildProcedure(name: SettingsCommandName): unknown {
   }
   const proc = t.procedure.input(contract.input)
   const call = async ({ ctx, input }: { ctx: Context; input: unknown }): Promise<unknown> =>
-    await runSettingsCommand(name, ctx, input)
+    name === 'settings.updatePersonal'
+      ? await updatePersonalThroughEntry(ctx, input)
+      : await runSettingsCommand(name, ctx, input)
   // Derived from the contract, never chosen here — see `IsRead` above.
   return contract.policy.action === 'read' ? proc.query(call) : proc.mutation(call)
 }
