@@ -151,6 +151,7 @@ import { QuotaBackfill } from './modules/quota-history/backfill'
 import { QuotaSampler } from './modules/quota-history/service'
 import { ReadPositionService } from './modules/read-position/service'
 import { awaitEffectSettled } from './modules/effects/await'
+import { registerFileWriteEffect } from './modules/files/write-effect'
 import { issueGitEffectPort, registerIssueGitEffects } from './modules/issues/git-effects'
 import { registerIssueStartEffect } from './modules/issues/start-effect'
 import {
@@ -3925,6 +3926,12 @@ export class SessionRegistry {
     this.modules.sessionInterrupts = registerSessionInterruptEffect({
       modules: () => this.modules,
       now: this.now,
+    })
+    // Saving a file from the app (POD-6395).
+    registerFileWriteEffect({
+      modules: () => this.modules,
+      repoPaths: async () => await this.store.repos.listRepoPaths(),
+      hostMachineId: this.store.hostMachineId,
     })
     const agentRelayGate = new AgentRelayGate({
       // issues/repos ops run through the registry dispatcher (guard + schema +

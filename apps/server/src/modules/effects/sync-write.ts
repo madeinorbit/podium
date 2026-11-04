@@ -90,6 +90,8 @@ export function registerEffectCommands(registry: SyncWriteRegistry, deps: Effect
           ],
         })
       }
+      const refusal = await executor.admit?.(parsed.data, input.target, ctx.principal)
+      if (refusal !== undefined) throw new SyncWriteRefused(refusal)
       if ((await deps.repo.get(input.id)) !== undefined) {
         throw new SyncWriteRefused({ kind: 'conflict' })
       }

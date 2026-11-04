@@ -21,6 +21,7 @@
  */
 
 import type { EffectTarget } from '@podium/model'
+import type { SyncSubmitRefusal } from '@podium/protocol'
 import type { z } from 'zod'
 import type { CommandPrincipal } from '../../command-principal'
 import type { EffectRow } from '../../store/effects'
@@ -54,9 +55,21 @@ export interface EffectRunContext<In> {
 
 export interface EffectExecutor<In = unknown> {
   readonly kind: string
-  readonly input: z.ZodType<In>
+  /** Parses the stored input; its own input type is whatever the wire carried. */
+  readonly input: z.ZodType<In, z.ZodTypeDef, unknown>
   /** What the kind acts on, checked live; `undefined` refuses. */
   target(target: EffectTarget, principal: CommandPrincipal): Promise<SyncWriteTarget>
+  /**
+   * Checks that need the parsed input and the target together, at create (in
+   * the unit of work, before the record is written): that the input addresses
+   * the target it names, a rule that reads other rows. A refusal is the
+   * create's answer. Absent: nothing beyond `target`.
+   */
+  admit?(
+    input: In,
+    target: EffectTarget,
+    principal: CommandPrincipal,
+  ): Promise<SyncSubmitRefusal | undefined>
   /** How long a record may wait to start. */
   readonly deadlineMs: number
   /** What the feed carries of the input. Default: the input as given. */
