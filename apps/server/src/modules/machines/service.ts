@@ -58,6 +58,7 @@ import type { DaemonControlPeer } from '../../gateway/daemon-ports'
 import { isPrivateOwner } from '../../private-resources'
 import { enrollSetupMachine, readSetupEnrollment } from '../../setup-enrollment'
 import type { MachineRecord, SessionStore } from '../../store'
+import { runAtRoot } from '../../store/executor/context'
 import type { SettingsAuditRow } from '../../store/settings-audit'
 import type { EventBus } from '../bus'
 import { custodianFromEdges } from '../issues/execution-visibility'
@@ -1784,7 +1785,7 @@ export class MachinesService {
       resourceKind: string
       resourceId: string
       verb: string
-      custody?: boolean | number | null
+      custody?: boolean | null
     }[],
   ): void {
     const machines = new Set(
@@ -1794,11 +1795,17 @@ export class MachinesService {
         )
         .map((row) => asMachineId(row.resourceId)),
     )
-    for (const id of machines) {
-      void this.publishDisplayProjection(id).catch((err: unknown) => {
-        log.warn('custody change could not republish the machine', { err, machineId: id })
-      })
-    }
+    if (machines.size === 0) return
+    // This listener runs inside the commit's apply step, which may not query.
+    // The republish is an effect of the commit: dispatched at the ROOT scope
+    // (`runAtRoot`), it reads the new custodian once the write lease is gone.
+    runAtRoot(() => {
+      for (const id of machines) {
+        void this.publishDisplayProjection(id).catch((err: unknown) => {
+          log.warn('custody change could not republish the machine', { err, machineId: id })
+        })
+      }
+    })
   }
 
   async factsSnapshot(): Promise<MachineFactsSnapshot> {

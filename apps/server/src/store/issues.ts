@@ -282,7 +282,12 @@ const worktreeOwnersOf = preparedFamily((db: StoreDrizzle, size: number) => {
  */
 const liveWorktreesOnMachines = preparedFamily((db: StoreDrizzle, size: number) =>
   db
-    .select({ id: issues.id, machineId: issues.machineId, ownerUserId: issues.ownerUserId })
+    // Selected by name: drizzle refuses a table column over a raw FROM.
+    .select({
+      id: sql<string>`${sql.identifier('id')}`,
+      machineId: sql<string | null>`${sql.identifier('machine_id')}`,
+      ownerUserId: sql<string>`${sql.identifier('owner_user_id')}`,
+    })
     .from(sql`${issues} INDEXED BY idx_issues_worktree`)
     .where(
       and(
