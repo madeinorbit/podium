@@ -9,10 +9,10 @@
  * through the real tRPC procedure, one operation (`trpc.ts` `oneOperation`), at
  * 5 and 200 parked sessions.
  *
- * 19 statements, by what they are for:
+ * 18 statements, by what they are for:
  * - access: the machines and their grants for the caller's machine-use
  *   snapshot (2), the session's row (1) through the operation's session
- *   loader, its grants (1) through the operation's grant loader;
+ *   loader;
  * - the restore for the lease: the row again from the same loader (0), then its
  *   satellites, one read per table (6: offers, draft times, observation
  *   checkpoint, runtime turn state, runtime transcript presence, conversation
@@ -23,7 +23,9 @@
  *   log's lowest sequence (1);
  * - the publication's visibility pass reads the written row again (1).
  * Before POD-6210 the access check read the row with its own statement and the
- * lease read it a second time: 20.
+ * lease read it a second time: 20. Until a30edff62f (POD-6283) the access check
+ * also read the session's grant edges through the operation's grant loader:
+ * 19. Session grants are inert now and the owner alone decides (design §4.1).
  */
 import { asSessionId, firstAdminMemberId, type SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
@@ -148,7 +150,7 @@ describe('a write to a parked session: constant statements', () => {
         },
         teardown: async (f) => await f.reg.dispose(),
       },
-      19,
+      18,
     )
   })
 })

@@ -30,8 +30,11 @@ import { type MailHarness, mailHarness } from './characterization-support'
 import type { MessageDeliveryDeps } from './service'
 
 const SENDER = asSessionId('sFrom')
-/** Measured on the polaris VM (POD-6231). */
-const PASS_STATEMENTS = 13
+/** Measured on the polaris VM (POD-6231): 13. Now 12: the session owner check
+ *  no longer reads the session's grant edges (`grants` by resource, one
+ *  statement), because session grants are inert and the owner is the whole
+ *  answer (design §4.1; a30edff62f, POD-6283). */
+const PASS_STATEMENTS = 12
 
 const row = (id: string, toId: IssueId, lifecycle: MessageRow['lifecycle'], createdAt: string): MessageRow => ({
   id,

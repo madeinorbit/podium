@@ -26,6 +26,10 @@
  * visibility read the session's own owner, never a grant. So `sessions.rename`
  * reads only the caller's machine grants (2 -> 1), and an `agentObservation`
  * frame reads none (1 -> 0). `issues.update` still reads its issue's grants.
+ *
+ * POD-6288 made tasks shared: every member reads every task and a legacy issue
+ * grant decides nothing (design §2.2, §4.1), so `issues.update` reads no grant
+ * either (1 -> 0).
  */
 import { asUserId, firstAdminMemberId, type IssueId, type SessionId } from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'
@@ -182,7 +186,7 @@ describe('grant reads per change, a running session on an issue: pinned at 5 and
     expectGrantReads(counts, 1)
   })
 
-  it('issues.update reads the issue\'s and its session\'s grants in one statement', async () => {
+  it('issues.update reads no grant', async () => {
     const counts = await expectConstantStatements(
       pin(
         'issues.update',
@@ -191,7 +195,7 @@ describe('grant reads per change, a running session on an issue: pinned at 5 and
       ),
       ISSUE_UPDATE,
     )
-    expectGrantReads(counts, 1)
+    expectGrantReads(counts, 0)
   })
 
   it('an agentObservation frame reads no grant', async () => {
@@ -216,6 +220,11 @@ describe('grant reads per change, a running session on an issue: pinned at 5 and
 // issue's pending mail (two statements); the flush now asks for both in one: -1.
 // POD-6218: the earliest admin is one statement, once per operation: issues.update -1.
 // POD-6283: no session grant read: rename -1, observation -1.
+// POD-6341 (measured on the polaris VM, statement lists diffed against the
+// integration branch's base): issues.update 28 -> 26. No issue grants read
+// (#ac789476; tasks are shared, POD-6288 6d0dc46741), and the mutation result
+// carries the caller's own markers instead of reading the earliest admin as
+// its reader (POD-6288 cffa5b31eb).
 const RENAME = 11
-const ISSUE_UPDATE = 28
+const ISSUE_UPDATE = 26
 const OBSERVATION = 11

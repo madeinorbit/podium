@@ -191,12 +191,24 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
   // POD-6229: the apply-time check of a message to an issue no longer reads the
   // machine rows and their grants (4 statements): tRPC to an issue 19 -> 15,
   // relayed 23 -> 19, mailSend 29 -> 25.
+  // POD-6341, measured on the polaris VM (statement lists diffed against the
+  // integration branch's base): sessions are private to their owner (design
+  // §2.3, POD-6283), so a session access check reads the session's owner from
+  // its row once (#7e28735b) instead of the session's grants each time
+  // (#92da1c94, 1 to 4 reads per send); a message to an issue drops its one
+  // session grants read. A relayed call also reads its delegation's human live
+  // (#835ef3a1, POD-6293). tRPC to a session 62 -> 61 (-2 grants, +1 owner),
+  // held 70 -> 68 (-3, +1), relayed held 61 -> 59 (-4, +1, +1 human), to an
+  // issue 15 -> 14, relayed to a session 53 -> 52 (-3, +1, +1 human), mailSend
+  // 25 -> 24 (-2 grants, +2 live human reads, and no read marker written: mail
+  // delivered to no session marks nobody's read state, POD-6291 9dd00e1e43,
+  // #347b6290). The users and issues reads gained columns, not statements.
   it('over tRPC, to a running session', async () => {
-    await expectConstantStatements(trpcToSession, 62)
+    await expectConstantStatements(trpcToSession, 61)
   })
 
   it('tRPC pin is armed', async () => {
-    await expectArmed(trpcToSession, 62, plantPerSession)
+    await expectArmed(trpcToSession, 61, plantPerSession)
   })
 
   // The pass attempts every held message, and each attempt read the issue's
@@ -217,7 +229,7 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
     await expectConstantStatements(
       heldIssueMail('tRPC messages.send to a session, issue mail held', async (f) =>
         await f.call.messages.send({ to: f.target, body: 'counted' })),
-      70,
+      68,
     )
   })
 
@@ -225,7 +237,7 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
     await expectConstantStatements(
       heldIssueMail('relayed messages.send to a session, issue mail held', async (f) =>
         await relay(f, 'send', { to: f.target, body: 'counted' })),
-      61,
+      59,
     )
   })
 
@@ -260,7 +272,7 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
   it('over tRPC, to an issue', async () => {
     await expectConstantStatements(
       pin('tRPC messages.send to an issue', async (f) => await f.call.messages.send({ to: f.issueId, body: 'counted' })),
-      15,
+      14,
     )
   })
 
@@ -271,11 +283,11 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
   )
 
   it('through the agent relay, to a running session', async () => {
-    await expectConstantStatements(relayToSession, 53)
+    await expectConstantStatements(relayToSession, 52)
   })
 
   it('relay pin is armed', async () => {
-    await expectArmed(relayToSession, 53, plantPerSession)
+    await expectArmed(relayToSession, 52, plantPerSession)
   })
 
   it('through the agent relay, to its own issue', async () => {
@@ -288,7 +300,7 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
   it('through the agent relay, issues.mailSend to its own issue', async () => {
     await expectConstantStatements(
       pin('relayed issues.mailSend', async (f) => await relay(f, 'mailSend', { id: f.issueId, body: 'counted' }, 'issues')),
-      25,
+      24,
     )
   })
 })

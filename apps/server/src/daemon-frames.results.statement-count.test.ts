@@ -289,14 +289,20 @@ describe('daemon *Result frames: pinned statement counts at 5 and 200', () => {
   )
 
   // The transition, its event, the issue notice (a mail to the issue) and the
-  // approvals broadcast. POD-6218: the earliest admin in one statement: 19 -> 18.
+  // approvals broadcast to connected members. POD-6218: the earliest admin in one statement: 19 -> 18.
   // POD-6229: the notice's apply-time check reads no machines: 18 -> 14.
+  // POD-6341 (measured on the polaris VM, statement lists diffed against the
+  // integration branch's base): 14 -> 12. The access check no longer reads the
+  // session's grants (#92da1c94; sessions are private, design §2.3, POD-6283),
+  // and the broadcast lists approvals per connected member (POD-6284
+  // fad322e0a3), so with no client connected it reads no approvals list
+  // (#5db52787).
   it('approvalExecResult of a session on an issue', async () => {
-    await expectConstantStatements(approval, 14)
+    await expectConstantStatements(approval, 12)
   })
 
   it('approvalExecResult pin is armed', async () => {
-    await expectArmed(approval, 14, plantPerSession)
+    await expectArmed(approval, 12, plantPerSession)
   })
 
   it('sessionKillResult that confirms the kill', async () => {

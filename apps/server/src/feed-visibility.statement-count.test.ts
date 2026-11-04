@@ -193,12 +193,13 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
             entity: 'shipLane',
             entityId: shipLaneId(asRepoId(`repo-${f.size - 1}`), 'local:main'),
           }
+          // Every member reads every task, and so every lane holding one (design
+          // §2.2, §4.1; POD-6288 6d0dc46741): no grant edge decides any more.
           expect(s.mayRead(owner, lane)).toBe(true)
-          expect(s.mayRead(reader, lane)).toBe(false)
+          expect(s.mayRead(reader, lane)).toBe(true)
           expect(s.mayRead(owner, { entity: 'automation', entityId: 'automation-0' })).toBe(false)
-          // The grant edge decides: shared with the reader, and nothing else is.
           expect(s.mayRead(reader, { entity: 'issueProjection', entityId: 'shared_0' })).toBe(true)
-          expect(s.mayRead(reader, { entity: 'issueProjection', entityId: 'iss_0' })).toBe(false)
+          expect(s.mayRead(reader, { entity: 'issueProjection', entityId: 'iss_0' })).toBe(true)
         },
       ),
       // 7 table reads, plus the issue grants and the session grants in one
@@ -240,10 +241,9 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
               { entity: 'shipLane', entityId: shipLaneId(asRepoId('repo-0'), 'local:main') },
             ])
             expect(edges[1]).toBeNull()
-            expect(edges[3]).toEqual({
-              audience: [reader],
-              subjects: [{ entity: 'shipLane', entityId: shipLaneId(asRepoId('repo-shared'), 'local:main') }],
-            })
+            // The departed order's lane still holds tasks, which every member
+            // reads (design §2.2; POD-6288), so nobody loses it.
+            expect(edges[3]).toBeNull()
             expect(edges[4]).toBeNull()
             // Installed subjects come back parsed; issueGitState was never installed.
             expect(values[0]).toEqual({ id: 'iss_0' })
@@ -297,10 +297,12 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
           return f
         },
       },
-      // Audiences; the lane departure's order, owner, audience, lane members,
-      // member rows and member grants; the issues' sessions, dependency ids,
-      // order ids and order rows; and the subjects' values.
-      12,
+      // Audiences; the lane departure's order, owner, audience, lane members
+      // and member rows; the issues' sessions, dependency ids, order ids and
+      // order rows; and the subjects' values. RE-PINNED 12 -> 11 FOR POD-6341:
+      // the departure no longer reads the member issues' grants, since every
+      // member reads every task (design §2.2, §4.1; POD-6288).
+      11,
     )
   })
 
@@ -310,12 +312,9 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
         ...pin(
           'laneDepartureEdge',
           async (f) => await edgeOf(f.policy.anchors, { entity: 'shipOrder', entityId: 'shared-order-0' }),
-          // The reader could read only the departed order's issue.
-          (edge) =>
-            expect(edge).toEqual({
-              audience: [reader],
-              subjects: [{ entity: 'shipLane', entityId: shipLaneId(asRepoId('repo-shared'), 'local:main') }],
-            }),
+          // The lane still holds tasks, which every member reads (design §2.2;
+          // POD-6288): the departure takes it from nobody.
+          (edge) => expect(edge).toBeNull(),
         ),
         setup: async (size) => {
           const f = await fixture(size)
@@ -328,8 +327,10 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
           return f
         },
       },
-      // 5 reads, plus the member issues' grants.
-      6,
+      // 5 reads. RE-PINNED 6 -> 5 FOR POD-6341: the member issues' grants are
+      // no longer read, since every member reads every task (design §2.2,
+      // §4.1; POD-6288).
+      5,
     )
   })
 })

@@ -149,12 +149,16 @@ describe('daemon frames, the rest: pinned statement counts at 5 and 200', () => 
   )
 
   // The write of the session row and its projection pass and publication.
+  // POD-6341, measured on the polaris VM (statement lists diffed against the
+  // integration branch's base): 10 -> 9, the projection pass no longer reads
+  // the session's grants (#92da1c94; sessions are private, design §2.3,
+  // POD-6283).
   it('title of one session among many', async () => {
-    await expectConstantStatements(title, 10)
+    await expectConstantStatements(title, 9)
   })
 
   it('title pin is armed', async () => {
-    await expectArmed(title, 10, plantPerSession('routeDaemonFrame'))
+    await expectArmed(title, 9, plantPerSession('routeDaemonFrame'))
   })
 
   const metrics = pin('hostMetrics', async (f) => await route(f, hostSample()))
@@ -181,8 +185,15 @@ describe('daemon frames, the rest: pinned statement counts at 5 and 200', () => 
   // The row's write, the machine projection's publication and the machine
   // broadcast, which reads the fleet once whatever its size. POD-6218: the
   // earliest admin and its settings once per operation: 19 -> 17.
+  // POD-6341, measured on the polaris VM (statement lists diffed against the
+  // integration branch's base): 17 -> 16. The projection now names the
+  // machine's custodian (POD-6291 9dd00e1e43), read from its custody edge (+1
+  // grants read). The report no longer appends the machine's change (-1
+  // `changes`, -1 `change_latest`): the projection names no tools, so the
+  // published row is likely equal to the one already installed (inferred, not
+  // traced). One more `meta` read (+1) is measured and not yet attributed.
   it('inventoryReport that changes the machine', async () => {
-    await expectConstantStatements(report('1.0.0'), 17)
+    await expectConstantStatements(report('1.0.0'), 16)
   })
 
   it('inventoryReport that repeats the last one', async () => {
@@ -201,6 +212,6 @@ describe('daemon frames, the rest: pinned statement counts at 5 and 200', () => 
   })
 
   it('inventoryReport pin is armed', async () => {
-    await expectArmed(report('1.0.0'), 17, plantPerSession('setMachineInventory', (f) => f.store.machines))
+    await expectArmed(report('1.0.0'), 16, plantPerSession('setMachineInventory', (f) => f.store.machines))
   })
 })

@@ -33,6 +33,7 @@ import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { probeStatements } from './store/executor/statement-probe'
 import { GrantsRepository } from './store/grants'
+import { SessionsRepository } from './store/sessions'
 import { produceBootstrap } from './sync-worker/producer'
 import type { SyncJob } from './sync-worker/types'
 import { attachTestClient } from './test-support/client-transport'
@@ -191,16 +192,37 @@ const plantPerIssue = (w: World): (() => void) => {
 
 /**
  * Plant a read per issue of the world on the worker's own connection: the
- * visibility prefetch reads grants once, and the spy reads one issue's grants
- * more per issue, on the same repository.
+ * visibility prefetch reads the batch's sessions once, and the spy reads one
+ * session more per issue, on the same repository. It was planted on the grants
+ * read until that read left the prefetch: tasks are shared and sessions private,
+ * so neither kind's grants decide anything (POD-6288, POD-6283), and grants are
+ * read only for the custody of machines that tasks are homed on, which this
+ * world's tasks are not.
  */
-const plantPerGrantRead = (w: World): (() => void) => {
-  const original = GrantsRepository.prototype.loadForResourcesOfKinds
-  const spy = vi.spyOn(GrantsRepository.prototype, 'loadForResourcesOfKinds').mockImplementation(async function (
-    this: GrantsRepository,
-    ...args: Parameters<GrantsRepository['loadForResourcesOfKinds']>
+const plantPerSessionRead = (w: World): (() => void) => {
+  const original = SessionsRepository.prototype.getSessions
+  const spy = vi.spyOn(SessionsRepository.prototype, 'getSessions').mockImplementation(async function (
+    this: SessionsRepository,
+    ...args: Parameters<SessionsRepository['getSessions']>
   ) {
-    for (const id of w.issues) await this.listForResources('issue', [id])
+    for (const id of w.issues) await original.call(this, [id])
+    return await original.apply(this, args)
+  })
+  return () => spy.mockRestore()
+}
+
+/**
+ * The delta's counterpart: a delta reads no sessions, so the loop is planted on
+ * its grant-audiences read (the anchors' audience of each issue in the batch),
+ * one more read per issue, on the same repository.
+ */
+const plantPerAudienceRead = (w: World): (() => void) => {
+  const original = GrantsRepository.prototype.visibilityAudiencesFor
+  const spy = vi.spyOn(GrantsRepository.prototype, 'visibilityAudiencesFor').mockImplementation(async function (
+    this: GrantsRepository,
+    ...args: Parameters<GrantsRepository['visibilityAudiencesFor']>
+  ) {
+    for (const id of w.issues) await original.call(this, 'issue', [id])
     return await original.apply(this, args)
   })
   return () => spy.mockRestore()
@@ -238,13 +260,15 @@ describe('sync worker: pinned statement counts at 5 and 200', () => {
 
   // The producer's five raw statements (the snapshot's head and floor, the two
   // passes over change_latest, the issue-event subjects) and the visibility
-  // prefetch's three reads (issues, sessions, grants).
+  // prefetch's two reads (issues, sessions). RE-PINNED 8 -> 7 FOR POD-6341: the
+  // prefetch's issue grants read (#06b41178) left with POD-6288 (tasks are
+  // shared, design §2.2, §4.1); the issues read gained columns, not a statement.
   it('a bootstrap for the owner', async () => {
-    await expectConstantStatements(bootstrap, 8)
+    await expectConstantStatements(bootstrap, 7)
   })
 
   it('a bootstrap pin is armed', async () => {
-    await expectArmed(bootstrap, 8, plantPerGrantRead)
+    await expectArmed(bootstrap, 7, plantPerSessionRead)
   })
 
   const delta = pin(
@@ -260,13 +284,15 @@ describe('sync worker: pinned statement counts at 5 and 200', () => {
   )
 
   // The producer's head, floor and issue-event subjects, the page of changes,
-  // and the batch prefetch's reads (issues, grants, grant audiences, sessions).
+  // and the batch prefetch's reads (issues, grant audiences, sessions).
+  // RE-PINNED 8 -> 7 FOR POD-6341: the prefetch's issue grants read (#9119be47)
+  // left with POD-6288 (tasks are shared, design §2.2, §4.1).
   it('a delta over one rename of every issue', async () => {
-    await expectConstantStatements(delta, 8)
+    await expectConstantStatements(delta, 7)
   })
 
   it('a delta pin is armed', async () => {
-    await expectArmed(delta, 8, plantPerGrantRead)
+    await expectArmed(delta, 7, plantPerAudienceRead)
   })
 })
 
@@ -283,12 +309,14 @@ describe('in-process syncChangesSince: pinned statement counts at 5 and 200', ()
     },
   )
 
+  // RE-PINNED 7 -> 6 FOR POD-6341: the issue grants read (#06b41178) left with
+  // POD-6288 (tasks are shared, design §2.2, §4.1).
   it('a snapshot for the owner', async () => {
-    await expectConstantStatements(snapshot, 7)
+    await expectConstantStatements(snapshot, 6)
   })
 
   it('a snapshot pin is armed', async () => {
-    await expectArmed(snapshot, 7, plantPerIssue)
+    await expectArmed(snapshot, 6, plantPerIssue)
   })
 
   const since = pin(
@@ -302,12 +330,14 @@ describe('in-process syncChangesSince: pinned statement counts at 5 and 200', ()
     },
   )
 
+  // RE-PINNED 8 -> 7 FOR POD-6341: the issue grants read (#9119be47) left with
+  // POD-6288 (tasks are shared, design §2.2, §4.1).
   it('a delta over one rename of every issue', async () => {
-    await expectConstantStatements(since, 8)
+    await expectConstantStatements(since, 7)
   })
 
   it('a delta pin is armed', async () => {
-    await expectArmed(since, 8, plantPerIssue)
+    await expectArmed(since, 7, plantPerIssue)
   })
 })
 

@@ -78,6 +78,18 @@ import {
 // row by id). runtimeEvent read the admin four times and the settings twice:
 // 33 -> 24; agentExit 33 -> 30; agentState 29 -> 20. Each now reads `users`,
 // `meta` and `user_preferences` once.
+//
+// RE-PINNED FOR POD-6341, measured on the polaris VM (statement lists diffed
+// against the integration branch's base). Sessions are private to their owner
+// (design §2.3, POD-6283) and a legacy session grant decides nothing (§4.1), so
+// a frame's session access check no longer reads the session's `grants`
+// (#92da1c94): agentObservation 12 -> 11, transcriptDelta 10 -> 9, agentExit
+// 30 -> 29, agentObservationRebind 21 -> 20, runtimeEvent binding (two checks)
+// 25 -> 23. runtimeEvent and agentState read the session's owner from its row
+// instead of its grants: 24 and 20, with no grant read. The activity flush's
+// projection pass no longer reads the busy sessions' issues' grants (#9119be47;
+// tasks are shared, §2.2, POD-6288): 4 -> 3. The users read gained a column
+// (`authz_generation`), not a statement.
 
 /**
  * Reads of the `grants` table in one tally [POD-6189]. Statement keys keep
@@ -191,10 +203,10 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
   it('agentObservation (idle snapshot) of one session among many', async () => {
     const counts = await expectConstantStatements(
       pin('agentObservation', async (f) => await route(f, { type: 'agentObservation', observation: observation(f.ids[0]!) })),
-      12,
+      11,
     )
     expect(counts.small.statements).toBeGreaterThan(0)
-    expectGrantReads(counts, 1)
+    expectGrantReads(counts, 0)
   })
 
   // The echo confirmation behind this frame reads its rows together; that loop is
@@ -214,9 +226,9 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
           tail: `c${size - 1}`,
         }),
       ),
-      10,
+      9,
     )
-    expectGrantReads(counts, 1)
+    expectGrantReads(counts, 0)
   })
 
   it('runtimeEvent (contract session start) of one session among many', async () => {
@@ -242,11 +254,12 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
       },
       24,
     )
-    expectGrantReads(counts, 1)
+    expectGrantReads(counts, 0)
   })
 
   // Every busy session is written in one commit [POD-6175]: one many-row
-  // upsert and the projection pass's two reads (grants, queued messages). No
+  // upsert and the projection pass's read of queued messages (its grants read
+  // left with POD-6288: tasks are shared). No
   // change is appended: output counters live in the row, not in the session's
   // wire meta, so every change dedups away.
   it('activity flush after output on every session', async () => {
@@ -259,9 +272,9 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
           return f
         },
       },
-      4,
+      3,
     )
-    expectGrantReads(counts, 1)
+    expectGrantReads(counts, 0)
   })
 })
 
@@ -274,9 +287,9 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
     const counts = await expectConstantStatements(
       pin('agentExit', async (f) =>
         await route(f, { type: 'agentExit', sessionId: f.ids[0], code: 0, observerGeneration: 1 })),
-      30,
+      29,
     )
-    expectGrantReads(counts, 1)
+    expectGrantReads(counts, 0)
   })
 
   it('agentObservationRebind onto a new provider thread', async () => {
@@ -293,9 +306,9 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
           resumeKind: 'codex-thread',
           rebindId: 'rebind-1',
         })),
-      21,
+      20,
     )
-    expectGrantReads(counts, 1)
+    expectGrantReads(counts, 0)
   })
 
   it('agentObserverLiveConfirmation without a terminal fence', async () => {
@@ -322,7 +335,7 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
       pin('agentState', async (f) => await route(f, { type: 'agentState', sessionId: f.ids[0], state: idle })),
       20,
     )
-    expectGrantReads(counts, 1)
+    expectGrantReads(counts, 0)
   })
 
   it('runtimeEvent binding of a contract session', async () => {
@@ -349,8 +362,8 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
         ),
         setup: async (size) => await fixture(size, true),
       },
-      25,
+      23,
     )
-    expectGrantReads(counts, 2)
+    expectGrantReads(counts, 0)
   })
 })

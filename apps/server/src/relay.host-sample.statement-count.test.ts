@@ -151,6 +151,10 @@ const pin = (
 // `session.phase_sample` rows ("ended", from the activity history's exit
 // listener) were two autocommit inserts inside the window; they are now one
 // grouped transaction that lands after the sample returns: 43 -> 41.
+// RE-PINNED FOR POD-6341, measured on the polaris VM (statement lists diffed
+// against the integration branch's base): sessions are private to their owner
+// (design §2.3, POD-6283), so the two retirements' access checks no longer read
+// the sessions' grants (#92da1c94): 41 -> 39.
 describe('host sample: pinned statement counts at 5 and 200 live shells', () => {
   it('a sample with nothing to retire', async () => {
     await expectConstantStatements(
@@ -194,7 +198,7 @@ describe('host sample: pinned statement counts at 5 and 200 live shells', () => 
           .poll(async () => (await f.store.sessions.loadSessions()).some((s) => s.id === f.ids.at(-1)))
           .toBe(false)
       }),
-      41,
+      39,
     )
   })
 })
