@@ -82,6 +82,17 @@ export const TELEMETRY_FEATURES = ['issues'] as const
 export const TelemetryFeature = z.enum(TELEMETRY_FEATURES)
 export type TelemetryFeature = z.infer<typeof TelemetryFeature>
 
+/** Where the one-time GitHub star card appeared. The names match the website's
+ *  `cta_location` values, so app and site numbers read the same. */
+export const TELEMETRY_STAR_SURFACES = ['finished_task', 'new_prompt'] as const
+export const TelemetryStarSurface = z.enum(TELEMETRY_STAR_SURFACES)
+export type TelemetryStarSurface = z.infer<typeof TelemetryStarSurface>
+
+/** What happened to the card: it appeared, or `Star on GitHub` was clicked. */
+export const TELEMETRY_STAR_EVENTS = ['shown', 'clicked'] as const
+export const TelemetryStarEvent = z.enum(TELEMETRY_STAR_EVENTS)
+export type TelemetryStarEvent = z.infer<typeof TelemetryStarEvent>
+
 /** A bounded, non-negative count. The cap keeps a runaway counter from turning
  *  into an unbounded number and makes the relay's validation total. */
 const Count = z.number().int().nonnegative().max(1_000_000)
@@ -159,6 +170,15 @@ export const UsageReport = z
     machines: MachinesBucket,
     sessions: z.record(AgentKind, Count),
     features: z.record(TelemetryFeature, z.boolean()),
+    /** Absent unless the star card did something this window. A report without
+     *  it passes a relay built before this field existed. */
+    githubStar: z
+      .object({
+        shown: z.record(TelemetryStarSurface, Count),
+        clicked: z.record(TelemetryStarSurface, Count),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
 export type UsageReport = z.infer<typeof UsageReport>

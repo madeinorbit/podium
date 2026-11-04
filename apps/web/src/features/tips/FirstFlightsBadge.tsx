@@ -3,9 +3,9 @@ import { observer } from '@podium/client-graph/react'
 import { Check, RotateCcw, Send, X } from 'lucide-react'
 import { useContext, useState } from 'react'
 import { TipContext } from './tip-context'
-import { TIP_IDS, type TipId } from './types'
+import { type FirstFlightId, TIP_IDS } from './types'
 
-const GUIDE: Record<TipId, { title: string; when: string }> = {
+const GUIDE: Record<FirstFlightId, { title: string; when: string }> = {
   'first-prompt': { title: 'Your first prompt', when: 'you start your first task.' },
   'first-send': { title: 'Your list and flight deck', when: 'you send your first task.' },
   'ask-anything': { title: 'Ask your agents anything', when: 'your first agent finishes a turn.' },

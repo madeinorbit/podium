@@ -1,6 +1,6 @@
 import { Popover } from '@base-ui/react/popover'
 import { observer } from '@podium/client-graph/react'
-import { Send, X } from 'lucide-react'
+import { Send, Star, X } from 'lucide-react'
 import {
   type CSSProperties,
   type ReactNode,
@@ -95,7 +95,7 @@ const TipLayer = observer(function TipLayer({ engine }: { engine: TipEngine }) {
     <>
       <div className="tip-announcement" role="status" aria-live="polite" aria-atomic="true">
         {current &&
-          `First flights. Card ${current.index + 1} of ${Math.min(2, current.registration.read().cards.length)}. ${current.card.title} ${current.card.body} Press F6 to reach the tip controls, and F6 again to return.`}
+          `${current.card.standalone?.eyebrow ?? 'First flights'}. Card ${current.index + 1} of ${Math.min(2, current.registration.read().cards.length)}. ${current.card.title} ${current.card.body} Press F6 to reach the tip controls, and F6 again to return.`}
       </div>
       {current && (
         <AnchoredTip
@@ -255,8 +255,12 @@ const AnchoredTip = observer(function AnchoredTip({
               </Popover.Arrow>
               <div className="tip-card-scroll">
                 <div className="tip-eyebrow">
-                  <Send size={13} aria-hidden="true" />
-                  <span>First flights</span>
+                  {current.card.standalone ? (
+                    <Star size={13} aria-hidden="true" />
+                  ) : (
+                    <Send size={13} aria-hidden="true" />
+                  )}
+                  <span>{current.card.standalone?.eyebrow ?? 'First flights'}</span>
                   <button
                     type="button"
                     className="tip-close"
@@ -284,17 +288,17 @@ const AnchoredTip = observer(function AnchoredTip({
                     type="button"
                     className="tip-skip"
                     onClick={(event) => {
-                      engine.close('skipped-all')
+                      engine.close(current.card.standalone ? 'dismissed' : 'skipped-all')
                       if (event.detail === 0) restoreFocus()
                     }}
                   >
-                    Skip tips
+                    {current.card.standalone?.declineLabel ?? 'Skip tips'}
                   </button>
                   <button
                     type="button"
                     className="tip-next"
                     onClick={(event) => {
-                      if (last) onFinish(popup.current)
+                      if (last && !current.card.standalone) onFinish(popup.current)
                       engine.next()
                       if (last && event.detail === 0) restoreFocus()
                       current.card.cta?.onClick()

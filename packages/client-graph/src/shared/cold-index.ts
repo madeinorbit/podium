@@ -1,3 +1,4 @@
+import { canonicalIssueCloseReason } from '@podium/model/browser'
 import { joinedFields, storedFields } from './joined-fields'
 /**
  * POD-5405 — THE COLD INDEX: the residency rule's inputs for every row the
@@ -152,6 +153,9 @@ export interface ColdQueries {
   flatUntil(entity: EntityName, id: string, now: number): number | undefined
   /** POD-5407 — how many rows of `entity` the feed carries with no `deletedAt`. */
   undeleted(entity: EntityName): number
+  /** Top-level tasks closed as done. Counted over every row the feed carries,
+   *  so a task that has left the working set still counts. */
+  finishedTasks(): number
   /**
    * POD-5407 — `fields` of a known row, when the index holds every one of
    * them (the rule's own inputs); undefined otherwise, and the caller reads
@@ -223,6 +227,13 @@ function ruleFields(schema: ModelSchema, entity: EntityName, lanes: readonly Lan
   return [...fields]
 }
 
+function isFinishedTask(row: Row): boolean {
+  if (row['stage'] !== 'done' || row['deletedAt'] != null || row['parentId'] != null) return false
+  if (row['isDraftVessel'] === true) return false
+  const reason = canonicalIssueCloseReason(row['closedReason'] as string | null | undefined)
+  return reason === null || reason === 'done'
+}
+
 export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = {}): ColdIndex {
   const companions = new Map<string, Row>()
   const readers = createReaderIndex()
@@ -276,6 +287,8 @@ export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = 
   /** Per cold-capable entity declaring `deletedAt`: how many rows have none. */
   const undeleted = new Map<EntityName, number>()
   for (const entity of entities) if (fieldsDeclare(schema, entity, 'deletedAt')) undeleted.set(entity, 0)
+  /** Ids of finished top-level tasks. A set, because a row can arrive twice. */
+  const finishedTasks = new Set<string>()
 
   // Members sources: source → owner id → member id → keep; member → where it is filed.
   const byOwner = new Map<KeptBySpec, Map<string, Map<string, MemberKeep>>>()
@@ -508,6 +521,10 @@ export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = 
         if (was !== is) undeleted.set(entity, count + (is ? 1 : -1))
       }
     }
+    if (entity === 'issue') {
+      if (row !== undefined && isFinishedTask(row)) finishedTasks.add(record.id)
+      else finishedTasks.delete(record.id)
+    }
     relations.changed(entity, record.id, existed, row)
     if (entity === 'session' && (
       existed !== (row !== undefined) || previous?.issueId !== row?.issueId ||
@@ -531,6 +548,7 @@ export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = 
     for (const map of extras.values()) map.clear()
     for (const set of plain.values()) set.clear()
     for (const entity of undeleted.keys()) undeleted.set(entity, 0)
+    finishedTasks.clear()
     byOwner.clear()
     memberOf.clear()
     for (const map of byTarget.values()) map.clear()
@@ -659,6 +677,7 @@ export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = 
       return coldFlatUntil(schema, entity, id, row, bound, context(now))
     },
     undeleted: (entity) => undeleted.get(entity) ?? 0,
+    finishedTasks: () => finishedTasks.size,
     holds(declared) {
       return entities.every((entity) =>
         (declared[entity] ?? []).every((field) => heldOf.get(entity)!.has(field)),

@@ -22,6 +22,8 @@ import {
   InstallAgeBucket,
   MachinesBucket,
   TELEMETRY_FEATURES,
+  TELEMETRY_STAR_EVENTS,
+  TELEMETRY_STAR_SURFACES,
   TelemetryArch,
   TelemetryOs,
   UsageReport,
@@ -66,6 +68,8 @@ describe('docs/TELEMETRY.md lists every value each closed enum admits', () => {
     ['machines', MachinesBucket.options],
     ['errorType', ErrorType.options],
     ['features', TELEMETRY_FEATURES],
+    ['githubStar surface', TELEMETRY_STAR_SURFACES],
+    ['githubStar event', TELEMETRY_STAR_EVENTS],
   ]
   it.each(enums)('%s values are all documented', (field, values) => {
     for (const value of values) {

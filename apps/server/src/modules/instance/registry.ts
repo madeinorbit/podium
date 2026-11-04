@@ -114,6 +114,13 @@ export const TELEMETRY_COMMANDS_TRPC = {
       unknown
     >,
   },
+  recordGithubStar: {
+    contract: TELEMETRY_CONTRACTS.recordGithubStar,
+    handler: ((svc, input) => svc.recordGithubStar(input)) satisfies InstanceHandler<
+      In<typeof TELEMETRY_CONTRACTS.recordGithubStar>,
+      unknown
+    >,
+  },
 } as const satisfies Record<TelemetryContractName, InstanceCommand>
 
 /** ADR 3 D3, default-closed, across all three tables. An unknown name is `false`,

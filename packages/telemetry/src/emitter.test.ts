@@ -12,6 +12,7 @@ import type { PodiumConfig } from '@podium/runtime/config'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BOOT_FLUSH_DELAY_MS, FLUSH_INTERVAL_MS, TelemetryEmitter } from './emitter'
 import { readLastSent, readQueue, readWindow } from './queue'
+import { UsageReport } from './schema'
 
 const INSTALL_ID = '3f9c1a2e-0000-4000-8000-000000000000'
 const INSTALL = '/opt/podium'
@@ -489,5 +490,21 @@ describe('failure is silent and free', () => {
     // unref'd: node/bun exit with this pending. stop() is still idempotent.
     h.emitter.stop()
     h.emitter.stop()
+  })
+})
+
+describe('the GitHub star counters', () => {
+  it('reports shown and clicked per surface, and nothing until the card acts', () => {
+    const { emitter } = harness({ telemetry: { usage: 'on', installId: INSTALL_ID, since: 1 } })
+    expect(emitter.buildUsageReport()).not.toHaveProperty('githubStar')
+    emitter.recordGithubStar('shown', 'finished_task')
+    emitter.recordGithubStar('clicked', 'finished_task')
+    emitter.recordGithubStar('shown', 'new_prompt')
+    const report = emitter.buildUsageReport()
+    expect(report?.githubStar).toEqual({
+      shown: { finished_task: 1, new_prompt: 1 },
+      clicked: { finished_task: 1 },
+    })
+    expect(UsageReport.safeParse(report).success).toBe(true)
   })
 })

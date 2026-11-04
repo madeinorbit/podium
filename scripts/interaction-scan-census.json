@@ -10250,20 +10250,20 @@
       "file": "apps/web/src/test-support/mock-command-launch.ts",
       "holder": "useCommandFixture/fixture/useMemo:callback/update",
       "rule": "helper-consumer",
-      "tokens": "357378c0b6e84ebfc97c59a3fb18a0226c152d8cbdf9ed6cffe59747e22feb34",
+      "tokens": "74321c8487d5872609a97e90b40c6c18cee9aa185d71d633888e37f56911c0c5",
       "gate": [
         "then:eff1e4bdcf1cd7260f17e8ca3557da804e743d40432de0b2244318508856ffcd"
       ],
       "origin": [
         "cf44a3aa9ea523c1d5954e1cced32d2e05662a456e8b13721e575aedad13bd10"
       ],
-      "fingerprint": "c027947fa94b51ea68e8f9bad16642e7a48a5f19f501d54163db1367c54a5c9a",
+      "fingerprint": "e22792988ba0ef677fa393472f943cdbde15256568a84462f953f8847ab236ff",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of useCommandFixture/fixture/useMemo:callback/update",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 56e8a15696d9374c8afdb409a1aa680a37b68e7a69919976f46832bf6de433dd. Predecessor: 27b914d9b63d7ca7da1838c11dec77522085325df216cdcdec00f26160de1c81 (POD-6246: repo name joined from the server record; no traversal added).",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 56e8a15696d9374c8afdb409a1aa680a37b68e7a69919976f46832bf6de433dd. Predecessor: 27b914d9b63d7ca7da1838c11dec77522085325df216cdcdec00f26160de1c81 (POD-6246: repo name joined from the server record; no traversal added). Predecessor: c027947fa94b51ea68e8f9bad16642e7a48a5f19f501d54163db1367c54a5c9a.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -12646,7 +12646,7 @@
       "file": "apps/web/src/test-support/pool-fixture.ts",
       "holder": "syncPoolFixture",
       "rule": "helper-consumer",
-      "tokens": "0b5b7aca3c489dddb892044c67c7d4e8c151fcbabe183b8d85daf94d8333486e",
+      "tokens": "4be5a78e4dff48d50e7e11deb058536d2ef741bd5330e0d89b6a026ce8adc515",
       "gate": [
         "then:06220bc81cd248fb56e99efd8bf9eecb82cdddeb1827556cfab84507c375e49f"
       ],
@@ -12654,13 +12654,13 @@
         "1fc626feccb53ee2b2b821f5e6e8279424c0631fe987ccda5bf4a1814b63214e",
         "c77b0b5df1a56c21e04e74a107655690b236422a60b5f219909ed19cf4e82dcd"
       ],
-      "fingerprint": "e8f34d3e8ea11789c15daf416e5cf5a81f6f221c6fe79c79137c45458cf8830a",
+      "fingerprint": "0a05c668f6fe126426e3df02bec254c7fd458331fde6ccb9f92acca33dd64710",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of syncPoolFixture",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 52347629b6f7fcc378d3caca28e679a6f35b71a5f67185ae787166c7fb71c630. Predecessor: d9c4e9b2c9cf27a3b2473c4d2276197079bcfb183c33bea26e4bd1dc23bd2698 (POD-6246: repo name joined from the server record; no traversal added).",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. Predecessor: 52347629b6f7fcc378d3caca28e679a6f35b71a5f67185ae787166c7fb71c630. Predecessor: d9c4e9b2c9cf27a3b2473c4d2276197079bcfb183c33bea26e4bd1dc23bd2698 (POD-6246: repo name joined from the server record; no traversal added). Predecessor: e8f34d3e8ea11789c15daf416e5cf5a81f6f221c6fe79c79137c45458cf8830a.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {

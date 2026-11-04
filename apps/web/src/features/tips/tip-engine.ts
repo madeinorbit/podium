@@ -1,6 +1,7 @@
 import { lazy } from '@podium/mobx-helpers'
 import { action, observableRef, reaction } from 'mobx'
 import {
+  ALL_TIP_IDS,
   TIP_IDS,
   type TipCard,
   type TipId,
@@ -54,7 +55,7 @@ export class TipEngine {
   connect(): () => void {
     this.connected = true
     const stop = reaction(
-      () => [this.log.ready, this.log.enabled, ...TIP_IDS.map((id) => this.log.isSeen(id))],
+      () => [this.log.ready, this.log.enabled, ...ALL_TIP_IDS.map((id) => this.log.isSeen(id))],
       () => this.reconcile(),
       { fireImmediately: true },
     )

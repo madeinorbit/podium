@@ -234,6 +234,8 @@ export {
   TELEMETRY_CONTRACT_NAMES,
   TELEMETRY_CONTRACTS,
   type TelemetryContractName,
+  telemetryRecordGithubStarContract,
+  telemetryRecordGithubStarInput,
   telemetryResetIdContract,
   telemetryResetIdInput,
   telemetrySetContract,

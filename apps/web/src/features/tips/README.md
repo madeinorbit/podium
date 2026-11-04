@@ -53,6 +53,11 @@ return <div ref={composer} data-tip-anchor="my-moment-composer">…</div>
   Esc, × and outside clicks dismiss. Skip tips records `skipped-all`; the log marks
   all seven seen and disables tips. Nothing shows before `log.ready && log.enabled`.
 
+`github-star` is a moment outside the tour. It uses this engine and log, but it is not in
+`TIP_IDS`, so it never counts toward 7/7 and the guide does not list it. A card with
+`standalone` sets its own heading and swaps Skip tips for a plain decline. Skip tips still
+marks it seen, because that person asked for no tips.
+
 `types.ts` is the shared log contract with POD-2195. `tip-log-source.ts` selects the
 account-scoped log; `MemoryTipLog` serves tests and harnesses only.
 No registration means no visible UI. The badge retires when all seven are seen.

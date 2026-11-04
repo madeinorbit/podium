@@ -70,7 +70,9 @@ export interface Context {
    *  handler may offer a crash to the emitter and may do nothing else with it,
    *  and in particular cannot read or write consent, which lives in config.json
    *  so that turning telemetry off works with no server. */
-  telemetry?: { emitter: Pick<TelemetryEmitter, 'buildUsageReport' | 'recordCrash'> }
+  telemetry?: {
+    emitter: Pick<TelemetryEmitter, 'buildUsageReport' | 'recordCrash' | 'recordGithubStar'>
+  }
   /** Accounts and their credentials (POD-1554). `auth.setPassword` writes the CALLER's
    *  credential, so the instance family needs the repository; optional because a context
    *  can be built without one, and the commands refuse rather than invent an account. */

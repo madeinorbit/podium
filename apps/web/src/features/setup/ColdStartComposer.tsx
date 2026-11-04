@@ -48,6 +48,7 @@ import {
 } from '@/features/settings/readers'
 import { useSettingsClient } from '@/features/settings/stable-access'
 import { useTipMoment } from '@/features/tips'
+import { useGitHubStarOnNewPrompt } from '@/features/tips/github-star-tip'
 import { noteFirstSend } from '@/features/worklist/first-send-tip'
 import {
   agentFleetStatus,
@@ -582,6 +583,7 @@ export function ColdStartComposer({
     active: first,
     cards: firstPromptCards({ setGhost, setShowing: setTipShowing, focusComposer: focusField }),
   })
+  useGitHubStarOnNewPrompt({ first, setShowing: setTipShowing })
   useEffect(() => {
     const globals = globalThis as { __PODIUM_FOCUS_SESSION_PROMPT__?: () => void }
     globals.__PODIUM_FOCUS_SESSION_PROMPT__ = focusField

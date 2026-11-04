@@ -10,6 +10,25 @@ let container: HTMLDivElement
 let root: Root
 let box: DOMRect
 let clipped = false
+function StarMoment({ onClick }: { onClick(): void }) {
+  useTipMoment('github-star', {
+    active: true,
+    cards: [
+      {
+        anchor: 'row',
+        title: 'Star us on GitHub.',
+        body: 'It helps other developers find Podium.',
+        standalone: { eyebrow: 'Now that you’re shipping', declineLabel: 'Not now' },
+        cta: { label: 'Star on GitHub', onClick },
+      },
+    ],
+  })
+  return (
+    <button type="button" data-tip-anchor="row">
+      Task
+    </button>
+  )
+}
 function Moment() {
   useTipMoment('first-prompt', {
     active: true,
@@ -72,6 +91,42 @@ afterEach(async () => {
   vi.unstubAllGlobals()
   vi.useRealTimers()
 })
+describe('the star card', () => {
+  const button = (name: string) =>
+    [...document.querySelectorAll('button')].find((b) => b.textContent === name)
+  const open = async (onClick = vi.fn()) => {
+    const log = new MemoryTipLog()
+    const record = vi.spyOn(log, 'record')
+    await act(async () =>
+      root.render(
+        <TipHost log={log} gapMs={0}>
+          <StarMoment onClick={onClick} />
+        </TipHost>,
+      ),
+    )
+    await advance(0)
+    return { log, record, onClick }
+  }
+
+  it('has its own heading, and Not now ends it without turning tips off', async () => {
+    const { log, record } = await open()
+    expect(document.body.textContent).toContain('Now that you’re shipping')
+    expect(document.body.textContent).not.toContain('First flights')
+    expect(button('Skip tips')).toBeUndefined()
+    await act(async () => button('Not now')?.click())
+    expect(record).toHaveBeenLastCalledWith('github-star', 'dismissed')
+    expect(log.enabled).toBe(true)
+    expect(log.isSeen('github-star')).toBe(true)
+  })
+
+  it('runs the click and ends the moment', async () => {
+    const { log, onClick } = await open()
+    await act(async () => button('Star on GitHub')?.click())
+    expect(onClick).toHaveBeenCalledOnce()
+    expect(log.isSeen('github-star')).toBe(true)
+  })
+})
+
 describe('tip host boundaries', () => {
   it('remembers typing before the first registration mounts', async () => {
     const log = new MemoryTipLog()

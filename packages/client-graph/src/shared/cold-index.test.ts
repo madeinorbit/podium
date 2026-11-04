@@ -68,6 +68,27 @@ const runningSession = (sessionId: string, extra: Row = {}): Row => ({
   ...extra,
 })
 
+describe('finished task count', () => {
+  it('counts top-level tasks closed as done, and follows them as they change', () => {
+    const f = feed()
+    f.put('issue', 'a', closedIssue('a', { parentId: null, closedReason: 'done' }))
+    f.put('issue', 'b', closedIssue('b', { parentId: null }))
+    expect(f.index.finishedTasks()).toBe(2)
+    // A row arriving again is not a second task.
+    f.put('issue', 'a', closedIssue('a', { parentId: null, closedReason: 'done' }))
+    expect(f.index.finishedTasks()).toBe(2)
+    // None of these is a finished task of the person's own.
+    f.put('issue', 'child', closedIssue('child'))
+    f.put('issue', 'cancelled', closedIssue('cancelled', { parentId: null, closedReason: 'cancelled' }))
+    f.put('issue', 'draft', closedIssue('draft', { parentId: null, isDraftVessel: true }))
+    expect(f.index.finishedTasks()).toBe(2)
+    f.put('issue', 'a', closedIssue('a', { parentId: null, stage: 'in_progress' }))
+    expect(f.index.finishedTasks()).toBe(1)
+    f.put('issue', 'b', closedIssue('b', { parentId: null, deletedAt: iso(T0) }))
+    expect(f.index.finishedTasks()).toBe(0)
+  })
+})
+
 describe('cold index (POD-5405)', () => {
   it('keeps navigation paths addressed across hidden membership, rehomes and readmission', () => {
     const f = feed()

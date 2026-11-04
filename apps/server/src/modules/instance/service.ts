@@ -47,7 +47,7 @@ import {
   networkOptionCommand,
   validatePublicUrl,
 } from '@podium/runtime/setup'
-import type { TelemetryEmitter } from '@podium/telemetry'
+import type { TelemetryEmitter, TelemetryStarEvent, TelemetryStarSurface } from '@podium/telemetry'
 import { readTelemetryState, shouldAskForConsent } from '@podium/telemetry'
 import { TRPCError } from '@trpc/server'
 import { serverBuildVersion } from '../../build-version'
@@ -64,7 +64,7 @@ export interface InstanceDeps {
       ) => void)
     | undefined
   readonly settings?: SettingsRepository | undefined
-  readonly emitter?: Pick<TelemetryEmitter, 'buildUsageReport'> | undefined
+  readonly emitter?: Pick<TelemetryEmitter, 'buildUsageReport' | 'recordGithubStar'> | undefined
   /**
    * THE ACCOUNT SEAM (POD-1554). `auth.*` stopped being process-wide the moment a
    * password belonged to a person rather than to the box, so this service now takes
@@ -697,6 +697,14 @@ export class InstanceService {
     this.assertNotForced('telemetrySince', 'telemetry identity clock')
     await this.updateDeployment({ telemetryInstallId: randomUUID(), telemetrySince: Date.now() })
     return this.telemetryState()
+  }
+
+  /** One showing or click of the GitHub star card. Silent with no emitter. */
+  recordGithubStar(input: { event: TelemetryStarEvent; surface: TelemetryStarSurface }): {
+    ok: true
+  } {
+    this.deps.emitter?.recordGithubStar(input.event, input.surface)
+    return { ok: true }
   }
 
   /** The example report the Privacy page shows — rendered from the REAL emitter

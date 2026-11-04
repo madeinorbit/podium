@@ -46,6 +46,8 @@ import {
   TELEMETRY_SCHEMA_VERSION,
   type TelemetryFeature,
   type TelemetryReport,
+  type TelemetryStarEvent,
+  type TelemetryStarSurface,
   tierOf,
   type UsageReport,
 } from './schema'
@@ -163,6 +165,15 @@ export class TelemetryEmitter {
     writeWindow(this.deps.stateDir, window)
   }
 
+  /** The GitHub star card appeared or was clicked. Human-paced: once per account. */
+  recordGithubStar(event: TelemetryStarEvent, surface: TelemetryStarSurface): void {
+    if (!this.tierOn('usage')) return
+    const window = this.window()
+    const star = (window.githubStar ??= { shown: {}, clicked: {} })
+    star[event][surface] = (star[event][surface] ?? 0) + 1
+    writeWindow(this.deps.stateDir, window)
+  }
+
   /**
    * Record a crash for the `crash` tier. The error's MESSAGE is not accepted,
    * stored, or reachable — `scrubError` takes the throwable and returns only a
@@ -241,6 +252,7 @@ export class TelemetryEmitter {
       machines: bucketMachines(machines),
       sessions,
       features,
+      ...(window.githubStar ? { githubStar: window.githubStar } : {}),
     }
   }
 

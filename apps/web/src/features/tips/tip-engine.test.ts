@@ -22,6 +22,37 @@ function fixture() {
   stop = engine.connect()
   return { log, record, engine }
 }
+describe('the GitHub star moment', () => {
+  it('shows once across two registrations and never counts toward First Flights', () => {
+    const { engine, log, record } = fixture()
+    const show = vi.fn()
+    const surface = () => ({ active: true, cards: [{ ...card(), onShow: show }] })
+    engine.register('github-star', surface)
+    engine.register('github-star', surface)
+    vi.advanceTimersByTime(0)
+    expect(show).toHaveBeenCalledOnce()
+    engine.close('dismissed')
+    vi.advanceTimersByTime(TIP_GAP_MS)
+    engine.refresh()
+    vi.advanceTimersByTime(TIP_GAP_MS)
+    expect(show).toHaveBeenCalledOnce()
+    expect(log.isSeen('github-star')).toBe(true)
+    expect(engine.progress).toBe(0)
+    expect(record.mock.calls).toEqual([
+      ['github-star', 'shown'],
+      ['github-star', 'dismissed'],
+    ])
+  })
+
+  it('stays away from someone who skipped tips', () => {
+    const { engine, log } = fixture()
+    engine.register('first-prompt', () => ({ active: true, cards: [card()] }))
+    vi.advanceTimersByTime(0)
+    engine.close('skipped-all')
+    expect(log.isSeen('github-star')).toBe(true)
+  })
+})
+
 describe('First Flights queue', () => {
   it('shows only one moment, pairs card hooks, and waits twenty seconds after finish', () => {
     const { engine, record, log } = fixture()

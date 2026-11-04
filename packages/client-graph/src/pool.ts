@@ -286,6 +286,8 @@ export class MobxPool {
   private readonly sourcePositionDemand: ReturnType<typeof createDemandAtoms<string>> | undefined
   /** The source index's undeleted issue count, published with each batch. */
   private readonly issueCount = observable.box(0)
+  /** The source index's finished top-level task count, published the same way. */
+  private readonly finishedTaskTotal = observable.box(0)
   readonly tables: PoolTables
   /** The last addressed phase batch. Replacements are silent; no history scan. */
   readonly sessionPhaseChanges = observable.box<readonly SessionPhaseChange[]>([], { deep: false })
@@ -682,6 +684,7 @@ export class MobxPool {
   }
 
   get undeletedIssueCount(): number { return this.issueCount.get() }
+  get finishedTaskCount(): number { return this.finishedTaskTotal.get() }
 
   /** Source ordering is tracked independently from the named row payload. */
   sourcePosition(entity: 'session', id: string): number | undefined {
@@ -1117,6 +1120,7 @@ export class MobxPool {
         if (!fresh) this.graph.publish(delta)
       }
       this.issueCount.set(index.undeleted('issue'))
+      this.finishedTaskTotal.set(index.finishedTasks())
       if (this.sourcePositionDemand !== undefined &&
         (fresh || event.type === 'replace' || this.positionsSeen !== index.positionVersion)) {
         this.positionsSeen = index.positionVersion
@@ -1198,6 +1202,7 @@ export class MobxPool {
       this.readStates.clear()
       this.seatVerdicts.clear()
       this.issueCount.set(0)
+      this.finishedTaskTotal.set(0)
       for (const [id, position] of this.sourcePositions) {
         if (position !== undefined) this.sourcePositionDemand?.get(id)?.reportChanged()
       }

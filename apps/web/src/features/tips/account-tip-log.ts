@@ -13,9 +13,9 @@ import { lazy } from '@podium/mobx-helpers'
 import { action, observable, runInAction } from 'mobx'
 import { useEffect } from 'react'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
-import { TIP_IDS, type TipId, type TipLog, type TipOutcome } from './types'
+import { ALL_TIP_IDS, type TipId, type TipLog, type TipOutcome } from './types'
 
-export const ACCOUNT_TIP_IDS = TIP_IDS
+export const ACCOUNT_TIP_IDS = ALL_TIP_IDS
 export type AccountTipLogContract = TipLog
 
 const tipKey = (id: TipId): string => `${TIP_SEEN_KEY_PREFIX}${id}`

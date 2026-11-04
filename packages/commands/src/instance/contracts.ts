@@ -4,7 +4,7 @@
  *
  *   setup.complete · setup.join · setup.connect · setup.setChannel · setup.activate
  *   auth.setPassword · auth.setLoginRequired
- *   telemetry.set · telemetry.resetId
+ *   telemetry.set · telemetry.resetId · telemetry.recordGithubStar
  *
  * They share a file because they share a subject: eight of them write
  * `config.json` or the password store on the host serving the request — never a
@@ -596,6 +596,43 @@ export const telemetryResetIdContract = {
     'Mints a fresh anonymous id; two concurrent resets leave one id, and the previous one is deliberately unrecoverable',
 } as const satisfies CommandContract<typeof telemetryResetIdInput>
 
+export const telemetryRecordGithubStarInput = z
+  .object({
+    event: z.enum(['shown', 'clicked']),
+    surface: z.enum(['finished_task', 'new_prompt']),
+  })
+  .strict()
+
+export const telemetryRecordGithubStarContract = {
+  name: 'telemetry.recordGithubStar',
+  version: 1,
+  visibility: SUBSTRATE,
+  input: telemetryRecordGithubStarInput,
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'global',
+    confirmation: 'none',
+    rationale:
+      'Counts one showing or click of the GitHub star card. `member` because the card belongs to ' +
+      'each person, not to the deployment. It can only raise a counter in the local usage window, ' +
+      'and the emitter drops it unless the deployment has usage reports on.',
+  },
+  exposure: SERVED_ON,
+  delivery: SUBSTRATE_DELIVERY,
+  redaction: {
+    reviewed: true,
+    inputPaths: [],
+    outputPaths: [],
+    note: 'Two closed enums. Nothing about the person or their work is accepted, and nothing is returned.',
+  } satisfies RedactionPolicy,
+  ownership: CREATES_NOTHING,
+  attribution: INSTANCE_ATTRIBUTION,
+  errorConsistency: NO_TARGET,
+  conflict: 'cmd',
+  conflictRule: 'Each call adds one to a counter; concurrent calls both count',
+} as const satisfies CommandContract<typeof telemetryRecordGithubStarInput>
+
 // ---------------------------------------------------------------------------
 // The tables — one per ROUTER, because the wire groups them that way
 // ---------------------------------------------------------------------------
@@ -621,6 +658,7 @@ export const AUTH_CONTRACT_NAMES = Object.keys(AUTH_CONTRACTS).sort() as AuthCon
 export const TELEMETRY_CONTRACTS = {
   set: telemetrySetContract,
   resetId: telemetryResetIdContract,
+  recordGithubStar: telemetryRecordGithubStarContract,
 } as const
 export type TelemetryContractName = keyof typeof TELEMETRY_CONTRACTS
 export const TELEMETRY_CONTRACT_NAMES = Object.keys(
