@@ -13,7 +13,9 @@ import {
   type IssueId,
   type MachineId,
   machinePathSeparator,
+  SessionDesired,
   type SessionId,
+  SessionLifecycleFailure,
   type UserId,
   type SessionUserStateWire,
 } from '@podium/model'
@@ -52,10 +54,12 @@ import type {
   PinKind,
   PinState,
   SessionDeletionSource,
+  SessionLifecycleRow,
   SessionRow,
   SessionStatusPersisted,
   SnoozeMap,
 } from './types'
+import { NO_LIFECYCLE } from './types'
 
 const PIN_KINDS = new Set<PinKind>(['panel', 'worktree', 'repo'])
 
@@ -268,6 +272,23 @@ const liveSessions = prepared((db: StoreDrizzle) =>
 )
 
 /**
+ * A machine's sessions whose desired state the lifecycle controller has not
+ * acknowledged (POD-6356). The condition is the partial index's own, spelled as
+ * literal column comparisons so the planner can prove it, and the index is
+ * named (server-data rule 3); the FROM is an INDEXED BY clause, so the columns
+ * are bare identifiers.
+ */
+const lifecyclePendingOnMachine = prepared((db: StoreDrizzle) =>
+  db
+    .select({ id: sql<string>`id` })
+    .from(sql`${sessionsTable} INDEXED BY idx_sessions_lifecycle_pending`)
+    .where(
+      sql`machine_id = ${sql.placeholder('machineId')} AND revision > observed_revision AND deleted_at IS NULL`,
+    )
+    .prepare(),
+)
+
+/**
  * ONE PAGE OF THE LIVE SESSIONS, in id order after `after` (POD-6160 D2g): the
  * boot's ledger baseline reads every session this way, a page at a time, so no
  * statement returns the whole table and nothing is made resident.
@@ -369,7 +390,15 @@ const INDEXED_GROUPS: readonly (readonly SessionColumnKey[])[] = [
   ['resumeValue'],
   ['issueId'],
   ['cwd', 'machineId'],
-  ['spawnedBy', 'refIssueId', 'refDraft', 'deletedAt', 'deletedByIssueId'],
+  [
+    'spawnedBy',
+    'refIssueId',
+    'refDraft',
+    'deletedAt',
+    'deletedByIssueId',
+    'revision',
+    'observedRevision',
+  ],
 ]
 const INDEXED_COLUMNS = INDEXED_GROUPS.flat()
 const GROUP_BIT = new Map(INDEXED_GROUPS.flatMap((group, index) => group.map((key) => [key, 1 << index] as const)))
@@ -462,6 +491,13 @@ function fullSessionUpsertSet(value: (key: SessionColumnKey) => Placeholder | SQ
     stoppedAt: value('stoppedAt'),
     stopReason: value('stopReason'),
     oomKilledAt: value('oomKilledAt'),
+    desired: value('desired'),
+    desiredForce: value('desiredForce'),
+    revision: value('revision'),
+    observedRevision: value('observedRevision'),
+    lifecycleFailure: value('lifecycleFailure'),
+    desiredByUser: value('desiredByUser'),
+    desiredByAgent: value('desiredByAgent'),
     deletedAt: value('deletedAt'),
     deletionSource: value('deletionSource'),
     deletedByIssueId: value('deletedByIssueId'),
@@ -623,6 +659,13 @@ function sessionUpsertValues(row: SessionRow) {
      */
     stopReason: row.stopReason === 'oom' ? 'exited' : (row.stopReason ?? null),
     oomKilledAt: row.oomKilledAt ?? null,
+    desired: (row.lifecycle ?? NO_LIFECYCLE).desired,
+    desiredForce: (row.lifecycle ?? NO_LIFECYCLE).force,
+    revision: (row.lifecycle ?? NO_LIFECYCLE).revision,
+    observedRevision: (row.lifecycle ?? NO_LIFECYCLE).observedRevision,
+    lifecycleFailure: encodeLifecycleFailure((row.lifecycle ?? NO_LIFECYCLE).failure),
+    desiredByUser: (row.lifecycle ?? NO_LIFECYCLE).byUser,
+    desiredByAgent: (row.lifecycle ?? NO_LIFECYCLE).byAgent,
     deletedAt: row.deletedAt ?? null,
     deletionSource: row.deletionSource ?? null,
     deletedByIssueId: row.deletedByIssueId ?? null,
@@ -1457,6 +1500,16 @@ export class SessionsRepository {
   }
 
   /** A machine's live sessions, unordered (POD-6160). */
+  /**
+   * A machine's sessions whose desired state is not yet acknowledged
+   * (POD-6356): what its daemon's reconnect reconciles. Ids only; the
+   * controller reads each row as it reconciles it.
+   */
+  async lifecyclePending(machineId: MachineId): Promise<SessionId[]> {
+    const rows = await lifecyclePendingOnMachine(this.db).all({ machineId })
+    return rows.map((row) => row.id as SessionId)
+  }
+
   async sessionsOnMachine(machineId: MachineId): Promise<SessionRow[]> {
     return (await liveSessionsOnMachine(this.db).all({ machineId })).map(mapSession)
   }
@@ -2126,6 +2179,51 @@ function* chunked<T>(values: readonly T[]): Generator<T[]> {
 }
 
 /**
+ * The lifecycle columns as stored (POD-6356). An unknown `desired` value (a
+ * newer build's) reads as no intent rather than as one this build would act on.
+ */
+function lifecycleOfRow(r: SessionSelect): SessionLifecycleRow | undefined {
+  const desired = SessionDesired.safeParse(r.desired)
+  const lifecycle: SessionLifecycleRow = {
+    desired: desired.success ? desired.data : null,
+    force: r.desiredForce === true,
+    revision: r.revision,
+    observedRevision: r.observedRevision,
+    failure: decodeLifecycleFailure(r.lifecycleFailure),
+    byUser: r.desiredByUser ?? null,
+    byAgent: r.desiredByAgent ?? null,
+  }
+  // ABSENT when nothing was ever recorded, so a row from before the columns
+  // (and every session nobody has edited) decodes exactly as it did.
+  const recorded =
+    lifecycle.desired !== null ||
+    lifecycle.force ||
+    lifecycle.revision !== NO_LIFECYCLE.revision ||
+    lifecycle.observedRevision !== NO_LIFECYCLE.observedRevision ||
+    lifecycle.failure !== null ||
+    lifecycle.byUser !== null
+  return recorded ? lifecycle : undefined
+}
+
+const optionalLifecycle = (lifecycle: SessionLifecycleRow | undefined) =>
+  lifecycle === undefined ? {} : { lifecycle }
+
+/** The failure column is plain text: a corrupt blob reads as no failure. */
+function encodeLifecycleFailure(failure: SessionLifecycleRow['failure']): string | null {
+  return failure === null ? null : JSON.stringify(failure)
+}
+
+function decodeLifecycleFailure(raw: string | null): SessionLifecycleRow['failure'] {
+  if (raw == null) return null
+  try {
+    const parsed = SessionLifecycleFailure.safeParse(JSON.parse(raw))
+    return parsed.success ? parsed.data : null
+  } catch {
+    return null
+  }
+}
+
+/**
  * SERIALIZATION EDGE — the one place a `sessions` row becomes a `SessionRow`.
  *
  * WHAT IS LEFT HERE IS DECISIONS. The brand casts and the `?? null` decodes are
@@ -2229,6 +2327,7 @@ function mapSession(r: SessionSelect): SessionRow {
         ? r.stopReason
         : null,
     oomKilledAt: r.oomKilledAt ?? null,
+    ...optionalLifecycle(lifecycleOfRow(r)),
     workflowRunId: r.workflowRunId ?? null,
     workflowStepId: r.workflowStepId ?? null,
     agentProfileId: r.agentProfileId ?? null,

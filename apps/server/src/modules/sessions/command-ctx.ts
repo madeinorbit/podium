@@ -8,6 +8,7 @@
  * second answer to "who is calling", which is the failure D7 exists to prevent.
  */
 
+import { randomUUID } from 'node:crypto'
 import type { TransportTag } from '@podium/commands'
 import type { Capability, MachineId, MachineUseDecision, SessionId } from '@podium/model'
 import { type CommandPrincipal, resolvePrincipal, resolvePrincipalAsync } from '../../command-principal'
@@ -20,10 +21,11 @@ import {
   machineVerbsFor,
   ownershipSnapshotFromMachines,
 } from '../../machine-access'
-import { asSessionId, spawnedByParentSessionId } from '@podium/model'
+import { asMutationId, asSessionId, spawnedByParentSessionId } from '@podium/model'
 import type { RegistryModules } from '../../relay'
 import { asyncSessionIssueAccess } from './session-access'
 import {
+  type LifecycleEditsPort,
   SessionCommandCtx,
   type SessionCommandDeps,
   type SessionCommandServices,
@@ -130,8 +132,67 @@ export async function sessionCommandCtx(
     // one durable table have two in-flight maps, and a replay arriving on the other
     // transport while the original is still running would apply twice.
     mutations: modules.mutations,
+    // The lifecycle routes onto `records.session.*` (POD-6356). Their
+    // contracts are operator-only (tRPC and the in-process MCP; never the
+    // relay), and `records.session.*` is served over tRPC, so the envelope is
+    // submitted as a tRPC call. Absent in a hand-built module set.
+    ...(modules.sessionLifecycleController
+      ? { lifecycleEdits: lifecycleEditsFor(modules, principal, overrideScope) }
+      : {}),
   }
   return new SessionCommandCtx(deps, principal, overrideScope)
+}
+
+/** One route call as one envelope: a fresh id, because the route's own
+ *  mutationId (if any) is already held by its dedup envelope around this call. */
+const routeMutationId = () => asMutationId(`mut_route_${randomUUID()}`)
+
+function lifecycleEditsFor(
+  modules: RegistryModules,
+  principal: CommandPrincipal,
+  overrideScope: boolean | undefined,
+): LifecycleEditsPort {
+  const controller = modules.sessionLifecycleController
+  const submit = async (command: string, input: unknown) =>
+    (
+      await modules.syncWrite.submitDetailed(
+        {
+          mutationId: routeMutationId(),
+          command,
+          version: 1,
+          input,
+          ...(overrideScope === true ? { confirmed: true as const } : {}),
+        },
+        principal,
+        'trpc',
+      )
+    ).reply
+  return {
+    desire: async (sessionId, desired, force) => {
+      const state = await modules.sessions.desiredStateOf(sessionId)
+      if (!state) return undefined
+      const reply = await submit('records.session.edit', {
+        id: sessionId,
+        patch: { desired, ...(force ? { force: true } : {}) },
+        expectedRevision: state.lifecycle.revision,
+      })
+      if (reply.outcome !== 'applied') return undefined
+      const revision = (reply.result as { revision?: unknown } | null)?.revision
+      if (typeof revision !== 'number') return undefined
+      // Joins the pass the commit already started, and waits for its action.
+      await controller.reconcile(sessionId, { principal })
+      return controller.outcomeFor(sessionId, revision)
+    },
+    kill: async (sessionId) => {
+      const state = await modules.sessions.desiredStateOf(sessionId)
+      if (!state) return false
+      const reply = await submit('records.session.remove', {
+        id: sessionId,
+        expectedRevision: state.lifecycle.revision,
+      })
+      return reply.outcome === 'applied'
+    },
+  }
 }
 
 /**

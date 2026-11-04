@@ -171,6 +171,7 @@ import { machinesForPrincipal } from './modules/sessions/command-ctx'
 import { QUEUED_INPUT_SWEEP_MS, SYSTEM_INBOX_PRINCIPAL } from './modules/sessions/inbox'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
 import { SessionLifecycle } from './modules/sessions/lifecycle'
+import { SessionLifecycleController } from './modules/sessions/lifecycle-controller'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
 import { readSessionRefs } from './modules/sessions/refs'
 import type { Session } from './modules/sessions/session'
@@ -382,6 +383,8 @@ export interface RegistryModules {
   /** Per-user event-stream read positions (POD-1380) — same shape, monotonic merge. */
   readPosition: ReadPositionService
   issueSessionLifecycle: IssueSessionLifecycle
+  /** Makes each session's desired state true (ADR 12 D5 E1, POD-6356). */
+  sessionLifecycleController: SessionLifecycleController
   headless: HeadlessService
   notify: NotifyService
   issues: IssueService
@@ -2273,6 +2276,44 @@ export class SessionRegistry {
     stopClosedIssue = async (input) =>
       await issueSessionLifecycle.stopClosedIssue({ ...input, reason: 'close' })
 
+    // THE SESSION LIFECYCLE CONTROLLER (ADR 12 D5 E1, POD-6356): makes a
+    // session's desired state true through the daemon channel, after each edit
+    // commits and again whenever that session's machine reconnects.
+    const sessionLifecycleController = new SessionLifecycleController({
+      read: async (sessionId) => await sessionsSvc.desiredStateOf(sessionId),
+      pending: async (machineId) => await this.store.sessions.lifecyclePending(machineId),
+      connected: (machineId) => machines.hasDaemon(machineId),
+      stop: async (sessionId, force, principal) =>
+        await issueSessionLifecycle.stopSession({
+          sessionId,
+          ...(force ? { force: true } : {}),
+          ...(principal ? { principal } : {}),
+        }),
+      hibernate: async (sessionId) => await sessionsSvc.hibernateSession({ sessionId }),
+      resurrect: async (sessionId) => await issueSessionLifecycle.resurrectSession({ sessionId }),
+      acknowledge: async (sessionId, revision, failure) =>
+        await sessionsSvc.acknowledgeDesiredState(sessionId, revision, failure),
+      // A start is re-authorized when it is acted on, as a queued mail's apply
+      // is: the writer's human, with today's role and grants, must still hold
+      // `use`, narrowed by the writing agent's delegation when an agent wrote it.
+      mayStart: async ({ machineId, lifecycle }) => {
+        if (lifecycle.byUser === null) return false
+        const writer = await this.store.users.get(lifecycle.byUser)
+        if (!writer || writer.disabledAt) return false
+        const ownership = await ownershipSnapshotFromMachines(machines)
+        if (checkMachineUse(userCommandPrincipal(lifecycle.byUser, writer.role), machineId, ownership)) {
+          return false
+        }
+        const delegated = lifecycle.byAgent ? ownership.delegatedMachines?.(lifecycle.byAgent) : undefined
+        return delegated === undefined || delegated.has(machineId)
+      },
+    })
+    this.bus.on('machine.connected', ({ machineId }) =>
+      sessionLifecycleController.reconcileMachine(machineId).catch((err) => {
+        log.warn('session lifecycle reconcile on reconnect failed', { machineId, err })
+      }),
+    )
+
     this.bus.on('session.wakeRequested', async ({ sessionId, principal }) => {
       if (process.env.PODIUM_REHEARSAL === '1') return
       const authorization: Promise<import('./modules/sessions/inbox').InboxAuthorizationDecision> =
@@ -3824,6 +3865,7 @@ export class SessionRegistry {
       agentProfiles,
       shipping,
       issueSessionLifecycle,
+      sessionLifecycleController,
       issueCommands,
       specs,
       approvals,

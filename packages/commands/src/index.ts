@@ -452,6 +452,7 @@ export {
 export {
   ISSUE_RECORD,
   NOT_YET_GENERIC,
+  SESSION_RECORD,
   SESSION_USER_STATE_RECORD,
   SYNCED_KINDS,
 } from './records/kinds'

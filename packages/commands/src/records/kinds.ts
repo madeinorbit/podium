@@ -23,7 +23,10 @@ import {
   NewIssueId,
   parseUserEntityKey,
   ROW,
+  SessionDesired,
   SessionIdField,
+  SessionLifecycleFailure,
+  SessionMeta,
   SessionUserStateWire,
   UserIdField,
 } from '@podium/model'
@@ -172,10 +175,79 @@ export const SESSION_USER_STATE_RECORD = defineSyncedKind({
   },
 })
 
+// ---------------------------------------------------------------------------
+// session: lifecycle as desired state (ADR 12 D5 E1, POD-6356)
+// ---------------------------------------------------------------------------
+
+const SESSION_LIFECYCLE_EDIT: CommandPolicy = {
+  action: 'write',
+  roleFloor: 'member',
+  resource: 'session',
+  confirmation: 'none',
+  machineVerb: 'use',
+  rationale:
+    'Stop, hibernate and resume as an edit of what the session should be. The target check is the ' +
+    'command plane’s own for `sessions.stop` (owner or grant, issue scope, machine `use`), so the ' +
+    'edit is never weaker than the route it replaces; the server’s controller acts after commit.',
+}
+
+const SESSION_KILL: CommandPolicy = {
+  ...SESSION_LIFECYCLE_EDIT,
+  rationale:
+    'Kill deletes the session row (as `sessions.kill` always has: a tombstone and a remove change, ' +
+    'then the daemon is signalled after commit). Against the record’s revision, so a queued kill ' +
+    'that arrives after a newer start is refused instead of ending the process the user resumed.',
+}
+
+/**
+ * The session's lifecycle fields only. Rename, archive and work state join this
+ * declaration as plain edits under the same spec revision with POD-6355.
+ */
+export const SESSION_RECORD = defineSyncedKind({
+  kind: 'session',
+  title: 'session',
+  wire: SessionMeta,
+  ref: SessionIdField,
+  conflict: 'exp-rev',
+  fields: {
+    desired: spec(SessionDesired, ROW.sessionDesiredState),
+    // Qualifies THIS edit of `desired`: a stop that discards unsaved work. An
+    // edit that omits it writes false, so a force never outlives its stop.
+    force: spec(z.boolean(), ROW.sessionDesiredState),
+    revision: status(z.number().int(), ROW.sessionDesiredState),
+    observedRevision: status(z.number().int(), ROW.sessionDesiredState),
+    lifecycleFailure: status(SessionLifecycleFailure, ROW.sessionDesiredState),
+  },
+  ops: {
+    edit: {
+      policy: SESSION_LIFECYCLE_EDIT,
+      note: 'Stop (`stopped`, `force` to discard unsaved work), hibernate, or resume (`running`).',
+    },
+    remove: { policy: SESSION_KILL, note: 'Kill: end the process and delete the session.' },
+  },
+  visibility: 'personal',
+  exposure: SUBMIT_ONLY,
+  delivery: QUEUED,
+  redaction: {
+    reviewed: true,
+    inputPaths: [],
+    outputPaths: [],
+    note: 'A desired state, a force flag and a revision; nothing on it is a credential.',
+  },
+  attribution: ISSUE_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note: 'A session the caller may not command fails as an unknown one, as `sessions.stop`.',
+  },
+})
+
 /** Every kind that takes generic edits. */
 export const SYNCED_KINDS: readonly SyncedKindDeclaration[] = [
   ISSUE_RECORD,
   SESSION_USER_STATE_RECORD,
+  SESSION_RECORD,
 ]
 
 /**
@@ -190,10 +262,6 @@ export const NOT_YET_GENERIC: Readonly<
     { readonly reason: string; readonly by: string }
   >
 > = {
-  session: {
-    reason: 'Rename, archive and work state convert as plain edits; lifecycle is desired state.',
-    by: 'POD-6355, POD-6356',
-  },
   issueDep: { reason: 'Graph edges with cycle rules (`cmd`).', by: 'POD-6359' },
   repo: { reason: 'Repo config moves with the repos family.', by: 'POD-6359' },
   shipOrder: { reason: 'Shipping is system-owned.', by: 'POD-6359' },

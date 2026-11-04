@@ -84,6 +84,32 @@ export type ResumeRef = z.infer<typeof ResumeRef>
 export const SessionStatus = z.enum(['starting', 'live', 'reconnecting', 'hibernated', 'exited'])
 export type SessionStatus = z.infer<typeof SessionStatus>
 
+/**
+ * WHAT A SESSION SHOULD BE: the spec half of its lifecycle (ADR 12 D5 E1,
+ * POD-6356). People and agents write it; `status` is what the daemon observes.
+ * The server's lifecycle controller acts until they agree.
+ *
+ *  - `running`: the agent process runs (resume or resurrect it).
+ *  - `hibernated`: parked; process gone, row, transcript and worktree kept.
+ *  - `stopped`: a clean end; process gone and the worktree freed, branch kept.
+ *
+ * Absent on a row means no intent was ever recorded (a session from before
+ * this field, or one nobody has edited since): `status` alone describes it.
+ */
+export const SessionDesired = z.enum(['running', 'hibernated', 'stopped'])
+export type SessionDesired = z.infer<typeof SessionDesired>
+
+/**
+ * The controller's definitive refusal of the action for one revision: a dirty
+ * worktree stopped without `force`, no resume ref to wake from, a machine the
+ * session may no longer use. Cleared by the next edit of the desired state.
+ */
+export const SessionLifecycleFailure = z.object({
+  revision: z.number().int().positive(),
+  reason: z.string(),
+})
+export type SessionLifecycleFailure = z.infer<typeof SessionLifecycleFailure>
+
 /** A known harness condition that should be visible on the started session. */
 export const SessionCondition = z.enum(['logged-out'])
 export type SessionCondition = z.infer<typeof SessionCondition>
@@ -427,6 +453,22 @@ export const SessionMetaEntity = z.object({
   /** Durable terminal-transition metadata for completion decay. [spec:SP-6144] */
   stoppedAt: z.string().optional(),
   stopReason: z.enum(['self', 'parent', 'forced', 'exited', 'oom']).optional(),
+  /**
+   * THE LIFECYCLE AS DESIRED STATE (ADR 12 D5 E1, POD-6356).
+   *
+   * `desired` and `force` are spec (written by people and agents through
+   * `records.session.edit`); `force` qualifies a `stopped` edit: discard unsaved
+   * work in the worktree. `revision` is the SPEC revision (Kubernetes'
+   * `generation`): only spec edits move it, never a daemon report, so an edit is
+   * stale only against another edit. `observedRevision` is the controller's
+   * acknowledgement; the session is still changing while `revision` is ahead of
+   * it. Both are 1 when absent.
+   */
+  desired: SessionDesired.optional(),
+  force: z.boolean().optional(),
+  revision: z.number().int().positive().optional(),
+  observedRevision: z.number().int().positive().optional(),
+  lifecycleFailure: SessionLifecycleFailure.optional(),
   workState: WorkState.optional(),
   /** True when a resume ref is known — hibernate→resume is possible. */
   resumable: z.boolean().optional(),

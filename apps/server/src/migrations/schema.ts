@@ -295,9 +295,34 @@ export const sessions = sqliteTable(
      *  gives that arm no id). Decoded through the model's `ActorRef`. */
     createdByActorId: text('created_by_actor_id'),
     createdByOnBehalfOf: text('created_by_on_behalf_of').$type<UserId>(),
+    /**
+     * THE LIFECYCLE AS DESIRED STATE (ADR 12 D5 E1, POD-6356). `desired` and
+     * `desired_force` are spec; `revision` is the spec revision (only spec edits
+     * move it); `observed_revision` and `lifecycle_failure` are the server
+     * controller's acknowledgement. Additive: an existing row gets no intent
+     * (NULL) and revision = observed revision = 1, so nothing is pending.
+     */
+    desired: text('desired'),
+    desiredForce: integer('desired_force', { mode: 'boolean' }).default(sql`0`).notNull(),
+    revision: integer('revision').notNull().default(1),
+    observedRevision: integer('observed_revision').notNull().default(1),
+    // Plain text, decoded by the store: a corrupt blob reads as no failure
+    // rather than throwing the whole row read (the json-column decision).
+    lifecycleFailure: text('lifecycle_failure'),
+    /** Who wrote the current spec revision: the human it was made on behalf
+     *  of, and the agent session when an agent wrote it. The controller
+     *  re-checks that writer's machine `use` before it STARTS anything. */
+    desiredByUser: text('desired_by_user').$type<UserId>(),
+    desiredByAgent: text('desired_by_agent').$type<SessionId>(),
   },
   (table) => [
     index('idx_sessions_deleted_by_issue').on(table.deletedByIssueId),
+    // Sessions whose desired state the controller has not acknowledged yet
+    // (POD-6356): what a daemon reconnect and the boot sweep reconcile. Partial,
+    // so it holds the few edits in flight, never the history.
+    index('idx_sessions_lifecycle_pending')
+      .on(table.machineId)
+      .where(sql`${table.revision} > ${table.observedRevision} AND ${table.deletedAt} IS NULL`),
     index('idx_sessions_deleted_at').on(table.deletedAt),
     // The second half of POD-1858's per-file resolution: segment identity to the
     // session that owns it. Also the join `conversation_segments` has always

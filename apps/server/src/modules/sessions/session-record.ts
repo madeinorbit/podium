@@ -6,7 +6,9 @@ import {
   type Geometry,
   type HarnessAgent,
   type SessionDelegation,
+  type SessionDesired,
   type SessionId,
+  type SessionLifecycleFailure,
   type SessionMeta,
   type SessionOrigin,
   type UserId,
@@ -15,7 +17,8 @@ import {
 } from '@podium/model'
 import type { SessionObservationCheckpointV1 } from '@podium/protocol'
 import { driverFamilyForId } from '../../harness-manifest'
-import type { SessionRow } from '../../store'
+import type { SessionLifecycleRow, SessionRow } from '../../store'
+import { NO_LIFECYCLE } from '../../store/types'
 import type { SessionDurableFields, SessionDurableState, SessionInit } from './session'
 
 /**
@@ -170,6 +173,7 @@ export function durableStateFromInit(init: StoredSessionInit): SessionDurableSta
     stopReason,
     oomKilledAt,
     workState: init.workState || undefined,
+    lifecycle: init.lifecycle ?? NO_LIFECYCLE,
     cmd: '',
     status,
     exitCode: init.exitCode,
@@ -321,6 +325,7 @@ export function storedSessionInit(
     archived: r.archived,
     stoppedAt: r.stoppedAt ?? null,
     stopReason: r.stopReason ?? null,
+    ...(r.lifecycle ? { lifecycle: r.lifecycle } : {}),
     ...(parseWorkState(r.workState)
       ? { workState: parseWorkState(r.workState) }
       : {}),
@@ -430,6 +435,7 @@ export function projectSessionMeta(
     ...(d.stopReason ? { stopReason: d.stopReason } : {}),
     machineId: d.machineId,
     ...(d.workState ? { workState: d.workState } : {}),
+    ...lifecycleWire(d.lifecycle),
     ...(d.resume ? { resumable: true, resume: d.resume } : {}),
     // ONLY when proven. A recovery surface reads this to offer starting the
     // agent again instead of removing the row, so its absence has to stay the
@@ -486,5 +492,26 @@ export function projectSessionMeta(
     ...(s.workflowRunId ? { workflowRunId: s.workflowRunId } : {}),
     ...(s.workflowStepId ? { workflowStepId: s.workflowStepId } : {}),
     ...(s.agentProfileId ? { agentProfileId: s.agentProfileId } : {}),
+  }
+}
+
+/**
+ * The lifecycle on the wire (POD-6356): each key only when it says something,
+ * so a session nobody has edited projects exactly as before. An absent
+ * `revision` or `observedRevision` reads as 1.
+ */
+export function lifecycleWire(l: SessionLifecycleRow): {
+  desired?: SessionDesired
+  force?: boolean
+  revision?: number
+  observedRevision?: number
+  lifecycleFailure?: SessionLifecycleFailure
+} {
+  return {
+    ...(l.desired ? { desired: l.desired } : {}),
+    ...(l.desired && l.force ? { force: true } : {}),
+    ...(l.revision !== 1 ? { revision: l.revision } : {}),
+    ...(l.observedRevision !== 1 ? { observedRevision: l.observedRevision } : {}),
+    ...(l.failure ? { lifecycleFailure: l.failure } : {}),
   }
 }

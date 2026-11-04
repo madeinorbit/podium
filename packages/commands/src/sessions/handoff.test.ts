@@ -19,6 +19,7 @@ import {
   MACHINE_USE_OFFLINE_EXCEPTIONS,
 } from '../contract'
 import { MAIL_CONTRACTS } from '../mail/contracts'
+import { RECORD_CONTRACTS } from '../records/contracts'
 import { EXPORTABLE_HARNESSES, sessionHandoffContract, sessionHandoffInput } from './handoff'
 
 describe('sessions.handoff: the declaration is total', () => {
@@ -155,7 +156,11 @@ describe('the D18.3 lint this contract is the first tenant of', () => {
     // hazard POD-381 designed against in the protocol-side table, applied to this
     // one. The list is empty today and that emptiness IS the claim, so the loop
     // below must be able to fail: the second assertion plants a bogus name.
-    const declared = new Set([...MAIL_CONTRACTS.map((c) => c.name), sessionHandoffContract.name])
+    const declared = new Set([
+      ...MAIL_CONTRACTS.map((c) => c.name),
+      sessionHandoffContract.name,
+      ...Object.keys(RECORD_CONTRACTS),
+    ])
     for (const licensed of MACHINE_USE_OFFLINE_EXCEPTIONS) {
       expect([...declared]).toContain(licensed)
     }

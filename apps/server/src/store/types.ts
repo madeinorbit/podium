@@ -270,6 +270,12 @@ export interface SessionRow {
   /** Event time of the last kernel OOM kill observed in this session's scope
    *  (POD-2413), or null where none was. */
   oomKilledAt?: string | null
+  /**
+   * The lifecycle as desired state (ADR 12 D5 E1, POD-6356). Optional on the
+   * type so a hand-built row means "nothing recorded": revision and observed
+   * revision 1, no intent, nothing pending. Every row a Session writes has it.
+   */
+  lifecycle?: SessionLifecycleRow
   /** OPTIONAL workflow-coordination pass-through metadata (#285 via #237
    *  [spec:SP-34d7 cross-harness]): stamped at spawn/assignment by an external
    *  coordinator, never interpreted by the substrate. Parent linkage rides
@@ -801,3 +807,27 @@ export interface QueuedSuperagentInputRow {
   }
   createdAt: string
 }
+
+/** The `sessions` lifecycle columns (POD-6356), decoded. */
+export interface SessionLifecycleRow {
+  readonly desired: import('@podium/model').SessionDesired | null
+  readonly force: boolean
+  readonly revision: number
+  readonly observedRevision: number
+  readonly failure: import('@podium/model').SessionLifecycleFailure | null
+  /** Who wrote the current revision: the human on whose behalf, and the agent
+   *  session when an agent wrote it. Null when nothing was ever edited. */
+  readonly byUser: import('@podium/model').UserId | null
+  readonly byAgent: import('@podium/model').SessionId | null
+}
+
+/** A row with no lifecycle recorded: nothing desired, nothing pending. */
+export const NO_LIFECYCLE: SessionLifecycleRow = Object.freeze({
+  desired: null,
+  force: false,
+  revision: 1,
+  observedRevision: 1,
+  failure: null,
+  byUser: null,
+  byAgent: null,
+})

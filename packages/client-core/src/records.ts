@@ -31,6 +31,7 @@ import {
   recordCreateInput,
   recordEditInput,
   recordRemoveInput,
+  SESSION_RECORD,
   SESSION_USER_STATE_RECORD,
   type SyncedKindDeclaration,
   specFields,
@@ -46,6 +47,9 @@ import type { z } from 'zod'
 export const RECORD_KINDS = {
   issueProjection: ISSUE_RECORD,
   sessionUserState: SESSION_USER_STATE_RECORD,
+  // The lifecycle as desired state (POD-6356): an edit paints `desired` on the
+  // session row until its entry retires.
+  session: SESSION_RECORD,
 } as const satisfies Record<string, SyncedKindDeclaration>
 
 export type RecordKind = keyof typeof RECORD_KINDS
@@ -143,7 +147,7 @@ export function recordWireInput(input: object): Record<string, unknown> {
  */
 export const RECORD_HOMES: {
   readonly [K in RecordKind]: {
-    readonly target: 'issueProjections' | 'sessionUserStates'
+    readonly target: 'issueProjections' | 'sessionUserStates' | 'sessions'
     readonly row: (id: string) => string
   }
 } = {
@@ -152,6 +156,7 @@ export const RECORD_HOMES: {
     target: 'sessionUserStates',
     row: (id) => parseSessionUserStateRowId(id).sessionId,
   },
+  session: { target: 'sessions', row: (id) => id },
 }
 
 /** A new id's prefix per kind that offers create. `records.test.ts` mints one

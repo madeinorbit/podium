@@ -99,6 +99,8 @@ describe('the generated commands', () => {
     expect(Object.keys(RECORD_CONTRACTS).sort()).toEqual([
       'records.issueProjection.create',
       'records.issueProjection.edit',
+      'records.session.edit',
+      'records.session.remove',
       'records.sessionUserState.edit',
       'records.sessionUserState.remove',
     ])

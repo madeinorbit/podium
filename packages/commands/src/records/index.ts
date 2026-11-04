@@ -19,4 +19,4 @@ export {
   type SyncedKindDeclaration,
   specFields,
 } from './declare'
-export { ISSUE_RECORD, SESSION_USER_STATE_RECORD, SYNCED_KINDS } from './kinds'
+export { ISSUE_RECORD, SESSION_RECORD, SESSION_USER_STATE_RECORD, SYNCED_KINDS } from './kinds'

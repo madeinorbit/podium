@@ -44,6 +44,7 @@ import type {
   IssueId,
   MachineId,
   MutationId,
+  SessionDesired,
   SessionId,
   UserId,
 } from '@podium/model'
@@ -78,6 +79,7 @@ import type { MachineUseResolver } from '../machines/service'
 import type { SendDisposition } from '../messages/service'
 import { type AnswerChoice, inboxPrincipalFromCommand } from './inbox'
 import type { SessionLifecycle } from './lifecycle'
+import type { LifecycleOutcome } from './lifecycle-controller'
 import {
   ambiguousSessionPrefixMessage,
   assertMayCommandSession,
@@ -153,6 +155,29 @@ export type MailSendPort = (input: {
  *  absolute path back). A `Pick` of the real service, not a restated signature. */
 export type SessionDaemonRpc = Pick<DaemonRpcService, 'uploadImage'>
 
+/**
+ * THE LIFECYCLE ROUTES AS ADAPTERS (POD-6356, plan Global Constraints).
+ *
+ * `sessions.stop`, `hibernate` and `resurrect` edit the session's desired state
+ * through `records.session.edit` on the entry point, and `sessions.kill` removes
+ * the record, so the CLI, MCP and older apps take the same path as the queue.
+ * `desire` answers the outcome of the controller's action for that edit, in the
+ * route's own shape; `undefined` means nothing was acted on through the path
+ * (the session already was so, its machine is offline, the transport has no
+ * adapter, or the edit was refused), and the route then answers as it always
+ * did, from the service. That answer is safe to give: the controller re-checks
+ * the level before it acts, so a later reconnect never does the work twice.
+ */
+export interface LifecycleEditsPort {
+  desire(
+    sessionId: SessionId,
+    desired: SessionDesired,
+    force: boolean,
+  ): Promise<LifecycleOutcome | undefined>
+  /** True when the kill went through `records.session.remove`. */
+  kill(sessionId: SessionId): Promise<boolean>
+}
+
 export interface SessionCommandDeps {
   sessions(): SessionCommandServices
   mailSend: MailSendPort
@@ -197,6 +222,8 @@ export interface SessionCommandDeps {
   isAgentDriven(sessionId: SessionId): Promise<boolean>
   /** The legacy daemon control leg for pre-contract and cold-start uploads. */
   rpc(): SessionDaemonRpc
+  /** POD-6356. Absent in hand-built fixtures: the lifecycle routes call the services. */
+  lifecycleEdits?: LifecycleEditsPort
   access: SessionAccessDeps
   ownership: MachineOwnershipIndex
   /**
@@ -745,13 +772,19 @@ export const SESSION_COMMAND_HANDLERS = {
   kill: async (ctx: SessionCommandCtx, input: TargetInput) => {
     // Absent ⇒ the pinned shape: kill neither throws nor tombstones.
     if (!await ctx.target(input.sessionId, 'sessions.kill')) return undefined
+    if (await ctx.deps.lifecycleEdits?.kill(input.sessionId)) return undefined
     return await ctx.sessions.killSession(input)
   },
 
-  hibernate: async (ctx: SessionCommandCtx, input: TargetInput) =>
-    await ctx.target(input.sessionId, 'sessions.hibernate')
-      ? await ctx.sessions.hibernateSession(input)
-      : { ok: false, reason: 'unknown session' },
+  hibernate: async (ctx: SessionCommandCtx, input: TargetInput) => {
+    if (!await ctx.target(input.sessionId, 'sessions.hibernate')) {
+      return { ok: false, reason: 'unknown session' }
+    }
+    const outcome = await ctx.deps.lifecycleEdits?.desire(input.sessionId, 'hibernated', false)
+    return outcome
+      ? (outcome as Awaited<ReturnType<SessionCommandServices['hibernateSession']>>)
+      : await ctx.sessions.hibernateSession(input)
+  },
 
   interrupt: async (ctx: SessionCommandCtx, input: InterruptInput) => {
     if (!await ctx.target(input.sessionId, 'sessions.interrupt')) {
@@ -797,10 +830,15 @@ export const SESSION_COMMAND_HANDLERS = {
     return await ctx.sessions.configureSession(input)
   },
 
-  resurrect: async (ctx: SessionCommandCtx, input: TargetInput) =>
-    await ctx.target(input.sessionId, 'sessions.resurrect')
-      ? await ctx.sessions.resurrectSession(input)
-      : await Promise.resolve({ ok: false, reason: 'unknown session' }),
+  resurrect: async (ctx: SessionCommandCtx, input: TargetInput) => {
+    if (!await ctx.target(input.sessionId, 'sessions.resurrect')) {
+      return await Promise.resolve({ ok: false, reason: 'unknown session' })
+    }
+    const outcome = await ctx.deps.lifecycleEdits?.desire(input.sessionId, 'running', false)
+    return outcome
+      ? (outcome as Awaited<ReturnType<SessionCommandServices['resurrectSession']>>)
+      : await ctx.sessions.resurrectSession(input)
+  },
 
   sendText: sendHandler('wait', 'sessions.sendText'),
 
@@ -833,6 +871,12 @@ export const SESSION_COMMAND_HANDLERS = {
     if (!await ctx.target(input.sessionId, 'sessions.stop')) {
       return await Promise.resolve({ ok: false, reason: 'unknown session' })
     }
+    const outcome = await ctx.deps.lifecycleEdits?.desire(
+      input.sessionId,
+      'stopped',
+      input.force === true,
+    )
+    if (outcome) return outcome as Awaited<ReturnType<SessionCommandServices['stopSession']>>
     // Thread the transport principal so free-worktree audit comments name the
     // caller rather than system:stop (POD-1344).
     return await ctx.sessions.stopSession({ ...input, principal: ctx.principal })

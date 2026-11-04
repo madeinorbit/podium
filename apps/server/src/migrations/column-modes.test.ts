@@ -40,6 +40,7 @@ const BOOLEAN_COLUMNS = [
   'messages.expects_response',
   'quota_windows.partial',
   'sessions.archived',
+  'sessions.desired_force',
   'sessions.headless',
   'subscriptions.deliver_notify',
   'subscriptions.deliver_nudge',

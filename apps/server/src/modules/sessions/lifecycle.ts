@@ -3,6 +3,7 @@ import type {
   IssueId,
   MachineId,
   ResumeRef,
+  SessionDesired,
   SessionId,
   SessionMeta,
   TranscriptItem,
@@ -55,6 +56,7 @@ import type { SessionsDaemonFrame } from '../../gateway/daemon-frame-routing'
 import type { Capability } from '../../issue-authz'
 import { ownershipSnapshotFromMachines } from '../../machine-access'
 import type { SessionStore } from '../../store'
+import { NO_LIFECYCLE } from '../../store/types'
 import type { EventBus } from '../bus'
 import type { WriteFunnel } from '../funnel'
 import type { DaemonRpcService } from '../machines/rpc'
@@ -69,6 +71,7 @@ import { machineUseGateFor } from './handoff/access'
 import type { AssertMachineUse, HandoffCaller } from './handoff/ports'
 import type { AnswerChoice, InboxPrincipalReference, SessionInbox } from './inbox'
 import type { SessionIssueWorkflowPort } from './issue-workflow-port'
+import type { LifecycleSnapshot } from './lifecycle-controller'
 import type { ReceiptSender, ReceiptSendInput, ReceiptSendVia } from './receipt-send'
 import type { RuntimeEventGate } from './runtime-event-gate'
 import type { SessionRuntimeGateway } from './runtime-gateway'
@@ -93,7 +96,9 @@ import type { SessionLaunchConfig } from './launch-config'
 import type { SessionMachineReconciler } from './machine-reconciler'
 import type { SessionNaming } from './naming'
 import type { SessionBroadcastCoordinator } from './publication/broadcast'
+import type { SessionRecords } from './records'
 import type { SessionProjectionEvent, SessionRepository } from './repository'
+import type { SessionResidency } from './residency'
 import type { Session } from './session'
 import type { SessionAuthz } from './session-authz'
 import type { SessionBindingReceipts } from './session-binding'
@@ -107,8 +112,6 @@ import type { SessionStatePrincipal, SessionStateService } from './session-state
 import type { SessionTeardown } from './session-teardown'
 import { wireSessionLifecycle } from './session-wiring'
 import type { SessionTerminalProof, TerminalProofStatus } from './terminal-proof'
-import type { SessionRecords } from './records'
-import type { SessionResidency } from './residency'
 import type { SessionListCaller, SessionView } from './view'
 import type { SessionWorkspace } from './workspace'
 
@@ -672,6 +675,75 @@ export class SessionLifecycle {
   }
   setWorkState(...args: Parameters<SessionMetaOps['setWorkState']>): Promise<void> {
     return this.leased(args[0].sessionId, 'setWorkState', () => this.sessionMetaOps.setWorkState(...args))
+  }
+  /**
+   * A session's lifecycle as its ROW holds it (POD-6356), what the lifecycle
+   * controller and the generic edit's revision check decide on. A deleted
+   * session has none.
+   */
+  async desiredStateOf(sessionId: SessionId): Promise<LifecycleSnapshot | undefined> {
+    const row = await this.store.sessions.getSession(sessionId)
+    if (!row || row.deletedAt) return undefined
+    return {
+      sessionId,
+      machineId: row.machineId,
+      status: row.status,
+      lifecycle: row.lifecycle ?? NO_LIFECYCLE,
+    }
+  }
+  /**
+   * EDIT WHAT THE SESSION SHOULD BE (ADR 12 D5 E1, POD-6356): the spec half of
+   * its lifecycle, one spec revision further. `force` qualifies a `stopped`
+   * edit only, and an edit that omits it clears it, so a force never outlives
+   * the stop it was given for. The previous refusal goes: it answered the
+   * revision this edit supersedes. Runs inside the caller's unit of work (the
+   * entry point's); the controller acts after it commits. `writer` is recorded
+   * with the revision: before it STARTS anything for it, the controller
+   * re-checks that this writer may still use the machine. Returns the new
+   * revision, or undefined when the session is gone.
+   */
+  editDesiredState(
+    sessionId: SessionId,
+    desired: SessionDesired,
+    force: boolean,
+    writer: { readonly user: UserId | null; readonly agent: SessionId | null },
+  ): Promise<number | undefined> {
+    return this.leased(sessionId, 'editDesiredState', async () => {
+      if (!this.sessions.has(sessionId)) return undefined
+      let revision: number | undefined
+      await this.sessionMetaOps.mutateSessionMeta(sessionId, (draft) => {
+        revision = draft.lifecycle.revision + 1
+        draft.lifecycle = {
+          desired,
+          force: desired === 'stopped' && force,
+          revision,
+          observedRevision: draft.lifecycle.observedRevision,
+          failure: null,
+          byUser: writer.user,
+          byAgent: writer.agent,
+        }
+      })
+      return revision
+    })
+  }
+  /**
+   * The controller's acknowledgement of one revision (POD-6356): done, or
+   * refused with `failure`. Nothing is written when the record has moved past
+   * `revision` (a newer edit is what the controller answers next) or already
+   * says this.
+   */
+  acknowledgeDesiredState(sessionId: SessionId, revision: number, failure?: string): Promise<void> {
+    return this.leased(sessionId, 'acknowledgeDesiredState', async () => {
+      const current = this.sessions.get(sessionId)?.lifecycle
+      if (!current || current.revision !== revision) return
+      const nextFailure = failure === undefined ? null : { revision, reason: failure }
+      if (current.observedRevision === revision && current.failure?.reason === nextFailure?.reason)
+        return
+      await this.sessionMetaOps.mutateSessionMeta(sessionId, (draft) => {
+        if (draft.lifecycle.revision !== revision) return
+        draft.lifecycle = { ...draft.lifecycle, observedRevision: revision, failure: nextFailure }
+      })
+    })
   }
   async stopSession(
     input: {
