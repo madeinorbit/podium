@@ -94,11 +94,15 @@ describe('the derived families, against the RUNNING appRouter', () => {
    *
    * 29 -> 30: `logs.setDaemonLevel` (POD-3156). The 27 -> 29 before it was
    * pre-existing drift, repaired separately in POD-3168.
+   *
+   * 31 -> 32: `auth.setEmail` (aafde95f11, "Member email sign-in and
+   * profile", 2026-09-11), which added the command without moving this pin.
+   * Re-pinned in POD-6360.
    */
-  it('governs thirteen families and thirty-one derived writes', () => {
+  it('governs thirteen families and thirty-two derived writes', () => {
     expect(FAMILIES).toHaveLength(13)
     const total = FAMILIES.reduce((n, f) => n + Object.keys(f.table).length, 0)
-    expect(total).toBe(31)
+    expect(total).toBe(32)
   })
 
   it.each(
