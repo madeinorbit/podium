@@ -335,7 +335,7 @@ const SettingsViewBody = observer(function SettingsViewBody({
   // The nav filter is experimental (off by default) — Settings → Experimental.
   const searchEnabled = useFeature('settings-search')
   // The admin area is drawn only from the server's answer (POD-6299).
-  const adminSections = useAdminSections().answer ?? []
+  const adminSections = useAdminSections()
   const offeredGroups = visibleSettingsGroups(SETTINGS_GROUPS, adminSections)
   const settingsTabs = offeredGroups
     .flatMap((g) => g.tabs)

@@ -331,7 +331,7 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
   const automationsEnabled = useFeature('automations')
   const notificationsEnabled = useFeature('notifications')
   // Admin tabs only for a viewer the server offers them to (POD-6299).
-  const adminSections = useAdminSections().answer ?? []
+  const adminSections = useAdminSections()
   const handoffEnabled = useFeature('session-handoff')
   const gitPanelEnabled = useFeature('git-panel')
   const messagesPanelEnabled = useFeature('messages-panel')
