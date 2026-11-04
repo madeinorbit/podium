@@ -135,9 +135,10 @@ async function fixture(size: number): Promise<Fixture> {
   return { store, reports: new IssueReportsModule(issues) }
 }
 
-/** Children the reader may see: owned, or shared (every third). */
-const readableChildren = (size: number) =>
-  Array.from({ length: size }, (_, i) => i).filter((i) => i % 3 === 0 || i % 5 !== 0).length
+/** Children the reader may see: every one. Every member reads every task
+ *  (design §2.2, §4.1; POD-6288 6d0dc46741), so the other member's unshared
+ *  children are listed too and the legacy grants decide nothing. */
+const readableChildren = (size: number) => size
 
 const call = async (f: Fixture, name: keyof typeof issueRegistry.defs, input: unknown) => {
   const ctx = new IssueCommandCtx(
@@ -166,6 +167,15 @@ const lengthOf = (value: unknown) => (value as unknown[]).length
 
 // POD-6218: the earliest admin is one statement (the row), not the id and then
 // the row: list, ready, blocked, graph and get each -1.
+// POD-6341, measured on the polaris VM over c2f8c0c3a6 and its fixes: tasks
+// are shared (POD-6288 6d0dc46741), so no listing reads issue grants any more,
+// and POD-6296 (3839188bcb, after the comparison's tip a0a1ebc335) names
+// assignees on a shared instance with `users` reads (#83795ded): list 9 (one
+// users read, no grant read), ready 8 -> 7 at a0a1ebc335 and 9 with POD-6296's
+// two users reads (its shared-instance default and the names), blocked 9 -> 8,
+// graph 11 -> 9 (no grant read and no users read), tree 8 -> 7 (no grant reads,
+// one users read). graph and tree were never counted at a0a1ebc335: their row
+// checks failed first, because the listings now return every task.
 describe('issue listings: pinned statement counts at 5 and 200 issues', () => {
   it('list: labels, deps, comment counts and one grant read (was 9 at 5 issues, 204 at 200)', async () => {
     await expectConstantStatements(
@@ -179,14 +189,14 @@ describe('issue listings: pinned statement counts at 5 and 200 issues', () => {
   it('ready', async () => {
     await expectConstantStatements(
       pin('issues.ready', (f) => call(f, 'ready', {}), (rows) => expect(lengthOf(rows)).toBeGreaterThan(0)),
-      8,
+      9,
     )
   })
 
   it('blocked (was 5 at 5 issues, 102 at 200)', async () => {
     await expectConstantStatements(
       pin('issues.blocked', (f) => call(f, 'blocked', {}), (rows) => expect(lengthOf(rows)).toBeGreaterThan(0)),
-      9,
+      8,
     )
   })
 
@@ -195,7 +205,7 @@ describe('issue listings: pinned statement counts at 5 and 200 issues', () => {
       pin('issues.graph', (f) => call(f, 'graph', {}), (graph, size) =>
         expect((graph as { nodes: unknown[] }).nodes).toHaveLength(readableChildren(size) + 1),
       ),
-      11,
+      9,
     )
   })
 
@@ -209,7 +219,7 @@ describe('issue listings: pinned statement counts at 5 and 200 issues', () => {
             readableChildren(size),
           ),
       ),
-      8,
+      7,
     )
   })
 

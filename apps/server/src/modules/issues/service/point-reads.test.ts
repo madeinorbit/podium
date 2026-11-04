@@ -63,9 +63,11 @@ describe('issue point reads over the database', () => {
     expect(await issues.liveRow('iss_missing')).toBeUndefined()
     expect([...(await issues.rowsByIds(['iss_1', 'iss_b4', 'iss_missing'])).keys()].sort()).toEqual(['iss_1', 'iss_b4'])
 
-    // The viewer's markers.
-    expect(await issues.issueUserState(asIssueId('iss_1'))).toEqual({ readAt: '2026-10-01T00:00:00.000Z', tuckedAt: null, pinnedAt: null })
-    expect(await issues.issueUserState(asIssueId('iss_4'))).toEqual({ readAt: null, tuckedAt: null, pinnedAt: '2026-10-01T00:00:00.000Z' })
+    // The viewer's markers, and the personal records the same row carries
+    // (POD-6290, design §4.4), empty here.
+    const noRecords = { joinedAt: null, joinedVia: null, assignedAt: null, assignedBy: null }
+    expect(await issues.issueUserState(asIssueId('iss_1'))).toEqual({ readAt: '2026-10-01T00:00:00.000Z', tuckedAt: null, pinnedAt: null, ...noRecords })
+    expect(await issues.issueUserState(asIssueId('iss_4'))).toEqual({ readAt: null, tuckedAt: null, pinnedAt: '2026-10-01T00:00:00.000Z', ...noRecords })
     expect(await issues.issueUserState(asIssueId('iss_2'))).toBeUndefined()
 
     // References.

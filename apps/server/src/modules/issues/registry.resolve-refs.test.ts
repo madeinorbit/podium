@@ -77,7 +77,9 @@ async function harness(initial: IssueRow[] = []) {
 }
 
 describe('batched chip identities', () => {
-  it('deduplicates a bounded indexed batch and hides unreadable identities from two principals', async () => {
+  // Every member reads every task (design §2.2, §4.1; POD-6288 6d0dc46741), so
+  // both people resolve both tasks; only an unknown ref stays unresolved.
+  it('deduplicates a bounded indexed batch and resolves every task for each of two members', async () => {
     const alice = asUserId('alice'),
       bob = asUserId('bob')
     const { reports } = await harness([
@@ -94,16 +96,13 @@ describe('batched chip identities', () => {
         refs: ['POD-1', 'POD-2', 'POD-404', 'POD-1'],
       })
     }
-    expect(await call(alice)).toEqual([
-      { ref: 'POD-1', id: 'iss_1' },
-      { ref: 'POD-2', id: null },
-      { ref: 'POD-404', id: null },
-    ])
-    expect(await call(bob)).toEqual([
-      { ref: 'POD-1', id: null },
-      { ref: 'POD-2', id: 'iss_2' },
-      { ref: 'POD-404', id: null },
-    ])
+    for (const user of [alice, bob]) {
+      expect(await call(user)).toEqual([
+        { ref: 'POD-1', id: 'iss_1' },
+        { ref: 'POD-2', id: 'iss_2' },
+        { ref: 'POD-404', id: null },
+      ])
+    }
     expect(
       issueRegistry.defs.resolveRefs.input.safeParse({ refs: Array(201).fill('POD-1') }).success,
     ).toBe(false)

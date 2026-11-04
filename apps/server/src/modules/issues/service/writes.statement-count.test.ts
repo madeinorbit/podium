@@ -81,7 +81,11 @@ describe('issue writes that read other issues: pinned statement counts at 5 and 
       pin('crud.create', async (f) => await f.svc.crud.create({ repoPath: '/repo', title: 'New work', startNow: false }),
         (wire) => expect(wire).toMatchObject({ title: 'New work' })),
       // POD-6218: two earliest-admin lookups, one statement each (the row), not two: 13 -> 11.
-      11,
+      // POD-6341: creating a task starts it for the creating member (POD-6290
+      // f97c15fe73, design §4.4). The first-writer start record reads that
+      // member's row (#923cf158) and writes it (#e7334576): 11 -> 13, constant
+      // in the number of issues.
+      13,
     )
   })
 

@@ -10,7 +10,7 @@
  * the issue map, these reads were also compared with it.
  */
 
-import { asIssueId, asSessionId, firstAdminMemberId, type RepoId } from '@podium/model'
+import { asIssueId, asSessionId, firstAdminMemberId, type RepoId, type UserId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../../store'
@@ -41,7 +41,9 @@ type SortScopes = {
     repoId: RepoId | null,
     repoPath: string,
     parentId: string | null,
-    opts?: { includePinned?: boolean },
+    // Whose pins leave the unpinned key space is named, never the first admin
+    // by default (POD-6291 9dd00e1e43: markers are per member).
+    opts: { includePinned: true } | { unpinnedFor: UserId },
   ): Promise<{ id: string }[]>
 }
 
@@ -107,11 +109,11 @@ describe('issue hierarchy reads over the database', () => {
     expect(await svc.hierarchy.inProposedSubtree('iss_2')).toBe(false)
 
     // The manual-order key spaces: live rows only, in no particular order.
-    expect(ids(await crud.sortScopeRows(null, '', 'iss_1')).sort()).toEqual(['iss_2', 'iss_7', 'iss_b1'])
+    expect(ids(await crud.sortScopeRows(null, '', 'iss_1', { includePinned: true })).sort()).toEqual(['iss_2', 'iss_7', 'iss_b1'])
     const a = resolve('/a')!
     const b = resolve('/b')!
     expect(ids(await crud.sortScopeRows(a, '/a', null, { includePinned: true })).sort()).toEqual(['iss_1', 'iss_8'])
-    expect(ids(await crud.sortScopeRows(a, '/a', null))).toEqual(['iss_1'])
+    expect(ids(await crud.sortScopeRows(a, '/a', null, { unpinnedFor: viewer }))).toEqual(['iss_1'])
     expect(ids(await crud.sortScopeRows(b, '/b', null, { includePinned: true }))).toEqual(['iss_b2'])
   })
 })
