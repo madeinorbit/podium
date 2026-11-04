@@ -16,7 +16,10 @@
 
 import type { MutationId } from '@podium/model'
 import { actorUser, asUserId, MESSAGE_ID_PREFIX } from '@podium/model'
+import { SyncSubmitReply } from '@podium/protocol'
 import {
+  type AuthorityRefusal,
+  type CoveringCursor,
   Outbox as KernelOutbox,
   OUTBOX_MAX_AGE_MS,
   type OutboxEnvelope,
@@ -27,6 +30,7 @@ import {
   type RetrySatisfaction,
   revisionOf,
 } from '@podium/sync/outbox'
+import type { Cursor, OptimisticOverlayPort } from '@podium/sync/replica'
 import type { PodiumClientApi } from '../api'
 import { randomUUID } from '../id'
 import {
@@ -38,6 +42,7 @@ import {
   platformOnlineEvents,
 } from '../outbox'
 import { couldNotSaveNotice, sessionGoneNotice } from '../outbox-recovery-copy'
+import { outboxOverlayPort } from '../replica-assembly/outbox-overlay'
 import {
   type CreateEngineOutbox,
   deadLetterHandlingFor,
@@ -49,6 +54,7 @@ import {
   type OutboxKinds,
   outboxExecutors,
   outboxRoutingFor,
+  readOutboxReply,
   shouldParkDeadLetter,
 } from './wiring'
 
@@ -70,7 +76,53 @@ export interface OpenKernelEngineOutboxOptions {
    * edit resolved by a disagreement between two `now`s.
    */
   readonly now?: () => number
+  /**
+   * The replica's COMMITTED cursor, or null before its first install (POD-6277).
+   *
+   * An applied entry waits for the replica to hold the truth its receipt names.
+   * The replica retires it in the commit that gets there; this answers the other
+   * order — the frame committed first, and the reply lands after it — so the
+   * entry retires the moment its reply does. Late-bound because the queue opens
+   * before the replica it confirms against. Omitted (a queue without a replica),
+   * an entry with a receipt waits for `confirmThrough` or the overlay port.
+   */
+  readonly confirmedThrough?: () => Cursor | null
 }
+
+/**
+ * The queue's factory, carrying the two ways the replica confirms its entries
+ * (POD-6277). Still callable as `CreateEngineOutbox`, so a caller that has no
+ * replica is unchanged.
+ */
+export type KernelEngineOutboxFactory = CreateEngineOutbox & {
+  /** The replica's overlay port: retires what one replica commit covers, in it. */
+  readonly overlay: OptimisticOverlayPort
+  /**
+   * Retire what a cursor the replica has ALREADY committed covers. For the
+   * replica at rest — at open, before any frame — and after a commit that raced
+   * an entry's reply. A delta never compares across epochs, so this never retires
+   * a receipt from another epoch; the next install does.
+   */
+  confirmThrough(cursor: Cursor): Promise<readonly MutationId[]>
+}
+
+/**
+ * An older server: it has no `sync.submit`, so tRPC answers `NOT_FOUND` naming the
+ * path. Only that answer. `sync.submit` itself never throws `NOT_FOUND` — a missing
+ * target is a `rejected` reply — but `classifyRefusal` reads any 404 as a definitive
+ * refusal, and a write dead-lettered for want of a route is the one outcome this
+ * must never produce.
+ */
+function isMissingSyncSubmit(error: unknown): boolean {
+  const data = (error as { data?: { code?: unknown; httpStatus?: unknown } } | null)?.data
+  if (data?.code !== 'NOT_FOUND' && data?.httpStatus !== 404) return false
+  const message = error instanceof Error ? error.message : ''
+  return /no procedure found/i.test(message) && message.includes('sync.submit')
+}
+
+/** How long a server that lacked `sync.submit` is believed to still lack it.
+ *  Bounded, so a server upgraded under an open app is found again. */
+const LEGACY_SERVER_RECHECK_MS = 10 * 60_000
 
 const kindByCommand = new Map<string, keyof OutboxKinds>(
   Object.entries(OUTBOX_COMMANDS).map(([kind, command]) => [
@@ -115,7 +167,8 @@ async function discardAutomaticDeadLetters(kernel: KernelOutbox): Promise<void> 
 
 /**
  * Send one envelope through the SAME executor table the compatibility queue uses
- * (`outboxExecutors`, wiring.ts).
+ * (`outboxExecutors`, wiring.ts). The route to an OLDER server, without
+ * `sync.submit`: it answers with the bare result and no receipt.
  *
  * IT USED TO BE A SWITCH HERE, and that is the bug POD-781 group 3 drove into:
  * this file listed the dotted command names by hand, stopped at
@@ -129,7 +182,87 @@ async function discardAutomaticDeadLetters(kernel: KernelOutbox): Promise<void> 
  * `kindFor` already owns name → kind, so the shared table is reachable from an
  * envelope, and a new kind now fails to COMPILE rather than failing under a
  * user's pointer.
+ *
+ * LEGACY(remove-after: 2027-03): servers without `sync.submit` take the old per-command routes and reply with no receipt, so the entry retires on the reply (plan Decision 4). Removing it leaves an app newer than its server unable to write.
  */
+function submitPerKind(
+  api: PodiumClientApi,
+  envelope: OutboxEnvelope,
+  hooks: OutboxExecutorHooks,
+): Promise<unknown> {
+  const kind = kindByCommand.get(envelope.command)
+  const execute = kind === undefined ? undefined : outboxExecutors(api, hooks)[kind]
+  if (execute === undefined) {
+    throw Object.assign(new Error(`unknown kernel Outbox command: ${envelope.command}`), {
+      data: { code: 'BAD_REQUEST' },
+    })
+  }
+  return Promise.resolve(execute(commandInput(envelope) as never))
+}
+
+/** The command's input as the server reads it: the entry's id and any recovery
+ *  revision ride inside it. Recovery supplies its opt-in revision on the envelope;
+ *  it must override any older input copy, while ordinary absolute intents stay
+ *  token-free. */
+function commandInput(envelope: OutboxEnvelope): Record<string, unknown> {
+  return {
+    ...(envelope.input as object),
+    ...revisionOf(envelope),
+    mutationId: envelope.mutationId,
+  }
+}
+
+/** What one submit came back with, whichever route carried it. */
+type Answered =
+  | { readonly kind: 'applied'; readonly result: unknown; readonly receipt?: CoveringCursor }
+  | { readonly kind: 'rejected'; readonly refusal: AuthorityRefusal }
+
+/**
+ * Send one envelope to the sync write entry point, in ONE call (ADR 12 D2), and
+ * read its reply: the command's result, read by its kind, and the receipt the
+ * entry waits on. Falls back to the per-kind routes for a server (or a client)
+ * without `sync.submit`.
+ */
+async function submitEnvelope(
+  api: PodiumClientApi,
+  envelope: OutboxEnvelope,
+  hooks: OutboxExecutorHooks,
+  legacy: { recheckAt: number },
+  now: () => number,
+): Promise<Answered> {
+  const kind = kindByCommand.get(envelope.command)
+  const syncSubmit = api.sync?.submit
+  if (kind !== undefined && syncSubmit !== undefined && now() >= legacy.recheckAt) {
+    let raw: unknown
+    try {
+      raw = await syncSubmit.mutate({
+        mutationId: envelope.mutationId,
+        command: envelope.command,
+        version: envelope.version,
+        input: commandInput(envelope),
+        ...revisionOf(envelope),
+        ...(envelope.confirmed === true ? { confirmed: true as const } : {}),
+      })
+    } catch (error) {
+      if (!isMissingSyncSubmit(error)) throw error
+      legacy.recheckAt = now() + LEGACY_SERVER_RECHECK_MS
+      raw = undefined
+    }
+    if (raw !== undefined) {
+      // A reply we cannot read is a transport failure (thrown, so retried), never
+      // a guess at what the server did.
+      const reply = SyncSubmitReply.parse(raw)
+      if (reply.outcome === 'rejected') return { kind: 'rejected', refusal: reply.refusal }
+      return {
+        kind: 'applied',
+        result: readOutboxReply(kind, envelope.input as never, reply.result, hooks),
+        receipt: reply.receipt,
+      }
+    }
+  }
+  return { kind: 'applied', result: await submitPerKind(api, envelope, hooks) }
+}
+
 /**
  * What the Authority said to the attempt in flight, held until the kernel's
  * event for that attempt reports it (POD-4762). The kernel record deliberately
@@ -138,28 +271,6 @@ async function discardAutomaticDeadLetters(kernel: KernelOutbox): Promise<void> 
  * the few milliseconds between the reply and the commit that resolves it.
  */
 type Answers = Map<string, { readonly reply?: unknown; readonly cause?: unknown }>
-
-function submit(
-  api: PodiumClientApi,
-  envelope: OutboxEnvelope,
-  hooks: OutboxExecutorHooks,
-): Promise<unknown> {
-  // Recovery supplies its opt-in revision on the envelope. It must override
-  // any older input copy, while ordinary absolute intents stay token-free.
-  const input = {
-    ...(envelope.input as object),
-    ...revisionOf(envelope),
-    mutationId: envelope.mutationId,
-  }
-  const kind = kindByCommand.get(envelope.command)
-  const execute = kind === undefined ? undefined : outboxExecutors(api, hooks)[kind]
-  if (execute === undefined) {
-    throw Object.assign(new Error(`unknown kernel Outbox command: ${envelope.command}`), {
-      data: { code: 'BAD_REQUEST' },
-    })
-  }
-  return Promise.resolve(execute(input as never))
-}
 
 class KernelEngineOutbox implements EngineOutbox {
   private readonly localWrites = new Set<Promise<unknown>>()
@@ -347,8 +458,13 @@ class KernelEngineOutbox implements EngineOutbox {
     }
   }
 
+  /**
+   * Retire an applied entry by the caller's own rule (the layout controller's and
+   * the pool's, until POD-6278 and POD-6279 delete them). The replica may already
+   * have confirmed it, so an entry that is no longer applied is not an error.
+   */
   retireAwaiting(mutationId: MutationId): void {
-    void this.kernel.retireApplied(mutationId as MutationId).catch(this.onDegraded)
+    retireIfApplied(this.kernel, mutationId, this.onDegraded)
   }
 
   async retry(mutationId: MutationId, satisfaction: RetrySatisfaction): Promise<void> {
@@ -420,11 +536,12 @@ class KernelEngineOutbox implements EngineOutbox {
       })
     }
     if (event.type === 'applied') {
+      // Announced, not retired: the entry keeps painting until the replica holds
+      // the truth that covers it (ADR 12). `openKernelEngineOutbox` confirms it
+      // against the replica's cursor straight after this. An entry the replica
+      // confirmed before its reply is already gone here, as a terminal reply is.
       const record = this.kernel.find(event.mutationId)
-      if (record !== undefined) {
-        const held = this.callbacks.onApplied?.(this.toEntry(record)) === true
-        if (!held) void this.kernel.retireApplied(event.mutationId).catch(this.onDegraded)
-      }
+      if (record !== undefined) this.callbacks.onApplied?.(this.toEntry(record))
     } else if (event.type === 'dead-lettered') {
       const entry = this.toEntry(event.record)
       this.callbacks.onDropped?.(entry, event.record.reason)
@@ -533,7 +650,7 @@ class KernelEngineOutbox implements EngineOutbox {
 /** Open one principal-bound kernel queue before React mounts. */
 export async function openKernelEngineOutbox(
   options: OpenKernelEngineOutboxOptions,
-): Promise<CreateEngineOutbox> {
+): Promise<KernelEngineOutboxFactory> {
   let adapter: KernelEngineOutbox | undefined
   const now = options.now ?? Date.now
   // Notices shown once per id in this session. A verdict commit that did not
@@ -548,6 +665,7 @@ export async function openKernelEngineOutbox(
   // eviction.
   const noticedGone = new Set<string>()
   const answers: Answers = new Map()
+  const legacy = { recheckAt: 0 }
   const kernel = await KernelOutbox.open({
     store: options.store,
     principal: options.principal,
@@ -572,21 +690,39 @@ export async function openKernelEngineOutbox(
           goneInput: undefined as OutboxKinds['resumeAndSend'] | undefined,
         }
         try {
-          const reply = await submit(options.api, envelope, {
-            sessionGone: (input) => {
-              terminal.resolved = true
-              terminal.goneInput = input
+          const answer = await submitEnvelope(
+            options.api,
+            envelope,
+            {
+              sessionGone: (input) => {
+                terminal.resolved = true
+                terminal.goneInput = input
+              },
+              stoppedSend: () => {
+                terminal.resolved = true
+              },
             },
-            stoppedSend: () => {
-              terminal.resolved = true
-            },
-          })
-          answers.set(envelope.mutationId, { reply })
-          if (!terminal.resolved) return { kind: 'applied' } satisfies OutboxSubmitOutcome
+            legacy,
+            now,
+          )
+          if (answer.kind === 'rejected') {
+            return { kind: 'rejected', refusal: answer.refusal } satisfies OutboxSubmitOutcome
+          }
+          // Kept only while the entry is still here: one the replica confirmed
+          // while this reply was on the wire has already settled, and its answer
+          // would never be collected.
+          if (kernel.find(envelope.mutationId) !== undefined) {
+            answers.set(envelope.mutationId, { reply: answer.result })
+          }
+          const receipt = answer.receipt === undefined ? {} : { receipt: answer.receipt }
+          if (!terminal.resolved) {
+            return { kind: 'applied', ...receipt } satisfies OutboxSubmitOutcome
+          }
           const goneInput = terminal.goneInput
           return {
             kind: 'applied',
             retire: true,
+            ...receipt,
             onCommitted: goneInput
               ? () => {
                   if (!noticedGone.has(envelope.mutationId)) {
@@ -609,8 +745,39 @@ export async function openKernelEngineOutbox(
     commandMaxAgeMs: OUTBOX_COMMAND_MAX_AGE_MS,
     newMutationId: mintMutationId,
     onStoreUnreadable: options.onDegraded,
-    onEvent: (event) => adapter?.onEvent(event),
+    onEvent: (event) => {
+      adapter?.onEvent(event)
+      if (event.type === 'applied') confirmApplied(event.mutationId)
+    },
   })
+  /** Entries left the queue by confirmation: what waited behind them goes now
+   *  (a retirement frees a partition but starts no drain, POD-6275). */
+  const drainAfterRetire = (ids: readonly MutationId[]): void => {
+    if (ids.length > 0) void adapter?.drain()
+  }
+  const confirmThrough = async (cursor: Cursor): Promise<readonly MutationId[]> => {
+    const retired = await kernel.confirm({ confirmed: [], through: cursor, install: false })
+    drainAfterRetire(retired)
+    return retired
+  }
+  /**
+   * An entry's reply was just recorded. With a receipt it retires as soon as the
+   * replica's committed cursor covers it — at once when the covering frame came
+   * first (ADR 12 Review Focus 2). Without one the server had no `sync.submit`,
+   * and the reply retires it (plan Decision 4).
+   */
+  function confirmApplied(mutationId: MutationId): void {
+    const record = kernel.find(mutationId)
+    if (record?.state !== 'applied') return
+    if (record.receipt === undefined) {
+      // LEGACY(remove-after: 2027-03): a reply from a server without `sync.submit` carries no receipt, so it retires on the reply as before. Removing it leaves such entries applied until the next confirmation or boot.
+      retireIfApplied(kernel, mutationId, options.onDegraded)
+      return
+    }
+    const cursor = options.confirmedThrough?.() ?? null
+    if (cursor === null) return
+    void confirmThrough(cursor).catch(options.onDegraded)
+  }
   // Reconcile dead letters created by older builds before the runtime takes its
   // first snapshot, so stale automatic receipts never flash in recovery.
   try {
@@ -620,11 +787,31 @@ export async function openKernelEngineOutbox(
     // real durability problem remains visible through the degraded-state path.
     options.onDegraded(error)
   }
-  return (callbacks) => {
+  const create: CreateEngineOutbox = (callbacks) => {
     if (adapter !== undefined) {
       throw new Error('kernel engine Outbox factory may only be consumed once')
     }
     adapter = new KernelEngineOutbox(kernel, callbacks, options.onDegraded, now, answers)
     return adapter
   }
+  return Object.assign(create, {
+    overlay: outboxOverlayPort(kernel, { onRetired: drainAfterRetire }),
+    confirmThrough,
+  })
+}
+
+/**
+ * Retire an applied entry unless something else already did. Another retirement
+ * (the replica's confirmation, a caller's own rule) can land between the check
+ * and this write, so an entry that is gone by then is not an error either.
+ */
+function retireIfApplied(
+  kernel: KernelOutbox,
+  mutationId: MutationId,
+  onDegraded: (detail: unknown) => void,
+): void {
+  if (kernel.find(mutationId)?.state !== 'applied') return
+  void kernel.retireApplied(mutationId).catch((error) => {
+    if (kernel.find(mutationId)?.state === 'applied') onDegraded(error)
+  })
 }

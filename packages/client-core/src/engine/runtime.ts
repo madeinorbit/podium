@@ -1483,11 +1483,15 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
   // -------------------------------------------------------------- outbox seams
 
-  private onMutationApplied(entry: OutboxEntry): boolean {
-    if (this.destroyed) return false
-    const actionHold = this.reconcileActionState(entry, 'applied')
+  /**
+   * An entry's reply came back. Announced only: nothing here keeps or retires the
+   * entry any more. It stays in the outbox, painting, until the replica holds the
+   * truth that covers it (ADR 12, POD-6277).
+   */
+  private onMutationApplied(entry: OutboxEntry): void {
+    if (this.destroyed) return
+    this.reconcileActionState(entry, 'applied')
     this.emitOutcome({ type: 'applied', mutationId: entry.mutationId, entry })
-    return actionHold ?? this.poolWriter?.holds?.(entry.mutationId) ?? false
   }
 
   private onMutationDropped(entry: OutboxEntry, reason?: OutboxRejectionReason): void {

@@ -47,6 +47,8 @@ import type {
   ModelChoiceWire,
   SessionIdentifierResolution,
   SyncChangesSinceResult,
+  SyncSubmitInput,
+  SyncSubmitReply,
 } from '@podium/protocol'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import type { PodiumSettings } from '@podium/runtime'
@@ -113,6 +115,13 @@ type WithMutationId<T> = T & { mutationId?: MutationId }
 export interface PodiumClientApi {
   sync: {
     changesSince: ApiQuery<{ cursor: number | null }, SyncChangesSinceResult>
+    /**
+     * The sync write entry point (ADR 12 D2): every queued command goes here, and
+     * the reply's receipt is what confirms it (POD-6277). Optional in this mirror
+     * only: structural test clients often omit it, and the outbox then sends
+     * through the old per-command routes, as it does to a server without it.
+     */
+    submit?: ApiMutation<SyncSubmitInput, SyncSubmitReply>
   }
   /**
    * Advisory named locks are deliberately queried rather than replicated: the

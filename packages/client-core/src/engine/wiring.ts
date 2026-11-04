@@ -767,6 +767,27 @@ function settleSend(
 }
 
 /**
+ * Read one queued command's result, as its kind reads it (POD-6277).
+ *
+ * The same reading whichever route carried the command: the old per-command
+ * procedure returns the result itself, and `sync.submit` returns it as its
+ * reply's `result`. Only the chat sends read theirs; every other kind's result
+ * is the answer as it stands. Throws as the executor would for a send the
+ * server refused in its reply (`ok: false`).
+ */
+export function readOutboxReply<K extends keyof OutboxKinds>(
+  kind: K,
+  input: OutboxKinds[K],
+  result: unknown,
+  hooks: OutboxExecutorHooks = {},
+): unknown {
+  if (kind === 'sendText' || kind === 'resumeAndSend') {
+    return settleSend(result, input as OutboxKinds['sendText' | 'resumeAndSend'], hooks)
+  }
+  return result
+}
+
+/**
  * THE ONE PLACE A QUEUED KIND MEETS ITS PROCEDURE, and it is one place because
  * POD-781 group 3 found out what two places cost.
  *
@@ -796,8 +817,10 @@ export function outboxExecutors(
     layoutSet: (i) => api.layout.set.mutate(i),
     layoutClear: (i) => api.layout.clear.mutate(i),
     settingsUpdatePersonal: (i) => api.settings.updatePersonal.mutate(i),
-    sendText: async (i) => settleSend(await api.sessions.sendText.mutate(i), i, hooks),
-    resumeAndSend: async (i) => settleSend(await api.sessions.resumeAndSend.mutate(i), i, hooks),
+    sendText: async (i) =>
+      readOutboxReply('sendText', i, await api.sessions.sendText.mutate(i), hooks),
+    resumeAndSend: async (i) =>
+      readOutboxReply('resumeAndSend', i, await api.sessions.resumeAndSend.mutate(i), hooks),
     rename: (i) => api.sessions.rename.mutate(i),
     setArchived: (i) => api.sessions.setArchived.mutate(i),
     setWorkState: (i) => api.sessions.setWorkState.mutate(i),
