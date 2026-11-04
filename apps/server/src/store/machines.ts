@@ -226,6 +226,7 @@ export const MACHINE_ID_SITES: readonly string[] = [
   'conversations.machine_id',
   'issues.machine_id',
   'machines.id',
+  'native_login_transfers.machine_id',
   'repos.machine_id',
   'sessions.machine_id',
   'ship_attempts.machine_id',
