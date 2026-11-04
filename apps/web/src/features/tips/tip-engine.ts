@@ -74,7 +74,9 @@ export class TipEngine {
   }
   @action private unregister(registration: Registration): void {
     this.registrations = this.registrations.filter((r) => r !== registration)
+    const dropped = this.pending.filter((p) => p.registration === registration)
     this.pending = this.pending.filter((p) => p.registration !== registration)
+    this.handOver(dropped)
     if (this.current?.registration === registration) this.close('dismissed')
   }
   /** Called after a registration's render. Inline card arrays need no memoization. */
@@ -91,10 +93,24 @@ export class TipEngine {
       }
       registration.wasActive = active
     }
-    this.pending = this.pending.filter((p) => p.replay || p.registration.read().active)
-    if (this.current && !this.current.replay && !this.current.registration.read().active)
+    const dropped = this.pending.filter((p) => !p.replay && !p.registration.read().active)
+    this.pending = this.pending.filter((p) => !dropped.includes(p))
+    this.handOver(dropped)
+    // A standalone card is already spent, so its trigger going away must not close it.
+    const current = this.current
+    if (current && !current.replay && !current.card.standalone && !current.registration.read().active)
       this.close('dismissed')
     this.schedule()
+  }
+  /** One id queues once, so a second active copy was refused and has no edge
+   *  left to fire. It takes over when the copy that held the place steps down. */
+  private handOver(dropped: readonly Pending[]): void {
+    for (const { registration } of dropped) {
+      const heir = this.registrations.find(
+        (r) => r !== registration && r.id === registration.id && r.read().active,
+      )
+      if (heir && !this.log.isSeen(heir.id)) this.enqueue(heir, false)
+    }
   }
   // Several mounted copies can register one moment (a hidden chat offer beside
   // the visible native one). Replay uses the copy whose first anchor is on screen.
@@ -167,6 +183,9 @@ export class TipEngine {
       if (!card || !this.anchorExists(card.anchor)) continue
       this.current = { ...pending, index: 0, card }
       this.log.record(registration.id, 'shown')
+      // Once means once: seen from the moment it appears, so another window or
+      // a reload cannot ask again before this one is answered.
+      if (!replay && card.standalone) this.log.record(registration.id, 'finished')
       card.onShow?.()
       return
     }

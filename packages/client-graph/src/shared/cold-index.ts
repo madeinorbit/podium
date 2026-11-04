@@ -229,7 +229,7 @@ function ruleFields(schema: ModelSchema, entity: EntityName, lanes: readonly Lan
 
 function isFinishedTask(row: Row): boolean {
   if (row['stage'] !== 'done' || row['deletedAt'] != null || row['parentId'] != null) return false
-  if (row['isDraftVessel'] === true) return false
+  if (row['isDraftVessel'] === true || row['type'] === 'phase' || row['type'] === 'milestone') return false
   const reason = canonicalIssueCloseReason(row['closedReason'] as string | null | undefined)
   return reason === null || reason === 'done'
 }

@@ -64,14 +64,15 @@ function starCards(
   ]
 }
 
-/** The open task's id, when it closed as done moments ago. */
-const readJustFinishedId = (pool: MobxPool): string | null => {
+const readFinished = (pool: MobxPool) => {
   const issue = headerModel(pool).selectedIssue
   if (typeof issue === 'symbol' || !issue || issue.stage !== 'done' || !issue.closedAt) return null
   const reason = canonicalIssueCloseReason(issue.closedReason)
-  if (reason && reason !== 'done') return null
-  return Date.now() - Date.parse(issue.closedAt) < JUST_FINISHED_MS ? issue.id : null
+  return reason && reason !== 'done' ? null : issue
 }
+/** The open task's id, when it closed as done. */
+const readFinishedId = (pool: MobxPool): string | null => readFinished(pool)?.id ?? null
+const readFinishedAt = (pool: MobxPool): string | null => readFinished(pool)?.closedAt ?? null
 
 /** True while the person is actually in this window. */
 function useWindowFocused(): boolean {
@@ -93,13 +94,18 @@ export const GitHubStarOnFinishedTask = observer(function GitHubStarOnFinishedTa
   const trpc = useTrpc()
   const unseen = useTipUnseen('github-star')
   const eligible = useEligible()
-  const finishedId = useWorklistPoolProjection(readJustFinishedId, null)
+  const finishedId = useWorklistPoolProjection(readFinishedId, null)
+  const finishedAt = useWorklistPoolProjection(readFinishedAt, null)
   const focused = useWindowFocused()
-  const anchorName = unseen && eligible && focused && finishedId ? taskRowAnchor(finishedId) : null
-  const rowVisible = useTipAnchorVisible(useTipAnchorElement(anchorName))
+  // Read here, not in the projection: it caches, so an old closure would still
+  // look fresh once focus comes back.
+  const justFinished = finishedAt !== null && Date.now() - Date.parse(finishedAt) < JUST_FINISHED_MS
+  const anchor = finishedId ? taskRowAnchor(finishedId) : null
+  const wanted = unseen && eligible && focused && justFinished
+  const rowVisible = useTipAnchorVisible(useTipAnchorElement(wanted ? anchor : null))
   useTipMoment('github-star', {
-    active: anchorName !== null && rowVisible,
-    cards: anchorName ? starCards(anchorName, 'finished_task', trpc) : [],
+    active: wanted && rowVisible,
+    cards: anchor ? starCards(anchor, 'finished_task', trpc) : [],
   })
   return null
 })
@@ -113,9 +119,14 @@ export function useGitHubStarOnNewPrompt({
   setShowing(on: boolean): void
 }): void {
   const trpc = useTrpc()
+  const unseen = useTipUnseen('github-star')
   const eligible = useEligible()
+  const focused = useWindowFocused()
+  const wanted = unseen && eligible && !first && focused
+  // An offscreen composer is refused once; coming into view has to count as a new try.
+  const visible = useTipAnchorVisible(useTipAnchorElement(wanted ? FIRST_PROMPT_ANCHOR : null))
   useTipMoment('github-star', {
-    active: eligible && !first,
+    active: wanted && visible,
     cards: starCards(FIRST_PROMPT_ANCHOR, 'new_prompt', trpc, {
       onShow: () => setShowing(true),
       onHide: () => setShowing(false),

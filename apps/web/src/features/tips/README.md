@@ -3,7 +3,8 @@
 The shell already mounts `TipHost` and the sidebar badge. Import `useTipMoment` and
 `TipCard` from `@/features/tips`. Do not add another host or write the log yourself.
 
-- Use one registration per ID. Keep it mounted with `active: false` when possible
+- Use one registration per ID, unless a moment can appear in two places: then each
+  place registers it, one queues, and the other takes over if the first steps down. Keep it mounted with `active: false` when possible
   so the guide can replay it. Use a unique anchor name on a visible real element.
 - `active` means the trigger has happened and this moment is eligible. Keep it true
   while queued. Setting it false cancels a queued moment or dismisses a visible one.
@@ -55,7 +56,8 @@ return <div ref={composer} data-tip-anchor="my-moment-composer">…</div>
 
 `github-star` is a moment outside the tour. It uses this engine and log, but it is not in
 `TIP_IDS`, so it never counts toward 7/7 and the guide does not list it. A card with
-`standalone` sets its own heading and swaps Skip tips for a plain decline. Skip tips still
+`standalone` sets its own heading, swaps Skip tips for a plain decline, counts as seen as
+soon as it appears, and stays up if its trigger goes away. Skip tips still
 marks it seen, because that person asked for no tips.
 
 `types.ts` is the shared log contract with POD-2195. `tip-log-source.ts` selects the

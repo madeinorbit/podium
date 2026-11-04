@@ -81,6 +81,7 @@ describe('finished task count', () => {
     f.put('issue', 'child', closedIssue('child'))
     f.put('issue', 'cancelled', closedIssue('cancelled', { parentId: null, closedReason: 'cancelled' }))
     f.put('issue', 'draft', closedIssue('draft', { parentId: null, isDraftVessel: true }))
+    f.put('issue', 'phase', closedIssue('phase', { parentId: null, type: 'phase' }))
     expect(f.index.finishedTasks()).toBe(2)
     f.put('issue', 'a', closedIssue('a', { parentId: null, stage: 'in_progress' }))
     expect(f.index.finishedTasks()).toBe(1)

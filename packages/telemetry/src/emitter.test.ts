@@ -507,4 +507,12 @@ describe('the GitHub star counters', () => {
     })
     expect(UsageReport.safeParse(report).success).toBe(true)
   })
+
+  it('stops counting at the cap, so repeat calls cannot fail the report', () => {
+    const { emitter } = harness({ telemetry: { usage: 'on', installId: INSTALL_ID, since: 1 } })
+    for (let i = 0; i < 1_001; i++) emitter.recordGithubStar('clicked', 'new_prompt')
+    const report = emitter.buildUsageReport()
+    expect(report?.githubStar?.clicked.new_prompt).toBe(1_000)
+    expect(UsageReport.safeParse(report).success).toBe(true)
+  })
 })

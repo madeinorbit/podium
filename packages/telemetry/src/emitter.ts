@@ -92,6 +92,8 @@ export interface EmitterDeps {
   log?: (message: string) => void
 }
 
+const GITHUB_STAR_COUNT_CAP = 1_000
+
 export class TelemetryEmitter {
   private crashSignatures = new Map<string, number>()
   private crashesThisWindow = 0
@@ -170,7 +172,9 @@ export class TelemetryEmitter {
     if (!this.tierOn('usage')) return
     const window = this.window()
     const star = (window.githubStar ??= { shown: {}, clicked: {} })
-    star[event][surface] = (star[event][surface] ?? 0) + 1
+    // The card shows once per person. Any member can call this, so stay far below
+    // the schema's cap: one count over it would fail the whole day's report.
+    star[event][surface] = Math.min((star[event][surface] ?? 0) + 1, GITHUB_STAR_COUNT_CAP)
     writeWindow(this.deps.stateDir, window)
   }
 
