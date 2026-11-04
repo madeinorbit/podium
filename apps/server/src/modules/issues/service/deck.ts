@@ -33,6 +33,16 @@ export async function readDeck(
   niceRef: (row: IssueRow) => Promise<string>,
   /** The reader the deck's seats are shown to: only their own sessions (POD-6285). */
   forUser?: UserId,
+  /**
+   * WHOSE TASKS THE DECK SHOWS (POD-6296). With `assignee`, a task stays when
+   * it or a task below it has that assignee; the root always stays. Counters
+   * and counts still describe the whole mission. `names` gives assignee names
+   * on a shared instance, and an empty map on a one-member one.
+   */
+  assignees?: {
+    assignee?: UserId
+    names?: (ids: readonly string[]) => Promise<ReadonlyMap<string, string>>
+  },
 ): Promise<IssueDeck> {
   const root = await store.rowOrThrow(await store.resolveRef(ref))
   if (root.deletedAt || !(await mayRead(root.id))) throw new IssueNotFound(ref)
@@ -41,7 +51,10 @@ export async function readDeck(
   // (repository path, then sequence), the order the in-memory issue map held
   // them in after boot (POD-6158).
   const candidates = await store.deps.store.issues.listIssueRowsWhere({
-    repo: false, live: true, unarchived: true, order: 'path-seq',
+    repo: false,
+    live: true,
+    unarchived: true,
+    order: 'path-seq',
   })
   for (const row of candidates) {
     if (row.deletedAt || row.archived || row.draft || !(await mayRead(row.id))) continue
@@ -163,7 +176,9 @@ export async function readDeck(
   // The blockers' rows by id in one read: a blocker may be archived, a draft or
   // outside the deck, and still blocks.
   const targets = await store.rowsByIds(
-    deps.flatMap((dep) => (dep.type === 'blocked-by' && admitted.has(dep.fromId) ? [dep.toId] : [])),
+    deps.flatMap((dep) =>
+      dep.type === 'blocked-by' && admitted.has(dep.fromId) ? [dep.toId] : [],
+    ),
   )
   for (const dep of deps) {
     if (dep.type !== 'blocked-by' || !admitted.has(dep.fromId)) continue
@@ -259,39 +274,52 @@ export async function readDeck(
     for (const [child, word] of rollUpTaskWords(id, tree)) words.set(child, word)
   }
   const wordOf = (id: IssueId) => words.get(id) ?? 'not-started'
+  const names =
+    (await assignees?.names?.(
+      [...admitted].map((id) => rows.get(id)!.ownerUserId).filter((id): id is UserId => !!id),
+    )) ?? new Map()
+  const wanted = assignees?.assignee
+  const shows = (id: IssueId): boolean =>
+    rows.get(id)!.ownerUserId === wanted || workChildren(id).some(shows)
   const build = (id: IssueId): IssueDeckNode => {
     const row = rows.get(id)!
     const tally = tallyTaskWords(counterChildren(id, tree), wordOf)
+    const name = row.ownerUserId ? names.get(row.ownerUserId) : undefined
     return {
       id,
       displayRef: refs.get(id)!,
       title: row.title,
       type: row.type,
       stage: row.stage,
+      ...(name ? { assignee: row.ownerUserId, assigneeName: name } : {}),
       word: wordOf(id),
       hidden: taskHidden(row),
       counter: { done: tally.done, total: tally.total },
       sessions: seats.get(id) ?? [],
       blockers: blockers.get(id) ?? [],
-      children: workChildren(id).map(build),
+      children: workChildren(id)
+        .filter((child) => wanted === undefined || shows(child))
+        .map(build),
     }
   }
-  const proposals: IssueDeckProposal[] = [...proposalIds].map((id) => {
-    const row = rows.get(id)!,
-      author = row.startedBySession ? kept.get(row.startedBySession) : undefined
-    return {
-      ...build(id),
-      proposedBy: author
-        ? {
-            sessionId: author.sessionId,
-            ...(sessionRefs.has(author.sessionId)
-              ? { displayRef: sessionRefs.get(author.sessionId)! }
-              : {}),
-          }
-        : null,
-      placement: row.parentId && admitted.has(row.parentId) ? 'here' : 'own-issue',
-    }
-  })
+  const proposals: IssueDeckProposal[] = [...proposalIds]
+    .filter((id) => wanted === undefined || shows(id))
+    .map((id) => {
+      const row = rows.get(id)!,
+        author = row.startedBySession ? kept.get(row.startedBySession) : undefined
+      return {
+        ...build(id),
+        proposedBy: author
+          ? {
+              sessionId: author.sessionId,
+              ...(sessionRefs.has(author.sessionId)
+                ? { displayRef: sessionRefs.get(author.sessionId)! }
+                : {}),
+            }
+          : null,
+        placement: row.parentId && admitted.has(row.parentId) ? 'here' : 'own-issue',
+      }
+    })
   return {
     root: build(root.id),
     counts: tallyTaskWords(leafTasks(root.id, tree), wordOf),

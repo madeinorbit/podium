@@ -43,6 +43,12 @@ import type { IssueListingInput, IssueListingShape } from '../../../store/issue-
 import type { SessionFacts } from '../../sessions/facts'
 import { deepestOwner, soleOwner } from '../folder-owner'
 import { issueRowToProjection } from '../projection'
+import {
+  type AssigneeDefault,
+  type AssigneeScope,
+  assigneeNames,
+  resolveAssigneeScope,
+} from './assignee-filter'
 import type { IssueStore } from './core'
 import { readDeck } from './deck'
 import { countContextAwarePendingMail } from './mail-pending'
@@ -120,6 +126,12 @@ function blockedBy(
     outgoing.filter((dep) => dep.type === 'blocked-by').map((dep) => closure.get(dep.toId)),
   )
 }
+
+/** The listing shape and input that narrow a listing to one assignee (POD-6296). */
+const assigneeShape = (assignee: AssigneeScope): { assignee?: true } =>
+  assignee ? { assignee: true } : {}
+const assigneeInput = (assignee: AssigneeScope): { assignee?: string } =>
+  assignee ? { assignee } : {}
 
 const text = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 
@@ -237,12 +249,55 @@ export class IssueReportsModule {
     return replace(value) as IssueCommandResult<T>
   }
 
-  async list(repoPath?: string, reader: IssueReader = UNRESTRICTED_READER): Promise<IssueReport[]> {
-    return await this.reportsFor(
-      await this.listed(repoPath, reader, { live: false, order: 'repo-seq' }),
-      undefined,
-      reader,
+  async list(
+    repoPath?: string,
+    reader: IssueReader = UNRESTRICTED_READER,
+    assignee?: AssigneeScope,
+  ): Promise<IssueReport[]> {
+    return await this.named(
+      await this.reportsFor(
+        await this.listed(
+          repoPath,
+          reader,
+          { live: false, order: 'repo-seq', ...assigneeShape(assignee) },
+          assigneeInput(assignee),
+        ),
+        undefined,
+        reader,
+      ),
     )
+  }
+
+  /**
+   * `--assignee me|all|<member>` as the member a listing is narrowed to
+   * (POD-6296). `viewer` is the caller's human; `fallback` is what the listing
+   * means when the caller names nobody.
+   */
+  async assigneeScope(
+    raw: string | undefined,
+    viewer: UserId | undefined,
+    fallback: AssigneeDefault,
+  ): Promise<AssigneeScope> {
+    return await resolveAssigneeScope(raw, {
+      viewer,
+      fallback,
+      members: this.store.deps.store.users,
+    })
+  }
+
+  /** Reports with their assignee's member name, on a shared instance. */
+  private async named<T extends { id: string; assignee?: string | undefined }>(
+    reports: T[],
+  ): Promise<(T & { assigneeName?: string })[]> {
+    const names = await assigneeNames(
+      this.store.deps.store.users,
+      reports.map((report) => report.assignee),
+    )
+    if (names.size === 0) return reports
+    return reports.map((report) => {
+      const name = report.assignee ? names.get(report.assignee) : undefined
+      return name ? { ...report, assigneeName: name } : report
+    })
   }
 
   /**
@@ -476,13 +531,21 @@ export class IssueReportsModule {
   async readyList(
     repoPath?: string,
     reader: IssueReader = UNRESTRICTED_READER,
+    assignee?: AssigneeScope,
   ): Promise<IssueReport[]> {
-    return await this.reportsFor(
-      (
-        await this.listed(repoPath, reader, { live: true, state: 'ready', order: 'priority-seq' })
-      ).filter((row) => !this.store.isDeferred(row)),
-      undefined,
-      reader,
+    return await this.named(
+      await this.reportsFor(
+        (
+          await this.listed(
+            repoPath,
+            reader,
+            { live: true, state: 'ready', order: 'priority-seq', ...assigneeShape(assignee) },
+            assigneeInput(assignee),
+          )
+        ).filter((row) => !this.store.isDeferred(row)),
+        undefined,
+        reader,
+      ),
     )
   }
 
@@ -537,13 +600,17 @@ export class IssueReportsModule {
     }
   }
 
-  async deck(ref: string, reader: IssueReader = UNRESTRICTED_READER) {
+  async deck(ref: string, reader: IssueReader = UNRESTRICTED_READER, assignee?: AssigneeScope) {
     return await readDeck(
       this.store,
       ref,
       reader.mayRead,
       async (row) => await this.niceRef(row),
       reader.viewer() ?? undefined,
+      {
+        ...(assignee ? { assignee } : {}),
+        names: async (ids) => await assigneeNames(this.store.deps.store.users, ids),
+      },
     )
   }
 
@@ -646,10 +713,34 @@ export class IssueReportsModule {
    *  (`omittedChildren`) and in the total (`omitted`). */
   async tree(
     ref: string,
-    opts: { maxDepth?: number; maxNodes?: number } = {},
+    opts: { maxDepth?: number; maxNodes?: number; assignee?: AssigneeScope } = {},
     reader: IssueReader = UNRESTRICTED_READER,
   ): Promise<IssueTree> {
-    return await this.treeFromDb(ref, opts, reader)
+    const tree = await this.treeFromDb(ref, opts, reader)
+    const names = new Map<string, string>()
+    const ids: string[] = []
+    const collect = (n: IssueTreeNode): void => {
+      if (n.assignee) ids.push(n.assignee)
+      n.children.forEach(collect)
+    }
+    collect(tree.root)
+    for (const [id, name] of await assigneeNames(this.store.deps.store.users, ids))
+      names.set(id, name)
+    let hidden = 0
+    const count = (n: IssueTreeNode): number => 1 + n.children.reduce((a, c) => a + count(c), 0)
+    // A node stays when it or a descendant has the assignee; the root always does.
+    const keep = (n: IssueTreeNode): boolean => {
+      n.children = n.children.filter((child) => {
+        const kept = keep(child)
+        if (!kept) hidden += count(child)
+        return kept
+      })
+      const name = n.assignee ? names.get(n.assignee) : undefined
+      if (name) n.assigneeName = name
+      return opts.assignee === undefined || n.assignee === opts.assignee || n.children.length > 0
+    }
+    keep(tree.root)
+    return opts.assignee === undefined ? tree : { ...tree, assigneeHidden: hidden }
   }
 
   private async treeFromDb(
@@ -1063,7 +1154,7 @@ export class IssueReportsModule {
     filter: IssueSearchFilter,
     reader: IssueReader = UNRESTRICTED_READER,
   ): Promise<IssueReport[]> {
-    return await this.searchFromDb(filter, reader)
+    return await this.named(await this.searchFromDb(filter, reader))
   }
 
   private async searchFromDb(
@@ -1296,17 +1387,53 @@ export class IssueReportsModule {
   /** Agent-facing context at session start / on demand. Bound = the issue + open
    *  children + blockers; unbound = a ready-work lobby. Ends with prime-only
    *  rules — system-pointer policy is not restated. */
-  async prime(
-    opts: { repoPath?: string; boundIssueId?: IssueId | null; sessionId?: SessionId },
-    reader: IssueReader = UNRESTRICTED_READER,
-  ): Promise<string> {
+  async prime(opts: PrimeOptions, reader: IssueReader = UNRESTRICTED_READER): Promise<string> {
     return await this.primeFromDb(opts, reader)
   }
 
-  private async primeFromDb(
-    opts: { repoPath?: string; boundIssueId?: IssueId | null; sessionId?: SessionId },
-    reader: IssueReader,
-  ): Promise<string> {
+  /**
+   * WHO IS WHO ON A SHARED INSTANCE (POD-6296, design §2.3): the human this
+   * caller acts for, the task's assignee, the agent and what it may write.
+   * Null on a one-member instance, where all of them are the same person and
+   * prime reads as it always did.
+   */
+  private async identityLine(
+    opts: PrimeOptions,
+    task: { ownerUserId: UserId } | null,
+  ): Promise<string | null> {
+    const users = this.store.deps.store.users
+    if (!opts.human || !(await users.hasSeveralActiveMembers())) return null
+    const nameOf = async (id: UserId): Promise<string> => {
+      const member = await users.get(id)
+      return member?.displayName || member?.email || id
+    }
+    const human = await nameOf(opts.human)
+    const parts = [`You act for ${human} (${opts.human}): "the user" is ${human}, and nobody else.`]
+    if (task) {
+      parts.push(
+        task.ownerUserId === opts.human
+          ? `This task's assignee is ${human}.`
+          : `This task's assignee is ${await nameOf(task.ownerUserId)} (${task.ownerUserId}), not ${human}: their sessions, machines and credentials are not yours, and you never ask them anything.`,
+      )
+    }
+    if (opts.sessionId) {
+      const self = await this.store.deps.readSessionFactsById(opts.sessionId)
+      const label = self?.name || self?.title
+      parts.push(
+        `You are agent session ${opts.sessionId}${self ? ` (${self.agentKind}${label ? `, "${label}"` : ''})` : ''}.`,
+      )
+    }
+    if (opts.scope !== undefined) {
+      parts.push(
+        opts.scope
+          ? `Your write scope is ${opts.scope} and its sub-issues; elsewhere you write only with \`--outside-scope\`, and only where ${human} may.`
+          : `You have no task write scope: you write only with \`--outside-scope\`, and only where ${human} may.`,
+      )
+    }
+    return parts.join(' ')
+  }
+
+  private async primeFromDb(opts: PrimeOptions, reader: IssueReader): Promise<string> {
     const mayRead = reader.mayRead
     // Static tail: only what the always-on system pointer does NOT already carry.
     // Stages, discovered-from, spin-off litmus, general title doctrine,
@@ -1405,6 +1532,7 @@ export class IssueReportsModule {
             ? `This issue is still in \`backlog\` but you are working it — fix that now: \`podium issue update --id ${me.seq} --stage planning\` (designing/investigating) or \`--stage in_progress\` (changing code).`
             : null,
           'When using Podium task tracking, if the user\'s request is NOT a continuation of this issue but a new piece of work, move onto a new issue — litmus: could this issue close with the new work untouched? Yes → `podium issue attach --spinoff "<title>" --confirm-rehome` (independent work, provenance edge); No → `podium issue attach --subissue "<title>" --confirm-rehome` (this issue cannot ship without it). When the user explicitly requests native subagents, their parent handles any Podium issue attachment; a native subagent must not self-attach.',
+          await this.identityLine(opts, me.assignee ? { ownerUserId: me.assignee } : null),
           me.description ? `Human summary: ${me.description}` : null,
           me.brief ? `Brief:\n${me.brief}` : null,
           me.acceptance ? `Acceptance: ${me.acceptance}` : null,
@@ -1440,17 +1568,41 @@ export class IssueReportsModule {
       }
     }
     const ready = (
-      await this.listed(opts.repoPath, reader, { live: true, state: 'ready', order: 'repo-seq' })
+      await this.listed(
+        opts.repoPath,
+        reader,
+        { live: true, state: 'ready', order: 'repo-seq', ...assigneeShape(opts.assignee) },
+        assigneeInput(opts.assignee),
+      )
     ).filter((row) => !this.store.isDeferred(row))
+    const whose = opts.assignee
+      ? ` (assigned to ${opts.assignee === opts.human ? 'your human' : opts.assignee}; \`podium issue ready --assignee all\` lists everyone's)`
+      : ''
     return [
       'No issue bound to this session.',
+      await this.identityLine(opts, null),
       ready.length
-        ? `Ready work:\n${(await Promise.all(ready.map(async (i) => `  - ${await this.niceRef(i)} (${i.title})`))).join('\n')}`
-        : '(no ready issues)',
+        ? `Ready work${whose}:\n${(await Promise.all(ready.map(async (i) => `  - ${await this.niceRef(i)} (${i.title})`))).join('\n')}`
+        : `(no ready issues${whose})`,
       'Use `podium issue start <id>` to claim one, or `podium issue create` to file new work.',
       '',
       labelLine,
       ...rules,
-    ].join('\n')
+    ]
+      .filter((line) => line !== null)
+      .join('\n')
   }
+}
+
+/** What prime is told about its caller; every field is server-stamped. */
+export interface PrimeOptions {
+  repoPath?: string
+  boundIssueId?: IssueId | null
+  sessionId?: SessionId
+  /** The human the caller acts for (POD-6296). */
+  human?: UserId
+  /** The agent's write scope: its subtree root's ref, `null` for none, absent for a person. */
+  scope?: string | null
+  /** Whose ready work the unbound lobby lists; absent = everyone's. */
+  assignee?: AssigneeScope
 }

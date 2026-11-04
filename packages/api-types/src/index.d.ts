@@ -3316,6 +3316,7 @@ type Output_issues_action = {
         visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
         worktreePath?: string | undefined;
     }, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "legacyAssignee" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
+        assigneeName?: string;
         blocked: boolean;
         branch: null | string;
         childCount: number;
@@ -3624,6 +3625,7 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
 }, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "legacyAssignee" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
+    assigneeName?: string;
     blocked: boolean;
     branch: null | string;
     childCount: number;
@@ -3931,6 +3933,7 @@ type Output_issues_answerQuestion = {
         visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
         worktreePath?: string | undefined;
     }, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "legacyAssignee" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
+        assigneeName?: string;
         blocked: boolean;
         branch: null | string;
         childCount: number;
@@ -4309,6 +4312,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
 }, "asked" | "branch" | "createdBy" | "description" | "intentOrigin" | "isDraftVessel" | "lastLifecycleActor" | "owner" | "visibility" | "worktreePath"> & {
+    assigneeName?: string;
     blocked: boolean;
     branch: null | string;
     childCount: number;
@@ -4614,6 +4618,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
 }, "asked" | "branch" | "createdBy" | "description" | "intentOrigin" | "isDraftVessel" | "lastLifecycleActor" | "owner" | "visibility" | "worktreePath"> & {
+    assigneeName?: string;
     blocked: boolean;
     branch: null | string;
     childCount: number;
@@ -4643,6 +4648,7 @@ type Output_issues_get = (null) | ({
     allowed: _podium_model.IssueAllowedActions;
     archived: boolean;
     assignee?: (string & z.BRAND<"UserId">) | undefined;
+    assigneeName?: string;
     audience: "agent" | "human";
     blocked: boolean;
     blockedByNotes: string[];
@@ -5633,6 +5639,7 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
 }, "asked" | "branch" | "createdBy" | "description" | "intentOrigin" | "isDraftVessel" | "lastLifecycleActor" | "owner" | "visibility" | "worktreePath"> & {
+    assigneeName?: string;
     blocked: boolean;
     branch: null | string;
     childCount: number;
@@ -7179,6 +7186,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         }>;
         "deck": TRPC.TRPCQueryProcedure<{
             input: {
+                assignee?: string | undefined;
                 id: string;
             };
             output: _podium_model.IssueDeck;
@@ -7353,6 +7361,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         }>;
         "list": TRPC.TRPCQueryProcedure<{
             input: {
+                assignee?: string | undefined;
                 repoPath?: string | undefined;
             };
             output: Array<_podium_model.IssueReport>;
@@ -7442,6 +7451,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         }>;
         "prime": TRPC.TRPCQueryProcedure<{
             input: (undefined) | ({
+                assignee?: string | undefined;
                 repoPath?: string | undefined;
             });
             output: string;
@@ -7458,6 +7468,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         }>;
         "ready": TRPC.TRPCQueryProcedure<{
             input: {
+                assignee?: string | undefined;
                 repoPath?: string | undefined;
             };
             output: Array<_podium_model.IssueReport>;
@@ -7673,6 +7684,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         }>;
         "tree": TRPC.TRPCQueryProcedure<{
             input: {
+                assignee?: string | undefined;
                 id: string;
                 maxDepth?: number | undefined;
                 maxNodes?: number | undefined;

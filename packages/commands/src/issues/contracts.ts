@@ -128,11 +128,23 @@ const bySubscriptionId = z.object({ id: z.string() })
 // instances every transport parses with; nothing re-declares them.
 // ---------------------------------------------------------------------------
 
-export const listInput = repoScoped
+/**
+ * WHOSE TASKS A LISTING HOLDS (POD-6296, design §2.2/§2.3): `me` (the caller's
+ * own human; for an agent, the human it acts for), `all`, or one member named
+ * by id, email or display name. The assignee is the task's accountable owner.
+ * Resolved server-side, so no client spells a member id it was never shown.
+ * Omitted, `ready` and prime's ready work mean `me` on a shared instance and
+ * every other listing means `all`.
+ */
+export const AssigneeFilterField = z.string().trim().min(1).max(320)
 
-export const primeInput = repoScoped.optional()
+const assigneeScoped = { assignee: AssigneeFilterField.optional() }
 
-export const readyInput = repoScoped
+export const listInput = repoScoped.extend(assigneeScoped)
+
+export const primeInput = repoScoped.extend(assigneeScoped).optional()
+
+export const readyInput = repoScoped.extend(assigneeScoped)
 
 export const blockedInput = repoScoped
 
@@ -145,9 +157,12 @@ export const childrenInput = z.object({ id: IssueIdField, recursive: z.boolean()
 // The depth/node caps are callable (POD-1342): the CLI's truncation footer
 // tells the reader to raise them, so they have to be raisable over the wire.
 export const treeInput = byIssueId.extend({
+  ...assigneeScoped,
   maxDepth: z.number().int().min(0).max(20).optional(),
   maxNodes: z.number().int().min(1).max(1000).optional(),
 })
+
+export const deckInput = byIssueId.extend(assigneeScoped)
 
 export const depReportInput = z.object({
   id: IssueIdField.optional(),
@@ -174,7 +189,7 @@ export const searchInput = z.object({
   stage: IssueStage.optional(),
   priority: z.number().int().optional(),
   type: IssueType.optional(),
-  assignee: UserIdField.optional(),
+  assignee: AssigneeFilterField.optional(),
   label: z.string().optional(),
   parentId: IssueIdField.optional(),
 })
@@ -862,7 +877,7 @@ export const issueDeckContract = {
   name: 'issues.deck',
   version: 1,
   visibility: ISSUE_VISIBILITY,
-  input: byIssueId,
+  input: deckInput,
   policy: READ_POLICY,
   exposure: SERVED_EVERYWHERE,
   delivery: READ_DELIVERY,

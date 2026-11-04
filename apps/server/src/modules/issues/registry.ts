@@ -196,21 +196,35 @@ async function assigneeNamed(ctx: IssueCommandCtx, raw: string): Promise<UserId>
   return target
 }
 
-/** A search's `--assignee me` is the caller's own human (POD-6287): the person,
- *  or for an agent the human it acts for. Any other value is a member id. */
-function assigneeMe<T extends { assignee?: UserId | undefined }>(
+/**
+ * `--assignee me|all|<member>` (POD-6296), resolved here so every transport
+ * (CLI, relay, MCP) narrows the same way: `me` is the caller's own human, for
+ * an agent the human it acts for. `fallback` is the listing's default.
+ */
+async function assigneeScope(
+  ctx: IssueCommandCtx,
+  raw: string | undefined,
+  fallback: 'me' | 'all',
+): Promise<UserId | undefined> {
+  return await ctx.reports.assigneeScope(raw, ctx.markerUser(), fallback)
+}
+
+/** A search filter with its assignee resolved to a member id, or dropped for `all`. */
+async function assigneeFiltered<T extends { assignee?: string | undefined }>(
   ctx: IssueCommandCtx,
   filter: T,
-): T {
-  if (filter.assignee?.trim() !== 'me') return filter
-  const human = ctx.markerUser()
-  if (!human) {
-    throw new TRPCError({
-      code: 'FORBIDDEN',
-      message: '`--assignee me` needs a person behind the caller',
-    })
-  }
-  return { ...filter, assignee: human }
+): Promise<Omit<T, 'assignee'> & { assignee?: UserId }> {
+  const { assignee, ...rest } = filter
+  const scope = await assigneeScope(ctx, assignee, 'all')
+  return scope ? { ...rest, assignee: scope } : rest
+}
+
+/** An agent's write scope as its root's ref, or `null` when it has none. */
+async function agentScopeRef(ctx: IssueCommandCtx): Promise<string | null> {
+  const scope = ctx.caller.capability.scope
+  if (scope.kind !== 'subtree') return null
+  const row = await ctx.reports.getMeta(scope.rootId)
+  return row ? await ctx.reports.niceRef(row) : null
 }
 
 /**
@@ -562,7 +576,12 @@ const defs = {
 
   list: def('list', {
     kind: 'query',
-    handler: async (ctx, input) => await ctx.reports.list(input.repoPath, ctx.issueReader()),
+    handler: async (ctx, input) =>
+      await ctx.reports.list(
+        input.repoPath,
+        ctx.issueReader(),
+        await assigneeScope(ctx, input.assignee, 'all'),
+      ),
   }),
   prime: def('prime', {
     kind: 'query',
@@ -574,6 +593,10 @@ const defs = {
             ctx.caller.capability.scope.kind === 'subtree'
               ? ctx.caller.capability.scope.rootId
               : null,
+          // Who is who on a shared instance (POD-6296), all server-stamped.
+          ...(ctx.markerUser() ? { human: ctx.markerUser()! } : {}),
+          ...(isPersonCapability(ctx.caller.capability) ? {} : { scope: await agentScopeRef(ctx) }),
+          assignee: await assigneeScope(ctx, input?.assignee, 'me'),
           // Per-reader mail count [POD-1379]; server-stamped, never from input.
           ...(ctx.caller.capability.actorSessionId
             ? { sessionId: ctx.caller.capability.actorSessionId }
@@ -584,7 +607,12 @@ const defs = {
   }),
   ready: def('ready', {
     kind: 'query',
-    handler: async (ctx, input) => await ctx.reports.readyList(input.repoPath, ctx.issueReader()),
+    handler: async (ctx, input) =>
+      await ctx.reports.readyList(
+        input.repoPath,
+        ctx.issueReader(),
+        await assigneeScope(ctx, input.assignee, 'me'),
+      ),
   }),
   blocked: def('blocked', {
     kind: 'query',
@@ -620,13 +648,19 @@ const defs = {
         {
           ...(input.maxDepth != null ? { maxDepth: input.maxDepth } : {}),
           ...(input.maxNodes != null ? { maxNodes: input.maxNodes } : {}),
+          assignee: await assigneeScope(ctx, input.assignee, 'all'),
         },
         ctx.issueReader(),
       ),
   }),
   deck: def('deck', {
     kind: 'query',
-    handler: async (ctx, input) => await ctx.reports.deck(input.id, ctx.issueReader()),
+    handler: async (ctx, input) =>
+      await ctx.reports.deck(
+        input.id,
+        ctx.issueReader(),
+        await assigneeScope(ctx, input.assignee, 'all'),
+      ),
   }),
   depReport: def('depReport', {
     kind: 'query',
@@ -675,12 +709,12 @@ const defs = {
   search: def('search', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.reports.search(assigneeMe(ctx, input), ctx.issueReader()),
+      await ctx.reports.search(await assigneeFiltered(ctx, input), ctx.issueReader()),
   }),
   searchNormalized: def('searchNormalized', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.reports.searchNormalized(assigneeMe(ctx, input), ctx.issueReader()),
+      await ctx.reports.searchNormalized(await assigneeFiltered(ctx, input), ctx.issueReader()),
   }),
   count: def('count', {
     kind: 'query',

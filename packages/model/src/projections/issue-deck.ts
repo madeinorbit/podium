@@ -22,6 +22,9 @@ export interface IssueDeckNode {
   title: string
   type: string
   stage: string
+  /** The accountable member (POD-6296): their name on a shared instance. */
+  assignee?: string
+  assigneeName?: string
   word: TaskWord
   /** Cancelled, duplicate and superseded closes count as done but are hidden. */
   hidden: boolean

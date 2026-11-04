@@ -164,6 +164,7 @@ export type IssueReportsCapability = Pick<
   | 'niceRef'
   | 'prime'
   | 'seatFor'
+  | 'assigneeScope'
   | 'list'
   | 'resolveRef'
   | 'resolveRefs'
