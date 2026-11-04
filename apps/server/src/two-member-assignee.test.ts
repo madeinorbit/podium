@@ -306,7 +306,10 @@ describe('MU-30: a reassignment leaves existing work where it is', () => {
       patch: { assignee: bob },
     } as never)
     expect((await read(task.id)).assignee).toBe(bob)
+    // Bob answers for the task now…
+    expect((await f.handle.registry.sessionStore.issues.getIssue(task.id))?.ownerUserId).toBe(bob)
 
+    // …and Alice's run on it is still hers, with the scope and human it had.
     const after = await f.handle.registry.sessionStore.sessions.getSession(hers)
     expect(after?.ownerUserId).toBe(alice)
     expect(after?.delegation).toEqual(before?.delegation)
