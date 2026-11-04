@@ -37,7 +37,10 @@ const log = createLogger('server:session-authz')
 
 /** Derive database signatures from the store so async changes reach every read. */
 export interface SessionAuthzStorePort {
-  readonly users: Pick<SessionStore['users'], 'get' | 'roleOf' | 'earliestAdmin'>
+  readonly users: Pick<
+    SessionStore['users'],
+    'get' | 'roleOf' | 'earliestAdmin' | 'queuedBeforeAuthorityChange'
+  >
   readonly sessions: Pick<SessionStore['sessions'], 'loadSession' | 'getSessions'>
 }
 
@@ -62,6 +65,8 @@ export class SessionAuthz {
     sessionId: SessionId
     principal: InboxPrincipalReference
     sourceMessageId: string | null
+    /** Epoch ms the row was queued; absent for a live (not queued) apply. */
+    queuedAt?: number
   }): Promise<{ ok: true } | { ok: false; reason: string }> {
     const refused = { ok: false, reason: 'session no longer exists' } as const
     const target = await this.ports.records.ownershipOf(input.sessionId, 'queuedInputAtApply')
@@ -150,6 +155,18 @@ export class SessionAuthz {
       ) {
         return refused
       }
+    }
+
+    // STALE QUEUED WORK (POD-6293; design §4.5). Input queued before its
+    // human's authority changed (disabled, re-enabled, role change, signed out
+    // everywhere) was authorized under rights that no longer hold. It is
+    // refused, never replayed because it happened to be in the queue.
+    const human = principal.kind === 'user' ? principal.user : principal.onBehalfOf
+    if (
+      input.queuedAt !== undefined &&
+      (await this.ports.store.users.queuedBeforeAuthorityChange(human, input.queuedAt))
+    ) {
+      return { ok: false, reason: 'access changed after this was queued' }
     }
 
     // Private (design §2.3): only the session's own human may queue input into

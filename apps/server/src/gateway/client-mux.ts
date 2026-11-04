@@ -62,6 +62,7 @@ import type { ClientConn, ClientRegistry } from './client-registry'
 import { traceFeedPeer } from './feed-peer-trace'
 import type { FeedServing } from './feed-serving'
 import type { PresenceRouting } from './presence-routing'
+import type { MemberAccessChange } from '../store/users'
 
 const log = createLogger('server:gateway')
 
@@ -281,7 +282,10 @@ export class ClientMux {
    * runs inside the port call. Deleting first means no re-entrant fan-out can
    * reach a socket that is already gone.
    */
-  detachClient(id: string, cause: 'socket-close' | 'reclaim' = 'socket-close'): void {
+  detachClient(
+    id: string,
+    cause: 'socket-close' | 'reclaim' | 'access-revoked' = 'socket-close',
+  ): void {
     const conn = this.deps.registry.get(id)
     if (!conn) return
     this.deps.mobileVersions?.disconnected(id)
@@ -495,6 +499,37 @@ export class ClientMux {
       sendSequence: (source: Parameters<ClientRegistry['deliverSequence']>[1]) =>
         this.deps.registry.deliverSequence(conn, source),
     }
+  }
+
+  /**
+   * A MEMBER'S AUTHORITY CHANGED, AND THE CHANGE COMMITTED (POD-6293; design
+   * §4.5). Called from that commit's publication, so nothing the member had
+   * open outlives it by a heartbeat.
+   *
+   * - `revoked` (disabled, removed, signed out everywhere): every connection of
+   *   theirs is closed and detached now. Detaching leaves the feed, so no frame
+   *   queued for it reaches the socket; the reconnect is refused at the upgrade,
+   *   because the member's credentials went in the same commit.
+   * - `rescoped` (role change): the connections stay and carry the new role from
+   *   the next frame on. Feed visibility does not depend on the role (design
+   *   §4.1: an admin sees no more task or session data than a member), so the
+   *   role-dependent parts are what the caller re-sends.
+   *
+   * Returns the connections it changed.
+   */
+  applyAccessChange(change: MemberAccessChange): ClientConn[] {
+    const touched: ClientConn[] = []
+    for (const conn of [...this.deps.registry.values()]) {
+      if (conn.principal.user !== change.memberId) continue
+      touched.push(conn)
+      if (change.effect === 'revoked' || change.role === null) {
+        conn.terminate?.()
+        this.detachClient(conn.id, 'access-revoked')
+      } else {
+        conn.principal = userClientPrincipal(conn.id, conn.principal.user, change.role)
+      }
+    }
+    return touched
   }
 
   /** The principal a connection routes under — exposed for the routing audit. */

@@ -340,6 +340,9 @@ export interface InboxAuthorizationPort {
     sessionId: SessionId
     principal: InboxPrincipalReference
     sourceMessageId: string | null
+    /** When the row was queued (epoch ms): work queued before its human's
+     *  authority changed is refused, never replayed (POD-6293). */
+    queuedAt?: number
   }): Promise<InboxAuthorizationDecision>
   rejected(input: {
     queueId: string
@@ -1385,7 +1388,7 @@ export class SessionInbox {
         }
         if (binding.ids.has(row.id)) continue
         if (!this.deps.contractDeliver || !this.deps.queue.reserveDelivery) return
-        const allowed = await this.deps.authorization.authorizeAtDrain({ sessionId, principal: row.principal, sourceMessageId: row.sourceMessageId })
+        const allowed = await this.deps.authorization.authorizeAtDrain({ sessionId, principal: row.principal, sourceMessageId: row.sourceMessageId, queuedAt: row.queuedAt })
         if (!current()) return
         // A cancel can race asynchronous admission. The durable row remains the authority.
         if (!(await this.deps.queue.list(sessionId)).some((entry) => entry.id === row.id)) continue

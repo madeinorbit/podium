@@ -128,6 +128,43 @@ const setUserDisabledAt = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+const setUserRole = prepared((db: StoreDrizzle) =>
+  db
+    .update(users)
+    .set({ role: sql.placeholder('role') })
+    .where(eq(users.id, param(users.id, 'id')))
+    .prepare(),
+)
+
+/** One step of the member's authorization generation, returning the row (POD-6293). */
+const bumpAuthzGeneration = prepared((db: StoreDrizzle) =>
+  db
+    .update(users)
+    .set({
+      authzGeneration: sql`${users.authzGeneration} + 1`,
+      authzChangedAt: sql.placeholder('changedAt'),
+    })
+    .where(eq(users.id, param(users.id, 'id')))
+    .returning()
+    .prepare(),
+)
+
+/** Another enabled admin than `id`: a demotion must not leave the instance without one. */
+const otherActiveAdmin = prepared((db: StoreDrizzle) =>
+  db
+    .select({ id: users.id })
+    .from(users)
+    .where(
+      and(
+        eq(users.role, 'admin'),
+        isNull(users.disabledAt),
+        sql`${users.id} <> ${param(users.id, 'id')}`,
+      ),
+    )
+    .limit(1)
+    .prepare(),
+)
+
 const setUserProfile = prepared((db: StoreDrizzle) =>
   db
     .update(users)
@@ -297,6 +334,29 @@ export interface UserCredentialRow {
   updatedAt: string
 }
 
+/**
+ * WHAT CHANGED ABOUT A MEMBER'S AUTHORITY, AS COMMITTED (POD-6293; design §4.5).
+ *
+ * Published from the commit of the transaction that stepped the member's
+ * authorization generation, so a listener acts within that commit's publication
+ * and a rolled-back change publishes nothing.
+ *
+ * - `revoked`: the member can no longer act through anything they had open
+ *   (disabled, removed, or every sign-in ended). Their connections close.
+ * - `rescoped`: the member still acts, with different rights (role change,
+ *   re-enable). Their open connections keep going under the new rights.
+ */
+export interface MemberAccessChange {
+  readonly memberId: UserId
+  readonly generation: number
+  readonly reason: 'disabled' | 'enabled' | 'role' | 'signed-out' | 'removed'
+  readonly effect: 'revoked' | 'rescoped'
+  /** The member's role after the change, or `null` when they cannot act. */
+  readonly role: UserRole | null
+}
+
+export type MemberAccessListener = (change: MemberAccessChange) => void
+
 export class UsersRepository {
   readonly committed: CommittedRows<typeof users.$inferSelect>
 
@@ -311,6 +371,69 @@ export class UsersRepository {
     this.committed = new CommittedRows(queries.createOrJoinTransaction, 'users')
     this.rootDb = queries.rootDb
     this.createOrJoinTransaction = queries.createOrJoinTransaction
+  }
+
+  private readonly accessListeners = new Set<MemberAccessListener>()
+
+  /**
+   * Hear every committed change to a member's authority (POD-6293). The
+   * listener runs in the commit's application step: it must not query or
+   * await, and it hears only changes whose transaction committed.
+   */
+  onAccessChange(listener: MemberAccessListener): () => void {
+    this.accessListeners.add(listener)
+    return () => {
+      this.accessListeners.delete(listener)
+    }
+  }
+
+  /**
+   * The member's current authorization generation, or `undefined` for no such
+   * row. A disabled member keeps theirs.
+   */
+  async authzGenerationOf(userId: UserId): Promise<number | undefined> {
+    return (await accountById(this.db).get({ id: userId }))?.authzGeneration
+  }
+
+  /**
+   * Was work queued at `queuedAtMs` on this member's behalf authorized under
+   * rights that have changed since (design §4.5)? A dispatcher refuses such
+   * work rather than replaying it because it was in the queue. True also when
+   * the member row is gone.
+   */
+  async queuedBeforeAuthorityChange(userId: UserId, queuedAtMs: number): Promise<boolean> {
+    const row = await accountById(this.db).get({ id: userId })
+    if (!row) return true
+    return row.authzChangedAt !== null && queuedAtMs <= Date.parse(row.authzChangedAt)
+  }
+
+  /**
+   * Step the member's authorization generation inside the caller's transaction
+   * and publish the change from its commit. Every authority change goes
+   * through here, so the generation and the change cannot commit apart.
+   */
+  private async bumpAuthorization(
+    userId: UserId,
+    reason: MemberAccessChange['reason'],
+  ): Promise<typeof users.$inferSelect | undefined> {
+    const [row] = await bumpAuthzGeneration(this.db).all({
+      id: userId,
+      changedAt: new Date().toISOString(),
+    })
+    this.accountsWritten()
+    if (!row) return undefined
+    const role = row.disabledAt === null ? (parseRole(row.role) ?? null) : null
+    const change: MemberAccessChange = {
+      memberId: userId,
+      generation: row.authzGeneration,
+      reason,
+      effect: role === null || reason === 'signed-out' ? 'revoked' : 'rescoped',
+      role,
+    }
+    applyAfterCommit(() => {
+      for (const listener of this.accessListeners) listener(change)
+    }, 'users:access-change')
+    return row
   }
 
   /** The store's one drizzle instance; the executor routes each statement to the current transaction. */
@@ -488,11 +611,13 @@ export class UsersRepository {
       if (!existing) throw new Error(`unknown user: ${userId}`)
       if ((existing.disabledAt !== null) === (disabledAt !== null)) return
       await this.committed.write(async () => {
-        const rows = await setUserDisabledAt(this.db).all({ id: userId, disabledAt })
+        await setUserDisabledAt(this.db).all({ id: userId, disabledAt })
         this.accountsWritten()
         if (disabledAt !== null) {
           await deleteClientSessionsOf(this.db).run({ userId })
         }
+        const bumped = await this.bumpAuthorization(userId, disabledAt === null ? 'enabled' : 'disabled')
+        const rows = bumped ? [bumped] : []
         await insertSettingsAudit(this.db).run({
           command: disabledAt === null ? 'members.enable' : 'members.disable',
           outcome: 'applied',
@@ -635,6 +760,62 @@ export class UsersRepository {
       await deleteClientSessionsOf(this.db).run({ userId })
       await deleteCredentialOf(this.db).run({ userId })
       await deleteInvitesOfMember(this.db).run({ memberId: userId })
+      await this.bumpAuthorization(userId, 'removed')
+    })
+  }
+
+  /**
+   * Change a member's role (POD-6293). The role, the generation step and the
+   * audit row commit together; open connections are rescoped from the commit.
+   * The last enabled admin cannot be demoted, so the instance always keeps one.
+   */
+  async setRole(userId: UserId, role: UserRole, actor?: UserId): Promise<void> {
+    await this.claimTransaction(async () => {
+      if (actor && (await this.roleOf(actor)) !== 'admin') throw new Error('Administrator required')
+      const existing = await accountById(this.db).get({ id: userId })
+      if (!existing || existing.disabledAt !== null) throw new Error('Member unavailable')
+      if (existing.role === role) return
+      if (existing.role === 'admin' && !(await otherActiveAdmin(this.db).get({ id: userId }))) {
+        throw new Error('The last administrator cannot be demoted')
+      }
+      await setUserRole(this.db).run({ id: userId, role })
+      this.accountsWritten()
+      await this.bumpAuthorization(userId, 'role')
+      await insertSettingsAudit(this.db).run({
+        command: 'members.setRole',
+        outcome: 'applied',
+        actorKind: actor ? 'user' : 'system',
+        actorId: actor ?? null,
+        onBehalfOf: actor ?? null,
+        detailJson: JSON.stringify({ memberId: userId, from: existing.role, to: role }),
+        createdAt: new Date().toISOString(),
+      })
+    })
+  }
+
+  /**
+   * Sign a member out everywhere (POD-6293): every sign-in session goes, the
+   * generation steps, and every open connection of theirs closes at the commit.
+   * Signing out one device is that credential's own revocation (`/auth/logout`),
+   * which closes that credential's connections and leaves the others.
+   */
+  async signOutEverywhere(userId: UserId, actor?: UserId): Promise<void> {
+    await this.claimTransaction(async () => {
+      if (actor && actor !== userId && (await this.roleOf(actor)) !== 'admin') {
+        throw new Error('Administrator required')
+      }
+      if (!(await accountById(this.db).get({ id: userId }))) throw new Error('Member unavailable')
+      await deleteClientSessionsOf(this.db).run({ userId })
+      await this.bumpAuthorization(userId, 'signed-out')
+      await insertSettingsAudit(this.db).run({
+        command: 'members.signOut',
+        outcome: 'applied',
+        actorKind: actor ? 'user' : 'system',
+        actorId: actor ?? null,
+        onBehalfOf: actor ?? null,
+        detailJson: JSON.stringify({ memberId: userId }),
+        createdAt: new Date().toISOString(),
+      })
     })
   }
 

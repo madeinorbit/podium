@@ -986,6 +986,18 @@ export const users = sqliteTable(
     role: text().notNull(),
     createdAt: text('created_at').notNull(),
     disabledAt: text('disabled_at'),
+    /**
+     * THE AUTHORIZATION GENERATION (POD-6293; design §2.1, §4.5). Bumped in the
+     * same transaction as every change to what this member may do: disable,
+     * enable, role change, removal and signing out everywhere. Live connections
+     * and queued work compare against it, so an access change takes effect at
+     * its commit rather than at the next heartbeat or re-login.
+     */
+    authzGeneration: integer('authz_generation').notNull().default(0),
+    /** When the generation last stepped (ISO). Work queued at or before it was
+     *  authorized under rights that have since changed, and is refused when it
+     *  is dispatched. NULL: the member's authority never changed. */
+    authzChangedAt: text('authz_changed_at'),
   },
   (table) => [
     uniqueIndex('users_email_unique').on(sql`lower(${table.email})`),

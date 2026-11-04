@@ -74,7 +74,7 @@ export type FeedPeerTraceEvent =
   | {
       readonly event: 'detach'
       readonly peerId: string
-      readonly cause: 'socket-close' | 'reclaim'
+      readonly cause: 'socket-close' | 'reclaim' | 'access-revoked'
       readonly ageMs: number | null
     }
 

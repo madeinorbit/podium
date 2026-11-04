@@ -512,6 +512,7 @@ export class SessionRegistry {
   /** The superagent service, once assembly has built it — see
    *  {@link adoptSuperagent}. */
   private adoptedSuperagent: { dispose(): void | Promise<void> } | undefined
+  private unsubscribeAccessChanges: (() => void) | undefined
   /** Disposer for the runtime's config-write seam bridged onto the bus (POD-3840). */
   private readonly configChangedBridge: () => void
 
@@ -4120,6 +4121,13 @@ export class SessionRegistry {
         hosts.snapshotFor(client.send)
       },
     })
+    // ACCESS CHANGES TAKE EFFECT AT THEIR COMMIT (POD-6293). A disable, removal
+    // or sign-out-everywhere closes the member's open connections; a role change
+    // rescopes them and re-sends the role-dependent machine listing.
+    this.unsubscribeAccessChanges = this.store.users.onAccessChange((change) => {
+      const touched = this.clientGateway.applyAccessChange(change)
+      if (change.effect === 'rescoped' && touched.length > 0) machines.scheduleBroadcastMachines()
+    })
     this.gateway = new DaemonMux({
       bus: this.bus,
       ports: {
@@ -4194,6 +4202,7 @@ export class SessionRegistry {
   }
 
   async dispose(): Promise<void> {
+    this.unsubscribeAccessChanges?.()
     this.mobileVersions?.close()
     // FIRST, and before store.close() further down the shutdown's persist list:
     // the memory service owns paced loops (transcript mirror + FTS indexer) that
