@@ -8337,9 +8337,10 @@
       "tokens": "cb71ecb87725b73fb278e81bcec7911453c9c527994f9663a704da01a2966851",
       "gate": [],
       "origin": [
-        "309d59c09b8ff11c68497f6356f344ddf005bd88062362e9f6f400c38c65c20b"
+        "309d59c09b8ff11c68497f6356f344ddf005bd88062362e9f6f400c38c65c20b",
+        "3b2cab5dbc5d0d143c87e4e2f01e5fe38df12baa89b72d5ccb28933246ab9711"
       ],
-      "fingerprint": "fe9e4d58de691a01ee8c366314102b23684599c40ed66bf7a5ac1b1a6dbee7e6",
+      "fingerprint": "59092f33a0ee2059c8cd3a0101299643099e9be3ffa6e3a17630574276fd131d",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -8370,12 +8371,13 @@
       "file": "apps/web/src/features/settings/SettingsView.tsx",
       "holder": "SettingsViewBody/SettingsViewBody/settingsTabs",
       "rule": "consume:filter",
-      "tokens": "94e5e736b0cc454ef4562f9b19793fa276e5876fc52f9d90e7ee8bfc48433c97",
+      "tokens": "2ada6822742c5e398adec6b5162722e75260859d5fbac2644866141f9fcd10d7",
       "gate": [],
       "origin": [
-        "da88daa079ffec9ee4cf3ac087fd866edbe652a29bb5f143d75e8c002b9d9b92"
+        "3b2cab5dbc5d0d143c87e4e2f01e5fe38df12baa89b72d5ccb28933246ab9711",
+        "4475fbab60a225a8d712cb172885624802eb4a4062e81479f652b9c0da322800"
       ],
-      "fingerprint": "11e56ba403f65b0b92fa5a54e0bc0b6858cf5d917246dfdd1044d55e6b0f8f24",
+      "fingerprint": "ca9e2b7a5c2ab8e424ef2ac45107d450f9a4493d63a175aae26e4f418cd38c50",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -8394,9 +8396,10 @@
         "&&:d7adfef4c1c35659a461c99472438cacae2e673ef292893581acff582a211880"
       ],
       "origin": [
-        "da88daa079ffec9ee4cf3ac087fd866edbe652a29bb5f143d75e8c002b9d9b92"
+        "3b2cab5dbc5d0d143c87e4e2f01e5fe38df12baa89b72d5ccb28933246ab9711",
+        "4475fbab60a225a8d712cb172885624802eb4a4062e81479f652b9c0da322800"
       ],
-      "fingerprint": "89105f30658399ed12deec3e56ef5c5c07ff99907db30e0f75fd942331e9ff2d",
+      "fingerprint": "e1f1d79f654f40a2eaddcce47fc7851bef9349b50f7008e6c5d58b2f7a07a75e",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -8409,12 +8412,13 @@
       "file": "apps/web/src/features/settings/SettingsView.tsx",
       "holder": "SettingsViewBody/SettingsViewBody/visibleGroups",
       "rule": "consume:filter",
-      "tokens": "850c87ea29a9db670e704e7e287e17438595a71cb2ddaf86a08667927519dbb5",
+      "tokens": "26e097dc6f62713db0645e17e35bc844d9b8cb1fdcf33d75debccb0297ed51b9",
       "gate": [],
       "origin": [
-        "309d59c09b8ff11c68497f6356f344ddf005bd88062362e9f6f400c38c65c20b"
+        "309d59c09b8ff11c68497f6356f344ddf005bd88062362e9f6f400c38c65c20b",
+        "3b2cab5dbc5d0d143c87e4e2f01e5fe38df12baa89b72d5ccb28933246ab9711"
       ],
-      "fingerprint": "42100ffcb26c8478505e7b17cc369ecb93ce1cc56fa89c3d8f974683f2132959",
+      "fingerprint": "afdf302c85fa8d4917a443c5f8476a77d79633303d2130ffa1e06e26ec73eb4a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -8440,6 +8444,114 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/settings/SettingsView.tsx",
+      "holder": "SettingsViewBody/SettingsViewBody/offeredGroups",
+      "rule": "reader-summary",
+      "tokens": "0cfe407daae8da0a551f6292b408c0f309b6184a2ad9f9ed941980035b74a101",
+      "gate": [],
+      "origin": [
+        "3b2cab5dbc5d0d143c87e4e2f01e5fe38df12baa89b72d5ccb28933246ab9711"
+      ],
+      "fingerprint": "464cb8eddfbae1b5f6166d95e7116fca0a9c9432fd72318f8865560cc89a447b",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6299",
+      "trigger": "Settings opens or the viewer’s admin sections answer.",
+      "bound": "The fixed Settings tab catalogue (SETTINGS_GROUPS: four surfaces, about twenty tabs) and at most five admin section names from /auth/admin/viewer.",
+      "reason": "Filters the fixed tab catalogue to the admin sections the server offers the viewer (POD-6299).",
+      "guard": "apps/web/src/features/settings/surfaces.test.ts and SettingsView.admin-area.test.tsx (POD-6299)"
+    },
+    {
+      "file": "apps/web/src/features/settings/SettingsView.tsx",
+      "holder": "SettingsViewBody/SettingsViewBody/settingsTabs",
+      "rule": "consume:flatMap",
+      "tokens": "e98c022cf5fbd137ba3564ef2cdb4098c99492e3bc1c0675ed9d2b33bf1829b0",
+      "gate": [],
+      "origin": [
+        "3b2cab5dbc5d0d143c87e4e2f01e5fe38df12baa89b72d5ccb28933246ab9711"
+      ],
+      "fingerprint": "4da0722c4a610f724f30b2d3eb57ab2558e75750cb6316d90fef25a26ccc8a44",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6299",
+      "trigger": "Settings opens or the viewer’s admin sections answer.",
+      "bound": "The fixed Settings tab catalogue (SETTINGS_GROUPS: four surfaces, about twenty tabs) and at most five admin section names from /auth/admin/viewer.",
+      "reason": "Filters the fixed tab catalogue to the admin sections the server offers the viewer (POD-6299).",
+      "guard": "apps/web/src/features/settings/surfaces.test.ts and SettingsView.admin-area.test.tsx (POD-6299)"
+    },
+    {
+      "file": "apps/web/src/features/settings/SettingsView.tsx",
+      "holder": "SettingsViewBody/SettingsViewBody/visibleGroups",
+      "rule": "consume:map",
+      "tokens": "a20619435eb5c6aad11f8de9653154865089de1858ee444cf9271bd4eb205ec8",
+      "gate": [],
+      "origin": [
+        "3b2cab5dbc5d0d143c87e4e2f01e5fe38df12baa89b72d5ccb28933246ab9711"
+      ],
+      "fingerprint": "4d0450a22821b8448b8a885e08b3bc59225c671c37c0907ac39c0d7a91bf070b",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6299",
+      "trigger": "Settings opens or the viewer’s admin sections answer.",
+      "bound": "The fixed Settings tab catalogue (SETTINGS_GROUPS: four surfaces, about twenty tabs) and at most five admin section names from /auth/admin/viewer.",
+      "reason": "Filters the fixed tab catalogue to the admin sections the server offers the viewer (POD-6299).",
+      "guard": "apps/web/src/features/settings/surfaces.test.ts and SettingsView.admin-area.test.tsx (POD-6299)"
+    },
+    {
+      "file": "apps/web/src/features/settings/surfaces.ts",
+      "holder": "visibleSettingsGroups",
+      "rule": "consume:filter",
+      "tokens": "a9831146a21622aa02a85d3b90a59ec141f44abbd785720f15288a771f1cceb7",
+      "gate": [],
+      "origin": [
+        "3b2cab5dbc5d0d143c87e4e2f01e5fe38df12baa89b72d5ccb28933246ab9711"
+      ],
+      "fingerprint": "4254a297c886f2532504861169109dea32c61e87fa229920769c1d9a151a284c",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6299",
+      "trigger": "Settings opens or the viewer’s admin sections answer.",
+      "bound": "The fixed Settings tab catalogue (SETTINGS_GROUPS: four surfaces, about twenty tabs) and at most five admin section names from /auth/admin/viewer.",
+      "reason": "Filters the fixed tab catalogue to the admin sections the server offers the viewer (POD-6299).",
+      "guard": "apps/web/src/features/settings/surfaces.test.ts and SettingsView.admin-area.test.tsx (POD-6299)"
+    },
+    {
+      "file": "apps/web/src/features/settings/surfaces.ts",
+      "holder": "visibleSettingsGroups/machines",
+      "rule": "consume:find",
+      "tokens": "8d78494539841ebd6d591f444cad8d866b3bd9074a26b59f7960dfa6b9957c24",
+      "gate": [],
+      "origin": [
+        "729cd127551ed363d3da9b728f33dcbc981f5304df68754c99c23a8fa6679bc7"
+      ],
+      "fingerprint": "e9efdbc4d936a2ae7d15154ae68e91ffad9fdeed64b294ddf666c71f813042a1",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6299",
+      "trigger": "Settings opens or the viewer’s admin sections answer.",
+      "bound": "The fixed Settings tab catalogue (SETTINGS_GROUPS: four surfaces, about twenty tabs) and at most five admin section names from /auth/admin/viewer.",
+      "reason": "Filters the fixed tab catalogue to the admin sections the server offers the viewer (POD-6299).",
+      "guard": "apps/web/src/features/settings/surfaces.test.ts and SettingsView.admin-area.test.tsx (POD-6299)"
+    },
+    {
+      "file": "apps/web/src/features/settings/surfaces.ts",
+      "holder": "visibleSettingsGroups/map:callback/tabs",
+      "rule": "consume:filter",
+      "tokens": "a583d826e1ac39dcd83d2c17c46f8f973b65530a0b0151c0e238bf2e6e6be9e2",
+      "gate": [],
+      "origin": [
+        "3b2cab5dbc5d0d143c87e4e2f01e5fe38df12baa89b72d5ccb28933246ab9711"
+      ],
+      "fingerprint": "88459586ac204cec1eb565b75c9d98c86d0fe4a78392cf92670d5092f31db434",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6299",
+      "trigger": "Settings opens or the viewer’s admin sections answer.",
+      "bound": "The fixed Settings tab catalogue (SETTINGS_GROUPS: four surfaces, about twenty tabs) and at most five admin section names from /auth/admin/viewer.",
+      "reason": "Filters the fixed tab catalogue to the admin sections the server offers the viewer (POD-6299).",
+      "guard": "apps/web/src/features/settings/surfaces.test.ts and SettingsView.admin-area.test.tsx (POD-6299)"
     },
     {
       "file": "apps/web/src/features/settings/readers.ts",
@@ -13688,7 +13800,7 @@
       "classification": "ingest",
       "owner": "POD-5621",
       "trigger": "TranscriptLog applies an authority read, reset, older page or incoming delta for its addressed conversation.",
-      "bound": "One reconciled transcript snapshot while following. Keep the requested display-boundary suffix when it exceeds the normal 2 \u00d7 initialLimit window; older complete turns can still leave. Incremental frames use the addressed item-position index instead.",
+      "bound": "One reconciled transcript snapshot while following. Keep the requested display-boundary suffix when it exceeds the normal 2 × initialLimit window; older complete turns can still leave. Incremental frames use the addressed item-position index instead.",
       "reason": "These operations maintain transcript order, frozen rows and incremental facts during ingestion; no computed screen reader or send-context action scans transcript history. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: 3e6e7ee56cb28529fd267359c2e8752fc65c764a705256e60cfe5f5e577a5827.",
       "guard": "conversation/transcript-log.test.ts and transcript-log.facts.test.ts preserve paging, reset and fact rules; model-observation.test.ts guards row-only replacement; model.test.ts guards one publication per frame. transcript-log.test.ts and conversation-presentation.test.ts cover boundary retention beyond 300/400 records, newest refresh, explicit reset, and release back to the normal window."
     },
@@ -20049,7 +20161,7 @@
       "trigger": "A newly fetched issue event page is appended.",
       "bound": "One supplied page (the shared request owner asks for at most 50 rows per RPC); retained history is never enumerated for ID deduplication.",
       "reason": "The history owns its ID index and formats only new rows, with stable event/feed arrays and cursor advancement.",
-      "guard": "packages/client-graph/src/issue-activity.test.ts: append element work is 1\u21921 for 128/512 retained events; a planted retained-ID map/Set fails."
+      "guard": "packages/client-graph/src/issue-activity.test.ts: append element work is 1→1 for 128/512 retained events; a planted retained-ID map/Set fails."
     },
     {
       "file": "packages/client-core/src/values/issue-activity.ts",
@@ -29341,7 +29453,7 @@
       "trigger": "Default LoadPanel metric question",
       "bound": "One stored source-order element, or one iterator.next() when no first ordered ID exists.",
       "reason": "The keys iterator is advanced once; it is never spread, looped or materialized. Named metric demand bypasses the iterator. No whole-table scan occurs.",
-      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132\u2192516 elements."
+      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132→516 elements."
     },
     {
       "file": "packages/client-graph/src/header-repositories.ts",
@@ -32184,7 +32296,7 @@
       "owner": "POD-6267",
       "trigger": "The open Repositories settings section renders each repository with its checkouts and worktrees.",
       "bound": "One checkout's worktree list.",
-      "reason": "Counts worktrees whose folder is gone for the checkout line's '\u00b7 N missing' note.",
+      "reason": "Counts worktrees whose folder is gone for the checkout line's '· N missing' note.",
       "guard": "settings-repositories.test.ts pins the grouping (registered worktrees fold into their checkout, one checkout per machine, loose worktrees stand alone, live worktree arrival); settings-launch-records.parity.test.ts compares the old two-scan fixture."
     },
     {
@@ -34667,7 +34779,7 @@
       "owner": "POD-5530",
       "trigger": "Invocation or observation of ObservedPoolWorkSections/ObservedPoolWorkSections",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "Desktop project-band rendering now uses canonical section fields. Viewport row mounting remains bounded; outer group metadata still has no cardinality cap. Predecessor: 74a629ec672ae8824310d0a26cded6e6321e3bab5c31cdaaa69db827a2cc7d98. POD-2074: the calm sidebar rebuild (lane switch, project folders, folder drag) moved this scan; its collection demand is unchanged. Predecessor: 1ccc53eb555e775472d36a495b6db5645304b7e1727bd5a8335dce8cb06e4eb0. POD-2069: integrating the sidebar with the New task overlay draft row moved this scan; its collection demand is unchanged. Predecessor: 29a412500aaf2c9dfbcf157a63d946af8f0e0ec1bcf8e664fbc7e21a87354bba. POD-2069: integrating the sidebar motion pass with the New task draft row moved this scan; its collection demand is unchanged. Predecessor: 65aa1ddcc361cb2ae02d5276cf54c14d2e49cf2550aebab8bc53bc7aa09fc510. POD-2099: project-band rendering no longer includes the overlay draft row. Collection demand and repair classification are unchanged. Predecessor: a2d66633effecafa96d8fe5e54978cd99f0e8454a3c4cba1fae57e0489328402. POD-2106: keeping the Closed lane summary card through empty-lane states changed the preceding return guards; this collection operation is unchanged. Predecessor: ccc861e4686a8708784a1099ecc4c55d6ade0b3487d99fdff5a987877871cf00. POD-2153: the project folder menu now passes the band's repository path for \"Base branch\u2026\", which moved this scan; its collection demand is unchanged. Predecessor: 669ca7a725c38379bb33edc25ca55fce208183023a5f7923e7a591ccc4cb053a. POD-2153: project bands now carry their registered repoId for the base-branch menu, which moved this scan; its collection demand is unchanged. Predecessor: 7fc238ca890468ac8077565c9d6e246ca4f9edcd0deded6ed983fecd9e9ccd04.",
+      "reason": "Desktop project-band rendering now uses canonical section fields. Viewport row mounting remains bounded; outer group metadata still has no cardinality cap. Predecessor: 74a629ec672ae8824310d0a26cded6e6321e3bab5c31cdaaa69db827a2cc7d98. POD-2074: the calm sidebar rebuild (lane switch, project folders, folder drag) moved this scan; its collection demand is unchanged. Predecessor: 1ccc53eb555e775472d36a495b6db5645304b7e1727bd5a8335dce8cb06e4eb0. POD-2069: integrating the sidebar with the New task overlay draft row moved this scan; its collection demand is unchanged. Predecessor: 29a412500aaf2c9dfbcf157a63d946af8f0e0ec1bcf8e664fbc7e21a87354bba. POD-2069: integrating the sidebar motion pass with the New task draft row moved this scan; its collection demand is unchanged. Predecessor: 65aa1ddcc361cb2ae02d5276cf54c14d2e49cf2550aebab8bc53bc7aa09fc510. POD-2099: project-band rendering no longer includes the overlay draft row. Collection demand and repair classification are unchanged. Predecessor: a2d66633effecafa96d8fe5e54978cd99f0e8454a3c4cba1fae57e0489328402. POD-2106: keeping the Closed lane summary card through empty-lane states changed the preceding return guards; this collection operation is unchanged. Predecessor: ccc861e4686a8708784a1099ecc4c55d6ade0b3487d99fdff5a987877871cf00. POD-2153: the project folder menu now passes the band's repository path for \"Base branch…\", which moved this scan; its collection demand is unchanged. Predecessor: 669ca7a725c38379bb33edc25ca55fce208183023a5f7923e7a591ccc4cb053a. POD-2153: project bands now carry their registered repoId for the base-branch menu, which moved this scan; its collection demand is unchanged. Predecessor: 7fc238ca890468ac8077565c9d6e246ca4f9edcd0deded6ed983fecd9e9ccd04.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -35339,7 +35451,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
       "bound": "One checkout's worktree list (a handful of lanes).",
       "reason": "Offers the branch names a checkout already reports so the picker needs no branch-listing request.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -35358,7 +35470,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
       "reason": "Finds a checkout of one logical repository (repoId-qualified, never by path alone) for the base-branch write; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -35376,7 +35488,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
       "reason": "Finds the checkout a repository base-branch write goes through; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -35395,7 +35507,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
       "reason": "Finds the checkout a repository base-branch write goes through; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -35414,7 +35526,7 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-2153",
-      "trigger": "A base-branch picker (sidebar project menu, Settings \u2192 Repositories, task page) is open.",
+      "trigger": "A base-branch picker (sidebar project menu, Settings → Repositories, task page) is open.",
       "bound": "One row per per-machine repository scan; the repository table is always resident and holds tens of rows (schema: cold never).",
       "reason": "Finds the checkout a repository base-branch write goes through; the menu that reads it mounts only while open.",
       "guard": "repo-base-branch.test.ts covers choices and checkout lookup; BaseBranchMenu.test.tsx covers the menu."
@@ -36039,7 +36151,7 @@
       "classification": "ingest",
       "owner": "POD-2304",
       "trigger": "A newest transcript snapshot would trim a boundary still owned by a mounted reader.",
-      "bound": "One reconciled snapshot, only above 2 \u00d7 initialLimit and only while following; an addressed boundary ID limits the retained suffix. Incremental frame trimming uses the existing item-position index.",
+      "bound": "One reconciled snapshot, only above 2 × initialLimit and only while following; an addressed boundary ID limits the retained suffix. Incremental frame trimming uses the existing item-position index.",
       "reason": "Complete active turn membership must survive the following window. This scan locates the requested boundary in the incoming snapshot before committing its ordered contents; no computed screen scan or global cache is added.",
       "guard": "transcript-log.test.ts proves stream and newest-refresh retention, normal-window release, and explicit reset; conversation-presentation.test.ts and TranscriptFeed.turn-line.test.tsx cross both 300-row and 400-item limits."
     },
