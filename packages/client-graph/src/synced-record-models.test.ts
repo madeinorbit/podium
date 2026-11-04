@@ -29,7 +29,7 @@ const machine = { ...MachineWire.parse({ id: 'host', name: 'Workstation', hostna
   deliveryCaps: ['synthetic'], serverMoveEligibility: { eligible: true },
   updateChannel: 'stable', appVersion: '1.0', wireSchemaDigest: 'synthetic', installKind: 'source',
   buildReportedAt: stamp, versionState: 'current', targetUnavailableReason: null }),
-  loggedOutHarnesses: ['codex'] }
+  loggedOutHarnesses: ['codex'], custodian: 'mem_custodian' }
 const automation = { id: 'scheduled', name: 'Daily task', enabled: true, repoPath: '/synthetic',
   scheduleKind: 'cron', cron: '0 9 * * *', runAt: null, targetSessionId: null,
   agentKind: 'codex', model: 'auto', effort: 'auto', prompt: 'Synthetic task', sessionMode: 'fresh',
