@@ -185,7 +185,8 @@ attach client on the wrong architecture).
 
 ## Cut a release
 
-Write what changed under `## [Unreleased]` in `CHANGELOG.md`, merge to `main`, then:
+Write what changed under `## [Unreleased]` in `CHANGELOG.md`, merge to `main`, run the
+release tests in [release-testing.md](release-testing.md) for a stable release, then:
 
 ```bash
 bun run release:cut 0.3.0-edge.1   # edge
