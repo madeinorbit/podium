@@ -345,10 +345,10 @@ declare const PodiumSettings: z.ZodObject<{
             seedCliTheme: boolean;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }, {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             subagentModel?: string | undefined;
             startScreen?: "auto" | "native" | "chat" | undefined;
             seedCliTheme?: boolean | undefined;
@@ -364,10 +364,10 @@ declare const PodiumSettings: z.ZodObject<{
             accountId: string & z.BRAND<"AccountId">;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }, {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }>>;
         background: z.ZodDefault<z.ZodObject<{
             accountId: z.ZodDefault<z.ZodBranded<z.ZodString, "AccountId">>;
@@ -380,10 +380,10 @@ declare const PodiumSettings: z.ZodObject<{
             accountId: string & z.BRAND<"AccountId">;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }, {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }>>;
         shipwright: z.ZodDefault<z.ZodObject<{
             accountId: z.ZodDefault<z.ZodBranded<z.ZodString, "AccountId">>;
@@ -396,10 +396,10 @@ declare const PodiumSettings: z.ZodObject<{
             accountId: string & z.BRAND<"AccountId">;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }, {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }>>;
     }, "strip", z.ZodTypeAny, {
         superagent: {
@@ -431,31 +431,31 @@ declare const PodiumSettings: z.ZodObject<{
         };
     }, {
         superagent?: {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
         coding?: {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             subagentModel?: string | undefined;
             startScreen?: "auto" | "native" | "chat" | undefined;
             seedCliTheme?: boolean | undefined;
         } | undefined;
         background?: {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
         shipwright?: {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
     }>>;
     /** Provider API keys. Stored plaintext in the self-hosted SQLite — same trust
@@ -731,31 +731,31 @@ declare const PodiumSettings: z.ZodObject<{
     } | undefined;
     roles?: {
         superagent?: {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
         coding?: {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             subagentModel?: string | undefined;
             startScreen?: "auto" | "native" | "chat" | undefined;
             seedCliTheme?: boolean | undefined;
         } | undefined;
         background?: {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
         shipwright?: {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
     } | undefined;
     sidebar?: {
@@ -1472,14 +1472,14 @@ declare const TunnelHealthReport: z.ZodObject<{
     lastError: z.ZodNullable<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
     state: "starting" | "working" | "stopped" | "restarting" | "unhealthy";
-    url: string | null;
     lastError: string | null;
+    url: string | null;
     lastOkAt: number | null;
     failedSince: number | null;
 }, {
     state: "starting" | "working" | "stopped" | "restarting" | "unhealthy";
-    url: string | null;
     lastError: string | null;
+    url: string | null;
     lastOkAt: number | null;
     failedSince: number | null;
 }>;

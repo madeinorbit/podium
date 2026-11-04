@@ -2,7 +2,6 @@ import '@/test-support/mock-core-store-handle'
 // POD-3911: exercise the real pool after the provider-free action fixture.
 import '@/test-support/mock-pool-fixture'
 
-import { allIssueViewModels } from '../../../../../tests/worklist/diagnostics/reference/issue-view-models'
 /**
  * ATTRIBUTION, OWNERSHIP AND THE NEEDS-HUMAN ASKER, RENDERED THROUGH THE REAL
  * PAGE (POD-646).
@@ -22,6 +21,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { poolFixtureStore } from '@/test-support/pool-issue-fixture'
+import { allIssueViewModels } from '../../../../../tests/worklist/diagnostics/reference/issue-view-models'
 import '@/test-support/model-catalog-mock'
 import { IssuePage } from './IssuePage'
 
@@ -192,27 +192,24 @@ describe('the Origin block says who made this, in words', () => {
   })
 })
 
-describe('owner and visibility are DISPLAYED, read-only', () => {
-  it('shows both when the projection carries them, in plain words', () => {
+describe('a task is visible to all members, and its owner is the Assignee (POD-6295)', () => {
+  it('says so as a note, whatever visibility class the row still carries', () => {
     show({ owner: 'alice', visibility: 'personal' })
     // Two mounts of the properties stack (aside + mobile disclosure), so both.
-    expect(screen.getAllByTestId('about-owner')[0]?.textContent).toContain('alice')
-    // Translated, not echoed: `personal` is an ADR 9 D3 class name, not English.
-    expect(screen.getAllByTestId('about-visibility')[0]?.textContent).toBe('Private to its owner')
+    expect(screen.getAllByTestId('about-visibility')[0]?.textContent).toBe('Visible to all members')
+    expect(document.body.textContent).not.toContain('Private to its owner')
   })
 
-  it('offers NO sharing control — per-feature sharing UX is deferred', () => {
+  it('offers NO sharing control: every member already reads every task', () => {
     show({ owner: 'alice', visibility: 'personal' })
     const about = screen.getAllByTestId('issue-about')[0]
     expect(about?.querySelectorAll('button, input, select, a')).toHaveLength(0)
     expect(document.body.textContent).not.toMatch(/share|grant access|invite/i)
   })
 
-  it('shows neither row when the row does not carry them — no default is invented', () => {
-    // Printing "private" over a row that never said so is a claim the server did
-    // not make, and on a VISIBILITY field that is the worst place to guess.
-    show({})
+  it('shows the owner as the Assignee row, not as a second Origin row', () => {
+    show({ owner: 'alice' })
     expect(screen.queryByTestId('about-owner')).toBeNull()
-    expect(screen.queryByTestId('about-visibility')).toBeNull()
+    expect(screen.getAllByTestId('assignee-name')[0]?.textContent).toContain('Member')
   })
 })
