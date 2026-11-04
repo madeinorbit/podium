@@ -45,6 +45,7 @@ import { queryAttributionEnabled } from '@podium/runtime/query-attribution'
 import type { EntityChangeSpec, Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
+import { issueRowFixture } from './test-support/issue-row'
 import type { SessionStore } from './store'
 import { statementBudget } from './test-support/statement-budget'
 
@@ -191,6 +192,9 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
   it('reads only the anchored rows for a delivery, afresh after each append', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const { ledger, store } = internals(reg)
+    // Every member reads every task that EXISTS (design §2.2, §4.1; 6d0dc46741
+    // retired the owner-or-grant read), so the anchored issues are real rows.
+    // Their legacy grants stay: the grant audiences still anchor the rows.
     for (const issueId of ['i1', 'i2']) {
       await store.grants.upsert({
         resourceKind: 'issue',
@@ -205,6 +209,18 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
         onBehalfOf: OWNER,
       })
     }
+    await store.repos.addRepo('/r', store.hostMachineId)
+    await store.transact(async () => {
+      for (const [index, id] of ['i1', 'i2'].entries()) {
+        await store.issues.upsertIssue({
+          ...issueRowFixture({ id, repoPath: '/r', seq: index + 1, ownerUserId: OWNER }),
+          repoId: undefined,
+          machineId: store.hostMachineId,
+          parentId: null,
+          worktreePath: null,
+        } as never)
+      }
+    })
     const latestStates = vi.spyOn(store.sync, 'latestChangeStates')
     const installedReads = vi.spyOn(store.sync, 'installedStates')
     // RE-POINTED, NOT RELAXED [POD-3261]. The conserved quantity this test names

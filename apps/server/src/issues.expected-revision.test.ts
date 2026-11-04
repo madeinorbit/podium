@@ -436,7 +436,14 @@ describe('registry totality (ADR 3 D13.2 — declared per contract, never guesse
     // than on an issue revision, which is what 'cmd' says and why exp-rev would
     // be the wrong class for them.
     // Sibling-relative moves (POD-6109) use the same issue revision fence.
-    expect(mutations).toHaveLength(50)
+    //
+    // 50 → 55 is the shared task model (design §2.2, §4.4). POD-6289 (0a299696ed)
+    // added `editComment`, `deleteComment` (author-only comment edits) and
+    // `restoreTextRevision` (restore a description or brief revision); POD-6290
+    // (f97c15fe73) added `join` and `dismissAssignment` (personal records).
+    // Re-read, not re-baselined: the per-command rows below hold all five, and
+    // each declares a class and states its rule.
+    expect(mutations).toHaveLength(55)
   })
 
   it.each(mutations)('%s declares a conflict class', (_name, def) => {

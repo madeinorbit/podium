@@ -91,8 +91,8 @@ describe('SessionRegistry metadata deltas', () => {
     await registry.issues.crud.create({ repoPath: '/r', title: 'first', startNow: false })
     flush(registry)
 
-    await expect.poll(() => deltas(legacy.inbox.slice(legacyBefore)).length).toBe(2)
-    await expect.poll(() => deltas(delta.inbox.slice(deltaBefore)).length).toBe(2)
+    await expect.poll(() => deltas(legacy.inbox.slice(legacyBefore)).length).toBe(3)
+    await expect.poll(() => deltas(delta.inbox.slice(deltaBefore)).length).toBe(3)
 
     // Wire v2 is canonical; the retired cap no longer selects a second entity path.
     const legacyNew = legacy.inbox.slice(legacyBefore)
@@ -107,7 +107,11 @@ describe('SessionRegistry metadata deltas', () => {
     // that event is a feed row now (POD-1772) rather than something the pane
     // re-asks for on a timer. The `issues.update` case below is unchanged on
     // purpose: its kind is not one the feed carries.
-    expect(changes.map((change) => change.entity).sort()).toEqual(['issueEvent', 'issueProjection'])
+    expect(changes.map((change) => change.entity).sort()).toEqual([
+      'issueEvent',
+      'issueProjection',
+      'issueUserState',
+    ])
     const residue = changes.find((change) => change.entity === 'issueProjection')
     expect(residue).toMatchObject({ entity: 'issueProjection', op: 'upsert' })
     expect((residue?.value as IssueProjection).title).toBe('first')

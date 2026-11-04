@@ -232,15 +232,16 @@ describe('issues.* subtree scope (P1a)', () => {
     expect(defaulted.humanQuestionAskedBy).toBe('sess_me')
   })
 
-  it('answerQuestion is scope-gated and never clears on failed delivery (issue #53)', async () => {
+  // Answering is driving the asking session (design §2.3, POD-6283 17082bb365):
+  // the gate is that session's owner, not the task subtree, and it is proven in
+  // private-sessions.test.ts ('Alice and her agent are refused; Bob's answer is
+  // delivered'). What stays here is the delivery rule.
+  it('answerQuestion never clears on failed delivery (issue #53)', async () => {
     const c = callerWith({
       role: 'worker',
       scope: { kind: 'subtree', rootId: asIssueId(A.id) },
       actorSessionId: asSessionId('sess_gone'),
     })
-    await expect(c.issues.answerQuestion({ id: B.id, answer: 'Yes' })).rejects.toThrow(
-      /outside your subtree/,
-    )
     // Asks as itself (server-authoritative default); that session isn't live in
     // this registry, so delivery below must fail and preserve the flag.
     await c.issues.setNeedsHuman({ id: A.id, question: 'merge?' })
@@ -333,6 +334,10 @@ describe('scope-gate coverage (P1b)', () => {
     // subscriptionSetEnabled targets a subscription id, not an issue; the
     // own-or-operator check runs in the handler itself.
     'subscriptionSetEnabled',
+    // answerQuestion is gated on the ASKING SESSION's owner, decided by the
+    // handler (design §2.3, POD-6283 17082bb365); a task target would admit the
+    // task's assignee, who must not drive someone else's session.
+    'answerQuestion',
   ])
 
   it('every write/manage command that targets an existing issue is scope-gated', () => {
@@ -365,6 +370,11 @@ describe('scope-gate coverage (P1b)', () => {
     // it folds a finished row away and changes nothing about the work itself.
     // Node-local like markRead, never hub-forwarded, 'read' authority only.
     'setTucked',
+    // join and dismissAssignment (POD-6290 f97c15fe73) write the caller's own
+    // personal start/join and assignment records (design §4.4): per-user state,
+    // self only (§4.1), with the setTucked policy; neither changes the task.
+    'join',
+    'dismissAssignment',
   ])
 
   it('every issues.* mutation exposed by the router carries write/manage authority', () => {

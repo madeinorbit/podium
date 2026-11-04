@@ -255,8 +255,6 @@ async function build(world: World) {
  * from the generation's read cache, with the old one-order lane departure.
  */
 function oracleAnchors(store: SessionStore, world: World): VisibilityAnchorPort {
-  const issueGrantAdmits = (grantee: string, verb: string, userId: string) =>
-    grantee === userId && (verb === 'read' || verb === 'write' || verb === 'manage')
   const index = async () => {
     const latest = new Map<string, string>()
     const depsByIssue = new Map<string, EntityRef[]>()
@@ -301,12 +299,12 @@ function oracleAnchors(store: SessionStore, world: World): VisibilityAnchorPort 
       const members = await store.shipping.laneMemberIssueIds(laneId)
       const audience: string[] = []
       for (const userId of candidates) {
+        // Every member reads every task (design §2.2, §4.1; POD-6288 6d0dc46741
+        // retired the owner-or-grant read), so the lane stays readable to
+        // everyone while it holds any task that exists.
         let readable = false
         for (const issueId of members) {
-          if ((await store.issues.getIssue(issueId))?.ownerUserId === userId) readable = true
-          for (const grant of await store.grants.listForResource('issue', issueId)) {
-            if (issueGrantAdmits(grant.grantee, grant.verb, userId)) readable = true
-          }
+          if (await store.issues.getIssue(issueId)) readable = true
         }
         if (!readable) audience.push(userId)
       }
@@ -481,11 +479,8 @@ describe('visibility anchors: database reads answer like the old whole-table ind
       entityId: issueDepId('iss|pipe', 'iss\\back', 'related'),
     })
     expect(edgeOf('iss_no_audience')).toBeNull()
-    // The cancelled order left lane repo-a: only the revoked reader can read
-    // no order still queued in it.
-    expect(edges[issues.length]).toEqual({
-      audience: [REVOKED],
-      subjects: [{ entity: 'shipLane', entityId: shipLaneId(asRepoId('repo-a'), 'local:main') }],
-    })
+    // The cancelled order left lane repo-a, which still holds tasks: every
+    // member, the revoked reader included, still reads it (design §2.2).
+    expect(edges[issues.length]).toBeNull()
   })
 })

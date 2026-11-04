@@ -214,6 +214,14 @@ describe('issue command registry completeness', () => {
     const unscoped = ISSUE_COMMAND_NAMES.filter(
       (n) => ISSUE_CONTRACTS[n].policy.resource !== 'issue',
     )
+    // 40/40 as d8525c7398 set them. Since then: `deck` (6ed95fbe5a, POD-6111,
+    // READ_POLICY) added one unscoped command on dev/mw without a re-pin, the
+    // drift red at the epic's base (41 unscoped); `answerQuestion` moved from
+    // the task-write gate to `resource: 'none'` (17082bb365, POD-6283: the
+    // asking session's owner decides); POD-6289 added `editComment`,
+    // `deleteComment` and `restoreTextRevision` (scoped) and `textRevisions`
+    // (unscoped read); POD-6290 added `join`, `dismissAssignment` and
+    // `collaborators` (unscoped). 40 - 1 + 3 = 42 and 40 + 1 + 1 + 1 + 3 = 46.
     expect(scoped.length).toBe(42)
     expect(unscoped.length).toBe(46)
     // The predicate the assertion above applies, run on PLANTED pairs so it is
@@ -247,6 +255,8 @@ describe('handler↔contract schema identity', () => {
       expect(def?.input, name).toBe(ISSUE_CONTRACTS[name].input)
       checked += 1
     }
+    // 80 at d8525c7398, + `deck` (6ed95fbe5a), POD-6289's four commands and
+    // POD-6290's three.
     expect(checked).toBe(88)
   })
 

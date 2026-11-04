@@ -702,9 +702,14 @@ describe('characterization: authz error codes + mailClaim/middleware parity (con
       expect(await outcome(op.issues.update({ id: B.id, patch: { brief: 'op' } }))).toBe('OK')
 
       // mailClaim resolves the message target under the caller's visibility first.
-      // An out-of-scope invisible target is deliberately indistinguishable from absence.
+      // Every member reads every task (design §2.2, §4.1; 6d0dc46741 retired the
+      // owner-or-grant task read), so another member's task B is visible and an
+      // out-of-scope claim on it is the same overridable scope violation as the
+      // middleware's, not an absence.
       expect(await outcome(viewer.issues.mailClaim({ messageId: mailA.id }))).toBe('FORBIDDEN')
-      expect(await outcome(worker.issues.mailClaim({ messageId: mailB.id }))).toBe('NOT_FOUND')
+      expect(await outcome(worker.issues.mailClaim({ messageId: mailB.id }))).toBe(
+        'PRECONDITION_FAILED',
+      )
       expect(await outcome(worker.issues.mailClaim({ messageId: mailA.id }))).toBe('OK')
 
       // The override lever unlocks exactly the PRECONDITION_FAILED cases, on both
@@ -722,7 +727,9 @@ describe('characterization: authz error codes + mailClaim/middleware parity (con
         'OK',
       )
       expect(await outcome(overridden.issues.mailClaim({ messageId: mailC.id }))).toBe('OK')
-      expect(await outcome(overridden.issues.mailClaim({ messageId: mailB.id }))).toBe('NOT_FOUND')
+      // B is visible to the worker's human, who may write it (§2.2), so the
+      // override lever reaches it like C.
+      expect(await outcome(overridden.issues.mailClaim({ messageId: mailB.id }))).toBe('OK')
       const overriddenViewer = caller(
         {
           role: 'viewer',

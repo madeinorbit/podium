@@ -180,14 +180,17 @@ async function fixture() {
 }
 
 describe('POD-4974 O2 lane visibility', () => {
-  it('lets anyone who may read one queued order read the lane, and no one else', async () => {
+  // Every member reads every task (design §2.2, §4.1; POD-6288 6d0dc46741 made
+  // issue grants inert), so whoever may read one queued order, which is every
+  // member, reads the lane. A lane nobody's order is queued in stays unread.
+  it('lets anyone who may read one queued order read the lane, which is every member', async () => {
     const { policy, authority } = await fixture()
     for (const prepare of [policy.state.forBootstrap!, policy.state.forBatch!]) {
       const state = await prepare([LANE])
       expect(state.classOf('shipLane')).toBe('personal')
       expect(state.mayRead(owner, LANE)).toBe(true)
       expect(state.mayRead(reader, LANE)).toBe(true)
-      expect(state.mayRead(stranger, LANE)).toBe(false)
+      expect(state.mayRead(stranger, LANE)).toBe(true)
     }
     const unknown: EntityRef = { entity: 'shipLane', entityId: 'not-a-lane' }
     expect((await policy.state.forBatch!([unknown])).mayRead(owner, unknown)).toBe(false)
@@ -205,10 +208,13 @@ describe('POD-4974 O2 lane visibility', () => {
         (change) => change.entity === 'shipLane',
       )
     expect(await lanesFor(reader)).toHaveLength(1)
-    expect(await lanesFor(stranger)).toEqual([])
+    expect(await lanesFor(stranger)).toHaveLength(1)
   })
 
-  it('evicts the lane from the reader whose last readable order left it', async () => {
+  // With every task read by every member (design §2.2), an order leaving its
+  // lane moves nobody's view while another queued order stays: nobody is
+  // evicted, and every member gets the lane's new value.
+  it('keeps the lane for every member while a queued order remains in it', async () => {
     const { store, policy, authority } = await fixture()
     await authority.capture([
       ...['order-shared', 'order-private'].map((id) => ({
@@ -238,10 +244,7 @@ describe('POD-4974 O2 lane visibility', () => {
     )
     expect(
       await edgeOf(policy.anchors, { entity: 'shipOrder', entityId: 'order-shared' }),
-    ).toEqual({
-      audience: [reader],
-      subjects: [LANE],
-    })
+    ).toBeNull()
     await authority.capture([
       { entity: 'shipOrder', entityId: 'order-shared', op: 'remove' },
       { entity: 'shipLane', entityId: LANE.entityId, op: 'upsert', value: lane('order-private') },
@@ -253,9 +256,9 @@ describe('POD-4974 O2 lane visibility', () => {
         .filter((change) => change.entity === 'shipLane')
         .map((change) => change.op)
     }
-    expect(await laneOps(reader)).toEqual(['evict'])
+    expect(await laneOps(reader)).toEqual(['upsert'])
     expect(await laneOps(owner)).toEqual(['upsert'])
-    expect(await laneOps(stranger)).toEqual([])
+    expect(await laneOps(stranger)).toEqual(['upsert'])
   })
 
   it('names the lanes of an issue queued orders when a grant moves its audience', async () => {
