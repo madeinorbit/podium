@@ -73,16 +73,39 @@ export class MemberRoster extends RequestAnswer<Roster> {
     return this.members.length > 1
   }
 
-  /** A member's display name, or undefined while unknown (not loaded, or not
-   *  an active member any more). */
+  /** Display names two or more active members share (POD-6295). */
+  @lazy({ equals: compareShallow }) get sharedNames(): string[] {
+    const counts = new Map<string, number>()
+    for (const member of this.members) {
+      const name = member.displayName?.trim()
+      if (name) counts.set(name, (counts.get(name) ?? 0) + 1)
+    }
+    return [...counts]
+      .filter(([, count]) => count > 1)
+      .map(([name]) => name)
+      .sort()
+  }
+
+  /**
+   * A member's display name, or undefined while unknown (not loaded, or not an
+   * active member any more). A name another active member also uses carries a
+   * short tag from the member id, `Sam (k3f9)`, so two people never read as
+   * one. Never the email: another member's email is the admins' (MU-13).
+   */
   nameOf(id: string | null | undefined): string | undefined {
     if (!id) return undefined
-    return here(this.pool.model('member', id))?.displayName || undefined
+    const name = here(this.pool.model('member', id))?.displayName?.trim() || undefined
+    return name && this.sharedNames.includes(name) ? `${name} (${memberTag(id)})` : name
   }
 
   dispose() {
     this.close()
   }
+}
+
+/** The short, stable tag that tells two same-named members apart. */
+export function memberTag(id: string): string {
+  return id.replace(/^mem_/, '').slice(-4)
 }
 
 /** The pool's one roster. */
