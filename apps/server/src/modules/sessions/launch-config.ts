@@ -43,11 +43,14 @@ export class SessionLaunchConfig {
   /**
    * The managed credential (if any) for the coding role, as spawn env (#216).
    * Native accounts yield {} — the CLI uses its own login and the frame is
-   * unchanged.
+   * unchanged. A managed key is the session OWNER's own or one explicitly shared
+   * with them (POD-6360); with neither this throws `MissingManagedKeyError`, so a
+   * caller resolves it BEFORE it persists or sends anything.
    */
   async accountEnv(
     agentKind: AgentKind,
-    accountId?: AccountId,
+    accountId: AccountId | undefined,
+    ownerUserId: UserId,
   ): Promise<{ env?: Record<string, string> }> {
     // Resolve before the shell arm to preserve the old default-parameter timing:
     // an omitted account still performs this live settings read for every call.
@@ -58,6 +61,6 @@ export class SessionLaunchConfig {
         'coding',
       ).accountId
     if (agentKind === 'shell') return {}
-    return await resolveAccountEnv(this.ports.store.accounts, selectedAccountId)
+    return await resolveAccountEnv(this.ports.store.accounts, selectedAccountId, ownerUserId)
   }
 }

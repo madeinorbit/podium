@@ -2774,15 +2774,33 @@ export const workflowEvents = sqliteTable(
   ],
 )
 
-export const accounts = sqliteTable('accounts', {
-  id: text().$type<AccountId>().primaryKey(),
-  provider: text().notNull(),
-  kind: text().notNull(),
-  credential: text().notNull(),
-  identity: text().default('').notNull(),
-  scope: text().default('role').notNull(),
-  createdAt: integer('created_at').notNull(),
-})
+// MANAGED PROVIDER KEYS ARE PER USER (POD-6360, user decision 2026-11-04).
+// `id` is the row's storage key; `account_key` is the public account id a role
+// selects (`managed:anthropic`), unique per owner. Sharing is explicit and
+// never a fallback: `shared_with` is NULL (private) or a JSON array of user ids,
+// where `*` is everyone. The three columns are nullable only because the change
+// is expand-only; the migration backfills every existing row (owned by the first
+// admin, shared with everyone: today's behaviour, recorded). A row without an
+// owner is read as nobody's and is never injected.
+export const accounts = sqliteTable(
+  'accounts',
+  {
+    id: text().$type<AccountId>().primaryKey(),
+    provider: text().notNull(),
+    kind: text().notNull(),
+    credential: text().notNull(),
+    identity: text().default('').notNull(),
+    scope: text().default('role').notNull(),
+    createdAt: integer('created_at').notNull(),
+    ownerUserId: text('owner_user_id').$type<UserId>(),
+    accountKey: text('account_key').$type<AccountId>(),
+    sharedWith: text('shared_with'),
+  },
+  (table) => [
+    uniqueIndex('accounts_owner_account_key').on(table.ownerUserId, table.accountKey),
+    index('idx_accounts_account_key').on(table.accountKey),
+  ],
+)
 
 export const automations = sqliteTable(
   'automations',

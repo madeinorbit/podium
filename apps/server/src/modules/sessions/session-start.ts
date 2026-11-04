@@ -626,6 +626,14 @@ export class SessionStart {
       input.agentKind === 'shell' || selectedAccountId === undefined
         ? undefined
         : await this.ports.nativeAccountIdForMachine(machineId, input.agentKind, selectedAccountId)
+    // RESOLVED BEFORE ANYTHING IS PERSISTED OR SENT (POD-6360): a managed key
+    // the owner neither owns nor is shared refuses the spawn, and a refusal
+    // after the row was written would leave a session that never started.
+    const accountEnv = await this.ports.launchConfig.accountEnv(
+      input.agentKind,
+      selectedAccountId,
+      ownerUserId,
+    )
     const principal = input.binding?.principal ?? { kind: 'user' as const, userId: ownerUserId }
     const parent =
       principal.kind === 'agent'
@@ -741,7 +749,7 @@ export class SessionStart {
       geometry: { ...DEFAULT_GEOMETRY },
       ...launch,
       // The suffix is durable session attribution only; launch with the selected account unchanged.
-      ...(await this.ports.launchConfig.accountEnv(input.agentKind, selectedAccountId)),
+      ...accountEnv,
       ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
       ...(input.requestedDriverId !== undefined ? { requestedDriverId: input.requestedDriverId } : {}),
     })

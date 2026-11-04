@@ -65,6 +65,8 @@ const probe = {
   ...accountsConnectContract,
   name: 'test.plain',
   input: probeInput,
+  // Pinned here: accounts.connect itself is member-floor since POD-6360.
+  policy: { ...accountsConnectContract.policy, action: 'manage', roleFloor: 'admin' },
 } as const satisfies AnyCommandContract
 
 const admin: CommandPrincipal = userCommandPrincipal(firstAdminMemberId(), 'admin')
@@ -144,6 +146,41 @@ describe('the front door on the plain path', () => {
       run: () => 'ok',
     })
     expect(reply).toEqual({ outcome: 'applied', result: 'ok' })
+  })
+
+  it("runs the command's target check after the parse, with the parsed input", async () => {
+    const memberProbe = {
+      ...probe,
+      policy: { ...probe.policy, roleFloor: 'member', action: 'write' },
+    } as const satisfies AnyCommandContract
+    const seen: unknown[] = []
+    let runs = 0
+    const call = (note: string) =>
+      runPlainCommand({
+        contract: memberProbe,
+        principal: member,
+        transport: 'trpc',
+        input: { note },
+        targetPermitted: (_principal, input) => {
+          seen.push(input)
+          return (input as { note: string }).note === 'mine'
+        },
+        run: () => {
+          runs += 1
+          return 'ok'
+        },
+      })
+    // Invalid input: the parse answers first, and the target check never runs.
+    expect((await call('')).outcome).toBe('rejected')
+    expect(seen).toEqual([])
+    // Refused by the target check: unauthorized, like the coarse check, and nothing runs.
+    expect(await call('theirs')).toEqual({ outcome: 'rejected', refusal: { kind: 'unauthorized' } })
+    expect(runs).toBe(0)
+    expect(await call('mine')).toEqual({ outcome: 'applied', result: 'ok' })
+    expect(seen).toEqual([
+      { note: 'theirs', level: 3 },
+      { note: 'mine', level: 3 },
+    ])
   })
 })
 

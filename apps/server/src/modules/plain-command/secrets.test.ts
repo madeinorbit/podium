@@ -80,7 +80,7 @@ describe('the plain path stores no result', () => {
       input: { provider: 'anthropic', kind: 'api-key', credential: ACCOUNT_CREDENTIAL },
       run: async (input) =>
         await ACCOUNT_COMMANDS_TRPC.connect.handler(
-          { accounts: store.accounts } as never,
+          { accounts: store.accounts, callerUserId: asUserId(adminId) } as never,
           input as never,
         ),
     })

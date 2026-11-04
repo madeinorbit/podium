@@ -1,7 +1,7 @@
 /**
  * THE PLAIN COMMAND PATH (ADR 12 D8, POD-6360).
  *
- * About 25 commands have no synced effect: sign-in, accounts, setup, secrets and
+ * About 26 commands have no synced effect: sign-in, accounts, setup, secrets and
  * the Telegram setup, logs, telemetry, performance reports, model refresh. They do
  * not go through the sync write entry point, and they do not need to: nothing
  * they write reaches a device's replica, so there is no receipt to give and

@@ -1,5 +1,5 @@
 import type { AgentKind } from '@podium/model'
-import { asAccountId } from '@podium/model'
+import { asAccountId, firstAdminMemberId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
@@ -128,7 +128,21 @@ it.each([
   'native:claude-code',
   'managed:anthropic',
 ])('preserves the explicit account %s exactly', async (accountId) => {
-  const { registry, daemon } = await makeRegistry(await storeWithClaudeDefaults())
+  const store = await storeWithClaudeDefaults()
+  // A managed key is used only when the session owner has one (POD-6360).
+  if (accountId.startsWith('managed:')) {
+    await store.accounts.connect({
+      ownerUserId: await firstAdminMemberId(store),
+      accountKey: asAccountId(accountId),
+      provider: 'anthropic',
+      kind: 'api-key',
+      credential: 'sk-ant-explicit',
+      identity: 'x',
+      scope: 'role',
+      createdAt: 1,
+    })
+  }
+  const { registry, daemon } = await makeRegistry(store)
   const { sessionId } = await registry.modules.sessions.createSession({
     agentKind: 'opencode',
     cwd: '/proj',

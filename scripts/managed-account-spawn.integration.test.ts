@@ -29,18 +29,21 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { agentLaunchCommand } from '@podium/harness'
-import { asAccountId, asSessionId, type SessionId } from '@podium/model'
+import { asAccountId, asSessionId, asUserId, type SessionId } from '@podium/model'
 import { directPtyDurableForTests } from '@podium/process/durable'
 import { SpawnMessage } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DaemonContext } from '../apps/daemon/src/control/context'
-import { SessionRegistry } from '../apps/daemon/src/session/registry.js'
 import { sessionHandlers } from '../apps/daemon/src/control/session'
+import { SessionRegistry } from '../apps/daemon/src/session/registry.js'
 import { resolveAccountEnv } from '../apps/server/src/modules/sessions/account-env'
 import { AccountsRepository } from '../apps/server/src/store/accounts'
 import { createBunStoreExecutor } from '../apps/server/src/store/executor'
+
+/** Whose key it is: the session owner (POD-6360, managed keys are per user). */
+const OWNER = asUserId('user:spawn-probe-owner')
 
 const CREDENTIAL = 'sk-test-xyz'
 
@@ -56,8 +59,13 @@ function openAccountsDatabase() {
     credential TEXT NOT NULL,
     identity TEXT NOT NULL,
     scope TEXT NOT NULL,
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    owner_user_id TEXT,
+    account_key TEXT,
+    shared_with TEXT
   )`)
+  // Per-user managed keys (POD-6360): one row per (owner, account id).
+  db.exec('CREATE UNIQUE INDEX accounts_owner_account_key ON accounts (owner_user_id, account_key)')
   return db
 }
 
@@ -67,8 +75,9 @@ async function managedAccountEnv(): Promise<Record<string, string> | undefined> 
   const queries = createBunStoreExecutor({ database: db }).queries
   if (!queries) throw new Error('the probe database is not bun-backed')
   const accounts = new AccountsRepository(queries)
-  await accounts.upsert({
-    id: asAccountId('managed:anthropic'),
+  await accounts.connect({
+    ownerUserId: OWNER,
+    accountKey: asAccountId('managed:anthropic'),
     provider: 'anthropic',
     kind: 'api-key',
     credential: CREDENTIAL,
@@ -76,7 +85,7 @@ async function managedAccountEnv(): Promise<Record<string, string> | undefined> 
     scope: 'role',
     createdAt: 1,
   })
-  const env = (await resolveAccountEnv(accounts, asAccountId('managed:anthropic'))).env
+  const env = (await resolveAccountEnv(accounts, asAccountId('managed:anthropic'), OWNER)).env
   db.close()
   return env
 }
@@ -299,8 +308,9 @@ describe('managed account -> real spawned process env (#216)', () => {
     const queries = createBunStoreExecutor({ database: db }).queries
     if (!queries) throw new Error('the probe database is not bun-backed')
     const accounts = new AccountsRepository(queries)
-    await accounts.upsert({
-      id: asAccountId('managed:claude-oauth'),
+    await accounts.connect({
+      ownerUserId: OWNER,
+      accountKey: asAccountId('managed:claude-oauth'),
       provider: 'anthropic',
       kind: 'oauth',
       credential: 'oat-test-1',
@@ -308,7 +318,7 @@ describe('managed account -> real spawned process env (#216)', () => {
       scope: 'role',
       createdAt: 1,
     })
-    const { env } = await resolveAccountEnv(accounts, asAccountId('managed:claude-oauth'))
+    const { env } = await resolveAccountEnv(accounts, asAccountId('managed:claude-oauth'), OWNER)
     db.close()
     expect(env).toEqual({ CLAUDE_CODE_OAUTH_TOKEN: 'oat-test-1' })
 

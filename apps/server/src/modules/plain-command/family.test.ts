@@ -2,7 +2,7 @@
  * THE NON-SYNC COMMANDS ON THE RUNNING ROUTER (ADR 12 D8, POD-6360).
  *
  * Against `appRouter` with a real registry, because the claim is about what the
- * server SERVES: each of the 25 commands is reached through the front door, so a
+ * server SERVES: each of the 26 commands is reached through the front door, so a
  * caller the coarse check refuses gets a permission error, never a validation
  * error and never the handler.
  */
@@ -11,7 +11,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Capability } from '@podium/model'
-import { asIssueId, asSessionId, asUserId } from '@podium/model'
+import { asAccountId, asIssueId, asSessionId, asUserId } from '@podium/model'
 import { hashPassword } from '@podium/runtime/auth-store'
 import { TRPCError } from '@trpc/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -28,6 +28,7 @@ const PLAIN_COMMANDS = [
   'accounts.connect',
   'accounts.disconnect',
   'accounts.login',
+  'accounts.share',
   'auth.setEmail',
   'auth.setLoginRequired',
   'auth.setPassword',
@@ -127,8 +128,8 @@ afterEach(() => {
 })
 
 describe('every non-sync command goes through the front door', () => {
-  it('a system principal with garbage input is refused as unauthorized by all 25', async () => {
-    expect(PLAIN_COMMANDS).toHaveLength(25)
+  it('a system principal with garbage input is refused as unauthorized by all 26', async () => {
+    expect(PLAIN_COMMANDS).toHaveLength(26)
     const { caller } = await harness({ capability: OPERATOR, principal: systemPrincipal('test') })
     const codes: Record<string, string> = {}
     for (const name of PLAIN_COMMANDS) {
@@ -147,15 +148,12 @@ describe('every non-sync command goes through the front door', () => {
 })
 
 describe('role floors on the plain path', () => {
-  it('a member below the admin floor is refused before the input is parsed, and nothing is stored', async () => {
-    const { caller, registry } = await harness({ capability: MEMBER_CAPABILITY })
-    const refusal = await refusalOf(caller.accounts.connect({ provider: 'nope' } as never))
+  it('a member below the admin floor is refused before the input is parsed, and nothing runs', async () => {
+    const { caller } = await harness({ capability: MEMBER_CAPABILITY })
+    const refusal = await refusalOf(caller.telemetry.set({ usage: 'nope' } as never))
     expect(refusal.code).toBe('FORBIDDEN')
-    const refusedValid = await refusalOf(
-      caller.accounts.connect({ provider: 'anthropic', kind: 'api-key', credential: 'sk-x' }),
-    )
+    const refusedValid = await refusalOf(caller.telemetry.set({ usage: 'off' }))
     expect(refusedValid.code).toBe('FORBIDDEN')
-    expect(await registry.sessionStore.accounts.list()).toEqual([])
   })
 
   it('a member may still change their own password (member floor, write action)', async () => {
@@ -185,6 +183,105 @@ describe('role floors on the plain path', () => {
     const refusal = await refusalOf(caller.accounts.login({ harness: 'codex' }))
     expect(refusal.code).toBe('FORBIDDEN')
     expect(start).not.toHaveBeenCalled()
+  })
+
+  it('an admin with invalid input gets the validation error', async () => {
+    const { caller } = await harness({ capability: OPERATOR })
+    const refusal = await refusalOf(caller.accounts.connect({ provider: 'nope' } as never))
+    expect(refusal.code).toBe('BAD_REQUEST')
+  })
+})
+
+describe('every user manages their own harness accounts, and only their own (POD-6360)', () => {
+  const OTHER = asUserId('user:plain-family-other')
+  const ANTHROPIC = asAccountId('managed:anthropic')
+  const othersKey = {
+    ownerUserId: OTHER,
+    accountKey: ANTHROPIC,
+    provider: 'anthropic',
+    kind: 'api-key',
+    credential: 'sk-others',
+    identity: 'x',
+    scope: 'role',
+    createdAt: 1,
+  } as const
+
+  it('a member connects their own key: owned by them, private', async () => {
+    const { caller, registry } = await harness({ capability: MEMBER_CAPABILITY })
+    await caller.accounts.connect({ provider: 'anthropic', kind: 'api-key', credential: 'sk-mine' })
+    const rows = await registry.sessionStore.accounts.list()
+    expect(rows).toMatchObject([
+      { ownerUserId: MEMBER, accountKey: ANTHROPIC, credential: 'sk-mine' },
+    ])
+    expect(rows[0]?.sharedWith).toEqual([])
+  })
+
+  it("a member's disconnect removes only their own key", async () => {
+    const { caller, registry } = await harness({ capability: MEMBER_CAPABILITY })
+    const accounts = registry.sessionStore.accounts
+    await accounts.connect(othersKey)
+    await accounts.share(OTHER, ANTHROPIC, ['*'])
+    await caller.accounts.connect({ provider: 'anthropic', kind: 'api-key', credential: 'sk-mine' })
+    await caller.accounts.disconnect({ id: ANTHROPIC })
+    await caller.accounts.disconnect({ id: ANTHROPIC })
+    expect((await accounts.list()).map((row) => row.credential)).toEqual(['sk-others'])
+  })
+
+  it("a member shares their own key, and may not touch another user's", async () => {
+    const { caller, registry } = await harness({ capability: MEMBER_CAPABILITY })
+    const accounts = registry.sessionStore.accounts
+    await accounts.connect(othersKey)
+    await caller.accounts.connect({ provider: 'anthropic', kind: 'api-key', credential: 'sk-mine' })
+    await caller.accounts.share({ id: ANTHROPIC, everyone: false, users: [OTHER] })
+    expect((await accounts.own(MEMBER, ANTHROPIC))?.sharedWith).toEqual([OTHER])
+
+    const refusal = await refusalOf(
+      caller.accounts.share({ id: ANTHROPIC, owner: OTHER, everyone: true, users: [] }),
+    )
+    expect(refusal.code).toBe('FORBIDDEN')
+    expect((await accounts.own(OTHER, ANTHROPIC))?.sharedWith).toEqual([])
+  })
+
+  it("an admin may change the sharing of another user's key; a missing key is not found", async () => {
+    const { caller, registry } = await harness({ capability: OPERATOR })
+    const accounts = registry.sessionStore.accounts
+    await accounts.connect(othersKey)
+    await caller.accounts.share({ id: ANTHROPIC, owner: OTHER, everyone: true, users: [] })
+    expect((await accounts.own(OTHER, ANTHROPIC))?.sharedWith).toEqual(['*'])
+    await caller.accounts.share({ id: ANTHROPIC, owner: OTHER, everyone: false, users: [] })
+    expect((await accounts.own(OTHER, ANTHROPIC))?.sharedWith).toEqual([])
+    const missing = await refusalOf(
+      caller.accounts.share({
+        id: asAccountId('managed:openai'),
+        owner: OTHER,
+        everyone: true,
+        users: [],
+      }),
+    )
+    expect(missing.code).toBe('NOT_FOUND')
+  })
+
+  it('an agent may not connect, disconnect or share a key for its human', async () => {
+    const { caller, registry } = await harness({ capability: AGENT_CAPABILITY })
+    const accounts = registry.sessionStore.accounts
+    await accounts.connect({ ...othersKey, ownerUserId: MEMBER, credential: 'sk-humans' })
+    const refusals = [
+      await refusalOf(
+        caller.accounts.connect({ provider: 'anthropic', kind: 'api-key', credential: 'sk-agent' }),
+      ),
+      await refusalOf(caller.accounts.disconnect({ id: ANTHROPIC })),
+      await refusalOf(caller.accounts.share({ id: ANTHROPIC, everyone: true, users: [] })),
+    ]
+    expect(refusals.map((refusal) => refusal.code)).toEqual(['FORBIDDEN', 'FORBIDDEN', 'FORBIDDEN'])
+    expect(await accounts.list()).toMatchObject([{ credential: 'sk-humans', sharedWith: [] }])
+  })
+})
+
+describe('the plain path keeps its validation answer', () => {
+  it('an admin with invalid input gets the validation error (share)', async () => {
+    const { caller } = await harness({ capability: OPERATOR })
+    const refusal = await refusalOf(caller.accounts.share({ id: 'managed:anthropic' } as never))
+    expect(refusal.code).toBe('BAD_REQUEST')
   })
 
   it('an admin with invalid input gets the validation error', async () => {

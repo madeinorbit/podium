@@ -59,6 +59,7 @@ import type { SessionStart } from './session-start'
 import type { SessionStateService } from './session-state/service'
 import type { SessionTerminalProof } from './terminal-proof'
 import type { SessionWorkspace } from './workspace'
+import { MissingManagedKeyError } from './account-env'
 
 export interface SessionRevivalPorts {
   store: SessionStore
@@ -467,6 +468,21 @@ export class SessionRevival {
     // produced it may have been AWAITED, so hoisting it is what keeps the draft
     // from having to span that suspension (spec rule 26).
     const cwd = ensured.cwd || session.cwd
+    // The managed key, resolved BEFORE the session is marked starting
+    // (POD-6360): the owner's own or one shared with them. A key that was
+    // revoked or never shared refuses the wake with the reason, and the
+    // session stays as it was.
+    let accountEnv: { env?: Record<string, string> }
+    try {
+      accountEnv = await this.ports.launchConfig.accountEnv(
+        session.agentKind,
+        session.accountId,
+        session.ownerUserId,
+      )
+    } catch (error) {
+      if (error instanceof MissingManagedKeyError) return { ok: false, reason: error.message }
+      throw error
+    }
     // Name the allowed companions so model defaults can never leak into a
     // restart frame, even if the launch-config API later grows new fields.
     const { subagentModel, seedCliTheme } =
@@ -541,7 +557,7 @@ export class SessionRevival {
       // selection supplied on this wake may set model or effort.
       ...(selection && selection.model !== 'auto' ? { model: selection.model } : {}),
       ...(selection && selection.effort !== 'auto' ? { effort: selection.effort } : {}),
-      ...await this.ports.launchConfig.accountEnv(session.agentKind, session.accountId),
+      ...accountEnv,
       ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
     })
     await preparedInstructions.commit()

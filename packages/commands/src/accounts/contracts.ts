@@ -1,5 +1,12 @@
 /**
- * THE TWO ACCOUNT CONTRACTS — `accounts.connect · accounts.disconnect`.
+ * THE ACCOUNT CONTRACTS — `accounts.connect · accounts.disconnect · accounts.share ·
+ * accounts.login`.
+ *
+ * PER USER (POD-6360, user decision 2026-11-04): every user manages their OWN
+ * harness accounts and only their own. A stored key belongs to the user who
+ * connected it; it reaches another user's agents only when its owner (or an
+ * admin) shares it, with everyone or with named users. Never by default, never
+ * as a fallback.
  *
  * The Accounts & Keys hub (SP-6454): the managed credentials Podium holds and
  * injects at spawn. The `list` read stays a query — and note what it returns,
@@ -32,7 +39,7 @@
  * by the type rather than promised in a comment.
  */
 
-import { AccountIdField, HarnessAgent, MachineIdField } from '@podium/model'
+import { AccountIdField, HarnessAgent, MachineIdField, UserIdField } from '@podium/model'
 import { z } from 'zod'
 import type {
   AttributionPolicy,
@@ -121,17 +128,18 @@ export const accountsConnectContract = {
   visibility: ACCOUNT_VISIBILITY,
   input: accountsConnectInput,
   policy: {
-    action: 'manage',
-    roleFloor: 'admin',
+    action: 'write',
+    roleFloor: 'member',
     resource: 'secret',
     confirmation: 'none',
     rationale:
       'Stores credential material Podium will INJECT INTO SPAWNED AGENT PROCESSES, so `resource: ' +
-      'secret` — which also forces `online-sensitive` through the lint — and `manage`/`admin`, ' +
-      'because whoever writes this decides which account every agent on this instance bills and ' +
-      'acts as. That is strictly stronger than any per-entity write, which is why it is not graded ' +
-      '`write` despite being a single row insert. No confirmation: connecting is additive and ' +
-      'reversible by `disconnect`, and the destructive direction carries the gate.',
+      'secret` — which also forces `online-sensitive` through the lint. Graded `write`/`member` ' +
+      'since POD-6360: the key belongs to the CALLER and only the caller’s own agents use it until ' +
+      'they share it, so it decides nobody else’s billing. The target check keeps it to the ' +
+      'caller: a signed-in user writes their own row; an agent may not store a key as its human. ' +
+      'No confirmation: connecting is additive and reversible by `disconnect`, and the ' +
+      'destructive direction carries the gate.',
   },
   exposure: SERVED_ON,
   delivery: ACCOUNT_DELIVERY,
@@ -152,22 +160,22 @@ export const accountsConnectContract = {
     visibility: ACCOUNT_VISIBILITY,
     inheritanceOnCreate: 'on-behalf-of-human',
     note:
-      'Mints a managed credential row owned by the human the write was made on behalf of, NOT by the ' +
-      'agent that may have typed it (ADR 9 D5 A4). `inheritanceOnCreate: on-behalf-of-human` rather ' +
-      'than `parent` because there is no parent to inherit from: a credential is instance-scoped, ' +
-      'and the only meaningful owner is the person accountable for it.',
+      'Mints a managed credential row owned by the signed-in caller (agents are refused, so the ' +
+      'on-behalf-of human and the actor are the same person). `inheritanceOnCreate: ' +
+      'on-behalf-of-human` rather than `parent` because there is no parent to inherit from: the ' +
+      'only meaningful owner is the person accountable for it. It starts private.',
   },
   attribution: ACCOUNT_ATTRIBUTION,
   errorConsistency: {
     callerSuppliedTargetId: false,
     note:
-      'The row `id` is DERIVED SERVER-SIDE from provider and kind rather than supplied, so there is ' +
-      'no caller-controlled target to iterate and no existence to leak. That is a property of the ' +
-      'handler’s id minting, stated here rather than left to be inferred from the schema.',
+      'The account id is DERIVED SERVER-SIDE from provider and kind, and the owner is the caller, ' +
+      'so there is no caller-controlled target to iterate and no existence to leak. That is a ' +
+      'property of the handler, stated here rather than left to be inferred from the schema.',
   } satisfies ErrorConsistency,
   conflict: 'cmd',
   conflictRule:
-    'ROW.managedCredentials / ROW.accountCredential; one live credential per (user, provider), so a reconnect REPLACES the stored material in one Authority commit rather than accumulating a second',
+    'ROW.managedCredentials / ROW.accountCredential; one live credential per (owner, account id), so a reconnect REPLACES the stored material and keeps its sharing rather than accumulating a second',
 } as const satisfies CommandContract<typeof accountsConnectInput>
 
 export const accountsDisconnectInput = z.object({ id: AccountIdField })
@@ -178,12 +186,14 @@ export const accountsDisconnectContract = {
   visibility: ACCOUNT_VISIBILITY,
   input: accountsDisconnectInput,
   policy: {
-    action: 'manage',
-    roleFloor: 'admin',
+    action: 'write',
+    roleFloor: 'member',
     resource: 'secret',
     confirmation: 'confirm',
     rationale:
-      'Removes a stored credential. Same grade and resource as `connect`; what differs is ' +
+      'Removes one of the CALLER’S OWN stored credentials (POD-6360); another user’s key is ' +
+      'untouched, and naming one fails exactly as a key that does not exist. Same grade and ' +
+      'resource as `connect`; what differs is ' +
       '`confirmation: "confirm"`, because this is the destructive direction and ADR 1’s row is ' +
       '`hard-delete` — the value is GONE, no tombstone, no recovery, and every agent spawning ' +
       'against it starts failing. ADR 3 D2 puts destructive writes behind a confirmation. Worth ' +
@@ -220,6 +230,64 @@ export const accountsDisconnectContract = {
   conflict: 'cmd',
   conflictRule: 'Idempotent revocation; disconnecting an already-disconnected account is a no-op',
 } as const satisfies CommandContract<typeof accountsDisconnectInput>
+
+export const accountsShareInput = z.object({
+  /** The public account id (`managed:anthropic`), as `list` shows it. */
+  id: AccountIdField,
+  /** Whose key. Omitted: the caller's own. Another user's needs an admin. */
+  owner: UserIdField.optional(),
+  /** Share with every user of this instance. */
+  everyone: z.boolean(),
+  /** Share with these users. The pair replaces the old sharing; both empty = private. */
+  users: z.array(UserIdField).max(256).default([]),
+})
+
+export const accountsShareContract = {
+  name: 'accounts.share',
+  version: 1,
+  visibility: ACCOUNT_VISIBILITY,
+  input: accountsShareInput,
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'secret',
+    confirmation: 'none',
+    rationale:
+      'Decides whose agents may use a stored key (POD-6360, user decision 2026-11-04): with ' +
+      'everyone, with named users, or (both empty) nobody but its owner. `secret` like the rest of ' +
+      'the family. Only the key’s owner or an admin may change it, which the target check ' +
+      'decides: `member` may attempt it for their own key, and naming another `owner` needs the ' +
+      'admin role. An agent may not share its human’s key. No confirmation: sharing is reversible ' +
+      'by sharing with nobody, and revoking stops the next spawn.',
+  },
+  exposure: SERVED_ON,
+  delivery: ACCOUNT_DELIVERY,
+  redaction: {
+    reviewed: true,
+    inputPaths: [],
+    outputPaths: [],
+    note:
+      'The input names an account id, an owner and grantees; none is secret. The result is ' +
+      '`{ ok: true }`. The credential is not read.',
+  } satisfies RedactionPolicy,
+  ownership: {
+    creates: [],
+    note: 'Changes who may use an existing credential row. Mints no entity and moves no ownership.',
+  },
+  attribution: ACCOUNT_ATTRIBUTION,
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note:
+      'The account id and owner are caller supplied. A member naming another user’s key is ' +
+      'refused before any read, and a key that does not exist answers the same "no such key", so ' +
+      'the reply says nothing about whether another user holds one.',
+  } satisfies ErrorConsistency,
+  conflict: 'cmd',
+  conflictRule:
+    'Replaces the whole sharing list of one (owner, account id) row; last write wins, and the next spawn reads it',
+} as const satisfies CommandContract<typeof accountsShareInput>
 
 export const accountsLoginContract = {
   name: 'accounts.login',
@@ -268,6 +336,7 @@ export const accountsLoginContract = {
 export const ACCOUNT_CONTRACTS = {
   connect: accountsConnectContract,
   disconnect: accountsDisconnectContract,
+  share: accountsShareContract,
   login: accountsLoginContract,
 } as const
 

@@ -33,7 +33,23 @@ export {
   accountsDisconnectInput,
   accountsLoginContract,
   accountsLoginInput,
+  accountsShareContract,
+  accountsShareInput,
 } from './accounts/contracts'
+export {
+  AGENT_PROFILE_CONTRACT_NAMES,
+  AGENT_PROFILE_CONTRACTS,
+  type AgentProfileContractName,
+  AgentProfileRef,
+  agentProfileCreateContract,
+  agentProfileCreateInput,
+  agentProfileDeleteContract,
+  agentProfileDeleteInput,
+  agentProfileImportContract,
+  agentProfileImportInput,
+  agentProfileUpdateContract,
+  agentProfileUpdateInput,
+} from './agent-profiles/contracts'
 export {
   APPROVAL_CONTRACT_NAMES,
   APPROVAL_CONTRACTS,
@@ -43,13 +59,6 @@ export {
   approvalsDenyContract,
   approvalsDenyInput,
 } from './approvals/contracts'
-export {
-  INTERACTION_CONTRACT_NAMES,
-  INTERACTION_CONTRACTS,
-  type InteractionContractName,
-  interactionsAnswerContract,
-  interactionsAnswerInput,
-} from './interactions/contracts'
 export {
   AUTOMATION_CONTRACT_NAMES,
   AUTOMATION_CONTRACTS,
@@ -155,10 +164,10 @@ export {
   fleetServerRoleOf,
   machineAdoptContract,
   machineAdoptInput,
-  machineSupersedeContract,
-  machineSupersedeInput,
   machineApplyUpdateContract,
   machineApplyUpdateInput,
+  machineMoveServerContract,
+  machineMoveServerInput,
   machinePairingCodeContract,
   machinePairingCodeInput,
   machineRenameContract,
@@ -169,10 +178,10 @@ export {
   machineSetUpdateChannelInput,
   machineShareContract,
   machineShareInput,
+  machineSupersedeContract,
+  machineSupersedeInput,
   machineTransferOwnershipContract,
   machineTransferOwnershipInput,
-  machineMoveServerContract,
-  machineMoveServerInput,
   machineUnshareContract,
   machineUnshareInput,
   repoAddContract,
@@ -239,6 +248,13 @@ export {
   telemetrySetContract,
   telemetrySetInput,
 } from './instance/contracts'
+export {
+  INTERACTION_CONTRACT_NAMES,
+  INTERACTION_CONTRACTS,
+  type InteractionContractName,
+  interactionsAnswerContract,
+  interactionsAnswerInput,
+} from './interactions/contracts'
 export {
   ADDITIVE_POLICY,
   CREATES_NOTHING,
@@ -319,6 +335,7 @@ export {
   awaitAgentContract,
   awaitAgentInput,
   MAIL_CONTRACTS,
+  MAIL_RECORDS_MAX_IDS,
   type MailContractName,
   mailAskContract,
   mailAskInput,
@@ -332,7 +349,6 @@ export {
   mailInboxInput,
   mailLedgerContract,
   mailLedgerInput,
-  MAIL_RECORDS_MAX_IDS,
   mailPendingRemindersContract,
   mailPendingRemindersInput,
   mailRecordsContract,
@@ -359,20 +375,6 @@ export {
   senderLabel,
 } from './mail/principal'
 export { LEGACY_TURN_CLOSE_RULE, TURN_CLOSE_RULE } from './mail/turn-close-rule'
-export {
-  AGENT_PROFILE_CONTRACT_NAMES,
-  AGENT_PROFILE_CONTRACTS,
-  type AgentProfileContractName,
-  AgentProfileRef,
-  agentProfileCreateContract,
-  agentProfileCreateInput,
-  agentProfileDeleteContract,
-  agentProfileDeleteInput,
-  agentProfileImportContract,
-  agentProfileImportInput,
-  agentProfileUpdateContract,
-  agentProfileUpdateInput,
-} from './agent-profiles/contracts'
 export {
   MODEL_CONTRACT_NAMES,
   MODEL_CONTRACTS,

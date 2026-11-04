@@ -236,6 +236,9 @@ const ManagedAccountRow = observer(function ManagedAccountRow({
   // replace it with a managed credential (which IS disconnectable), or remove it
   // where it actually lives.
   const legacy = connected && account.credentialSource === 'legacy'
+  // Another user's key, shared with this viewer (POD-6360). It is not theirs to
+  // disconnect; connecting their own replaces it for their agents.
+  const shared = connected && account.credentialSource === 'shared'
   const label = managedLabel(account)
 
   // The row's own explanation lives under its label (POD-127 F3), never as a
@@ -252,6 +255,11 @@ const ManagedAccountRow = observer(function ManagedAccountRow({
         into agent spawns and it cannot be disconnected here. Replace it to store it as a managed
         account, or clear it under API keys.
       </span>
+    ) : shared && !editing ? (
+      <>
+        Shared with you by another user, and injected into your agents' spawns. Connect your own
+        to use it instead.
+      </>
     ) : !isOauth && connected && !legacy ? (
       <>
         Injected into agent spawns. The superagent and background LLM roles still read their key
@@ -301,9 +309,9 @@ const ManagedAccountRow = observer(function ManagedAccountRow({
         {connected && !editing ? (
           <div className="flex items-center gap-2.5">
             <StatusConnected identity={account.identity ?? 'connected'} />
-            {legacy ? (
+            {legacy || shared ? (
               <Button type="button" size="sm" variant="outline" onClick={() => setEditing(true)}>
-                Replace
+                {shared ? 'Use your own' : 'Replace'}
               </Button>
             ) : (
               <Button

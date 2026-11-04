@@ -9,7 +9,11 @@ export const AccountView = z.object({
   identity: z.string().optional(), machines: z.array(z.string()).optional(),
   identityFingerprint: z.string().optional(), status: z.enum(['connected', 'not-configured', 'unknown']),
   serverAi: z.object({ machineId: MachineId.optional(), machineName: z.string().optional(), lastError: z.string().optional() }).optional(),
-  credentialSource: z.enum(['stored', 'legacy']).optional(), loginRequired: z.boolean().optional(),
+  credentialSource: z.enum(['stored', 'legacy', 'shared']).optional(), loginRequired: z.boolean().optional(),
+  // Managed keys are per user (POD-6360): who the viewer shares their own key
+  // with, or who shares a `shared` key with the viewer.
+  sharing: z.object({ everyone: z.boolean(), users: z.array(z.string()) }).optional(),
+  sharedBy: z.string().optional(),
   loginMachines: z.array(z.object({ id: MachineId, name: z.string() })).optional(),
   loginAttempt: z.object({ sessionId: z.string(), machineId: MachineId, machineName: z.string(),
     status: z.enum(['running', 'refreshing', 'succeeded', 'failed']), error: z.string().optional() }).optional(),

@@ -6508,6 +6508,18 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Output_accounts_login;
             meta: unknown;
         }>;
+        "share": TRPC.TRPCMutationProcedure<{
+            input: {
+                everyone: boolean;
+                id: string;
+                owner?: string | undefined;
+                users?: string[] | undefined;
+            };
+            output: {
+                ok: true;
+            };
+            meta: unknown;
+        }>;
     };
     "agentProfiles": {
         "create": TRPC.TRPCMutationProcedure<{

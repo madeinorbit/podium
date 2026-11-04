@@ -1,5 +1,5 @@
 /**
- * EVERY CURRENT CALLER OF THE 25 NON-SYNC COMMANDS, THROUGH THE FRONT DOOR
+ * EVERY CURRENT CALLER OF THE 26 NON-SYNC COMMANDS, THROUGH THE FRONT DOOR
  * (ADR 12 D8, POD-6360).
  *
  * Moving these commands onto the plain path made their contracts' role floors
@@ -20,8 +20,10 @@
  *  - first-run setup, as the bootstrap principal (the earliest admin);
  *  - the operator CLI (`podium logs level|daemon`, `podium join`, `podium setup`),
  *    on the operator's own credential;
- *  - agents and the daemon: none of the 25 today. The agent rows below pin what
- *    one would get.
+ *  - agents and the daemon: none of the 26 today. The agent rows below pin what
+ *    one would get;
+ *  - `accounts.share` (POD-6360): no client caller yet; Settings has no sharing
+ *    control. Its rows pin the owner/admin rule for the first one.
  */
 
 import type { AnyCommandContract } from '@podium/commands'
@@ -107,7 +109,14 @@ type Who = keyof typeof PRINCIPALS
  *  refused, as before. `lost`: refused now, worked before. */
 type Expect = 'ok' | 'floor' | 'lost'
 
-const CALLERS: readonly { command: string; who: Who; caller: string; expect: Expect }[] = [
+const CALLERS: readonly {
+  command: string
+  who: Who
+  caller: string
+  expect: Expect
+  /** The input the target check reads, for a row that names a target. */
+  input?: Record<string, unknown>
+}[] = [
   // ---- web, admin: every Settings and setup control ----
   ...[...CONTRACTS.keys()].map((command) => ({
     command,
@@ -128,9 +137,43 @@ const CALLERS: readonly { command: string; who: Who; caller: string; expect: Exp
     caller: 'Settings → Security (admin-only UI)',
     expect: 'lost',
   },
-  // Shown to members, with nothing refusing them before:
-  { command: 'accounts.connect', who: 'member', caller: 'Settings → Accounts', expect: 'lost' },
-  { command: 'accounts.disconnect', who: 'member', caller: 'Settings → Accounts', expect: 'lost' },
+  // Every user manages their OWN harness accounts (user decision 2026-11-04):
+  // a stored key is the caller's, and only the caller's agents use it until
+  // they share it. Router-level proof that the row touched is the caller's own
+  // (and that another user's key is untouched) is in family.test.ts.
+  {
+    command: 'accounts.connect',
+    who: 'member',
+    caller: 'Settings → Accounts, own key',
+    expect: 'ok',
+  },
+  {
+    command: 'accounts.disconnect',
+    who: 'member',
+    caller: 'Settings → Accounts, own key',
+    expect: 'ok',
+  },
+  {
+    command: 'accounts.share',
+    who: 'member',
+    caller: 'share own key',
+    expect: 'ok',
+    input: { id: 'managed:anthropic', everyone: true, users: [] },
+  },
+  {
+    command: 'accounts.share',
+    who: 'member',
+    caller: "another user's key",
+    expect: 'floor',
+    input: { id: 'managed:anthropic', owner: 'user:caller-other', everyone: true, users: [] },
+  },
+  {
+    command: 'accounts.share',
+    who: 'admin',
+    caller: "an admin, another user's key",
+    expect: 'ok',
+    input: { id: 'managed:anthropic', owner: 'user:caller-other', everyone: false, users: [] },
+  },
   // Every user signs in their OWN harness accounts (user decision 2026-11-04):
   // the terminal is spawned as the member, on a machine the member may use. The
   // refusals for another user's machine or running attempt are pinned below.
@@ -203,26 +246,36 @@ const CALLERS: readonly { command: string; who: Who; caller: string; expect: Exp
   { command: 'perf.report', who: 'agent', caller: 'none today', expect: 'ok' },
   { command: 'telemetry.set', who: 'agent', caller: 'none today', expect: 'floor' },
   { command: 'telemetry.resetId', who: 'agent', caller: 'none today', expect: 'floor' },
-  // An agent may not sign its human in: refused by the target check.
+  // An agent may not sign its human in, store, remove or share a key as them:
+  // refused by the target check.
   { command: 'accounts.login', who: 'agent', caller: 'none today', expect: 'floor' },
+  { command: 'accounts.connect', who: 'agent', caller: 'none today', expect: 'floor' },
+  { command: 'accounts.disconnect', who: 'agent', caller: 'none today', expect: 'floor' },
+  {
+    command: 'accounts.share',
+    who: 'agent',
+    caller: 'none today',
+    expect: 'floor',
+    input: { id: 'managed:anthropic', everyone: true, users: [] },
+  },
 ]
 
-describe('every current caller of the 25 non-sync commands', () => {
-  it('covers the 25 commands, and only them', () => {
-    expect(CONTRACTS.size).toBe(25 + 2) // + settings.updatePersonal/updateInstance, not plain
+describe('every current caller of the 26 non-sync commands', () => {
+  it('covers the 26 commands, and only them', () => {
+    expect(CONTRACTS.size).toBe(26 + 2) // + settings.updatePersonal/updateInstance, not plain
     const plain = [...CONTRACTS.values()].filter((c) => c.delivery.class !== 'offline-eligible')
-    expect(plain).toHaveLength(25)
+    expect(plain).toHaveLength(26)
     for (const row of CALLERS) expect(CONTRACTS.has(row.command), row.command).toBe(true)
   })
 
   it.each(
     CALLERS.filter((row) => !row.command.startsWith('settings.update')),
-  )('$command as $who ($caller): $expect', ({ command, who, expect: expected }) => {
+  )('$command as $who ($caller): $expect', ({ command, who, expect: expected, input }) => {
     const contract = CONTRACTS.get(command)!
     const target = TARGET_CHECKS.get(command)
     const admitted =
       coarselyPermitted(contractFrontDoor(contract), PRINCIPALS[who], 'trpc') &&
-      (target === undefined || target(PRINCIPALS[who], {}))
+      (target === undefined || target(PRINCIPALS[who], input ?? {}))
     expect(admitted).toBe(expected === 'ok')
   })
 })

@@ -66,7 +66,8 @@ export const ACCOUNT_QUERIES = {
     return await Promise.all((await accountViews(
       async (provider) => await state.settings.apiKeyFor(provider),
       state.accounts,
-      onlineMachines as unknown as Parameters<typeof accountViews>[2],
+      state.callerUserId,
+      onlineMachines as unknown as Parameters<typeof accountViews>[3],
       served,
     )).map(async (account) => {
       if (account.source !== 'native' || !account.harness) return account

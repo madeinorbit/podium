@@ -45,7 +45,7 @@ function codexMachine(id = 'desk'): MachineRecord {
 function stateWith(resolver: AccountState['resolveCodexServerAi']): AccountState {
   const machines = [codexMachine()]
   return {
-    accounts: { list: async () => [] },
+    accounts: { ownedBy: async () => [], sharedWithUser: async () => [] },
     machines: { listMachines: async () => machines },
     machineService: {
       listMachines: async () => machines,
@@ -64,7 +64,7 @@ function stateWithMachines(
   onlineById: Record<string, boolean> = {},
 ): AccountState {
   return {
-    accounts: { list: async () => [] },
+    accounts: { ownedBy: async () => [], sharedWithUser: async () => [] },
     machines: { listMachines: async () => machines },
     machineService: {
       listMachines: async () =>

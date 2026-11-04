@@ -98,11 +98,14 @@ describe('the derived families, against the RUNNING appRouter', () => {
    * 31 -> 32: `auth.setEmail` (aafde95f11, "Member email sign-in and
    * profile", 2026-09-11), which added the command without moving this pin.
    * Re-pinned in POD-6360.
+   *
+   * 32 -> 33: `accounts.share` (POD-6360): managed keys are per user, and a key
+   * reaches another user's agents only when its owner or an admin shares it.
    */
-  it('governs thirteen families and thirty-two derived writes', () => {
+  it('governs thirteen families and thirty-three derived writes', () => {
     expect(FAMILIES).toHaveLength(13)
     const total = FAMILIES.reduce((n, f) => n + Object.keys(f.table).length, 0)
-    expect(total).toBe(32)
+    expect(total).toBe(33)
   })
 
   it.each(

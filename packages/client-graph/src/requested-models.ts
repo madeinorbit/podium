@@ -60,9 +60,11 @@ registerModels({
     // Identity and authentication availability
     id: 'id', provider: 'string', source: 'enum', kind: 'enum', harness: 'enum', identity: 'string',
     identityFingerprint: 'string', status: 'enum', credentialSource: 'enum',
+    // Per-user managed keys (POD-6360)
+    sharing: 'object', sharedBy: 'string',
     // Machine/login observations
     machines: 'object', serverAi: 'object', loginRequired: 'boolean', loginMachines: 'object', loginAttempt: 'object',
-  }, ['kind', 'harness', 'identity', 'identityFingerprint', 'credentialSource', 'machines', 'serverAi', 'loginRequired', 'loginMachines', 'loginAttempt']),
+  }, ['kind', 'harness', 'identity', 'identityFingerprint', 'credentialSource', 'sharing', 'sharedBy', 'machines', 'serverAi', 'loginRequired', 'loginMachines', 'loginAttempt']),
   member: record('MemberView', 'request:members.list', 'id', {
     id: 'id', displayName: 'string', email: 'string', role: 'string', accountId: 'id', avatar: 'string',
     createdAt: 'isoDate', disabledAt: 'isoDate',
