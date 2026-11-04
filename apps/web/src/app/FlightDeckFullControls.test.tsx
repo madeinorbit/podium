@@ -379,6 +379,25 @@ it('searches matching paths while respecting explicit folds, with clear and Esca
   expect(f.screen.folds.get('parent')).toBe('open')
 })
 
+it('folds every branch independent of filters and search and restores explicit opens on remount', async () => {
+  const f = await open()
+  await f.click('Up next 2')
+  await f.click('Search this mission')
+  fireEvent.change(f.ui.getByRole('textbox'), { target: { value: 'loose' } })
+  await f.click('Fold every branch')
+  expect(f.full.allFolded).toBe(true)
+  for (const id of f.full.foldableIds) expect(f.screen.folds.get(id)).toBe('closed')
+  expect(f.tally()).toEqual(totals)
+  await f.click('Expand every branch')
+  for (const id of f.full.foldableIds) expect(f.screen.folds.get(id)).toBe('open')
+  f.ui.unmount()
+  const reopened = await open(f.prefs)
+  expect(reopened.fold('working').getAttribute('aria-expanded')).toBe('true')
+  expect(reopened.fold('idle').getAttribute('aria-expanded')).toBe('true')
+  expect(reopened.full.filter).toBe('all')
+  expect(reopened.screen.searchOpen).toBe(false)
+})
+
 it('keeps explicit task and phase choices across remount, state changes and a second session', async () => {
   const f = await open()
   // Attention opens available payload; ordinary tasks with crew start closed.
