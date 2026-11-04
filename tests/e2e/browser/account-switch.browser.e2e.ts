@@ -4,14 +4,19 @@
  * of Alice's queued commands is sent.
  *
  * "The same device" is one browser profile: every tab shares one cookie jar and
- * one storage. Tab A stays on Alice's world with a command queued while its
- * network was down; Alice signs out in tab B, through the real control, and Bob
- * signs in there. Then:
+ * one storage. Tab A stays on Alice's world; Alice signs out in tab B, through
+ * the real control, and Bob signs in there.
  *
- *  - tab A drops Alice's world at once (it never waits for a request to fail);
- *  - Bob's sidebar shows nothing of Alice's;
- *  - Alice's queued command never lands, as Bob or anyone: Bob's settings are
- *    unchanged after tab A's network comes back.
+ * Tasks are shared (POD-6288): Bob reads Alice's task, so its title is the
+ * POSITIVE control, proving each view has loaded the task. What is Alice's alone
+ * is her per-member pin on it (design 4.1, per-user state). Each view shows it:
+ * the web task page as a "pinned" chip, the phone's mission menu as "Unpin".
+ *
+ *  - tab A shows Alice's pin until she signs out elsewhere, then drops it at
+ *    once (it never waits for a request to fail);
+ *  - Bob's view of the same task shows its title and not her pin;
+ *  - on web, a command Alice queued offline in tab A never lands on Bob: his
+ *    settings are unchanged after tab A's network comes back.
  *
  * Web covers the desktop shell too: the desktop app runs this same bundle in a
  * webview with one cookie jar. The phone check runs the Expo web build.
@@ -67,6 +72,17 @@ async function ensureBob(playwright: PlaywrightWorkerArgs['playwright']): Promis
     data: { token: invite.token, ...BOB },
   })
   if (!completed.ok()) throw new Error(`accept failed: ${completed.status()}`)
+  const { userId: bob } = (await completed.json()) as { userId: string }
+  // Bob has no machine of his own. Alice shares hers, as an admin would for a
+  // teammate, so Bob's web shell opens on tasks rather than first-run setup.
+  const listed = await alice.get(`${HTTP}/trpc/machines.list`)
+  const machines = ((await listed.json()) as { result: { data: { id: string }[] } }).result.data
+  for (const machine of machines) {
+    const shared = await alice.post(`${HTTP}/trpc/machines.share`, {
+      data: { id: machine.id, grantee: bob, verb: 'use', acknowledgeSharedMachine: true },
+    })
+    if (!shared.ok()) throw new Error(`share failed: ${shared.status()} ${await shared.text()}`)
+  }
   await alice.dispose()
 }
 
@@ -82,8 +98,13 @@ async function bobSidebarSettings(
   return body.result.data.sidebar
 }
 
-/** A started task of Alice's with a title nobody else has: her private work, by name. */
-async function createAliceTask(request: APIRequestContext, repo = 0): Promise<string> {
+interface AliceTask {
+  readonly id: string
+  readonly title: string
+}
+
+/** A started task of Alice's, pinned by her: the pin is hers alone. */
+async function createAliceTask(request: APIRequestContext, repo = 0): Promise<AliceTask> {
   const repos = await request.get(`${HTTP}/trpc/repos.list?input=${encodeURIComponent('{}')}`)
   const repoPath = ((await repos.json()) as { result: { data: string[] } }).result.data[repo]
   if (!repoPath) throw new Error(`isolated harness has no repo #${repo}`)
@@ -93,10 +114,35 @@ async function createAliceTask(request: APIRequestContext, repo = 0): Promise<st
     data: { repoPath, title, startNow: true, ...(repo === 0 ? {} : { parentBranch: 'main' }) },
   })
   if (!created.ok()) throw new Error(`issues.create: ${created.status()} ${await created.text()}`)
-  return title
+  const data = (
+    (await created.json()) as { result: { data: { id?: string; issue?: { id: string } } } }
+  ).result.data
+  const id = data.id ?? data.issue?.id
+  if (!id) throw new Error('issues.create returned no id')
+  const pinned = await request.post(`${HTTP}/trpc/issues.update`, {
+    data: { id, patch: { pinned: true } },
+  })
+  if (!pinned.ok()) throw new Error(`pin: ${pinned.status()} ${await pinned.text()}`)
+  return { id, title }
 }
 
+/** Open a task's page in the web app, client-side (the harness has no SPA fallback). */
+async function openWebTask(page: Page, id: string): Promise<void> {
+  await page.evaluate((issueId) => {
+    history.pushState(null, '', `/issues/${encodeURIComponent(issueId)}${location.search}`)
+    dispatchEvent(new PopStateEvent('popstate'))
+  }, id)
+}
+
+/** The web task page's per-member pin chip. */
+const pinChip = (page: Page) => page.getByText('pinned', { exact: true })
+
 async function openWeb(page: Page): Promise<void> {
+  // Bob is new and has no machine; skip the first-run setup screen so his shell
+  // shows tasks the same way Alice's does.
+  await page.addInitScript(() => {
+    ;(window as Window & { __PODIUM_SKIP_SETUP__?: boolean }).__PODIUM_SKIP_SETUP__ = true
+  })
   await page.goto(`/?server=${RELAY}&e2e=1`)
   await page.locator('aside').first().waitFor({ state: 'visible', timeout: 120_000 })
 }
@@ -124,7 +170,6 @@ async function signOutOnWeb(page: Page): Promise<void> {
     dispatchEvent(new PopStateEvent('popstate'))
   })
   await page.getByRole('button', { name: 'Sign out', exact: true }).click({ timeout: 30_000 })
-  await expect(page.getByLabel('Password', { exact: true })).toBeVisible({ timeout: 30_000 })
 }
 
 async function signInBobOnWeb(page: Page): Promise<void> {
@@ -165,7 +210,7 @@ test('web: Bob sees nothing of Alice’s, and her queued command is never sent',
     viewport: { width: 1280, height: 900 },
   })
   await signIn(device.request, 'alice')
-  const title = await createAliceTask(device.request)
+  const task = await createAliceTask(device.request)
   // A second project, so the sidebar has an order Alice can change.
   await createAliceTask(device.request, 1)
   const tabA = await device.newPage()
@@ -180,12 +225,13 @@ test('web: Bob sees nothing of Alice’s, and her queued command is never sent',
   }
   trace('A', tabA)
   await test.step('tab A opens as Alice', () => openWeb(tabA))
-  const aliceTask = tabA.getByText(title)
-  await expect(aliceTask.first()).toBeVisible({ timeout: 60_000 })
   await expect(tabA.locator('aside').first().getByTestId('project-group-label')).toHaveCount(2, {
     timeout: 60_000,
   })
-  await queueAliceCommand(tabA)
+  await test.step('Alice queues a command offline in tab A', () => queueAliceCommand(tabA))
+  await openWebTask(tabA, task.id)
+  await expect(tabA.getByText(task.title).first()).toBeVisible({ timeout: 60_000 })
+  await expect(pinChip(tabA), 'tab A shows Alice’s own pin').toBeVisible({ timeout: 30_000 })
 
   const tabB = await device.newPage()
   trace('B', tabB)
@@ -193,8 +239,9 @@ test('web: Bob sees nothing of Alice’s, and her queued command is never sent',
   await test.step('Alice signs out in tab B', () => signOutOnWeb(tabB))
 
   // Tab A let go of Alice's world the moment she signed out elsewhere.
-  await expect(aliceTask).toHaveCount(0, { timeout: 15_000 })
-  await expect(tabA.getByTestId('unified-issue-row')).toHaveCount(0)
+  await expect(pinChip(tabA), 'tab A still shows Alice’s pin').toHaveCount(0, { timeout: 15_000 })
+  await expect(tabA.getByText(task.title)).toHaveCount(0)
+  await expect(tabB.getByLabel('Password', { exact: true })).toBeVisible({ timeout: 30_000 })
 
   await test
     .step('Bob signs in in tab B', () => signInBobOnWeb(tabB))
@@ -203,18 +250,37 @@ test('web: Bob sees nothing of Alice’s, and her queued command is never sent',
       console.log(`[tab B body] ${(await tabB.locator('body').innerText()).slice(0, 400)}`)
       throw error
     })
-  await expect(tabB.getByTestId('unified-issue-row')).toHaveCount(0)
-  await expect(tabB.getByText(title)).toHaveCount(0)
+  await openWebTask(tabB, task.id)
+  // Positive control: Bob's view has loaded Alice's (shared) task...
+  await expect(tabB.getByText(task.title).first())
+    .toBeVisible({ timeout: 60_000 })
+    .catch(async (error) => {
+      await tabB.screenshot({ path: resolve(evidence, 'web-tab-b-task.png') }).catch(() => {})
+      console.log(`[tab B ${tabB.url()}] ${(await tabB.locator('body').innerText()).slice(0, 600)}`)
+      throw error
+    })
+  // ...and shows nothing that is Alice's alone.
+  await expect(pinChip(tabB), 'Bob sees Alice’s pin').toHaveCount(0)
   await tabB.screenshot({ path: resolve(evidence, 'web-bob-after-switch.png') })
   await tabA.screenshot({ path: resolve(evidence, 'web-tab-a-after-switch.png') })
 
   await restoreNetwork(tabA)
-  await expect(aliceTask).toHaveCount(0)
+  await expect(pinChip(tabA)).toHaveCount(0)
   expect(await bobSidebarSettings(playwright), 'Alice’s queued write landed on Bob').toEqual(
     bobBefore,
   )
   await device.close()
 })
+
+/** The phone's mission for a task, opened from Work, with its actions menu open. */
+async function openPhoneMissionMenu(page: Page, title: string): Promise<void> {
+  await page
+    .getByRole('button', { name: new RegExp(title) })
+    .first()
+    .click({ timeout: 60_000 })
+  await page.getByLabel('Mission actions', { exact: true }).click({ timeout: 60_000 })
+  await expect(page.getByText('Task details', { exact: true })).toBeVisible({ timeout: 30_000 })
+}
 
 test('phone: Bob sees nothing of Alice’s after she logs out', async ({ browser, playwright }) => {
   mkdirSync(evidence, { recursive: true })
@@ -229,35 +295,37 @@ test('phone: Bob sees nothing of Alice’s after she logs out', async ({ browser
     serviceWorkers: 'block',
   })
   await signIn(device.request, 'alice')
-  const title = await createAliceTask(device.request)
+  const task = await createAliceTask(device.request)
 
   const tabA = await device.newPage()
   await tabA.goto(`/mobile/work?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
-  const aliceRows = tabA.getByRole('button', { name: new RegExp(title) })
-  await expect(aliceRows.first()).toBeVisible({ timeout: 60_000 })
+  await openPhoneMissionMenu(tabA, task.title)
+  const aliceUnpin = tabA.getByText('Unpin', { exact: true })
+  await expect(aliceUnpin, 'tab A shows Alice’s own pin').toBeVisible()
 
   const tabB = await device.newPage()
   await tabB.goto(`/mobile/settings?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
   await tabB.getByLabel('Log out').click({ timeout: 60_000 })
+
+  // Tab A let go of Alice's world the moment she logged out elsewhere.
+  await expect(aliceUnpin, 'tab A still shows Alice’s pin').toHaveCount(0, { timeout: 15_000 })
+  await expect(tabA.getByText(task.title)).toHaveCount(0)
+
   // Logging out reloads the page; sign in on the page it lands on.
   await tabB.waitForEvent('load', { timeout: 60_000 }).catch(() => {})
   await expect(tabB.getByLabel('Password', { exact: true })).toBeVisible({ timeout: 60_000 })
-
-  // Tab A let go of Alice's work the moment she logged out elsewhere.
-  await expect(aliceRows).toHaveCount(0, { timeout: 15_000 })
-
   await tabB.getByLabel('Email', { exact: true }).fill(BOB.email)
   await tabB.getByLabel('Password', { exact: true }).fill(BOB.password)
   await expect(tabB.getByLabel('Email', { exact: true })).toHaveValue(BOB.email)
   await tabB.getByRole('button', { name: 'Log in', exact: true }).click()
   await expect(tabB.getByLabel('Password', { exact: true })).toBeHidden({ timeout: 60_000 })
   await tabB.goto(`/mobile/work?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
-  await expect(tabB.getByRole('tab', { name: 'Work', exact: true })).toBeVisible({
-    timeout: 60_000,
-  })
-  await tabB.waitForTimeout(3_000)
-  await expect(tabB.getByText(title)).toHaveCount(0)
-  await expect(aliceRows).toHaveCount(0)
+  // Positive control: Bob's view has loaded Alice's (shared) task and its menu...
+  await openPhoneMissionMenu(tabB, task.title)
+  await expect(tabB.getByText('Pin', { exact: true })).toBeVisible()
+  // ...and shows nothing that is Alice's alone.
+  await expect(tabB.getByText('Unpin', { exact: true }), 'Bob sees Alice’s pin').toHaveCount(0)
+  await expect(aliceUnpin).toHaveCount(0)
   await tabB.screenshot({ path: resolve(evidence, 'phone-bob-after-switch.png') })
   await tabA.screenshot({ path: resolve(evidence, 'phone-tab-a-after-switch.png') })
   await device.close()
