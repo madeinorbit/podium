@@ -20,11 +20,18 @@ import {
 import type { SessionView } from '@podium/client-core/session-values'
 import { missionLegacyStats } from '@podium/client-core/values'
 import { chatContextReadStats } from '@podium/client-graph/chat-context'
-import type { MobxPool } from '@podium/client-graph/pool'
+import { LOADING } from '@podium/client-graph/loading'
+import { MissionScreen as MissionScreenModel } from '@podium/client-graph/mission-screen'
+import { attachMissionTestPreferences } from '@podium/client-graph/mission-screen.test.fixture'
+import { settled } from '@podium/client-graph/mission-view'
+import { MOBILE_SCREEN_SUMMARIES } from '@podium/client-graph/mobile-screens-schema'
+import { MobxPool } from '@podium/client-graph/pool'
+import { refreshClocks } from '@podium/mobx-helpers'
 import { asIssueId, asSessionId } from '@podium/model'
 import { formatSessionRef } from '@podium/protocol'
 import type { EntityRecord } from '@podium/sync/replica'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { autorun } from 'mobx'
 import { type ReactNode, useCallback } from 'react'
 import { afterAll, afterEach, expect, it, vi } from 'vitest'
 import { buildCorpus } from '../../../../tests/worklist/harness/src/fixture'
@@ -143,8 +150,6 @@ vi.mock('../client/mobile-pool', async (importOriginal) => {
     },
   }
 })
-
-
 
 // Native sheet/navigator containers are boundaries, not worklist readers.
 vi.mock('../components/PressableScale', () => ({
@@ -393,6 +398,140 @@ afterEach(() => {
   state.loadWindows = null
 })
 afterAll(() => vi.unstubAllEnvs())
+// The author can be an archived private session outside the displayed mission.
+// A declared reference is enough to name it; missing fields still demand its row.
+it.each([
+  { complete: true, coldDependent: false },
+  { complete: true, coldDependent: true },
+  { complete: false, coldDependent: false },
+])('a cold proposal author uses its reference inputs (complete=$complete, coldDependent=$coldDependent)', ({
+  complete,
+  coldDependent,
+}) => {
+  const at = '2026-01-01T00:00:00Z'
+  const author = {
+    sessionId: 'cold-author',
+    issueId: 'closed-task',
+    cwd: '/fixture',
+    title: 'Archived author',
+    status: 'exited',
+    archived: true,
+    stoppedAt: at,
+    createdAt: at,
+    lastActiveAt: at,
+    refRepoId: 'author-repo',
+    refSeq: 42,
+    refLetter: 'a',
+    refIssueId: 'closed-task',
+    geometry: { cols: 80, rows: 24 },
+  }
+  const load = vi.fn((kind: string, id: string) =>
+    kind === 'session' && id === author.sessionId ? author : undefined,
+  )
+  const pool = new MobxPool(
+    { selectedIssueId: null, coarseNow: Date.parse('2026-10-03T19:30:00Z') },
+    undefined,
+    {
+      load,
+      schedule: () => () => {},
+      summaries: {
+        ...MOBILE_SCREEN_SUMMARIES,
+        session: MOBILE_SCREEN_SUMMARIES.session!.filter(
+          (field) => complete || !['refLetter', 'displayRef'].includes(field),
+        ),
+      },
+    },
+  )
+  attachMissionTestPreferences(pool)
+  const opening = new MissionScreenModel(pool, 'proposal')
+  const proposal = {
+    id: 'proposal',
+    seq: 1,
+    title: 'A proposal',
+    stage: 'proposed',
+    audience: 'human',
+    createdAt: at,
+    updatedAt: at,
+  }
+  pool.apply({
+    type: 'replace',
+    rows: [
+      {
+        kind: 'repo',
+        id: 'author-repo',
+        value: { id: 'author-repo', path: '/fixture', prefix: 'POD' },
+      },
+      { kind: 'issue', id: 'proposal', value: { ...proposal, startedBySession: 'cold-author' } },
+      {
+        kind: 'issue',
+        id: 'closed-task',
+        value: {
+          ...proposal,
+          id: 'closed-task',
+          stage: 'done',
+          closedAt: at,
+          deps: coldDependent ? [{ id: 'proposal', type: 'related' }] : [],
+        },
+      },
+      { kind: 'issue', id: 'human', value: { ...proposal, id: 'human' } },
+      {
+        kind: 'issue',
+        id: 'foreign',
+        value: { ...proposal, id: 'foreign', startedBySession: 'not-visible' },
+      },
+      { kind: 'session', id: 'cold-author', value: author },
+    ] as never,
+  })
+  try {
+    expect(pool.tables.session.has('cold-author')).toBe(false)
+    const row = opening.deck.model('proposal')
+    expect(settled(() => opening.proposalAuthor(row))).toBe(complete ? 'POD-42-a' : LOADING)
+    if (complete) {
+      expect(pool.hydrate()).toBe(0)
+      expect(load).not.toHaveBeenCalled()
+      expect(pool.tables.session.has('cold-author')).toBe(false)
+    } else {
+      expect(pool.hydrate()).toBe(1)
+      expect(load).toHaveBeenCalledTimes(1)
+      expect(load).toHaveBeenCalledWith('session', 'cold-author')
+      expect(opening.proposalAuthor(row)).toBe('POD-42-a')
+    }
+    if (complete) {
+      const names: Array<string | null> = []
+      const stop = autorun(() => {
+        names.push(opening.proposalAuthor(row))
+      })
+      try {
+        pool.apply({
+          type: 'update',
+          rows: [
+            {
+              kind: 'session',
+              id: 'second-author',
+              value: { ...author, sessionId: 'second-author', refSeq: 43, refLetter: 'b' },
+            },
+            {
+              kind: 'issue',
+              id: 'proposal',
+              value: { ...proposal, startedBySession: 'second-author' },
+            },
+          ] as never,
+        })
+        expect(names).toEqual(['POD-42-a', 'POD-43-b'])
+        expect(pool.tables.session.has('second-author')).toBe(false)
+        expect(pool.hydrate()).toBe(0)
+      } finally {
+        stop()
+      }
+    }
+    expect(opening.proposalAuthor(opening.deck.model('human'))).toBeNull()
+    expect(opening.proposalAuthor(opening.deck.model('foreign'))).toBeNull()
+  } finally {
+    opening.close()
+    pool.dispose()
+  }
+})
+
 // Retain the accepted snapshot namespace while measuring the live pool boundary.
 it('three mounted phone screens keep cumulative legacy derivations at zero (ON=true)', async () => {
   missionLegacyStats.enable()
@@ -460,12 +599,6 @@ it('three mounted phone screens keep cumulative legacy derivations at zero (ON=t
   state.host = createMobilePool(false)
 
   const now = vi.spyOn(Date, 'now').mockReturnValue(corpus.fixedNow)
-  const ticks: (() => void)[] = [],
-    interval = globalThis.setInterval
-  vi.spyOn(globalThis, 'setInterval').mockImplementation((handler, delay, ...args) => {
-    if (delay === 60_000 && typeof handler === 'function') ticks.push(() => handler(...args))
-    return interval(handler, delay, ...args)
-  })
   const phases: { phase: string; publications: number; derivations: number; rows: number }[] = []
   let release!: () => void
   const receipt = new Promise<void>((resolve) => {
@@ -545,6 +678,15 @@ it('three mounted phone screens keep cumulative legacy derivations at zero (ON=t
     if (parity) {
       const ids = ['tasks', 'mission', 'details']
       const text = ids.map((id) => screen.getByTestId(id).textContent)
+      expect(text[1]).toContain('17 done5 waiting2 to do4 asking')
+      if (phase === 'deck mode') {
+        expect(text[2]).toContain('No agent is working — 1 is waiting on you.')
+      } else {
+        const helper = within(screen.getByTestId('details')).getByLabelText('Session 41, HELPER')
+        expect(helper.textContent).toBe('Session 41HELPER6d ago')
+      }
+      // D3 seats, D5/D6 words, FullDeck buckets and the observed label clock
+      // each have exact old/new text proofs attached to this issue. Tasks is unchanged.
       // Exact settled outputs include the intended initial list window.
       for (const [index, id] of ids.entries()) {
         expect(
@@ -554,7 +696,12 @@ it('three mounted phone screens keep cumulative legacy derivations at zero (ON=t
         ).toMatchSnapshot(`${phase} ${id}`)
       }
     }
-    phases.push({ phase, publications: counts.count, derivations: work.derivations, rows: work.rows! })
+    phases.push({
+      phase,
+      publications: counts.count,
+      derivations: work.derivations,
+      rows: work.rows!,
+    })
   }
   const { view, feed } = await mount('u-bench')
   expect(screen.getByTestId('details').textContent).toContain(`by ${authorRef}`)
@@ -602,7 +749,9 @@ it('three mounted phone screens keep cumulative legacy derivations at zero (ON=t
   await checkpoint('issue feed')
   let action!: Promise<void>
   await act(async () => {
-    action = referenceState(state.runtime!).updateIssue(root.id, { title: 'Phone optimistic title' })
+    action = referenceState(state.runtime!).updateIssue(root.id, {
+      title: 'Phone optimistic title',
+    })
     await Promise.resolve()
   })
   await waitFor(() =>
@@ -620,13 +769,16 @@ it('three mounted phone screens keep cumulative legacy derivations at zero (ON=t
     await action
   })
   await checkpoint('server echo')
-  const beforeClock = referenceState(state.runtime!).coarseNow
-  expect(ticks.length).toBeGreaterThan(0)
+  // The observed shared label clock is resampled by an explicit app wake.
+  // This proves refresh behavior, not the elapsed timer or a retired pool clock.
+  const beforeClock = screen.getByTestId('mission').textContent
+  expect(beforeClock).toContain('55m')
   now.mockReturnValue(corpus.fixedNow + 60_000)
   await act(async () => {
-    for (const tick of ticks) tick()
+    refreshClocks()
   })
-  expect(referenceState(state.runtime!).coarseNow).toBeGreaterThan(beforeClock)
+  expect(screen.getByTestId('mission').textContent).toContain('56m')
+  expect(screen.getByTestId('mission').textContent).not.toBe(beforeClock)
   await checkpoint('idle clock')
   await act(async () => {
     fireEvent.click(screen.getByLabelText('Close task search'))
@@ -647,7 +799,9 @@ function ColdConversation({ id }: { id: string }) {
     (pool: MobxPool) => {
       state.pool = pool
       const session = omitGone(pool.row('session', id, 'summary'))
-      return session && typeof session !== 'symbol' ? (session as unknown as SessionView) : undefined
+      return session && typeof session !== 'symbol'
+        ? (session as unknown as SessionView)
+        : undefined
     },
     [id],
   )
@@ -738,18 +892,33 @@ it('a cold conversation renders its declared joined machine name before and afte
   expect(state.errors).toEqual([])
 }, 30_000)
 
-
-it.each([false, true])('a cold phone SpineRow shows loading then its task (folded=%s)', async (folded) => {
+it.each([
+  false,
+  true,
+])('a cold phone SpineRow shows loading then its task (folded=%s)', async (folded) => {
   const f = coldMissionRowFixture()
   try {
     expect(f.pool.tables.issue.has(f.row.id)).toBe(false)
-    const ui = render(<SpineRow row={f.row} carries={[]} rails={[]}
-      stops childFollows={false} mode="full" folded={folded}
-      currentSessionId={undefined} onToggleFold={() => {}} onOpenTask={() => {}}
-      onOpenSession={() => {}} />)
+    const ui = render(
+      <SpineRow
+        row={f.row}
+        carries={[]}
+        rails={[]}
+        stops
+        childFollows={false}
+        mode="full"
+        folded={folded}
+        currentSessionId={undefined}
+        onToggleFold={() => {}}
+        onOpenTask={() => {}}
+        onOpenSession={() => {}}
+      />,
+    )
     expect(ui.getByLabelText('Loading task')).toBeDefined()
     expect(ui.container.textContent).not.toContain('Loaded cold task')
-    await act(async () => { f.pool.hydrate() })
+    await act(async () => {
+      f.pool.hydrate()
+    })
     await waitFor(() => expect(ui.container.textContent).toContain('Loaded cold task'))
     expect(ui.queryByLabelText('Loading task')).toBeNull()
     if (!folded) expect(ui.container.textContent).toContain('Loaded cold agent 0')

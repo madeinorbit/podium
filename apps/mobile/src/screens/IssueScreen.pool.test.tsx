@@ -276,21 +276,66 @@ function OpenPage() {
     </button>
   )
 }
-function fingerprint(container: HTMLElement) {
-  return createHash('sha256')
-    .update(
-      JSON.stringify({
-        text: container.textContent,
-        labels: [...container.querySelectorAll('[aria-label]')].map((node) =>
-          node.getAttribute('aria-label'),
-        ),
-        styles: [...container.querySelectorAll('[style]')].map((node) =>
-          node.getAttribute('style'),
-        ),
-      }),
-    )
-    .digest('hex')
+function taskOutput(container: HTMLElement) {
+  return {
+    text: container.textContent,
+    labels: [...container.querySelectorAll('[aria-label]')].map((node) =>
+      node.getAttribute('aria-label'),
+    ),
+    styles: [...container.querySelectorAll('[style]')].map((node) => node.getAttribute('style')),
+  }
 }
+function fingerprint(output: ReturnType<typeof taskOutput>) {
+  return createHash('sha256').update(JSON.stringify(output)).digest('hex')
+}
+// The digest hid which field drifted. Also assert the reviewed task content,
+// controls and inline geometry directly at both corpus sizes. POD-2102 retired
+// task color: the identity square uses neutral ink and offers no color control.
+const acceptedClosedTaskOutput = {
+  text: "POD42POD-42podiumDECISION NEEDEDShip normalized mobile?Mark resolvedNormalized mobile missioncreated 3d ago · updated 3d agopinnedagent-createdIn Progress▾P2▾needs youNo agent is on this task.2 commits aheadThe normalized description.Sub-tasksNo sub-tasks. Break the work down as it becomes clear.Add sub-taskDetailsActivityCould not load earlier activity: Cannot read properties of undefined (reading 'query'). Tap to retry.Nothing has happened on this task yet. Comments and state changes land here.",
+  labels: [
+    'Back',
+    'More actions',
+    'Mark question resolved',
+    'Task title — edit',
+    'Stage In Progress — change',
+    'Priority P2 — change',
+    'Task description — edit',
+    'Add a sub-task',
+    'Details',
+    'Refresh AI notes',
+    'Show earlier activity',
+  ],
+  styles: [
+    'padding-top: 26px;',
+    'transform: scale(1);',
+    'width: 17px; height: 17px;',
+    'width: 22px; height: 22px; background-color: rgba(37, 40, 48, 1.00); opacity: 1; border-width: 1px; border-color: rgba(141, 141, 154, 1.00); border-radius: 6px;',
+    'font-family: GeistMono_600SemiBold; font-size: 5.5px; color: rgba(197, 197, 208, 1.00);',
+    'font-family: GeistMono_600SemiBold; font-size: 5.5px; color: rgba(197, 197, 208, 1.00);',
+    'width: 28px; height: 28px; transform: scale(1);',
+    'width: 17px; height: 17px;',
+    'padding-bottom: 0px;',
+    'transform: scale(1);',
+    'transform: scale(1);',
+    'background-color: rgba(217, 180, 119, 0.14);',
+    'color: rgba(217, 180, 119, 1.00);',
+    'background-color: rgba(217, 119, 87, 0.14);',
+    'color: rgba(229, 141, 112, 1.00);',
+    'transform: scale(1);',
+    'transform: scale(1);',
+    'transform: scale(1);',
+    'transform: scale(1);',
+    'width: 14px; height: 14px;',
+    'transform: scale(1);',
+    'transform: rotate(0deg);',
+    'width: 13px; height: 13px;',
+    'transform: scale(1);',
+    'width: 13px; height: 13px;',
+    'transform: scale(1);',
+  ],
+}
+
 it('keeps accepted task output and closed-picker per-open work flat at 1x and 4x', async () => {
   const cells: {
     scale: number
@@ -349,8 +394,10 @@ it('keeps accepted task output and closed-picker per-open work flat at 1x and 4x
       // events transport as a retry control; the former hook hid the error.
       // Its text, label and style are the entire accepted-output difference.
       await waitFor(() => expect(screen.getByLabelText('Show earlier activity')).toBeTruthy())
-      console.info('[accepted closed task]', scale, fingerprint(mounted.container))
-      expect(fingerprint(mounted.container)).toMatchSnapshot(`accepted closed task at ${scale}x`)
+      const output = taskOutput(mounted.container)
+      expect(output).toEqual(acceptedClosedTaskOutput)
+      expect(screen.queryByLabelText('Change task colour')).toBeNull()
+      expect(fingerprint(output)).toMatchSnapshot(`accepted closed task at ${scale}x`)
       census.exit()
       const phase = census.snapshot().phases['open task']!
       const stats = readRuntimeStoreStats(state.runtime!)!

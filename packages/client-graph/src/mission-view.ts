@@ -409,8 +409,9 @@ export class MissionDeckIssueModel implements FlightDeckRow {
   get drawable() { return this.canonical.ownDrawable }
   /** The reference of the session that filed this issue, when it can be named. */
   @lazy private get ownAuthorRef(): string | null {
-    const issue = requireLoaded(this.view.issue(this.id))
-    const author = issue?.startedBySession ? this.view.session(issue.startedBySession) : undefined
+    // Naming the author needs no roster, activity or inbound dependency payloads.
+    const authorId = this.facts.startedBySession
+    const author = authorId ? this.view.session(authorId) : undefined
     return author && author !== LOADING ? author.displayRef?.trim() || null : null
   }
   get authorRef() { return this.canonical.ownAuthorRef }

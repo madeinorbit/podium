@@ -1,5 +1,5 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`keeps accepted task output and closed-picker per-open work flat at 1x and 4x > accepted closed task at 1x 1`] = `"073d4688535d26313cb7577e5ad685873d9dfc3398d304975622cf24805e564d"`;
+exports[`keeps accepted task output and closed-picker per-open work flat at 1x and 4x > accepted closed task at 1x 1`] = `"00a9862116c2e6840e3f00519049f52d15f3a1040497f5b3d3a3f1f1419c40e0"`;
 
-exports[`keeps accepted task output and closed-picker per-open work flat at 1x and 4x > accepted closed task at 4x 1`] = `"073d4688535d26313cb7577e5ad685873d9dfc3398d304975622cf24805e564d"`;
+exports[`keeps accepted task output and closed-picker per-open work flat at 1x and 4x > accepted closed task at 4x 1`] = `"00a9862116c2e6840e3f00519049f52d15f3a1040497f5b3d3a3f1f1419c40e0"`;
