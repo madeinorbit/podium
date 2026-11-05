@@ -341,45 +341,78 @@ pub fn read_config() -> DesktopConfig {
 /// write-then-rename so a crash cannot leave a truncated file.
 static CONFIG_WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-fn update_config_json(
-    edit: impl FnOnce(&mut serde_json::Map<String, serde_json::Value>) -> Result<(), String>,
+/// Shared with runtime/config-write-lock.ts. A rollback-only SQLite transaction
+/// serializes read/modify/publish across processes and releases on process death.
+/// The scoped thread permits callers both inside and outside Tauri's async runtime.
+fn with_config_write_lock(
+    path: &Path,
+    write: impl FnOnce() -> Result<(), String> + Send,
 ) -> Result<(), String> {
-    let _guard = CONFIG_WRITE_LOCK
-        .lock()
-        .map_err(|_| "config writer unavailable")?;
+    use sqlx::sqlite::{SqliteConnectOptions, SqliteConnection};
+    use sqlx::{Connection, Executor};
+    let _local = CONFIG_WRITE_LOCK.lock().map_err(|_| "config writer unavailable")?;
+    std::fs::create_dir_all(path.parent().ok_or("config has no parent")?)
+        .map_err(|error| error.to_string())?;
+    let lock = PathBuf::from(format!("{}.write-lock.sqlite", path.display()));
+    std::thread::scope(|scope| {
+        scope.spawn(|| tauri::async_runtime::block_on(async {
+            let options = SqliteConnectOptions::new()
+                .filename(lock)
+                .create_if_missing(true)
+                .busy_timeout(std::time::Duration::from_secs(5));
+            let mut connection = SqliteConnection::connect_with(&options).await
+                .map_err(|_| "cannot open config writer coordination")?;
+            connection.execute("BEGIN IMMEDIATE").await
+                .map_err(|_| "config writer is busy or unavailable")?;
+            let result = write();
+            let released = connection.execute("ROLLBACK").await;
+            let closed = connection.close().await;
+            result?;
+            released.map_err(|_| "cannot release config writer coordination")?;
+            closed.map_err(|_| "cannot close config writer coordination")?;
+            Ok(())
+        })).join().map_err(|_| "config writer failed".to_string())?
+    })
+}
+
+fn update_config_json(
+    edit: impl FnOnce(&mut serde_json::Map<String, serde_json::Value>) -> Result<(), String> + Send,
+) -> Result<(), String> {
     let path = state_dir().join("config.json");
-    let text = std::fs::read_to_string(&path)
-        .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-    let mut json: serde_json::Value =
-        serde_json::from_str(&text).map_err(|e| format!("config.json is not valid JSON: {e}"))?;
-    let obj = json
-        .as_object_mut()
-        .ok_or_else(|| "config.json is not a JSON object".to_string())?;
-    edit(obj)?;
-    let out = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
-    let tmp = path.with_extension("json.tmp");
-    use std::io::Write;
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(&tmp)
-        .map_err(|e| format!("cannot write config: {e}"))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        file.set_permissions(std::fs::Permissions::from_mode(0o600))
+    with_config_write_lock(&path, || {
+        let text = std::fs::read_to_string(&path)
+            .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+        let mut json: serde_json::Value =
+            serde_json::from_str(&text).map_err(|e| format!("config.json is not valid JSON: {e}"))?;
+        let obj = json
+            .as_object_mut()
+            .ok_or_else(|| "config.json is not a JSON object".to_string())?;
+        edit(obj)?;
+        let out = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
+        let tmp = path.with_extension("json.tmp");
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&tmp)
+            .map_err(|e| format!("cannot write config: {e}"))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(std::fs::Permissions::from_mode(0o600))
+                .map_err(|e| e.to_string())?;
+        }
+        file.write_all(format!("{out}\n").as_bytes())
             .map_err(|e| e.to_string())?;
-    }
-    file.write_all(format!("{out}\n").as_bytes())
-        .map_err(|e| e.to_string())?;
-    file.sync_all().map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, &path).map_err(|e| format!("cannot replace config.json: {e}"))?;
-    #[cfg(unix)]
-    std::fs::File::open(state_dir())
-        .and_then(|dir| dir.sync_all())
-        .map_err(|e| e.to_string())?;
-    Ok(())
+        file.sync_all().map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, &path).map_err(|e| format!("cannot replace config.json: {e}"))?;
+        #[cfg(unix)]
+        std::fs::File::open(state_dir())
+            .and_then(|dir| dir.sync_all())
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    })
 }
 
 /// Remember the installation the window just authenticated to (POD-5921, `save_server_identity`).
@@ -1031,7 +1064,7 @@ fn inspect_client_registration(
         return Ok(ClientRegistrationStatus::Pending);
     }
 
-    let target = serde_json::to_string(&(
+    let material = serde_json::to_vec(&(
         machine_id,
         server,
         obj.get("uiUrl"),
@@ -1039,6 +1072,10 @@ fn inspect_client_registration(
         obj.get("pairCode"),
     ))
     .map_err(|e| e.to_string())?;
+    use sha2::{Digest, Sha256};
+    let target = format!("sha256:{:x}", Sha256::new()
+        .chain_update(b"podium:client-registration:v1\0")
+        .chain_update(material).finalize());
     Ok(ClientRegistrationStatus::Needed { target, machine_id: machine_id.to_string(), public_key })
 }
 
@@ -1102,63 +1139,64 @@ fn write_channel(
     feed_endpoint: Option<&str>,
     requirement: EndpointRequirement,
 ) -> Result<(), String> {
-    let _guard = CONFIG_WRITE_LOCK.lock().map_err(|_| "config writer unavailable")?;
     let path = state_dir().join("config.json");
-    let mut json = match std::fs::read_to_string(&path) {
-        Ok(text) => serde_json::from_str::<serde_json::Value>(&text)
-            .map_err(|e| format!("config.json is not valid JSON: {e}"))?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            serde_json::Value::Object(serde_json::Map::new())
-        }
-        Err(error) => return Err(format!("cannot read {}: {error}", path.display())),
-    };
-    let obj = json
-        .as_object_mut()
-        .ok_or_else(|| "config.json is not a JSON object".to_string())?;
-    obj.insert(
-        "updateChannel".to_string(),
-        serde_json::Value::String(channel.as_str().to_string()),
-    );
-    if channel == UpdateChannel::Dev {
-        let given = feed_endpoint.map(str::trim).filter(|e| !e.is_empty());
-        let endpoint = match (given, requirement) {
-            (Some(endpoint), _) => Some(endpoint),
-            // A dev-built shell records `dev` and no endpoint, and the updater reports itself
-            // unavailable until an attached source server supplies one. The alternative is
-            // worse in both directions: failing here stops the shell from launching at all,
-            // and seeding some other channel would leave a test build quietly updating from
-            // the feed real installs follow.
-            (None, EndpointRequirement::SeedWithoutOne) => None,
-            (None, EndpointRequirement::Required) => {
-                return Err("the dev desktop channel needs a feed endpoint".to_string())
+    with_config_write_lock(&path, || {
+        let mut json = match std::fs::read_to_string(&path) {
+            Ok(text) => serde_json::from_str::<serde_json::Value>(&text)
+                .map_err(|e| format!("config.json is not valid JSON: {e}"))?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                serde_json::Value::Object(serde_json::Map::new())
             }
+            Err(error) => return Err(format!("cannot read {}: {error}", path.display())),
         };
-        if let Some(endpoint) = endpoint {
-            let url =
-                Url::parse(endpoint).map_err(|e| format!("invalid dev update endpoint: {e}"))?;
-            if url.scheme() != "https" {
-                return Err("the dev update endpoint must use https".to_string());
+        let obj = json
+            .as_object_mut()
+            .ok_or_else(|| "config.json is not a JSON object".to_string())?;
+        obj.insert(
+            "updateChannel".to_string(),
+            serde_json::Value::String(channel.as_str().to_string()),
+        );
+        if channel == UpdateChannel::Dev {
+            let given = feed_endpoint.map(str::trim).filter(|e| !e.is_empty());
+            let endpoint = match (given, requirement) {
+                (Some(endpoint), _) => Some(endpoint),
+                // A dev-built shell records `dev` and no endpoint, and the updater reports itself
+                // unavailable until an attached source server supplies one. The alternative is
+                // worse in both directions: failing here stops the shell from launching at all,
+                // and seeding some other channel would leave a test build quietly updating from
+                // the feed real installs follow.
+                (None, EndpointRequirement::SeedWithoutOne) => None,
+                (None, EndpointRequirement::Required) => {
+                    return Err("the dev desktop channel needs a feed endpoint".to_string())
+                }
+            };
+            if let Some(endpoint) = endpoint {
+                let url =
+                    Url::parse(endpoint).map_err(|e| format!("invalid dev update endpoint: {e}"))?;
+                if url.scheme() != "https" {
+                    return Err("the dev update endpoint must use https".to_string());
+                }
+                obj.insert(
+                    "updateFeedEndpoint".to_string(),
+                    serde_json::Value::String(endpoint.to_string()),
+                );
+            } else {
+                // A build-channel seed is not entitled to retain an endpoint whose producer is
+                // unknown. In particular, older dev shells accepted loopback HTTP here; pairing a
+                // fresh `dev` channel with that stale value arms a release build that Tauri refuses.
+                obj.remove("updateFeedEndpoint");
             }
-            obj.insert(
-                "updateFeedEndpoint".to_string(),
-                serde_json::Value::String(endpoint.to_string()),
-            );
         } else {
-            // A build-channel seed is not entitled to retain an endpoint whose producer is
-            // unknown. In particular, older dev shells accepted loopback HTTP here; pairing a
-            // fresh `dev` channel with that stale value arms a release build that Tauri refuses.
             obj.remove("updateFeedEndpoint");
         }
-    } else {
-        obj.remove("updateFeedEndpoint");
-    }
-    let out = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
-    std::fs::create_dir_all(state_dir())
-        .map_err(|e| format!("cannot create {}: {e}", state_dir().display()))?;
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, format!("{out}\n"))
-        .map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
-    std::fs::rename(&tmp, &path).map_err(|e| format!("cannot replace config.json: {e}"))
+        let out = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(state_dir())
+            .map_err(|e| format!("cannot create {}: {e}", state_dir().display()))?;
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, format!("{out}\n"))
+            .map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
+        std::fs::rename(&tmp, &path).map_err(|e| format!("cannot replace config.json: {e}"))
+    })
 }
 
 /// Give the bundled server the same initial channel as the native updater.
@@ -3441,12 +3479,23 @@ mod tests {
             put_client_machine(&machine);
             let before = std::fs::read_to_string(state_dir().join("machine.json")).unwrap();
             let status = client_registration_status("https://vps.example").unwrap();
+            assert!(!serde_json::to_string(&status).unwrap().contains("OLD-CODE"));
             let target = match status {
                 ClientRegistrationStatus::Needed { target, machine_id, public_key } => {
                     assert_eq!(machine_id, "same-machine"); assert_eq!(public_key.as_deref(), Some(key.as_str())); target
                 },
                 other => panic!("expected authorized recovery request, got {other:?}"),
             };
+            assert!(target.starts_with("sha256:"));
+            assert_eq!(target.len(), 71);
+            // The receipt still binds the prior code; only its digest crosses IPC.
+            machine["supervisor"]["registration"]["recovery"]["pairCode"] = serde_json::json!("CHANGED-CODE");
+            put_client_machine(&machine);
+            update_config_json(|obj| { obj.insert("pairCode".into(), serde_json::json!("CHANGED-CODE")); Ok(()) }).unwrap();
+            assert_ne!(needed_client_target(), target);
+            assert!(write_client_registration("ABCD-EFGH", &target, "https://vps.example").is_err());
+            std::fs::write(state_dir().join("machine.json"), &before).unwrap();
+            update_config_json(|obj| { obj.insert("pairCode".into(), serde_json::json!("OLD-CODE")); Ok(()) }).unwrap();
             write_client_registration("ABCD-EFGH", &target, "https://vps.example").unwrap();
             assert_eq!(client_registration_status("https://vps.example").unwrap(), ClientRegistrationStatus::Pending);
             assert!(write_client_registration("JKLM-NPQR", &target, "https://vps.example").is_err());
@@ -3469,6 +3518,45 @@ mod tests {
             assert_eq!(config["pairCode"], "ABCD-EFGH");
             assert_eq!(config["updateChannel"], "edge");
             assert_eq!(config["extra"], 42);
+        });
+    }
+
+    #[test]
+    fn native_config_publication_excludes_an_independent_runtime_writer() {
+        with_state_dir("cross-runtime-config-writers", Some(r#"{"mode":"client","serverUrl":"wss://vps.example","pairCode":"OLD-CODE"}"#), || {
+            let path = state_dir().join("config.json");
+            let report = state_dir().join("writer-barrier.json");
+            let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../../scripts/fixtures/config-competing-writer.ts");
+            let mut writer = None;
+            let native = update_config_json(|obj| {
+                writer = Some(std::process::Command::new(
+                    std::env::var("PODIUM_CONFIG_TEST_BUN").unwrap_or_else(|_| "bun".into())
+                ).arg("--conditions=@podium/source").arg(&fixture).arg(&path).arg(&report)
+                    .env("PODIUM_STATE_DIR", state_dir())
+                    .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::piped())
+                    .spawn().map_err(|error| error.to_string())?);
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+                while !report.exists() {
+                    if std::time::Instant::now() > deadline { return Err("runtime writer barrier timed out".into()); }
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+                let barrier: serde_json::Value = serde_json::from_str(
+                    &std::fs::read_to_string(&report).map_err(|error| error.to_string())?
+                ).map_err(|error| error.to_string())?;
+                if barrier["contended"] != true { return Err("runtime writer bypassed native ownership".into()); }
+                obj.remove("pairCode");
+                Ok(())
+            });
+            // Publication has finished and SQLite ownership is released before
+            // the competing real runtime can save its replacement code/policy.
+            let output = writer.take().expect("runtime writer launched").wait_with_output().unwrap();
+            native.unwrap();
+            assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+            let config: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+            assert_eq!(config["pairCode"], "NEWER-CODE");
+            assert_eq!(config["updateChannel"], "edge");
+            assert_eq!(config["mode"], "client");
         });
     }
 

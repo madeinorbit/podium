@@ -8,6 +8,7 @@ import {
   resolvePort,
   saveConfig,
   stateDir,
+  withConfigWriteLock,
 } from '@podium/runtime/config'
 import { CHECK_ERROR_SENTENCES, type CheckResult } from '@podium/runtime/connect-check'
 import { clearConnectivity, readLiveConnectivity } from '@podium/runtime/connectivity'
@@ -1253,12 +1254,16 @@ export function repairConfig(): {
   const res = inspectConfig()
   if (res.state === 'ok') return { state: 'ok' }
   if (res.state === 'missing') return { state: 'missing' }
-  const backupPath = `${configPath()}.invalid-${new Date().toISOString().replace(/[:.]/g, '-')}`
-  renameSync(configPath(), backupPath)
-  // This process just moved the live config away without writing to it, so the
-  // loader's entry for that path describes a file that is no longer there.
-  forgetConfig()
-  return { state: 'repaired', backupPath, ...(res.error ? { error: res.error } : {}) }
+  return withConfigWriteLock(configPath(), () => {
+    // Another owner may repair it while we wait. Never move its newer config.
+    const current = inspectConfig()
+    if (current.state === 'ok') return { state: 'ok' }
+    if (current.state === 'missing') return { state: 'missing' }
+    const backupPath = `${configPath()}.invalid-${new Date().toISOString().replace(/[:.]/g, '-')}`
+    renameSync(configPath(), backupPath)
+    forgetConfig()
+    return { state: 'repaired', backupPath, ...(current.error ? { error: current.error } : {}) }
+  })
 }
 
 export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {}): Promise<void> {
