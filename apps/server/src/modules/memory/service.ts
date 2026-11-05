@@ -26,6 +26,15 @@ import { MemoryVisibilityPolicy } from './visibility'
 export type { LakeReadSession } from './lake'
 export type { MemoryReader } from './types'
 
+/** A conversation the reader cannot see, or that does not exist: deliberately
+ *  one answer. Named so a transport can tell it from a failure (POD-6412). */
+export class ConversationNotFound extends Error {
+  constructor() {
+    super('conversation not found')
+    this.name = 'ConversationNotFound'
+  }
+}
+
 export interface MemoryLedger {
   commit<T>(operation: LedgerCommitOp<T>): LedgerCommitResult<T> | Promise<LedgerCommitResult<T>>
   reconcile(
@@ -306,7 +315,7 @@ export class MemoryService {
       })
     ) {
       // Invisible and nonexistent are deliberately identical.
-      throw new Error('conversation not found')
+      throw new ConversationNotFound()
     }
     const next = {
       ...current,

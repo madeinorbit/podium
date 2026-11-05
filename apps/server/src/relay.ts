@@ -16,6 +16,7 @@ import type {
   SessionId,
   SessionMeta,
   UpdateChannel,
+  UserId,
 } from '@podium/model'
 import {
   actorAgent,
@@ -208,6 +209,7 @@ import { SpecsService } from './modules/specs/service'
 import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
 import type { HeadlessService } from './modules/superagent/headless'
 import { SyncWriteEntry } from './modules/sync-write/entry'
+import { registerFamilyCommands } from './modules/sync-write/family-commands'
 import { registerOutboxCommands } from './modules/sync-write/outbox-commands'
 import { SyncWriteRegistry } from './modules/sync-write/registry'
 import { GRANT_EVENT_KIND } from './modules/updates/grant-cause'
@@ -3950,10 +3952,13 @@ export class SessionRegistry {
     // the apps queue is registered on `syncWrite`, each family with its own
     // target resolver and handler. Registered once the modules exist, because the
     // session and issue handlers reach them per call.
-    registerOutboxCommands(syncWrite.registry, {
+    const syncFamilyDeps = {
       modules: () => this.modules,
-      roleOf: async (user) => await this.store.users.roleOf(user),
-    })
+      roleOf: async (user: UserId) => await this.store.users.roleOf(user),
+    }
+    registerOutboxCommands(syncWrite.registry, syncFamilyDeps)
+    // The rest of the synced writes, family by family (POD-6359).
+    registerFamilyCommands(syncWrite.registry, syncFamilyDeps)
     // The generic create, edit and remove of every declared synced kind (ADR 12
     // D3, POD-6391), beside the queued commands they replace one by one.
     registerRecordCommands(syncWrite.registry, { modules: () => this.modules })

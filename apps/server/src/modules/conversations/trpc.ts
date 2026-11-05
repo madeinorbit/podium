@@ -1,26 +1,23 @@
 /**
- * THE DERIVED CONVERSATION SURFACE (POD-314) — `setMeta` from the contract table,
- * `search` from the query table, both built by the one derived-family builder.
+ * THE CONVERSATION SURFACE (POD-314) — `search` from the query table, built by
+ * the derived-family builder. Its one write, `setMeta`, is on the sync write
+ * entry point only (`sync-write.ts`, POD-6412): no client ever called a route
+ * for it, so it has none.
  *
  * Everything `modules/derived-family.ts` claims applies here and is not restated.
  */
 
-import { asUserId } from '@podium/model'
-import { derivedFamilyProcedures, type FamilyProcedures } from '../derived-family'
+import { derivedFamilyProcedures, type QueryProcedures } from '../derived-family'
 import { CONVERSATION_QUERIES } from './queries'
-import { CONVERSATION_COMMANDS_TRPC } from './registry'
+import { selectConversationReader } from './sync-write'
 
-export type ConversationProcedures = FamilyProcedures<
-  typeof CONVERSATION_COMMANDS_TRPC,
-  typeof CONVERSATION_QUERIES
->
+export type ConversationProcedures = QueryProcedures<typeof CONVERSATION_QUERIES>
 
 /** THE DERIVED PROCEDURES, spread into `router.ts`'s `conversations` router. */
 export const conversationFamilyProcedures = (): ConversationProcedures =>
   derivedFamilyProcedures({
     family: 'conversations',
-    service: (state) =>
-      state.modules.memory.forReader({ kind: 'user', id: asUserId(state.caller.userId) }),
-    commands: CONVERSATION_COMMANDS_TRPC,
+    service: selectConversationReader,
+    commands: {},
     queries: CONVERSATION_QUERIES,
   })

@@ -9,18 +9,29 @@
 import { RECORD_CONTRACTS } from '@podium/commands'
 import { afterEach, describe, expect, it } from 'vitest'
 import { disposeOracles, makeOracle } from '../sessions/oracle-support'
+import { FAMILY_COMMAND_NAMES } from './family-commands'
+
+/** The effect record commands (POD-6393), registered beside the others. */
+const EFFECT_COMMAND_NAMES = ['effects.create', 'effects.cancel', 'effects.dismiss']
+
 import { OUTBOX_COMMAND_NAMES } from './outbox-commands'
 
 afterEach(() => disposeOracles())
 
 describe('the outbox commands on sync.submit', () => {
-  it('the composed registry holds exactly the queued commands and the generic record commands', async () => {
+  it('the composed registry holds exactly the queued, the generic record and the family commands', async () => {
     const o = await makeOracle()
 
     // The generic create, edit and remove (POD-6391) sit beside the queued
-    // commands they replace, one family at a time (POD-6355).
+    // commands they replace, one family at a time (POD-6355); the families'
+    // own writes follow them onto the entry point (POD-6359).
     expect(o.reg.modules.syncWrite.registry.names().sort()).toEqual(
-      [...OUTBOX_COMMAND_NAMES, ...Object.keys(RECORD_CONTRACTS)].sort(),
+      [
+        ...OUTBOX_COMMAND_NAMES,
+        ...Object.keys(RECORD_CONTRACTS),
+        ...EFFECT_COMMAND_NAMES,
+        ...FAMILY_COMMAND_NAMES,
+      ].sort(),
     )
   })
 

@@ -1,8 +1,11 @@
 /**
- * `settings.updatePersonal` ON THE SYNC WRITE ENTRY POINT (POD-6350, ADR 12 D2).
+ * `settings.updatePersonal` AND `settings.updateInstance` ON THE SYNC WRITE ENTRY
+ * POINT (POD-6350 and POD-6412, ADR 12 D2).
  *
- * The one settings command the apps queue. The entry point gives it the dedup
- * it never had; this registration keeps the family's two rules:
+ * The two synced settings writes: the one the apps queue, and the instance tier
+ * the settings screen sends at once. Both are one service method (the store
+ * routes each key by its classification). The entry point gives them the dedup
+ * they never had; this registration keeps the family's two rules:
  *
  *  - THE LIVE GATE (`authz.ts`): the contract's role floor against the account's
  *    role now, and a human the preference belongs to. In the target resolver,
@@ -29,8 +32,8 @@ import { redactErrorMessage } from './audit'
 import { settingsAuthzFailure } from './authz'
 import { SettingsPatchRefused, type SettingsService } from './service'
 
-const NAME = 'settings.updatePersonal'
-const contract = SETTINGS_CONTRACTS[NAME]
+/** The synced settings writes. The other settings commands are plain (POD-6360). */
+export type SyncedSettingsWrite = 'settings.updatePersonal' | 'settings.updateInstance'
 
 export interface SettingsSyncWriteDeps {
   settings(): Pick<SettingsService, 'updatePreferences' | 'recordCommand'>
@@ -40,16 +43,17 @@ export interface SettingsSyncWriteDeps {
 
 /** The family's refusal for a principal, or undefined to proceed. Exported for
  *  the old route, which answers with this same error. */
-export async function updatePersonalRefusal(
+export async function settingsWriteRefusal(
+  name: SyncedSettingsWrite,
   deps: Pick<SettingsSyncWriteDeps, 'roleOf'>,
   principal: CommandPrincipal,
 ): Promise<{ message: string; error: Error } | undefined> {
   const actor = onBehalfOfUser(principal)
   const role = actor === null ? undefined : await deps.roleOf(actor)
-  const refusal = settingsAuthzFailure(NAME, { principal, role })
+  const refusal = settingsAuthzFailure(name, { principal, role })
   if (refusal) return { message: refusal.message, error: refusal }
   if (actor === null) {
-    const message = `${NAME} writes on behalf of a user, and this principal has none`
+    const message = `${name} writes on behalf of a user, and this principal has none`
     return { message, error: new Error(message) }
   }
   return undefined
@@ -59,10 +63,20 @@ export async function updatePersonalRefusal(
 const isDefinitive = (error: unknown): boolean =>
   error instanceof SettingsPatchRefused || error instanceof z.ZodError
 
+/** `settings.updatePersonal`, the queued one (POD-6350). */
 export function registerSettingsCommands(
   registry: SyncWriteRegistry,
   deps: SettingsSyncWriteDeps,
 ): void {
+  registerSettingsWrite(registry, deps, 'settings.updatePersonal')
+}
+
+export function registerSettingsWrite(
+  registry: SyncWriteRegistry,
+  deps: SettingsSyncWriteDeps,
+  name: SyncedSettingsWrite,
+): void {
+  const contract = SETTINGS_CONTRACTS[name]
   const record = async (
     principal: CommandPrincipal,
     input: unknown,
@@ -70,7 +84,7 @@ export function registerSettingsCommands(
     error?: string,
   ) =>
     await deps.settings().recordCommand({
-      command: NAME,
+      command: name,
       outcome,
       principal,
       input,
@@ -80,19 +94,24 @@ export function registerSettingsCommands(
   registry.register({
     contract,
     target: async (input, { principal }) => {
-      const refusal = await updatePersonalRefusal(deps, principal)
+      const refusal = await settingsWriteRefusal(name, deps, principal)
       if (refusal === undefined) return NO_TARGET
       await record(principal, input, 'refused', refusal.message)
       return undefined
     },
     handle: async (ctx, input) => {
       const actor = onBehalfOfUser(ctx.principal)
-      if (actor === null) throw new Error(`${NAME} reached its handler without a human`)
+      if (actor === null) throw new Error(`${name} reached its handler without a human`)
       let next: Awaited<ReturnType<SettingsService['updatePreferences']>>
       try {
         next = await deps.settings().updatePreferences(actor, input.values)
       } catch (error) {
-        if (isDefinitive(error)) throw new SyncWriteRefused({ kind: 'invalid' }, { cause: error })
+        if (isDefinitive(error)) {
+          // The message the route has always answered with: redacted by the
+          // rule the trail uses, so no secret leaves in it.
+          const message = redactErrorMessage(name, input, describeError(error))
+          throw new SyncWriteRefused({ kind: 'invalid', message }, { cause: error })
+        }
         throw error
       }
       await record(ctx.principal, input, 'applied')
@@ -104,7 +123,7 @@ export function registerSettingsCommands(
         principal,
         input,
         'refused',
-        redactErrorMessage(NAME, input, describeError(cause)),
+        redactErrorMessage(name, input, describeError(cause)),
       )
     },
   })

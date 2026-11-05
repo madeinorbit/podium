@@ -61,7 +61,7 @@ import {
   settingsCommandsOn,
   settingsProcKey,
 } from './registry'
-import { updatePersonalRefusal } from './sync-write'
+import { type SyncedSettingsWrite, settingsWriteRefusal } from './sync-write'
 
 /**
  * A READ is served as a QUERY, DERIVED from `policy.action` (POD-421).
@@ -323,14 +323,20 @@ function asSettingsTrpcError(name: SettingsCommandName, input: unknown, e: unkno
 }
 
 /**
- * `settings.updatePersonal` — A THIN ADAPTER ONTO `sync.submit` (POD-6350) until
- * POD-6359 removes it. The gate, the write and the trail are the registration's
- * (`sync-write.ts`), so a write through either door is checked, deduplicated and
- * recorded once. The route keeps its wire: the redacted message on a refusal,
- * and the gate's own error when the gate refused.
+ * `settings.updatePersonal` and `settings.updateInstance` — THIN ADAPTERS ONTO
+ * `sync.submit` (POD-6350, POD-6412). LEGACY(remove-after: 2027-03): older apps
+ * queue `updatePersonal` on this route, and the desktop app's bundled web sends
+ * `updateInstance` on it; removing either breaks that client's settings saves.
+ * The gate, the write and the trail are the registration's (`sync-write.ts`), so a
+ * write through either door is checked, deduplicated and recorded once. The route
+ * keeps its wire: the redacted message on a refusal, and the gate's own error when
+ * the gate refused.
  */
-async function updatePersonalThroughEntry(ctx: Context, input: unknown): Promise<unknown> {
-  const name = 'settings.updatePersonal' as const
+async function settingsWriteThroughEntry(
+  name: SyncedSettingsWrite,
+  ctx: Context,
+  input: unknown,
+): Promise<unknown> {
   let detailed: Awaited<ReturnType<typeof submitFromRoute>>
   try {
     detailed = await submitFromRoute(ctx, { command: name, input })
@@ -340,13 +346,17 @@ async function updatePersonalThroughEntry(ctx: Context, input: unknown): Promise
   const { reply, cause } = detailed
   if (reply.outcome === 'applied') return reply.result
   if (cause !== undefined) throw asSettingsTrpcError(name, input, cause)
-  const refusal = await updatePersonalRefusal(
+  const refusal = await settingsWriteRefusal(
+    name,
     { roleOf: async (user) => await ctx.registry.sessionStore.users.roleOf(user) },
     ctx.principal,
   )
   if (refusal?.error instanceof TRPCError) throw refusal.error
   throw new TRPCError({ code: 'FORBIDDEN', message: refusal?.message ?? `${name} was refused` })
 }
+
+const isSyncedSettingsWrite = (name: SettingsCommandName): name is SyncedSettingsWrite =>
+  name === 'settings.updatePersonal' || name === 'settings.updateInstance'
 
 function buildProcedure(name: SettingsCommandName): unknown {
   const { contract } = SETTINGS_COMMANDS_TRPC[name]
@@ -367,8 +377,8 @@ function buildProcedure(name: SettingsCommandName): unknown {
   }
   const proc = t.procedure.input(contract.input)
   const call = async ({ ctx, input }: { ctx: Context; input: unknown }): Promise<unknown> =>
-    name === 'settings.updatePersonal'
-      ? await updatePersonalThroughEntry(ctx, input)
+    isSyncedSettingsWrite(name)
+      ? await settingsWriteThroughEntry(name, ctx, input)
       : await runSettingsCommand(name, ctx, input)
   // Derived from the contract, never chosen here — see `IsRead` above.
   return contract.policy.action === 'read' ? proc.query(call) : proc.mutation(call)

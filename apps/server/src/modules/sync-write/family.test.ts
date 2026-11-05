@@ -1,0 +1,266 @@
+/**
+ * THE SYNC FAMILY BUILDER AND ITS FIRST FAMILIES (POD-6412, plan Task 16).
+ *
+ * Through the registry the server actually composes: agent profiles,
+ * conversations, read positions and the instance settings tier. Each write
+ * arrives through `submit` with its provenance and a receipt; a replay answers
+ * the recorded result and runs nothing; the target check refuses before the
+ * handler; a handler's own refusal carries its message; and the old routes are
+ * either thin adapters (shipped clients still call them) or gone.
+ */
+
+import { asMutationId, asUserId, type UserId } from '@podium/model'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { type CommandPrincipal, userCommandPrincipal } from '../../command-principal'
+import { appRouter } from '../../router'
+import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
+import { FAMILY_COMMAND_NAMES } from './family-commands'
+import { appliedReply, envelope, expectAppliedOnPath, rowsOf, submit } from './outbox-test-support'
+
+afterEach(() => disposeOracles())
+
+const routerRecord = (name: string): Record<string, unknown> =>
+  (appRouter as unknown as { _def: { record: Record<string, Record<string, unknown>> } })._def
+    .record[name] ?? {}
+
+const profileInput = (name: string) => ({
+  name,
+  candidates: [{ harness: 'claude-code' as const, model: 'auto', effort: 'high' }],
+})
+
+/** A member account that exists, so its role is read live. */
+async function member(o: Oracle, id = 'usr_member_6412'): Promise<UserId> {
+  const user = asUserId(id)
+  await o.store.users.createUnclaimed({
+    id: user,
+    displayName: 'Member',
+    email: null,
+    role: 'member',
+    createdAt: new Date().toISOString(),
+    disabledAt: null,
+  })
+  return user
+}
+
+const submitAs = async (o: Oracle, principal: CommandPrincipal, command: string, input: unknown) =>
+  await o.reg.modules.syncWrite.submit(
+    envelope(command, input, `mut_${command}_${Math.random()}`),
+    principal,
+    'trpc',
+  )
+
+describe('the sync families on the entry point', () => {
+  it('the composed registry holds every family command', async () => {
+    const o = await makeOracle()
+    const names = o.reg.modules.syncWrite.registry.names()
+    for (const name of FAMILY_COMMAND_NAMES) expect(names, name).toContain(name)
+  })
+
+  it('agentProfiles.create applies once with a receipt; the replay answers the recorded profile', async () => {
+    const o = await makeOracle()
+    const { result } = await expectAppliedOnPath(
+      o,
+      envelope('agentProfiles.create', profileInput('critique'), 'mut_profile_create'),
+      // Agent profiles are not on the change log yet (POD-5802 moves them).
+      { writes: false },
+    )
+    expect(result).toMatchObject({ name: 'critique' })
+    expect((await o.call.agentProfiles.list({})).map((p) => p.name)).toContain('critique')
+  })
+
+  it("a handler's own refusal is a rejected reply that carries its message", async () => {
+    const o = await makeOracle()
+    appliedReply(
+      await submit(o, envelope('agentProfiles.create', profileInput('dup'), 'mut_dup_1')),
+    )
+
+    const reply = await submit(
+      o,
+      envelope('agentProfiles.create', profileInput('dup'), 'mut_dup_2'),
+    )
+    expect(reply).toEqual({
+      outcome: 'rejected',
+      refusal: {
+        kind: 'invalid',
+        message: "a profile named 'dup' already exists — use `podium profile update dup`",
+      },
+    })
+  })
+
+  it('the target check refuses a member before the handler, with no message', async () => {
+    const o = await makeOracle()
+    const user = await member(o)
+    const create = vi.spyOn(o.reg.modules.agentProfiles, 'create')
+
+    const reply = await submitAs(
+      o,
+      userCommandPrincipal(user, 'member'),
+      'agentProfiles.create',
+      profileInput('nope'),
+    )
+    expect(reply).toEqual({ outcome: 'rejected', refusal: { kind: 'unauthorized' } })
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('a disabled account is refused by the live role, whatever its capability says', async () => {
+    const o = await makeOracle()
+    const user = await member(o, 'usr_disabled_6412')
+    await o.store.users.disable(user, new Date().toISOString())
+
+    const reply = await submitAs(o, userCommandPrincipal(user, 'member'), 'readPosition.advance', {
+      streamId: 'issueEvents',
+      lastEventId: 3,
+    })
+    expect(reply).toEqual({ outcome: 'rejected', refusal: { kind: 'unauthorized' } })
+  })
+
+  it('readPosition.advance writes its row with provenance; a replay writes nothing', async () => {
+    const o = await makeOracle()
+    const { result, rows } = await expectAppliedOnPath(
+      o,
+      envelope('readPosition.advance', { streamId: 'issueEvents', lastEventId: 7 }, 'mut_rp_7'),
+      { writes: true },
+    )
+    expect(result).toMatchObject({ issueEvents: { lastEventId: 7 } })
+    expect(rows.map((row) => row.entity)).toEqual(['userReadPosition'])
+  })
+
+  it('a member advances their own read position', async () => {
+    const o = await makeOracle()
+    const user = await member(o)
+
+    const reply = await submitAs(o, userCommandPrincipal(user, 'member'), 'readPosition.advance', {
+      streamId: 'issueEvents',
+      lastEventId: 2,
+    })
+    expect(appliedReply(reply).result).toMatchObject({ issueEvents: { lastEventId: 2 } })
+  })
+
+  it('conversations.setMeta writes the conversation row with provenance', async () => {
+    const o = await makeOracle()
+    const machineId = o.store.hostMachineId
+    await o.reg.gateway.routeDaemonFrame(machineId, {
+      type: 'conversationsChanged',
+      conversations: [{ id: 'conv-6412', agentKind: 'claude-code', providerId: 'p' } as never],
+      diagnostics: [],
+    })
+    // A conversation is readable through the session that owns it.
+    const { sessionId } = await o.reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/owned-conversation',
+    })
+    await o.reg.gateway.routeDaemonFrame(machineId, {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'claude-session', value: 'conv-6412' },
+    })
+    await o.reg.modules.sessions.flushBroadcasts()
+    const { rows } = await expectAppliedOnPath(
+      o,
+      envelope('conversations.setMeta', { id: 'conv-6412', name: 'Renamed' }, 'mut_conv_meta'),
+      { writes: true },
+    )
+    expect(rows.map((row) => [row.entity, row.entityId])).toEqual([['conversation', 'conv-6412']])
+  })
+
+  it('a conversation the reader cannot see is not found, and nothing is written', async () => {
+    const o = await makeOracle()
+    const reply = await submit(
+      o,
+      envelope('conversations.setMeta', { id: 'conv-missing', name: 'x' }, 'mut_conv_missing'),
+    )
+    expect(reply).toEqual({
+      outcome: 'rejected',
+      refusal: { kind: 'target-not-found', message: 'conversation not found' },
+    })
+    expect(await rowsOf(o, 'mut_conv_missing')).toEqual([])
+  })
+
+  it('settings.updateInstance applies once; a value the schema refuses is invalid', async () => {
+    const o = await makeOracle()
+    await expectAppliedOnPath(
+      o,
+      envelope('settings.updateInstance', { values: { 'hibernation.memoryPct': 80 } }, 'mut_inst'),
+      { writes: false },
+    )
+
+    const reply = await submit(
+      o,
+      envelope(
+        'settings.updateInstance',
+        { values: { 'hibernation.memoryPct': 'not-a-number' } },
+        'mut_inst_bad',
+      ),
+    )
+    expect(reply.outcome).toBe('rejected')
+    if (reply.outcome === 'rejected') expect(reply.refusal.kind).toBe('invalid')
+  })
+
+  it('settings.updateInstance refuses a member: the admin floor', async () => {
+    const o = await makeOracle()
+    const user = await member(o)
+    const reply = await submitAs(
+      o,
+      userCommandPrincipal(user, 'member'),
+      'settings.updateInstance',
+      {
+        values: { 'hibernation.memoryPct': 70 },
+      },
+    )
+    expect(reply).toEqual({ outcome: 'rejected', refusal: { kind: 'unauthorized' } })
+  })
+})
+
+describe('the old routes of the sync families', () => {
+  it('conversations.setMeta has no route: no client ever called one', () => {
+    expect(routerRecord('conversations').setMeta).toBeUndefined()
+  })
+
+  it('the routes shipped clients still call are served, as mutations', () => {
+    const verbOf = (proc: unknown) => (proc as { _def?: { type?: string } } | undefined)?._def?.type
+    for (const key of ['create', 'update', 'delete', 'import']) {
+      expect(verbOf(routerRecord('agentProfiles')[key]), `agentProfiles.${key}`).toBe('mutation')
+    }
+    expect(verbOf(routerRecord('readPosition').advance)).toBe('mutation')
+    expect(verbOf(routerRecord('settings').updateInstance)).toBe('mutation')
+  })
+
+  it('each kept route is a thin adapter onto the entry point', async () => {
+    const o = await makeOracle()
+    const entry = vi.spyOn(o.reg.modules.syncWrite, 'submitDetailed')
+
+    const profile = await o.call.agentProfiles.create(profileInput('via-route'))
+    expect(profile).toMatchObject({ name: 'via-route' })
+    const snapshot = await o.call.readPosition.advance({ streamId: 'issueEvents', lastEventId: 4 })
+    expect(snapshot).toMatchObject({ issueEvents: { lastEventId: 4 } })
+    await o.call.settings.updateInstance({ values: { 'hibernation.memoryPct': 75 } })
+
+    expect(entry.mock.calls.map(([env]) => env.command)).toEqual([
+      'agentProfiles.create',
+      'readPosition.advance',
+      'settings.updateInstance',
+    ])
+  })
+
+  it("a kept route answers a handler's refusal with the family's own error", async () => {
+    const o = await makeOracle()
+    await o.call.agentProfiles.create(profileInput('twice'))
+    await expect(o.call.agentProfiles.create(profileInput('twice'))).rejects.toThrow(
+      "a profile named 'twice' already exists",
+    )
+  })
+
+  it('a route call carrying a mutationId is deduplicated against sync.submit', async () => {
+    const o = await makeOracle()
+    const mutationId = asMutationId('mut_rp_shared')
+    appliedReply(
+      await submit(
+        o,
+        envelope('readPosition.advance', { streamId: 'issueEvents', lastEventId: 9 }, mutationId),
+      ),
+    )
+    // The same write from an older app's route, under the same id: a replay.
+    await o.call.readPosition.advance({ streamId: 'issueEvents', lastEventId: 9, mutationId })
+    expect(await rowsOf(o, mutationId)).toHaveLength(1)
+  })
+})
