@@ -102,7 +102,7 @@ import {
   type SessionModel,
 } from './models'
 import type { PreferenceRow } from './preference-schema'
-import type { AutomationRunWire, AutomationWire, MachineProjection, MachineWire } from '@podium/model'
+import type { AutomationRunWire, AutomationWire, EffectRecordWire, MachineProjection, MachineWire } from '@podium/model'
 import { preferenceSource } from './preference-source'
 import { ReaderQueries } from './reader-queries'
 import { type Lookup, here, omitGone, isGone, NOT_VISIBLE, REMOVED } from './lookup'
@@ -255,6 +255,8 @@ export interface PoolRows {
   machine: Readonly<MachineWire & MachineProjection> & Readonly<Record<string, unknown>>
   automation: Readonly<AutomationWire> & Readonly<Record<string, unknown>>
   automationRun: Readonly<AutomationRunWire> & Readonly<Record<string, unknown>>
+  /** Stamped at the row-source boundary: a session target's id (POD-6397). */
+  effect: Readonly<EffectRecordWire> & { readonly sessionId?: string } & Readonly<Record<string, unknown>>
   issue: SliceIssue & Readonly<Record<string, unknown>>
   session: SliceSession & Readonly<Record<string, unknown>>
   worktree: SliceWorktree & Readonly<Record<string, unknown>>

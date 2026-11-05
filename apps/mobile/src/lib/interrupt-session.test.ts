@@ -3,19 +3,32 @@ import { describe, expect, it, vi } from 'vitest'
 import { interruptSession } from './interrupt-session'
 
 describe('interruptSession', () => {
-  it('passes the controller-selected durable message id to the mutation', async () => {
-    const mutate = vi.fn(async () => ({ ok: true as const, requested: 'protocol' as const }))
-    await interruptSession({ interrupt: { mutate } }, asSessionId('session-1'), 'msg-durable')
-    expect(mutate).toHaveBeenCalledWith({
-      sessionId: asSessionId('session-1'),
+  it('names the turn on screen and the controller-selected durable message', async () => {
+    const interruptTurn = vi.fn(async () => 'eff_1')
+    await interruptSession(
+      { interruptTurn },
+      { turnStartedAt: '2026-11-05T10:00:00.000Z' },
+      asSessionId('session-1'),
+      'msg-durable',
+    )
+    expect(interruptTurn).toHaveBeenCalledWith(asSessionId('session-1'), {
+      turn: '2026-11-05T10:00:00.000Z',
       messageId: 'msg-durable',
     })
   })
 
-  it('keeps a refused interrupt retryable', async () => {
-    const mutate = vi.fn(async () => ({ ok: false, reason: 'already idle' }))
+  it('with no turn known it names none, and stops whatever turn runs', async () => {
+    const interruptTurn = vi.fn(async () => 'eff_1')
+    await interruptSession({ interruptTurn }, undefined, asSessionId('session-1'))
+    expect(interruptTurn).toHaveBeenCalledWith(asSessionId('session-1'), {})
+  })
+
+  it('a write that fails rejects, so the composer says so', async () => {
+    const interruptTurn = vi.fn(async () => {
+      throw new Error('offline outbox full')
+    })
     await expect(
-      interruptSession({ interrupt: { mutate } }, asSessionId('session-1')),
-    ).rejects.toThrow('already idle')
+      interruptSession({ interruptTurn }, undefined, asSessionId('session-1')),
+    ).rejects.toThrow('offline outbox full')
   })
 })

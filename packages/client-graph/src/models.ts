@@ -1,5 +1,5 @@
 import { type IssueNavigationModel, issuePendingDecision, missionTaskBucket, type MissionTaskBucket } from '@podium/client-core/values'
-import type { IssueGitState, IssuePanel, IssuePanelArtifact, IssueProjection } from '@podium/model'
+import type { EffectError, EffectRecordWire, EffectStatus, IssueGitState, IssuePanel, IssuePanelArtifact, IssueProjection } from '@podium/model'
 import { here, isGone, type Lookup, omitGone } from './lookup'
 import type { MessageModel, PendingInteractionModel } from './message-models'
 import { ReadObservation } from './read-observation'
@@ -11,6 +11,7 @@ export type { AutomationModel, AutomationRunModel, MachineModel } from './synced
 import { attentionGroup, effectiveRecency } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
 import { groupRelations, type IssueCloseMemberCounts, type IssueCloseScalarSubject, type ReferentExit, motionPhase as sessionMotion, type TaskProgress } from '@podium/client-core/values'
+import { isTurnOpen, readEffectStatus, SESSION_INTERRUPT_KIND } from '@podium/model/browser'
 import { asSessionId, type CoordinatedSeat, coordinatedSeat, sessionWorkingFact, isExcluded, isFinished, NO_INTERACTIONS, type SeatInteractions, type SeatRole, type SeatSessionFacts, type SessionWord, type SessionWordFacts, sessionWord, wordWantsAttention } from '@podium/model/browser'
 import type { ReaderQueries } from './reader-queries'
 import type { IssueSessionFactReader } from './shared/issue-session-facts'
@@ -850,6 +851,30 @@ export class SessionModel extends EntityModel {
   @lazy get agentNativeSubagentCount(): number {
     return this.agentState?.nativeSubagentCount ?? this.agentState?.nativeSubagents?.length ?? 1
   }
+  /** The turn the agent state belongs to, as the daemon marked it (POD-6397). */
+  @lazy get turnStartedAt(): string | undefined { return this.agentState?.turnStartedAt }
+  /** The Stop asked for most recently on this session, as its effect record (POD-6397). */
+  @lazy get interrupt(): EffectModel | undefined {
+    let latest: EffectModel | undefined
+    for (const effect of this.effects.ready) {
+      if (effect.kind !== SESSION_INTERRUPT_KIND) continue
+      if (latest === undefined || effect.createdAt > latest.createdAt) latest = effect
+    }
+    return latest
+  }
+  /** A Stop is on its way: waiting to start, or waiting for its turn to end. */
+  @lazy get interrupting(): boolean { return this.interrupt?.inFlight === true }
+  /**
+   * The Stop failed, expired or lost track while the turn it named still runs:
+   * when the app offers Kill (POD-6397). A later turn, or none, means the agent
+   * stopped after all.
+   */
+  @lazy get interruptStuck(): boolean {
+    const stop = this.interrupt
+    if (stop === undefined || !stop.unsuccessful || !isTurnOpen(this.agentState)) return false
+    const turn = (stop.input as { turn?: unknown } | null | undefined)?.turn
+    return typeof turn !== 'string' || turn === this.turnStartedAt
+  }
 
   // Stored session document, published by Draft Sync v2 rather than the meta feed.
   @lazy get messageDraft(): string { return this.host.sessionDrafts?.get(asSessionId(this.id)) ?? '' }
@@ -1119,6 +1144,30 @@ export class WorktreeModel extends EntityModel {
 
 }
 
+/**
+ * ONE EFFECT RECORD (ADR 12 D5 E2, POD-6397): a one-off action outside the
+ * database (a Stop, a merge, a file write) whose status the server moves on the
+ * record. Read-only here: no client writes a status. One scalar per question.
+ */
+export class EffectModel extends EntityModel {
+  constructor(id: string, host: ModelHost) {
+    super('effect', id, host)
+  }
+
+  // Progress and outcome
+  @lazy get status(): EffectStatus { return readEffectStatus(String(this.effect?.status ?? 'unknown')) }
+  @lazy get stage(): string | undefined { return this.effect?.stage }
+  @lazy({ equals: compareStructural }) get error(): EffectError | undefined { return this.effect?.error }
+  /** Still on its way: waiting to start, or running. */
+  @lazy get inFlight(): boolean { return this.status === 'pending' || this.status === 'running' }
+  /** Ended without doing its work, or without saying whether it did. A cancel
+   *  is the person's own choice, not a failure. */
+  @lazy get unsuccessful(): boolean {
+    return this.status === 'failed' || this.status === 'expired' || this.status === 'unknown'
+  }
+}
+export interface EffectModel extends Readonly<Omit<EffectRecordWire, 'id'>>, RelationGetters<'effect'> {}
+
 class RepoModel extends EntityModel {
   constructor(id: string, host: ModelHost) {
     super('repo', id, host)
@@ -1177,6 +1226,7 @@ export type ModelOf = {
     Readonly<Pick<SliceWorktree, 'path' | 'repoId' | 'repoPath'>> &
     RelationGetters<'worktree'>
   repo: RepoModel & Readonly<RepoRow> & { readonly path?: string } & RelationGetters<'repo'>
+  effect: EffectModel
 }
 
 /** The installed class registry. Deferred kinds join it before their first model
@@ -1184,6 +1234,7 @@ export type ModelOf = {
 export type ModelClass = (new (id: string, host: ModelHost) => EntityModel) & Pick<typeof EntityModel, 'answers'>
 export const MODEL_CLASSES: Readonly<Partial<Record<EntityName, ModelClass>>> = {
   issue: IssueModel, session: SessionModel, worktree: WorktreeModel, repo: RepoModel,
+  effect: EffectModel,
 }
 
 for (const [entity, Model] of Object.entries(MODEL_CLASSES) as [EntityName, ModelClass][]) {

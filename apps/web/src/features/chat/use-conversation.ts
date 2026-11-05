@@ -298,16 +298,14 @@ export function createWebConversation(
             await trpc.superagent.interruptTurn.mutate({ threadId: mount.superThread.threadId })
             return
           }
-          const result = await trpc.sessions.interrupt.mutate({
-            sessionId,
+          // A `session.interrupt` record naming the turn on screen (POD-6397):
+          // a late Stop never reaches the next turn, and every device shows
+          // Interrupting… (then Kill, if the turn runs on) from the record.
+          const turn = conversation.session?.turnStartedAt
+          await store.interruptTurn(sessionId, {
+            ...(turn !== undefined ? { turn } : {}),
             ...(messageId ? { messageId } : {}),
           })
-          if (result && typeof result === 'object' && 'ok' in result && result.ok === false)
-            throw new Error(
-              'reason' in result && typeof result.reason === 'string'
-                ? result.reason
-                : 'the agent refused the interrupt',
-            )
         },
         deliver: async (turn) => {
           conversation.rememberPrompt(turn.text)

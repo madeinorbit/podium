@@ -149,7 +149,6 @@ async function mount(initial?: TranscriptItem[]) {
       sessions: {
         transcriptRead: { query: io.transcriptRead },
         answerAskUserQuestion: { mutate: async () => ({ ok: true }) },
-        interrupt: { mutate: async () => ({ ok: true }) },
       },
     },
   })

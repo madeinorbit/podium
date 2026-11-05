@@ -437,6 +437,16 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  Refuses rather than throws on a dirty/conflicted tree; the refusal is
    *  returned so the caller can offer `force`. */
   endSession: (sessionId: SessionId, force?: boolean) => Promise<SessionEndResult>
+  /**
+   * Stop the turn the person saw (POD-6397): a `session.interrupt` effect
+   * record naming that turn (`turn`: the session's `agentState.turnStartedAt`)
+   * and the send it retracts if it has not reached the agent. Resolves once the
+   * record is durably queued, with its id; the session model reads its progress
+   * (`interrupting`, `interruptStuck`) from the record, on every device.
+   */
+  interruptTurn: (sessionId: SessionId, args: { turn?: string; messageId?: string }) => Promise<string>
+  /** Take an ended effect record off the feed (`effects.dismiss`). */
+  dismissEffect: (id: string) => Promise<void>
   resurrectSession: (sessionId: SessionId) => Promise<SessionResurrectionResult>
   /**
    * Send one chat message to a session through the durable outbox (POD-4762),

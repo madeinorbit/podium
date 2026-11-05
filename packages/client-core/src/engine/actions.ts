@@ -21,7 +21,14 @@ import type {
   UserId,
   WorkState,
 } from '@podium/model'
-import { asIssueId, asThreadId, issueUserStateRowId, sessionUserStateRowId } from '@podium/model'
+import {
+  asIssueId,
+  asThreadId,
+  issueUserStateRowId,
+  SESSION_INTERRUPT_KIND,
+  sessionUserStateRowId,
+} from '@podium/model'
+import { randomUUID } from '../id'
 import {
   isSessionIdPrefix,
   resolveSessionIdentifier,
@@ -166,6 +173,8 @@ export const COMMAND_ACTIONS = [
   'continueSession',
   'hibernateSession',
   'endSession',
+  'interruptTurn',
+  'dismissEffect',
   'resurrectSession',
   'sendChat',
   'chatSendsFor',
@@ -1122,6 +1131,23 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     endSession: async (sessionId, force) =>
       await editSessionLifecycle(sessionId, 'stopped', force === true),
     resurrectSession: async (sessionId) => await editSessionLifecycle(sessionId, 'running'),
+    // Stop, scoped to the turn the person saw (POD-6397): a `session.interrupt`
+    // effect record, queued durably. Every device shows it from the record:
+    // Interrupting… until that turn ends, and the Kill offer if it does not.
+    interruptTurn: async (sessionId, args) => {
+      const id = `eff_${randomUUID()}`
+      await rt.write('effectCreate', {
+        id,
+        kind: SESSION_INTERRUPT_KIND,
+        target: { kind: 'session', id: sessionId },
+        input: {
+          ...(args.turn !== undefined ? { turn: args.turn } : {}),
+          ...(args.messageId !== undefined ? { messageId: args.messageId } : {}),
+        },
+      })
+      return id
+    },
+    dismissEffect: async (id) => await rt.write('effectDismiss', { id }),
     sendChat: async (input, mutationId) => {
       // Optimistic spawn paints the session id before the server has it. A send
       // in that window dead-letters as "unknown session" and used to be treated

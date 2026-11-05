@@ -2,6 +2,7 @@ import { issueAgentKind, issueDefaultAgentKind } from '@podium/client-core/agent
 import type { SessionView } from '@podium/client-core/session-values'
 import type { TranscriptFreshness } from '@podium/client-core/transcript'
 import { principalShortName } from '@podium/client-core/values'
+import type { SessionModel } from '@podium/client-graph/models'
 import type { useVoiceInput } from '@podium/terminal-client-react'
 import {
   ArrowUp,
@@ -34,6 +35,7 @@ import { useNativeDraftText } from '@/lib/use-native-draft-text'
 import { usePromptAutoGrow } from '@/lib/use-prompt-auto-grow'
 import { cn } from '@/lib/utils'
 import { AttachmentStrip } from './AttachmentStrip'
+import { InterruptNotice } from './InterruptNotice'
 import type { MailReply } from './mail-reply'
 import { OfferBar } from './OfferBar'
 import { QuoteOverlay, type UseQuotesResult } from './QuoteTokens'
@@ -157,6 +159,7 @@ export const ChatComposer = observer(function ChatComposer({
   canInterrupt,
   onInterrupt,
   interruptError,
+  stop,
   offer,
   onOfferAction,
   onOfferDismiss,
@@ -203,6 +206,9 @@ export const ChatComposer = observer(function ChatComposer({
   /** Why the last stop did not take effect (POD-1214). Shown as its own notice:
    *  a turn that is still running after you pressed stop must say so. */
   interruptError?: string | null
+  /** The session whose Stop is shown from its record (POD-6397): Interrupting…,
+   *  then Kill if the turn runs on. Absent for a superagent thread. */
+  stop?: SessionModel | undefined
   offer: SessionView['offer'] | null
   onOfferAction: (prompt: string, offerAt: string) => Promise<void>
   /** "None of these" — clears the offer without sending a turn. */
@@ -626,6 +632,7 @@ export const ChatComposer = observer(function ChatComposer({
       <div role="status" className="sr-only">
         {transcriptAnnouncement}
       </div>
+      {stop && <InterruptNotice session={stop} />}
       {(turnError !== null ||
         (interruptError !== null && interruptError !== undefined) ||
         transcriptFreshness !== null ||

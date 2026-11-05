@@ -91,6 +91,9 @@ export type ModelSchemaName =
   | 'MessageRecordWire'
   | 'MessageLedgerWire'
   | 'PendingInteractionWire'
+  | 'EffectRecordWire'
+  | 'EffectGroup'
+  | 'EffectTarget'
   | 'AccountView'
   | 'MemberView'
   | 'MobileClientSession'
@@ -122,6 +125,7 @@ export type RowArrival =
   | 'engine:machines'
   | 'replica:messageRecords'
   | 'replica:pendingInteractions'
+  | 'replica:effects'
   | 'request:messages.ledger'
   | 'request:accounts.list'
   | 'request:members.list'
@@ -181,7 +185,7 @@ export interface FieldSpec {
 // Relations
 // ---------------------------------------------------------------------------
 
-export type EntityName = 'account' | 'member' | 'device' | 'podiumSettings' | 'repository' | 'issue' | 'session' | 'worktree' | 'repo' | 'machine' | 'automation' | 'automationRun' | 'messageRecord' | 'pendingInteraction'
+export type EntityName = 'account' | 'member' | 'device' | 'podiumSettings' | 'repository' | 'issue' | 'session' | 'worktree' | 'repo' | 'machine' | 'automation' | 'automationRun' | 'messageRecord' | 'pendingInteraction' | 'effect'
 
 /**
  * Four kinds, and no more.
@@ -456,6 +460,11 @@ function syncedIdentity(schema: ModelSchemaName, arrivesOn: RowArrival) {
     why: 'Detailed fields and models register from the deferred synced-models module.',
   }
 }
+const effectWire = (property?: string): FieldSource => ({
+  schema: 'EffectRecordWire',
+  arrivesOn: 'replica:effects',
+  ...(property === undefined ? {} : { property }),
+})
 const scan = (schema: 'GitRepositoryWire' | 'GitWorktreeWire', property?: string): FieldSource => ({
   schema,
   arrivesOn: 'engine:repos',
@@ -833,6 +842,12 @@ const DECLARED = defineSchema({
           why: 'Replica issue membership includes raw headless/archived/resume-twin rows, excluding shells.' },
         why: 'The replica page membership contract before visual resume collapse.',
       }),
+      effects: hasMany({
+        to: 'effect',
+        inverse: 'session',
+        lazy: false,
+        why: 'One-off actions on this session (a Stop is a `session.interrupt`), each its own record (POD-6397).',
+      }),
       startedIssues: hasMany({
         to: 'issue',
         inverse: 'startedBy',
@@ -1014,6 +1029,59 @@ const DECLARED = defineSchema({
       worktrees: hasMany({ to: 'worktree', inverse: 'repo', lazy: false, why: 'The repo’s lanes.' }),
     },
     cold: { kind: 'never', why: 'One row per repo: a handful. Always resident.' },
+  },
+  /**
+   * A one-off action outside the database, as data (ADR 12 D5 E2): a merge, a
+   * file write, a Stop. Its status moves on the record, so every device shows
+   * the same answer to "did it happen?" (POD-6397).
+   */
+  effect: {
+    key: 'id',
+    why: 'One shared record per effect: the composer, a session bar or a task row each read the same model.',
+    components: {
+      record: {
+        schema: 'EffectRecordWire',
+        arrivesOn: 'replica:effects',
+        joinKey: 'id',
+        precedence: 0,
+        why: 'The generic effect record the feed carries.',
+      },
+    },
+    fields: {
+      // Identity and intent
+      id: { type: 'id', source: effectWire() },
+      kind: { type: 'string', source: effectWire(), note: '`session.interrupt`, `issue.merge`, `file.write`, …' },
+      target: { type: 'object', source: effectWire(), parts: {
+        kind: { type: 'enum', source: { schema: 'EffectTarget' }, why: 'What the effect acts on, and so who sees it.' },
+        id: { type: 'id', source: { schema: 'EffectTarget' }, why: 'The target record.' },
+      } },
+      sessionId: { type: 'id', optional: true, source: effectWire('target'), note: "Stamped at the row-source boundary from a session target's id: the key of the `session` relation." },
+      input: { type: 'object', source: effectWire(), note: 'What the kind publishes of its input.' },
+      cancelRequested: { type: 'boolean', source: effectWire() },
+      createdBy: { type: 'id', nullable: true, source: effectWire() },
+      createdAt: { type: 'isoDate', source: effectWire() },
+      updatedAt: { type: 'isoDate', source: effectWire() },
+      revision: { type: 'number', source: effectWire() },
+      // Progress and outcome
+      effect: { type: 'object', source: effectWire(), parts: {
+        status: { type: 'enum', source: { schema: 'EffectGroup' }, why: 'The standard effect status.' },
+        stage: { type: 'string', optional: true, source: { schema: 'EffectGroup' }, why: 'Kind-specific progress while running.' },
+        error: { type: 'object', optional: true, source: { schema: 'EffectGroup' }, why: 'Why it failed, for a person.' },
+        deadline: { type: 'isoDate', optional: true, source: { schema: 'EffectGroup' }, why: 'When it gives up.' },
+      } },
+      result: { type: 'object', optional: true, source: effectWire(), note: "The kind's small answer." },
+    },
+    relations: {
+      session: belongsTo({
+        to: 'session',
+        foreignKey: 'sessionId',
+        targetKey: 'sessionId',
+        inverse: 'effects',
+        lazy: true,
+        why: 'The session an effect acts on (a Stop), for its `effects` collection.',
+      }),
+    },
+    cold: { kind: 'never', why: 'Effects are few and pruned after the retention window: always resident.' },
   },
   messageRecord: syncedIdentity('MessageRecordWire', 'replica:messageRecords'),
   pendingInteraction: syncedIdentity('PendingInteractionWire', 'replica:pendingInteractions'),

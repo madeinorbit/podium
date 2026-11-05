@@ -145,6 +145,7 @@ const SLICE_KINDS: ReadonlySet<ReplicaKind> = new Set([
   'machines',
   'automations',
   'automationRuns',
+  'effects',
   'issueUserStates',
   'issueGitStates',
   'issueProjections',
@@ -665,13 +666,25 @@ export function createRowSource(
     return { ...raw, repoPath: raw.repoPath ?? roots?.[0]?.path ?? '' }
   }
 
-  function companions(kind: 'repo' | 'machine' | 'automation' | 'automationRun'): RowRecord[] {
-    const replicaKind = { repo: 'repos', machine: 'machines', automation: 'automations', automationRun: 'automationRuns' } as const
+  /**
+   * An effect record with its session target stamped flat (POD-6397), so the
+   * `effect.session` relation keys on a field like every other relation does.
+   */
+  function effectRow(raw: AnyRow | undefined): AnyRow | undefined {
+    if (!raw) return undefined
+    const target = raw['target'] as { kind?: unknown; id?: unknown } | undefined
+    return target?.kind === 'session' && typeof target.id === 'string'
+      ? { ...raw, sessionId: target.id }
+      : raw
+  }
+
+  function companions(kind: 'repo' | 'machine' | 'automation' | 'automationRun' | 'effect'): RowRecord[] {
+    const replicaKind = { repo: 'repos', machine: 'machines', automation: 'automations', automationRun: 'automationRuns', effect: 'effects' } as const
     return replica.rows(replicaKind[kind]).flatMap(raw => {
       const id = idOf(raw)
       if (!id) return []
       stats.rowsVisited += 1
-      return [{ kind, id, value: kind === 'repo' ? repoRow(id) : raw }]
+      return [{ kind, id, value: kind === 'repo' ? repoRow(id) : kind === 'effect' ? effectRow(raw) : raw }]
     })
   }
 
@@ -797,6 +810,7 @@ export function createRowSource(
           ...lanes,
           ...companions('repo'),
           ...companions('machine'),
+          ...companions('effect'),
         ],
       }
       emit(event, recovering)
@@ -822,6 +836,11 @@ export function createRowSource(
       if (address.kind === 'machines') {
         stats.rowsVisited += 1
         byKey.set(`machine:${address.id}`, { kind: 'machine', id: address.id, value: authority('machines', address.id) })
+        continue
+      }
+      if (address.kind === 'effects') {
+        stats.rowsVisited += 1
+        byKey.set(`effect:${address.id}`, { kind: 'effect', id: address.id, value: effectRow(authority('effects', address.id)) })
         continue
       }
       if (address.kind === 'automations' || address.kind === 'automationRuns') {
@@ -947,7 +966,7 @@ export function createRowSource(
     seededKinds.add(kind)
     // Message and interaction rows belong to NoticeSource; this source only
     // enumerates its own core records when the generic pool asks for a kind.
-    const rows = kind === 'repo' || kind === 'machine' || kind === 'automation' || kind === 'automationRun' ? companions(kind)
+    const rows = kind === 'repo' || kind === 'machine' || kind === 'automation' || kind === 'automationRun' || kind === 'effect' ? companions(kind)
       : kind === 'worktree' ? allLanes()
       : kind === 'issue' || kind === 'session' ? enumerate(kind, readPending()) : []
     return rows.map(record => {
@@ -1004,7 +1023,7 @@ export function createRowSource(
       const index = createColdIndex(SCHEMA, coldHeld)
       index.apply({
         type: 'replace',
-        rows: [...snapshot('session'), ...snapshot('issue'), ...snapshot('worktree'), ...snapshot('repo'), ...snapshot('machine'), ...snapshot('automation'), ...snapshot('automationRun')],
+        rows: [...snapshot('session'), ...snapshot('issue'), ...snapshot('worktree'), ...snapshot('repo'), ...snapshot('machine'), ...snapshot('automation'), ...snapshot('automationRun'), ...snapshot('effect')],
       })
       coldIndex = index
     }
@@ -1015,7 +1034,7 @@ export function createRowSource(
     diagnostics,
     issueSessionFact: issueSessionFacts.read,
     snapshot,
-    companions: () => [...snapshot('repo'), ...snapshot('machine'), ...snapshot('automation'), ...snapshot('automationRun')],
+    companions: () => [...snapshot('repo'), ...snapshot('machine'), ...snapshot('automation'), ...snapshot('automationRun'), ...snapshot('effect')],
     row,
     exitKind(kind, id) {
       const entity = kind === 'issue' ? 'issueProjection' : kind

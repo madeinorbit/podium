@@ -22,6 +22,7 @@ import {
 } from '@podium/client-core/values'
 import {
   asMutationId,
+  asSessionId,
   isMachineOfflineForLiveTerminal,
   type MessageDeliveryStatus,
 } from '@podium/model'
@@ -143,14 +144,16 @@ const SessionComposer = observer(function SessionComposer({
     void conversation.interrupt(conversation.draft)
   }, [conversation])
   const onStop = turnActive && canInterrupt ? handleStop : undefined
+  // A Stop on its way, read from its record (POD-6397), on every device.
+  const interrupting = conversation.session?.interrupting === true
   return (
     <Composer
       placeholder={placeholder}
       onSend={onSend}
       value={draft}
       onChangeText={setDraft}
-      caption={caption}
-      captionTone={captionTone}
+      caption={interrupting ? 'Interrupting…' : caption}
+      captionTone={interrupting ? 'working' : captionTone}
       sendDisabled={sendDisabled}
       draftInsertion={draftInsertion}
       attachments={attachments}
@@ -327,7 +330,13 @@ export function SessionConversation(
           owner.access.trpc.messages.dismissNotice.mutate({ id }).then(() => {}),
         dismissOffer: (at) => owner.access.dismissOffer(sessionId, at),
         optimisticDismissOffer: false,
-        interrupt: (id) => interruptSession(owner.access.trpc.sessions, sessionId, id),
+        interrupt: (id) =>
+          interruptSession(
+            owner.access,
+            pool ? here(pool.model('session', sessionId)) : undefined,
+            sessionId,
+            id,
+          ),
         optimisticSendCeilingMs: OPTIMISTIC_SEND_CEILING_MS,
       },
     }, { hidePendingQuestion: true }),
@@ -382,6 +391,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
       killSession: s.killSession,
       endSession: s.endSession,
       hibernateSession: s.hibernateSession,
+      dismissEffect: s.dismissEffect,
       httpOrigin: s.httpOrigin,
     }
   }, [storeHandle])
@@ -708,6 +718,13 @@ const SessionConversationBody = observer(function SessionConversationBody({
         onResume={store.resurrectSession}
         onRemove={store.killSession}
       />
+      {conversation.session ? (
+        <MobileInterruptStuck
+          session={conversation.session}
+          onKill={(id) => void store.endSession(id, true)}
+          onDismiss={(id) => void store.dismissEffect(id)}
+        />
+      ) : null}
       <MobileLifecycleTransition
         session={session}
         onEndAnyway={(id) => void store.endSession(id, true)}
@@ -916,6 +933,55 @@ const styles = StyleSheet.create({
  * `LifecycleTransitionBar`, from the same `sessionTransition`. A refused stop
  * offers to end anyway; a refused resume or hibernate, to try again.
  */
+/**
+ * A STOP THAT DID NOT TAKE (POD-6397): the session's latest `session.interrupt`
+ * record failed, expired or lost track while the turn it named still runs.
+ * Offers Kill (end now, discarding unsaved work) and Dismiss, as the web does.
+ * While a Stop is on its way the composer caption says "Interrupting…".
+ */
+const MobileInterruptStuck = observer(function MobileInterruptStuck({
+  session,
+  onKill,
+  onDismiss,
+}: {
+  session: SessionModel
+  onKill(sessionId: SessionView['sessionId']): void
+  onDismiss(effectId: string): void
+}) {
+  if (!session.interruptStuck) return null
+  const stop = session.interrupt
+  return (
+    <View
+      style={styles.offlineBanner}
+      testID="interrupt-stuck"
+      accessibilityRole="alert"
+      accessibilityLiveRegion="polite"
+    >
+      <Text style={styles.offlineText}>
+        Not stopped: {stop?.error?.message ?? 'the agent is still working.'}
+      </Text>
+      <Pressable
+        onPress={() => onKill(asSessionId(session.id))}
+        accessibilityRole="button"
+        testID="interrupt-kill"
+        hitSlop={8}
+      >
+        <Text style={styles.transitionAction}>Kill</Text>
+      </Pressable>
+      {stop ? (
+        <Pressable
+          onPress={() => onDismiss(stop.id)}
+          accessibilityRole="button"
+          testID="interrupt-dismiss"
+          hitSlop={8}
+        >
+          <Text style={styles.transitionAction}>Dismiss</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  )
+})
+
 function MobileLifecycleTransition({
   session,
   onEndAnyway,
