@@ -247,20 +247,20 @@ declare const logsSetLevelInput: z.ZodObject<{
     }>>;
 }, "strip", z.ZodTypeAny, {
     level: "error" | "warn" | "info" | "debug" | "trace" | null;
-    ttlMs?: number | undefined;
     target?: {
         machineId?: (string & z.BRAND<"MachineId">) | undefined;
         role?: string | undefined;
         clientId?: string | undefined;
     } | undefined;
+    ttlMs?: number | undefined;
 }, {
     level: "error" | "warn" | "info" | "debug" | "trace" | null;
-    ttlMs?: number | undefined;
     target?: {
         machineId?: string | undefined;
         role?: string | undefined;
         clientId?: string | undefined;
     } | undefined;
+    ttlMs?: number | undefined;
 }>;
 declare const logsSetDaemonLevelInput: z.ZodObject<{
     /** `null` puts the matched daemons back to their boot default AND stops them
@@ -279,16 +279,16 @@ declare const logsSetDaemonLevelInput: z.ZodObject<{
     }>>;
 }, "strip", z.ZodTypeAny, {
     level: "error" | "warn" | "info" | "debug" | "trace" | null;
-    ttlMs?: number | undefined;
     target?: {
         machineId?: (string & z.BRAND<"MachineId">) | undefined;
     } | undefined;
+    ttlMs?: number | undefined;
 }, {
     level: "error" | "warn" | "info" | "debug" | "trace" | null;
-    ttlMs?: number | undefined;
     target?: {
         machineId?: string | undefined;
     } | undefined;
+    ttlMs?: number | undefined;
 }>;
 type LogsSetLevelInput = z.infer<typeof logsSetLevelInput>;
 type LogsSetDaemonLevelInput = z.infer<typeof logsSetDaemonLevelInput>;
@@ -1385,6 +1385,44 @@ interface SpecSearchHit {
     snippet: string;
 }
 
+/**
+ * [spec:SP-3701] Tiered repo discovery for a (newly paired or reconnecting) machine —
+ * POD-787. Answers "what repos does this machine have?" without ever walking blindly:
+ *
+ *   T1 probe    — exact-path probes derived from repos registered on OTHER machines
+ *                 (raw path + home-translated `~/…` form). maxDepth 0: a handful of
+ *                 stats on the daemon, no walk. The common "same layout on my laptop"
+ *                 case completes here in milliseconds.
+ *   T2 adjacent — a shallow walk (depth 2) of the PARENT directories of everything
+ *                 known on that machine (registered + T1 hits): repos cluster, so
+ *                 siblings of known repos are where the rest usually live.
+ *   T3 sweep    — a bounded $HOME walk (depth 4, standard ignore list). Only when
+ *                 `deep: true` (the explicit "scan this machine" action) — never on
+ *                 the automatic connect trigger, so reconnects stay cheap.
+ *
+ * All walking happens ON THE DAEMON (the target machine); the hub only awaits RPC
+ * replies, so nothing here contends with the hub main loop or session reattach.
+ *
+ * Registration policy: a discovered repo whose origin URL matches a repo already
+ * registered on another machine is auto-registered (identity converges to the same
+ * repo_id via deriveRepoId, so it is unambiguously "the same repo, here too");
+ * anything else is returned as a candidate for the user to confirm — never a
+ * silent add.
+ *
+ * A scan runs as a `machine.scan` effect record (POD-6396,
+ * `modules/fleet/discovery-effects.ts`): the record says that it runs and what
+ * it found, so this service holds no state of its own — no map of running
+ * scans, no last results.
+ */
+type DiscoveredRepo = {
+    path: string;
+    originUrl?: string;
+    branch?: string;
+    status: 'registered' | 'auto-registered' | 'candidate';
+    /** Names of other machines that carry the same repo (origin match). */
+    alsoOn: string[];
+};
+
 /** One durable turn failure, as `latestTurnFailure` serves it. `userText` is
  *  null when the turn reached a harness (the transcript carries the prompt);
  *  the user row is persisted only for turns that provably never dispatched. */
@@ -1447,13 +1485,13 @@ declare const TunnelHealthReport: z.ZodObject<{
     failedSince: z.ZodNullable<z.ZodNumber>;
     lastError: z.ZodNullable<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
-    state: "starting" | "working" | "stopped" | "restarting" | "unhealthy";
+    state: "starting" | "stopped" | "working" | "restarting" | "unhealthy";
     url: string | null;
     lastError: string | null;
     lastOkAt: number | null;
     failedSince: number | null;
 }, {
-    state: "starting" | "working" | "stopped" | "restarting" | "unhealthy";
+    state: "starting" | "stopped" | "working" | "restarting" | "unhealthy";
     url: string | null;
     lastError: string | null;
     lastOkAt: number | null;
@@ -1478,39 +1516,6 @@ type TunnelHealth = TunnelHealthReport & {
 type CheckError = 'INVALID_URL' | 'DNS_FAILED' | 'PRIVATE_ADDRESS' | 'REDIRECTED' | 'TLS_INVALID' | 'PORT_NOT_REACHABLE' | 'UNREACHABLE' | 'NOT_PODIUM' | 'IDENTITY_MISMATCH'
 /** Connect itself could not be reached or refused the request. Never a failed check. */
  | 'CONNECT_UNAVAILABLE';
-
-/**
- * [spec:SP-3701] Tiered repo discovery for a (newly paired or reconnecting) machine —
- * POD-787. Answers "what repos does this machine have?" without ever walking blindly:
- *
- *   T1 probe    — exact-path probes derived from repos registered on OTHER machines
- *                 (raw path + home-translated `~/…` form). maxDepth 0: a handful of
- *                 stats on the daemon, no walk. The common "same layout on my laptop"
- *                 case completes here in milliseconds.
- *   T2 adjacent — a shallow walk (depth 2) of the PARENT directories of everything
- *                 known on that machine (registered + T1 hits): repos cluster, so
- *                 siblings of known repos are where the rest usually live.
- *   T3 sweep    — a bounded $HOME walk (depth 4, standard ignore list). Only when
- *                 `deep: true` (the explicit "scan this machine" action) — never on
- *                 the automatic connect trigger, so reconnects stay cheap.
- *
- * All walking happens ON THE DAEMON (the target machine); the hub only awaits RPC
- * replies, so nothing here contends with the hub main loop or session reattach.
- *
- * Registration policy: a discovered repo whose origin URL matches a repo already
- * registered on another machine is auto-registered (identity converges to the same
- * repo_id via deriveRepoId, so it is unambiguously "the same repo, here too");
- * anything else is returned as a candidate for the user to confirm — never a
- * silent add.
- */
-type DiscoveredRepo = {
-    path: string;
-    originUrl?: string;
-    branch?: string;
-    status: 'registered' | 'auto-registered' | 'candidate';
-    /** Names of other machines that carry the same repo (origin match). */
-    alsoOn: string[];
-};
 
 type DirectoryBrowserEntry = {
     name: string;
@@ -2373,6 +2378,7 @@ type Output_accounts_login = Pick<{
         stateConfidence?: number | undefined;
         stateObservedAt?: string | undefined;
         stateSource?: "classifier" | "hook" | "poll" | undefined;
+        turnStartedAt?: string | undefined;
         workingMsTotal?: number | undefined;
     };
     archived: boolean;
@@ -2421,6 +2427,7 @@ type Output_accounts_login = Pick<{
         parentBindingId: (string & z.BRAND<"SessionId">) | null;
         revision: number;
     };
+    desired?: "hibernated" | "running" | "stopped" | undefined;
     draftSyncEngine?: boolean | undefined;
     draftUpdatedAt?: string | undefined;
     driverFamily?: "server" | "terminal" | undefined;
@@ -2428,6 +2435,7 @@ type Output_accounts_login = Pick<{
     effort?: string | undefined;
     epoch: number;
     exitCode?: number | undefined;
+    force?: boolean | undefined;
     geometry: {
         cols: number;
         rows: number;
@@ -2440,6 +2448,10 @@ type Output_accounts_login = Pick<{
     issueId?: (string & z.BRAND<"IssueId">) | undefined;
     lastActiveAt: string;
     lastInputAt?: string | undefined;
+    lifecycleFailure?: undefined | {
+        reason: string;
+        revision: number;
+    };
     machineId?: (string & z.BRAND<"MachineId">) | undefined;
     messageDraft?: string | undefined;
     model?: string | undefined;
@@ -2448,6 +2460,7 @@ type Output_accounts_login = Pick<{
     neverBound?: true | undefined;
     observedEffort?: string | undefined;
     observedModel?: string | undefined;
+    observedRevision?: number | undefined;
     offer?: null | undefined | {
         actions: {
             input?: boolean | undefined;
@@ -2481,6 +2494,7 @@ type Output_accounts_login = Pick<{
         kind: string;
         value: string;
     };
+    revision?: number | undefined;
     sessionId: string & z.BRAND<"SessionId">;
     spawnFailure?: string | undefined;
     spawnedBy?: string | undefined;
@@ -2578,6 +2592,7 @@ type Output_accounts_login = Pick<{
         stateConfidence?: number | undefined;
         stateObservedAt?: string | undefined;
         stateSource?: "classifier" | "hook" | "poll" | undefined;
+        turnStartedAt?: string | undefined;
         workingMsTotal?: number | undefined;
     };
     archived: boolean;
@@ -2626,6 +2641,7 @@ type Output_accounts_login = Pick<{
         parentBindingId: (string & z.BRAND<"SessionId">) | null;
         revision: number;
     };
+    desired?: "hibernated" | "running" | "stopped" | undefined;
     draftSyncEngine?: boolean | undefined;
     draftUpdatedAt?: string | undefined;
     driverFamily?: "server" | "terminal" | undefined;
@@ -2633,6 +2649,7 @@ type Output_accounts_login = Pick<{
     effort?: string | undefined;
     epoch: number;
     exitCode?: number | undefined;
+    force?: boolean | undefined;
     geometry: {
         cols: number;
         rows: number;
@@ -2645,6 +2662,10 @@ type Output_accounts_login = Pick<{
     issueId?: (string & z.BRAND<"IssueId">) | undefined;
     lastActiveAt: string;
     lastInputAt?: string | undefined;
+    lifecycleFailure?: undefined | {
+        reason: string;
+        revision: number;
+    };
     machineId?: (string & z.BRAND<"MachineId">) | undefined;
     messageDraft?: string | undefined;
     model?: string | undefined;
@@ -2653,6 +2674,7 @@ type Output_accounts_login = Pick<{
     neverBound?: true | undefined;
     observedEffort?: string | undefined;
     observedModel?: string | undefined;
+    observedRevision?: number | undefined;
     offer?: null | undefined | {
         actions: {
             input?: boolean | undefined;
@@ -2686,6 +2708,7 @@ type Output_accounts_login = Pick<{
         kind: string;
         value: string;
     };
+    revision?: number | undefined;
     sessionId: string & z.BRAND<"SessionId">;
     spawnFailure?: string | undefined;
     spawnedBy?: string | undefined;
@@ -4779,6 +4802,7 @@ type Output_issues_get = (null) | ({
             stateConfidence?: number | undefined;
             stateObservedAt?: string | undefined;
             stateSource?: "classifier" | "hook" | "poll" | undefined;
+            turnStartedAt?: string | undefined;
             workingMsTotal?: number | undefined;
         };
         archived: boolean;
@@ -4827,6 +4851,7 @@ type Output_issues_get = (null) | ({
             parentBindingId: (string & z.BRAND<"SessionId">) | null;
             revision: number;
         };
+        desired?: "hibernated" | "running" | "stopped" | undefined;
         draftSyncEngine?: boolean | undefined;
         draftUpdatedAt?: string | undefined;
         driverFamily?: "server" | "terminal" | undefined;
@@ -4834,6 +4859,7 @@ type Output_issues_get = (null) | ({
         effort?: string | undefined;
         epoch: number;
         exitCode?: number | undefined;
+        force?: boolean | undefined;
         geometry: {
             cols: number;
             rows: number;
@@ -4846,6 +4872,10 @@ type Output_issues_get = (null) | ({
         issueId?: (string & z.BRAND<"IssueId">) | undefined;
         lastActiveAt: string;
         lastInputAt?: string | undefined;
+        lifecycleFailure?: undefined | {
+            reason: string;
+            revision: number;
+        };
         machineId?: (string & z.BRAND<"MachineId">) | undefined;
         messageDraft?: string | undefined;
         model?: string | undefined;
@@ -4854,6 +4884,7 @@ type Output_issues_get = (null) | ({
         neverBound?: true | undefined;
         observedEffort?: string | undefined;
         observedModel?: string | undefined;
+        observedRevision?: number | undefined;
         offer?: null | undefined | {
             actions: {
                 input?: boolean | undefined;
@@ -4887,6 +4918,7 @@ type Output_issues_get = (null) | ({
             kind: string;
             value: string;
         };
+        revision?: number | undefined;
         sessionId: string & z.BRAND<"SessionId">;
         spawnFailure?: string | undefined;
         spawnedBy?: string | undefined;
@@ -5812,7 +5844,7 @@ type Output_repos_listDetailed = Array<{
 type Output_sessions_configure = ({
     cause?: "agent-exited" | "dropped-by-agent" | "not-accepting-input" | "not-recorded" | "rejected-by-agent" | "unconfirmed" | undefined;
     detail?: string | undefined;
-    reason: "busy" | "invalid_value" | "lease_held" | "needs_user" | "no_archive_yet" | "no_resume_ref" | "not_running" | "session_ended" | "staging_failed" | "unsupported";
+    reason: "busy" | "invalid_value" | "lease_held" | "needs_user" | "no_archive_yet" | "no_resume_ref" | "not_running" | "session_ended" | "staging_failed" | "turn_ended" | "unsupported";
 }) | ({
     detail: string;
     reason: "not_running";
@@ -5827,6 +5859,7 @@ type Output_sessions_interrupt = ({
     ok: false;
     reason: string;
     requested?: undefined;
+    turnEnded?: true;
 }) | ({
     ok: true;
     reason?: undefined;
@@ -5871,7 +5904,7 @@ type Output_sessions_uploadImage = ({
     refusal: {
         cause?: "agent-exited" | "dropped-by-agent" | "not-accepting-input" | "not-recorded" | "rejected-by-agent" | "unconfirmed" | undefined;
         detail?: string | undefined;
-        reason: "busy" | "invalid_value" | "lease_held" | "needs_user" | "no_archive_yet" | "no_resume_ref" | "not_running" | "session_ended" | "staging_failed" | "unsupported";
+        reason: "busy" | "invalid_value" | "lease_held" | "needs_user" | "no_archive_yet" | "no_resume_ref" | "not_running" | "session_ended" | "staging_failed" | "turn_ended" | "unsupported";
     };
 }) | ({
     error?: string;
