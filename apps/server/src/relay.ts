@@ -152,6 +152,7 @@ import { QuotaSampler } from './modules/quota-history/service'
 import { ReadPositionService } from './modules/read-position/service'
 import { awaitEffectSettled } from './modules/effects/await'
 import { issueGitEffectPort, registerIssueGitEffects } from './modules/issues/git-effects'
+import { registerIssueStartEffect } from './modules/issues/start-effect'
 import { registerSessionLaunchEffect } from './modules/sessions/session-launch-effect'
 import { makeEffectFeedCapture } from './modules/effects/feed'
 import { EffectExecutorRegistry } from './modules/effects/registry'
@@ -3907,6 +3908,8 @@ export class SessionRegistry {
     })
     // The effect kinds (POD-6394..6396): each family registers its executors.
     registerIssueGitEffects({ modules: () => this.modules })
+    // Filing a task and starting its first agent at once (POD-6410).
+    registerIssueStartEffect({ modules: () => this.modules, users: this.store.users })
     // Starting a session is an effect record too (POD-6398).
     this.modules.sessionLaunches = registerSessionLaunchEffect({
       modules: () => this.modules,
