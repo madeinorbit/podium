@@ -200,7 +200,12 @@ describe('a record edit on a server without sync.submit', () => {
 
   it('an edit no old command can carry is refused, not guessed', () => {
     expect(
-      legacyCallsForRecordEdit({ kind: 'issueProjection', id: ISSUE, patch: { title: 'x' } }),
+      legacyCallsForRecordEdit({
+        kind: 'issueProjection',
+        id: ISSUE,
+        patch: {},
+        unset: ['acceptance'],
+      }),
     ).toBeUndefined()
   })
 })

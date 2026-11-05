@@ -39,6 +39,8 @@ export const ROW = {
   provenanceEnvelope: id('provenance-envelope'),
 
   issueCore: id('issue-core'),
+  /** The plain fields of an issue (POD-6405, ADR 12 D3): per-field LWW. */
+  issuePlainFields: id('issue-plain-fields'),
   shippingAggregate: id('shipping-aggregate-family'),
   issueDocumentFields: id('issue-document-fields'),
   needsHuman: id('needs-human-group'),

@@ -1526,7 +1526,7 @@ export class IssueCrudModule {
       needsHuman: CELL.needsHuman,
       createdAt: ts,
       updatedAt: ts,
-      archived: CELL.archived,
+      archived: FIELD.archived,
       // D-2's renames: the input keeps the wire's names, R1 uses the qualified
       // ones, and the pair maps them back onto the columns.
       intentOrigin: input.origin ?? CELL.intentOrigin,

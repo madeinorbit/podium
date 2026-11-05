@@ -17,13 +17,13 @@ export const ISSUE_FIELD_DEFAULTS = {
   description: '',
   priority: 2,
   type: 'task',
+  labels: [] as string[],
+  archived: false,
 } as const
 
 /** The cells every new issue starts with. */
 export const ISSUE_FRESH_CELLS = {
   stage: 'backlog',
-  archived: false,
-  labels: [] as readonly string[],
   blockedByNotes: [] as readonly string[],
   needsHuman: false,
   // The issue stores picks only (POD-6133): `auto` until someone picks.

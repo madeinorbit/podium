@@ -62,12 +62,8 @@ const SAMPLE: { [K in keyof OutboxKinds]: OutboxKinds[K] } = {
     offerCreatedAt: '2026-08-16T09:00:00.000Z',
   } as OutboxKinds['dismissOffer'],
   issueUpdate: { id: 'POD-1', patch: { title: 'renamed' } } as OutboxKinds['issueUpdate'],
-  issueArchive: { id: 'POD-1' } as OutboxKinds['issueArchive'],
   issueDelete: { id: 'POD-1' } as OutboxKinds['issueDelete'],
   issueClose: { id: 'POD-1', reason: 'done' } as OutboxKinds['issueClose'],
-  issueDefer: { id: 'POD-1', until: null } as OutboxKinds['issueDefer'],
-  issueUndefer: { id: 'POD-1' } as OutboxKinds['issueUndefer'],
-  issueSetLabels: { id: 'POD-1', labels: ['bug'] } as OutboxKinds['issueSetLabels'],
   issueSetPlacement: {
     id: 'POD-1',
     placement: 'mission',
@@ -102,6 +98,13 @@ const SAMPLE: { [K in keyof OutboxKinds]: OutboxKinds[K] } = {
  *  (POD-6392), whose contract comes from their input. */
 const kinds = Object.keys(SAMPLE) as (keyof OutboxKinds)[]
 
+/** An issue's plain fields: a generic edit of the issue record (POD-6405). */
+const issueEdit = (id: string, patch: object, unset?: string[]): OutboxKinds['recordEdit'] => ({
+  kind: 'issueProjection',
+  id,
+  patch: patch as Record<string, unknown>,
+  ...(unset === undefined ? {} : { unset }),
+})
 /** My read mark, snooze or tuck: a generic edit of my own row (POD-6404). */
 const AT = '2026-11-05T00:00:00.000Z'
 const mySession = (id: string, patch: object, unset?: string[]): OutboxKinds['recordEdit'] => ({
@@ -243,14 +246,14 @@ describe('POD-785 — only writes a later one subsumes may collapse', () => {
     // either does exactly what the first did. Their keys are DISTINCT from the
     // patch kind's — which has none — so nothing can collapse an un-archive.
     const id = 'POD-1'
-    expect(route('issueArchive', { id }).collapseKey).toBe(
-      route('issueArchive', { id }).collapseKey,
+    expect(route('recordEdit', issueEdit(id, { archived: true })).collapseKey).toBe(
+      route('recordEdit', issueEdit(id, { archived: true })).collapseKey,
     )
-    expect(route('issueArchive', { id }).collapseKey).not.toBe(
+    expect(route('recordEdit', issueEdit(id, { archived: true })).collapseKey).not.toBe(
       route('issueDelete', { id }).collapseKey,
     )
-    expect(route('issueArchive', { id }).collapseKey).not.toBe(
-      route('issueArchive', { id: 'POD-2' }).collapseKey,
+    expect(route('recordEdit', issueEdit(id, { archived: true })).collapseKey).not.toBe(
+      route('recordEdit', issueEdit('POD-2', { archived: true })).collapseKey,
     )
   })
 
@@ -259,14 +262,14 @@ describe('POD-785 — only writes a later one subsumes may collapse', () => {
     const id = 'POD-1'
     const partitions = new Set([
       route('issueUpdate', { id, patch: { title: 'x' } }).partitionKey,
-      route('issueArchive', { id }).partitionKey,
+      route('recordEdit', issueEdit(id, { archived: true })).partitionKey,
       route('issueDelete', { id }).partitionKey,
       route('recordEdit', myIssue(id, { readAt: AT })).partitionKey,
       route('recordEdit', myIssue(id, { tuckedAt: AT })).partitionKey,
       route('issueClose', { id, reason: 'done' }).partitionKey,
-      route('issueDefer', { id, until: null }).partitionKey,
-      route('issueUndefer', { id }).partitionKey,
-      route('issueSetLabels', { id, labels: ['bug'] }).partitionKey,
+      route('recordEdit', issueEdit(id, {}, ['deferUntil'])).partitionKey,
+      route('recordEdit', issueEdit(id, { deferUntil: AT })).partitionKey,
+      route('recordEdit', issueEdit(id, { labels: ['bug'] })).partitionKey,
       route('issueSetPlacement', { id, placement: 'own', originId: 'POD-9' }).partitionKey,
       route('issueRestore', { id }).partitionKey,
     ])
@@ -289,8 +292,8 @@ describe('POD-785 — only writes a later one subsumes may collapse', () => {
     // POD-781: defer and undefer are the issue twins of that pair — two commands
     // writing `deferUntil`, so "snooze until Friday, no — unsnooze" sends the
     // last word rather than both in order.
-    expect(route('issueDefer', { id, until: '2099-01-01' }).collapseKey).toBe(
-      route('issueUndefer', { id }).collapseKey,
+    expect(route('recordEdit', issueEdit(id, { deferUntil: '2099-01-01' })).collapseKey).toBe(
+      route('recordEdit', issueEdit(id, { deferUntil: AT })).collapseKey,
     )
   })
 
@@ -303,11 +306,11 @@ describe('POD-785 — only writes a later one subsumes may collapse', () => {
     expect(route('issueClose', { id, reason: 'done' }).collapseKey).toBe(
       route('issueClose', { id, reason: 'wontfix' }).collapseKey,
     )
-    expect(route('issueSetLabels', { id, labels: ['a'] }).collapseKey).toBe(
-      route('issueSetLabels', { id, labels: ['b'] }).collapseKey,
+    expect(route('recordEdit', issueEdit(id, { labels: ['a'] })).collapseKey).toBe(
+      route('recordEdit', issueEdit(id, { labels: ['b'] })).collapseKey,
     )
     expect(route('issueClose', { id, reason: 'done' }).collapseKey).not.toBe(
-      route('issueSetLabels', { id, labels: ['a'] }).collapseKey,
+      route('recordEdit', issueEdit(id, { labels: ['a'] })).collapseKey,
     )
     expect(route('issueUpdate', { id, patch: { stage: 'backlog' } }).collapseKey).toBeUndefined()
   })
@@ -326,7 +329,7 @@ describe('POD-785 — only writes a later one subsumes may collapse', () => {
     // Archiving is a different cell, and an un-archive rides `issueUpdate`,
     // which collapses with nothing.
     expect(route('issueRestore', { id }).collapseKey).not.toBe(
-      route('issueArchive', { id }).collapseKey,
+      route('recordEdit', issueEdit(id, { archived: true })).collapseKey,
     )
   })
 

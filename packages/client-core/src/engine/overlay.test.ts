@@ -27,6 +27,7 @@ import {
   PRESENCE_REDUCER_KINDS,
 } from '../command-reducers'
 import type { OutboxEntry } from '../outbox'
+import { recordEditEntry, UNSET } from '../records'
 import { ACTION_STATE_REDUCER_COMMANDS } from './actions'
 
 const entry = (kind: string, input: unknown, queuedAt = 1751500800000): OutboxEntry => ({
@@ -179,13 +180,6 @@ describe('overlayForOutboxEntry projection', () => {
     expect(overlayForOutboxEntry(entry('issueUpdate', { id: 'i1', patch: {} }))).toBeNull()
   })
 
-  it('issueArchive is a one-way patch — the sidebar drops the row on `archived`', () => {
-    const o = overlayForOutboxEntry(entry('issueArchive', { id: 'i1' }))
-    if (o?.op !== 'patch') throw new Error('expected patch overlay')
-    expect(o.entity).toBe('issueProjections')
-    expect(o.patch).toEqual({ archived: true })
-  })
-
   it('issueDelete stamps deletedAt from queuedAt', () => {
     const o = overlayForOutboxEntry(entry('issueDelete', { id: 'i1' }, 1751500800000))
     if (o?.op !== 'patch') throw new Error('expected patch overlay')
@@ -207,42 +201,47 @@ describe('overlayForOutboxEntry projection', () => {
     expect(o.patch).toEqual({ stage: 'done' })
   })
 
-  it('issueDefer is an exact cell write', () => {
-    const until = overlayForOutboxEntry(entry('issueDefer', { id: 'i1', until: 'next-message' }))
+  // THE PLAIN FIELDS ARE RECORD EDITS (POD-6405): the edit, parsed with the
+  // command's schema, is the paint. Archive, defer, unsnooze and labels have no
+  // case of their own any more.
+  const issueEdit = (patch: Parameters<typeof recordEditEntry<'issueProjection'>>[1]) =>
+    overlayForOutboxEntry(
+      entry('recordEdit', recordEditEntry({ kind: 'issueProjection', id: 'i1' }, patch)),
+    )
+
+  it('an archive paints `archived`, and the sidebar drops the row on it', () => {
+    const o = issueEdit({ archived: true })
+    if (o?.op !== 'patch') throw new Error('expected patch overlay')
+    expect(o.entity).toBe('issueProjections')
+    expect(o.patch).toEqual({ archived: true })
+  })
+
+  it('a defer is an exact cell write; ending it clears the cell', () => {
+    const until = issueEdit({ deferUntil: 'next-message' })
     if (until?.op !== 'patch') throw new Error('expected patch overlay')
     expect(until.patch).toEqual({ deferUntil: 'next-message' })
 
-    const cleared = overlayForOutboxEntry(entry('issueDefer', { id: 'i1', until: null }))
+    const cleared = issueEdit({ deferUntil: UNSET })
     if (cleared?.op !== 'patch') throw new Error('expected patch overlay')
-    expect(cleared.patch).toEqual({ deferUntil: null })
+    expect(cleared.patch).toEqual({ deferUntil: undefined })
   })
 
-  it('issueUndefer BACKDATES rather than clearing', () => {
-    const queuedAt = 1751500800000
-    const o = overlayForOutboxEntry(entry('issueUndefer', { id: 'i1' }, queuedAt))
+  it('labels paint the set the server will store: trimmed, deduplicated, sorted', () => {
+    const o = issueEdit({ labels: ['ui', ' bug ', 'bug', ''] })
     if (o?.op !== 'patch') throw new Error('expected patch overlay')
-    // Not `null`: `deferUntil: null` is the QUIET clear that `defer(null)` is.
-    // The unsnooze lands the row in returned-from-defer — top of WORK, wearing
-    // the "Unsnoozed" tag — which is a past instant, not an absent one.
-    const painted = (o.patch as { deferUntil: string }).deferUntil
-    expect(Date.parse(painted)).toBeLessThan(queuedAt)
-  })
-
-  it('issueSetLabels paints the set the server will store', () => {
-    const o = overlayForOutboxEntry(
-      entry('issueSetLabels', { id: 'i1', labels: ['ui', ' bug ', 'bug', ''] }),
-    )
-    if (o?.op !== 'patch') throw new Error('expected patch overlay')
-    // Trimmed, de-duplicated, blank-free and sorted — what `setIssueLabels`
-    // stores and what the read side returns, so the chip row does not repaint
-    // when truth lands.
     expect(o.patch).toEqual({ labels: ['bug', 'ui'] })
+    const none = issueEdit({ labels: [] })
+    if (none?.op !== 'patch') throw new Error('expected patch overlay')
+    expect(none.patch).toEqual({ labels: [] })
   })
 
-  it('issueSetLabels clears to the empty set', () => {
-    const o = overlayForOutboxEntry(entry('issueSetLabels', { id: 'i1', labels: [] }))
-    if (o?.op !== 'patch') throw new Error('expected patch overlay')
-    expect(o.patch).toEqual({ labels: [] })
+  it.each([
+    ['issueArchive', { id: 'i1' }],
+    ['issueDefer', { id: 'i1', until: null }],
+    ['issueUndefer', { id: 'i1' }],
+    ['issueSetLabels', { id: 'i1', labels: ['bug'] }],
+  ])('an older build’s queued %s drains but paints nothing (LEGACY)', (kind, input) => {
+    expect(overlayForOutboxEntry(entry(kind, input))).toBeNull()
   })
 
   it('issueSetPlacement paints the PARENT LINK — into a mission, and back out of one', () => {

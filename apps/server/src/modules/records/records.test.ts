@@ -9,6 +9,7 @@
 
 import {
   defineSyncedKind,
+  fieldConflict,
   freshRow,
   ISSUE_RECORD,
   pendingCells,
@@ -65,7 +66,7 @@ describe('each declaration agrees with ADR 1’s ownership matrix', () => {
   it('every field’s matrix row has the conflict rule its kind declares', () => {
     for (const d of SYNCED_KINDS) {
       for (const [name, field] of Object.entries(d.fields)) {
-        expect(conflictRuleFor(field.row), `${d.kind}.${name}`).toBe(d.conflict)
+        expect(conflictRuleFor(field.row), `${d.kind}.${name}`).toBe(fieldConflict(d, name))
       }
     }
   })
@@ -253,13 +254,54 @@ describe('records.issueProjection.edit', () => {
     expect(await rowsOf(o, 'm-second')).toEqual([])
   })
 
-  it('exp-rev: an edit that names no revision is invalid', async () => {
+  it('a plain field names no revision: edits of two fields made at one revision both land (POD-6405)', async () => {
     const o = await makeOracle()
     const id = await createIssue(o)
 
-    const reply = await submit(o, edit(id, { title: 'blind' }, undefined, 'm-blind'))
+    appliedReply(await submit(o, edit(id, { title: 'blind' }, undefined, 'm-title')))
+    appliedReply(await submit(o, edit(id, { priority: 0 }, undefined, 'm-priority')))
 
-    expect(refusal(reply)).toEqual({ kind: 'invalid', details: ['expectedRevision'] })
+    const row = await meta(o, id)
+    expect([row.title, row.priority]).toEqual(['blind', 0])
+  })
+
+  it('labels go through the family’s set, normalized; a cleared defer ends the snooze; a past one unsnoozes', async () => {
+    const o = await makeOracle()
+    const id = await createIssue(o)
+
+    appliedReply(await submit(o, edit(id, { labels: [' b', 'a', 'b'] }, undefined, 'm-labels')))
+    const labelled = (await rowsOf(o, 'm-labels')).find(
+      (r) => r.entity === 'issueProjection' && r.entityId === id,
+    )
+    expect(JSON.parse(String(must(labelled).payload)).labels).toEqual(['a', 'b'])
+
+    appliedReply(
+      await submit(o, edit(id, { deferUntil: '2099-01-01T00:00:00.000Z' }, undefined, 'm-defer')),
+    )
+    expect((await meta(o, id)).deferUntil).toBe('2099-01-01T00:00:00.000Z')
+
+    appliedReply(
+      await submit(o, edit(id, { deferUntil: '2000-01-01T00:00:00.000Z' }, undefined, 'm-undefer')),
+    )
+    const unsnoozed = (await meta(o, id)).deferUntil
+    // The server backdated from ITS clock: just past, not the device's instant.
+    expect(unsnoozed).not.toBe('2000-01-01T00:00:00.000Z')
+    expect(Date.parse(String(unsnoozed))).toBeLessThan(Date.now())
+
+    appliedReply(
+      await submit(
+        o,
+        envelope(
+          'records.issueProjection.edit',
+          { id, patch: {}, unset: ['deferUntil'] },
+          'm-clear',
+        ),
+      ),
+    )
+    expect((await meta(o, id)).deferUntil ?? null).toBeNull()
+
+    appliedReply(await submit(o, edit(id, { archived: true }, undefined, 'm-archive')))
+    expect((await meta(o, id)).archived).toBe(true)
   })
 
   it('refuses a field the caller may not write, and writes nothing', async () => {

@@ -10,6 +10,7 @@ import type { SessionView } from '../session-values'
  * single-operator placement.
  */
 
+import { fieldConflict } from '@podium/commands/records'
 import { createLogger } from '@podium/logger'
 import type {
   AgentKind,
@@ -27,6 +28,7 @@ import {
   issueUserStateRowId,
   SESSION_INTERRUPT_KIND,
   sessionUserStateRowId,
+  UNSNOOZE_BACKDATE_MS,
 } from '@podium/model'
 import {
   isSessionIdPrefix,
@@ -39,6 +41,7 @@ import type { PodiumClientApi } from '../api'
 import { randomUUID } from '../id'
 import {
   createRecordsApi,
+  RECORD_KINDS,
   type RecordKind,
   type RecordPatch,
   type RecordRef,
@@ -500,6 +503,28 @@ function sessionRevisionNow(
   }
   return revision
 }
+
+/** An `issues.update` patch split by home (POD-6405): the plain fields an issue
+ *  record edit carries, and the keys that keep their command. */
+function splitIssuePatch(patch: Record<string, unknown>): {
+  plain: Record<string, unknown>
+  rest: Record<string, unknown>
+} {
+  const plain: Record<string, unknown> = {}
+  const rest: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) continue
+    if (ISSUE_PLAIN_FIELDS.has(key)) plain[key] = value
+    else rest[key] = value
+  }
+  return { plain, rest }
+}
+
+const ISSUE_PLAIN_FIELDS: ReadonlySet<string> = new Set(
+  Object.keys(RECORD_KINDS.issueProjection.fields).filter(
+    (name) => fieldConflict(RECORD_KINDS.issueProjection, name) === 'field-LWW',
+  ),
+)
 
 export function createEngineActions<TApi extends PodiumClientApi>(
   rt: EngineActionRuntime<TApi>,
@@ -1236,14 +1261,38 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     // entry IS the optimistic apply (#263), so there is no local mirror to keep
     // and no rollback to write — the overlay retires itself on covering truth or
     // drops on a definitive refusal, and the poison toast is the failure surface.
-    updateIssue: async (id, patch) => rt.write('issueUpdate', { id, patch }),
+    // The plain fields are a generic edit, last writer wins per field
+    // (POD-6405); stage, close, the parent link, the agent and the order keep
+    // `issues.update`, whose rules they carry. Both ride the issue's partition,
+    // in this order.
+    updateIssue: async (id, patch) => {
+      const { plain, rest } = splitIssuePatch(patch as Record<string, unknown>)
+      const writes: Promise<void>[] = []
+      if (Object.keys(plain).length > 0) {
+        writes.push(
+          editRecord({ kind: 'issueProjection', id }, plain as RecordPatch<'issueProjection'>),
+        )
+      }
+      if (Object.keys(rest).length > 0) {
+        writes.push(Promise.resolve(rt.write('issueUpdate', { id, patch: rest })))
+      }
+      await Promise.all(writes)
+    },
     records,
-    archiveIssue: async (id) => rt.write('issueArchive', { id }),
+    archiveIssue: async (id) => editRecord({ kind: 'issueProjection', id }, { archived: true }),
     deleteIssue: async (id) => rt.write('issueDelete', { id }),
     closeIssue: async (id, reason) => rt.write('issueClose', { id, reason }),
-    deferIssue: async (id, until) => rt.write('issueDefer', { id, until }),
-    undeferIssue: async (id) => rt.write('issueUndefer', { id }),
-    setIssueLabels: async (id, labels) => rt.write('issueSetLabels', { id, labels }),
+    // A cleared `deferUntil` ends a snooze quietly; a past one is an unsnooze,
+    // which floats the row back with its "Unsnoozed" tag (issue #133). The
+    // server backdates from its own clock; this device paints its own.
+    deferIssue: async (id, until) =>
+      editRecord({ kind: 'issueProjection', id }, { deferUntil: until ?? UNSET }),
+    undeferIssue: async (id) =>
+      editRecord(
+        { kind: 'issueProjection', id },
+        { deferUntil: new Date(Date.now() - UNSNOOZE_BACKDATE_MS).toISOString() },
+      ),
+    setIssueLabels: async (id, labels) => editRecord({ kind: 'issueProjection', id }, { labels }),
     setIssuePlacement: async (id, placement, originId) =>
       rt.write('issueSetPlacement', { id, placement, originId }),
     restoreIssue: async (id) => rt.write('issueRestore', { id }),

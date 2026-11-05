@@ -46,8 +46,23 @@ import {
   REAUTHORIZATION,
   TARGETED_ERRORS,
 } from '../issues/cells'
+import { updateInput } from '../issues/contracts'
 import { defineSyncedKind, key, label, type SyncedKindDeclaration, spec, status } from './declare'
 import { ISSUE_FIELD_DEFAULTS as DEFAULT, ISSUE_FRESH } from './issue-fresh'
+
+/** The family's `issues.update` patch: a plain field parses as it does there. */
+const UPDATE = updateInput.shape.patch.shape
+
+/** One of an issue's plain fields (POD-6405): its own field-LWW group. */
+const plain = <S extends z.ZodTypeAny>(
+  schema: S,
+  opts: { required?: true; default?: z.input<S> } = {},
+) => spec(schema, ROW.issuePlainFields, { ...opts, conflict: 'field-LWW' })
+
+/** An issue's labels as the server stores them: trimmed, deduplicated, sorted. */
+const IssueLabels = z
+  .array(z.string())
+  .transform((labels) => [...new Set(labels.map((l) => l.trim()).filter(Boolean))].sort())
 
 /** `sync.submit` is served over tRPC; the other adapters come with POD-6359. */
 const SUBMIT_ONLY: readonly TransportTag[] = ['trpc']
@@ -95,10 +110,31 @@ export const ISSUE_RECORD = defineSyncedKind({
   fields: {
     // Resolved by the server from the create's repo path, inside the same write.
     repoId: label(z.string(), ROW.issueCore),
-    title: spec(z.string().trim().min(1), ROW.issueCore, { required: true }),
-    description: spec(z.string(), ROW.issueDocumentFields, { default: DEFAULT.description }),
-    priority: spec(z.number().int().min(0).max(4), ROW.issueCore, { default: DEFAULT.priority }),
-    type: spec(IssueType, ROW.issueCore, { default: DEFAULT.type }),
+    // THE PLAIN FIELDS (POD-6405): each its own field-LWW group, so an edit of
+    // one never conflicts with an edit of another, as `issues.update` never did.
+    // Their schemas are `issues.update`'s own, so a device parses a value the
+    // way the server does.
+    title: plain(z.string().trim().min(1), { required: true }),
+    // Its own row, reserved for collaborative text (op-stream); field-LWW until
+    // then, like the plain fields.
+    description: spec(z.string(), ROW.issueDocumentFields, {
+      default: DEFAULT.description,
+      conflict: 'field-LWW',
+    }),
+    priority: plain(z.number().int().min(0).max(4), { default: DEFAULT.priority }),
+    type: plain(IssueType, { default: DEFAULT.type }),
+    brief: plain(UPDATE.brief.unwrap()),
+    acceptance: plain(UPDATE.acceptance.unwrap()),
+    assignee: plain(UPDATE.assignee.unwrap()),
+    dueAt: plain(UPDATE.dueAt.unwrap()),
+    // An ISO instant, a bare day, or the `next-message` sentinel; cleared
+    // (`unset`) ends the snooze quietly, a past instant is an unsnooze.
+    deferUntil: plain(UPDATE.deferUntil.unwrap()),
+    // The server keeps the set trimmed, without duplicates, in order.
+    labels: plain(IssueLabels, { default: DEFAULT.labels }),
+    archived: plain(UPDATE.archived.unwrap(), { default: DEFAULT.archived }),
+    estimateMin: plain(UPDATE.estimateMin.unwrap()),
+    machineId: plain(UPDATE.machineId.unwrap()),
     seq: label(z.number().int(), ROW.issueCore),
     revision: status(z.number().int(), ROW.issueCore),
     updatedAt: status(z.string(), ROW.issueCore),

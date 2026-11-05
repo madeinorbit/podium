@@ -9833,18 +9833,18 @@
       "gate": [
         "&&:10dc18e8ff72cd7e341c4361b016180715b496e531d557cbd8036e2c2d8c41d6",
         "||:bf8ceb88000dee5fc95285aca7b788154ce2f282283fa64565e08a55a802b73c",
-        "&&:299856b033676bac2e9e47ae439452e4cb944a870b4e6f785447ae882fd2e064"
+        "&&:8f768ee2d43fbf19a7d9139bef740965440a19d63ca390274f22750d9283412e"
       ],
       "origin": [
         "0ad228487a44f1019d526cae9e1c15c62da0d0a25bcea4b59bbd65f698891f00"
       ],
-      "fingerprint": "345e53f57e23ce803a41eba812d1972035954a3a03371d51288299f9ffdf42d3",
+      "fingerprint": "e74856e0c0b0cb818dbc452f432866be5e5d5c72588adce73ca8a2ad65576751",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "The archive batch or the shared outbox changes.",
       "bound": "Gesture-local roots and their captured cascade IDs; no cardinality cap.",
-      "reason": "POD-2106: the view reads local enqueue completion and pending root archive commands to disable Undo until receipts arrive. Batch membership has no cardinality cap. No receipt waiter or deferred restore is retained. Predecessor: bb6eb58301dbc5df2ee83298bad5f62e95deeb0d214d3702f66e9e572f1d7a6e.",
+      "reason": "POD-2106: the view reads local enqueue completion and pending root archive commands to disable Undo until receipts arrive. Batch membership has no cardinality cap. No receipt waiter or deferred restore is retained. An archive is a record edit of `archived` since POD-6405, so the scan matches that entry shape instead of the retired `issueArchive` kind. Predecessor: 345e53f57e23ce803a41eba812d1972035954a3a03371d51288299f9ffdf42d3.",
       "guard": "Exact fingerprint and multiplicity only. This entry documents debt and does not establish bounded work."
     },
     {

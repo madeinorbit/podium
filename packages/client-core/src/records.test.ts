@@ -159,9 +159,18 @@ describe('the generic API refuses what the declaration refuses, before anything 
   })
 
   it('an exp-rev edit without its revision', async () => {
+    // The session's desired state is exp-rev (POD-6356).
     await expect(
-      api.edit({ kind: 'issueProjection', id: ISSUE }, { title: 'x' }),
+      api.edit({ kind: 'session', id: SESSION }, { desired: 'stopped' }),
     ).rejects.toBeInstanceOf(RecordInputError)
+  })
+
+  it('a plain issue field names no revision: its last writer wins (POD-6405)', async () => {
+    writes.length = 0
+    await api.edit({ kind: 'issueProjection', id: ISSUE }, { title: 'x' })
+    expect(writes).toEqual([
+      { kind: 'recordEdit', input: { kind: 'issueProjection', id: ISSUE, patch: { title: 'x' } } },
+    ])
   })
 
   it('an op the kind does not offer, and a human ref as a new id', async () => {
@@ -360,9 +369,11 @@ describe('the executor the compatibility queue calls', () => {
     expect(classifyRefusal(error)).toEqual({ kind: 'conflict' })
   })
 
-  it('a server without the entry point cannot serve it: refused, not retried', async () => {
+  it('a server without the entry point cannot serve one no old command carries: refused, not retried', async () => {
     const execute = outboxExecutors({ sync: {} } as unknown as PodiumClientApi).recordEdit
-    const error = await execute(input).catch((e: unknown) => e)
+    const error = await execute({ ...input, patch: {}, unset: ['acceptance'] }).catch(
+      (e: unknown) => e,
+    )
     expect(classifyRefusal(error)).toEqual({ kind: 'invalid' })
   })
 })

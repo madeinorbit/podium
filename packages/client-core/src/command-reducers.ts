@@ -24,7 +24,7 @@
  */
 
 import type { SessionMeta, SessionUserStateWire, WorkState } from '@podium/model'
-import { IssueProjection, IssueUserStateWire, UNSNOOZE_BACKDATE_MS } from '@podium/model'
+import { IssueProjection, IssueUserStateWire } from '@podium/model'
 import type { OutboxKinds } from './engine/wiring'
 import type { OutboxEntry } from './outbox'
 import {
@@ -297,14 +297,6 @@ function overlayOf(
       }
       return out
     }
-    case 'issueArchive': {
-      // `issues.archive` is one-way — there is no `archived: false` arm on this
-      // command (unarchiving goes through `issueUpdate`). The sidebar drops a
-      // row on `issue.archived || issue.deletedAt`, so this is an ordinary patch
-      // and the row leaves the list on the press.
-      const i = entry.input as OutboxKinds['issueArchive']
-      return patchOverlay('issueProjections', i.id, entry.mutationId, { archived: true })
-    }
     case 'issueDelete': {
       // THE DELETE CASCADE (POD-781 design constraint (b)), and why ONE overlay
       // on the issue is the honest answer rather than a second overlay per
@@ -352,40 +344,6 @@ function overlayOf(
         stage: 'done',
         ...(i.reason == null ? {} : { closedReason: i.reason }),
       })
-    }
-    case 'issueDefer': {
-      // The plainest cell in the family: `issues.defer` is `update{deferUntil}`
-      // and the server stores the string as given — a full ISO instant, the
-      // board's bare `YYYY-MM-DD` preset, or the `next-message` sentinel.
-      const i = entry.input as OutboxKinds['issueDefer']
-      return patchOverlay('issueProjections', i.id, entry.mutationId, { deferUntil: i.until })
-    }
-    case 'issueUndefer': {
-      // UNSNOOZE IS NOT "CLEAR" (issue #133). The server backdates `deferUntil`
-      // past the sidebar's coarse minute-granularity clock rather than nulling it,
-      // which lands the row in the returned-from-defer state: top of WORK, wearing
-      // the "Unsnoozed" tag, until the operator next opens it. Painting `null`
-      // here would paint a DIFFERENT act — the quiet clear that `defer(null)` is —
-      // and the tag would appear only once the round trip finished, which is the
-      // exact lag this issue exists to delete. `UNSNOOZE_BACKDATE_MS` is shared
-      // with the server for that reason (it moved into `@podium/model`). The
-      // server backdates from ITS clock at apply time, so truth replaces the
-      // painted instant with its own when the entry retires.
-      const i = entry.input as OutboxKinds['issueUndefer']
-      return patchOverlay('issueProjections', i.id, entry.mutationId, {
-        deferUntil: new Date(entry.queuedAt - UNSNOOZE_BACKDATE_MS).toISOString(),
-      })
-    }
-    case 'issueSetLabels': {
-      // THE SERVER NORMALIZES THIS ONE, so the overlay normalizes it the same way
-      // — the precedent is `rename` above, which trims because the server trims.
-      // `setIssueLabels` drops blanks and duplicates, and the read side returns
-      // the set `ORDER BY label ASC`. Painting the raw array would repaint the
-      // chip row the moment truth landed, which is a flicker the overlay exists
-      // to prevent.
-      const i = entry.input as OutboxKinds['issueSetLabels']
-      const labels = [...new Set(i.labels.map((l) => l.trim()).filter(Boolean))].sort()
-      return patchOverlay('issueProjections', i.id, entry.mutationId, { labels })
     }
     case 'issueSetPlacement': {
       // WHAT MOVES ON SCREEN IS THE PARENT LINK, so that is what this paints.

@@ -32,7 +32,9 @@ function callerOf(principal: CommandPrincipal): IssueCaller | undefined {
   return { capability: principal.capability, principal }
 }
 
-function defOf(name: 'create' | 'update'): AnyIssueCommandDef {
+type FamilyCommand = 'create' | 'update' | 'setLabels' | 'defer' | 'undefer'
+
+function defOf(name: FamilyCommand): AnyIssueCommandDef {
   const def = (issueRegistry.defs as Record<string, AnyIssueCommandDef>)[name]
   if (def === undefined) throw new Error(`records: no issue command named ${name}`)
   return def
@@ -40,7 +42,7 @@ function defOf(name: 'create' | 'update'): AnyIssueCommandDef {
 
 export function registerIssueRecord(registry: SyncWriteRegistry, deps: IssueRecordDeps): void {
   /** One family command, without its own dedup (the entry point has deduplicated). */
-  const run = async (ctx: SyncWriteContext, name: 'create' | 'update', input: unknown) => {
+  const run = async (ctx: SyncWriteContext, name: FamilyCommand, input: unknown) => {
     const caller = callerOf(ctx.principal)
     if (caller === undefined) throw new Error('issue record write reached its handler as system')
     const def = defOf(name)
@@ -76,14 +78,35 @@ export function registerIssueRecord(registry: SyncWriteRegistry, deps: IssueReco
       return row !== null && row.id === id ? { revision: row.revision ?? undefined } : undefined
     },
     create: async (ctx, id, fields) => await run(ctx, 'create', { ...fields, id, startNow: false }),
+    // EACH PLAIN FIELD THROUGH THE FAMILY COMMAND THAT OWNS IT (POD-6405), so
+    // its rules and events are the family's: labels through `setLabels` (the
+    // label rules, the normalized set), a past `deferUntil` through `undefer`
+    // (the backdate on the server's clock and `issue.unsnoozed`, never a
+    // misfired `issue.snoozed`), a cleared one through `defer(null)`, and the
+    // rest through `update`. All in this one unit of work.
     edit: async (ctx, id, patch, expectedRevision, unset) => {
-      // The family's update has no spelling for "make this cell absent" yet.
-      if (unset.length > 0) throw new SyncWriteRefused({ kind: 'invalid', details: ['unset'] })
-      return await run(ctx, 'update', {
-        id,
-        patch,
-        ...(expectedRevision === undefined ? {} : { expectedRevision }),
-      })
+      if (unset.some((name) => name !== 'deferUntil')) {
+        throw new SyncWriteRefused({ kind: 'invalid', details: ['unset'] })
+      }
+      const { labels, deferUntil, ...rest } = patch
+      let last: unknown
+      if (Object.keys(rest).length > 0) {
+        last = await run(ctx, 'update', {
+          id,
+          patch: rest,
+          ...(expectedRevision === undefined ? {} : { expectedRevision }),
+        })
+      }
+      if (labels !== undefined) last = await run(ctx, 'setLabels', { id, labels })
+      if (unset.includes('deferUntil')) last = await run(ctx, 'defer', { id, until: null })
+      else if (typeof deferUntil === 'string') {
+        const at = Date.parse(deferUntil)
+        last =
+          Number.isFinite(at) && at <= Date.now()
+            ? await run(ctx, 'undefer', { id })
+            : await run(ctx, 'update', { id, patch: { deferUntil } })
+      }
+      return last
     },
   })
 }

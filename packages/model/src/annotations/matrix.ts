@@ -1105,6 +1105,44 @@ const ISSUE_ROWS: readonly MatrixRow[] = [
       'O3: whether `reparent` is a permission-affecting operation needing confirmation. Human call, Phase 3.',
   },
   {
+    id: ROW.issuePlainFields,
+    section: 'issues-and-tracker',
+    title:
+      'Issue plain fields (title, brief, acceptance, priority, type, assignee, due, defer, labels, archived, estimate, machine)',
+    sites: [
+      'packages/commands/src/records/kinds.ts',
+      'apps/server/src/modules/records/issue-record.ts',
+    ],
+    home: 'server',
+    idMinting: 'n/a',
+    writers: ['operator', 'agent-session'],
+    replication: 'server-to-clients',
+    conflict: 'field-LWW',
+    conflictNote:
+      'AMENDED by ADR 12 D3 (POD-6405): each field is its OWN group, independent of every other, so an edit of the title never conflicts with one of the priority, which is what `issues.update` always did (it carried no revision). Clock: the Authority-assigned event time at commit (D3 condition 1); client clocks never arbitrate. The invariant-heavy fields stay in issue-core at exp-rev: stage transitions and close, the parent link, the agent profile.',
+    tombstone: 'soft-delete',
+    tombstoneNote: 'Follows the issue: soft-delete `deletedAt`.',
+    offline: 'offline-eligible',
+    secret: 'public',
+    owner: { kind: 'inherits', from: ROW.issueCore },
+    visibility: 'personal',
+    grants: { kind: 'inherits', from: ROW.issueCore },
+    attribution: {
+      actor: 'required',
+      onBehalfOf: 'required',
+      note: 'As issue-core: the transport principal’s pair through `sync.submit`.',
+    },
+    systemWriter: 'may-write',
+    systemWriterRule: SYSTEM_WRITER_RULE,
+    inheritanceOnCreate: { kind: 'parent', from: ROW.issueCore },
+    visibilityMutability: {
+      mutable: true,
+      verbs: ['share', 'unshare', 'revoke'],
+      note: 'Follows the issue: shared and revoked with it.',
+    },
+    open: [],
+  },
+  {
     id: ROW.shippingAggregate,
     section: 'issues-and-tracker',
     title: 'Shipping aggregate family (orders, attempts, steps, holds, delivery receipts)',
@@ -1155,10 +1193,10 @@ const ISSUE_ROWS: readonly MatrixRow[] = [
     idMinting: 'n/a (fields of the issue row)',
     writers: ['operator', 'agent-session'],
     replication: 'server-to-clients',
-    conflict: 'exp-rev',
+    conflict: 'field-LWW',
     reservedConflict: { rule: 'op-stream', constraint: OP_STREAM_COMPACTION_CONSTRAINT },
     conflictNote:
-      'SPLIT OUT of issue core deliberately: Amendment 1 D12 names composer draft body AND issue description/notes as `op-stream`’s ONLY permitted members, and a reservation that cannot be attached to a row is a reservation nobody can honour. Today’s rule is `exp-rev` (nothing implements op-streams — this issue does not build one). Adding a member to the reserved set requires an ADR 1 amendment, exactly as `field-LWW` does. POD-6101 removed `notes` (folded into `brief`), so `description` is the only issue member left.',
+      'SPLIT OUT of issue core deliberately: Amendment 1 D12 names composer draft body AND issue description/notes as `op-stream`’s ONLY permitted members, and a reservation that cannot be attached to a row is a reservation nobody can honour. AMENDED by ADR 12 D3 (POD-6405): until op-streams exist the rule is `field-LWW`, the description its own independent group, which is what `issues.update` always did (it carried no revision). Clock: the Authority-assigned event time at commit. Adding a member to the reserved set requires an ADR 1 amendment, exactly as `field-LWW` does. POD-6101 removed `notes` (folded into `brief`), so `description` is the only issue member left.',
     tombstone: 'n/a',
     tombstoneNote: 'Follows the issue tombstone.',
     offline: 'offline-eligible',
@@ -3359,12 +3397,16 @@ export const OP_STREAM_RESERVED_MEMBERS: readonly MatrixRowId[] = [
 /**
  * The closed membership of the surviving `field-LWW` set (Amendment 1 D10):
  * instance-scope preference keys, plus the composer draft's named interim
- * defect. Everything else that ADR 1 D3 once listed is now per-user state or
+ * defect, plus an issue's plain fields (ADR 12 D3, POD-6405). Everything else that ADR 1 D3 once listed is now per-user state or
  * `exp-rev`.
  */
 export const FIELD_LWW_MEMBERS: readonly MatrixRowId[] = [
   ROW.preferencesInstance,
   ROW.composerDraft,
+  // ADR 12 D3 (POD-6405): an issue's plain fields, each its own group, and
+  // its description until op-streams exist.
+  ROW.issuePlainFields,
+  ROW.issueDocumentFields,
 ]
 
 /**

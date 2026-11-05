@@ -37,6 +37,10 @@ export const LEGACY_OUTBOX_COMMANDS = {
   issueSetTucked: { name: 'issues.setTucked', version: 1 },
   layoutSet: { name: 'layout.set', version: 1 },
   layoutClear: { name: 'layout.clear', version: 1 },
+  issueArchive: { name: 'issues.archive', version: 1 },
+  issueDefer: { name: 'issues.defer', version: 1 },
+  issueUndefer: { name: 'issues.undefer', version: 1 },
+  issueSetLabels: { name: 'issues.setLabels', version: 1 },
 } as const
 
 export type LegacyOutboxKind = keyof typeof LEGACY_OUTBOX_COMMANDS
@@ -65,6 +69,10 @@ export function legacyOutboxExecutors(
     issueSetTucked: (i) => api.issues.setTucked.mutate(call(i)),
     layoutSet: (i) => api.layout.set.mutate(call(i)),
     layoutClear: (i) => api.layout.clear.mutate(call(i)),
+    issueArchive: (i) => api.issues.archive.mutate(call(i)),
+    issueDefer: (i) => api.issues.defer.mutate(call(i)),
+    issueUndefer: (i) => api.issues.undefer.mutate(call(i)),
+    issueSetLabels: (i) => api.issues.setLabels.mutate(call(i)),
   }
 }
 
@@ -73,7 +81,12 @@ export function legacyOutboxExecutors(
  * for before POD-6399. They were never queued, so they have no retired kind:
  * only the old-server path reaches them.
  */
-type LifecycleRoute = 'sessionStop' | 'sessionHibernate' | 'sessionResurrect' | 'sessionKill'
+type LifecycleRoute =
+  | 'sessionStop'
+  | 'sessionHibernate'
+  | 'sessionResurrect'
+  | 'sessionKill'
+  | 'issueUpdate'
 
 function lifecycleRoutes(
   api: PodiumClientApi,
@@ -84,6 +97,8 @@ function lifecycleRoutes(
     sessionHibernate: (i) => api.sessions.hibernate.mutate(call(i)),
     sessionResurrect: (i) => api.sessions.resurrect.mutate(call(i)),
     sessionKill: (i) => api.sessions.kill.mutate(call(i)),
+    // An issue's plain fields that had no command of their own (POD-6405).
+    issueUpdate: (i) => api.issues.update.mutate(call(i)),
   }
 }
 
@@ -135,6 +150,27 @@ export function legacyCallsForRecordEdit(entry: RecordEditEntry): LegacyCall[] |
       }
       if (patch.tuckedAt !== undefined) {
         calls.push({ kind: 'issueSetTucked', input: { id, tucked: patch.tuckedAt !== null } })
+      }
+      return calls
+    }
+    case 'issueProjection': {
+      // The plain fields (POD-6405): labels, defer and undefer had their own
+      // commands; the rest rode `issues.update`.
+      if (unset.some((name) => name !== 'deferUntil')) return undefined
+      const id = entry.id
+      const { labels, deferUntil, ...rest } = patch
+      if (Object.keys(rest).length > 0)
+        calls.push({ kind: 'issueUpdate', input: { id, patch: rest } })
+      if (labels !== undefined) calls.push({ kind: 'issueSetLabels', input: { id, labels } })
+      if (unset.includes('deferUntil'))
+        calls.push({ kind: 'issueDefer', input: { id, until: null } })
+      else if (typeof deferUntil === 'string') {
+        const at = Date.parse(deferUntil)
+        calls.push(
+          Number.isFinite(at) && at <= Date.now()
+            ? { kind: 'issueUndefer', input: { id } }
+            : { kind: 'issueDefer', input: { id, until: deferUntil } },
+        )
       }
       return calls
     }

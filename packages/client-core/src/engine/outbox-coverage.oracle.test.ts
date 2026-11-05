@@ -235,10 +235,18 @@ async function drainFully(outbox: { size(): number; drain(): Promise<void> }): P
  *  procedure it replaced, so the paths below are unchanged. */
 const READER = asUserId('user-1')
 const AT = '2026-11-05T00:00:00.000Z'
+/** An instant certainly before now: a past `deferUntil` is an unsnooze. */
+const PAST = '2000-01-01T00:00:00.000Z'
 const mySession = (id: string, patch: object, unset?: string[]) => ({
   kind: 'sessionUserState',
   id: sessionUserStateRowId(READER, asSessionId(id)),
   patch,
+  ...(unset === undefined ? {} : { unset }),
+})
+const issueEdit = (id: string, patch: object, unset?: string[]): OutboxKinds['recordEdit'] => ({
+  kind: 'issueProjection',
+  id,
+  patch: patch as Record<string, unknown>,
   ...(unset === undefined ? {} : { unset }),
 })
 const myIssue = (id: string, patch: object) => ({
@@ -307,12 +315,14 @@ const COVERED: { kind: keyof OutboxKinds & string; input: object; path: string }
     input: { id: 'i1', patch: { title: 'renamed offline' } },
     path: 'issues.update',
   },
-  { kind: 'issueArchive', input: { id: 'i1' }, path: 'issues.archive' },
+  // Archive is a plain field (POD-6405): on a server without sync.submit it
+  // rides `issues.update`, which is what `issues.archive` ran.
+  { kind: 'recordEdit', input: issueEdit('i1', { archived: true }), path: 'issues.update' },
   { kind: 'issueDelete', input: { id: 'i1' }, path: 'issues.delete' },
   { kind: 'issueClose', input: { id: 'i1', reason: 'done' }, path: 'issues.close' },
-  { kind: 'issueDefer', input: { id: 'i1', until: null }, path: 'issues.defer' },
-  { kind: 'issueUndefer', input: { id: 'i1' }, path: 'issues.undefer' },
-  { kind: 'issueSetLabels', input: { id: 'i1', labels: ['bug'] }, path: 'issues.setLabels' },
+  { kind: 'recordEdit', input: issueEdit('i1', {}, ['deferUntil']), path: 'issues.defer' },
+  { kind: 'recordEdit', input: issueEdit('i1', { deferUntil: PAST }), path: 'issues.undefer' },
+  { kind: 'recordEdit', input: issueEdit('i1', { labels: ['bug'] }), path: 'issues.setLabels' },
   {
     kind: 'issueSetPlacement',
     input: { id: 'i1', placement: 'mission', originId: 'i2' },
@@ -421,9 +431,11 @@ describe('oracle: the offline-queued write set', () => {
     // None of the three carried one before POD-781, and `undefer` is the sharp
     // case: it backdates `deferUntil` against the clock at APPLY time, so a
     // second unguarded pass moves the "Unsnoozed" marker and re-emits the event.
-    const defer = outbox.enqueue('issueDefer', { id: 'i1', until: '2099-01-01' })
-    const undefer = outbox.enqueue('issueUndefer', { id: 'i1' })
-    const labels = outbox.enqueue('issueSetLabels', { id: 'i1', labels: ['bug'] })
+    // Plain fields of the issue record now (POD-6405); this server has no
+    // sync.submit, so each still reaches its own procedure.
+    const defer = outbox.enqueue('recordEdit', issueEdit('i1', { deferUntil: '2099-01-01' }))
+    const undefer = outbox.enqueue('recordEdit', issueEdit('i1', { deferUntil: PAST }))
+    const labels = outbox.enqueue('recordEdit', issueEdit('i1', { labels: ['bug'] }))
     await drainFully(outbox)
 
     expect(calls).toEqual([

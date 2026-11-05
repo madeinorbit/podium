@@ -200,6 +200,8 @@ describe('what a new record looks like (POD-6400)', () => {
       priority: 0,
       description: '',
       type: 'task',
+      labels: [],
+      archived: false,
     })
     const row = freshRow(ISSUE_RECORD, id, { title: 't', description: 'why' }, ctx)
     expect(row).toMatchObject({ description: { value: 'why' } })

@@ -158,11 +158,16 @@ describe('a generic record write on the kernel queue', () => {
     outbox.dispose()
   })
 
-  it('on a server without sync.submit it is refused, never left painting', async () => {
+  it('on a server without sync.submit an edit no old command carries is refused, never left painting', async () => {
     const { outbox, submits, onDropped, goOnline } = await openOn(() => {
       throw missingProcedure()
     })
-    await outbox.enqueue('recordEdit', EDIT, { mutationId: M1 })
+    // Clearing acceptance never had a command of its own (POD-6405).
+    await outbox.enqueue(
+      'recordEdit',
+      { kind: 'issueProjection', id: ISSUE, patch: {}, unset: ['acceptance'] },
+      { mutationId: M1 },
+    )
     goOnline()
     await outbox.drain()
     await settle()

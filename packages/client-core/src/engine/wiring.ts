@@ -133,7 +133,6 @@ export type OutboxKinds = {
    * A kind names a contract; two contracts cannot share one.
    */
   issueUpdate: Omit<Parameters<PodiumClientApi['issues']['update']['mutate']>[0], 'mutationId'>
-  issueArchive: { id: string }
   issueDelete: { id: string }
   /**
    * THE FOUR THAT ARE NOT `issues.update` (POD-781 group 2), and the rule that
@@ -150,9 +149,6 @@ export type OutboxKinds = {
    * the top of WORK wearing the "Unsnoozed" tag (issue #133).
    */
   issueClose: { id: string; reason?: string }
-  issueDefer: { id: string; until: string | null }
-  issueUndefer: { id: string }
-  issueSetLabels: { id: string; labels: string[] }
   /**
    * THE LAST TWO (POD-781 group 3), and both are `issues.update`-adjacent
    * commands that a patch could not stand in for.
@@ -342,15 +338,11 @@ export const OUTBOX_COMMANDS: Record<
   // the entry UNCHANGED, so the confirm button would not yet carry the
   // confirmation through — that is the day this needs threading, not today.
   issueUpdate: { name: 'issues.update', version: 1, delivery, confirmation: 'confirm' },
-  issueArchive: { name: 'issues.archive', version: 1, delivery, confirmation: 'confirm' },
   issueDelete: { name: 'issues.delete', version: 1, delivery, confirmation: 'confirm' },
   issueClose: { name: 'issues.close', version: 1, delivery, confirmation: 'confirm' },
-  issueDefer: { name: 'issues.defer', version: 1, delivery, confirmation: 'confirm' },
-  issueUndefer: { name: 'issues.undefer', version: 1, delivery, confirmation: 'confirm' },
   // `manage`, not `write` — the same `confirm` rule, reached from MANAGE_POLICY
   // rather than WRITE_POLICY. Copied from the contract either way, and
   // `outbox-contract-table.test.ts` pins it there.
-  issueSetLabels: { name: 'issues.setLabels', version: 1, delivery, confirmation: 'confirm' },
   issueSetPlacement: {
     name: 'issues.setPlacement',
     version: 1,
@@ -392,12 +384,8 @@ export const OUTBOX_DEAD_LETTER_HANDLING: Record<keyof OutboxKinds, OutboxDeadLe
   // a definitive refusal revert-and-toast rather than parking it.
   dismissOffer: 'recover',
   issueUpdate: 'recover',
-  issueArchive: 'recover',
   issueDelete: 'recover',
   issueClose: 'recover',
-  issueDefer: 'recover',
-  issueUndefer: 'recover',
-  issueSetLabels: 'recover',
   issueSetPlacement: 'recover',
   issueRestore: 'recover',
   // A refused plain edit snaps back and is toasted; one carrying typed text
@@ -569,10 +557,6 @@ export const OUTBOX_ROUTING: {
   // same thing the user's second click meant. Deliberately NOT shared with
   // `issueUpdate{archived}` — the un-archive path goes through the patch kind,
   // which collapses with nothing, so nothing can silently drop it.
-  issueArchive: (i) => ({
-    partitionKey: `issue:${i.id}`,
-    collapseKey: `issue-archived:${i.id}`,
-  }),
   issueDelete: (i) => ({
     partitionKey: `issue:${i.id}`,
     collapseKey: `issue-deleted:${i.id}`,
@@ -589,24 +573,6 @@ export const OUTBOX_ROUTING: {
   issueClose: (i) => ({
     partitionKey: `issue:${i.id}`,
     collapseKey: `issue-closed:${i.id}`,
-  }),
-  // Defer and undefer BOTH write `deferUntil`, so they share its key — snooze-set
-  // and snooze-clear's arrangement, for the same reason: "snooze until Friday,
-  // no — unsnooze" must send the last word, not both words in order.
-  issueDefer: (i) => ({
-    partitionKey: `issue:${i.id}`,
-    collapseKey: `issue-defer:${i.id}`,
-  }),
-  issueUndefer: (i) => ({
-    partitionKey: `issue:${i.id}`,
-    collapseKey: `issue-defer:${i.id}`,
-  }),
-  // `setLabels` sends the WHOLE set, not a delta — that is what makes it
-  // collapsible where a partial patch is not. Two queued sets for one issue: the
-  // later one already contains everything the earlier one added.
-  issueSetLabels: (i) => ({
-    partitionKey: `issue:${i.id}`,
-    collapseKey: `issue-labels:${i.id}`,
   }),
 
   // POD-781 group 3.
@@ -1017,12 +983,8 @@ export function outboxExecutors(
     setWorkState: (i) => api.sessions.setWorkState.mutate(i),
     dismissOffer: (i) => api.sessions.dismissOffer.mutate(i),
     issueUpdate: (i) => api.issues.update.mutate(i),
-    issueArchive: (i) => api.issues.archive.mutate(i),
     issueDelete: (i) => api.issues.delete.mutate(i),
     issueClose: (i) => api.issues.close.mutate(i),
-    issueDefer: (i) => api.issues.defer.mutate(i),
-    issueUndefer: (i) => api.issues.undefer.mutate(i),
-    issueSetLabels: (i) => api.issues.setLabels.mutate(i),
     issueSetPlacement: (i) => api.issues.setPlacement.mutate(i),
     issueRestore: (i) => api.issues.restore.mutate(i),
     // Both queues hand an executor the entry's input WITH its mutationId
