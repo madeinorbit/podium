@@ -10,9 +10,9 @@
  * only, and no timer:
  *
  *  - while the create is queued or awaiting confirmation: from the outbox entry;
- *  - after it is confirmed: from the replica's effect record, `pending` or
- *    `running` (also for hours while the machine is offline), and through a
- *    reload, because both sources are durable;
+ *  - after it is confirmed: from its effect record (the pool's effect model),
+ *    `pending` or `running` (also for hours while the machine is offline), and
+ *    through a reload, because both sources are durable;
  *  - `succeeded`: still the placeholders until the rows under those ids
  *    arrive, then the rows (the transaction log retires a placeholder exactly
  *    when its row lands), so the handover has no gap in either arrival order;
@@ -71,8 +71,17 @@ export interface PoolLaunchPorts {
   queued(): readonly OutboxEntry[]
   /** The outbox's refused entries (dead letters). */
   refused(): readonly { readonly kind: string; readonly input: unknown }[]
-  /** The replica's effect records of kind `session.launch` and `issue.start`. */
-  launchEffects(): Iterable<EffectRecordWire>
+  /** The effect records of kind `session.launch` and `issue.start`: in the
+   *  app, the pool's own effect models (POD-6411). */
+  launchEffects(): Iterable<LaunchRecord>
+}
+
+/** What a start paints from of its effect record: a wire record or the pool's
+ *  `EffectModel`, which answers the same fields. */
+export type LaunchRecord = Readonly<
+  Pick<EffectRecordWire, 'kind' | 'target' | 'input' | 'createdAt' | 'effect'>
+> & {
+  readonly id: string
 }
 
 const ENDED = new Set(['failed', 'expired', 'cancelled', 'unknown'])
@@ -300,6 +309,11 @@ export class PoolLaunches {
     )
   }
 
+  /** Whether any start is painted: only then can a late record move the paint. */
+  get painting(): boolean {
+    return this.painted.size > 0
+  }
+
   /** Whether this pool paints a launch for the session (it is not a row yet). */
   owns(sessionId: string): boolean {
     return this.painted.has(sessionId as SessionId)
@@ -327,9 +341,9 @@ export class PoolLaunches {
   }
 
   /**
-   * Bring the paint in line with the data: the queued creates and the
-   * replica's launch records. Called on every outbox change and every replica
-   * batch; idempotent.
+   * Bring the paint in line with the data: the queued creates and the launch
+   * records. Called on every outbox change, every replica batch and every
+   * change of the records themselves; idempotent.
    */
   reconcile(): void {
     if (this.disposed) return

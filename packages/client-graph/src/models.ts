@@ -12,6 +12,7 @@ import { attentionGroup, effectiveRecency } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
 import { groupRelations, type IssueCloseMemberCounts, type IssueCloseScalarSubject, type ReferentExit, motionPhase as sessionMotion, type TaskProgress } from '@podium/client-core/values'
 import { isTurnOpen, readEffectStatus, SESSION_INTERRUPT_KIND } from '@podium/model/browser'
+import { ISSUE_START_KIND, SESSION_LAUNCH_KIND } from '@podium/client-core/spawn-agent'
 import { asSessionId, type CoordinatedSeat, coordinatedSeat, sessionWorkingFact, isExcluded, isFinished, NO_INTERACTIONS, type SeatInteractions, type SeatRole, type SeatSessionFacts, type SessionWord, type SessionWordFacts, sessionWord, wordWantsAttention } from '@podium/model/browser'
 import type { ReaderQueries } from './reader-queries'
 import type { IssueSessionFactReader } from './shared/issue-session-facts'
@@ -1160,6 +1161,9 @@ export class EffectModel extends EntityModel {
   @lazy({ equals: compareStructural }) get error(): EffectError | undefined { return this.effect?.error }
   /** Still on its way: waiting to start, or running. */
   @lazy get inFlight(): boolean { return this.status === 'pending' || this.status === 'running' }
+  /** A start: a draft agent's `session.launch` or a named task's `issue.start`
+   *  (POD-6408, POD-6410), which the launch paint reads (POD-6411). */
+  @lazy get isStart(): boolean { return this.kind === SESSION_LAUNCH_KIND || this.kind === ISSUE_START_KIND }
   /** Ended without doing its work, or without saying whether it did. A cancel
    *  is the person's own choice, not a failure. */
   @lazy get unsuccessful(): boolean {

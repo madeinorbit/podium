@@ -7,11 +7,11 @@ import { attachPreferenceSource } from './preference-source'
 import type { SessionPhaseChange } from '@podium/client-core/sound'
 import { attachSettingsSource } from './settings-source'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { asUserId, type EffectRecordWire } from '@podium/model'
-import { ISSUE_START_KIND, SESSION_LAUNCH_KIND } from '@podium/client-core/spawn-agent'
+import { asUserId } from '@podium/model'
 import { draftSortKey } from './write/launch-rows'
+import { startEffects } from './write/start-effects'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
-import { Reaction, runInAction, untracked } from 'mobx'
+import { type IObservableValue, observable, Reaction, runInAction, untracked } from 'mobx'
 import { _observerFinalizationRegistry } from 'mobx-react-lite'
 import { createWorklistPool, type WorklistPoolHandle } from './create'
 import { attachHeaderSource } from './header-source'
@@ -235,7 +235,27 @@ export type WorklistRuntime = RowSourceRuntime &
     attachSessionPhases?(read: () => readonly SessionPhaseChange[]): () => void
   }
 
-const spawnPools = new WeakMap<object, MobxPool>()
+/**
+ * The pool each runtime's log paints into, once attached: observable, so the
+ * log's launch read (a tracked read of the pool's effects) follows the
+ * attachment. Spawn placement and the fresh-record guess read it too.
+ */
+const attachedPools = new WeakMap<object, IObservableValue<MobxPool | undefined>>()
+
+function attachedPool(runtime: object): IObservableValue<MobxPool | undefined> {
+  let pool = attachedPools.get(runtime)
+  if (pool === undefined) {
+    pool = observable.box<MobxPool | undefined>(undefined, { deep: false })
+    attachedPools.set(runtime, pool)
+  }
+  return pool
+}
+
+/** Let go of `pool` as the runtime's attached pool, unless another took its place. */
+function detachPool(runtime: object, pool: MobxPool | undefined): void {
+  const attached = attachedPool(runtime)
+  if (pool !== undefined && attached.get() === pool) runInAction(() => attached.set(undefined))
+}
 
 /** What the transaction log needs from the runtime beyond the row feed. */
 type TransactionsRuntime = WorklistRuntime & {
@@ -254,40 +274,14 @@ export function createRuntimeTransactions(runtime: WorklistRuntime): PoolTransac
     !rt.attachPoolWriter || !subscribeAddressed) {
     throw new Error('Pool transactions require the runtime principal, outbox, outcome and addressed writer seams')
   }
-  // THE STARTS' LAUNCH RECORDS (POD-6408, POD-6410), indexed by id from the
-  // replica's batches so a reconcile reads the few launches, never every effect.
-  // Subscribed BEFORE the log, so the log's reconcile sees this batch's index.
-  const launchIds = new Set<string>()
-  const isLaunch = (row: unknown): boolean => {
-    const kind = (row as { kind?: unknown } | undefined)?.kind
-    return kind === SESSION_LAUNCH_KIND || kind === ISSUE_START_KIND
-  }
-  const rescanLaunches = (): void => {
-    launchIds.clear()
-    for (const row of runtime.replica.rows('effects')) {
-      if (isLaunch(row)) launchIds.add((row as { id: string }).id)
-    }
-  }
-  rescanLaunches()
-  const stopLaunchIndex = subscribeAddressed((batch) => {
-    if (batch.type === 'replace') {
-      rescanLaunches()
-      return
-    }
-    for (const address of batch.rows) {
-      if (address.kind !== 'effects') continue
-      if (isLaunch(runtime.replica.row?.('effects', address.id))) launchIds.add(address.id)
-      else launchIds.delete(address.id)
-    }
-  })
   const transactions = createPoolTransactions({
+    // THE STARTS' LAUNCH RECORDS (POD-6408, POD-6410, POD-6411): the attached
+    // pool's own effect models, a tracked read the log watches, so the paint
+    // reconciles after the publication that moved a record and reads what the
+    // pool shows. Unknown while no pool is attached.
     launchEffects: () => {
-      const records: EffectRecordWire[] = []
-      for (const id of launchIds) {
-        const row = runtime.replica.row?.('effects', id)
-        if (row !== undefined) records.push(row as unknown as EffectRecordWire)
-      }
-      return records
+      const pool = attachedPool(runtime).get()
+      return pool === undefined ? undefined : startEffects(pool)
     },
     userId: rt.principal.userId,
     outbox: rt.outbox,
@@ -299,7 +293,7 @@ export function createRuntimeTransactions(runtime: WorklistRuntime): PoolTransac
     // when a create is reduced, never observed. Any other table answers none.
     // untracked-read: fresh-record-placement
     known: (entity, field, value) => untracked(() => {
-      const repos = entity === 'repo' ? spawnPools.get(runtime)?.tables.repo : undefined
+      const repos = entity === 'repo' ? attachedPool(runtime).get()?.tables.repo : undefined
       if (!repos) return []
       const ids: string[] = []
       for (const [id, row] of repos) if ((row as Record<string, unknown>)[field] === value) ids.push(id)
@@ -309,7 +303,7 @@ export function createRuntimeTransactions(runtime: WorklistRuntime): PoolTransac
       userId: asUserId(rt.principal.userId),
       notices: (runtime as unknown as { spawnNotices: import('@podium/client-core/engine').StoreNotices }).spawnNotices,
       sortKey: target => runInAction(() => {
-        const pool = spawnPools.get(runtime)
+        const pool = attachedPool(runtime).get()
         if (!pool) throw new Error('Pool spawn placement is not attached')
         const issues = pool.queries.indexed({ kind: 'spawnIssues', repoPath: target.repoPath, ...(target.repoId ? { repoId: target.repoId } : {}) })
           // untracked-read: spawn-sort-peek
@@ -318,11 +312,6 @@ export function createRuntimeTransactions(runtime: WorklistRuntime): PoolTransac
       }),
     },
   })
-  const dispose = transactions.dispose.bind(transactions)
-  transactions.dispose = () => {
-    stopLaunchIndex()
-    dispose()
-  }
   return transactions
 }
 
@@ -413,7 +402,6 @@ export function createRuntimeWorklistPool(
         handle.pool,
         runtime as Parameters<typeof attachHeaderSource>[1],
       )
-    spawnPools.set(runtime, handle.pool)
     const phasePool = handle.pool
     stopSounds = runtime.attachSessionPhases?.(() => phasePool.sessionPhaseChanges.get())
     if (runtime.fixtureClock) {
@@ -421,7 +409,14 @@ export function createRuntimeWorklistPool(
       const previousStop = stopSounds
       stopSounds = () => { stopClock(); previousStop?.() }
     }
-    transactions.bind(rows)
+    // One action: the bind paints the starts queued before a reload, which
+    // place their task by this pool, and the log's launch watch first reads
+    // this pool's effects with the feed bound to judge them by.
+    const placed = handle.pool
+    runInAction(() => {
+      attachedPool(runtime).set(placed)
+      transactions.bind(rows)
+    })
     handle.pool.attachTransactions(transactions, true)
     stopWriter = attachRuntimeWriter(runtime, transactions)
   } catch (error) {
@@ -429,6 +424,7 @@ export function createRuntimeWorklistPool(
     stopSounds?.()
     stopWriter?.()
     stopHeader?.()
+    detachPool(runtime, handle?.pool)
     handle?.dispose()
     locals?.dispose()
     transactions.dispose()
@@ -447,8 +443,10 @@ export function createRuntimeWorklistPool(
       stopWriter?.()
       stopSelection?.()
       stopSounds?.()
-      spawnPools.delete(runtime)
       stopHeader?.()
+      // Let go of the pool before it empties its tables: the log's launch
+      // watch then has nothing to judge, rather than every start gone.
+      detachPool(runtime, attached.pool)
       try {
         attached.dispose()
       } finally {

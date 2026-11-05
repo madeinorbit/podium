@@ -137,6 +137,13 @@ export interface RowSourceRepaint {
    * when absent. One keyed read.
    */
   truth(entity: OverlayTarget, id: string): Readonly<Record<string, unknown>> | undefined
+  /**
+   * Drain the feed's pending signals into its subscribers now
+   * ({@link RowSourceHandle.flush}): the log's launch paint reads its records
+   * from the pool, which the feed otherwise fills a microtask later (POD-6411).
+   * Absent: the paint waits for that publication.
+   */
+  flush?(): RowSourceEvent | null
 }
 
 const SLICE_KINDS: ReadonlySet<ReplicaKind> = new Set([

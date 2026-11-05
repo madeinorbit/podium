@@ -1,5 +1,5 @@
 import { randomUUID } from '@podium/client-core/id'
-import { PoolLaunches, type PoolLaunchPorts } from './launches'
+import { type LaunchRecord, PoolLaunches, type PoolLaunchPorts } from './launches'
 /** PoolTransactions owns client optimism and spawn placeholders over one outbox.
  * A press reduces and paints inside one MobX action before the durable enqueue.
  * Refusal rebases from truth and the remaining commands; no previous visible
@@ -24,8 +24,8 @@ import type {
 } from '@podium/client-core/engine'
 import type { OutboxDeadLetterEntry, OutboxEntry } from '@podium/client-core/outbox'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
-import { asMutationId, type EffectRecordWire, type MutationId, type SessionId } from '@podium/model'
-import { type ObservableMap, observable, runInAction } from 'mobx'
+import { asMutationId, type MutationId, type SessionId } from '@podium/model'
+import { compareStructural, type ObservableMap, observable, reaction, runInAction } from 'mobx'
 import { debugName } from '../debug-name'
 import type { PendingRows, PooledPending, RowSourceRepaint } from '../shared/row-source'
 
@@ -79,9 +79,12 @@ export interface PoolRejection {
 
 export interface PoolTransactionsPorts {
   readonly spawn?: Pick<PoolLaunchPorts, 'userId' | 'notices' | 'sortKey'>
-  /** The replica's `session.launch` and `issue.start` effect records (POD-6408,
-   *  POD-6410): what a start paints from once its create is confirmed. Absent: none. */
-  readonly launchEffects?: () => Iterable<EffectRecordWire>
+  /** The `session.launch` and `issue.start` effect records (POD-6408,
+   *  POD-6410): what a start paints from once its create is confirmed. Absent:
+   *  none. A tracked read (the pool's effect models, POD-6411): when it moves,
+   *  the log reconciles its starts. `undefined` while no pool holds them (not
+   *  attached yet, or let go): nothing to reconcile against. */
+  readonly launchEffects?: () => Iterable<LaunchRecord> | undefined
   /** The principal whose per-user rows the log paints. */
   readonly userId: string
   readonly outbox: Pick<EngineOutbox, 'pending' | 'awaiting' | 'subscribe' | 'deadLetters'>
@@ -596,15 +599,24 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
         launchEffects: () => ports.launchEffects?.() ?? [],
       })
     : null
-  const reconcileLaunches = () => launchOwner?.reconcile()
+  // A painted start reads its record from the pool, which the feed fills a
+  // microtask after the replica batch (POD-6411). Drain the feed first, so an
+  // entry that leaves the outbox in the same tick its record lands finds the
+  // record, and the start never blinks out. Inside the caller's action: the
+  // publication's own reconcile (the watch below) runs after this one.
+  const reconcileLaunches = () => {
+    if (launchOwner === null) return
+    if (launchOwner.painting) source?.flush?.()
+    launchOwner.reconcile()
+  }
 
   // ---------------------------------------------------------------- boot
 
   // Awaiting confirmation first, in outbox order; then the queue.
   reconcile()
   runInAction(reconcileParked)
-  // Launches queued or waiting before a reload paint again from the data.
-  runInAction(reconcileLaunches)
+  // Launches queued or waiting before a reload paint again from the data once
+  // the feed is bound (`bind`): a start is judged against the rows it reads.
   offs.push(
     ports.outbox.subscribe(() => {
       if (!disposed)
@@ -645,6 +657,26 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
       })
     }),
   )
+  // The launch records are a tracked read (the pool's effect models): when the
+  // pool applies a publication that moves one, the paint follows it, after the
+  // publication, so it reads the records as the pool shows them (POD-6411).
+  if (launchOwner !== null && ports.launchEffects) {
+    const read = ports.launchEffects
+    offs.push(
+      reaction(
+        () => {
+          const records = read()
+          return records === undefined
+            ? null
+            : Array.from(records, (record) => [record.id, record.effect] as const)
+        },
+        (records) => {
+          if (records !== null && !disposed) runInAction(reconcileLaunches)
+        },
+        { equals: compareStructural },
+      ),
+    )
+  }
   /** One change: reduce, record, repaint, enqueue (§4.2). */
   function begin<K extends AnyKind>(
     kind: K,
@@ -732,7 +764,10 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
 
     bind(next) {
       source = next
-      runInAction(() => commit(settle()))
+      runInAction(() => {
+        commit(settle())
+        reconcileLaunches()
+      })
     },
 
     mutate(kind, input) {
