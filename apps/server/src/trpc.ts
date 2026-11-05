@@ -16,7 +16,6 @@ import type { SuperagentService } from './modules/superagent'
 import type { PrepareCoordinatorUpdate } from './modules/updates/installed-restart'
 import type { ServerPlacement } from './modules/updates/service'
 import type { RegistryModules, SessionRegistry } from './relay'
-import type { MachineRepoDiscovery } from './repo-discovery'
 import type { RepoRegistry } from './repo-registry'
 import type { ServerRoleConfig } from './roles'
 import { withOperation } from './store/executor/operation-scope'
@@ -37,9 +36,6 @@ export interface Context {
   repos: RepoRegistry
   /** Stable hosted workspace identity for pre-auth join URLs; absent on self-hosted. */
   workspaceId?: string
-  /** Tiered per-machine repo discovery (POD-787) [spec:SP-3701]. Optional so test
-   *  callers that don't exercise discovery need not construct one. */
-  discovery?: MachineRepoDiscovery
   superagent: SuperagentService
   cloud?: CloudRuntimeProvider
   /** What this caller may do with issues. The authenticated principal below is
@@ -238,7 +234,9 @@ const rpcTiming = core.middleware(async ({ path, next }) => {
 /** One call is one operation [POD-6189]: memos that opt in (the grants loader)
  *  answer a row once for the whole call, before, inside and after its write
  *  spans. See `store/executor/operation-scope.ts`. */
-const oneOperation = core.middleware(async ({ next }) => await withOperation(async () => await next()))
+const oneOperation = core.middleware(
+  async ({ next }) => await withOperation(async () => await next()),
+)
 
 /** The shared tRPC core: identical to `initTRPC.create()` except `procedure`
  *  carries the always-on timing middleware and the operation scope. */

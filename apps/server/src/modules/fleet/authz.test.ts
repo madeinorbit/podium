@@ -37,6 +37,7 @@ import { PairingManager } from '../../hub/pairing'
 import type { MachineOwnershipIndex, MachineOwnershipRow } from '../../machine-access'
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
+import { MACHINE_SCAN_KIND } from './discovery-effects'
 import { appRouter } from '../../router'
 import { OPERATOR } from '../../test-support/capabilities'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -806,6 +807,34 @@ describe('the derived fleet router actually calls the gate', () => {
     await expect(call.discovery.scanMachine({ machineId: 'm1' })).rejects.toThrow(
       /do not have access/,
     )
+  })
+
+  it("the machine's last scan is read under the scan's gate: `use`, live (POD-6396)", async () => {
+    const { call, store } = await caller('someone-else')
+    // Somebody's finished scan of m1: a listing of that machine's disk.
+    const id = 'eff_00000000-0000-4000-8000-000000006396'
+    const now = Date.now()
+    await store.effects.insert(
+      {
+        id,
+        kind: MACHINE_SCAN_KIND,
+        target: { kind: 'machine', id: 'm1' },
+        input: { deep: true },
+        deadlineAt: now + 60_000,
+        createdBy: null,
+      },
+      now,
+    )
+    await store.effects.claim(id, now)
+    const scan = { machineId: 'm1', repos: [{ path: '/home/o/secret', status: 'candidate' }] }
+    await store.effects.settle(id, 'succeeded', { result: scan }, now)
+
+    await store.grants.upsert(edge('manage'))
+    await expect(call.discovery.lastMachineScan({ machineId: 'm1' })).rejects.toThrow(
+      /do not have access/,
+    )
+    await store.grants.upsert(edge('use'))
+    expect(await call.discovery.lastMachineScan({ machineId: 'm1' })).toEqual(scan)
   })
 })
 

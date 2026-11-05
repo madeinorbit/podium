@@ -32,7 +32,21 @@ import { serverMoveAuthorization } from '../server-transfer/authorization'
 import { SERVER_MOVE_OPERATION_KIND, serverMoveFaultHook } from '../server-transfer/operation'
 import { normalizedPublicUrl, resolvedTransferPort } from '../server-transfer/service'
 import { machinesForPrincipal, visibleMachinesFor } from '../sessions/command-ctx'
+import type { MachineDiscoveryResult } from '../../repo-discovery'
+import type { ScanReposResult } from '../machines/rpc'
 import { fleetAuthzDeps, fleetAuthzFailure, fleetUsePredicate } from './authz'
+import {
+  FOLDER_SCAN_KIND,
+  FOLDER_SCAN_WAIT_MS,
+  MACHINE_SCAN_KIND,
+  MACHINE_SCAN_WAIT_MS,
+  type MachineScanInput,
+  REPO_CLONE_KIND,
+  REPO_CLONE_WAIT_MS,
+  type RepoCloneResult,
+  runMachineEffect,
+  sameScan,
+} from './discovery-effects'
 
 /** What the composition root supplies that core may not import for itself. */
 export interface FleetPorts {
@@ -411,30 +425,21 @@ export const repoSetDefaultParentBranchHandler = async ({
   return await ctx.registry.sessionStore.repos.listRepos()
 }
 
+/** A `repo.clone` effect record (POD-6396): the clone, its check, its registration. */
 export const repoCloneGithubHandler = async ({
   ctx,
   input,
 }: FleetArgs<{ machineId: MachineId; repository: string; destination: string }>) => {
   await requireRepoHost(ctx, input.machineId, 'clone repositories')
-  const result = await mods(ctx).rpc.githubCli('clone', input.machineId, {
-    repository: input.repository,
-    destination: input.destination,
+  const row = await runMachineEffect(ctx, {
+    command: 'repos.cloneGithub',
+    kind: REPO_CLONE_KIND,
+    machineId: input.machineId,
+    input: { repository: input.repository, destination: input.destination },
+    waitMs: REPO_CLONE_WAIT_MS,
   })
-  if (!result.path) {
-    const fallback =
-      result.status.state === 'missing'
-        ? 'GitHub CLI is not installed on this machine'
-        : result.status.state === 'logged-out'
-          ? 'GitHub CLI is not signed in on this machine'
-          : 'GitHub clone failed'
-    throw new TRPCError({ code: 'PRECONDITION_FAILED', message: result.error ?? fallback })
-  }
-  await ctx.repos.addKnownOrigin(
-    result.path,
-    input.machineId,
-    `https://github.com/${input.repository}.git`,
-  )
-  return { path: result.path, repos: await ctx.repos.list() }
+  const { path } = row.result as RepoCloneResult
+  return { path, repos: await ctx.repos.list() }
 }
 
 /**
@@ -546,6 +551,7 @@ export const discoveryRefreshReposHandler = async ({ ctx }: FleetArgs<void>) => 
   }
 }
 
+/** A `folder.scan` effect record (POD-6396). */
 export const discoveryScanFolderHandler = async ({
   ctx,
   input,
@@ -553,27 +559,38 @@ export const discoveryScanFolderHandler = async ({
   // The machine is optional here; when it is omitted the scan resolves through
   // `defaultMachine()`, which POD-2700 also taught to prefer a daemon-bearing
   // machine — so guard the id that will actually be used, not the one supplied.
-  await requireRepoHost(
-    ctx,
-    input.machineId ?? await mods(ctx).machines.defaultMachine(),
-    'scan for repositories',
-  )
-  return await ctx.registry.modules.rpc.scanRepos(
-    [input.path],
-    { includeHome: false, maxDepth: input.maxDepth ?? 6 },
-    input.machineId,
-  )
+  const machineId = input.machineId ?? (await mods(ctx).machines.defaultMachine())
+  await requireRepoHost(ctx, machineId, 'scan for repositories')
+  const row = await runMachineEffect(ctx, {
+    command: 'discovery.scanFolder',
+    kind: FOLDER_SCAN_KIND,
+    machineId,
+    input: {
+      path: input.path,
+      ...(input.maxDepth === undefined ? {} : { maxDepth: input.maxDepth }),
+    },
+    waitMs: FOLDER_SCAN_WAIT_MS,
+  })
+  return row.result as ScanReposResult
 }
 
+/** A `machine.scan` effect record (POD-6396); the same scan already running there is joined. */
 export const discoveryScanMachineHandler = async ({
   ctx,
   input,
 }: FleetArgs<{ machineId: MachineId; deep?: boolean; atPath?: string }>) => {
-  if (!ctx.discovery)
-    throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'discovery unavailable' })
   await requireRepoHost(ctx, input.machineId, 'scan for repositories')
-  return await ctx.discovery.scan(input.machineId, {
+  const scan: MachineScanInput = {
     deep: input.deep ?? true,
     ...(input.atPath === undefined ? {} : { atPath: input.atPath }),
+  }
+  const row = await runMachineEffect(ctx, {
+    command: 'discovery.scanMachine',
+    kind: MACHINE_SCAN_KIND,
+    machineId: input.machineId,
+    input: scan,
+    waitMs: MACHINE_SCAN_WAIT_MS,
+    joins: (running) => sameScan(running, scan),
   })
+  return row.result as MachineDiscoveryResult
 }

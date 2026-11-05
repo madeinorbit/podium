@@ -7,6 +7,7 @@ import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness/metad
 import type {
   AgentKind,
   Attribution,
+  EffectTarget,
   IssueEventWire,
   IssueId,
   MachineId,
@@ -68,6 +69,7 @@ import { bootStage } from './boot-timing'
 import { capabilityPrincipalResolver } from './capability-principal'
 import { codexAuthorizerFor, createCodexTransport } from './codex-machine'
 import {
+  attributionOf,
   type CommandPrincipal,
   onBehalfOfUser,
   resolvePrincipalAsync,
@@ -97,7 +99,14 @@ import { AutomationScheduler } from './modules/automations/scheduler'
 import { AutomationsService } from './modules/automations/service'
 import { EventBus, type EventMap } from './modules/bus'
 import { DaemonRequestBroker } from './modules/daemon-request'
+import { awaitEffectSettled } from './modules/effects/await'
+import { makeEffectFeedCapture } from './modules/effects/feed'
+import { EffectExecutorRegistry } from './modules/effects/registry'
+import { EffectsRunner } from './modules/effects/runner'
+import { registerEffectCommands } from './modules/effects/sync-write'
 import { EventLogRetention } from './modules/events/retention'
+import { registerFileWriteEffect } from './modules/files/write-effect'
+import { registerDiscoveryEffects } from './modules/fleet/discovery-effects'
 import { WriteFunnel } from './modules/funnel'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
 import { InteractionFeedPublisher } from './modules/interactions/feed'
@@ -110,6 +119,7 @@ import { IssueArtifactStore } from './modules/issues/artifact-store'
 import { IssueAuthorityArbitration } from './modules/issues/authority-arbitration'
 import { IssueAutoArchive } from './modules/issues/auto-archive'
 import { IssueCommandDispatcher } from './modules/issues/dispatcher'
+import { issueGitEffectPort, registerIssueGitEffects } from './modules/issues/git-effects'
 import { IssueGitWatch } from './modules/issues/git-watch'
 import { readIssue } from './modules/issues/issue-reader'
 import { PENDING_UPLOAD_SWEEP_MS, PendingUploadStore } from './modules/issues/pending-uploads'
@@ -118,6 +128,7 @@ import { makeAgentRelayDispatch } from './modules/issues/relay-dispatch'
 import { AgentRelayGate } from './modules/issues/relay-gate'
 import { IssueService } from './modules/issues/service'
 import { seatText } from './modules/issues/service/seat'
+import { registerIssueStartEffect } from './modules/issues/start-effect'
 import { LayoutService } from './modules/layout/service'
 import { LockCommandDispatcher } from './modules/lock/registry'
 import { LockService } from './modules/lock/service'
@@ -150,19 +161,6 @@ import { DEPLOYMENT, type PerfRegistry, perf } from './modules/perf/registry'
 import { QuotaBackfill } from './modules/quota-history/backfill'
 import { QuotaSampler } from './modules/quota-history/service'
 import { ReadPositionService } from './modules/read-position/service'
-import { awaitEffectSettled } from './modules/effects/await'
-import { registerFileWriteEffect } from './modules/files/write-effect'
-import { issueGitEffectPort, registerIssueGitEffects } from './modules/issues/git-effects'
-import { registerIssueStartEffect } from './modules/issues/start-effect'
-import {
-  registerSessionInterruptEffect,
-  type SessionInterruptsHandle,
-} from './modules/sessions/session-interrupt-effect'
-import { registerSessionLaunchEffect } from './modules/sessions/session-launch-effect'
-import { makeEffectFeedCapture } from './modules/effects/feed'
-import { EffectExecutorRegistry } from './modules/effects/registry'
-import { EffectsRunner } from './modules/effects/runner'
-import { registerEffectCommands } from './modules/effects/sync-write'
 import { registerRecordCommands } from './modules/records/register'
 import {
   restartSourceAfterRecovery,
@@ -182,6 +180,11 @@ import { SessionLifecycleController } from './modules/sessions/lifecycle-control
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
 import { readSessionRefs } from './modules/sessions/refs'
 import type { Session } from './modules/sessions/session'
+import {
+  registerSessionInterruptEffect,
+  type SessionInterruptsHandle,
+} from './modules/sessions/session-interrupt-effect'
+import { registerSessionLaunchEffect } from './modules/sessions/session-launch-effect'
 import type { SnapshotTail } from './modules/sessions/session-lifecycle-types'
 import {
   bridgeConfigChanged,
@@ -220,9 +223,11 @@ import type { ServerPlacement } from './modules/updates/service'
 import { UpdatesService } from './modules/updates/service'
 import { WorkflowService } from './modules/workflows/service'
 import { asSystemWrite, syncedWriteProvenance } from './plain-command-scope'
-import { inferRepoFromRoots } from './repo-registry'
+import { MachineRepoDiscovery } from './repo-discovery'
+import { inferRepoFromRoots, RepoRegistry } from './repo-registry'
 import { JANITOR_STEWARD_EVENT_LIMIT, StewardService, stewardNoticeSender } from './steward'
 import { SessionStore } from './store'
+import type { EffectRow, EffectsRepository } from './store/effects'
 import { applyAfterCommit, spanOpen } from './store/executor/executor'
 import { currentReadScope, readScopeSlot } from './store/executor/read-scope'
 import type { SyncDeltaPorts } from './sync/route-support'
@@ -239,6 +244,7 @@ export type {
 import { createLogger } from '@podium/logger'
 
 const log = createLogger('server:relay')
+const repoDiscoveryLog = createLogger('server:repo-discovery')
 
 export type { MemoryBreakdown }
 
@@ -327,6 +333,20 @@ export interface EffectsModule {
   readonly executors: EffectExecutorRegistry
   readonly runner: EffectsRunner
   awaitSettled(id: string, timeoutMs: number): ReturnType<typeof awaitEffectSettled>
+  /** One kind's newest record on a target that is still running, or that succeeded. */
+  newestOnTarget: EffectsRepository['newestOnTarget']
+  /**
+   * A record the server itself asks for (the janitor's connect scan, POD-6396):
+   * no caller, so no `sync.submit`; the kind's schema and deadline still apply,
+   * and the trigger runs it after the commit like any other.
+   */
+  createAsSystem(effect: {
+    readonly id: string
+    readonly kind: string
+    readonly target: EffectTarget
+    readonly input: unknown
+    readonly job: string
+  }): Promise<EffectRow>
 }
 
 export interface RegistryModules {
@@ -481,6 +501,12 @@ export class SessionRegistry {
   readonly bus = new EventBus()
   /** Typed accessor to the composed services — the one seam callers use. */
   readonly modules: RegistryModules
+  /**
+   * Tiered per-machine repo discovery (POD-787) [spec:SP-3701]. Built here, not
+   * at the server's composition, because the `machine.scan` effect runs it and
+   * the effect kinds must be registered before the boot sweep (POD-6396).
+   */
+  readonly repoDiscovery: MachineRepoDiscovery
   /**
    * THE GATEWAY's daemon socket mux (POD-389). `attachDaemon`, `detachDaemon` and
    * `routeDaemonFrame` live here, not on the sessions service: a daemon
@@ -2312,10 +2338,14 @@ export class SessionRegistry {
         const writer = await this.store.users.get(lifecycle.byUser)
         if (!writer || writer.disabledAt) return false
         const ownership = await ownershipSnapshotFromMachines(machines)
-        if (checkMachineUse(userCommandPrincipal(lifecycle.byUser, writer.role), machineId, ownership)) {
+        if (
+          checkMachineUse(userCommandPrincipal(lifecycle.byUser, writer.role), machineId, ownership)
+        ) {
           return false
         }
-        const delegated = lifecycle.byAgent ? ownership.delegatedMachines?.(lifecycle.byAgent) : undefined
+        const delegated = lifecycle.byAgent
+          ? ownership.delegatedMachines?.(lifecycle.byAgent)
+          : undefined
         return delegated === undefined || delegated.has(machineId)
       },
     })
@@ -3849,6 +3879,25 @@ export class SessionRegistry {
         runner: this.effectsRunner,
         awaitSettled: async (id, timeoutMs) =>
           await awaitEffectSettled(this.store.effects, id, timeoutMs),
+        newestOnTarget: async (kind, target, phase) =>
+          await this.store.effects.newestOnTarget(kind, target, phase),
+        createAsSystem: async (effect) => {
+          const executor = effectExecutors.get(effect.kind)
+          if (executor === undefined) throw new Error(`effects: no executor for ${effect.kind}`)
+          const now = this.now()
+          return await this.store.effects.insert(
+            {
+              id: effect.id,
+              kind: effect.kind,
+              target: effect.target,
+              input: executor.input.parse(effect.input),
+              deadlineAt: now + executor.deadlineMs,
+              createdBy: null,
+              actor: attributionOf(systemPrincipal(effect.job)).actor,
+            },
+            now,
+          )
+        },
       },
       bus: this.bus,
       funnel,
@@ -3932,6 +3981,30 @@ export class SessionRegistry {
       modules: () => this.modules,
       repoPaths: async () => await this.store.repos.listRepoPaths(),
       hostMachineId: this.store.hostMachineId,
+    })
+    // Scans and clones on a machine (POD-6396).
+    this.repoDiscovery = new MachineRepoDiscovery({
+      listRepos: async () => await this.store.repos.listRepos(),
+      addRepo: async (path, machineId, originUrl) =>
+        await this.store.repos.addRepo(path, machineId, originUrl),
+      removeRepo: async (path, machineId) => await this.store.repos.removeRepo(path, machineId),
+      // Liveness probed on the MACHINE (POD-1498), never inferred from scan coverage:
+      // browseDirs answers from that daemon's own filesystem, and a directory that is
+      // gone comes back without a listing. Any failure to answer is treated as "cannot
+      // tell" by the caller, which then declines to heal.
+      pathExists: async (path, machineId) =>
+        Boolean((await this.modules.rpc.browseDirs(path, {}, machineId)).listing),
+      scanRepos: async (roots, opts, machineId) =>
+        await this.modules.rpc.scanRepos(roots, opts, machineId),
+      machineNames: async (ids) => await this.modules.machines.machineNames(ids),
+      log: (message) => repoDiscoveryLog.info(message),
+    })
+    const cloneRegistry = new RepoRegistry(this, this.store)
+    registerDiscoveryEffects({
+      modules: () => this.modules,
+      discovery: this.repoDiscovery,
+      addKnownOrigin: async (path, machineId, originUrl) =>
+        await cloneRegistry.addKnownOrigin(path, machineId, originUrl),
     })
     const agentRelayGate = new AgentRelayGate({
       // issues/repos ops run through the registry dispatcher (guard + schema +

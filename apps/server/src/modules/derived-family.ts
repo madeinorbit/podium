@@ -208,11 +208,6 @@ export interface FamilyState {
     readonly actorSessionId: Capability['actorSessionId']
   }
   readonly feedPrincipal?: import('@podium/protocol').Principal
-  /** Tiered per-machine repo discovery (POD-787) [spec:SP-3701]. Optional, so
-   *  callers that do not exercise discovery need not construct one — which is
-   *  the shipped shape, and why `discovery.lastMachineScan` answers null rather
-   *  than throwing when it is absent. */
-  readonly discovery?: Context['discovery']
   /** The superagent service. On the bundle because it is a request-context
    *  service like the others and two reads need it; it is NOT on
    *  `RegistryModules`, which is why it is named here rather than selected
@@ -445,7 +440,6 @@ export const familyState = (ctx: Context): FamilyState => ({
     actorSessionId: ctx.capability.actorSessionId,
   },
   feedPrincipal: syncFeedPrincipal(ctx.principal),
-  discovery: ctx.discovery,
   superagent: ctx.superagent,
 })
 

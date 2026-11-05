@@ -361,7 +361,9 @@ export const sessions = sqliteTable(
     // reads the few that can still get a ref, not every ref-less one in history.
     index('idx_sessions_refless_place')
       .on(table.machineId, table.cwd)
-      .where(sql`${table.refIssueId} IS NULL AND ${table.refDraft} IS NULL AND ${table.deletedAt} IS NULL`),
+      .where(
+        sql`${table.refIssueId} IS NULL AND ${table.refDraft} IS NULL AND ${table.deletedAt} IS NULL`,
+      ),
     index('idx_sessions_refless_issue')
       .on(table.issueId)
       .where(
@@ -372,9 +374,7 @@ export const sessions = sqliteTable(
     index('idx_sessions_status').on(table.status),
     // Headless sessions (POD-6160): resident for as long as their row exists,
     // so a boot restores them beside the running ones. A few rows; partial.
-    index('idx_sessions_headless')
-      .on(table.headless)
-      .where(sql`${table.headless} = 1`),
+    index('idx_sessions_headless').on(table.headless).where(sql`${table.headless} = 1`),
     check(
       'sessions_stop_reason_check',
       sql`stop_reason IS NULL OR stop_reason IN ('self', 'parent', 'forced', 'exited')`,
@@ -1420,7 +1420,11 @@ export const subscriptions = sqliteTable(
     // A subscriber's own rows, and the steward's relationship arm: the rows of
     // the subscribers an event can reach, narrowed by source kind and event
     // (POD-6208).
-    index('idx_subscriptions_subscriber_event').on(table.subscriberId, table.sourceKind, table.event),
+    index('idx_subscriptions_subscriber_event').on(
+      table.subscriberId,
+      table.sourceKind,
+      table.event,
+    ),
     // The steward's explicit-source arms: the rows watching one session or
     // issue for one event kind (POD-6208).
     index('idx_subscriptions_match').on(table.event, table.sourceKind, table.sourceRef),
@@ -2973,6 +2977,14 @@ export const effects = sqliteTable(
     index('idx_effects_deleted').on(table.deletedAt),
     // An issue's, a session's or a machine's effects.
     index('idx_effects_target').on(table.targetKind, table.targetId, table.createdAt),
+    // One kind's records on one target, newest first: a machine's latest scan,
+    // and the scan already running there (POD-6396).
+    index('idx_effects_kind_target').on(
+      table.kind,
+      table.targetKind,
+      table.targetId,
+      table.createdAt,
+    ),
   ],
 )
 

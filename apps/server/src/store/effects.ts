@@ -23,7 +23,7 @@ import {
   type EffectTargetKind,
   type UserId,
 } from '@podium/model'
-import { and, asc, eq, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm'
 import { effects } from '../migrations/schema'
 import { afterCommit } from './executor/executor'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
@@ -150,6 +150,34 @@ const audiencesOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
     })
     .from(effects)
     .where(inListOf(effects.id, size))
+    .prepare(),
+)
+
+/** Which records {@link EffectsRepository.newestOnTarget} asks for. */
+export type EffectPhase = 'active' | 'succeeded'
+
+const PHASE_STATUSES: Record<EffectPhase, readonly EffectStatus[]> = {
+  active: ['pending', 'running'],
+  succeeded: ['succeeded'],
+}
+
+/** One kind's newest live record on one target in a phase (`idx_effects_kind_target`). */
+const newestOnTargetIn = preparedFamily((db: StoreDrizzle, phase: EffectPhase) =>
+  db
+    .select()
+    .from(effects)
+    .where(
+      and(
+        eq(effects.kind, param(effects.kind, 'kind')),
+        eq(effects.targetKind, param(effects.targetKind, 'targetKind')),
+        eq(effects.targetId, param(effects.targetId, 'targetId')),
+        statusIn(PHASE_STATUSES[phase]),
+        live(),
+      ),
+    )
+    // The index's own order after its three equalities: no sort.
+    .orderBy(desc(effects.createdAt))
+    .limit(1)
     .prepare(),
 )
 
@@ -432,6 +460,24 @@ export class EffectsRepository {
   /** By id, tombstones included. */
   async get(id: string): Promise<EffectRow | undefined> {
     const row = await effectById(this.db).get({ id })
+    return row === undefined ? undefined : rowToEffect(row)
+  }
+
+  /**
+   * The newest live record of one kind on one target that is still running
+   * (`active`) or that succeeded: a machine's last scan, or the scan already
+   * under way there.
+   */
+  async newestOnTarget(
+    kind: string,
+    target: { readonly kind: EffectTargetKind; readonly id: string },
+    phase: EffectPhase,
+  ): Promise<EffectRow | undefined> {
+    const row = await newestOnTargetIn(this.db, phase).get({
+      kind,
+      targetKind: target.kind,
+      targetId: target.id,
+    })
     return row === undefined ? undefined : rowToEffect(row)
   }
 

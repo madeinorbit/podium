@@ -51,7 +51,7 @@ import { cloudFamilyProcedures } from './modules/cloud/trpc'
 import { conversationFamilyProcedures } from './modules/conversations/trpc'
 import { familyState, queryProcedures } from './modules/derived-family'
 import { fileFamilyProcedures } from './modules/files/trpc'
-import { DISCOVERY_QUERIES, REPO_QUERIES } from './modules/fleet/queries'
+import { REPO_QUERIES } from './modules/fleet/queries'
 import { hostFamilyProcedures } from './modules/hosts/trpc'
 import {
   authFamilyProcedures,
@@ -127,7 +127,7 @@ import type { AnyCommandContract } from '@podium/commands'
  * work) and the audit checks procedure TYPE rather than name, so a write cannot hide
  * among them by being called a query.
  */
-import { fleetProcedures } from './modules/fleet/trpc'
+import { discoveryReadProcedures, fleetProcedures } from './modules/fleet/trpc'
 import { MAIL_COMMANDS, type MailProcName } from './modules/messages/registry'
 import { visibleMachinesFor } from './modules/sessions/command-ctx'
 import { sessionFamilyProcedures } from './modules/sessions/trpc'
@@ -433,7 +433,7 @@ export const appRouter = t.router({
     // `machineVerb: 'use'` commands, each placing a filesystem walk on the target
     // machine's daemon.
     ...fleet.discovery,
-    ...queryProcedures('discovery', DISCOVERY_QUERIES),
+    ...discoveryReadProcedures(),
   }),
   machines: t.router({
     /**

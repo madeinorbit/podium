@@ -81,7 +81,6 @@ function makeService(overrides: Partial<ConstructorParameters<typeof MachineRepo
     },
     scanRepos: async () => scanResult([]),
     machineNames: async (ids) => new Map(ids.map((id) => [id, `name:${id}`])),
-    localMachineId: asMachineId('local'),
     ...overrides,
   })
   return { svc, added }
@@ -201,26 +200,6 @@ describe('MachineRepoDiscovery.scan', () => {
     ])
   })
 
-  it('coalesces concurrent scans and records lastResult', async () => {
-    let resolveScan: (r: ScanReposResult) => void = () => {}
-    const gate = new Promise<ScanReposResult>((resolve) => {
-      resolveScan = resolve
-    })
-    const scanRepos = vi.fn(async () => gate)
-    const { svc } = makeService({
-      listRepos: async () => [row('hub', '/home/u/src/x')],
-      scanRepos,
-    })
-
-    const first = svc.scan(asMachineId('mac'), { deep: false })
-    const second = svc.scan(asMachineId('mac'), { deep: false })
-    resolveScan(scanResult([]))
-    const [result, coalesced] = await Promise.all([first, second])
-    expect(coalesced).toBe(result)
-    expect(scanRepos).toHaveBeenCalledTimes(1)
-    expect(svc.lastResult(asMachineId('mac'))).toBe(result)
-  })
-
   it('scans the browsed folder first when atPath is given (POD-855 "scan here")', async () => {
     const scanRepos = vi.fn(
       async (
@@ -248,7 +227,7 @@ describe('MachineRepoDiscovery.scan', () => {
     expect(result.repos.map((r) => r.path)).toContain('/Users/mike/projects/app')
   })
 
-  it('does not coalesce scans of different folders', async () => {
+  it('scans of different folders each walk their own folder', async () => {
     let resolveScan: (r: ScanReposResult) => void = () => {}
     const gate = new Promise<ScanReposResult>((r) => {
       resolveScan = r
@@ -265,39 +244,6 @@ describe('MachineRepoDiscovery.scan', () => {
       [['/a'], { includeHome: false, maxDepth: 6 }, 'mac'],
       [['/b'], { includeHome: false, maxDepth: 6 }, 'mac'],
     ])
-  })
-
-  it('never fires the connect trigger for the local machine and throttles repeats', async () => {
-    vi.useFakeTimers()
-    try {
-      const scanRepos = vi.fn(
-        async (
-          _roots: string[],
-          _opts: { includeHome?: boolean; maxDepth?: number },
-          _machineId: string,
-        ): Promise<ScanReposResult> => scanResult([]),
-      )
-      const { svc } = makeService({
-        listRepos: async () => [row('hub', '/home/u/src/x')],
-        scanRepos,
-        now: () => Date.now(),
-      })
-
-      svc.onMachineConnected(asMachineId('local'))
-      await vi.advanceTimersByTimeAsync(10_000)
-      expect(scanRepos).not.toHaveBeenCalled()
-
-      svc.onMachineConnected(asMachineId('mac'))
-      svc.onMachineConnected(asMachineId('mac')) // reconnect burst — throttled
-      await vi.advanceTimersByTimeAsync(10_000)
-      expect(scanRepos.mock.calls.filter((c) => c[2] === 'mac').length).toBeGreaterThanOrEqual(1)
-      const callsAfterFirst = scanRepos.mock.calls.length
-      svc.onMachineConnected(asMachineId('mac'))
-      await vi.advanceTimersByTimeAsync(10_000)
-      expect(scanRepos.mock.calls.length).toBe(callsAfterFirst)
-    } finally {
-      vi.useRealTimers()
-    }
   })
 })
 
@@ -338,7 +284,6 @@ describe('moved-repo heal (POD-1498)', () => {
       ...(opts.pathExists ? { pathExists: opts.pathExists } : {}),
       scanRepos: async () => scanResult(opts.found ?? [{ path: NEW, originUrl: ORIGIN }]),
       machineNames: async (ids) => new Map(ids.map((id) => [id, `name:${id}`])),
-      localMachineId: asMachineId('local'),
     })
     return { svc, added, removed, rows }
   }
@@ -413,7 +358,6 @@ describe('moved-repo heal (POD-1498)', () => {
       },
       scanRepos: async () => scanResult([{ path: NEW, originUrl: ORIGIN }]),
       machineNames: async (ids) => new Map(ids.map((id) => [id, `name:${id}`])),
-      localMachineId: asMachineId('local'),
     })
     await svc.scan(asMachineId('vmi'), { deep: false })
     expect(removed).toEqual([])
@@ -432,21 +376,27 @@ describe('moved-repo heal (POD-1498)', () => {
       },
       scanRepos: async () => scanResult([{ path: NEW, originUrl: ORIGIN }]),
       machineNames: async (ids) => new Map(ids.map((id) => [id, `name:${id}`])),
-      localMachineId: asMachineId('local'),
     })
     await svc.scan(asMachineId('vmi'), { deep: false })
     expect(probed).toEqual([])
   })
 })
 
-
 it('machine paths: Windows adjacent and home-translated probe roots', () => {
   expect(homeRelativePath('C:\\Users\\Mike\\src\\podium')).toBe('~/src/podium')
   expect(homeRelativePath('c:/Users/Mike/src/podium')).toBe('~/src/podium')
-  expect(adjacentRootsFor(['C:\\src\\podium', 'c:/src/nested/repo', 'C:\\Users\\Mike\\repo', 'D:\\repo'])).toEqual(['C:\\src'])
-  expect(adjacentRootsFor(['/srv/repos/podium', '/srv/repos/nested/repo', '/home/me/repo', '/repo'])).toEqual(['/srv/repos'])
+  expect(
+    adjacentRootsFor([
+      'C:\\src\\podium',
+      'c:/src/nested/repo',
+      'C:\\Users\\Mike\\repo',
+      'D:\\repo',
+    ]),
+  ).toEqual(['C:\\src'])
+  expect(
+    adjacentRootsFor(['/srv/repos/podium', '/srv/repos/nested/repo', '/home/me/repo', '/repo']),
+  ).toEqual(['/srv/repos'])
 })
-
 
 it.each([
   ['/users/bob/src/x', undefined],
@@ -468,10 +418,11 @@ it('machine paths: discovery dedupes comparison keys while preserving reported c
     addRepo,
     scanRepos: async () => scanResult([{ path: scanned }, { path: registered }]),
     machineNames: async (ids) => new Map(ids.map((id) => [id, 'Windows'])),
-    localMachineId: asMachineId('other'),
   })
   const result = await svc.scan(machineId, { deep: false })
-  expect(result.repos).toEqual([expect.objectContaining({ path: String.raw`c:\src\podium`, status: 'registered' })])
+  expect(result.repos).toEqual([
+    expect.objectContaining({ path: String.raw`c:\src\podium`, status: 'registered' }),
+  ])
   expect(addRepo).not.toHaveBeenCalled()
   expect(probeRootsFor(machineId, [row('windows', registered), row('other', scanned)])).toEqual([])
 })

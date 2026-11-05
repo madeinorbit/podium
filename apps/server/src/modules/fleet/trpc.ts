@@ -37,12 +37,15 @@
 
 import { FLEET_CONTRACTS } from '@podium/commands'
 import { createLogger } from '@podium/logger'
+import { MachineIdField } from '@podium/model'
 import type { TRPCMutationProcedure } from '@trpc/server'
 import { TRPCError } from '@trpc/server'
-import type { z } from 'zod'
+import { z } from 'zod'
+import type { MachineDiscoveryResult } from '../../repo-discovery'
 import { settingsAuditAttribution } from '../../store/settings-audit'
-import { t } from '../../trpc'
+import { mods, t } from '../../trpc'
 import { fleetAuthzDeps, fleetAuthzFailure } from './authz'
+import { MACHINE_SCAN_KIND } from './discovery-effects'
 import type { FleetHandler, FleetPorts } from './handlers'
 import {
   FLEET_COMMANDS,
@@ -178,3 +181,31 @@ export function fleetProcedures(ports: FleetPorts): FleetProcedures {
   assertSurfaceMatchesContracts(grouped)
   return grouped as unknown as FleetProcedures
 }
+
+/**
+ * `discovery.lastMachineScan`: the machine's most recent finished discovery
+ * (e.g. the automatic connect scan), so the picker can show results without
+ * re-scanning. It is the result of the machine's newest succeeded
+ * `machine.scan` effect record (POD-6396), and a scan's result is a listing of
+ * that machine's disk, so it is read under the scan's own gate: the
+ * `discovery.scanMachine` contract's role floor and machine `use`, live.
+ * Hand-written for that reason: a query-table read carries no principal.
+ */
+export const discoveryReadProcedures = () => ({
+  lastMachineScan: t.procedure
+    .input(z.object({ machineId: MachineIdField }))
+    .query(async ({ ctx, input }): Promise<MachineDiscoveryResult | null> => {
+      const refusal = await fleetAuthzFailure(
+        'discovery.scanMachine',
+        { machineId: input.machineId },
+        await fleetAuthzDeps(ctx),
+      )
+      if (refusal) throw refusal
+      const row = await mods(ctx).effects?.newestOnTarget(
+        MACHINE_SCAN_KIND,
+        { kind: 'machine', id: input.machineId },
+        'succeeded',
+      )
+      return (row?.result as MachineDiscoveryResult | undefined) ?? null
+    }),
+})
