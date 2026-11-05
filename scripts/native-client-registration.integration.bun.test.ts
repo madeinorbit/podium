@@ -253,6 +253,8 @@ const report = body => fetch('/probe', {method:'POST',body:JSON.stringify(body)}
         [
           '-displayfd',
           '1',
+          // Keep the display available when the old app exits during relaunch.
+          '-noreset',
           '-screen',
           '0',
           '1000x700x24',

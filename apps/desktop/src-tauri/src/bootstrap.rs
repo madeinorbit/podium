@@ -350,28 +350,38 @@ fn with_config_write_lock(
 ) -> Result<(), String> {
     use sqlx::sqlite::{SqliteConnectOptions, SqliteConnection};
     use sqlx::{Connection, Executor};
-    let _local = CONFIG_WRITE_LOCK.lock().map_err(|_| "config writer unavailable")?;
+    let _local = CONFIG_WRITE_LOCK
+        .lock()
+        .map_err(|_| "config writer unavailable")?;
     std::fs::create_dir_all(path.parent().ok_or("config has no parent")?)
         .map_err(|error| error.to_string())?;
     let lock = PathBuf::from(format!("{}.write-lock.sqlite", path.display()));
     std::thread::scope(|scope| {
-        scope.spawn(|| tauri::async_runtime::block_on(async {
-            let options = SqliteConnectOptions::new()
-                .filename(lock)
-                .create_if_missing(true)
-                .busy_timeout(std::time::Duration::from_secs(5));
-            let mut connection = SqliteConnection::connect_with(&options).await
-                .map_err(|_| "cannot open config writer coordination")?;
-            connection.execute("BEGIN IMMEDIATE").await
-                .map_err(|_| "config writer is busy or unavailable")?;
-            let result = write();
-            let released = connection.execute("ROLLBACK").await;
-            let closed = connection.close().await;
-            result?;
-            released.map_err(|_| "cannot release config writer coordination")?;
-            closed.map_err(|_| "cannot close config writer coordination")?;
-            Ok(())
-        })).join().map_err(|_| "config writer failed".to_string())?
+        scope
+            .spawn(|| {
+                tauri::async_runtime::block_on(async {
+                    let options = SqliteConnectOptions::new()
+                        .filename(lock)
+                        .create_if_missing(true)
+                        .busy_timeout(std::time::Duration::from_secs(5));
+                    let mut connection = SqliteConnection::connect_with(&options)
+                        .await
+                        .map_err(|_| "cannot open config writer coordination")?;
+                    connection
+                        .execute("BEGIN IMMEDIATE")
+                        .await
+                        .map_err(|_| "config writer is busy or unavailable")?;
+                    let result = write();
+                    let released = connection.execute("ROLLBACK").await;
+                    let closed = connection.close().await;
+                    result?;
+                    released.map_err(|_| "cannot release config writer coordination")?;
+                    closed.map_err(|_| "cannot close config writer coordination")?;
+                    Ok(())
+                })
+            })
+            .join()
+            .map_err(|_| "config writer failed".to_string())?
     })
 }
 
@@ -3523,41 +3533,84 @@ mod tests {
 
     #[test]
     fn native_config_publication_excludes_an_independent_runtime_writer() {
-        with_state_dir("cross-runtime-config-writers", Some(r#"{"mode":"client","serverUrl":"wss://vps.example","pairCode":"OLD-CODE"}"#), || {
-            let path = state_dir().join("config.json");
-            let report = state_dir().join("writer-barrier.json");
-            let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("../../../scripts/fixtures/config-competing-writer.ts");
-            let mut writer = None;
-            let native = update_config_json(|obj| {
-                writer = Some(std::process::Command::new(
-                    std::env::var("PODIUM_CONFIG_TEST_BUN").unwrap_or_else(|_| "bun".into())
-                ).arg("--conditions=@podium/source").arg(&fixture).arg(&path).arg(&report)
-                    .env("PODIUM_STATE_DIR", state_dir())
-                    .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::piped())
-                    .spawn().map_err(|error| error.to_string())?);
-                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-                while !report.exists() {
-                    if std::time::Instant::now() > deadline { return Err("runtime writer barrier timed out".into()); }
-                    std::thread::sleep(std::time::Duration::from_millis(5));
-                }
-                let barrier: serde_json::Value = serde_json::from_str(
-                    &std::fs::read_to_string(&report).map_err(|error| error.to_string())?
-                ).map_err(|error| error.to_string())?;
-                if barrier["contended"] != true { return Err("runtime writer bypassed native ownership".into()); }
-                obj.remove("pairCode");
-                Ok(())
-            });
-            // Publication has finished and SQLite ownership is released before
-            // the competing real runtime can save its replacement code/policy.
-            let output = writer.take().expect("runtime writer launched").wait_with_output().unwrap();
-            native.unwrap();
-            assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-            let config: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
-            assert_eq!(config["pairCode"], "NEWER-CODE");
-            assert_eq!(config["updateChannel"], "edge");
-            assert_eq!(config["mode"], "client");
-        });
+        with_state_dir(
+            "cross-runtime-config-writers",
+            Some(r#"{"mode":"client","serverUrl":"wss://vps.example","pairCode":"OLD-CODE"}"#),
+            || {
+                let path = state_dir().join("config.json");
+                let report = state_dir().join("writer-barrier.json");
+                let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../../scripts/fixtures/config-competing-writer.ts");
+                let mut writer = None;
+                let native = update_config_json(|obj| {
+                    writer = Some(
+                        std::process::Command::new(
+                            std::env::var("PODIUM_CONFIG_TEST_BUN").unwrap_or_else(|_| "bun".into()),
+                        )
+                        .arg("--conditions=@podium/source")
+                        .arg(&fixture)
+                        .arg(&path)
+                        .arg(&report)
+                        .env("PODIUM_STATE_DIR", state_dir())
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::piped())
+                        .spawn()
+                        .map_err(|error| error.to_string())?,
+                    );
+                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+                    while !report.exists() {
+                        if std::time::Instant::now() > deadline {
+                            return Err("runtime writer barrier timed out".into());
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                    }
+                    let barrier: serde_json::Value = serde_json::from_str(
+                        &std::fs::read_to_string(&report).map_err(|error| error.to_string())?,
+                    )
+                    .map_err(|error| error.to_string())?;
+                    if barrier["contended"] != true {
+                        return Err("runtime writer bypassed native ownership".into());
+                    }
+                    obj.remove("pairCode");
+                    Ok(())
+                });
+                // Publication has finished and SQLite ownership is released before
+                // the competing real runtime can save its replacement code/policy.
+                let output = writer
+                    .take()
+                    .expect("runtime writer launched")
+                    .wait_with_output()
+                    .unwrap();
+                native.unwrap();
+                assert!(
+                    output.status.success(),
+                    "{}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                let config: serde_json::Value =
+                    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+                assert_eq!(config["pairCode"], "NEWER-CODE");
+                assert_eq!(config["updateChannel"], "edge");
+                assert_eq!(config["mode"], "client");
+            },
+        );
+    }
+
+    #[tokio::test]
+    async fn config_publication_is_safe_inside_an_async_native_command() {
+        with_state_dir(
+            "async-config-writer",
+            Some(r#"{"mode":"client","serverUrl":"wss://vps.example","pairCode":"PRESERVE-CODE"}"#),
+            || {
+                write_update_channel(UpdateChannel::Edge, None).unwrap();
+                let config: serde_json::Value = serde_json::from_str(
+                    &std::fs::read_to_string(state_dir().join("config.json")).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(config["pairCode"], "PRESERVE-CODE");
+                assert_eq!(config["updateChannel"], "edge");
+            },
+        );
     }
 
     #[test]

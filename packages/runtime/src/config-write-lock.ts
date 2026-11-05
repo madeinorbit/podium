@@ -1,6 +1,6 @@
 /** The native config writers use this same file and BEGIN IMMEDIATE protocol.
  * SQLite owns exclusion and crash release; the database stores no config data.
- * Every callback is synchronous and holds ownership through durable publication. */
+ * Every callback is synchronous; ownership covers its complete publication. */
 import { mkdirSync, realpathSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 // The coordination connection must stay below config/profile/query attribution:

@@ -333,6 +333,7 @@ describe('daemon setup backend preserves machine identity', () => {
     })
     expect(readdirSync(dir).sort()).toEqual([
       'config.json',
+      'config.json.write-lock.sqlite',
       'daemon.secret',
       'instance.json',
       'machine.json',
