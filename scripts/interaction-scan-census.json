@@ -36052,16 +36052,57 @@
         "exit:then:9a1d56df20f35e5ea4c49655b4b47586ac5ad129a413c20314d33f2f11e69ed3"
       ],
       "origin": [
-        "e031b3cd6296471d55dfc112cbeb02b8dd795612c4f3bb1f1cf6d968bc39d779"
+        "75fc394cd38a9f07220b6162e226061134bd40e9d129307287f9be24442e805a"
       ],
-      "fingerprint": "d580d70074e0dcc6bf8c6c74076a1b8497614904a976f0fcf2c9616bb1d26313",
+      "fingerprint": "d0d3803eed4fcd1eb2b127745a51c335e27693f236b8aa50c87eced2211dbf83",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-6400",
       "trigger": "One generic record create reduced by the pool write log (a press, a boot replay or a rebase of that entry).",
       "bound": "The repo table only (entity other than repo answers none): the handful of repos this principal holds, once per reduced create.",
-      "reason": "A new issue is placed under the one repo the device holds at the create's repo path (the fresh-record placement guess); no issue, session or lane rows are enumerated. Predecessor: 0925870d3cbd533314ece57b140d6b4b8597e7b500b974dd7f0fe42f71a2ee51 (POD-6408 wrapped the composition).",
+      "reason": "A new issue is placed under the one repo the device holds at the create's repo path (the fresh-record placement guess); no issue, session or lane rows are enumerated. Predecessors: 0925870d3cbd533314ece57b140d6b4b8597e7b500b974dd7f0fe42f71a2ee51 (POD-6408 wrapped the composition), d580d70074e0dcc6bf8c6c74076a1b8497614904a976f0fcf2c9616bb1d26313 (POD-6411 reads the attached pool through an observable box).",
       "guard": "packages/client-graph/src/write/fresh-issue.pool.test.ts proves the queued issue joins its repo through the real pool and fails when the guess is disabled; packages/commands/src/records/records.test.ts proves none or several matches place nothing."
+    },
+    {
+      "file": "packages/client-graph/src/write/start-effects.ts",
+      "holder": "startEffects/computed:callback",
+      "rule": "loop:for-of",
+      "tokens": "ac0e2e0dced0547fe772cfce698b7b474ef854280a713d4f75b384a06ee1f772",
+      "gate": [
+        "then:fd5dc5002f3a425504d425b46f7d421205b67c6677250a38ffa99b963ff3732d"
+      ],
+      "origin": [
+        "46abc6b50034bacfbed60ae9dfb66720534bba52fa0bf386e0d43dd7997591f1",
+        "9368e4526d2af13d16a0dc15f31da27c61af8799ce6c32f78fa7f251ff15560b"
+      ],
+      "fingerprint": "65333702cd7589c818de21a30147534da5ab1dd9aaebc4892a1cf0227039ec47",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6411",
+      "trigger": "The pool's effect set changes (an effect record arrives or leaves) while the log's launch watch observes the start list; a model's isStart is its own boundary, so a record's progress does not re-list.",
+      "bound": "The pool's effect table only: effects are always resident, few and pruned after the retention window (schema effect.cold 'never'); once per change of that set.",
+      "reason": "The launch paint's declared subset of the pool's effect models (session.launch and issue.start); it replaces the private replica index createRuntimeTransactions kept (POD-6411). No issue, session or lane rows are enumerated.",
+      "guard": "packages/client-graph/src/write/launches.pool.test.ts proves the start list is the pool's own EffectModel and is not re-listed when a Stop's status moves."
+    },
+    {
+      "file": "packages/client-graph/src/write/start-effects.ts",
+      "holder": "startEffects/computed:callback",
+      "rule": "enumerate:keys",
+      "tokens": "a959a0023b73274f730dba7db4b4ae8ecbfd266952c7974d9a697fc7d9a91d8e",
+      "gate": [
+        "then:fd5dc5002f3a425504d425b46f7d421205b67c6677250a38ffa99b963ff3732d"
+      ],
+      "origin": [
+        "46abc6b50034bacfbed60ae9dfb66720534bba52fa0bf386e0d43dd7997591f1"
+      ],
+      "fingerprint": "66cdcb6c243039ad08528ad3c3431c9c9e34f4b5eaa743ddf3b0bef4de5cacd6",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-6411",
+      "trigger": "The pool's effect set changes (an effect record arrives or leaves) while the log's launch watch observes the start list; a model's isStart is its own boundary, so a record's progress does not re-list.",
+      "bound": "The pool's effect table only: effects are always resident, few and pruned after the retention window (schema effect.cold 'never'); once per change of that set.",
+      "reason": "The launch paint's declared subset of the pool's effect models (session.launch and issue.start); it replaces the private replica index createRuntimeTransactions kept (POD-6411). No issue, session or lane rows are enumerated.",
+      "guard": "packages/client-graph/src/write/launches.pool.test.ts proves the start list is the pool's own EffectModel and is not re-listed when a Stop's status moves."
     }
   ]
 }
