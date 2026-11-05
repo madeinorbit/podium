@@ -292,6 +292,7 @@ function completedPredecessor(roots: string[], installDir: string, installed: st
       journal?.phase === 'current' &&
       !journal.grant.target.native &&
       journal.grant.target.version === installed &&
+      installedPayloadVersion(oldBundlePath(installDir)) === journal.previousVersion &&
       !!journal.prepared?.digest &&
       journal.prepared?.digest === installedArtifactDigest(installDir)
     )
@@ -339,6 +340,7 @@ export async function prepareDesktopPayloadStartup(
   if (existsSync(staged)) return deferred('existing payload preparation has priority')
   const installed = installedPayloadVersion(installDir)
   const version = installedPayloadVersion(request.seed)
+  let phase = 'local state inspection'
   if (existsSync(installDir) && (!installed || !version))
     return {
       outcome: 'preserved',
@@ -387,10 +389,13 @@ export async function prepareDesktopPayloadStartup(
     if (inside(seed, installDir) || inside(installDir, seed))
       throw new Error('bundle source overlaps installed payload')
     const validate = deps.validate ?? validateDesktopPayload
+    phase = 'installed payload validation'
     await validate(installDir, installed)
+    phase = 'bundled payload validation'
     await validate(seed, version)
     let releaseFence: () => void
     try {
+      phase = 'payload staging'
       releaseFence = (
         deps.fence ?? (platform === 'linux' ? acquireLegacyExecutableFence : () => () => {})
       )(installDir)
@@ -414,6 +419,7 @@ export async function prepareDesktopPayloadStartup(
       fsyncPath(staged)
       const owner = await inspectOwner()
       if (owner) return deferred(owner)
+      phase = 'payload activation'
       ;(deps.activate ?? activatePreparedBundle)(replacement, installDir)
     } finally {
       // Only this invocation's new preparation. Never touch a pre-existing one.
@@ -428,7 +434,7 @@ export async function prepareDesktopPayloadStartup(
     // Public diagnostic is deliberately bounded; private config/identity never escapes.
     return {
       outcome: 'failed',
-      reason: 'bundled runtime preparation or activation failed; payload recovery data retained',
+      reason: `bundled runtime ${phase} failed; payload recovery data retained`,
     }
   }
 }

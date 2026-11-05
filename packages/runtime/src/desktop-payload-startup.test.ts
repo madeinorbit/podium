@@ -410,6 +410,8 @@ describe('cold-start bundled payload source', () => {
     write(join(request.installDir, 'ARTIFACT.sha256'), 'wrong-digest')
     expect(await run()).toMatchObject({ outcome: 'deferred' })
     write(join(request.installDir, 'ARTIFACT.sha256'), 'exact-feed-digest')
+    expect(await run()).toMatchObject({ outcome: 'deferred' })
+    payload(`${request.installDir}.old`, '0.1.0')
     expect(await run()).toMatchObject({ outcome: 'replaced' })
     expect(existsSync(join(request.installDir, 'ARTIFACT.sha256'))).toBe(false)
   })

@@ -25,7 +25,6 @@ import {
   type InstallationLease,
   installationStateRoots,
 } from '../packages/runtime/src/installation-lease'
-import { hermeticChildEnv } from '../test-hermetic-env'
 
 const roots: string[] = []
 const children: ChildProcess[] = []
@@ -55,11 +54,12 @@ function owner(install: string, state: string) {
     [resolve('scripts/fixtures/installation-usage.ts'), install, state],
     {
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: hermeticChildEnv({
+      env: {
+        ...process.env,
         PODIUM_STATE_DIR: state,
         PODIUM_INSTANCE: 'payloadproof',
         PODIUM_NO_RELAY: '1',
-      }),
+      },
     },
   )
   children.push(child)
