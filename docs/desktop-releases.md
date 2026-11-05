@@ -120,6 +120,11 @@ by Apple, and stapled, so a downloaded DMG opens without a Gatekeeper warning. T
 from the Tauri updater key: Apple's signature is what macOS trusts, and the Tauri key is what the
 updater trusts. A release needs both.
 
+Ticket stapling, ticket validation, and Gatekeeper assessment retry up to five times, waiting
+15, 30, 60, then 120 seconds between attempts. Apple's ticket service can drop a connection even
+after accepting notarization; these retries repeat the service call without rebuilding the app.
+Exhausting the retries still blocks publication.
+
 These GitHub Actions secrets drive it. A missing one does not fail loudly at Apple — it degrades to
 a signed-but-un-notarized bundle — so the build runs `apps/desktop/scripts/verify-macos-signing.sh`
 and refuses to publish unless the bundle is genuinely notarized.

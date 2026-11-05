@@ -15,6 +15,8 @@
 # Requires: APPLE_SIGNING_IDENTITY, APPLE_API_KEY_PATH, APPLE_API_KEY, APPLE_API_ISSUER
 set -euo pipefail
 
+source "$(dirname "${BASH_SOURCE[0]}")/apple-service-retry.sh"
+
 BUNDLE_DIR="${1:-apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle}"
 
 : "${APPLE_SIGNING_IDENTITY:?notarize-dmg.sh needs APPLE_SIGNING_IDENTITY}"
@@ -44,8 +46,8 @@ for dmg in "${dmgs[@]}"; do
     --issuer "$APPLE_API_ISSUER" \
     --wait
 
-  xcrun stapler staple "$dmg"
-  xcrun stapler validate "$dmg"
+  retry_apple_service xcrun stapler staple "$dmg"
+  retry_apple_service xcrun stapler validate "$dmg"
 done
 
 echo "OK: DMG signed, notarized, and stapled."
