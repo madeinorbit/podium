@@ -6,7 +6,14 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId, type MachineId } from '@podium/model'
-import { CAP_CREDENTIAL_IDENTITY_GUARD } from '@podium/protocol'
+import { CAP_CREDENTIAL_IDENTITY_GUARD, wireSchemaDigest } from '@podium/protocol'
+import { ensureInstanceStateIdentity } from '@podium/runtime/instance'
+import {
+  createMachineSupervisorConnection,
+  loadSupervisorState,
+  type MachineSupervisorConnection,
+  saveSupervisorState,
+} from '@podium/runtime/machine-supervisor'
 import { afterAll, describe, expect, it } from 'vitest'
 import { loadIdentity } from '../../apps/daemon/src/identity'
 import {
@@ -18,15 +25,20 @@ import { type DaemonProcessHandle, startDaemonProcess } from './daemon-restart-h
 describe('two members on independent machine processes', () => {
   let f: TwoMemberInstance | undefined
   const children: DaemonProcessHandle[] = []
+  const supervisors: MachineSupervisorConnection[] = []
   const dirs: string[] = []
   afterAll(async () => {
     for (const child of children.reverse()) await child.stop()
+    for (const supervisor of supervisors) supervisor.close()
     await f?.close()
     for (const dir of dirs) rmSync(dir, { recursive: true, force: true })
   })
 
-  it('pairs each member’s own machine, routes its bytes and grants no session access', async () => {
+  it('enrolls independent machines and enforces file and git access', async () => {
     f = await startTwoMemberInstance()
+    await expect((await f.as('bob')).trpc.machines.pairingCode.mutate({})).rejects.toThrow(
+      /admin account/i,
+    )
     const machines = new Map<'alice' | 'bob', { id: MachineId; root: string; pid: number }>()
     for (const who of ['alice', 'bob'] as const) {
       const dir = mkdtempSync(join(tmpdir(), `mu-6303-${who}-`))
@@ -35,6 +47,7 @@ describe('two members on independent machine processes', () => {
       const home = join(dir, 'home')
       const state = join(dir, 'state')
       for (const path of [root, home, state]) mkdirSync(path, { recursive: true })
+      ensureInstanceStateIdentity({ instanceId: `mu6303-${who}`, dir: state })
       writeFileSync(join(root, 'member.txt'), `${who}'s independent machine`)
       execFileSync('git', ['init', '--quiet', '--initial-branch=main', root])
       execFileSync('git', ['-C', root, 'add', 'member.txt'])
@@ -54,7 +67,39 @@ describe('two members on independent machine processes', () => {
         '-m',
         'Machine fixture',
       ])
-      const { code } = await (await f.as(who)).trpc.machines.pairingCode.mutate({})
+      const { code } = await (await f.as('alice')).trpc.machines.pairingCode.mutate({})
+      // Current enrollment belongs to the machine supervisor. A bare daemon's
+      // legacy pairCode option does not enroll it or prove connectivity.
+      const supervisorState = loadSupervisorState(state)
+      supervisorState.assignment = { server: false, agentExecution: true }
+      supervisorState.generation = 1
+      saveSupervisorState(state, supervisorState)
+      const supervisor = createMachineSupervisorConnection({
+        serverUrl: `ws://127.0.0.1:${f.handle.port}`,
+        stateDir: state,
+        state: supervisorState,
+        pairCode: code,
+        name: `release-${who}`,
+        build: {
+          appVersion: 'fixture',
+          wireSchemaDigest: wireSchemaDigest(),
+          supervisorGeneration: 1,
+        },
+        deliveryCaps: [],
+        report: () => ({
+          server: { policy: 'disabled', state: 'stopped', observedAt: new Date().toISOString() },
+          agentExecution: {
+            policy: 'enabled',
+            state: 'starting',
+            observedAt: new Date().toISOString(),
+          },
+        }),
+        onGrant: () => {},
+      })
+      supervisors.push(supervisor)
+      supervisor.start()
+      expect(await supervisor.waitUntilConnected(15_000)).toBe(true)
+      expect(loadSupervisorState(state).enrolledPublicKey).toBeTruthy()
       const child = await startDaemonProcess({
         dir,
         inheritEnv: false,
@@ -73,7 +118,6 @@ describe('two members on independent machine processes', () => {
         },
         options: {
           serverUrl: `ws://127.0.0.1:${f.handle.port}`,
-          pairCode: code,
           identityDir: state,
           backend: 'none',
           discovery: { background: false, homeDir: home, cachePath: join(dir, 'discovery.db') },
@@ -84,6 +128,16 @@ describe('two members on independent machine processes', () => {
       })
       children.push(child)
       const { machineId } = loadIdentity({ dir: state })
+      await expect
+        .poll(() => f!.handle.registry.modules.machines.hasDaemon(machineId), { timeout: 25_000 })
+        .toBe(true)
+      // Fresh enrollment is admin-only. Move the second machine's custody
+      // explicitly, through the same audited member command the UI uses.
+      if (who === 'bob')
+        await (await f.as('alice')).trpc.machines.transferOwnership.mutate({
+          id: machineId,
+          newOwnerUserId: f.members.bob.id,
+        })
       machines.set(who, { id: machineId, root, pid: child.pid })
       await f.handle.registry.sessionStore.repos.addRepo(root, asMachineId(machineId))
       expect(await f.handle.registry.sessionStore.machines.custodian(asMachineId(machineId))).toBe(
@@ -105,7 +159,7 @@ describe('two members on independent machine processes', () => {
     const file = (machine: typeof aliceMachine) => ({
       machineId: machine.id,
       root: machine.root,
-      path: 'member.txt',
+      path: join(machine.root, 'member.txt'),
     })
     await expect(alice.files.read.query(file(aliceMachine))).resolves.toMatchObject({
       ok: true,
@@ -159,8 +213,10 @@ describe('two members on independent machine processes', () => {
     await expect(
       bob.files.read.query({ ...file(aliceMachine), machineId: bobMachine.id }),
     ).rejects.toThrow(/known repository/i)
+    // The fixture's existing private session remains a separate server control;
+    // same-machine session-use controls are in two-member-release-safety.test.ts.
     await expect(bob.sessions.read.query({ sessionId: f.sessions.alice })).rejects.toThrow(
-      /not found/i,
+      'NOT_FOUND',
     )
   }, 180_000)
 })

@@ -221,6 +221,12 @@ describe('open mode ends once a second active member exists (MU-01)', () => {
         new Date().toISOString(),
       )
       expect(await f.status()).toMatchObject({ needsAuth: false, authed: true, userId: alone.userId })
+      await f.server.registry.sessionStore.users.enable(
+        'mem_bob_open_mode' as never,
+        new Date().toISOString(),
+      )
+      expect(await f.status()).toMatchObject({ needsAuth: true, authed: false })
+      expect(await f.trpcStatus()).toBe(401)
     } finally {
       await f.close()
     }
