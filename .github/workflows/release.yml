@@ -85,7 +85,31 @@ jobs:
       # All tool versions come from mise.toml — the one pin site dev machines share.
       # That includes pigz, the parallel compressor for the release tarballs (optional at
       # build time; scripts/parallel-gzip.ts falls back to gzip if it is missing).
-      - uses: jdx/mise-action@v2
+      - name: Install release toolchain (attempt 1 of 3)
+        id: mise_setup_0
+        uses: jdx/mise-action@v2
+        continue-on-error: true
+      - name: Wait before tool download attempt 2
+        if: steps.mise_setup_0.outcome == 'failure'
+        shell: bash
+        run: sleep 15
+      - name: Install release toolchain (attempt 2 of 3, alternate bootstrap host)
+        id: mise_setup_0_fallback
+        if: steps.mise_setup_0.outcome == 'failure'
+        uses: jdx/mise-action@v2
+        continue-on-error: true
+        with:
+          fetch_from_github: false
+      - name: Wait before tool download attempt 3
+        if: steps.mise_setup_0_fallback.outcome == 'failure'
+        shell: bash
+        run: sleep 45
+      - name: Install release toolchain (attempt 3 of 3, alternate bootstrap host)
+        id: mise_setup_0_final
+        if: steps.mise_setup_0_fallback.outcome == 'failure'
+        uses: jdx/mise-action@v2
+        with:
+          fetch_from_github: false
       # The Rust host owns a newer Rust pin than podium-tunnel. Install from its
       # crate configuration; rust-host-cross selects that channel explicitly.
       - name: Install Rust host toolchain
@@ -178,15 +202,65 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - name: Install Bun (attempt 1 of 3)
+        id: mise_setup_1
+        uses: jdx/mise-action@v2
+        continue-on-error: true
         with:
+          install_args: bun
+      - name: Wait before tool download attempt 2
+        if: steps.mise_setup_1.outcome == 'failure'
+        shell: bash
+        run: sleep 15
+      - name: Install Bun (attempt 2 of 3, alternate bootstrap host)
+        id: mise_setup_1_fallback
+        if: steps.mise_setup_1.outcome == 'failure'
+        uses: jdx/mise-action@v2
+        continue-on-error: true
+        with:
+          fetch_from_github: false
+          install_args: bun
+      - name: Wait before tool download attempt 3
+        if: steps.mise_setup_1_fallback.outcome == 'failure'
+        shell: bash
+        run: sleep 45
+      - name: Install Bun (attempt 3 of 3, alternate bootstrap host)
+        id: mise_setup_1_final
+        if: steps.mise_setup_1_fallback.outcome == 'failure'
+        uses: jdx/mise-action@v2
+        with:
+          fetch_from_github: false
           install_args: bun
       # The stable bridge proof runs the privileged real-release lane against the
       # prepared bytes. It skips the target build, but still packages the lane's
       # isolated coordinator and therefore needs the checkout-local release
       # toolchain. Edge never executes these setup steps or the proof.
-      - uses: jdx/mise-action@v2
+      - name: Install release toolchain (attempt 1 of 3)
+        id: mise_setup_2
+        uses: jdx/mise-action@v2
+        continue-on-error: true
         if: env.PODIUM_RELEASE_CHANNEL == 'stable'
+      - name: Wait before tool download attempt 2
+        if: steps.mise_setup_2.outcome == 'failure'
+        shell: bash
+        run: sleep 15
+      - name: Install release toolchain (attempt 2 of 3, alternate bootstrap host)
+        id: mise_setup_2_fallback
+        if: steps.mise_setup_2.outcome == 'failure'
+        uses: jdx/mise-action@v2
+        continue-on-error: true
+        with:
+          fetch_from_github: false
+      - name: Wait before tool download attempt 3
+        if: steps.mise_setup_2_fallback.outcome == 'failure'
+        shell: bash
+        run: sleep 45
+      - name: Install release toolchain (attempt 3 of 3, alternate bootstrap host)
+        id: mise_setup_2_final
+        if: steps.mise_setup_2_fallback.outcome == 'failure'
+        uses: jdx/mise-action@v2
+        with:
+          fetch_from_github: false
       - uses: dtolnay/rust-toolchain@stable
         if: env.PODIUM_RELEASE_CHANNEL == 'stable'
       # EVERY CHANNEL, not just stable (POD-4507). This step used to be the stable
@@ -287,12 +361,62 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - name: Install Bun (attempt 1 of 3)
+        id: mise_setup_3
+        uses: jdx/mise-action@v2
+        continue-on-error: true
         with:
+          install_args: bun
+      - name: Wait before tool download attempt 2
+        if: steps.mise_setup_3.outcome == 'failure'
+        shell: bash
+        run: sleep 15
+      - name: Install Bun (attempt 2 of 3, alternate bootstrap host)
+        id: mise_setup_3_fallback
+        if: steps.mise_setup_3.outcome == 'failure'
+        uses: jdx/mise-action@v2
+        continue-on-error: true
+        with:
+          fetch_from_github: false
+          install_args: bun
+      - name: Wait before tool download attempt 3
+        if: steps.mise_setup_3_fallback.outcome == 'failure'
+        shell: bash
+        run: sleep 45
+      - name: Install Bun (attempt 3 of 3, alternate bootstrap host)
+        id: mise_setup_3_final
+        if: steps.mise_setup_3_fallback.outcome == 'failure'
+        uses: jdx/mise-action@v2
+        with:
+          fetch_from_github: false
           install_args: bun
       # The published smoke opens the Darwin bundles it cannot execute, so it needs the
       # Mach-O signature reader for the published Darwin binaries.
-      - uses: jdx/mise-action@v2
+      - name: Install release toolchain (attempt 1 of 3)
+        id: mise_setup_4
+        uses: jdx/mise-action@v2
+        continue-on-error: true
+      - name: Wait before tool download attempt 2
+        if: steps.mise_setup_4.outcome == 'failure'
+        shell: bash
+        run: sleep 15
+      - name: Install release toolchain (attempt 2 of 3, alternate bootstrap host)
+        id: mise_setup_4_fallback
+        if: steps.mise_setup_4.outcome == 'failure'
+        uses: jdx/mise-action@v2
+        continue-on-error: true
+        with:
+          fetch_from_github: false
+      - name: Wait before tool download attempt 3
+        if: steps.mise_setup_4_fallback.outcome == 'failure'
+        shell: bash
+        run: sleep 45
+      - name: Install release toolchain (attempt 3 of 3, alternate bootstrap host)
+        id: mise_setup_4_final
+        if: steps.mise_setup_4_fallback.outcome == 'failure'
+        uses: jdx/mise-action@v2
+        with:
+          fetch_from_github: false
       - run: bun install --frozen-lockfile --ignore-scripts
       - name: Verify the published assets and signature
         env:

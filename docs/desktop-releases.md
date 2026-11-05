@@ -125,6 +125,11 @@ Ticket stapling, ticket validation, and Gatekeeper assessment retry up to five t
 after accepting notarization; these retries repeat the service call without rebuilding the app.
 Exhausting the retries still blocks publication.
 
+Release tool setup also gets three attempts, waiting 15 then 45 seconds. Recovery attempts
+download the mise bootstrap from its own host when available; Bun and the other tools still
+use the repository's pinned versions and checksum verification. A third failure stops the job
+before compilation.
+
 These GitHub Actions secrets drive it. A missing one does not fail loudly at Apple — it degrades to
 a signed-but-un-notarized bundle — so the build runs `apps/desktop/scripts/verify-macos-signing.sh`
 and refuses to publish unless the bundle is genuinely notarized.

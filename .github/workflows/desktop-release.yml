@@ -105,8 +105,34 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ steps.resolve.outputs.checkout_ref }}
-      - uses: jdx/mise-action@v2
+      - name: Install Bun (attempt 1 of 3)
+        id: mise_setup_0
+        uses: jdx/mise-action@v2
+        continue-on-error: true
         with:
+          install_args: bun
+      - name: Wait before tool download attempt 2
+        if: steps.mise_setup_0.outcome == 'failure'
+        shell: bash
+        run: sleep 15
+      - name: Install Bun (attempt 2 of 3, alternate bootstrap host)
+        id: mise_setup_0_fallback
+        if: steps.mise_setup_0.outcome == 'failure'
+        uses: jdx/mise-action@v2
+        continue-on-error: true
+        with:
+          fetch_from_github: false
+          install_args: bun
+      - name: Wait before tool download attempt 3
+        if: steps.mise_setup_0_fallback.outcome == 'failure'
+        shell: bash
+        run: sleep 45
+      - name: Install Bun (attempt 3 of 3, alternate bootstrap host)
+        id: mise_setup_0_final
+        if: steps.mise_setup_0_fallback.outcome == 'failure'
+        uses: jdx/mise-action@v2
+        with:
+          fetch_from_github: false
           install_args: bun
       - name: Choose the desktop builds for this channel
         id: matrix
@@ -219,8 +245,34 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.validate.outputs.checkout_ref }}
-      - uses: jdx/mise-action@v2
+      - name: Install Bun (attempt 1 of 3)
+        id: mise_setup_1
+        uses: jdx/mise-action@v2
+        continue-on-error: true
         with:
+          install_args: bun
+      - name: Wait before tool download attempt 2
+        if: steps.mise_setup_1.outcome == 'failure'
+        shell: bash
+        run: sleep 15
+      - name: Install Bun (attempt 2 of 3, alternate bootstrap host)
+        id: mise_setup_1_fallback
+        if: steps.mise_setup_1.outcome == 'failure'
+        uses: jdx/mise-action@v2
+        continue-on-error: true
+        with:
+          fetch_from_github: false
+          install_args: bun
+      - name: Wait before tool download attempt 3
+        if: steps.mise_setup_1_fallback.outcome == 'failure'
+        shell: bash
+        run: sleep 45
+      - name: Install Bun (attempt 3 of 3, alternate bootstrap host)
+        id: mise_setup_1_final
+        if: steps.mise_setup_1_fallback.outcome == 'failure'
+        uses: jdx/mise-action@v2
+        with:
+          fetch_from_github: false
           install_args: bun
       - name: Pin Bun's install cache (and its global store) to the checkout volume
         if: matrix.target == 'windows-x86_64'
@@ -343,8 +395,34 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.validate.outputs.checkout_ref }}
-      - uses: jdx/mise-action@v2
+      - name: Install Bun (attempt 1 of 3)
+        id: mise_setup_2
+        uses: jdx/mise-action@v2
+        continue-on-error: true
         with:
+          install_args: bun
+      - name: Wait before tool download attempt 2
+        if: steps.mise_setup_2.outcome == 'failure'
+        shell: bash
+        run: sleep 15
+      - name: Install Bun (attempt 2 of 3, alternate bootstrap host)
+        id: mise_setup_2_fallback
+        if: steps.mise_setup_2.outcome == 'failure'
+        uses: jdx/mise-action@v2
+        continue-on-error: true
+        with:
+          fetch_from_github: false
+          install_args: bun
+      - name: Wait before tool download attempt 3
+        if: steps.mise_setup_2_fallback.outcome == 'failure'
+        shell: bash
+        run: sleep 45
+      - name: Install Bun (attempt 3 of 3, alternate bootstrap host)
+        id: mise_setup_2_final
+        if: steps.mise_setup_2_fallback.outcome == 'failure'
+        uses: jdx/mise-action@v2
+        with:
+          fetch_from_github: false
           install_args: bun
       - name: Collect promoted desktop bundles
         uses: actions/download-artifact@v4
