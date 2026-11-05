@@ -836,18 +836,6 @@ pub fn write_hosting_config(pair_code: &str) -> Result<(), String> {
     })
 }
 
-/// An already registered client enables hosting through its existing credential.
-/// Its explicit UI action changes the server assignment through the existing admin API.
-pub fn write_enrolled_hosting_config(caller_url: &str) -> Result<(), String> {
-    update_config_json(|obj| {
-        if inspect_client_registration(obj, caller_url)? != ClientRegistrationStatus::Enrolled {
-            return Err("hosting requires this client's existing registration".to_string());
-        }
-        obj.insert("mode".to_string(), serde_json::json!("daemon"));
-        Ok(())
-    })
-}
-
 /// Minimal public registration answer. No credential or raw state crosses IPC.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(tag = "state", rename_all = "kebab-case")]
@@ -1004,18 +992,12 @@ fn inspect_client_registration(
     }
     if registration["state"] == "enrolled"
         || registration["state"] == "pairing"
-        || dir.join("machine.key").exists()
     {
         return Ok(unavailable());
     }
     // A runtime-owned, server-bound declaration is required. Neither an absent legacy
     // file nor connectivity alone is evidence of an unused identity.
-    if machine.get("daemon").is_some()
-        || machine.get("legacy").is_some()
-        || machine["importedFiles"]
-            .as_object()
-            .is_none_or(|files| !files.is_empty())
-        || supervisor.get("token").is_some()
+    if supervisor.get("token").is_some()
         || supervisor.get("enrolledPublicKey").is_some()
         || supervisor["assignment"]["server"] != false
         || supervisor["assignment"]["agentExecution"] != false
@@ -1023,6 +1005,10 @@ fn inspect_client_registration(
         return Ok(unavailable());
     }
     if registration.is_null() {
+        if dir.join("machine.key").exists() || machine.get("daemon").is_some() || machine.get("legacy").is_some()
+            || machine["importedFiles"].as_object().is_none_or(|files| !files.is_empty()) {
+            return Ok(unavailable());
+        }
         return Ok(ClientRegistrationStatus::Starting);
     }
     if registration["state"] != "unregistered" {
@@ -1032,8 +1018,6 @@ fn inspect_client_registration(
         machine_id,
         server,
         obj.get("uiUrl"),
-        obj.get("installationId"),
-        obj.get("installationPublicKey"),
     ))
     .map_err(|e| e.to_string())?;
     Ok(ClientRegistrationStatus::Needed { target })
@@ -3292,9 +3276,9 @@ mod tests {
                     write_client_registration("bad code!", &target, "https://vps.example").is_err()
                 );
                 write_server_identity(ID, KEY).unwrap();
-                assert!(
-                    write_client_registration("ABCD-EFGH", &target, "https://vps.example").is_err()
-                );
+                // Learning the same server's identity after authentication is not
+                // a target change and must not invalidate an in-flight handoff.
+                assert_eq!(needed_client_target(), target);
                 update_config_json(|obj| {
                     obj.insert(
                         "serverUrl".to_string(),
@@ -3341,17 +3325,19 @@ mod tests {
                 }
                 let mut machine = fresh_client_machine();
                 machine["importedFiles"] = serde_json::json!({ "supervisor.json": "prior-import" });
+                machine["daemon"] = serde_json::json!({ "machineId": "same-machine" });
                 put_client_machine(&machine);
-                assert!(matches!(
-                    client_registration_status("https://vps.example").unwrap(),
-                    ClientRegistrationStatus::Unavailable { .. }
-                ));
-                put_client_machine(&fresh_client_machine());
                 std::fs::write(
                     state_dir().join("machine.key"),
-                    "private material must never be read or returned",
+                    "opaque private material: native status never reads or returns it",
                 )
                 .unwrap();
+                // Production local bootstrap already owns a key and may have import
+                // receipts. Only the runtime's new-target declaration permits pairing.
+                let target = needed_client_target();
+                assert!(!target.contains("opaque private material"));
+                machine["supervisor"].as_object_mut().unwrap().remove("registration");
+                put_client_machine(&machine);
                 assert!(matches!(
                     client_registration_status("https://vps.example").unwrap(),
                     ClientRegistrationStatus::Unavailable { .. }
@@ -3427,25 +3413,6 @@ mod tests {
             assert_eq!(config["pairCode"], "ABCD-EFGH");
             assert_eq!(config["updateChannel"], "edge");
             assert_eq!(config["extra"], 42);
-        });
-    }
-
-    #[test]
-    fn enrolled_client_hosting_preserves_its_credential_without_a_new_pair_code() {
-        with_state_dir("enrolled-client-hosting", Some(r#"{"mode":"client","serverUrl":"wss://vps.example","extra":42}"#), || {
-            let mut machine = fresh_client_machine();
-            put_client_machine(&machine);
-            assert!(write_enrolled_hosting_config("https://vps.example").is_err());
-            machine["supervisor"]["token"] = serde_json::json!("private-token");
-            machine["connectivity"]["state"] = serde_json::json!("disconnected");
-            put_client_machine(&machine);
-            assert!(write_enrolled_hosting_config("https://other.example").is_err());
-            write_enrolled_hosting_config("https://vps.example").unwrap();
-            let config: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(state_dir().join("config.json")).unwrap()).unwrap();
-            assert_eq!(config["mode"], "daemon");
-            assert_eq!(config["extra"], 42);
-            assert!(config.get("pairCode").is_none());
-            assert_eq!(std::fs::read_to_string(state_dir().join("machine.json")).unwrap(), machine.to_string());
         });
     }
 

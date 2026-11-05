@@ -27,6 +27,7 @@ import {
 } from './machine-supervisor'
 import { writeConnectivity } from './connectivity'
 import { confirmSetupEnrollment, prepareSetupEnrollment } from './setup-enrollment'
+import { applyLocalSetupDefault, applyMode } from './setup'
 import { loadConfig, saveConfig } from './config'
 import { readConnectivityForTest } from './connectivity'
 import { createMachineCredential, readMachineCredential, machinePublicKeyWire, verifyWithMachineKey } from './machine-credential'
@@ -42,6 +43,7 @@ function stateDir(): string {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
   vi.useRealTimers()
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
 })
@@ -334,6 +336,57 @@ describe('a setup that changes the role outside a transfer (POD-5983)', () => {
     )
     return state
   }
+
+  it('adopts the normal local welcome to VPS client setup without presenting or replacing the local key', () => {
+    vi.useFakeTimers()
+    const dir = stateDir()
+    vi.stubEnv('PODIUM_STATE_DIR', dir)
+    expect(applyLocalSetupDefault()).toBe('applied')
+    const request = loadSupervisorState(dir).setupEnrollment!
+    confirmSetupEnrollment(request.requestId, request.publicKey, dir)
+    const local = loadSupervisorState(dir)
+    local.assignment = reconcileSupervisorAssignment(local, loadConfig(), dir)
+    local.registration = { serverUrl: 'ws://localhost:18787', state: 'enrolled' }
+    saveSupervisorState(dir, local)
+    const originalKey = readFileSync(join(dir, 'machine.key'), 'utf8')
+    const client = applyMode({ mode: 'client', serverUrl: joined.serverUrl, identity: {
+      installationId: VPS, installationPublicKey: 'local-fixture-server-key',
+    } })
+    const state = loadSupervisorState(dir)
+    expect(reconcileSupervisorAssignment(state, client, dir)).toEqual({ server: false, agentExecution: false })
+    expect(loadSupervisorState(dir)).toMatchObject({
+      machineId: local.machineId,
+      registration: { serverUrl: joined.serverUrl, state: 'unregistered' },
+    })
+    expect(loadSupervisorState(dir).enrolledPublicKey).toBeUndefined()
+    expect(readFileSync(join(dir, 'machine.key'), 'utf8')).toBe(originalKey)
+
+    const dial = vi.fn()
+    vi.stubGlobal('WebSocket', dial)
+    const service = { policy: 'disabled' as const, state: 'stopped' as const, observedAt: new Date().toISOString() }
+    const connection = createMachineSupervisorConnection({
+      stateDir: dir, state, serverUrl: joined.serverUrl, build: { appVersion: 'test' },
+      deliveryCaps: [], report: () => ({ server: service, agentExecution: service }), onGrant: vi.fn(),
+    })
+    try {
+      connection.start()
+      vi.advanceTimersByTime(2_000)
+      expect(dial).not.toHaveBeenCalled()
+      expect(readFileSync(join(dir, 'machine.key'), 'utf8')).toBe(originalKey)
+      expect(loadSupervisorState(dir).registration?.state).toBe('unregistered')
+      expect(reconcileSupervisorAssignment(loadSupervisorState(dir), client, dir)).toEqual({ server: false, agentExecution: false })
+    } finally { connection.close() }
+  })
+
+  it('does not declare a new client target when the local enrolled key is missing', () => {
+    const dir = stateDir()
+    firstLocalLaunch(dir)
+    rmSync(join(dir, 'machine.key'))
+    const before = readFileSync(join(dir, 'machine.json'), 'utf8')
+    expect(() => reconcileSupervisorAssignment(loadSupervisorState(dir), { ...joined, mode: 'client' }, dir)).toThrow('enrolled machine key unavailable')
+    expect(readFileSync(join(dir, 'machine.json'), 'utf8')).toBe(before)
+    expect(existsSync(join(dir, 'machine.key'))).toBe(false)
+  })
 
   it('takes the joined role and drops the local server credential', () => {
     const dir = stateDir()

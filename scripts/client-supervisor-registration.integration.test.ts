@@ -23,7 +23,9 @@ import {
 import { MachineUpdateExecutor } from '../packages/runtime/src/machine-update'
 import { ParentProcess } from '../packages/runtime/src/parent-process'
 import { machineServiceReport } from '../packages/runtime/src/parent-supervisor'
-import { consumePairCode } from '../packages/runtime/src/setup'
+import { applyLocalSetupDefault, applyMode, consumePairCode } from '../packages/runtime/src/setup'
+import { confirmSetupEnrollment } from '../packages/runtime/src/setup-enrollment'
+import { loadConfig } from '../packages/runtime/src/config'
 
 it('pairs the same client identity, persists zero roles, reconnects by machine key and accepts an authorized payload update', async () => {
   const root = mkdtempSync(join(tmpdir(), 'podium-client-registration-'))
@@ -40,7 +42,20 @@ it('pairs the same client identity, persists zero roles, reconnects by machine k
     else process.env.PODIUM_STATE_DIR = previous
     const coordinator = server
     const serverUrl = `ws://127.0.0.1:${coordinator.port}`
-    const config = { mode: 'client' as const, serverUrl }
+    // A normal desktop starts locally before either VPS onboarding choice.
+    // Use those production setup operations: do not seed registration metadata.
+    process.env.PODIUM_STATE_DIR = clientDir
+    expect(applyLocalSetupDefault()).toBe('applied')
+    const initial = loadSupervisorState(clientDir)
+    const setup = initial.setupEnrollment!
+    confirmSetupEnrollment(setup.requestId, setup.publicKey, clientDir)
+    const local = loadSupervisorState(clientDir)
+    local.assignment = reconcileSupervisorAssignment(local, loadConfig(), clientDir)
+    saveSupervisorState(clientDir, local)
+    const originalKey = readFileSync(join(clientDir, 'machine.key'), 'utf8')
+    const config = applyMode({ mode: 'client', serverUrl })
+    if (previous === undefined) delete process.env.PODIUM_STATE_DIR
+    else process.env.PODIUM_STATE_DIR = previous
     const state = loadSupervisorState(clientDir)
     const originalId = state.machineId
     const assignment = reconcileSupervisorAssignment(state, config, clientDir)
@@ -73,14 +88,14 @@ it('pairs the same client identity, persists zero roles, reconnects by machine k
       report,
       onGrant: () => {},
     }
-    // Ordinary pre-login boot: no key/code, no server row, no update operation.
+    // Pre-login boot retains its local key but has no VPS credential or code.
     connection = createMachineSupervisorConnection({ ...base, state })
     connection.start()
     expect(loadSupervisorState(clientDir).registration).toEqual({
       serverUrl,
       state: 'unregistered',
     })
-    expect(readMachineCredential(clientDir)).toBeUndefined()
+    expect(readFileSync(join(clientDir, 'machine.key'), 'utf8')).toBe(originalKey)
     connection.close()
 
     const pairCode = coordinator.registry.modules.machines.mintPairingCode({
@@ -129,6 +144,7 @@ it('pairs the same client identity, persists zero roles, reconnects by machine k
     await observedPairing
     const saved = loadSupervisorState(clientDir)
     const publicKey = machinePublicKeyWire(readMachineCredential(clientDir)!)
+    expect(readFileSync(join(clientDir, 'machine.key'), 'utf8')).toBe(originalKey)
     expect(saved).toMatchObject({
       machineId: originalId,
       enrolledPublicKey: publicKey,

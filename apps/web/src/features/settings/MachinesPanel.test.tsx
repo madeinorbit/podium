@@ -199,21 +199,6 @@ describe('MachinesPanel hosting affordances', () => {
     expect(screen.queryByRole('button', { name: 'Enable' })).toBeNull()
   })
 
-  it('keeps Enable available on an online registered client with no service roles', () => {
-    stubBridge({ machineId: asMachineId('m-1') })
-    storeState.machines = [
-      machine({
-        id: asMachineId('m-1'),
-        online: true,
-        serviceAssignment: { server: false, agentExecution: false },
-      }),
-    ]
-    setTrpc(vi.fn())
-    render(<MachinesPanel />)
-    expect(enableCard()).toBeNull()
-    expect(screen.getByRole('button', { name: 'Enable' })).toBeTruthy()
-  })
-
   it('inline Enable mints a code, hands it to the shell, and restarts', async () => {
     const bridge = stubBridge({ machineId: asMachineId('m-1') })
     const restart = vi.fn(() => new Promise<void>(() => {}))

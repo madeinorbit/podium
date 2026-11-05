@@ -1448,11 +1448,8 @@ fn runtime_probe_report(body_text: String) -> Result<(), String> {
 /// which pairs over its WebSocket handshake. All validation lives in
 /// `bootstrap::write_hosting_config` — notably serverUrl is never accepted from the caller.
 #[tauri::command]
-fn enable_hosting(window: tauri::WebviewWindow, pair_code: Option<String>) -> Result<(), String> {
-    match pair_code {
-        Some(code) => bootstrap::write_hosting_config(&code),
-        None => bootstrap::write_enrolled_hosting_config(window.url().map_err(|e| e.to_string())?.as_str()),
-    }
+fn enable_hosting(pair_code: String) -> Result<(), String> {
+    bootstrap::write_hosting_config(&pair_code)
 }
 
 /// POD-5921: remember the installation the window just authenticated to, so it can follow that

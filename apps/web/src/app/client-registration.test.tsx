@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { NativeClientRegistrationStatus, NativeDesktopBridge } from '@/lib/nativeDesktop'
 import { ClientRegistrationNotice } from './ClientRegistrationNotice'
 import { ClientRegistration, clientRegistration } from './client-registration'
-import { enableNativeHosting, pairNativeDesktop } from './native-pairing'
+import { pairNativeDesktop } from './native-pairing'
 import type { Trpc } from './trpc'
 
 const desktop = window as typeof window & {
@@ -197,39 +197,5 @@ describe('authenticated native client registration', () => {
     })
   })
 
-  it('keeps explicit hosting working for an enrolled client through the existing assignment API', async () => {
-    const fixture = setup({ state: 'enrolled' })
-    const assignment = vi.fn(async () => {
-      fixture.events.push('assignment')
-    })
-    fixture.trpc.machines.setAssignment = {
-      mutate: assignment,
-    } as unknown as Trpc['machines']['setAssignment']
-    fixture.bridge.machineId = 'existing-machine' as NativeDesktopBridge['machineId']
-    fixture.bridge.enableHosting = vi.fn(async () => {
-      fixture.events.push('hosting')
-    })
-    await expect(enableNativeHosting(fixture.trpc, fixture.bridge)).rejects.toThrow(
-      'quit and reopen',
-    )
-    expect(assignment).toHaveBeenCalledExactlyOnceWith({
-      id: 'existing-machine',
-      assignment: { server: false, agentExecution: true },
-      requestId: expect.any(String),
-    })
-    expect(fixture.bridge.enableHosting).toHaveBeenCalledExactlyOnceWith()
-    expect(fixture.mint).not.toHaveBeenCalled()
-    expect(fixture.events).toEqual(['assignment', 'hosting', 'restart'])
-  })
 
-  it('retains the code handoff for an older shell explicitly enabling hosting', async () => {
-    const fixture = setup()
-    delete fixture.bridge.clientRegistrationStatus
-    fixture.bridge.enableHosting = fixture.save
-    await expect(enableNativeHosting(fixture.trpc, fixture.bridge)).rejects.toThrow(
-      'Hosting enabled',
-    )
-    expect(fixture.save).toHaveBeenCalledExactlyOnceWith('ABCD-EFGH')
-    expect(fixture.events).toEqual(['mint', 'save', 'restart'])
-  })
 })

@@ -373,10 +373,27 @@ function adoptConfiguredRole(state: SupervisorState, config: PodiumConfig, dir: 
   }
   state.assignment = fallbackAssignment(configured.mode)
   if (!sameServer) {
+    if (configured.mode === 'client') {
+      const retained = readMachineCredential(dir)
+      if (retained?.pendingRotation)
+        throw new Error('machine credential rotation is awaiting confirmation')
+      if (
+        state.enrolledPublicKey &&
+        (!retained || machinePublicKeyWire(retained) !== state.enrolledPublicKey)
+      )
+        throw new Error('enrolled machine key unavailable')
+    }
     delete state.token
     delete state.enrolledPublicKey
     delete state.setupEnrollment
     delete state.updatePubkey
+    // A local bootstrap's key and import receipts belong to its old coordinator.
+    // The new client target is unused, but retains this machine's ID and key.
+    // Never make this declaration for a refusal on the same coordinator.
+    delete state.registration
+    if (configured.mode === 'client' && config.serverUrl) {
+      state.registration = { serverUrl: config.serverUrl, state: 'unregistered' }
+    }
     if (config.workspaceId) state.workspaceId = config.workspaceId
     else delete state.workspaceId
   }
@@ -558,6 +575,15 @@ export function createMachineSupervisorConnection(
         code: deps.pairCode,
         publicKey: machinePublicKeyWire(createMachineCredential(deps.stateDir)),
       }
+    }
+    if (
+      deps.state.registration?.state === 'unregistered' &&
+      deps.state.registration.serverUrl === resolveServerUrl()
+    ) {
+      // Role adoption may retain a valid LOCAL key. It is not a credential for
+      // this VPS until authenticated pairing acknowledges it. Validate, never mint.
+      readMachineCredential(deps.stateDir)
+      throw new Error('machine supervisor has no credential; pair it first')
     }
     if (readMachineCredential(deps.stateDir))
       return { kind: 'machineKey', machineHint: deps.state.machineId }
