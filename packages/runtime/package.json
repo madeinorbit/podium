@@ -15,6 +15,8 @@
     "./live-state-guard": "./src/live-state-guard.ts",
     "./unix-socket": "./src/unix-socket.ts",
     "./instance-guard": "./src/instance-guard.ts",
+    "./installation-lease": "./src/installation-lease.ts",
+    "./desktop-payload-startup": "./src/desktop-payload-startup.ts",
     "./scope": "./src/scope.ts",
     "./daemon-health": "./src/daemon-health.ts",
     "./connectivity": "./src/connectivity.ts",

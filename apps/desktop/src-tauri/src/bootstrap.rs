@@ -1995,7 +1995,8 @@ fn strip_payload_quarantine(path: &Path) -> std::io::Result<()> {
 
 /// Seed the external payload exactly once. Presence of the directory is the only
 /// decision: no version, health, or content judgment can overwrite an install that
-/// the fleet updater owns. Copying into a sibling and renaming keeps a crash from
+/// the fleet updater owns. Cold-start replacement is a separate shared-runtime
+/// entry point under an exclusive installation lease. Copying into a sibling and renaming keeps a crash from
 /// turning a partial seed into a permanently-present payload directory.
 pub fn seed_payload_if_absent(seed: &Path, install: &Path) -> std::io::Result<bool> {
     if install.exists() {
@@ -2051,7 +2052,7 @@ pub fn payload_launcher_env(install: &Path) -> Vec<(&'static str, PathBuf)> {
 }
 
 /// Ensure a payload entrypoint is executable without ever copying or refreshing it.
-/// First-run seeding and fleet grants are the only writers of the payload directory.
+/// Seeding, eligible cold-start delivery and fleet grants own payload writes.
 pub fn ensure_executable(path: &Path) -> std::io::Result<PathBuf> {
     #[cfg(unix)]
     {

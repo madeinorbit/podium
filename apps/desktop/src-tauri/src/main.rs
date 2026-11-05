@@ -10,6 +10,7 @@ mod bootstrap;
 mod fullscreen_escape;
 mod handoff;
 mod logging;
+mod payload_startup;
 mod updater;
 mod version;
 
@@ -1867,8 +1868,8 @@ fn main() {
             let initial_action = action.clone();
 
             // Every mode seeds the complete external payload before the parent starts — a
-            // client too, since its supervisor runs from it (POD-3431). Presence of the install
-            // directory is the sole seed decision; after this point the fleet updater owns it.
+            // client too, since its supervisor runs from it (POD-3431). Cold-start bundle
+            // delivery has lower priority than existing installation/update owners.
             let mut payload_start_error: Option<String> = None;
             let payload_install = {
                 let seed = app
@@ -1880,15 +1881,26 @@ fn main() {
                     seed: seed.clone(),
                     install: install.clone(),
                 });
-                match bootstrap::seed_payload_if_absent(&seed, &install) {
-                    Ok(true) => log::info!("seeded desktop payload at {install:?}"),
-                    Ok(false) => log::info!("using fleet-managed desktop payload at {install:?}"),
+                let install = match payload_startup::prepare(
+                    &seed,
+                    &install,
+                    &app_data,
+                    cfg.update_channel.unwrap_or_else(bootstrap::build_update_channel),
+                ) {
+                    Ok(usage) => {
+                        let canonical = usage.install.clone();
+                        // Keep shared installation usage across initial spawn, every child
+                        // crash, and parent self-handover. Only a new cold shell may retry.
+                        app.manage(Mutex::new(usage));
+                        canonical
+                    }
                     Err(error) => {
-                        let reason = format!("payload seed failed: {error}");
+                        let reason = format!("payload startup failed: {error}");
                         log::error!("{reason}");
                         payload_start_error = Some(reason);
+                        install
                     }
-                }
+                };
                 Some(install)
             };
 

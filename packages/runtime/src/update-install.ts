@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
+import { fsyncPath } from './fsync'
 
 /** Hard deadlock bound for extracting a downloaded headless bundle. */
 export const BUNDLE_EXTRACT_TIMEOUT_MS = 2 * 60_000
@@ -53,6 +54,31 @@ export interface SwapHeadlessBundleOptions {
 }
 
 /**
+ * Activate an already prepared complete payload. The caller owns authorization,
+ * validation and installation usage; both feed updates and the cold-start bundle
+ * source use this same rename/restore/predecessor boundary. Never roll back here
+ * after the new payload has started: migrations belong to normal server startup.
+ */
+export function activatePreparedBundle(replacement: string, installDir: string): void {
+  const backup = oldBundlePath(installDir)
+  if (existsSync(installDir)) {
+    rmSync(backup, { recursive: true, force: true })
+    renameSync(installDir, backup)
+  }
+  try {
+    fsyncPath(dirname(installDir))
+    renameSync(replacement, installDir)
+  } catch (error) {
+    if (!existsSync(installDir) && existsSync(backup)) {
+      renameSync(backup, installDir)
+      fsyncPath(dirname(installDir))
+    }
+    throw error
+  }
+  fsyncPath(dirname(installDir))
+}
+
+/**
  * Atomically replace an installed headless bundle with already-verified bytes.
  *
  * Shared by daemon grants and a server-only coordinator: both own the same
@@ -80,16 +106,8 @@ export async function swapHeadlessBundle(
     const replacement = join(staged, 'headless')
     if (!existsSync(replacement)) throw new Error('tarball did not contain a headless/ dir')
 
-    const backup = oldBundlePath(installDir)
-    rmSync(backup, { recursive: true, force: true })
-    renameSync(installDir, backup)
-    try {
-      renameSync(replacement, installDir)
-    } catch (error) {
-      renameSync(backup, installDir)
-      throw error
-    }
-    if (!retainOld) rmSync(backup, { recursive: true, force: true })
+    activatePreparedBundle(replacement, installDir)
+    if (!retainOld) pruneOldBundle(installDir)
   } finally {
     rmSync(stagingRoot, { recursive: true, force: true })
   }
