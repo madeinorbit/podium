@@ -18,8 +18,10 @@ pub struct PayloadUsageLease {
 }
 
 fn canonical_path(path: &Path) -> std::io::Result<PathBuf> {
-    if path.exists() {
-        return path.canonicalize();
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => return path.canonicalize(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error),
     }
     let absolute = std::path::absolute(path)?;
     let parent = absolute
@@ -36,6 +38,10 @@ impl PayloadUsageLease {
         let install = canonical_path(install).map_err(|error| error.to_string())?;
         let metadata = PathBuf::from(format!("{}.lifecycle", install.display()));
         std::fs::create_dir_all(&metadata).map_err(|error| error.to_string())?;
+        #[cfg(unix)]
+        std::fs::File::open(metadata.parent().expect("payload metadata has a parent"))
+            .and_then(|dir| dir.sync_all())
+            .map_err(|_| "cannot sync payload installation ownership")?;
         let (connection, exclusive) = tauri::async_runtime::block_on(async {
             let options = SqliteConnectOptions::new()
                 .filename(metadata.join("usage.sqlite"))
@@ -101,13 +107,22 @@ impl PayloadUsageLease {
         let state = canonical_path(state).map_err(|_| "cannot resolve payload state root")?;
         let roots = PathBuf::from(format!("{}.lifecycle", self.install.display())).join("roots");
         std::fs::create_dir_all(&roots).map_err(|_| "cannot register payload state root")?;
+        #[cfg(unix)]
+        std::fs::File::open(roots.parent().expect("payload state roots have a parent"))
+            .and_then(|dir| dir.sync_all())
+            .map_err(|_| "cannot sync payload state-root directory")?;
         // The runtime also writes SHA256-named records. Readers inspect record content,
         // not filenames; a collision here refuses rather than losing an older root.
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         state.hash(&mut hash);
         let path = roots.join(format!("native-{:016x}.json", hash.finish()));
         let record = serde_json::json!({ "format": 1, "stateDir": state });
-        if path.exists() {
+        let present = match std::fs::symlink_metadata(&path) {
+            Ok(_) => true,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+            Err(_) => return Err("cannot inspect payload state-root record".into()),
+        };
+        if present {
             let prior: serde_json::Value = serde_json::from_slice(
                 &std::fs::read(&path).map_err(|_| "cannot read payload state-root record")?,
             )
@@ -302,10 +317,39 @@ mod tests {
         let state = fixture.0.join("state");
         lease.register_state_root(&state).unwrap();
         let roots = PathBuf::from(format!("{}.lifecycle", lease.install.display())).join("roots");
-        let record = std::fs::read_dir(roots).unwrap().next().unwrap().unwrap().path();
+        let record = std::fs::read_dir(roots)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
         std::fs::write(&record, "{corrupt history").unwrap();
         assert!(lease.register_state_root(&state).is_err());
         assert_eq!(std::fs::read_to_string(record).unwrap(), "{corrupt history");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn broken_alias_and_root_record_never_become_empty_history() {
+        let fixture = Fixture::new();
+        let missing = fixture.0.join("missing");
+        let alias = fixture.0.join("broken-alias");
+        std::os::unix::fs::symlink(&missing, &alias).unwrap();
+        assert!(canonical_path(&alias.join("payload")).is_err());
+        let lease = PayloadUsageLease::acquire(&fixture.0.join("payload")).unwrap();
+        let state = fixture.0.join("state");
+        lease.register_state_root(&state).unwrap();
+        let roots = PathBuf::from(format!("{}.lifecycle", lease.install.display())).join("roots");
+        let record = std::fs::read_dir(roots)
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        std::fs::remove_file(&record).unwrap();
+        std::os::unix::fs::symlink(&missing, &record).unwrap();
+        assert!(lease.register_state_root(&state).is_err());
+        assert_eq!(std::fs::read_link(record).unwrap(), missing);
     }
 
     #[cfg(unix)]

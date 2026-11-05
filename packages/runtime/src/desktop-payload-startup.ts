@@ -2,7 +2,6 @@
 import { execFile } from 'node:child_process'
 import {
   cpSync,
-  existsSync,
   lstatSync,
   mkdirSync,
   readdirSync,
@@ -56,6 +55,17 @@ export type DesktopPayloadStartupResult =
 const inside = (parent: string, child: string) => {
   const path = relative(parent, child)
   return path === '' || (path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path))
+}
+
+/** Permission/IO errors must never manufacture an absent operation or policy. */
+function existsSync(path: string): boolean {
+  try {
+    lstatSync(path)
+    return true
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+    throw error
+  }
 }
 
 async function executableVersion(dir: string): Promise<string> {
@@ -224,7 +234,9 @@ function localConstraint(
   readMachineState(root)
   readMachineCredential(root)
   const runtime = join(root, 'runtime')
-  const journal = readMachineUpdateJournal(runtime)
+  const journal = existsSync(join(runtime, 'machine-update.json'))
+    ? readMachineUpdateJournal(runtime)
+    : undefined
   if (journal) {
     if (!['current', 'rejected', 'canceled'].includes(journal.phase) || journal.activationHeld)
       return 'existing update or recovery has priority'

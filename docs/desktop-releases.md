@@ -111,6 +111,8 @@ At first adoption, arbitrary dormant legacy/custom state roots that were never s
 registered and left no install-global marker are not discoverable from the app payload.
 The selected canonical root, every known registered root and install-global recovery state
 are checked. An unreadable known record defers fallback; it never becomes empty history.
+An entirely absent retired root is absent; permission/IO failures or broken aliases defer.
+Unavailable filesystem content, including an unmounted journal, cannot be inferred.
 An unknown legacy root's journal stays untouched and retains normal exact-target recovery
 when that root is later selected.
 

@@ -1,6 +1,7 @@
 /** Policy/filesystem fixtures only; real legacy executables are exercised in the process proof. */
 import { createHash } from 'node:crypto'
 import {
+  chmodSync,
   cpSync,
   existsSync,
   mkdirSync,
@@ -426,6 +427,33 @@ describe('cold-start bundled payload source', () => {
     expect(readFileSync(path)).toEqual(bytes)
     expect(existsSync(`${request.installDir}.old`)).toBe(false)
   })
+
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'distinguishes an absent retired root from an unreadable operation in a present known root',
+    async () => {
+      const retired = fixture()
+      const absent = join(retired.root, 'retired-instance')
+      registerInstallationStateRoot(retired.lease, absent)
+      expect(await retired.run()).toMatchObject({ outcome: 'replaced' })
+      expect(existsSync(absent)).toBe(false)
+
+      const active = fixture()
+      const known = join(active.root, 'known-instance')
+      registerInstallationStateRoot(active.lease, known)
+      const path = await journal(known, 'accepted')
+      const bytes = readFileSync(path)
+      chmodSync(join(known, 'runtime'), 0)
+      try {
+        expect(await active.run()).toMatchObject({ outcome: 'deferred' })
+        expect(readFileSync(join(active.request.installDir, 'VERSION'), 'utf8').trim()).toBe(
+          '0.2.0',
+        )
+      } finally {
+        chmodSync(join(known, 'runtime'), 0o700)
+      }
+      expect(readFileSync(path)).toEqual(bytes)
+    },
+  )
 
   it('respects live run records but recognizes dead and PID-reused records', async () => {
     const { request, run } = fixture()

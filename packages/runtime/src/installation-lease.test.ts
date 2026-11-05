@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -94,6 +95,27 @@ describe('installation usage lease', () => {
     expect(() => acquire(second, true)).toThrow()
     expect(acquire(install, true).exclusive).toBe(true)
   })
+
+  it.skipIf(process.platform === 'win32')(
+    'refuses broken installation aliases and preserves broken state-root records',
+    () => {
+      const { root, install } = fixture()
+      const missing = join(root, 'missing')
+      const alias = join(root, 'broken-alias')
+      symlinkSync(missing, alias, 'dir')
+      expect(() => canonicalInstallationPath(join(alias, 'payload'))).toThrow()
+      const lease = acquire(install, true)
+      const state = join(root, 'state')
+      registerInstallationStateRoot(lease, state)
+      const records = join(lease.metadataDir, 'roots')
+      const path = join(records, readdirSync(records)[0] as string)
+      rmSync(path)
+      symlinkSync(missing, path)
+      expect(() => registerInstallationStateRoot(lease, state)).toThrow()
+      expect(readlinkSync(path)).toBe(missing)
+      expect(() => installationStateRoots(lease)).toThrow()
+    },
+  )
 
   it('retains every state root after usage ends and refuses corrupt ownership metadata', () => {
     const { root, install } = fixture()

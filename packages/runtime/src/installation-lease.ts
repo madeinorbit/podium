@@ -8,7 +8,6 @@
 import { createHash } from 'node:crypto'
 import {
   closeSync,
-  existsSync,
   lstatSync,
   mkdirSync,
   openSync,
@@ -51,10 +50,21 @@ export function acquireLegacyExecutableFence(installDir: string): () => void {
 /** Resolve aliases even when the final directory has not been seeded yet. */
 export function canonicalInstallationPath(path: string): string {
   const absolute = resolve(path)
-  if (existsSync(absolute)) return realpathSync(absolute)
+  // A dangling alias is uncertain ownership, not an absent installation/root.
+  if (entryExists(absolute)) return realpathSync(absolute)
   const parent = dirname(absolute)
   if (parent === absolute) throw new Error('installation has no existing ancestor')
   return join(canonicalInstallationPath(parent), basename(absolute))
+}
+
+function entryExists(path: string): boolean {
+  try {
+    lstatSync(path)
+    return true
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+    throw error
+  }
 }
 
 export interface InstallationLease {
@@ -73,6 +83,7 @@ export function acquireInstallationLease(
   const installDir = canonicalInstallationPath(path)
   const metadataDir = `${installDir}.lifecycle`
   mkdirSync(metadataDir, { recursive: true, mode: 0o700 })
+  fsyncPath(dirname(metadataDir))
   const db: SqlDatabase = openDatabase(join(metadataDir, 'usage.sqlite'))
   try {
     db.exec(`PRAGMA busy_timeout = ${Math.max(0, Math.floor(waitMs))}`)
@@ -135,10 +146,11 @@ export function registerInstallationStateRoot(
   const stateDir = canonicalInstallationPath(stateRoot)
   const roots = join(lease.metadataDir, 'roots')
   mkdirSync(roots, { recursive: true, mode: 0o700 })
+  fsyncPath(lease.metadataDir)
   const name = `${createHash('sha256').update(stateDir).digest('hex')}.json`
   const path = join(roots, name)
   const bytes = `${JSON.stringify({ format: 1, stateDir })}\n`
-  if (existsSync(path)) {
+  if (entryExists(path)) {
     const record = JSON.parse(readFileSync(path, 'utf8'))
     if (record.format !== 1 || record.stateDir !== stateDir)
       throw new Error('installation state-root record is invalid')
@@ -153,7 +165,7 @@ export function registerInstallationStateRoot(
 
 export function installationStateRoots(lease: Pick<InstallationLease, 'metadataDir'>): string[] {
   const roots = join(lease.metadataDir, 'roots')
-  if (!existsSync(roots)) return []
+  if (!entryExists(roots)) return []
   return readdirSync(roots)
     .filter((name) => name.endsWith('.json'))
     .map((name) => {
