@@ -59,10 +59,23 @@ export const STRUCTURE_ISSUE_COMMANDS = [
   'subscriptionSetEnabled',
 ] as const satisfies readonly IssueContractName[]
 
+/**
+ * The session and shipping writes that touch only the database (POD-6414). The
+ * rest of that family (start, stop, sessions, cleanup, ship, the assistant,
+ * the git actions) run as effect records, which the old commands create
+ * through the entry point.
+ */
+export const SESSION_ISSUE_COMMANDS = [
+  'attachSession',
+  'cancelShip',
+  'resolveShipHold',
+] as const satisfies readonly IssueContractName[]
+
 /** Every issue command on the entry point, by its procedure name. */
 export const SYNCED_ISSUE_COMMANDS = [
   ...QUEUED_ISSUE_COMMANDS,
   ...STRUCTURE_ISSUE_COMMANDS,
+  ...SESSION_ISSUE_COMMANDS,
 ] as const
 
 export type SyncedIssueCommand = (typeof SYNCED_ISSUE_COMMANDS)[number]

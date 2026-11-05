@@ -122,7 +122,11 @@ export function registerIssueCommands(registry: SyncWriteRegistry, deps: IssueSy
         // is for the capability the dispatcher reads.
         if (principal.kind === 'system')
           throw new Error('issue write reached its handler as system')
-        const caller: IssueCaller = { capability: principal.capability, principal }
+        const caller: IssueCaller = {
+          capability: principal.capability,
+          principal,
+          ...(ctx.confirmed ? { overrideScope: true } : {}),
+        }
         const refused = unwritable(key, input)
         if (refused !== undefined) throw new SyncWriteRefused({ kind: 'invalid', message: refused })
         try {

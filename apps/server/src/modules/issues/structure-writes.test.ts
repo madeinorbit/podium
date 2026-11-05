@@ -11,6 +11,7 @@
 
 import {
   QUEUED_ISSUE_COMMANDS,
+  SESSION_ISSUE_COMMANDS,
   STRUCTURE_ISSUE_COMMANDS,
   SYNCED_ISSUE_COMMANDS,
 } from '@podium/commands'
@@ -51,7 +52,11 @@ const newIssue = (title: string, extra: Record<string, unknown> = {}) => ({
 
 describe('the listed issue commands on the entry point', () => {
   it('the list is the queued and the structure commands, and every one is registered', async () => {
-    expect(SYNCED_ISSUE_COMMANDS).toEqual([...QUEUED_ISSUE_COMMANDS, ...STRUCTURE_ISSUE_COMMANDS])
+    expect(SYNCED_ISSUE_COMMANDS).toEqual([
+      ...QUEUED_ISSUE_COMMANDS,
+      ...STRUCTURE_ISSUE_COMMANDS,
+      ...SESSION_ISSUE_COMMANDS,
+    ])
     const o = await makeOracle()
     const names = o.reg.modules.syncWrite.registry.names()
     for (const proc of SYNCED_ISSUE_COMMANDS) expect(names, proc).toContain(`issues.${proc}`)
@@ -148,6 +153,21 @@ describe('the listed issue commands on the entry point', () => {
       outcome: 'rejected',
       refusal: { kind: 'invalid', message: 'unknown parent issue iss_nope — nothing was created' },
     })
+  })
+
+  it("a shipping write the handler refuses carries the handler's message (POD-6414)", async () => {
+    const o = await makeOracle()
+    for (const [command, input] of [
+      ['issues.cancelShip', { orderId: 'ord_nope' }],
+      ['issues.resolveShipHold', { orderId: 'ord_nope', action: 'retry', expectedGeneration: 1 }],
+    ] as const) {
+      const reply = await submit(o, envelope(command, input, `mut_${command}`))
+      expect(reply.outcome, command).toBe('rejected')
+      if (reply.outcome === 'rejected') {
+        expect(reply.refusal.kind, command).toBe('target-not-found')
+        expect(reply.refusal.message, command).toBeTruthy()
+      }
+    }
   })
 
   it('the in-process MCP surface writes through the entry point as MCP', async () => {
@@ -264,6 +284,22 @@ describe("an agent's relay through the entry point", () => {
     })
     const confirmed = await relay('r-out-ok', 'sync', 'submit', env, true)
     expect(confirmed.result).toMatchObject({ outcome: 'applied' })
+  })
+
+  it('attachSession through sync.submit acts on the calling session, whatever session it names (POD-6414)', async () => {
+    const r = await relay(
+      'r-attach',
+      'sync',
+      'submit',
+      submitEnvelope(
+        'issues.attachSession',
+        { sessionId: 'sess_someone_else', targetId: outside.id, confirmRehome: true },
+        'mut_attach',
+      ),
+    )
+    expect(r.ok).toBe(true)
+    expect(r.result).toMatchObject({ outcome: 'applied' })
+    expect((await registry.modules.sessions.sessionById(agent))?.issueId).toBe(outside.id)
   })
 
   it('sync.submit adds no reach: a command the relay does not allow is refused at the gate', async () => {

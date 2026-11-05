@@ -189,7 +189,12 @@ export class SyncWriteEntry {
     // 5–7. Dedup; then provenance around one unit holding the handler and the record.
     const mutationId = envelope.mutationId
     const provenance = { mutationId, causationId: mutationId }
-    const ctx = this.contextFor(principal, mutationId, envelope.expectedRevision)
+    const ctx = this.contextFor(
+      principal,
+      mutationId,
+      envelope.expectedRevision,
+      envelope.confirmed === true,
+    )
     let application: { outcome: 'applied' | 'replayed'; value: unknown }
     try {
       application = await this.deps.mutations.apply(
@@ -256,12 +261,14 @@ export class SyncWriteEntry {
     principal: CommandPrincipal,
     mutationId: MutationId,
     expectedRevision: number | undefined,
+    confirmed: boolean,
   ): SyncWriteContext {
     const afterCommit = this.deps.afterCommit
     return {
       principal,
       mutationId,
       expectedRevision,
+      confirmed,
       ledger: this.deps.ledger,
       afterCommit: (step, label) => afterCommit(() => outsideWriteProvenance(step), label),
     }

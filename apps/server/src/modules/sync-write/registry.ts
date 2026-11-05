@@ -80,6 +80,10 @@ export interface SyncWriteContext {
   /** ADR 3 D13's precondition, as the envelope carried it. The handler compares
    *  it and throws `SyncWriteRefused({ kind: 'conflict' })` when it is stale. */
   readonly expectedRevision: number | undefined
+  /** The caller's out-of-scope confirmation, as the envelope carried it. The
+   *  target check has already honoured it; a family whose service decides
+   *  scope again (shipping) reads it here. */
+  readonly confirmed: boolean
   readonly ledger: SyncWriteLedger
   /**
    * Run non-database work (a daemon call, a socket push) once the unit of work

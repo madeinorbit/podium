@@ -6,7 +6,11 @@
  * client write that `sync.submit` answers "unknown command".
  */
 
-import { RECORD_CONTRACTS, STRUCTURE_ISSUE_COMMANDS } from '@podium/commands'
+import {
+  RECORD_CONTRACTS,
+  SESSION_ISSUE_COMMANDS,
+  STRUCTURE_ISSUE_COMMANDS,
+} from '@podium/commands'
 import { afterEach, describe, expect, it } from 'vitest'
 import { disposeOracles, makeOracle } from '../sessions/oracle-support'
 import { FAMILY_COMMAND_NAMES } from './family-commands'
@@ -33,6 +37,7 @@ describe('the outbox commands on sync.submit', () => {
         ...FAMILY_COMMAND_NAMES,
         // The issue structure writes (POD-6413), on the issue family's registration.
         ...STRUCTURE_ISSUE_COMMANDS.map((proc) => `issues.${proc}`),
+        ...SESSION_ISSUE_COMMANDS.map((proc) => `issues.${proc}`),
       ].sort(),
     )
   })
