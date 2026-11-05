@@ -6,10 +6,10 @@ import { shellViews } from './shell-views'
 import { attachPreferenceSource } from './preference-source'
 import type { SessionPhaseChange } from '@podium/client-core/sound'
 import { attachSettingsSource } from './settings-source'
-import { optimisticDraftSortKey } from '@podium/client-core/values'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { asUserId, type EffectRecordWire } from '@podium/model'
-import { SESSION_LAUNCH_KIND } from '@podium/client-core/spawn-agent'
+import { ISSUE_START_KIND, SESSION_LAUNCH_KIND } from '@podium/client-core/spawn-agent'
+import { draftSortKey } from './write/launch-rows'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { Reaction, runInAction, untracked } from 'mobx'
 import { _observerFinalizationRegistry } from 'mobx-react-lite'
@@ -254,12 +254,14 @@ export function createRuntimeTransactions(runtime: WorklistRuntime): PoolTransac
     !rt.attachPoolWriter || !subscribeAddressed) {
     throw new Error('Pool transactions require the runtime principal, outbox, outcome and addressed writer seams')
   }
-  // THE DRAFT STARTS' LAUNCH RECORDS (POD-6408), indexed by id from the
+  // THE STARTS' LAUNCH RECORDS (POD-6408, POD-6410), indexed by id from the
   // replica's batches so a reconcile reads the few launches, never every effect.
   // Subscribed BEFORE the log, so the log's reconcile sees this batch's index.
   const launchIds = new Set<string>()
-  const isLaunch = (row: unknown): boolean =>
-    (row as { kind?: unknown } | undefined)?.kind === SESSION_LAUNCH_KIND
+  const isLaunch = (row: unknown): boolean => {
+    const kind = (row as { kind?: unknown } | undefined)?.kind
+    return kind === SESSION_LAUNCH_KIND || kind === ISSUE_START_KIND
+  }
   const rescanLaunches = (): void => {
     launchIds.clear()
     for (const row of runtime.replica.rows('effects')) {
@@ -304,17 +306,15 @@ export function createRuntimeTransactions(runtime: WorklistRuntime): PoolTransac
       return ids
     }),
     spawn: {
-      api: (runtime as unknown as { access: { trpc: import('@podium/client-core').PodiumClientApi } }).access.trpc,
       userId: asUserId(rt.principal.userId),
       notices: (runtime as unknown as { spawnNotices: import('@podium/client-core/engine').StoreNotices }).spawnNotices,
-      graceMs: (runtime as unknown as { spawnGraceMs?: number }).spawnGraceMs,
       sortKey: target => runInAction(() => {
         const pool = spawnPools.get(runtime)
         if (!pool) throw new Error('Pool spawn placement is not attached')
         const issues = pool.queries.indexed({ kind: 'spawnIssues', repoPath: target.repoPath, ...(target.repoId ? { repoId: target.repoId } : {}) })
           // untracked-read: spawn-sort-peek
           .map(id => omitGone(pool.row('issue', id, 'peek'))).filter(row => row && typeof row !== 'symbol')
-        return optimisticDraftSortKey(issues as unknown as IssueViewModel[], target.repoPath, target.repoId)
+        return draftSortKey(issues as unknown as IssueViewModel[], target.repoPath, target.repoId)
       }),
     },
   })

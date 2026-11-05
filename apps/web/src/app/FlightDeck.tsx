@@ -710,7 +710,7 @@ export function ReviewSignpost({
  *
  * A LOAD, NOT A STATE — and therefore WORDLESS. The session already carries an
  * `issueId`: the composer's spawn paints the draft vessel and the session
- * together (`optimisticDraftIssue` / `optimisticStartingSession`), so a root
+ * together (`draftIssueRow` / `startingSessionRow`), so a root
  * exists and this column is only waiting for the selection to catch up. What
  * follows is a real tree a beat later, so anything written here is a sentence
  * the operator watches get taken away.

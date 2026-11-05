@@ -1,3 +1,5 @@
+import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionValues, SessionView } from '@podium/client-core/session-values'
 import {
   type AgentKind,
   actorUser,
@@ -13,25 +15,20 @@ import {
   spawnedByTag,
   type UserId,
 } from '@podium/model'
-import type { SessionValues, SessionView } from '../session-values'
-import type { IssueViewModel } from '../values/issue-type'
 
 /**
- * Optimistic-UI builders for the "New <Agent> in <Repo>" spawn (issue #119).
+ * THE ROWS A START PAINTS while its launch record waits (POD-6408, POD-6410).
  *
- * A create mints server-assigned ids, so — unlike the edit mutations already wired
- * into the optimistic path — the client can't pre-insert a row without an id. We
- * close that gap by generating the ids client-side and passing them to the server
- * verbatim; these builders produce the fully-valid rows PoolTransactions
- * paints instantly, until the server's own broadcast (same ids) reconciles.
- *
- * They mirror the server's construction (`relay.spawn` / `issues.createDraftFor` →
- * `issues.create`) so the optimistic row and the eventual real row are the same
- * shape — no flicker on reconcile. The builders are unit-tested against the
- * protocol zod schemas so a new required field fails the test, not the UI.
+ * A start's ids are minted on the device and its effect record (`session.launch`
+ * or `issue.start`) carries where it starts, so the device paints the starting
+ * session, and its task, from that record until the real rows land under the
+ * same ids. These build those rows. They mirror the server's construction
+ * (`sessions.create` and `issues.create`), so the painted row and the real row
+ * have the same shape and nothing flickers at the handover. They are tested
+ * against the protocol schemas, so a new required field fails a test, not the UI.
  */
 
-export interface OptimisticSpawnArgs {
+export interface LaunchRowArgs {
   sessionId: SessionId
   issueId: IssueId
   agentKind: AgentKind
@@ -42,12 +39,12 @@ export interface OptimisticSpawnArgs {
 }
 
 /** The placeholder session's own facts. Its per-user cells are not among them:
- *  they are {@link optimisticSessionUserState}, joined in by the reader
+ *  they are {@link starterUserState}, joined in by the reader
  *  (POD-4974 S3c). */
 export type StartingSessionRow = Omit<SessionView, keyof Pick<SessionValues, 'readAt' | 'unread'>>
 
 /** A just-clicked, not-yet-booted session: `status: 'starting'`, no controller. */
-export function optimisticStartingSession(args: OptimisticSpawnArgs): StartingSessionRow {
+export function startingSessionRow(args: LaunchRowArgs): StartingSessionRow {
   return {
     sessionId: args.sessionId,
     agentKind: args.agentKind,
@@ -70,7 +67,7 @@ export function optimisticStartingSession(args: OptimisticSpawnArgs): StartingSe
 
 /** The spawning user's own row for the placeholder session: just spawned by
  *  them, so they are looking at it — read at its first activity, not unread. */
-export function optimisticSessionUserState(args: {
+export function starterUserState(args: {
   userId: UserId
   sessionId: SessionId
   nowIso: string
@@ -80,7 +77,7 @@ export function optimisticSessionUserState(args: {
 
 /** The draft-issue vessel the server auto-creates for a low-friction start —
  *  mirrors `issues.createDraftFor` → `issues.create` defaults. */
-export function optimisticDraftSortKey(
+export function draftSortKey(
   issues: readonly IssueViewModel[],
   repoPath: string,
   repoId?: RepoId,
@@ -95,8 +92,8 @@ export function optimisticDraftSortKey(
   return sortKeyBetween(null, min)
 }
 
-export function optimisticDraftIssue(
-  args: Pick<OptimisticSpawnArgs, 'issueId' | 'machineId' | 'agentKind' | 'nowIso'> & {
+export function draftIssueRow(
+  args: Pick<LaunchRowArgs, 'issueId' | 'machineId' | 'agentKind' | 'nowIso'> & {
     userId: UserId
     repoPath: string
     repoId?: RepoId
@@ -161,7 +158,7 @@ export function optimisticDraftIssue(
 /** A named task whose first session is starting. The server will replace the
  * provisional sequence, sort key, worktree and timestamps with the same-id row;
  * everything the operator is reading is already final. */
-export function optimisticStartedIssue(args: {
+export function startedIssueRow(args: {
   userId: UserId
   issueId: IssueId
   repoPath: string
@@ -178,7 +175,7 @@ export function optimisticStartedIssue(args: {
   nowIso: string
 }): IssueViewModel {
   return {
-    ...optimisticDraftIssue({
+    ...draftIssueRow({
       userId: args.userId,
       issueId: args.issueId,
       repoPath: args.repoPath,

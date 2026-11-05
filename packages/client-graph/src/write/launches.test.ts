@@ -1,8 +1,8 @@
 /**
- * A DRAFT-AGENT START PAINTED FROM ITS LAUNCH EFFECT (POD-6408), through the
- * real transaction log: the queued `effects.create` entry paints it, then the
- * replica's `session.launch` record, until the session row under the
- * device-minted id lands, with no gap in either arrival order and no timer.
+ * A START PAINTED FROM ITS LAUNCH EFFECT (POD-6408, POD-6410), through the real
+ * transaction log: the queued `effects.create` entry paints it, then the
+ * replica's `session.launch` or `issue.start` record, until the rows under the
+ * device-minted ids land, with no gap in either arrival order and no timer.
  */
 
 import type { OverlayTarget } from '@podium/client-core/command-reducers'
@@ -10,7 +10,7 @@ import { foldRowOverlays } from '@podium/client-core/command-reducers'
 import type { OutboxOutcome } from '@podium/client-core/engine'
 import type { OutboxEntry } from '@podium/client-core/outbox'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
-import { SESSION_LAUNCH_KIND } from '@podium/client-core/spawn-agent'
+import { ISSUE_START_KIND, SESSION_LAUNCH_KIND } from '@podium/client-core/spawn-agent'
 import {
   asIssueId,
   asMutationId,
@@ -27,6 +27,20 @@ const SESSION = asSessionId('00000000-0000-4000-8000-0000000000aa')
 const ISSUE = asIssueId('iss_00000000-0000-4000-8000-0000000000bb')
 const EFFECT = 'eff_00000000-0000-4000-8000-0000000000cc'
 const TARGET = { path: '/r/w', repoPath: '/r' }
+
+function startRecord(status: EffectStatus, error?: string): EffectRecordWire {
+  return {
+    ...launchRecord(status, error),
+    kind: ISSUE_START_KIND,
+    target: { kind: 'issue', id: ISSUE },
+    input: {
+      sessionId: SESSION,
+      repoPath: '/r',
+      title: 'Fix the login',
+      defaultAgent: 'claude-code',
+    },
+  } as EffectRecordWire
+}
 
 function launchRecord(status: EffectStatus, error?: string): EffectRecordWire {
   return {
@@ -51,7 +65,14 @@ function launchRecord(status: EffectStatus, error?: string): EffectRecordWire {
   } as EffectRecordWire
 }
 
-function pool(boot: { awaiting?: OutboxEntry[]; effects?: EffectRecordWire[] } = {}) {
+function pool(
+  boot: {
+    awaiting?: OutboxEntry[]
+    effects?: EffectRecordWire[]
+    record?: typeof launchRecord
+  } = {},
+) {
+  const record = boot.record ?? launchRecord
   const truth = new Map<string, Record<string, unknown>>()
   let queue: OutboxEntry[] = []
   let awaiting: OutboxEntry[] = boot.awaiting ?? []
@@ -84,7 +105,6 @@ function pool(boot: { awaiting?: OutboxEntry[]; effects?: EffectRecordWire[] } =
     },
     launchEffects: () => effects,
     spawn: {
-      api: {} as never,
       userId: USER,
       notices: { error: (message: string) => errors.push(message), info: () => {} } as never,
       sortKey: () => 'k',
@@ -103,12 +123,12 @@ function pool(boot: { awaiting?: OutboxEntry[]; effects?: EffectRecordWire[] } =
     confirmed(status: EffectStatus, error?: string) {
       awaiting = []
       queue = []
-      effects = [launchRecord(status, error)]
+      effects = [record(status, error)]
       publish(0)
       changed()
     },
     effect(status: EffectStatus, error?: string) {
-      effects = [launchRecord(status, error)]
+      effects = [record(status, error)]
       changed()
     },
     /** The entry left the queue with no record yet (retired, or refused). */
@@ -282,6 +302,120 @@ describe('a draft-agent start as a launch effect (POD-6408)', () => {
     expect(await settled).toBe(true)
     p.entryGone(true)
     expect(p.painted('sessions', SESSION)).toBe(0)
+    p.tx.dispose()
+  })
+})
+
+const startTask = (p: ReturnType<typeof pool>, mutationId = asMutationId('m-task')) =>
+  p.tx.spawnIssueAgent({
+    sessionId: SESSION,
+    issueId: ISSUE,
+    mutationId,
+    target: TARGET,
+    title: 'Fix the login',
+    description: 'the private plan',
+    agentKind: 'claude-code',
+  })
+
+describe('a named task with its first agent as an issue.start effect (POD-6410)', () => {
+  it('paints the task and its starting session at once and queues effects.create', async () => {
+    const p = pool({ record: startRecord })
+    const { outcome } = startTask(p)
+    await Promise.resolve()
+    expect(p.shown('sessions', SESSION)).toMatchObject({ status: 'starting', issueId: ISSUE })
+    expect(p.shown('issueProjections', ISSUE)).toMatchObject({
+      id: ISSUE,
+      title: 'Fix the login',
+      stage: 'in_progress',
+    })
+    const [entry] = p.queue()
+    expect(entry?.kind).toBe('effectCreate')
+    expect(entry?.input).toMatchObject({
+      kind: ISSUE_START_KIND,
+      target: { kind: 'issue', id: ISSUE },
+      input: { sessionId: SESSION, repoPath: '/r', title: 'Fix the login' },
+    })
+    // Durably queued is started: the record carries it from here.
+    expect(await outcome).toBe('started')
+    p.tx.dispose()
+  })
+
+  it('a retry of the same reservation writes the same record', async () => {
+    const p = pool({ record: startRecord })
+    const id = '00000000-0000-4000-8000-0000000000ee'
+    startTask(p, asMutationId(id))
+    await Promise.resolve()
+    expect(p.queue()[0]?.input).toMatchObject({ id: `eff_${id}` })
+    p.tx.dispose()
+  })
+
+  it('paints again after a reload from the record alone, without the description', () => {
+    const p = pool({ effects: [startRecord('pending')], record: startRecord })
+    expect(p.shown('sessions', SESSION)).toMatchObject({ status: 'starting' })
+    expect(p.shown('issueProjections', ISSUE)).toMatchObject({ title: 'Fix the login' })
+    p.tx.dispose()
+  })
+
+  it('hands over with no gap when the task row lands, then the session row', async () => {
+    const p = pool({ record: startRecord })
+    startTask(p)
+    await Promise.resolve()
+    p.confirmed('running')
+    p.row('issueProjections', ISSUE, { id: ISSUE, title: 'Fix the login' })
+    expect(p.painted('issueProjections', ISSUE)).toBe(0)
+    expect(p.shown('sessions', SESSION)).toMatchObject({ status: 'starting' })
+    p.effect('succeeded')
+    expect(p.shown('sessions', SESSION)).toMatchObject({ status: 'starting' })
+    p.row('sessions', SESSION, { sessionId: SESSION, status: 'live' })
+    expect(p.painted('sessions', SESSION)).toBe(0)
+    expect(p.shown('sessions', SESSION)).toMatchObject({ status: 'live' })
+    p.tx.dispose()
+  })
+
+  it('hands over with no gap when the start succeeds before either row lands', async () => {
+    const p = pool({ record: startRecord })
+    startTask(p)
+    await Promise.resolve()
+    p.confirmed('succeeded')
+    expect(p.shown('issueProjections', ISSUE)).toMatchObject({ title: 'Fix the login' })
+    p.row('sessions', SESSION, { sessionId: SESSION, status: 'live' })
+    expect(p.painted('sessions', SESSION)).toBe(0)
+    // The task's placeholder retires only with its own row.
+    expect(p.shown('issueProjections', ISSUE)).toMatchObject({ title: 'Fix the login' })
+    p.row('issueProjections', ISSUE, { id: ISSUE, title: 'Fix the login' })
+    expect(p.painted('issueProjections', ISSUE)).toBe(0)
+    p.tx.dispose()
+  })
+
+  it('filed, then its agent failed: the task stays, and its session shows the failure', async () => {
+    const p = pool({ record: startRecord })
+    startTask(p)
+    await Promise.resolve()
+    p.confirmed('running')
+    p.row('issueProjections', ISSUE, { id: ISSUE, title: 'Fix the login' })
+    p.effect('failed', 'no harness on that machine')
+    expect(p.shown('issueProjections', ISSUE)).toMatchObject({ id: ISSUE })
+    expect(p.shown('sessions', SESSION)).toMatchObject({
+      status: 'exited',
+      issueId: ISSUE,
+      spawnFailure: 'no harness on that machine',
+    })
+    expect(p.errors).toEqual([
+      "The task was saved, but its agent couldn't start — no harness on that machine",
+    ])
+    p.tx.dispose()
+  })
+
+  it('refused before filing: no task painted, and the failure is said once', async () => {
+    const p = pool({ record: startRecord })
+    startTask(p)
+    await Promise.resolve()
+    p.confirmed('failed', 'no longer allowed to use this machine')
+    expect(p.painted('issueProjections', ISSUE)).toBe(0)
+    expect(p.shown('sessions', SESSION)).toMatchObject({ status: 'exited' })
+    p.effect('failed', 'no longer allowed to use this machine')
+    expect(p.errors).toEqual(["Couldn't start the task — no longer allowed to use this machine"])
+    expect(p.tx.dismissLaunch(SESSION)).toBe(true)
     p.tx.dispose()
   })
 })

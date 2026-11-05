@@ -1,7 +1,6 @@
 import type { AgentKind, IssueId, MachineId, MutationId, RepoId, SessionId } from '@podium/model'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
-import type { PodiumClientApi } from './api'
 
 /** Where a new agent lands: a worktree path + its owning repo (+ machine). */
 export interface SpawnTarget {
@@ -79,43 +78,11 @@ export function agentAcceptsArgvPrompt(
 /**
  * Refuse a placement before any optimistic entity is painted or network request
  * is assembled. Engine calls this at its action boundary; `draftLaunchEffect`
- * and `createIssueAgent` repeat it as defense in depth for direct callers.
+ * and `issueStartEffect` repeat it as defense in depth for direct callers.
  */
 export function assertSpawnPlacement(target: SpawnTarget): void {
   if (target.placement === 'unauthorized') throw new SpawnPlacementError('unauthorized')
   if (target.placement === 'unreachable') throw new SpawnPlacementError('unreachable')
-}
-
-export async function createIssueAgent(args: {
-  trpc: PodiumClientApi
-  sessionId: SessionId
-  issueId: IssueId
-  mutationId: MutationId
-  target: SpawnTarget
-  title: string
-  description: string
-  brief?: string
-  parentBranch?: string
-  agentKind: AgentKind
-  model?: string
-  effort?: string
-}): Promise<void> {
-  assertSpawnPlacement(args.target)
-  await args.trpc.issues.create.mutate({
-    id: args.issueId,
-    startSessionId: args.sessionId,
-    repoPath: args.target.repoPath,
-    ...(args.target.machineId ? { machineId: args.target.machineId } : {}),
-    title: args.title,
-    description: args.description,
-    ...(args.brief ? { brief: args.brief } : {}),
-    ...(args.parentBranch ? { parentBranch: args.parentBranch } : {}),
-    defaultAgent: args.agentKind,
-    ...(args.model ? { defaultModel: args.model } : {}),
-    ...(args.effort ? { defaultEffort: args.effort } : {}),
-    startNow: true,
-    mutationId: args.mutationId,
-  })
 }
 
 /** The effect kind a session start is (POD-6398): the server's executor. */
@@ -164,7 +131,59 @@ export function draftLaunchEffect(args: {
       ...(text ? { initialPrompt: text } : {}),
       ...(args.model ? { model: args.model } : {}),
       ...(args.effort ? { effort: args.effort } : {}),
-      ...(args.requestedDriverId !== undefined ? { requestedDriverId: args.requestedDriverId } : {}),
+      ...(args.requestedDriverId !== undefined
+        ? { requestedDriverId: args.requestedDriverId }
+        : {}),
+    },
+  }
+}
+
+/** The effect kind filing a task with its first agent is (POD-6410). */
+export const ISSUE_START_KIND = 'issue.start'
+
+/** The effect id a start's reservation names: a retry of the same start (the
+ *  composer keeps its ids) writes the same record, never a second one. */
+export function startEffectId(mutationId: MutationId | undefined, mint: () => string): string {
+  return mutationId !== undefined && UUID.test(mutationId) ? `eff_${mutationId}` : `eff_${mint()}`
+}
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * A named task with its first agent as an `issue.start` effect record
+ * (POD-6410): `issues.create`'s fields under an effect id, the issue id the
+ * device minted as its target and the session id it minted in its input. Every
+ * device paints the starting task from it while it waits, and the issue and
+ * session rows are born under those ids when it runs.
+ */
+export function issueStartEffect(args: {
+  effectId: string
+  sessionId: SessionId
+  issueId: IssueId
+  target: SpawnTarget
+  title: string
+  description: string
+  brief?: string
+  parentBranch?: string
+  agentKind: AgentKind
+  model?: string
+  effort?: string
+}): EffectCreateInput {
+  assertSpawnPlacement(args.target)
+  return {
+    id: args.effectId,
+    kind: ISSUE_START_KIND,
+    target: { kind: 'issue', id: args.issueId },
+    input: {
+      sessionId: args.sessionId,
+      repoPath: args.target.repoPath,
+      ...(args.target.machineId ? { machineId: args.target.machineId } : {}),
+      title: args.title,
+      description: args.description,
+      ...(args.brief ? { brief: args.brief } : {}),
+      ...(args.parentBranch ? { parentBranch: args.parentBranch } : {}),
+      defaultAgent: args.agentKind,
+      ...(args.model ? { defaultModel: args.model } : {}),
+      ...(args.effort ? { defaultEffort: args.effort } : {}),
     },
   }
 }

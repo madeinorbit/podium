@@ -261,8 +261,6 @@ export interface ClientRuntimeInit<TApi extends PodiumClientApi> {
   makeSocket?: import('../socket-transport').SocketHubOptions['makeSocket']
   /** Open the local runtime without contacting the configured authority. */
   networkEnabled?: boolean
-  /** Test seam: overrides SPAWN_CONFIRM_GRACE_MS (#263 review finding 4). */
-  spawnConfirmGraceMs?: number
   /** Test seam: overrides WORKSPACE_PRUNE_GRACE_MS (POD-710). */
   workspacePruneGraceMs?: number
   /** Test seam: overrides DRAFT_SEND_DEBOUNCE_MS (POD-2045). */
@@ -304,10 +302,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   get spawnNotices(): StoreNotices {
     return this.notices
   }
-  get spawnGraceMs(): number | undefined {
-    return this.spawnConfirmGraceMs
-  }
-  private readonly spawnConfirmGraceMs: number | undefined
   private readonly notices: StoreNotices
   private readonly onFatalError: (message: string) => void
   private readonly formatError: (error: unknown, fallback: string) => string
@@ -388,7 +382,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private booted = false
 
   constructor(init: ClientRuntimeInit<TApi>) {
-    this.spawnConfirmGraceMs = init.spawnConfirmGraceMs
     this.principal = init.principal
     this.api = init.api
     this.notices = init.notices ?? NOOP_NOTICES

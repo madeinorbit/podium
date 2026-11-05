@@ -60,7 +60,6 @@ export function StoreProvider({
   config,
   api,
   onFatalError,
-  engineOverrides,
   createReplicaFn,
   feed,
   createOutboxFn,
@@ -76,8 +75,6 @@ export function StoreProvider({
    *  instead of reaching the server. Production always builds its own client
    *  from the config origin. */
   api?: Trpc
-  /** Test seam passthrough (see client-core StoreProviderProps.engineOverrides). */
-  engineOverrides?: { spawnConfirmGraceMs?: number }
   /** Required private-replica facade. AppShell cannot mount this provider until
    *  its principal-bound kernel assembly has opened successfully. */
   createReplicaFn: CreateReplicaForPrincipal
@@ -105,7 +102,6 @@ export function StoreProvider({
       onFatalError={onFatalError}
       formatError={formatAppError}
       notices={NOTICES}
-      engineOverrides={engineOverrides}
       createReplicaFn={createReplicaFn}
       feed={feed}
       createOutboxFn={createOutboxFn}

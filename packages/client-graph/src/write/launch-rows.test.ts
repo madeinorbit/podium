@@ -1,12 +1,8 @@
-import {
-  optimisticDraftIssue,
-  optimisticDraftSortKey,
-  optimisticStartingSession,
-} from '@podium/client-core/values'
 import { asIssueId, asRepoId, asSessionId, asUserId, SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import { draftIssueRow, draftSortKey, startingSessionRow } from './launch-rows'
 
-describe('optimisticStartingSession', () => {
+describe('startingSessionRow', () => {
   const base = {
     sessionId: asSessionId('sess-1'),
     issueId: asIssueId('iss_1'),
@@ -19,11 +15,11 @@ describe('optimisticStartingSession', () => {
   it('is a schema-valid SessionMeta', () => {
     // The whole point of the builder: a fully-valid row the replica/derive code
     // can render, so a future required field fails loudly here, not at runtime.
-    expect(() => SessionMeta.parse(optimisticStartingSession(base))).not.toThrow()
+    expect(() => SessionMeta.parse(startingSessionRow(base))).not.toThrow()
   })
 
   it('carries the caller ids and starting status', () => {
-    const s = optimisticStartingSession(base)
+    const s = startingSessionRow(base)
     expect(s.sessionId).toBe('sess-1')
     expect(s.issueId).toBe('iss_1')
     expect(s.status).toBe('starting')
@@ -32,17 +28,17 @@ describe('optimisticStartingSession', () => {
   })
 
   it('titles from the cwd basename (matching the server default)', () => {
-    expect(optimisticStartingSession(base).title).toBe('my-proj')
+    expect(startingSessionRow(base).title).toBe('my-proj')
   })
 
   it('stamps user provenance and spawn origin', () => {
-    const s = optimisticStartingSession(base)
+    const s = startingSessionRow(base)
     expect(s.spawnedBy).toBe('user')
     expect(s.origin).toEqual({ kind: 'spawn' })
   })
 })
 
-describe('optimisticDraftIssue', () => {
+describe('draftIssueRow', () => {
   const base = {
     issueId: asIssueId('iss_1'),
     userId: asUserId('user-1'),
@@ -54,7 +50,7 @@ describe('optimisticDraftIssue', () => {
   }
 
   it('carries the canonical issue fields for optimistic rendering', () => {
-    expect(optimisticDraftIssue(base)).toMatchObject({
+    expect(draftIssueRow(base)).toMatchObject({
       intentOrigin: 'human',
       isDraftVessel: true,
       description: '',
@@ -65,7 +61,7 @@ describe('optimisticDraftIssue', () => {
   })
 
   it('is a draft vessel with no worktree, carrying the caller id and repo', () => {
-    const i = optimisticDraftIssue(base)
+    const i = draftIssueRow(base)
     expect(i.id).toBe('iss_1')
     expect(i.isDraftVessel).toBe(true)
     expect(i.worktreePath).toBeNull()
@@ -79,16 +75,16 @@ describe('optimisticDraftIssue', () => {
 
   it('mints the optimistic key above the existing project group', () => {
     const existing = [
-      optimisticDraftIssue({ ...base, issueId: asIssueId('iss_a'), sortKey: 'i' }),
-      optimisticDraftIssue({ ...base, issueId: asIssueId('iss_b'), sortKey: 'c' }),
-      optimisticDraftIssue({
+      draftIssueRow({ ...base, issueId: asIssueId('iss_a'), sortKey: 'i' }),
+      draftIssueRow({ ...base, issueId: asIssueId('iss_b'), sortKey: 'c' }),
+      draftIssueRow({
         ...base,
         issueId: asIssueId('iss_other'),
         repoId: asRepoId('repo-2'),
         sortKey: '1',
       }),
     ]
-    const key = optimisticDraftSortKey(existing, base.repoPath, base.repoId)
+    const key = draftSortKey(existing, base.repoPath, base.repoId)
     expect(key < 'c').toBe(true)
   })
 })

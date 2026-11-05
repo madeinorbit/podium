@@ -271,7 +271,6 @@ function makeEngine(
     hub?: FakeHub
     storage?: StorageApi
     replica?: Replica
-    spawnConfirmGraceMs?: number
     workspacePruneGraceMs?: number
     draftSendDebounceMs?: number
     draftPersistDebounceMs?: number
@@ -295,9 +294,6 @@ function makeEngine(
       opts.replica ?? createReplicaFixture({ storage: opts.storage ?? memoryStorage() }),
     routerWindow: rw.win,
     createHub: () => hub as unknown as SocketHub,
-    ...(opts.spawnConfirmGraceMs !== undefined
-      ? { spawnConfirmGraceMs: opts.spawnConfirmGraceMs }
-      : {}),
     ...(opts.workspacePruneGraceMs !== undefined
       ? { workspacePruneGraceMs: opts.workspacePruneGraceMs }
       : {}),

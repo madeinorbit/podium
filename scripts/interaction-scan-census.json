@@ -23831,21 +23831,21 @@
       "guard": "scripts/check-interaction-scans.ts"
     },
     {
-      "file": "packages/client-core/src/values/optimistic-spawn.ts",
-      "holder": "optimisticDraftSortKey",
+      "file": "packages/client-graph/src/write/launch-rows.ts",
+      "holder": "draftSortKey",
       "rule": "loop:for-of",
       "tokens": "d6839ad57d628719ce260239f216965360b03fb9d6f70dd1b76263e4c7c9dc01",
       "gate": [],
       "origin": [
-        "7a3c8f1f3e4fdab013be63cb27bcc05262a02f39dd1f124dfb670ccbb02d9b35"
+        "1efe85acab722f5016eac98b15b8f2adb9b58f758a88a9a0c72a019f2a4b0c3f"
       ],
-      "fingerprint": "26742ad26ff98a643ebd66e714d884bd98fb15537300a395659af20f394c709a",
+      "fingerprint": "73a63d72c66267a1ba8b9d649d04459877715b34a32bb1c7567247a6f55f4554",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of optimisticDraftSortKey",
+      "trigger": "Invocation of draftSortKey",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-6410 moved the builder unchanged from client-core optimistic-spawn.ts into client-graph launch-rows.ts; predecessor: 26742ad26ff98a643ebd66e714d884bd98fb15537300a395659af20f394c709a.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {

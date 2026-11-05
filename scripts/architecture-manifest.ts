@@ -1104,7 +1104,8 @@ export const RETIRED_MODULES: readonly RetiredModule[] = [
   // so the phone and the desktop share one implementation (arch-v2 P3, POD-338).
   {
     path: 'apps/web/src/app/optimistic-spawn',
-    home: '@podium/client-core/values',
+    // The builders now paint a start from its launch record (POD-6410).
+    home: '@podium/client-graph (src/write/launch-rows.ts)',
     retiredBy: 'POD-333',
   },
   {
