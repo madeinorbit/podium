@@ -122,6 +122,7 @@ import { IssueAuthorityArbitration } from './modules/issues/authority-arbitratio
 import { IssueAutoArchive } from './modules/issues/auto-archive'
 import { IssueCommandDispatcher } from './modules/issues/dispatcher'
 import { issueGitEffectPort, registerIssueGitEffects } from './modules/issues/git-effects'
+import { issueWorkEffectPort, registerIssueWorkEffects } from './modules/issues/work-effects'
 import { IssueGitWatch } from './modules/issues/git-watch'
 import { readIssue } from './modules/issues/issue-reader'
 import { PENDING_UPLOAD_SWEEP_MS, PendingUploadStore } from './modules/issues/pending-uploads'
@@ -3122,6 +3123,8 @@ export class SessionRegistry {
       gitEffects: issueGitEffectPort({ modules: () => this.modules }),
       // Relayed and MCP issue writes through the entry point (POD-6413).
       syncWrite: () => this.modules.syncWrite,
+      // Start, stop, sessions, cleanup, ship, assistant as effect records (POD-6414).
+      workEffects: issueWorkEffectPort({ modules: () => this.modules }),
       arbitration: issueArbitration,
       attachSession: async (caller, input) => await issueAttach.execute(caller, input),
       issues,
@@ -3976,6 +3979,8 @@ export class SessionRegistry {
     })
     // The effect kinds (POD-6394..6396): each family registers its executors.
     registerIssueGitEffects({ modules: () => this.modules })
+    // The issue commands that act on machines (POD-6414).
+    registerIssueWorkEffects({ modules: () => this.modules, users: this.store.users })
     // Filing a task and starting its first agent at once (POD-6410).
     registerIssueStartEffect({ modules: () => this.modules, users: this.store.users })
     // Starting a session is an effect record too (POD-6398).

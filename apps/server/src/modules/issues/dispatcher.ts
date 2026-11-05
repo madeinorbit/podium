@@ -32,6 +32,7 @@ import {
 } from './command-ctx'
 import { type AnyIssueCommandDef, guardIssueCommand, issueRegistry } from './registry'
 import { startAfterCreate, submitIssueWrite } from './sync-write'
+import { isIssueWorkCommand } from './work-effects'
 
 /** A ledger that runs the body every time and records nothing: see `withoutDedup`. */
 const RUN_EVERY_TIME: MutationLedgerPort = {
@@ -69,6 +70,16 @@ export class IssueCommandDispatcher {
     return new IssueCommandDispatcher({ ...this.deps, mutations: RUN_EVERY_TIME })
   }
 
+  /**
+   * This dispatcher running the commands that act on machines inline, for their
+   * own effect executors (POD-6414): the executor IS the run the record stands
+   * for, so it must not create another record.
+   */
+  withoutEffects(): IssueCommandDispatcher {
+    const { workEffects: _workEffects, ...deps } = this.deps
+    return new IssueCommandDispatcher(deps)
+  }
+
   /** Execute one ALREADY-guarded, ALREADY-parsed command (the tRPC path: the
    *  derived middleware guarded, tRPC parsed `def.input`). */
   async run<D extends AnyIssueCommandDef>(
@@ -77,6 +88,12 @@ export class IssueCommandDispatcher {
     def: D,
     input: z.infer<D['input']>,
   ): Promise<Awaited<ReturnType<D['handler']>>> {
+    // A command that acts on machines runs as an effect record (POD-6414): on
+    // every transport its old answer comes from the record once it settles.
+    const work = this.deps.workEffects
+    if (work !== undefined && isIssueWorkCommand(name)) {
+      return (await work.run(caller, name, input)) as Awaited<ReturnType<D['handler']>>
+    }
     const execute = async (): Promise<Awaited<ReturnType<D['handler']>>> =>
       (await def.handler(
         new IssueCommandCtx(this.deps, caller, name, def.target),
