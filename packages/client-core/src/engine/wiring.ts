@@ -14,7 +14,12 @@ import {
   type SessionId,
   type WorkState,
 } from '@podium/model'
-import { type SyncSubmitRefusal, SyncSubmitReply } from '@podium/protocol'
+import {
+  isMissingSyncSubmit,
+  SYNC_REFUSAL_CODES,
+  type SyncSubmitRefusal,
+  SyncSubmitReply,
+} from '@podium/protocol'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import {
   ENQUEUEABLE_DELIVERY,
@@ -750,23 +755,13 @@ export function outboxCommandOf<K extends keyof OutboxKinds & string>(
  * path. Only that answer. `sync.submit` itself never throws `NOT_FOUND` — a missing
  * target is a `rejected` reply — but `classifyRefusal` reads any 404 as a definitive
  * refusal, and a write dead-lettered for want of a route is the one outcome the
- * fixed kinds must never produce.
+ * fixed kinds must never produce. One test for the queued and the immediate writes
+ * (`submitNow`, POD-6412), so the two cannot disagree about an old server.
  */
-export function isMissingSyncSubmit(error: unknown): boolean {
-  const data = (error as { data?: { code?: unknown; httpStatus?: unknown } } | null)?.data
-  if (data?.code !== 'NOT_FOUND' && data?.httpStatus !== 404) return false
-  const message = error instanceof Error ? error.message : ''
-  return /no procedure found/i.test(message) && message.includes('sync.submit')
-}
+export { isMissingSyncSubmit }
 
 /** The tRPC error code `classifyRefusal` reads back as each refusal. */
-const REFUSAL_CODES: Readonly<Record<SyncSubmitRefusal['kind'], string>> = {
-  unauthorized: 'FORBIDDEN',
-  'target-not-found': 'NOT_FOUND',
-  conflict: 'CONFLICT',
-  invalid: 'BAD_REQUEST',
-  'confirmation-required': 'PRECONDITION_FAILED',
-}
+const REFUSAL_CODES = SYNC_REFUSAL_CODES
 
 type WithMutationId = { readonly mutationId: MutationId }
 
@@ -791,7 +786,9 @@ async function submitEffect(
   const reply = raw as { outcome?: string; result?: unknown; refusal?: { kind: string } }
   if (reply.outcome === 'rejected') {
     throw Object.assign(new Error(`${name} was refused (${reply.refusal?.kind ?? 'unknown'})`), {
-      data: { code: REFUSAL_CODES[(reply.refusal?.kind ?? 'invalid') as SyncSubmitRefusal['kind']] },
+      data: {
+        code: REFUSAL_CODES[(reply.refusal?.kind ?? 'invalid') as SyncSubmitRefusal['kind']],
+      },
     })
   }
   return reply.result

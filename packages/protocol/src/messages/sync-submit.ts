@@ -57,13 +57,21 @@ export type SyncSubmitInput = z.infer<typeof SyncSubmitInput>
  * `target-not-found` stay separate on the wire for telemetry; the outbox collapses
  * them into one stored code so no existence fact escapes (ADR 3 Amendment D20).
  * `details` on `invalid` are paths in the caller's OWN input.
+ *
+ * `message` is the handler's own words for a refusal it decided ("a profile named
+ * x already exists"), which the old per-command route showed and a caller waiting
+ * on `sync.submit` shows too (POD-6412). It is set ONLY from a handler's refusal,
+ * after both permission checks passed, never by the coarse or target check, so it
+ * tells a refused caller nothing it could not already see. Optional, and the arms
+ * are not strict, so an older reader drops it.
  */
+const message = z.string().optional()
 export const SyncSubmitRefusal = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('unauthorized') }),
-  z.object({ kind: z.literal('target-not-found') }),
-  z.object({ kind: z.literal('conflict') }),
-  z.object({ kind: z.literal('invalid'), details: z.array(z.string()).optional() }),
-  z.object({ kind: z.literal('confirmation-required') }),
+  z.object({ kind: z.literal('unauthorized'), message }),
+  z.object({ kind: z.literal('target-not-found'), message }),
+  z.object({ kind: z.literal('conflict'), message }),
+  z.object({ kind: z.literal('invalid'), details: z.array(z.string()).optional(), message }),
+  z.object({ kind: z.literal('confirmation-required'), message }),
 ])
 export type SyncSubmitRefusal = z.infer<typeof SyncSubmitRefusal>
 
