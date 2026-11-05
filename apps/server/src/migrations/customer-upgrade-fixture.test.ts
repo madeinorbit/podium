@@ -451,7 +451,7 @@ describe('customer upgrade fixture: server', () => {
   })
 })
 
-/** The November upgrade starts on a real migration ledger, before personal account ownership. */
+/** The November upgrade starts on a real migration ledger, before the first multi-user owner repair. */
 function memberCustomerState(multiple: boolean): string {
   const root = mkdtempSync(join(tmpdir(), 'podium-member-upgrade-'))
   roots.push(root)
@@ -489,7 +489,7 @@ function memberCustomerState(multiple: boolean): string {
     }
     expect(db.prepare('SELECT count(*) AS n FROM users').get()).toEqual({ n: multiple ? 3 : 1 })
     expect(db.prepare('SELECT count(*) AS n FROM issues').get()).toEqual({ n: multiple ? 4 : 2 })
-    expect(db.prepare('SELECT count(*) AS n FROM sessions').get()).toEqual({ n: multiple ? 2 : 1 })
+    expect(db.prepare('SELECT count(*) AS n FROM sessions').get()).toEqual({ n: multiple ? 5 : 1 })
     expect(db.prepare('SELECT count(*) AS n FROM __drizzle_migrations').get()).toEqual({ n: cut })
     // Negative control: the exact post-upgrade assertions cannot pass on the old schema.
     expect(() => db.prepare('SELECT owner_user_id, ref FROM accounts').all()).toThrow(
@@ -515,7 +515,7 @@ function preservedMemberData(root: string) {
     logins: db.prepare('SELECT * FROM client_sessions ORDER BY token_hash').all(),
     sessions: db
       .prepare(
-        'SELECT id, owner_user_id, issue_id, machine_id, cwd, title, created_at FROM sessions ORDER BY id',
+        'SELECT id, issue_id, machine_id, cwd, title, created_at, created_by_on_behalf_of, delegation FROM sessions ORDER BY id',
       )
       .all(),
     markers: db
@@ -539,12 +539,37 @@ describe('MU-15: customer personal data across the complete multi-user migration
   it.each([
     false,
     true,
-  ])('keeps personal data, credentials and session owners (multiple members: %s)', async (multiple) => {
+  ])('keeps personal data and repairs only active starters (multiple members: %s)', async (multiple) => {
     const root = memberCustomerState(multiple)
     const before = preservedMemberData(root)
+    const ownersBefore = withDb(root, (db) =>
+      db.prepare('SELECT id, owner_user_id FROM sessions ORDER BY id').all(),
+    )
+    expect(ownersBefore).toEqual([
+      { id: 'session-alice-history', owner_user_id: 'mem_upgrade_alice' },
+      ...(multiple
+        ? [
+            { id: 'session-bob-delegated', owner_user_id: 'mem_upgrade_alice' },
+            { id: 'session-bob-on-alice', owner_user_id: 'mem_upgrade_alice' },
+            { id: 'session-disabled-starter', owner_user_id: 'mem_upgrade_alice' },
+            { id: 'session-unattributed', owner_user_id: 'mem_upgrade_alice' },
+          ]
+        : []),
+    ])
     await upgrade(root)
     expect(preservedMemberData(root)).toEqual(before)
     withDb(root, (db) => {
+      expect(db.prepare('SELECT id, owner_user_id FROM sessions ORDER BY id').all()).toEqual([
+        { id: 'session-alice-history', owner_user_id: 'mem_upgrade_alice' },
+        ...(multiple
+          ? [
+              { id: 'session-bob-delegated', owner_user_id: 'mem_upgrade_bob' },
+              { id: 'session-bob-on-alice', owner_user_id: 'mem_upgrade_bob' },
+              { id: 'session-disabled-starter', owner_user_id: 'mem_upgrade_alice' },
+              { id: 'session-unattributed', owner_user_id: 'mem_upgrade_alice' },
+            ]
+          : []),
+      ])
       expect(db.prepare('SELECT owner_user_id, ref FROM accounts').all()).toEqual([
         { owner_user_id: 'mem_upgrade_alice', ref: 'managed:anthropic' },
       ])

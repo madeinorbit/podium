@@ -1,6 +1,6 @@
 {
   "source": "Representative extension of the captured customer fleet and observed real single-member databases; invented member names, paths and credentials. Not a captured multi-person installation.",
-  "beforeMigration": "20261103223137_provider-connection-owners",
+  "beforeMigration": "20261103182154_session-owner-is-its-starter",
   "singleMember": {
     "users": [
       {
@@ -58,7 +58,8 @@
         "created_at": "2026-10-30T12:00:00.000Z",
         "last_active_at": "2026-10-30T12:00:00.000Z",
         "machine_id": "machine-host",
-        "issue_id": "task-legacy-agent"
+        "issue_id": "task-legacy-agent",
+        "created_by_on_behalf_of": "mem_upgrade_alice"
       }
     ],
     "user_preferences": [
@@ -176,7 +177,7 @@
     "sessions": [
       {
         "id": "session-bob-on-alice",
-        "owner_user_id": "mem_upgrade_bob",
+        "owner_user_id": "mem_upgrade_alice",
         "agent_kind": "codex",
         "cwd": "/fixture/work",
         "title": "Historical session",
@@ -186,7 +187,54 @@
         "created_at": "2026-10-30T12:00:00.000Z",
         "last_active_at": "2026-10-30T12:00:00.000Z",
         "machine_id": "machine-host",
-        "issue_id": "task-legacy-agent"
+        "issue_id": "task-legacy-agent",
+        "created_by_on_behalf_of": "mem_upgrade_bob"
+      },
+      {
+        "id": "session-bob-delegated",
+        "owner_user_id": "mem_upgrade_alice",
+        "agent_kind": "codex",
+        "cwd": "/fixture/work",
+        "title": "Historical session",
+        "origin_kind": "spawn",
+        "status": "exited",
+        "durable_label": "podium-session-bob-delegated",
+        "created_at": "2026-10-30T12:00:00.000Z",
+        "last_active_at": "2026-10-30T12:00:00.000Z",
+        "machine_id": "machine-host",
+        "issue_id": "task-legacy-agent",
+        "created_by_on_behalf_of": "mem_upgrade_alice",
+        "delegation": "{\"actor\":\"session-bob-delegated\",\"onBehalfOf\":\"mem_upgrade_bob\",\"grantedScope\":{\"kind\":\"subtree\",\"rootId\":\"task-legacy-agent\"},\"parentBindingId\":null,\"revision\":1}"
+      },
+      {
+        "id": "session-disabled-starter",
+        "owner_user_id": "mem_upgrade_alice",
+        "agent_kind": "codex",
+        "cwd": "/fixture/work",
+        "title": "Historical session",
+        "origin_kind": "spawn",
+        "status": "exited",
+        "durable_label": "podium-session-disabled-starter",
+        "created_at": "2026-10-30T12:00:00.000Z",
+        "last_active_at": "2026-10-30T12:00:00.000Z",
+        "machine_id": "machine-host",
+        "issue_id": "task-legacy-agent",
+        "created_by_on_behalf_of": "mem_upgrade_carol"
+      },
+      {
+        "id": "session-unattributed",
+        "owner_user_id": "mem_upgrade_alice",
+        "agent_kind": "codex",
+        "cwd": "/fixture/work",
+        "title": "Historical session",
+        "origin_kind": "spawn",
+        "status": "exited",
+        "durable_label": "podium-session-unattributed",
+        "created_at": "2026-10-30T12:00:00.000Z",
+        "last_active_at": "2026-10-30T12:00:00.000Z",
+        "machine_id": "machine-host",
+        "issue_id": "task-legacy-agent",
+        "created_by_on_behalf_of": null
       }
     ],
     "user_preferences": [
