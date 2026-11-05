@@ -40,16 +40,22 @@ on:
         required: true
         type: boolean
         default: true
+      stapler_diagnostics:
+        description: Run an Intel stapler transport probe only, without building or publishing
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: write
 
 concurrency:
-  group: desktop-release-${{ github.event_name == 'workflow_dispatch' && inputs.channel || github.ref_name }}
+  group: desktop-release-${{ inputs.stapler_diagnostics && format('diagnostic-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && inputs.channel || github.ref_name) }}
   cancel-in-progress: false
 
 jobs:
   validate:
+    if: github.event_name != 'workflow_dispatch' || !inputs.stapler_diagnostics
     runs-on: ubuntu-latest
     # Resolved once here and consumed by every later job. Deriving the channel in each job's
     # `if:`/`env:` expressions instead invites the classic Actions ternary bug: an empty input
@@ -222,6 +228,24 @@ jobs:
           fi
           echo "build_shell=$build_shell" >> "$GITHUB_OUTPUT"
           echo "shell_input_hash=$shell_input_hash" >> "$GITHUB_OUTPUT"
+
+  stapler-diagnostics:
+    if: github.event_name == 'workflow_dispatch' && inputs.stapler_diagnostics
+    runs-on: macos-15-intel
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare stapler transports on the same released DMG
+        run: bash apps/desktop/scripts/stapler-transport-probe.sh "$RUNNER_TEMP/stapler-transport"
+      - name: Retain transport evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stapler-transport-evidence
+          path: ${{ runner.temp }}/stapler-transport
+          if-no-files-found: warn
 
   build:
     needs: validate
