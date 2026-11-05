@@ -206,7 +206,10 @@ pub fn prepare(
     let app_managed = canonical_path(&app_data.join("payload"))
         .map_err(|_| "cannot resolve application payload root")?
         == lease.install;
-    lease.register_state_root(&bootstrap::state_dir())?;
+    if let Err(error) = lease.register_state_root(&bootstrap::state_dir()) {
+        log::warn!("desktop payload startup: bundled fallback deferred: {error}");
+        return lease.into_shared();
+    }
     if lease.exclusive {
         if cfg!(debug_assertions) {
             // Debug/source shells only perform the existing first-install seed.
@@ -290,6 +293,19 @@ mod tests {
         let first = PayloadUsageLease::acquire(&fixture.0.join("blue")).unwrap();
         let second = PayloadUsageLease::acquire(&fixture.0.join("green")).unwrap();
         assert!(first.exclusive && second.exclusive);
+    }
+
+    #[test]
+    fn corrupt_root_history_is_preserved_and_refused() {
+        let fixture = Fixture::new();
+        let lease = PayloadUsageLease::acquire(&fixture.0.join("payload")).unwrap();
+        let state = fixture.0.join("state");
+        lease.register_state_root(&state).unwrap();
+        let roots = PathBuf::from(format!("{}.lifecycle", lease.install.display())).join("roots");
+        let record = std::fs::read_dir(roots).unwrap().next().unwrap().unwrap().path();
+        std::fs::write(&record, "{corrupt history").unwrap();
+        assert!(lease.register_state_root(&state).is_err());
+        assert_eq!(std::fs::read_to_string(record).unwrap(), "{corrupt history");
     }
 
     #[cfg(unix)]

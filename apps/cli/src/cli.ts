@@ -1646,9 +1646,12 @@ export async function main(
     if (usage) {
       try {
         registerInstallationStateRoot(usage, stateDir())
-      } catch (error) {
-        usage.release()
-        throw error
+      } catch {
+        // Registry damage disables the lower-priority startup source. Keep the
+        // usage lease and let this instance's existing lifecycle/update owner boot.
+        console.error(
+          'installation state-root registry unavailable; bundled startup replacement will defer',
+        )
       }
       process.once('exit', () => usage.release())
     }

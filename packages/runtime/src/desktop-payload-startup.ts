@@ -139,7 +139,14 @@ export async function legacyInstallationInUse(installDir: string): Promise<boole
         )
           return true
       } catch (error) {
-        if (!['ENOENT', 'ESRCH'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error
+        // Linux's installation-inode fence, held through mutation, also excludes
+        // execution by a protected process whose /proc entry cannot be read.
+        if (
+          !['ENOENT', 'ESRCH', 'EACCES', 'EPERM'].includes(
+            (error as NodeJS.ErrnoException).code ?? '',
+          )
+        )
+          throw error
       }
     }
     return false
@@ -318,7 +325,11 @@ export async function prepareDesktopPayloadStartup(
   const installDir = canonicalInstallationPath(request.installDir)
   if (lease.installDir !== installDir || lease.exclusive !== request.exclusive)
     throw new Error('startup installation lease does not match the request')
-  registerInstallationStateRoot(lease, request.stateDir)
+  try {
+    registerInstallationStateRoot(lease, request.stateDir)
+  } catch {
+    return { outcome: 'deferred', reason: 'installation state-root registry is unreadable' }
+  }
   if (!request.exclusive)
     return { outcome: 'deferred', reason: 'live installation owner has priority' }
   const deferred = (reason: string): DesktopPayloadStartupResult => ({
@@ -433,7 +444,7 @@ export async function prepareDesktopPayloadStartup(
   } catch {
     // Public diagnostic is deliberately bounded; private config/identity never escapes.
     return {
-      outcome: 'failed',
+      outcome: phase === 'local state inspection' ? 'deferred' : 'failed',
       reason: `bundled runtime ${phase} failed; payload recovery data retained`,
     }
   }

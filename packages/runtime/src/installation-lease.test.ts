@@ -1,4 +1,13 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -29,6 +38,20 @@ function acquire(path: string, exclusive: boolean) {
 }
 
 describe('installation usage lease', () => {
+  it('never overwrites a corrupt existing state-root record while registering it again', () => {
+    const { root, install } = fixture()
+    const lease = acquire(install, true)
+    const state = join(root, 'state')
+    registerInstallationStateRoot(lease, state)
+    const path = join(
+      lease.metadataDir,
+      'roots',
+      readdirSync(join(lease.metadataDir, 'roots'))[0] as string,
+    )
+    writeFileSync(path, '{broken registry')
+    expect(() => registerInstallationStateRoot(lease, state)).toThrow()
+    expect(readFileSync(path, 'utf8')).toBe('{broken registry')
+  })
   it.skipIf(process.getuid?.() === 0)(
     'keeps a read-only image runtime bootable while refusing fallback ownership',
     () => {

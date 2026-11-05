@@ -107,6 +107,13 @@ pre-lease 0.2/0.3 binary is not serialized by that older code. Automatic non-Lin
 is restricted to the normal app-owned payload; custom/shared headless-managed destinations
 defer it. Packaged macOS and Windows acceptance must prove their native boundaries separately.
 
+At first adoption, arbitrary dormant legacy/custom state roots that were never selected or
+registered and left no install-global marker are not discoverable from the app payload.
+The selected canonical root, every known registered root and install-global recovery state
+are checked. An unreadable known record defers fallback; it never becomes empty history.
+An unknown legacy root's journal stays untouched and retains normal exact-target recovery
+when that root is later selected.
+
 Preparation preserves config, machine identity/key, consent and user data. Invalid payloads
 or identity remain explicit repair cases. The predecessor stays available across activation
 until ordinary startup health owns its disposition; fallback never blindly rolls binaries

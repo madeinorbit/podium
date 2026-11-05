@@ -450,7 +450,7 @@ describe('cold-start bundled payload source', () => {
       write(join(request.stateDir, name), '{ private-corrupt-state')
       const before = hashes(request.stateDir)
       const result = await run()
-      expect(result).toMatchObject({ outcome: 'failed' })
+      expect(result).toMatchObject({ outcome: 'deferred' })
       expect(JSON.stringify(result)).not.toContain('private-corrupt-state')
       expect(hashes(request.stateDir)).toEqual(before)
       expect(readFileSync(join(request.installDir, 'VERSION'), 'utf8').trim()).toBe('0.2.0')

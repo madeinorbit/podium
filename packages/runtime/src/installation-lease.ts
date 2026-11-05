@@ -18,7 +18,7 @@ import {
   renameSync,
   writeFileSync,
 } from 'node:fs'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { fsyncPath } from './fsync'
 import { openDatabase, type SqlDatabase } from './sqlite'
 
@@ -138,7 +138,12 @@ export function registerInstallationStateRoot(
   const name = `${createHash('sha256').update(stateDir).digest('hex')}.json`
   const path = join(roots, name)
   const bytes = `${JSON.stringify({ format: 1, stateDir })}\n`
-  if (existsSync(path) && readFileSync(path, 'utf8') === bytes) return
+  if (existsSync(path)) {
+    const record = JSON.parse(readFileSync(path, 'utf8'))
+    if (record.format !== 1 || record.stateDir !== stateDir)
+      throw new Error('installation state-root record is invalid')
+    return
+  }
   const temporary = `${path}.${process.pid}.tmp`
   writeFileSync(temporary, bytes, { mode: 0o600 })
   fsyncPath(temporary)
@@ -153,7 +158,11 @@ export function installationStateRoots(lease: Pick<InstallationLease, 'metadataD
     .filter((name) => name.endsWith('.json'))
     .map((name) => {
       const record = JSON.parse(readFileSync(join(roots, name), 'utf8'))
-      if (record.format !== 1 || typeof record.stateDir !== 'string' || !record.stateDir)
+      if (
+        record.format !== 1 ||
+        typeof record.stateDir !== 'string' ||
+        !isAbsolute(record.stateDir)
+      )
         throw new Error('installation state-root record is unreadable')
       return canonicalInstallationPath(record.stateDir)
     })
