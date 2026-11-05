@@ -170,6 +170,8 @@ export class PoolLaunches {
     { target: SpawnTarget; prompt?: string; description?: string; brief?: string }
   >()
   private readonly settlers = new Map<SessionId, (started: boolean) => void>()
+  /** Own named-task starts waiting to learn whether they became a proposal. */
+  private readonly proposals = new Map<SessionId, (proposed: boolean) => void>()
   private readonly waiters = new Map<SessionId, Set<() => void>>()
   /** Failures already told, so a reload or a repaint never tells one twice. */
   private readonly told = new Set<string>()
@@ -235,6 +237,9 @@ export class PoolLaunches {
     mutationId: MutationId
     settled: Promise<boolean>
     outcome: Promise<TaskSpawnOutcome>
+    /** True once its record says the task was filed as a proposal (no agent
+     *  comes); false when it ends any other way. */
+    proposed: Promise<boolean>
   } {
     if (this.disposed) throw new Error('PoolLaunches: spawn after dispose')
     const sessionId = args.sessionId ?? asSessionId(randomUUID())
@@ -260,11 +265,12 @@ export class PoolLaunches {
       ...(args.brief ? { brief: args.brief } : {}),
     })
     const settled = new Promise<boolean>((resolve) => this.settlers.set(sessionId, resolve))
+    const proposed = new Promise<boolean>((resolve) => this.proposals.set(sessionId, resolve))
     this.begin(create, sessionId, 'task')
     // Durably queued is started: the record carries the task and survives a
     // reload, and a later failure shows on the task's session.
     const outcome = settled.then((ok): TaskSpawnOutcome => (ok ? 'started' : 'failed'))
-    return { sessionId, issueId, mutationId, settled, outcome }
+    return { sessionId, issueId, mutationId, settled, outcome, proposed }
   }
 
   /** Paint an own start as queued and write its create. */
@@ -289,6 +295,7 @@ export class PoolLaunches {
           `Couldn't start the ${subject} — ${error instanceof Error ? error.message : 'unknown error'}`,
         )
         this.settle(sessionId, false)
+        this.answer(sessionId, false)
       },
     )
   }
@@ -366,6 +373,7 @@ export class PoolLaunches {
         // The row is here: the log retired the placeholder as it landed.
         this.forget(launch.sessionId)
         this.settle(launch.sessionId, true)
+        this.answer(launch.sessionId, false)
         continue
       }
       this.show(launch)
@@ -378,6 +386,7 @@ export class PoolLaunches {
       if (this.ports.truth('sessions', sessionId) !== undefined) {
         this.forget(sessionId)
         this.settle(sessionId, true)
+        this.answer(sessionId, false)
         continue
       }
       if (live.has(sessionId) || this.writing.has(sessionId)) continue
@@ -389,6 +398,7 @@ export class PoolLaunches {
       this.local.delete(sessionId)
       this.recorded.delete(sessionId)
       this.settle(sessionId, false)
+      this.answer(sessionId, false)
     }
     this.wake()
   }
@@ -397,6 +407,8 @@ export class PoolLaunches {
     this.disposed = true
     for (const settle of this.settlers.values()) settle(false)
     this.settlers.clear()
+    for (const answer of this.proposals.values()) answer(false)
+    this.proposals.clear()
     for (const set of this.waiters.values()) for (const resolve of set) resolve()
     this.waiters.clear()
   }
@@ -439,6 +451,7 @@ export class PoolLaunches {
         this.told.add(launch.effectId)
         this.ports.notices.info(launch.error ?? PROPOSED_NOTICE)
       }
+      this.answer(launch.sessionId, true)
       return
     }
     if (ended) {
@@ -447,6 +460,7 @@ export class PoolLaunches {
         this.ports.notices.error(this.failureText(launch))
       }
       this.settle(launch.sessionId, false)
+      this.answer(launch.sessionId, false)
     }
   }
 
@@ -576,6 +590,13 @@ export class PoolLaunches {
     this.painted.delete(sessionId)
     this.local.delete(sessionId)
     this.recorded.delete(sessionId)
+  }
+
+  private answer(sessionId: SessionId, proposed: boolean): void {
+    const answer = this.proposals.get(sessionId)
+    if (answer === undefined) return
+    this.proposals.delete(sessionId)
+    answer(proposed)
   }
 
   private settle(sessionId: SessionId, started: boolean): void {

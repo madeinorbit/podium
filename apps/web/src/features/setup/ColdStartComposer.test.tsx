@@ -30,6 +30,7 @@ const setSelectedIssueId = vi.fn()
 const setSelectedWorktree = vi.fn()
 const setPane = vi.fn()
 const setView = vi.fn()
+const setOpenIssueId = vi.fn()
 const spawnDraftAgent = vi.fn((_args: Record<string, unknown>) => ({
   sessionId: asSessionId('optimistic-session'),
   issueId: asIssueId('optimistic-issue'),
@@ -41,6 +42,7 @@ const spawnIssueAgent = vi.fn((_args: Record<string, unknown>) => ({
   mutationId: asMutationId('optimistic-mutation'),
   settled: Promise.resolve(true),
   outcome: Promise.resolve<'started' | 'failed'>('started'),
+  proposed: Promise.resolve(false),
 }))
 const uploadImage = vi.fn()
 const uiValues = new Map<string, string>()
@@ -100,6 +102,7 @@ const store = {
   setSelectedWorktree,
   setPane,
   setView,
+  setOpenIssueId,
   trpc: {
     settings: {
       get: {
@@ -159,6 +162,7 @@ afterEach(() => {
     mutationId: asMutationId('optimistic-mutation'),
     settled: Promise.resolve(true),
     outcome: Promise.resolve<'started' | 'failed'>('started'),
+    proposed: Promise.resolve(false),
   })
   uploadImage.mockReset()
   // The server holds a new task's file and answers its ref (POD-2148).
@@ -440,6 +444,46 @@ describe('ColdStartComposer', () => {
     await waitFor(() =>
       expect(screen.getByRole('alert').textContent).toContain("Couldn't start the task."),
     )
+  })
+
+  it('shows the task, not an absent session, when the start was filed as a proposal', async () => {
+    let proposed: (value: boolean) => void = () => {}
+    spawnIssueAgent.mockImplementationOnce((input) => ({
+      issueId: asIssueId(String(input.issueId)),
+      sessionId: asSessionId(String(input.sessionId)),
+      mutationId: asMutationId(String(input.mutationId)),
+      settled: Promise.resolve(true),
+      outcome: Promise.resolve<'started' | 'failed'>('started'),
+      proposed: new Promise<boolean>((resolve) => {
+        proposed = resolve
+      }),
+    }))
+    setOpenIssueId.mockClear()
+    uiValues.set(
+      'podium.firstTaskActivation.draft',
+      JSON.stringify({
+        repoPath: '/work/podium',
+        machineId: 'machine-a',
+        agent: 'codex',
+        model: 'auto',
+        effort: 'auto',
+        title: 'A member files this',
+        launchKind: 'issue',
+        createIssueId: 'reserved-issue',
+        createSessionId: 'reserved-session',
+        createMutationId: 'reserved-mutation',
+      }),
+    )
+    render(<ColdStartComposer first={false} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
+    await waitFor(() => expect(setView).toHaveBeenLastCalledWith('workspace'))
+    expect(setPane).toHaveBeenLastCalledWith('A', asSessionId('reserved-session'))
+    expect(setOpenIssueId).not.toHaveBeenCalled()
+
+    proposed(true)
+    await waitFor(() => expect(setOpenIssueId).toHaveBeenCalledWith(asIssueId('reserved-issue')))
+    expect(setPane).toHaveBeenLastCalledWith('A', null)
+    expect(setView).toHaveBeenLastCalledWith('issues')
   })
 
   it('switches to reusable workspace wording when tasks already exist', () => {

@@ -5,7 +5,7 @@ import type { Trpc } from '@/app/trpc'
 interface SettingsClient extends Pick<Store,
   'trpc' | 'uiState' | 'navigateToSession' | 'refreshRepos' | 'setSettingsTab' |
   'focusIssueSession' | 'spawnDraftAgent' | 'spawnIssueAgent' | 'setSelectedIssueId' |
-  'setSelectedWorktree' | 'setPane' | 'setPanelMode' | 'setView'> {
+  'setSelectedWorktree' | 'setPane' | 'setPanelMode' | 'setView' | 'setOpenIssueId'> {
   readonly owner: { readonly access: Store }
 }
 
@@ -29,6 +29,7 @@ export function useSettingsClient(): SettingsClient {
     setPane: state.setPane,
     setPanelMode: state.setPanelMode,
     setView: state.setView,
+    setOpenIssueId: state.setOpenIssueId,
   }
 }
 

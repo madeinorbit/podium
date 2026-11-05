@@ -257,6 +257,7 @@ export function ColdStartComposer({
     setPane,
     setPanelMode,
     setView,
+    setOpenIssueId,
   } = useSettingsClient()
   const { repos, machines } = useSettingsCatalog()
   const { usage: repositoryUsage, defaultAgent: recentAgent } = useSettingsSetupSummary(repos)
@@ -863,6 +864,14 @@ export function ColdStartComposer({
         setPanelMode(started.sessionId, 'chat')
         setPane('A', started.sessionId)
         setView('workspace')
+        // Filed as a proposal: no agent comes, so show the task rather than
+        // the pane of a session that will never exist.
+        void started.proposed.then((proposed) => {
+          if (!proposed) return
+          setPane('A', null)
+          setOpenIssueId(started.issueId)
+          setView('issues')
+        })
         return
       }
 

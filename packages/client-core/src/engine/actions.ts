@@ -345,6 +345,8 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
     mutationId: MutationId
     settled: Promise<boolean>
     outcome: Promise<TaskSpawnOutcome>
+    /** True once the task was filed as a proposal (no agent comes). */
+    proposed: Promise<boolean>
   }
   /**
    * Hold a first chat send until an optimistic spawn's create has reconciled

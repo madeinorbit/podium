@@ -402,6 +402,8 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
     mutationId: MutationId
     settled: Promise<boolean>
     outcome: Promise<TaskSpawnOutcome>
+    /** True once the task was filed as a proposal (no agent comes). */
+    proposed: Promise<boolean>
   }
   killSession: (sessionId: SessionId) => Promise<void>
   /** Nudge an errored agent to retry ("continue⏎" into its PTY). */

@@ -43,6 +43,7 @@ const spawnIssueAgent = vi.fn(() => ({
   mutationId: asMutationId('mutation-task'),
   settled: Promise.resolve(true),
   outcome: Promise.resolve('started' as const),
+  proposed: Promise.resolve(false),
 }))
 const setSelectedIssueId = vi.fn()
 const setSelectedWorktree = vi.fn()

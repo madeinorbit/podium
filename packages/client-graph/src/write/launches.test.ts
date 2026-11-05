@@ -378,7 +378,7 @@ describe('a named task with its first agent as an issue.start effect (POD-6410)'
 
   it('hands over with no gap when the task row lands, then the session row', async () => {
     const p = pool({ record: startRecord })
-    startTask(p)
+    const { proposed } = startTask(p)
     await Promise.resolve()
     p.confirmed('running')
     p.row('issueProjections', ISSUE, { id: ISSUE, title: 'Fix the login' })
@@ -389,6 +389,7 @@ describe('a named task with its first agent as an issue.start effect (POD-6410)'
     p.row('sessions', SESSION, { sessionId: SESSION, status: 'live' })
     expect(p.painted('sessions', SESSION)).toBe(0)
     expect(p.shown('sessions', SESSION)).toMatchObject({ status: 'live' })
+    expect(await proposed).toBe(false)
     p.tx.dispose()
   })
 
@@ -441,7 +442,7 @@ describe('a named task with its first agent as an issue.start effect (POD-6410)'
 
   it('filed as a proposal: the task shows as proposed, no session, and a plain notice', async () => {
     const p = pool({ record: proposedRecord })
-    const { outcome } = startTask(p)
+    const { outcome, proposed } = startTask(p)
     await Promise.resolve()
     expect(await outcome).toBe('started')
     p.confirmed('failed')
@@ -450,6 +451,7 @@ describe('a named task with its first agent as an issue.start effect (POD-6410)'
     expect(p.shown('issueProjections', ISSUE)).toMatchObject({ id: ISSUE, stage: 'proposed' })
     expect(p.errors).toEqual([])
     expect(p.infos).toEqual(['Filed as a proposal; an admin starts it.'])
+    expect(await proposed).toBe(true)
     p.row('issueProjections', ISSUE, { id: ISSUE, stage: 'proposed' })
     expect(p.painted('issueProjections', ISSUE)).toBe(0)
     p.effect('failed')
