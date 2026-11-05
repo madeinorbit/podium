@@ -8,9 +8,11 @@ import { encodeJoin } from '@podium/runtime/join'
 import { readMachineState, readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { createMachineCredential, machinePublicKeyWire } from '@podium/runtime/machine-credential'
 import {
+  createMachineSupervisorConnection,
   loadSupervisorState,
   reconcileSupervisorAssignment,
 } from '@podium/runtime/machine-supervisor'
+import { consumePairCode } from '@podium/runtime/setup'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { runJoinSetup, startBackendEngine, waitForDaemonEnrollment } from './cli-setup'
 
@@ -116,6 +118,8 @@ describe('daemon setup backend preserves machine identity', () => {
     const key = keyBytes()
     const order: string[] = []
     adapters.stop.mockImplementation(async () => {
+      expect(readConnectivityForTest(dir)).toBeDefined()
+      await Promise.resolve()
       expect(readConnectivityForTest(dir)).toBeDefined()
       order.push('stop')
     })
@@ -340,7 +344,10 @@ describe('daemon setup backend preserves machine identity', () => {
     expect(readFileSync(join(dir, 'unrelated.json'), 'utf8')).toBe('{"keep":true}')
   })
 
-  it('still retires old-coordinator receipts explicitly while keeping the machine and key', async () => {
+  it.each([
+    'consumed',
+    'newer',
+  ] as const)('uses the new coordinator authorization, retains identity and handles the %s code after acknowledgement', async (code) => {
     const retained = seedEnrolled()
     const key = keyBytes()
     await startBackendEngine({ mode: 'daemon', persistence: 'detached', port: 18787 })
@@ -368,5 +375,67 @@ describe('daemon setup backend preserves machine identity', () => {
     expect(keyBytes()).toEqual(key)
     expect(loadConfig().pairCode).toBe('OTHER-CODE')
     expect(readMachineState(dir)?.role).toEqual({ mode: 'daemon', coordinator: otherCoordinator })
+
+    const sockets: Socket[] = []
+    class Socket extends EventTarget {
+      static OPEN = 1
+      readyState = 1
+      sent: Array<Record<string, unknown>> = []
+      constructor(readonly url: string) {
+        super()
+        sockets.push(this)
+      }
+      send(raw: string) {
+        this.sent.push(JSON.parse(raw))
+      }
+      close() {}
+    }
+    vi.stubGlobal('WebSocket', Socket)
+    const service = {
+      policy: 'enabled' as const,
+      state: 'available' as const,
+      observedAt: new Date().toISOString(),
+    }
+    const connection = createMachineSupervisorConnection({
+      serverUrl: other.serverUrl,
+      pairCode: other.pairCode,
+      stateDir: dir,
+      state: changed,
+      build: { appVersion: 'test' },
+      deliveryCaps: [],
+      report: () => ({ server: service, agentExecution: service }),
+      onGrant: vi.fn(),
+      onPaired: () => consumePairCode(other.pairCode),
+    })
+    try {
+      connection.start()
+      const socket = sockets[0]
+      if (!socket) throw new Error('missing new-coordinator connection')
+      socket.dispatchEvent(new Event('open'))
+      expect(socket.url).toBe(`${other.serverUrl}/machine`)
+      expect(socket.sent[0]?.credential).toEqual({
+        kind: 'pairCode',
+        code: other.pairCode,
+        publicKey: retained.supervisor.enrolledPublicKey,
+      })
+      expect(loadConfig().pairCode).toBe(other.pairCode)
+      if (code === 'newer') saveConfig({ ...loadConfig(), pairCode: 'NEWER-CODE' })
+      socket.dispatchEvent(
+        new MessageEvent('message', {
+          data: JSON.stringify({
+            type: 'peerHelloOk',
+            v: socket.sent[0]?.v,
+            caps: [],
+            enrolledPublicKey: retained.supervisor.enrolledPublicKey,
+          }),
+        }),
+      )
+      expect(loadConfig().pairCode).toBe(code === 'newer' ? 'NEWER-CODE' : undefined)
+      expect(loadSupervisorState(dir).enrolledPublicKey).toBe(retained.supervisor.enrolledPublicKey)
+      expect(readOrCreateLocalMachineId(dir)).toBe(retained.machineId)
+      expect(keyBytes()).toEqual(key)
+    } finally {
+      connection.close()
+    }
   })
 })
