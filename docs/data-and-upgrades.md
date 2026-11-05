@@ -159,14 +159,22 @@ From the candidate checkout, install its own dependencies with `bun run setup:wo
 ```bash
 bun --conditions=@podium/source scripts/rehearse-upgrade.ts /absolute/path/to/real/state
 # Optional second argument: a new, nonexistent directory for the retained copy.
+# Real databases under load may need longer than the default 10-minute boot budget:
+bun --conditions=@podium/source scripts/rehearse-upgrade.ts /absolute/path/to/real/state /tmp/my-upgrade --timeout-seconds 900
 ```
 
-The script reads the source, snapshots SQLite through a read-only connection (including
-committed WAL pages), and boots the candidate **from source** against the copy. It never
-checkpoints, migrates, stops, or takes over the live installation. Other regular files are
-copied; symlinks, sockets, the old instance marker and agent-home are omitted. Avoid concurrent
-enrollment or updates while capturing: SQLite is a consistent snapshot, but the collection
-of legacy JSON files is not a transaction. Use a consistent backup as input when necessary.
+The script reads only `podium.db` through a read-only SQLite connection and uses
+`VACUUM INTO` to create a consistent snapshot, including committed WAL pages. SQLite
+writes the snapshot to disk with an 8 MiB page cache; the script never serializes the
+database into RAM, checkpoints the source, or changes the running installation. It
+copies no config, credential files, transcripts, symlinks or previous backups. The
+copied database itself still contains private data. The copy gets a fresh local machine
+identity and a fresh update-signing key solely for the isolated boot. This database-only
+drill does not verify legacy identity-file import; the customer-upgrade fixtures do.
+
+Before copying, the script requires free disk for three times the source's logical size
+(snapshot, the candidate's pre-migration backup and growth) plus a 1 GiB live-state reserve.
+Use a small representative real source when a large copy would crowd the live instance.
 
 The copy has its own `PODIUM_STATE_DIR`, agent home, `XDG_RUNTIME_DIR`, cache and temporary
 roots. A whitelisted child environment removes inherited session relays, supervisor credentials
@@ -183,10 +191,25 @@ external daemon or client from activating copied sessions. Database migrations s
 Never remove the flag or boot a supervisor/daemon against this copy.
 
 The command checks health and the session-traffic fences, closes the server, and retains
-`state/`, `boot.log` and `result.json` in the printed directory. It fails on boot errors or a
-90-second timeout and kills its own child process group. Inspect the migrated `machine.json`
-and database: the root id must identify the authenticating row, historical machine rows must
-remain, and legacy sections must retain their original ids and credentials. Logs and the copy
-contain private state; keep them private and delete the printed directory when finished.
+`state/`, private `boot.log`, sanitized `boot-stages.json`, `result.json` and
+`rehearsal.json` in the printed directory. The boot budget defaults to 600 seconds;
+`--timeout-seconds` overrides it. Snapshot time is separate from the boot budget.
+On timeout the script kills its own child process group, records the signal and exits
+nonzero. `rehearsal.json` records candidate commit, Bun version, logical and copied database
+sizes, available/required disk, snapshot/migration/boot/total times, exit code, signal and
+whether the timeout fired. Attach that report to the issue; do not attach `boot.log` or
+the database without sanitizing them. Keep the copy private and remove only your own
+scratch directory after retaining evidence.
+
+For a matched **database-only rollback** drill, first boot a consistent copy under the
+previous binary in a fully isolated rehearsal instance. Verify its health, fences and
+version, stop it, and take a consistent backup of that established database. Upgrade a
+further copy with the command above. Restore the established backup to a fresh isolated
+state root (no stale WAL/SHM files) and boot the same previous binary again. Compare the
+preserved data and verify health/version again. Record the binary version and hash,
+schema ledger, database sizes, timings and exit codes. This proves restoring the database
+with its matching binary; it does not prove restoration of external files or credentials
+stored outside the database.
+
 This rehearsal proves server migration/boot safety, not daemon ONLINE attachment; the
 customer-upgrade fixture arms and skew lane provide that separate evidence.
