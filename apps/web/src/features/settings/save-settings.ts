@@ -25,6 +25,7 @@ import {
   planSettingsWrite,
   type SettingsWriteRefusal,
 } from '@podium/commands/settings-write-plan'
+import { submitNow } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import type { Trpc } from '@/app/trpc'
 
@@ -69,10 +70,15 @@ export async function saveSettingsAsCommands(
 
   for (const intent of plan.intents) {
     if (intent.kind !== 'preference') continue
-    confirmed =
-      intent.command === 'settings.updatePersonal'
-        ? await trpc.settings.updatePersonal.mutate({ values: intent.values })
-        : await trpc.settings.updateInstance.mutate({ values: intent.values })
+    // On the sync write entry point (POD-6412). LEGACY(remove-after: 2027-03):
+    // an older server has no `sync.submit` and takes the command's own route.
+    const input = { values: intent.values }
+    confirmed = await submitNow<PodiumSettings>(trpc, intent.command, input, {
+      legacy: async () =>
+        intent.command === 'settings.updatePersonal'
+          ? await trpc.settings.updatePersonal.mutate(input)
+          : await trpc.settings.updateInstance.mutate(input),
+    })
   }
 
   for (const intent of plan.intents) {

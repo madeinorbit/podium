@@ -33,7 +33,8 @@
  *     merge rule is, not because it runs exactly once.
  */
 
-import { type ReadStreamId, type ReadPositionSnapshot, isReadStreamId } from '@podium/model'
+import { isReadStreamId, type ReadPositionSnapshot, type ReadStreamId } from '@podium/model'
+import { submitNow } from '@podium/protocol'
 import type { PodiumClientApi } from './api'
 import type { UiState } from './replica/contract'
 import { READ_POSITION_UI_KEY } from './ui-state'
@@ -114,8 +115,12 @@ export function createReadPositionClient(init: {
   }
 
   const send = (streamId: string, value: ReadPositionValue): void => {
-    void api.readPosition.advance
-      .mutate({ streamId, lastEventId: value.lastEventId, seenAt: value.seenAt })
+    const input = { streamId, lastEventId: value.lastEventId, seenAt: value.seenAt }
+    // On the sync write entry point (POD-6412). LEGACY(remove-after: 2027-03): an
+    // older server has no `sync.submit` and takes the command's own route.
+    void submitNow<ReadPositionSnapshot>(api, 'readPosition.advance', input, {
+      legacy: async () => await api.readPosition.advance.mutate(input),
+    })
       .then(install)
       .catch((error: unknown) => {
         // The next visible tick re-proposes the same position, so a failed

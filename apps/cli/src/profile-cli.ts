@@ -18,6 +18,7 @@ import {
   AgentCandidate as AgentCandidateSchema,
   formatAgentCandidates,
 } from '@podium/model'
+import { type SyncSubmitTransport, submitNow } from '@podium/protocol'
 import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/config'
 import { makeOperatorIssueClient } from './operator-client'
 
@@ -26,12 +27,14 @@ type Proc = {
   mutate(input?: unknown): Promise<unknown>
 }
 
-export interface ProfileClient {
+export interface ProfileClient extends SyncSubmitTransport {
   agentProfiles: Record<
     'list' | 'show' | 'export' | 'create' | 'update' | 'delete' | 'import',
     Proc
   >
 }
+
+type ProfileWrite = 'create' | 'update' | 'delete' | 'import'
 
 export interface ProfileFs {
   readText(path: string): string
@@ -235,6 +238,13 @@ export async function runProfileCli(
   }
   const fs = deps.fs ?? nodeFs
   const api = deps.client.agentProfiles
+  // The writes go through the sync write entry point (POD-6412).
+  // LEGACY(remove-after: 2027-03): an older server has no `sync.submit` and takes
+  // the command's own route.
+  const write = async (name: ProfileWrite, input: unknown): Promise<unknown> =>
+    await submitNow(deps.client, `agentProfiles.${name}`, input, {
+      legacy: async () => await api[name].mutate(input),
+    })
   const args = parseArgs(argv)
   const out = (data: unknown, text: string): string =>
     args.json ? JSON.stringify({ ok: true, data }) : text
@@ -257,7 +267,7 @@ export async function runProfileCli(
     }
     case 'create': {
       allowOnly(args, ['description', 'candidate', 'machine', 'instructions', 'instructions-file'])
-      const profile = (await api.create.mutate({
+      const profile = (await write('create', {
         name: requireName(args),
         ...fieldsFrom(args, fs, deps.cwd),
       })) as ProfileView
@@ -280,7 +290,7 @@ export async function runProfileCli(
           'update: no fields given — nothing changed (see `podium profile --help`)',
         )
       }
-      const profile = (await api.update.mutate({
+      const profile = (await write('update', {
         ref: requireName(args),
         ...fields,
       })) as ProfileView
@@ -288,7 +298,7 @@ export async function runProfileCli(
     }
     case 'delete': {
       allowOnly(args, [])
-      const deleted = (await api.delete.mutate({ ref: requireName(args) })) as { name: string }
+      const deleted = (await write('delete', { ref: requireName(args) })) as { name: string }
       return out(deleted, `deleted profile ${deleted.name}`)
     }
     case 'import': {
@@ -303,7 +313,7 @@ export async function runProfileCli(
         return [full]
       })
       if (paths.length === 0) throw new ProfileCliError(`no .md files in ${sources.join(', ')}`)
-      const results = (await api.import.mutate({
+      const results = (await write('import', {
         files: paths.map((path) => ({ name: basename(path, '.md'), text: fs.readText(path) })),
       })) as Array<{ name: string; action: string }>
       return out(results, results.map((r) => `${r.action} ${r.name}`).join('\n'))
