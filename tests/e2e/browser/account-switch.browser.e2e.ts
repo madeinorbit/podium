@@ -346,11 +346,36 @@ test('phone: Bob sees nothing of Alice’s after she logs out', async ({ browser
   await tabB.getByLabel('Email', { exact: true }).fill(BOB.email)
   await tabB.getByLabel('Password', { exact: true }).fill(BOB.password)
   await expect(tabB.getByLabel('Email', { exact: true })).toHaveValue(BOB.email)
+  const signedIn = tabB.waitForResponse(
+    (response) => response.url() === `${HTTP}/auth/login` && response.request().method() === 'POST',
+  )
   await tabB.getByRole('button', { name: 'Log in', exact: true }).click()
-  await expect(tabB.getByLabel('Password', { exact: true })).toBeHidden({ timeout: 60_000 })
-  await tabB.goto(`/mobile/work?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
+  const bobStatus = (await (await signedIn).json()) as { memberId?: string }
+  expect(bobStatus.memberId, 'the login names Bob’s authenticated member').toBeTruthy()
+  // The form disappears while the replica is still opening. Wait for its
+  // principal to be durable before navigation can interrupt that boot.
+  await tabB.waitForFunction(
+    (memberId) =>
+      Object.entries(localStorage).some(([key, value]) => {
+        if (!key.startsWith('podium.accounts.mobile-web.') || !key.endsWith('.profiles.v1'))
+          return false
+        const state = JSON.parse(value) as {
+          profiles?: Array<{ memberId?: string; signedOut?: boolean }>
+        }
+        return state.profiles?.some(
+          (profile) => profile.memberId === memberId && !profile.signedOut,
+        )
+      }),
+    bobStatus.memberId,
+    { timeout: 60_000 },
+  )
+  // Work is personal: Alice’s task need not appear in Bob’s sidebar. Open the
+  // shared mission directly, as the web check opens the shared task directly.
+  await tabB.goto(`/mobile/mission/${task.id}?server=${RELAY}`, { waitUntil: 'domcontentloaded' })
+  await expect(tabB.getByText(task.title).first()).toBeVisible({ timeout: 60_000 })
+  await tabB.getByLabel('Mission actions', { exact: true }).click({ timeout: 60_000 })
+  await expect(tabB.getByText('Task details', { exact: true })).toBeVisible({ timeout: 30_000 })
   // Positive control: Bob's view has loaded Alice's (shared) task and its menu...
-  await openPhoneMissionMenu(tabB, task.title)
   await expect(tabB.getByText('Pin', { exact: true })).toBeVisible()
   // ...and shows nothing that is Alice's alone.
   await expect(tabB.getByText('Unpin', { exact: true }), 'Bob sees Alice’s pin').toHaveCount(0)
