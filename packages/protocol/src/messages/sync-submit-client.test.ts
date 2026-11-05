@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { SyncSubmitInput } from './sync-submit'
-import { isMissingSyncSubmit, SyncSubmitRefusedError, submitNow } from './sync-submit-client'
+import {
+  isMissingSyncSubmit,
+  refusalSentence,
+  SyncSubmitRefusedError,
+  submitNow,
+} from './sync-submit-client'
 
 const receipt = { feedId: 'f', epoch: 'e', seq: 3 }
 
@@ -65,13 +70,37 @@ describe('submitNow', () => {
     expect((error as SyncSubmitRefusedError).refusal.kind).toBe('conflict')
   })
 
-  it('a refusal without a message names the command and the kind', async () => {
+  it('a refusal without a handler message reads as a plain sentence', async () => {
     const t = transport(() => ({ outcome: 'rejected', refusal: { kind: 'unauthorized' } }))
 
-    await expect(submitNow(t.api, 'agentProfiles.delete', {})).rejects.toMatchObject({
-      message: 'agentProfiles.delete was refused (unauthorized)',
+    await expect(
+      submitNow(t.api, 'agentProfiles.delete', {}, { action: 'delete agent profiles' }),
+    ).rejects.toMatchObject({
+      message: 'You do not have permission to delete agent profiles.',
       data: { code: 'FORBIDDEN' },
+      refusal: { kind: 'unauthorized' },
     })
+    await expect(submitNow(t.api, 'x.y', {})).rejects.toMatchObject({
+      message: 'You do not have permission to do this.',
+    })
+  })
+
+  it.each([
+    [{ kind: 'unauthorized' }, 'You do not have permission to rename it.'],
+    [
+      { kind: 'target-not-found' },
+      'Could not rename it: it no longer exists, or you cannot see it.',
+    ],
+    [{ kind: 'conflict' }, 'Someone changed this first; try again.'],
+    [{ kind: 'invalid' }, 'Could not rename it: the request was not valid.'],
+    [
+      { kind: 'invalid', details: ['name'] },
+      'Could not rename it: these values are not valid: name.',
+    ],
+    [{ kind: 'confirmation-required' }, 'This is outside your scope; confirm to rename it.'],
+    [{ kind: 'conflict', message: 'the handler said so' }, 'the handler said so'],
+  ] as const)('refusalSentence(%o)', (refusal, sentence) => {
+    expect(refusalSentence(refusal, 'rename it')).toBe(sentence)
   })
 
   it('an unreadable reply is a failure, never a result', async () => {
@@ -93,7 +122,7 @@ describe('submitNow', () => {
 
   it('without a legacy route, such a server refuses the command', async () => {
     await expect(submitNow({}, 'x.y', {})).rejects.toMatchObject({
-      message: 'this server does not serve x.y',
+      message: 'This server is too old for this; update it and try again.',
       data: { code: 'BAD_REQUEST' },
     })
   })

@@ -243,6 +243,7 @@ export async function runProfileCli(
   // the command's own route.
   const write = async (name: ProfileWrite, input: unknown): Promise<unknown> =>
     await submitNow(deps.client, `agentProfiles.${name}`, input, {
+      action: `${name} agent profiles`,
       legacy: async () => await api[name].mutate(input),
     })
   const args = parseArgs(argv)

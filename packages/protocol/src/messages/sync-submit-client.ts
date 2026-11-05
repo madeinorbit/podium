@@ -36,6 +36,31 @@ export const SYNC_REFUSAL_CODES: Readonly<Record<SyncSubmitRefusal['kind'], stri
   'confirmation-required': 'PRECONDITION_FAILED',
 }
 
+/**
+ * A refusal as a plain sentence, for a refusal the handler gave no words of its
+ * own (the permission checks never do). `action` is what the person tried, as a
+ * verb phrase ("edit agent profiles"); without one the sentence says "do this".
+ * The kind stays the machine-readable part: this is display text only.
+ */
+export function refusalSentence(refusal: SyncSubmitRefusal, action?: string): string {
+  if (refusal.message !== undefined) return refusal.message
+  const what = action ?? 'do this'
+  switch (refusal.kind) {
+    case 'unauthorized':
+      return `You do not have permission to ${what}.`
+    case 'target-not-found':
+      return `Could not ${what}: it no longer exists, or you cannot see it.`
+    case 'conflict':
+      return 'Someone changed this first; try again.'
+    case 'invalid':
+      return refusal.details !== undefined && refusal.details.length > 0
+        ? `Could not ${what}: these values are not valid: ${refusal.details.join(', ')}.`
+        : `Could not ${what}: the request was not valid.`
+    case 'confirmation-required':
+      return `This is outside your scope; confirm to ${what}.`
+  }
+}
+
 /** A definitive refusal from the entry point. Nothing was written. */
 export class SyncSubmitRefusedError extends Error {
   /** The tRPC-shaped code, read by callers that classify errors (`data.code`). */
@@ -44,8 +69,9 @@ export class SyncSubmitRefusedError extends Error {
   constructor(
     readonly command: string,
     readonly refusal: SyncSubmitRefusal,
+    action?: string,
   ) {
-    super(refusal.message ?? `${command} was refused (${refusal.kind})`)
+    super(refusalSentence(refusal, action))
     this.name = 'SyncSubmitRefusedError'
     this.data = { code: SYNC_REFUSAL_CODES[refusal.kind] }
   }
@@ -72,6 +98,9 @@ export interface SubmitNowOptions<T> {
   readonly expectedRevision?: number
   /** The user's out-of-scope confirmation (ADR 3 D8 outcome 3). */
   readonly confirmed?: boolean
+  /** What the person is doing, as a verb phrase ("edit agent profiles"), for the
+   *  sentence a refusal without the handler's own words is shown as. */
+  readonly action?: string
   /**
    * LEGACY(remove-after: 2027-03): the command's old per-command route, for a
    * server without `sync.submit`. Removing it leaves a client newer than its
@@ -98,7 +127,7 @@ export async function submitNow<T = unknown>(
     if (options.legacy !== undefined) return await options.legacy()
     throw new SyncSubmitRefusedError(command, {
       kind: 'invalid',
-      message: `this server does not serve ${command}`,
+      message: 'This server is too old for this; update it and try again.',
     })
   }
   if (submit === undefined) return await unserved()
@@ -120,6 +149,8 @@ export async function submitNow<T = unknown>(
   }
   // A reply that cannot be read is a transport failure, never a guess.
   const reply = SyncSubmitReply.parse(raw)
-  if (reply.outcome === 'rejected') throw new SyncSubmitRefusedError(command, reply.refusal)
+  if (reply.outcome === 'rejected') {
+    throw new SyncSubmitRefusedError(command, reply.refusal, options.action)
+  }
   return reply.result as T
 }

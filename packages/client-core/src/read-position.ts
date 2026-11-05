@@ -119,6 +119,7 @@ export function createReadPositionClient(init: {
     // On the sync write entry point (POD-6412). LEGACY(remove-after: 2027-03): an
     // older server has no `sync.submit` and takes the command's own route.
     void submitNow<ReadPositionSnapshot>(api, 'readPosition.advance', input, {
+      action: 'save your read position',
       legacy: async () => await api.readPosition.advance.mutate(input),
     })
       .then(install)

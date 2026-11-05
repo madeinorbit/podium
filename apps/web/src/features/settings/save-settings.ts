@@ -74,6 +74,7 @@ export async function saveSettingsAsCommands(
     // an older server has no `sync.submit` and takes the command's own route.
     const input = { values: intent.values }
     confirmed = await submitNow<PodiumSettings>(trpc, intent.command, input, {
+      action: 'save these settings',
       legacy: async () =>
         intent.command === 'settings.updatePersonal'
           ? await trpc.settings.updatePersonal.mutate(input)
