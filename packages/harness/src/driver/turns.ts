@@ -397,6 +397,12 @@ export type RefusalReason =
    * with an error that names the model but not who set it.
    */
   | 'invalid_value'
+  /**
+   * A STOP NAMED A TURN THAT IS ALREADY OVER (POD-6397). The daemon owns the
+   * turn marker, and answers this instead of stopping whatever turn runs now:
+   * a late or replayed interrupt never reaches the next turn.
+   */
+  | 'turn_ended'
 
 export interface Refusal {
   reason: RefusalReason

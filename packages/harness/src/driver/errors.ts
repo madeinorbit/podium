@@ -137,6 +137,7 @@ export const REFUSAL_REASONS = [
   'busy',
   'no_archive_yet',
   'invalid_value',
+  'turn_ended',
 ] as const satisfies readonly RefusalReason[]
 
 /**

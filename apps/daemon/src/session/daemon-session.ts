@@ -33,7 +33,7 @@ import type {
   EngineBindUnrecoverable,
 } from '@podium/harness/driver/host'
 import { createLogger } from '@podium/logger'
-import type { SessionId } from '@podium/model'
+import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type { ControlMessage, DaemonMessage, QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import { TerminalScreen } from '@podium/process/screen'
 import { ForeignWriteCounter } from '../terminal/foreign-writes.js'
@@ -195,6 +195,12 @@ export class DaemonSession {
   nativeTransition: Promise<void> | undefined = undefined
   /** Transient refusals spent (POD-2489); undefined = nothing owed. */
   nativeRetryCount: number | undefined = undefined
+  /**
+   * The agent state this daemon folded from the session's runtime stream, with
+   * its turn marker (POD-6397): what a turn-scoped interrupt is checked
+   * against. Undefined until the first state event.
+   */
+  turnState: AgentRuntimeState | undefined = undefined
 
   /**
    * THE SESSION'S DRIVER (POD-4512, layers §1b / spec §4.6): the ONE live

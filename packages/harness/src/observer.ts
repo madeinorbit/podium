@@ -261,6 +261,7 @@ export function acceptAgentObservation(
 // ---------------------------------------------------------------------------
 
 import type { AgentCompactingFrom, AgentNeed, AgentRuntimeState } from '@podium/model'
+import { isTurnOpen, withTurnMarker } from '@podium/model'
 import type { AgentStateEvent } from './agent-state/types.js'
 
 /**
@@ -401,6 +402,35 @@ export function carryAcrossRebuild(
   next: AgentRuntimeState,
   prev: AgentRuntimeState | undefined,
 ): AgentRuntimeState {
+  return carryTurnMarker(carryLiveFields(next, prev), prev)
+}
+
+/**
+ * THE TURN MARKER ACROSS A REBUILD (POD-6397). A rebuild replays the turn from
+ * the transcript, often from its middle, so the turn it reads as opening may be
+ * the one already named. The marker the session had stays while that turn is
+ * still open; a turn the rebuild saw open AFTER the last state we knew of is a
+ * new turn and keeps its own. A rebuild with no turn keeps the last turn's.
+ */
+function carryTurnMarker(
+  next: AgentRuntimeState,
+  prev: AgentRuntimeState | undefined,
+): AgentRuntimeState {
+  const marker = prev?.turnStartedAt
+  if (marker === undefined || marker === next.turnStartedAt) return next
+  if (isTurnOpen(next)) {
+    if (!isTurnOpen(prev)) return next
+    const rebuilt = next.turnStartedAt
+    if (rebuilt !== undefined && prev !== undefined && rebuilt > prev.since) return next
+    return { ...next, turnStartedAt: marker }
+  }
+  return next.turnStartedAt === undefined ? { ...next, turnStartedAt: marker } : next
+}
+
+function carryLiveFields(
+  next: AgentRuntimeState,
+  prev: AgentRuntimeState | undefined,
+): AgentRuntimeState {
   if (!prev) return next
   const workingMsTotal = Math.max(next.workingMsTotal ?? 0, prev.workingMsTotal ?? 0)
   if (prev.nativeSubagentCount <= 0) {
@@ -488,7 +518,23 @@ export function withEventTime(
   return events.map((e) => (e.at === undefined ? { ...e, at } : e))
 }
 
+/**
+ * THE TRANSITION, WITH ITS TURN (POD-6397). Every state names the turn it
+ * belongs to (`turnStartedAt`): a state that opens a turn is marked with its
+ * own `since`, every other keeps the marker of the turn before it. Stamped
+ * here, where the daemon folds what its harness reports, so the daemon owns
+ * the marker and the server only carries it.
+ */
 export function reduceAgentState(
+  prev: AgentRuntimeState,
+  event: AgentStateEvent,
+  now: string,
+): AgentRuntimeState {
+  const next = reduceAgentPhase(prev, event, now)
+  return next === prev ? prev : withTurnMarker(prev, next)
+}
+
+function reduceAgentPhase(
   prev: AgentRuntimeState,
   event: AgentStateEvent,
   now: string,
