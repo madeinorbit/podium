@@ -8785,6 +8785,14 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Array<ChannelCheckRecord>;
             meta: unknown;
         }>;
+        "checkSpace": TRPC.TRPCQueryProcedure<{
+            input: (undefined) | ({
+                expectedVersion?: string | undefined;
+                scope?: "all" | "operation" | undefined;
+            });
+            output: Protocol.UpdateSpacePreview;
+            meta: unknown;
+        }>;
         "converge": TRPC.TRPCMutationProcedure<{
             input: void;
             output: Output_updates_converge;

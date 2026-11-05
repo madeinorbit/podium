@@ -14,7 +14,7 @@
  * this person press?" — the view model owns it now.
  */
 import { Check, ChevronDown, ChevronRight, X } from 'lucide-react'
-import { type JSX, useEffect, useId, useMemo, useState } from 'react'
+import { type JSX, type ReactNode, useEffect, useId, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import type { UpdatePanelView } from './operation-view'
 import { ReleaseNotes, ReleaseNotesLede, releaseNotesContent } from './ReleaseNotes'
@@ -34,6 +34,8 @@ export interface UpdatePanelProps {
   onResetCachedInterface?: () => void
   /** Pause the parent's done timer while the panel is being read. */
   onReadingChange?: (reading: boolean) => void
+  /** Independent informational preview; never participates in update actions. */
+  spacePreview?: ReactNode
 }
 
 export function versionLine(version: string): string {
@@ -235,6 +237,7 @@ export function UpdatePanel({
   reloadStatus,
   onResetCachedInterface,
   onReadingChange,
+  spacePreview,
 }: UpdatePanelProps): JSX.Element | null {
   const [notesOpen, setNotesOpen] = useState(false)
   const [hovered, setHovered] = useState(false)
@@ -423,6 +426,7 @@ export function UpdatePanel({
         </>
       )}
       {view.state === 'offer' && <ImpactDetails view={view} />}
+      {view.state === 'offer' && spacePreview}
       <footer className="update-card-foot">
         {view.dismiss?.hint && <span className="update-card-hint">{view.dismiss.hint}</span>}
         {!view.dismiss?.primary && (

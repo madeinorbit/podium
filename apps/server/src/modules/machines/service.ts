@@ -39,8 +39,11 @@ import type { BindingConfirmations,
   MachineVerb,
   PeerBuild,
   ServerMessage,
-  UpdateKeyRotation} from '@podium/protocol'
-import { SERVER_MOVE_CAPABILITY, supervisorGenerationOf, wireSchemaDigest } from '@podium/protocol'
+  UpdateKeyRotation,
+  UpdateSpaceEstimate,
+  UpdateSpaceResultMessage,
+  UpdateTarget} from '@podium/protocol'
+import { SERVER_MOVE_CAPABILITY, supervisorGenerationOf, unknownUpdateSpace, UPDATE_SPACE_CAPABILITY, wireSchemaDigest } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
 import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
@@ -57,6 +60,7 @@ import type { EnrollmentHost, MachineManagementContext } from './enrollment'
 import * as credentials from './enrollment'
 import { sha256 } from './enrollment'
 import { supersedeMachine } from './supersession'
+import { UpdateSpaceRequests } from './update-space-requests'
 
 /** The credential lifecycle lives in `./enrollment.ts`; re-exported for the
  *  fixtures and durability tests that hash a token the way the store does. */
@@ -286,6 +290,27 @@ export interface MachinesDeps {
 const log = createLogger('server:machines')
 
 export class MachinesService {
+  private readonly spaceRequests = new UpdateSpaceRequests()
+
+  /** Informational inlet only: never route through the offline update/control queue. */
+  checkUpdateSpace(
+    machineId: MachineId,
+    target: UpdateTarget,
+    fingerprint: string,
+  ): Promise<UpdateSpaceEstimate> {
+    const supervisor = this.supervisors.get(machineId)
+    if (!supervisor || this.revokedMachines.has(machineId))
+      return Promise.resolve(unknownUpdateSpace('The machine is offline.'))
+    if (!supervisor.caps.includes(UPDATE_SPACE_CAPABILITY))
+      return Promise.resolve(unknownUpdateSpace('This machine does not support space previews yet.'))
+    return this.spaceRequests.request(machineId, supervisor.send, target, fingerprint)
+  }
+
+  recordUpdateSpaceResult(machineId: MachineId, message: UpdateSpaceResultMessage): void {
+    const supervisor = this.supervisors.get(machineId)
+    if (supervisor) this.spaceRequests.receive(machineId, supervisor.send, message)
+  }
+
   private readonly availabilityEpoch = randomUUID()
   private availabilityWrites: Promise<void> = Promise.resolve()
 
@@ -976,7 +1001,10 @@ export class MachinesService {
     return await this.deps.store.machines.listMachines()
   }
 
-  dispose(): void { this.unsubscribeMachineWrites() }
+  dispose(): void {
+    this.spaceRequests.close()
+    this.unsubscribeMachineWrites()
+  }
 
   /** Resolve the native login identity available on the machine that will run a session. */
   async nativeAccountIdForMachine(

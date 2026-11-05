@@ -155,6 +155,25 @@ afterEach(async () => {
  * and the fleet default is what Settings → Updates writes. `updateChannel` on the
  * wire is therefore the RESOLVED answer; `updateChannelOverride` is the pin.
  */
+describe('read-only update space RPC', () => {
+  it('requests information without invoking fleet reconciliation, creating an operation or preparing an update', async () => {
+    const { registry, caller } = await harness()
+    try {
+      registry.modules.updates.setTarget('dev', target())
+      const fleet = vi.spyOn(registry.modules.updates, 'fleet').mockRejectedValue(new Error('Preview must not reconcile the fleet'))
+      const check = vi.spyOn(registry.modules.machines, 'checkUpdateSpace').mockResolvedValue({
+        status: 'low', checkedAt: 1, volumes: [],
+      })
+      const start = vi.spyOn(registry.modules.operations.engine, 'start')
+      const result = await caller.updates.checkSpace()
+      expect(result.machines.some((machine) => machine.machineId === registry.sessionStore.hostMachineId && machine.status === 'low')).toBe(true)
+      expect(check).toHaveBeenCalledTimes(1)
+      expect(fleet).not.toHaveBeenCalled()
+      expect(start).not.toHaveBeenCalled()
+    } finally { vi.restoreAllMocks(); await registry.dispose() }
+  })
+})
+
 describe('fleet default update channel', () => {
   async function addMachine(registry: Awaited<Awaited<ReturnType<typeof harness>>>['registry'], id: string) {
     await registry.sessionStore.machines.upsertMachine({

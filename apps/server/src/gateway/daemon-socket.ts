@@ -629,7 +629,9 @@ export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry):
     }
     try {
       const message = MachineSupervisorMessage.parse(JSON.parse(outcome.raw))
-      if (message.type === 'machineReport') {
+      if (message.type === 'updateSpaceResult') {
+        registry.modules.machines.recordUpdateSpaceResult(principal.machine, message)
+      } else if (message.type === 'machineReport') {
         await registry.modules.machines.recordSupervisorReport(
           principal.machine,
           { ...message.services, ...(message.topology ? { topology: message.topology } : {}) },

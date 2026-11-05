@@ -19,6 +19,10 @@ import {
   type PeerBuild,
   type PeerCredential,
   type PeerHello,
+  UPDATE_SPACE_CAPABILITY,
+  type UpdateSpaceCheckMessage,
+  type UpdateSpaceEstimate,
+  unknownUpdateSpace,
 } from '@podium/protocol'
 import { type PodiumConfig, PodiumMode, stateDir } from './config'
 import { writeConnectivity } from './connectivity'
@@ -417,6 +421,8 @@ export interface MachineSupervisorConnectionDeps {
   name?: string
   build: PeerBuild
   deliveryCaps: readonly string[]
+  /** Optional, read-only information channel; never part of grant admission. */
+  onSpaceCheck?(message: UpdateSpaceCheckMessage): Promise<UpdateSpaceEstimate>
   report(): MachineServiceReport
   acceptAssignment?(assignment: MachineServiceAssignment): boolean
   onAssignment?(assignment: MachineServiceAssignment): void
@@ -448,6 +454,7 @@ export function createMachineSupervisorConnection(
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined
   let backoffMs = RECONNECT_MIN_MS
   let connected = false
+  let spaceCheckInFlight = false
   const resolveServerUrl = (): string =>
     typeof deps.serverUrl === 'function' ? deps.serverUrl() : deps.serverUrl
   let activeServerUrl = resolveServerUrl()
@@ -579,7 +586,7 @@ export function createMachineSupervisorConnection(
       dialer = createHandshakeDialer({
         peerRole: 'machine',
         credential: credential(),
-        caps: [...deps.deliveryCaps],
+        caps: [...deps.deliveryCaps, ...(deps.onSpaceCheck ? [UPDATE_SPACE_CAPABILITY] : [])],
         build: deps.build,
         claims: {
           machineId: deps.state.machineId,
@@ -699,7 +706,34 @@ export function createMachineSupervisorConnection(
       if (step.action === 'deliver') {
         try {
           const message = MachineSupervisorControlMessage.parse(JSON.parse(step.raw))
-          if (message.type === 'serviceAssignment') {
+          if (message.type === 'updateSpaceCheck') {
+            // Do not await a preview on the machine control dispatch. A grant
+            // arriving next must retain its existing execution path and timing.
+            if (resolveServerUrl() !== grantServerUrl) return
+            const reply = (estimate: UpdateSpaceEstimate): void => {
+              try {
+                if (socket !== active || !connected || resolveServerUrl() !== grantServerUrl) return
+                active.send(JSON.stringify({
+                  ...estimate,
+                  type: 'updateSpaceResult',
+                  requestId: message.requestId,
+                  targetFingerprint: message.targetFingerprint,
+                }))
+              } catch {
+                // A preview disappearing with its socket needs no recovery.
+              }
+            }
+            const checkSpace = deps.onSpaceCheck
+            if (!checkSpace || spaceCheckInFlight) {
+              reply(unknownUpdateSpace('Space preview is unavailable or busy.'))
+            } else {
+              spaceCheckInFlight = true
+              void Promise.resolve()
+                .then(() => checkSpace(message))
+                .then(reply, () => reply(unknownUpdateSpace('Space could not be verified.')))
+                .finally(() => { spaceCheckInFlight = false })
+            }
+          } else if (message.type === 'serviceAssignment') {
             if (deps.acceptAssignment?.(message.assignment) === false) return
             deps.state.assignment = message.assignment
             saveSupervisorState(deps.stateDir, deps.state)

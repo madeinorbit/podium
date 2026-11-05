@@ -29,7 +29,7 @@
 import type { JSX } from 'react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useRegisterSW } from '@/app/pwa-register'
-import { serverConfig } from '@/app/trpc'
+import { makeTrpc, serverConfig } from '@/app/trpc'
 import { forceReload } from '@/lib/force-reload'
 import { swLog, updatesLog } from '@/lib/logging/update-logs'
 import { navigateReload } from '@/lib/navigate'
@@ -40,6 +40,7 @@ import { DONE_COLLAPSE_MS } from './operation-view'
 import { ReleaseProposalCard } from './ReleaseProposalCard'
 import { type ReloadHandshakeStatus, startReloadHandshake } from './reload-handshake'
 import { UpdatePanel } from './UpdatePanel'
+import { UpdateSpaceNotice } from './UpdateSpaceNotice'
 import { publishUpdates, resetUpdates, type UpdatesContextValue } from './updates-panel-context'
 import { type PanelActionKind, useUpdateState } from './use-update-state'
 
@@ -144,6 +145,7 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
   }, [registration])
 
   const resolvedOrigin = httpOrigin ?? serverConfig(window.location).httpOrigin
+  const spaceClient = useMemo(() => makeTrpc(resolvedOrigin), [resolvedOrigin])
   const {
     view,
     pending,
@@ -392,6 +394,9 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
       onHide={hide}
       {...(reloadStatus ? { reloadStatus } : {})}
       onResetCachedInterface={resetCachedInterface}
+      {...(view.state === 'offer' && view.primary?.kind === 'start'
+        ? { spacePreview: <UpdateSpaceNotice client={spaceClient} expectedVersion={view.version} /> }
+        : {})}
     />
   )
 }

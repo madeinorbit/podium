@@ -59,6 +59,7 @@
     "./machine-update-control": "./src/machine-update-control.ts",
     "./machine-update-native": "./src/machine-update-native.ts",
     "./machine-update": "./src/machine-update.ts",
+    "./update-space": "./src/update-space.ts",
     "./machine-supervisor": "./src/machine-supervisor.ts",
     "./parent-process": "./src/parent-process.ts",
     "./parent-control": "./src/parent-control.ts",

@@ -2045,6 +2045,17 @@ export async function main(
           supervisorGeneration,
         },
         deliveryCaps,
+        // This callback is reached only by an explicit informational request.
+        // Do not call it from onGrant, reconnect/replay, or the update executor.
+        onSpaceCheck: async ({ target }) => {
+          const { previewUpdateSpace } = await import('@podium/runtime/update-space')
+          return previewUpdateSpace(target, {
+            installDir,
+            stateDir: stateDir(),
+            hostsServer: runningAssignment.server,
+            source: !installedPayload,
+          })
+        },
         report: () =>
           machineServiceReport({
             snap: parent.snapshot(),

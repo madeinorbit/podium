@@ -377,6 +377,68 @@ describe('supervisor incarnation number', () => {
   })
 })
 
+describe('informational supervisor space channel', () => {
+  it('never checks on connect or grants, and a hanging preview cannot delay a later grant', async () => {
+    class Socket extends EventTarget {
+      static OPEN = 1
+      static all: Socket[] = []
+      readyState = 1
+      sent: Array<Record<string, unknown>> = []
+      constructor(readonly url: string) { super(); Socket.all.push(this) }
+      send(raw: string) { this.sent.push(JSON.parse(raw)) }
+      close() {}
+      message(value: unknown) { this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(value) })) }
+      accept() {
+        this.dispatchEvent(new Event('open'))
+        this.message({ type: 'peerHelloOk', v: this.sent[0]!.v, caps: [] })
+      }
+    }
+    vi.stubGlobal('WebSocket', Socket)
+    let finish!: (value: import('@podium/protocol').UpdateSpaceEstimate) => void
+    const onSpaceCheck = vi.fn(() => new Promise<import('@podium/protocol').UpdateSpaceEstimate>((resolve) => { finish = resolve }))
+    const onGrant = vi.fn()
+    const service = { policy: 'enabled' as const, state: 'available' as const, observedAt: new Date().toISOString() }
+    const dir = stateDir()
+    let serverUrl = 'ws://coordinator.example'
+    const connection = createMachineSupervisorConnection({ serverUrl: () => serverUrl,
+      stateDir: dir, state: { ...loadSupervisorState(dir), token: 'secret' },
+      build: { appVersion: 'test' }, deliveryCaps: ['update.delivery.feed'],
+      report: () => ({ server: service, agentExecution: service }), onGrant, onSpaceCheck })
+    try {
+      connection.start()
+      const socket = Socket.all[0]!
+      socket.accept()
+      expect(socket.url).toContain('/machine')
+      expect(socket.sent[0]!.caps).toContain('update.space-check.v1')
+      expect(onSpaceCheck).not.toHaveBeenCalled()
+      const target = { version: 'next', critical: false, artifacts: {} }
+      socket.message({ type: 'updateGrant', grantId: 'grant-first', target })
+      expect(onGrant).toHaveBeenCalledTimes(1)
+      expect(onSpaceCheck).not.toHaveBeenCalled()
+
+      socket.message({ type: 'updateSpaceCheck', requestId: 'preview', targetFingerprint: 'exact', target })
+      await vi.waitFor(() => expect(onSpaceCheck).toHaveBeenCalledTimes(1))
+      socket.message({ type: 'updateGrant', grantId: 'grant-second', target })
+      expect(onGrant).toHaveBeenCalledTimes(2)
+      expect(onGrant.mock.calls[1]?.[0].grantId).toBe('grant-second')
+      // A second preview is bounded too, and doesn't supersede or reject the grant.
+      socket.message({ type: 'updateSpaceCheck', requestId: 'busy', targetFingerprint: 'exact', target })
+      expect(socket.sent.at(-1)).toMatchObject({ type: 'updateSpaceResult', requestId: 'busy', status: 'unknown' })
+      connection.reconfigure()
+      Socket.all[1]!.accept()
+      expect(onSpaceCheck).toHaveBeenCalledTimes(1)
+      finish({ status: 'low', checkedAt: 1, volumes: [] })
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(Socket.all[1]!.sent.map((message) => message.type)).toEqual(['peerHello', 'machineReport'])
+      expect(socket.sent.some((message) => message.type === 'updateSpaceResult' && message.requestId === 'preview')).toBe(false)
+      serverUrl = 'ws://another-coordinator.example'
+      Socket.all[1]!.message({ type: 'updateSpaceCheck', requestId: 'stale-coordinator', targetFingerprint: 'exact', target })
+      await Promise.resolve()
+      expect(onSpaceCheck).toHaveBeenCalledTimes(1)
+    } finally { connection.close() }
+  })
+})
+
 describe('supervisor refused as superseded', () => {
   /**
    * POD-3752. A server that has a NEWER parent incarnation attached closes this

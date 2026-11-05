@@ -18,12 +18,14 @@ const mocks = vi.hoisted(() => ({
   checkNow: vi.fn(async () => {}),
   acknowledge: vi.fn(),
   approveProposal: vi.fn(async () => {}),
+  checkSpace: vi.fn(async () => ({ machines: [] })),
 }))
 
 vi.mock('@/app/pwa-register', () => ({ useRegisterSW: mocks.useRegisterSW }))
 vi.mock('./use-update-state', () => ({ useUpdateState: mocks.useUpdateState }))
 vi.mock('@/app/trpc', () => ({
   serverConfig: () => ({ httpOrigin: 'http://podium.test' }),
+  makeTrpc: () => ({ updates: { checkSpace: { query: mocks.checkSpace } } }),
 }))
 
 import { openUpdatePanel } from './open-panel'

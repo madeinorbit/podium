@@ -27,6 +27,7 @@ import {
   updateOperationDetails,
 } from './operation'
 import { ReleaseApprovalRefusal } from './release-approval'
+import { readUpdateSpacePreview } from './space-preview'
 import { type ChannelCheckRecord, legacyInstanceTrustMessage, type UpdatesService } from './service'
 import {
   isPackagedRolloutTarget,
@@ -733,6 +734,22 @@ function throwIfFailedOnStart(operation: Operation | null): void {
 
 export function updateProcedures() {
   return {
+    /** Separate informational request. Never called by start/retry/converge. */
+    checkSpace: t.procedure
+      .input(z.object({
+        scope: z.enum(['operation', 'all']).optional(),
+        expectedVersion: z.string().optional(),
+      }).optional())
+      .query(async ({ ctx, input }) => {
+        const state = familyState(ctx)
+        return readUpdateSpacePreview({
+          machines: () => state.store.machines.listMachines(),
+          target: (channel) => state.modules.updates.target(channel),
+          fleetChannel: state.modules.updates.fleetDefaultChannel(),
+          placement: serverPlacementOf(ctx),
+          check: (machineId, target, fingerprint) => state.modules.machines.checkUpdateSpace(machineId, target, fingerprint),
+        }, input)
+      }),
     proposal: t.procedure.query(async ({ ctx }) => await releaseProposalFor(ctx)),
     approveProposal: t.procedure
       .input(z.object({ headSha: z.string().min(1), version: z.string().min(1) }))
