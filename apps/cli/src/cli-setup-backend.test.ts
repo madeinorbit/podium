@@ -409,8 +409,20 @@ describe('daemon setup backend preserves machine identity', () => {
     })
     try {
       connection.start()
-      const socket = sockets[0]
-      if (!socket) throw new Error('missing new-coordinator connection')
+      const existing = sockets[0]
+      if (!existing) throw new Error('missing new-coordinator connection')
+      existing.dispatchEvent(new Event('open'))
+      expect(existing.sent[0]?.credential).toEqual({
+        kind: 'machineKey',
+        machineHint: retained.machineId,
+      })
+      existing.dispatchEvent(
+        new MessageEvent('message', {
+          data: JSON.stringify({ type: 'peerHelloRejected', reason: 'auth-failed' }),
+        }),
+      )
+      const socket = sockets[1]
+      if (!socket) throw new Error('missing authorized pairing connection')
       socket.dispatchEvent(new Event('open'))
       expect(socket.url).toBe(`${other.serverUrl}/machine`)
       expect(socket.sent[0]?.credential).toEqual({

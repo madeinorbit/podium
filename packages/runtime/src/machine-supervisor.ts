@@ -548,6 +548,7 @@ export function createMachineSupervisorConnection(
   }
 
   let usePairCode = false
+  const missingRegistrationReceipt = deps.state.registration === undefined
   const failedRecoveryAttempt =
     deps.state.registration?.state === 'rejected' &&
     !deps.state.registration.recovery &&
@@ -885,6 +886,7 @@ export function createMachineSupervisorConnection(
               (!!acceptedPublicKey &&
                 !!deps.pairCode &&
                 (!deps.state.enrolledPublicKey ||
+                  missingRegistrationReceipt ||
                   deps.state.registration?.pendingPairCode === deps.pairCode)),
           )
         ) {

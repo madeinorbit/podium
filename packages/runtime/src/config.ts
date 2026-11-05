@@ -149,21 +149,23 @@
  * NO WATCHER AND NO TIMER back any of this. A live field is fresh because the
  * reader asked, and the loader's stat saw a different file.
  */
+import { randomUUID } from 'node:crypto'
 import {
-  copyFileSync,
   constants,
-  readdirSync,
+  copyFileSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
+  renameSync,
   statSync,
+  unlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import { z } from 'zod'
-import { liveRecord } from './run-registry'
-import { desiredParentUnit, legacyUnitNames, userUnitDir } from './topology-migration'
+import { fsyncPath } from './fsync'
 import {
   assertInstanceStateIdentity,
   defaultInstancePorts,
@@ -171,6 +173,8 @@ import {
   instanceStateDir,
   resolveInstanceId,
 } from './instance'
+import { liveRecord } from './run-registry'
+import { desiredParentUnit, legacyUnitNames, userUnitDir } from './topology-migration'
 
 export { resolveInstanceId, selectInstance } from './instance'
 
@@ -982,6 +986,47 @@ function notifyConfigChanged(change: ConfigChange): void {
       log.warn('config.changed listener threw', { err, path: change.path })
     }
   }
+}
+
+/** Consume one acknowledged code from fresh bytes, never the live-read cache.
+ * Native can replace a code inside the cache freshness window. Keep all other
+ * raw fields, and publish durably before the supervisor retires its receipt. */
+export function consumeConfigPairCode(code: string, path = configPath()): void {
+  assertInstanceStateIdentity(resolveInstanceId(), dirname(path))
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const bytes = readFileSync(path, 'utf8')
+    const raw: unknown = JSON.parse(bytes)
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw))
+      throw new Error('invalid pairing config')
+    const config = raw as Record<string, unknown>
+    if (config.pairCode !== code) {
+      forgetConfig(path)
+      return
+    }
+    const previous = PodiumConfig.parse(migrateConfig(config).config)
+    delete config.pairCode
+    const next = PodiumConfig.parse(migrateConfig(config).config)
+    const temporary = `${path}.consume-${randomUUID()}`
+    try {
+      writeFileSync(temporary, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600, flag: 'wx' })
+      fsyncPath(temporary)
+      // Do not overwrite a replacement or another config edit observed during IO.
+      if (readFileSync(path, 'utf8') !== bytes) continue
+      renameSync(temporary, path)
+      fsyncPath(dirname(path))
+      forgetConfig(path)
+      notifyConfigChanged({ path, previous, next })
+      return
+    } finally {
+      try {
+        unlinkSync(temporary)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+          log.warn('could not remove transient pairing config', { err: error })
+      }
+    }
+  }
+  throw new Error('config changed while consuming acknowledged pairing code')
 }
 
 /** Validate + write the config (pretty JSON). Throws on an invalid config — including a

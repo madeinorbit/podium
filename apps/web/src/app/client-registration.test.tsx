@@ -104,6 +104,36 @@ describe('authenticated native client registration', () => {
     expect(fixture.restart).toHaveBeenCalledTimes(1)
   })
 
+  it('forwards the retained public identity to the single authenticated server decision', async () => {
+    const publicKey = `ed25519:${'a'.repeat(43)}`
+    const fixture = setup({
+      state: 'needed',
+      target: 'same-target',
+      machineId: 'retained-client',
+      publicKey,
+    })
+    await fixture.registration.start(fixture.bridge, fixture.trpc)
+    expect(fixture.mint).toHaveBeenCalledExactlyOnceWith({
+      podiumManaged: true,
+      copyAgentCredentials: false,
+      clientRegistration: { machineId: 'retained-client', publicKey },
+    })
+    expect(fixture.save).toHaveBeenCalledExactlyOnceWith('ABCD-EFGH', 'same-target')
+  })
+
+  it('leaves older native registration bridges without an identity request bounded and unchanged', async () => {
+    const fixture = setup({
+      state: 'needed',
+      target: 'older-receipt',
+    } as NativeClientRegistrationStatus)
+    expect(await fixture.registration.start(fixture.bridge, fixture.trpc)).toContain(
+      'does not support',
+    )
+    expect(fixture.mint).not.toHaveBeenCalled()
+    expect(fixture.save).not.toHaveBeenCalled()
+    expect(fixture.restart).not.toHaveBeenCalled()
+  })
+
   it.each([
     'browser',
     'older-shell',
@@ -174,6 +204,42 @@ describe('authenticated native client registration', () => {
     await fixture.registration.start(fixture.bridge, fixture.trpc)
     expect(fixture.mint).toHaveBeenCalledTimes(1)
     expect(fixture.restart).not.toHaveBeenCalled()
+  })
+
+  it('allows one serialized retry after a new verified login replaces a refused request', async () => {
+    const fixture = setup()
+    fixture.mint.mockRejectedValueOnce(new Error('authenticated request refused'))
+    expect(await fixture.registration.start(fixture.bridge, fixture.trpc)).toContain(
+      'request refused',
+    )
+    await fixture.registration.start(fixture.bridge, fixture.trpc)
+    expect(fixture.mint).toHaveBeenCalledTimes(1)
+    fixture.registration.retryAfterSignIn()
+    const retry = fixture.registration.start(fixture.bridge, fixture.trpc)
+    expect(fixture.registration.start(fixture.bridge, fixture.trpc)).toBe(retry)
+    expect(await retry).toContain('quit and reopen')
+    expect(fixture.mint).toHaveBeenCalledTimes(2)
+    expect(fixture.save).toHaveBeenCalledOnce()
+    expect(fixture.restart).toHaveBeenCalledOnce()
+  })
+
+  it('settles an in-flight attempt before observing a new login and never remints a saved receipt', async () => {
+    const fixture = setup()
+    fixture.read
+      .mockResolvedValueOnce({
+        state: 'needed',
+        target: 'native-receipt',
+        machineId: 'retained-client',
+      })
+      .mockResolvedValue({ state: 'enrolled' })
+    const first = fixture.registration.start(fixture.bridge, fixture.trpc)
+    fixture.registration.retryAfterSignIn()
+    const next = fixture.registration.start(fixture.bridge, fixture.trpc)
+    expect(fixture.registration.start(fixture.bridge, fixture.trpc)).toBe(next)
+    expect(await first).toContain('quit and reopen')
+    expect(await next).toBeNull()
+    expect(fixture.mint).toHaveBeenCalledOnce()
+    expect(fixture.events).toEqual(['mint', 'save', 'restart'])
   })
 
   it('keeps a persisted handoff actionable when the restart hook is missing', async () => {

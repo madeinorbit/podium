@@ -331,11 +331,26 @@ describe('the fleet contracts', () => {
   })
 
   it('declares owner-or-admin custody without widening use', () => {
-    for (const name of ['machines.share', 'machines.unshare', 'machines.transferOwnership'] as const) {
-      expect(FLEET_CONTRACTS[name].policy).toMatchObject({ roleFloor: 'member', machineVerb: 'manage', machineSharingAuthority: 'owner-or-admin' })
+    for (const name of [
+      'machines.share',
+      'machines.unshare',
+      'machines.transferOwnership',
+    ] as const) {
+      expect(FLEET_CONTRACTS[name].policy).toMatchObject({
+        roleFloor: 'member',
+        machineVerb: 'manage',
+        machineSharingAuthority: 'owner-or-admin',
+      })
     }
-    expect(FLEET_CONTRACTS['machines.adopt'].policy).toMatchObject({ roleFloor: 'admin', machineVerb: 'manage', machineOwnerPrecondition: 'unowned' })
-    expect(FLEET_CONTRACTS['machines.moveServer'].policy).toMatchObject({ roleFloor: 'admin', machineVerb: 'manage' })
+    expect(FLEET_CONTRACTS['machines.adopt'].policy).toMatchObject({
+      roleFloor: 'admin',
+      machineVerb: 'manage',
+      machineOwnerPrecondition: 'unowned',
+    })
+    expect(FLEET_CONTRACTS['machines.moveServer'].policy).toMatchObject({
+      roleFloor: 'admin',
+      machineVerb: 'manage',
+    })
     expect(FLEET_CONTRACTS['discovery.scanMachine'].policy.machineVerb).toBe('use')
   })
 
@@ -357,7 +372,12 @@ describe('the fleet contracts', () => {
     //
     // Everywhere else there IS an owner, and a floor of `admin` would make ADR 9
     // D6 M1's "Owner + admins" unreachable for the owner themselves.
-    const ADMIN_FLOOR = ['machines.setAssignment', 'machines.adopt', 'machines.supersede', 'machines.moveServer']
+    const ADMIN_FLOOR = [
+      'machines.setAssignment',
+      'machines.adopt',
+      'machines.supersede',
+      'machines.moveServer',
+    ]
     for (const name of ADMIN_FLOOR) expect([name, byFloor[name]]).toEqual([name, 'admin'])
     for (const name of DECLARED.filter((n) => !ADMIN_FLOOR.includes(n))) {
       expect([name, byFloor[name]]).toEqual([name, 'member'])
@@ -391,6 +411,24 @@ describe('the fleet contracts', () => {
     // would mean "inspect in place" and is `refreshRepos`'s job.
     expect(
       FLEET_CONTRACTS['discovery.scanFolder'].input.safeParse({ path: '/a', maxDepth: 0 }).success,
+    ).toBe(false)
+  })
+})
+
+describe('client registration pairing intent', () => {
+  it('accepts one retained identity request and refuses an independent replacement selector', () => {
+    const input = FLEET_CONTRACTS['machines.pairingCode'].input
+    expect(
+      input.safeParse({
+        clientRegistration: { machineId: 'retained-client', publicKey: 'public-key' },
+        copyAgentCredentials: false,
+      }).success,
+    ).toBe(true)
+    expect(
+      input.safeParse({
+        clientRegistration: { machineId: 'retained-client' },
+        replaceMachineId: 'other-client',
+      }).success,
     ).toBe(false)
   })
 })

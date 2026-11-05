@@ -8,6 +8,8 @@ import { wireSchemaDigest } from '@podium/protocol'
 import { expect, it, vi } from 'vitest'
 import { noJanitorWorkerForTests } from '../apps/server/src/janitor-host'
 import { startServer } from '../apps/server/src/server'
+import { loadConfig, saveConfig } from '../packages/runtime/src/config'
+import { clearConnectivity } from '../packages/runtime/src/connectivity'
 import { readMachineState } from '../packages/runtime/src/local-machine'
 import {
   machinePublicKeyWire,
@@ -25,8 +27,6 @@ import { ParentProcess } from '../packages/runtime/src/parent-process'
 import { machineServiceReport } from '../packages/runtime/src/parent-supervisor'
 import { applyLocalSetupDefault, applyMode, consumePairCode } from '../packages/runtime/src/setup'
 import { confirmSetupEnrollment } from '../packages/runtime/src/setup-enrollment'
-import { loadConfig, saveConfig } from '../packages/runtime/src/config'
-import { clearConnectivity } from '../packages/runtime/src/connectivity'
 
 it('pairs the same client identity, persists zero roles, reconnects by machine key and accepts an authorized payload update', async () => {
   const root = mkdtempSync(join(tmpdir(), 'podium-client-registration-'))
@@ -92,7 +92,7 @@ it('pairs the same client identity, persists zero roles, reconnects by machine k
     // Pre-login boot retains its local key but has no VPS credential or code.
     connection = createMachineSupervisorConnection({ ...base, state })
     connection.start()
-    expect(loadSupervisorState(clientDir).registration).toEqual({
+    expect(loadSupervisorState(clientDir).registration).toMatchObject({
       serverUrl,
       state: 'unregistered',
     })
@@ -226,7 +226,9 @@ it('pairs the same client identity, persists zero roles, reconnects by machine k
       serviceAssignment: { server: false, agentExecution: false },
     })
     // The public listing omits the default true policy; verify durable custody.
-    expect(await coordinator.registry.sessionStore.machines.getMachine(asMachineId(originalId))).toMatchObject({
+    expect(
+      await coordinator.registry.sessionStore.machines.getMachine(asMachineId(originalId)),
+    ).toMatchObject({
       podiumManaged: true,
     })
   } finally {

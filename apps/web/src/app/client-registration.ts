@@ -4,11 +4,18 @@ import type { Trpc } from './trpc'
 
 const restartGuidance = 'Client registration saved — quit and reopen the app to finish pairing.'
 
-/** One attempt per WebView, across StrictMode replays and authenticated remounts.
+/** One in-flight attempt per login, across StrictMode replays and authenticated remounts.
  * Native rechecks the target and eligibility under its config-write lock. A saved
  * pairCode and runtime registration history fence subsequent process launches. */
 export class ClientRegistration {
   private attempt: Promise<string | null> | undefined
+  private retryAfterLogin = false
+
+  /** Only the live login owner calls this after the server accepts new credentials.
+   * Native receipts still fence saved authority; an older attempt settles first. */
+  retryAfterSignIn(): void {
+    if (this.attempt) this.retryAfterLogin = true
+  }
 
   start(
     bridge: NativeDesktopBridge | undefined,
@@ -20,12 +27,18 @@ export class ClientRegistration {
       !bridge.registerClient
     )
       return Promise.resolve(null)
-    this.attempt ??= this.register(bridge, trpc).catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error)
-      return message === restartGuidance
-        ? message
-        : `Client registration could not finish: ${message}`
-    })
+    const register = () =>
+      this.register(bridge, trpc).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error)
+        return message === restartGuidance
+          ? message
+          : `Client registration could not finish: ${message}`
+      })
+    if (this.retryAfterLogin && this.attempt) {
+      this.retryAfterLogin = false
+      this.attempt = this.attempt.then(register)
+    }
+    this.attempt ??= register()
     return this.attempt
   }
 

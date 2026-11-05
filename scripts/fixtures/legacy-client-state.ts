@@ -27,6 +27,29 @@ state = supervisor.loadSupervisorState(dir)
 state.assignment = supervisor.reconcileSupervisorAssignment(state, config.loadConfig(), dir)
 supervisor.saveSupervisorState(dir, state)
 writeFileSync(join(dir, 'retained-user-data'), 'history must survive\n')
+let droppedAcknowledgement = false
+if (behavior?.startsWith('lose-ack')) {
+  // Fault injection at the transport boundary: the unmodified historical owner
+  // never sees the server's committed acknowledgement.
+  const Original = globalThis.WebSocket
+  globalThis.WebSocket = class extends Original {
+    override addEventListener(type: any, listener: any, options?: any) {
+      if (type !== 'message') return super.addEventListener(type, listener, options)
+      return super.addEventListener(
+        'message',
+        (event: MessageEvent) => {
+          const frame = JSON.parse(String(event.data))
+          if (frame.type === 'peerHelloOk') {
+            droppedAcknowledgement = true
+            return
+          }
+          listener.call(this, event)
+        },
+        options,
+      )
+    }
+  } as typeof WebSocket
+}
 if (pairCode) {
   config.saveConfig({ ...config.loadConfig(), pairCode })
   const service = { policy: 'disabled', state: 'stopped', observedAt: new Date().toISOString() }
@@ -35,7 +58,7 @@ if (pairCode) {
     stateDir: dir,
     serverUrl,
     pairCode,
-    build: { appVersion: config.loadConfig().appVersion ?? 'historical-source' },
+    build: { appVersion: JSON.parse(readFileSync(join(source, 'package.json'), 'utf8')).version },
     deliveryCaps: [],
     report: () => ({ server: service, agentExecution: service }),
     onGrant: () => {},
@@ -46,15 +69,28 @@ if (pairCode) {
   connection.start()
   const ok = await connection.waitUntilConnected(5_000)
   connection.close()
-  if (!ok) throw new Error('historical supervisor did not connect')
+  if (behavior?.startsWith('lose-ack')) {
+    if (ok || !droppedAcknowledgement)
+      throw new Error('historical ACK was not lost after server commit')
+  } else if (!ok) throw new Error('historical supervisor did not connect')
 }
+if (behavior === 'pending-rotation') credential.prepareMachineCredentialRotation(dir)
 const saved = supervisor.loadSupervisorState(dir)
 if (saved.registration !== undefined) throw new Error('old source unexpectedly wrote registration')
 console.log(
   JSON.stringify({
     machineId: saved.machineId,
     publicKey: credential.machinePublicKeyWire(credential.readMachineCredential(dir)),
+    ...(credential.readMachineCredential(dir).pendingRotation
+      ? {
+          pendingPublicKey: credential.machinePublicKeyWire(
+            credential.readMachineCredential(dir).pendingRotation,
+          ),
+        }
+      : {}),
     registration: 'absent',
+    acceptedReceipt: saved.enrolledPublicKey !== undefined,
+    droppedAcknowledgement,
     keyBytes: readFileSync(join(dir, 'machine.key')).length,
   }),
 )
