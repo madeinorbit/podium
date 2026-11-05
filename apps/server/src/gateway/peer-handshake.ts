@@ -355,8 +355,9 @@ export async function prepareDaemonFrame(
     machines: resolvedMachineAuthenticator(requested, result),
   })
   const outcome = receiveResolvedDaemonFrame(acceptor, raw)
-  if (rotatedPublicKey && outcome.kind === 'established' && outcome.reply.type === 'peerHelloOk') {
-    return { acceptor, outcome: { ...outcome, reply: { ...outcome.reply, enrolledPublicKey: rotatedPublicKey } } }
+  const acceptedPublicKey = rotatedPublicKey ?? (requested.keyProof && result.ok ? result.enrolledPublicKey : undefined)
+  if (acceptedPublicKey && outcome.kind === 'established' && outcome.reply.type === 'peerHelloOk') {
+    return { acceptor, outcome: { ...outcome, reply: { ...outcome.reply, enrolledPublicKey: acceptedPublicKey } } }
   }
   return { acceptor, outcome }
 }

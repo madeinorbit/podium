@@ -212,7 +212,9 @@ export const machineSupersedeInput = z.object({
 })
 
 export const machinePairingCodeInput = z
-  .object({ copyAgentCredentials: z.boolean().optional(), podiumManaged: z.boolean().optional(), replaceMachineId: z.string().optional() })
+  .object({ copyAgentCredentials: z.boolean().optional(), podiumManaged: z.boolean().optional(), replaceMachineId: z.string().optional(),
+    clientRegistration: z.object({ machineId: MachineIdField, publicKey: z.string().optional() }).optional() })
+  .refine((input) => !input.clientRegistration || !input.replaceMachineId, 'choose client registration or explicit replacement')
   .optional()
 
 export const repoAddInput = z.object({

@@ -96,6 +96,10 @@ async function authenticateDaemonUnlocked(
     // hard no — otherwise a valid pair code rebinds someone else's tokenHash.
     const existing = await deps.store.machines.getMachine(frame.machineId)
     const proposedGrant = deps.pairing.peek?.(frame.code)
+    if (proposedGrant?.clientRegistration && (proposedGrant.clientRegistration.machineId !== frame.machineId ||
+      (proposedGrant.clientRegistration.publicKey !== undefined && proposedGrant.clientRegistration.publicKey !== frame.publicKey))) {
+      return { ok: false, reason: HELLO_DENIED_REASON }
+    }
     if (existing && (!existing.revokedAt || proposedGrant?.replaceMachineId !== frame.machineId)) {
       return { ok: false, reason: 'machine id already registered' }
     }
@@ -155,7 +159,7 @@ async function authenticateDaemonUnlocked(
     : await deps.store.machines.getMachineByToken(frame.machineId, frame.token)
   if (verified) {
     const row = await deps.store.machines.getMachine(frame.machineId)
-    if (!row || row.revokedAt) return { ok: false, reason: HELLO_DENIED_REASON }
+    if (!row || row.revokedAt || row.supersededBy) return { ok: false, reason: HELLO_DENIED_REASON }
     if (
       !options.verifyOnly &&
       (options.source === 'supervisor' || !host.hasSupervisor(frame.machineId))
@@ -169,6 +173,7 @@ async function authenticateDaemonUnlocked(
       ok: true,
       machineId: frame.machineId,
       name,
+      ...(frame.keyProof ? { enrolledPublicKey: await deps.store.machines.credentialIncarnation(frame.machineId) } : {}),
       ...(updatePubkey ? { updatePubkey } : {}),
       ...(updateKeyRotations ? { updateKeyRotations } : {}),
     }
@@ -260,4 +265,29 @@ export async function adoptMachine(host: EnrollmentHost, id: MachineId, newOwner
     })
   })
   await host.broadcastMachines()
+}
+
+/** One admin-authorized decision for client enrollment and retained revoked identity.
+ * The same transition lock and replacement incarnation fence own later redemption. */
+export async function mintClientRegistrationCode(host: EnrollmentHost,
+  request: { machineId: MachineId; publicKey?: string }, actor: UserId): Promise<string> {
+  return withMachineTransition(host, request.machineId, async () => {
+    const grant = await host.deps.store.transact(async () => {
+      if (await host.deps.store.users.roleOf(actor) !== 'admin')
+        throw new Error('client registration requires a current administrator')
+      if (request.publicKey !== undefined && !parseWirePublicKey(request.publicKey))
+        throw new Error('invalid retained machine key')
+      const row = await host.deps.store.machines.getMachine(request.machineId)
+      if (row?.supersededBy) throw new Error('superseded machine identities cannot be re-enrolled')
+      if (row && !row.revokedAt) throw new Error('machine already registered; reconnect with its retained credential')
+      const incarnation = row ? await host.deps.store.machines.credentialIncarnation(request.machineId) : undefined
+      if (row && (!request.publicKey || incarnation !== request.publicKey))
+        throw new Error('retained machine key does not match the revoked identity')
+      return { ownerUserId: actor, podiumManaged: row?.podiumManaged ?? true,
+        copyAgentCredentials: false, clientRegistration: request,
+        ...(row ? { replaceMachineId: request.machineId, replaceIncarnation: incarnation } : {}) }
+    })
+    if (!host.deps.pairing) throw new Error('inbound pairing is disabled on this server')
+    return host.deps.pairing.mint(grant)
+  })
 }
