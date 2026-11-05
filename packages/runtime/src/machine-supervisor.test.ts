@@ -1002,3 +1002,86 @@ describe('supervisor credential rotation', () => {
     } finally { connection.close() }
   })
 })
+
+describe('retained credential recovery', () => {
+  class Socket extends EventTarget {
+    static OPEN = 1
+    static all: Socket[] = []
+    readyState = 1
+    sent: Array<any> = []
+    constructor() { super(); Socket.all.push(this) }
+    send(raw: string) { this.sent.push(JSON.parse(raw)) }
+    close() {}
+    open() { this.dispatchEvent(new Event('open')) }
+    message(value: unknown) { this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(value) })) }
+  }
+  const service = { policy: 'disabled' as const, state: 'stopped' as const, observedAt: new Date().toISOString() }
+  function fixture(kind: 'key' | 'token' = 'key') {
+    Socket.all = []; vi.stubGlobal('WebSocket', Socket)
+    const dir = stateDir(), state = loadSupervisorState(dir)
+    const key = createMachineCredential(dir), publicKey = machinePublicKeyWire(key)
+    if (kind === 'token') state.token = 'legacy-bearer'
+    saveSupervisorState(dir, state)
+    const base = { stateDir: dir, serverUrl: 'wss://vps.example', build: { appVersion: 'test' },
+      deliveryCaps: [], report: () => ({ server: service, agentExecution: service }), onGrant: vi.fn() }
+    const prove = (socket: Socket) => socket.message({ type: 'machineChallenge', machineId: state.machineId,
+      installationId: 'installation', connectionId: 'connection', nonce: 'nonce', expiresAtMs: Date.now() + 30_000 })
+    const accept = (socket: Socket) => socket.message({ type: 'peerHelloOk', v: socket.sent[0].v, caps: [] })
+    const refuse = (socket: Socket) => socket.message({ type: 'peerHelloRejected', reason: 'auth-failed' })
+    return { dir, state, key, publicKey, base, prove, accept, refuse }
+  }
+  it('repairs a legacy missing receipt from the exact accepted signed challenge without a key receipt in the old server ACK', () => {
+    const f = fixture()
+    const ack = vi.fn()
+    const connection = createMachineSupervisorConnection({ ...f.base, state: f.state, pairCode: 'OLD-CODE', onPaired: ack })
+    try {
+      connection.start(); connection.start()
+      expect(Socket.all).toHaveLength(1)
+      const socket = Socket.all[0]!
+      socket.open(); expect(socket.sent[0].credential.kind).toBe('machineKey')
+      f.prove(socket); f.accept(socket)
+      expect(loadSupervisorState(f.dir)).toMatchObject({ enrolledPublicKey: f.publicKey,
+        registration: { state: 'enrolled', serverUrl: f.base.serverUrl } })
+      expect(ack).toHaveBeenCalledOnce()
+      expect(readMachineCredential(f.dir)).toEqual(f.key)
+    } finally { connection.close() }
+  })
+  it('does not attest a disk key after a successful token hello', () => {
+    const f = fixture('token')
+    const connection = createMachineSupervisorConnection({ ...f.base, state: f.state })
+    try {
+      connection.start(); const socket = Socket.all[0]!; socket.open(); f.accept(socket)
+      expect(loadSupervisorState(f.dir).enrolledPublicKey).toBeUndefined()
+      expect(loadSupervisorState(f.dir).token).toBe('legacy-bearer')
+    } finally { connection.close() }
+  })
+  it('retains a durable ACK and exact code when code consumption is interrupted', () => {
+    const f = fixture()
+    const connection = createMachineSupervisorConnection({ ...f.base, state: f.state, pairCode: 'COMMITTED-CODE', onPaired: () => { throw new Error('interrupted config write') } })
+    connection.start(); const first = Socket.all[0]!; first.open(); f.prove(first); f.accept(first); connection.close()
+    expect(loadSupervisorState(f.dir).registration).toMatchObject({ state: 'enrolled', pendingPairCode: 'COMMITTED-CODE' })
+    const ack = vi.fn()
+    const retry = createMachineSupervisorConnection({ ...f.base, state: loadSupervisorState(f.dir), pairCode: 'COMMITTED-CODE', onPaired: ack })
+    try {
+      retry.start(); const next = Socket.all.at(-1)!; next.open(); f.prove(next); f.accept(next)
+      expect(ack).toHaveBeenCalledOnce()
+      expect(loadSupervisorState(f.dir).registration?.pendingPairCode).toBeUndefined()
+    } finally { retry.close() }
+  })
+  it('tries existing credentials first, then one authorized code, and retains refusal across subsequent starts', () => {
+    const f = fixture()
+    f.state.registration = { serverUrl: f.base.serverUrl, state: 'rejected', recovery: { publicKey: f.publicKey } }
+    saveSupervisorState(f.dir, f.state)
+    const connection = createMachineSupervisorConnection({ ...f.base, state: f.state, pairCode: 'NEW-CODE' })
+    connection.start(); const first = Socket.all[0]!; first.open(); expect(first.sent[0].credential.kind).toBe('machineKey'); f.refuse(first)
+    const pair = Socket.all[1]!; pair.open(); expect(pair.sent[0].credential.kind).toBe('pairCode'); f.refuse(pair); connection.close()
+    expect(loadSupervisorState(f.dir).registration).toMatchObject({ state: 'rejected', pendingPairCode: 'NEW-CODE' })
+    expect(loadSupervisorState(f.dir).registration?.recovery).toBeUndefined()
+    const retry = createMachineSupervisorConnection({ ...f.base, state: loadSupervisorState(f.dir), pairCode: 'NEW-CODE' })
+    try {
+      retry.start(); const next = Socket.all.at(-1)!; next.open(); const count = Socket.all.length; f.refuse(next)
+      expect(Socket.all).toHaveLength(count)
+      expect(loadSupervisorState(f.dir).registration?.recovery).toBeUndefined()
+    } finally { retry.close() }
+  })
+})

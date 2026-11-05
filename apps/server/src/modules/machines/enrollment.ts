@@ -113,6 +113,10 @@ async function authenticateDaemonUnlocked(
     if (!pairingGrant) {
       return { ok: false, reason: 'invalid or expired code' }
     }
+    if (pairingGrant.clientRegistration && (pairingGrant.clientRegistration.machineId !== frame.machineId ||
+      (pairingGrant.clientRegistration.publicKey !== undefined && pairingGrant.clientRegistration.publicKey !== frame.publicKey))) {
+      return { ok: false, reason: HELLO_DENIED_REASON }
+    }
     const updatePubkey = deps.updatePubkey?.()
     const updateKeyRotations = deps.updateKeyRotations?.()
     const name = frame.name ?? frame.hostname
@@ -127,10 +131,11 @@ async function authenticateDaemonUnlocked(
       const member = await deps.store.users.get(ownerUserId)
       if (!member || (existing && await deps.store.machines.custodian(existing.id) !== ownerUserId && member.role !== 'admin')) return false
       const changed = await deps.store.machines.enrollMachine({
-        id: frame.machineId, name, hostname: frame.hostname, tokenHash: '',
+        id: frame.machineId, name: pairingGrant.clientRegistration && existing ? existing.name : name, hostname: frame.hostname, tokenHash: '',
         credentialKind: 'ed25519', publicKey,
-        ownerUserId, podiumManaged: pairingGrant.podiumManaged ?? true,
-        assignment: frame.assignment ?? { server: false, agentExecution: options.source !== 'supervisor' },
+        ownerUserId, podiumManaged: pairingGrant.clientRegistration && existing ? existing.podiumManaged : pairingGrant.podiumManaged ?? true,
+        assignment: pairingGrant.clientRegistration ? { server: false, agentExecution: false }
+          : frame.assignment ?? { server: false, agentExecution: options.source !== 'supervisor' },
         assignmentEvidence: { version: 1, source: options.source === 'supervisor' ? 'supervisor-enrollment' : 'daemon-enrollment', requestId: frame.machineId },
       }, existing?.revokedAt ?? undefined, pairingGrant.replaceIncarnation)
       if (changed && existing) await deps.store.settingsAudit.append({
@@ -173,7 +178,6 @@ async function authenticateDaemonUnlocked(
       ok: true,
       machineId: frame.machineId,
       name,
-      ...(frame.keyProof ? { enrolledPublicKey: await deps.store.machines.credentialIncarnation(frame.machineId) } : {}),
       ...(updatePubkey ? { updatePubkey } : {}),
       ...(updateKeyRotations ? { updateKeyRotations } : {}),
     }

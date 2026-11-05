@@ -13,7 +13,11 @@ const desktop = window as typeof window & {
 }
 
 function setup(
-  status: NativeClientRegistrationStatus = { state: 'needed', target: 'native-receipt' },
+  status: NativeClientRegistrationStatus = {
+    state: 'needed',
+    target: 'native-receipt',
+    machineId: 'retained-client',
+  },
 ) {
   const events: string[] = []
   const mint = vi.fn(async () => {
@@ -83,6 +87,7 @@ describe('authenticated native client registration', () => {
     expect(fixture.mint).toHaveBeenCalledExactlyOnceWith({
       podiumManaged: true,
       copyAgentCredentials: false,
+      clientRegistration: { machineId: 'retained-client' },
     })
     expect(fixture.save).toHaveBeenCalledExactlyOnceWith('ABCD-EFGH', 'native-receipt')
     expect(fixture.events).toEqual(['mint', 'save', 'restart'])
@@ -196,6 +201,4 @@ describe('authenticated native client registration', () => {
       copyAgentCredentials: false,
     })
   })
-
-
 })

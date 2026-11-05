@@ -844,7 +844,13 @@ pub enum ClientRegistrationStatus {
     Starting,
     Pending,
     Enrolled,
-    Needed { target: String },
+    Needed {
+        target: String,
+        #[serde(rename = "machineId")]
+        machine_id: String,
+        #[serde(rename = "publicKey", skip_serializing_if = "Option::is_none")]
+        public_key: Option<String>,
+    },
     Rejected { message: String },
     Unavailable { message: String },
 }
@@ -967,68 +973,73 @@ fn inspect_client_registration(
             return Ok(unavailable());
         }
     }
-    if registration["state"] == "rejected" || connectivity["state"] == "unauthorized" {
-        return Ok(ClientRegistrationStatus::Rejected { message: "This machine's registration was refused. Review this machine in Settings → Machines before explicitly pairing it again. Automatic registration will not retry.".to_string() });
-    }
-    if connectivity["state"] == "blocked"
-        && registration["state"] != "unregistered"
-        && registration["state"] != "pairing"
-    {
-        return Ok(unavailable());
-    }
-    if registration["state"] == "unregistered"
-        && connectivity["state"] == "blocked"
-        && connectivity["blockedReason"]
-            != "Error: machine supervisor has no credential; pair it first"
-    {
-        return Ok(unavailable());
-    }
-    let has_token = supervisor["token"]
-        .as_str()
-        .is_some_and(|value| !value.is_empty());
-    let has_public_key = supervisor["enrolledPublicKey"]
-        .as_str()
-        .is_some_and(|value| !value.is_empty());
-    if has_token || has_public_key {
-        if has_public_key && !dir.join("machine.key").is_file() {
-            return Ok(unavailable());
-        }
-        return Ok(ClientRegistrationStatus::Enrolled);
-    }
-    if supervisor.get("setupEnrollment").is_some() || obj.get("pairCode").is_some() {
+    if supervisor.get("setupEnrollment").is_some() {
         return Ok(ClientRegistrationStatus::Pending);
     }
-    if registration["state"] == "enrolled"
-        || registration["state"] == "pairing"
-    {
-        return Ok(unavailable());
-    }
-    // A runtime-owned, server-bound declaration is required. Neither an absent legacy
-    // file nor connectivity alone is evidence of an unused identity.
-    if supervisor.get("token").is_some()
-        || supervisor.get("enrolledPublicKey").is_some()
-        || supervisor["assignment"]["server"] != false
+    if supervisor["assignment"]["server"] != false
         || supervisor["assignment"]["agentExecution"] != false
     {
         return Ok(unavailable());
     }
-    if registration.is_null() {
-        if dir.join("machine.key").exists() || machine.get("daemon").is_some() || machine.get("legacy").is_some()
-            || machine["importedFiles"].as_object().is_none_or(|files| !files.is_empty()) {
-            return Ok(unavailable());
-        }
-        return Ok(ClientRegistrationStatus::Starting);
-    }
-    if registration["state"] != "unregistered" {
+    // Runtime owns key validation, normal authentication and legacy import. Neither
+    // an old missing marker nor a connectivity observation authorizes enrollment.
+    // A recovery request only permits the page to ask the authenticated server.
+    let recovery = registration.get("recovery");
+    if connectivity["state"] == "blocked"
+        && connectivity["blockedReason"] != "Error: machine supervisor has no credential; pair it first"
+    {
         return Ok(unavailable());
     }
+    if registration["state"] == "enrolled" && connectivity["state"] != "unauthorized" {
+        let has_token = supervisor["token"].as_str().is_some_and(|token| !token.is_empty());
+        let has_key = supervisor["enrolledPublicKey"].as_str().is_some_and(|key| !key.is_empty());
+        if (!has_token && !has_key) || (has_key && !dir.join("machine.key").is_file()) {
+            return Ok(unavailable());
+        }
+        return Ok(ClientRegistrationStatus::Enrolled);
+    }
+    if registration["state"] == "pairing" {
+        return Ok(ClientRegistrationStatus::Pending);
+    }
+    let Some(recovery) = recovery else {
+        if registration["state"] == "rejected" {
+            return Ok(ClientRegistrationStatus::Rejected { message: "Client registration was refused. Inspect this machine's local logs before pairing again. Automatic registration will not retry.".to_string() });
+        }
+        return Ok(ClientRegistrationStatus::Starting);
+    };
+    if !recovery.is_object()
+        || !matches!(registration["state"].as_str(), Some("unregistered" | "rejected"))
+        || recovery.get("publicKey").is_some_and(|key| key.as_str().is_none_or(|key| !key.starts_with("ed25519:") || key.len() != 51))
+        || recovery.get("pairCode").is_some_and(|code| code.as_str().is_none_or(|code| code.is_empty()))
+    {
+        return Ok(unavailable());
+    }
+    let public_key = recovery.get("publicKey").and_then(Value::as_str).map(str::to_string);
+    if public_key.is_some() && !dir.join("machine.key").is_file() {
+        return Ok(unavailable());
+    }
+    if public_key.is_none() && (supervisor.get("token").is_some()
+        || supervisor.get("enrolledPublicKey").is_some() || dir.join("machine.key").exists()
+        || machine.get("daemon").is_some() || machine.get("legacy").is_some()
+        || machine["importedFiles"].as_object().is_none_or(|files| !files.is_empty()))
+    {
+        return Ok(unavailable());
+    }
+    // A saved replacement code differs from the failed/absent code captured in
+    // the runtime request. It is already a durable handoff, even before restart.
+    if obj.get("pairCode") != recovery.get("pairCode") {
+        return Ok(ClientRegistrationStatus::Pending);
+    }
+
     let target = serde_json::to_string(&(
         machine_id,
         server,
         obj.get("uiUrl"),
+        recovery,
+        obj.get("pairCode"),
     ))
     .map_err(|e| e.to_string())?;
-    Ok(ClientRegistrationStatus::Needed { target })
+    Ok(ClientRegistrationStatus::Needed { target, machine_id: machine_id.to_string(), public_key })
 }
 
 pub fn client_registration_status(caller_url: &str) -> Result<ClientRegistrationStatus, String> {
@@ -1051,7 +1062,7 @@ pub fn write_client_registration(
     validate_pair_code(pair_code)?;
     update_config_json(|obj| {
         match inspect_client_registration(obj, caller_url)? {
-            ClientRegistrationStatus::Needed { target: current } if current == target => {}
+            ClientRegistrationStatus::Needed { target: current, .. } if current == target => {}
             _ => {
                 return Err(
                     "client registration state or configured target changed; reopen the app"
@@ -3191,7 +3202,7 @@ mod tests {
             "supervisor": {
                 "machineId": "same-machine", "generation": 1,
                 "assignment": { "server": false, "agentExecution": false },
-                "registration": { "serverUrl": "wss://vps.example", "state": "unregistered" }
+                "registration": { "serverUrl": "wss://vps.example", "state": "unregistered", "recovery": {} }
             },
             "connectivity": { "serverUrl": "wss://vps.example", "state": "blocked", "blockedReason": "Error: machine supervisor has no credential; pair it first" }
         })
@@ -3203,7 +3214,7 @@ mod tests {
 
     fn needed_client_target() -> String {
         match client_registration_status("https://vps.example/work").unwrap() {
-            ClientRegistrationStatus::Needed { target } => target,
+            ClientRegistrationStatus::Needed { target, .. } => target,
             other => panic!("expected fresh client, got {other:?}"),
         }
     }
@@ -3303,7 +3314,7 @@ mod tests {
     }
 
     #[test]
-    fn client_registration_requires_canonical_never_enrolled_evidence() {
+    fn client_registration_requires_runtime_request_after_normal_authentication() {
         with_state_dir(
             "client-history",
             Some(r#"{"mode":"client","serverUrl":"wss://vps.example"}"#),
@@ -3323,7 +3334,6 @@ mod tests {
                 for patch in [
                     serde_json::json!({ "registration": { "serverUrl": "wss://other.example", "state": "unregistered" } }),
                     serde_json::json!({ "registration": { "serverUrl": "wss://vps.example", "state": "enrolled" } }),
-                    serde_json::json!({ "registration": { "serverUrl": "wss://vps.example", "state": "pairing" } }),
                     serde_json::json!({ "token": "" }),
                     serde_json::json!({ "enrolledPublicKey": false }),
                     serde_json::json!({ "assignment": { "server": false, "agentExecution": true } }),
@@ -3348,15 +3358,16 @@ mod tests {
                     "opaque private material: native status never reads or returns it",
                 )
                 .unwrap();
-                // Production local bootstrap already owns a key and may have import
-                // receipts. Only the runtime's new-target declaration permits pairing.
+                machine["supervisor"]["registration"]["recovery"] = serde_json::json!({ "publicKey": format!("ed25519:{}", "a".repeat(43)) });
+                put_client_machine(&machine);
+                // History is preserved; runtime has validated the retained credential.
                 let target = needed_client_target();
                 assert!(!target.contains("opaque private material"));
                 machine["supervisor"].as_object_mut().unwrap().remove("registration");
                 put_client_machine(&machine);
                 assert!(matches!(
                     client_registration_status("https://vps.example").unwrap(),
-                    ClientRegistrationStatus::Unavailable { .. }
+                    ClientRegistrationStatus::Starting
                 ));
                 std::fs::write(state_dir().join("machine.json"), "corrupt").unwrap();
                 assert!(matches!(
@@ -3375,6 +3386,7 @@ mod tests {
             || {
                 let mut machine = fresh_client_machine();
                 machine["supervisor"]["token"] = serde_json::json!("private-token");
+                machine["supervisor"]["registration"] = serde_json::json!({ "serverUrl": "wss://vps.example", "state": "enrolled" });
                 machine["connectivity"]["state"] = serde_json::json!("disconnected");
                 put_client_machine(&machine);
                 let status = client_registration_status("https://vps.example").unwrap();
@@ -3384,6 +3396,7 @@ mod tests {
                     r#"{"state":"enrolled"}"#
                 );
                 machine["connectivity"]["state"] = serde_json::json!("unauthorized");
+                machine["supervisor"]["registration"]["state"] = serde_json::json!("rejected");
                 put_client_machine(&machine);
                 assert!(matches!(
                     client_registration_status("https://vps.example").unwrap(),
@@ -3413,6 +3426,33 @@ mod tests {
                 }
             },
         );
+    }
+
+    #[test]
+    fn client_revoked_recovery_uses_runtime_identity_and_one_durable_handoff() {
+        with_state_dir("client-recovery", Some(r#"{"mode":"client","serverUrl":"wss://vps.example","pairCode":"OLD-CODE","extra":42}"#), || {
+            let mut machine = fresh_client_machine();
+            let key = format!("ed25519:{}", "a".repeat(43));
+            machine["supervisor"]["registration"] = serde_json::json!({ "serverUrl": "wss://vps.example", "state": "rejected", "recovery": { "publicKey": key, "pairCode": "OLD-CODE" } });
+            machine["supervisor"]["enrolledPublicKey"] = serde_json::json!(key);
+            machine["connectivity"]["state"] = serde_json::json!("unauthorized");
+            machine["legacy"] = serde_json::json!({ "machineId": "historical-bare-id" });
+            std::fs::write(state_dir().join("machine.key"), "private material never crosses IPC").unwrap();
+            put_client_machine(&machine);
+            let before = std::fs::read_to_string(state_dir().join("machine.json")).unwrap();
+            let status = client_registration_status("https://vps.example").unwrap();
+            let target = match status {
+                ClientRegistrationStatus::Needed { target, machine_id, public_key } => {
+                    assert_eq!(machine_id, "same-machine"); assert_eq!(public_key.as_deref(), Some(key.as_str())); target
+                },
+                other => panic!("expected authorized recovery request, got {other:?}"),
+            };
+            write_client_registration("ABCD-EFGH", &target, "https://vps.example").unwrap();
+            assert_eq!(client_registration_status("https://vps.example").unwrap(), ClientRegistrationStatus::Pending);
+            assert!(write_client_registration("JKLM-NPQR", &target, "https://vps.example").is_err());
+            assert_eq!(std::fs::read_to_string(state_dir().join("machine.json")).unwrap(), before);
+            assert_eq!(std::fs::read_to_string(state_dir().join("machine.key")).unwrap(), "private material never crosses IPC");
+        });
     }
 
     #[test]

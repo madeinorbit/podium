@@ -17,7 +17,7 @@ export interface NativeDaemonConnectivity {
 /** Runtime-owned public enrollment status. `target` is an opaque native receipt. */
 export type NativeClientRegistrationStatus =
   | { state: 'not-applicable' | 'starting' | 'pending' | 'enrolled' }
-  | { state: 'needed'; target: string }
+  | { state: 'needed'; target: string; machineId: string; publicKey?: string }
   | { state: 'rejected' | 'unavailable'; message: string }
 
 export interface NativeDesktopUpdateInfo {

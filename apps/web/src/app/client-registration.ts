@@ -1,5 +1,5 @@
 import type { NativeDesktopBridge } from '@/lib/nativeDesktop'
-import { pairNativeDesktop } from './native-pairing'
+import { restartNativeDesktop } from './native-pairing'
 import type { Trpc } from './trpc'
 
 const restartGuidance = 'Client registration saved — quit and reopen the app to finish pairing.'
@@ -48,9 +48,21 @@ export class ClientRegistration {
         case 'rejected':
         case 'unavailable':
           return status.message
-        case 'needed':
-          await pairNativeDesktop(trpc, (code) => save(code, status.target), restartGuidance)
+        case 'needed': {
+          if (!status.machineId)
+            return 'This desktop companion does not support identity-preserving registration. Update the app and reopen it.'
+          const { code } = await trpc.machines.pairingCode.mutate({
+            podiumManaged: true,
+            copyAgentCredentials: false,
+            clientRegistration: {
+              machineId: status.machineId,
+              ...(status.publicKey ? { publicKey: status.publicKey } : {}),
+            },
+          })
+          await save(code, status.target)
+          await restartNativeDesktop(restartGuidance)
           return null
+        }
         case 'starting':
         case 'pending':
           if (observation === 39)
