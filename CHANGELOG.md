@@ -72,7 +72,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The text of each issue's "design" and "notes" fields is appended to its brief, under a heading.
 - Task colors are dropped.
 
-
 ## [0.2.0] - 2026-10-12
 
 **A much more reliable chat, a much faster Podium, and safer updates.**

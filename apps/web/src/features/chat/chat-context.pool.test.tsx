@@ -19,6 +19,7 @@ import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { SESSION_EXIT_ENTITIES } from '@podium/client-graph/session-exit-schema'
 import { SESSION_EXIT_SOURCE_KEY } from '@podium/client-graph/session-exit-source'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { asSessionId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, renderHook, waitFor } from '@testing-library/react'
 import { createRef, StrictMode, useMemo, useSyncExternalStore } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -301,6 +302,77 @@ it('resolves a chat attachment id to its stored copy on the session issue (POD-2
   // unknown id keep the caller's fallback.
   expect(chatUploadArtifact(corpus.pool, session.sessionId, 'concept.html')).toBeUndefined()
   expect(chatUploadArtifact(corpus.pool, session.sessionId, 'att-2')).toBeUndefined()
+})
+
+it('drops gallery lookup with the private session while its task artifact stays shared', async () => {
+  const corpus = f.fixture!
+  await corpus.load()
+  const aliceSession = corpus.sessions[0]!
+  const issue = corpus.issues[0]!
+  const bobSession = { ...aliceSession, sessionId: asSessionId('bob-shared-run') }
+  const attachment = { id: 'shared-upload', filename: 'shared.png', kind: 'image' as const }
+  const sharedIssue = {
+    ...issue,
+    panel: {
+      ...issue.panel!,
+      artifacts: [
+        ...issue.panel!.artifacts,
+        {
+          path: 'chat-uploads/shared-upload/shared.png',
+          title: 'shared.png',
+          artifactId: 'shared-copy',
+          entry: 'shared.png',
+          chatUploadId: attachment.id,
+          addedAt: '2026-11-05T12:00:00Z',
+        },
+      ],
+    },
+  }
+  corpus.pool.apply({
+    type: 'update',
+    rows: [{ kind: 'issue', id: issue.id, value: sharedIssue as never }],
+  })
+  const props = {
+    attachments: [attachment],
+    tags: [],
+    httpOrigin: 'http://synthetic.invalid',
+    onOpenImage: vi.fn(),
+  }
+  const gallery = render(<ItemAttachments {...props} sessionId={aliceSession.sessionId} />)
+  const hook = renderHook(() =>
+    useChatUploadSrc(aliceSession.sessionId, attachment.id, props.httpOrigin),
+  )
+  const expected = `http://synthetic.invalid/files/artifact/${issue.id}/shared-copy/shared.png`
+  expect(hook.result.current).toBe(expected)
+  expect(gallery.container.querySelector('img')?.getAttribute('src')).toBe(expected)
+
+  // Model the server's member rescope: the shared task remains, Alice's full
+  // session leaves the projection and Bob's own session on that task arrives.
+  act(() =>
+    corpus.pool.apply({
+      type: 'update',
+      rows: [
+        { kind: 'session', id: aliceSession.sessionId, value: undefined },
+        { kind: 'session', id: bobSession.sessionId, value: bobSession as never },
+      ],
+    }),
+  )
+  expect(hook.result.current).toBeNull()
+  expect(gallery.container.querySelector('img')).toBeNull()
+  expect(chatUploadArtifact(corpus.pool, aliceSession.sessionId, attachment.id)).toBeUndefined()
+  expect(chatUploadArtifact(corpus.pool, bobSession.sessionId, attachment.id)).toMatchObject({
+    issueId: issue.id,
+    artifact: { artifactId: 'shared-copy' },
+  })
+
+  gallery.rerender(<ItemAttachments {...props} sessionId={bobSession.sessionId} />)
+  expect(gallery.container.querySelector('img')?.getAttribute('src')).toBe(expected)
+  fireEvent.click(gallery.getByRole('button', { name: 'Open shared.png, image 1 of 1' }))
+  expect(props.onOpenImage).toHaveBeenCalledWith(
+    expected,
+    [expect.objectContaining({ src: expected, label: 'shared.png' })],
+    0,
+  )
 })
 
 it('shows a path-less image turn from its matched message record’s stored copy (POD-2148)', async () => {

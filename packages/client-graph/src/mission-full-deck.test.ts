@@ -6,7 +6,7 @@ import { MissionScreen } from './mission-screen'
 import { attachMissionTestPreferences } from './mission-screen.test.fixture'
 import { settled } from './mission-view'
 import { MISSION_VIEW_SUMMARIES } from './mission-view-schema'
-import { MobxPool } from './pool'
+import { MobxPool, type PoolLazyOptions } from './pool'
 import { attachPreferenceSource } from './preference-source'
 import { LOADING, unitsBelowPartOf } from './worklist/rollup'
 import { rollupInputsOf } from './worklist/visible'
@@ -133,7 +133,7 @@ const flush = async () => {
 }
 
 /** One opening of the fixture with a writable device preference, settled. */
-async function open(fixture = mission()) {
+async function open(fixture = mission(), lazy?: PoolLazyOptions) {
   const values = new Map<string, string>()
   const listeners = new Set<(keys: ReadonlySet<string>) => void>()
   const ui: RoutedUiState = {
@@ -148,7 +148,11 @@ async function open(fixture = mission()) {
       return () => listeners.delete(listener)
     },
   }
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
+  const pool = new MobxPool(
+    { selectedIssueId: null, coarseNow: Date.parse(stamp) },
+    undefined,
+    lazy,
+  )
   pools.push(pool)
   attachPreferenceSource(pool, ui)
   pool.apply({
@@ -865,4 +869,47 @@ describe('execution buckets', () => {
       todo: 1,
     })
   })
+})
+
+
+it('keeps shared launch defaults while Full uses only each member’s private roster', async () => {
+  const shared = issue('root', 1, null, {
+    ownerUserId: 'mem-alice',
+    description: 'Shared task content',
+    defaultAgent: 'codex',
+    defaultModel: 'gpt-6.1-sol',
+    defaultEffort: 'max',
+  })
+  // Separate member projections, as delivered by the server. D13 summaries
+  // never stand in for the private sessions that supply the deck’s controls.
+  const aliceLoad = vi.fn(() => undefined)
+  const bobLoad = vi.fn(() => undefined)
+  const alice = await open({
+    issues: [shared],
+    sessions: [session('alice-run', 'root', 'working', { ownerUserId: 'mem-alice',
+      agentState: { phase: 'working', nativeSubagentCount: 1 } })],
+  }, { load: aliceLoad, summaries: MISSION_VIEW_SUMMARIES, schedule: () => () => {} })
+  const bob = await open({
+    issues: [shared],
+    sessions: [session('bob-run', 'root', 'working', { ownerUserId: 'mem-bob' })],
+  }, { load: bobLoad, summaries: MISSION_VIEW_SUMMARIES, schedule: () => () => {} })
+
+  for (const member of [alice, bob]) {
+    expect(member.screen.root.description).toBe('Shared task content')
+    expect(member.screen.rootAgentTarget.defaultAgent).toBe('codex')
+    expect(member.screen.root.storedField('defaultModel')).toBe('gpt-6.1-sol')
+    expect(member.screen.root.storedField('defaultEffort')).toBe('max')
+  }
+  expect(tracked(() => alice.full.root.sessionIds)).toEqual(['alice-run'])
+  expect(tracked(() => bob.full.root.sessionIds)).toEqual(['bob-run'])
+
+  bob.pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: 'root', value: shared as never }] })
+  await flush()
+  expect(tracked(() => bob.full.root.sessionIds)).toEqual([])
+  expect(bob.screen.root.description).toBe('Shared task content')
+  expect(tracked(() => alice.full.root.sessionIds)).toEqual(['alice-run'])
+  alice.pool.hydrate()
+  bob.pool.hydrate()
+  expect(aliceLoad).not.toHaveBeenCalled()
+  expect(bobLoad).not.toHaveBeenCalled()
 })
