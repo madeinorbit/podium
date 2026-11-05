@@ -1,13 +1,14 @@
+import { writesThroughEntry } from '@podium/commands'
 import { TRPCError, type TRPCMutationProcedure, type TRPCQueryProcedure } from '@trpc/server'
 import type { z } from 'zod'
 import { type Context, issueCaller, t } from '../../trpc'
 import { familyState } from '../derived-family'
-import { refusalAsTrpcError, submitFromRoute } from '../sync-write/route-adapter'
+import { refusalAsTrpcError } from '../sync-write/route-adapter'
 import { commandAccess } from './command-ctx'
 import { type AnyIssueCommandDef, guardIssueCommand } from './registry'
 import { isIssueNotFound } from './service/not-found'
 import { isIssueRefusal } from './service/refusal'
-import { QUEUED_ISSUE_COMMANDS } from './sync-write'
+import { startAfterCreate, submitIssueWrite } from './sync-write'
 
 /**
  * Derive the `issues:` tRPC sub-router from the command registry (#248
@@ -87,17 +88,34 @@ function rethrowAsTrpc(err: unknown): never {
 }
 
 /**
- * A queued issue command's route: A THIN ADAPTER ONTO `sync.submit` (POD-6350)
- * until POD-6359 removes it. The guard middleware above still runs first, so a
- * refused caller keeps the message it always got; the entry point then checks
- * again, deduplicates and runs the handler in one unit of work. A handler's own
- * error comes back as the refusal's cause and is answered exactly as before.
+ * A listed issue command's route (`SYNCED_ISSUE_COMMANDS`): A THIN ADAPTER ONTO
+ * the sync write entry point (POD-6350, POD-6413). LEGACY(remove-after: 2027-03):
+ * older CLIs and the shipped mobile app call these routes; removing one breaks
+ * that client's write. The guard middleware above still runs first, so a refused
+ * caller keeps the message it always got; the entry point then checks again,
+ * deduplicates and runs the handler in one unit of work. A handler's own error
+ * comes back as the refusal's cause and is answered exactly as before. A create
+ * that asked to start starts after its commit (`startAfterCreate`).
  */
 async function throughEntry(ctx: Context, name: string, input: unknown): Promise<unknown> {
-  const { reply, cause } = await submitFromRoute(ctx, { command: `issues.${name}`, input })
-  if (reply.outcome === 'applied') return reply.result
-  if (cause !== undefined) return rethrowAsTrpc(cause)
-  throw refusalAsTrpcError(`issues.${name}`, reply.refusal)
+  const modules = familyState(ctx).modules
+  const { reply, cause } = await submitIssueWrite(modules.syncWrite, {
+    principal: ctx.principal,
+    transport: 'trpc',
+    name,
+    input,
+    confirmed: ctx.overrideScope === true,
+  })
+  if (reply.outcome !== 'applied') {
+    if (cause !== undefined) return rethrowAsTrpc(cause)
+    throw refusalAsTrpcError(`issues.${name}`, reply.refusal)
+  }
+  if (name !== 'create') return reply.result
+  try {
+    return await startAfterCreate(modules.issues, issueCaller(ctx), input, reply.result)
+  } catch (err) {
+    return rethrowAsTrpc(err)
+  }
 }
 
 export function routerFromCommands<T extends Record<string, AnyIssueCommandDef>>(registry: {
@@ -110,9 +128,9 @@ export function routerFromCommands<T extends Record<string, AnyIssueCommandDef>>
     // reserves the mutation id before its durable lookup yields and keeps that
     // join point through receipt recording, so same-batch replays join the owner.
     // The resolver awaits dispatch here so its rejection is mapped to tRPC once.
-    const queued = (QUEUED_ISSUE_COMMANDS as readonly string[]).includes(name)
     const resolve = async (opts: { ctx: Context; input: unknown }) => {
-      if (queued) return await throughEntry(opts.ctx, name, opts.input)
+      if (writesThroughEntry(name, opts.input))
+        return await throughEntry(opts.ctx, name, opts.input)
       try {
         return await familyState(opts.ctx).modules.issueCommands.run(
           issueCaller(opts.ctx),

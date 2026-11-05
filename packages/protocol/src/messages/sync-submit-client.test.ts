@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { SyncSubmitInput } from './sync-submit'
+import type { SyncSubmitInput, SyncSubmitRefusal } from './sync-submit'
 import {
   isMissingSyncSubmit,
   refusalSentence,
   SyncSubmitRefusedError,
   submitNow,
+  writesThroughSubmit,
 } from './sync-submit-client'
 
 const receipt = { feedId: 'f', epoch: 'e', seq: 3 }
@@ -100,7 +101,7 @@ describe('submitNow', () => {
     [{ kind: 'confirmation-required' }, 'This is outside your scope; confirm to rename it.'],
     [{ kind: 'conflict', message: 'the handler said so' }, 'the handler said so'],
   ] as const)('refusalSentence(%o)', (refusal, sentence) => {
-    expect(refusalSentence(refusal, 'rename it')).toBe(sentence)
+    expect(refusalSentence(refusal as SyncSubmitRefusal, 'rename it')).toBe(sentence)
   })
 
   it('an unreadable reply is a failure, never a result', async () => {
@@ -118,6 +119,37 @@ describe('submitNow', () => {
     expect(await submitNow(t.api, 'x.y', {}, { legacy })).toBe('old')
     expect(await submitNow({}, 'x.y', {}, { legacy })).toBe('old')
     expect(legacy).toHaveBeenCalledTimes(2)
+  })
+
+  it("a relay to an older server: the gate's answer is a missing sync.submit", async () => {
+    for (const answer of [
+      'no such procedure: sync.submit',
+      'sync.submit is not permitted via relay',
+    ]) {
+      const t = transport(() => {
+        throw new Error(answer)
+      })
+      expect(await submitNow(t.api, 'issues.move', {}, { legacy: async () => 'old' })).toBe('old')
+    }
+    // The gate refusing the COMMAND inside the envelope is a refusal, not an old server.
+    const t = transport(() => {
+      throw new Error('issues.secret is not permitted via relay')
+    })
+    await expect(
+      submitNow(t.api, 'issues.secret', {}, { legacy: async () => 'old' }),
+    ).rejects.toThrow('issues.secret is not permitted via relay')
+  })
+
+  it('a command the server has not put on the entry point yet takes its route', async () => {
+    const t = transport(() => ({
+      outcome: 'rejected',
+      refusal: { kind: 'invalid', details: ['command'] },
+    }))
+    expect(await submitNow(t.api, 'issues.move', {}, { legacy: async () => 'old' })).toBe('old')
+    // Without a route to take, it is the refusal it is.
+    await expect(submitNow(t.api, 'issues.move', {})).rejects.toMatchObject({
+      data: { code: 'BAD_REQUEST' },
+    })
   })
 
   it('without a legacy route, such a server refuses the command', async () => {
@@ -146,5 +178,30 @@ describe('submitNow', () => {
       ),
     ).toBe(false)
     expect(isMissingSyncSubmit(new Error('No procedure found on path "sync.submit"'))).toBe(false)
+  })
+
+  it('writesThroughSubmit hands back a client without those procedures as it is', () => {
+    expect(writesThroughSubmit({}, undefined as unknown as object, 'issues', () => true)).toBe(
+      undefined,
+    )
+  })
+
+  it('writesThroughSubmit sends the named writes on sync.submit and keeps the rest', async () => {
+    const t = transport(() => ({
+      outcome: 'applied',
+      result: 'via submit',
+      receipt,
+      replayed: false,
+    }))
+    const route = vi.fn(async (_input?: unknown) => 'via route')
+    const read = vi.fn(async (_input?: unknown) => 'read')
+    const procs = { move: { mutate: route, query: read }, get: { query: read, mutate: route } }
+    const wrapped = writesThroughSubmit(t.api, procs, 'issues', (proc) => proc === 'move')
+
+    expect(await wrapped.move.mutate({ id: 'i' })).toBe('via submit')
+    expect(t.sent[0]).toMatchObject({ command: 'issues.move', input: { id: 'i' } })
+    expect(await wrapped.move.query()).toBe('read')
+    expect(await wrapped.get.mutate({})).toBe('via route')
+    expect(route).toHaveBeenCalledTimes(1)
   })
 })

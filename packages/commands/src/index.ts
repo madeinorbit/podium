@@ -295,6 +295,16 @@ export {
   type IssueUpdatePatch,
 } from './issues/contracts'
 export {
+  clientSendsThroughSubmit,
+  isSyncedIssueCommand,
+  PANEL_ARTIFACT_OPS,
+  QUEUED_ISSUE_COMMANDS,
+  STRUCTURE_ISSUE_COMMANDS,
+  SYNCED_ISSUE_COMMANDS,
+  type SyncedIssueCommand,
+  writesThroughEntry,
+} from './issues/synced'
+export {
   LAYOUT_CONTRACT_NAMES,
   LAYOUT_CONTRACTS,
   type LayoutClearInput,

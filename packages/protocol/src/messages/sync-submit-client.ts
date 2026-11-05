@@ -83,11 +83,25 @@ export class SyncSubmitRefusedError extends Error {
  * NOT_FOUND and a message naming the path.
  */
 export function isMissingSyncSubmit(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : ''
+  // An agent's relay to an older server: the gate does not know the router.
+  if (RELAY_WITHOUT_SUBMIT.test(message)) return true
   const data = (error as { data?: { code?: unknown; httpStatus?: unknown } } | null)?.data
   if (data?.code !== 'NOT_FOUND' && data?.httpStatus !== 404) return false
-  const message = error instanceof Error ? error.message : ''
   return /no procedure found/i.test(message) && message.includes('sync.submit')
 }
+
+/** The relay's answers for a router or procedure it does not serve. */
+const RELAY_WITHOUT_SUBMIT =
+  /^(?:no such procedure: sync\.submit|sync\.submit is not permitted via relay)$/
+
+/** A server with the entry point that does not take this command on it yet: the
+ *  entry point answers an unknown command as invalid input naming `command`. */
+const isUnregistered = (refusal: SyncSubmitRefusal): boolean =>
+  refusal.kind === 'invalid' &&
+  refusal.message === undefined &&
+  refusal.details?.length === 1 &&
+  refusal.details[0] === 'command'
 
 export interface SubmitNowOptions<T> {
   /** The contract version. Every command is at 1 today. */
@@ -103,8 +117,8 @@ export interface SubmitNowOptions<T> {
   readonly action?: string
   /**
    * LEGACY(remove-after: 2027-03): the command's old per-command route, for a
-   * server without `sync.submit`. Removing it leaves a client newer than its
-   * server unable to send this command.
+   * server without `sync.submit`, or without this command on it yet. Removing it
+   * leaves a client newer than its server unable to send this command.
    */
   readonly legacy?: () => Promise<T>
 }
@@ -150,7 +164,61 @@ export async function submitNow<T = unknown>(
   // A reply that cannot be read is a transport failure, never a guess.
   const reply = SyncSubmitReply.parse(raw)
   if (reply.outcome === 'rejected') {
+    // LEGACY(remove-after: 2027-03): a server that has the entry point but not
+    // this command on it yet still serves the command's own route.
+    if (options.legacy !== undefined && isUnregistered(reply.refusal)) return await options.legacy()
     throw new SyncSubmitRefusedError(command, reply.refusal, options.action)
   }
   return reply.result as T
+}
+
+/** One procedure as a tRPC or relay client exposes it. */
+interface MutatingProc {
+  mutate(input?: unknown, ...rest: unknown[]): Promise<unknown>
+}
+
+/**
+ * `procs` (a client's `issues`, say) with the writes `sends` names sent on
+ * `sync.submit` as `<router>.<proc>`, and everything else, reads included, as it
+ * was. LEGACY(remove-after: 2027-03): each write falls back to its own route on a
+ * server without the entry point or without the command on it yet. Same shape and
+ * types as `procs`, so a call site changes by one word.
+ */
+export function writesThroughSubmit<P extends object>(
+  transport: SyncSubmitTransport,
+  procs: P,
+  router: string,
+  sends: (proc: string, input: unknown) => boolean,
+  options: { readonly refused?: (command: string, error: SyncSubmitRefusedError) => Error } = {},
+): P {
+  // A client without these procedures (a partial test fake) is handed back as
+  // it is: the old call sites only read them when a command ran.
+  if (procs === null || (typeof procs !== 'object' && typeof procs !== 'function')) return procs
+  return new Proxy(procs, {
+    get: (target, name, receiver) => {
+      const proc: unknown = Reflect.get(target, name, receiver)
+      if (typeof name !== 'string' || proc === undefined || proc === null) return proc
+      const original = proc as MutatingProc
+      const command = `${router}.${name}`
+      return new Proxy(original, {
+        get: (procTarget, key, procReceiver) => {
+          const member: unknown = Reflect.get(procTarget, key, procReceiver)
+          if (key !== 'mutate') return member
+          return async (input?: unknown, ...rest: unknown[]): Promise<unknown> => {
+            if (!sends(name, input)) return await original.mutate(input, ...rest)
+            try {
+              return await submitNow(transport, command, input, {
+                legacy: async () => await original.mutate(input, ...rest),
+              })
+            } catch (error) {
+              if (error instanceof SyncSubmitRefusedError && options.refused !== undefined) {
+                throw options.refused(command, error)
+              }
+              throw error
+            }
+          }
+        },
+      })
+    },
+  })
 }

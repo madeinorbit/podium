@@ -32,6 +32,11 @@
       "types": "./src/mail/mail-command.ts",
       "import": "./src/mail/mail-command.ts"
     },
+    "./issues-synced": {
+      "@podium/source": "./src/issues/synced.ts",
+      "types": "./src/issues/synced.ts",
+      "import": "./src/issues/synced.ts"
+    },
     "./settings-write-plan": {
       "@podium/source": "./src/settings/write-plan.ts",
       "types": "./src/settings/write-plan.ts",

@@ -38,10 +38,12 @@ import {
   asMachineId,
   asSessionId,
   isSpawnedBy,
-  type SessionMeta,
   type SessionId,
+  type SessionMeta,
+  spawnedByParentSessionId,
 } from '@podium/model'
-import { bareSelfRefCount, selfRefNudge, sessionTitleRule } from '@podium/protocol'
+import { bareSelfRefCount, SyncSubmitInput, selfRefNudge, sessionTitleRule } from '@podium/protocol'
+import { resolvePrincipalAsync } from '../../command-principal'
 import type { getFeatureStates, isFeatureEnabled } from '../../features'
 import { type Capability, checkIssueAccess } from '../../issue-authz'
 import type { RegistryModules } from '../../relay'
@@ -58,8 +60,8 @@ import type { SpecsService } from '../specs/service'
 import { dispatchWorkflowRpc } from '../workflows/rpc'
 import type { WorkflowCaller, WorkflowService } from '../workflows/service'
 import type { IssueCommandDispatcher } from './dispatcher'
-import { NO_SUCH_PROCEDURE } from './relay-gate'
 import type { AgentRelayGateDeps } from './relay-gate'
+import { NO_SUCH_PROCEDURE } from './relay-gate'
 import type { IssueService } from './service'
 
 /**
@@ -136,11 +138,13 @@ async function sessionTitlePrime(
   // session still showing a placeholder ('Claude Code', a spinner frame, an empty
   // OSC title) contributes nothing an agent could distinguish itself from, so it
   // is skipped rather than listed as noise.
-  const members = (await sessionsSvc
-    .listSessionsForIssue(issue?.worktreePath ?? null, issueId))
-    .filter((s) => s.sessionId !== actorSessionId && !s.archived)
+  const members = (
+    await sessionsSvc.listSessionsForIssue(issue?.worktreePath ?? null, issueId)
+  ).filter((s) => s.sessionId !== actorSessionId && !s.archived)
   // Every unbound member's owner in one indexed read (POD-6155).
-  const owners = await issues.reports.issuesForCwds(members.flatMap((s) => (s.issueId ? [] : [s.cwd])))
+  const owners = await issues.reports.issuesForCwds(
+    members.flatMap((s) => (s.issueId ? [] : [s.cwd])),
+  )
   const siblings = members
     .filter((s) => (s.issueId ?? owners.get(s.cwd) ?? null) === issueId)
     .map((s) => sessionLabel(s))
@@ -171,6 +175,23 @@ export function makeAgentRelayDispatch(
   } = deps
 
   return async (capability, overrideScope, router, proc, input) => {
+    // The sync write entry point's relay adapter (ADR 12 D2, POD-6413). The gate
+    // has bound the relay context onto the envelope's input and checked its
+    // command against the allowlist; the entry point does the rest. The agent's
+    // --outside-scope is its confirmation, as on the direct call.
+    if (router === 'sync') {
+      if (proc !== 'submit') return NO_SUCH_PROCEDURE
+      const envelope = SyncSubmitInput.parse(input)
+      const principal = await resolvePrincipalAsync(capability, {
+        parentSessionOf: async (sessionId) =>
+          spawnedByParentSessionId((await sessionsSvc.sessionById(sessionId))?.spawnedBy),
+      })
+      return await modules().syncWrite.submit(
+        overrideScope === true ? { ...envelope, confirmed: true } : envelope,
+        principal,
+        'relay',
+      )
+    }
     if (router === 'features' && proc === 'state') {
       return await Promise.resolve(featureStates())
     }
@@ -589,7 +610,8 @@ export function makeAgentRelayDispatch(
         const parsed = sessionHandoffInput.parse(input)
         return await issueSessionLifecycle.handoffSession(parsed, {
           capability,
-          principal: (await sessionCommandCtx(modules(), capability, overrideScope, 'relay')).principal,
+          principal: (await sessionCommandCtx(modules(), capability, overrideScope, 'relay'))
+            .principal,
         })
       }
       if (isCommandPlaneProc(proc) && isExposedOn(sessionCommandPlane.defs[proc], 'relay')) {

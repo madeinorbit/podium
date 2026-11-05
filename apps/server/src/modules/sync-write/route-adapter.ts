@@ -30,7 +30,8 @@ export interface RouteCall {
   readonly version?: number
 }
 
-function mutationIdOf(input: unknown) {
+/** The id an envelope built from `input` carries (see the header). */
+export function mutationIdOf(input: unknown) {
   const carried =
     input !== null && typeof input === 'object'
       ? (input as { mutationId?: unknown }).mutationId

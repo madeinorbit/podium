@@ -42,6 +42,7 @@ import type {
 } from './service'
 import type { ShippingService } from '../shipping'
 import type { IssueReader } from './service/reads'
+import type { SyncWriteEntry } from '../sync-write/entry'
 import type { IssueGitEffectPort } from './git-effects'
 
 /** Who is calling (authz identity) — the same pair the router Context carries. */
@@ -53,6 +54,14 @@ export interface IssueCaller {
   overrideScope?: boolean
 }
 
+/** Who a session this caller starts is spawned by, as the session row records it. */
+export function spawnProvenanceOf(capability: IssueCaller['capability']): string {
+  if (capability.actorSessionId) return `session:${capability.actorSessionId}`
+  if (capability.scope.kind === 'all') return 'user'
+  if (capability.scope.kind === 'subtree') return `issue:${capability.scope.rootId}`
+  return 'agent'
+}
+
 export interface IssueCommandDeps {
   /**
    * Merge, rebase, PR and integrate as effect records (POD-6394): the command
@@ -60,6 +69,13 @@ export interface IssueCommandDeps {
    * a test builds by hand, which then runs the git work inline as before.
    */
   gitEffects?: IssueGitEffectPort
+  /**
+   * The sync write entry point (ADR 12 D2), read per call: it is composed after
+   * this dispatcher. When present, a relayed or MCP call of a command written
+   * through it (`SYNCED_ISSUE_COMMANDS`) goes there (POD-6413). Absent only in a
+   * dispatcher a test builds by hand.
+   */
+  syncWrite?: () => Pick<SyncWriteEntry, 'submitDetailed'>
   /** Fully constructed tracker; command dispatch is activated after features. */
   issues: IssueTrackerCapabilities
   /** Cross-aggregate Shipping application port. Command handlers may nominate
@@ -337,14 +353,7 @@ export class IssueCommandCtx {
   }
 
   spawnProvenance(): string {
-    if (this.caller.capability.actorSessionId) {
-      return `session:${this.caller.capability.actorSessionId}`
-    }
-    if (this.caller.capability.scope.kind === 'all') return 'user'
-    if (this.caller.capability.scope.kind === 'subtree') {
-      return `issue:${this.caller.capability.scope.rootId}`
-    }
-    return 'agent'
+    return spawnProvenanceOf(this.caller.capability)
   }
 
   /** Resolve an omitted mail issue ref to the caller's own bound issue (capability rootId). */

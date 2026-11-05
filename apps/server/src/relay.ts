@@ -3119,6 +3119,8 @@ export class SessionRegistry {
       // Git actions as effect records (POD-6394), read per call: the modules
       // and the entry point are composed after this dispatcher.
       gitEffects: issueGitEffectPort({ modules: () => this.modules }),
+      // Relayed and MCP issue writes through the entry point (POD-6413).
+      syncWrite: () => this.modules.syncWrite,
       arbitration: issueArbitration,
       attachSession: async (caller, input) => await issueAttach.execute(caller, input),
       issues,

@@ -26,32 +26,29 @@
  * propagates, and the outbox retries it.
  */
 
-import { ISSUE_CONTRACTS, type IssueContractName } from '@podium/commands'
+import {
+  ISSUE_CONTRACTS,
+  type IssueContractName,
+  QUEUED_ISSUE_COMMANDS,
+  SYNCED_ISSUE_COMMANDS,
+  writesThroughEntry,
+} from '@podium/commands'
+import { asSessionId } from '@podium/model'
 import type { SyncSubmitRefusal } from '@podium/protocol'
-import { TRPCError } from '@trpc/server'
+import type { CommandPrincipal } from '../../command-principal'
 import type { RegistryModules } from '../../relay'
-import { SyncWriteRefused } from '../sync-write/entry'
+import { type DetailedSubmit, type SyncWriteEntry, SyncWriteRefused } from '../sync-write/entry'
+import { trpcErrorRefusal } from '../sync-write/family'
 import { NO_TARGET, type SyncWriteRegistry, type SyncWriteTarget } from '../sync-write/registry'
-import { commandAccess, type IssueCaller } from './command-ctx'
+import { mutationIdOf } from '../sync-write/route-adapter'
+import { commandAccess, type IssueCaller, spawnProvenanceOf } from './command-ctx'
 import { type AnyIssueCommandDef, issueRegistry } from './registry'
+import type { IssueTrackerCapabilities } from './service'
 import { isIssueNotFound } from './service/not-found'
 import { isIssueRefusal } from './service/refusal'
 
 /** The issue commands the apps queue (client `OUTBOX_COMMANDS`), by proc name. */
-export const QUEUED_ISSUE_COMMANDS = [
-  'markRead',
-  'markUnread',
-  'setTucked',
-  'update',
-  'archive',
-  'delete',
-  'close',
-  'defer',
-  'undefer',
-  'setLabels',
-  'setPlacement',
-  'restore',
-] as const satisfies readonly (keyof typeof issueRegistry.defs)[]
+export { QUEUED_ISSUE_COMMANDS }
 
 export interface IssueSyncWriteDeps {
   modules(): RegistryModules
@@ -81,31 +78,32 @@ export async function issueTarget(
   return { id: targetId, ancestorIds: await access.ancestorIds(targetId) }
 }
 
-/** A definitive error from an issue handler, as a refusal; undefined to propagate. */
+/**
+ * A definitive error from an issue handler, as a refusal; undefined to propagate.
+ * It carries the handler's message (POD-6412): the handler ran after both
+ * permission checks, and its words are what the old routes showed this caller.
+ */
 export function issueRefusalOf(error: unknown): SyncSubmitRefusal | undefined {
-  if (isIssueNotFound(error)) return { kind: 'target-not-found' }
-  if (isIssueRefusal(error)) return { kind: 'conflict' }
-  if (!(error instanceof TRPCError)) return undefined
-  switch (error.code) {
-    case 'FORBIDDEN':
-    case 'UNAUTHORIZED':
-      return { kind: 'unauthorized' }
-    case 'NOT_FOUND':
-      return { kind: 'target-not-found' }
-    case 'CONFLICT':
-      return { kind: 'conflict' }
-    case 'BAD_REQUEST':
-      return { kind: 'invalid' }
-    case 'PRECONDITION_FAILED':
-      return { kind: 'confirmation-required' }
-    default:
-      return undefined
+  if (isIssueNotFound(error)) return { kind: 'target-not-found', message: error.message }
+  if (isIssueRefusal(error)) return { kind: 'conflict', message: error.message }
+  return trpcErrorRefusal(error)
+}
+
+/** Why the entry point refuses one call of a listed command (see `@podium/commands`
+ *  `issues/synced.ts`), or undefined when it takes it. */
+function unwritable(key: string, input: unknown): string | undefined {
+  if (key === 'create' && (input as { startNow?: unknown } | undefined)?.startNow === true) {
+    return 'Start a new task with its agent through an issue.start effect record.'
   }
+  if (!writesThroughEntry(key, input)) {
+    return 'Artifacts are added and removed through the issue artifact route.'
+  }
+  return undefined
 }
 
 export function registerIssueCommands(registry: SyncWriteRegistry, deps: IssueSyncWriteDeps): void {
   const defs = issueRegistry.defs as Record<string, AnyIssueCommandDef>
-  for (const key of QUEUED_ISSUE_COMMANDS) {
+  for (const key of SYNCED_ISSUE_COMMANDS) {
     const def = defs[key]
     const contract = ISSUE_CONTRACTS[key as IssueContractName]
     if (!def || !contract) throw new Error(`sync write: no issue command named ${key}`)
@@ -125,6 +123,8 @@ export function registerIssueCommands(registry: SyncWriteRegistry, deps: IssueSy
         if (principal.kind === 'system')
           throw new Error('issue write reached its handler as system')
         const caller: IssueCaller = { capability: principal.capability, principal }
+        const refused = unwritable(key, input)
+        if (refused !== undefined) throw new SyncWriteRefused({ kind: 'invalid', message: refused })
         try {
           return await deps.modules().issueCommands.withoutDedup().run(caller, key, def, input)
         } catch (error) {
@@ -135,4 +135,103 @@ export function registerIssueCommands(registry: SyncWriteRegistry, deps: IssueSy
       },
     })
   }
+}
+
+/** The transports whose adapters send issue writes through the entry point. */
+export type IssueWriteTransport = 'trpc' | 'relay' | 'mcp'
+
+export interface IssueWriteCall {
+  readonly principal: CommandPrincipal
+  readonly transport: IssueWriteTransport
+  /** The procedure name (`create`), one of `SYNCED_ISSUE_COMMANDS`. */
+  readonly name: string
+  /** The caller's input, unparsed: the entry point parses it. */
+  readonly input: unknown
+  /** The caller's out-of-scope confirmation (`--outside-scope`). */
+  readonly confirmed: boolean
+}
+
+/**
+ * A create without its start. The start does work outside the database (a git
+ * worktree, a daemon spawn), so it is never part of the write; an adapter runs
+ * it after the create commits ({@link startAfterCreate}), the order the family
+ * always used (`createAndMaybeStart` committed the issue before starting it).
+ */
+function withoutStart(input: unknown): unknown {
+  if (input === null || typeof input !== 'object') return input
+  const {
+    startNow: _startNow,
+    startSessionId: _startSessionId,
+    ...rest
+  } = input as Record<string, unknown>
+  return { ...rest, startNow: false }
+}
+
+/** One adapter call of a listed issue command, through the entry point. */
+export async function submitIssueWrite(
+  entry: Pick<SyncWriteEntry, 'submitDetailed'>,
+  call: IssueWriteCall,
+): Promise<DetailedSubmit> {
+  return await entry.submitDetailed(
+    {
+      mutationId: mutationIdOf(call.input),
+      command: `issues.${call.name}`,
+      version: 1,
+      input: call.name === 'create' ? withoutStart(call.input) : call.input,
+      ...(call.confirmed ? { confirmed: true as const } : {}),
+    },
+    call.principal,
+    call.transport,
+  )
+}
+
+/** The create input fields the start reads. */
+interface StartRequest {
+  readonly startNow?: boolean
+  readonly startSessionId?: string
+  readonly parentId?: string
+}
+
+/** What a create answers with: the issue, plus the notes the handler adds. */
+type CreatedIssue = { readonly id: string; readonly worktreePath?: string | null } & Record<
+  string,
+  unknown
+>
+
+/**
+ * After an adapter's create committed: start the task when the caller asked to
+ * and the family's rules let the create start (`registry.ts` `create`): an
+ * agent's top-level task is a proposal and an agent's task under a proposal is
+ * inert, and neither starts. Answers what the create would have answered had it
+ * started: the started issue with the create's notes, or the create's own
+ * answer when nothing starts. A replayed create whose task already started is
+ * not started twice.
+ */
+export async function startAfterCreate(
+  issues: Pick<IssueTrackerCapabilities, 'gitWorkflow' | 'hierarchy' | 'reports'>,
+  caller: IssueCaller,
+  input: unknown,
+  created: unknown,
+): Promise<unknown> {
+  const request = (input ?? {}) as StartRequest
+  const issue = created as CreatedIssue
+  if (request.startNow !== true || typeof issue?.id !== 'string') return created
+  const isOperator = caller.capability.scope.kind === 'all'
+  if (!isOperator) {
+    if (!request.parentId) return created
+    const parent = await issues.reports.getMeta(request.parentId)
+    if (parent && (await issues.hierarchy.inProposedSubtree(parent.id))) return created
+  }
+  const notes = {
+    ...(issue.coordinator !== undefined ? { coordinator: issue.coordinator } : {}),
+    ...(issue.warning !== undefined ? { warning: issue.warning } : {}),
+  }
+  const current = await issues.reports.getMeta(issue.id)
+  if (current?.worktreePath)
+    return { ...(await issues.gitWorkflow.projectionNow(issue.id)), ...notes }
+  const started = await issues.gitWorkflow.start(issue.id, undefined, {
+    spawnedBy: spawnProvenanceOf(caller.capability),
+    ...(request.startSessionId ? { sessionId: asSessionId(request.startSessionId) } : {}),
+  })
+  return { ...started, ...notes }
 }

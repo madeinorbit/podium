@@ -15,13 +15,15 @@
  * in-process MCP tools call.
  */
 
-import { ISSUE_COMMAND_NAMES, type IssueContractName } from '@podium/commands'
+import { ISSUE_COMMAND_NAMES, type IssueContractName, writesThroughEntry } from '@podium/commands'
 import type { IssueProc, IssueTrpc } from '@podium/issue-client'
 import { spawnedByParentSessionId } from '@podium/model'
+import { SyncSubmitRefusedError } from '@podium/protocol'
 import type { MutationLedgerPort } from '@podium/sync'
 import { z } from 'zod'
-import { resolvePrincipalAsync } from '../../command-principal'
+import { type CommandPrincipal, resolvePrincipalAsync } from '../../command-principal'
 import type { Capability } from '../../issue-authz'
+import type { SyncWriteEntry } from '../sync-write/entry'
 import {
   commandAccess,
   type IssueCaller,
@@ -29,6 +31,7 @@ import {
   type IssueCommandDeps,
 } from './command-ctx'
 import { type AnyIssueCommandDef, guardIssueCommand, issueRegistry } from './registry'
+import { startAfterCreate, submitIssueWrite } from './sync-write'
 
 /** A ledger that runs the body every time and records nothing: see `withoutDedup`. */
 const RUN_EVERY_TIME: MutationLedgerPort = {
@@ -112,6 +115,7 @@ export class IssueCommandDispatcher {
     router: string,
     proc: string,
     rawInput: unknown,
+    transport: 'relay' | 'mcp' = 'relay',
   ): Promise<unknown | undefined> {
     if (router === 'repos') {
       if (proc !== 'inferFromPath') return undefined
@@ -134,8 +138,49 @@ export class IssueCommandDispatcher {
     return await Promise.resolve().then(async () => {
       await guardIssueCommand(effectiveCaller, commandAccess(this.deps.issues), proc, def, rawInput)
       const input: unknown = def.input.parse(rawInput)
+      const entry = this.deps.syncWrite?.()
+      const principal = effectiveCaller.principal
+      if (entry !== undefined && principal !== undefined && writesThroughEntry(proc, input)) {
+        return await this.throughEntry(
+          entry,
+          { ...effectiveCaller, principal },
+          transport,
+          proc,
+          input,
+        )
+      }
       return await this.run(effectiveCaller, proc, def, input)
     })
+  }
+
+  /**
+   * A listed write (`SYNCED_ISSUE_COMMANDS`) through the sync write entry point
+   * (ADR 12 D2, POD-6413): this transport's thin adapter. The guard above has
+   * already run, so a refused caller keeps the message it always got; the entry
+   * point checks again, deduplicates and runs the handler in one unit of work.
+   * Relay and MCP callers read the thrown error's message, so a handler's own
+   * error is rethrown as it was; a refusal with none reads as its plain sentence.
+   */
+  private async throughEntry(
+    entry: Pick<SyncWriteEntry, 'submitDetailed'>,
+    caller: IssueCaller & { principal: CommandPrincipal },
+    transport: 'relay' | 'mcp',
+    proc: string,
+    input: unknown,
+  ): Promise<unknown> {
+    const { reply, cause } = await submitIssueWrite(entry, {
+      principal: caller.principal,
+      transport,
+      name: proc,
+      input,
+      confirmed: caller.overrideScope === true,
+    })
+    if (reply.outcome !== 'applied') {
+      if (cause !== undefined) throw cause
+      throw new SyncSubmitRefusedError(`issues.${proc}`, reply.refusal)
+    }
+    if (proc !== 'create') return reply.result
+    return await startAfterCreate(this.deps.issues, caller, input, reply.result)
   }
 
   /**
@@ -145,13 +190,15 @@ export class IssueCommandDispatcher {
    * compile-time hole, not a runtime maybe.
    */
   asIssueTrpc(capability: Capability, overrideScope?: boolean): IssueTrpc {
+    // The in-process MCP surface (the superagent's issue tools): its writes reach
+    // the entry point as MCP calls.
     const caller: IssueCaller = {
       capability,
       ...(overrideScope ? { overrideScope } : {}),
     }
     const proc = (router: 'issues' | 'repos', name: string): IssueProc => {
       const call = async (input?: unknown): Promise<unknown> => {
-        const result = await this.dispatch(caller, router, name, input)
+        const result = await this.dispatch(caller, router, name, input, 'mcp')
         if (result === undefined) throw new Error(`no such issue procedure: ${router}.${name}`)
         return result
       }
