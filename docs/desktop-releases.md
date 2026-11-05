@@ -89,6 +89,8 @@ newer Dev runtimes, unordered/source/debug builds, incompatible local channels, 
 feed choices and delivered downgrade/target constraints are preserved. A historical
 successful forward update is not a permanent pin. Coordinator-only policy that has never
 been delivered locally cannot be enforced offline; this path adds no network boot dependency.
+The source channel is stamped into the shell build, independently of the selected profile;
+an Edge source defers for an existing runtime following Dev or Stable.
 
 This source is lower priority than the existing updater. Unfinished headless or native
 updates, held preparation, activation/restart, staging, transfer recovery and live installation

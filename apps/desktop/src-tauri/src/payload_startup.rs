@@ -1,6 +1,6 @@
 //! Cold-start ownership and the bundled CLI boundary. Policy, preparation and
 //! activation live in @podium/runtime; the shell only supplies its immutable source.
-use crate::bootstrap::{self, UpdateChannel};
+use crate::bootstrap;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteConnection};
 use sqlx::{Connection, Executor, Row};
 use std::hash::{Hash, Hasher};
@@ -152,7 +152,6 @@ impl PayloadUsageLease {
 fn run_bundled_startup(
     seed: &Path,
     lease: &PayloadUsageLease,
-    channel: UpdateChannel,
     app_managed: bool,
 ) -> Result<serde_json::Value, String> {
     let binary = seed.join(if cfg!(windows) {
@@ -164,7 +163,9 @@ fn run_bundled_startup(
         "seed": seed,
         "installDir": lease.install,
         "stateDir": bootstrap::state_dir(),
-        "channel": channel.as_str(),
+        // The signed source supplies its build channel. The CLI independently
+        // checks every instance's configured/env channel against this authority.
+        "channel": bootstrap::build_update_channel().as_str(),
         "releaseBuild": true,
         "exclusive": true,
         "appManaged": app_managed,
@@ -211,12 +212,7 @@ fn run_bundled_startup(
 }
 
 /// Called exactly once from Tauri setup, never by the child respawn monitor.
-pub fn prepare(
-    seed: &Path,
-    install: &Path,
-    app_data: &Path,
-    channel: UpdateChannel,
-) -> Result<PayloadUsageLease, String> {
+pub fn prepare(seed: &Path, install: &Path, app_data: &Path) -> Result<PayloadUsageLease, String> {
     let lease = PayloadUsageLease::acquire(install)?;
     let app_managed = canonical_path(&app_data.join("payload"))
         .map_err(|_| "cannot resolve application payload root")?
@@ -242,7 +238,7 @@ pub fn prepare(
             }
             log::info!("desktop payload startup: debug shell preserves installed runtime");
         } else {
-            match run_bundled_startup(seed, &lease, channel, app_managed) {
+            match run_bundled_startup(seed, &lease, app_managed) {
                 Ok(result) if result["outcome"] == "seed" => {
                     bootstrap::seed_payload_if_absent(seed, &lease.install)
                         .map_err(|error| format!("payload seed failed: {error}"))?;

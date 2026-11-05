@@ -1881,12 +1881,9 @@ fn main() {
                     seed: seed.clone(),
                     install: install.clone(),
                 });
-                let install = match payload_startup::prepare(
-                    &seed,
-                    &install,
-                    &app_data,
-                    cfg.update_channel.unwrap_or_else(bootstrap::build_update_channel),
-                ) {
+                // Bundle authority comes from the immutable build stamp inside prepare;
+                // the selected profile remains an independent constraint, not that source.
+                let install = match payload_startup::prepare(&seed, &install, &app_data) {
                     Ok(usage) => {
                         let canonical = usage.install.clone();
                         // Keep shared installation usage across initial spawn, every child
