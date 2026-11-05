@@ -60,6 +60,11 @@ export interface SupervisorState {
    * so the counter survives a reboot; see {@link claimSupervisorGeneration}.
    */
   generation?: number
+  /** Public enrollment progress, owned by the credential selector, bound to its server. */
+  registration?: {
+    serverUrl: string
+    state: 'unregistered' | 'pairing' | 'enrolled' | 'rejected'
+  }
 }
 
 /**
@@ -103,6 +108,9 @@ function parseState(raw: unknown): SupervisorState | null {
     ...(typeof value.generation === 'number' && Number.isSafeInteger(value.generation)
       ? { generation: value.generation }
       : {}),
+    ...(value.registration
+      ? { registration: value.registration as SupervisorState['registration'] }
+      : {}),
   }
 }
 
@@ -132,7 +140,8 @@ export function loadSupervisorState(dir: string): SupervisorState {
   // daemon's credential. A 0.1.0 all-in-one left a token-less daemon.json naming an id
   // nothing authenticated as (POD-5931); adopting it clashed with the root identity and
   // the parent died at every start.
-  const daemon = machine.daemon && typeof machine.daemon.token === 'string' ? machine.daemon : undefined
+  const daemon =
+    machine.daemon && typeof machine.daemon.token === 'string' ? machine.daemon : undefined
   return parseState(machine.supervisor ?? daemon) ?? { machineId: machine.machineId }
 }
 
@@ -483,6 +492,22 @@ export function createMachineSupervisorConnection(
     }
   }
 
+  const registration = (state: NonNullable<SupervisorState['registration']>['state']): void => {
+    const next = { serverUrl: resolveServerUrl(), state }
+    if (isDeepStrictEqual(deps.state.registration, next)) return
+    updateMachineState(
+      deps.stateDir,
+      (machine) => {
+        if (machine.supervisor && machine.supervisor.machineId !== deps.state.machineId)
+          throw new Error('supervisor registration identity conflict')
+        machine.supervisor ??= { ...deps.state }
+        machine.supervisor.registration = next
+      },
+      deps.state.machineId,
+    )
+    deps.state.registration = next
+  }
+
   const credential = (): PeerCredential => {
     // The parent can confirm setup while this connection is already waiting to dial.
     const persisted = loadSupervisorState(deps.stateDir)
@@ -493,21 +518,37 @@ export function createMachineSupervisorConnection(
     if (persisted.setupEnrollment && !persisted.enrolledPublicKey)
       throw new Error('setup enrollment is awaiting confirmation')
     if (deps.state.enrolledPublicKey) {
+      registration('enrolled')
       const key = readMachineCredential(deps.stateDir)
       if (!key || machinePublicKeyWire(key) !== deps.state.enrolledPublicKey)
         throw new Error('enrolled machine key unavailable')
       return { kind: 'machineKey', machineHint: deps.state.machineId }
     }
-    if (deps.state.token)
+    if (deps.state.token) {
+      registration('enrolled')
       return { kind: 'machineToken', token: deps.state.token, machineHint: deps.state.machineId }
-    if (deps.pairCode)
+    }
+    if (deps.pairCode) {
+      registration('pairing')
       return {
         kind: 'pairCode',
         code: deps.pairCode,
         publicKey: machinePublicKeyWire(createMachineCredential(deps.stateDir)),
       }
+    }
     if (readMachineCredential(deps.stateDir))
       return { kind: 'machineKey', machineHint: deps.state.machineId }
+    // Only the runtime can attest that this identity has never held a credential.
+    // Missing legacy files or a generic unauthorized status are never that evidence.
+    const machine = readMachineState(deps.stateDir)
+    if (
+      machine?.role?.mode === 'client' &&
+      !machine.daemon &&
+      !machine.legacy &&
+      Object.keys(machine.importedFiles).length === 0 &&
+      !deps.state.registration
+    )
+      registration('unregistered')
     throw new Error('machine supervisor has no credential; pair it first')
   }
 
@@ -524,6 +565,7 @@ export function createMachineSupervisorConnection(
       deps.state.enrolledPublicKey = enrolledPublicKey
       delete deps.state.token
     } else if (issuedToken) deps.state.token = issuedToken
+    if (issuedToken || enrolledPublicKey) registration('enrolled')
     if (updatePubkey !== undefined) {
       if (
         deps.state.updatePubkey &&
@@ -717,6 +759,7 @@ export function createMachineSupervisorConnection(
         return
       }
       if (step.action === 'rejected' || step.action === 'protocol-error') {
+        registration('rejected')
         log.error('machine supervisor handshake refused', { step })
         closed = true
         settleFirst(false)

@@ -50,6 +50,7 @@ import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { useServerAppVersion } from '@/lib/version-skew'
+import { pairNativeDesktop } from './native-pairing'
 
 export function ServerMoveProgress({
   operation,
@@ -538,22 +539,11 @@ function useEnableHosting(trpc: Store['trpc']): EnableHosting | null {
     setBusy(true)
     setError(null)
     try {
-      const { code } = await trpc.machines.pairingCode.mutate()
-      await enableHosting(code)
-      // Relaunch so the shell re-reads the config and spawns the daemon. Keep `busy` set on
-      // success — the app is about to go away; re-enabling the button would invite a
-      // double-enroll. The config IS already flipped at this point, so if restart is missing
-      // or refused (older shells didn't grant process.restart to remote pages), tell the
-      // user to relaunch manually instead of hanging on "Enabling…".
-      const restart = (window as unknown as { __PODIUM_RESTART__?: () => unknown })
-        .__PODIUM_RESTART__
-      try {
-        if (!restart) throw new Error('no restart hook')
-        await Promise.resolve(restart())
-      } catch {
-        setBusy(false)
-        setError('Hosting enabled — quit and reopen the app to finish pairing.')
-      }
+      await pairNativeDesktop(
+        trpc,
+        enableHosting,
+        'Hosting enabled — quit and reopen the app to finish pairing.',
+      )
     } catch (e) {
       setBusy(false)
       setError(e instanceof Error ? e.message : String(e))

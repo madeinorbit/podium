@@ -1222,7 +1222,7 @@ fn native_desktop_hook(
     // [spec:SP-3701] The hosting toggle is exposed only in client mode — the one state where
     // this device is not already running a daemon. The command itself re-checks the mode.
     let enable_hosting = if launch_mode == "client" {
-        ",\n            enableHosting: (pairCode) => window.__TAURI_INTERNALS__.invoke('enable_hosting', { pairCode })"
+        ",\n            enableHosting: (pairCode) => window.__TAURI_INTERNALS__.invoke('enable_hosting', { pairCode }),\n            clientRegistrationStatus: () => window.__TAURI_INTERNALS__.invoke('client_registration_status'),\n            registerClient: (pairCode, target) => window.__TAURI_INTERNALS__.invoke('register_client', { pairCode, target })"
     } else {
         ""
     };
@@ -1383,8 +1383,29 @@ fn parse_daemon_connectivity(text: &str) -> Option<DaemonConnectivity> {
 /// shell. The returned fields are already the status CLI's operator-safe set.
 #[tauri::command]
 fn daemon_connectivity() -> Option<DaemonConnectivity> {
-    let text = std::fs::read_to_string(bootstrap::state_dir().join("connectivity.json")).ok()?;
+    let dir = bootstrap::state_dir();
+    let canonical = dir.join("machine.json");
+    if canonical.exists() {
+        let machine: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(canonical).ok()?).ok()?;
+        if machine["version"] != 1 { return None; }
+        return parse_daemon_connectivity(&machine.get("connectivity")?.to_string());
+    }
+    let text = std::fs::read_to_string(dir.join("connectivity.json")).ok()?;
     parse_daemon_connectivity(&text)
+}
+
+/// These commands are granted only to the configured client window. The current
+/// URL is checked again because an earlier remote grant can outlive config changes.
+#[tauri::command]
+fn client_registration_status(window: tauri::WebviewWindow) -> Result<bootstrap::ClientRegistrationStatus, String> {
+    if window.label() != "main" { return Err("registration requires the main window".to_string()); }
+    bootstrap::client_registration_status(window.url().map_err(|e| e.to_string())?.as_str())
+}
+
+#[tauri::command]
+fn register_client(window: tauri::WebviewWindow, pair_code: String, target: String) -> Result<(), String> {
+    if window.label() != "main" { return Err("registration requires the main window".to_string()); }
+    bootstrap::write_client_registration(&pair_code, &target, window.url().map_err(|e| e.to_string())?.as_str())
 }
 
 /// Debug acceptance seam: page text crosses the real WebKit→Tauri invoke
@@ -1684,6 +1705,8 @@ fn main() {
         .plugin(tauri_plugin_sql::Builder::default().build())
         .invoke_handler(tauri::generate_handler![
             enable_hosting,
+            client_registration_status,
+            register_client,
             handoff::begin_cloud_sign_in,
             daemon_connectivity,
             runtime_probe_report,
@@ -2058,6 +2081,8 @@ fn main() {
                 tauri::ipc::CapabilityBuilder::new("enable-hosting")
                     .window("main")
                     .permission("allow-enable-hosting")
+                    .permission("allow-client-registration-status")
+                    .permission("allow-register-client")
             });
             // Replica SQLite persistence (POD-789): the web client's TanStack DB
             // persistence adapter drives the SQL plugin. Client/daemon modes load

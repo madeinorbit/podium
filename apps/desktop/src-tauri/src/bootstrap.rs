@@ -339,9 +339,12 @@ pub fn read_config() -> DesktopConfig {
 
 /// Read-modify-write config.json, preserving every field this shell does not own, through a
 /// write-then-rename so a crash cannot leave a truncated file.
+static CONFIG_WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn update_config_json(
     edit: impl FnOnce(&mut serde_json::Map<String, serde_json::Value>) -> Result<(), String>,
 ) -> Result<(), String> {
+    let _guard = CONFIG_WRITE_LOCK.lock().map_err(|_| "config writer unavailable")?;
     let path = state_dir().join("config.json");
     let text = std::fs::read_to_string(&path)
         .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
@@ -353,9 +356,20 @@ fn update_config_json(
     edit(obj)?;
     let out = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
     let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, format!("{out}\n"))
-        .map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
-    std::fs::rename(&tmp, &path).map_err(|e| format!("cannot replace config.json: {e}"))
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new().write(true).create(true).truncate(true).open(&tmp)
+        .map_err(|e| format!("cannot write config: {e}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600)).map_err(|e| e.to_string())?;
+    }
+    file.write_all(format!("{out}\n").as_bytes()).map_err(|e| e.to_string())?;
+    file.sync_all().map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &path).map_err(|e| format!("cannot replace config.json: {e}"))?;
+    #[cfg(unix)]
+    std::fs::File::open(state_dir()).and_then(|dir| dir.sync_all()).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 /// Remember the installation the window just authenticated to (POD-5921, `save_server_identity`).
@@ -739,6 +753,11 @@ pub fn backend_exit_decision(initial_action: &LaunchAction) -> BackendExitDecisi
 /// the web UI mark "this machine" in the
 /// machines list and skip the standalone hosting card for already-paired devices.
 pub fn read_supervisor_machine_id() -> Option<String> {
+    let canonical = state_dir().join("machine.json");
+    if canonical.exists() {
+        let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(canonical).ok()?).ok()?;
+        return (json.get("version")?.as_u64()? == 1).then(|| json.get("machineId")?.as_str().filter(|id| !id.is_empty()).map(str::to_string)).flatten();
+    }
     for name in ["supervisor.json", "daemon.json"] {
         let Ok(text) = std::fs::read_to_string(state_dir().join(name)) else {
             continue;
@@ -758,51 +777,148 @@ pub fn read_supervisor_machine_id() -> Option<String> {
 /// NARROW: the webview content that can invoke this is served by the remote hub, so the only
 /// transition allowed is client → daemon against the serverUrl the user already configured
 /// (never a parameter), and every other config field is preserved verbatim.
-pub fn write_hosting_config(pair_code: &str) -> Result<(), String> {
-    if pair_code.is_empty()
-        || pair_code.len() > 32
-        || !pair_code
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-')
-    {
+fn validate_pair_code(pair_code: &str) -> Result<(), String> {
+    if pair_code.is_empty() || pair_code.len() > 32 || !pair_code.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
         return Err("invalid pairing code".to_string());
     }
-    let path = state_dir().join("config.json");
-    let text = std::fs::read_to_string(&path)
-        .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-    let mut json: serde_json::Value =
-        serde_json::from_str(&text).map_err(|e| format!("config.json is not valid JSON: {e}"))?;
-    let obj = json
-        .as_object_mut()
-        .ok_or_else(|| "config.json is not a JSON object".to_string())?;
-    let mode = obj.get("mode").and_then(|v| v.as_str());
-    if mode != Some("client") {
-        return Err(format!(
-            "hosting can only be enabled from client mode (current mode: {})",
-            mode.unwrap_or("unset")
-        ));
+    Ok(())
+}
+
+fn save_pair_code(obj: &mut serde_json::Map<String, serde_json::Value>, pair_code: &str) {
+    obj.insert("pairCode".to_string(), serde_json::Value::String(pair_code.to_string()));
+}
+
+pub fn write_hosting_config(pair_code: &str) -> Result<(), String> {
+    validate_pair_code(pair_code)?;
+    update_config_json(|obj| {
+        if obj.get("mode").and_then(|v| v.as_str()) != Some("client") {
+            return Err("hosting can only be enabled from client mode".to_string());
+        }
+        if !obj.get("serverUrl").and_then(|v| v.as_str()).is_some_and(|url| !url.is_empty()) {
+            return Err("config has no serverUrl to pair against".to_string());
+        }
+        obj.insert("mode".to_string(), serde_json::Value::String("daemon".to_string()));
+        save_pair_code(obj, pair_code);
+        Ok(())
+    })
+}
+
+/// Minimal public registration answer. No credential or raw state crosses IPC.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(tag = "state", rename_all = "kebab-case")]
+pub enum ClientRegistrationStatus {
+    NotApplicable,
+    Starting,
+    Pending,
+    Enrolled,
+    Needed { target: String },
+    Rejected { message: String },
+    Unavailable { message: String },
+}
+
+fn registration_unavailable(message: &str) -> ClientRegistrationStatus {
+    ClientRegistrationStatus::Unavailable { message: message.to_string() }
+}
+
+fn registration_endpoint(raw: &str) -> Result<String, String> {
+    let url = validated_webview_http_url(raw)?;
+    if !url.username().is_empty() || url.password().is_some() || url.query().is_some() || url.fragment().is_some() {
+        return Err("registration target must not contain credentials, query or fragment".to_string());
     }
-    let has_server_url = obj
-        .get("serverUrl")
-        .and_then(|v| v.as_str())
-        .is_some_and(|s| !s.is_empty());
-    if !has_server_url {
-        return Err("config has no serverUrl to pair against".to_string());
+    Ok(url.as_str().trim_end_matches('/').to_string())
+}
+
+fn inspect_client_registration(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    caller_url: &str,
+) -> Result<ClientRegistrationStatus, String> {
+    use serde_json::Value;
+    if obj.get("mode").and_then(Value::as_str) != Some("client") {
+        return Ok(ClientRegistrationStatus::NotApplicable);
     }
-    obj.insert(
-        "mode".to_string(),
-        serde_json::Value::String("daemon".to_string()),
-    );
-    obj.insert(
-        "pairCode".to_string(),
-        serde_json::Value::String(pair_code.to_string()),
-    );
-    let out = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
-    // Write-then-rename so a crash mid-write can't leave a truncated config.
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, format!("{out}\n"))
-        .map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
-    std::fs::rename(&tmp, &path).map_err(|e| format!("cannot replace config.json: {e}"))
+    let server = obj.get("serverUrl").and_then(Value::as_str).ok_or("client has no configured server")?;
+    let endpoint = registration_endpoint(server)?;
+    let ui = remote_window_origin_url(server, obj.get("uiUrl").and_then(Value::as_str));
+    if Url::parse(caller_url).map_err(|e| e.to_string())?.origin()
+        != Url::parse(&ui).map_err(|e| e.to_string())?.origin() {
+        return Err("client registration is limited to the configured frontend".to_string());
+    }
+    let dir = state_dir();
+    let raw = match std::fs::read_to_string(dir.join("machine.json")) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(ClientRegistrationStatus::Starting),
+        Err(_) => return Ok(registration_unavailable("Cannot read this installation's supervisor state. Reopen the app or inspect its local logs.")),
+    };
+    let machine: Value = match serde_json::from_str(&raw) {
+        Ok(Value::Object(value)) => Value::Object(value),
+        _ => return Ok(registration_unavailable("This installation's supervisor state is invalid. Inspect its local logs before pairing again.")),
+    };
+    let unavailable = || registration_unavailable("This installation has incomplete or mismatched registration state. Inspect its local logs before pairing again.");
+    let Some(machine_id) = machine.get("machineId").and_then(Value::as_str).filter(|id| !id.trim().is_empty()) else { return Ok(unavailable()); };
+    if machine["version"] != 1 || !machine["importedFiles"].is_object() { return Ok(unavailable()); }
+    let supervisor = &machine["supervisor"];
+    if supervisor["machineId"].as_str() != Some(machine_id) { return Ok(unavailable()); }
+    let role = &machine["role"];
+    if role["mode"] != "client" || role["coordinator"].as_str().is_none() { return Ok(unavailable()); }
+    if let Some(installation) = obj.get("installationId").and_then(Value::as_str) {
+        if role["coordinator"] != "remote" && role["coordinator"] != installation { return Ok(unavailable()); }
+    }
+    let registration = &supervisor["registration"];
+    if registration.is_object() && registration["serverUrl"].as_str().and_then(|url| registration_endpoint(url).ok()).as_deref() != Some(endpoint.as_str()) {
+        return Ok(unavailable());
+    }
+    let connectivity = &machine["connectivity"];
+    if let Some(url) = connectivity["serverUrl"].as_str() {
+        if registration_endpoint(url).ok().as_deref() != Some(endpoint.as_str()) { return Ok(unavailable()); }
+    }
+    if registration["state"] == "rejected" || connectivity["state"] == "unauthorized" {
+        return Ok(ClientRegistrationStatus::Rejected { message: "This machine's registration was refused. In Settings → Machines → Add machine, create a new one-use code and pair this machine explicitly. Automatic registration will not retry.".to_string() });
+    }
+    let has_token = supervisor["token"].as_str().is_some_and(|value| !value.is_empty());
+    let has_public_key = supervisor["enrolledPublicKey"].as_str().is_some_and(|value| !value.is_empty());
+    if has_token || has_public_key {
+        if has_public_key && !dir.join("machine.key").is_file() { return Ok(unavailable()); }
+        return Ok(ClientRegistrationStatus::Enrolled);
+    }
+    if supervisor.get("setupEnrollment").is_some() || obj.get("pairCode").is_some() {
+        if connectivity["state"] == "blocked" && registration["state"] == "pairing" {
+            return Ok(ClientRegistrationStatus::Rejected { message: "Client registration could not finish. Inspect this installation's logs and pair it explicitly with a new code. Automatic registration will not retry.".to_string() });
+        }
+        return Ok(ClientRegistrationStatus::Pending);
+    }
+    if registration["state"] == "enrolled" || registration["state"] == "pairing" || dir.join("machine.key").exists() { return Ok(unavailable()); }
+    // A runtime-owned, server-bound declaration is required. Neither an absent legacy
+    // file nor connectivity alone is evidence of an unused identity.
+    if machine.get("daemon").is_some() || machine.get("legacy").is_some()
+        || machine["importedFiles"].as_object().is_none_or(|files| !files.is_empty())
+        || supervisor.get("token").is_some() || supervisor.get("enrolledPublicKey").is_some()
+        || supervisor["assignment"]["server"] != false || supervisor["assignment"]["agentExecution"] != false {
+        return Ok(unavailable());
+    }
+    if registration.is_null() { return Ok(ClientRegistrationStatus::Starting); }
+    if registration["state"] != "unregistered" { return Ok(unavailable()); }
+    let target = serde_json::to_string(&(machine_id, server, obj.get("uiUrl"), obj.get("installationId"), obj.get("installationPublicKey"))).map_err(|e| e.to_string())?;
+    Ok(ClientRegistrationStatus::Needed { target })
+}
+
+pub fn client_registration_status(caller_url: &str) -> Result<ClientRegistrationStatus, String> {
+    let raw = std::fs::read_to_string(state_dir().join("config.json")).map_err(|e| e.to_string())?;
+    let config: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+    inspect_client_registration(config.as_object().ok_or("invalid client config")?, caller_url)
+}
+
+/// The caller supplies a status receipt, never a target URL or config path. Recheck
+/// eligibility and the complete configured target inside the shared write critical section.
+pub fn write_client_registration(pair_code: &str, target: &str, caller_url: &str) -> Result<(), String> {
+    validate_pair_code(pair_code)?;
+    update_config_json(|obj| {
+        match inspect_client_registration(obj, caller_url)? {
+            ClientRegistrationStatus::Needed { target: current } if current == target => {},
+            _ => return Err("client registration state or configured target changed; reopen the app".to_string()),
+        }
+        save_pair_code(obj, pair_code);
+        Ok(())
+    })
 }
 
 /// Persist the desktop updater's production channel without disturbing config fields owned by
