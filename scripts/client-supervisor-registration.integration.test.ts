@@ -26,6 +26,7 @@ import { machineServiceReport } from '../packages/runtime/src/parent-supervisor'
 import { applyLocalSetupDefault, applyMode, consumePairCode } from '../packages/runtime/src/setup'
 import { confirmSetupEnrollment } from '../packages/runtime/src/setup-enrollment'
 import { loadConfig, saveConfig } from '../packages/runtime/src/config'
+import { clearConnectivity } from '../packages/runtime/src/connectivity'
 
 it('pairs the same client identity, persists zero roles, reconnects by machine key and accepts an authorized payload update', async () => {
   const root = mkdtempSync(join(tmpdir(), 'podium-client-registration-'))
@@ -158,6 +159,13 @@ it('pairs the same client identity, persists zero roles, reconnects by machine k
       JSON.parse(readFileSync(join(clientDir, 'config.json'), 'utf8')).pairCode,
     ).toBeUndefined()
     connection.close()
+
+    // The daemon setup path clears only the stopped backend's observation.
+    // A registered client's identity and declaration must still own reconnect.
+    clearConnectivity(clientDir)
+    expect(readMachineState(clientDir)?.connectivity).toBeUndefined()
+    expect(loadSupervisorState(clientDir)).toEqual(saved)
+    expect(readFileSync(join(clientDir, 'machine.key'), 'utf8')).toBe(originalKey)
 
     const calls: string[] = []
     const updated = new Promise<void>((resolve, reject) => {

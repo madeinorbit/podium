@@ -25,7 +25,7 @@ import {
   readRoleOrigin,
   TRANSFER_ASSIGNMENT_FILE,
 } from './machine-supervisor'
-import { writeConnectivity } from './connectivity'
+import { clearConnectivity, writeConnectivity } from './connectivity'
 import { confirmSetupEnrollment, prepareSetupEnrollment } from './setup-enrollment'
 import { applyLocalSetupDefault, applyMode } from './setup'
 import { loadConfig, saveConfig } from './config'
@@ -49,7 +49,7 @@ afterEach(() => {
 })
 
 describe('supervisor credential ownership', () => {
-  it('keeps a previous rejection until this server acknowledges the existing credential', () => {
+  it('keeps a previous rejection through status cleanup until this server acknowledges the existing credential', () => {
     class Socket extends EventTarget {
       static OPEN = 1
       static current: Socket
@@ -65,6 +65,16 @@ describe('supervisor credential ownership', () => {
     state.token = 'existing-test-token'
     state.registration = { serverUrl: 'wss://vps.example', state: 'rejected' }
     saveSupervisorState(dir, state)
+    writeConnectivity({
+      serverUrl: 'wss://vps.example',
+      state: 'unauthorized',
+      processId: process.pid,
+      appVersion: 'test',
+      authorizationReason: 'peerHelloRejected: auth-failed',
+    }, dir)
+    clearConnectivity(dir)
+    expect(readConnectivityForTest(dir)).toBeUndefined()
+    expect(loadSupervisorState(dir)).toEqual(state)
     const service = { policy: 'disabled' as const, state: 'stopped' as const, observedAt: new Date().toISOString() }
     const connection = createMachineSupervisorConnection({
       stateDir: dir, state, serverUrl: 'wss://vps.example', build: { appVersion: 'test' },
