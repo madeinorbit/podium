@@ -6805,15 +6805,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Array<ConversationIndexRow>;
             meta: unknown;
         }>;
-        "setMeta": TRPC.TRPCMutationProcedure<{
-            input: {
-                id: string;
-                name?: string | undefined;
-                summary?: string | undefined;
-            };
-            output: void;
-            meta: unknown;
-        }>;
     };
     "cost": {
         "task": TRPC.TRPCQueryProcedure<{
