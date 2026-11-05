@@ -53,6 +53,7 @@ import type {
 } from '@podium/sync'
 import type { FeedVisibilityStore, GrantRow, IssueRow, SessionRow } from './hot-path-ports'
 import type { EffectAudience } from './store/effects'
+import { INSTANCE_EFFECT_KINDS } from './modules/operations/instance-effect-kinds'
 import { perfPrincipal } from './modules/perf/principal'
 import { perf } from './modules/perf/registry'
 
@@ -68,6 +69,7 @@ type BootstrapReadPhase =
   | 'visibility.automation.ownerOf'
   | 'visibility.automationRun.runOwnerOf'
   | 'visibility.effect.audiencesOf'
+  | 'visibility.effect.adminIds'
   | 'visibility.shipOrder.issueIdForOrder'
   | 'visibility.shipLane.memberIssueIds'
   | 'visibility.grants.listForResources'
@@ -104,6 +106,8 @@ type BootstrapVisibilityPrefetch = {
   readonly automationRunOwners: ReadonlyMap<string, UserId | undefined>
   /** Each asked effect's creator and target, through the tombstone (POD-6357). */
   readonly effectAudiences: ReadonlyMap<string, EffectAudience>
+  /** The admins who can act, read only when an instance-wide effect is asked (POD-6358). */
+  readonly adminIds: ReadonlySet<string>
 }
 
 type IssueDepSubject = {
@@ -364,6 +368,9 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           // admits the creator alone until the machine kinds define more.
           const audience = prefetch.effectAudiences.get(ref.entityId)
           if (audience === undefined) return false
+          // An instance-wide effect (a software update, a server move) is every
+          // admin's and no member's, even a member who started it as an admin.
+          if (INSTANCE_EFFECT_KINDS.has(audience.kind)) return prefetch.adminIds.has(userId)
           if (audience.createdBy === userId) return true
           if (audience.targetKind === 'issue') {
             return mayReadIssueFromSnapshot(userId, audience.targetId, prefetch)
@@ -500,6 +507,13 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       if (audience.targetKind === 'issue') issueIds.add(audience.targetId)
       else if (audience.targetKind === 'session') sessionIds.add(audience.targetId)
     }
+    // A software update or a server move is every admin's (POD-6358): one read
+    // of the admins, and only for a batch that holds one.
+    const adminIds: ReadonlySet<string> = [...effectAudiences.values()].some((audience) =>
+      INSTANCE_EFFECT_KINDS.has(audience.kind),
+    )
+      ? await measure('visibility.effect.adminIds', async () => await store.users.activeAdminIds())
+      : new Set()
     const issueIdsByShipOrder =
       shipOrderIds.size === 0
         ? new Map<string, string>()
@@ -599,6 +613,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       automationRunIds,
       automationRunOwners,
       effectAudiences,
+      adminIds,
     })
   }
 

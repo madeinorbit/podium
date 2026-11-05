@@ -30,6 +30,8 @@ export interface FeedVisibilityStore {
   >
   readonly automations: Pick<SessionStore['automations'], 'ownersOf' | 'runOwnersOf'>
   readonly effects: Pick<SessionStore['effects'], 'audiencesOf'>
+  /** Admins read every instance-wide effect record (POD-6358). */
+  readonly users: Pick<SessionStore['users'], 'activeAdminIds'>
   readonly grants: Pick<SessionStore['grants'], 'loadForResource' | 'loadForResources' | 'loadForResourcesOfKinds' | 'listForResources'>
   readonly sync: Pick<SessionStore['sync'], 'installedStates' | 'installedIdsWithPrefixes'>
 }

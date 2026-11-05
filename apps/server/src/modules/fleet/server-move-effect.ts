@@ -25,6 +25,7 @@ import { checkMachineVerb, ownershipSnapshotFromMachines } from '../../machine-a
 import type { RegistryModules } from '../../relay'
 import type { EffectExecutorRegistry } from '../effects/registry'
 import { operationEffectExecutor } from '../operations/effects'
+import { SERVER_MOVE_EFFECT_KIND } from '../operations/instance-effect-kinds'
 import type { OperationEngine } from '../operations/engine'
 import { serverMoveAuthorization } from '../server-transfer/authorization'
 import {
@@ -35,7 +36,7 @@ import {
 import { normalizedPublicUrl, resolvedTransferPort } from '../server-transfer/service'
 import { NO_TARGET } from '../sync-write/registry'
 
-export const SERVER_MOVE_EFFECT_KIND = 'server.move'
+export { SERVER_MOVE_EFFECT_KIND } from '../operations/instance-effect-kinds'
 
 export type ServerMoveEffectInput = z.infer<typeof machineMoveServerInput>
 

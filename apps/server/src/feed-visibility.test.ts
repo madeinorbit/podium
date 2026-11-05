@@ -65,6 +65,12 @@ async function fixture() {
       // a machine; each created by the stranger's neighbour `creator`.
       audiencesOf: async (ids) => new Map([...EFFECT_AUDIENCES].filter(([id]) => ids.includes(id))),
     },
+    users: {
+      activeAdminIds: async () => {
+        adminReads.count += 1
+        return new Set([firstAdmin, secondAdmin])
+      },
+    },
     grants: store.grants,
     sync: store.sync,
   }
@@ -89,10 +95,31 @@ async function fixture() {
   return { store, policy, grant }
 }
 const creator = asUserId('creator')
+const firstAdmin = asUserId('first-admin')
+const secondAdmin = asUserId('second-admin')
+/** How many times a pass read the admin ids; it reads them only for instance kinds. */
+const adminReads = { count: 0 }
 const EFFECT_AUDIENCES = new Map([
-  ['eff_issue', { targetKind: 'issue', targetId: 'shared', createdBy: creator }],
-  ['eff_session', { targetKind: 'session', targetId: 'shared', createdBy: creator }],
-  ['eff_machine', { targetKind: 'machine', targetId: 'm1', createdBy: creator }],
+  [
+    'eff_issue',
+    { kind: 'issue.merge', targetKind: 'issue', targetId: 'shared', createdBy: creator },
+  ],
+  [
+    'eff_session',
+    { kind: 'session.interrupt', targetKind: 'session', targetId: 'shared', createdBy: creator },
+  ],
+  [
+    'eff_machine',
+    { kind: 'machine.scan', targetKind: 'machine', targetId: 'm1', createdBy: creator },
+  ],
+  [
+    'eff_update',
+    { kind: 'server.update', targetKind: 'machine', targetId: 'host', createdBy: firstAdmin },
+  ],
+  [
+    'eff_move',
+    { kind: 'server.move', targetKind: 'machine', targetId: 'm2', createdBy: firstAdmin },
+  ],
 ] as const)
 const refs: EntityRef[] = [
   { entity: 'issueProjection', entityId: 'shared' },
@@ -179,6 +206,34 @@ describe('feed visibility grant semantics', () => {
       expect(readable(reader)).toEqual(['eff_issue'])
       expect(readable(stranger)).toEqual([])
     }
+  })
+
+  it('a software update or a server move is read by every admin, never by a member (POD-6358)', async () => {
+    const { policy } = await fixture()
+    const instance: EntityRef[] = ['eff_update', 'eff_move'].map((entityId) => ({
+      entity: 'effect',
+      entityId,
+    }))
+    for (const prepare of [policy.state.forBootstrap!, policy.state.forBatch!]) {
+      const state = await prepare(instance)
+      const readable = (user: typeof owner) =>
+        instance.filter((ref) => state.mayRead(user, ref)).map((ref) => ref.entityId)
+      // The admin who started them, and an admin who did not.
+      expect(readable(firstAdmin)).toEqual(['eff_update', 'eff_move'])
+      expect(readable(secondAdmin)).toEqual(['eff_update', 'eff_move'])
+      // A member, even one who reads the machine's other records, does not.
+      expect(readable(creator)).toEqual([])
+      expect(readable(stranger)).toEqual([])
+    }
+  })
+
+  it('reads the admins only for a batch that holds an instance-wide effect (POD-6358)', async () => {
+    const { policy } = await fixture()
+    adminReads.count = 0
+    await policy.state.forBatch!([{ entity: 'effect', entityId: 'eff_issue' }])
+    expect(adminReads.count).toBe(0)
+    await policy.state.forBatch!([{ entity: 'effect', entityId: 'eff_update' }])
+    expect(adminReads.count).toBe(1)
   })
 
   it('reads grants through its store port but cannot write them', () => {

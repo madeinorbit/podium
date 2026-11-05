@@ -65,6 +65,8 @@ export interface EffectRow {
 
 /** Who an effect's audience is read from, through the tombstone. */
 export interface EffectAudience {
+  /** The executor's kind: an instance-wide kind is read by every admin (POD-6358). */
+  readonly kind: string
   readonly targetKind: string
   readonly targetId: string
   readonly createdBy: UserId | null
@@ -144,6 +146,7 @@ const audiencesOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
   db
     .select({
       id: effects.id,
+      kind: effects.kind,
       targetKind: effects.targetKind,
       targetId: effects.targetId,
       createdBy: effects.createdBy,
@@ -497,6 +500,7 @@ export class EffectsRepository {
       const size = inListSize(chunk.length)
       for (const row of await audiencesOfIds(this.db, size).all(inListValues(chunk, size))) {
         out.set(row.id, {
+          kind: row.kind,
           targetKind: row.targetKind,
           targetId: row.targetId,
           createdBy: row.createdBy,

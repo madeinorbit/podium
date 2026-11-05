@@ -93,3 +93,24 @@ describe('store scoped administrator identity', () => {
     await b.close()
   })
 })
+
+describe('UsersRepository.activeAdminIds (POD-6358)', () => {
+  it('is every admin who can act: no member, no disabled admin', async () => {
+    const store = await openTestStore(':memory:')
+    const first = (await store.users.earliestAdmin())?.id
+    const account = (id: string, role: 'admin' | 'member') => ({
+      id,
+      displayName: id,
+      role,
+      createdAt: '2099-01-01T00:00:00.000Z',
+      disabledAt: null,
+    })
+    await store.users.create(account('mem_2AAAAAAAAAAAAAAAAAAAAAAAAAA', 'admin'), 'scrypt:hash')
+    await store.users.create(account('mem_2BBBBBBBBBBBBBBBBBBBBBBBBBB', 'member'), 'scrypt:hash')
+    await store.users.create(account('mem_2CCCCCCCCCCCCCCCCCCCCCCCCCC', 'admin'), 'scrypt:hash')
+    await store.users.disable(asUserId('mem_2CCCCCCCCCCCCCCCCCCCCCCCCCC'), '2099-01-02T00:00:00.000Z')
+    expect([...(await store.users.activeAdminIds())].sort()).toEqual(
+      [first, 'mem_2AAAAAAAAAAAAAAAAAAAAAAAAAA'].sort(),
+    )
+  })
+})
