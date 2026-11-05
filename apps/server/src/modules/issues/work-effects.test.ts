@@ -8,10 +8,12 @@
  * the writer as they are now.
  */
 
-import { asIssueId } from '@podium/model'
+import { asIssueId, asUserId } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { userCommandPrincipal } from '../../command-principal'
 import { disposeOracles, makeOracle as makeBareOracle } from '../sessions/oracle-support'
+import { type AnyIssueCommandDef, issueRegistry } from './registry'
 import { ISSUE_WORK_EFFECT_KIND, type IssueWorkCommand } from './work-effects'
 
 afterEach(() => disposeOracles())
@@ -78,13 +80,45 @@ describe('the issue work effects', () => {
     expect(run.mock.calls[0]?.[0]).toBe(issue.id)
   })
 
-  it('a caller refused at create gets no record and no run', async () => {
+  it('an unknown issue answers as it always did: not found', async () => {
     const o = await makeOracle()
+    const error = await o.call.issues
+      .cleanup({ id: asIssueId('iss_nope') })
+      .catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(TRPCError)
+    expect((error as TRPCError).code).toBe('NOT_FOUND')
+  })
+
+  it("a caller refused at create (a member, someone else's issue) gets no record and no run", async () => {
+    const o = await makeOracle()
+    const issue = await newIssue(o, 'not theirs')
+    const member = asUserId('usr_member_6414')
+    await o.store.users.createUnclaimed({
+      id: member,
+      displayName: 'Member',
+      email: null,
+      role: 'member',
+      createdAt: new Date().toISOString(),
+      disabledAt: null,
+    })
+    const principal = userCommandPrincipal(member, 'member')
     const run = vi.spyOn(o.reg.issues.gitWorkflow, 'cleanup')
-    await expect(o.call.issues.cleanup({ id: asIssueId('iss_nope') })).rejects.toBeInstanceOf(
-      TRPCError,
-    )
+    const def = (issueRegistry.defs as Record<string, AnyIssueCommandDef>)
+      .cleanup as AnyIssueCommandDef
+
+    await expect(
+      o.reg.issueCommands.run({ capability: principal.capability, principal }, 'cleanup', def, {
+        id: issue.id,
+      }),
+    ).rejects.toThrow()
     expect(run).not.toHaveBeenCalled()
+    expect(
+      await o.store.effects.newestOnTarget(
+        'issue.cleanup',
+        { kind: 'issue', id: issue.id },
+        'active',
+      ),
+    ).toBeUndefined()
   })
 
   it('a record whose run the server lost says so instead of guessing', async () => {
