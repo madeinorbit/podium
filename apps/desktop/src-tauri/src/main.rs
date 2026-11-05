@@ -1386,8 +1386,11 @@ fn daemon_connectivity() -> Option<DaemonConnectivity> {
     let dir = bootstrap::state_dir();
     let canonical = dir.join("machine.json");
     if canonical.exists() {
-        let machine: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(canonical).ok()?).ok()?;
-        if machine["version"] != 1 { return None; }
+        let machine: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(canonical).ok()?).ok()?;
+        if machine["version"] != 1 {
+            return None;
+        }
         return parse_daemon_connectivity(&machine.get("connectivity")?.to_string());
     }
     let text = std::fs::read_to_string(dir.join("connectivity.json")).ok()?;
@@ -1397,15 +1400,29 @@ fn daemon_connectivity() -> Option<DaemonConnectivity> {
 /// These commands are granted only to the configured client window. The current
 /// URL is checked again because an earlier remote grant can outlive config changes.
 #[tauri::command]
-fn client_registration_status(window: tauri::WebviewWindow) -> Result<bootstrap::ClientRegistrationStatus, String> {
-    if window.label() != "main" { return Err("registration requires the main window".to_string()); }
+fn client_registration_status(
+    window: tauri::WebviewWindow,
+) -> Result<bootstrap::ClientRegistrationStatus, String> {
+    if window.label() != "main" {
+        return Err("registration requires the main window".to_string());
+    }
     bootstrap::client_registration_status(window.url().map_err(|e| e.to_string())?.as_str())
 }
 
 #[tauri::command]
-fn register_client(window: tauri::WebviewWindow, pair_code: String, target: String) -> Result<(), String> {
-    if window.label() != "main" { return Err("registration requires the main window".to_string()); }
-    bootstrap::write_client_registration(&pair_code, &target, window.url().map_err(|e| e.to_string())?.as_str())
+fn register_client(
+    window: tauri::WebviewWindow,
+    pair_code: String,
+    target: String,
+) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("registration requires the main window".to_string());
+    }
+    bootstrap::write_client_registration(
+        &pair_code,
+        &target,
+        window.url().map_err(|e| e.to_string())?.as_str(),
+    )
 }
 
 /// Debug acceptance seam: page text crosses the real WebKit→Tauri invoke
@@ -1431,8 +1448,11 @@ fn runtime_probe_report(body_text: String) -> Result<(), String> {
 /// which pairs over its WebSocket handshake. All validation lives in
 /// `bootstrap::write_hosting_config` — notably serverUrl is never accepted from the caller.
 #[tauri::command]
-fn enable_hosting(pair_code: String) -> Result<(), String> {
-    bootstrap::write_hosting_config(&pair_code)
+fn enable_hosting(window: tauri::WebviewWindow, pair_code: Option<String>) -> Result<(), String> {
+    match pair_code {
+        Some(code) => bootstrap::write_hosting_config(&code),
+        None => bootstrap::write_enrolled_hosting_config(window.url().map_err(|e| e.to_string())?.as_str()),
+    }
 }
 
 /// POD-5921: remember the installation the window just authenticated to, so it can follow that
@@ -3403,6 +3423,8 @@ mod tests {
         assert!(client.contains("launchMode: \"client\""));
         assert!(client.contains("enableHosting: (pairCode) =>"));
         assert!(client.contains("invoke('enable_hosting', { pairCode })"));
+        assert!(client.contains("clientRegistrationStatus"));
+        assert!(client.contains("registerClient"));
         for mode in ["daemon", "server", "all-in-one"] {
             assert!(!test_native_desktop_hook(mode, None).contains("enableHosting"));
         }

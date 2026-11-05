@@ -85,7 +85,7 @@ export interface NativeDesktopBridge {
    * [spec:SP-3701] Present only in client mode: rewrite the local config to daemon mode with a
    * hub-minted pairing code. Caller restarts the shell afterwards (window.__PODIUM_RESTART__).
    */
-  enableHosting?: (pairCode: string) => Promise<void>
+  enableHosting?: (pairCode?: string) => Promise<void>
   /** Client-only, optional on older shells; neither method accepts a server URL. */
   clientRegistrationStatus?: () => Promise<NativeClientRegistrationStatus>
   registerClient?: (pairCode: string, target: string) => Promise<void>

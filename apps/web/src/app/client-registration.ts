@@ -20,10 +20,12 @@ export class ClientRegistration {
       !bridge.registerClient
     )
       return Promise.resolve(null)
-    this.attempt ??= this.register(bridge, trpc).catch(
-      (error: unknown) =>
-        `Client registration could not finish: ${error instanceof Error ? error.message : String(error)}`,
-    )
+    this.attempt ??= this.register(bridge, trpc).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error)
+      return message === restartGuidance
+        ? message
+        : `Client registration could not finish: ${message}`
+    })
     return this.attempt
   }
 
@@ -31,8 +33,9 @@ export class ClientRegistration {
     bridge: NativeDesktopBridge,
     trpc: Pick<Trpc, 'machines'>,
   ): Promise<string | null> {
-    const read = bridge.clientRegistrationStatus!
-    const save = bridge.registerClient!
+    const read = bridge.clientRegistrationStatus
+    const save = bridge.registerClient
+    if (!read || !save) return null
     // Startup can reach an already-authenticated page before the CLI has written
     // its first canonical declaration. Pending pairing can likewise settle after
     // this page mounts. Only these transitional answers are read again, bounded.

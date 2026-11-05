@@ -50,7 +50,7 @@ import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { useServerAppVersion } from '@/lib/version-skew'
-import { pairNativeDesktop } from './native-pairing'
+import { enableNativeHosting } from './native-pairing'
 
 export function ServerMoveProgress({
   operation,
@@ -396,7 +396,12 @@ function MachinesPanelView({
                   showOwnershipTransfer={showOwnershipTransfer}
                   // Inline "Enable": only on this device's own row, only while it is offline
                   // (online means the daemon is already running) [spec:SP-3701].
-                  hosting={m.id === thisMachineId && !m.online ? hosting : null}
+                  hosting={
+                    m.id === thisMachineId &&
+                    (!m.online || m.serviceAssignment?.agentExecution === false)
+                      ? hosting
+                      : null
+                  }
                   onFindRepos={m.online ? () => setFindReposFor(m.id) : null}
                   serverAppVersion={serverAppVersion}
                   convergence={convergence.rows.get(m.id) ?? null}
@@ -533,17 +538,12 @@ function useEnableHosting(trpc: Store['trpc']): EnableHosting | null {
   const [error, setError] = useState<string | null>(null)
   const bridge = nativeDesktopBridge()
   if (bridge?.launchMode !== 'client' || !bridge.enableHosting) return null
-  const enableHosting = bridge.enableHosting
 
   const enable = async () => {
     setBusy(true)
     setError(null)
     try {
-      await pairNativeDesktop(
-        trpc,
-        enableHosting,
-        'Hosting enabled — quit and reopen the app to finish pairing.',
-      )
+      await enableNativeHosting(trpc, bridge)
     } catch (e) {
       setBusy(false)
       setError(e instanceof Error ? e.message : String(e))
@@ -1533,7 +1533,7 @@ const MachineRow = observer(function MachineRow({
               </Button>
             )}
 
-            {/* Enable hosting on this (offline, previously paired) device [spec:SP-3701] */}
+            {/* An enrolled client can be online while agent execution is disabled. */}
             {hosting && (
               <Button
                 type="button"

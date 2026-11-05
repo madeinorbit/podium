@@ -1,5 +1,6 @@
 import '@/test-support/mock-pool-store-handle'
-import { renderSettingsPool as render } from '@/test-support/mock-settings-pool-fixture'
+import { renderSettingsPool } from '@/test-support/mock-settings-pool-fixture'
+import type { ReactNode } from 'react'
 import type { MachineWire } from '@podium/model'
 import { asMachineId } from '@podium/model'
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
@@ -26,6 +27,15 @@ vi.mock('@/features/setup/network-step', () => ({ NetworkStep: () => null }))
 vi.mock('@/features/setup/RepoScanFlow', () => ({ RepoScanFlow: () => null }))
 
 import { MachinesPanel } from './MachinesPanel'
+import { SettingsOpening } from './SettingsOpening'
+
+function render(ui: ReactNode) {
+  const view = renderSettingsPool(<SettingsOpening>{ui}</SettingsOpening>)
+  return {
+    ...view,
+    rerender: (next: ReactNode) => view.rerender(<SettingsOpening>{next}</SettingsOpening>),
+  }
+}
 
 /** Settings → Experimental "Podium development" (POD-1882). */
 let developing = false
@@ -189,9 +199,24 @@ describe('MachinesPanel hosting affordances', () => {
     expect(screen.queryByRole('button', { name: 'Enable' })).toBeNull()
   })
 
+  it('keeps Enable available on an online registered client with no service roles', () => {
+    stubBridge({ machineId: asMachineId('m-1') })
+    storeState.machines = [
+      machine({
+        id: asMachineId('m-1'),
+        online: true,
+        serviceAssignment: { server: false, agentExecution: false },
+      }),
+    ]
+    setTrpc(vi.fn())
+    render(<MachinesPanel />)
+    expect(enableCard()).toBeNull()
+    expect(screen.getByRole('button', { name: 'Enable' })).toBeTruthy()
+  })
+
   it('inline Enable mints a code, hands it to the shell, and restarts', async () => {
     const bridge = stubBridge({ machineId: asMachineId('m-1') })
-    const restart = vi.fn()
+    const restart = vi.fn(() => new Promise<void>(() => {}))
     ;(window as unknown as { __PODIUM_RESTART__?: () => void }).__PODIUM_RESTART__ = restart
     const mutate = vi.fn().mockResolvedValue({ code: 'ABCD-EFGH', joinCommand: null })
     storeState.machines = [machine({ id: asMachineId('m-1'), online: false })]

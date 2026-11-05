@@ -344,7 +344,9 @@ static CONFIG_WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 fn update_config_json(
     edit: impl FnOnce(&mut serde_json::Map<String, serde_json::Value>) -> Result<(), String>,
 ) -> Result<(), String> {
-    let _guard = CONFIG_WRITE_LOCK.lock().map_err(|_| "config writer unavailable")?;
+    let _guard = CONFIG_WRITE_LOCK
+        .lock()
+        .map_err(|_| "config writer unavailable")?;
     let path = state_dir().join("config.json");
     let text = std::fs::read_to_string(&path)
         .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
@@ -357,18 +359,26 @@ fn update_config_json(
     let out = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
     let tmp = path.with_extension("json.tmp");
     use std::io::Write;
-    let mut file = std::fs::OpenOptions::new().write(true).create(true).truncate(true).open(&tmp)
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&tmp)
         .map_err(|e| format!("cannot write config: {e}"))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        file.set_permissions(std::fs::Permissions::from_mode(0o600)).map_err(|e| e.to_string())?;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))
+            .map_err(|e| e.to_string())?;
     }
-    file.write_all(format!("{out}\n").as_bytes()).map_err(|e| e.to_string())?;
+    file.write_all(format!("{out}\n").as_bytes())
+        .map_err(|e| e.to_string())?;
     file.sync_all().map_err(|e| e.to_string())?;
     std::fs::rename(&tmp, &path).map_err(|e| format!("cannot replace config.json: {e}"))?;
     #[cfg(unix)]
-    std::fs::File::open(state_dir()).and_then(|dir| dir.sync_all()).map_err(|e| e.to_string())?;
+    std::fs::File::open(state_dir())
+        .and_then(|dir| dir.sync_all())
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -755,8 +765,16 @@ pub fn backend_exit_decision(initial_action: &LaunchAction) -> BackendExitDecisi
 pub fn read_supervisor_machine_id() -> Option<String> {
     let canonical = state_dir().join("machine.json");
     if canonical.exists() {
-        let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(canonical).ok()?).ok()?;
-        return (json.get("version")?.as_u64()? == 1).then(|| json.get("machineId")?.as_str().filter(|id| !id.is_empty()).map(str::to_string)).flatten();
+        let json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(canonical).ok()?).ok()?;
+        return (json.get("version")?.as_u64()? == 1)
+            .then(|| {
+                json.get("machineId")?
+                    .as_str()
+                    .filter(|id| !id.is_empty())
+                    .map(str::to_string)
+            })
+            .flatten();
     }
     for name in ["supervisor.json", "daemon.json"] {
         let Ok(text) = std::fs::read_to_string(state_dir().join(name)) else {
@@ -778,14 +796,22 @@ pub fn read_supervisor_machine_id() -> Option<String> {
 /// transition allowed is client → daemon against the serverUrl the user already configured
 /// (never a parameter), and every other config field is preserved verbatim.
 fn validate_pair_code(pair_code: &str) -> Result<(), String> {
-    if pair_code.is_empty() || pair_code.len() > 32 || !pair_code.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+    if pair_code.is_empty()
+        || pair_code.len() > 32
+        || !pair_code
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-')
+    {
         return Err("invalid pairing code".to_string());
     }
     Ok(())
 }
 
 fn save_pair_code(obj: &mut serde_json::Map<String, serde_json::Value>, pair_code: &str) {
-    obj.insert("pairCode".to_string(), serde_json::Value::String(pair_code.to_string()));
+    obj.insert(
+        "pairCode".to_string(),
+        serde_json::Value::String(pair_code.to_string()),
+    );
 }
 
 pub fn write_hosting_config(pair_code: &str) -> Result<(), String> {
@@ -794,11 +820,30 @@ pub fn write_hosting_config(pair_code: &str) -> Result<(), String> {
         if obj.get("mode").and_then(|v| v.as_str()) != Some("client") {
             return Err("hosting can only be enabled from client mode".to_string());
         }
-        if !obj.get("serverUrl").and_then(|v| v.as_str()).is_some_and(|url| !url.is_empty()) {
+        if !obj
+            .get("serverUrl")
+            .and_then(|v| v.as_str())
+            .is_some_and(|url| !url.is_empty())
+        {
             return Err("config has no serverUrl to pair against".to_string());
         }
-        obj.insert("mode".to_string(), serde_json::Value::String("daemon".to_string()));
+        obj.insert(
+            "mode".to_string(),
+            serde_json::Value::String("daemon".to_string()),
+        );
         save_pair_code(obj, pair_code);
+        Ok(())
+    })
+}
+
+/// An already registered client enables hosting through its existing credential.
+/// Its explicit UI action changes the server assignment through the existing admin API.
+pub fn write_enrolled_hosting_config(caller_url: &str) -> Result<(), String> {
+    update_config_json(|obj| {
+        if inspect_client_registration(obj, caller_url)? != ClientRegistrationStatus::Enrolled {
+            return Err("hosting requires this client's existing registration".to_string());
+        }
+        obj.insert("mode".to_string(), serde_json::json!("daemon"));
         Ok(())
     })
 }
@@ -817,13 +862,21 @@ pub enum ClientRegistrationStatus {
 }
 
 fn registration_unavailable(message: &str) -> ClientRegistrationStatus {
-    ClientRegistrationStatus::Unavailable { message: message.to_string() }
+    ClientRegistrationStatus::Unavailable {
+        message: message.to_string(),
+    }
 }
 
 fn registration_endpoint(raw: &str) -> Result<String, String> {
     let url = validated_webview_http_url(raw)?;
-    if !url.username().is_empty() || url.password().is_some() || url.query().is_some() || url.fragment().is_some() {
-        return Err("registration target must not contain credentials, query or fragment".to_string());
+    if !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err(
+            "registration target must not contain credentials, query or fragment".to_string(),
+        );
     }
     Ok(url.as_str().trim_end_matches('/').to_string())
 }
@@ -836,11 +889,15 @@ fn inspect_client_registration(
     if obj.get("mode").and_then(Value::as_str) != Some("client") {
         return Ok(ClientRegistrationStatus::NotApplicable);
     }
-    let server = obj.get("serverUrl").and_then(Value::as_str).ok_or("client has no configured server")?;
+    let server = obj
+        .get("serverUrl")
+        .and_then(Value::as_str)
+        .ok_or("client has no configured server")?;
     let endpoint = registration_endpoint(server)?;
     let ui = remote_window_origin_url(server, obj.get("uiUrl").and_then(Value::as_str));
     if Url::parse(caller_url).map_err(|e| e.to_string())?.origin()
-        != Url::parse(&ui).map_err(|e| e.to_string())?.origin() {
+        != Url::parse(&ui).map_err(|e| e.to_string())?.origin()
+    {
         return Err("client registration is limited to the configured frontend".to_string());
     }
     let dir = state_dir();
@@ -853,68 +910,162 @@ fn inspect_client_registration(
         Ok(Value::Object(value)) => Value::Object(value),
         _ => return Ok(registration_unavailable("This installation's supervisor state is invalid. Inspect its local logs before pairing again.")),
     };
-    let unavailable = || registration_unavailable("This installation has incomplete or mismatched registration state. Inspect its local logs before pairing again.");
-    let Some(machine_id) = machine.get("machineId").and_then(Value::as_str).filter(|id| !id.trim().is_empty()) else { return Ok(unavailable()); };
-    if machine["version"] != 1 || !machine["importedFiles"].is_object() { return Ok(unavailable()); }
+    let unavailable = || {
+        registration_unavailable("This installation has incomplete or mismatched registration state. Inspect its local logs before pairing again.")
+    };
+    let Some(machine_id) = machine
+        .get("machineId")
+        .and_then(Value::as_str)
+        .filter(|id| !id.trim().is_empty())
+    else {
+        return Ok(unavailable());
+    };
+    if machine["version"] != 1 || !machine["importedFiles"].is_object() {
+        return Ok(unavailable());
+    }
     let supervisor = &machine["supervisor"];
-    if supervisor["machineId"].as_str() != Some(machine_id) { return Ok(unavailable()); }
+    if supervisor["machineId"].as_str() != Some(machine_id) {
+        return Ok(unavailable());
+    }
     let role = &machine["role"];
-    if role["mode"] != "client" || role["coordinator"].as_str().is_none() { return Ok(unavailable()); }
+    if role["mode"] != "client" || role["coordinator"].as_str().is_none() {
+        return Ok(unavailable());
+    }
     if let Some(installation) = obj.get("installationId").and_then(Value::as_str) {
-        if role["coordinator"] != "remote" && role["coordinator"] != installation { return Ok(unavailable()); }
+        if role["coordinator"] != "remote" && role["coordinator"] != installation {
+            return Ok(unavailable());
+        }
+    }
+    for field in ["token", "enrolledPublicKey"] {
+        if supervisor.get(field).is_some_and(|value| value.as_str().is_none_or(|value| value.is_empty())) {
+            return Ok(unavailable());
+        }
+    }
+    if let Some(setup) = supervisor.get("setupEnrollment") {
+        if setup["machineId"].as_str() != Some(machine_id)
+            || !["requestId", "publicKey"].iter().all(|field| setup[field].as_str().is_some_and(|value| !value.is_empty()))
+            || !["agentExecution", "preauthorized"].iter().all(|field| setup[field].is_boolean()) {
+            return Ok(unavailable());
+        }
+    }
+    if supervisor.get("assignment").is_some_and(|assignment| !assignment["server"].is_boolean() || !assignment["agentExecution"].is_boolean()) {
+        return Ok(unavailable());
     }
     let registration = &supervisor["registration"];
-    if registration.is_object() && registration["serverUrl"].as_str().and_then(|url| registration_endpoint(url).ok()).as_deref() != Some(endpoint.as_str()) {
+    if supervisor.get("registration").is_some() && (!registration.is_object()
+        || !matches!(registration["state"].as_str(), Some("unregistered" | "pairing" | "enrolled" | "rejected"))) {
+        return Ok(unavailable());
+    }
+    if registration.is_object()
+        && registration["serverUrl"]
+            .as_str()
+            .and_then(|url| registration_endpoint(url).ok())
+            .as_deref()
+            != Some(endpoint.as_str())
+    {
         return Ok(unavailable());
     }
     let connectivity = &machine["connectivity"];
     if let Some(url) = connectivity["serverUrl"].as_str() {
-        if registration_endpoint(url).ok().as_deref() != Some(endpoint.as_str()) { return Ok(unavailable()); }
+        if registration_endpoint(url).ok().as_deref() != Some(endpoint.as_str()) {
+            return Ok(unavailable());
+        }
     }
     if registration["state"] == "rejected" || connectivity["state"] == "unauthorized" {
         return Ok(ClientRegistrationStatus::Rejected { message: "This machine's registration was refused. In Settings → Machines → Add machine, create a new one-use code and pair this machine explicitly. Automatic registration will not retry.".to_string() });
     }
-    let has_token = supervisor["token"].as_str().is_some_and(|value| !value.is_empty());
-    let has_public_key = supervisor["enrolledPublicKey"].as_str().is_some_and(|value| !value.is_empty());
+    if connectivity["state"] == "blocked"
+        && registration["state"] != "unregistered"
+        && registration["state"] != "pairing"
+    {
+        return Ok(unavailable());
+    }
+    if registration["state"] == "unregistered"
+        && connectivity["state"] == "blocked"
+        && connectivity["blockedReason"]
+            != "Error: machine supervisor has no credential; pair it first"
+    {
+        return Ok(unavailable());
+    }
+    let has_token = supervisor["token"]
+        .as_str()
+        .is_some_and(|value| !value.is_empty());
+    let has_public_key = supervisor["enrolledPublicKey"]
+        .as_str()
+        .is_some_and(|value| !value.is_empty());
     if has_token || has_public_key {
-        if has_public_key && !dir.join("machine.key").is_file() { return Ok(unavailable()); }
+        if has_public_key && !dir.join("machine.key").is_file() {
+            return Ok(unavailable());
+        }
         return Ok(ClientRegistrationStatus::Enrolled);
     }
     if supervisor.get("setupEnrollment").is_some() || obj.get("pairCode").is_some() {
-        if connectivity["state"] == "blocked" && registration["state"] == "pairing" {
-            return Ok(ClientRegistrationStatus::Rejected { message: "Client registration could not finish. Inspect this installation's logs and pair it explicitly with a new code. Automatic registration will not retry.".to_string() });
-        }
         return Ok(ClientRegistrationStatus::Pending);
     }
-    if registration["state"] == "enrolled" || registration["state"] == "pairing" || dir.join("machine.key").exists() { return Ok(unavailable()); }
-    // A runtime-owned, server-bound declaration is required. Neither an absent legacy
-    // file nor connectivity alone is evidence of an unused identity.
-    if machine.get("daemon").is_some() || machine.get("legacy").is_some()
-        || machine["importedFiles"].as_object().is_none_or(|files| !files.is_empty())
-        || supervisor.get("token").is_some() || supervisor.get("enrolledPublicKey").is_some()
-        || supervisor["assignment"]["server"] != false || supervisor["assignment"]["agentExecution"] != false {
+    if registration["state"] == "enrolled"
+        || registration["state"] == "pairing"
+        || dir.join("machine.key").exists()
+    {
         return Ok(unavailable());
     }
-    if registration.is_null() { return Ok(ClientRegistrationStatus::Starting); }
-    if registration["state"] != "unregistered" { return Ok(unavailable()); }
-    let target = serde_json::to_string(&(machine_id, server, obj.get("uiUrl"), obj.get("installationId"), obj.get("installationPublicKey"))).map_err(|e| e.to_string())?;
+    // A runtime-owned, server-bound declaration is required. Neither an absent legacy
+    // file nor connectivity alone is evidence of an unused identity.
+    if machine.get("daemon").is_some()
+        || machine.get("legacy").is_some()
+        || machine["importedFiles"]
+            .as_object()
+            .is_none_or(|files| !files.is_empty())
+        || supervisor.get("token").is_some()
+        || supervisor.get("enrolledPublicKey").is_some()
+        || supervisor["assignment"]["server"] != false
+        || supervisor["assignment"]["agentExecution"] != false
+    {
+        return Ok(unavailable());
+    }
+    if registration.is_null() {
+        return Ok(ClientRegistrationStatus::Starting);
+    }
+    if registration["state"] != "unregistered" {
+        return Ok(unavailable());
+    }
+    let target = serde_json::to_string(&(
+        machine_id,
+        server,
+        obj.get("uiUrl"),
+        obj.get("installationId"),
+        obj.get("installationPublicKey"),
+    ))
+    .map_err(|e| e.to_string())?;
     Ok(ClientRegistrationStatus::Needed { target })
 }
 
 pub fn client_registration_status(caller_url: &str) -> Result<ClientRegistrationStatus, String> {
-    let raw = std::fs::read_to_string(state_dir().join("config.json")).map_err(|e| e.to_string())?;
+    let raw =
+        std::fs::read_to_string(state_dir().join("config.json")).map_err(|e| e.to_string())?;
     let config: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
-    inspect_client_registration(config.as_object().ok_or("invalid client config")?, caller_url)
+    inspect_client_registration(
+        config.as_object().ok_or("invalid client config")?,
+        caller_url,
+    )
 }
 
 /// The caller supplies a status receipt, never a target URL or config path. Recheck
 /// eligibility and the complete configured target inside the shared write critical section.
-pub fn write_client_registration(pair_code: &str, target: &str, caller_url: &str) -> Result<(), String> {
+pub fn write_client_registration(
+    pair_code: &str,
+    target: &str,
+    caller_url: &str,
+) -> Result<(), String> {
     validate_pair_code(pair_code)?;
     update_config_json(|obj| {
         match inspect_client_registration(obj, caller_url)? {
-            ClientRegistrationStatus::Needed { target: current } if current == target => {},
-            _ => return Err("client registration state or configured target changed; reopen the app".to_string()),
+            ClientRegistrationStatus::Needed { target: current } if current == target => {}
+            _ => {
+                return Err(
+                    "client registration state or configured target changed; reopen the app"
+                        .to_string(),
+                )
+            }
         }
         save_pair_code(obj, pair_code);
         Ok(())
@@ -948,6 +1099,7 @@ fn write_channel(
     feed_endpoint: Option<&str>,
     requirement: EndpointRequirement,
 ) -> Result<(), String> {
+    let _guard = CONFIG_WRITE_LOCK.lock().map_err(|_| "config writer unavailable")?;
     let path = state_dir().join("config.json");
     let mut json = match std::fs::read_to_string(&path) {
         Ok(text) => serde_json::from_str::<serde_json::Value>(&text)
@@ -3037,6 +3189,263 @@ mod tests {
             )
             .unwrap();
             assert_eq!(read_supervisor_machine_id().as_deref(), Some("m-123"));
+        });
+    }
+
+    fn fresh_client_machine() -> serde_json::Value {
+        serde_json::json!({
+            "version": 1, "machineId": "same-machine", "importedFiles": {},
+            "role": { "mode": "client", "coordinator": "remote" },
+            "supervisor": {
+                "machineId": "same-machine", "generation": 1,
+                "assignment": { "server": false, "agentExecution": false },
+                "registration": { "serverUrl": "wss://vps.example", "state": "unregistered" }
+            },
+            "connectivity": { "serverUrl": "wss://vps.example", "state": "blocked", "blockedReason": "Error: machine supervisor has no credential; pair it first" }
+        })
+    }
+
+    fn put_client_machine(machine: &serde_json::Value) {
+        std::fs::write(state_dir().join("machine.json"), machine.to_string()).unwrap();
+    }
+
+    fn needed_client_target() -> String {
+        match client_registration_status("https://vps.example/work").unwrap() {
+            ClientRegistrationStatus::Needed { target } => target,
+            other => panic!("expected fresh client, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn client_handoff_is_durable_role_preserving_and_only_saved_once() {
+        with_state_dir(
+            "client-handoff",
+            Some(r#"{"mode":"client","serverUrl":"wss://vps.example","extra":{"keep":42}}"#),
+            || {
+                put_client_machine(&fresh_client_machine());
+                let target = needed_client_target();
+                let attempts: Vec<_> = (0..2)
+                    .map(|_| {
+                        let target = target.clone();
+                        std::thread::spawn(move || {
+                            write_client_registration(
+                                "ABCD-EFGH",
+                                &target,
+                                "https://vps.example/work",
+                            )
+                        })
+                    })
+                    .collect();
+                assert_eq!(
+                    attempts
+                        .into_iter()
+                        .map(|thread| thread.join().unwrap())
+                        .filter(Result::is_ok)
+                        .count(),
+                    1
+                );
+                let config: serde_json::Value = serde_json::from_str(
+                    &std::fs::read_to_string(state_dir().join("config.json")).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(config["mode"], "client");
+                assert_eq!(config["pairCode"], "ABCD-EFGH");
+                assert_eq!(config["extra"]["keep"], 42);
+                assert_eq!(
+                    client_registration_status("https://vps.example/work").unwrap(),
+                    ClientRegistrationStatus::Pending
+                );
+                assert_eq!(
+                    read_supervisor_machine_id().as_deref(),
+                    Some("same-machine")
+                );
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    assert_eq!(
+                        std::fs::metadata(state_dir().join("config.json"))
+                            .unwrap()
+                            .permissions()
+                            .mode()
+                            & 0o777,
+                        0o600
+                    );
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn client_registration_rechecks_scope_and_configured_target() {
+        with_state_dir(
+            "client-target",
+            Some(r#"{"mode":"client","serverUrl":"wss://vps.example"}"#),
+            || {
+                put_client_machine(&fresh_client_machine());
+                let target = needed_client_target();
+                assert!(client_registration_status("https://other.example").is_err());
+                assert!(
+                    write_client_registration("ABCD-EFGH", &target, "https://other.example")
+                        .is_err()
+                );
+                assert!(
+                    write_client_registration("bad code!", &target, "https://vps.example").is_err()
+                );
+                write_server_identity(ID, KEY).unwrap();
+                assert!(
+                    write_client_registration("ABCD-EFGH", &target, "https://vps.example").is_err()
+                );
+                update_config_json(|obj| {
+                    obj.insert(
+                        "serverUrl".to_string(),
+                        serde_json::json!("wss://other.example"),
+                    );
+                    Ok(())
+                })
+                .unwrap();
+                assert!(
+                    write_client_registration("ABCD-EFGH", &target, "https://vps.example").is_err()
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn client_registration_requires_canonical_never_enrolled_evidence() {
+        with_state_dir(
+            "client-history",
+            Some(r#"{"mode":"client","serverUrl":"wss://vps.example"}"#),
+            || {
+                assert_eq!(
+                    client_registration_status("https://vps.example").unwrap(),
+                    ClientRegistrationStatus::Starting
+                );
+                for patch in [
+                    serde_json::json!({ "registration": { "serverUrl": "wss://other.example", "state": "unregistered" } }),
+                    serde_json::json!({ "registration": { "serverUrl": "wss://vps.example", "state": "enrolled" } }),
+                    serde_json::json!({ "registration": { "serverUrl": "wss://vps.example", "state": "pairing" } }),
+                    serde_json::json!({ "token": "" }),
+                    serde_json::json!({ "enrolledPublicKey": false }),
+                    serde_json::json!({ "assignment": { "server": false, "agentExecution": true } }),
+                ] {
+                    let mut machine = fresh_client_machine();
+                    machine["supervisor"]
+                        .as_object_mut()
+                        .unwrap()
+                        .extend(patch.as_object().unwrap().clone());
+                    put_client_machine(&machine);
+                    assert!(matches!(
+                        client_registration_status("https://vps.example").unwrap(),
+                        ClientRegistrationStatus::Unavailable { .. }
+                    ));
+                }
+                let mut machine = fresh_client_machine();
+                machine["importedFiles"] = serde_json::json!({ "supervisor.json": "prior-import" });
+                put_client_machine(&machine);
+                assert!(matches!(
+                    client_registration_status("https://vps.example").unwrap(),
+                    ClientRegistrationStatus::Unavailable { .. }
+                ));
+                put_client_machine(&fresh_client_machine());
+                std::fs::write(
+                    state_dir().join("machine.key"),
+                    "private material must never be read or returned",
+                )
+                .unwrap();
+                assert!(matches!(
+                    client_registration_status("https://vps.example").unwrap(),
+                    ClientRegistrationStatus::Unavailable { .. }
+                ));
+                std::fs::write(state_dir().join("machine.json"), "corrupt").unwrap();
+                assert!(matches!(
+                    client_registration_status("https://vps.example").unwrap(),
+                    ClientRegistrationStatus::Unavailable { .. }
+                ));
+            },
+        );
+    }
+
+    #[test]
+    fn client_registration_distinguishes_enrolled_rejected_pending_and_other_modes() {
+        with_state_dir(
+            "client-status",
+            Some(r#"{"mode":"client","serverUrl":"wss://vps.example"}"#),
+            || {
+                let mut machine = fresh_client_machine();
+                machine["supervisor"]["token"] = serde_json::json!("private-token");
+                machine["connectivity"]["state"] = serde_json::json!("disconnected");
+                put_client_machine(&machine);
+                let status = client_registration_status("https://vps.example").unwrap();
+                assert_eq!(status, ClientRegistrationStatus::Enrolled);
+                assert_eq!(
+                    serde_json::to_string(&status).unwrap(),
+                    r#"{"state":"enrolled"}"#
+                );
+                machine["connectivity"]["state"] = serde_json::json!("unauthorized");
+                put_client_machine(&machine);
+                assert!(matches!(
+                    client_registration_status("https://vps.example").unwrap(),
+                    ClientRegistrationStatus::Rejected { .. }
+                ));
+                machine = fresh_client_machine();
+                machine["supervisor"]["setupEnrollment"] = serde_json::json!({ "machineId": "same-machine", "requestId": "setup", "publicKey": "public-key", "agentExecution": false, "preauthorized": false });
+                put_client_machine(&machine);
+                assert_eq!(
+                    client_registration_status("https://vps.example").unwrap(),
+                    ClientRegistrationStatus::Pending
+                );
+                for mode in ["daemon", "server", "all-in-one", "supervisor"] {
+                    update_config_json(|obj| {
+                        obj.insert("mode".to_string(), serde_json::json!(mode));
+                        Ok(())
+                    })
+                    .unwrap();
+                    assert_eq!(
+                        client_registration_status("https://vps.example").unwrap(),
+                        ClientRegistrationStatus::NotApplicable
+                    );
+                    assert!(
+                        write_client_registration("ABCD-EFGH", "any", "https://vps.example")
+                            .is_err()
+                    );
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn client_handoff_preserves_concurrent_native_config_edits() {
+        with_state_dir("client-config-writers", Some(r#"{"mode":"client","serverUrl":"wss://vps.example","extra":42}"#), || {
+            put_client_machine(&fresh_client_machine());
+            let target = needed_client_target();
+            let code = std::thread::spawn(move || write_client_registration("ABCD-EFGH", &target, "https://vps.example"));
+            let channel = std::thread::spawn(|| write_update_channel(UpdateChannel::Edge, None));
+            code.join().unwrap().unwrap();
+            channel.join().unwrap().unwrap();
+            let config: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(state_dir().join("config.json")).unwrap()).unwrap();
+            assert_eq!(config["mode"], "client");
+            assert_eq!(config["pairCode"], "ABCD-EFGH");
+            assert_eq!(config["updateChannel"], "edge");
+            assert_eq!(config["extra"], 42);
+        });
+    }
+
+    #[test]
+    fn enrolled_client_hosting_preserves_its_credential_without_a_new_pair_code() {
+        with_state_dir("enrolled-client-hosting", Some(r#"{"mode":"client","serverUrl":"wss://vps.example","extra":42}"#), || {
+            let mut machine = fresh_client_machine();
+            put_client_machine(&machine);
+            assert!(write_enrolled_hosting_config("https://vps.example").is_err());
+            machine["supervisor"]["token"] = serde_json::json!("private-token");
+            machine["connectivity"]["state"] = serde_json::json!("disconnected");
+            put_client_machine(&machine);
+            assert!(write_enrolled_hosting_config("https://other.example").is_err());
+            write_enrolled_hosting_config("https://vps.example").unwrap();
+            let config: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(state_dir().join("config.json")).unwrap()).unwrap();
+            assert_eq!(config["mode"], "daemon");
+            assert_eq!(config["extra"], 42);
+            assert!(config.get("pairCode").is_none());
+            assert_eq!(std::fs::read_to_string(state_dir().join("machine.json")).unwrap(), machine.to_string());
         });
     }
 

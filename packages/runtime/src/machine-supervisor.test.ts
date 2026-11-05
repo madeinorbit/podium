@@ -47,6 +47,125 @@ afterEach(() => {
 })
 
 describe('supervisor credential ownership', () => {
+  it('keeps a previous rejection until this server acknowledges the existing credential', () => {
+    class Socket extends EventTarget {
+      static OPEN = 1
+      static current: Socket
+      readyState = 1
+      sent: Array<{ v: number }> = []
+      constructor() { super(); Socket.current = this }
+      send(raw: string) { this.sent.push(JSON.parse(raw)) }
+      close() {}
+    }
+    vi.stubGlobal('WebSocket', Socket)
+    const dir = stateDir()
+    const state = loadSupervisorState(dir)
+    state.token = 'existing-test-token'
+    state.registration = { serverUrl: 'wss://vps.example', state: 'rejected' }
+    saveSupervisorState(dir, state)
+    const service = { policy: 'disabled' as const, state: 'stopped' as const, observedAt: new Date().toISOString() }
+    const connection = createMachineSupervisorConnection({
+      stateDir: dir, state, serverUrl: 'wss://vps.example', build: { appVersion: 'test' },
+      deliveryCaps: [], report: () => ({ server: service, agentExecution: service }), onGrant: vi.fn(),
+    })
+    try {
+      connection.start()
+      expect(loadSupervisorState(dir).registration?.state).toBe('rejected')
+      Socket.current.dispatchEvent(new Event('open'))
+      Socket.current.dispatchEvent(new MessageEvent('message', { data: JSON.stringify({ type: 'peerHelloOk', v: Socket.current.sent[0]?.v, caps: [] }) }))
+      expect(loadSupervisorState(dir).registration).toEqual({ serverUrl: 'wss://vps.example', state: 'enrolled' })
+    } finally { connection.close() }
+  })
+
+  it('attests never-enrolled client state without minting or changing its identity/key', () => {
+    vi.useFakeTimers()
+    const dir = stateDir()
+    const state = loadSupervisorState(dir)
+    reconcileSupervisorAssignment(state, { mode: 'client', serverUrl: 'wss://vps.example' }, dir)
+    const service = {
+      policy: 'disabled' as const,
+      state: 'stopped' as const,
+      observedAt: new Date().toISOString(),
+    }
+    const connection = createMachineSupervisorConnection({
+      stateDir: dir,
+      state,
+      serverUrl: 'wss://vps.example',
+      build: { appVersion: 'test' },
+      deliveryCaps: [],
+      report: () => ({ server: service, agentExecution: service }),
+      onGrant: vi.fn(),
+    })
+    try {
+      connection.start()
+      expect(loadSupervisorState(dir)).toMatchObject({
+        machineId: state.machineId,
+        registration: { serverUrl: 'wss://vps.example', state: 'unregistered' },
+      })
+      expect(readMachineCredential(dir)).toBeUndefined()
+      vi.advanceTimersByTime(600)
+      expect(loadSupervisorState(dir).registration?.state).toBe('unregistered')
+    } finally {
+      connection.close()
+    }
+  })
+
+  it.each([
+    'legacy',
+    'enrolled',
+    'rejected',
+  ] as const)('never treats %s history as fresh enrollment', (history) => {
+    vi.useFakeTimers()
+    const dir = stateDir()
+    if (history === 'legacy') writeFileSync(join(dir, 'machine.id'), 'existing-machine')
+    const state = loadSupervisorState(dir)
+    reconcileSupervisorAssignment(state, { mode: 'client', serverUrl: 'wss://vps.example' }, dir)
+    if (history !== 'legacy') {
+      state.registration = { state: history, serverUrl: 'wss://vps.example' }
+      saveSupervisorState(dir, state)
+    }
+    const service = {
+      policy: 'disabled' as const,
+      state: 'stopped' as const,
+      observedAt: new Date().toISOString(),
+    }
+    const connection = createMachineSupervisorConnection({
+      stateDir: dir,
+      state,
+      serverUrl: 'wss://vps.example',
+      build: { appVersion: 'test' },
+      deliveryCaps: [],
+      report: () => ({ server: service, agentExecution: service }),
+      onGrant: vi.fn(),
+    })
+    try {
+      connection.start()
+      expect(loadSupervisorState(dir).registration?.state).not.toBe('unregistered')
+      expect(loadSupervisorState(dir).machineId).toBe(state.machineId)
+      expect(readMachineCredential(dir)).toBeUndefined()
+    } finally {
+      connection.close()
+    }
+  })
+
+  it.each([
+    { token: false }, { token: '' }, { enrolledPublicKey: 42 },
+    { setupEnrollment: { incomplete: true } },
+    { registration: { state: 'unregistered' } },
+    { assignment: { server: false } },
+  ])('refuses corrupt enrollment before a generation write can erase it: %j', (corrupt) => {
+    const dir = stateDir()
+    const state = loadSupervisorState(dir)
+    saveSupervisorState(dir, state)
+    const path = join(dir, 'machine.json')
+    const machine = JSON.parse(readFileSync(path, 'utf8'))
+    Object.assign(machine.supervisor, corrupt)
+    const raw = JSON.stringify(machine)
+    writeFileSync(path, raw)
+    expect(() => loadSupervisorState(dir)).toThrow(/invalid supervisor/)
+    expect(readFileSync(path, 'utf8')).toBe(raw)
+  })
+
   it('imports the exact enrolled daemon identity once before removing the legacy copy', () => {
     const dir = stateDir()
     const legacy = {

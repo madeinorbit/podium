@@ -92,7 +92,29 @@ function parseState(raw: unknown): SupervisorState | null {
   if (!raw || typeof raw !== 'object') return null
   const value = raw as Record<string, unknown>
   if (typeof value.machineId !== 'string') return null
+  // Corrupt/incomplete enrollment is never a fresh identity. Refuse before a
+  // later generation/role write can erase the evidence and attest it as unused.
+  for (const field of ['token', 'enrolledPublicKey'] as const) {
+    if (field in value && (typeof value[field] !== 'string' || !value[field]))
+      throw new Error(`invalid supervisor ${field}`)
+  }
+  if ('setupEnrollment' in value && !validSetupRequest(value.setupEnrollment, value.machineId))
+    throw new Error('invalid supervisor setup enrollment')
+  if (value.registration !== undefined) {
+    const registration = value.registration as Partial<
+      NonNullable<SupervisorState['registration']>
+    > | null
+    if (
+      !registration ||
+      typeof registration.serverUrl !== 'string' ||
+      !registration.serverUrl ||
+      !['unregistered', 'pairing', 'enrolled', 'rejected'].includes(registration.state ?? '')
+    )
+      throw new Error('invalid supervisor registration')
+  }
   const assignment = MachineServiceAssignment.safeParse(value.assignment)
+  if (value.assignment !== undefined && !assignment.success)
+    throw new Error('invalid supervisor assignment')
   return {
     machineId: asMachineId(value.machineId),
     ...(validSetupRequest(value.setupEnrollment, value.machineId)
@@ -142,7 +164,10 @@ export function loadSupervisorState(dir: string): SupervisorState {
   // the parent died at every start.
   const daemon =
     machine.daemon && typeof machine.daemon.token === 'string' ? machine.daemon : undefined
-  return parseState(machine.supervisor ?? daemon) ?? { machineId: machine.machineId }
+  const state = parseState(machine.supervisor ?? daemon)
+  if (machine.supervisor !== undefined && (!state || state.machineId !== machine.machineId))
+    throw new Error('invalid supervisor identity')
+  return state ?? { machineId: machine.machineId }
 }
 
 /**
@@ -518,14 +543,12 @@ export function createMachineSupervisorConnection(
     if (persisted.setupEnrollment && !persisted.enrolledPublicKey)
       throw new Error('setup enrollment is awaiting confirmation')
     if (deps.state.enrolledPublicKey) {
-      registration('enrolled')
       const key = readMachineCredential(deps.stateDir)
       if (!key || machinePublicKeyWire(key) !== deps.state.enrolledPublicKey)
         throw new Error('enrolled machine key unavailable')
       return { kind: 'machineKey', machineHint: deps.state.machineId }
     }
     if (deps.state.token) {
-      registration('enrolled')
       return { kind: 'machineToken', token: deps.state.token, machineHint: deps.state.machineId }
     }
     if (deps.pairCode) {
@@ -565,7 +588,6 @@ export function createMachineSupervisorConnection(
       deps.state.enrolledPublicKey = enrolledPublicKey
       delete deps.state.token
     } else if (issuedToken) deps.state.token = issuedToken
-    if (issuedToken || enrolledPublicKey) registration('enrolled')
     if (updatePubkey !== undefined) {
       if (
         deps.state.updatePubkey &&
@@ -576,6 +598,7 @@ export function createMachineSupervisorConnection(
       }
       deps.state.updatePubkey = updatePubkey
     }
+    deps.state.registration = { state: 'enrolled', serverUrl: activeServerUrl }
     const persistedState = loadSupervisorState(deps.stateDir)
     deps.state.assignment = persistedState.assignment
     deps.state.setupEnrollment = persistedState.setupEnrollment
@@ -634,6 +657,7 @@ export function createMachineSupervisorConnection(
         },
       })
     } catch (error) {
+      if (deps.state.registration?.state === 'pairing') registration('rejected')
       log.error('machine supervisor cannot connect', { err: error })
       reportConnectivity({ state: 'blocked', blockedReason: String(error) })
       settleFirst(false)
