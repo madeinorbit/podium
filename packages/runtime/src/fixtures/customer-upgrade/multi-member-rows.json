@@ -1,0 +1,241 @@
+{
+  "source": "Representative extension of the captured customer fleet and observed real single-member databases; invented member names, paths and credentials. Not a captured multi-person installation.",
+  "beforeMigration": "20261103223137_provider-connection-owners",
+  "singleMember": {
+    "users": [
+      {
+        "id": "mem_upgrade_alice",
+        "display_name": "Alice",
+        "role": "admin",
+        "created_at": "2026-10-30T12:00:00.000Z",
+        "disabled_at": null
+      }
+    ],
+    "issues": [
+      {
+        "id": "task-legacy-agent",
+        "repo_path": "/fixture/work",
+        "seq": 1,
+        "title": "Historical task 1",
+        "stage": "backlog",
+        "default_agent": "codex",
+        "owner_user_id": "mem_upgrade_alice",
+        "assignee": "agent:codex",
+        "created_by_actor": "mem_upgrade_alice",
+        "created_by_on_behalf_of": "mem_upgrade_alice",
+        "created_at": "2026-10-30T12:00:00.000Z",
+        "updated_at": "2026-10-30T12:00:00.000Z",
+        "revision": 1,
+        "repo_id": "repo_upgrade_fixture"
+      },
+      {
+        "id": "task-legacy-me",
+        "repo_path": "/fixture/work",
+        "seq": 2,
+        "title": "Historical task 2",
+        "stage": "backlog",
+        "default_agent": "codex",
+        "owner_user_id": "mem_upgrade_alice",
+        "assignee": "me",
+        "created_by_actor": "mem_upgrade_alice",
+        "created_by_on_behalf_of": "mem_upgrade_alice",
+        "created_at": "2026-10-30T12:00:00.000Z",
+        "updated_at": "2026-10-30T12:00:00.000Z",
+        "revision": 1,
+        "repo_id": "repo_upgrade_fixture"
+      }
+    ],
+    "sessions": [
+      {
+        "id": "session-alice-history",
+        "owner_user_id": "mem_upgrade_alice",
+        "agent_kind": "codex",
+        "cwd": "/fixture/work",
+        "title": "Historical session",
+        "origin_kind": "spawn",
+        "status": "exited",
+        "durable_label": "podium-session-alice-history",
+        "created_at": "2026-10-30T12:00:00.000Z",
+        "last_active_at": "2026-10-30T12:00:00.000Z",
+        "machine_id": "machine-host",
+        "issue_id": "task-legacy-agent"
+      }
+    ],
+    "user_preferences": [
+      {
+        "user_id": "mem_upgrade_alice",
+        "key": "theme",
+        "value": "\"dark\"",
+        "updated_at": "2026-10-30T12:00:00.000Z"
+      },
+      {
+        "user_id": "mem_upgrade_alice",
+        "key": "sidebar.repoOrder",
+        "value": "[\"/fixture/work\"]",
+        "updated_at": "2026-10-30T12:00:00.000Z"
+      }
+    ],
+    "issue_user_state": [
+      {
+        "user_id": "mem_upgrade_alice",
+        "issue_id": "task-legacy-agent",
+        "read_at": "2026-10-30T12:00:00.000Z",
+        "tucked_at": null,
+        "pinned_at": "2026-10-30T12:00:00.000Z"
+      }
+    ],
+    "user_credentials": [
+      {
+        "user_id": "mem_upgrade_alice",
+        "source": "per-user-scrypt",
+        "password_hash": "fixture-only-password-hash-alice",
+        "updated_at": "2026-10-30T12:00:00.000Z"
+      }
+    ],
+    "client_sessions": [
+      {
+        "token_hash": "fixture-only-cookie-hash-alice",
+        "user_id": "mem_upgrade_alice",
+        "created_at": "2026-10-30T12:00:00.000Z",
+        "expires_at": "2030-01-01T00:00:00.000Z",
+        "label": "login"
+      }
+    ],
+    "accounts": [
+      {
+        "id": "managed:anthropic",
+        "provider": "anthropic",
+        "kind": "api-key",
+        "credential": "fixture-only-provider-key",
+        "identity": "fixture-key",
+        "scope": "role",
+        "created_at": 1793361600000
+      }
+    ],
+    "repos": [
+      {
+        "machine_id": "machine-host",
+        "path": "/fixture/work",
+        "repo_id": "repo_upgrade_fixture",
+        "repo_name": "work",
+        "added_at": "2026-10-30T12:00:00.000Z"
+      }
+    ]
+  },
+  "additionalMembers": {
+    "users": [
+      {
+        "id": "mem_upgrade_bob",
+        "display_name": "Bob",
+        "role": "member",
+        "created_at": "2026-10-31T12:00:00.000Z",
+        "disabled_at": null
+      },
+      {
+        "id": "mem_upgrade_carol",
+        "display_name": "Carol",
+        "role": "member",
+        "created_at": "2026-11-01T12:00:00.000Z",
+        "disabled_at": "2026-10-30T12:00:00.000Z"
+      }
+    ],
+    "issues": [
+      {
+        "id": "task-human-assignee",
+        "repo_path": "/fixture/work",
+        "seq": 3,
+        "title": "Historical task 3",
+        "stage": "backlog",
+        "default_agent": "codex",
+        "owner_user_id": "mem_upgrade_alice",
+        "assignee": "mem_upgrade_bob",
+        "created_by_actor": "mem_upgrade_alice",
+        "created_by_on_behalf_of": "mem_upgrade_alice",
+        "created_at": "2026-10-30T12:00:00.000Z",
+        "updated_at": "2026-10-30T12:00:00.000Z",
+        "revision": 1,
+        "repo_id": "repo_upgrade_fixture"
+      },
+      {
+        "id": "task-disabled-assignee",
+        "repo_path": "/fixture/work",
+        "seq": 4,
+        "title": "Historical task 4",
+        "stage": "backlog",
+        "default_agent": "codex",
+        "owner_user_id": "mem_upgrade_alice",
+        "assignee": "mem_upgrade_carol",
+        "created_by_actor": "mem_upgrade_alice",
+        "created_by_on_behalf_of": "mem_upgrade_alice",
+        "created_at": "2026-10-30T12:00:00.000Z",
+        "updated_at": "2026-10-30T12:00:00.000Z",
+        "revision": 1,
+        "repo_id": "repo_upgrade_fixture"
+      }
+    ],
+    "sessions": [
+      {
+        "id": "session-bob-on-alice",
+        "owner_user_id": "mem_upgrade_bob",
+        "agent_kind": "codex",
+        "cwd": "/fixture/work",
+        "title": "Historical session",
+        "origin_kind": "spawn",
+        "status": "exited",
+        "durable_label": "podium-session-bob-on-alice",
+        "created_at": "2026-10-30T12:00:00.000Z",
+        "last_active_at": "2026-10-30T12:00:00.000Z",
+        "machine_id": "machine-host",
+        "issue_id": "task-legacy-agent"
+      }
+    ],
+    "user_preferences": [
+      {
+        "user_id": "mem_upgrade_bob",
+        "key": "theme",
+        "value": "\"light\"",
+        "updated_at": "2026-10-30T12:00:00.000Z"
+      }
+    ],
+    "issue_user_state": [
+      {
+        "user_id": "mem_upgrade_bob",
+        "issue_id": "task-legacy-agent",
+        "read_at": "2026-10-30T12:00:00.000Z",
+        "tucked_at": "2026-10-30T12:00:00.000Z",
+        "pinned_at": null
+      }
+    ],
+    "user_credentials": [
+      {
+        "user_id": "mem_upgrade_bob",
+        "source": "per-user-scrypt",
+        "password_hash": "fixture-only-password-hash-bob",
+        "updated_at": "2026-10-30T12:00:00.000Z"
+      }
+    ],
+    "client_sessions": [
+      {
+        "token_hash": "fixture-only-cookie-hash-bob",
+        "user_id": "mem_upgrade_bob",
+        "created_at": "2026-10-30T12:00:00.000Z",
+        "expires_at": "2030-01-01T00:00:00.000Z",
+        "label": "login"
+      }
+    ],
+    "grants": [
+      {
+        "resource_kind": "session",
+        "resource_id": "session-bob-on-alice",
+        "grantee": "mem_upgrade_alice",
+        "verb": "read",
+        "owner": "mem_upgrade_bob",
+        "visibility": "personal",
+        "created_at": "2026-10-30T12:00:00.000Z",
+        "actor_kind": "user",
+        "actor_id": "mem_upgrade_bob",
+        "on_behalf_of": "mem_upgrade_bob"
+      }
+    ]
+  }
+}

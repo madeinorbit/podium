@@ -17,15 +17,24 @@ import manifest from './manifest.json'
 import serverReleaseMigrations from './server-release-migrations.json'
 import serverRows from './server-rows.json'
 
-export { daemonBindings, daemonReceipts, localStorage, manifest, serverReleaseMigrations, serverRows }
+export {
+  daemonBindings,
+  daemonReceipts,
+  localStorage,
+  manifest,
+  serverReleaseMigrations,
+  serverRows,
+}
 
 /** The ledger exactly as found on the customer's disk (sanitised), newline-terminated. */
-export const enrollmentLedger = readFileSync(new URL('./enrollment.ledger', import.meta.url), 'utf8')
+export const enrollmentLedger = readFileSync(
+  new URL('./enrollment.ledger', import.meta.url),
+  'utf8',
+)
 
 /** The name the daemon's binding store gives a binding file (base64url of the session id). */
 export const bindingFileName = (sessionId: string): string =>
   `${Buffer.from(sessionId, 'utf8').toString('base64url')}.json`
-
 
 /** Sanitised identity layouts from the dev.166 outage; credentials are test-only. */
 export { default as identityShapes } from './identity-shapes.json'
@@ -44,5 +53,9 @@ export interface IdentityShape {
 export function writeIdentityShape(dir: string, shape: IdentityShape): void {
   writeFileSync(`${dir}/machine.id`, shape.machineIdFile)
   writeFileSync(`${dir}/daemon.json`, JSON.stringify(shape.daemon), { mode: 0o600 })
-  if (shape.supervisor) writeFileSync(`${dir}/supervisor.json`, JSON.stringify(shape.supervisor), { mode: 0o600 })
+  if (shape.supervisor)
+    writeFileSync(`${dir}/supervisor.json`, JSON.stringify(shape.supervisor), { mode: 0o600 })
 }
+
+/** Upgrade shapes for personal ownership, legacy assignees and private sessions (MU-15). */
+export { default as multiMemberRows } from './multi-member-rows.json'

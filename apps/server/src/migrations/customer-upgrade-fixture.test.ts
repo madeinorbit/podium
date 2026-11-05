@@ -18,23 +18,25 @@
  * anything runs, so a pass cannot be vacuous.
  */
 
-import { mkdirSync, mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { loadMachineState } from '@podium/runtime/local-machine'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asMachineId } from '@podium/model'
+import { asIssueId, asMachineId, asUserId } from '@podium/model'
+import { loadMachineState } from '@podium/runtime/local-machine'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   enrollmentLedger,
-  manifest,
   identityShapes,
-  writeIdentityShape,
+  manifest,
+  multiMemberRows,
   serverReleaseMigrations,
   serverRows,
+  writeIdentityShape,
 } from '../../../../packages/runtime/src/fixtures/customer-upgrade'
 import { LEDGER_IMPORT_MARKER, RETIRED_MEMBER_MAPPING } from '../enrollment-ledger-import'
+import { makeFeedVisibility } from '../feed-visibility'
 import { createPortableSnapshot } from '../modules/server-transfer/snapshot'
 import { openTestStore } from '../test-support/open-test-store'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
@@ -64,15 +66,24 @@ const insert = (db: SqlDatabase, table: string, row: Row) => {
 
 // Before upgrade custody lives on the legacy row; afterwards the manage edge is authoritative.
 const machines = (db: SqlDatabase, legacy = false): MachineRow[] =>
-  db.prepare(legacy
-    ? 'SELECT id, owner_user_id, token_hash FROM machines ORDER BY id'
-    : `SELECT m.id, g.grantee AS owner_user_id, m.token_hash FROM machines m
+  db
+    .prepare(
+      legacy
+        ? 'SELECT id, owner_user_id, token_hash FROM machines ORDER BY id'
+        : `SELECT m.id, g.grantee AS owner_user_id, m.token_hash FROM machines m
        LEFT JOIN grants g ON g.resource_kind = 'machine' AND g.resource_id = m.id
-         AND g.verb = 'manage' AND g.custody = 1 ORDER BY m.id`).all() as MachineRow[]
+         AND g.verb = 'manage' AND g.custody = 1 ORDER BY m.id`,
+    )
+    .all() as MachineRow[]
 const meta = (db: SqlDatabase, key: string): string | undefined =>
-  (db.prepare('SELECT value FROM meta WHERE key = ?').get(key) as { value: string } | undefined)?.value
+  (db.prepare('SELECT value FROM meta WHERE key = ?').get(key) as { value: string } | undefined)
+    ?.value
 const feedEpoch = (db: SqlDatabase): string | undefined =>
-  (db.prepare('SELECT epoch FROM feed_identity WHERE singleton = 1').get() as { epoch: string } | undefined)?.epoch
+  (
+    db.prepare('SELECT epoch FROM feed_identity WHERE singleton = 1').get() as
+      | { epoch: string }
+      | undefined
+  )?.epoch
 const ledgerMachines = () =>
   enrollmentLedger
     .trim()
@@ -111,18 +122,28 @@ function customerState(options: { ledger?: string | null; extraMachines?: Row[] 
     db.exec('PRAGMA foreign_keys = OFF')
     runDrizzleMigrations(db, release)
     // A REAL old ledger, not a first boot (trap 1).
-    expect(db.prepare('SELECT count(*) AS c FROM __drizzle_migrations').get()).toEqual({ c: release.length })
+    expect(db.prepare('SELECT count(*) AS c FROM __drizzle_migrations').get()).toEqual({
+      c: release.length,
+    })
     const usersBefore = db.prepare('SELECT id FROM users').all() as { id: string }[]
     expect(usersBefore.map((u) => u.id)).toEqual([RETIRED])
-    for (const machine of [...serverRows.machines, ...(options.extraMachines ?? [])]) insert(db, 'machines', machine as Row)
+    for (const machine of [...serverRows.machines, ...(options.extraMachines ?? [])])
+      insert(db, 'machines', machine as Row)
     for (const session of serverRows.sessions) insert(db, 'sessions', session as Row)
     // A customer instance has served a feed: its identity row exists before the upgrade.
-    insert(db, 'feed_identity', { singleton: 1, feed_id: 'feed-customer', epoch: 'customer-epoch', minted_at: '2026-08-03T21:37:10.194Z' })
+    insert(db, 'feed_identity', {
+      singleton: 1,
+      feed_id: 'feed-customer',
+      epoch: 'customer-epoch',
+      minted_at: '2026-08-03T21:37:10.194Z',
+    })
     // Non-vacuous (trap 2): the captured fleet, every row under the retired literal.
     const before = machines(db, true)
     expect(before.length).toBeGreaterThanOrEqual(6)
     expect(before.every((m) => m.owner_user_id === RETIRED)).toBe(true)
-    expect(db.prepare('SELECT count(*) AS c FROM sessions').get()).toEqual({ c: serverRows.sessions.length })
+    expect(db.prepare('SELECT count(*) AS c FROM sessions').get()).toEqual({
+      c: serverRows.sessions.length,
+    })
     expect(meta(db, RETIRED_MEMBER_MAPPING)).toBeUndefined()
     expect(meta(db, LEDGER_IMPORT_MARKER)).toBeUndefined()
   } finally {
@@ -143,11 +164,17 @@ const record = (event: Record<string, unknown>) => JSON.stringify({ v: 1, ...eve
 const header = enrollmentLedger.split('\n')[0]!
 
 describe('customer upgrade fixture: server', () => {
-  it.each(identityShapes)('first store boot: $name preserves the authenticating row and historical fleet', async (shape) => {
+  it.each(
+    identityShapes,
+  )('first store boot: $name preserves the authenticating row and historical fleet', async (shape) => {
     const root = customerState({ ledger: null })
     writeIdentityShape(root, shape)
     const hash = createHash('sha256').update(shape.token).digest('hex')
-    withDb(root, (db) => db.prepare('UPDATE machines SET token_hash = ? WHERE id = ?').run(hash, shape.authenticatedId))
+    withDb(root, (db) =>
+      db
+        .prepare('UPDATE machines SET token_hash = ? WHERE id = ?')
+        .run(hash, shape.authenticatedId),
+    )
     const before = withDb(root, (db) => machines(db, true).map((m) => m.id))
     const identity = loadMachineState(root)
     const store = await openTestStore(join(root, 'podium.db'), identity.machineId)
@@ -160,7 +187,10 @@ describe('customer upgrade fixture: server', () => {
       expect(machines(db).map((m) => m.id)).toEqual(before)
       expect(machines(db).find((m) => m.id === shape.authenticatedId)?.token_hash).toBe(hash)
       for (const id of shape.absentIds) expect(machines(db).some((m) => m.id === id)).toBe(false)
-      for (const id of shape.historicalIds) expect(db.prepare('SELECT hostname FROM machines WHERE id = ?').get(id)).toEqual({ hostname: 'laptop' })
+      for (const id of shape.historicalIds)
+        expect(db.prepare('SELECT hostname FROM machines WHERE id = ?').get(id)).toEqual({
+          hostname: 'laptop',
+        })
     })
   })
 
@@ -172,7 +202,11 @@ describe('customer upgrade fixture: server', () => {
     expect(serverReleaseMigrations.migrations.every((name) => names.has(name))).toBe(true)
     // The release is not a prefix of today's manifest: later-merged migrations interleave.
     const last = serverReleaseMigrations.migrations.at(-1)!
-    expect(DRIZZLE_MIGRATIONS.filter((m) => m.name < last && !serverReleaseMigrations.migrations.includes(m.name))).toHaveLength(7)
+    expect(
+      DRIZZLE_MIGRATIONS.filter(
+        (m) => m.name < last && !serverReleaseMigrations.migrations.includes(m.name),
+      ),
+    ).toHaveLength(7)
     expect(enrollmentLedger.endsWith('\n')).toBe(true)
     expect(ledgerMachines()).toHaveLength(4)
     const dbIds = new Set(serverRows.machines.map((m) => m.id))
@@ -205,7 +239,9 @@ describe('customer upgrade fixture: server', () => {
       }
       expect(meta(db, LEDGER_IMPORT_MARKER)).toBeDefined()
       expect(feedEpoch(db)).toMatch(/^ledger-import-/)
-      expect(db.prepare(`SELECT count(*) AS c FROM sessions WHERE owner_user_id = ?`).get(RETIRED)).toEqual({ c: 0 })
+      expect(
+        db.prepare(`SELECT count(*) AS c FROM sessions WHERE owner_user_id = ?`).get(RETIRED),
+      ).toEqual({ c: 0 })
     })
     // The file step: renamed as imported, re-runnable, non-fatal.
     expect(existsSync(join(root, 'enrollment.ledger'))).toBe(false)
@@ -215,11 +251,19 @@ describe('customer upgrade fixture: server', () => {
   it('repeat boot changes nothing', async () => {
     const root = customerState()
     await upgrade(root)
-    const first = withDb(root, (db) => ({ machines: machines(db), epoch: feedEpoch(db), marker: meta(db, LEDGER_IMPORT_MARKER) }))
+    const first = withDb(root, (db) => ({
+      machines: machines(db),
+      epoch: feedEpoch(db),
+      marker: meta(db, LEDGER_IMPORT_MARKER),
+    }))
     // A stray ledger appearing later is not re-imported: the marker is authoritative.
     writeFileSync(join(root, 'enrollment.ledger'), enrollmentLedger)
     await upgrade(root)
-    const second = withDb(root, (db) => ({ machines: machines(db), epoch: feedEpoch(db), marker: meta(db, LEDGER_IMPORT_MARKER) }))
+    const second = withDb(root, (db) => ({
+      machines: machines(db),
+      epoch: feedEpoch(db),
+      marker: meta(db, LEDGER_IMPORT_MARKER),
+    }))
     expect(second).toEqual(first)
     expect(existsSync(join(root, 'enrollment.ledger'))).toBe(true)
   })
@@ -230,9 +274,14 @@ describe('customer upgrade fixture: server', () => {
     // then the ledger reappears carrying `owner` events for the minted member.
     const root = customerState({ ledger: null })
     await upgrade(root)
-    const { member, before } = withDb(root, (db) => ({ member: meta(db, RETIRED_MEMBER_MAPPING)!, before: machines(db) }))
+    const { member, before } = withDb(root, (db) => ({
+      member: meta(db, RETIRED_MEMBER_MAPPING)!,
+      before: machines(db),
+    }))
     withDb(root, (db) => {
-      db.prepare("UPDATE grants SET grantee = ? WHERE resource_kind = 'machine' AND resource_id = ? AND custody = 1").run(member, 'machine-peer')
+      db.prepare(
+        "UPDATE grants SET grantee = ? WHERE resource_kind = 'machine' AND resource_id = ? AND custody = 1",
+      ).run(member, 'machine-peer')
     })
     writeFileSync(
       join(root, 'enrollment.ledger'),
@@ -251,19 +300,69 @@ describe('customer upgrade fixture: server', () => {
       ledger:
         `${header}\n` +
         [
-          record({ kind: 'enroll', id: 'e1', machineId: 'machine-host', serial: 1, ownerUserId: RETIRED, at: '2026-08-01' }),
-          record({ kind: 'revoke', id: 'r1', machineId: 'machine-host', serial: 1, by: null, at: '2026-08-02' }),
-          record({ kind: 'enroll', id: 'e2', machineId: 'machine-host', serial: 2, ownerUserId: RETIRED, at: '2026-08-03' }),
-          record({ kind: 'enroll', id: 'e3', machineId: 'machine-laptop-stale-2', serial: 1, ownerUserId: RETIRED, at: '2026-08-04' }),
-          record({ kind: 'revoke', id: 'r3', machineId: 'machine-laptop-stale-2', serial: 1, by: null, at: '2026-08-05' }),
-          record({ kind: 'enroll', id: 'e4', machineId: 'machine-ledger-only', serial: 1, ownerUserId: RETIRED, at: '2026-08-06' }),
+          record({
+            kind: 'enroll',
+            id: 'e1',
+            machineId: 'machine-host',
+            serial: 1,
+            ownerUserId: RETIRED,
+            at: '2026-08-01',
+          }),
+          record({
+            kind: 'revoke',
+            id: 'r1',
+            machineId: 'machine-host',
+            serial: 1,
+            by: null,
+            at: '2026-08-02',
+          }),
+          record({
+            kind: 'enroll',
+            id: 'e2',
+            machineId: 'machine-host',
+            serial: 2,
+            ownerUserId: RETIRED,
+            at: '2026-08-03',
+          }),
+          record({
+            kind: 'enroll',
+            id: 'e3',
+            machineId: 'machine-laptop-stale-2',
+            serial: 1,
+            ownerUserId: RETIRED,
+            at: '2026-08-04',
+          }),
+          record({
+            kind: 'revoke',
+            id: 'r3',
+            machineId: 'machine-laptop-stale-2',
+            serial: 1,
+            by: null,
+            at: '2026-08-05',
+          }),
+          record({
+            kind: 'enroll',
+            id: 'e4',
+            machineId: 'machine-ledger-only',
+            serial: 1,
+            ownerUserId: RETIRED,
+            at: '2026-08-06',
+          }),
         ].join('\n') +
         '\n',
     })
     withDb(root, (db) => {
       insert(db, 'grants', {
-        resource_kind: 'machine', resource_id: 'machine-laptop-stale-2', grantee: RETIRED, verb: 'use',
-        owner: RETIRED, visibility: 'private', created_at: '2026-08-04', actor_kind: 'user', actor_id: RETIRED, on_behalf_of: RETIRED,
+        resource_kind: 'machine',
+        resource_id: 'machine-laptop-stale-2',
+        grantee: RETIRED,
+        verb: 'use',
+        owner: RETIRED,
+        visibility: 'private',
+        created_at: '2026-08-04',
+        actor_kind: 'user',
+        actor_id: RETIRED,
+        on_behalf_of: RETIRED,
       })
     })
     await upgrade(root)
@@ -274,10 +373,20 @@ describe('customer upgrade fixture: server', () => {
       expect(after.find((m) => m.id === 'machine-host')?.token_hash).toBe('hash-host')
       // Revoked in the ledger: deleted with its grants (today's reconcile semantics).
       expect(after.find((m) => m.id === 'machine-laptop-stale-2')).toBeUndefined()
-      expect(db.prepare("SELECT count(*) AS c FROM grants WHERE resource_id = 'machine-laptop-stale-2'").get()).toEqual({ c: 0 })
+      expect(
+        db
+          .prepare("SELECT count(*) AS c FROM grants WHERE resource_id = 'machine-laptop-stale-2'")
+          .get(),
+      ).toEqual({ c: 0 })
       // Ledger-only: no row invented, no credential invented — the machine pairs again.
       expect(after.find((m) => m.id === 'machine-ledger-only')).toBeUndefined()
-      expect(db.prepare("SELECT count(*) AS c FROM grants WHERE resource_kind = 'machine' AND resource_id = 'machine-ledger-only'").get()).toEqual({ c: 0 })
+      expect(
+        db
+          .prepare(
+            "SELECT count(*) AS c FROM grants WHERE resource_kind = 'machine' AND resource_id = 'machine-ledger-only'",
+          )
+          .get(),
+      ).toEqual({ c: 0 })
       // DB-only (no ledger history): keeps the migrated owner, never NULL.
       expect(after.find((m) => m.id === 'machine-peer')?.owner_user_id).toBe(member)
       expect(after.filter((m) => m.owner_user_id === null)).toEqual([])
@@ -286,8 +395,13 @@ describe('customer upgrade fixture: server', () => {
 
   it('malformed interior record refuses the upgrade before any destructive write', async () => {
     const lines = enrollmentLedger.trim().split('\n')
-    const root = customerState({ ledger: `${[lines[0], lines[1], '{"v":1,"kind":"enroll"', ...lines.slice(2)].join('\n')}\n` })
-    const before = withDb(root, (db) => ({ epoch: feedEpoch(db), count: machines(db, true).length }))
+    const root = customerState({
+      ledger: `${[lines[0], lines[1], '{"v":1,"kind":"enroll"', ...lines.slice(2)].join('\n')}\n`,
+    })
+    const before = withDb(root, (db) => ({
+      epoch: feedEpoch(db),
+      count: machines(db, true).length,
+    }))
     await expect(upgrade(root)).rejects.toThrow(/enrollment ledger line 3/)
     withDb(root, (db) => {
       expect(machines(db)).toHaveLength(before.count)
@@ -303,7 +417,8 @@ describe('customer upgrade fixture: server', () => {
     await upgrade(root)
     withDb(root, (db) => {
       const member = meta(db, RETIRED_MEMBER_MAPPING)
-      for (const id of ledgerMachines()) expect(machines(db).find((m) => m.id === id)?.owner_user_id).toBe(member)
+      for (const id of ledgerMachines())
+        expect(machines(db).find((m) => m.id === id)?.owner_user_id).toBe(member)
       expect(meta(db, LEDGER_IMPORT_MARKER)).toBeDefined()
     })
   })
@@ -333,5 +448,179 @@ describe('customer upgrade fixture: server', () => {
     expect(paths).toContain('podium.db')
     expect(paths.some((path) => path.includes('enrollment.ledger'))).toBe(false)
     expect(existsSync(join(packageDir, 'podium.db'))).toBe(true)
+  })
+})
+
+/** The November upgrade starts on a real migration ledger, before personal account ownership. */
+function memberCustomerState(multiple: boolean): string {
+  const root = mkdtempSync(join(tmpdir(), 'podium-member-upgrade-'))
+  roots.push(root)
+  const cut = DRIZZLE_MIGRATIONS.findIndex((m) => m.name === multiMemberRows.beforeMigration)
+  expect(cut).toBeGreaterThan(87)
+  const db = openDatabase(join(root, 'podium.db'))
+  try {
+    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, cut))
+    db.exec('PRAGMA foreign_keys=OFF; DELETE FROM user_credentials; DELETE FROM users')
+    const shapes = [
+      multiMemberRows.singleMember,
+      ...(multiple ? [multiMemberRows.additionalMembers] : []),
+    ]
+    for (const shape of shapes) {
+      for (const [table, rows] of Object.entries(shape)) {
+        for (const row of rows) insert(db, table, row as Row)
+      }
+    }
+    for (const captured of serverRows.machines) {
+      const { owner_user_id: _owner, ...machine } = captured
+      insert(db, 'machines', machine as Row)
+      insert(db, 'grants', {
+        resource_kind: 'machine',
+        resource_id: machine.id,
+        grantee: 'mem_upgrade_alice',
+        verb: 'manage',
+        owner: 'mem_upgrade_alice',
+        visibility: 'private',
+        created_at: machine.created_at,
+        custody: 1,
+        actor_kind: 'user',
+        actor_id: 'mem_upgrade_alice',
+        on_behalf_of: 'mem_upgrade_alice',
+      })
+    }
+    expect(db.prepare('SELECT count(*) AS n FROM users').get()).toEqual({ n: multiple ? 3 : 1 })
+    expect(db.prepare('SELECT count(*) AS n FROM issues').get()).toEqual({ n: multiple ? 4 : 2 })
+    expect(db.prepare('SELECT count(*) AS n FROM sessions').get()).toEqual({ n: multiple ? 2 : 1 })
+    expect(db.prepare('SELECT count(*) AS n FROM __drizzle_migrations').get()).toEqual({ n: cut })
+    // Negative control: the exact post-upgrade assertions cannot pass on the old schema.
+    expect(() => db.prepare('SELECT owner_user_id, ref FROM accounts').all()).toThrow(
+      /no such column/,
+    )
+    expect(() => db.prepare('SELECT joined_at FROM issue_user_state').all()).toThrow(
+      /no such column/,
+    )
+  } finally {
+    db.close()
+  }
+  return root
+}
+
+/** Only pre-existing fields: additive columns must not mask changed personal values. */
+function preservedMemberData(root: string) {
+  return withDb(root, (db) => ({
+    users: db
+      .prepare('SELECT id, display_name, role, created_at, disabled_at FROM users ORDER BY id')
+      .all(),
+    preferences: db.prepare('SELECT * FROM user_preferences ORDER BY user_id, key').all(),
+    credentials: db.prepare('SELECT * FROM user_credentials ORDER BY user_id').all(),
+    logins: db.prepare('SELECT * FROM client_sessions ORDER BY token_hash').all(),
+    sessions: db
+      .prepare(
+        'SELECT id, owner_user_id, issue_id, machine_id, cwd, title, created_at FROM sessions ORDER BY id',
+      )
+      .all(),
+    markers: db
+      .prepare(
+        'SELECT user_id, issue_id, read_at, tucked_at, pinned_at FROM issue_user_state WHERE read_at IS NOT NULL ORDER BY user_id, issue_id',
+      )
+      .all(),
+    accounts: db
+      .prepare(
+        'SELECT id, provider, kind, credential, identity, scope, created_at FROM accounts ORDER BY id',
+      )
+      .all(),
+    machines: machines(db),
+    creators: db
+      .prepare('SELECT id, created_by_actor, created_by_on_behalf_of FROM issues ORDER BY id')
+      .all(),
+  }))
+}
+
+describe('MU-15: customer personal data across the complete multi-user migration chain', () => {
+  it.each([
+    false,
+    true,
+  ])('keeps personal data, credentials and session owners (multiple members: %s)', async (multiple) => {
+    const root = memberCustomerState(multiple)
+    const before = preservedMemberData(root)
+    await upgrade(root)
+    expect(preservedMemberData(root)).toEqual(before)
+    withDb(root, (db) => {
+      expect(db.prepare('SELECT owner_user_id, ref FROM accounts').all()).toEqual([
+        { owner_user_id: 'mem_upgrade_alice', ref: 'managed:anthropic' },
+      ])
+      expect(
+        db.prepare('SELECT id, owner_user_id, assignee FROM issues ORDER BY id').all(),
+      ).toEqual([
+        ...(multiple
+          ? [
+              {
+                id: 'task-disabled-assignee',
+                owner_user_id: 'mem_upgrade_alice',
+                assignee: 'mem_upgrade_carol',
+              },
+              { id: 'task-human-assignee', owner_user_id: 'mem_upgrade_bob', assignee: null },
+            ]
+          : []),
+        { id: 'task-legacy-agent', owner_user_id: 'mem_upgrade_alice', assignee: 'agent:codex' },
+        { id: 'task-legacy-me', owner_user_id: 'mem_upgrade_alice', assignee: 'me' },
+      ])
+      expect(
+        db
+          .prepare(
+            "SELECT count(*) AS n FROM issue_user_state WHERE user_id = 'mem_upgrade_alice' AND joined_via = 'start'",
+          )
+          .get(),
+      ).toEqual({ n: multiple ? 4 : 2 })
+      if (multiple)
+        expect(
+          db
+            .prepare(
+              "SELECT joined_via FROM issue_user_state WHERE user_id = 'mem_upgrade_bob' AND issue_id = 'task-legacy-agent'",
+            )
+            .get(),
+        ).toEqual({ joined_via: 'start' })
+      expect(db.prepare('SELECT count(*) AS n FROM __drizzle_migrations').get()).toEqual({
+        n: DRIZZLE_MIGRATIONS.length,
+      })
+      expect(db.prepare('PRAGMA quick_check').get()).toEqual({ quick_check: 'ok' })
+    })
+    // Reboot is idempotent: it neither transfers a session nor changes personal values.
+    const once = preservedMemberData(root)
+    await upgrade(root)
+    expect(preservedMemberData(root)).toEqual(once)
+  })
+
+  it('makes historical tasks readable to another member, while legacy session grants stay inert', async () => {
+    const root = memberCustomerState(true)
+    await upgrade(root)
+    const store = await openTestStore(join(root, 'podium.db'), HOST)
+    try {
+      const policy = makeFeedVisibility({
+        store,
+        audiencesFor: (kind, ids) => store.grants.visibilityAudiencesFor(kind, ids),
+        authorizationRevision: () => store.grants.visibilityRevision(),
+      })
+      const alice = asUserId('mem_upgrade_alice')
+      const bob = asUserId('mem_upgrade_bob')
+      const task = { entity: 'issueProjection', entityId: 'task-legacy-agent' } as const
+      const aliceSession = { entity: 'session', entityId: 'session-alice-history' } as const
+      const bobSession = { entity: 'session', entityId: 'session-bob-on-alice' } as const
+      expect(await policy.mayReadIssue(bob, asIssueId(task.entityId))).toBe(true)
+      for (const prepare of [policy.state.forBootstrap!, policy.state.forBatch!]) {
+        const state = await prepare([task, aliceSession, bobSession])
+        expect([task, aliceSession, bobSession].map((ref) => state.mayRead(bob, ref))).toEqual([
+          true,
+          false,
+          true,
+        ])
+        expect([task, aliceSession, bobSession].map((ref) => state.mayRead(alice, ref))).toEqual([
+          true,
+          true,
+          false,
+        ])
+      }
+    } finally {
+      await store.close()
+    }
   })
 })
