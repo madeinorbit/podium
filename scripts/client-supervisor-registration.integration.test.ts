@@ -25,7 +25,7 @@ import { ParentProcess } from '../packages/runtime/src/parent-process'
 import { machineServiceReport } from '../packages/runtime/src/parent-supervisor'
 import { applyLocalSetupDefault, applyMode, consumePairCode } from '../packages/runtime/src/setup'
 import { confirmSetupEnrollment } from '../packages/runtime/src/setup-enrollment'
-import { loadConfig } from '../packages/runtime/src/config'
+import { loadConfig, saveConfig } from '../packages/runtime/src/config'
 
 it('pairs the same client identity, persists zero roles, reconnects by machine key and accepts an authorized payload update', async () => {
   const root = mkdtempSync(join(tmpdir(), 'podium-client-registration-'))
@@ -103,7 +103,9 @@ it('pairs the same client identity, persists zero roles, reconnects by machine k
       copyAgentCredentials: false,
       ownerUserId: await firstAdminMemberId(coordinator.registry.sessionStore),
     })
-    writeFileSync(join(clientDir, 'config.json'), JSON.stringify({ ...config, pairCode }))
+    // This in-process fixture has no real process restart to clear the config
+    // cache. Use its writer so the guarded production consumer sees this code.
+    saveConfig({ ...config, pairCode }, join(clientDir, 'config.json'))
     let paired = 0
     const attached = () =>
       new Promise<void>((resolve, reject) => {

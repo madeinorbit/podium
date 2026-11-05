@@ -960,7 +960,7 @@ fn inspect_client_registration(
         }
     }
     if registration["state"] == "rejected" || connectivity["state"] == "unauthorized" {
-        return Ok(ClientRegistrationStatus::Rejected { message: "This machine's registration was refused. In Settings → Machines → Add machine, create a new one-use code and pair this machine explicitly. Automatic registration will not retry.".to_string() });
+        return Ok(ClientRegistrationStatus::Rejected { message: "This machine's registration was refused. Review this machine in Settings → Machines before explicitly pairing it again. Automatic registration will not retry.".to_string() });
     }
     if connectivity["state"] == "blocked"
         && registration["state"] != "unregistered"
