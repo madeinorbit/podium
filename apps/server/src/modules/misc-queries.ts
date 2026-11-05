@@ -122,7 +122,8 @@ const repoOp = (op: GitPanelOp) => {
     >,
     async (s, input) => {
       // A checkout is private to the people who may run on its machine (POD-6284).
-      await assertReadableRoot(fileState(s), input.root, input.machineId)
+      const machineId = input.machineId ?? (await s.modules.rpc.answeringMachineId(input.root))
+      await assertReadableRoot(fileState(s), input.root, machineId)
       const args: Record<string, string> = {}
       if (needs.includes('path')) args.path = input.path as string
       if (needs.includes('sha')) args.sha = input.sha as string
@@ -130,7 +131,7 @@ const repoOp = (op: GitPanelOp) => {
         op,
         input.root,
         needs.length > 0 ? args : undefined,
-        input.machineId,
+        machineId,
       )
     },
   )

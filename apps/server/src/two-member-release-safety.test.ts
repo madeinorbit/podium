@@ -154,6 +154,117 @@ describe('MU-08: real raw-git and file routes resolve the actor and the checkout
     expect(git).not.toHaveBeenCalled()
     expect(write).not.toHaveBeenCalled()
   })
+  it.each([
+    'git',
+    'read',
+    'write',
+    'list',
+    'search',
+  ] as const)('pins the default target through %s authorization and dispatch', async (route) => {
+    const bob = (await f.as('bob')).trpc
+    const machines = registry().modules.machines
+    let selected = f.machines.bob
+    const defaultMachine = vi
+      .spyOn(machines, 'defaultMachine')
+      .mockImplementation(async () => selected)
+    const repoMachine = vi
+      .spyOn(machines, 'resolveMachine')
+      .mockImplementation(async (requested) => (requested ? asMachineId(requested) : selected))
+    const repos = registry().sessionStore.repos
+    const list = repos.listRepos.bind(repos)
+    vi.spyOn(repos, 'listRepos').mockImplementation(async (machineId) => {
+      const roots = await list(machineId)
+      // Both hosts register /repo. The default changes after the authorized
+      // root was read, before the broker resolves an omitted dispatch target.
+      selected = f.machines.alice
+      return roots
+    })
+    const root = `${REPO_PATH}/mu08-pin-${route}`
+    const requests = () =>
+      [f.machines.alice, f.machines.bob].flatMap((machineId) =>
+        f
+          .daemonFrames(machineId)
+          .flatMap((frame) =>
+            ((frame.type === 'repoOpRequest' ||
+              frame.type === 'fileReadRequest' ||
+              frame.type === 'fileWriteRequest') &&
+              frame.cwd === root) ||
+            (frame.type === 'dirListRequest' && frame.root === root)
+              ? [{ machineId, frame }]
+              : [],
+          ),
+      )
+    const pending =
+      route === 'git'
+        ? bob.git.status.query({ root })
+        : route === 'read'
+          ? bob.files.read.query({ root, path: `${root}/private.txt` })
+          : route === 'write'
+            ? bob.files.write.mutate({ root, path: `${root}/private.txt`, content: 'owner-only' })
+            : route === 'list'
+              ? bob.files.list.query({ root })
+              : bob.files.search.query({ root, query: '' })
+    await vi.waitFor(() => expect(requests()).toHaveLength(1))
+    const request = requests()[0]!
+    const { frame, machineId } = request
+    if (frame.type === 'repoOpRequest')
+      await registry().gateway.routeDaemonFrame(machineId, {
+        type: 'repoOpResult',
+        requestId: frame.requestId,
+        ok: true,
+        output: `${machineId === f.machines.alice ? 'alice-private' : 'bob-own'}.txt\0`,
+      })
+    else if (frame.type === 'fileWriteRequest')
+      await registry().gateway.routeDaemonFrame(machineId, {
+        type: 'fileWriteResult',
+        requestId: frame.requestId,
+        ok: true,
+      })
+    else if (frame.type === 'dirListRequest')
+      await registry().gateway.routeDaemonFrame(machineId, {
+        type: 'dirListResult',
+        requestId: frame.requestId,
+        ok: true,
+        path: frame.path,
+        entries: [],
+      })
+    // File reads are answered by the fixture's normal daemon handler.
+    await pending
+    expect(request.machineId).toBe(f.machines.bob)
+    expect(
+      route === 'git' || route === 'search' ? repoMachine : defaultMachine,
+    ).toHaveBeenCalledTimes(1)
+    expect(requests().filter((item) => item.machineId === f.machines.alice)).toEqual([])
+  })
+
+  it('keeps the path index on its resolved machine when two checkouts have the same root', async () => {
+    const alice = (await f.as('alice')).trpc
+    const bob = (await f.as('bob')).trpc
+    let selected = f.machines.alice
+    vi.spyOn(registry().modules.machines, 'defaultMachine').mockImplementation(async () => selected)
+    vi.spyOn(registry().modules.machines, 'resolveMachine').mockImplementation(async (requested) =>
+      requested ? asMachineId(requested) : selected,
+    )
+    const repo = vi
+      .spyOn(registry().modules.rpc, 'repoOp')
+      .mockImplementation(async (_op, _root, _args, machineId) => ({
+        ok: true,
+        output: `${(machineId ?? selected) === f.machines.alice ? 'alice-private-plan' : 'bob-own-file'}.txt\0`,
+      }))
+    const root = `${REPO_PATH}/mu08-path-index`
+    expect(await alice.files.search.query({ root, query: '' })).toEqual({
+      paths: ['alice-private-plan.txt'],
+    })
+    selected = f.machines.bob
+    // Explicit routing is the positive control, even while Alice's paths are cached.
+    expect(await bob.files.search.query({ machineId: f.machines.bob, root, query: '' })).toEqual({
+      paths: ['bob-own-file.txt'],
+    })
+    expect(repo).toHaveBeenLastCalledWith('lsFiles', root, undefined, f.machines.bob)
+    expect(await bob.files.search.query({ root, query: '' })).toEqual({
+      paths: ['bob-own-file.txt'],
+    })
+  })
 })
 
 describe('MU-30: usage belongs to the run owner on a shared OS account', () => {

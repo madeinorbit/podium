@@ -14,7 +14,7 @@ import {
   type MachineSupervisorConnection,
   saveSupervisorState,
 } from '@podium/runtime/machine-supervisor'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { loadIdentity } from '../../apps/daemon/src/identity'
 import {
   startTwoMemberInstance,
@@ -27,11 +27,12 @@ describe('two members on independent machine processes', () => {
   const children: DaemonProcessHandle[] = []
   const supervisors: MachineSupervisorConnection[] = []
   const dirs: string[] = []
-  afterAll(async () => {
-    for (const child of children.reverse()) await child.stop()
-    for (const supervisor of supervisors) supervisor.close()
+  afterEach(async () => {
+    for (const child of children.splice(0).reverse()) await child.stop()
+    for (const supervisor of supervisors.splice(0)) supervisor.close()
     await f?.close()
-    for (const dir of dirs) rmSync(dir, { recursive: true, force: true })
+    f = undefined
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
   })
 
   it('enrolls independent machines and enforces file and git access', async () => {

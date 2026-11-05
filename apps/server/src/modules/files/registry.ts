@@ -62,10 +62,9 @@ export interface FileCommand {
 export const assertAllowedRoot = async (
   state: FileState,
   root: string,
-  machineId?: MachineId,
+  machineId: MachineId,
 ): Promise<void> => {
-  const target = machineId ?? (await state.rpc.answeringMachineId())
-  if (!isAllowedRoot(await state.repos.list(target), root)) {
+  if (!isAllowedRoot(await state.repos.list(machineId), root)) {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'root is not a known repository path' })
   }
 }
@@ -96,14 +95,16 @@ export const assertMayReadMachineFiles = async (
   }
 }
 
-/** The machine gate, then the shipped root allowlist. */
+/** Select once, check use and the root, then return the target for dispatch. */
 export const assertReadableRoot = async (
   state: FileState,
   root: string,
   machineId: MachineId | undefined,
-): Promise<void> => {
-  await assertMayReadMachineFiles(state, machineId)
-  await assertAllowedRoot(state, root, machineId)
+): Promise<MachineId> => {
+  const target = machineId ?? (await state.rpc.answeringMachineId())
+  await assertMayReadMachineFiles(state, target)
+  await assertAllowedRoot(state, root, target)
+  return target
 }
 
 export const FILE_COMMANDS_TRPC = {
@@ -113,8 +114,11 @@ export const FILE_COMMANDS_TRPC = {
       // The union's session-addressed arm resolves its root from the session and
       // carries no `root` to check; the explicit arm is gated. Shipped behaviour,
       // moved rather than rewritten.
-      if ('root' in input) await assertReadableRoot(state, input.root, input.machineId)
-      else await assertOwnsSessionFiles(state, input.sessionId)
+      if ('root' in input) {
+        const machineId = await assertReadableRoot(state, input.root, input.machineId)
+        return await state.rpc.writeFile({ ...input, machineId })
+      }
+      await assertOwnsSessionFiles(state, input.sessionId)
       return await state.rpc.writeFile(input)
     }) satisfies FileHandler<z.infer<(typeof FILE_CONTRACTS)['write']['input']>, unknown>,
   },

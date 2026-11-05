@@ -478,8 +478,12 @@ export class DaemonRpcService {
    * the segment lookup that turns a path into a session has to be scoped to the
    * daemon whose walk produced it (POD-1858).
    */
-  async answeringMachineId(): Promise<MachineId> {
-    return await this.deps.defaultMachine()
+  async answeringMachineId(cwd?: string): Promise<MachineId> {
+    // Repo operations historically select by checkout affinity. Resolve that
+    // selection before authorization, then keep it through the eventual RPC.
+    return cwd === undefined
+      ? await this.deps.defaultMachine()
+      : asMachineId(await this.deps.resolveMachine(undefined, cwd))
   }
 
   nextRequestId(prefix: string): string {
