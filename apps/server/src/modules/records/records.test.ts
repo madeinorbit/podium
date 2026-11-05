@@ -34,7 +34,7 @@ import {
 import type { SyncSubmitReply } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
-import type { CommandPrincipal } from '../../command-principal'
+import { type CommandPrincipal, userCommandPrincipal } from '../../command-principal'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 import {
   appliedReply,
@@ -589,6 +589,137 @@ describe('records.userLayout', () => {
     expect(refusal(theirs)).toEqual({ kind: 'unauthorized' })
     expect(refusal(unknownKey).kind).toBe('invalid')
     expect(await rowsOf(o, 'l-theirs')).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// A MEMBER's own per-user rows (POD-6404): written under the caller's self scope
+// ---------------------------------------------------------------------------
+
+describe('a member writes their own per-user rows through sync.submit', () => {
+  /** A member with an owner-or-grant capability, as a signed-in member has. */
+  async function asMember(o: Oracle): Promise<CommandPrincipal> {
+    await member(o)
+    return userCommandPrincipal(MEMBER, 'member')
+  }
+  /** A session the member may read: shared with them by the admin. */
+  async function sharedSession(o: Oracle): Promise<SessionId> {
+    const sessionId = await shellSession(o)
+    const admin = await firstAdminMemberId(o.store)
+    await o.store.grants.upsert({
+      resourceKind: 'session',
+      resourceId: sessionId,
+      grantee: MEMBER,
+      verb: 'read',
+      owner: admin,
+      visibility: 'personal',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      actorKind: 'user',
+      actorId: admin,
+      onBehalfOf: admin,
+    })
+    return sessionId
+  }
+  const as = (o: Oracle, principal: CommandPrincipal, env: Parameters<typeof submit>[1]) =>
+    o.reg.modules.syncWrite.submit(env, principal, 'trpc')
+
+  it('marks a session read, snoozes it, marks an issue read, tucks it and sets a layout key', async () => {
+    const o = await makeOracle()
+    const principal = await asMember(o)
+    const sessionId = await sharedSession(o)
+    const issue = await createIssue(o)
+    await o.call.issues.close({ id: issue, reason: 'done' })
+    const sessionRow = sessionUserStateRowId(MEMBER, sessionId)
+    const issueRow = issueUserStateRowId(MEMBER, issue)
+
+    for (const env of [
+      editState(sessionRow, { readAt: '2099-01-01T00:00:00.000Z' }, 'mb-read'),
+      editState(sessionRow, { snoozedUntil: null }, 'mb-snooze'),
+      editIssueState(issueRow, { readAt: '2099-01-01T00:00:00.000Z' }, 'mb-issue-read'),
+      editIssueState(issueRow, { tuckedAt: '2099-01-01T00:00:00.000Z' }, 'mb-tuck'),
+      envelope(
+        'records.userLayout.edit',
+        { id: layoutRowId(MEMBER, 'sidebar.section.mine'), patch: { value: '1' } },
+        'mb-layout',
+      ),
+    ]) {
+      appliedReply(await as(o, principal, env))
+    }
+
+    expect(await o.store.sessions.getReadAt(MEMBER, sessionId)).toBe('2099-01-01T00:00:00.000Z')
+    expect((await o.store.sessions.listSnoozes(MEMBER))[sessionId]).toBeNull()
+    const marks = await o.store.issues.getIssueUserState(MEMBER, issue)
+    expect(marks?.readAt).toBe('2099-01-01T00:00:00.000Z')
+    expect(marks?.tuckedAt).toEqual(expect.any(String))
+    expect((await o.reg.modules.layout.getSnapshot(MEMBER))['sidebar.section.mine']).toBe('1')
+  })
+
+  it('the old route a member’s older app sends is applied too (sessions.markRead)', async () => {
+    const o = await makeOracle()
+    const principal = await asMember(o)
+    const sessionId = await sharedSession(o)
+
+    appliedReply(
+      await as(o, principal, envelope('sessions.markRead', { sessionId }, 'mb-old-read')),
+    )
+
+    expect(await o.store.sessions.getReadAt(MEMBER, sessionId)).not.toBeNull()
+  })
+
+  it('refuses another person’s row', async () => {
+    const o = await makeOracle()
+    const principal = await asMember(o)
+    const issue = await createIssue(o)
+    const admin = await firstAdminMemberId(o.store)
+
+    const reply = await as(
+      o,
+      principal,
+      editIssueState(issueUserStateRowId(admin, issue), { readAt: null }, 'mb-theirs'),
+    )
+
+    expect(refusal(reply)).toEqual({ kind: 'unauthorized' })
+  })
+
+  it('an agent writes its human’s row, and nobody else’s', async () => {
+    const o = await makeOracle()
+    await member(o)
+    const issue = await createIssue(o)
+    const agentSession = await shellSession(o)
+    const agent: CommandPrincipal = {
+      kind: 'agent',
+      agentSessionId: agentSession,
+      onBehalfOf: MEMBER,
+      capability: {
+        role: 'worker',
+        scope: { kind: 'subtree', rootId: issue },
+        actorSessionId: agentSession,
+      },
+      chain: [agentSession],
+    }
+    const admin = await firstAdminMemberId(o.store)
+
+    appliedReply(
+      await as(
+        o,
+        agent,
+        editIssueState(
+          issueUserStateRowId(MEMBER, issue),
+          { readAt: '2099-01-01T00:00:00.000Z' },
+          'ag-read',
+        ),
+      ),
+    )
+    const theirs = await as(
+      o,
+      agent,
+      editIssueState(issueUserStateRowId(admin, issue), { readAt: null }, 'ag-theirs'),
+    )
+
+    expect((await o.store.issues.getIssueUserState(MEMBER, issue))?.readAt).toBe(
+      '2099-01-01T00:00:00.000Z',
+    )
+    expect(refusal(theirs)).toEqual({ kind: 'unauthorized' })
   })
 })
 

@@ -33,7 +33,7 @@
  */
 
 import { createLogger, describeError } from '@podium/logger'
-import type { MutationId } from '@podium/model'
+import type { Capability, MutationId } from '@podium/model'
 import { authorize } from '@podium/model'
 import type {
   SyncSubmitInput,
@@ -42,7 +42,7 @@ import type {
   WriteReceipt,
 } from '@podium/protocol'
 import type { AuthorityRefusal, MutationLedger, OutboxEnvelope } from '@podium/sync'
-import type { CommandPrincipal } from '../../command-principal'
+import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import { outsideWriteProvenance, withWriteProvenance } from '../../write-provenance'
 import { coarselyPermitted, parseCommandInput } from '../front-door'
 import {
@@ -51,6 +51,7 @@ import {
   type SyncWriteContext,
   type SyncWriteLedger,
   type SyncWriteRegistry,
+  type SyncWriteTarget,
   type SyncWriteTransport,
 } from './registry'
 
@@ -112,6 +113,25 @@ export interface SyncWriteEntryDeps {
 }
 
 const log = createLogger('server:sync-write')
+
+/**
+ * THE CALLER'S OWN PER-USER ROW (POD-6404): a read mark, a snooze, a tuck is
+ * a fact about the person, keyed by them (ADR 9 D3 rule 4), so it is written
+ * under the caller's SELF scope whatever scope the capability carries for
+ * shared records. A member's owner-or-grant capability reaches nobody's
+ * per-user rows (issue-authz §3.3), which refused every member's read mark on
+ * this path; an agent writes its human's row, as it acts for them. Anyone
+ * else's row is unchanged: still refused.
+ */
+function capabilityFor(
+  principal: Exclude<CommandPrincipal, { kind: 'system' }>,
+  target: Exclude<SyncWriteTarget, undefined>,
+): Capability {
+  if (isNoTarget(target) || target.kind !== 'per-user-row') return principal.capability
+  const human = onBehalfOfUser(principal)
+  if (human === null || target.userId !== human) return principal.capability
+  return { ...principal.capability, scope: { kind: 'self', userId: human } }
+}
 
 const rejected = (refusal: SyncSubmitRefusal): SyncSubmitReply => ({ outcome: 'rejected', refusal })
 const UNAUTHORIZED: SyncSubmitRefusal = { kind: 'unauthorized' }
@@ -217,7 +237,7 @@ export class SyncWriteEntry {
     const target = await command.target(input, { principal })
     if (target === undefined) return UNAUTHORIZED
     const decision = authorize(
-      principal.capability,
+      capabilityFor(principal, target),
       command.action,
       isNoTarget(target) ? undefined : target,
       { override: confirmed },
