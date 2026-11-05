@@ -12,6 +12,7 @@
  * so the model hook has no raw call sites.
  */
 
+import { issueWrites } from '@podium/commands/issues-synced'
 import type { ActivityComment, IssueEvent, RelationEntry } from '@podium/client-core/values'
 import type { IssueActivityPorts } from '@podium/client-graph/issue-activity'
 import type { IssueUpdatePatch } from '@podium/commands'
@@ -70,18 +71,17 @@ export function issuePageCommands({
      *  queued, not when the server settles it: the picker awaits it so a failed
      *  enqueue shows inline, and a later server refusal reaches the user as the
      *  outbox's "Couldn't save issue branch" notice like every other edit. */
-    setParentBranch: (parentBranch: string): Promise<unknown> =>
-      updateIssue(id, { parentBranch }),
+    setParentBranch: (parentBranch: string): Promise<unknown> => updateIssue(id, { parentBranch }),
 
     // ---- banners ----
     applySuggestion: (): void => {
-      void run(() => trpc.issues.applySuggestion.mutate({ id }))
+      void run(() => issueWrites(trpc).applySuggestion.mutate({ id }))
     },
     dismissSuggestion: (): void => {
-      void run(() => trpc.issues.dismissSuggestion.mutate({ id }))
+      void run(() => issueWrites(trpc).dismissSuggestion.mutate({ id }))
     },
     resolveNeedsHuman: (): void => {
-      void run(() => trpc.issues.clearNeedsHuman.mutate({ id }))
+      void run(() => issueWrites(trpc).clearNeedsHuman.mutate({ id }))
     },
 
     // ---- title / description (inline editors) ----
@@ -109,7 +109,7 @@ export function issuePageCommands({
     // ---- sub-issues ----
     createSubIssue: (title: string): void => {
       void run(() =>
-        trpc.issues.create.mutate({
+        issueWrites(trpc).create.mutate({
           repoPath: issue.repoPath,
           title,
           parentId: id,
@@ -123,7 +123,7 @@ export function issuePageCommands({
      *  appends the local optimistic copy + clears the composer there). */
     postComment: (body: string, onPosted: (body: string) => void): void => {
       void run(async () => {
-        await trpc.issues.addComment.mutate({ id, body })
+        await issueWrites(trpc).addComment.mutate({ id, body })
         onPosted(body)
       })
     },
@@ -133,7 +133,7 @@ export function issuePageCommands({
 
     // ---- overflow menu ----
     flagForHuman: (question: string | undefined): void => {
-      void run(() => trpc.issues.setNeedsHuman.mutate({ id, question }))
+      void run(() => issueWrites(trpc).setNeedsHuman.mutate({ id, question }))
     },
     togglePinned: (): void => {
       update({ pinned: !issue.pinned })
@@ -154,10 +154,10 @@ export function issuePageCommands({
       })
     },
     supersedeWith: (newId: string): void => {
-      void run(() => trpc.issues.supersede.mutate({ oldId: id, newId }))
+      void run(() => issueWrites(trpc).supersede.mutate({ oldId: id, newId }))
     },
     duplicateOf: (canonicalId: string): void => {
-      void run(() => trpc.issues.duplicate.mutate({ id, canonicalId }))
+      void run(() => issueWrites(trpc).duplicate.mutate({ id, canonicalId }))
     },
 
     // ---- properties ----
@@ -198,15 +198,15 @@ export function issuePageCommands({
       void run(() => undeferIssue(id))
     },
     setParent: (parentId: string | null): void => {
-      void run(() => trpc.issues.reparent.mutate({ id, parentId }))
+      void run(() => issueWrites(trpc).reparent.mutate({ id, parentId }))
     },
     // ---- relations ----
     addRelation: (type: StoredIssueDepType, toId: string): void => {
-      void run(() => trpc.issues.depAdd.mutate({ fromId: id, toId, type }))
+      void run(() => issueWrites(trpc).depAdd.mutate({ fromId: id, toId, type }))
     },
     removeRelation: (entry: RelationEntry): void => {
       void run(() =>
-        trpc.issues.depRemove.mutate(
+        issueWrites(trpc).depRemove.mutate(
           entry.direction === 'dep'
             ? { fromId: id, toId: entry.id, type: entry.type }
             : { fromId: entry.id, toId: id, type: entry.type },

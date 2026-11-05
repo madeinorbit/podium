@@ -1,3 +1,4 @@
+import { issueWrites } from '@podium/commands/issues-synced'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import type { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
@@ -219,7 +220,7 @@ function RefMiniviewContents({
         navigateToSession(sessionId)
       }}
       onStart={(issueId) => trpc.issues.start.mutate({ id: issueId })}
-      onPromote={(issueId) => trpc.issues.promote.mutate({ id: issueId })}
+      onPromote={(issueId) => issueWrites(trpc).promote.mutate({ id: issueId })}
       loadComments={loadComments}
     />,
     document.body,

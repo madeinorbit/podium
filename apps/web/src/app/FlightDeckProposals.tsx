@@ -1,3 +1,4 @@
+import { issueWrites } from '@podium/commands/issues-synced'
 import { discoveredPlacement } from '@podium/client-core/values'
 import type { FullDeck, FullDeckTask } from '@podium/client-graph/mission-full-deck'
 import { requireLoaded, settled } from '@podium/client-graph/mission-view'
@@ -74,7 +75,7 @@ class ProposalSubmissions {
       const input = { id: asIssueId(id), mutationId }
       // The operator-authenticated client uses the existing commands. In particular,
       // start owns promotion, placement and proposal → parent → mission profiles.
-      if (verb === 'backlog') await trpc.issues.promote.mutate(input)
+      if (verb === 'backlog') await issueWrites(trpc).promote.mutate(input)
       else if (verb === 'start') await trpc.issues.start.mutate(input)
       else await trpc.issues.close.mutate({ ...input, reason: 'declined' })
       runInAction(() => this.byId.set(id, { action: verb, mutationId, phase: 'success' }))

@@ -1,3 +1,4 @@
+import { issueWrites } from '@podium/commands/issues-synced'
 import { observer } from 'mobx-react-lite'
 import { LOADING } from '@podium/client-graph/loading'
 import { isGone } from '@podium/client-graph/lookup'
@@ -82,7 +83,7 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
     setError(null)
     try {
       const configured = launchConfigurationPatch(launchPlan?.configuration ?? launch)
-      const issue = await trpc.issues.create.mutate(
+      const issue = await issueWrites(trpc).create.mutate(
         newTaskInput({
           repoPath: repoPath.trim(),
           title: title.trim(),

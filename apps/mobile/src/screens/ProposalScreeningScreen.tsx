@@ -1,3 +1,4 @@
+import { issueWrites } from '@podium/commands/issues-synced'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { ProposalScreening } from '@podium/client-graph/mobile-triage'
 import { LOADING } from '@podium/client-graph/loading'
@@ -74,7 +75,7 @@ export const ProposalScreeningScreen = observer(function ProposalScreeningScreen
       try {
         await applyScreeningDecision(
           {
-            promoteIssue: (id) => trpc.issues.promote.mutate({ id }),
+            promoteIssue: (id) => issueWrites(trpc).promote.mutate({ id }),
             startIssue: (id) => trpc.issues.start.mutate({ id }),
             closeIssue,
           },

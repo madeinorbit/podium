@@ -6331,7 +6331,7 @@
       "file": "apps/web/src/features/issues/issue-menu-palette-commands.ts",
       "holder": "issueMenuPaletteCommands/flatMap:callback/map:callback/run/callback",
       "rule": "reader-summary",
-      "tokens": "43621ace820216f223ae0c7391ef8729228fdab214eef70003ab68fc8fcb3418",
+      "tokens": "719c2f600ac4c4dc6a4c9f786b89ce6ba613ffdbae30a39d09cd619cefe80dfa",
       "gate": [
         "exit:then:6fc6171510488d8c181edf13147bec2c5d9962f16053968c34b4cc660980c0ae"
       ],
@@ -6339,12 +6339,11 @@
         "20bb0ab9ebe08b78d9cdcacee0f5b35cc24a86bc6da2f53ba0dfc546efba9f38",
         "570003f505ff4f9aac9051384237bcbc90dd0b87c83ac0423040189901d24846",
         "5a4523014c83bc64f0677aabe3644c873f17021f6d0e66add4630d64be39bc94",
-        "686603e5b6f70c1960b09be168319e48184d24c525908097749255ab47fce0d5",
         "6beec9149bb500feb42b52244dfd3075db6dc8aa4377390028e82706496d0131",
         "b113e78a03300f7c52a422ad46268d024325c5393b6b00a92a600ef146c075bd",
         "d705a7840084cbf09f265329532882761dd59cd72e922cf59ff51762dd6bad14"
       ],
-      "fingerprint": "f8d8e24625b0dd1015ade8a4036c53e99bf1a5f3e802d14fec563bd35ca47fe8",
+      "fingerprint": "9a0cdcad9f7268b574165a2bd2a411ae64dcc6ca2608eb4f679d6771f208b785",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -6357,7 +6356,7 @@
       "file": "apps/web/src/features/issues/issue-menu-palette-commands.ts",
       "holder": "issueMenuPaletteCommands/flatMap:callback/run/callback",
       "rule": "reader-summary",
-      "tokens": "0b73b8e25184371a586bcb7e9eb3f8ae8db0e9ee1e934e344a42af36b920697f",
+      "tokens": "bade42cc7d3acbb5b100d44991830954480974b5fd434ef6068a94605344ce98",
       "gate": [
         "then:6fc6171510488d8c181edf13147bec2c5d9962f16053968c34b4cc660980c0ae"
       ],
@@ -6365,12 +6364,11 @@
         "20bb0ab9ebe08b78d9cdcacee0f5b35cc24a86bc6da2f53ba0dfc546efba9f38",
         "570003f505ff4f9aac9051384237bcbc90dd0b87c83ac0423040189901d24846",
         "5a4523014c83bc64f0677aabe3644c873f17021f6d0e66add4630d64be39bc94",
-        "686603e5b6f70c1960b09be168319e48184d24c525908097749255ab47fce0d5",
         "6beec9149bb500feb42b52244dfd3075db6dc8aa4377390028e82706496d0131",
         "b113e78a03300f7c52a422ad46268d024325c5393b6b00a92a600ef146c075bd",
         "d705a7840084cbf09f265329532882761dd59cd72e922cf59ff51762dd6bad14"
       ],
-      "fingerprint": "cb5127fbc2f71dfd7a22ad0b719cbe646da6fd837530fa51e84a4e7001eaf586",
+      "fingerprint": "5312d2fb388163e7dfd5a4c695aeb3f90efe55910f68586629efea5d080fbfee",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",

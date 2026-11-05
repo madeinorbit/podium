@@ -1,3 +1,4 @@
+import { issueWrites } from '@podium/commands/issues-synced'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import {
@@ -320,7 +321,7 @@ export const IssueContextMenu = observer(function IssueContextMenu({
     onClose()
   }
   const duplicateOf = (canonicalId: string): void =>
-    run(() => trpc.issues.duplicate.mutate({ id: first.id, canonicalId }))
+    run(() => issueWrites(trpc).duplicate.mutate({ id: first.id, canonicalId }))
   const del = (): void => {
     const n = ids.length
     const sessionCount = cascadeSessionCount(issues)

@@ -1,3 +1,4 @@
+import { issueWrites } from '@podium/commands/issues-synced'
 import { relativeTime } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -108,7 +109,7 @@ export const TaskSheet = observer(function TaskSheet({
 
   const post = (body: string) => {
     if (!issue) return
-    void trpc.issues.addComment.mutate({ id: issue.id, body }).catch(() => {})
+    void issueWrites(trpc).addComment.mutate({ id: issue.id, body }).catch(() => {})
   }
 
   /**

@@ -1,3 +1,4 @@
+import { issueWrites } from '@podium/commands/issues-synced'
 import {
   asUserId,
   type IssueId,
@@ -175,8 +176,8 @@ export function IssuesView(): JSX.Element {
     [runMut, updateIssue],
   )
   const approveIssue = useCallback(
-    (id: IssueId): void => runMut(trpc.issues.promote.mutate({ id })),
-    [runMut, trpc.issues.promote],
+    (id: IssueId): void => runMut(issueWrites(trpc).promote.mutate({ id })),
+    [runMut, trpc],
   )
   const createInStage = useCallback((stage: IssueStage): void => setCreating({ stage }), [])
   // `approve & start` and `archive` left this file with the card's three-button

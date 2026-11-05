@@ -1,3 +1,4 @@
+import { issueWrites } from '@podium/commands/issues-synced'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { ActivityComment, IssueEvent } from '@podium/client-core/values'
 import type { IssueUpdatePatch } from '@podium/commands'
@@ -135,7 +136,7 @@ export function issueCommands({
   requestClose?: (reason: IssueCloseReason) => void
 }) {
   const id = issue.id
-  const api = issueProcs(trpc).issues
+  const api = issueWrites(issueProcs(trpc))
 
   /** Generic field patch — the single `issues.update` call site. Keep the
    *  page's existing clear-value surface intact at this transport seam. */
@@ -154,7 +155,7 @@ export function issueCommands({
       void run(() => api.dismissSuggestion.mutate({ id }))
     },
     resolveNeedsHuman: (): void => {
-      void run(() => trpc.issues.clearNeedsHuman.mutate({ id }))
+      void run(() => issueWrites(trpc).clearNeedsHuman.mutate({ id }))
     },
     restoreIssue: (onRestored: () => void): void => {
       void run(async () => {
@@ -193,7 +194,7 @@ export function issueCommands({
     // ---- activity ----
     postComment: (body: string, onPosted: (body: string) => void): void => {
       void run(async () => {
-        await trpc.issues.addComment.mutate({ id, body })
+        await issueWrites(trpc).addComment.mutate({ id, body })
         onPosted(body)
       })
     },

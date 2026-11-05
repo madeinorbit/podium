@@ -1,3 +1,4 @@
+import { issueWrites } from '@podium/commands/issues-synced'
 import { spawnIssueAgent } from '@podium/client-core/values'
 import type { IssueUpdatePatch } from '@podium/commands'
 import {
@@ -163,6 +164,6 @@ export function runIssueMenuCommand(
       if (value === 'undefer') return deps.undeferIssue(id)
       return
     case 'duplicate':
-      return deps.trpc.issues.duplicate.mutate({ id, canonicalId: value })
+      return issueWrites(deps.trpc).duplicate.mutate({ id, canonicalId: value })
   }
 }

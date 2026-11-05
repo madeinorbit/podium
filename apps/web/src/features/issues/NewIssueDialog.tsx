@@ -1,3 +1,4 @@
+import { issueWrites } from '@podium/commands/issues-synced'
 import { useSettingsRecord } from '@/features/settings/record-readers'
 import { observer } from 'mobx-react-lite'
 import type { RepoView } from '@podium/client-core/values'
@@ -376,7 +377,7 @@ const NewIssueDialogBody = observer(function NewIssueDialogBody({
     setBusy(true)
     setError('')
     try {
-      const created = await trpc.issues.create.mutate({
+      const created = await issueWrites(trpc).create.mutate({
         repoPath,
         title: title.trim(),
         description: description.trim() || undefined,
