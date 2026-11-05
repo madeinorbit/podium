@@ -54,9 +54,6 @@ const SAMPLE: { [K in keyof OutboxKinds]: OutboxKinds[K] } = {
   } as OutboxKinds['settingsUpdatePersonal'],
   sendText: { sessionId: asSessionId('s-1'), text: 'hello' } as OutboxKinds['sendText'],
   resumeAndSend: { sessionId: asSessionId('s-1'), text: 'hello' } as OutboxKinds['resumeAndSend'],
-  rename: { sessionId: asSessionId('s-1'), name: 'new name' } as OutboxKinds['rename'],
-  setArchived: { sessionId: asSessionId('s-1'), archived: true } as OutboxKinds['setArchived'],
-  setWorkState: { sessionId: asSessionId('s-1'), workState: null } as OutboxKinds['setWorkState'],
   dismissOffer: {
     sessionId: asSessionId('s-1'),
     offerCreatedAt: '2026-08-16T09:00:00.000Z',
@@ -98,6 +95,12 @@ const SAMPLE: { [K in keyof OutboxKinds]: OutboxKinds[K] } = {
  *  (POD-6392), whose contract comes from their input. */
 const kinds = Object.keys(SAMPLE) as (keyof OutboxKinds)[]
 
+/** A session's labels: a generic edit of the session record (POD-6406). */
+const sessionEdit = (id: string, patch: object): OutboxKinds['recordEdit'] => ({
+  kind: 'session',
+  id,
+  patch: patch as Record<string, unknown>,
+})
 /** An issue's plain fields: a generic edit of the issue record (POD-6405). */
 const issueEdit = (id: string, patch: object, unset?: string[]): OutboxKinds['recordEdit'] => ({
   kind: 'issueProjection',
@@ -177,11 +180,11 @@ describe('POD-785 — outbox routing keys every write by its target', () => {
     expect(route('recordEdit', myIssue('POD-1', { readAt: AT })).partitionKey).not.toBe(
       route('recordEdit', myIssue('POD-2', { readAt: AT })).partitionKey,
     )
-    expect(route('rename', { sessionId: asSessionId('s-1'), name: 'a' }).partitionKey).not.toBe(
-      route('rename', { sessionId: asSessionId('s-2'), name: 'a' }).partitionKey,
+    expect(route('recordEdit', sessionEdit('s-1', { name: 'a' })).partitionKey).not.toBe(
+      route('recordEdit', sessionEdit('s-2', { name: 'a' })).partitionKey,
     )
     // ...and a session write is not serialised behind an unrelated issue write.
-    expect(route('rename', { sessionId: asSessionId('s-1'), name: 'a' }).partitionKey).not.toBe(
+    expect(route('recordEdit', sessionEdit('s-1', { name: 'a' })).partitionKey).not.toBe(
       route('recordEdit', myIssue('POD-1', { readAt: AT })).partitionKey,
     )
   })
@@ -204,8 +207,8 @@ describe('POD-785 — outbox routing keys every write by its target', () => {
   it('keeps writes to the SAME row in one partition, preserving their order', () => {
     // This is what the legacy `chained` flag tracked: two edits of one row must
     // not be able to reorder.
-    const a = route('rename', { sessionId: asSessionId('s-1'), name: 'first' }).partitionKey
-    const b = route('rename', { sessionId: asSessionId('s-1'), name: 'second' }).partitionKey
+    const a = route('recordEdit', sessionEdit('s-1', { name: 'first' })).partitionKey
+    const b = route('recordEdit', sessionEdit('s-1', { name: 'second' })).partitionKey
     expect(a).toBe(b)
   })
 
@@ -220,7 +223,7 @@ describe('POD-785 — outbox routing keys every write by its target', () => {
       route('sendText', { sessionId: asSessionId('s-2'), text: 'x' }).partitionKey,
     )
     // A parked rename must not hold every later message to the session.
-    expect(live).not.toBe(route('rename', { sessionId: s1, name: 'n' }).partitionKey)
+    expect(live).not.toBe(route('recordEdit', sessionEdit(s1, { name: 'n' })).partitionKey)
   })
 })
 
@@ -354,7 +357,7 @@ describe('POD-785 — only writes a later one subsumes may collapse', () => {
     // It rides the session's partition, so it cannot overtake a rename made on
     // the same row.
     expect(route('dismissOffer', { sessionId, offerCreatedAt: 'T1' }).partitionKey).toBe(
-      route('rename', { sessionId, name: 'a' }).partitionKey,
+      route('recordEdit', sessionEdit(sessionId, { name: 'a' })).partitionKey,
     )
   })
 
@@ -382,8 +385,8 @@ describe('POD-785 — only writes a later one subsumes may collapse', () => {
     expect(route('recordEdit', myIssue('POD-1', { readAt: AT })).collapseKey).not.toBe(
       route('recordEdit', myIssue('POD-1', { tuckedAt: AT })).collapseKey,
     )
-    expect(route('rename', { sessionId: asSessionId('s-1'), name: 'a' }).collapseKey).not.toBe(
-      route('setArchived', { sessionId: asSessionId('s-1'), archived: true }).collapseKey,
+    expect(route('recordEdit', sessionEdit('s-1', { name: 'a' })).collapseKey).not.toBe(
+      route('recordEdit', sessionEdit('s-1', { archived: true })).collapseKey,
     )
   })
 

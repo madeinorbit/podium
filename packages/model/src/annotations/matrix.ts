@@ -589,9 +589,9 @@ const SESSION_ROWS: readonly MatrixRow[] = [
     idMinting: 'n/a',
     writers: ['operator', 'agent-session'],
     replication: 'server-to-clients',
-    conflict: 'exp-rev',
+    conflict: 'field-LWW',
     conflictNote:
-      'AMENDED (Amendment 1 D10): `archived` and `workState` were `field-LWW` in the base matrix and are now SHARED SESSION FACTS at `exp-rev`. `WorkState` is `planning|implementing|testing|done|icebox` — a statement about the WORK, identical for every viewer; a session that is `done` is not `done` only for me. `readAt` LEFT this group entirely and is per-user state. The `name`/`nameSource` rule survives unchanged: a human-set name is not agent-overwritable ([spec:SP-eb60]).',
+      'AMENDED AGAIN by ADR 12 D3 (POD-6406): each label (`name`, `archived`, `workState`) is its own independent group at `field-LWW`, which is what their commands always did (they carried no revision); they are still SHARED SESSION FACTS, written once for every viewer. Clock: the Authority-assigned event time at commit. The lifecycle has its own row at exp-rev (session-desired-state), and a label edit never moves its spec revision. Before: AMENDED (Amendment 1 D10): `archived` and `workState` were `field-LWW` in the base matrix and became SHARED SESSION FACTS at `exp-rev`. `WorkState` is `planning|implementing|testing|done|icebox` — a statement about the WORK, identical for every viewer; a session that is `done` is not `done` only for me. `readAt` LEFT this group entirely and is per-user state. The `name`/`nameSource` rule survives unchanged: a human-set name is not agent-overwritable ([spec:SP-eb60]).',
     tombstone: 'never-delete',
     tombstoneNote:
       'Archive is not delete — `archived` sits beside `deletedAt` on the shared row and means "retired".',
@@ -3407,6 +3407,8 @@ export const FIELD_LWW_MEMBERS: readonly MatrixRowId[] = [
   // its description until op-streams exist.
   ROW.issuePlainFields,
   ROW.issueDocumentFields,
+  // ADR 12 D3 (POD-6406): a session's labels, each its own group.
+  ROW.sessionLabels,
 ]
 
 /**

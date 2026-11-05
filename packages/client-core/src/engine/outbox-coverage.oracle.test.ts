@@ -243,6 +243,11 @@ const mySession = (id: string, patch: object, unset?: string[]) => ({
   patch,
   ...(unset === undefined ? {} : { unset }),
 })
+const sessionEdit = (id: string, patch: object): OutboxKinds['recordEdit'] => ({
+  kind: 'session',
+  id,
+  patch: patch as Record<string, unknown>,
+})
 const issueEdit = (id: string, patch: object, unset?: string[]): OutboxKinds['recordEdit'] => ({
   kind: 'issueProjection',
   id,
@@ -275,15 +280,21 @@ const COVERED: { kind: keyof OutboxKinds & string; input: object; path: string }
     input: { values: { 'sidebar.repoSort': 'name' } },
     path: 'settings.updatePersonal',
   },
-  { kind: 'rename', input: { sessionId: 's1', name: 'n' }, path: 'sessions.rename' },
-  { kind: 'setArchived', input: { sessionId: 's1', archived: true }, path: 'sessions.setArchived' },
-  {
-    kind: 'setWorkState',
-    input: { sessionId: 's1', workState: 'done' },
-    path: 'sessions.setWorkState',
-  },
   { kind: 'recordEdit', input: mySession('s1', { readAt: AT }), path: 'sessions.markRead' },
   { kind: 'recordEdit', input: mySession('s1', { readAt: null }), path: 'sessions.markUnread' },
+  // A session's labels: a generic edit of its record (POD-6406), the old
+  // procedures on a server without sync.submit.
+  { kind: 'recordEdit', input: sessionEdit('s1', { name: 'n' }), path: 'sessions.rename' },
+  {
+    kind: 'recordEdit',
+    input: sessionEdit('s1', { archived: true }),
+    path: 'sessions.setArchived',
+  },
+  {
+    kind: 'recordEdit',
+    input: sessionEdit('s1', { workState: 'done' }),
+    path: 'sessions.setWorkState',
+  },
   // POD-1110 — the offer bar's "none of these"; see the header for why the
   // session half grew. The ACTION buttons are `sessions.sendText`, a chat send
   // (POD-4762).
@@ -485,7 +496,7 @@ describe('oracle: the offline-queued write set', () => {
   it(`${MUST_NOT_CHANGE}: each replay carries the entry's STABLE mutationId, which is what the server dedupes on`, async () => {
     const { outbox, calls } = makeOutbox()
 
-    const entry = outbox.enqueue('rename', { sessionId: asSessionId('s1'), name: 'queued offline' })
+    const entry = outbox.enqueue('recordEdit', sessionEdit('s1', { name: 'queued offline' }))
     await outbox.drain()
 
     expect(calls).toEqual([
@@ -591,8 +602,8 @@ describe('oracle: the offline-queued write set', () => {
   it(`${MUST_NOT_CHANGE}: queued writes drain in FIFO order, so two edits to one row compose in the order they were made`, async () => {
     const { outbox, calls } = makeOutbox()
 
-    outbox.enqueue('rename', { sessionId: asSessionId('s1'), name: 'first' })
-    outbox.enqueue('setArchived', { sessionId: asSessionId('s1'), archived: true })
+    outbox.enqueue('recordEdit', sessionEdit('s1', { name: 'first' }))
+    outbox.enqueue('recordEdit', sessionEdit('s1', { archived: true }))
     await outbox.drain()
 
     expect(calls.map((c) => c.path)).toEqual(['sessions.rename', 'sessions.setArchived'])

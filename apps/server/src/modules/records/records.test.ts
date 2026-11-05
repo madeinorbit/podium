@@ -766,6 +766,76 @@ describe('a member writes their own per-user rows through sync.submit', () => {
 })
 
 // ---------------------------------------------------------------------------
+// A session's labels (POD-6406): plain fields of the session record
+// ---------------------------------------------------------------------------
+
+describe('records.session.edit: the labels', () => {
+  const editSession = (
+    id: SessionId,
+    patch: Record<string, unknown>,
+    m: string,
+    unset?: string[],
+  ) => envelope('records.session.edit', { id, patch, ...(unset === undefined ? {} : { unset }) }, m)
+  const revisionOf = async (o: Oracle, id: SessionId) =>
+    (await o.reg.modules.sessions.desiredStateOf(id))?.lifecycle.revision
+
+  it('renames (trimmed), archives with the work done, and sets and clears the work state, on the path', async () => {
+    const o = await makeOracle()
+    const id = await shellSession(o)
+
+    await expectAppliedOnPath(o, editSession(id, { name: '  Mine  ' }, 's-name'), { writes: true })
+    expect((await o.meta(id)).name).toBe('Mine')
+
+    appliedReply(await submit(o, editSession(id, { workState: 'testing' }, 's-ws')))
+    expect((await o.meta(id)).workState).toBe('testing')
+    appliedReply(await submit(o, editSession(id, {}, 's-ws-clear', ['workState'])))
+    expect((await o.meta(id)).workState).toBeUndefined()
+
+    appliedReply(await submit(o, editSession(id, { archived: true, workState: 'done' }, 's-arch')))
+    const archived = await o.meta(id)
+    expect([archived.archived, archived.workState]).toEqual([true, 'done'])
+  })
+
+  it('a label edit names no revision and never moves the spec revision, so a stop made before it still applies', async () => {
+    const o = await makeOracle()
+    const id = await shellSession(o)
+    const before = await revisionOf(o, id)
+
+    appliedReply(await submit(o, editSession(id, { name: 'renamed' }, 's-r')))
+    expect(await revisionOf(o, id)).toBe(before)
+
+    appliedReply(
+      await submit(
+        o,
+        envelope(
+          'records.session.edit',
+          { id, patch: { desired: 'stopped' }, expectedRevision: before },
+          's-stop',
+        ),
+      ),
+    )
+  })
+
+  it('refuses a label edit mixed with a lifecycle edit', async () => {
+    const o = await makeOracle()
+    const id = await shellSession(o)
+    const at = await revisionOf(o, id)
+
+    const mixed = await submit(
+      o,
+      envelope(
+        'records.session.edit',
+        { id, patch: { name: 'x', desired: 'stopped' }, expectedRevision: at },
+        's-mix',
+      ),
+    )
+
+    expect(refusal(mixed)).toEqual({ kind: 'unauthorized' })
+    expect(await rowsOf(o, 's-mix')).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
 // The generic layer ALONE: an adapter with no guards of its own
 // ---------------------------------------------------------------------------
 

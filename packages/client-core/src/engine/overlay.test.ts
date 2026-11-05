@@ -70,8 +70,15 @@ const userState = (over: Partial<IssueUserStateWire> = {}): IssueUserStateWire =
 })
 
 describe('overlayForOutboxEntry projection', () => {
+  // The session's labels are record edits (POD-6406): the parsed edit is the
+  // paint, so a rename paints the trimmed name the server stores.
+  const sessionEdit = (patch: Parameters<typeof recordEditEntry<'session'>>[1]) =>
+    overlayForOutboxEntry(
+      entry('recordEdit', recordEditEntry({ kind: 'session', id: 's1' }, patch)),
+    )
+
   it('rename patches the trimmed name', () => {
-    const o = overlayForOutboxEntry(entry('rename', { sessionId: 's1', name: ' hi ' }))
+    const o = sessionEdit({ name: ' hi ' })
     if (o?.op !== 'patch') throw new Error('expected patch overlay')
     expect(o.entity).toBe('sessions')
     expect(o.id).toBe('s1')
@@ -79,11 +86,11 @@ describe('overlayForOutboxEntry projection', () => {
   })
 
   it('archive / work-state / snooze project patches on their owning rows', () => {
-    const arch = overlayForOutboxEntry(entry('setArchived', { sessionId: 's1', archived: true }))
+    const arch = sessionEdit({ archived: true, workState: 'done' })
     if (arch?.op !== 'patch') throw new Error('expected patch')
-    expect(arch.patch).toEqual({ archived: true })
+    expect(arch.patch).toEqual({ archived: true, workState: 'done' })
 
-    const ws = overlayForOutboxEntry(entry('setWorkState', { sessionId: 's1', workState: null }))
+    const ws = sessionEdit({ workState: UNSET })
     if (ws?.op !== 'patch') throw new Error('expected patch')
     expect(ws.patch).toEqual({ workState: undefined })
 
@@ -380,9 +387,6 @@ describe('the presence contracts and their optimistic reducers', () => {
     // Guards the guard above: a map whose kinds had no reducer case would satisfy
     // the totality test and still paint nothing.
     const inputs: Record<string, object> = {
-      rename: { sessionId: 's1', name: 'n' },
-      setArchived: { sessionId: 's1', archived: true },
-      setWorkState: { sessionId: 's1', workState: 'done' },
       dismissOffer: { sessionId: 's1', offerCreatedAt: 'T1' },
     }
     const perUser = new Set<string>()

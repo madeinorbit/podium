@@ -1215,16 +1215,24 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     },
     chatSendsFor: (sessionId) => outboxChatSends(rt.outbox, sessionId),
     discardChat: (mutationId) => discardChatThroughOutbox(rt.outbox, mutationId),
-    renameSession: async (sessionId, name) => rt.write('rename', { sessionId, name }),
+    // The session's labels are plain fields of its record (POD-6406): one edit
+    // each, last writer wins per field; an archive marks the work done in the
+    // same edit.
+    renameSession: async (sessionId, name) =>
+      editRecord({ kind: 'session', id: sessionId }, { name }),
     archiveSession: async (sessionId, archived) => {
-      rt.write('setArchived', { sessionId, archived })
-      if (archived) rt.write('setWorkState', { sessionId, workState: 'done' })
-      if (archived) {
+      const write = editRecord(
+        { kind: 'session', id: sessionId },
+        archived ? { archived, workState: 'done' } : { archived },
+      )
+      if (!archived) return await write
+      {
         // Runtime-owned pin cleanup; see the write ownership block above.
         const pins = rt.state().pins
         rt.apply({ pins: { ...pins, panels: pins.panels.filter((id) => id !== sessionId) } })
         await rt.outbox.enqueue('pinSet', { kind: 'panel', id: sessionId, pinned: false })
       }
+      await write
     },
     // `write`, like its neighbours, since POD-1110. It used to be a
     // bare mutate under `offline: 'direct-only'`, which made "none of these" the
@@ -1237,7 +1245,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     dismissOffer: async (sessionId: SessionId, offerCreatedAt: string) =>
       rt.write('dismissOffer', { sessionId, offerCreatedAt }),
     setWorkState: async (sessionId: SessionId, workState: WorkState | null) =>
-      rt.write('setWorkState', { sessionId, workState }),
+      editRecord({ kind: 'session', id: sessionId }, { workState: workState ?? UNSET }),
     // `null` snoozes until the next message; clearing the cell ends the snooze.
     setSnooze: async (sessionId, until) =>
       editRecord(mySessionState(sessionId), { snoozedUntil: until }),

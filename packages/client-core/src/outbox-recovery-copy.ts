@@ -200,6 +200,13 @@ function describeRecordEdit(input: unknown): QueuedChangeView {
         }
       }
       break
+    case 'session':
+      if (has('name')) return { label: 'Session rename', summary: null }
+      if (has('archived')) return { label: 'Session archive', summary: null }
+      if (has('workState') || unset.includes('workState')) {
+        return { label: 'Session work state', summary: null }
+      }
+      break
     case 'issueUserState':
       if (has('tuckedAt')) {
         return {

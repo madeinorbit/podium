@@ -41,6 +41,9 @@ export const LEGACY_OUTBOX_COMMANDS = {
   issueDefer: { name: 'issues.defer', version: 1 },
   issueUndefer: { name: 'issues.undefer', version: 1 },
   issueSetLabels: { name: 'issues.setLabels', version: 1 },
+  rename: { name: 'sessions.rename', version: 1 },
+  setArchived: { name: 'sessions.setArchived', version: 1 },
+  setWorkState: { name: 'sessions.setWorkState', version: 1 },
 } as const
 
 export type LegacyOutboxKind = keyof typeof LEGACY_OUTBOX_COMMANDS
@@ -73,6 +76,9 @@ export function legacyOutboxExecutors(
     issueDefer: (i) => api.issues.defer.mutate(call(i)),
     issueUndefer: (i) => api.issues.undefer.mutate(call(i)),
     issueSetLabels: (i) => api.issues.setLabels.mutate(call(i)),
+    rename: (i) => api.sessions.rename.mutate(call(i)),
+    setArchived: (i) => api.sessions.setArchived.mutate(call(i)),
+    setWorkState: (i) => api.sessions.setWorkState.mutate(call(i)),
   }
 }
 
@@ -181,9 +187,25 @@ export function legacyCallsForRecordEdit(entry: RecordEditEntry): LegacyCall[] |
       return [{ kind: 'layoutSet', input: { values: { [key]: patch.value } } }]
     }
     case 'session': {
+      const sessionId = entry.id
+      // The labels (POD-6406): each had its own command.
+      if (known(['name', 'archived', 'workState'])) {
+        if (typeof patch.name === 'string') {
+          calls.push({ kind: 'rename', input: { sessionId, name: patch.name } })
+        }
+        if (typeof patch.archived === 'boolean') {
+          calls.push({ kind: 'setArchived', input: { sessionId, archived: patch.archived } })
+        }
+        if (patch.workState !== undefined || unset.includes('workState')) {
+          calls.push({
+            kind: 'setWorkState',
+            input: { sessionId, workState: patch.workState ?? null },
+          })
+        }
+        return calls
+      }
       // The lifecycle (POD-6399): `desired`, and `force` with a stop.
       if (!known(['desired', 'force'])) return undefined
-      const sessionId = entry.id
       switch (patch.desired) {
         case 'stopped':
           return [

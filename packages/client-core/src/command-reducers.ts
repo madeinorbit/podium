@@ -251,20 +251,6 @@ function overlayOf(
 ): PendingOverlay | PendingOverlay[] | null {
   if (isRecordOutboxKind(entry.kind)) return recordOverlays(entry, viewer)
   switch (entry.kind as keyof OutboxKinds) {
-    case 'rename': {
-      const i = entry.input as OutboxKinds['rename']
-      const name = i.name.trim() // the server stores the trimmed name too
-      return patchOverlay('sessions', i.sessionId, entry.mutationId, { name })
-    }
-    case 'setArchived': {
-      const i = entry.input as OutboxKinds['setArchived']
-      return patchOverlay('sessions', i.sessionId, entry.mutationId, { archived: i.archived })
-    }
-    case 'setWorkState': {
-      const i = entry.input as OutboxKinds['setWorkState']
-      const workState: WorkState | undefined = i.workState ?? undefined
-      return patchOverlay('sessions', i.sessionId, entry.mutationId, { workState })
-    }
     case 'dismissOffer': {
       const i = entry.input as OutboxKinds['dismissOffer']
       // `undefined`, not null, for the same reason `snoozeClear` patches
@@ -510,9 +496,6 @@ function recordOverlays(entry: OutboxEntry, viewer: ReducerViewer): PendingOverl
  * drift for them.
  */
 export const PRESENCE_REDUCER_KINDS: Record<string, keyof OutboxKinds & string> = {
-  'sessions.rename': 'rename',
-  'sessions.setArchived': 'setArchived',
-  'sessions.setWorkState': 'setWorkState',
   'sessions.dismissOffer': 'dismissOffer',
 }
 
@@ -527,6 +510,10 @@ export const PRESENCE_CONTRACTS_AS_RECORD_EDITS: ReadonlySet<string> = new Set([
   'sessions.markUnread',
   'snoozes.set',
   'snoozes.clear',
+  // The session labels (POD-6406).
+  'sessions.rename',
+  'sessions.setArchived',
+  'sessions.setWorkState',
 ])
 
 /** True when the fold actually moved one of the cells it wrote. Only the patched

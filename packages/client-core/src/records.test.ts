@@ -91,7 +91,12 @@ describe('the record kinds the client knows', () => {
     })
     expect(
       OUTBOX_ROUTING.recordRemove({ kind: 'sessionUserState', id: READ_ROW }).partitionKey,
-    ).toBe(OUTBOX_ROUTING.rename({ sessionId: SESSION, name: 'n' }).partitionKey)
+    ).toBe(OUTBOX_ROUTING.dismissOffer({ sessionId: SESSION, offerCreatedAt: 'T1' }).partitionKey)
+    // The session's own record orders with them too (POD-6406).
+    expect(
+      OUTBOX_ROUTING.recordEdit({ kind: 'session', id: SESSION, patch: { name: 'n' } })
+        .partitionKey,
+    ).toBe(`session:${SESSION}`)
   })
 
   it('collapse only into a later revision-free edit of exactly the same cells (POD-6404)', () => {

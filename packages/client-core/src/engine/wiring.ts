@@ -99,9 +99,6 @@ export type OutboxKinds = {
   /** Attachments ride a wake too: the server holds the files and stages them
    *  when the woken agent is handed the message (POD-2148). */
   resumeAndSend: { sessionId: SessionId; text: string; attachments?: RuntimeAttachmentRef[] }
-  rename: { sessionId: SessionId; name: string }
-  setArchived: { sessionId: SessionId; archived: boolean }
-  setWorkState: { sessionId: SessionId; workState: WorkState | null }
   /**
    * THE OFFER DISMISSAL (POD-1110) — "none of these", and only that.
    *
@@ -312,9 +309,6 @@ export const OUTBOX_COMMANDS: Record<
   },
   sendText: { name: 'sessions.sendText', version: 1, delivery, confirmation: 'none' },
   resumeAndSend: { name: 'sessions.resumeAndSend', version: 1, delivery, confirmation: 'none' },
-  rename: { name: 'sessions.rename', version: 1, delivery, confirmation: 'none' },
-  setArchived: { name: 'sessions.setArchived', version: 1, delivery, confirmation: 'none' },
-  setWorkState: { name: 'sessions.setWorkState', version: 1, delivery, confirmation: 'none' },
   dismissOffer: { name: 'sessions.dismissOffer', version: 1, delivery, confirmation: 'none' },
   // THE FIRST QUEUED KINDS WITH `confirmation: 'confirm'` (POD-781). Every issue
   // WRITE/MANAGE contract carries it, and it is a copy of the contract's value,
@@ -375,9 +369,6 @@ export const OUTBOX_DEAD_LETTER_HANDLING: Record<keyof OutboxKinds, OutboxDeadLe
   settingsUpdatePersonal: 'recover',
   sendText: 'recover',
   resumeAndSend: 'recover',
-  rename: 'recover',
-  setArchived: 'recover',
-  setWorkState: 'recover',
   // `recover`, not `discard-automatic`: a dismissal is a decision the operator
   // made with a click, unlike the read receipt the foreground reaction emits on
   // its own. It carries no authored prose, so `shouldParkDeadLetter` still lets
@@ -513,18 +504,6 @@ export const OUTBOX_ROUTING: {
 
   // Session-targeted writes. All share the session's partition, so their order
   // relative to one another is preserved.
-  rename: (i) => ({
-    partitionKey: `session:${i.sessionId}`,
-    collapseKey: `session-name:${i.sessionId}`,
-  }),
-  setArchived: (i) => ({
-    partitionKey: `session:${i.sessionId}`,
-    collapseKey: `session-archived:${i.sessionId}`,
-  }),
-  setWorkState: (i) => ({
-    partitionKey: `session:${i.sessionId}`,
-    collapseKey: `session-work-state:${i.sessionId}`,
-  }),
   // The offer cell, which holds AT MOST ONE offer per session — a new offer
   // replaces the standing one rather than joining it (the annotation matrix's
   // `offers` row: "single-row-per-session key"). So two queued dismissals for one
@@ -639,7 +618,11 @@ function recordPartition(input: { kind: RecordKind; id: string }): string {
   const home = RECORD_HOMES[input.kind]
   if (home === null) return 'layout'
   const row = home.row(input.id)
-  return home.target === 'sessionUserStates' ? `session:${row}` : `issue:${row}`
+  // A session's own record and its per-user row order with the session's other
+  // writes (an offer dismissal), as the per-command kinds did.
+  return home.target === 'sessionUserStates' || home.target === 'sessions'
+    ? `session:${row}`
+    : `issue:${row}`
 }
 
 /** Route one queued write. Falls back to the entry's own private partition — D12's
@@ -978,9 +961,6 @@ export function outboxExecutors(
       readOutboxReply('sendText', i, await api.sessions.sendText.mutate(i), hooks),
     resumeAndSend: async (i) =>
       readOutboxReply('resumeAndSend', i, await api.sessions.resumeAndSend.mutate(i), hooks),
-    rename: (i) => api.sessions.rename.mutate(i),
-    setArchived: (i) => api.sessions.setArchived.mutate(i),
-    setWorkState: (i) => api.sessions.setWorkState.mutate(i),
     dismissOffer: (i) => api.sessions.dismissOffer.mutate(i),
     issueUpdate: (i) => api.issues.update.mutate(i),
     issueDelete: (i) => api.issues.delete.mutate(i),

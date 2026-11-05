@@ -44,7 +44,7 @@ describe('PoolTransactions coverage (POD-5431)', () => {
     // (POD-6404), painted by the one record case (`records.test.ts`) and the
     // layout controller.
     const kinds = Object.keys(OUTBOX_COMMANDS)
-    expect(kinds).toHaveLength(16)
+    expect(kinds).toHaveLength(13)
     const silent = kinds.filter(
       (kind) =>
         overlaysForOutboxEntry({

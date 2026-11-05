@@ -67,7 +67,14 @@ export interface RecordAdapter {
    * refuses (missing and invisible are one answer). For a create, `id` is the
    * new id and the target is whatever the record is created UNDER.
    */
-  target(op: RecordOp, id: string, ctx: SyncTargetContext): Promise<SyncWriteTarget>
+  target(
+    op: RecordOp,
+    id: string,
+    ctx: SyncTargetContext,
+    /** An edit's fields (set and cleared): a kind whose fields have different
+     *  gates (a session's stop and its rename) picks the gate from them. */
+    edited?: { readonly patch: Fields; readonly unset: readonly string[] },
+  ): Promise<SyncWriteTarget>
   /**
    * The record as the Authority holds it now, or `undefined` when there is none.
    * Required for an `exp-rev` kind (its revision) and for a kind that offers
@@ -166,7 +173,7 @@ export function registerRecordKind(
         if (forbiddenPatchFields(d, patch).length > 0) return undefined
         const writable = new Set(specFields(d))
         if (unset.some((name) => !writable.has(name))) return undefined
-        return await adapter.target('edit', id, ctx)
+        return await adapter.target('edit', id, ctx, { patch, unset })
       },
       handle: async (ctx, input) => {
         const edited = input as EditInput

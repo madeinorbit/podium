@@ -59,6 +59,9 @@ function olderServer() {
       hibernate: route('sessions.hibernate'),
       resurrect: route('sessions.resurrect'),
       kill: route('sessions.kill'),
+      rename: route('sessions.rename'),
+      setArchived: route('sessions.setArchived'),
+      setWorkState: route('sessions.setWorkState'),
     },
     snoozes: { set: route('snoozes.set'), clear: route('snoozes.clear') },
     layout: { set: route('layout.set'), clear: route('layout.clear') },
@@ -172,6 +175,36 @@ describe('a record edit on a server without sync.submit', () => {
       { path: 'layout.clear', input: { keys: ['sidebar.section.open'], mutationId: 'l-2' } },
       { path: 'layout.clear', input: { keys: ['sidebar.section.open'], mutationId: 'l-3' } },
     ])
+  })
+
+  // The session's labels (POD-6406).
+  const label = (patch: Record<string, unknown>, unset?: string[]): RecordEditEntry => ({
+    kind: 'session',
+    id: SESSION,
+    patch,
+    ...(unset === undefined ? {} : { unset }),
+  })
+  it.each([
+    ['rename', label({ name: 'n' }), [['sessions.rename', { sessionId: SESSION, name: 'n' }]]],
+    [
+      'archive, with the work done',
+      label({ archived: true, workState: 'done' }),
+      [
+        ['sessions.setArchived', { sessionId: SESSION, archived: true }],
+        ['sessions.setWorkState', { sessionId: SESSION, workState: 'done' }],
+      ],
+    ],
+    [
+      'clear the work state',
+      label({}, ['workState']),
+      [['sessions.setWorkState', { sessionId: SESSION, workState: null }]],
+    ],
+  ] as const)('%s a session: its old routes', async (_what, edit, expected) => {
+    const { api, calls } = olderServer()
+    await outboxExecutors(api).recordEdit({ ...edit, mutationId: asMutationId('m-l') } as never)
+    expect(calls.map((c) => [c.path, { ...c.input, mutationId: undefined }])).toEqual(
+      expected.map(([path, input]) => [path, { ...input, mutationId: undefined }]),
+    )
   })
 
   it('kill (a remove of the session record): sessions.kill', async () => {

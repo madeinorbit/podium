@@ -17,15 +17,117 @@
 
 import { SESSION_RECORD } from '@podium/commands'
 import type { SessionDesired, SessionId } from '@podium/model'
-import { onBehalfOfUser } from '../../command-principal'
+import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import type { RegistryModules } from '../../relay'
 import { sessionCommandCtx } from '../sessions/command-ctx'
+import { applyRename, mayWrite, ownedTarget } from '../sessions/rename-target-path'
+import {
+  type SessionStateDeps,
+  sessionStateCommandForSync,
+  sessionStatePrincipalFor,
+} from '../sessions/session-state/registry'
 import { SyncWriteRefused } from '../sync-write/entry'
-import { NO_TARGET, type SyncWriteRegistry } from '../sync-write/registry'
+import { NO_TARGET, type SyncWriteRegistry, type SyncWriteTarget } from '../sync-write/registry'
 import { registerRecordKind } from './generic'
 
 export interface SessionLifecycleRecordDeps {
   modules(): RegistryModules
+}
+
+/**
+ * THE LABELS (POD-6406): `name`, `archived` and `workState` are plain fields of
+ * the session record, each written by the command that always wrote it, under
+ * that command's own gate: rename's (owned target, the live delegation ceiling,
+ * the precedence rule for an agent's pick) and the session-state commands'
+ * (`sessions.setArchived`, which parks an archived session after commit;
+ * `sessions.setWorkState`). They never move the spec revision.
+ */
+const LABELS = ['name', 'archived', 'workState'] as const
+type Edited = {
+  readonly patch: Readonly<Record<string, unknown>>
+  readonly unset: readonly string[]
+}
+
+const named = ({ patch, unset }: Edited): string[] => [
+  ...Object.keys(patch).filter((k) => patch[k] !== undefined),
+  ...unset,
+]
+const labelFields = (edited: Edited): string[] =>
+  named(edited).filter((k) => (LABELS as readonly string[]).includes(k))
+const touchesLifecycle = (edited: Edited): boolean =>
+  named(edited).some((k) => !(LABELS as readonly string[]).includes(k))
+
+function stateDeps(modules: RegistryModules): SessionStateDeps {
+  return { sessions: modules.sessions, state: modules.sessions.state, mutations: modules.mutations }
+}
+
+function stateCommand(name: 'sessions.setArchived' | 'sessions.setWorkState') {
+  const command = sessionStateCommandForSync(name)
+  if (command === undefined) throw new Error(`records: no session-state command ${name}`)
+  return command
+}
+
+async function labelTarget(
+  modules: RegistryModules,
+  sessionId: SessionId,
+  principal: Exclude<CommandPrincipal, { kind: 'system' }>,
+  labels: readonly string[],
+  edited: Edited | undefined,
+): Promise<SyncWriteTarget> {
+  let target: SyncWriteTarget
+  if (labels.includes('name')) {
+    const owned = await ownedTarget({ sessions: modules.sessions }, sessionId)
+    if (owned === undefined || !mayWrite(principal, owned)) return undefined
+    target = owned
+  }
+  const caller = sessionStatePrincipalFor(principal)
+  for (const [field, command] of [
+    ['archived', 'sessions.setArchived'],
+    ['workState', 'sessions.setWorkState'],
+  ] as const) {
+    if (!labels.includes(field)) continue
+    const value = edited?.patch[field] ?? null
+    const gate = await stateCommand(command).target(
+      { sessionId, [field]: value },
+      caller,
+      stateDeps(modules),
+    )
+    if (gate === undefined) return undefined
+    target ??= gate
+  }
+  return target
+}
+
+async function editLabels(
+  modules: RegistryModules,
+  sessionId: SessionId,
+  principal: CommandPrincipal,
+  patch: Readonly<Record<string, unknown>>,
+  unset: readonly string[],
+): Promise<void> {
+  if (typeof patch.name === 'string') {
+    const outcome = await applyRename(
+      { sessions: modules.sessions },
+      { sessionId, name: patch.name },
+      principal,
+    )
+    if (!outcome.ok) throw new SyncWriteRefused({ kind: 'conflict' })
+  }
+  const caller = sessionStatePrincipalFor(principal)
+  if (typeof patch.archived === 'boolean') {
+    await stateCommand('sessions.setArchived').handle(
+      { sessionId, archived: patch.archived },
+      caller,
+      stateDeps(modules),
+    )
+  }
+  if (patch.workState !== undefined || unset.includes('workState')) {
+    await stateCommand('sessions.setWorkState').handle(
+      { sessionId, workState: patch.workState ?? null },
+      caller,
+      stateDeps(modules),
+    )
+  }
 }
 
 const gone = (): never => {
@@ -39,8 +141,15 @@ export function registerSessionLifecycleRecord(
   const sessions = () => deps.modules().sessions
 
   registerRecordKind(registry, SESSION_RECORD, {
-    target: async (op, id, { principal }) => {
+    target: async (op, id, { principal }, edited) => {
       if (principal.kind === 'system') return undefined
+      const labels = edited === undefined ? [] : labelFields(edited)
+      if (labels.length > 0) {
+        // A label edit is the label command's own gate, never the lifecycle's,
+        // and never mixed with a lifecycle edit in one write.
+        if (edited !== undefined && touchesLifecycle(edited)) return undefined
+        return await labelTarget(deps.modules(), id as SessionId, principal, labels, edited)
+      }
       const plane = await sessionCommandCtx(deps.modules(), principal.capability, false, 'trpc')
       try {
         const row = await plane.target(
@@ -57,7 +166,11 @@ export function registerSessionLifecycleRecord(
       const state = await sessions().desiredStateOf(id as SessionId)
       return state === undefined ? undefined : { revision: state.lifecycle.revision }
     },
-    edit: async (ctx, id, patch) => {
+    edit: async (ctx, id, patch, _expected, unset) => {
+      if (labelFields({ patch, unset }).length > 0) {
+        await editLabels(deps.modules(), id as SessionId, ctx.principal, patch, unset)
+        return { ok: true }
+      }
       const desired = patch.desired as SessionDesired | undefined
       // `force` alone qualifies nothing: it belongs to the stop it is sent with.
       if (desired === undefined) {

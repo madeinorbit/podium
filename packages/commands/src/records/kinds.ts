@@ -34,6 +34,7 @@ import {
   SessionMeta,
   SessionUserStateWire,
   UserIdField,
+  WorkState,
 } from '@podium/model'
 import type { MetadataEntityKind } from '@podium/protocol'
 import { z } from 'zod'
@@ -389,6 +390,14 @@ export const SESSION_RECORD = defineSyncedKind({
     revision: status(z.number().int(), ROW.sessionDesiredState),
     observedRevision: status(z.number().int(), ROW.sessionDesiredState),
     lifecycleFailure: status(SessionLifecycleFailure, ROW.sessionDesiredState),
+    // THE LABELS (POD-6406): plain fields, each its own field-LWW group, as
+    // their commands always were (they carried no revision). They never move
+    // the spec revision, so a rename never makes a queued stop stale.
+    // As `sessions.rename` takes it; the server stores it trimmed, so it parses so.
+    name: spec(z.string().trim().max(120), ROW.sessionLabels, { conflict: 'field-LWW' }),
+    archived: spec(z.boolean(), ROW.sessionLabels, { conflict: 'field-LWW' }),
+    // Cleared (`unset`) for no work state.
+    workState: spec(WorkState, ROW.sessionLabels, { conflict: 'field-LWW' }),
   },
   ops: {
     edit: {

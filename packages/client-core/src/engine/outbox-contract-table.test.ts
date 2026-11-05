@@ -77,13 +77,14 @@ const lookup = (name: string): CommandContract | undefined => {
  */
 const UNGUARDED = [
   'dismissOffer',
+  // POD-6408: `effects.create` / `effects.dismiss` are declared in the effects
+  // registry, which this module does not reach.
+  'effectCreate',
+  'effectDismiss',
   'pinSet',
-  'rename',
   'tabSetOrder',
   'resumeAndSend',
   'sendText',
-  'setArchived',
-  'setWorkState',
 ].sort()
 
 describe('the client outbox contract table matches the contracts', () => {
