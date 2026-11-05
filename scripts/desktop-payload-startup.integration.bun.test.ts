@@ -104,6 +104,67 @@ function payload(path: string, version: string) {
 describe.skipIf(process.platform !== 'linux')(
   'Linux cold-start installation process boundaries',
   () => {
+    it('excludes fallback while a direct updater awaits its manifest, then releases ownership on exit', async () => {
+      const { root, install } = fixture()
+      payload(install, '0.2.0')
+      const state = join(root, 'state')
+      mkdirSync(state)
+      writeFileSync(join(state, 'config.json'), JSON.stringify({ configVersion: 3 }))
+      let requested = false
+      let release!: () => void
+      const held = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const feed = Bun.serve({
+        hostname: '127.0.0.1',
+        port: 0,
+        async fetch() {
+          requested = true
+          await held
+          return new Response('fixture feed unavailable', { status: 503 })
+        },
+      })
+      const env = { ...process.env }
+      for (const key of Object.keys(env)) if (key.startsWith('PODIUM_')) delete env[key]
+      Object.assign(env, {
+        PODIUM_STATE_DIR: state,
+        PODIUM_HOME: install,
+        PODIUM_INSTANCE: 'payloadproof',
+        PODIUM_NO_RELAY: '1',
+        PODIUM_NO_SCOPE: '1',
+        PODIUM_ADOPT_STATE: '1',
+        PODIUM_UPDATE_FEED: `http://127.0.0.1:${feed.port}`,
+      })
+      const updater = spawn(
+        process.execPath,
+        ['--conditions=@podium/source', resolve('scripts/cli.ts'), 'update', '--channel', 'edge'],
+        { env, stdio: ['ignore', 'pipe', 'pipe'] },
+      )
+      children.push(updater)
+      let diagnostic = ''
+      updater.stderr?.on('data', (data) => {
+        diagnostic += data
+      })
+      try {
+        const deadline = Date.now() + 10_000
+        while (!requested) {
+          if (updater.exitCode !== null || Date.now() >= deadline)
+            throw new Error(`direct updater did not request its manifest: ${diagnostic}`)
+          await Bun.sleep(20)
+        }
+        expect(() => usage(install, true)).toThrow()
+        release()
+        if (updater.exitCode === null) await once(updater, 'exit')
+        expect(updater.exitCode).toBe(1)
+        const fallback = usage(install, true)
+        expect(installationStateRoots(fallback)).toContain(state)
+        expect(readFileSync(join(install, 'VERSION'), 'utf8')).toBe('0.2.0\n')
+      } finally {
+        release()
+        feed.stop(true)
+      }
+    }, 20_000)
+
     it('atomically fences legacy execution in both directions without changing executable bytes', async () => {
       const { install } = fixture()
       mkdirSync(install)

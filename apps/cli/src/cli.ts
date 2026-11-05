@@ -1635,10 +1635,10 @@ export async function main(
   }
 
   // The shell's lease spans its launch/respawn boundary. Runtime leases additionally
-  // cover headless parents, replacement parents and children that outlive a frame.
+  // cover headless parents, replacement parents, children and direct updaters.
   // These are shared leases: explicit takeover and the existing updater still own
   // their normal lifecycle. Only the lower-priority startup fallback needs exclusive.
-  if (process.env.PODIUM_HOME && ['parent', 'in-process'].includes(plan.kind)) {
+  if (process.env.PODIUM_HOME && ['parent', 'in-process', 'update'].includes(plan.kind)) {
     const { acquireRuntimeInstallationLease, registerInstallationStateRoot } = await import(
       '@podium/runtime/installation-lease'
     )
