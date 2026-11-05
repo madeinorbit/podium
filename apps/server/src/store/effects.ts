@@ -212,7 +212,8 @@ const settleEffect = preparedFamily((db: StoreDrizzle, to: EffectStatus) =>
       status: to,
       errorCode: P('errorCode'),
       errorMessage: P('errorMessage'),
-      resultJson: P('resultJson'),
+      // A settlement without a result keeps the one published while it ran.
+      resultJson: sql`coalesce(${P('resultJson')}, ${effects.resultJson})`,
       stage: P('stage'),
       finishedAt: EffectLifecycle.isTerminal(to) ? P('now') : sql`${effects.finishedAt}`,
       updatedAt: P('now'),
@@ -223,10 +224,16 @@ const settleEffect = preparedFamily((db: StoreDrizzle, to: EffectStatus) =>
     .prepare(),
 )
 
+/** A stage, and with it the result known so far when one is given (POD-6358). */
 const stageEffect = prepared((db: StoreDrizzle) =>
   db
     .update(effects)
-    .set({ stage: P('stage'), updatedAt: P('now'), revision: sql`${effects.revision} + 1` })
+    .set({
+      stage: P('stage'),
+      resultJson: sql`coalesce(${P('resultJson')}, ${effects.resultJson})`,
+      updatedAt: P('now'),
+      revision: sql`${effects.revision} + 1`,
+    })
     .where(and(idIs(), live(), eq(effects.status, 'running')))
     .returning()
     .prepare(),
@@ -524,8 +531,21 @@ export class EffectsRepository {
     )
   }
 
-  async setStage(id: string, stage: string, now: number): Promise<EffectRow | undefined> {
-    return await this.one(async () => await stageEffect(this.db).all({ id, stage, now }))
+  /**
+   * A running record's progress. `result` is what the executor already knows
+   * of its answer (an update's operation id), published while it runs; absent,
+   * the result stays as it was.
+   */
+  async setStage(
+    id: string,
+    stage: string,
+    now: number,
+    result?: unknown,
+  ): Promise<EffectRow | undefined> {
+    const resultJson = result === undefined ? null : JSON.stringify(result)
+    return await this.one(
+      async () => await stageEffect(this.db).all({ id, stage, now, resultJson }),
+    )
   }
 
   /** Cancel: a pending record ends `cancelled`; a running one is flagged for its executor. */

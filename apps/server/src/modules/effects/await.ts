@@ -24,21 +24,37 @@ export async function awaitEffectSettled(
   id: string,
   timeoutMs: number,
 ): Promise<EffectRow | undefined> {
-  let resolveSettled: (row: EffectRow) => void = () => undefined
-  const settledRow = new Promise<EffectRow>((resolve) => {
-    resolveSettled = resolve
+  return await awaitEffect(repo, id, (row) => settled(row.status), timeoutMs)
+}
+
+/**
+ * The record once `reached` holds for it (or it has settled), or as it stands
+ * when `timeoutMs` runs out. For an adapter that answers before the end, such
+ * as an update's start, which answers once the record names its operation
+ * (POD-6358).
+ */
+export async function awaitEffect(
+  repo: Pick<EffectsRepository, 'onCommitted' | 'get'>,
+  id: string,
+  reached: (row: EffectRow) => boolean,
+  timeoutMs: number,
+): Promise<EffectRow | undefined> {
+  const done = (row: EffectRow) => reached(row) || settled(row.status)
+  let resolveReached: (row: EffectRow) => void = () => undefined
+  const reachedRow = new Promise<EffectRow>((resolve) => {
+    resolveReached = resolve
   })
   const unsubscribe = repo.onCommitted((rows) => {
-    for (const row of rows) if (row.id === id && settled(row.status)) resolveSettled(row)
+    for (const row of rows) if (row.id === id && done(row)) resolveReached(row)
   })
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     const now = await repo.get(id)
-    if (now === undefined || settled(now.status)) return now
+    if (now === undefined || done(now)) return now
     const timedOut = new Promise<'timeout'>((resolve) => {
       timer = setTimeout(() => resolve('timeout'), timeoutMs)
     })
-    const first = await Promise.race([settledRow, timedOut])
+    const first = await Promise.race([reachedRow, timedOut])
     return first === 'timeout' ? await repo.get(id) : first
   } finally {
     unsubscribe()

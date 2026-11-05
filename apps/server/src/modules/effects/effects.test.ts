@@ -419,3 +419,83 @@ describe('an executor that is not ready yet (POD-6398)', () => {
     })
   })
 })
+
+describe('an executor whose work outlives its run (POD-6358)', () => {
+  it('publishes a result while running, beside its stage', async () => {
+    const h = await harness()
+    let release: () => void = () => undefined
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let staged: () => void = () => undefined
+    const stagedOnce = new Promise<void>((resolve) => {
+      staged = resolve
+    })
+    h.outcome = async (ctx) => {
+      await ctx.stage('first', { operationId: 'op_1' })
+      staged()
+      await held
+      await ctx.stage('second')
+      return { status: 'succeeded', result: { operationId: 'op_1', done: true } }
+    }
+    const id = newId()
+    appliedReply(await submit(h.o, createEnv(id)))
+    await stagedOnce
+    const running = await h.o.store.effects.get(id)
+    expect(running?.status).toBe('running')
+    expect(running?.stage).toBe('first')
+    expect(running?.result).toEqual({ operationId: 'op_1' })
+    const onFeed = JSON.parse((await effectRows(h, id)).at(-1)?.payload ?? 'null')
+    expect(onFeed.effect).toMatchObject({ status: 'running', stage: 'first' })
+    expect(onFeed.result).toEqual({ operationId: 'op_1' })
+    release()
+    await h.effects.runner.idle()
+    const row = await h.o.store.effects.get(id)
+    // A stage without a result keeps the result it had.
+    expect(row?.result).toEqual({ operationId: 'op_1', done: true })
+    expect(row?.status).toBe('succeeded')
+  })
+
+  it('a run that answers running leaves the record running, and the next boot recovers it', async () => {
+    const h = await harness()
+    let started: () => void = () => undefined
+    const running = new Promise<void>((resolve) => {
+      started = resolve
+    })
+    h.outcome = async (ctx) => {
+      await ctx.stage('waiting', { operationId: 'op_9' })
+      started()
+      await new Promise<void>((resolve) => ctx.signal.addEventListener('abort', () => resolve()))
+      // Not a cancel: this process is stopping, and the work carries on without it.
+      expect(await ctx.cancelRequested()).toBe(false)
+      return { status: 'running' }
+    }
+    const id = newId()
+    appliedReply(await submit(h.o, createEnv(id)))
+    await running
+    await h.effects.runner.stop()
+    const left = await h.o.store.effects.get(id)
+    expect(left?.status).toBe('running')
+    expect(left?.finishedAt).toBeUndefined()
+    expect(left?.result).toEqual({ operationId: 'op_9' })
+
+    // The successor's sweep hands it to the kind's recovery, which finds it done.
+    h.recover = async (ctx) => ({
+      status: 'succeeded',
+      result: { ...(ctx.record.result as object), found: true },
+    })
+    const successor = new EffectsRunner({
+      repo: h.o.store.effects,
+      registry: h.effects.executors,
+      now: () => h.clock,
+      every: () => () => undefined,
+    })
+    await successor.sweep()
+    await successor.idle()
+    expect(h.recovers).toEqual([id])
+    expect(h.runs).toEqual([id])
+    const row = await h.o.store.effects.get(id)
+    expect(row?.status).toBe('succeeded')
+    expect(row?.result).toEqual({ operationId: 'op_9', found: true })
+  })
+})

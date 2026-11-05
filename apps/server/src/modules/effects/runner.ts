@@ -74,7 +74,10 @@ export interface EffectsRunnerDeps {
 }
 
 interface LiveRun {
+  /** Cancel or stop. */
   readonly abort: AbortController
+  /** Stop alone. */
+  readonly stop: AbortController
 }
 
 const defaultEvery = (ms: number, fn: () => void): (() => void) => {
@@ -113,7 +116,10 @@ export class EffectsRunner {
     this.unsubscribe = undefined
     this.stopTimer?.()
     this.stopTimer = undefined
-    for (const run of this.live.values()) run.abort.abort()
+    for (const run of this.live.values()) {
+      run.stop.abort()
+      run.abort.abort()
+    }
     await this.idle()
   }
 
@@ -193,9 +199,9 @@ export class EffectsRunner {
   /** Claim one record and run it. Safe to call any number of times for one id. */
   private async dispatch(id: string): Promise<void> {
     if (this.live.has(id) || this.stopped) return
-    const abort = new AbortController()
+    const live: LiveRun = { abort: new AbortController(), stop: new AbortController() }
     // Held from before the claim, so a second dispatch in the same tick returns.
-    this.live.set(id, { abort })
+    this.live.set(id, live)
     try {
       const { repo, registry, now } = this.deps
       const row = await repo.get(id)
@@ -222,7 +228,7 @@ export class EffectsRunner {
       if (executor.ready !== undefined && !(await executor.ready(row, parsed.data))) return
       const claimed = await this.write(id, async () => await repo.claim(id, now()))
       if (claimed === undefined) return
-      const outcome = await this.runExecutor(executor, claimed, parsed.data, abort, 'run')
+      const outcome = await this.runExecutor(executor, claimed, parsed.data, live, 'run')
       await this.settle(claimed, outcome)
     } catch (error) {
       log.warn('effects: dispatch failed', { id, error: describeError(error) })
@@ -234,15 +240,15 @@ export class EffectsRunner {
   /** A `running` record with no live run: the executor checks the world. */
   private async recover(row: EffectRow): Promise<void> {
     if (this.live.has(row.id) || this.stopped) return
-    const abort = new AbortController()
-    this.live.set(row.id, { abort })
+    const live: LiveRun = { abort: new AbortController(), stop: new AbortController() }
+    this.live.set(row.id, live)
     try {
       const executor = this.deps.registry.get(row.kind)
       const parsed = executor?.input.safeParse(row.input)
       const outcome: EffectOutcome =
         executor?.recover === undefined || parsed === undefined || !parsed.success
           ? { status: 'unknown', error: LOST_TRACK }
-          : await this.runExecutor(executor, row, parsed.data, abort, 'recover')
+          : await this.runExecutor(executor, row, parsed.data, live, 'recover')
       await this.settle(row, outcome)
     } catch (error) {
       log.warn('effects: recovery failed', { id: row.id, error: describeError(error) })
@@ -255,16 +261,20 @@ export class EffectsRunner {
     executor: EffectExecutor,
     record: EffectRow,
     input: unknown,
-    abort: AbortController,
+    live: LiveRun,
     which: 'run' | 'recover',
   ): Promise<EffectOutcome> {
     const { repo, now } = this.deps
     const ctx: EffectRunContext<unknown> = {
       record,
       input,
-      signal: abort.signal,
-      stage: async (stage) => {
-        await this.write(record.id, async () => await repo.setStage(record.id, stage, now()))
+      signal: live.abort.signal,
+      stopped: live.stop.signal,
+      stage: async (stage, result) => {
+        await this.write(
+          record.id,
+          async () => await repo.setStage(record.id, stage, now(), result),
+        )
       },
       cancelRequested: async () => (await repo.get(record.id))?.cancelRequested === true,
     }
@@ -287,6 +297,8 @@ export class EffectsRunner {
   }
 
   private async settle(record: EffectRow, outcome: EffectOutcome): Promise<void> {
+    // The work goes on without this run: the record stays running for recovery.
+    if (outcome.status === 'running') return
     const { repo, now } = this.deps
     const to: EffectStatus = outcome.status
     const settlement =

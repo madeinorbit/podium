@@ -40,17 +40,34 @@ export type EffectOutcome =
       readonly status: 'unknown'
       readonly error?: { readonly code: string; readonly message: string }
     }
+  /**
+   * The work goes on without this run (POD-6358): an update whose server is
+   * restarting under it, or a run aborted because this process is stopping.
+   * Nothing is written; the record stays `running`, and the next sweep with no
+   * live run hands it to the kind's `recover`.
+   */
+  | { readonly status: 'running' }
 
 export interface EffectRunContext<In> {
   readonly record: EffectRow
   /** The input, parsed with the kind's schema. */
   readonly input: In
-  /** Report progress (`rebasing`, `cloning`); it shows on every device. */
-  stage(stage: string): Promise<void>
+  /**
+   * Report progress (`rebasing`, `cloning`); it shows on every device. `result`
+   * publishes what is already known of the answer while the run goes on (an
+   * update's operation id); absent, the record's result stays as it was.
+   */
+  stage(stage: string, result?: unknown): Promise<void>
   /** Whether someone has asked to cancel, read now. Check at safe points. */
   cancelRequested(): Promise<boolean>
-  /** Aborted when a cancel request commits while this run is live. */
+  /** Aborted when a cancel request commits while this run is live, and on stop. */
   readonly signal: AbortSignal
+  /**
+   * Aborted only when this process stops its runner (POD-6358): the run is not
+   * being cancelled, its process is going away. Work that carries on without
+   * the process answers `{ status: 'running' }` and is recovered on the next boot.
+   */
+  readonly stopped: AbortSignal
 }
 
 export interface EffectExecutor<In = unknown> {
