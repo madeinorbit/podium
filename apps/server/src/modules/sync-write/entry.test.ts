@@ -28,7 +28,12 @@ import { applyAfterCommit, spanOpen } from '../../store/executor/executor'
 import { openTestStore } from '../../test-support/open-test-store'
 import { currentWriteProvenance } from '../../write-provenance'
 import { SyncWriteEntry, SyncWriteRefused } from './entry'
-import { NO_TARGET, type SyncWriteContext, SyncWriteRegistry } from './registry'
+import {
+  NO_TARGET,
+  type SyncWriteContext,
+  SyncWriteRegistry,
+  type SyncWriteTarget,
+} from './registry'
 
 const FEED = { feedId: 'feed-test', epoch: 'epoch-test' }
 
@@ -620,5 +625,109 @@ describe('sync write entry point: what an old route adapter needs (POD-6350)', (
     expect(heard[0]?.spanOpen).toBe(false)
     expect(await rows(h)).toHaveLength(0)
     expect(await h.store.layout.get(h.adminId, 'sidebar.section.trail')).toBe('kept')
+  })
+})
+
+describe("sync write entry point: a refusal's display message (POD-6412)", () => {
+  /** A command whose handler always refuses with a message, so a reply without
+   *  one proves the refusal came from a check that runs before the handler. */
+  function registerRefusing(h: Harness, target: (id: string) => SyncWriteTarget) {
+    const runs = { count: 0 }
+    h.registry.register({
+      contract: { ...putContract, name: 'test.refusing' },
+      target: (input) => target(input.id),
+      handle: async () => {
+        runs.count += 1
+        throw new SyncWriteRefused(
+          { kind: 'conflict', message: 'note n is taken' },
+          { cause: new Error('secret-ish cause text') },
+        )
+      },
+    })
+    return runs
+  }
+  const ownedTarget = (owner: string | undefined): SyncWriteTarget =>
+    owner === undefined ? undefined : { kind: 'owned', id: 's-1', owner }
+  const submitRefusing = (
+    h: Harness,
+    id: string,
+    principal: CommandPrincipal,
+    transport: 'trpc' | 'cli' = 'trpc',
+  ) =>
+    h.entry.submit(
+      {
+        mutationId: asMutationId(id),
+        command: 'test.refusing',
+        version: 1,
+        input: { id: 's-1', note: 'n' },
+      },
+      principal,
+      transport,
+    )
+
+  it("a handler's own refusal carries its message; the kind stays the machine-readable part", async () => {
+    const h = await harness()
+    registerRefusing(h, () => NO_TARGET)
+
+    expect(await submitRefusing(h, 'm-msg', h.admin)).toEqual({
+      outcome: 'rejected',
+      refusal: { kind: 'conflict', message: 'note n is taken' },
+    })
+  })
+
+  it('a coarse refusal never carries a message', async () => {
+    const h = await harness()
+    const runs = registerRefusing(h, () => NO_TARGET)
+    const viewer: CommandPrincipal = {
+      kind: 'user',
+      user: h.adminId,
+      capability: { role: 'viewer', scope: { kind: 'all' } },
+    }
+
+    for (const reply of [
+      await submitRefusing(h, 'm-coarse-role', viewer),
+      await submitRefusing(h, 'm-coarse-transport', h.admin, 'cli'),
+      await submitRefusing(h, 'm-coarse-system', { kind: 'system', job: 'steward' }),
+    ]) {
+      expect(reply).toEqual({ outcome: 'rejected', refusal: { kind: 'unauthorized' } })
+      expect(reply.outcome === 'rejected' && 'message' in reply.refusal).toBe(false)
+    }
+    expect(runs.count).toBe(0)
+  })
+
+  it("a target refusal never carries a message, and never another user's", async () => {
+    const h = await harness()
+    const member = userCommandPrincipal(asUserId('mem_member'), 'member')
+    // The record belongs to someone else, then to nobody (unknown).
+    let owner: string | undefined = 'mem_someone_else'
+    const runs = registerRefusing(h, () => ownedTarget(owner))
+
+    const forbidden = await submitRefusing(h, 'm-target-other', member)
+    owner = undefined
+    const unknown = await submitRefusing(h, 'm-target-gone', member)
+
+    for (const reply of [forbidden, unknown]) {
+      expect(reply).toEqual({ outcome: 'rejected', refusal: { kind: 'unauthorized' } })
+      expect(reply.outcome === 'rejected' && 'message' in reply.refusal).toBe(false)
+    }
+    expect(runs.count).toBe(0)
+  })
+
+  it("the cause's text never becomes the message: only what the handler set is shown", async () => {
+    const h = await harness()
+    registerPut(h, {
+      after: async () => {
+        throw new SyncWriteRefused({ kind: 'invalid' }, { cause: new Error('key sk-live-123') })
+      },
+    })
+
+    const reply = await h.entry.submit(
+      envelope('m-nocopy', { id: 'a', note: 'n' }),
+      h.admin,
+      'trpc',
+    )
+
+    expect(reply).toEqual({ outcome: 'rejected', refusal: { kind: 'invalid' } })
+    expect(JSON.stringify(reply)).not.toContain('sk-live-123')
   })
 })
