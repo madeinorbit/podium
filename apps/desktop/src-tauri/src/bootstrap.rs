@@ -916,6 +916,14 @@ fn inspect_client_registration(
         return Ok(unavailable());
     }
     let role = &machine["role"];
+    // The authenticated remote document may mount before the relaunched CLI
+    // adopts the first local bootstrap's newly saved client config. Wait for
+    // runtime policy to settle it; this answer never authorizes a handoff.
+    if role["coordinator"] == "local"
+        && matches!(role["mode"].as_str(), Some("all-in-one" | "server"))
+    {
+        return Ok(ClientRegistrationStatus::Starting);
+    }
     if role["mode"] != "client" || role["coordinator"].as_str().is_none() {
         return Ok(unavailable());
     }
@@ -3304,6 +3312,14 @@ mod tests {
                     client_registration_status("https://vps.example").unwrap(),
                     ClientRegistrationStatus::Starting
                 );
+                let mut local = fresh_client_machine();
+                local["role"] = serde_json::json!({ "mode": "all-in-one", "coordinator": "local" });
+                put_client_machine(&local);
+                assert_eq!(
+                    client_registration_status("https://vps.example").unwrap(),
+                    ClientRegistrationStatus::Starting
+                );
+                assert!(write_client_registration("ABCD-EFGH", "stale", "https://vps.example").is_err());
                 for patch in [
                     serde_json::json!({ "registration": { "serverUrl": "wss://other.example", "state": "unregistered" } }),
                     serde_json::json!({ "registration": { "serverUrl": "wss://vps.example", "state": "enrolled" } }),
