@@ -1343,6 +1343,7 @@
         "src/modules/issues/service/worktree-safety.ts",
         "src/modules/issues/start-effect.test.ts",
         "src/modules/issues/start-effect.ts",
+        "src/modules/issues/structure-writes.test.ts",
         "src/modules/issues/sync-write.test.ts",
         "src/modules/issues/sync-write.ts",
         "src/modules/issues/trpc.ts",
