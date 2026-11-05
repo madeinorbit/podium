@@ -78,7 +78,13 @@ describe('login propagation coordinator', () => {
 
   function service(
     s: SessionStore,
-    opts: { export?: ExportFn; install?: InstallFn; now?: () => number; online?: string[] } = {},
+    opts: {
+      export?: ExportFn
+      install?: InstallFn
+      now?: () => number
+      online?: string[]
+      capable?: string[]
+    } = {},
   ) {
     const credentialExport = vi.fn<ExportFn>(
       opts.export ?? (async () => ({ bundles: [bundle], unavailable: [] })),
@@ -92,6 +98,7 @@ describe('login propagation coordinator', () => {
       machines: {
         hasDaemon: (machineId) => online.has(machineId),
         capabilityRejection: async () => undefined,
+        daemonSupports: (machineId) => (opts.capable ?? [...online]).includes(machineId),
       },
       rpc: { credentialExport, credentialInstall },
       now: opts.now ?? (() => 1_000),
@@ -103,6 +110,74 @@ describe('login propagation coordinator', () => {
     await s.accounts.setOptIn(who, 'codex', fp, enabled, new Date(0).toISOString())
 
   const toTarget = { targetMachineId: asMachineId('target'), agentKind: 'codex' as const }
+
+  it('resumes after upgrading an incapable peer without getting stuck in the retry budget', async () => {
+    const s = await fleet()
+    await tick(s)
+    const capable = ['target']
+    const { svc } = service(s, { capable })
+    await expect(svc.propagate(toTarget)).resolves.toMatchObject({ status: 'failed' })
+    capable.push('donor')
+    await expect(svc.propagate(toTarget)).resolves.toMatchObject({ status: 'propagated' })
+  })
+
+  it('refuses a target that reconnects as an older peer while export is pending', async () => {
+    const s = await fleet()
+    await tick(s)
+    const capable = ['donor', 'target']
+    const { svc, credentialInstall } = service(s, {
+      capable,
+      export: async () => {
+        capable.splice(capable.indexOf('target'), 1)
+        return { bundles: [bundle], unavailable: [] }
+      },
+    })
+    await expect(svc.propagate(toTarget)).resolves.toMatchObject({
+      status: 'failed',
+      reason: expect.stringMatching(/upgrade.*target|target.*upgrade/i),
+    })
+    expect(credentialInstall).not.toHaveBeenCalled()
+  })
+
+  it('refuses an older donor whose login changed after inventory and ignores expectedFingerprint', async () => {
+    const s = await fleet()
+    await tick(s)
+    const wrongBundle = {
+      ...bundle,
+      contentBase64: Buffer.from('another-account').toString('base64'),
+    }
+    const { svc, credentialExport, credentialInstall } = service(s, {
+      capable: ['target'],
+      // An old peer exports the new login despite the stale expected fingerprint.
+      export: async () => ({ bundles: [wrongBundle], unavailable: [] }),
+    })
+    await expect(svc.propagate(toTarget)).resolves.toMatchObject({
+      status: 'failed',
+      reason: expect.stringMatching(/upgrade.*donor|donor.*upgrade/i),
+    })
+    expect(credentialExport).not.toHaveBeenCalled()
+    expect(credentialInstall).not.toHaveBeenCalled()
+  })
+
+  it('refuses an older target that acquired a different expired login after inventory', async () => {
+    const s = await fleet()
+    await tick(s)
+    let login = 'different-expired-account'
+    const { svc, credentialInstall } = service(s, {
+      capable: ['donor'],
+      // Old installers ignore expectedFingerprint and overwrite an expired login.
+      install: async () => {
+        login = 'same-account'
+        return { installed: ['codex'], failed: [] }
+      },
+    })
+    await expect(svc.propagate(toTarget)).resolves.toMatchObject({
+      status: 'failed',
+      reason: expect.stringMatching(/upgrade.*target|target.*upgrade/i),
+    })
+    expect(login).toBe('different-expired-account')
+    expect(credentialInstall).not.toHaveBeenCalled()
+  })
 
   it('copies a ticked login from the owner’s machine as that account, and cleans the transfer row', async () => {
     const s = await fleet()

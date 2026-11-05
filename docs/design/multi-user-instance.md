@@ -81,6 +81,7 @@ Personal settings remain per member.
 
 - Registration with approval or open registration.
 - Per-person concurrency limits and admin usage totals. Usage is still attributed to the person who started the run.
+  Aggregate task accounting (totals, rollups, model totals and comparisons) is shared with the task. Session-level cost lines, personal hourly usage and quota history remain private to the original run owner, including after reassignment.
 - Following, mute and subscriptions.
 - Offboarding beyond custody release.
 - Sharing or transferring automations.
@@ -237,7 +238,7 @@ Each row is proved by a two-member test (Alice admin, Bob member, Carol disabled
 
 | ID | Observation | Owner |
 |---|---|---|
-| MU-01 | A fresh one-member install and an upgraded one both act as an ordinary member. Open mode is local-only and ends once anyone has a password or a second member exists. | POD-6285 |
+| MU-01 | A fresh one-member install and an upgraded one both act as an ordinary member. Open mode is local-only and requires exactly one active member plus the existing password/login admission rules; a second active member ends it. | POD-6285 |
 | MU-02 | Forged payload identity has no effect. Each transport resolves the caller's own member. | POD-6285 |
 | MU-03 | An invite is consumed once under concurrency. Carol sees nothing and cannot sign in. The last admin cannot be removed or demoted. | POD-6298 |
 | MU-04 | Alice's task appears for Bob under All users, in search, and in Bob's agent's discovery, with Alice as assignee. It does not appear in Bob's sidebar. | POD-6296 |

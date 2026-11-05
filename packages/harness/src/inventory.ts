@@ -25,6 +25,7 @@ export {
   buildMachineInventory,
   buildResolvedInventory,
 } from './inventory/build-inventory.js'
+export { FileCredentialStore, MAX_CREDENTIAL_BYTES } from './inventory/credential-store.js'
 export type {
   CredentialExportMessage,
   CredentialHandlerPorts,
@@ -38,7 +39,6 @@ export {
   installPortableCredential,
   readPortableCredential,
 } from './inventory/credentials.js'
-export { FileCredentialStore, MAX_CREDENTIAL_BYTES } from './inventory/credential-store.js'
 export type { InstallRequestPorts, InstallTarget } from './inventory/install.js'
 export { installableTargets, installTargetFor, runInstallTarget } from './inventory/install.js'
 export type { QuotaFetcher } from './inventory/usage.js'
@@ -49,5 +49,5 @@ export {
   scanHostUsageSources,
   scanQuotaHistory,
 } from './inventory/usage.js'
-export { UsageScanCache } from './usage-records.js'
 export type { UsageFileScan, UsageRecord } from './usage-records.js'
+export { mergeBuckets, UsageScanCache } from './usage-records.js'

@@ -336,6 +336,9 @@ export class SessionStart {
       bindingOwner ??
       input.ownerUserId ??
       (await soleMemberFor(this.ports.store.users, 'a session start'))
+    if (!(await this.ports.store.users.get(ownerUserId))) {
+      throw new Error('a session start requires an active member as owner')
+    }
     // Read only when a default is needed, as the old per-site reads were.
     let ownerSettingsRead: ReturnType<SessionStore['settings']['getSettingsFor']> | undefined
     const ownerSettings = () => (ownerSettingsRead ??= this.ports.store.settings.getSettingsFor(ownerUserId))
@@ -583,6 +586,9 @@ export class SessionStart {
       : await this.ports.defaultMachine()
     const ownerUserId =
       input.ownerUserId ?? (await soleMemberFor(this.ports.store.users, 'a session spawn'))
+    if (!(await this.ports.store.users.get(ownerUserId))) {
+      throw new Error('a session spawn requires an active member as owner')
+    }
     // The owner's preferences, never the first admin's (POD-6285); read only
     // when a default is needed, as the old per-site reads were.
     let ownerSettingsRead: ReturnType<SessionStore['settings']['getSettingsFor']> | undefined

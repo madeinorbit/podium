@@ -97,6 +97,8 @@ export interface StartDaemonProcessInput {
    * fell back, a session that reattached to nothing) say nothing at all.
    */
   env?: Readonly<Record<string, string>>
+  /** False uses only the supplied environment for independent-machine tests. */
+  inheritEnv?: boolean
   readyTimeoutMs?: number
 }
 
@@ -127,6 +129,7 @@ export async function startDaemonProcess(
     configPath,
     readyFile,
     ...(input.env ? { env: input.env } : {}),
+    ...(input.inheritEnv === undefined ? {} : { inheritEnv: input.inheritEnv }),
     ...(input.readyTimeoutMs !== undefined ? { readyTimeoutMs: input.readyTimeoutMs } : {}),
   })
 }
@@ -140,6 +143,7 @@ export interface StartEntryProcessInput {
   configPath: string
   readyFile: string
   env?: Readonly<Record<string, string>>
+  inheritEnv?: boolean
   readyTimeoutMs?: number
 }
 
@@ -181,7 +185,7 @@ export async function startEntryProcess(
       // built dist that may be stale or absent.
       ['--conditions=@podium/source', input.entry, configPath],
       {
-        env: { ...process.env, ...input.env },
+        env: { ...(input.inheritEnv === false ? {} : process.env), ...input.env },
         stdio: ['ignore', 'pipe', 'pipe'],
         // NOT detached. The child must be an ordinary child so that a test which
         // forgets to clean up still loses it with its own process group — and

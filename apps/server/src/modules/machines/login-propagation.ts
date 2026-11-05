@@ -5,7 +5,7 @@ import {
 import { createLogger, describeError } from '@podium/logger'
 import type { AgentKind, HarnessAgent, Inventory, MachineId, UserId } from '@podium/model'
 import { HOST_REPOS } from '@podium/model'
-import type { PortableCredentialBundle } from '@podium/protocol'
+import { CAP_CREDENTIAL_IDENTITY_GUARD, type PortableCredentialBundle } from '@podium/protocol'
 import { buildLoginCatalog, catalogEntriesForHarness } from '../../login-catalog'
 import type { SessionStore } from '../../store'
 import type { NativeLoginOptIn } from '../../store/accounts'
@@ -51,7 +51,7 @@ export type LoginPropagationResult =
   /** The target holds a different login, which stays; nothing was copied. */
   | { status: 'preserved'; reason: string }
   | { status: 'skipped'; reason: string }
-  | { status: 'failed'; reason: string }
+  | { status: 'failed'; reason: string; upgradeRequired?: true }
 
 interface AttemptState {
   attempts: number
@@ -61,7 +61,7 @@ interface AttemptState {
 
 interface LoginPropagationDeps {
   store: SessionStore
-  machines: Pick<MachinesService, 'hasDaemon' | 'capabilityRejection'>
+  machines: Pick<MachinesService, 'hasDaemon' | 'capabilityRejection' | 'daemonSupports'>
   rpc: Pick<DaemonRpcService, 'credentialExport' | 'credentialInstall'>
   now?: () => number
 }
@@ -100,13 +100,22 @@ export class LoginPropagationService {
 
   /** Fire-and-forget trigger used by spawn, harness failure, enrollment and a tick. */
   async trigger(input: LoginPropagationTrigger): Promise<void> {
-    void this.propagate(input).catch((error: unknown) => {
-      log.warn('login propagation failed', {
-        err: error,
-        targetMachineId: input.targetMachineId,
-        agentKind: input.agentKind,
+    void this.propagate(input)
+      .then((result) => {
+        if (result.status === 'failed')
+          log.warn('login propagation refused', {
+            reason: result.reason,
+            targetMachineId: input.targetMachineId,
+            agentKind: input.agentKind,
+          })
       })
-    })
+      .catch((error: unknown) => {
+        log.warn('login propagation failed', {
+          err: error,
+          targetMachineId: input.targetMachineId,
+          agentKind: input.agentKind,
+        })
+      })
   }
 
   /** Public for focused tests and for callers that need the settled outcome. */
@@ -158,7 +167,9 @@ export class LoginPropagationService {
     }
 
     const current = this.attempts.get(key)
-    if (result.status !== 'failed') {
+    // Feature refusal makes no transfer attempt. A newly upgraded live peer
+    // must work on the next trigger, without an old refusal's retry budget.
+    if (result.status !== 'failed' || result.upgradeRequired) {
       this.attempts.delete(key)
     } else if (current) {
       const attempts = current.attempts + 1
@@ -302,6 +313,20 @@ export class LoginPropagationService {
       return { status: 'skipped', reason: 'the login was unticked' }
     }
     const kind = input.harness
+    if (!this.deps.machines.daemonSupports(donor, CAP_CREDENTIAL_IDENTITY_GUARD)) {
+      return {
+        status: 'failed',
+        reason: `Upgrade the donor daemon on ${donor} before copying a login: it cannot verify the selected account.`,
+        upgradeRequired: true,
+      }
+    }
+    if (!this.deps.machines.daemonSupports(targetId, CAP_CREDENTIAL_IDENTITY_GUARD)) {
+      return {
+        status: 'failed',
+        reason: `Upgrade the target daemon on ${targetId} before copying a login: it cannot preserve a different installed account.`,
+        upgradeRequired: true,
+      }
+    }
     // The transfer's age counts from the choice it was read under.
     const readAt = this.now()
     const exported = await this.deps.rpc.credentialExport([kind], donor, {
@@ -333,6 +358,15 @@ export class LoginPropagationService {
         transferId,
       )
       if (!serverBundle) return { status: 'failed', reason: 'transfer secret unavailable' }
+      // A reconnect during export may have replaced the capable target with an
+      // older daemon. Recheck the live socket immediately before installation.
+      if (!this.deps.machines.daemonSupports(targetId, CAP_CREDENTIAL_IDENTITY_GUARD)) {
+        return {
+          status: 'failed',
+          reason: `Upgrade the target daemon on ${targetId} before copying a login: it cannot preserve a different installed account.`,
+          upgradeRequired: true,
+        }
+      }
       const installed = await this.deps.rpc.credentialInstall([serverBundle], targetId, {
         propagation: true,
         expectedFingerprint: choice.fingerprint,

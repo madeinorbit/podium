@@ -18,8 +18,8 @@
  *  - on web, a command Alice queued offline in tab A never lands on Bob: his
  *    settings are unchanged after tab A's network comes back.
  *
- * Web covers the desktop shell too: the desktop app runs this same bundle in a
- * webview with one cookie jar. The phone check runs the Expo web build.
+ * These checks cover Chromium and the Expo web build. Native desktop webview
+ * cookies and a real phone's storage/transport boundary need separate evidence.
  *
  * Needs a password-protected isolated harness:
  *   PODIUM_PASSWORD=… bun run test:browser -- --suite account-switch --project=chromium-desktop
@@ -109,6 +109,35 @@ async function createAliceTask(request: APIRequestContext, repo = 0): Promise<Al
   const repoPath = ((await repos.json()) as { result: { data: string[] } }).result.data[repo]
   if (!repoPath) throw new Error(`isolated harness has no repo #${repo}`)
   const title = `Alice private ${Date.now().toString(36)}`
+  // A fresh daemon may still be probing claude-code when the UI becomes ready.
+  // Wait BEFORE create: startNow can persist a task before refusing its start.
+  await expect
+    .poll(
+      async () => {
+        const listed = await request.get(`${HTTP}/trpc/machines.list`)
+        if (!listed.ok())
+          throw new Error(`machines.list: ${listed.status()} ${await listed.text()}`)
+        const machines = (
+          (await listed.json()) as {
+            result: {
+              data: Array<{
+                online: boolean
+                inventory?: { agents: Array<{ kind: string; installed: boolean }> }
+              }>
+            }
+          }
+        ).result.data
+        return machines.some(
+          (machine) =>
+            machine.online &&
+            machine.inventory?.agents.some(
+              (agent) => agent.kind === 'claude-code' && agent.installed,
+            ),
+        )
+      },
+      { timeout: 60_000, message: 'the fresh harness has finished probing claude-code' },
+    )
+    .toBe(true)
   const created = await request.post(`${HTTP}/trpc/issues.create`, {
     // The harness's second repo has only `main`; the first is the checkout itself.
     data: { repoPath, title, startNow: true, ...(repo === 0 ? {} : { parentBranch: 'main' }) },

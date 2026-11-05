@@ -17,10 +17,10 @@
  */
 
 import { asMachineId, type MachineId, SHARED_MACHINE_ACCOUNT_WARNING } from '@podium/model'
-import { createHandshakeDialer } from '@podium/protocol'
+import { CAP_CREDENTIAL_IDENTITY_GUARD, createHandshakeDialer } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { mintSigningKeyPair, publicKeyWire } from '@podium/runtime/signing'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import WebSocket from 'ws'
 import { attachDaemonWithInventory, fixtureInventory } from './test-support/daemon-inventory'
 import {
@@ -86,7 +86,12 @@ function credentialAnswer(machine: FakeMachine, msg: ControlMessage): DaemonMess
   return undefined
 }
 
-async function addMachine(name: string, owner: MemberName, login: string | undefined) {
+async function addMachine(
+  name: string,
+  owner: MemberName,
+  login: string | undefined,
+  capable = true,
+) {
   const id = asMachineId(name)
   const machine: FakeMachine = { id, login, frames: [] }
   fakes.set(name, machine)
@@ -108,6 +113,7 @@ async function addMachine(name: string, owner: MemberName, login: string | undef
       if (answer) queueMicrotask(() => void registry.gateway.routeDaemonFrame(id, answer))
     },
     codexInventory(login),
+    { caps: capable ? [CAP_CREDENTIAL_IDENTITY_GUARD] : [] },
   )
 }
 
@@ -128,7 +134,7 @@ async function pairMachine(
     peerRole: 'machine',
     credential: { kind: 'pairCode', code, publicKey: publicKeyWire(mintSigningKeyPair()) },
     claims: { machineId: name, hostname: name },
-    caps: [],
+    caps: [CAP_CREDENTIAL_IDENTITY_GUARD],
   })
   await new Promise<void>((resolve, reject) => {
     let established = false
@@ -300,4 +306,95 @@ describe('unticking stops future copies and recalls nothing', () => {
     await choose('alice', ALICE, true)
     await until(() => installs('alice-after-untick').length === 1)
   })
+
+  it('an incapable peer returns an upgrade refusal to the member, without copying credentials', async () => {
+    await addMachine('alice-legacy-target', 'alice', undefined, false)
+    await expect(choose('alice', ALICE, true)).rejects.toThrow(/upgrade.*daemon/i)
+    expect(credentialFrames('alice-legacy-target')).toEqual([])
+    expect(fakes.get('alice-legacy-target')?.login).toBeUndefined()
+  })
+})
+
+it.each([
+  'donor',
+  'target',
+] as const)('a late downgrade of the %s is refused at actual RPC dispatch', async (role) => {
+  const fingerprint = `fp-late-${role}`
+  const donor = `alice-late-${role}-donor`
+  const target = `alice-late-${role}-target`
+  await addMachine(donor, 'alice', fingerprint)
+  await addMachine(target, 'alice', undefined)
+  const { modules, sessionStore, gateway } = f.handle.registry
+  await sessionStore.accounts.setOptIn(
+    MEMBERS.alice.id,
+    'codex',
+    fingerprint,
+    true,
+    new Date().toISOString(),
+  )
+  const downgrade = async (machineId: MachineId) => {
+    const machine = fakes.get(machineId)!
+    machine.login = SOMEONE_ELSE
+    // This older implementation ignores identity fields. Replace the peer
+    // after propagation's preflight, at the RPC's asynchronous send boundary.
+    await modules.machines.attach(
+      machineId,
+      (msg) => {
+        machine.frames.push(msg)
+        if (msg.type === 'credentialExportRequest') {
+          queueMicrotask(
+            () =>
+              void gateway.routeDaemonFrame(machineId, {
+                type: 'credentialExportResult',
+                requestId: msg.requestId,
+                bundles: [BUNDLE],
+                unavailable: [],
+              }),
+          )
+        } else if (msg.type === 'credentialInstallRequest') {
+          machine.login = fingerprint
+          queueMicrotask(
+            () =>
+              void gateway.routeDaemonFrame(machineId, {
+                type: 'credentialInstallResult',
+                requestId: msg.requestId,
+                installed: ['codex'],
+                failed: [],
+              }),
+          )
+        }
+      },
+      [],
+    )
+  }
+  const exportLogin = modules.rpc.credentialExport.bind(modules.rpc)
+  const installLogin = modules.rpc.credentialInstall.bind(modules.rpc)
+  try {
+    if (role === 'donor')
+      vi.spyOn(modules.rpc, 'credentialExport').mockImplementationOnce(async (...args) => {
+        await downgrade(args[1])
+        return await exportLogin(...args)
+      })
+    else
+      vi.spyOn(modules.rpc, 'credentialInstall').mockImplementationOnce(async (...args) => {
+        await downgrade(args[1])
+        return await installLogin(...args)
+      })
+    const result = await modules.loginPropagation.propagate({
+      targetMachineId: asMachineId(target),
+      agentKind: 'codex',
+      principalUserId: MEMBERS.alice.id,
+      fingerprint,
+      force: true,
+    })
+    expect(result).toMatchObject({
+      status: 'failed',
+      reason: expect.stringMatching(/upgrade.*daemon/i),
+    })
+    const changed = role === 'donor' ? donor : target
+    expect(credentialFrames(changed)).toEqual([])
+    expect(fakes.get(changed)?.login).toBe(SOMEONE_ELSE)
+  } finally {
+    vi.restoreAllMocks()
+  }
 })

@@ -617,6 +617,7 @@ export class DaemonRpcService {
   async usage(
     sinceMs?: number,
     withSources?: boolean,
+    machineId?: MachineId,
   ): Promise<{
     hostname: string
     sampledAt?: string
@@ -635,6 +636,7 @@ export class DaemonRpcService {
         ...(sinceMs !== undefined ? { sinceMs } : {}),
         ...(withSources ? { withSources } : {}),
       }),
+      machineId,
     )
   }
 

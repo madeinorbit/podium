@@ -47,7 +47,14 @@ import type {
   UpdateSpaceResultMessage,
   UpdateTarget,
 } from '@podium/protocol'
-import { SERVER_MOVE_CAPABILITY, supervisorGenerationOf, unknownUpdateSpace, UPDATE_SPACE_CAPABILITY, wireSchemaDigest } from '@podium/protocol'
+import {
+  CAP_CREDENTIAL_IDENTITY_GUARD,
+  SERVER_MOVE_CAPABILITY,
+  supervisorGenerationOf,
+  unknownUpdateSpace,
+  UPDATE_SPACE_CAPABILITY,
+  wireSchemaDigest,
+} from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
 import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
@@ -1016,6 +1023,18 @@ export class MachinesService {
    *  machine is briefly offline (flushed in order on its next attach). */
   readonly toMachine = (machineId: MachineId, msg: ControlMessage): void => {
     if (this.revokedMachines.has(machineId)) return
+    // The RPC broker may await before sending, and the live peer can change
+    // after propagation's preflight. Check the peer we actually send to; never
+    // queue credential bytes for an offline or downgraded replacement.
+    if (
+      (msg.type === 'credentialExportRequest' || msg.type === 'credentialInstallRequest') &&
+      msg.propagation &&
+      !this.daemonSupports(machineId, CAP_CREDENTIAL_IDENTITY_GUARD)
+    ) {
+      throw new Error(
+        `Upgrade the daemon on ${machineId} before copying a login: the current peer cannot enforce account identity preservation.`,
+      )
+    }
     // Keep target and origin together: aggregate task timings cannot distinguish
     // a repeated target from a sweep, or an offline queue from a fresh request.
     if (msg.type === 'kill') {

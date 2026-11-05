@@ -17,6 +17,7 @@ import type { MachineId, UserId } from '@podium/model'
 import { CAP_DELIVERY_ACCEPTED, CAP_DELIVERY_NOT_IN_CONVERSATION } from '@podium/protocol/daemon'
 import {
   type AcceptorStep,
+  CAP_CREDENTIAL_IDENTITY_GUARD,
   CAP_DAEMON_GEOMETRY_APPLIED,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
@@ -120,6 +121,7 @@ const createResolvedDaemonAcceptor = (deps: ResolvedDaemonAcceptorDeps): Handsha
       // the moment the frame exists so the negotiation is in place; the session
       // module reads the accepted set to choose its geometry writer path.
       CAP_DAEMON_GEOMETRY_APPLIED,
+      CAP_CREDENTIAL_IDENTITY_GUARD,
       // POD-4886: this server reads the delivery outcome `accepted`; a daemon
       // sends it only once this is accepted.
       CAP_DELIVERY_ACCEPTED,

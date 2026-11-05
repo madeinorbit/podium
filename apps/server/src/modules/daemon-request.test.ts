@@ -56,6 +56,25 @@ afterEach(() => {
 })
 
 describe('correlation', () => {
+  it('a dispatch refusal rejects immediately without leaving a pending request or timer', async () => {
+    const broker = new DaemonRequestBroker({
+      defaultMachine: () => asMachineId('m1'),
+      toMachine: () => {
+        throw new Error('Upgrade the daemon before copying a login')
+      },
+    })
+    await expect(
+      broker.request({
+        kind: PROBE,
+        timeoutMs: 1_000,
+        onTimeout: () => ({ answer: 'timeout' }),
+        build: (requestId) => ({ type: 'scanRequest', requestId }),
+      }),
+    ).rejects.toThrow(/upgrade.*daemon/i)
+    expect(broker.inFlight).toBe(0)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it('sends to the named machine and settles that machine`s answer', async () => {
     const h = harness()
     const p = h.ask('m2')
@@ -110,7 +129,9 @@ describe('correlation', () => {
     expect([h.idOf(0), h.idOf(1), h.idOf(2)]).toEqual(['p0', 'o1', 'p2'])
     await vi.advanceTimersByTimeAsync(1_000)
     await expect(Promise.all([first, other, last])).resolves.toEqual([
-      { answer: 'timeout' }, { answer: 'timeout' }, { answer: 'timeout' },
+      { answer: 'timeout' },
+      { answer: 'timeout' },
+      { answer: 'timeout' },
     ])
   })
 
@@ -331,22 +352,42 @@ describe('server transfer RPC', () => {
     expect(sent.every(({ machineId }) => machineId === 'target-machine')).toBe(true)
   })
 
-  it.each([{ kind: 'external' as const }, undefined])('refuses transfer without fleet placement (%j) before dispatch', async (serverPlacement) => {
+  it.each([
+    { kind: 'external' as const },
+    undefined,
+  ])('refuses transfer without fleet placement (%j) before dispatch', async (serverPlacement) => {
     const toMachine = vi.fn()
     const defaultMachine = vi.fn(() => asMachineId('unrelated-daemon'))
     const rpc = new DaemonRpcService({ toMachine, defaultMachine, serverPlacement } as never)
-    await expect(rpc.serverTransferPrepare({
-      transferId: 'hosted-transfer',
-      manifest: {
-        formatVersion: 1, operationId: 'op', transferId: 'hosted-transfer',
-        sourceInstanceId: 'source', sourceMachineId: 'invented-host', targetMachineId: 'target',
-        sourceFeedId: 'feed', sourceFeedEpoch: 'epoch', appVersion: 'test', schemaVersion: 'test',
-        packageBytes: 0, files: [],
-      },
-      manifestDigest: 'a'.repeat(64), publicUrl: 'https://target.example.test',
-      bindHost: '0.0.0.0', reachabilityToken: 'r'.repeat(64), port: 443,
-    }, asMachineId('target'))).resolves.toMatchObject({
-      ok: false, error: expect.stringContaining('no source machine'),
+    await expect(
+      rpc.serverTransferPrepare(
+        {
+          transferId: 'hosted-transfer',
+          manifest: {
+            formatVersion: 1,
+            operationId: 'op',
+            transferId: 'hosted-transfer',
+            sourceInstanceId: 'source',
+            sourceMachineId: 'invented-host',
+            targetMachineId: 'target',
+            sourceFeedId: 'feed',
+            sourceFeedEpoch: 'epoch',
+            appVersion: 'test',
+            schemaVersion: 'test',
+            packageBytes: 0,
+            files: [],
+          },
+          manifestDigest: 'a'.repeat(64),
+          publicUrl: 'https://target.example.test',
+          bindHost: '0.0.0.0',
+          reachabilityToken: 'r'.repeat(64),
+          port: 443,
+        },
+        asMachineId('target'),
+      ),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: expect.stringContaining('no source machine'),
     })
     expect(toMachine).not.toHaveBeenCalled()
     expect(defaultMachine).not.toHaveBeenCalled()

@@ -42,7 +42,7 @@ export interface AccountState {
   readonly nativeLogin: RegistryModules['nativeLogin']
   /** Copies a just-ticked login to the caller's machines (POD-6301). Optional
    *  so existing test states stay valid; absent, a tick copies on next use. */
-  readonly loginPropagation?: Pick<RegistryModules['loginPropagation'], 'trigger'> | undefined
+  readonly loginPropagation?: Pick<RegistryModules['loginPropagation'], 'propagate'> | undefined
   readonly callerUserId: UserId
   /** The caller's role. An admin sees the instance's legacy provider keys
    *  (instance settings); it never sees anyone's connections. */
@@ -193,8 +193,9 @@ export const ACCOUNT_COMMANDS_TRPC = {
       // when they enroll or first run that harness. Unticking copies nothing
       // more and recalls nothing already installed.
       if (input.enabled) {
+        const refused: string[] = []
         for (const machineId of custody) {
-          await state.loginPropagation?.trigger({
+          const result = await state.loginPropagation?.propagate({
             targetMachineId: machineId,
             agentKind: input.harness,
             principalUserId: owner,
@@ -203,7 +204,12 @@ export const ACCOUNT_COMMANDS_TRPC = {
             // the daemon keeps any login already there.
             force: true,
           })
+          if (result?.status === 'failed') refused.push(result.reason)
         }
+        if (refused.length > 0)
+          throw new Error(
+            `The connection is enabled, but copying was refused: ${refused.join('; ')}`,
+          )
       }
       return { ok: true as const, enabled: input.enabled }
     }) satisfies AccountHandler<

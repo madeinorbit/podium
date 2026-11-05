@@ -10,8 +10,9 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { IssueId, MachineId, SessionId, UsageSourceWire } from '@podium/model'
 import { costCohort, taskCostView } from '@podium/client-core/values'
+import type { IssueId, MachineId, SessionId, UsageSourceWire } from '@podium/model'
+import { asMachineId, asUserId } from '@podium/model'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../store'
 import type { IssueRow, SessionRow } from '../../store/types'
@@ -168,6 +169,32 @@ const ingest = async (sources: UsageSourceWire[], sinceMs = SINCE): Promise<numb
   // The harvest is one machine's, and the segment lookup is scoped to it: a
   // transcript path is only unique within a host.
   await service.ingest(machineId, sources, sinceMs)
+
+it('does not attribute another machine’s same native id, or ambiguous cross-human reuse, to the viewer', async () => {
+  const alice = asUserId('mem_cost_alice')
+  const bob = asUserId('mem_cost_bob')
+  const nativeId = 'same-native-id'
+  await session({ resumeValue: nativeId, ownerUserId: alice })
+  await session({
+    resumeValue: nativeId,
+    ownerUserId: bob,
+    machineId: asMachineId('other-machine'),
+    createdAt: '2099-01-01T00:00:00Z',
+  })
+  await session({ resumeValue: 'alice-parent', ownerUserId: alice })
+  await transcript('alice-parent')
+  const path = await transcript(nativeId, { parentNativeId: 'alice-parent' })
+  const usage = source(path)
+  const bucket = { ...usage.windowModels[0]!, hour: '2026-08-20T10:00:00.000Z' }
+  usage.windowBuckets = [bucket]
+  const resolved = await service.prepareHarvest(machineId, [usage])
+  expect(resolved.bucketsForOwner(alice)).toEqual([bucket])
+  expect(resolved.bucketsForOwner(bob)).toEqual([])
+  await session({ resumeValue: nativeId, ownerUserId: bob, createdAt: '2099-01-01T00:00:00Z' })
+  const ambiguous = await service.prepareHarvest(machineId, [usage])
+  expect(ambiguous.bucketsForOwner(alice)).toEqual([])
+  expect(ambiguous.bucketsForOwner(bob)).toEqual([])
+})
 
 const tokensOf = (models: { inputTokens: number; outputTokens: number }[]) =>
   models.reduce((n, m) => n + m.inputTokens + m.outputTokens, 0)
@@ -359,7 +386,10 @@ describe('states', () => {
     const codexTask = await issue()
     const codexSes = await session({ issueId: codexTask.id, agentKind: 'codex' })
     await ingest([source(await transcript(codexSes.resumeValue as string), { harness: 'codex' })])
-    expect(await service.task(codexTask.id)).toMatchObject({ floor: 'partial', harnesses: ['codex'] })
+    expect(await service.task(codexTask.id)).toMatchObject({
+      floor: 'partial',
+      harnesses: ['codex'],
+    })
   })
 
   // The read path's half of the same correction: an unharvested session in scope
@@ -566,7 +596,10 @@ describe('tasks()', () => {
   it('reads a row from an older harvest as nothing in the current window', async () => {
     const stale = await issue()
     const staleSes = await session({ issueId: stale.id })
-    await ingest([source(await transcript(staleSes.resumeValue as string))], SINCE - 7 * 24 * 3_600_000)
+    await ingest(
+      [source(await transcript(staleSes.resumeValue as string))],
+      SINCE - 7 * 24 * 3_600_000,
+    )
 
     const fresh = await issue()
     const freshSes = await session({ issueId: fresh.id })
@@ -649,14 +682,17 @@ function existsOnDisk(path: string): boolean {
   }
 }
 
-
 describe('addressed task comparison', () => {
   it('matches the old task and corpus answers without reading full corpus rows', async () => {
     const root = await issue()
     const child = await issue({ parentId: root.id, stage: 'done', archived: true })
     const deleted = await issue({ deletedAt: '2026-08-23T00:00:00Z' })
     const small = await issue()
-    for (const [task, messages] of [[child, 25], [deleted, 400], [small, 20]] as const) {
+    for (const [task, messages] of [
+      [child, 25],
+      [deleted, 400],
+      [small, 20],
+    ] as const) {
       const ses = await session({ issueId: task.id })
       const path = await transcript(ses.resumeValue as string)
       const usage = source(path)
@@ -673,16 +709,19 @@ describe('addressed task comparison', () => {
     const answer = await service.taskComparison(root.id)
     expect(answer.task).toEqual(oldTask)
     expect(answer.cohort).toEqual(costCohort(oldRows))
-    expect(taskCostView(answer.task, answer.cohort))
-      .toEqual(taskCostView(oldTask, costCohort(oldRows)))
+    expect(taskCostView(answer.task, answer.cohort)).toEqual(
+      taskCostView(oldTask, costCohort(oldRows)),
+    )
     expect(corpus).not.toHaveBeenCalled()
     expect(cohort).toHaveBeenCalledTimes(1)
     expect(sessions).toHaveBeenCalledTimes(1)
     expect(sessions).toHaveBeenCalledWith(expect.arrayContaining([root.id, child.id]))
     expect(sessions.mock.calls[0]![0]).toHaveLength(2)
     expect(Object.keys(answer)).toEqual(['task', 'cohort'])
-    expect(await service.taskComparison(child.id, false))
-      .toMatchObject({ task: { sessions: [] }, cohort: answer.cohort })
+    expect(await service.taskComparison(child.id, false)).toMatchObject({
+      task: { sessions: [] },
+      cohort: answer.cohort,
+    })
   })
 
   it('returns an empty comparison for an empty corpus', async () => {

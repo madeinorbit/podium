@@ -7,10 +7,12 @@
  * that opt-out is real rather than asserted.
  */
 
+import { createPrivateKey } from 'node:crypto'
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId } from '@podium/model'
+import { parseInstallationIdentity } from '@podium/runtime/installation-identity'
 import { openDatabase, openDatabaseFromImage, type SqlDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../store'
@@ -108,16 +110,59 @@ function allRows(db: SqlDatabase): Record<string, unknown[]> {
     rows[table] = (db.prepare(`SELECT * FROM "${table}"`).all() as Record<string, unknown>[]).map(
       (row) =>
         Object.fromEntries(
-          Object.entries(row).map(([column, value]) => [
-            column,
-            typeof value !== 'string'
-              ? value
-              : ISO_INSTANT.test(value)
-                ? '<instant>'
-                : BRANDED_ID.test(value)
-                  ? '<minted-id>'
-                  : value,
-          ]),
+          Object.entries(row).map(([column, value]) => {
+            // Each independent boot mints its installation secrets. Validate
+            // their shape before normalizing only generated identity values;
+            // all other DML values and secret rows still compare byte for byte.
+            if (table === 'server_secrets' && column === 'value') {
+              if (row.key === 'settings.fingerprintKey') {
+                expect(value).toMatch(/^[a-f0-9]{64}$/)
+                return [column, '<generated-fingerprint-key>']
+              }
+              if (row.key === 'installation.privateKey') {
+                const key = createPrivateKey({
+                  key: Buffer.from(String(value), 'base64'),
+                  format: 'der',
+                  type: 'pkcs8',
+                })
+                expect(key.asymmetricKeyType).toBe('ed25519')
+                return [column, '<generated-installation-key>']
+              }
+            }
+            if (table === 'meta' && row.key === 'installation_identity' && column === 'value') {
+              const metadata = JSON.parse(String(value))
+              const secret = db
+                .prepare('SELECT value FROM server_secrets WHERE key = ?')
+                .get('installation.privateKey') as { value: string }
+              const identity = parseInstallationIdentity(
+                'migration fixture',
+                JSON.stringify({ ...metadata, privateKey: secret.value }),
+              )
+              expect(identity.createdAt).toMatch(ISO_INSTANT)
+              const createdAtMs = Date.parse(identity.createdAt)
+              expect(Number.isFinite(createdAtMs)).toBe(true)
+              expect(new Date(createdAtMs).toISOString()).toBe(identity.createdAt)
+              return [
+                column,
+                JSON.stringify({
+                  ...metadata,
+                  installationId: '<minted-installation-id>',
+                  publicKey: '<generated-public-key>',
+                  createdAt: '<instant>',
+                }),
+              ]
+            }
+            return [
+              column,
+              typeof value !== 'string'
+                ? value
+                : ISO_INSTANT.test(value)
+                  ? '<instant>'
+                  : BRANDED_ID.test(value)
+                    ? '<minted-id>'
+                    : value,
+            ]
+          }),
         ),
     )
   }

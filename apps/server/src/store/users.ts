@@ -84,6 +84,12 @@ const firstTwoActiveMembers = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+// Retained disabled/removed people still own their historical usage. Read at
+// most two ids from the covering primary-key index, regardless of roster size.
+const firstTwoMemberIds = prepared((db: StoreDrizzle) =>
+  db.select({ id: users.id }).from(users).limit(2).prepare(),
+)
+
 const earliestAdminRow = prepared((db: StoreDrizzle) =>
   db
     .select()
@@ -729,6 +735,11 @@ export class UsersRepository {
    *  mode is over whatever the login setting says (POD-6285, MU-01). */
   async hasSeveralActiveMembers(): Promise<boolean> {
     return (await firstTwoActiveMembers(this.db).all()).length > 1
+  }
+
+  /** Includes retained disabled/removed members: their history stays private. */
+  async hasSeveralMembers(): Promise<boolean> {
+    return (await firstTwoMemberIds(this.db).all()).length > 1
   }
 
   /**

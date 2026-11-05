@@ -6,6 +6,7 @@ import { hostname } from 'node:os'
 import { createLogger } from '@podium/logger'
 import type { MachineId } from '@podium/model'
 import {
+  CAP_CREDENTIAL_IDENTITY_GUARD,
   CAP_DAEMON_GEOMETRY_APPLIED,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
@@ -1013,6 +1014,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         // session's geometry from the request side. Offered from the commit that
         // makes it true, so the advertisement is never ahead of the behaviour.
         CAP_DAEMON_GEOMETRY_APPLIED,
+        CAP_CREDENTIAL_IDENTITY_GUARD,
         // POD-4886: this daemon reports `accepted` for a held row. Offered so
         // a server that reads it can say so; sent only once it has.
         CAP_DELIVERY_ACCEPTED,

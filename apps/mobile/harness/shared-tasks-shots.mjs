@@ -7,7 +7,7 @@
  */
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
-import { chromium } from 'playwright'
+import { chromium } from '@playwright/test'
 
 const OUT = process.argv[2] ?? 'shared-tasks-shots'
 await mkdir(OUT, { recursive: true })

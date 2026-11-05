@@ -534,8 +534,8 @@ export type UsageBucketWire = z.infer<typeof UsageBucketWire>
  * window and is what the usage sheet's by-task section reads; `models` covers the
  * whole file and is what the durable per-session row stores, because "what did
  * this task cost" outlives any window. Sending the underlying hour buckets
- * instead would be the same data an order of magnitude larger, and no reader
- * wants a per-task figure resolved to the hour.
+ * is additionally needed to isolate usage by run owner on shared machines.
+ * Those buckets stay server-side until their transcript has an owner.
  */
 export const UsageModelTotalWire = z.object({
   model: z.string(),
@@ -562,6 +562,10 @@ export const UsageSourceWire = z.object({
   models: z.array(UsageModelTotalWire),
   /** The subset at or after the scan's `sinceMs`, folded by model. */
   windowModels: z.array(UsageModelTotalWire),
+  /** Per-file hourly buckets let the server filter by the run's human before
+   * merging. Optional for old daemons; their aggregate cannot be disclosed on
+   * a multi-member instance without this attribution. */
+  windowBuckets: z.array(UsageBucketWire).optional(),
 })
 export type UsageSourceWire = z.infer<typeof UsageSourceWire>
 

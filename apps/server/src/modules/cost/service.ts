@@ -14,7 +14,7 @@ import { readIssues } from '../issues/issue-reader'
  * half of that answer into durable rows — the same shape `quota.summary` uses,
  * where the write is a fold of what was just read.
  *
- * `ingest` is therefore the ONLY writer, and every read below is a DB read that
+ * The harvest fold is the only writer, and every read below is a DB read that
  * touches no transcript. That is what "never block a render" means here: the
  * task-detail path cannot walk the disk, because it has no code that could.
  *
@@ -40,6 +40,9 @@ import { readIssues } from '../issues/issue-reader'
  */
 
 import { existsSync } from 'node:fs'
+import { mergeBuckets } from '@podium/harness/inventory'
+import { harnessTranscriptSiblingPaths } from '@podium/harness/metadata'
+import type { UserId } from '@podium/model'
 import {
   type ConversationId,
   type CostHarness,
@@ -61,12 +64,11 @@ import {
   type UsageModelTotalWire,
   type UsageSourceWire,
 } from '@podium/model'
-import { cohortOfOwnTotals } from './comparison-cohort'
 import { formatIssueRef } from '@podium/protocol'
-import { harnessTranscriptSiblingPaths } from '@podium/harness/metadata'
 import type { SessionStore } from '../../store'
 import type { TranscriptCostRecord } from '../../store/transcript-costs'
 import type { SessionRow } from '../../store/types'
+import { cohortOfOwnTotals } from './comparison-cohort'
 
 /**
  * The composite key a transcript is held under while a harvest is resolved.
@@ -103,8 +105,18 @@ export class CostService {
    * key to store under, and the sheet already states the resulting gap once, in
    * its provenance bar. Returns how many rows were written, for the caller's log.
    */
-  async ingest(machineId: MachineId, sources: readonly UsageSourceWire[], sinceMs: number): Promise<number> {
+  async ingest(
+    machineId: MachineId,
+    sources: readonly UsageSourceWire[],
+    sinceMs: number,
+  ): Promise<number> {
     if (sources.length === 0) return 0
+    return await (await this.prepareHarvest(machineId, sources)).record(sinceMs)
+  }
+
+  /** Resolve one harvest once for both personal hourly usage and the cost fold.
+   * This result lives only for the caller's operation; it is not a cache. */
+  async prepareHarvest(machineId: MachineId, sources: readonly UsageSourceWire[]) {
     const registry = this.store.conversations.registry
 
     // A harvested "transcript" may be a session snapshot whose registry row is
@@ -133,29 +145,42 @@ export class CostService {
     }
 
     const owners = await this.resolveOwners([...resolved.values()])
-    const nowIso = new Date().toISOString()
-    const records: TranscriptCostRecord[] = []
-    for (const source of sources) {
-      const segment = resolved.get(source.path)
-      if (!segment) continue
-      const owner = owners.get(transcriptKey(segment.machineId, segment.nativeId))
-      records.push({
-        machineId: segment.machineId,
-        nativeId: segment.nativeId,
-        path: source.path,
-        harness: source.harness,
-        sessionId: owner?.id ?? null,
-        issueId: owner?.issueId ?? null,
-        scannedBytes: source.scannedBytes,
-        firstTsMs: source.firstTsMs,
-        lastTsMs: source.lastTsMs,
-        models: source.models.map(normaliseModelTotal),
-        windowModels: source.windowModels.map(normaliseModelTotal),
-        windowSinceMs: sinceMs,
-      })
+    return {
+      bucketsForOwner: (ownerUserId: UserId) =>
+        mergeBuckets(
+          sources.flatMap((source) => {
+            const segment = resolved.get(source.path)
+            const session =
+              segment && owners.get(transcriptKey(segment.machineId, segment.nativeId))
+            return session?.ownerUserId === ownerUserId ? (source.windowBuckets ?? []) : []
+          }),
+        ),
+      record: async (sinceMs: number): Promise<number> => {
+        const nowIso = new Date().toISOString()
+        const records: TranscriptCostRecord[] = []
+        for (const source of sources) {
+          const segment = resolved.get(source.path)
+          if (!segment) continue
+          const owner = owners.get(transcriptKey(segment.machineId, segment.nativeId))
+          records.push({
+            machineId: segment.machineId,
+            nativeId: segment.nativeId,
+            path: source.path,
+            harness: source.harness,
+            sessionId: owner?.id ?? null,
+            issueId: owner?.issueId ?? null,
+            scannedBytes: source.scannedBytes,
+            firstTsMs: source.firstTsMs,
+            lastTsMs: source.lastTsMs,
+            models: source.models.map(normaliseModelTotal),
+            windowModels: source.windowModels.map(normaliseModelTotal),
+            windowSinceMs: sinceMs,
+          })
+        }
+        await this.store.transcriptCosts.record(records, nowIso)
+        return records.length
+      },
     }
-    await this.store.transcriptCosts.record(records, nowIso)
-    return records.length
   }
 
   /**
@@ -179,7 +204,10 @@ export class CostService {
       const stillOpen: typeof open = []
       const climbing: ConversationId[] = []
       for (const entry of open) {
-        const session = found.get(entry.nativeId)
+        const session = found.get(transcriptKey(entry.machineId, entry.nativeId))
+        // A conflicting direct claim is not a missing delegate. Never climb
+        // past it and accidentally assign mixed-person usage to its parent.
+        if (session === null) continue
         if (session) {
           out.set(entry.key, session)
           continue
@@ -224,23 +252,39 @@ export class CostService {
    * not, and among equals the most recently created wins, because that is the
    * row a resume produced. Ties fall back to the repository's own stable order.
    */
-  private async preferredSessionsByResumeValue(resumeValues: string[]): Promise<Map<string, SessionRow>> {
-    const out = new Map<string, SessionRow>()
+  private async preferredSessionsByResumeValue(
+    resumeValues: string[],
+  ): Promise<Map<string, SessionRow | null>> {
+    const out = new Map<string, SessionRow | null>()
     for (const [resumeValue, candidates] of await this.store.sessions.listSessionsByResumeValues(
       resumeValues,
     )) {
-      let best = candidates[0]
-      if (!best) continue
-      for (const candidate of candidates.slice(1)) {
-        const bestHasIssue = best.issueId != null
-        const candidateHasIssue = candidate.issueId != null
-        if (bestHasIssue !== candidateHasIssue) {
-          if (candidateHasIssue) best = candidate
+      const byMachine = new Map<MachineId, SessionRow[]>()
+      for (const candidate of candidates) {
+        if (!candidate.machineId) continue
+        const group = byMachine.get(candidate.machineId) ?? []
+        group.push(candidate)
+        byMachine.set(candidate.machineId, group)
+      }
+      for (const [machineId, group] of byMachine) {
+        // A native id is local to a machine. Ambiguous cross-human reuse is
+        // unattributed rather than choosing somebody's usage by row order.
+        if (new Set(group.map((row) => row.ownerUserId)).size !== 1) {
+          out.set(transcriptKey(machineId, resumeValue), null)
           continue
         }
-        if (candidate.createdAt > best.createdAt) best = candidate
+        let best = group[0]!
+        for (const candidate of group.slice(1)) {
+          const bestHasIssue = best.issueId != null
+          const candidateHasIssue = candidate.issueId != null
+          if (bestHasIssue !== candidateHasIssue) {
+            if (candidateHasIssue) best = candidate
+            continue
+          }
+          if (candidate.createdAt > best.createdAt) best = candidate
+        }
+        out.set(transcriptKey(machineId, resumeValue), best)
       }
-      out.set(resumeValue, best)
     }
     return out
   }
@@ -313,28 +357,32 @@ export class CostService {
       // the figure is only as fresh as the least recently read row it contains,
       // but the reading a surface reports is when we last looked at all.
       ...stampOf(costs),
-      sessions: includeSessions ? ownCosts
-        .filter((c) => c.messages > 0)
-        .map((c): SessionCostWire => {
-          const session = c.sessionId ? sessionById.get(c.sessionId) : undefined
-          return {
-            sessionId: (c.sessionId as SessionId | null) ?? null,
-            title: session?.name ?? session?.title ?? null,
-            harness: c.harness,
-            running: session ? RUNNING.has(session.status) : false,
-            models: c.models,
-            firstTsMs: c.firstTsMs,
-            lastTsMs: c.lastTsMs,
-          }
-        })
-        .sort((a, b) => tokensOf(b.models) - tokensOf(a.models)) : [],
+      sessions: includeSessions
+        ? ownCosts
+            .filter((c) => c.messages > 0)
+            .map((c): SessionCostWire => {
+              const session = c.sessionId ? sessionById.get(c.sessionId) : undefined
+              return {
+                sessionId: (c.sessionId as SessionId | null) ?? null,
+                title: session?.name ?? session?.title ?? null,
+                harness: c.harness,
+                running: session ? RUNNING.has(session.status) : false,
+                models: c.models,
+                firstTsMs: c.firstTsMs,
+                lastTsMs: c.lastTsMs,
+              }
+            })
+            .sort((a, b) => tokensOf(b.models) - tokensOf(a.models))
+        : [],
     }
   }
 
   /** On-request total and all-time comparison, without building cost.tasks. */
   async taskComparison(issueId: IssueId, includeSessions = true): Promise<TaskCostComparisonWire> {
     const task = await this.task(issueId, includeSessions)
-    const cohort = cohortOfOwnTotals(await this.store.transcriptCosts.ownCohortTotals(RATE_COHORT_MIN_REPLIES))
+    const cohort = cohortOfOwnTotals(
+      await this.store.transcriptCosts.ownCohortTotals(RATE_COHORT_MIN_REPLIES),
+    )
     return { task, cohort }
   }
 

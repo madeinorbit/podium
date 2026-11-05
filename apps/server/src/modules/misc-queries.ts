@@ -32,6 +32,7 @@ import {
   ThreadIdField,
 } from '@podium/model'
 import { loadConfig } from '@podium/runtime/config'
+import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { getFeatureStates } from '../features'
 import { CostService } from './cost/service'
@@ -164,31 +165,58 @@ export const USAGE_QUERIES = {
    *  magnitude larger than the buckets and no client reads it. Best-effort — a
    *  failed fold never fails the usage read. */
   summary: q(noInput, async (s) => {
-    // The buckets are harvested from the answering machine's transcripts, so
-    // they are private to the people who may run there (POD-6284). Anyone else
-    // gets the answer an unreachable daemon gives: no host, no buckets.
-    if (!(await s.privateAccess.mayReadMachineFiles())) return { hostname: '', buckets: [] }
+    // Fix the answering machine before both authorization and dispatch. Machine
+    // use permits the scan; it does not permit another human's usage (MU-30).
+    const machineId = await s.modules.rpc.answeringMachineId()
+    if (!(await s.privateAccess.mayReadMachineFiles(machineId)))
+      return { hostname: '', buckets: [] }
     // The daemon's own default window, restated here because the fold has to
     // record WHICH window its per-file totals cover — see `window_since_ms`.
     const sinceMs = Date.now() - USAGE_WINDOW_MS
-    const { sources, sourcesSinceMs, ...usage } = await s.modules.rpc.usage(sinceMs, true)
-    if (sources && sources.length > 0) {
+    const { sources, sourcesSinceMs, ...usage } = await s.modules.rpc.usage(
+      sinceMs,
+      true,
+      machineId,
+    )
+    const shared = await s.store.users.hasSeveralMembers()
+    if (
+      shared &&
+      (sources?.some((source) => source.windowBuckets === undefined) ||
+        (!sources?.length && usage.buckets.length > 0))
+    ) {
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message:
+          'Upgrade the answering daemon before viewing usage on a multi-member instance: it must report per-transcript usage buckets.',
+      })
+    }
+    let buckets = shared ? ([] as typeof usage.buckets) : usage.buckets
+    if (sources?.length) {
+      let harvest: Awaited<ReturnType<CostService['prepareHarvest']>>
+      try {
+        harvest = await new CostService(s.store).prepareHarvest(machineId, sources)
+      } catch (err) {
+        // Without owner attribution a multi-member response must fail closed.
+        if (shared) throw err
+        log.warn('cost attribution failed — single-member usage buckets unaffected', { err })
+        return usage
+      }
+      if (shared)
+        buckets = harvest
+          .bucketsForOwner(asUserId(s.caller.userId))
+          .filter((bucket) => Date.parse(bucket.hour) >= sinceMs - 3_600_000)
       try {
         // The MEMO's window, not ours. The daemon may serve a fold it computed
         // against an older `sinceMs`; stamping it with the newer one re-dates
         // last window's numbers as current and keeps a transcript that has
         // since fallen out of the window contributing to "attributed".
         const foldSinceMs = sourcesSinceMs ?? sinceMs
-        await new CostService(s.store).ingest(
-          await s.modules.rpc.answeringMachineId(),
-          sources,
-          foldSinceMs,
-        )
+        await harvest.record(foldSinceMs)
       } catch (err) {
         log.warn('cost fold failed — usage buckets unaffected', { err })
       }
     }
-    return usage
+    return { ...usage, buckets }
   }),
 } as const
 

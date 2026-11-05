@@ -15,6 +15,7 @@
 
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { asMachineId } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { describe, expect, it } from 'vitest'
 import { FILE_QUERIES } from './queries'
@@ -43,6 +44,7 @@ const stateFor = (allowedRoots: string[]): FileState =>
     // The caller may run on this machine (POD-6284's private-class gate passes).
     access: { ownsSession: async () => false, mayReadMachineFiles: async () => true },
     rpc: {
+      answeringMachineId: async () => asMachineId('fixture-machine'),
       repoOp: async (op: string) => {
         if (op !== 'lsFiles') return { ok: false, output: `unexpected op ${op}` }
         const { stdout } = await execFileAsync('git', ['-C', ROOT, ...LS_FILES], {

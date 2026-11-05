@@ -89,14 +89,21 @@ export interface FixtureMember {
   readonly role: 'admin' | 'member'
 }
 
+const ALICE: Omit<FixtureMember, 'id'> = {
+  name: 'alice',
+  displayName: 'Alice',
+  email: 'alice@example.com',
+  password: 'alice-fixture-password',
+  role: 'admin',
+}
+
 export const MEMBERS: Readonly<Record<MemberName, FixtureMember>> = {
   alice: {
-    name: 'alice',
-    displayName: 'Alice',
-    id: firstAdminMemberId(),
-    email: 'alice@example.com',
-    password: 'alice-fixture-password',
-    role: 'admin',
+    ...ALICE,
+    // Server-unit setup primes this identity; process tests have no ambient fixture.
+    get id() {
+      return firstAdminMemberId()
+    },
   },
   bob: {
     name: 'bob',
@@ -278,6 +285,10 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
   const origin = `http://127.0.0.1:${handle.port}`
   const registry = handle.registry
   const store = registry.sessionStore
+  const members: typeof MEMBERS = {
+    ...MEMBERS,
+    alice: { ...ALICE, id: await firstAdminMemberId(store) },
+  }
   const relayServers: Array<Awaited<ReturnType<typeof startAgentRelayServer>>> = []
   const sockets: WebSocket[] = []
 
@@ -294,7 +305,7 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
     // PEOPLE. Alice is the admin every fresh instance already has; Bob and Carol
     // are added the way an accepted invite adds them (a row plus a credential).
     const at = new Date().toISOString()
-    const { alice, bob, carol } = MEMBERS
+    const { alice, bob, carol } = members
     await store.users.setEmail(alice.id, alice.email)
     await store.users.setPasswordHash(alice.id, await hashPassword(alice.password), at)
     for (const member of [bob, carol]) {
@@ -325,7 +336,7 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
         name: machineId,
         hostname: machineId,
         tokenHash: `${machineId}-token`,
-        ownerUserId: MEMBERS[name].id,
+        ownerUserId: members[name].id,
         assignment: { server: false, agentExecution: true },
       })
       await store.repos.addRepo(REPO_PATH, machineId)
@@ -403,7 +414,7 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
       await fetch(new URL('/auth/login', origin), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email: MEMBERS[name].email, password: MEMBERS[name].password }),
+        body: JSON.stringify({ email: members[name].email, password: members[name].password }),
       })
 
     const signedIn = new Map<MemberName, MemberSession>()
@@ -420,7 +431,7 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
         links: [httpLink({ url: `${origin}/trpc`, headers: () => ({ cookie }) })],
       })
       const session: MemberSession = {
-        member: MEMBERS[name],
+        member: members[name],
         cookie,
         trpc,
         fetch: async (path, init) =>
@@ -514,7 +525,7 @@ export async function startTwoMemberInstance(): Promise<TwoMemberInstance> {
     return {
       handle,
       origin,
-      members: MEMBERS,
+      members,
       machines,
       tasks,
       sessions,

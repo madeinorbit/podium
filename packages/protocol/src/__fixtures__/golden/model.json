@@ -15190,12 +15190,24 @@
             "cacheCreation1hTokens": 1,
             "messages": 1
           }
+        ],
+        "windowBuckets": [
+          {
+            "hour": "windowBuckets[0].hour",
+            "model": "windowBuckets[0].model",
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "cacheReadTokens": 1,
+            "cacheCreationTokens": 1,
+            "cacheCreation1hTokens": 1,
+            "messages": 1
+          }
         ]
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"path\":\"path\",\"harness\":\"claude-code\",\"scannedBytes\":1,\"firstTsMs\":1,\"lastTsMs\":1,\"models\":[{\"model\":\"models[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}],\"windowModels\":[{\"model\":\"windowModels[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}]}"
+      "encoded": "{\"path\":\"path\",\"harness\":\"claude-code\",\"scannedBytes\":1,\"firstTsMs\":1,\"lastTsMs\":1,\"models\":[{\"model\":\"models[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}],\"windowModels\":[{\"model\":\"windowModels[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}],\"windowBuckets\":[{\"hour\":\"windowBuckets[0].hour\",\"model\":\"windowBuckets[0].model\",\"inputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheCreationTokens\":1,\"cacheCreation1hTokens\":1,\"messages\":1}]}"
     },
     {
       "schema": "UserAccount",

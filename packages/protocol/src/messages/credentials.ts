@@ -1,6 +1,11 @@
 import { PORTABLE_CREDENTIAL_HARNESS_KINDS } from '@podium/model'
 import { z } from 'zod'
 
+/** The peer enforces the expected native login identity at export AND install,
+ * including preservation of different expired/unknown logins. Old peers may
+ * ignore additive fields, so they must not receive an identity-bound transfer. */
+export const CAP_CREDENTIAL_IDENTITY_GUARD = 'credential.identity-guard.v1'
+
 /**
  * Native single-user CLI logins Podium can explicitly copy to another owned machine.
  *

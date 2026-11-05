@@ -32,6 +32,8 @@ describe('principal replica storage', () => {
     aliceUi.set('podium.panelMode', '{"s1":"chat"}')
     aliceUi.set('podium.view', 'issueProjections')
     await new Promise((r) => setTimeout(r, 0))
+    expect(aliceUi.get('podium.panelMode')).toBe('{"s1":"chat"}')
+    expect(memory.api.getItem(`${alice.keyPrefix}.uistate.v1`)).not.toBeNull()
 
     const bob = preparePrincipalNamespace({
       storage: memory.api,
@@ -44,9 +46,7 @@ describe('principal replica storage', () => {
     expect(bobUi.get('podium.panelMode')).toBeNull()
     expect(bobUi.get('podium.view')).toBeNull()
     // Alice's namespaced blob remains; Bob has a separate empty collection.
-    expect(
-      memory.keys().some((key) => key.startsWith(alice.keyPrefix) && key.includes('ui-state')),
-    ).toBe(true)
+    expect(memory.keys().includes(`${alice.keyPrefix}.uistate.v1`)).toBe(true)
   })
 
   it('sharded transcript windows stay inside their principal namespace', () => {

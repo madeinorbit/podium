@@ -81,7 +81,11 @@ async function fixture(size: number): Promise<Fixture> {
     })
     issueId ??= issue.id
     const cwd = `/repo/w${i}`
-    const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd, issueId: issue.id })
+    const { sessionId } = await reg.modules.sessions.createSession({
+      agentKind: 'codex',
+      cwd,
+      issueId: issue.id,
+    })
     await reg.gateway.routeDaemonFrame(store.hostMachineId, {
       type: 'bind',
       sessionId,
@@ -111,7 +115,10 @@ async function fixture(size: number): Promise<Fixture> {
   return { store, reg, owner, issueId: issueId!, others, superagent, call }
 }
 
-const pin = (name: string, run: (f: Fixture) => Promise<{ sessionId: string }>): StatementPin<Fixture> => ({
+const pin = (
+  name: string,
+  run: (f: Fixture) => Promise<{ sessionId: string }>,
+): StatementPin<Fixture> => ({
   name,
   setup: fixture,
   target: (f) => f.store,
@@ -143,8 +150,11 @@ const plantPerSession = (f: Fixture): (() => void) => {
 }
 
 describe('session create: pinned statement counts at 5 and 200', () => {
-  const draft = pin('createSession (draft, no issue)', async (f) =>
-    await f.reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/repo/new' }))
+  const draft = pin(
+    'createSession (draft, no issue)',
+    async (f) =>
+      await f.reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/repo/new' }),
+  )
 
   // POD-6218: the earliest admin is one statement (its row) and is read once per
   // operation, and so are its settings (`meta`, `user_preferences`). Draft 39 -> 35,
@@ -158,30 +168,44 @@ describe('session create: pinned statement counts at 5 and 200', () => {
   // on an issue one read of their user-state row (the record already exists),
   // over tRPC the draft task's creation record, one read, one upsert and its
   // two feed rows, plus that read at the spawn: 30, 34 and 56.
+  // POD-6301's native-login opt-in lookup adds one to each (31, 35, 57 on
+  // settled integration 4bd324eea2). POD-6303 validates an active owner at
+  // start and immediately before spawn: two user reads in process, one extra
+  // over tRPC where the principal's read is already memoized. 33, 37, 58;
+  // measured at both sizes, with the per-session loop controls retained below.
   it('in process, a draft session in a repo', async () => {
-    await expectConstantStatements(draft, 30)
+    await expectConstantStatements(draft, 33)
   })
 
   it('in-process pin is armed', async () => {
-    await expectArmed(draft, 30, plantPerSession)
+    await expectArmed(draft, 33, plantPerSession)
   })
 
   it('in process, a session on an issue', async () => {
     await expectConstantStatements(
-      pin('createSession (on an issue)', async (f) =>
-        await f.reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/repo/w0', issueId: f.issueId })),
-      34,
+      pin(
+        'createSession (on an issue)',
+        async (f) =>
+          await f.reg.modules.sessions.createSession({
+            agentKind: 'codex',
+            cwd: '/repo/w0',
+            issueId: f.issueId,
+          }),
+      ),
+      37,
     )
   })
 
-  const trpc = pin('tRPC sessions.create', async (f) =>
-    await f.call.sessions.create({ agentKind: 'codex', cwd: '/repo/new' }))
+  const trpc = pin(
+    'tRPC sessions.create',
+    async (f) => await f.call.sessions.create({ agentKind: 'codex', cwd: '/repo/new' }),
+  )
 
   it('over tRPC', async () => {
-    await expectConstantStatements(trpc, 56)
+    await expectConstantStatements(trpc, 58)
   })
 
   it('tRPC pin is armed', async () => {
-    await expectArmed(trpc, 56, plantPerSession)
+    await expectArmed(trpc, 58, plantPerSession)
   })
 })

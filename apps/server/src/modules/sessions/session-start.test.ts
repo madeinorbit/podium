@@ -3,9 +3,8 @@
  * (POD-1433). Both rules predate the cut and moved with the code; neither had
  * an assertion that would fail if inverted/disabled.
  *
- *   1. create(): issue owner wins over an explicit ownerUserId
- *      (parentOwner ?? input.ownerUserId ?? …). Authorization-shaped: an
- *      issue-owned child inherits the issue owner (ADR 1).
+ *   1. create(): the active starter owns the session, including when it sits
+ *      on another person's task; an authenticated binding determines the human.
  *   2. spawn(): refuse a client-supplied sessionId that already maps to a live
  *      Session. Without the guard the registry overwrites the live object and
  *      orphans its PTY/daemon binding.
@@ -65,6 +64,11 @@ describe('SessionStart: a session is its starter’s, whatever task it is on (PO
     expect(starter).not.toBe(firstAdminMemberId())
 
     const { reg, daemon } = await makeRegistry()
+    for (const id of [issueOwner, starter]) {
+      await reg.sessionStore.users.create({
+        id, displayName: id, role: 'member', createdAt: new Date(0).toISOString(), disabledAt: null,
+      }, 'fixture-hash')
+    }
     const issue = await reg.issues.crud.create({
       repoPath: '/r',
       title: 'Owned issue',
@@ -93,10 +97,16 @@ describe('SessionStart: a session is its starter’s, whatever task it is on (PO
   it('a binding’s on-behalf-of human wins over a requested owner', async () => {
     const { reg } = await makeRegistry()
     const human = asUserId('user:binding-human')
+    const requested = asUserId('user:requested')
+    for (const id of [human, requested]) {
+      await reg.sessionStore.users.create({
+        id, displayName: id, role: 'member', createdAt: new Date(0).toISOString(), disabledAt: null,
+      }, 'fixture-hash')
+    }
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r',
-      ownerUserId: asUserId('user:requested'),
+      ownerUserId: requested,
       binding: { principal: { kind: 'user', userId: human } },
     })
     expect((await reg.sessionStore.sessions.loadSessions()).find((r) => r.id === sessionId)?.ownerUserId).toBe(human)
