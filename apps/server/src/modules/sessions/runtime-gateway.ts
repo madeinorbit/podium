@@ -158,6 +158,7 @@ export interface RuntimeDaemonRpcPort {
     sessionId: SessionId,
     machineId: MachineId,
     cancelRowId?: string,
+    turn?: string,
   ): Promise<{ result: { ok: true } | Refusal }>
   runtimeAnswer(
     input: { sessionId: SessionId; interactionId: string; principal?: { kind: 'user' | 'agent' | 'system'; ref: string }; answer: Record<string, unknown> },
@@ -322,10 +323,10 @@ export class SessionRuntimeGateway {
 
   /** REQUEST a fence. Nothing here waits for one: fences arrive only as
    *  provider-confirmed terminal events on the causal stream. */
-  async interrupt(sessionId: SessionId): Promise<{ ok: true } | Refusal> {
+  async interrupt(sessionId: SessionId, turn?: string): Promise<{ ok: true } | Refusal> {
     const machineId = this.ports.machineOf(sessionId)
     if (!machineId) return { reason: 'not_running', detail: 'no machine' }
-    return (await this.ports.rpc.runtimeInterrupt(sessionId, machineId)).result
+    return (await this.ports.rpc.runtimeInterrupt(sessionId, machineId, undefined, turn)).result
   }
 
   async cancelDelivery(sessionId: SessionId, rowId: string): Promise<DeliveryCancelResult> {

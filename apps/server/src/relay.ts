@@ -153,6 +153,10 @@ import { ReadPositionService } from './modules/read-position/service'
 import { awaitEffectSettled } from './modules/effects/await'
 import { issueGitEffectPort, registerIssueGitEffects } from './modules/issues/git-effects'
 import { registerIssueStartEffect } from './modules/issues/start-effect'
+import {
+  registerSessionInterruptEffect,
+  type SessionInterruptsHandle,
+} from './modules/sessions/session-interrupt-effect'
 import { registerSessionLaunchEffect } from './modules/sessions/session-launch-effect'
 import { makeEffectFeedCapture } from './modules/effects/feed'
 import { EffectExecutorRegistry } from './modules/effects/registry'
@@ -389,6 +393,8 @@ export interface RegistryModules {
   sessionLifecycleController: SessionLifecycleController
   /** The `session.launch` effect kind's handle (POD-6398); absent in hand-built sets. */
   sessionLaunches?: { errorOf(effectId: string): unknown }
+  /** The `session.interrupt` effect kind's handle (POD-6397); absent in hand-built sets. */
+  sessionInterrupts?: SessionInterruptsHandle
   headless: HeadlessService
   notify: NotifyService
   issues: IssueService
@@ -3914,6 +3920,11 @@ export class SessionRegistry {
     this.modules.sessionLaunches = registerSessionLaunchEffect({
       modules: () => this.modules,
       users: this.store.users,
+    })
+    // Stop names the turn it is for and ends with it (POD-6397).
+    this.modules.sessionInterrupts = registerSessionInterruptEffect({
+      modules: () => this.modules,
+      now: this.now,
     })
     const agentRelayGate = new AgentRelayGate({
       // issues/repos ops run through the registry dispatcher (guard + schema +

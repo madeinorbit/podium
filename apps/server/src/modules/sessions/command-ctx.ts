@@ -24,6 +24,7 @@ import {
 import { asMutationId, asSessionId, spawnedByParentSessionId } from '@podium/model'
 import type { RegistryModules } from '../../relay'
 import { asyncSessionIssueAccess } from './session-access'
+import { interruptThroughEffect } from './session-interrupt-effect'
 import { createThroughLaunchEffect } from './session-launch-effect'
 import {
   type LifecycleEditsPort,
@@ -198,6 +199,11 @@ function lifecycleEditsFor(
       modules.sessionLaunches === undefined
         ? undefined
         : await createThroughLaunchEffect(modules, principal, modules.sessionLaunches, input),
+    // `sessions.interrupt` as a `session.interrupt` effect record (POD-6397).
+    interrupt: async (input) =>
+      modules.sessionInterrupts === undefined
+        ? undefined
+        : await interruptThroughEffect(modules, principal, modules.sessionInterrupts, input),
   }
 }
 

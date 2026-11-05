@@ -1002,12 +1002,20 @@ export class DaemonRpcService {
     sessionId: SessionId,
     machineId: MachineId,
     cancelRowId?: string,
+    /** The turn the stop is for (POD-6397); the daemon answers `turn_ended`. */
+    turn?: string,
   ): Promise<Payload<RuntimeLifecycleResultMessage>> {
     return await this.request(
       RUNTIME_LIFECYCLE,
       RUNTIME_VERB_TIMEOUT_MS,
       () => ({ sessionId, result: { reason: 'not_running' as const } }),
-      (requestId) => ({ type: 'runtimeInterruptRequest', requestId, sessionId, cancelRowId }),
+      (requestId) => ({
+        type: 'runtimeInterruptRequest',
+        requestId,
+        sessionId,
+        cancelRowId,
+        ...(turn !== undefined ? { turn } : {}),
+      }),
       machineId,
     )
   }

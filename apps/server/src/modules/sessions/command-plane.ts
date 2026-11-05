@@ -77,7 +77,7 @@ import type { IssueSessionLifecycle } from '../issue-session-lifecycle'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachineUseResolver } from '../machines/service'
 import type { SendDisposition } from '../messages/service'
-import { type AnswerChoice, inboxPrincipalFromCommand } from './inbox'
+import { type AnswerChoice, type InterruptOutcome, inboxPrincipalFromCommand } from './inbox'
 import type { SessionLifecycle } from './lifecycle'
 import type { LifecycleOutcome } from './lifecycle-controller'
 import type { SessionSpawnResult } from './session-start'
@@ -185,6 +185,12 @@ export interface LifecycleEditsPort {
    * left pending: the route then starts the session itself, as before.
    */
   create(input: CreateInput): Promise<SessionSpawnResult | undefined>
+  /**
+   * `sessions.interrupt` as a `session.interrupt` effect record (POD-6397), in
+   * the route's shape. `undefined` when the effect path took nothing: the route
+   * then interrupts directly, as before.
+   */
+  interrupt?(input: { sessionId: SessionId; messageId?: string }): Promise<InterruptOutcome | undefined>
 }
 
 export interface SessionCommandDeps {
@@ -819,15 +825,22 @@ export const SESSION_COMMAND_HANDLERS = {
           ...INTERRUPTED_SEND,
         }))).outcome === 'applied'
       : false
+    // A `session.interrupt` effect record (POD-6397): every device sees the stop
+    // until the turn ends. The direct call stays for module sets without it.
+    const viaEffect = await ctx.deps.lifecycleEdits?.interrupt?.({
+      sessionId: input.sessionId,
+      ...(input.messageId ? { messageId: input.messageId } : {}),
+    })
     // AWAITED: a server-family session's stop goes down the runtime contract and
     // answers asynchronously, so reading `.ok` off the return value would be
     // reading it off a Promise (POD-2792).
     return await Promise.resolve(
-      ctx.sessions.interruptTurn({
-        sessionId: input.sessionId,
-        ...(input.messageId ? { sourceMessageId: input.messageId } : {}),
-        principal: inboxPrincipalFromCommand(ctx.principal),
-      }),
+      viaEffect ??
+        ctx.sessions.interruptTurn({
+          sessionId: input.sessionId,
+          ...(input.messageId ? { sourceMessageId: input.messageId } : {}),
+          principal: inboxPrincipalFromCommand(ctx.principal),
+        }),
     ).then((result) =>
       // The CLI may have no safe idle abort key, but reserving the not-yet-arrived
       // send still completed the operator's stop request.

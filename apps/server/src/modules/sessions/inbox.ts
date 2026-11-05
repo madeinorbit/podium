@@ -75,7 +75,12 @@ export type InterruptOutcome =
    *  and no driver was called — and saying `keystroke` there would name a
    *  delivery that did not happen. */
   | { ok: true; requested: 'keystroke' | 'protocol' | 'retraction'; reason?: undefined }
-  | { ok: false; reason: string; requested?: undefined }
+  /** `turnEnded`: the stop named a turn the daemon says is over (POD-6397);
+   *  nothing was stopped and the turn running now was not touched. */
+  | { ok: false; reason: string; requested?: undefined; turnEnded?: true }
+
+/** What a turn-scoped stop answers when the daemon says its turn is over. */
+export const TURN_ENDED_REASON = 'the turn it was aimed at had already ended'
 
 const log = createLogger('server:session-inbox')
 
@@ -569,7 +574,7 @@ export interface SessionInboxDeps {
    * Optional only as a fixture affordance, and the missing case REFUSES rather
    * than confirming: a stop that cannot be delivered must say so.
    */
-  contractInterrupt?(sessionId: SessionId): Promise<{ ok: true } | Refusal>
+  contractInterrupt?(sessionId: SessionId, turn?: string): Promise<{ ok: true } | Refusal>
   /**
    * CHANGE a running session's sticky model / effort through the runtime
    * contract (POD-3081).
@@ -885,7 +890,10 @@ export class SessionInbox {
    * implements `interrupt()` and none of them was ever called.
    */
   async interruptTurn(
-    input: Omit<InboxSendInput, 'text'>,
+    input: Omit<InboxSendInput, 'text'> & {
+      /** The turn the stop is for (POD-6397): the daemon stops only that turn. */
+      turn?: string
+    },
   ): Promise<InterruptOutcome | Promise<InterruptOutcome>> {
     const session = this.deps.getSession(input.sessionId)
     if (!session || (session.status !== 'live' && session.status !== 'starting')) {
@@ -894,15 +902,24 @@ export class SessionInbox {
     // Contract-only stops for agents (POD-4279). Plain-terminal shells
     // (POD-4278) keep the raw abort path below — they have no driver to call.
     if (session.agentKind !== 'shell') {
-      const cancelled = await this.cancelInterruptedDelivery(input.sessionId, true, input.sourceMessageId)
+      // A stop for a named turn pulls back only the send it names: the head of
+      // the queue may be the NEXT turn's message (POD-6397).
+      const cancelled =
+        input.turn !== undefined && input.sourceMessageId === undefined
+          ? false
+          : await this.cancelInterruptedDelivery(input.sessionId, true, input.sourceMessageId)
       // NO PHASE GATE (POD-4666): only the daemon knows whether a turn is
       // running, and the server's copy lags it — a stop gated on that copy was
       // refused while the agent ran on. The driver owns the idle guard and
       // answers; a refusal after a retraction still completed the operator's
       // stop, the same rule `sessions.interrupt` applies to a reserved send.
-      const interruption = await this.requestDriverInterrupt(input.sessionId)
+      // A named turn is the daemon's to judge too: it answers `turn_ended`.
+      const interruption = await this.requestDriverInterrupt(input.sessionId, input.turn)
       if ('ok' in interruption) return { ok: true, requested: 'protocol' }
       if (cancelled) return { ok: true, requested: 'retraction' }
+      if (interruption.reason === 'turn_ended') {
+        return { ok: false, reason: TURN_ENDED_REASON, turnEnded: true }
+      }
       return { ok: false, reason: this.interruptRefusalReason(session, interruption) }
     }
     const cancelledDelivery = await this.cancelInterruptedDelivery(
@@ -934,10 +951,13 @@ export class SessionInbox {
    * port is still a stop that did not happen. It is not `not_running`: nothing
    * says the agent is idle, only that this server cannot reach it.
    */
-  private async requestDriverInterrupt(sessionId: SessionId): Promise<{ ok: true } | Refusal | { reason: 'unwired' }> {
+  private async requestDriverInterrupt(
+    sessionId: SessionId,
+    turn?: string,
+  ): Promise<{ ok: true } | Refusal | { reason: 'unwired' }> {
     const request = this.deps.contractInterrupt
     if (!request) return { reason: 'unwired' }
-    return await request(sessionId)
+    return await request(sessionId, turn)
   }
 
   /**

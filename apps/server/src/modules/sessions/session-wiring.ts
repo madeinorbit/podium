@@ -719,7 +719,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       return chatUploadStageAnswer(attachment, staged)
     },
     // Stop follows the same contract delivery route, including headed sessions.
-    contractInterrupt: (sessionId) => bag.runtimeGateway.interrupt(sessionId),
+    contractInterrupt: (sessionId, turn) => bag.runtimeGateway.interrupt(sessionId, turn),
     // Late-bound for the same reason the two above it are.
     contractConfigure: (input) => bag.runtimeGateway.configure(input),
   })
