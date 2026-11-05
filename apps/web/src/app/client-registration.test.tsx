@@ -223,6 +223,84 @@ describe('authenticated native client registration', () => {
     expect(fixture.restart).toHaveBeenCalledOnce()
   })
 
+  it('requires a new verified sign-in to replace a refused saved code, once across cookie remounts', async () => {
+    const fixture = setup({
+      state: 'rejected',
+      message: 'Client registration was refused. Sign in again to retry.',
+      retry: {
+        target: 'refused-saved-code-receipt',
+        machineId: 'retained-client',
+        publicKey: `ed25519:${'a'.repeat(43)}`,
+      },
+    })
+    expect(await fixture.registration.start(fixture.bridge, fixture.trpc)).toContain(
+      'Sign in again',
+    )
+    await fixture.registration.start(fixture.bridge, fixture.trpc)
+    expect(fixture.mint).not.toHaveBeenCalled()
+    expect(fixture.save).not.toHaveBeenCalled()
+    expect(fixture.restart).not.toHaveBeenCalled()
+    const restartedPage = new ClientRegistration()
+    expect(await restartedPage.start(fixture.bridge, fixture.trpc)).toContain('Sign in again')
+    expect(fixture.mint).not.toHaveBeenCalled()
+    fixture.registration.retryAfterSignIn()
+    const retry = fixture.registration.start(fixture.bridge, fixture.trpc)
+    expect(fixture.registration.start(fixture.bridge, fixture.trpc)).toBe(retry)
+    expect(await retry).toContain('quit and reopen')
+    expect(fixture.mint).toHaveBeenCalledExactlyOnceWith({
+      podiumManaged: true,
+      copyAgentCredentials: false,
+      clientRegistration: { machineId: 'retained-client', publicKey: `ed25519:${'a'.repeat(43)}` },
+    })
+    expect(fixture.save).toHaveBeenCalledExactlyOnceWith('ABCD-EFGH', 'refused-saved-code-receipt')
+    expect(fixture.restart).toHaveBeenCalledOnce()
+    await fixture.registration.start(fixture.bridge, fixture.trpc)
+    expect(fixture.mint).toHaveBeenCalledTimes(1)
+  })
+
+  it('honors a verified sign-in before the first attempt in a fresh WebView with a refused saved code', async () => {
+    const fixture = setup({
+      state: 'rejected',
+      message: 'Client registration was refused. Sign in again to retry.',
+      retry: { target: 'refused-saved-code-receipt', machineId: 'retained-client' },
+    })
+    fixture.registration.retryAfterSignIn()
+    await fixture.registration.start(fixture.bridge, fixture.trpc)
+    await fixture.registration.start(fixture.bridge, fixture.trpc)
+    expect(fixture.mint).toHaveBeenCalledOnce()
+    expect(fixture.save).toHaveBeenCalledOnce()
+    expect(fixture.restart).toHaveBeenCalledOnce()
+  })
+
+  it('consumes a sign-in retry even when the actual administrator request is refused', async () => {
+    const fixture = setup({
+      state: 'rejected',
+      message: 'Sign in again to retry.',
+      retry: { target: 'refused-receipt', machineId: 'retained-client' },
+    })
+    fixture.mint.mockRejectedValue(new Error('current administrator authentication required'))
+    fixture.registration.retryAfterSignIn()
+    expect(await fixture.registration.start(fixture.bridge, fixture.trpc)).toContain(
+      'authentication required',
+    )
+    await fixture.registration.start(fixture.bridge, fixture.trpc)
+    const restartedPage = new ClientRegistration()
+    expect(await restartedPage.start(fixture.bridge, fixture.trpc)).toContain('Sign in again')
+    expect(fixture.mint).toHaveBeenCalledOnce()
+    expect(fixture.save).not.toHaveBeenCalled()
+    expect(fixture.restart).not.toHaveBeenCalled()
+  })
+
+  it('keeps a rejection without validated retry identity terminal after a new sign-in', async () => {
+    const fixture = setup({ state: 'rejected', message: 'Inspect the local identity error.' })
+    fixture.registration.retryAfterSignIn()
+    expect(await fixture.registration.start(fixture.bridge, fixture.trpc)).toContain(
+      'identity error',
+    )
+    expect(fixture.mint).not.toHaveBeenCalled()
+    expect(fixture.save).not.toHaveBeenCalled()
+  })
+
   it('settles an in-flight attempt before observing a new login and never remints a saved receipt', async () => {
     const fixture = setup()
     fixture.read

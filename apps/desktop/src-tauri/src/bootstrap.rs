@@ -881,6 +881,15 @@ pub fn write_hosting_config(pair_code: &str) -> Result<(), String> {
 
 /// Minimal public registration answer. No credential or raw state crosses IPC.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ClientRegistrationRequest {
+    target: String,
+    #[serde(rename = "machineId")]
+    machine_id: String,
+    #[serde(rename = "publicKey", skip_serializing_if = "Option::is_none")]
+    public_key: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(tag = "state", rename_all = "kebab-case")]
 pub enum ClientRegistrationStatus {
     NotApplicable,
@@ -894,7 +903,11 @@ pub enum ClientRegistrationStatus {
         #[serde(rename = "publicKey", skip_serializing_if = "Option::is_none")]
         public_key: Option<String>,
     },
-    Rejected { message: String },
+    Rejected {
+        message: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        retry: Option<ClientRegistrationRequest>,
+    },
     Unavailable { message: String },
 }
 
@@ -998,7 +1011,8 @@ fn inspect_client_registration(
     }
     let registration = &supervisor["registration"];
     if supervisor.get("registration").is_some() && (!registration.is_object()
-        || !matches!(registration["state"].as_str(), Some("unregistered" | "pairing" | "enrolled" | "rejected"))) {
+        || !matches!(registration["state"].as_str(), Some("unregistered" | "pairing" | "enrolled" | "rejected"))
+        || registration.get("pendingPairCode").is_some_and(|code| code.as_str().is_none_or(|code| code.is_empty()))) {
         return Ok(unavailable());
     }
     if registration.is_object()
@@ -1046,7 +1060,7 @@ fn inspect_client_registration(
     }
     let Some(recovery) = recovery else {
         if registration["state"] == "rejected" {
-            return Ok(ClientRegistrationStatus::Rejected { message: "Client registration was refused. Inspect this machine's local logs before pairing again. Automatic registration will not retry.".to_string() });
+            return Ok(ClientRegistrationStatus::Rejected { message: "Client registration was refused. Inspect this machine's local logs before pairing again. Automatic registration will not retry.".to_string(), retry: None });
         }
         return Ok(ClientRegistrationStatus::Starting);
     };
@@ -1080,12 +1094,30 @@ fn inspect_client_registration(
         obj.get("uiUrl"),
         recovery,
         obj.get("pairCode"),
+        registration.get("state"),
+        registration.get("pendingPairCode"),
     ))
     .map_err(|e| e.to_string())?;
     use sha2::{Digest, Sha256};
     let target = format!("sha256:{:x}", Sha256::new()
         .chain_update(b"podium:client-registration:v1\0")
         .chain_update(material).finalize());
+    if registration["state"] == "rejected"
+        && registration.get("pendingPairCode").is_some()
+        && registration.get("pendingPairCode") == recovery.get("pairCode")
+    {
+        // The supervisor already tried this saved authority. Expose its validated
+        // public request only as a fresh-sign-in retry, never as automatic work.
+        // Older pages also stop on Rejected. Only the server can authorize a code.
+        return Ok(ClientRegistrationStatus::Rejected {
+            message: "Client registration was refused. Sign in again to retry with this machine identity.".to_string(),
+            retry: Some(ClientRegistrationRequest {
+                target,
+                machine_id: machine_id.to_string(),
+                public_key,
+            }),
+        });
+    }
     Ok(ClientRegistrationStatus::Needed { target, machine_id: machine_id.to_string(), public_key })
 }
 
@@ -1110,6 +1142,7 @@ pub fn write_client_registration(
     update_config_json(|obj| {
         match inspect_client_registration(obj, caller_url)? {
             ClientRegistrationStatus::Needed { target: current, .. } if current == target => {}
+            ClientRegistrationStatus::Rejected { retry: Some(request), .. } if request.target == target => {}
             _ => {
                 return Err(
                     "client registration state or configured target changed; reopen the app"
@@ -3512,6 +3545,83 @@ mod tests {
             assert_eq!(std::fs::read_to_string(state_dir().join("machine.json")).unwrap(), before);
             assert_eq!(std::fs::read_to_string(state_dir().join("machine.key")).unwrap(), "private material never crosses IPC");
         });
+    }
+
+    #[test]
+    fn client_saved_code_rejection_exposes_only_a_sign_in_retry_receipt() {
+        with_state_dir(
+            "client-saved-code-expiry",
+            Some(
+                r#"{"mode":"client","serverUrl":"wss://vps.example","pairCode":"EXPIRED-CODE","updateChannel":"edge","extra":42}"#,
+            ),
+            || {
+                let mut machine = fresh_client_machine();
+                let key = format!("ed25519:{}", "a".repeat(43));
+                machine["supervisor"]["enrolledPublicKey"] = serde_json::json!(key);
+                machine["supervisor"]["registration"] = serde_json::json!({
+                    "serverUrl": "wss://vps.example", "state": "rejected",
+                    "pendingPairCode": "EXPIRED-CODE",
+                    "recovery": { "publicKey": key, "pairCode": "EXPIRED-CODE" }
+                });
+                machine["connectivity"]["state"] = serde_json::json!("unauthorized");
+                machine["legacy"] = serde_json::json!({ "machineId": "retained-history" });
+                std::fs::write(state_dir().join("machine.key"), "retained private key").unwrap();
+                put_client_machine(&machine);
+                let before = std::fs::read(state_dir().join("machine.json")).unwrap();
+                let status = client_registration_status("https://vps.example").unwrap();
+                let serialized = serde_json::to_value(&status).unwrap();
+                assert_eq!(serialized["state"], "rejected");
+                assert_eq!(serialized["retry"]["machineId"], "same-machine");
+                assert_eq!(serialized["retry"]["publicKey"], key);
+                assert!(!serialized.to_string().contains("EXPIRED-CODE"));
+                assert!(!serialized.to_string().contains("retained private key"));
+                let target = serialized["retry"]["target"].as_str().unwrap().to_string();
+                assert!(target.starts_with("sha256:"));
+                for _ in 0..3 {
+                    assert_eq!(
+                        client_registration_status("https://vps.example").unwrap(),
+                        status
+                    );
+                }
+                // Retry eligibility is part of the receipt, not an unbound UI flag.
+                machine["supervisor"]["registration"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("pendingPairCode");
+                put_client_machine(&machine);
+                assert_ne!(needed_client_target(), target);
+                assert!(
+                    write_client_registration("RELOGIN-CODE", &target, "https://vps.example")
+                        .is_err()
+                );
+                std::fs::write(state_dir().join("machine.json"), &before).unwrap();
+                write_client_registration("RELOGIN-CODE", &target, "https://vps.example").unwrap();
+                assert_eq!(
+                    client_registration_status("https://vps.example").unwrap(),
+                    ClientRegistrationStatus::Pending
+                );
+                assert!(
+                    write_client_registration("ANOTHER-CODE", &target, "https://vps.example")
+                        .is_err()
+                );
+                let config: serde_json::Value = serde_json::from_str(
+                    &std::fs::read_to_string(state_dir().join("config.json")).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(config["pairCode"], "RELOGIN-CODE");
+                assert_eq!(config["mode"], "client");
+                assert_eq!(config["updateChannel"], "edge");
+                assert_eq!(config["extra"], 42);
+                assert_eq!(
+                    std::fs::read(state_dir().join("machine.json")).unwrap(),
+                    before
+                );
+                assert_eq!(
+                    std::fs::read_to_string(state_dir().join("machine.key")).unwrap(),
+                    "retained private key"
+                );
+            },
+        );
     }
 
     #[test]

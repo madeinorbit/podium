@@ -1,7 +1,7 @@
 /** Real HTTP admin authentication + independent scratch client state. Historical
  * cases execute immutable old state owners, never a relabeled current runtime. */
 
-import { expect, it } from 'bun:test'
+import { expect, it, spyOn } from 'bun:test'
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -11,6 +11,7 @@ import { asMachineId, firstAdminMemberId } from '@podium/model'
 import type { MachineSupervisorControlMessage } from '@podium/protocol'
 import { wireSchemaDigest } from '@podium/protocol'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
+import { PAIR_CODE_TTL_MS, PairingManager } from '../apps/server/src/hub/pairing'
 import { noJanitorWorkerForTests } from '../apps/server/src/janitor-host'
 import type { AppRouter } from '../apps/server/src/router'
 import { startServer } from '../apps/server/src/server'
@@ -71,13 +72,15 @@ it('requires actual current administrator HTTP login for revoked recovery, prese
       createTRPCClient<AppRouter>({
         links: [httpBatchLink({ url: `${http}/trpc`, headers: { cookie } })],
       })
-    const login = await fetch(`${http}/auth/login`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ password: 'scratch-admin-recovery' }),
-    })
+    const signIn = () =>
+      fetch(`${http}/auth/login`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ password: 'scratch-admin-recovery' }),
+      })
+    const login = await signIn()
     expect(login.status).toBe(200)
-    const cookie = login.headers.get('set-cookie')!.split(';')[0]!
+    let cookie = login.headers.get('set-cookie')!.split(';')[0]!
     const clientDir = join(root, 'client')
     process.env.PODIUM_STATE_DIR = clientDir
     const config = { mode: 'client' as const, serverUrl, updateChannel: 'stable' as const }
@@ -160,10 +163,75 @@ it('requires actual current administrator HTTP login for revoked recovery, prese
       api('podium_session=expired-session').machines.pairingCode.mutate(request),
     ).rejects.toThrow()
     expect(await server.registry.sessionStore.machines.getMachine(state.machineId)).toEqual(revoked)
+    const expired = await api(cookie).machines.pairingCode.mutate(request)
+    process.env.PODIUM_STATE_DIR = clientDir
+    saveConfig({ ...loadConfig(), pairCode: expired.code })
+    process.env.PODIUM_STATE_DIR = serverDir
+    // Advance only the existing pairing manager's clock at consumption. The
+    // admin HTTP request and durable saved authority are real; no session,
+    // challenge, machine-state or product clock is replaced.
+    const afterSleep = Date.now() + PAIR_CODE_TTL_MS + 1
+    const peek = PairingManager.prototype.peek
+    const redeem = PairingManager.prototype.redeem
+    const peekClock = spyOn(PairingManager.prototype, 'peek').mockImplementation(function (
+      this: PairingManager,
+      code: string,
+    ) {
+      return peek.call(this, code, afterSleep)
+    })
+    const redeemClock = spyOn(PairingManager.prototype, 'redeem').mockImplementation(function (
+      this: PairingManager,
+      code: string,
+    ) {
+      return redeem.call(this, code, afterSleep)
+    })
+    try {
+      expect(await start(expired.code)).toBe(false)
+    } finally {
+      peekClock.mockRestore()
+      redeemClock.mockRestore()
+    }
+    for (let boot = 0; boot < 3; boot++) {
+      expect(loadSupervisorState(clientDir).registration).toMatchObject({
+        state: 'rejected',
+        pendingPairCode: expired.code,
+        recovery: { publicKey, pairCode: expired.code },
+      })
+      expect(await start(expired.code)).toBe(false)
+    }
+    expect(JSON.parse(readFileSync(join(clientDir, 'config.json'), 'utf8')).pairCode).toBe(
+      expired.code,
+    )
+    expect(await server.registry.sessionStore.machines.getMachine(state.machineId)).toEqual(revoked)
+    await fetch(`${http}/auth/logout`, { method: 'POST', headers: { cookie } })
+    await expect(api(cookie).machines.pairingCode.mutate(request)).rejects.toThrow()
+    await expect(api().machines.pairingCode.mutate(request)).rejects.toThrow()
+    await expect(
+      api('podium_session=expired-session').machines.pairingCode.mutate(request),
+    ).rejects.toThrow()
+    const relogin = await signIn()
+    expect(relogin.status).toBe(200)
+    cookie = relogin.headers.get('set-cookie')!.split(';')[0]!
     const recovered = await api(cookie).machines.pairingCode.mutate(request)
+    process.env.PODIUM_STATE_DIR = clientDir
+    saveConfig({ ...loadConfig(), pairCode: recovered.code })
+    process.env.PODIUM_STATE_DIR = serverDir
     let ack = 0
-    expect(await start(recovered.code, () => ack++)).toBe(true)
+    expect(
+      await start(recovered.code, () => {
+        ack++
+        process.env.PODIUM_STATE_DIR = clientDir
+        try {
+          consumePairCode(recovered.code)
+        } finally {
+          process.env.PODIUM_STATE_DIR = serverDir
+        }
+      }),
+    ).toBe(true)
     expect(ack).toBe(1)
+    expect(
+      JSON.parse(readFileSync(join(clientDir, 'config.json'), 'utf8')).pairCode,
+    ).toBeUndefined()
     expect(digest(join(clientDir, 'machine.key'))).toBe(originalKey)
     expect(loadSupervisorState(clientDir)).toMatchObject({
       machineId: state.machineId,

@@ -1076,12 +1076,132 @@ describe('retained credential recovery', () => {
     connection.start(); const first = Socket.all[0]!; first.open(); expect(first.sent[0].credential.kind).toBe('machineKey'); f.refuse(first)
     const pair = Socket.all[1]!; pair.open(); expect(pair.sent[0].credential.kind).toBe('pairCode'); f.refuse(pair); connection.close()
     expect(loadSupervisorState(f.dir).registration).toMatchObject({ state: 'rejected', pendingPairCode: 'NEW-CODE' })
-    expect(loadSupervisorState(f.dir).registration?.recovery).toBeUndefined()
+    expect(loadSupervisorState(f.dir).registration?.recovery).toEqual({ publicKey: f.publicKey, pairCode: 'NEW-CODE' })
     const retry = createMachineSupervisorConnection({ ...f.base, state: loadSupervisorState(f.dir), pairCode: 'NEW-CODE' })
     try {
       retry.start(); const next = Socket.all.at(-1)!; next.open(); const count = Socket.all.length; f.refuse(next)
       expect(Socket.all).toHaveLength(count)
-      expect(loadSupervisorState(f.dir).registration?.recovery).toBeUndefined()
+      expect(loadSupervisorState(f.dir).registration?.recovery).toEqual({ publicKey: f.publicKey, pairCode: 'NEW-CODE' })
     } finally { retry.close() }
+  })
+  it('keeps a saved-code refusal recoverable after restart without reusing the failed authority', () => {
+    const f = fixture()
+    f.state.registration = {
+      serverUrl: f.base.serverUrl,
+      state: 'rejected',
+      recovery: { publicKey: f.publicKey },
+    }
+    saveSupervisorState(f.dir, f.state)
+    const connection = createMachineSupervisorConnection({
+      ...f.base,
+      state: f.state,
+      pairCode: 'EXPIRED-CODE',
+    })
+    try {
+      connection.start()
+      const existing = Socket.all.at(-1)!
+      existing.open()
+      f.refuse(existing)
+      const expired = Socket.all.at(-1)!
+      expired.open()
+      expect(expired.sent[0].credential.kind).toBe('pairCode')
+      expired.message({
+        type: 'peerHelloRejected',
+        reason: 'auth-failed',
+        message: 'invalid or expired code',
+      })
+    } finally {
+      connection.close()
+    }
+    for (let boot = 0; boot < 3; boot++) {
+      expect(loadSupervisorState(f.dir).registration).toMatchObject({
+        state: 'rejected',
+        pendingPairCode: 'EXPIRED-CODE',
+        recovery: { publicKey: f.publicKey, pairCode: 'EXPIRED-CODE' },
+      })
+      const retry = createMachineSupervisorConnection({
+        ...f.base,
+        state: loadSupervisorState(f.dir),
+        pairCode: 'EXPIRED-CODE',
+      })
+      try {
+        const count = Socket.all.length
+        retry.start()
+        const existing = Socket.all.at(-1)!
+        existing.open()
+        expect(existing.sent[0].credential.kind).toBe('machineKey')
+        f.refuse(existing)
+        expect(Socket.all).toHaveLength(count + 1)
+      } finally {
+        retry.close()
+      }
+    }
+    const ack = vi.fn()
+    const relogin = createMachineSupervisorConnection({
+      ...f.base,
+      state: loadSupervisorState(f.dir),
+      pairCode: 'RELOGIN-CODE',
+      onPaired: ack,
+    })
+    try {
+      relogin.start()
+      const existing = Socket.all.at(-1)!
+      existing.open()
+      expect(existing.sent[0].credential.kind).toBe('machineKey')
+      f.refuse(existing)
+      const replacement = Socket.all.at(-1)!
+      replacement.open()
+      expect(replacement.sent[0].credential).toMatchObject({
+        kind: 'pairCode',
+        code: 'RELOGIN-CODE',
+        publicKey: f.publicKey,
+      })
+      replacement.message({
+        type: 'peerHelloOk',
+        v: replacement.sent[0].v,
+        caps: [],
+        enrolledPublicKey: f.publicKey,
+      })
+      expect(ack).toHaveBeenCalledOnce()
+      expect(loadSupervisorState(f.dir)).toMatchObject({
+        machineId: f.state.machineId,
+        enrolledPublicKey: f.publicKey,
+        registration: { state: 'enrolled', serverUrl: f.base.serverUrl },
+      })
+      expect(readMachineCredential(f.dir)).toEqual(f.key)
+    } finally {
+      relogin.close()
+    }
+  })
+  it('repairs an already persisted saved-code refusal request without retrying its code', () => {
+    const f = fixture()
+    f.state.registration = {
+      serverUrl: f.base.serverUrl,
+      state: 'rejected',
+      pendingPairCode: 'EXPIRED-CODE',
+    }
+    saveSupervisorState(f.dir, f.state)
+    const connection = createMachineSupervisorConnection({
+      ...f.base,
+      state: f.state,
+      pairCode: 'EXPIRED-CODE',
+    })
+    try {
+      connection.start()
+      const existing = Socket.all.at(-1)!
+      existing.open()
+      expect(existing.sent[0].credential.kind).toBe('machineKey')
+      f.refuse(existing)
+      expect(Socket.all).toHaveLength(1)
+      expect(loadSupervisorState(f.dir).registration).toEqual({
+        serverUrl: f.base.serverUrl,
+        state: 'rejected',
+        pendingPairCode: 'EXPIRED-CODE',
+        recovery: { publicKey: f.publicKey, pairCode: 'EXPIRED-CODE' },
+      })
+      expect(readMachineCredential(f.dir)).toEqual(f.key)
+    } finally {
+      connection.close()
+    }
   })
 })

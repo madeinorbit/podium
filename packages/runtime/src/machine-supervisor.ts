@@ -551,13 +551,8 @@ export function createMachineSupervisorConnection(
   const missingRegistrationReceipt = deps.state.registration === undefined
   const failedRecoveryAttempt =
     deps.state.registration?.state === 'rejected' &&
-    !deps.state.registration.recovery &&
     !!deps.pairCode &&
     deps.state.registration.pendingPairCode === deps.pairCode
-  const authorizedRecoveryAttempt =
-    !!deps.pairCode &&
-    !!deps.state.registration?.recovery &&
-    deps.pairCode !== deps.state.registration.recovery.pairCode
   const recoveryRequest = (): NonNullable<
     NonNullable<SupervisorState['registration']>['recovery']
   > => {
@@ -940,12 +935,11 @@ export function createMachineSupervisorConnection(
           return
         }
         let recovery: NonNullable<SupervisorState['registration']>['recovery']
-        if (
-          authFailed &&
-          !failedRecoveryAttempt &&
-          !(hello?.credential.kind === 'pairCode' && authorizedRecoveryAttempt)
-        ) {
+        if (authFailed) {
           try {
+            // This is only a validated request to the authenticated page. The
+            // failed pending code remains fenced above, while a new verified
+            // administrator sign-in can ask the server for fresh authority.
             recovery = recoveryRequest()
           } catch {
             /* bounded local identity error */

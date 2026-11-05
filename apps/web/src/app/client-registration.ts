@@ -14,7 +14,7 @@ export class ClientRegistration {
   /** Only the live login owner calls this after the server accepts new credentials.
    * Native receipts still fence saved authority; an older attempt settles first. */
   retryAfterSignIn(): void {
-    if (this.attempt) this.retryAfterLogin = true
+    this.retryAfterLogin = true
   }
 
   start(
@@ -27,16 +27,16 @@ export class ClientRegistration {
       !bridge.registerClient
     )
       return Promise.resolve(null)
-    const register = () =>
-      this.register(bridge, trpc).catch((error: unknown) => {
+    const register = (afterSignIn = false) =>
+      this.register(bridge, trpc, afterSignIn).catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error)
         return message === restartGuidance
           ? message
           : `Client registration could not finish: ${message}`
       })
-    if (this.retryAfterLogin && this.attempt) {
+    if (this.retryAfterLogin) {
       this.retryAfterLogin = false
-      this.attempt = this.attempt.then(register)
+      this.attempt = this.attempt ? this.attempt.then(() => register(true)) : register(true)
     }
     this.attempt ??= register()
     return this.attempt
@@ -45,6 +45,7 @@ export class ClientRegistration {
   private async register(
     bridge: NativeDesktopBridge,
     trpc: Pick<Trpc, 'machines'>,
+    afterSignIn: boolean,
   ): Promise<string | null> {
     const read = bridge.clientRegistrationStatus
     const save = bridge.registerClient
@@ -58,21 +59,27 @@ export class ClientRegistration {
         case 'not-applicable':
         case 'enrolled':
           return null
-        case 'rejected':
         case 'unavailable':
           return status.message
+        case 'rejected':
         case 'needed': {
-          if (!status.machineId)
+          // A prior saved code was already tried. Cookie mounts and process
+          // restarts cannot retry it. Only a newly verified login gets one
+          // server decision; this local gate grants no registration authority.
+          const request =
+            status.state === 'rejected' ? (afterSignIn ? status.retry : undefined) : status
+          if (!request) return status.state === 'rejected' ? status.message : null
+          if (!request.machineId)
             return 'This desktop companion does not support identity-preserving registration. Update the app and reopen it.'
           const { code } = await trpc.machines.pairingCode.mutate({
             podiumManaged: true,
             copyAgentCredentials: false,
             clientRegistration: {
-              machineId: status.machineId,
-              ...(status.publicKey ? { publicKey: status.publicKey } : {}),
+              machineId: request.machineId,
+              ...(request.publicKey ? { publicKey: request.publicKey } : {}),
             },
           })
-          await save(code, status.target)
+          await save(code, request.target)
           await restartNativeDesktop(restartGuidance)
           return null
         }
