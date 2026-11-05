@@ -18,19 +18,19 @@ import { settingsAuditAttribution } from '../../store/settings-audit'
  * dependency does not drag the whole fleet module into the hub role.
  */
 
-import { randomUUID } from 'node:crypto'
 import { describeError } from '@podium/logger'
 import type { MachineId, UpdateChannel, UserId } from '@podium/model'
-import { asMachineId, HOST_REPOS, resolveMachineChannel } from '@podium/model'
+import { asMachineId, HOST_REPOS, mintDeviceId, resolveMachineChannel } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { attributionOf, onBehalfOfUser } from '../../command-principal'
 import { normalizeRepoPath } from '../../store'
 import type { Context } from '../../trpc'
 import { mods } from '../../trpc'
-import { encodeOperationActor } from '../operations/actor'
-import { serverMoveAuthorization } from '../server-transfer/authorization'
-import { SERVER_MOVE_OPERATION_KIND, serverMoveFaultHook } from '../server-transfer/operation'
+import { awaitEffect } from '../effects/await'
+import { linkedOperationId, operationIdForEffect } from '../operations/effects'
 import { normalizedPublicUrl, resolvedTransferPort } from '../server-transfer/service'
+import { refusalAsTrpcError, submitFromRoute } from '../sync-write/route-adapter'
+import { SERVER_MOVE_EFFECT_KIND } from './server-move-effect'
 import { machinesForPrincipal, visibleMachinesFor } from '../sessions/command-ctx'
 import type { MachineDiscoveryResult } from '../../repo-discovery'
 import type { ScanReposResult } from '../machines/rpc'
@@ -239,7 +239,15 @@ export const machineRevokeHandler = async ({ ctx, input }: FleetArgs<{ id: strin
   return await machinesForPrincipal(mods(ctx), (await fleetAuthzDeps(ctx)).principal)
 }
 
-/** Move authority only after the target reports a durable promotion. */
+/** How long `machines.moveServer` waits for its record to name its operation. */
+export const SERVER_MOVE_START_WAIT_MS = 60_000
+
+/**
+ * Move authority only after the target reports a durable promotion. An adapter
+ * (POD-6358): the request is a `server.move` effect record created through
+ * `sync.submit` as this caller, run by the Operations engine; the route waits
+ * until the record names its operation and answers as it always did.
+ */
 export const machineMoveServerHandler = async ({
   ctx,
   input,
@@ -250,43 +258,40 @@ export const machineMoveServerHandler = async ({
   port?: number
   confirmation: 'TRANSFER SERVER'
 }>) => {
-  const modules = mods(ctx)
-  const publicUrl = normalizedPublicUrl(input)
-  const port = resolvedTransferPort(input, publicUrl)
-  const authorizedBy = encodeOperationActor(ctx.principal)
-  const durableUsers = ctx.registry.sessionStore.users
-  const crash = serverMoveFaultHook()
-  const retryOf = (await modules.operations.engine.history(SERVER_MOVE_OPERATION_KIND, 1)).find(
-    (row) => row.state === 'failed' || row.state === 'canceled',
-  )?.id
-  const result = await modules.operations.engine.start(
-    SERVER_MOVE_OPERATION_KIND,
-    {
-      service: modules.serverTransfer,
-      engine: modules.operations.engine,
-      input: { ...input, publicUrl, port },
-      authorization: serverMoveAuthorization({
-        authorizedBy,
-        targetMachineId: input.targetMachineId,
-        machines: modules.machines,
-        roleOf: (userId) => durableUsers.roleOf(userId),
-      }),
-      authorizedBy,
-      transferId: randomUUID(),
-      sourceMachineId: modules.serverTransfer.sourceMachineId(),
-      publicUrl,
-      bindHost: input.bindHost,
-      port,
-      ...(retryOf ? { retryOf } : {}),
-      ...(crash ? { crash } : {}),
+  // The input's own checks answer as before, before any record exists.
+  resolvedTransferPort(input, normalizedPublicUrl(input))
+  const id = mintDeviceId('eff_')
+  const { reply, cause } = await submitFromRoute(ctx, {
+    command: 'effects.create',
+    input: {
+      id,
+      kind: SERVER_MOVE_EFFECT_KIND,
+      target: { kind: 'machine', id: input.targetMachineId },
+      input,
     },
-    { createdBy: authorizedBy },
-  )
-  if (result.started) return { started: true as const, operationId: result.operation.id }
-  if ('alreadyRunning' in result) {
-    return { started: false as const, alreadyRunning: result.alreadyRunning }
+  })
+  if (reply.outcome !== 'applied') {
+    if (cause !== undefined) throw cause
+    throw refusalAsTrpcError('machines.moveServer', reply.refusal)
   }
-  throw new Error('server-move operation kind is unavailable')
+  const row = await awaitEffect(
+    ctx.registry.sessionStore.effects,
+    id,
+    (r) => linkedOperationId(r) !== undefined,
+    SERVER_MOVE_START_WAIT_MS,
+  )
+  const operationId = row === undefined ? undefined : linkedOperationId(row)
+  if (operationId === operationIdForEffect(id)) return { started: true as const, operationId }
+  if (operationId !== undefined) return { started: false as const, alreadyRunning: operationId }
+  if (row?.status === 'failed' && row.error?.code === 'no-operation-kind') {
+    throw new Error('server-move operation kind is unavailable')
+  }
+  throw new TRPCError({
+    code: row?.status === 'failed' ? 'PRECONDITION_FAILED' : 'TIMEOUT',
+    message:
+      row?.error?.message ??
+      `The server move request ${id} has not started yet; its status shows on every device.`,
+  })
 }
 
 export const machinePairingCodeHandler = async ({

@@ -1,7 +1,7 @@
 import type { ServerPlacement } from './service'
 import type { PrepareCoordinatorUpdate } from './installed-restart'
 import { createLogger } from '@podium/logger'
-import { asMachineId, type MachineId, type UpdateChannel } from '@podium/model'
+import { asMachineId, type MachineId, mintDeviceId, type UpdateChannel } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
 import type { ConvergenceState, MobileWebIdentity, Operation, UpdateTarget } from '@podium/protocol'
 import { buildsDiffer, targetPlatforms } from '@podium/protocol'
@@ -12,6 +12,16 @@ import { attributionOf } from '../../command-principal'
 import { type Context, t } from '../../trpc'
 import { familyState } from '../derived-family'
 import { legacyTransferInProgress } from '../server-transfer/journal'
+import type { SessionStore } from '../../store'
+import type { EffectRow } from '../../store/effects'
+import { awaitEffect } from '../effects/await'
+import {
+  linkedOperationId,
+  type OperationStartPlan,
+  operationIdForEffect,
+} from '../operations/effects'
+import { refusalAsTrpcError, submitFromRoute } from '../sync-write/route-adapter'
+import { UPDATE_EFFECT_KIND, updateEffectTarget } from './update-effect'
 import type { OperationsModule } from '../operations'
 import { LIFECYCLE_EXCLUSION_GROUP } from '../operations/lifecycle'
 import {
@@ -344,41 +354,39 @@ export function updateOperationContext(input: {
   }
 }
 
-async function contextFor(
-  ctx: Context,
-  extra: {
-    onlyMachines?: readonly string[]
-    retryOf?: string
-    surface?: UpdateSurface
-  } = {},
-  options: { includeDatabaseSnapshot?: boolean } = {},
-): Promise<UpdateOperationContext> {
+/**
+ * WHAT AN UPDATE NEEDS FROM THE SERVER IT RUNS IN (POD-6358): the modules, the
+ * database's backup hooks and the process's own ports (publisher, restart
+ * request, served stamps). A request carries them on its tRPC context; the
+ * update effect's executor gets them from the route that created its record,
+ * or from the server's boot (`server.ts`), so a record from any client can run.
+ */
+export interface UpdateStartPorts {
+  readonly updates: UpdatesService
+  readonly operations: OperationsModule
+  readonly store: Pick<SessionStore, 'preflightUpdateBackup' | 'latestDatabaseSnapshot'>
+  readonly serverPlacement: ServerPlacement
+  readonly serverInstallKind?: Context['serverInstallKind']
+  readonly desktopSupervised?: boolean
+  readonly servedWebDigest?: Context['servedWebDigest']
+  readonly servedMobileWeb?: Context['servedMobileWeb']
+  readonly prepareCoordinatorUpdate?: Context['prepareCoordinatorUpdate']
+  readonly requestCoordinatorRestart?: Context['requestCoordinatorRestart']
+  readonly requestWebRebuild?: Context['requestWebRebuild']
+  readonly requestDestBundle?: Context['requestDestBundle']
+  readonly updatePreparation?: Context['updatePreparation']
+}
+
+/** A request's update ports, read off its tRPC context. */
+export function updateStartPortsOf(ctx: Context): UpdateStartPorts {
   const state = familyState(ctx)
-  return updateOperationContext({
+  return {
     updates: state.modules.updates,
     operations: state.modules.operations,
-    // THE HOST'S OWN CHANNEL, not the literal `'dev'` this used to write
-    // (POD-2189): on a shipped installation every machine resolves to `stable`,
-    // so a hardcoded dev authority meant `planInputFrom` threw and the fleet got
-    // no operation at all. A machine pinned elsewhere still keeps its own
-    // per-row action (POD-2100).
-    channel: await state.modules.updates.operationChannel(serverPlacementOf(ctx)),
-    appVersion: serverBuildVersion,
-    sourceDigest: serverBuildSourceDigest,
-    ...(ctx.serverInstallKind ? { serverInstallKind: ctx.serverInstallKind } : {}),
+    store: state.store,
     serverPlacement: serverPlacementOf(ctx),
+    ...(ctx.serverInstallKind ? { serverInstallKind: ctx.serverInstallKind } : {}),
     ...(ctx.desktopSupervised ? { desktopSupervised: true } : {}),
-    ...extra,
-    // The server step's only pre-restart database work: room for the
-    // successor's boot backup, which is the recovery point (POD-6255).
-    preflightDatabaseBackup: async () => state.store.preflightUpdateBackup(),
-    // Snapshot DISCOVERY is now metadata + `stat` (POD-3068), so it is cheap
-    // enough for a request; it is still gated to the confirmed-operation path
-    // because a polled startability preview has no use for restore guidance.
-    ...(options.includeDatabaseSnapshot
-      ? { latestDatabaseSnapshot: () => state.store.latestDatabaseSnapshot() }
-      : {}),
-    legacyTransferActive: () => legacyTransferInProgress(stateDir()),
     ...(ctx.servedWebDigest ? { servedWebDigest: ctx.servedWebDigest } : {}),
     ...(ctx.servedMobileWeb ? { servedMobileWeb: ctx.servedMobileWeb } : {}),
     ...(ctx.prepareCoordinatorUpdate
@@ -389,9 +397,101 @@ async function contextFor(
       : {}),
     ...(ctx.requestWebRebuild ? { requestWebRebuild: ctx.requestWebRebuild } : {}),
     ...(ctx.requestDestBundle ? { requestDestBundle: ctx.requestDestBundle } : {}),
-    ...(ctx.updatePreparation ? { preparation: ctx.updatePreparation } : {}),
+    ...(ctx.updatePreparation ? { updatePreparation: ctx.updatePreparation } : {}),
+  }
+}
+
+async function contextFor(
+  ctx: Context,
+  extra: {
+    onlyMachines?: readonly string[]
+    retryOf?: string
+    surface?: UpdateSurface
+  } = {},
+  options: { includeDatabaseSnapshot?: boolean } = {},
+): Promise<UpdateOperationContext> {
+  return await contextFromPorts(updateStartPortsOf(ctx), extra, options)
+}
+
+async function contextFromPorts(
+  ports: UpdateStartPorts,
+  extra: {
+    onlyMachines?: readonly string[]
+    retryOf?: string
+    surface?: UpdateSurface
+  } = {},
+  options: { includeDatabaseSnapshot?: boolean } = {},
+): Promise<UpdateOperationContext> {
+  return updateOperationContext({
+    updates: ports.updates,
+    operations: ports.operations,
+    // THE HOST'S OWN CHANNEL, not the literal `'dev'` this used to write
+    // (POD-2189): on a shipped installation every machine resolves to `stable`,
+    // so a hardcoded dev authority meant `planInputFrom` threw and the fleet got
+    // no operation at all. A machine pinned elsewhere still keeps its own
+    // per-row action (POD-2100).
+    channel: await ports.updates.operationChannel(ports.serverPlacement),
+    appVersion: serverBuildVersion,
+    sourceDigest: serverBuildSourceDigest,
+    ...(ports.serverInstallKind ? { serverInstallKind: ports.serverInstallKind } : {}),
+    serverPlacement: ports.serverPlacement,
+    ...(ports.desktopSupervised ? { desktopSupervised: true } : {}),
+    ...extra,
+    // The server step's only pre-restart database work: room for the
+    // successor's boot backup, which is the recovery point (POD-6255).
+    preflightDatabaseBackup: async () => ports.store.preflightUpdateBackup(),
+    // Snapshot DISCOVERY is now metadata + `stat` (POD-3068), so it is cheap
+    // enough for a request; it is still gated to the confirmed-operation path
+    // because a polled startability preview has no use for restore guidance.
+    ...(options.includeDatabaseSnapshot
+      ? { latestDatabaseSnapshot: () => ports.store.latestDatabaseSnapshot() }
+      : {}),
+    legacyTransferActive: () => legacyTransferInProgress(stateDir()),
+    ...(ports.servedWebDigest ? { servedWebDigest: ports.servedWebDigest } : {}),
+    ...(ports.servedMobileWeb ? { servedMobileWeb: ports.servedMobileWeb } : {}),
+    ...(ports.prepareCoordinatorUpdate
+      ? { prepareCoordinatorUpdate: ports.prepareCoordinatorUpdate }
+      : {}),
+    ...(ports.requestCoordinatorRestart
+      ? { requestCoordinatorRestart: ports.requestCoordinatorRestart }
+      : {}),
+    ...(ports.requestWebRebuild ? { requestWebRebuild: ports.requestWebRebuild } : {}),
+    ...(ports.requestDestBundle ? { requestDestBundle: ports.requestDestBundle } : {}),
+    ...(ports.updatePreparation ? { preparation: ports.updatePreparation } : {}),
   })
 }
+
+/**
+ * WHETHER AN UPDATE CAN START, AND WITH WHAT (§6.3, POD-6358): the update
+ * effect's answer before any operation exists. A refusal is the sentence the
+ * old route threw as PRECONDITION_FAILED, and its record ends `failed` with it.
+ */
+export async function updateStartPlan(
+  ports: UpdateStartPorts,
+  extra: {
+    onlyMachines?: readonly string[]
+    retryOf?: string
+    surface?: UpdateSurface
+  } = {},
+): Promise<OperationStartPlan<UpdateOperationContext>> {
+  const context = await contextFromPorts(ports, extra, { includeDatabaseSnapshot: true })
+  const updates = ports.updates
+  await updates.reapproveTarget(context.channel)
+  if (!updates.target(context.channel)) {
+    return {
+      refused: {
+        code: UPDATE_PRECONDITION,
+        message: missingTargetReason(context.channel, ports.updatePreparation?.().failureDetail),
+      },
+    }
+  }
+  const verdict = updateStartability(await planInputFrom(context))
+  if (!verdict.startable) return { refused: { code: UPDATE_PRECONDITION, message: verdict.reason } }
+  return { context, createdBy: 'user' }
+}
+
+/** The error code of an update that could not start; the old route's PRECONDITION_FAILED. */
+export const UPDATE_PRECONDITION = 'precondition'
 
 /**
  * The preconditions that must refuse BEFORE an operation exists (§6.3).
@@ -476,12 +576,19 @@ export function missingTargetReason(channel: UpdateChannel, failureDetail?: stri
   return `Nothing has been published on the ${CHANNEL_PROSE[channel] ?? channel} channel yet.`
 }
 
+/** How long the old route waits for its record to name its operation. */
+export const UPDATE_START_WAIT_MS = 60_000
+
 /**
- * START ONE UPDATE (§3.2, P6) — the single-flight entry point.
+ * START ONE UPDATE (§3.2, P6) — the single-flight entry point, as an adapter
+ * (POD-6358). The click is an effect record (`server.update`) created through
+ * `sync.submit` as this caller; the Operations engine is its executor. The
+ * route hands the record its own request ports, waits until the record names
+ * its operation, and answers as it always did.
  *
- * A second caller is not told "no": it is handed the operation that is already
- * running, which is what makes two tabs pressing Update render the same panel
- * instead of one of them seeing an error about the other.
+ * A second caller is not told "no": its record follows the operation that is
+ * already running, which is what makes two tabs pressing Update render the same
+ * panel instead of one of them seeing an error about the other.
  */
 export async function startUpdateOperation(
   ctx: Context,
@@ -496,41 +603,74 @@ export async function startUpdateOperation(
   alreadyRunning: boolean
 }> {
   const state = familyState(ctx)
-  const context = await contextFor(ctx, extra, { includeDatabaseSnapshot: true })
-  const updates = state.modules.updates
-  await updates.reapproveTarget(context.channel)
-  if (!updates.target(context.channel)) {
-    throw new TRPCError({
-      code: 'PRECONDITION_FAILED',
-      message: missingTargetReason(context.channel, ctx.updatePreparation?.().failureDetail),
-    })
-  }
-  assertUpdateStartable(await planInputFrom(context))
-
-  const engine = state.modules.operations.engine
-  const result = await engine.start(UPDATE_OPERATION_KIND, context, {
-    createdBy: 'user',
-  })
-  if (!result.started) {
-    if ('alreadyRunning' in result) {
-      const row = await engine.active(LIFECYCLE_EXCLUSION_GROUP)
-      return {
-        operationId: result.alreadyRunning,
-        operation: row?.operation ?? null,
-        alreadyRunning: true,
-      }
-    }
+  const updateEffects = state.modules.updateEffects
+  if (updateEffects === undefined) {
     throw new TRPCError({
       code: 'PRECONDITION_FAILED',
       message: 'This server cannot run update operations.',
     })
   }
-  logWaveDecision(updates, context.channel, result.operation)
-  return {
-    operationId: result.operation.id,
-    operation: result.operation,
-    alreadyRunning: false,
+  const id = mintDeviceId('eff_')
+  const handBack = updateEffects.handPorts(id, updateStartPortsOf(ctx))
+  try {
+    const { reply, cause } = await submitFromRoute(ctx, {
+      command: 'effects.create',
+      input: {
+        id,
+        kind: UPDATE_EFFECT_KIND,
+        target: updateEffectTarget(state.store.hostMachineId),
+        input: {
+          ...(extra.surface ? { surface: extra.surface } : {}),
+          ...(extra.onlyMachines ? { onlyMachines: [...extra.onlyMachines] } : {}),
+          ...(extra.retryOf ? { retryOf: extra.retryOf } : {}),
+        },
+      },
+    })
+    if (reply.outcome !== 'applied') {
+      if (cause !== undefined) throw cause
+      throw refusalAsTrpcError('updates.start', reply.refusal)
+    }
+    const row = await awaitEffect(
+      state.store.effects,
+      id,
+      (r) => linkedOperationId(r) !== undefined,
+      UPDATE_START_WAIT_MS,
+    )
+    const operationId = row === undefined ? undefined : linkedOperationId(row)
+    if (operationId !== undefined) {
+      const engine = state.modules.operations.engine
+      return {
+        operationId,
+        operation: (await engine.get(operationId))?.operation ?? null,
+        alreadyRunning: operationId !== operationIdForEffect(id),
+      }
+    }
+    throw startFailure(id, row)
+  } finally {
+    handBack()
   }
+}
+
+/** A record that ended, or never got going, without naming an operation. */
+function startFailure(id: string, row: EffectRow | undefined): TRPCError {
+  if (row?.status === 'failed' && row.error !== undefined) {
+    const precondition =
+      row.error.code === UPDATE_PRECONDITION || row.error.code === 'no-operation-kind'
+    return new TRPCError({
+      code: precondition ? 'PRECONDITION_FAILED' : 'INTERNAL_SERVER_ERROR',
+      message: row.error.message,
+    })
+  }
+  if (row === undefined || row.status === 'pending' || row.status === 'running') {
+    return new TRPCError({
+      code: 'TIMEOUT',
+      message: `The update request ${id} has not started yet; its status shows on every device.`,
+    })
+  }
+  return new TRPCError({
+    code: 'INTERNAL_SERVER_ERROR',
+    message: `The update request ended ${row.status}${row.error ? `: ${row.error.message}` : ''}.`,
+  })
 }
 
 /**
@@ -551,7 +691,7 @@ export async function startUpdateOperation(
  * Read off the plan the engine actually produced rather than recomputed, so
  * this line cannot drift from the decision it describes.
  */
-function logWaveDecision(
+export function logWaveDecision(
   updates: UpdatesService,
   channel: UpdateChannel,
   operation: Operation | undefined,

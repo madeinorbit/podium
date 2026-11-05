@@ -105,6 +105,8 @@ import { makeEffectFeedCapture } from './modules/effects/feed'
 import { EffectExecutorRegistry } from './modules/effects/registry'
 import { EffectsRunner } from './modules/effects/runner'
 import { registerEffectCommands } from './modules/effects/sync-write'
+import { registerServerMoveEffect } from './modules/fleet/server-move-effect'
+import { registerUpdateEffect, type UpdateEffects } from './modules/updates/update-effect'
 import { EventLogRetention } from './modules/events/retention'
 import { registerFileWriteEffect } from './modules/files/write-effect'
 import { registerDiscoveryEffects } from './modules/fleet/discovery-effects'
@@ -418,6 +420,8 @@ export interface RegistryModules {
   sessionLaunches?: { errorOf(effectId: string): unknown }
   /** The `session.interrupt` effect kind's handle (POD-6397); absent in hand-built sets. */
   sessionInterrupts?: SessionInterruptsHandle
+  /** Software update as an effect record, and the ports it runs with (POD-6358). */
+  updateEffects?: UpdateEffects
   headless: HeadlessService
   notify: NotifyService
   issues: IssueService
@@ -3980,6 +3984,20 @@ export class SessionRegistry {
     this.modules.sessionInterrupts = registerSessionInterruptEffect({
       modules: () => this.modules,
       now: this.now,
+    })
+    // Software update and server move start from effect records; the
+    // Operations engine is their executor (ADR 12 D5 E3, POD-6358).
+    this.modules.updateEffects = registerUpdateEffect({
+      executors: effectExecutors,
+      runner: this.effectsRunner,
+      engine: operationsModule.engine,
+      hostMachineId: this.store.hostMachineId,
+    })
+    registerServerMoveEffect({
+      executors: effectExecutors,
+      engine: operationsModule.engine,
+      modules: () => this.modules,
+      roleOf: async (userId) => await this.store.users.roleOf(userId),
     })
     // Saving a file from the app (POD-6395).
     registerFileWriteEffect({

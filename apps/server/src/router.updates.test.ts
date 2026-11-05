@@ -1678,6 +1678,46 @@ describe('the update operation', () => {
     await registry.dispose()
   })
 
+  it('starts from a server.update effect record that every device reads on the feed (POD-6358)', async () => {
+    const { registry, caller } = await behindHarness({ requestCoordinatorRestart: () => {} })
+    // Two presses at once: two records, one operation, named after the first.
+    const [started, again] = await Promise.all([caller.updates.start(), caller.updates.start()])
+    expect(started.operationId).toMatch(/^op_eff_/)
+    expect(again.operationId).toBe(started.operationId)
+    expect(again.alreadyRunning).toBe(true)
+    const recordId = started.operationId.replace(/^op_/, '')
+    const record = await registry.sessionStore.effects.get(recordId)
+    expect(record).toMatchObject({
+      kind: 'server.update',
+      target: { kind: 'machine', id: registry.sessionStore.hostMachineId },
+      result: { operationId: started.operationId },
+    })
+
+    // The operation's end is the record's end, in the standard status.
+    const engine = registry.modules.operations.engine
+    if ((await engine.active('lifecycle')) !== undefined) await engine.cancel(started.operationId)
+    const want = { done: 'succeeded', failed: 'failed', canceled: 'cancelled' } as const
+    let ended: string | undefined
+    for (let i = 0; i < 200; i++) {
+      const op = await engine.get(started.operationId)
+      const status = (await registry.sessionStore.effects.get(recordId))?.status
+      ended = op && op.state in want ? want[op.state as keyof typeof want] : undefined
+      if (ended !== undefined && status === ended) break
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    }
+    expect(ended).toBeDefined()
+    expect((await registry.sessionStore.effects.get(recordId))?.status).toBe(ended)
+
+    // Every device reads it off the feed: pending, then running, then the end.
+    const feed = (await registry.sessionStore.sync.changesSince(0))
+      .filter((row) => row.entity === 'effect' && row.entityId === recordId)
+      .map((row) => JSON.parse(row.payload ?? 'null') as { effect: { status: string } })
+    expect(feed[0]?.effect.status).toBe('pending')
+    expect(feed.some((row) => row.effect.status === 'running')).toBe(true)
+    expect(feed.at(-1)?.effect.status).toBe(ended)
+    await registry.dispose()
+  })
+
   /**
    * §3.2/§8: "a new version lands mid-update". The running wave is NEVER
    * mutated; the newcomer waits and is offered when the operation terminates.

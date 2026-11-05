@@ -1216,6 +1216,27 @@ export async function startServer(
       { resume: !rehearsal },
     )
   if (!recoveryOnly && parentReport) clearParentOutcome()
+  // THE UPDATE EFFECT'S PORTS (POD-6358). An update request is an effect record
+  // the Operations engine runs; a record from any client runs with the same
+  // process ports a request carries on its tRPC context (below). Bound after
+  // adoption, so a record that waited through a restart starts on the server
+  // that will serve it; until now it stays pending.
+  if (!recoveryOnly)
+    registry.modules.updateEffects?.bindPorts({
+      updates: registry.modules.updates,
+      operations: registry.modules.operations,
+      store: registry.sessionStore,
+      serverPlacement,
+      serverInstallKind: developmentRuntime.runningFromSource ? 'source' : 'installed',
+      ...(desktopSupervised ? { desktopSupervised: true } : {}),
+      ...(prepareCoordinatorUpdate ? { prepareCoordinatorUpdate } : {}),
+      ...(requestCoordinatorRestart ? { requestCoordinatorRestart } : {}),
+      ...(devPublisher.requestWebRebuild
+        ? { requestWebRebuild: devPublisher.requestWebRebuild }
+        : {}),
+      servedWebDigest: () => servedWebSourceDigest(desktopWebDir()),
+      servedMobileWeb: () => servedWebIdentity(phoneWebDir()),
+    })
 
   bootStage('machines updates adoption', adoptionStarted)
   const deferredSourceJournal = registry.modules.serverTransfer.status()
