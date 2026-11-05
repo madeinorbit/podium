@@ -40,7 +40,7 @@ const spawnIssueAgent = vi.fn((_args: Record<string, unknown>) => ({
   issueId: asIssueId('optimistic-issue'),
   mutationId: asMutationId('optimistic-mutation'),
   settled: Promise.resolve(true),
-  outcome: Promise.resolve<'started' | 'issue-only' | 'failed'>('started'),
+  outcome: Promise.resolve<'started' | 'failed'>('started'),
 }))
 const uploadImage = vi.fn()
 const uiValues = new Map<string, string>()
@@ -158,7 +158,7 @@ afterEach(() => {
     issueId: asIssueId('optimistic-issue'),
     mutationId: asMutationId('optimistic-mutation'),
     settled: Promise.resolve(true),
-    outcome: Promise.resolve<'started' | 'issue-only' | 'failed'>('started'),
+    outcome: Promise.resolve<'started' | 'failed'>('started'),
   })
   uploadImage.mockReset()
   // The server holds a new task's file and answers its ref (POD-2148).
@@ -440,45 +440,6 @@ describe('ColdStartComposer', () => {
     await waitFor(() =>
       expect(screen.getByRole('alert').textContent).toContain("Couldn't start the task."),
     )
-  })
-
-  it('retries start on the saved issue when create committed before start failed', async () => {
-    spawnIssueAgent.mockImplementationOnce((input) => {
-      return {
-        issueId: asIssueId(String(input.issueId)),
-        sessionId: asSessionId(String(input.sessionId)),
-        mutationId: asMutationId(String(input.mutationId)),
-        settled: Promise.resolve(false),
-        outcome: Promise.resolve('issue-only'),
-      }
-    })
-    start.mockResolvedValue({ id: asIssueId('partial-issue') })
-    uiValues.set(
-      'podium.firstTaskActivation.draft',
-      JSON.stringify({
-        repoPath: '/work/podium',
-        machineId: 'machine-a',
-        agent: 'codex',
-        model: 'auto',
-        effort: 'auto',
-        title: 'Keep the saved task',
-        launchKind: 'issue',
-        createIssueId: 'legacy-issue',
-        createSessionId: 'legacy-session',
-        createMutationId: 'legacy-mutation',
-      }),
-    )
-    render(<ColdStartComposer first={false} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Start task' }))
-    await waitFor(() =>
-      expect(screen.getByText(/task was saved, but its agent couldn't start/i)).toBeTruthy(),
-    )
-
-    fireEvent.click(screen.getByRole('button', { name: 'Retry starting work' }))
-    expect(start).toHaveBeenCalledWith(
-      expect.objectContaining({ id: spawnIssueAgent.mock.calls[0]?.[0].issueId }),
-    )
-    expect(spawnIssueAgent).toHaveBeenCalledTimes(1)
   })
 
   it('switches to reusable workspace wording when tasks already exist', () => {

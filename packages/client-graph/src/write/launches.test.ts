@@ -42,6 +42,21 @@ function startRecord(status: EffectStatus, error?: string): EffectRecordWire {
   } as EffectRecordWire
 }
 
+/** The family filed it as a proposal (a member's top-level task). */
+function proposedRecord(status: EffectStatus): EffectRecordWire {
+  const record = startRecord(status)
+  return status === 'failed'
+    ? ({
+        ...record,
+        effect: {
+          status,
+          attempts: 1,
+          error: { code: 'proposed', message: 'Filed as a proposal; an admin starts it.' },
+        },
+      } as EffectRecordWire)
+    : record
+}
+
 function launchRecord(status: EffectStatus, error?: string): EffectRecordWire {
   return {
     id: EFFECT as EffectRecordWire['id'],
@@ -81,6 +96,7 @@ function pool(
   let publish: (size: number) => void = () => {}
   let addressed: (batch: ReplicaAddressedBatch) => void = () => {}
   const errors: string[] = []
+  const infos: string[] = []
   let serial = 0
   const tx = createPoolTransactions({
     userId: USER,
@@ -106,7 +122,10 @@ function pool(
     launchEffects: () => effects,
     spawn: {
       userId: USER,
-      notices: { error: (message: string) => errors.push(message), info: () => {} } as never,
+      notices: {
+        error: (message: string) => errors.push(message),
+        info: (message: string) => infos.push(message),
+      } as never,
       sortKey: () => 'k',
     },
   })
@@ -115,6 +134,7 @@ function pool(
   return {
     tx,
     errors,
+    infos,
     queue: () => queue,
     shown: (entity: OverlayTarget, id: string) =>
       foldRowOverlays(truth.get(`${entity}:${id}`), tx.pending.byRow(entity).get(id) ?? []),
@@ -416,6 +436,35 @@ describe('a named task with its first agent as an issue.start effect (POD-6410)'
     p.effect('failed', 'no longer allowed to use this machine')
     expect(p.errors).toEqual(["Couldn't start the task — no longer allowed to use this machine"])
     expect(p.tx.dismissLaunch(SESSION)).toBe(true)
+    p.tx.dispose()
+  })
+
+  it('filed as a proposal: the task shows as proposed, no session, and a plain notice', async () => {
+    const p = pool({ record: proposedRecord })
+    const { outcome } = startTask(p)
+    await Promise.resolve()
+    expect(await outcome).toBe('started')
+    p.confirmed('failed')
+    expect(p.painted('sessions', SESSION)).toBe(0)
+    expect(p.tx.spawnPrompts.has(SESSION)).toBe(false)
+    expect(p.shown('issueProjections', ISSUE)).toMatchObject({ id: ISSUE, stage: 'proposed' })
+    expect(p.errors).toEqual([])
+    expect(p.infos).toEqual(['Filed as a proposal; an admin starts it.'])
+    p.row('issueProjections', ISSUE, { id: ISSUE, stage: 'proposed' })
+    expect(p.painted('issueProjections', ISSUE)).toBe(0)
+    p.effect('failed')
+    expect(p.painted('sessions', SESSION)).toBe(0)
+    expect(p.infos).toHaveLength(1)
+    await p.tx.waitForSpawnConfirmed(SESSION)
+    p.tx.dispose()
+  })
+
+  it('a proposal read back after a reload paints no session and says nothing', () => {
+    const p = pool({ effects: [proposedRecord('failed')], record: proposedRecord })
+    expect(p.painted('sessions', SESSION)).toBe(0)
+    expect(p.shown('issueProjections', ISSUE)).toMatchObject({ stage: 'proposed' })
+    expect(p.errors).toEqual([])
+    expect(p.infos).toEqual([])
     p.tx.dispose()
   })
 })

@@ -13,7 +13,9 @@ export interface SpawnTarget {
   placement?: 'allowed' | 'unauthorized' | 'unreachable'
 }
 
-export type TaskSpawnOutcome = 'started' | 'issue-only' | 'failed'
+/** A named-task start: `started` once its `issue.start` record is durably
+ *  queued (a later failure shows on its task), `failed` when it never was. */
+export type TaskSpawnOutcome = 'started' | 'failed'
 
 type DraftSpawnReservation =
   | { sessionId: SessionId; issueId: IssueId; mutationId: MutationId }
@@ -140,6 +142,10 @@ export function draftLaunchEffect(args: {
 
 /** The effect kind filing a task with its first agent is (POD-6410). */
 export const ISSUE_START_KIND = 'issue.start'
+
+/** An `issue.start` record's error code when the task was filed as a
+ *  proposal (a member's top-level task): expected, not a failure. */
+export const ISSUE_START_PROPOSED = 'proposed'
 
 /** The effect id a start's reservation names: a retry of the same start (the
  *  composer keeps its ids) writes the same record, never a second one. */

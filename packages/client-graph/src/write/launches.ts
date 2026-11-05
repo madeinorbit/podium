@@ -32,6 +32,7 @@ import {
   draftLaunchEffect,
   type EffectCreateInput,
   ISSUE_START_KIND,
+  ISSUE_START_PROPOSED,
   issueStartEffect,
   SESSION_LAUNCH_KIND,
   type SpawnDraftAgentArgs,
@@ -76,6 +77,14 @@ export interface PoolLaunchPorts {
 
 const ENDED = new Set(['failed', 'expired', 'cancelled', 'unknown'])
 
+const PROPOSED_NOTICE = 'Filed as a proposal; an admin starts it.'
+
+/** An `issue.start` the family filed as a proposal: no agent by design. */
+const isProposal = (launch: Launch): boolean =>
+  launch.kind === ISSUE_START_KIND &&
+  launch.status === 'failed' &&
+  launch.errorCode === ISSUE_START_PROPOSED
+
 interface Launch {
   readonly effectId: string
   readonly kind: typeof SESSION_LAUNCH_KIND | typeof ISSUE_START_KIND
@@ -87,6 +96,8 @@ interface Launch {
   /** `queued` before the server has the record. */
   readonly status: string
   readonly error?: string
+  /** The record's error code: `proposed` is a proposal, not a failure. */
+  readonly errorCode?: string
 }
 
 /** What a start's published input says about where it starts. */
@@ -143,6 +154,8 @@ interface Painted {
   readonly ended: boolean
   /** The task's placeholder is among the overlays (it is not a row yet). */
   readonly withIssue: boolean
+  /** Filed as a proposal: the task alone, no session (POD-6410). */
+  readonly proposed: boolean
 }
 
 const PROJECTION_KEYS = Object.keys(IssueProjection.shape)
@@ -340,7 +353,9 @@ export class PoolLaunches {
         ...launch,
         createdAt: record.createdAt,
         status: record.effect.status,
-        ...(record.effect.error ? { error: record.effect.error.message } : {}),
+        ...(record.effect.error
+          ? { error: record.effect.error.message, errorCode: record.effect.error.code }
+          : {}),
       })
     }
     for (const [sessionId, launch] of live) {
@@ -388,23 +403,44 @@ export class PoolLaunches {
 
   private show(launch: Launch): void {
     const ended = ENDED.has(launch.status)
-    const withIssue = this.paintsIssue(launch, ended)
+    const proposed = isProposal(launch)
+    const withIssue = this.paintsIssue(launch, ended && !proposed)
     const current = this.painted.get(launch.sessionId)
-    if (current !== undefined && current.ended === ended && current.withIssue === withIssue) return
+    if (
+      current !== undefined &&
+      current.ended === ended &&
+      current.withIssue === withIssue &&
+      current.proposed === proposed
+    ) {
+      return
+    }
     if (current !== undefined) this.hide(launch.sessionId)
     const prompt = this.local.get(launch.sessionId)?.prompt
-    this.ports.paint({
-      type: 'painted',
-      overlays: this.placeholders(launch, ended, withIssue),
-      sessionId: launch.sessionId,
-      ...(!ended && prompt ? { prompt } : {}),
-    } as SpawnPlaceholderEvent)
+    const overlays = this.placeholders(launch, ended, withIssue, proposed)
+    if (overlays.length > 0) {
+      this.ports.paint({
+        type: 'painted',
+        overlays,
+        sessionId: launch.sessionId,
+        ...(!ended && prompt ? { prompt } : {}),
+      } as SpawnPlaceholderEvent)
+    }
     this.painted.set(launch.sessionId, {
       effectId: launch.effectId,
       issueId: launch.issueId,
       ended,
       withIssue,
+      proposed,
     })
+    if (proposed) {
+      // The expected outcome of a member's top-level task: the task is there,
+      // an admin starts it. Said once, plainly; never as an error.
+      if (this.local.has(launch.sessionId) && !this.told.has(launch.effectId)) {
+        this.told.add(launch.effectId)
+        this.ports.notices.info(launch.error ?? PROPOSED_NOTICE)
+      }
+      return
+    }
     if (ended) {
       if (this.local.has(launch.sessionId) && !this.told.has(launch.effectId)) {
         this.told.add(launch.effectId)
@@ -432,7 +468,12 @@ export class PoolLaunches {
     return this.ports.truth('issueProjections', launch.issueId) === undefined
   }
 
-  private placeholders(launch: Launch, ended: boolean, withIssue: boolean): PendingOverlay[] {
+  private placeholders(
+    launch: Launch,
+    ended: boolean,
+    withIssue: boolean,
+    proposed: boolean,
+  ): PendingOverlay[] {
     const local = this.local.get(launch.sessionId)
     const input = launch.input
     const cwd = input.cwd ?? local?.target.path ?? input.repoPath ?? ''
@@ -451,18 +492,21 @@ export class PoolLaunches {
         ? { status: 'exited' as const, spawnFailure: launch.error ?? 'the start did not run' }
         : {}),
     } as SessionMeta
-    const overlays: PendingOverlay[] = [
-      insertOverlay('sessions', launch.sessionId, session),
-      insertOverlay(
-        'sessionUserStates',
-        launch.sessionId,
-        starterUserState({
-          userId: this.ports.userId,
-          sessionId: launch.sessionId,
-          nowIso: launch.createdAt,
-        }),
-      ),
-    ]
+    // A proposal starts no session: the task alone, until its row lands.
+    const overlays: PendingOverlay[] = proposed
+      ? []
+      : [
+          insertOverlay('sessions', launch.sessionId, session),
+          insertOverlay(
+            'sessionUserStates',
+            launch.sessionId,
+            starterUserState({
+              userId: this.ports.userId,
+              sessionId: launch.sessionId,
+              nowIso: launch.createdAt,
+            }),
+          ),
+        ]
     if (!withIssue || launch.issueId === undefined) return overlays
     const repoPath = input.draftIssue?.repoPath ?? input.repoPath ?? local?.target.repoPath ?? cwd
     const target: SpawnTarget = local?.target ?? { path: cwd, repoPath }
@@ -490,13 +534,14 @@ export class PoolLaunches {
             ...(input.defaultModel !== undefined ? { model: input.defaultModel } : {}),
             ...(input.defaultEffort !== undefined ? { effort: input.defaultEffort } : {}),
           })
+    const shown: IssueViewModel = proposed ? { ...issue, stage: 'proposed' } : issue
     const row: Record<string, unknown> = {}
-    const source = issue as unknown as Record<string, unknown>
+    const source = shown as unknown as Record<string, unknown>
     for (const key of PROJECTION_KEYS) {
       const value = source[key]
       if (value !== undefined && value !== null) row[key] = value
     }
-    row.description = { value: issue.description ?? '' }
+    row.description = { value: shown.description ?? '' }
     overlays.push(
       insertOverlay('issueProjections', launch.issueId, row as unknown as IssueProjection),
       insertOverlay('issueUserStates', launch.issueId, {

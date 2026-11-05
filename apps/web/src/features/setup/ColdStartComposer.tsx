@@ -853,18 +853,8 @@ export function ColdStartComposer({
             clearFirstTaskDraft(uiState)
             return
           }
-          if (outcome === 'issue-only') {
-            setDraft({
-              ...launchDraft,
-              pendingIssueId: started.issueId,
-              createIssueId: '',
-              createSessionId: '',
-              createMutationId: '',
-              launchError: "The task was saved, but its agent couldn't start.",
-            })
-          } else {
-            setDraft({ ...launchDraft, launchError: "Couldn't start the task." })
-          }
+          // Not queued at all (a start that fails later shows on its task).
+          setDraft({ ...launchDraft, launchError: "Couldn't start the task." })
           setBusy(false)
         })
         if (first) noteFirstSend(uiState, started.issueId)

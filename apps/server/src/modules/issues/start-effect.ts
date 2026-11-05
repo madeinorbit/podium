@@ -21,6 +21,9 @@
  *    An issue already under the id at run time is a collision: failed, nothing
  *    filed. An issue filed whose agent then failed to start is `failed` with
  *    the issue kept; the failure shows on the record, which targets the issue.
+ *    A task the family files as a proposal (a member's top-level task) starts
+ *    nothing by design: `failed` with code `proposed`, which the apps show as
+ *    the proposal it is, never as an error.
  *  - RECOVER: the session row → succeeded; the issue alone → failed, the task
  *    kept and its agent not started; neither → failed, nothing filed.
  *  - PUBLISH: everything but the description and the brief, which come with the
@@ -52,6 +55,11 @@ import { isIssueRefusal } from './service/refusal'
 import { issueTarget } from './sync-write'
 
 export const ISSUE_START_KIND = 'issue.start'
+
+/** The record's code when the family filed the task as a proposal and started
+ *  nothing: an admin starts it. The apps paint it as a proposal, not a failure. */
+export const ISSUE_START_PROPOSED = 'proposed'
+const PROPOSED_MESSAGE = 'Filed as a proposal; an admin starts it.'
 
 /** A start whose machine has not attached for this long expires unrun. */
 export const ISSUE_START_DEADLINE_MS = 24 * 60 * 60 * 1000
@@ -148,10 +156,11 @@ export function registerIssueStartEffect(deps: IssueStartEffectDeps): void {
       if (await issueExists(issueId)) return failed('start-failed', message)
       return failed(refusalOf(error) ? 'refused' : 'failed', message)
     }
-    // Filed but not started (the family keeps a start under a proposal inert):
-    // the task stays, and the record says its agent never started.
+    // Filed as a proposal (the family files a non-operator's top-level task,
+    // or one under a proposal, inert): the expected outcome, not an error. The
+    // record ends with its own code so the apps show the task as proposed.
     if (!(await sessionExists(sessionId))) {
-      return failed('not-started', 'The task was filed; its agent was not started.')
+      return failed(ISSUE_START_PROPOSED, PROPOSED_MESSAGE)
     }
     return { status: 'succeeded', result: { issueId, sessionId } }
   }

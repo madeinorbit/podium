@@ -565,7 +565,11 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
   function onSpawn(event: SpawnPlaceholderEvent): void {
     if (event.type === 'painted') {
       spawns = [...spawns, ...(event.overlays as InsertOverlay[])]
-      spawnPrompts.set(event.sessionId, event.prompt ?? null)
+      // A start pending is one whose session is painted (a proposal paints its
+      // task alone: no session is on its way).
+      if (event.overlays.some((o) => o.entity === 'sessions' && o.id === event.sessionId)) {
+        spawnPrompts.set(event.sessionId, event.prompt ?? null)
+      }
       commit(rowsOf(event.overlays))
       return
     }

@@ -21,7 +21,7 @@ import { userCommandPrincipal } from '../../command-principal'
 import { confirmingRetirement } from '../../test-support/host-daemon'
 import { disposeOracles, makeOracle, type Oracle, waitFor } from '../sessions/oracle-support'
 import { appliedReply, changeRows, envelope, submit } from '../sync-write/outbox-test-support'
-import { ISSUE_START_DEADLINE_MS, ISSUE_START_KIND } from './start-effect'
+import { ISSUE_START_DEADLINE_MS, ISSUE_START_KIND, ISSUE_START_PROPOSED } from './start-effect'
 
 afterEach(() => disposeOracles())
 
@@ -245,6 +245,37 @@ describe('an issue.start effect', () => {
       error: { code: 'refused', message: expect.stringContaining('archived') },
     })
     expect(await issueRow(o, issueId)).toBeNull()
+    expect(spawns(o, sessionId)).toHaveLength(0)
+  })
+
+  it("a member's top-level start is filed as a proposal and starts nothing", async () => {
+    const o = await oracle()
+    const writer = asUserId('mem_start_member')
+    await o.store.users.create(
+      {
+        id: writer,
+        displayName: 'Member',
+        role: 'member',
+        createdAt: '2026-11-05T00:00:00.000Z',
+        disabledAt: null,
+      },
+      'test-only',
+    )
+    const effectId = mintDeviceId('eff_')
+    const issueId = newIssueId()
+    const sessionId = newSessionId()
+    const { reply } = await o.reg.modules.syncWrite.submitDetailed(
+      startEnvelope(effectId, issueId, task(sessionId), 's-1'),
+      userCommandPrincipal(writer, 'member'),
+      'trpc',
+    )
+    appliedReply(reply)
+
+    expect(await settled(o, effectId)).toMatchObject({
+      status: 'failed',
+      error: { code: ISSUE_START_PROPOSED, message: 'Filed as a proposal; an admin starts it.' },
+    })
+    expect(await issueRow(o, issueId)).toMatchObject({ id: issueId, stage: 'proposed' })
     expect(spawns(o, sessionId)).toHaveLength(0)
   })
 
