@@ -3,7 +3,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { firstAdminMemberId } from '@podium/model'
+import { asMachineId, firstAdminMemberId } from '@podium/model'
 import { wireSchemaDigest } from '@podium/protocol'
 import { expect, it, vi } from 'vitest'
 import { noJanitorWorkerForTests } from '../apps/server/src/janitor-host'
@@ -215,8 +215,11 @@ it('pairs the same client identity, persists zero roles, reconnects by machine k
     const clientRows = rows.filter((row) => row.id === originalId)
     expect(clientRows).toHaveLength(1)
     expect(clientRows[0]).toMatchObject({
-      podiumManaged: true,
       serviceAssignment: { server: false, agentExecution: false },
+    })
+    // The public listing omits the default true policy; verify durable custody.
+    expect(await coordinator.registry.sessionStore.machines.getMachine(asMachineId(originalId))).toMatchObject({
+      podiumManaged: true,
     })
   } finally {
     connection?.close()
