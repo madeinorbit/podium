@@ -1,16 +1,15 @@
-import { loadedPaneSession, paneMachines } from '@podium/client-graph/session-pane'
-import { omitGone } from '@podium/client-graph/lookup'
 import type { SessionView } from '@podium/client-core/session-values'
-import { artifactUrl } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import type { ChatContextRows } from '@podium/client-graph/chat-context-schema'
+import { omitGone } from '@podium/client-graph/lookup'
 import type { SessionExitRows } from '@podium/client-graph/session-exit-schema'
+import { loadedPaneSession, paneMachines } from '@podium/client-graph/session-pane'
 import type { SessionId } from '@podium/model/browser'
 import { useCallback, useEffect, useMemo } from 'react'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { AtOption } from '@/lib/at-mention/at-mention'
 import { issueMentions } from '@/lib/at-mention/mention-sources'
-import { currentWorkspaceSlug } from '@/lib/workspace-request'
+import { chatUploadSrc } from './chat-upload-src'
 
 const pending = (row: unknown): row is symbol => typeof row === 'symbol'
 const EMPTY_OPTIONS: AtOption[] = []
@@ -21,7 +20,10 @@ const referenceReader = (pool: MobxPool) => {
   return reader && !pending(reader) ? reader : undefined
 }
 function useReferencePicker(active = true) {
-  const read = useCallback((pool: MobxPool) => active ? referenceReader(pool) : undefined, [active])
+  const read = useCallback(
+    (pool: MobxPool) => (active ? referenceReader(pool) : undefined),
+    [active],
+  )
   const reader = useWorklistPoolProjection(read, undefined, active)
   return useMemo(() => reader?.referencePicker(), [reader])
 }
@@ -51,13 +53,15 @@ const EMPTY_WINDOW: ChatContextRows['chatWindow'] = {
 const EMPTY_INTERACTIONS = { blocked: false, question: undefined, pending: 1 }
 export function useChatMentions(query: string | null) {
   const picker = useReferencePicker(query !== null)
-  useEffect(() => { if (query !== null) picker?.search(query, 5); return () => picker?.close() }, [picker, query])
+  useEffect(() => {
+    if (query !== null) picker?.search(query, 5)
+    return () => picker?.close()
+  }, [picker, query])
   const read = useCallback(() => {
     if (!picker || query === null) return EMPTY_OPTIONS
-    return picker.issueIds.flatMap(id => {
+    return picker.issueIds.flatMap((id) => {
       const issue = picker.issue(id)
-      return issue && !pending(issue) && !issue.deletedAt
-        ? issueMentions([issue], '', 1) : []
+      return issue && !pending(issue) && !issue.deletedAt ? issueMentions([issue], '', 1) : []
     })
   }, [picker, query])
   return useWorklistPoolProjection(read, EMPTY_OPTIONS)
@@ -113,25 +117,12 @@ export function useChatUploadSrc(
   httpOrigin: string,
 ) {
   const read = useCallback(
-    (pool: MobxPool) => {
-      const reader = omitGone(pool.row('chatContextReader', 'reader'))
-      const found =
-        attachmentId && reader && !pending(reader)
-          ? reader.chatUpload(sessionId, attachmentId)
-          : undefined
-      return found
-        ? artifactUrl({
-            httpOrigin,
-            workspace: currentWorkspaceSlug(),
-            issueId: found.issueId,
-            artifact: found.artifact,
-          })
-        : null
-    },
+    (pool: MobxPool) => chatUploadSrc(pool, sessionId, attachmentId, httpOrigin),
     [sessionId, attachmentId, httpOrigin],
   )
   return useWorklistPoolProjection(read, null)
 }
+
 /** Read the shared message model by its server-confirmed transcript identity.
  * Non-user rows do not need a message lookup. */
 export function useChatItemMessage(sessionId: SessionId, itemId: string | undefined) {
@@ -182,10 +173,13 @@ export function useChatThreads() {
 /** The private source already scopes row IDs to this principal. A normal
  * session has no thread demand; a selected backend asks for its one row. */
 export function useChatThread(id: string | undefined) {
-  const read = useCallback((pool: MobxPool) => {
-    if (!id) return undefined
-    const row = omitGone(pool.row('superThread', id))
-    return row && !pending(row) ? row : undefined
-  }, [id])
+  const read = useCallback(
+    (pool: MobxPool) => {
+      if (!id) return undefined
+      const row = omitGone(pool.row('superThread', id))
+      return row && !pending(row) ? row : undefined
+    },
+    [id],
+  )
   return useWorklistPoolProjection(read, undefined)
 }

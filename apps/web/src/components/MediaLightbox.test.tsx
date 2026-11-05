@@ -45,7 +45,7 @@ describe('MediaLightbox', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Next artifact' }))
     expect(screen.getByRole('img', { name: 'First image' })).toBeTruthy()
     fireEvent.keyDown(window, { key: 'ArrowRight' })
-    expect(screen.getByLabelText('Video clip').tagName).toBe('VIDEO')
+    expect(screen.getByLabelText('Video clip', { selector: 'video' }).tagName).toBe('VIDEO')
     fireEvent.click(screen.getByRole('button', { name: 'Previous artifact' }))
     expect(screen.getByRole('img', { name: 'First image' })).toBeTruthy()
   })
@@ -93,7 +93,7 @@ describe('MediaLightbox', () => {
     expect(screen.getByRole('img', { name: 'First image' })).toBeTruthy()
     fireEvent.keyDown(window, { key: 'ArrowRight' })
 
-    const video = screen.getByLabelText('Video clip')
+    const video = screen.getByLabelText('Video clip', { selector: 'video' })
     const arrow = new KeyboardEvent('keydown', {
       key: 'ArrowRight',
       bubbles: true,
@@ -138,4 +138,54 @@ describe('MediaLightbox', () => {
     expect(escapeEvent.defaultPrevented).toBe(true)
     expect(onClose).toHaveBeenCalledOnce()
   })
+})
+
+it('zooms an image, resets fit on navigation, and jumps through the filmstrip', () => {
+  render(<Gallery />)
+  fireEvent.click(screen.getByRole('button', { name: 'Open gallery' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Zoom image' }))
+  expect(
+    screen.getByRole('button', { name: 'Fit image to viewer' }).getAttribute('aria-pressed'),
+  ).toBe('true')
+  fireEvent.click(screen.getByRole('button', { name: 'Show Last image, 3 of 3' }))
+  expect(screen.getByRole('img', { name: 'Last image' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Zoom image' }).getAttribute('aria-pressed')).toBe(
+    'false',
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Show Video clip, 2 of 3' }))
+  expect(screen.getByLabelText('Video clip', { selector: 'video' }).tagName).toBe('VIDEO')
+})
+
+it('shows a named recovery state for a failed image and retries it', () => {
+  render(<Gallery />)
+  fireEvent.click(screen.getByRole('button', { name: 'Open gallery' }))
+  fireEvent.error(screen.getByRole('img', { name: 'First image' }))
+  expect(screen.getByRole('status').textContent).toContain('First image')
+  fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+  expect(screen.getByRole('img', { name: 'First image' })).toBeTruthy()
+})
+
+it('swipes between images without treating vertical scrolling as navigation', () => {
+  render(<Gallery />)
+  fireEvent.click(screen.getByRole('button', { name: 'Open gallery' }))
+  const stage = screen.getByRole('img', { name: 'First image' }).closest('.media-lightbox-stage')
+  if (!stage) throw new Error('Missing media stage')
+  fireEvent.touchStart(stage, { touches: [{ clientX: 200, clientY: 100 }] })
+  fireEvent.touchEnd(stage, { changedTouches: [{ clientX: 190, clientY: 220 }] })
+  expect(screen.getByRole('img', { name: 'First image' })).toBeTruthy()
+  fireEvent.touchStart(stage, { touches: [{ clientX: 200, clientY: 100 }] })
+  fireEvent.touchEnd(stage, { changedTouches: [{ clientX: 100, clientY: 110 }] })
+  expect(screen.getByLabelText('Video clip', { selector: 'video' }).tagName).toBe('VIDEO')
+})
+
+it('keeps the filmstrip button usable when its thumbnail cannot load', () => {
+  render(<Gallery />)
+  fireEvent.click(screen.getByRole('button', { name: 'Open gallery' }))
+  const thumbnailButton = screen.getByRole('button', { name: 'Show Last image, 3 of 3' })
+  const thumbnail = thumbnailButton.querySelector('img')
+  if (!thumbnail) throw new Error('Missing filmstrip thumbnail')
+  fireEvent.error(thumbnail)
+  expect(thumbnailButton.querySelector('img')).toBeNull()
+  fireEvent.click(thumbnailButton)
+  expect(screen.getByRole('img', { name: 'Last image' })).toBeTruthy()
 })

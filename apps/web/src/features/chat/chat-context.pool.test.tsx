@@ -386,7 +386,8 @@ it('shows a path-less image turn from its matched message record’s stored copy
       `http://synthetic.invalid/files/artifact/${issue.id}/cat-copy/cat.png`,
     ),
   )
-  expect(view.container.textContent).toBe('')
+  expect(view.container.querySelectorAll('.chat-image-gallery')).toHaveLength(1)
+  expect(view.getByRole('button', { name: 'Open cat.png, image 1 of 1' })).toBeTruthy()
 })
 
 

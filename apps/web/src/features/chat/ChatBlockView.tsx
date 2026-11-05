@@ -1,7 +1,6 @@
 import {
   formatChurn,
   formatTokens,
-  isImagePath,
   isInteractiveTool,
   isInterviewQuestion,
   MACHINE_CONTEXT_RE,
@@ -31,16 +30,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { assetUrl } from '@/lib/asset-url'
 import { renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
 import type { QuoteInput } from '@/lib/quote/quote-sinks'
 import { useKnownRefPrefixesVersion } from '@/lib/use-known-ref-prefixes'
 import { cn } from '@/lib/utils'
 import { AskUserQuestionCard } from './AskUserQuestionCard'
 import { AttributionMark } from './AttributionMark'
-import { ChatUploadThumb, ItemAttachments, stagedAttachmentId } from './ChatUploadThumb'
+import { ItemAttachments } from './ChatUploadThumb'
 import type { ChatBlock } from './chat'
 import { handleChatMdClick } from './chat-md-click'
+import type { OpenChatImage } from './ImageLightbox'
 import { MachineContextRow } from './MachineContextRow'
 import { InboxReadRow, SentNoteRow } from './MailCommandRow'
 import { MessageEnvelopeGroup } from './MessageEnvelopeGroup'
@@ -471,7 +470,7 @@ export const ChatBlockView = observer(function ChatBlockView({
   openFile: (sessionId: SessionId, path: string) => void
   httpOrigin: string
   /** Open a full-screen image preview (lightbox) for the given asset URL. */
-  onOpenImage: (src: string) => void
+  onOpenImage: OpenChatImage
   /** True only for the latest unanswered AskUserQuestion on a live session. */
   askLivePending: boolean
   answerInteractionId?: string
@@ -839,53 +838,16 @@ export const ChatBlockView = observer(function ChatBlockView({
       {((item.toolPaths?.length ?? 0) > 0 ||
         (item.tags?.length ?? 0) > 0 ||
         attachments.length > 0) && (
-        <div className="mt-1.5 flex flex-wrap items-start gap-2">
-          {(item.toolPaths ?? []).map((p) => {
-            const abs = resolveMachinePath(cwd, p)
-            const name = machinePathBasename(p, cwd)
-            const chip = (
-              <button
-                data-pressable
-                key={p}
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  openFile(sessionId, abs)
-                }}
-                className="inline-flex cursor-pointer items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
-                title={`Open ${p}`}
-              >
-                <FileText size={12} aria-hidden="true" />
-                {name}
-              </button>
-            )
-            if (isImagePath(p))
-              return (
-                <ChatUploadThumb
-                  key={p}
-                  sessionId={sessionId}
-                  attachmentId={stagedAttachmentId(abs)}
-                  fallbackUrl={assetUrl({ httpOrigin, sessionId, fileDir: cwd, src: abs })}
-                  name={name}
-                  httpOrigin={httpOrigin}
-                  onOpenImage={onOpenImage}
-                  fallback={chip}
-                />
-              )
-            return chip
-          })}
-          <ItemAttachments
-            sessionId={sessionId}
-            attachments={attachments.filter(
-              (attachment) =>
-                !attachment.id ||
-                !item.toolPaths?.some((path) => stagedAttachmentId(path) === attachment.id),
-            )}
-            tags={(item.toolPaths?.length ?? 0) === 0 ? (item.tags ?? []) : []}
-            httpOrigin={httpOrigin}
-            onOpenImage={onOpenImage}
-          />
-        </div>
+        <ItemAttachments
+          sessionId={sessionId}
+          attachments={attachments}
+          paths={item.toolPaths}
+          tags={(item.toolPaths?.length ?? 0) === 0 ? (item.tags ?? []) : []}
+          cwd={cwd}
+          httpOrigin={httpOrigin}
+          onOpenImage={onOpenImage}
+          openFile={openFile}
+        />
       )}
     </>
   )

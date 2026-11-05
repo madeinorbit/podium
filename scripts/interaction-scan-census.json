@@ -3708,19 +3708,19 @@
       "file": "apps/web/src/features/chat/ChatView.tsx",
       "holder": "ConversationChatView/ConversationChatView/chat",
       "rule": "reader-summary",
-      "tokens": "348d6f2ae3167bd5beaf1567c2a10bc973476ebf4736cb1e95e3080a341f5a44",
+      "tokens": "822223eafb4f7b1e2d28aa2fd93f511fe2624d22035ddfeb0a9bfe2a7836cfaf",
       "gate": [],
       "origin": [
         "0ada7271c7f9a312e00ddc7d7745c29aa340b32ed0cad32a202b66ad0a6fa4cc",
         "38fbaac9da16906de217d6806926a7bbec5c49548b92e3e9c328e6f573c27b23"
       ],
-      "fingerprint": "3b25d8517c22fff80df79e2a30626d49549a5f7f05c6f611324cde497f413eda",
+      "fingerprint": "fb51afc02c9dedbd25d4e051e3091cfaaafb9c0cbea1ab7b9debe96a16d4af67",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Mount one chat reader and its DOM layout.",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "Display facts are read by leaf observers, but inherited conversation/context initialization taint remains; this entry claims no new collection bound. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 004229d48a542972d7a2e936455fb7c6a64b21c0c8731b8dc31ba8b0d9638680. POD-2047: Async interview submission reads its captured transcript block by ID; reader multiplicity and inherited collection demand are unchanged. Predecessor: aef63c7ad31df7b5a7f7d762b326cd7669dfa56308ed9ef69fc883990f001545. POD-2047 review fixes: replies now use the conversation outbox, removing the direct-send collection origin; current-question validation stays addressed and duplicate checks inspect this conversation pending replies. Classification and owner retain the inherited reader debt. Predecessor: 73fb89f4c9705c80f9d63ec115c88d898ea535eca1cf8daf6bca23e9fa33afbb. Predecessor: 8cbdd215fec11b8585f58062e26d540be96fce8532384306a175d395fe425bb1. POD-2219: the removed tl;dr rail button no longer reads the last answer text; reader multiplicity and inherited collection demand are unchanged. Predecessor: ef264dbe228e117f58409d18bfb00f32c34ae33856db693b93bffd048b10d0c1. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: e44abe82524bfc15e9af2523e4e47ea6731942d7fc60bfa6a3b9a110810cc521.",
+      "reason": "Display facts are read by leaf observers, but inherited conversation/context initialization taint remains; this entry claims no new collection bound. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 004229d48a542972d7a2e936455fb7c6a64b21c0c8731b8dc31ba8b0d9638680. POD-2047: Async interview submission reads its captured transcript block by ID; reader multiplicity and inherited collection demand are unchanged. Predecessor: aef63c7ad31df7b5a7f7d762b326cd7669dfa56308ed9ef69fc883990f001545. POD-2047 review fixes: replies now use the conversation outbox, removing the direct-send collection origin; current-question validation stays addressed and duplicate checks inspect this conversation pending replies. Classification and owner retain the inherited reader debt. Predecessor: 73fb89f4c9705c80f9d63ec115c88d898ea535eca1cf8daf6bca23e9fa33afbb. Predecessor: 8cbdd215fec11b8585f58062e26d540be96fce8532384306a175d395fe425bb1. POD-2219: the removed tl;dr rail button no longer reads the last answer text; reader multiplicity and inherited collection demand are unchanged. Predecessor: ef264dbe228e117f58409d18bfb00f32c34ae33856db693b93bffd048b10d0c1. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: e44abe82524bfc15e9af2523e4e47ea6731942d7fc60bfa6a3b9a110810cc521. POD-6430: the hook stores the selected image album on open as local UI state; collection origins, gates and multiplicity are identical. Predecessor: 3b25d8517c22fff80df79e2a30626d49549a5f7f05c6f611324cde497f413eda.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {

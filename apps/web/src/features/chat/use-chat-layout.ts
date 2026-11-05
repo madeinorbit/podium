@@ -11,11 +11,13 @@ import type { RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePoolMachine } from '@/app/header-data'
 import { useRuntimeActions } from '@/app/keyed-runtime'
+import type { MediaLightboxItem } from '@/components/MediaLightbox'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
 import { ChatViewModel } from './chat-view-model'
 import { RENDER_WINDOW } from './conversation-presentation'
 import { revealFoldedRow } from './fold-reveal'
+import type { ChatImagePreview } from './ImageLightbox'
 import { type UseAttachmentsResult, useAttachments } from './use-attachments'
 import type { WebConversation } from './use-conversation'
 import { useTranscriptReveal } from './use-transcript-reveal'
@@ -46,8 +48,8 @@ export interface ChatSurface {
   revealedRow: number | undefined
   /** A minimap jump into a closed fold (POD-2285); see fold-reveal.ts. */
   revealFoldedRow: (index: number) => boolean
-  lightbox: string | null
-  setLightbox: (url: string | null) => void
+  lightbox: string | ChatImagePreview | null
+  setLightbox: (url: string | null, items?: readonly MediaLightboxItem[], index?: number) => void
   setDraft: (text: string) => void
   submitDraft: (draft: string) => void
   sendOfferPrompt: (prompt: string, at: string) => Promise<void>
@@ -95,7 +97,22 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
 
   const scrollerRef = useRef<HTMLDivElement | null>(null)
   const taRef = useRef<HTMLTextAreaElement | null>(null)
-  const [lightbox, setLightbox] = useState<string | null>(null)
+  const [lightbox, updateLightbox] = useState<string | ChatImagePreview | null>(null)
+  // The ordered album is a UI snapshot taken on open, so later transcript
+  // changes cannot move an image out from under the person inspecting it.
+  const setLightbox = useCallback(
+    (url: string | null, items?: readonly MediaLightboxItem[], index = 0) => {
+      updateLightbox(
+        url && items?.length
+          ? {
+              items,
+              index: Math.max(0, Math.min(index, items.length - 1)),
+            }
+          : url,
+      )
+    },
+    [],
+  )
   const log = conversation.transcript
   const loadOlder = useCallback(() => {
     void presentation.loadOlder().catch(() => {})
