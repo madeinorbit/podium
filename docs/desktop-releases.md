@@ -384,3 +384,26 @@ public key matches the release signing key:
 
 Repository tests validate routing, debug suppression, workflow triggers, and manifest contents,
 but they do not replace this signed end-to-end release check.
+
+## Website refresh after stable publication
+
+The stable release workflow refreshes the website after published-update smoke
+passes and the matching desktop release workflow succeeds. It dispatches the
+existing Site workflow (`site.yml`) on `madeinorbit/podium-cloud` main and waits
+for that exact deployment run to finish. The Site workflow already reads the
+latest release while building and deploys the resulting website.
+
+Configure `PODIUM_WEBSITE_DISPATCH_TOKEN` as an Actions secret in
+`madeinorbit/podium`, restricted to `madeinorbit/podium-cloud` with Actions
+read/write. Public release checks use the automatic repository token; the
+private Site dispatch uses the scoped token. Edge, dev and build-only runs do
+not trigger the website refresh.
+
+To refresh the current published stable release or retry just its website step:
+
+```bash
+gh workflow run release-website.yml --repo madeinorbit/podium --ref main -f release_tag=v0.3.1
+```
+
+No release artifacts are rebuilt by this retry. The website retains its existing
+version lookup, checks, deployment credentials and daily rebuild schedule.

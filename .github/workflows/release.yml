@@ -423,3 +423,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: bash scripts/verify-published-headless-update.sh "$PODIUM_RELEASE_TAG"
+
+  website:
+    name: Refresh stable download page
+    needs: published-smoke
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/release-website.yml
+    with:
+      release_tag: ${{ github.ref_name }}
+    secrets:
+      PODIUM_WEBSITE_DISPATCH_TOKEN: ${{ secrets.PODIUM_WEBSITE_DISPATCH_TOKEN }}
