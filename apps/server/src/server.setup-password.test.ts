@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { noJanitorWorkerForTests } from './janitor-host'
 import type { AppRouter } from './router'
 import { startServer } from './server'
+import { installSetupEnrollmentParent } from './test-support/setup-enrollment-parent'
 
 /**
  * REGRESSION (#1148): what `setup.complete` STORES and what `/auth/login` VERIFIES have to be
@@ -19,7 +20,7 @@ import { startServer } from './server'
  *     never type again, and Settings → Network and Settings → Security stored DIFFERENT
  *     credentials for identical keystrokes.
  *   - The password is written LAST in `complete()`, and the instant it lands
- *     `credentialsRequired()` flips and the open-mode synthetic-admin fallback stops applying.
+ *     `credentialsRequired()` flips and the one-member open-mode admission closes.
  *     The caller that just made the write is unauthenticated on its very next request, so the
  *     web step's `onSaved()` reload 401'd on a URL write that had already committed. The fix
  *     lives in the client (network-step.tsx re-logs-in immediately), and it only works if the
@@ -37,6 +38,7 @@ describe('setup.complete stores the password it was given', () => {
   let stateDir: string
   let handle: Awaited<ReturnType<typeof startServer>>
   let trpc: ReturnType<typeof createTRPCClient<AppRouter>>
+  let parent: ReturnType<typeof installSetupEnrollmentParent>
   let cookie = ''
   const url = (path: string): string => `http://127.0.0.1:${handle.port}${path}`
   const login = (password: string): Promise<Response> =>
@@ -56,25 +58,43 @@ describe('setup.complete stores the password it was given', () => {
       JSON.stringify({ configVersion: 2, mode: 'all-in-one', persistence: 'systemd' }),
     )
     process.env.PODIUM_STATE_DIR = stateDir
+    // Supervised children must enroll through their private parent channel.
+    parent = installSetupEnrollmentParent(stateDir)
     handle = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
     trpc = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url: url('/trpc') })] })
   })
 
   afterAll(async () => {
-    await handle.close()
+    await handle?.close()
+    parent?.dispose()
     process.env.PODIUM_STATE_DIR = priorStateDir
     rmSync(stateDir, { recursive: true, force: true })
   })
 
+  it('refuses a closed parent channel without activating the password', async () => {
+    parent.setConnected(false)
+    try {
+      await expect(
+        trpc.setup.complete.mutate({ publicUrl: PUBLIC_URL, password: PASSWORD }),
+      ).rejects.toThrow('setup enrollment parent channel is unavailable')
+      // A premature password write would close this unauthenticated client.
+      await expect(trpc.setup.info.query()).resolves.toBeDefined()
+      expect(parent.actions).toEqual([])
+    } finally {
+      parent.setConnected(true)
+    }
+  })
+
   /**
-   * Runs first and unauthenticated, because it is the call that CLOSES the guard: with no
-   * credential on the instance yet this client is the open-mode synthetic admin, and after
-   * this lands it is nobody.
+   * With the parent connected, this call CLOSES the guard: the sole active member's
+   * local open-mode admission ends when the password lands, so the writing client
+   * must authenticate again. The rejected call above must not close it early.
    */
   it('accepts a whitespace-surrounded password from the reachability step', async () => {
     await expect(
       trpc.setup.complete.mutate({ publicUrl: PUBLIC_URL, password: PASSWORD }),
     ).resolves.toMatchObject({ publicUrl: PUBLIC_URL })
+    expect(parent.actions).toEqual(['prepare', 'confirm'])
   })
 
   it('verifies that password against the exact string that was entered', async () => {

@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { noJanitorWorkerForTests } from './janitor-host'
 import type { AppRouter } from './router'
 import { startServer } from './server'
+import { installSetupEnrollmentParent } from './test-support/setup-enrollment-parent'
 
 /**
  * POD-2766 — SETTING A PASSWORD LOCKED THE OPERATOR OUT OF THEIR OWN SERVER.
@@ -48,6 +49,7 @@ describe('setting a password on a live server does not block it [POD-2766]', () 
   let stateDir: string
   let handle: Awaited<ReturnType<typeof startServer>>
   let trpc: ReturnType<typeof createTRPCClient<AppRouter>>
+  let parent: ReturnType<typeof installSetupEnrollmentParent>
   const url = (path: string): string => `http://127.0.0.1:${handle.port}${path}`
 
   beforeAll(async () => {
@@ -60,12 +62,14 @@ describe('setting a password on a live server does not block it [POD-2766]', () 
       JSON.stringify({ configVersion: 2, mode: 'all-in-one' }),
     )
     process.env.PODIUM_STATE_DIR = stateDir
+    parent = installSetupEnrollmentParent(stateDir)
     handle = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
     trpc = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url: url('/trpc') })] })
   })
 
   afterAll(async () => {
-    await handle.close()
+    await handle?.close()
+    parent?.dispose()
     process.env.PODIUM_STATE_DIR = priorStateDir
     rmSync(stateDir, { recursive: true, force: true })
   })
@@ -98,6 +102,7 @@ describe('an operator can recover a genuinely stale server [POD-2766]', () => {
   let stateDir: string
   let handle: Awaited<ReturnType<typeof startServer>>
   let trpc: ReturnType<typeof createTRPCClient<AppRouter>>
+  let parent: ReturnType<typeof installSetupEnrollmentParent>
   let cookie = ''
   let priorInvocationId: string | undefined
   const url = (path: string): string => `http://127.0.0.1:${handle.port}${path}`
@@ -127,6 +132,7 @@ describe('an operator can recover a genuinely stale server [POD-2766]', () => {
       JSON.stringify({ configVersion: 2, mode: 'all-in-one', persistence: 'systemd' }),
     )
     process.env.PODIUM_STATE_DIR = stateDir
+    parent = installSetupEnrollmentParent(stateDir)
     handle = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
     trpc = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url: url('/trpc') })] })
     // A credential first, while the instance is still open — this is the account
@@ -147,7 +153,8 @@ describe('an operator can recover a genuinely stale server [POD-2766]', () => {
   })
 
   afterAll(async () => {
-    await handle.close()
+    await handle?.close()
+    parent?.dispose()
     process.env.PODIUM_STATE_DIR = priorStateDir
     if (priorInvocationId !== undefined) process.env.INVOCATION_ID = priorInvocationId
     rmSync(stateDir, { recursive: true, force: true })

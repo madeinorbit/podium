@@ -3175,6 +3175,7 @@
         "src/test-support/session-facts.ts",
         "src/test-support/session-state-principal.ts",
         "src/test-support/session-views.ts",
+        "src/test-support/setup-enrollment-parent.ts",
         "src/test-support/statement-budget.ts",
         "src/test-support/statement-count.ts",
         "src/test-support/two-member-instance.ts",
