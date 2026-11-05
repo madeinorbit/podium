@@ -238,6 +238,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Compare stapler transports on the same released DMG
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY_CONTENT }}
         run: bash apps/desktop/scripts/stapler-transport-probe.sh "$RUNNER_TEMP/stapler-transport"
       - name: Retain transport evidence
         if: always()
