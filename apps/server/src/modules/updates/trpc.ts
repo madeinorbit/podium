@@ -576,6 +576,22 @@ export function missingTargetReason(channel: UpdateChannel, failureDetail?: stri
   return `Nothing has been published on the ${CHANNEL_PROSE[channel] ?? channel} channel yet.`
 }
 
+/**
+ * UPDATING THE INSTANCE IS AN ADMIN'S (POD-6358). An update restarts the server
+ * and every machine on it, for everyone. `updates.start`, `retry`, `converge`,
+ * `repairPayload` (re-delivery to any machine) and `repairCompatibility` (a
+ * server restart) had no role check at all, so any signed-in member could run
+ * them. Asked first, so a member's refusal says nothing about which updates
+ * exist.
+ */
+export function assertMayUpdate(ctx: Context): void {
+  if (ctx.principal?.kind === 'user' && ctx.capability.role === 'admin') return
+  throw new TRPCError({
+    code: 'FORBIDDEN',
+    message: 'Only an administrator can update Podium.',
+  })
+}
+
 /** How long the old route waits for its record to name its operation. */
 export const UPDATE_START_WAIT_MS = 60_000
 
@@ -602,6 +618,7 @@ export async function startUpdateOperation(
   operation: Operation | null
   alreadyRunning: boolean
 }> {
+  assertMayUpdate(ctx)
   const state = familyState(ctx)
   const updateEffects = state.modules.updateEffects
   if (updateEffects === undefined) {
@@ -891,6 +908,7 @@ export function updateProcedures() {
     repairPayload: t.procedure
       .input(z.object({ id: z.string().min(1).optional() }).optional())
       .mutation(async ({ ctx, input }) => {
+        assertMayUpdate(ctx)
         const state = familyState(ctx)
         const machineId = input?.id ? asMachineId(input.id) : state.store.hostMachineId
         const outcome = await state.modules.updates.repairMachine(machineId, {
@@ -914,6 +932,7 @@ export function updateProcedures() {
         return { outcome, fleet: await updateFleet(ctx) }
       }),
     repairCompatibility: t.procedure.mutation(async ({ ctx }) => {
+      assertMayUpdate(ctx)
       if (!ctx.requestCoordinatorRestart) {
         throw new TRPCError({
           code: 'PRECONDITION_FAILED',
@@ -947,6 +966,7 @@ export function updateProcedures() {
      * stays honest: the failure is not overwritten by its own second attempt.
      */
     retry: t.procedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
+      assertMayUpdate(ctx)
       const engine = familyState(ctx).modules.operations.engine
       const row = (await engine.history(UPDATE_OPERATION_KIND, 100)).find((r) => r.id === input.id)
       if (!row) {

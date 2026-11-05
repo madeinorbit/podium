@@ -84,8 +84,11 @@ describe('who may ask', () => {
     expect(reply.outcome === 'rejected' && reply.refusal.kind).toBe('invalid')
   })
 
-  it('an update is a person’s, never the system’s, and targets this server', async () => {
+  it('an update is an admin’s: a member and the system are refused, and it targets this server', async () => {
     const o = await oracle()
+    const member = userCommandPrincipal(asUserId('usr_member_6358'), 'member')
+    const byMember = await submitAs(o, updateCreate(o, mintDeviceId('eff_')), member)
+    expect(byMember.outcome).toBe('rejected')
     const system = await submitAs(o, updateCreate(o, mintDeviceId('eff_')), systemPrincipal('test'))
     expect(system.outcome).toBe('rejected')
     const elsewhere = await submit(o, updateCreate(o, mintDeviceId('eff_'), OTHER))

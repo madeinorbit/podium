@@ -9,8 +9,9 @@
  *
  *  - TARGET: the server's own machine. The update is the instance's, and the
  *    record's audience is the target's (today: its creator).
- *  - WHO: a person. `updates.start` was open to every signed-in person and to
- *    no agent; the record keeps exactly that.
+ *  - WHO: an administrator, never a member, an agent or the system. Updating
+ *    restarts the instance for everyone (POD-6358 closed the old routes' gap:
+ *    `updates.start`, `retry` and `converge` had no role check).
  *  - PORTS: an update needs the server's process ports (the publisher, the
  *    restart request, the served stamps). The old route hands its own request's
  *    ports to the one record it creates, which is what that route always ran
@@ -74,7 +75,11 @@ export function registerUpdateEffect(deps: {
       operationKind: UPDATE_OPERATION_KIND,
       input: UpdateEffectInput,
       target: async (target, principal) =>
-        principal.kind === 'user' && target.kind === 'machine' ? NO_TARGET : undefined,
+        principal.kind === 'user' &&
+        principal.capability.role === 'admin' &&
+        target.kind === 'machine'
+          ? NO_TARGET
+          : undefined,
       admit: async (_input, target) =>
         target.id === deps.hostMachineId ? undefined : { kind: 'invalid', details: ['target'] },
       ready: (record) => portsFor(record.id) !== undefined,
