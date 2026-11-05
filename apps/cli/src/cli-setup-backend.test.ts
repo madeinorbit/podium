@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { loadConfig, saveConfig } from '@podium/runtime/config'
@@ -34,7 +34,7 @@ vi.mock('node:fs', async (importOriginal) => {
   return {
     ...actual,
     renameSync: (source: string, target: string) => {
-      if (adapters.failStateWrite && target === join(process.env.PODIUM_STATE_DIR!, 'machine.json'))
+      if (adapters.failStateWrite && target === `${process.env.PODIUM_STATE_DIR}/machine.json`)
         throw new Error('machine state persistence failed')
       return actual.renameSync(source, target)
     },
@@ -43,6 +43,8 @@ vi.mock('node:fs', async (importOriginal) => {
 
 describe('daemon setup backend preserves machine identity', () => {
   let dir: string
+  const coordinator = `pdm_${'c'.repeat(43)}`
+  const otherCoordinator = `pdm_${'o'.repeat(43)}`
   const token = encodeJoin({ v: 1, serverUrl: 'wss://coordinator.example', pairCode: 'NEW-CODE' })
 
   beforeEach(() => {
@@ -54,7 +56,11 @@ describe('daemon setup backend preserves machine identity', () => {
     adapters.detached.mockReset().mockResolvedValue({ serverUp: true })
     adapters.systemd.mockReset().mockReturnValue({ ok: true })
     adapters.failStateWrite = false
-    saveConfig({ mode: 'daemon', serverUrl: 'wss://coordinator.example', installationId: 'coordinator' })
+    saveConfig({
+      mode: 'daemon',
+      serverUrl: 'wss://coordinator.example',
+      installationId: coordinator,
+    })
   })
   afterEach(() => {
     adapters.failStateWrite = false
@@ -80,97 +86,121 @@ describe('daemon setup backend preserves machine identity', () => {
         generation: 7,
       },
       daemon: { machineId: 'enrolled-machine', token: 'legacy-token', updatePubkey: 'legacy-pin' },
-      role: { mode: 'daemon', coordinator: 'coordinator' },
+      role: { mode: 'daemon', coordinator },
       legacy: { machineId: 'original-legacy-id' },
       importedFiles: { 'machine.id': 'retained-import-receipt' },
       extension: { unrelated: ['retain', 'verbatim'] },
     }
-    writeFileSync(machinePath(), JSON.stringify({
-      ...retained,
-      connectivity: {
-        state, updatedAt: '2026-01-01T00:00:00Z',
-        lastHelloOkAt: '2026-01-01T00:00:00Z',
-        authorizationReason: 'old-authorization', blockedReason: 'old-refusal',
-      },
-    }))
+    writeFileSync(
+      machinePath(),
+      JSON.stringify({
+        ...retained,
+        connectivity: {
+          state,
+          updatedAt: '2026-01-01T00:00:00Z',
+          lastHelloOkAt: '2026-01-01T00:00:00Z',
+          authorizationReason: 'old-authorization',
+          blockedReason: 'old-refusal',
+        },
+      }),
+    )
     return retained
   }
 
-  it.each(['systemd', 'detached', 'fallback'] as const)(
-    'retains every unrelated section and exact key over repeated %s starts', async (path) => {
-      const retained = seedEnrolled()
-      const key = keyBytes()
-      const order: string[] = []
-      adapters.stop.mockImplementation(async () => {
-        expect(readConnectivityForTest(dir)).toBeDefined()
-        order.push('stop')
+  it.each([
+    'systemd',
+    'detached',
+    'fallback',
+  ] as const)('retains every unrelated section and exact key over repeated %s starts', async (path) => {
+    const retained = seedEnrolled()
+    const key = keyBytes()
+    const order: string[] = []
+    adapters.stop.mockImplementation(async () => {
+      expect(readConnectivityForTest(dir)).toBeDefined()
+      order.push('stop')
+    })
+    const started = () => {
+      expect(order.at(-1)).toBe('stop')
+      expect(readMachineState(dir)).toEqual(retained)
+      expect(keyBytes()).toEqual(key)
+      order.push('start')
+      writeConnectivity({ state: 'connected', processId: process.pid }, dir)
+    }
+    adapters.systemd.mockImplementation(() => {
+      if (path === 'fallback') return { ok: false, reason: 'fixture has no user systemd' }
+      started()
+      return { ok: true }
+    })
+    adapters.detached.mockImplementation(async () => {
+      started()
+      return { serverUp: true }
+    })
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const result = await startBackendEngine({
+        mode: 'daemon',
+        port: 18787,
+        persistence: path === 'detached' ? 'detached' : 'systemd',
       })
-      const started = () => {
-        expect(order.at(-1)).toBe('stop')
-        expect(readMachineState(dir)).toEqual(retained)
-        expect(keyBytes()).toEqual(key)
-        order.push('start')
-        writeConnectivity({ state: 'connected', processId: process.pid }, dir)
-      }
-      adapters.systemd.mockImplementation(() => {
-        if (path === 'fallback') return { ok: false, reason: 'fixture has no user systemd' }
-        started()
-        return { ok: true }
-      })
-      adapters.detached.mockImplementation(async () => {
-        started()
-        return { serverUp: true }
-      })
-      for (let attempt = 0; attempt < 2; attempt++) {
-        const result = await startBackendEngine({
-          mode: 'daemon', port: 18787, persistence: path === 'detached' ? 'detached' : 'systemd',
-        })
-        expect(result.effectivePersistence).toBe(path === 'systemd' ? 'systemd' : 'detached')
-        await expect(waitForDaemonEnrollment()).resolves.toBeUndefined()
-        const { connectivity, ...after } = JSON.parse(readFileSync(machinePath(), 'utf8'))
-        expect(after).toEqual(retained)
-        expect(connectivity.state).toBe('connected')
-        expect(connectivity.lastHelloOkAt).toBeUndefined()
-        expect(readOrCreateLocalMachineId(dir)).toBe(retained.machineId)
-        expect(keyBytes()).toEqual(key)
-      }
-      expect(order).toEqual(['stop', 'start', 'stop', 'start'])
-      if (path === 'systemd') expect(adapters.detached).not.toHaveBeenCalled()
-    },
-  )
+      expect(result.effectivePersistence).toBe(path === 'systemd' ? 'systemd' : 'detached')
+      await expect(waitForDaemonEnrollment()).resolves.toBeUndefined()
+      const { connectivity, ...after } = JSON.parse(readFileSync(machinePath(), 'utf8'))
+      expect(after).toEqual(retained)
+      expect(connectivity.state).toBe('connected')
+      expect(connectivity.lastHelloOkAt).toBeUndefined()
+      expect(readOrCreateLocalMachineId(dir)).toBe(retained.machineId)
+      expect(keyBytes()).toEqual(key)
+    }
+    expect(order).toEqual(['stop', 'start', 'stop', 'start'])
+    if (path === 'systemd') expect(adapters.detached).not.toHaveBeenCalled()
+  })
 
   describe.each(['connected', 'unauthorized', 'blocked'] as const)('old %s status', (old) => {
-    it.each(['connected', 'unauthorized', 'blocked', 'never-connects'] as const)(
-      'lets only the new %s result determine the join outcome', async (next) => {
-        const retained = seedEnrolled(old)
-        let time = 0
-        let polls = 0
-        const wait = () => waitForDaemonEnrollment({
-          timeoutMs: 300, pollMs: 100, now: () => time,
+    it.each([
+      'connected',
+      'unauthorized',
+      'blocked',
+      'never-connects',
+    ] as const)('lets only the new %s result determine the join outcome', async (next) => {
+      const retained = seedEnrolled(old)
+      let time = 0
+      let polls = 0
+      const wait = () =>
+        waitForDaemonEnrollment({
+          timeoutMs: 300,
+          pollMs: 100,
+          now: () => time,
           sleep: async (ms) => {
             time += ms
             polls++
             if (polls === 1 && next !== 'never-connects') {
-              writeConnectivity({
-                state: next, processId: process.pid,
-                authorizationReason: next === 'unauthorized' ? 'new-authorization' : undefined,
-                blockedReason: next === 'blocked' ? 'new-refusal' : undefined,
-              }, dir)
+              writeConnectivity(
+                {
+                  state: next,
+                  processId: process.pid,
+                  authorizationReason: next === 'unauthorized' ? 'new-authorization' : undefined,
+                  blockedReason: next === 'blocked' ? 'new-refusal' : undefined,
+                },
+                dir,
+              )
             }
           },
         })
-        // No replacement startBackend: runJoinSetup executes the real cleanup/start path.
-        const joining = runJoinSetup(token, 'detached', 18787, { waitForEnrollment: wait })
-        if (next === 'connected') await expect(joining).resolves.toMatchObject({ name: expect.any(String) })
-        else await expect(joining).rejects.toThrow(
-          next === 'never-connects' ? /did not connect within/ :
-            next === 'blocked' ? /new-refusal/ : /new-authorization/,
+      // No replacement startBackend: runJoinSetup executes the real cleanup/start path.
+      const joining = runJoinSetup(token, 'detached', 18787, { waitForEnrollment: wait })
+      if (next === 'connected')
+        await expect(joining).resolves.toMatchObject({ name: expect.any(String) })
+      else
+        await expect(joining).rejects.toThrow(
+          next === 'never-connects'
+            ? /did not connect within/
+            : next === 'blocked'
+              ? /new-refusal/
+              : /new-authorization/,
         )
-        expect(polls).toBe(next === 'never-connects' ? 3 : 1)
-        const { connectivity: _status, ...after } = JSON.parse(readFileSync(machinePath(), 'utf8'))
-        expect(after).toEqual(retained)
-      },
-    )
+      expect(polls).toBe(next === 'never-connects' ? 3 : 1)
+      const { connectivity: _status, ...after } = JSON.parse(readFileSync(machinePath(), 'utf8'))
+      expect(after).toEqual(retained)
+    })
   })
 
   it('leaves state untouched and never starts a replacement when stopping fails', async () => {
@@ -178,30 +208,35 @@ describe('daemon setup backend preserves machine identity', () => {
     const before = readFileSync(machinePath())
     const key = keyBytes()
     adapters.stop.mockRejectedValue(new Error('stop failed'))
-    await expect(startBackendEngine({ mode: 'daemon', persistence: 'systemd', port: 18787 }))
-      .rejects.toThrow('stop failed')
+    await expect(
+      startBackendEngine({ mode: 'daemon', persistence: 'systemd', port: 18787 }),
+    ).rejects.toThrow('stop failed')
     expect(readFileSync(machinePath())).toEqual(before)
     expect(keyBytes()).toEqual(key)
     expect(adapters.systemd).not.toHaveBeenCalled()
     expect(adapters.detached).not.toHaveBeenCalled()
   })
 
-  it.each(['corrupt JSON', 'invalid schema', 'persistence failure'])(
-    'refuses enrollment after %s instead of deleting state or reporting success', async (failure) => {
-      seedEnrolled()
-      if (failure === 'corrupt JSON') writeFileSync(machinePath(), '{broken')
-      if (failure === 'invalid schema') writeFileSync(machinePath(), '{"version":2}')
-      adapters.failStateWrite = failure === 'persistence failure'
-      const before = readFileSync(machinePath())
-      const wait = vi.fn(async () => {})
-      await expect(runJoinSetup(token, 'systemd', 18787, { waitForEnrollment: wait })).rejects.toThrow()
-      expect(readFileSync(machinePath())).toEqual(before)
-      expect(adapters.stop).toHaveBeenCalledOnce()
-      expect(adapters.systemd).not.toHaveBeenCalled()
-      expect(adapters.detached).not.toHaveBeenCalled()
-      expect(wait).not.toHaveBeenCalled()
-    },
-  )
+  it.each([
+    'corrupt JSON',
+    'invalid schema',
+    'persistence failure',
+  ])('refuses enrollment after %s instead of deleting state or reporting success', async (failure) => {
+    seedEnrolled()
+    if (failure === 'corrupt JSON') writeFileSync(machinePath(), '{broken')
+    if (failure === 'invalid schema') writeFileSync(machinePath(), '{"version":2}')
+    adapters.failStateWrite = failure === 'persistence failure'
+    const before = readFileSync(machinePath())
+    const wait = vi.fn(async () => {})
+    await expect(
+      runJoinSetup(token, 'systemd', 18787, { waitForEnrollment: wait }),
+    ).rejects.toThrow()
+    expect(readFileSync(machinePath())).toEqual(before)
+    expect(adapters.stop).toHaveBeenCalledOnce()
+    expect(adapters.systemd).not.toHaveBeenCalled()
+    expect(adapters.detached).not.toHaveBeenCalled()
+    expect(wait).not.toHaveBeenCalled()
+  })
 
   it('does not rewrite an existing identity when there is no connectivity to clear', async () => {
     const retained = seedEnrolled()
@@ -212,20 +247,35 @@ describe('daemon setup backend preserves machine identity', () => {
     expect(readOrCreateLocalMachineId(dir)).toBe(retained.machineId)
   })
 
-  it('leaves identity creation to fresh enrollment, which still joins successfully', async () => {
+  it.each([
+    'systemd',
+    'detached',
+    'fallback',
+  ] as const)('leaves identity creation to fresh %s enrollment, which still joins successfully', async (path) => {
     let enrolledId: string | undefined
-    adapters.detached.mockImplementation(async () => {
+    const enroll = () => {
       expect(existsSync(machinePath())).toBe(false)
       expect(existsSync(join(dir, 'machine.key'))).toBe(false)
       enrolledId = readOrCreateLocalMachineId(dir)
       createMachineCredential(dir)
       writeConnectivity({ state: 'connected', processId: process.pid }, dir)
+    }
+    adapters.systemd.mockImplementation(() => {
+      if (path === 'fallback') return { ok: false, reason: 'fixture has no user systemd' }
+      enroll()
+      return { ok: true }
+    })
+    adapters.detached.mockImplementation(async () => {
+      enroll()
       return { serverUp: true }
     })
-    await expect(runJoinSetup(token, 'detached', 18787)).resolves.toMatchObject({
-      result: { effectivePersistence: 'detached' },
+    const persistence = path === 'systemd' ? 'systemd' : 'detached'
+    await expect(
+      runJoinSetup(token, path === 'detached' ? 'detached' : 'systemd', 18787),
+    ).resolves.toMatchObject({
+      result: { effectivePersistence: persistence },
     })
-    expect(loadConfig().persistence).toBe('detached')
+    expect(loadConfig().persistence).toBe(persistence)
     expect(readOrCreateLocalMachineId(dir)).toBe(enrolledId)
     expect(keyBytes().length).toBeGreaterThan(0)
   })
@@ -239,13 +289,24 @@ describe('daemon setup backend preserves machine identity', () => {
   })
 
   it('imports legacy identity and credentials before retiring only their exact old files', async () => {
-    const daemon = { machineId: 'legacy-machine', token: 'legacy-token', updatePubkey: 'legacy-pin' }
-    const supervisor = { ...daemon, generation: 4, assignment: { server: false, agentExecution: true } }
+    const daemon = {
+      machineId: 'legacy-machine',
+      token: 'legacy-token',
+      updatePubkey: 'legacy-pin',
+    }
+    const supervisor = {
+      ...daemon,
+      generation: 4,
+      assignment: { server: false, agentExecution: true },
+    }
     const legacy = {
       'machine.id': daemon.machineId,
       'daemon.json': JSON.stringify(daemon),
       'supervisor.json': JSON.stringify(supervisor),
-      'connectivity.json': JSON.stringify({ state: 'connected', updatedAt: '2026-01-01T00:00:00Z' }),
+      'connectivity.json': JSON.stringify({
+        state: 'connected',
+        updatedAt: '2026-01-01T00:00:00Z',
+      }),
     }
     for (const [name, bytes] of Object.entries(legacy)) writeFileSync(join(dir, name), bytes)
     createMachineCredential(dir)
@@ -254,13 +315,25 @@ describe('daemon setup backend preserves machine identity', () => {
     writeFileSync(join(dir, 'unrelated.json'), '{"keep":true}')
     await startBackendEngine({ mode: 'daemon', persistence: 'detached', port: 18787 })
     expect(readMachineState(dir)).toEqual({
-      version: 1, machineId: daemon.machineId, daemon, supervisor,
+      version: 1,
+      machineId: daemon.machineId,
+      daemon,
+      supervisor,
       legacy: { machineId: daemon.machineId },
-      importedFiles: Object.fromEntries(Object.entries(legacy).map(([name, bytes]) =>
-        [name, createHash('sha256').update(bytes).digest('hex')])),
+      importedFiles: Object.fromEntries(
+        Object.entries(legacy).map(([name, bytes]) => [
+          name,
+          createHash('sha256').update(bytes).digest('hex'),
+        ]),
+      ),
     })
     expect(readdirSync(dir).sort()).toEqual([
-      'config.json', 'daemon.secret', 'machine.json', 'machine.key', 'unrelated.json',
+      'config.json',
+      'daemon.secret',
+      'instance.json',
+      'machine.json',
+      'machine.key',
+      'unrelated.json',
     ])
     expect(keyBytes()).toEqual(key)
     expect(readFileSync(join(dir, 'daemon.secret'), 'utf8')).toBe('retained-maintenance-secret')
@@ -274,15 +347,26 @@ describe('daemon setup backend preserves machine identity', () => {
     const state = loadSupervisorState(dir)
     reconcileSupervisorAssignment(state, loadConfig(), dir)
     expect(loadSupervisorState(dir)).toEqual(retained.supervisor)
-    const other = { ...loadConfig(), installationId: 'other-coordinator', serverUrl: 'wss://other.example', pairCode: 'OTHER-CODE' }
+    const other = {
+      ...loadConfig(),
+      installationId: otherCoordinator,
+      serverUrl: 'wss://other.example',
+      pairCode: 'OTHER-CODE',
+    }
     saveConfig(other)
     reconcileSupervisorAssignment(state, other, dir)
     const changed = loadSupervisorState(dir)
-    for (const field of ['token', 'enrolledPublicKey', 'updatePubkey', 'workspaceId', 'setupEnrollment'] as const)
+    for (const field of [
+      'token',
+      'enrolledPublicKey',
+      'updatePubkey',
+      'workspaceId',
+      'setupEnrollment',
+    ] as const)
       expect(changed[field]).toBeUndefined()
     expect(changed.machineId).toBe(retained.machineId)
     expect(keyBytes()).toEqual(key)
     expect(loadConfig().pairCode).toBe('OTHER-CODE')
-    expect(readMachineState(dir)?.role).toEqual({ mode: 'daemon', coordinator: 'other-coordinator' })
+    expect(readMachineState(dir)?.role).toEqual({ mode: 'daemon', coordinator: otherCoordinator })
   })
 })

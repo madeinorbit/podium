@@ -10,7 +10,7 @@ import {
   stateDir,
 } from '@podium/runtime/config'
 import { CHECK_ERROR_SENTENCES, type CheckResult } from '@podium/runtime/connect-check'
-import { connectivityPath, readLiveConnectivity } from '@podium/runtime/connectivity'
+import { clearConnectivity, readLiveConnectivity } from '@podium/runtime/connectivity'
 import { decodeJoin } from '@podium/runtime/join'
 import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
 import {
@@ -230,7 +230,7 @@ export async function startBackendEngine(opts: StartBackendOpts): Promise<StartB
   await stopBackend()
   // A stale connected/refused record belongs to a previous attempt and cannot prove this one.
   // Clear it only after the previous backend has stopped, then let the new daemon be the writer.
-  if (mode === 'daemon') rmSync(connectivityPath(), { force: true })
+  if (mode === 'daemon') clearConnectivity()
   const what = mode === 'daemon' ? 'daemon' : 'server + daemon'
   let result: StartBackendResult
   if (persistence === 'systemd') {
