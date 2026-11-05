@@ -206,6 +206,14 @@ never landed.
 Useful flags: `--dry-run` prints the version transition and the notes it would ship, changing
 nothing; `--no-push` commits and tags locally so you can inspect before pushing.
 
+To build an unpublished fallback without moving a tag or an update channel, dispatch both
+release workflows against the candidate branch with `publish_release=false`. Use `channel=stable`
+for the full platform set, and give the desktop workflow the intended `release_tag` and
+`rebuild_desktop=true`. The desktop build uses the dispatch commit rather than that tag, and
+retains its validated manifest and signed bundles as Actions artifacts. The headless workflow
+builds and checks all four bundles; stable dispatches refuse publication. Publishing remains a
+separate decision.
+
 It refuses, before creating anything, a version that is not greater than the current one, a version
 that is neither `X.Y.Z` nor `X.Y.Z-edge.N`, a dirty tree, a branch out of sync with its remote, and
 a tag that already exists.
