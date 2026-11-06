@@ -314,7 +314,9 @@ describe('issue.stop', () => {
     expect(row?.lifecycle).toMatchObject({ desired: 'stopped' })
     expect(row?.lifecycle.observedRevision).toBe(row?.lifecycle.revision)
     expect(row?.status).toMatch(/hibernated|exited/)
-    // Then the worktree, once nothing runs in it.
-    expect(free).toHaveBeenCalledTimes(1)
+    // Then the worktree, once nothing runs in it: the member's own stop frees it
+    // and the final pass asks again, as the old stopIssue did.
+    expect(free).toHaveBeenCalled()
+    expect(free.mock.calls.at(-1)?.[0]).toBe(issue.id)
   })
 })
