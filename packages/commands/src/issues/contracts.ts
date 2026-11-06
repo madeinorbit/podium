@@ -66,6 +66,7 @@ import {
   MessageId,
   MutationIdField,
   NewIssueId,
+  NewSessionId,
   Revision,
   SessionIdField,
   ShipHoldAction,
@@ -324,6 +325,9 @@ export const startInput = z.object({
   /** Agent profile by name or id (POD-6107); persists onto the issue like --model. */
   agentProfile: z.string().trim().min(1).max(100).optional(),
   forceUnknownModel: z.boolean().optional(),
+  /** The spawned session's id, minted on the device (POD-6414): a start that
+   *  names it spawns at most once under it. */
+  sessionId: NewSessionId.optional(),
   mutationId: z.string().max(128).pipe(MutationIdField).optional(),
 })
 
@@ -449,9 +453,11 @@ export const addSessionInput = z.object({
   id: IssueIdField,
   agentKind: z.string().optional(),
   forceUnknownModel: z.boolean().optional(),
+  /** The new session's id, minted on the device (POD-6414): spawned at most once. */
+  sessionId: NewSessionId.optional(),
 })
 
-export const addShellInput = byIssueId
+export const addShellInput = byIssueId.extend({ sessionId: NewSessionId.optional() })
 
 export const applySuggestionInput = byIssueId
 

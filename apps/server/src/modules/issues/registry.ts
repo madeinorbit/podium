@@ -767,6 +767,7 @@ const defs = {
             ...(input.defaultEffort ? { effort: input.defaultEffort } : {}),
             ...(input.agentProfile ? { agentProfile: input.agentProfile } : {}),
             ...(input.forceUnknownModel ? { forceUnknownModel: true } : {}),
+            ...(input.sessionId ? { sessionId: input.sessionId } : {}),
           }),
       )
     },
@@ -991,13 +992,17 @@ const defs = {
       await ctx.gitWorkflow.addSession(input.id, input.agentKind, {
         spawnedBy: ctx.spawnProvenance(),
         ...(input.forceUnknownModel ? { forceUnknownModel: true } : {}),
+        ...(input.sessionId ? { sessionId: input.sessionId } : {}),
       }),
   }),
   addShell: def('addShell', {
     kind: 'mutation',
     target: targetId,
     handler: async (ctx, input) =>
-      await ctx.gitWorkflow.addShell(input.id, { spawnedBy: ctx.spawnProvenance() }),
+      await ctx.gitWorkflow.addShell(input.id, {
+        spawnedBy: ctx.spawnProvenance(),
+        ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+      }),
   }),
   applySuggestion: def('applySuggestion', {
     kind: 'mutation',

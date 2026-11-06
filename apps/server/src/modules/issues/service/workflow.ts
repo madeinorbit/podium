@@ -1752,7 +1752,7 @@ export class IssueGitWorkflowModule {
   async addSession(
     id: string,
     agentKind?: string,
-    opts?: { spawnedBy?: string; forceUnknownModel?: boolean },
+    opts?: { spawnedBy?: string; forceUnknownModel?: boolean; sessionId?: SessionId },
   ): Promise<IssueProjection | Promise<IssueProjection>> {
     const row = await this.store.rowOrThrow(id)
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
@@ -1774,7 +1774,7 @@ export class IssueGitWorkflowModule {
   private async spawnAddedSession(
     id: string,
     agentKind?: string,
-    opts?: { spawnedBy?: string; forceUnknownModel?: boolean },
+    opts?: { spawnedBy?: string; forceUnknownModel?: boolean; sessionId?: SessionId },
   ): Promise<IssueProjection> {
     const row = await this.store.rowOrThrow(id)
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
@@ -1822,6 +1822,7 @@ export class IssueGitWorkflowModule {
       )
     }
     await this.store.d.spawnSession({
+      ...(opts?.sessionId ? { sessionId: opts.sessionId } : {}),
       cwd: row.worktreePath,
       issueId: row.id,
       agentKind: kind,
@@ -1838,7 +1839,7 @@ export class IssueGitWorkflowModule {
 
   async addShell(
     id: string,
-    opts?: { spawnedBy?: string },
+    opts?: { spawnedBy?: string; sessionId?: SessionId },
   ): Promise<IssueProjection | Promise<IssueProjection>> {
     return await this.addSession(id, 'shell', opts)
   }
