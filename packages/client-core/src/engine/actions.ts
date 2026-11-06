@@ -45,7 +45,13 @@ import {
   UNSET,
 } from '../records'
 import type { SocketHub } from '../socket-transport'
-import type { SpawnDraftAgentArgs, SpawnTarget, TaskSpawnOutcome } from '../spawn-agent'
+import {
+  type LaunchSessionArgs,
+  type SpawnDraftAgentArgs,
+  type SpawnTarget,
+  sessionConfigureEffect,
+  type TaskSpawnOutcome,
+} from '../spawn-agent'
 import type { Router } from '../ui-state'
 import type {
   DockTab,
@@ -168,12 +174,14 @@ export const COMMAND_ACTIONS = [
   'preferPanelMode',
   'writeFileScoped',
   'spawnDraftAgent',
+  'launchSession',
   'spawnIssueAgent',
   'killSession',
   'continueSession',
   'hibernateSession',
   'endSession',
   'interruptTurn',
+  'configureSession',
   'dismissEffect',
   'resurrectSession',
   'sendChat',
@@ -336,6 +344,7 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
     issueId: IssueId
     settled: Promise<boolean>
   }
+  launchSession(args: LaunchSessionArgs): { sessionId: SessionId; settled: Promise<boolean> }
   spawnIssueAgent(args: {
     issueId?: IssueId
     sessionId?: SessionId
@@ -1076,6 +1085,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     gitCommitDiffFile: ((args) =>
       api.git.commitDiffFile.query(args)) as Store<TApi>['gitCommitDiffFile'],
     spawnDraftAgent: (args) => rt.spawnDraftAgent(args),
+    launchSession: (args) => rt.launchSession(args),
     spawnIssueAgent: (args) => rt.spawnIssueAgent(args),
     killSession: async (sessionId) => {
       // A draft start that never became a session is dismissed, not removed.
@@ -1149,6 +1159,14 @@ export function createEngineActions<TApi extends PodiumClientApi>(
           ...(args.messageId !== undefined ? { messageId: args.messageId } : {}),
         },
       })
+      return id
+    },
+    // A model or effort change (POD-6523): a `session.configure` effect record,
+    // queued durably. The chip reads its progress and the driver's answer from
+    // the record (`SessionModel.configureChange`), on every device.
+    configureSession: async (sessionId, patch) => {
+      const id = `eff_${randomUUID()}`
+      await rt.write('effectCreate', sessionConfigureEffect({ effectId: id, sessionId, ...patch }))
       return id
     },
     dismissEffect: async (id) => await rt.write('effectDismiss', { id }),

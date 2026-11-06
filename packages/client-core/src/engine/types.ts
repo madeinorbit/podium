@@ -30,7 +30,12 @@ import type { ReadPositionPort } from '../read-position'
 import type { RecordsApi } from '../records'
 import type { Replica } from '../replica/kernel/facade'
 import type { SocketHub } from '../socket-transport'
-import type { SpawnDraftAgentArgs, SpawnTarget, TaskSpawnOutcome } from '../spawn-agent'
+import type {
+  LaunchSessionArgs,
+  SpawnDraftAgentArgs,
+  SpawnTarget,
+  TaskSpawnOutcome,
+} from '../spawn-agent'
 import type { MainView, RoutedUiState } from '../ui-state'
 import type {
   DockTab,
@@ -383,6 +388,14 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
     issueId: IssueId
     settled: Promise<boolean>
   }
+  /** Start a session in a folder, joining the panel's task when it has one
+   *  (POD-6523): a `session.launch` effect record under a session id minted
+   *  here, painted from that record (and its queued create) until the row
+   *  lands. Returns the id synchronously so the caller opens its panel. */
+  launchSession: (args: LaunchSessionArgs) => {
+    sessionId: SessionId
+    settled: Promise<boolean>
+  }
   /** Start a named task optimistically, including its first chat turn. */
   spawnIssueAgent: (args: {
     issueId?: IssueId
@@ -445,6 +458,16 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    * (`interrupting`, `interruptStuck`) from the record, on every device.
    */
   interruptTurn: (sessionId: SessionId, args: { turn?: string; messageId?: string }) => Promise<string>
+  /**
+   * Change a running session's model or effort (POD-6523): a
+   * `session.configure` effect record with the patch. Resolves once it is
+   * durably queued, with its id; the session model reads its progress and the
+   * driver's answer (`configureChange`) from the record, on every device.
+   */
+  configureSession: (
+    sessionId: SessionId,
+    patch: { model?: string; effort?: string },
+  ) => Promise<string>
   /** Take an ended effect record off the feed (`effects.dismiss`). */
   dismissEffect: (id: string) => Promise<void>
   resurrectSession: (sessionId: SessionId) => Promise<SessionResurrectionResult>

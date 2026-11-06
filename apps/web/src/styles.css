@@ -4157,6 +4157,12 @@ button.pane-branch:hover {
   border-bottom: 1px dotted color-mix(in oklab, currentColor 55%, transparent);
   opacity: 0.8;
 }
+/* A model or effort change still on its way (POD-6523): the menus already show
+   what was asked for, wearing the same provisional mark until it is answered. */
+.model-chip[data-pending="true"] button > span {
+  border-bottom: 1px dotted color-mix(in oklab, currentColor 55%, transparent);
+  opacity: 0.8;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .chat-rail-btn {

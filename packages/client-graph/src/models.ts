@@ -12,7 +12,7 @@ import { attentionGroup, effectiveRecency } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
 import { groupRelations, type IssueCloseMemberCounts, type IssueCloseScalarSubject, type ReferentExit, motionPhase as sessionMotion, type TaskProgress } from '@podium/client-core/values'
 import { isTurnOpen, readEffectStatus, SESSION_INTERRUPT_KIND } from '@podium/model/browser'
-import { ISSUE_START_KIND, SESSION_LAUNCH_KIND } from '@podium/client-core/spawn-agent'
+import { ISSUE_START_KIND, SESSION_CONFIGURE_KIND, SESSION_LAUNCH_KIND } from '@podium/client-core/spawn-agent'
 import { asSessionId, type CoordinatedSeat, coordinatedSeat, sessionWorkingFact, isExcluded, isFinished, NO_INTERACTIONS, type SeatInteractions, type SeatRole, type SeatSessionFacts, type SessionWord, type SessionWordFacts, sessionWord, wordWantsAttention } from '@podium/model/browser'
 import type { ReaderQueries } from './reader-queries'
 import type { IssueSessionFactReader } from './shared/issue-session-facts'
@@ -875,6 +875,18 @@ export class SessionModel extends EntityModel {
     if (stop === undefined || !stop.unsuccessful || !isTurnOpen(this.agentState)) return false
     const turn = (stop.input as { turn?: unknown } | null | undefined)?.turn
     return typeof turn !== 'string' || turn === this.turnStartedAt
+  }
+
+  /** The model or effort change asked for most recently on this session, as
+   *  its effect record (POD-6523): its patch while it waits, the driver's
+   *  answer once it ends. */
+  @lazy get configureChange(): EffectModel | undefined {
+    let latest: EffectModel | undefined
+    for (const effect of this.effects.ready) {
+      if (effect.kind !== SESSION_CONFIGURE_KIND) continue
+      if (latest === undefined || effect.createdAt > latest.createdAt) latest = effect
+    }
+    return latest
   }
 
   // Stored session document, published by Draft Sync v2 rather than the meta feed.

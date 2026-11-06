@@ -112,6 +112,8 @@ export interface PoolTransactions {
   /** The person this log writes for: their per-user rows are their own. */
   readonly userId: string
   spawnDraftAgent: PoolLaunches['spawnDraftAgent']
+  /** A plain session start in a folder (POD-6523): the panel menu's. */
+  launchSession: PoolLaunches['launchSession']
   /** Take a failed or expired draft start off the feed (POD-6408): true when
    *  the session was one, so its Remove means Dismiss. */
   dismissLaunch(sessionId: SessionId): boolean
@@ -740,6 +742,14 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
       let started!: ReturnType<PoolLaunches['spawnDraftAgent']>
       runInAction(() => {
         started = launchOwner.spawnDraftAgent(args)
+      })
+      return started
+    },
+    launchSession: (args) => {
+      if (!launchOwner) throw new Error('Pool spawn transport is not attached')
+      let started!: ReturnType<PoolLaunches['launchSession']>
+      runInAction(() => {
+        started = launchOwner.launchSession(args)
       })
       return started
     },

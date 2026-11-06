@@ -470,3 +470,72 @@ describe('a named task with its first agent as an issue.start effect (POD-6410)'
     p.tx.dispose()
   })
 })
+
+/** A plain start's record: in a folder, joining an existing task (POD-6523). */
+function plainRecord(status: EffectStatus, error?: string): EffectRecordWire {
+  const record = launchRecord(status, error)
+  return {
+    ...record,
+    input: { agentKind: 'opencode', cwd: '/r/w', issueId: ISSUE },
+  } as EffectRecordWire
+}
+
+describe('a plain session start as a launch effect (POD-6523)', () => {
+  it('paints the starting session in its task, paints no task, and queues the launch', async () => {
+    const p = pool({ record: plainRecord })
+    const started = p.tx.launchSession({
+      sessionId: SESSION,
+      target: { ...TARGET, machineId: 'm-1' as never },
+      agentKind: 'opencode',
+      issueId: ISSUE,
+      requestedDriverId: 'opencode-server',
+    })
+    expect(started.sessionId).toBe(SESSION)
+    await Promise.resolve()
+    expect(p.shown('sessions', SESSION)).toMatchObject({
+      sessionId: SESSION,
+      status: 'starting',
+      issueId: ISSUE,
+      cwd: '/r/w',
+      machineId: 'm-1',
+    })
+    // The task is already a row: the start joins it, it never paints one.
+    expect(p.painted('issueProjections', ISSUE)).toBe(0)
+    const [entry] = p.queue()
+    expect(entry?.kind).toBe('effectCreate')
+    expect(entry?.input).toMatchObject({
+      kind: SESSION_LAUNCH_KIND,
+      target: { kind: 'session', id: SESSION },
+      input: {
+        agentKind: 'opencode',
+        cwd: '/r/w',
+        machineId: 'm-1',
+        issueId: ISSUE,
+        requestedDriverId: 'opencode-server',
+      },
+    })
+    expect((entry?.input as { input: object }).input).not.toHaveProperty('draftIssue')
+    await expect(started.settled).resolves.toBe(true)
+    p.tx.dispose()
+  })
+
+  it('keeps painting from its record, and shows a failed launch as exited with its error', async () => {
+    const p = pool({ record: plainRecord })
+    p.tx.launchSession({
+      sessionId: SESSION,
+      target: TARGET,
+      agentKind: 'opencode',
+      issueId: ISSUE,
+    })
+    await Promise.resolve()
+    p.confirmed('pending')
+    expect(p.shown('sessions', SESSION)).toMatchObject({ status: 'starting', issueId: ISSUE })
+    p.effect('failed', 'machine refused')
+    expect(p.shown('sessions', SESSION)).toMatchObject({
+      status: 'exited',
+      spawnFailure: 'machine refused',
+    })
+    expect(p.errors).toEqual(["Couldn't start the agent — machine refused"])
+    p.tx.dispose()
+  })
+})

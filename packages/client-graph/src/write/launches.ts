@@ -34,9 +34,11 @@ import {
   ISSUE_START_KIND,
   ISSUE_START_PROPOSED,
   issueStartEffect,
+  type LaunchSessionArgs,
   SESSION_LAUNCH_KIND,
   type SpawnDraftAgentArgs,
   type SpawnTarget,
+  sessionLaunchEffect,
   startEffectId,
   type TaskSpawnOutcome,
 } from '@podium/client-core/spawn-agent'
@@ -115,6 +117,8 @@ interface LaunchInput {
   readonly cwd?: string
   readonly machineId?: MachineId
   readonly draftIssue?: { readonly repoPath: string; readonly issueId: IssueId }
+  /** A plain start's existing task (POD-6523): joined, never painted. */
+  readonly issueId?: IssueId
   // `issue.start`: the create's fields (the description only while queued here).
   readonly sessionId?: SessionId
   readonly repoPath?: string
@@ -141,7 +145,7 @@ function launchOf(
       effectId: effect.id,
       kind: SESSION_LAUNCH_KIND,
       sessionId: effect.target.id as SessionId,
-      issueId: input.draftIssue?.issueId,
+      issueId: input.draftIssue?.issueId ?? input.issueId,
       input,
     }
   }
@@ -224,6 +228,27 @@ export class PoolLaunches {
     const settled = new Promise<boolean>((resolve) => this.settlers.set(sessionId, resolve))
     this.begin(create, sessionId, 'agent')
     return { sessionId, issueId, settled }
+  }
+
+  /** Paint a starting session in a folder (and the task it joins, which is
+   *  already a row), then queue its launch (POD-6523). */
+  launchSession(args: LaunchSessionArgs): { sessionId: SessionId; settled: Promise<boolean> } {
+    if (this.disposed) throw new Error('PoolLaunches: spawn after dispose')
+    const sessionId = args.sessionId ?? asSessionId(randomUUID())
+    const create = sessionLaunchEffect({
+      effectId: `eff_${randomUUID()}`,
+      sessionId,
+      target: args.target,
+      agentKind: args.agentKind,
+      ...(args.issueId !== undefined ? { issueId: args.issueId } : {}),
+      ...(args.requestedDriverId !== undefined
+        ? { requestedDriverId: args.requestedDriverId }
+        : {}),
+    })
+    this.local.set(sessionId, { target: args.target })
+    const settled = new Promise<boolean>((resolve) => this.settlers.set(sessionId, resolve))
+    this.begin(create, sessionId, 'agent')
+    return { sessionId, settled }
   }
 
   /** Paint a named task, its first session and its first chat turn, then

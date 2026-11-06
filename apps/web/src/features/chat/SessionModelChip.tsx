@@ -1,10 +1,13 @@
 import { effortLabel, issueAgentKind, modelLabel } from '@podium/client-core/agent-models'
 import type { SessionView } from '@podium/client-core/session-values'
+import type { EffectModel } from '@podium/client-graph/models'
+import { awaitEffect } from '@podium/client-graph/write/await-effect'
 import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
-import { useCallback } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { useRuntimeActions } from '@/app/keyed-runtime'
+import { useRuntimeSelector } from '@/app/store'
+import { useWorklistPool } from '@/app/store-worklist-pool'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import type { IssueAgentKind } from '@/lib/issue-agents'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
@@ -41,8 +44,6 @@ export type ModelChipSession = Pick<
 const CHIP =
   'inline-flex h-7 min-w-0 max-w-full items-center rounded-[7px] text-[12px] leading-none text-text-faint'
 
-const CONFIGURE_ACTIONS = ['trpc'] as const
-
 /**
  * A SESSION'S MODEL · EFFORT CHIP (POD-6264): `Opus 5.5 · High`, in the chat
  * composer where the next message is written, the way the new-task box shows it
@@ -71,6 +72,53 @@ export const SessionModelChip = observer(function SessionModelChip({
   return <ReadoutChip session={session} agentKind={agentKind} verdict={verdict} />
 })
 
+/** A change's patch, as its record (or this device's queued create) holds it. */
+interface ConfigurePatch {
+  readonly model?: string
+  readonly effort?: string
+}
+
+/** The driver's answer on a `session.configure` record (`sessions.configure`'s shape). */
+type ConfigureAnswer =
+  | { ok: true; effective?: 'now' | 'next-turn' }
+  | { reason: string; detail?: string }
+
+/** Say how this device's own change ended: only the device that asked hears
+ *  it, once, whether or not the chip is still mounted. */
+function tellEnding(change: EffectModel): void {
+  const answer = change.result as ConfigureAnswer | undefined
+  if (change.status === 'succeeded') {
+    toast.success(
+      answer && 'ok' in answer && answer.effective === 'now'
+        ? 'The running session changed.'
+        : 'The change applies from the next turn.',
+    )
+    return
+  }
+  if (change.status === 'cancelled') return
+  if (answer && 'reason' in answer) {
+    toast.error(answer.detail ?? `Could not change the running session (${answer.reason}).`)
+    return
+  }
+  toast.error(
+    change.status === 'expired'
+      ? 'The change was not made in time; the session runs as before.'
+      : (change.error?.message ?? 'Could not change the running session.'),
+  )
+}
+
+/**
+ * The session's latest `session.configure` record (POD-6523), from the pool's
+ * own effect models, so every device reads the same progress.
+ */
+function useConfigureChange(sessionId: ModelChipSession['sessionId']): {
+  pool: ReturnType<typeof useWorklistPool>
+  change: EffectModel | undefined
+} {
+  const pool = useWorklistPool()
+  return { pool, change: pool?.sessionObject(sessionId).configureChange }
+}
+
 const ConfigurableChip = observer(function ConfigurableChip({
   session,
   agentKind,
@@ -78,33 +126,53 @@ const ConfigurableChip = observer(function ConfigurableChip({
   session: ModelChipSession
   agentKind: IssueAgentKind
 }): JSX.Element {
-  const { trpc } = useRuntimeActions(CONFIGURE_ACTIONS)
+  const configureSession = useRuntimeSelector((s) => s.configureSession)
   const sessionId = session.sessionId
-  const model = menuModel(session)
-  const effort = menuEffort(session)
+  const { pool, change } = useConfigureChange(sessionId)
+  // A change this device is still writing, or whose record has not reached
+  // the pool yet: its patch paints until the record does.
+  const [asked, setAsked] = useState<{ id?: string; patch: ConfigurePatch } | null>(null)
+  const recorded = asked?.id !== undefined && change?.id === asked.id
+  useEffect(() => {
+    if (recorded) setAsked(null)
+  }, [recorded])
+  // PENDING PAINT: what was asked for, while it waits (POD-6523). A change
+  // that ended shows the session's own fields again: a grant wrote them, a
+  // refusal left them as they were.
+  const pending: ConfigurePatch | undefined =
+    asked !== null && !recorded
+      ? asked.patch
+      : change?.inFlight
+        ? (change.input as ConfigurePatch | undefined)
+        : undefined
+  const model = pending?.model ?? menuModel(session)
+  const effort = pending?.effort ?? menuEffort(session)
   // PATCH-shaped: each menu sends only its own field, so the other sticky
   // choice stays as it was.
   const configure = useCallback(
-    async (patch: { model?: string; effort?: string }) => {
+    async (patch: ConfigurePatch) => {
+      setAsked({ patch })
       try {
-        const result = await trpc.sessions.configure.mutate({ sessionId, ...patch })
-        if ('ok' in result) {
-          toast.success(
-            result.effective === 'next-turn'
-              ? 'The change applies from the next turn.'
-              : 'The running session changed.',
-          )
-          return
-        }
-        toast.error(result.detail ?? `Could not change the running session (${result.reason}).`)
+        const id = await configureSession(sessionId, patch)
+        setAsked((current) => (current?.patch === patch ? { id, patch } : current))
+        // The driver answers on the record, not on the write.
+        if (pool) void awaitEffect(pool, id).then(tellEnding)
       } catch {
+        setAsked((current) => (current?.patch === patch ? null : current))
         toast.error('Could not change the running session.')
       }
     },
-    [sessionId, trpc],
+    [sessionId, configureSession, pool],
   )
   return (
-    <span className={CHIP} data-testid="session-model" data-configurable="true">
+    <span
+      className={cn(CHIP, 'model-chip')}
+      data-testid="session-model"
+      data-configurable="true"
+      // A change still on its way: the menus already show what was asked for.
+      data-pending={pending !== undefined ? 'true' : undefined}
+      aria-busy={pending !== undefined}
+    >
       <ModelPicker
         variant="inline"
         agentKind={agentKind}
@@ -115,7 +183,9 @@ const ConfigurableChip = observer(function ConfigurableChip({
           if (next !== model) void configure({ model: next })
         }}
       />
-      <span className="shrink-0" aria-hidden="true">·</span>
+      <span className="shrink-0" aria-hidden="true">
+        ·
+      </span>
       <EffortPicker
         variant="inline"
         agentKind={agentKind}

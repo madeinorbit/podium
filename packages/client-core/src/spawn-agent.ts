@@ -79,8 +79,9 @@ export function agentAcceptsArgvPrompt(
 
 /**
  * Refuse a placement before any optimistic entity is painted or network request
- * is assembled. Engine calls this at its action boundary; `draftLaunchEffect`
- * and `issueStartEffect` repeat it as defense in depth for direct callers.
+ * is assembled. Engine calls this at its action boundary; `draftLaunchEffect`,
+ * `sessionLaunchEffect` and `issueStartEffect` repeat it as defense in depth
+ * for direct callers.
  */
 export function assertSpawnPlacement(target: SpawnTarget): void {
   if (target.placement === 'unauthorized') throw new SpawnPlacementError('unauthorized')
@@ -136,6 +137,79 @@ export function draftLaunchEffect(args: {
       ...(args.requestedDriverId !== undefined
         ? { requestedDriverId: args.requestedDriverId }
         : {}),
+    },
+  }
+}
+
+/** A plain session start (POD-6523): no draft task, no first prompt. */
+export interface LaunchSessionArgs {
+  /** The id to start under; minted when absent. */
+  sessionId?: SessionId
+  /** Where it runs: the folder and, when chosen, the machine. */
+  target: SpawnTarget
+  agentKind: AgentKind
+  /** The existing task it joins; absent, it joins none. */
+  issueId?: IssueId
+  /** The per-spawn driver override, forwarded verbatim (`sessions.create`). */
+  requestedDriverId?: string
+}
+
+/**
+ * A plain session start as a `session.launch` effect record (POD-6523): the
+ * panel menu's "new agent here", in a folder and, when it has one, the task the
+ * panel shows. Like a draft start, the device mints the session id, and the
+ * record is what every device paints until the row is born under it.
+ */
+export function sessionLaunchEffect(args: {
+  effectId: string
+  sessionId: SessionId
+  target: SpawnTarget
+  agentKind: AgentKind
+  issueId?: IssueId
+  requestedDriverId?: string
+}): EffectCreateInput {
+  assertSpawnPlacement(args.target)
+  return {
+    id: args.effectId,
+    kind: SESSION_LAUNCH_KIND,
+    target: { kind: 'session', id: args.sessionId },
+    input: {
+      agentKind: args.agentKind,
+      cwd: args.target.path,
+      ...(args.target.machineId ? { machineId: args.target.machineId } : {}),
+      ...(args.issueId ? { issueId: args.issueId } : {}),
+      ...(args.requestedDriverId !== undefined
+        ? { requestedDriverId: args.requestedDriverId }
+        : {}),
+    },
+  }
+}
+
+/** The effect kind changing a running session's model or effort is (POD-6416). */
+export const SESSION_CONFIGURE_KIND = 'session.configure'
+
+/**
+ * A model or effort change on a running session as a `session.configure`
+ * effect record (POD-6523): the patch, each field only when it changes, with
+ * the session as its target. The server asks the session's driver once; the
+ * record carries the driver's answer (`{ ok, effective }` or its refusal).
+ */
+export function sessionConfigureEffect(args: {
+  effectId: string
+  sessionId: SessionId
+  model?: string
+  effort?: string
+}): EffectCreateInput {
+  if (args.model === undefined && args.effort === undefined) {
+    throw new Error('session.configure: name a model or an effort to change')
+  }
+  return {
+    id: args.effectId,
+    kind: SESSION_CONFIGURE_KIND,
+    target: { kind: 'session', id: args.sessionId },
+    input: {
+      ...(args.model !== undefined ? { model: args.model } : {}),
+      ...(args.effort !== undefined ? { effort: args.effort } : {}),
     },
   }
 }

@@ -96,7 +96,6 @@ const MENU_GLYPH = 'size-3.5 flex-none'
  *  14px column, so the names still line up with the labels above them. */
 const MACHINE_DOT = 'mx-[4px] size-1.5 flex-none'
 
-
 export function NewPanelMenu(
   props: Omit<Parameters<typeof NewPanelMenuBody>[0], 'data'>,
 ): JSX.Element {
@@ -154,7 +153,7 @@ const NewPanelMenuBody = observer(function NewPanelMenuBody({
   trigger?: React.ReactElement
 }): JSX.Element {
   const { machines } = data
-  const { trpc, setPanelMode } = useCommandLaunchActions()
+  const { launchSession, setPanelMode } = useCommandLaunchActions()
   const runtimeDriversEnabled = useFeature('runtime-drivers')
 
   // Resolve the repo view for the current worktree (cross-machine merged view).
@@ -194,16 +193,24 @@ const NewPanelMenuBody = observer(function NewPanelMenuBody({
     ...repoView.machines.map((m) => m.machineId),
   ])
 
-  async function create(agentKind: AgentKind, machineId?: MachineId, requestedDriverId?: string) {
+  function create(agentKind: AgentKind, machineId?: MachineId, requestedDriverId?: string) {
     const cwd = cwdFor(machineId)
     // A concrete driver id is an explicit per-session selection (the
     // experimental driver row passes its id); absent is the manifest's headed
     // terminal default, which the daemon binds unconditionally (POD-4426). The
     // old `true` spelling named that default explicitly and is gone.
-    const { sessionId } = await trpc.sessions.create.mutate({
+    //
+    // A `session.launch` effect record (POD-6523): the session id is minted
+    // here and the starting session paints from the record at once, also while
+    // the machine is offline, so its panel opens without a round trip.
+    const { sessionId } = launchSession({
       agentKind,
-      cwd,
-      ...(machineId ? { machineId } : {}),
+      target: {
+        path: cwd,
+        repoPath: repoView.path,
+        ...(worktree.repoId ? { repoId: worktree.repoId } : {}),
+        ...(machineId ? { machineId } : {}),
+      },
       ...(issueId ? { issueId } : {}),
       ...(requestedDriverId !== undefined ? { requestedDriverId } : {}),
     })
@@ -269,7 +276,7 @@ const NewPanelMenuBody = observer(function NewPanelMenuBody({
                 ...(hint ? { hint } : {}),
                 ...(warning ? { warning } : {}),
               }}
-              onSelect={() => void create(kind, machine?.id)}
+              onSelect={() => create(kind, machine?.id)}
             />
           )
         })}
@@ -307,9 +314,7 @@ const NewPanelMenuBody = observer(function NewPanelMenuBody({
                     hint: 'no host',
                   }
             }
-            onSelect={() =>
-              void create(kind, target === undefined ? undefined : asMachineId(target))
-            }
+            onSelect={() => create(kind, target === undefined ? undefined : asMachineId(target))}
           />
         )
       })}
@@ -475,7 +480,7 @@ function HeadlessDriverItems({
   agents,
 }: {
   machine: MachineWire
-  onCreate: (kind: AgentKind, machineId: MachineId, requestedDriverId?: string) => Promise<void>
+  onCreate: (kind: AgentKind, machineId: MachineId, requestedDriverId?: string) => void
   agents: { kind: AgentKind; label: string; Icon: IconComponent }[]
 }): JSX.Element | null {
   const drivers = headlessRuntimeDrivers(machine)
@@ -501,7 +506,7 @@ function HeadlessDriverItems({
                   }
                 : {}),
             }}
-            onSelect={() => void onCreate(driver.harness, machine.id, driver.id)}
+            onSelect={() => onCreate(driver.harness, machine.id, driver.id)}
           />
         )
       })}
@@ -516,7 +521,7 @@ function MachineSubmenu({
   agents,
 }: {
   machine: MachineWire
-  onCreate: (kind: AgentKind, machineId: MachineId, requestedDriverId?: string) => Promise<void>
+  onCreate: (kind: AgentKind, machineId: MachineId, requestedDriverId?: string) => void
   runtimeDriversEnabled: boolean
   agents: { kind: AgentKind; label: string; Icon: IconComponent }[]
 }): JSX.Element {
@@ -552,7 +557,7 @@ function MachineSubmenu({
                 ...(hint ? { hint } : {}),
                 ...(warning ? { warning } : {}),
               }}
-              onSelect={() => void onCreate(kind, machine.id)}
+              onSelect={() => onCreate(kind, machine.id)}
             />
           )
         })}

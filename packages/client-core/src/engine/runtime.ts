@@ -180,6 +180,7 @@ export type OutboxOutcome =
  */
 export interface PoolWriter {
   spawnDraftAgent?: Store['spawnDraftAgent']
+  launchSession?: Store['launchSession']
   spawnIssueAgent?: Store['spawnIssueAgent']
   waitForSpawnConfirmed?: (id: SessionId) => Promise<void>
   /** A failed draft start's Remove (POD-6408). */
@@ -1600,6 +1601,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       revealFileTab: (args) => this.revealFileTab(args),
       spawnDraftAgent: (args: Parameters<Store<TApi>['spawnDraftAgent']>[0]) =>
         this.requirePoolWriter().spawnDraftAgent!(args),
+      launchSession: (args: Parameters<Store<TApi>['launchSession']>[0]) =>
+        this.requirePoolWriter().launchSession!(args),
       spawnIssueAgent: (args: Parameters<Store<TApi>['spawnIssueAgent']>[0]) =>
         this.requirePoolWriter().spawnIssueAgent!(args),
       waitForSpawnConfirmed: (sessionId) =>
