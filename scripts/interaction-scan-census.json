@@ -3574,19 +3574,18 @@
       "file": "apps/web/src/features/chat/ChatView.tsx",
       "holder": "ConversationChatView/ConversationChatView/chat",
       "rule": "reader-summary",
-      "tokens": "348d6f2ae3167bd5beaf1567c2a10bc973476ebf4736cb1e95e3080a341f5a44",
+      "tokens": "47dad2aff0112e0bf7313fb11b41f6752ca49adbeb8d9cea33f96253f644e962",
       "gate": [],
       "origin": [
-        "0ada7271c7f9a312e00ddc7d7745c29aa340b32ed0cad32a202b66ad0a6fa4cc",
         "38fbaac9da16906de217d6806926a7bbec5c49548b92e3e9c328e6f573c27b23"
       ],
-      "fingerprint": "3b25d8517c22fff80df79e2a30626d49549a5f7f05c6f611324cde497f413eda",
+      "fingerprint": "e756855e2e8530c9fb451254812c9019000850b997d85f39e958cfc1d5b61a63",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Mount one chat reader and its DOM layout.",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "Display facts are read by leaf observers, but inherited conversation/context initialization taint remains; this entry claims no new collection bound. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 004229d48a542972d7a2e936455fb7c6a64b21c0c8731b8dc31ba8b0d9638680. POD-2047: Async interview submission reads its captured transcript block by ID; reader multiplicity and inherited collection demand are unchanged. Predecessor: aef63c7ad31df7b5a7f7d762b326cd7669dfa56308ed9ef69fc883990f001545. POD-2047 review fixes: replies now use the conversation outbox, removing the direct-send collection origin; current-question validation stays addressed and duplicate checks inspect this conversation pending replies. Classification and owner retain the inherited reader debt. Predecessor: 73fb89f4c9705c80f9d63ec115c88d898ea535eca1cf8daf6bca23e9fa33afbb. Predecessor: 8cbdd215fec11b8585f58062e26d540be96fce8532384306a175d395fe425bb1. POD-2219: the removed tl;dr rail button no longer reads the last answer text; reader multiplicity and inherited collection demand are unchanged. Predecessor: ef264dbe228e117f58409d18bfb00f32c34ae33856db693b93bffd048b10d0c1. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: e44abe82524bfc15e9af2523e4e47ea6731942d7fc60bfa6a3b9a110810cc521.",
+      "reason": "Display facts are read by leaf observers, but inherited conversation/context initialization taint remains; this entry claims no new collection bound. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 004229d48a542972d7a2e936455fb7c6a64b21c0c8731b8dc31ba8b0d9638680. POD-2047: Async interview submission reads its captured transcript block by ID; reader multiplicity and inherited collection demand are unchanged. Predecessor: aef63c7ad31df7b5a7f7d762b326cd7669dfa56308ed9ef69fc883990f001545. POD-2047 review fixes: replies now use the conversation outbox, removing the direct-send collection origin; current-question validation stays addressed and duplicate checks inspect this conversation pending replies. Classification and owner retain the inherited reader debt. Predecessor: 73fb89f4c9705c80f9d63ec115c88d898ea535eca1cf8daf6bca23e9fa33afbb. Predecessor: 8cbdd215fec11b8585f58062e26d540be96fce8532384306a175d395fe425bb1. POD-2219: the removed tl;dr rail button no longer reads the last answer text; reader multiplicity and inherited collection demand are unchanged. Predecessor: ef264dbe228e117f58409d18bfb00f32c34ae33856db693b93bffd048b10d0c1. POD-2304 retains the displayed turn boundary through an addressed callback; unrelated collection ownership and classifications are unchanged. Predecessor: e44abe82524bfc15e9af2523e4e47ea6731942d7fc60bfa6a3b9a110810cc521. Predecessor: 3b25d8517c22fff80df79e2a30626d49549a5f7f05c6f611324cde497f413eda (POD-6415: the interview answer is a session.answer effect record awaited through the answer hook instead of a direct tRPC route; the direct-route origin is gone and collection demand is unchanged).",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -15056,6 +15055,26 @@
       "trigger": "Invocation of outboxExecutors/sendText/callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-core/src/engine/wiring.ts",
+      "holder": "outboxExecutors/dismissOffer/callback",
+      "rule": "reader-summary",
+      "tokens": "3de277922846f01bceb0a4dad1fae9cdd57f0be6f952ee5d8f6750beac693e25",
+      "gate": [
+        "then:b2dce2d95bc7386803017b355eea037d984a772eec69c6449be43f46df8e2a21"
+      ],
+      "origin": [
+        "83426d458bdf2b43fd33bb435e1442b2468cbfa41503c243146ea2a7ad975642"
+      ],
+      "fingerprint": "f3c1c069f60ba7dce7bc099c5831bf045d07d6078e3ea9b473eda50d1e06cbe7",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of outboxExecutors/dismissOffer/callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "POD-6415: the offer dismissal drains on sync.submit (submitNow) with the old route as its LEGACY fallback, as the sendText executor does; it inherits the same client-api reader-summary taint and claims no new collection bound.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
