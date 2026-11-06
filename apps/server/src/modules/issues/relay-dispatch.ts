@@ -267,6 +267,7 @@ export function makeAgentRelayDispatch(
         { capability, ...(overrideScope ? { overrideScope } : {}) },
         proc,
         input,
+        relayPrincipal,
       )
     }
     // Unified messaging command surface (#237) [spec:SP-34d7]: podium mail

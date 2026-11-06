@@ -1,10 +1,18 @@
-import { type CommandDef, defineCommands, type LockCommandName } from '@podium/commands'
+import {
+  type CommandDef,
+  type CommandTransport,
+  defineCommands,
+  type LockCommandName,
+} from '@podium/commands'
 import { lockNameProblem } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
+import { type CommandPrincipal, resolvePrincipal } from '../../command-principal'
 import { authorize } from '../../issue-authz'
 import type { IssueCaller } from '../issues/command-ctx'
 import type { IssueService } from '../issues/service'
+import type { FrontDoorTransport } from '../front-door'
+import { runPlainDef } from '../plain-command/entry'
 import type { LockCallerIdentity, LockHolderId, LockService } from './service'
 
 /**
@@ -18,6 +26,15 @@ import type { LockCallerIdentity, LockHolderId, LockService } from './service'
  * Authorization is declared like `mailSend`: writes with NO issue-scope target
  * (a lock is a repo-scoped coordination token, not an issue mutation), so
  * agents may always reach them once the role gate passes.
+ *
+ * THE PLAIN COMMAND PATH (ADR 12 D8, POD-6419). A lease is a condition that
+ * expires by itself, which no screen lists: ADR 12 D1 places lock status among
+ * the request answers, and nothing a lock write touches is synced. So the five
+ * lock writes are plain commands: the front door (exposure on the transport,
+ * the member floor, the action's role, then the parse) and a plain handler, on
+ * tRPC and on the relay alike. These routes are their real doors, not adapters.
+ * The grant and steal notices are mail, sent after the commit as the server's
+ * own write (`relay.ts`).
  */
 
 export type LockCommandKind = 'query' | 'mutation'
@@ -131,9 +148,13 @@ const lockName = z
 const lockRef = z.object({ repoPath: z.string(), name: lockName })
 const ttlField = { ttlSeconds: z.number().int().positive().max(86_400).optional() }
 
+/** Where a lock write is served: the operator's tRPC and an agent's relay. */
+const LOCK_WRITE_TRANSPORTS: readonly CommandTransport[] = ['trpc', 'relay']
+
 const defs = {
   acquire: def({
     kind: 'mutation',
+    exposure: LOCK_WRITE_TRANSPORTS,
     input: lockRef.extend({
       ...ttlField,
       note: z.string().max(500).optional(),
@@ -146,6 +167,7 @@ const defs = {
   }),
   cancel: def({
     kind: 'mutation',
+    exposure: LOCK_WRITE_TRANSPORTS,
     input: lockRef,
     action: 'write',
     cli: { positional: ['name'], summary: "Leave a lock's wait queue." },
@@ -153,6 +175,7 @@ const defs = {
   }),
   release: def({
     kind: 'mutation',
+    exposure: LOCK_WRITE_TRANSPORTS,
     input: lockRef,
     action: 'write',
     cli: { positional: ['name'], summary: 'Release a lock you hold.' },
@@ -160,6 +183,7 @@ const defs = {
   }),
   renew: def({
     kind: 'mutation',
+    exposure: LOCK_WRITE_TRANSPORTS,
     input: lockRef.extend(ttlField),
     action: 'write',
     cli: { positional: ['name'], summary: 'Extend the lease on a lock you hold.' },
@@ -174,6 +198,7 @@ const defs = {
   }),
   steal: def({
     kind: 'mutation',
+    exposure: LOCK_WRITE_TRANSPORTS,
     input: lockRef.extend({ ...ttlField, note: z.string().max(500).optional() }),
     action: 'write',
     cli: { positional: ['name'], summary: 'Force-take a lock regardless of holder.' },
@@ -215,10 +240,53 @@ export class LockCommandDispatcher {
     return def.handler(new LockCommandCtx(this.deps, caller), input) as ReturnType<D['handler']>
   }
 
-  /** Run one relayed command from RAW input. Undefined = no such procedure. */
-  async dispatch(caller: IssueCaller, proc: string, rawInput: unknown): Promise<unknown | undefined> {
+  /**
+   * One lock WRITE on the plain command path (POD-6419), from RAW input: the
+   * front door, then the handler inside the plain scope. A refused caller gets
+   * the guard's answer it always got; bad input, the schema's error.
+   */
+  async runPlain(
+    caller: IssueCaller,
+    principal: CommandPrincipal,
+    transport: FrontDoorTransport,
+    proc: string,
+    rawInput: unknown,
+  ): Promise<unknown> {
+    const def = (lockRegistry.defs as Record<string, AnyLockCommandDef>)[proc]
+    if (def === undefined || def.kind !== 'mutation') {
+      throw new Error(`lock: ${proc} is not a lock write`)
+    }
+    const reply = await runPlainDef({
+      name: `lock.${proc}`,
+      def,
+      principal,
+      transport,
+      input: rawInput,
+      run: async (input) => await this.run(caller, proc, def, input),
+    })
+    if (reply.outcome === 'applied') return reply.result
+    if (reply.refusal.kind === 'invalid') throw reply.refusal.error
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'not allowed to use locks' })
+  }
+
+  /**
+   * Run one relayed command from RAW input. Undefined = no such procedure. A
+   * write takes the plain command path; `status` is a read, behind the guard.
+   */
+  async dispatch(
+    caller: IssueCaller,
+    proc: string,
+    rawInput: unknown,
+    /** Who is asking, for the front door; an in-process caller's capability
+     *  read as a principal when absent. */
+    principal: () => Promise<CommandPrincipal> = async () =>
+      resolvePrincipal(caller.capability, { parentSessionOf: () => undefined }),
+  ): Promise<unknown | undefined> {
     if (!Object.hasOwn(lockRegistry.defs, proc)) return undefined
     const def = (lockRegistry.defs as Record<string, AnyLockCommandDef>)[proc] as AnyLockCommandDef
+    if (def.kind === 'mutation') {
+      return await this.runPlain(caller, await principal(), 'relay', proc, rawInput)
+    }
     return await Promise.resolve().then(() => {
       guardLockCommand(caller, def)
       const input: unknown = def.input.parse(rawInput)

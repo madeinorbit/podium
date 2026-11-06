@@ -28,13 +28,15 @@
  * diagnostics flow and keeps its own rules (redaction, audit trail) in its family.
  */
 
-import type { AnyCommandContract } from '@podium/commands'
+import type { AnyCommandContract, CommandDef } from '@podium/commands'
 import type { z } from 'zod'
 import type { CommandPrincipal } from '../../command-principal'
 import { withPlainCommand } from '../../plain-command-scope'
 import {
   coarselyPermitted,
   contractFrontDoor,
+  defFrontDoor,
+  type FrontDoorCommand,
   type FrontDoorTransport,
   parseCommandInput,
 } from '../front-door'
@@ -77,10 +79,42 @@ export async function runPlainCommand<Out>(
   call: PlainCommandCall<Out>,
 ): Promise<PlainCommandReply<Awaited<Out>>> {
   const { contract } = call
-  if (!coarselyPermitted(contractFrontDoor(contract), call.principal, call.transport)) {
+  return await runThroughFrontDoor(
+    contract.name,
+    contractFrontDoor(contract),
+    contract.input,
+    call,
+  )
+}
+
+/**
+ * A plain command declared as a `defineCommands` entry rather than a contract
+ * (the lock registry, POD-6419): the same front door, read through the def's own
+ * fields (`defFrontDoor`: the member floor, its action, its exposure), then the
+ * plain handler.
+ */
+export interface PlainDefCall<Out> extends Omit<PlainCommandCall<Out>, 'contract'> {
+  /** The dotted wire name, `namespace.key`: the def carries none of its own. */
+  readonly name: string
+  readonly def: CommandDef
+}
+
+export async function runPlainDef<Out>(
+  call: PlainDefCall<Out>,
+): Promise<PlainCommandReply<Awaited<Out>>> {
+  return await runThroughFrontDoor(call.name, defFrontDoor(call.def), call.def.input, call)
+}
+
+async function runThroughFrontDoor<Out>(
+  name: string,
+  door: FrontDoorCommand,
+  schema: z.ZodTypeAny,
+  call: Omit<PlainCommandCall<Out>, 'contract'>,
+): Promise<PlainCommandReply<Awaited<Out>>> {
+  if (!coarselyPermitted(door, call.principal, call.transport)) {
     return { outcome: 'rejected', refusal: { kind: 'unauthorized' } }
   }
-  const parsed = parseCommandInput(contract.input, call.input)
+  const parsed = parseCommandInput(schema, call.input)
   if (!parsed.ok) {
     return {
       outcome: 'rejected',
@@ -90,7 +124,7 @@ export async function runPlainCommand<Out>(
   if (call.targetPermitted && !call.targetPermitted(call.principal, parsed.input)) {
     return { outcome: 'rejected', refusal: { kind: 'unauthorized' } }
   }
-  const result = await withPlainCommand(contract.name, async () => await call.run(parsed.input))
+  const result = await withPlainCommand(name, async () => await call.run(parsed.input))
   return { outcome: 'applied', result }
 }
 

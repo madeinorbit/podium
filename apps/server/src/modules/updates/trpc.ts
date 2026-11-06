@@ -5,12 +5,14 @@ import { asMachineId, type MachineId, mintDeviceId, type UpdateChannel } from '@
 import { stateDir } from '@podium/runtime/config'
 import type { ConvergenceState, MobileWebIdentity, Operation, UpdateTarget } from '@podium/protocol'
 import { buildsDiffer, targetPlatforms } from '@podium/protocol'
-import { TRPCError } from '@trpc/server'
+import { type CommandDef, defineCommands } from '@podium/commands'
+import { TRPCError, type TRPCMutationProcedure } from '@trpc/server'
 import { z } from 'zod'
 import { serverBuildSourceDigest, serverBuildVersion } from '../../build-version'
 import { attributionOf } from '../../command-principal'
 import { type Context, t } from '../../trpc'
 import { familyState } from '../derived-family'
+import { runPlainDef } from '../plain-command/entry'
 import { legacyTransferInProgress } from '../server-transfer/journal'
 import type { SessionStore } from '../../store'
 import type { EffectRow } from '../../store/effects'
@@ -888,12 +890,93 @@ function throwIfFailedOnStart(operation: Operation | null): void {
   })
 }
 
+/**
+ * THE UPDATE PANEL'S FOUR PLAIN COMMANDS (ADR 12 D8, POD-6419).
+ *
+ * Approving a development release, checking the release feed now, re-delivering
+ * a machine's payload and rebuilding the web app write nothing synced: an update
+ * proposal is a request answer (ADR 12 D1), and the grant and restart state is
+ * the server's own. So they take the plain command path: the front door
+ * (exposure, the member floor, the action's role, then the parse) and a plain
+ * handler that cannot write synced data. Their routes are their real doors.
+ * Each handler keeps the administrator check and the words it always had.
+ * Starting, retrying and converging an update are effect records (POD-6358).
+ */
+const updateCommands = defineCommands('updates', {
+  approveProposal: {
+    input: z.object({ headSha: z.string().min(1), version: z.string().min(1) }),
+    action: 'write',
+    exposure: ['trpc'],
+    conflict: 'n/a',
+    visibility: 'deployment-substrate',
+  },
+  checkNow: {
+    input: z.undefined().optional(),
+    action: 'write',
+    exposure: ['trpc'],
+    conflict: 'n/a',
+    visibility: 'deployment-substrate',
+  },
+  repairPayload: {
+    input: z.object({ id: z.string().min(1).optional() }).optional(),
+    action: 'write',
+    exposure: ['trpc'],
+    conflict: 'n/a',
+    visibility: 'deployment-substrate',
+  },
+  repairCompatibility: {
+    input: z.undefined().optional(),
+    action: 'write',
+    exposure: ['trpc'],
+    conflict: 'n/a',
+    visibility: 'deployment-substrate',
+  },
+} satisfies Record<string, CommandDef>)
+
+type UpdateCommandName = keyof typeof updateCommands.defs
+
+type PlainUpdateProcedure<N extends UpdateCommandName, Out> = TRPCMutationProcedure<{
+  meta: unknown
+  input: z.input<(typeof updateCommands.defs)[N]['input']>
+  output: Awaited<Out>
+}>
+
+/** The input is parsed by the plain entry, after the coarse check. */
+const unparsed = (raw: unknown): unknown => raw
+
+/** One update command on the plain path, as a route that answers as it did. */
+function plainUpdate<N extends UpdateCommandName, Out>(
+  name: N,
+  handle: (ctx: Context, input: z.output<(typeof updateCommands.defs)[N]['input']>) => Out,
+): PlainUpdateProcedure<N, Out> {
+  const def = updateCommands.defs[name]
+  return t.procedure.input(unparsed).mutation(async ({ ctx, input }) => {
+    const reply = await runPlainDef({
+      name: `updates.${name}`,
+      def,
+      principal: ctx.principal,
+      transport: 'trpc',
+      input,
+      run: async (parsed) => await handle(ctx, parsed as never),
+    })
+    if (reply.outcome === 'applied') return reply.result
+    if (reply.refusal.kind === 'invalid') {
+      throw new TRPCError({ code: 'BAD_REQUEST', cause: reply.refusal.error })
+    }
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: `updates.${name} is not permitted for this caller`,
+    })
+  }) as unknown as PlainUpdateProcedure<N, Out>
+}
+
 export function updateProcedures() {
   return {
     proposal: t.procedure.query(async ({ ctx }) => await releaseProposalFor(ctx)),
-    approveProposal: t.procedure
-      .input(z.object({ headSha: z.string().min(1), version: z.string().min(1) }))
-      .mutation(async ({ ctx, input }) => await approveReleaseProposal(ctx, input)),
+    approveProposal: plainUpdate(
+      'approveProposal',
+      async (ctx, input) => await approveReleaseProposal(ctx, input),
+    ),
     fleet: t.procedure.query(async ({ ctx }) => await updateFleet(ctx)),
     /**
      * "Check for updates now" (spec §9.2). The daily timer answers "is anything
@@ -901,37 +984,36 @@ export function updateProcedures() {
      * want to wait a day. Rate-limited per channel inside the service, so a
      * held-down button is one feed request, not a loop.
      */
-    checkNow: t.procedure.mutation(
-      async ({ ctx }) => await familyState(ctx).modules.updates.checkNow(),
+    checkNow: plainUpdate(
+      'checkNow',
+      async (ctx) => await familyState(ctx).modules.updates.checkNow(),
     ),
     /** Explicit byte repair: same target and same grant machinery, equality notwithstanding. */
-    repairPayload: t.procedure
-      .input(z.object({ id: z.string().min(1).optional() }).optional())
-      .mutation(async ({ ctx, input }) => {
-        assertMayUpdate(ctx)
-        const state = familyState(ctx)
-        const machineId = input?.id ? asMachineId(input.id) : state.store.hostMachineId
-        const outcome = await state.modules.updates.repairMachine(machineId, {
-          initiator: { kind: 'operator-repair' },
-          eligibility: "a person asked for this machine's payload to be re-delivered",
+    repairPayload: plainUpdate('repairPayload', async (ctx, input) => {
+      assertMayUpdate(ctx)
+      const state = familyState(ctx)
+      const machineId = input?.id ? asMachineId(input.id) : state.store.hostMachineId
+      const outcome = await state.modules.updates.repairMachine(machineId, {
+        initiator: { kind: 'operator-repair' },
+        eligibility: "a person asked for this machine's payload to be re-delivered",
+      })
+      const machineName =
+        (await state.modules.updates.fleet()).find((machine) => machine.id === machineId)?.name ??
+        machineId
+      if (outcome.result !== 'granted' && outcome.result !== 'in-flight') {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message:
+            outcome.result === 'no-target'
+              ? outcome.reason
+              : outcome.result === 'legacy-instance-trust'
+                ? legacyInstanceTrustMessage(machineName)
+                : `Payload repair is ${outcome.result}.`,
         })
-        const machineName =
-          (await state.modules.updates.fleet()).find((machine) => machine.id === machineId)?.name ??
-          machineId
-        if (outcome.result !== 'granted' && outcome.result !== 'in-flight') {
-          throw new TRPCError({
-            code: 'PRECONDITION_FAILED',
-            message:
-              outcome.result === 'no-target'
-                ? outcome.reason
-                : outcome.result === 'legacy-instance-trust'
-                  ? legacyInstanceTrustMessage(machineName)
-                  : `Payload repair is ${outcome.result}.`,
-          })
-        }
-        return { outcome, fleet: await updateFleet(ctx) }
-      }),
-    repairCompatibility: t.procedure.mutation(async ({ ctx }) => {
+      }
+      return { outcome, fleet: await updateFleet(ctx) }
+    }),
+    repairCompatibility: plainUpdate('repairCompatibility', async (ctx) => {
       assertMayUpdate(ctx)
       if (!ctx.requestCoordinatorRestart) {
         throw new TRPCError({

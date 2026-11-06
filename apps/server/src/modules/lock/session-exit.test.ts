@@ -1,4 +1,4 @@
-import { asSessionId, type SessionId } from '@podium/model'
+import { asSessionId, firstAdminMemberId, type SessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import { attachHostDaemon } from '../../test-support/host-daemon'
@@ -49,7 +49,14 @@ async function liveSession(reg: SessionRegistry, cwd = `${REPO}/.worktrees/solo`
 /** Acquire `name` as the given live session via the relay dispatcher. */
 async function acquireAs(reg: SessionRegistry, sessionId: string, name: string): Promise<void> {
   const r = (await reg.modules.lockCommands.dispatch(
-    { capability: { role: 'worker', scope: { kind: 'none' }, actorSessionId: asSessionId(sessionId) } },
+    {
+      capability: {
+        role: 'worker',
+        scope: { kind: 'none' },
+        actorSessionId: asSessionId(sessionId),
+        onBehalfOf: firstAdminMemberId(),
+      },
+    },
     'acquire',
     { repoPath: REPO, name },
   )) as { granted: boolean; lock: { holder: { sessionId: string | null } } }
@@ -71,7 +78,14 @@ describe('session.exited → lock auto-release wiring', () => {
     await acquireAs(reg, survivor, 'held-by-survivor')
     // dying also queues behind the survivor's lock
     const q = (await reg.modules.lockCommands.dispatch(
-      { capability: { role: 'worker', scope: { kind: 'none' }, actorSessionId: asSessionId(dying) } },
+      {
+      capability: {
+        role: 'worker',
+        scope: { kind: 'none' },
+        actorSessionId: asSessionId(dying),
+        onBehalfOf: firstAdminMemberId(),
+      },
+    },
       'acquire',
       { repoPath: REPO, name: 'held-by-survivor' },
     )) as { granted: boolean }
@@ -105,7 +119,14 @@ describe('session.exited → lock auto-release wiring', () => {
     const waiter = await liveSession(reg, `${REPO}/.worktrees/waiter`)
     await acquireAs(reg, victim, 'merge:main')
     await reg.modules.lockCommands.dispatch(
-      { capability: { role: 'worker', scope: { kind: 'none' }, actorSessionId: asSessionId(waiter) } },
+      {
+      capability: {
+        role: 'worker',
+        scope: { kind: 'none' },
+        actorSessionId: asSessionId(waiter),
+        onBehalfOf: firstAdminMemberId(),
+      },
+    },
       'acquire',
       { repoPath: REPO, name: 'merge:main' },
     )

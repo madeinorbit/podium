@@ -2462,7 +2462,16 @@ export class SessionRegistry {
     const locks = new LockService({
       locks: this.store.locks,
       transact: async (fn) => await this.store.transact(fn),
-      funnel,
+      // NOT THROUGH THE AUTHORITY (POD-6419). A lease is server-local: a lock
+      // write publishes no change (the funnel was handed `changes: () => []`),
+      // and a lock write from a person or an agent is a plain command, whose
+      // scope gives it no Authority (ADR 12 D8). Its own `transact` is the unit.
+      funnel: {
+        run: async (op) => {
+          await op.authorize?.()
+          return await op.write()
+        },
+      },
       now: () => this.now(),
       resolveRepoId: async (repoPath) => await this.store.repos.resolveRepoIdForPath(repoPath),
       // HOLDER liveness: does the row still exist? A hibernated holder is
@@ -2482,9 +2491,13 @@ export class SessionRegistry {
       sessionWorkspace,
       // Grant/steal notices are messages to the holder's issue (POD-4846);
       // best-effort by contract (the waiter also discovers the grant by polling).
+      // The SERVER's own write (POD-6419): a lock write is a plain command,
+      // whose scope refuses synced writes; the notice it triggers is not one.
       sendMail: async (issueId, from, body) => {
         try {
-          await systemIssueNotice(messagesSvc, from)(issueId, body)
+          await asSystemWrite(
+            async () => await systemIssueNotice(messagesSvc, from)(issueId, body),
+          )
         } catch {}
       },
       appendEvent: async (e) => {
