@@ -508,7 +508,7 @@ export class SessionRegistry {
   private localDaemonPortableState: LocalPortableStateControl | undefined
   /** The superagent service, once assembly has built it — see
    *  {@link adoptSuperagent}. */
-  private adoptedSuperagent: { dispose(): void } | undefined
+  private adoptedSuperagent: { dispose(): void | Promise<void> } | undefined
   /** Disposer for the runtime's config-write seam bridged onto the bus (POD-3840). */
   private readonly configChangedBridge: () => void
 
@@ -4027,7 +4027,7 @@ export class SessionRegistry {
    * `dispose()` here. One of them getting a new line and the others not is
    * exactly the shape this bug already had.
    */
-  adoptSuperagent(service: { dispose(): void }): void {
+  adoptSuperagent(service: { dispose(): void | Promise<void> }): void {
     this.adoptedSuperagent = service
   }
 
@@ -4041,7 +4041,7 @@ export class SessionRegistry {
     this.modules.memory.dispose()
     // Same hazard, same window: the superagent's turn reaper is a periodic
     // write against the store this shutdown is about to close (POD-2772).
-    this.adoptedSuperagent?.dispose()
+    await this.adoptedSuperagent?.dispose()
     this.eventRetention.dispose()
     this.quotaSampler.dispose()
     this.quotaBackfill.dispose()
