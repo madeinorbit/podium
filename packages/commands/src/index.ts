@@ -295,10 +295,11 @@ export {
   type IssueUpdatePatch,
 } from './issues/contracts'
 export {
+  ARTIFACT_EFFECT_OPS,
   clientSendsThroughSubmit,
   isSyncedIssueCommand,
-  PANEL_ARTIFACT_OPS,
   QUEUED_ISSUE_COMMANDS,
+  runsAsArtifactEffect,
   SESSION_ISSUE_COMMANDS,
   STRUCTURE_ISSUE_COMMANDS,
   SYNCED_ISSUE_COMMANDS,

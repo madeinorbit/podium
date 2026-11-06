@@ -96,7 +96,7 @@ function unwritable(key: string, input: unknown): string | undefined {
     return 'Start a new task with its agent through an issue.start effect record.'
   }
   if (!writesThroughEntry(key, input)) {
-    return 'Artifacts are added and removed through the issue artifact route.'
+    return 'Add, upload or remove an artifact through its issue.artifact* effect record.'
   }
   return undefined
 }

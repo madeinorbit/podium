@@ -11,7 +11,7 @@
  * outside the database inside the request (ADR 12 D5): `create` with `startNow`
  * (the apps start a task with an `issue.start` effect record; the old route and
  * the relay start it after the create commits), and `panelApply`'s artifact
- * operations (see {@link PANEL_ARTIFACT_OPS}).
+ * operations, whose files move in an effect record (see {@link ARTIFACT_EFFECT_OPS}).
  */
 
 import { type SyncSubmitTransport, writesThroughSubmit } from '@podium/protocol'
@@ -85,22 +85,31 @@ const SYNCED: ReadonlySet<string> = new Set(SYNCED_ISSUE_COMMANDS)
 export const isSyncedIssueCommand = (proc: string): proc is SyncedIssueCommand => SYNCED.has(proc)
 
 /**
- * `panelApply` operations that move files (a daemon read, the server's artifact
- * store). They are not written through the entry point yet; the adapters keep
- * them on the family's own path.
+ * `panelApply` operations whose files move in an effect record (POD-6420):
+ * `issue.artifactAdd`, `issue.artifactPublish` and `issue.artifactRemove`. A call
+ * of one on the old route creates the record and answers once it settles; on the
+ * entry point the op is the record's commit, which names the record
+ * (`effectId`). An upload's byte packets (`begin`, `chunk`, `abort`) are
+ * transport into private staging and stay on the route.
  */
-export const PANEL_ARTIFACT_OPS: ReadonlySet<string> = new Set([
+export const ARTIFACT_EFFECT_OPS: ReadonlySet<string> = new Set([
   'artifact-add',
   'artifact-upload',
   'artifact-remove',
 ])
 
+/** Whether one `panelApply` call runs as an artifact effect on its old route. */
+export function runsAsArtifactEffect(proc: string, input: unknown): boolean {
+  if (proc !== 'panelApply') return false
+  const call = input as { op?: unknown; effectId?: unknown } | null | undefined
+  return (
+    typeof call?.op === 'string' && ARTIFACT_EFFECT_OPS.has(call.op) && call.effectId === undefined
+  )
+}
+
 /** Whether one issue command call is written through the entry point. */
 export function writesThroughEntry(proc: string, input: unknown): proc is SyncedIssueCommand {
-  if (!isSyncedIssueCommand(proc)) return false
-  if (proc !== 'panelApply') return true
-  const op = (input as { op?: unknown } | null | undefined)?.op
-  return typeof op !== 'string' || !PANEL_ARTIFACT_OPS.has(op)
+  return isSyncedIssueCommand(proc) && !runsAsArtifactEffect(proc, input)
 }
 
 /**

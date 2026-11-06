@@ -228,24 +228,35 @@ async function machineReady(modules: RegistryModules, issueId: string): Promise<
     : modules.machines.onlineMachineIds().length > 0
 }
 
+/**
+ * An issue effect's writer as they are NOW, as the issue family's caller: a
+ * person's active account and current role, or an agent's current capability.
+ * Undefined when the writer may no longer act. Shared with the artifact effects.
+ */
+export async function effectWriterOf(
+  deps: IssueWorkEffectDeps,
+  record: EffectRow,
+): Promise<IssueCaller | undefined> {
+  if (record.createdBy === null) return undefined
+  const user = await deps.users.get(record.createdBy)
+  if (!user || user.disabledAt) return undefined
+  const agent = agentOf(record)
+  if (agent === undefined) {
+    const principal = userCommandPrincipal(asUserId(user.id), user.role)
+    return { capability: principal.capability, principal }
+  }
+  const principal = await agentPrincipal(deps.modules(), agent)
+  if (principal === undefined || principal.kind === 'system') return undefined
+  return { capability: principal.capability, principal }
+}
+
 export function registerIssueWorkEffects(deps: IssueWorkEffectDeps): void {
   const effects = deps.modules().effects
   if (effects === undefined) throw new Error('issue work effects: no effects module')
 
   /** The writer as they are NOW, as the issue family's caller. */
-  const writerOf = async (record: EffectRow): Promise<IssueCaller | undefined> => {
-    if (record.createdBy === null) return undefined
-    const user = await deps.users.get(record.createdBy)
-    if (!user || user.disabledAt) return undefined
-    const agent = agentOf(record)
-    if (agent === undefined) {
-      const principal = userCommandPrincipal(asUserId(user.id), user.role)
-      return { capability: principal.capability, principal }
-    }
-    const principal = await agentPrincipal(deps.modules(), agent)
-    if (principal === undefined || principal.kind === 'system') return undefined
-    return { capability: principal.capability, principal }
-  }
+  const writerOf = async (record: EffectRow): Promise<IssueCaller | undefined> =>
+    await effectWriterOf(deps, record)
 
   /** Machine `use` on the issue's machine, now: the writer's role, narrowed by the
    *  writing agent's delegation (as `session.launch`). */

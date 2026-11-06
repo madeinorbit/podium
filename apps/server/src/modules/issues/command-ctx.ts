@@ -32,6 +32,7 @@ import { authorize, type Capability, type IssueAccessReader } from '../../issue-
 import type { MessageSender, MessageSendInput, MessageSendResult } from '../messages/service'
 import type { ShippingService } from '../shipping'
 import type { SyncWriteEntry } from '../sync-write/entry'
+import type { IssueArtifactEffectPort } from './artifact-effect-record'
 import type { IssueAuthorityArbitration } from './authority-arbitration'
 import type { IssueGitEffectPort } from './git-effects'
 import type {
@@ -84,6 +85,13 @@ export interface IssueCommandDeps {
    * which run the work inline.
    */
   workEffects?: IssueWorkEffectPort
+  /**
+   * Adding, publishing and removing artifacts as effect records (POD-6420): the
+   * old panelApply route creates the record and answers once it settles, and the
+   * entry point's commit reads the record. Absent in a dispatcher a test builds
+   * by hand, which moves the files inline.
+   */
+  artifactEffects?: IssueArtifactEffectPort
   /** Fully constructed tracker; command dispatch is activated after features. */
   issues: IssueTrackerCapabilities
   /** Cross-aggregate Shipping application port. Command handlers may nominate

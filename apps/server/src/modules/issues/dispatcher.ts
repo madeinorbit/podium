@@ -15,7 +15,12 @@
  * in-process MCP tools call.
  */
 
-import { ISSUE_COMMAND_NAMES, type IssueContractName, writesThroughEntry } from '@podium/commands'
+import {
+  ISSUE_COMMAND_NAMES,
+  type IssueContractName,
+  runsAsArtifactEffect,
+  writesThroughEntry,
+} from '@podium/commands'
 import type { IssueProc, IssueTrpc } from '@podium/issue-client'
 import { spawnedByParentSessionId } from '@podium/model'
 import { SyncSubmitRefusedError } from '@podium/protocol'
@@ -24,6 +29,7 @@ import { z } from 'zod'
 import { type CommandPrincipal, resolvePrincipalAsync } from '../../command-principal'
 import type { Capability } from '../../issue-authz'
 import type { SyncWriteEntry } from '../sync-write/entry'
+import { ARTIFACT_INLINE, type ArtifactCall } from './artifact-effect-record'
 import {
   commandAccess,
   type IssueCaller,
@@ -94,6 +100,14 @@ export class IssueCommandDispatcher {
     if (work !== undefined && isIssueWorkCommand(name)) {
       const answer = await work.run(caller, name, input)
       if (answer !== RUN_INLINE) return answer as Awaited<ReturnType<D['handler']>>
+    }
+    // A panelApply artifact op moves files in an effect record (POD-6420). Ahead
+    // of the revision arbitration: the record's commit is a panelApply of its
+    // own, arbitrated where it runs, and arbitration scopes do not nest.
+    const artifacts = this.deps.artifactEffects
+    if (artifacts !== undefined && runsAsArtifactEffect(name, input)) {
+      const answer = await artifacts.run(caller, input as ArtifactCall)
+      if (answer !== ARTIFACT_INLINE) return answer as Awaited<ReturnType<D['handler']>>
     }
     const execute = async (): Promise<Awaited<ReturnType<D['handler']>>> =>
       (await def.handler(

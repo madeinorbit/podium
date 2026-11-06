@@ -275,6 +275,12 @@ export const panelApplyInput = z.object({
   /** Filled by the CLI from its current checkout; never accepted without terminalEvidence. */
   sourceRoot: z.string().optional(),
   upload: ArtifactUploadPacket.optional(),
+  /**
+   * The artifact effect record whose panel change this commits (POD-6420): set
+   * only by its executor, on the sync write entry point. The entry comes from
+   * the record, never from this call's other fields.
+   */
+  effectId: z.string().min(1).optional(),
 })
 
 export const createInput = z.object({

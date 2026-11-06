@@ -1832,6 +1832,7 @@ type Input_issues_events = {
     subject?: string | undefined;
 };
 type Input_issues_panelApply = {
+    effectId?: string | undefined;
     expectedRevision?: number | undefined;
     extraPaths?: string[] | undefined;
     id: string;

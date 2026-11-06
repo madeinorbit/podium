@@ -119,6 +119,10 @@ import { InteractionService } from './modules/interactions/service'
 import { IssueEventFeedPublisher } from './modules/issue-events/feed'
 import { IssueSessionLifecycle } from './modules/issue-session-lifecycle'
 import { DurableIssueAccessIndex } from './modules/issues/access-index'
+import {
+  issueArtifactEffectPort,
+  registerIssueArtifactEffects,
+} from './modules/issues/artifact-effects'
 import { IssueArtifactStore } from './modules/issues/artifact-store'
 import { IssueAuthorityArbitration } from './modules/issues/authority-arbitration'
 import { IssueAutoArchive } from './modules/issues/auto-archive'
@@ -3135,6 +3139,11 @@ export class SessionRegistry {
       syncWrite: () => this.modules.syncWrite,
       // Start, stop, sessions, cleanup, ship, assistant as effect records (POD-6414).
       workEffects: issueWorkEffectPort({ modules: () => this.modules }),
+      // Adding, publishing and removing artifacts as effect records (POD-6420).
+      artifactEffects: issueArtifactEffectPort({
+        modules: () => this.modules,
+        record: async (id) => await this.store.effects.get(id),
+      }),
       arbitration: issueArbitration,
       attachSession: async (caller, input) => await issueAttach.execute(caller, input),
       issues,
@@ -3999,6 +4008,8 @@ export class SessionRegistry {
     registerIssueGitEffects({ modules: () => this.modules })
     // The issue commands that act on machines (POD-6414).
     registerIssueWorkEffects({ modules: () => this.modules, users: this.store.users })
+    // Adding, publishing and removing an issue's artifacts (POD-6420).
+    registerIssueArtifactEffects({ modules: () => this.modules, users: this.store.users })
     // Filing a task and starting its first agent at once (POD-6410).
     registerIssueStartEffect({ modules: () => this.modules, users: this.store.users })
     // Starting a session is an effect record too (POD-6398).

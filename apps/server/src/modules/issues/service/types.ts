@@ -12,11 +12,7 @@ import type {
 } from '@podium/model'
 import type { MetadataChange, RepoOp } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
-import type {
-  EntityChangeSpec,
-  LedgerCommitOp,
-  LedgerCommitResult,
-} from '@podium/sync'
+import type { EntityChangeSpec, LedgerCommitOp, LedgerCommitResult } from '@podium/sync'
 import type { LinearIssue } from '../../../linear'
 import type { llmClient } from '../../../llm'
 import type { IssueRow, SessionStore } from '../../../store'
@@ -86,6 +82,9 @@ export type IssuePanelOp =
       chatUploadOwner?: UserId
     }
   | { op: 'artifact-remove'; index: number }
+  /** An artifact effect's removal (POD-6420): the entry under this path (and
+   *  snapshot, when given); already gone is no change. */
+  | { op: 'artifact-remove'; path: string; artifactId?: ArtifactId }
   | { op: 'deferred-add'; text: string }
   | { op: 'deferred-remove'; index: number }
 
@@ -160,7 +159,10 @@ export interface IssueDeps {
   readSessionFactsById(sessionId: SessionId): Promise<SessionFacts | undefined>
   /** The member sessions of ONE issue, from the database (`sessionsForIssue`'s
    *  membership: its id, or a cwd in its worktree for an unattached session). */
-  readSessionFactsByIssue(worktreePath: string | null, issueId: IssueId | undefined): Promise<SessionFacts[]>
+  readSessionFactsByIssue(
+    worktreePath: string | null,
+    issueId: IssueId | undefined,
+  ): Promise<SessionFacts[]>
   /** ONE session by id, without the full reader-scoped pass [POD-1646]. */
   sessionById(sessionId: SessionId): Promise<SessionMeta | undefined>
   /** The member sessions of ONE issue, WIRED [POD-1639] — for the two reads
@@ -341,7 +343,11 @@ export interface IssueDeps {
    * the outermost commit, never for a write that rolled back (POD-6158, for
    * POD-6160's message routing).
    */
-  onIssueWorktreeMoved?(event: { issueId: IssueId; previousWorktreePath: string | null; worktreePath: string | null }): void
+  onIssueWorktreeMoved?(event: {
+    issueId: IssueId
+    previousWorktreePath: string | null
+    worktreePath: string | null
+  }): void
   /** Shell lifetime verbs for the worktree-free trigger (POD-4525). The free
    *  removes the dock mapping, then parks/kills each freed shell per the same
    *  rule the stop path uses (teardown inputs with worktreeFreed true). Live
@@ -370,12 +376,16 @@ export interface IssueDeps {
    *  literals stay valid; absent ⇒ legacy path-only artifact entries. */
   artifacts?: {
     transfer?: import('../artifact-store').IssueArtifactStore['transfer']
+    /** Publish a staged CLI upload under a given id (POD-6420). */
+    publishUpload?: import('../artifact-store').IssueArtifactStore['publishUpload']
     snapshot(o: {
       issueId: IssueId
       root: string
       machineId?: MachineId
       sourcePath: string
       extraPaths?: string[]
+      /** Snapshot under this id, replacing what is there (POD-6420). */
+      artifactId?: ArtifactId
     }): Promise<{
       artifactId: ArtifactId
       entry: string

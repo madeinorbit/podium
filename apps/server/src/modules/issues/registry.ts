@@ -24,6 +24,7 @@ import { attributionOf } from '../../command-principal'
 import { checkIssueAccess } from '../../issue-authz'
 import { withReadScope } from '../../store/executor/read-scope'
 import { ShippingOrderAccessError } from '../shipping/service'
+import { artifactEffectCommitOf } from './artifact-effect-record'
 import type { IssueCaller, IssueCommandAccess, IssueCommandCtx } from './command-ctx'
 import type { IssueCommandResult } from './service/reads'
 import { IssueRefusal } from './service/refusal'
@@ -564,9 +565,29 @@ const defs = {
     kind: 'mutation',
     target: targetId,
     handler: async (ctx, input) => {
-      // Artifact ops route through the permanent-store paths ([spec:SP-0fc9]):
-      // add pulls a snapshot from the owning daemon before the panel commit;
-      // remove also deletes the snapshot dir.
+      if (input.op === 'artifact-add' || input.op === 'artifact-remove') {
+        // The commit of an artifact effect (POD-6420), on the entry point: the
+        // entry comes from the record, never from the call.
+        if (input.effectId !== undefined) {
+          const port = ctx.deps.artifactEffects
+          if (port === undefined) throw new IssueRefusal('artifact effects are not served here')
+          const issueId = await ctx.reports.resolveRef(input.id)
+          const change = artifactEffectCommitOf(await port.record(input.effectId), {
+            issueId,
+            op: input.op,
+            principal: ctx.caller.principal,
+          })
+          return await ctx.crud.panelApply(
+            issueId,
+            change.op === 'artifact-add' ? { op: 'artifact-add', ...change.entry } : change,
+          )
+        }
+      }
+      // Inline: the old route of an artifact op when the dispatcher made no
+      // effect record for it (none wired, no daemon to read from, an upload's
+      // byte packets; POD-6420): the permanent-store paths ([spec:SP-0fc9]). Add pulls a
+      // snapshot from the owning daemon before the panel commit; remove also
+      // deletes the snapshot dir.
       if (input.op === 'artifact-upload') {
         if (!input.upload) throw new IssueRefusal('artifact-upload requires an upload packet')
         return await ctx.crud.panelArtifactTransfer(input.id, input.upload)

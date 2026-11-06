@@ -120,6 +120,37 @@ export interface IssueArtifactContent {
   dataBase64: string
 }
 
+/** What an artifact-add names: a source path, never its bytes. */
+export interface ArtifactAddInput {
+  path: string
+  title?: string
+  extraPaths?: string[]
+  terminalEvidence?: boolean
+  sourceRoot?: string
+}
+
+/** An artifact-add checked and resolved, before any byte moves (POD-6420). */
+export interface ArtifactAddPlan {
+  issueId: IssueId
+  seq: number
+  /** The checkout the daemon reads from. */
+  root: string
+  machineId?: MachineId
+  /** Root-relative, `/`-separated. */
+  sourcePath: string
+  extraPaths?: string[]
+  title?: string
+  terminalEvidence: boolean
+  /** The snapshot the entry under this path holds now, replaced on commit. */
+  replaces?: ArtifactId
+}
+
+/** A stored snapshot's panel entry, as the artifact-add commit writes it. */
+export type ArtifactPanelEntry = Omit<
+  Extract<IssuePanelOp, { op: 'artifact-add' }>,
+  'op' | 'chatUploadId' | 'chatUploadOwner'
+> & { artifactId: ArtifactId; entry: string; files: { path: string; size: number }[] }
+
 /** Prepared half of the atomic issue/session lifecycle transaction. */
 export interface IssueLifecyclePlan {
   issueId: IssueId
@@ -418,10 +449,22 @@ export class IssueCrudModule {
         else panel.artifacts.push(next)
         break
       }
-      case 'artifact-remove':
+      case 'artifact-remove': {
+        if ('path' in op) {
+          // An artifact effect's removal (POD-6420): by identity, not position,
+          // since the list may have moved since the record was made.
+          const found = panel.artifacts.findIndex(
+            (a) =>
+              a.path === op.path && (op.artifactId === undefined || a.artifactId === op.artifactId),
+          )
+          if (found < 0) return await this.store.projection(row)
+          panel.artifacts.splice(found, 1)
+          break
+        }
         at(panel.artifacts, op.index)
         panel.artifacts.splice(op.index - 1, 1)
         break
+      }
       case 'deferred-add':
         panel.deferred.push({ text: op.text, addedAt: this.store.now() })
         break
@@ -444,18 +487,43 @@ export class IssueCrudModule {
    * NEW artifactId, swaps the entry in place, then deletes the old dir
    * (best-effort) AFTER the commit. Falls back to a legacy path-only entry when
    * no artifact store is wired (tests / minimal deployments).
+   *
+   * The inline path: with effect records wired, the `issue.artifactAdd`
+   * executor runs the same three steps ({@link planArtifactAdd},
+   * {@link snapshotArtifact}, the entry point's commit) instead (POD-6420).
    */
   async panelArtifactAdd(
     id: string,
-    input: {
-      path: string
-      title?: string
-      extraPaths?: string[]
-      terminalEvidence?: boolean
-      sourceRoot?: string
-    },
+    input: ArtifactAddInput,
     opts?: { actorSessionId?: SessionId },
   ): Promise<IssueProjection> {
+    const plan = await this.planArtifactAdd(id, input, opts)
+    const store = this.store.deps.artifacts
+    if (!store) {
+      return await this.panelApply(plan.issueId, {
+        op: 'artifact-add',
+        path: plan.sourcePath,
+        ...(plan.title !== undefined ? { title: plan.title } : {}),
+        sourcePaths: [plan.sourcePath, ...(plan.extraPaths ?? [])],
+        ...(plan.terminalEvidence ? { sourceKind: 'terminal-evidence' as const } : {}),
+      })
+    }
+    const staged = await this.snapshotArtifact(plan)
+    const wire = await this.panelApply(plan.issueId, { op: 'artifact-add', ...staged.entry })
+    if (plan.replaces) void store.remove(plan.issueId, plan.replaces).catch(() => {})
+    return wire
+  }
+
+  /**
+   * Every check of an artifact-add, and what it will pull, before any byte
+   * moves (POD-6420: the effect executor runs it as the record's writer).
+   * Refusals are {@link IssueRefusal}s with the messages the command always had.
+   */
+  async planArtifactAdd(
+    id: string,
+    input: ArtifactAddInput,
+    opts?: { actorSessionId?: SessionId },
+  ): Promise<ArtifactAddPlan> {
     const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
     const store = this.store.deps.artifacts
     const terminalEvidence = input.terminalEvidence === true
@@ -532,49 +600,112 @@ export class IssueCrudModule {
     }
     // Re-add keeps the existing title unless a new one is given.
     const existing = this.store.parsePanel(row).artifacts.find((a) => a.path === sourcePath)
-    const effectiveTitle = input.title ?? existing?.title
-    const title = effectiveTitle ? { title: effectiveTitle } : {}
-    if (!store) {
-      return await this.panelApply(row.id, {
-        op: 'artifact-add',
-        path: sourcePath,
-        ...title,
-        sourcePaths: [sourcePath, ...(extraPaths ?? [])],
-        ...(terminalEvidence ? { sourceKind: 'terminal-evidence' as const } : {}),
-      })
-    }
+    const title = input.title ?? existing?.title
     // Owning machine is the issue's machine; the invoking session is only a
     // fallback for old rows that predate a machine pin. Terminal evidence has
     // already proved that the two refer to the same issue/session boundary.
     const machineId = row.machineId ?? session?.machineId ?? undefined
-    const snap = await store.snapshot({
+    return {
       issueId: row.id,
+      seq: row.seq,
       root,
       ...(machineId ? { machineId } : {}),
       sourcePath,
       ...(extraPaths?.length ? { extraPaths } : {}),
+      ...(title !== undefined ? { title } : {}),
+      terminalEvidence,
+      ...(existing?.artifactId ? { replaces: existing.artifactId } : {}),
+    }
+  }
+
+  /**
+   * Pull a planned artifact-add into the permanent store (under `artifactId`
+   * when given: an effect record's, so its re-run replaces its own partial
+   * pull) and answer the panel entry that publishes it. Nothing is committed.
+   */
+  async snapshotArtifact(
+    plan: ArtifactAddPlan,
+    artifactId?: ArtifactId,
+  ): Promise<{ entry: ArtifactPanelEntry }> {
+    const store = this.store.deps.artifacts
+    if (!store) throw new Error('permanent issue artifact storage is unavailable')
+    const snap = await store.snapshot({
+      issueId: plan.issueId,
+      root: plan.root,
+      ...(plan.machineId ? { machineId: plan.machineId } : {}),
+      sourcePath: plan.sourcePath,
+      ...(plan.extraPaths?.length ? { extraPaths: plan.extraPaths } : {}),
+      ...(artifactId ? { artifactId } : {}),
     })
-    if (terminalEvidence && !snap.files.every((file) => isTerminalEvidenceImage(file.path))) {
-      await store.remove(row.id, snap.artifactId).catch(() => {})
+    if (plan.terminalEvidence && !snap.files.every((file) => isTerminalEvidenceImage(file.path))) {
+      await store.remove(plan.issueId, snap.artifactId).catch(() => {})
       throw new IssueRefusal(
         `terminal evidence accepts raster image files only; raw terminal text and scrollback ` +
-          `are refused. ${terminalEvidenceHelp(row.seq)}`,
+          `are refused. ${terminalEvidenceHelp(plan.seq)}`,
       )
     }
-    const sourcePaths = [...new Set(snap.sourcePaths ?? [sourcePath, ...(extraPaths ?? [])])]
-    const oldId = existing?.artifactId
-    const wire = await this.panelApply(row.id, {
-      op: 'artifact-add',
-      path: sourcePath,
-      ...title,
-      artifactId: snap.artifactId,
-      entry: snap.entry,
-      files: snap.files,
-      sourcePaths,
-      ...(terminalEvidence ? { sourceKind: 'terminal-evidence' as const } : {}),
-    })
-    if (oldId) void store.remove(row.id, oldId).catch(() => {})
-    return wire
+    const sourcePaths = [
+      ...new Set(snap.sourcePaths ?? [plan.sourcePath, ...(plan.extraPaths ?? [])]),
+    ]
+    return {
+      entry: {
+        path: plan.sourcePath,
+        ...(plan.title !== undefined ? { title: plan.title } : {}),
+        artifactId: snap.artifactId,
+        entry: snap.entry,
+        files: snap.files,
+        sourcePaths,
+        ...(plan.terminalEvidence ? { sourceKind: 'terminal-evidence' as const } : {}),
+      },
+    }
+  }
+
+  /**
+   * Publish a staged CLI upload (its `commit` packet) under `artifactId`, an
+   * effect record's (POD-6420), and answer its panel entry; nothing is
+   * committed. Undefined when nothing is staged under that upload id.
+   */
+  async publishStagedUpload(
+    issueId: IssueId,
+    uploadId: string,
+    artifactId: ArtifactId,
+  ): Promise<{ entry: ArtifactPanelEntry } | undefined> {
+    const row = await this.store.rowOrThrow(issueId)
+    const artifacts = this.store.deps.artifacts
+    if (!artifacts?.publishUpload)
+      throw new IssueRefusal('direct artifact uploads are unavailable on this server')
+    const published = await artifacts.publishUpload(row.id, uploadId, artifactId)
+    if (!published) return undefined
+    const existing = this.store
+      .parsePanel(row)
+      .artifacts.find((artifact) => artifact.path === published.path)
+    const title = published.title ?? existing?.title
+    return {
+      entry: {
+        path: published.path,
+        ...(title !== undefined ? { title } : {}),
+        artifactId: published.snapshot.artifactId,
+        entry: published.snapshot.entry,
+        files: published.snapshot.files,
+      },
+    }
+  }
+
+  /** Delete one snapshot's store dir; best-effort, nothing to delete is fine. */
+  async discardArtifact(issueId: IssueId, artifactId: ArtifactId): Promise<void> {
+    await this.store.deps.artifacts?.remove(issueId, artifactId).catch(() => {})
+  }
+
+  /** The issue's artifact entries as the panel holds them now. */
+  async artifactEntries(
+    issueId: IssueId,
+  ): Promise<ReadonlyArray<{ path: string; title?: string; artifactId?: ArtifactId }>> {
+    const row = await this.store.rowOrThrow(issueId)
+    return this.store.parsePanel(row).artifacts as ReadonlyArray<{
+      path: string
+      title?: string
+      artifactId?: ArtifactId
+    }>
   }
 
   /** Upload packets are issue-scoped by the command registry. Only a complete
@@ -1074,7 +1205,9 @@ export class IssueCrudModule {
       : repoId
         ? await issues.sortScope({
             repoId,
-            ...(opts?.includePinned === true ? {} : { unpinnedFor: await this.store.broadcastViewer() }),
+            ...(opts?.includePinned === true
+              ? {}
+              : { unpinnedFor: await this.store.broadcastViewer() }),
           })
         : []
     return rows
@@ -1136,7 +1269,8 @@ export class IssueCrudModule {
           'shipping stage is system-owned and cannot be changed by an issue move',
         )
       }
-      const keySpace = async () => await this.sortKeySpaceRows(row.repoId, row.repoPath, row.parentId ?? null)
+      const keySpace = async () =>
+        await this.sortKeySpaceRows(row.repoId, row.repoPath, row.parentId ?? null)
       let scope = await keySpace()
       if (!scope.some((sibling) => sibling.id === anchor.id)) {
         throw new IssueRefusal('move requires siblings with the same parent and repository')
