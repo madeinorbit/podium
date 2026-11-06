@@ -11,6 +11,12 @@ import {
 } from '@podium/model'
 import type { MobileTrpc } from '../client/trpc'
 import type { IssueActivityPorts } from '@podium/client-graph/issue-activity'
+import type { IssueWorkAction, StartIssueSession } from '@podium/client-core/spawn-agent'
+import {
+  awaitEffect,
+  type EffectPool,
+  effectShortfall,
+} from '@podium/client-graph/write/await-effect'
 
 /**
  * THE TASK PAGE'S CALL SURFACE [POD-724] — the phone half of the desktop's
@@ -80,9 +86,6 @@ interface IssueDetailProcs {
     setNeedsHuman: Mutate<{ id: string; question?: string }>
     applySuggestion: Mutate<{ id: string }>
     dismissSuggestion: Mutate<{ id: string }>
-    refreshAssistant: Mutate<{ id: string }>
-    addSession: Mutate<{ id: string; agentKind?: string }>
-    addShell: Mutate<{ id: string }>
     action: Mutate<{ id: string; kind: 'rebase' | 'pr' | 'merge' }>
   }
 }
@@ -105,6 +108,9 @@ export interface IssueWriteActions {
   undeferIssue: (id: string) => Promise<unknown>
   setIssueLabels: (id: string, labels: string[]) => Promise<unknown>
   restoreIssue: (id: string) => Promise<unknown>
+  /** The task's own work as effect records (POD-6526). */
+  startIssueSession: StartIssueSession
+  issueAction: (issueId: IssueId, action: IssueWorkAction) => Promise<string>
 }
 
 /** Build the page's command set for the currently open task. Rebuilt per render
@@ -116,9 +122,12 @@ export function issueCommands({
   run,
   actions,
   requestClose,
+  pool,
 }: {
   trpc: MobileTrpc
   issue: IssueViewModel
+  /** The pool's effect records, where an action's ending is read. */
+  pool?: EffectPool | null
   /** Current maintained facts for this task, read only on a close press. */
   hasCloseBlockers: (id: string) => boolean
   run: RunMutation
@@ -136,6 +145,7 @@ export function issueCommands({
   requestClose?: (reason: IssueCloseReason) => void
 }) {
   const id = issue.id
+  const issueId = id as IssueId
   const api = issueWrites(issueProcs(trpc))
 
   /** Generic field patch — the single `issues.update` call site. Keep the
@@ -198,8 +208,15 @@ export function issueCommands({
         onPosted(body)
       })
     },
+    /** An `issue.assistant` record (POD-6526). The page stays busy until it
+     *  ends, as the old command did, and says why if it did not run. */
     refreshAssistant: (): void => {
-      void run(() => api.refreshAssistant.mutate({ id }))
+      void run(async () => {
+        const effectId = await actions.issueAction(issueId, 'assistant')
+        if (!pool) return
+        const why = effectShortfall(await awaitEffect(pool, effectId))
+        if (why !== undefined) throw new Error(`Couldn't refresh the assistant — ${why}`)
+      })
     },
 
     // ---- properties ----
@@ -290,14 +307,17 @@ export function issueCommands({
     },
 
     // ---- sessions / agent start ----
+    // `issue.begin` / `issue.addSession` records (POD-6526): the starting
+    // session paints on the task at once (also while its machine is offline),
+    // and a failure is told once, on the shell's banner.
     startWork: (): void => {
-      void run(() => trpc.issues.start.mutate({ id }))
+      void run(() => actions.startIssueSession({ issueId, mode: 'begin' }).settled)
     },
     addSession: (): void => {
-      void run(() => api.addSession.mutate({ id }))
+      void run(() => actions.startIssueSession({ issueId }).settled)
     },
     addShell: (): void => {
-      void run(() => api.addShell.mutate({ id }))
+      void run(() => actions.startIssueSession({ issueId, mode: 'shell' }).settled)
     },
 
     // ---- git workflow ----

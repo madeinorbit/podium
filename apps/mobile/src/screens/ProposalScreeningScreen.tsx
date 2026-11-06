@@ -10,6 +10,7 @@ import { useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import type { IssueId } from '@podium/model'
 import { useStoreActions, useTrpc } from '../client/hooks'
 import { Icon } from '../components/Icon'
 import { Check, Inbox, Play, RotateCcw, SkipForward, X } from '../components/icons'
@@ -49,7 +50,7 @@ export const ProposalScreeningScreen = observer(function ProposalScreeningScreen
   const router = useRouter()
   const pool = useMobilePool()
   const trpc = useTrpc()
-  const { closeIssue } = useStoreActions()
+  const { closeIssue, startIssueSession } = useStoreActions()
   const insets = useSafeAreaInsets()
   const deck = useMemo(() => (pool ? new ProposalScreening(pool) : null), [pool])
   useEffect(() => deck?.open(), [deck])
@@ -76,7 +77,11 @@ export const ProposalScreeningScreen = observer(function ProposalScreeningScreen
         await applyScreeningDecision(
           {
             promoteIssue: (id) => issueWrites(trpc).promote.mutate({ id }),
-            startIssue: (id) => trpc.issues.start.mutate({ id }),
+            // An `issue.begin` record (POD-6526), started once durably queued.
+            startIssue: async (id) => {
+              const { settled } = startIssueSession({ issueId: id as IssueId, mode: 'begin' })
+              if (!(await settled)) throw new Error("Couldn't start the task")
+            },
             closeIssue,
           },
           issue,
@@ -99,7 +104,7 @@ export const ProposalScreeningScreen = observer(function ProposalScreeningScreen
         setPending((p) => p.filter((id) => id !== issue.id))
       }
     },
-    [trpc, closeIssue],
+    [trpc, closeIssue, startIssueSession],
   )
 
   const decide = useCallback(

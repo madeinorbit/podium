@@ -1,11 +1,11 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { observer } from 'mobx-react-lite'
-import { spawnIssueAgent } from '@podium/client-core/values'
 
 import { issueDisplayRef } from '@podium/protocol'
 import { useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
-import { useTrpc } from '../client/hooks'
+import type { IssueId } from '@podium/model'
+import { useStoreActions, useTrpc } from '../client/hooks'
 import { useSettingsRecord } from '../client/use-settings-record'
 import { IssueLaunchForm } from '../lib/issue-launch-draft'
 import {
@@ -31,6 +31,7 @@ const ConfiguredIssueLaunchSheetBody = observer(function ConfiguredIssueLaunchSh
   onClose: () => void
 }) {
   const trpc = useTrpc()
+  const { startIssueSession } = useStoreActions()
   const settingsRequest = useSettingsRecord()
   const form = useMemo(() => issue ? new IssueLaunchForm(issue, patch => trpc.issues.update.mutate({ id: issue.id, patch }), () => settingsRequest?.model?.codingHarness) : null, [issue, trpc, settingsRequest])
   const [plan, setPlan] = useState<LaunchPlan | null>(null)
@@ -44,7 +45,10 @@ const ConfiguredIssueLaunchSheetBody = observer(function ConfiguredIssueLaunchSh
     try {
       form.patch(plan.configuration)
       await form.edits.submit()
-      await spawnIssueAgent(trpc.issues, { id: issue.id })
+      // One more agent, or the first when the task was never started: an
+      // effect record, painted on the task at once (POD-6526).
+      const { settled } = startIssueSession({ issueId: issue.id as IssueId })
+      if (!(await settled)) throw new Error("Couldn't start the task")
       onClose()
       onStarted?.()
     } catch (cause) {

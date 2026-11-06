@@ -13,6 +13,8 @@ import { useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import type { IssueCommands, IssueMailMessage } from '../../lib/issue-detail'
 import type { IssueHistoryView } from '@podium/client-graph/issue-activity'
+import { ISSUE_ASSISTANT_KIND } from '@podium/client-core/spawn-agent'
+import { useMobilePool } from '../../client/mobile-pool'
 import { alpha } from '../../theme/mix'
 import { color, font, leading, mono, radius, sans, space } from '../../theme/theme'
 import { Icon } from '../Icon'
@@ -123,6 +125,11 @@ export const IssueActivitySection = observer(function IssueActivitySection({
   // decides is whether a group says "Today", so re-deriving on a timer would
   // repaint the whole feed to change one word a day.
   const days = groupActivityFeed(feed, Date.now())
+  // An `issue.assistant` record still running, asked here or on another
+  // device (POD-6526): the refresh waits for it.
+  const pool = useMobilePool()
+  const refreshing = pool?.issueObject(issue.id).workPending === ISSUE_ASSISTANT_KIND
+  const waiting = busy || refreshing
   return (
     <View style={styles.section}>
       <SectionHeading
@@ -131,11 +138,11 @@ export const IssueActivitySection = observer(function IssueActivitySection({
           <PressableScale
             accessibilityRole="button"
             accessibilityLabel="Refresh AI notes"
-            accessibilityState={{ disabled: busy }}
-            disabled={busy}
+            accessibilityState={refreshing ? { disabled: true, busy: true } : { disabled: busy }}
+            disabled={waiting}
             onPress={commands.refreshAssistant}
             hitSlop={10}
-            style={({ pressed }) => [styles.refresh, (busy || pressed) && styles.refreshMuted]}
+            style={({ pressed }) => [styles.refresh, (waiting || pressed) && styles.refreshMuted]}
           >
             <Icon as={RefreshCw} size={13} color={color.textDim} />
           </PressableScale>
