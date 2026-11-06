@@ -376,9 +376,10 @@ export function referencedRepositoryPaths(root: string, relativePath: string): s
   PATH_LITERAL.lastIndex = 0
   let match: RegExpExecArray | null
   while ((match = PATH_LITERAL.exec(source))) {
-    const candidate = match[1] as string
-    const absolute = join(root, candidate)
+    const absolute = join(root, match[1] as string)
     if (!existsSync(absolute)) continue
+    // Directory literals may already end in '/'; normalize before adding the glob suffix.
+    const candidate = relative(root, absolute)
     found.add(statSync(absolute).isDirectory() ? `${candidate}/**` : candidate)
   }
   return [...found]
