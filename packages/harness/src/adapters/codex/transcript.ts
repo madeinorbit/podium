@@ -92,9 +92,11 @@ export function codexRecordToItems(record: unknown): TranscriptItem[] {
             // Preserve the older user_message display without asserting that
             // its legacy event satisfies the measured receipt contract.
             promptEntry: currentUserMessage !== undefined,
-            ...(currentUserMessage && stringField(payload, 'turn_id') ? {
-              harnessRef: [{ kind: 'codex-turn', id: stringField(payload, 'turn_id')! }],
-            } : {}),
+            ...(currentUserMessage && stringField(payload, 'turn_id')
+              ? {
+                  harnessRef: [{ kind: 'codex-turn', id: stringField(payload, 'turn_id')! }],
+                }
+              : {}),
             ...(ts ? { ts } : {}),
             text,
           },
@@ -260,11 +262,12 @@ function codexToolDisplay(wireName: string, rawInput: unknown): CodexToolDisplay
   if (wireName === CODEX_ASYNC_QUESTION_TOOL) {
     const questions = codexAsyncQuestionInput(input)
     const toolInputJson = safeAskQuestionInputJson(questions)
-    if (toolInputJson) return {
-      toolName: wireName,
-      toolInput: askQuestionPreview(questions),
-      toolInputJson,
-    }
+    if (toolInputJson)
+      return {
+        toolName: wireName,
+        toolInput: askQuestionPreview(questions),
+        toolInputJson,
+      }
   }
   if (wireName === 'exec_command') {
     return {
@@ -639,6 +642,9 @@ export async function codexChainPaths(input: TranscriptSourceInput): Promise<str
   const path = await findCodexRolloutPath({
     resumeValue: input.resumeValue,
     ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
+    // The account env's CODEX_HOME is the selector the one Codex root rule
+    // reads (POD-6534); absent, the default `<home>/.codex`.
+    ...(input.env?.CODEX_HOME ? { codexHome: input.env.CODEX_HOME } : {}),
   })
   return path ? [path] : []
 }

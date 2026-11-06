@@ -1,7 +1,13 @@
-import { stat } from 'node:fs/promises'
 import { readFileSync } from 'node:fs'
+import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { AgentQuotaWire, HarnessRef, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
+import type {
+  AgentQuotaWire,
+  HarnessRef,
+  ResumeRef,
+  SessionId,
+  TranscriptItem,
+} from '@podium/model'
 import type {
   AgentInstruction,
   AgentObservation,
@@ -17,29 +23,28 @@ import type {
 import type {
   Declared,
   OpencodeMessagePartRow,
+  SqliteTranscriptLocator,
   StatTick,
   TranscriptColorReader,
   TranscriptRecordMapper,
   TranscriptRuntimeReader,
 } from './transcript-types.js'
-import type { SqliteTranscriptLocator } from './transcript-types.js'
 import { supported, unsupported } from './transcript-types.js'
+
 export type {
   Declared,
   SqliteTranscriptLocator,
 } from './transcript-types.js'
 export { declaredValue, supported, unsupported } from './transcript-types.js'
-import type { UsageFileScan, UsageScanCache } from './usage-records.js'
+
 import type {
   AgentStateEventSource,
   AgentStateProvider,
   ProviderAgentStateEvent,
 } from './agent-state/types.js'
+import type { HarnessCatalogData, HarnessDescriptorData } from './descriptor-types.js'
 import type { ConversationProvider } from './discovery/types.js'
-import type {
-  HarnessCatalogData,
-  HarnessDescriptorData,
-} from './descriptor-types.js'
+import type { UsageFileScan, UsageScanCache } from './usage-records.js'
 
 /** The harness kinds — every AgentKind except 'shell' (a shell is spawned by the
  *  daemon directly; it has no CLI conventions, transcript, or observers).
@@ -500,9 +505,30 @@ export interface HarnessCredentials {
   transfer: Declared<HarnessCredentialTransfer>
 }
 
+/**
+ * THE ACCOUNT HALF OF A HARNESS CONTEXT (POD-6534, design §3.3 "account
+ * scope"): the account HOME, the environment the child gets for that account,
+ * and the folders the adapter's {@link AgentManifest.roots} rule resolves from
+ * them. A {@link HarnessContext} satisfies it; `harnessAccount()` builds one
+ * for a harness that need not be installed (quota, usage history, credential
+ * files and transcripts outlive an uninstall).
+ *
+ * Account reads take this and read `roots`, never `homedir()` or the daemon's
+ * own `process.env`.
+ */
+export interface HarnessAccountScope {
+  /** The account HOME (the daemon's credential home). */
+  readonly home: string
+  /** The account environment: what the child gets for this account. */
+  readonly env: HarnessEnvironment
+  /** Resolved once from the adapter's `roots` declaration. */
+  readonly roots: Readonly<HarnessRoots>
+}
+
 /** Options for a live quota probe — the same seam the daemon tests pin. */
 export interface QuotaProbeOptions {
-  homeDir?: string
+  /** The account whose credential the probe reads. */
+  account: HarnessAccountScope
   now?: number
   fetchImpl?: typeof fetch
 }
@@ -516,7 +542,7 @@ export interface QuotaProbeOptions {
  * (`inventory/usage.ts`) and stays harness-free.
  */
 export interface HarnessQuotaProbe {
-  fetchQuota(opts?: QuotaProbeOptions): Promise<AgentQuotaWire>
+  fetchQuota(opts: QuotaProbeOptions): Promise<AgentQuotaWire>
 }
 
 /** File-based recovery of past quota windows on this machine (POD-1571). */
@@ -524,7 +550,7 @@ export interface HarnessQuotaHistory {
   scan(opts: {
     sinceMs: number
     machineId: string
-    homeDir?: string
+    account: HarnessAccountScope
   }): Promise<QuotaHistorySampleWire[]>
 }
 
@@ -532,7 +558,7 @@ export interface HarnessQuotaHistory {
 export interface HarnessUsageTranscripts {
   scan(opts: {
     sinceMs: number
-    homeDir?: string
+    account: HarnessAccountScope
     cache?: UsageScanCache
   }): Promise<UsageFileScan[]>
   /**
@@ -812,6 +838,13 @@ export interface TranscriptSourceInput {
   /** Stable Podium row identity used by providers with a shared native store. */
   podiumSessionId?: SessionId
   homeDir?: string
+  /**
+   * The account environment for this harness (a context's `env`, POD-6534).
+   * Its selectors pick the transcript folder through the adapter's `roots`
+   * rule. Absent: the default folders under `homeDir`, never the daemon's own
+   * `process.env`.
+   */
+  env?: HarnessEnvironment
   /** Product-owned native transcript root, separate from the harness account home. */
   transcriptRoot?: string
 }
@@ -884,7 +917,9 @@ export function fileTranscript(
       ? supported(recordColor)
       : unsupported('this harness does not report an identity colour in its records'),
     chainPaths: supported(chainPaths),
-    sqliteLocator: unsupported('this harness stores transcripts in files — there is no database to locate'),
+    sqliteLocator: unsupported(
+      'this harness stores transcripts in files — there is no database to locate',
+    ),
   }
 }
 

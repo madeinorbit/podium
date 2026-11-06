@@ -13,7 +13,7 @@
  */
 import type { BuiltinHarnessKind } from '@podium/protocol'
 import type { HarnessExecutableSnapshot } from './executable-runtime.js'
-import type { HarnessEnvironment, HarnessRoots } from './manifest.js'
+import type { HarnessAccountScope, HarnessEnvironment, HarnessRoots } from './manifest.js'
 import { harnessLoginReadEnv, manifestFor } from './registry.js'
 
 /**
@@ -69,9 +69,7 @@ export function harnessContext(
       `harness ${kind} is not installed in command-environment generation ${snapshot.commandEnvironment.generation}`,
     )
   }
-  const manifest = manifestFor(kind)
-  if (!manifest) throw new Error(`no manifest for harness ${kind}`)
-  const env = Object.freeze(harnessLoginReadEnv(kind, home, snapshot.commandEnvironment.env))
+  const account = harnessAccount(kind, home, snapshot.commandEnvironment.env)
   return Object.freeze({
     installation: Object.freeze({
       kind,
@@ -79,10 +77,41 @@ export function harnessContext(
       version: executable.version ?? '',
       generation: snapshot.commandEnvironment.generation,
     }),
-    home,
-    env,
-    roots: Object.freeze(manifest.roots(home, env)),
+    home: account.home,
+    env: account.env,
+    roots: account.roots,
   })
+}
+
+/**
+ * THE ACCOUNT HALF OF {@link harnessContext} (POD-6534, design §3.3 "account
+ * scope"), for reads that need no installation: quota, usage history,
+ * credential files and transcripts outlive an uninstall, and a logged-in
+ * account with no CLI on PATH still has a quota.
+ *
+ * The SAME recipe as the full context, so the two can never resolve different
+ * folders: `env` is {@link harnessLoginReadEnv} over `machineEnv` (the
+ * snapshot's command environment), `roots` the adapter's rule over that env.
+ * Pass `{}` when no snapshot exists: the folders then come from `home` alone,
+ * never from the daemon's own `process.env`.
+ *
+ * Throws for an unknown kind rather than guessing another harness's layout.
+ */
+export function harnessAccount(
+  kind: BuiltinHarnessKind | string,
+  home: string,
+  machineEnv: HarnessEnvironment,
+): HarnessAccountScope & { readonly env: Readonly<Record<string, string>> } {
+  const manifest = manifestFor(kind)
+  if (!manifest) throw new Error(`no manifest for harness ${kind}`)
+  const env = Object.freeze(definedEnv(harnessLoginReadEnv(kind, home, machineEnv)))
+  return Object.freeze({ home, env, roots: Object.freeze(manifest.roots(home, env)) })
+}
+
+function definedEnv(env: Record<string, string | undefined>): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(env)) if (value !== undefined) out[key] = value
+  return out
 }
 
 /**

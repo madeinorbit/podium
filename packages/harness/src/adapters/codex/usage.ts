@@ -17,17 +17,16 @@
 import type { Dirent } from 'node:fs'
 import { createReadStream } from 'node:fs'
 import { readdir, readFile, stat } from 'node:fs/promises'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { AgentQuotaWire, QuotaWindowWire } from '@podium/model'
 import type { QuotaHistorySampleWire } from '@podium/protocol'
 import {
-  supported,
-  unsupported,
-  type HarnessEnvironment,
+  type HarnessAccountScope,
   type HarnessUsage,
   type QuotaProbeOptions,
+  supported,
+  unsupported,
 } from '../../manifest.js'
 import {
   collectJsonlFiles,
@@ -37,7 +36,6 @@ import {
   type UsageRecord,
   type UsageScanCache,
 } from '../../usage-records.js'
-import { codexRoots } from './roots.js'
 
 const USAGE_URL = 'https://chatgpt.com/backend-api/wham/usage'
 
@@ -96,14 +94,11 @@ export function parseWhamUsage(body: WhamUsageResponse): QuotaWindowWire[] {
 }
 
 /**
- * `env` is the account environment the caller holds, when it holds one: its
- * `CODEX_HOME` is honoured through the one Codex folder rule (POD-6532). An
- * absent env reads the default `<home>/.codex` — never the daemon's own
- * `process.env`, which is not the account's.
+ * The account's `auth.json`, from its resolved roots (POD-6534): the account
+ * environment's `CODEX_HOME` is honoured through the one Codex folder rule
+ * (POD-6532); the daemon's own `process.env` never is.
  */
-export async function fetchCodexQuota(
-  deps: QuotaProbeOptions & { env?: HarnessEnvironment } = {},
-): Promise<AgentQuotaWire> {
+export async function fetchCodexQuota(deps: QuotaProbeOptions): Promise<AgentQuotaWire> {
   const now = deps.now ?? Date.now()
   const fetchImpl = deps.fetchImpl ?? fetch
   const base = {
@@ -111,10 +106,7 @@ export async function fetchCodexQuota(
     windows: [] as QuotaWindowWire[],
     fetchedAt: new Date(now).toISOString(),
   }
-  const authPath = join(
-    codexRoots(deps.homeDir ?? homedir(), deps.env ?? {}).credentials,
-    'auth.json',
-  )
+  const authPath = join(codexCredentialsRoot(deps.account), 'auth.json')
   let accessToken: string | undefined
   let accountId: string | undefined
   try {
@@ -230,8 +222,8 @@ export function codexUsageFromRecord(record: unknown, model: string): UsageRecor
  *
  * The daemon's OWN `CODEX_HOME` is not followed — the daemon's environment is
  * not the shell codex was launched from, so reading it there would be a guess.
- * A `CODEX_HOME` in the account env the caller passes is (POD-6532): that env
- * is the one the session child gets.
+ * The account's resolved `roots` are (POD-6534): they come from the env the
+ * session child gets.
  *
  * Every rollout counts, including the "guardian" subagent rollout Codex ≥0.142
  * writes alongside an interactive session. The sheet answers what the account
@@ -239,11 +231,10 @@ export function codexUsageFromRecord(record: unknown, model: string): UsageRecor
  */
 export async function scanCodexUsage(opts: {
   sinceMs: number
-  homeDir?: string
-  env?: HarnessEnvironment
+  account: HarnessAccountScope
   cache?: UsageScanCache
 }): Promise<UsageFileScan[]> {
-  const sessionsDir = codexRoots(opts.homeDir ?? homedir(), opts.env ?? {}).transcripts
+  const sessionsDir = opts.account.roots.transcripts ?? join(opts.account.roots.state, 'sessions')
   const paths: string[] = []
   await collectJsonlFiles(sessionsDir, paths)
   return scanJsonlTranscripts(paths, 'codex', opts, {
@@ -399,13 +390,12 @@ async function codexAccountEmail(credentialsDir: string): Promise<string | undef
 export async function scanCodexQuotaHistory(opts: {
   sinceMs: number
   machineId: string
-  homeDir?: string
-  env?: HarnessEnvironment
+  account: HarnessAccountScope
 }): Promise<QuotaHistorySampleWire[]> {
-  const roots = codexRoots(opts.homeDir ?? homedir(), opts.env ?? {})
-  const email = await codexAccountEmail(roots.credentials)
+  const roots = opts.account.roots
+  const email = await codexAccountEmail(codexCredentialsRoot(opts.account))
   const files: string[] = []
-  await collectRollouts(roots.transcripts, files)
+  await collectRollouts(roots.transcripts ?? join(roots.state, 'sessions'), files)
   const samples: QuotaHistorySampleWire[] = []
   for (const path of files) {
     try {
@@ -417,6 +407,10 @@ export async function scanCodexQuotaHistory(opts: {
     }
   }
   return samples.filter((sample) => sample.atMs >= opts.sinceMs)
+}
+
+function codexCredentialsRoot(account: HarnessAccountScope): string {
+  return account.roots.credentials ?? account.roots.state
 }
 
 export const codexUsage: HarnessUsage = {

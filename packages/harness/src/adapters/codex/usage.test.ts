@@ -2,9 +2,23 @@ import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'n
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import { codexModelOf, codexUsageFromRecord, scanCodexUsage, fetchCodexQuota, parseWhamUsage, codexSamplesFromEvent } from './usage.js'
+import { harnessAccount } from '../../harness-context.js'
 import { scanHostUsageSources } from '../../inventory/usage.js'
-import { UsageScanCache, fileBuckets, mergeBuckets, windowBuckets } from '../../usage-records.js'
+import type { HarnessAccountScope } from '../../manifest.js'
+import { fileBuckets, mergeBuckets, UsageScanCache, windowBuckets } from '../../usage-records.js'
+import {
+  codexModelOf,
+  codexSamplesFromEvent,
+  codexUsageFromRecord,
+  fetchCodexQuota,
+  parseWhamUsage,
+  scanCodexUsage,
+} from './usage.js'
+
+/** The account the section reads (POD-6534): built the way the inventory
+ *  fan-out builds it, with no machine env. */
+const acct = (home: string): HarnessAccountScope => harnessAccount('codex', home, {})
+
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
 // tests finish, so a suite run leaves nothing behind in tmp.
 const tmpDirs: string[] = []
@@ -18,7 +32,7 @@ afterAll(() => {
 })
 
 /** Fold section scans the way the inventory mechanism does (file fold, window, merge). */
-async function scanBuckets(opts: { sinceMs: number; homeDir: string }) {
+async function scanBuckets(opts: { sinceMs: number; account: HarnessAccountScope }) {
   const scans = await scanCodexUsage(opts)
   return mergeBuckets(scans.flatMap((scan) => windowBuckets(fileBuckets(scan), opts.sinceMs)))
 }
@@ -142,7 +156,7 @@ describe('scanCodexUsage', () => {
     ])
     const buckets = await scanBuckets({
       sinceMs: Date.parse('2026-06-10T00:00:00Z'),
-      homeDir: home,
+      account: acct(home),
     })
     expect(buckets).toHaveLength(1)
     expect(buckets[0]).toMatchObject({
@@ -165,7 +179,7 @@ describe('scanCodexUsage', () => {
     ])
     // Same hour, so both land in one hour with a bucket each — the switch is
     // visible as two models, not one model charged for both turns.
-    const buckets = await scanBuckets({ sinceMs: 0, homeDir: home })
+    const buckets = await scanBuckets({ sinceMs: 0, account: acct(home) })
     expect(buckets.map((b) => b.model).sort()).toEqual(['gpt-5-mini', 'gpt-5.6-sol'])
     expect(buckets.every((b) => b.messages === 1)).toBe(true)
   })
@@ -173,18 +187,15 @@ describe('scanCodexUsage', () => {
   it('attributes usage to unknown when a rollout names no model at all', async () => {
     const home = trackTmp('podium-usage-codex-nomodel-')
     writeRollout(home, 'rollout-c.jsonl', [tokenCountLine('2026-06-12T10:01:00.000Z', LAST)])
-    const buckets = await scanBuckets({ sinceMs: 0, homeDir: home })
+    const buckets = await scanBuckets({ sinceMs: 0, account: acct(home) })
     expect(buckets[0]).toMatchObject({ model: 'unknown', messages: 1 })
   })
 
   it('returns [] when no codex dir exists', async () => {
     const home = trackTmp('podium-usage-codex-empty-')
-    expect(await scanCodexUsage({ sinceMs: 0, homeDir: home })).toEqual([])
+    expect(await scanCodexUsage({ sinceMs: 0, account: acct(home) })).toEqual([])
   })
 })
-
-
-
 
 const now = Date.parse('2026-06-19T18:00:00.000Z')
 
@@ -233,9 +244,7 @@ describe('parseWhamUsage', () => {
       },
     }
     const w = parseWhamUsage(body)
-    expect(w.map((x) => [x.key, x.label, x.windowMinutes])).toEqual([
-      ['weekly', 'Weekly', 10080],
-    ])
+    expect(w.map((x) => [x.key, x.label, x.windowMinutes])).toEqual([['weekly', 'Weekly', 10080]])
   })
 
   it('classifies a 5h-sized secondary_window as 5h if windows are swapped', () => {
@@ -258,7 +267,7 @@ describe('fetchCodexQuota', () => {
     const home = trackTmp('podium-xq-')
     let called = false
     const r = await fetchCodexQuota({
-      homeDir: home,
+      account: acct(home),
       now,
       fetchImpl: (async () => {
         called = true
@@ -272,7 +281,7 @@ describe('fetchCodexQuota', () => {
   it('returns ok windows + account on 200', async () => {
     const home = homeWithAuth({ tokens: { access_token: 'tok', account_id: 'acct123' } })
     const r = await fetchCodexQuota({
-      homeDir: home,
+      account: acct(home),
       now,
       fetchImpl: (async () =>
         new Response(JSON.stringify(okBody), { status: 200 })) as typeof fetch,
@@ -288,7 +297,7 @@ describe('fetchCodexQuota', () => {
   it('maps 401 to expired', async () => {
     const home = homeWithAuth({ tokens: { access_token: 'tok' } })
     const r = await fetchCodexQuota({
-      homeDir: home,
+      account: acct(home),
       now,
       fetchImpl: (async () => new Response('', { status: 401 })) as typeof fetch,
     })
@@ -298,7 +307,7 @@ describe('fetchCodexQuota', () => {
   it('maps non-401 error status to error', async () => {
     const home = homeWithAuth({ tokens: { access_token: 'tok' } })
     const r = await fetchCodexQuota({
-      homeDir: home,
+      account: acct(home),
       now,
       fetchImpl: (async () => new Response('', { status: 500 })) as typeof fetch,
     })
@@ -309,7 +318,7 @@ describe('fetchCodexQuota', () => {
   it('maps a thrown fetchImpl to error', async () => {
     const home = homeWithAuth({ tokens: { access_token: 'tok' } })
     const r = await fetchCodexQuota({
-      homeDir: home,
+      account: acct(home),
       now,
       fetchImpl: (async () => {
         throw new Error('network failure')

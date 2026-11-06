@@ -2,8 +2,21 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import { grokUsageFromSession, scanGrokUsage, fetchGrokQuota, parseGrokBilling, grokSampleFromLogLine } from './usage.js'
+import { harnessAccount } from '../../harness-context.js'
+import type { HarnessAccountScope } from '../../manifest.js'
 import { fileBuckets, mergeBuckets, windowBuckets } from '../../usage-records.js'
+import {
+  fetchGrokQuota,
+  grokSampleFromLogLine,
+  grokUsageFromSession,
+  parseGrokBilling,
+  scanGrokUsage,
+} from './usage.js'
+
+/** The account the section reads (POD-6534): built the way the inventory
+ *  fan-out builds it, with no machine env. */
+const acct = (home: string): HarnessAccountScope => harnessAccount('grok', home, {})
+
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
 // tests finish, so a suite run leaves nothing behind in tmp.
 const tmpDirs: string[] = []
@@ -17,7 +30,7 @@ afterAll(() => {
 })
 
 /** Fold section scans the way the inventory mechanism does (file fold, window, merge). */
-async function scanBuckets(opts: { sinceMs: number; homeDir: string }) {
+async function scanBuckets(opts: { sinceMs: number; account: HarnessAccountScope }) {
   const scans = await scanGrokUsage(opts)
   return mergeBuckets(scans.flatMap((scan) => windowBuckets(fileBuckets(scan), opts.sinceMs)))
 }
@@ -107,7 +120,7 @@ describe('scanGrokUsage', () => {
 
     const buckets = await scanBuckets({
       sinceMs: Date.parse('2026-06-10T00:00:00Z'),
-      homeDir: home,
+      account: acct(home),
     })
     expect(buckets).toHaveLength(1)
     expect(buckets[0]).toMatchObject({
@@ -126,14 +139,14 @@ describe('scanGrokUsage', () => {
       assistantMessageCount: 1,
       primaryModelId: 'grok-4.5',
     })
-    const buckets = await scanBuckets({ sinceMs: 0, homeDir: home })
+    const buckets = await scanBuckets({ sinceMs: 0, account: acct(home) })
     expect(buckets).toHaveLength(1)
     expect(buckets[0]).toMatchObject({ model: 'grok-4.5', inputTokens: 40, messages: 1 })
   })
 
   it('returns [] when no grok dir exists', async () => {
     const home = trackTmp('podium-usage-grok-empty-')
-    expect(await scanGrokUsage({ sinceMs: 0, homeDir: home })).toEqual([])
+    expect(await scanGrokUsage({ sinceMs: 0, account: acct(home) })).toEqual([])
   })
 
   it('does not harvest a signals.json buried in terminal logs', async () => {
@@ -154,7 +167,7 @@ describe('scanGrokUsage', () => {
       }),
     )
 
-    const buckets = await scanBuckets({ sinceMs: 0, homeDir: home })
+    const buckets = await scanBuckets({ sinceMs: 0, account: acct(home) })
     expect(buckets).toHaveLength(1)
     expect(buckets[0]).toMatchObject({ inputTokens: 10, messages: 1 })
   })
@@ -177,13 +190,11 @@ describe('scanGrokUsage', () => {
       }),
     )
 
-    const buckets = await scanBuckets({ sinceMs: 0, homeDir: home })
+    const buckets = await scanBuckets({ sinceMs: 0, account: acct(home) })
     expect(buckets).toHaveLength(1)
     expect(buckets[0]).toMatchObject({ model: 'grok-4.6', inputTokens: 50, messages: 3 })
   })
 })
-
-
 
 const now = Date.parse('2026-07-24T18:00:00.000Z')
 
@@ -331,7 +342,7 @@ describe('fetchGrokQuota', () => {
     const home = trackTmp('podium-gq-')
     let called = false
     const r = await fetchGrokQuota({
-      homeDir: home,
+      account: acct(home),
       now,
       fetchImpl: (async () => {
         called = true
@@ -346,13 +357,12 @@ describe('fetchGrokQuota', () => {
     const home = homeWithAuth(sampleAuth)
     const fetchImpl = (async (input: string | URL) => {
       const url = String(input)
-      return new Response(
-        JSON.stringify(url.includes('?format=credits') ? weeklyBody : okBody),
-        { status: 200 },
-      )
+      return new Response(JSON.stringify(url.includes('?format=credits') ? weeklyBody : okBody), {
+        status: 200,
+      })
     }) as typeof fetch
     const r = await fetchGrokQuota({
-      homeDir: home,
+      account: acct(home),
       now,
       fetchImpl,
     })
@@ -373,7 +383,7 @@ describe('fetchGrokQuota', () => {
       )
     }) as typeof fetch
 
-    const r = await fetchGrokQuota({ homeDir: home, now, fetchImpl })
+    const r = await fetchGrokQuota({ account: acct(home), now, fetchImpl })
 
     expect(r.status).toBe('ok')
     expect(r.windows.map((window) => [window.key, window.usedPercent])).toEqual([
@@ -392,7 +402,7 @@ describe('fetchGrokQuota', () => {
     })
     let called = false
     const r = await fetchGrokQuota({
-      homeDir: home,
+      account: acct(home),
       now,
       fetchImpl: (async () => {
         called = true
@@ -407,7 +417,7 @@ describe('fetchGrokQuota', () => {
   it('maps 401 to expired', async () => {
     const home = homeWithAuth(sampleAuth)
     const r = await fetchGrokQuota({
-      homeDir: home,
+      account: acct(home),
       now,
       fetchImpl: (async () => new Response('', { status: 401 })) as typeof fetch,
     })
@@ -417,7 +427,7 @@ describe('fetchGrokQuota', () => {
   it('maps non-401 error status to error', async () => {
     const home = homeWithAuth(sampleAuth)
     const r = await fetchGrokQuota({
-      homeDir: home,
+      account: acct(home),
       now,
       fetchImpl: (async () => new Response('', { status: 500 })) as typeof fetch,
     })
@@ -428,7 +438,7 @@ describe('fetchGrokQuota', () => {
   it('maps a thrown fetchImpl to error', async () => {
     const home = homeWithAuth(sampleAuth)
     const r = await fetchGrokQuota({
-      homeDir: home,
+      account: acct(home),
       now,
       fetchImpl: (async () => {
         throw new Error('network failure')

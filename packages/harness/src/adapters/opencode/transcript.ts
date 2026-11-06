@@ -1,10 +1,10 @@
 import type { TranscriptItem } from '@podium/model'
-import { opencodeDbPathForSession } from './paths.js'
 import {
   encodeCursor,
   type OpencodeMessagePartRow,
   type SqliteTranscriptLocator,
 } from '../../transcript-types.js'
+import { opencodeDbPath, opencodeDbPathForSession } from './paths.js'
 
 export type { OpencodeMessagePartRow } from '../../transcript-types.js'
 
@@ -224,11 +224,18 @@ export const opencodeTranscript: Declared<HarnessTranscript> = supported({
     // No resume value → nothing to read; the Store hands back an inert empty
     // source so the caller need not special-case it.
     if (!input.resumeValue) return undefined
-    const databasePath = opencodeDbPathForSession({
-      homeDir: input.homeDir,
-      podiumSessionId: input.podiumSessionId,
-      resumeValue: input.resumeValue,
-    })
+    // A session's own store first; an older session's shared store lives in
+    // the account's data root (POD-6534: the account env's XDG_DATA_HOME,
+    // through the roots rule) when the caller names the account.
+    const databasePath =
+      opencodeDbPathForSession({
+        homeDir: input.homeDir,
+        podiumSessionId: input.podiumSessionId,
+        resumeValue: input.resumeValue,
+      }) ??
+      (input.homeDir !== undefined && input.env !== undefined
+        ? opencodeDbPath(input.homeDir, input.env)
+        : undefined)
     return {
       sessionKey: input.resumeValue,
       ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),

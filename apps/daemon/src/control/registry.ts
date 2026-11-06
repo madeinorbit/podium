@@ -1,18 +1,19 @@
-import type { ControlMessage } from '@podium/protocol/daemon'
 import { handleCredentialExport, handleCredentialInstall } from '@podium/harness/inventory'
 import { createLogger } from '@podium/logger'
+import type { ControlMessage } from '@podium/protocol/daemon'
+import { resolveManagementCredentialHome } from '../harness-management.js'
 import { runtimeHandlers } from '../runtime/handlers'
 import { serverTransferHandlers } from '../server-transfer'
 import { approvalHandlers } from './approvals'
-import type { ControlHandlers, DaemonContext } from './context'
 import { codexHandlers } from './codex'
+import type { ControlHandlers, DaemonContext } from './context'
 import { discoveryHandlers } from './discovery'
 import { execHandlers } from './exec'
 import { fileHandlers } from './files'
 import { handoffHandlers } from './handoff'
 import { inventoryHandlers, reportInventory } from './inventory'
-import { serverEndpointHandlers } from './server-endpoint'
 import { logHandlers } from './logs'
+import { serverEndpointHandlers } from './server-endpoint'
 import { sessionHandlers } from './session'
 import { shippingHandlers } from './shipping'
 import { transcriptHandlers } from './transcripts'
@@ -29,8 +30,14 @@ const log = createLogger('daemon:control')
  * resulting frame. No harness is named here; kinds flow as values.
  */
 function credentialPorts(ctx: DaemonContext) {
+  // The ACCOUNT's credential home (POD-6534, F09), the one management rule,
+  // not the instance home: model probes, the Codex call and credentials name
+  // the same account. The handlers compose the account env per kind from the
+  // snapshot below and refuse an account operation without one.
+  const homeDir = resolveManagementCredentialHome(ctx)
   return {
-    ...(ctx.homeDir !== undefined ? { homeDir: ctx.homeDir } : {}),
+    ...(homeDir !== undefined ? { homeDir } : {}),
+    onRefusal: (err: Error) => log.warn('credential operation refused', { err: err.message }),
     snapshotRuntime: async () => {
       const snapshot = await ctx.harnessRuntime?.current().catch(() => undefined)
       if (!snapshot) return undefined

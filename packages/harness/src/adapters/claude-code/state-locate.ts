@@ -9,6 +9,8 @@
 import { readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
+import type { HarnessEnvironment } from '../../manifest.js'
+import { claudeRoots } from './roots.js'
 
 /** Claude's per-project transcript dir name: the cwd with every non-alphanumeric
  *  character flattened to '-' (CLI 2.1.291 embedded source: XP/k).
@@ -40,6 +42,9 @@ export async function locateClaudeSessionFile(opts: {
    *  the common moved-worktree read costs one stat instead of a bucket sweep. */
   pathHint?: string
   homeDir?: string
+  /** The account env (POD-6534): its `CLAUDE_CONFIG_DIR` relocates the
+   *  projects store through the adapter's roots rule. Absent: `<home>/.claude`. */
+  env?: HarnessEnvironment
 }): Promise<string | null> {
   // The hint is evidence for WHERE the file lives (moved worktrees), never for
   // WHICH file the session is: a poisoned registry path (e.g. a subagent
@@ -52,7 +57,7 @@ export async function locateClaudeSessionFile(opts: {
   )
     return opts.pathHint
   const home = opts.homeDir ?? homedir()
-  const projects = join(home, '.claude', 'projects')
+  const projects = claudeRoots(home, opts.env ?? {}).transcripts
   const exact = join(projects, claudeProjectSlug(opts.cwd), `${opts.resumeValue}.jsonl`)
   if (await isFile(exact)) return exact
   let buckets: string[]

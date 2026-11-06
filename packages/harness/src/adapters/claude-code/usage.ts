@@ -9,15 +9,15 @@
  * history, so `history` is declined with the reason — that absence is itself
  * the answer.
  */
-import { readFile, readdir } from 'node:fs/promises'
-import { homedir } from 'node:os'
+import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { AgentQuotaWire, QuotaWindowWire } from '@podium/model'
 import {
-  supported,
-  unsupported,
+  type HarnessAccountScope,
   type HarnessUsage,
   type QuotaProbeOptions,
+  supported,
+  unsupported,
 } from '../../manifest.js'
 import {
   collectJsonlFiles,
@@ -151,9 +151,7 @@ export function parseClaudeUsage(body: ClaudeUsageResponse): QuotaWindowWire[] {
   return windows
 }
 
-export async function fetchClaudeQuota(
-  deps: QuotaProbeOptions = {},
-): Promise<AgentQuotaWire> {
+export async function fetchClaudeQuota(deps: QuotaProbeOptions): Promise<AgentQuotaWire> {
   const now = deps.now ?? Date.now()
   const fetchImpl = deps.fetchImpl ?? fetch
   const base = {
@@ -161,8 +159,9 @@ export async function fetchClaudeQuota(
     windows: [] as QuotaWindowWire[],
     fetchedAt: new Date(now).toISOString(),
   }
-  const homeDir = deps.homeDir ?? homedir()
-  const credPath = join(homeDir, '.claude', '.credentials.json')
+  // The account's credential folder (POD-6534): `CLAUDE_CONFIG_DIR` in the
+  // account env relocates it, exactly as the credential layout and the CLI do.
+  const credPath = join(claudeCredentialsRoot(deps.account), '.credentials.json')
   let token: string | undefined
   let expiresAt: number | undefined
   let subscriptionType: string | undefined
@@ -180,7 +179,7 @@ export async function fetchClaudeQuota(
   // The account identity (email) lives in ~/.claude.json, separate from the
   // credential token, so the overlay can label the account and dedupe machines
   // signed into the same one. Best-effort — absence just omits the account.
-  const account = await readClaudeAccount(homeDir, subscriptionType)
+  const account = await readClaudeAccount(deps.account.home, subscriptionType)
   const withAcct = account ? { ...base, account } : base
   if (typeof expiresAt === 'number' && expiresAt <= now) {
     return { ...withAcct, status: 'expired', error: 'token expired (refreshes on next Claude use)' }
@@ -298,10 +297,10 @@ export function usageFromRecord(record: unknown): UsageRecord | null {
  */
 export async function scanClaudeUsage(opts: {
   sinceMs: number
-  homeDir?: string
+  account: HarnessAccountScope
   cache?: UsageScanCache
 }): Promise<UsageFileScan[]> {
-  const projectsDir = join(opts.homeDir ?? homedir(), '.claude', 'projects')
+  const projectsDir = opts.account.roots.transcripts ?? join(opts.account.roots.state, 'projects')
   let projectDirs: string[]
   try {
     projectDirs = await readdir(projectsDir)
@@ -317,6 +316,10 @@ export async function scanClaudeUsage(opts: {
       return parseLine(line, (record) => usageFromRecord(record))
     },
   })
+}
+
+function claudeCredentialsRoot(account: HarnessAccountScope): string {
+  return account.roots.credentials ?? account.roots.state
 }
 
 export const claudeUsage: HarnessUsage = {

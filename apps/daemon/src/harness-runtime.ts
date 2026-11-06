@@ -38,6 +38,16 @@ export class DaemonHarnessRuntime {
     return this.authoritative
   }
 
+  /**
+   * The last snapshot a wave installed, without waiting for one in flight
+   * (POD-6534). A reprobe holds `current()` open for a whole version/login
+   * wave; latency-sensitive account reads (transcripts) take the settled
+   * command environment instead. `undefined` before the first wave settles.
+   */
+  settled(): ResolvedHarnessInventory | undefined {
+    return this.authoritativeValue
+  }
+
   refresh(): Promise<ResolvedHarnessInventory> {
     this.generation += 1
     this.revision += 1

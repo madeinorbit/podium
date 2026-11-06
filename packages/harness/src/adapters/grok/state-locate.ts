@@ -9,6 +9,7 @@
 import { lstat, readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { type HarnessEnvironment, selectedRoot } from '../../manifest.js'
 
 /** Same shape as `GrokSessionPaths` — kept local so this file does not import the provider. */
 interface GrokSessionPaths {
@@ -45,14 +46,17 @@ export async function locateGrokSessionPaths(opts: {
   sessionId: string
   pathHint?: string
   homeDir?: string
+  /** The account env (POD-6534): its `GROK_HOME` selects the root through
+   *  the adapter's roots rule. Only read when `homeDir` is given. */
+  env?: HarnessEnvironment
 }): Promise<GrokSessionPaths | null> {
   const fromHint = opts.pathHint ? pathsFromHint(opts.pathHint, opts.sessionId) : null
   if (fromHint && (await sessionMtimeMs(fromHint)) !== null) return fromHint
 
-  const exact = derivedPaths(opts.cwd, opts.sessionId, opts.homeDir)
+  const exact = derivedPaths(opts.cwd, opts.sessionId, opts.homeDir, opts.env)
   if ((await sessionMtimeMs(exact)) !== null) return exact
 
-  const sessionsRoot = join(grokRoot(opts.homeDir), 'sessions')
+  const sessionsRoot = join(grokRoot(opts.homeDir, opts.env), 'sessions')
   let buckets: string[]
   try {
     buckets = (await readdir(sessionsRoot, { withFileTypes: true }))
@@ -82,6 +86,7 @@ export async function locateGrokTranscript(opts: {
   sessionId: string
   pathHint?: string
   homeDir?: string
+  env?: HarnessEnvironment
   transcriptRoot?: string
 }): Promise<string | null> {
   const authority = await locateCurrentTranscript(opts)
@@ -187,9 +192,14 @@ function pathsFromHint(pathHint: string, sessionId: string): GrokSessionPaths | 
   return pathsFromDir(sessionDir, sessionId)
 }
 
-function derivedPaths(cwd: string, sessionId: string, homeDir?: string): GrokSessionPaths {
+function derivedPaths(
+  cwd: string,
+  sessionId: string,
+  homeDir?: string,
+  env?: HarnessEnvironment,
+): GrokSessionPaths {
   return pathsFromDir(
-    join(grokRoot(homeDir), 'sessions', encodeURIComponent(cwd), sessionId),
+    join(grokRoot(homeDir, env), 'sessions', encodeURIComponent(cwd), sessionId),
     sessionId,
   )
 }
@@ -204,8 +214,8 @@ function pathsFromDir(sessionDir: string, sessionId: string): GrokSessionPaths {
   }
 }
 
-function grokRoot(homeDir: string | undefined): string {
-  if (homeDir) return join(homeDir, '.grok')
+function grokRoot(homeDir: string | undefined, env?: HarnessEnvironment): string {
+  if (homeDir) return selectedRoot(env ?? {}, 'GROK_HOME', homeDir, '.grok')
   return process.env.GROK_HOME || join(homedir(), '.grok')
 }
 

@@ -35,6 +35,8 @@
  * (2026-11-06): 32 entries, 54 uses — to-migrate 51, os-tool 3. POD-6532
  * then removed the daemon's Codex folder literals (control/codex.ts,
  * session-observers.ts): 30 entries, 51 uses — to-migrate 48, os-tool 3.
+ * POD-6534 moved the usage/quota sections onto the account's roots (Claude,
+ * Codex, Grok usage.ts): 26 entries, 42 uses — to-migrate 39, os-tool 3.
  */
 
 export type HarnessAmbientAccess =
@@ -61,7 +63,7 @@ export interface HarnessAmbientAllowlistEntry {
 }
 
 /** Seeded category totals; the list may only go down from these. */
-export const HARNESS_AMBIENT_BASELINE_TO_MIGRATE = 48
+export const HARNESS_AMBIENT_BASELINE_TO_MIGRATE = 39
 export const HARNESS_AMBIENT_BASELINE_OS_TOOL = 3
 
 const A = 'packages/harness/src/adapters'
@@ -112,13 +114,6 @@ export const HARNESS_AMBIENT_ALLOWLIST: readonly HarnessAmbientAllowlistEntry[] 
     file: `${A}/claude-code/state-locate.ts`,
     access: 'homedir',
     count: 1,
-    category: 'to-migrate',
-    issue: ACCOUNT,
-  },
-  {
-    file: `${A}/claude-code/usage.ts`,
-    access: 'homedir',
-    count: 2,
     category: 'to-migrate',
     issue: ACCOUNT,
   },
@@ -175,13 +170,6 @@ export const HARNESS_AMBIENT_ALLOWLIST: readonly HarnessAmbientAllowlistEntry[] 
     category: 'to-migrate',
     issue: ROOTS,
   },
-  {
-    file: `${A}/codex/usage.ts`,
-    access: 'homedir',
-    count: 3,
-    category: 'to-migrate',
-    issue: ROOTS,
-  },
 
   // --- Scope A: fixture harness ---------------------------------------------
   {
@@ -225,20 +213,6 @@ export const HARNESS_AMBIENT_ALLOWLIST: readonly HarnessAmbientAllowlistEntry[] 
     file: `${A}/grok/state-locate.ts`,
     access: 'process-env',
     count: 1,
-    category: 'to-migrate',
-    issue: ACCOUNT,
-  },
-  {
-    file: `${A}/grok/usage.ts`,
-    access: 'homedir',
-    count: 2,
-    category: 'to-migrate',
-    issue: ACCOUNT,
-  },
-  {
-    file: `${A}/grok/usage.ts`,
-    access: 'process-env',
-    count: 2,
     category: 'to-migrate',
     issue: ACCOUNT,
   },

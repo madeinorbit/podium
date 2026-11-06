@@ -10,17 +10,17 @@
  * guarded writes, the propagation CAS fence — moved here VERBATIM from the
  * daemon's `control/credentials.ts`; they are correct.
  */
-import { homedir, platform as currentPlatform, userInfo } from 'node:os'
+import { platform as currentPlatform, homedir, userInfo } from 'node:os'
 import type { PortableCredentialBundle, PortableCredentialKind } from '@podium/protocol'
-import {
-  declaredValue,
-  resolveCredentialFilePath,
-  type CredentialFileLayout,
-  type HarnessCredentials,
-} from '../manifest.js'
-import { AGENT_MANIFESTS } from '../registry.js'
-import { FileCredentialStore, MAX_CREDENTIAL_BYTES } from './credential-store.js'
 import type { PortableCredentialStore } from '../manifest.js'
+import {
+  type CredentialFileLayout,
+  declaredValue,
+  type HarnessCredentials,
+  resolveCredentialFilePath,
+} from '../manifest.js'
+import { AGENT_MANIFESTS, harnessLoginReadEnv } from '../registry.js'
+import { FileCredentialStore, MAX_CREDENTIAL_BYTES } from './credential-store.js'
 
 export interface PortableCredentialOptions {
   /** Use the credential home itself, never a configured/managed file redirect. */
@@ -34,24 +34,57 @@ export interface PortableCredentialOptions {
   versions?: ReadonlyMap<string, string | undefined>
 }
 
-function credentialSections(): HarnessCredentials[] {
-  const sections: HarnessCredentials[] = []
+function credentialSections(): { harness: string; section: HarnessCredentials }[] {
+  const sections: { harness: string; section: HarnessCredentials }[] = []
   for (const manifest of Object.values(AGENT_MANIFESTS)) {
     const section = declaredValue(manifest.credentials)
-    if (section) sections.push(section)
+    if (section) sections.push({ harness: manifest.kind, section })
   }
   return sections
 }
 
 function layoutFor(
   kind: PortableCredentialKind,
-): { section: HarnessCredentials; file: CredentialFileLayout } | undefined {
-  for (const section of credentialSections()) {
+): { harness: string; section: HarnessCredentials; file: CredentialFileLayout } | undefined {
+  for (const { harness, section } of credentialSections()) {
     if (!section.kinds.includes(kind)) continue
     const file = section.files.find((candidate) => candidate.kind === kind)
-    if (file) return { section, file }
+    if (file) return { harness, section, file }
   }
   return undefined
+}
+
+/**
+ * Refusal for an account credential operation with no inventory snapshot
+ * (POD-6534, F09). Without the snapshot's command environment Podium cannot
+ * compose the account's environment, and the daemon's own `process.env` is not
+ * the account's: an ambient `CODEX_HOME` there would export or overwrite
+ * another login.
+ */
+export class CredentialAccountUnavailableError extends Error {
+  constructor(operation: 'export' | 'install') {
+    super(
+      `credential ${operation} refused: no inventory snapshot, so the account environment is unknown (the daemon's own environment is not the account's)`,
+    )
+    this.name = 'CredentialAccountUnavailableError'
+  }
+}
+
+/**
+ * The ACCOUNT environment one credential kind is read or written under
+ * (POD-6534): the snapshot's command env composed by `harnessLoginReadEnv` for
+ * the harness that owns the kind — the env the child gets, whose instance
+ * selector (`CODEX_HOME`, `GROK_HOME`) already points into `home`. So a
+ * selector in the daemon's environment never redirects which file an account
+ * operation touches.
+ */
+function accountCredentialEnv(
+  kind: PortableCredentialKind,
+  home: string,
+  machineEnv: Readonly<Record<string, string | undefined>>,
+): Readonly<Record<string, string | undefined>> {
+  const harness = layoutFor(kind)?.harness
+  return harness ? harnessLoginReadEnv(harness, home, machineEnv) : machineEnv
 }
 
 function strictBase64(value: string): Buffer {
@@ -129,7 +162,8 @@ export async function installPortableCredential(
     const text = content.toString('utf8')
     const parsed = JSON.parse(text) as unknown
     const found = layoutFor(bundle.kind)
-    if (!found) throw new Error('credential propagation only supports native Codex and Claude files')
+    if (!found)
+      throw new Error('credential propagation only supports native Codex and Claude files')
     const { section, file } = found
     const store = credentialStore(section, file, home, options)
     if (options.guarded) {
@@ -174,9 +208,13 @@ export interface CredentialRuntimeSnapshot {
 }
 
 export interface CredentialHandlerPorts {
+  /** The account (credential) home. Account operations refuse without it. */
   readonly homeDir?: string
   snapshotRuntime(): Promise<CredentialRuntimeSnapshot | undefined>
   reportInventory(): void | Promise<void>
+  /** Told why an account operation was refused (no snapshot or no home), so
+   *  the host can log the reason the wire result cannot carry. */
+  onRefusal?(error: CredentialAccountUnavailableError): void
 }
 
 export interface CredentialExportMessage {
@@ -202,6 +240,19 @@ export async function handleCredentialExport(
 }> {
   const home = ports.homeDir ?? homedir()
   const runtime = await ports.snapshotRuntime().catch(() => undefined)
+  const propagation = msg.propagation === true
+  // Guarded propagation (`realHome`) is unchanged: it reads the credential
+  // home's own file and never a redirect, under its CAS/freshness guards.
+  // Every other export is an ACCOUNT operation and needs the account env.
+  if (!propagation && (!runtime || ports.homeDir === undefined)) {
+    ports.onRefusal?.(new CredentialAccountUnavailableError('export'))
+    return {
+      type: 'credentialExportResult',
+      requestId: msg.requestId,
+      bundles: [],
+      unavailable: [...msg.kinds],
+    }
+  }
   const options: PortableCredentialOptions = {
     platform: currentPlatform(),
     ...(runtime
@@ -214,8 +265,9 @@ export async function handleCredentialExport(
     try {
       const bundle = await readPortableCredential(kind, home, {
         ...options,
-        realHome: msg.propagation === true,
-        guarded: msg.propagation === true,
+        ...(!propagation && runtime ? { env: accountCredentialEnv(kind, home, runtime.env) } : {}),
+        realHome: propagation,
+        guarded: propagation,
       })
       if (bundle) bundles.push(bundle)
       else unavailable.push(kind)
@@ -237,6 +289,16 @@ export async function handleCredentialInstall(
 }> {
   const home = ports.homeDir ?? homedir()
   const runtime = await ports.snapshotRuntime().catch(() => undefined)
+  const propagation = msg.propagation === true
+  if (!propagation && (!runtime || ports.homeDir === undefined)) {
+    ports.onRefusal?.(new CredentialAccountUnavailableError('install'))
+    return {
+      type: 'credentialInstallResult',
+      requestId: msg.requestId,
+      installed: [],
+      failed: msg.bundles.map((bundle) => bundle.kind),
+    }
+  }
   const options: PortableCredentialOptions = {
     platform: currentPlatform(),
     ...(runtime
@@ -249,8 +311,11 @@ export async function handleCredentialInstall(
     try {
       const didInstall = await installPortableCredential(bundle, home, {
         ...options,
-        realHome: msg.propagation === true,
-        guarded: msg.propagation === true,
+        ...(!propagation && runtime
+          ? { env: accountCredentialEnv(bundle.kind, home, runtime.env) }
+          : {}),
+        realHome: propagation,
+        guarded: propagation,
       })
       if (didInstall) installed.push(bundle.kind)
       else failed.push(bundle.kind)

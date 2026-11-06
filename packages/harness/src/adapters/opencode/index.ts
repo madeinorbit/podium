@@ -1,8 +1,6 @@
 import { join } from 'node:path'
 import { promptEchoCorrelation } from '../../accept-correlation.js'
-import { observeOpencodeState, opencodeStateProvider } from './state.js'
 import { withStateChannel } from '../../agent-state/types.js'
-import { createOpencodeConversationProvider } from './discovery.js'
 import { composeAgentInstructions } from '../../instructions.js'
 import {
   type AgentManifest,
@@ -13,18 +11,18 @@ import {
   supported,
   unsupported,
 } from '../../manifest.js'
-import { detectOpencodeLogin } from './auth.js'
-import { resolveOpencode2Bin, resolveOpencodeBin } from './cli.js'
-import {
-  opencodeDbPathForSession,
-} from './paths.js'
 import { harnessVersionFloor, OPENCODE_VERSION_POLICY } from '../../version-policy.js'
-import { opencodeCredentials } from './credentials.js'
-import { opencodeInstall } from './install.js'
-import { opencodeUsage } from './usage.js'
+import { detectOpencodeLogin } from './auth.js'
 import { opencodeCatalog } from './catalog.js'
+import { resolveOpencode2Bin, resolveOpencodeBin } from './cli.js'
+import { opencodeCredentials } from './credentials.js'
 import { opencodeDescriptor } from './descriptor.js'
+import { createOpencodeConversationProvider } from './discovery.js'
+import { opencodeInstall } from './install.js'
+import { opencodeDataRoot, opencodeDbPathForSession } from './paths.js'
+import { observeOpencodeState, opencodeStateProvider } from './state.js'
 import { opencodePromptTextMatches, opencodeTranscript } from './transcript.js'
+import { opencodeUsage } from './usage.js'
 
 export const opencodeManifest: AgentManifest = {
   kind: 'opencode',
@@ -60,14 +58,10 @@ export const opencodeManifest: AgentManifest = {
   },
   resumeKind: 'opencode-session',
   // XDG base directories, as OpenCode itself reads them: data (auth.json and
-  // opencode.db) under XDG_DATA_HOME, config under XDG_CONFIG_HOME. The
-  // defaults are what paths.ts and opencode/db.ts read today; those helpers
-  // move onto this rule with their callers (POD-6533/POD-6534).
+  // opencode.db) under XDG_DATA_HOME, config under XDG_CONFIG_HOME. The data
+  // root is paths.ts's `opencodeDataRoot`, the one statement of that rule.
   roots: (home, env) => {
-    const state = join(
-      selectedRoot(env, 'XDG_DATA_HOME', home, join('.local', 'share')),
-      'opencode',
-    )
+    const state = opencodeDataRoot(home, env)
     return {
       state,
       config: join(selectedRoot(env, 'XDG_CONFIG_HOME', home, '.config'), 'opencode'),
@@ -380,7 +374,9 @@ export const opencodeManifest: AgentManifest = {
   }),
 
   state: supported(opencodeStateProvider),
-  instrumentation: unsupported('opencode posts no hook payloads; observation is poll-only over its event stream and store'),
+  instrumentation: unsupported(
+    'opencode posts no hook payloads; observation is poll-only over its event stream and store',
+  ),
   stateChannels: [
     {
       source: 'poll',
@@ -414,7 +410,9 @@ export const opencodeManifest: AgentManifest = {
 
   transcript: opencodeTranscript,
 
-  composer: unsupported('opencode has no composer scrape rules; sessions drive through its server protocol'),
+  composer: unsupported(
+    'opencode has no composer scrape rules; sessions drive through its server protocol',
+  ),
 
   handoffTranscript: unsupported('cross-machine handoff is not supported for opencode sessions'),
 

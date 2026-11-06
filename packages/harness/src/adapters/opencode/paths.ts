@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { type HarnessEnvironment, selectedRoot } from '../../manifest.js'
 
 /**
  * OpenCode's filesystem layout, stated once beside the adapter that owns it
@@ -11,12 +12,21 @@ import { join } from 'node:path'
  * default-roots rule.
  */
 
-export function opencodeDataRoot(homeDir?: string): string {
-  return join(homeDir ?? homedir(), '.local', 'share', 'opencode')
+/**
+ * OpenCode's data root: `XDG_DATA_HOME/opencode`, else
+ * `<home>/.local/share/opencode` — the manifest's `roots` rule (POD-6534).
+ * The selector is read only from the env a caller passes (an account env),
+ * never from the daemon's own `process.env`.
+ */
+export function opencodeDataRoot(homeDir?: string, env: HarnessEnvironment = {}): string {
+  return join(
+    selectedRoot(env, 'XDG_DATA_HOME', homeDir ?? homedir(), join('.local', 'share')),
+    'opencode',
+  )
 }
 
-export function opencodeDbPath(homeDir?: string): string {
-  return join(opencodeDataRoot(homeDir), 'opencode.db')
+export function opencodeDbPath(homeDir?: string, env: HarnessEnvironment = {}): string {
+  return join(opencodeDataRoot(homeDir, env), 'opencode.db')
 }
 /**
  * The OpenCode store for a fresh interactive Podium session.

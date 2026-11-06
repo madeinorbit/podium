@@ -399,7 +399,12 @@ describe('daemon model probe (POD-1466)', () => {
     const { ctx } = makeCtx()
     inventoryHandlers.modelProbeRequest(ctx, { type: 'modelProbeRequest', requestId: 'req-2' })
     await vi.waitFor(() => expect(probeModels).toHaveBeenCalled())
-    expect(probeModels.mock.calls[0]?.[0]).toMatchObject({ claude: { homeDir: ctx.homeDir } })
+    // POD-6534: the probe is handed the account (asked for by kind), not a
+    // bare homeDir; its home is still the daemon's own.
+    const opts = probeModels.mock.calls[0]?.[0] as {
+      accountFor: (kind: string) => { home: string }
+    }
+    expect(opts.accountFor('claude-code').home).toBe(ctx.homeDir)
   })
 
   // A silent daemon would only burn the server correlator's 20s timeout, and the

@@ -6,6 +6,7 @@ import {
 } from './state-provider.js'
 import { configureClaudeTranscriptClassifier } from './instrumentation.js'
 import { claudeProjectSlug, locateClaudeSessionFile } from './state-locate.js'
+import { claudeRoots } from './roots.js'
 import { createTranscriptClassifier } from '../../observer.js'
 import { createClaudeCodeConversationProvider } from './discovery.js'
 import { composeAgentInstructions } from '../../instructions.js'
@@ -16,7 +17,6 @@ import {
   type HarnessEnvironment,
   isSet,
   promptArgv,
-  selectedRoot,
   type SelectionContext,
   selectRuntimeDriver,
   supported,
@@ -89,10 +89,7 @@ export const claudeCodeManifest: AgentManifest = {
   // CLAUDE_CONFIG_DIR relocates settings, credentials and the projects store
   // (the credential layout's homeEnvVar). No global hook folder: Claude's
   // hooks ride per-session settings args.
-  roots: (home, env) => {
-    const state = selectedRoot(env, 'CLAUDE_CONFIG_DIR', home, '.claude')
-    return { state, config: state, credentials: state, transcripts: join(state, 'projects') }
-  },
+  roots: claudeRoots,
   environment: {
     // A daemon started inside Claude carries another conversation's identity.
     // Passing it on makes the child subordinate itself to that session and

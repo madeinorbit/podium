@@ -18,7 +18,12 @@ import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, sep } from 'node:path'
-import { declaredValue, manifestFor, resolvePinnedCodexRollout } from '@podium/harness'
+import {
+  declaredValue,
+  harnessAccount,
+  manifestFor,
+  resolvePinnedCodexRollout,
+} from '@podium/harness'
 import type { SessionSpec } from '@podium/harness/driver/host'
 import { installTerminalInstrumentation } from '@podium/harness/driver/host'
 import type { StatTick } from '@podium/harness/store'
@@ -205,19 +210,16 @@ async function sitesFor(world: Layout, accountHome: string | undefined) {
     bearer = init?.headers?.Authorization ?? ''
     return new Response(JSON.stringify({}), { status: 200 })
   }) as unknown as typeof fetch
-  const quotaResult: AgentQuotaWire = await quota.fetchQuota({
-    ...(accountHome ? { homeDir: accountHome } : {}),
-    fetchImpl,
-  })
+  // The account the production fan-out hands the section (POD-6534): the
+  // credential home over the command env, which copies the daemon's env.
+  const account = harnessAccount('codex', accountHome ?? world.machineHome, process.env)
+  const quotaResult: AgentQuotaWire = await quota.fetchQuota({ account, fetchImpl })
   expect(quotaResult.status).toBe('ok')
   const quotaFolder = (['machine', 'account', 'decoy'] as const).find(
     (label) => bearer === `Bearer token-${label}`,
   )
 
-  const scans = await transcripts.scan({
-    sinceMs: 0,
-    ...(accountHome ? { homeDir: accountHome } : {}),
-  })
+  const scans = await transcripts.scan({ sinceMs: 0, account })
   const scannedFolders = [...new Set(scans.map((scan) => folderOf(world, scan.path)))]
 
   const rollout = await resolvePinnedCodexRollout(world.threadId, accountHome)

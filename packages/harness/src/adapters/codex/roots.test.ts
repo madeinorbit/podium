@@ -2,7 +2,16 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { HarnessAccountScope, HarnessEnvironment } from '../../manifest.js'
+import { codexRoots } from './roots.js'
 import { fetchCodexQuota, scanCodexQuotaHistory, scanCodexUsage } from './usage.js'
+
+/** An account whose env carries `env` (POD-6534: the sections read `roots`). */
+const account = (home: string, env: HarnessEnvironment = {}): HarnessAccountScope => ({
+  home,
+  env,
+  roots: codexRoots(home, env),
+})
 
 /**
  * Usage and quota follow the ONE Codex folder rule (POD-6532): a CODEX_HOME
@@ -77,24 +86,32 @@ describe('Codex usage and quota roots', () => {
   it('honour CODEX_HOME in the env they are given', async () => {
     const { home, selected } = await world()
     const env = { CODEX_HOME: selected }
-    expect(await quotaBearer({ homeDir: home, env })).toBe('Bearer token-selected')
-    const scans = await scanCodexUsage({ sinceMs: 0, homeDir: home, env })
+    expect(await quotaBearer({ account: account(home, env) })).toBe('Bearer token-selected')
+    const scans = await scanCodexUsage({ sinceMs: 0, account: account(home, env) })
     expect(scans.map((scan) => scan.path)).toEqual([
       join(selected, 'sessions', '2026', '01', '01', 'rollout-selected.jsonl'),
     ])
-    const samples = await scanCodexQuotaHistory({ sinceMs: 0, machineId: 'm', homeDir: home, env })
+    const samples = await scanCodexQuotaHistory({
+      sinceMs: 0,
+      machineId: 'm',
+      account: account(home, env),
+    })
     expect(samples.map((sample) => sample.email)).toEqual(['selected@example.test'])
   })
 
   it("never follow the daemon's own CODEX_HOME (guard)", async () => {
     const { home, decoy } = await world()
     vi.stubEnv('CODEX_HOME', decoy)
-    expect(await quotaBearer({ homeDir: home })).toBe('Bearer token-default')
-    const scans = await scanCodexUsage({ sinceMs: 0, homeDir: home })
+    expect(await quotaBearer({ account: account(home) })).toBe('Bearer token-default')
+    const scans = await scanCodexUsage({ sinceMs: 0, account: account(home) })
     expect(scans.map((scan) => scan.path)).toEqual([
       join(home, '.codex', 'sessions', '2026', '01', '01', 'rollout-default.jsonl'),
     ])
-    const samples = await scanCodexQuotaHistory({ sinceMs: 0, machineId: 'm', homeDir: home })
+    const samples = await scanCodexQuotaHistory({
+      sinceMs: 0,
+      machineId: 'm',
+      account: account(home),
+    })
     expect(samples.map((sample) => sample.email)).toEqual(['default@example.test'])
   })
 })

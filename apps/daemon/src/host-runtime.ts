@@ -108,6 +108,7 @@ import {
 } from './control/session'
 import { headlessTurnEnv, spawnEnv } from './control/session-env'
 import { sourceForRead, transcriptAnnotations } from './control/transcripts'
+import { managementQuotaFetcher } from './harness-management.js'
 import {
   createSchemaGate,
   refuseConvergence,
@@ -139,7 +140,6 @@ import { attributeMemory, snapshotProcesses } from './memory-breakdown'
 import { OutputScheduler } from './output-scheduler'
 import { readPendingGrant, writePendingGrant } from './pending-grant'
 import { type PortableStateControl, PortableStateFence } from './portable-state-fence'
-import { makeQuotaFetcher } from '@podium/harness/inventory'
 import { createReattachGates } from './reattach-gates'
 import { stageRuntimeAttachment } from './runtime/attachment-staging'
 import { driverTiming } from './runtime/driver-timing'
@@ -1051,7 +1051,14 @@ export async function createDaemonHostRuntime(args: {
     browserOpen,
     workerClient,
     refreshAndPublishConversations: (full) => discoveryLoop.refreshAndPublishConversations(full),
-    quotaFetcher: makeQuotaFetcher({ ...(homeDir ? { homeDir } : {}) }),
+    // The ACCOUNT's quota (POD-6534, F08): the credential home, with the
+    // command env of the generation current at each fetch, so every harness's
+    // credential is read from the folder its session child uses.
+    quotaFetcher: managementQuotaFetcher({
+      ...(accountHome ? { accountHome } : {}),
+      homeDir: homeDir ?? machineHome,
+      ...(harnessRuntime ? { harnessRuntime } : {}),
+    }),
     usageMemo: {},
     portableStateFence,
     shipping,

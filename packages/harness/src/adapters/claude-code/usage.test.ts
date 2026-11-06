@@ -2,9 +2,16 @@ import { appendFileSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import { scanClaudeUsage, usageFromRecord, fetchClaudeQuota, parseClaudeUsage } from './usage.js'
+import { harnessAccount } from '../../harness-context.js'
 import { scanHostUsageSources } from '../../inventory/usage.js'
-import { UsageScanCache, fileBuckets, mergeBuckets, windowBuckets } from '../../usage-records.js'
+import type { HarnessAccountScope } from '../../manifest.js'
+import { fileBuckets, mergeBuckets, UsageScanCache, windowBuckets } from '../../usage-records.js'
+import { fetchClaudeQuota, parseClaudeUsage, scanClaudeUsage, usageFromRecord } from './usage.js'
+
+/** The account the section reads (POD-6534): built the way the inventory
+ *  fan-out builds it, with no machine env. */
+const acct = (home: string): HarnessAccountScope => harnessAccount('claude-code', home, {})
+
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
 // tests finish, so a suite run leaves nothing behind in tmp.
 const tmpDirs: string[] = []
@@ -18,7 +25,7 @@ afterAll(() => {
 })
 
 /** Fold section scans the way the inventory mechanism does (file fold, window, merge). */
-async function scanBuckets(opts: { sinceMs: number; homeDir: string }) {
+async function scanBuckets(opts: { sinceMs: number; account: HarnessAccountScope }) {
   const scans = await scanClaudeUsage(opts)
   return mergeBuckets(scans.flatMap((scan) => windowBuckets(fileBuckets(scan), opts.sinceMs)))
 }
@@ -138,7 +145,7 @@ describe('scanClaudeUsage', () => {
     )
     const buckets = await scanBuckets({
       sinceMs: Date.parse('2026-06-10T00:00:00Z'),
-      homeDir: home,
+      account: acct(home),
     })
     expect(buckets).toHaveLength(1)
     expect(buckets[0]).toMatchObject({
@@ -177,7 +184,7 @@ describe('scanClaudeUsage', () => {
       ].join('\n'),
     )
 
-    const buckets = await scanBuckets({ sinceMs: 0, homeDir: home })
+    const buckets = await scanBuckets({ sinceMs: 0, account: acct(home) })
     expect(buckets).toHaveLength(1)
     expect(buckets[0]).toMatchObject({
       hour: '2026-06-12T10:00:00.000Z',
@@ -190,7 +197,7 @@ describe('scanClaudeUsage', () => {
 
   it('returns [] when no claude dir exists', async () => {
     const home = trackTmp('podium-usage-empty-')
-    expect(await scanClaudeUsage({ sinceMs: 0, homeDir: home })).toEqual([])
+    expect(await scanClaudeUsage({ sinceMs: 0, account: acct(home) })).toEqual([])
   })
 })
 describe('the incremental cursor', () => {
@@ -351,8 +358,6 @@ describe('the incremental cursor', () => {
   })
 })
 
-
-
 function homeWithCreds(creds: unknown): string {
   const home = trackTmp('podium-cq-')
   mkdirSync(join(home, '.claude'), { recursive: true })
@@ -504,7 +509,7 @@ describe('parseClaudeUsage', () => {
 describe('fetchClaudeQuota', () => {
   it('is unauthenticated when no credentials file exists', async () => {
     const home = trackTmp('podium-cq-')
-    const r = await fetchClaudeQuota({ homeDir: home, now })
+    const r = await fetchClaudeQuota({ account: acct(home), now })
     expect(r).toMatchObject({ agent: 'claude-code', status: 'unauthenticated', windows: [] })
   })
 
@@ -512,7 +517,7 @@ describe('fetchClaudeQuota', () => {
     const home = homeWithCreds({ claudeAiOauth: { accessToken: 't', expiresAt: now - 1 } })
     let called = false
     const r = await fetchClaudeQuota({
-      homeDir: home,
+      account: acct(home),
       now,
       fetchImpl: (async () => {
         called = true
@@ -526,7 +531,7 @@ describe('fetchClaudeQuota', () => {
   it('returns ok windows on a 200 with a valid token', async () => {
     const home = homeWithCreds({ claudeAiOauth: { accessToken: 't', expiresAt: future } })
     const r = await fetchClaudeQuota({
-      homeDir: home,
+      account: acct(home),
       now,
       fetchImpl: (async () =>
         new Response(JSON.stringify(genericBody), { status: 200 })) as typeof fetch,
@@ -538,13 +543,13 @@ describe('fetchClaudeQuota', () => {
   it('maps 401 to expired and other failures to error', async () => {
     const home = homeWithCreds({ claudeAiOauth: { accessToken: 't', expiresAt: future } })
     const r401 = await fetchClaudeQuota({
-      homeDir: home,
+      account: acct(home),
       now,
       fetchImpl: (async () => new Response('', { status: 401 })) as typeof fetch,
     })
     expect(r401.status).toBe('expired')
     const r500 = await fetchClaudeQuota({
-      homeDir: home,
+      account: acct(home),
       now,
       fetchImpl: (async () => new Response('', { status: 500 })) as typeof fetch,
     })
@@ -560,7 +565,7 @@ describe('fetchClaudeQuota', () => {
       JSON.stringify({ oauthAccount: { emailAddress: 'me@example.com' } }),
     )
     const r = await fetchClaudeQuota({
-      homeDir: home,
+      account: acct(home),
       now,
       fetchImpl: (async () =>
         new Response(JSON.stringify(okBody), { status: 200 })) as typeof fetch,
@@ -577,7 +582,7 @@ describe('fetchClaudeQuota', () => {
       join(home, '.claude.json'),
       JSON.stringify({ oauthAccount: { emailAddress: 'me@example.com' } }),
     )
-    const r = await fetchClaudeQuota({ homeDir: home, now })
+    const r = await fetchClaudeQuota({ account: acct(home), now })
     expect(r.status).toBe('expired')
     expect(r.account?.email).toBe('me@example.com')
   })
@@ -585,7 +590,7 @@ describe('fetchClaudeQuota', () => {
   it('omits the account when ~/.claude.json is absent and no plan is known', async () => {
     const home = homeWithCreds({ claudeAiOauth: { accessToken: 't', expiresAt: future } })
     const r = await fetchClaudeQuota({
-      homeDir: home,
+      account: acct(home),
       now,
       fetchImpl: (async () =>
         new Response(JSON.stringify(okBody), { status: 200 })) as typeof fetch,
