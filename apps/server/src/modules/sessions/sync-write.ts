@@ -16,12 +16,14 @@
  *    and the live delegation ceiling. A rename the precedence rule refuses
  *    (SP-eb60) is a definitive `conflict`.
  *  - THE CHAT SENDS (`command-plane.ts`): the target resolver runs the plane's own
- *    gates (`SessionCommandCtx.target`: issue scope or parenthood, machine `use`)
- *    and refuses on a denial. An ABSENT session is not refused there: the handler
- *    answers it with the pinned dead-letter reply (POD-379), which the client's
- *    reply reader interprets. A send that names a model or an effort wakes a
- *    process with a launch choice; it stays off this path until POD-6356 (plan
- *    Task 13) and is refused here as invalid.
+ *    gates (`SessionCommandCtx.target`: issue scope or parenthood, machine `use`),
+ *    with the envelope's out-of-scope confirmation, and refuses a denial in the
+ *    gate's own words (POD-6591: the relay's agents read them). An ABSENT session
+ *    is not refused there: the handler answers it with the pinned dead-letter
+ *    reply (POD-379), which the client's reply reader interprets. A send that
+ *    names a model or an effort wakes through a `session.launch` resume record
+ *    in the send's unit (POD-6415). The relay's sends are adapters onto
+ *    `submit` ({@link submitPlaneCommand}) since POD-6591.
  *
  * And the command plane's writes that the apps send at once (POD-6416, plan
  * Task 16), on the same registration: `sessions.continue` (a stored `continue`
@@ -38,14 +40,17 @@ import {
   sessionRenameContract,
 } from '@podium/commands'
 import { asMutationId, MessageId, type SessionId } from '@podium/model'
+import type { SyncSubmitRefusal } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
 import type { CommandPrincipal } from '../../command-principal'
+import { ModelValidationError } from '../../model-validation'
 import type { RegistryModules } from '../../relay'
 import { commandAccess } from '../issues/command-ctx'
-import { ModelValidationError } from '../../model-validation'
 import { SyncWriteRefused } from '../sync-write/entry'
+import { trpcErrorRefusal } from '../sync-write/family'
 import {
   NO_TARGET,
+  refuseTarget,
   type SyncWriteContext,
   type SyncWriteRegistry,
   type SyncWriteTarget,
@@ -194,6 +199,35 @@ async function sessionIssueTarget(
 }
 
 /**
+ * A REFUSAL OF THE PLANE'S GATE IN ITS OWN WORDS (POD-6591): what the relay
+ * answered an agent before its sends moved onto `submit`. A gate refusal is a
+ * TRPCError (the issue scope, its out-of-scope confirmation) or a plain Error
+ * (the issueless parent rule, machine `use`, an ambiguous id prefix); the
+ * latter refuses as `unauthorized`. An absent or invisible session never gets
+ * here: it is the handler's (see the header), so no wording tells the two apart.
+ */
+function planeGateRefusal(error: unknown): SyncSubmitRefusal {
+  const refusal = trpcErrorRefusal(error)
+  if (refusal !== undefined) return refusal
+  return error instanceof Error && error.message.length > 0
+    ? { kind: 'unauthorized', message: error.message }
+    : { kind: 'unauthorized' }
+}
+
+/**
+ * Who decides the issue scope of a plane command on the entry point.
+ *
+ *  - `plane`: the plane's own gate, with the envelope's out-of-scope
+ *    confirmation (`--outside-scope`) as its override, refusing in its own
+ *    words ({@link planeGateRefusal}). The chat sends, whose relay callers read
+ *    those words (POD-6591).
+ *  - `authorize`: the plane's gate without the scope, then `authorize` on the
+ *    session's issue ({@link sessionIssueTarget}), so the confirmation reaches
+ *    the entry point's own check (POD-6416).
+ */
+type PlaneScope = 'plane' | 'authorize'
+
+/**
  * One command-plane command on the entry point. The target resolver runs the
  * plane's own gates and refuses on a denial; an ABSENT session is the
  * handler's to answer in its pinned shape (POD-379). The handler runs inside
@@ -204,10 +238,11 @@ function registerPlaneCommand(
   deps: SessionSyncWriteDeps,
   key: SessionCommandKey,
   prepare: (ctx: SyncWriteContext, input: Record<string, unknown>) => Record<string, unknown>,
-  /** Leave the issue scope to `authorize` ({@link sessionIssueTarget}), so the
-   *  out-of-scope confirmation reaches it. The sends keep the plane's own check. */
-  scopeByAuthorize = false,
+  scope: PlaneScope,
 ): void {
+  const scopeByAuthorize = scope === 'authorize'
+  // The plane's override: the scope is `authorize`'s, or the caller confirmed it.
+  const overrideFor = (confirmed: boolean): boolean => scopeByAuthorize || confirmed
   const name = `sessions.${key}`
   const def = (sessionCommandPlane.defs as Record<string, CommandDef>)[key]
   if (!def) throw new Error(`sync write: no command-plane contract named ${name}`)
@@ -218,15 +253,15 @@ function registerPlaneCommand(
   registry.register({
     name,
     def,
-    target: async (input, { principal }) => {
-      const plane = await planeCtx(deps, principal, scopeByAuthorize)
+    target: async (input, { principal, confirmed }) => {
+      const plane = await planeCtx(deps, principal, overrideFor(confirmed))
       let row: Awaited<ReturnType<SessionCommandCtx['target']>>
       try {
         // Resolves the session and runs the plane's gates; undefined when
         // the session is absent, which the handler answers (see the header).
         row = await plane.target((input as { sessionId: SessionId }).sessionId, name)
-      } catch {
-        return undefined
+      } catch (error) {
+        return scopeByAuthorize ? undefined : refuseTarget(planeGateRefusal(error))
       }
       if (row === undefined || !scopeByAuthorize) return NO_TARGET
       return await sessionIssueTarget(deps.modules(), principal, row)
@@ -237,7 +272,7 @@ function registerPlaneCommand(
       }
       // The scope was decided at the target check (and confirmed, when it had
       // to be); the handler's own gate must not ask a second time.
-      const plane = await planeCtx(deps, ctx.principal, scopeByAuthorize)
+      const plane = await planeCtx(deps, ctx.principal, overrideFor(ctx.confirmed))
       const residency = deps.modules().sessions.residency
       const run = async () => {
         try {
@@ -246,7 +281,10 @@ function registerPlaneCommand(
           // An explicit wake's invalid model or effort (POD-6415) is the
           // caller's to fix, refused with its own words; the route throws it.
           if (error instanceof ModelValidationError) {
-            throw new SyncWriteRefused({ kind: 'invalid', message: error.message }, { cause: error })
+            throw new SyncWriteRefused(
+              { kind: 'invalid', message: error.message },
+              { cause: error },
+            )
           }
           throw error
         }
@@ -258,15 +296,21 @@ function registerPlaneCommand(
 
 function registerSends(registry: SyncWriteRegistry, deps: SessionSyncWriteDeps): void {
   for (const key of QUEUED_SEND_COMMANDS) {
-    registerPlaneCommand(registry, deps, key, (ctx, input) => {
-      // A wake choice (--model/--effort) is the plane's to take: it becomes a
-      // `session.launch` resume record in this unit (POD-6415).
-      // A chat send's mutationId IS its message's id (POD-4763). The envelope
-      // carries it; an input that does not repeat it still names the message.
-      return input.mutationId === undefined && MessageId.safeParse(ctx.mutationId).success
-        ? { ...input, mutationId: ctx.mutationId }
-        : input
-    })
+    registerPlaneCommand(
+      registry,
+      deps,
+      key,
+      (ctx, input) => {
+        // A wake choice (--model/--effort) is the plane's to take: it becomes a
+        // `session.launch` resume record in this unit (POD-6415).
+        // A chat send's mutationId IS its message's id (POD-4763). The envelope
+        // carries it; an input that does not repeat it still names the message.
+        return input.mutationId === undefined && MessageId.safeParse(ctx.mutationId).success
+          ? { ...input, mutationId: ctx.mutationId }
+          : input
+      },
+      'plane',
+    )
   }
 }
 
@@ -323,6 +367,6 @@ export function registerSessionFamilyCommands(
 ): void {
   registerSessionState(registry, deps, IMMEDIATE_SESSION_STATE_COMMANDS)
   for (const key of IMMEDIATE_PLANE_COMMANDS) {
-    registerPlaneCommand(registry, deps, key, (_ctx, input) => input, true)
+    registerPlaneCommand(registry, deps, key, (_ctx, input) => input, 'authorize')
   }
 }

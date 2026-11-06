@@ -548,13 +548,16 @@ export function makeAgentRelayDispatch(
         const { principal } = await sessionCommandCtx(modules(), capability, overrideScope, 'relay')
         return await handoffThroughEffect(modules(), principal, parsed)
       }
-      // `continue` is on the sync write entry point (POD-6416): this arm is
-      // its relay adapter. LEGACY(remove-after: 2027-03): an older CLI's
-      // `podium session continue` calls it; removing it breaks that command.
-      if (proc === 'continue') {
+      // `continue` (POD-6416) and the chat sends (POD-6591) are on the sync
+      // write entry point: this arm is their relay adapter, and the agent's
+      // `--outside-scope` rides as the envelope's confirmation. A send's
+      // refusal keeps the plane's words (`planeGateRefusal`).
+      // LEGACY(remove-after: 2027-03): the CLI's `podium session send` (and an
+      // older CLI's `podium session continue`) call it; removing it breaks them.
+      if (proc === 'continue' || proc === 'sendText' || proc === 'resumeAndSend') {
         const ctx = await sessionCommandCtx(modules(), capability, overrideScope, 'relay')
         return await submitPlaneCommand(modules(), ctx.principal, 'relay', {
-          command: 'sessions.continue',
+          command: `sessions.${proc}`,
           input,
           ...(overrideScope ? { confirmed: true } : {}),
         })
