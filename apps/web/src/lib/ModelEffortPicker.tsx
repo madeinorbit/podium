@@ -31,8 +31,12 @@ import { cn } from './utils'
  *  - `inline` — bare words, no rim or chevron, for a caller that draws the chip.
  *  - `quiet`  — bare muted text that reads as a readout until hovered (the
  *    session header's "model · effort", POD-2076).
+ *  - `selector` — glyph, value and chevron in Dim ink: a setting you can change
+ *    right here (POD-6264). It stands beside a plain-text readout of the same
+ *    value on sessions that cannot change it, so the glyph and chevron are what
+ *    say "this opens". Disabled drops the chevron, because nothing opens.
  */
-type Variant = 'pill' | 'field' | 'composer' | 'inline' | 'quiet'
+type Variant = 'pill' | 'field' | 'composer' | 'inline' | 'quiet' | 'selector'
 
 const PickerTrigger = forwardRef<
   HTMLButtonElement,
@@ -73,6 +77,24 @@ const PickerTrigger = forwardRef<
       {...(props as ComponentProps<'button'>)}
     >
       <span className="min-w-0 truncate">{label}</span>
+    </button>
+  ) : variant === 'selector' ? (
+    <button
+      ref={ref}
+      type="button"
+      data-pressable
+      className={cn(
+        'inline-flex h-7 min-w-0 items-center gap-1.5 rounded-[7px] px-2 text-[12px] leading-none text-text-dim transition-colors duration-150 hover:bg-accent hover:text-text-strong focus-visible:outline-2 focus-visible:outline-ring aria-expanded:bg-accent aria-expanded:text-text-strong disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-text-dim motion-reduce:transition-none',
+        className,
+      )}
+      {...(props as ComponentProps<'button'>)}
+    >
+      {/* The Settings pickers' glyph, a step quieter than the value it names. */}
+      <span className="flex flex-none [&>svg]:text-text-faint">{icon}</span>
+      <span className="min-w-0 truncate">{label}</span>
+      {!props.disabled && (
+        <ChevronDown size={12} aria-hidden="true" className="-ml-0.5 flex-none opacity-70" />
+      )}
     </button>
   ) : variant === 'quiet' ? (
     <Button

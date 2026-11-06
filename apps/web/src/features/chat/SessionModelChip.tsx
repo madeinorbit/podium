@@ -51,11 +51,12 @@ const CONFIGURE_ACTIONS = ['trpc'] as const
  *
  * TWO FACES, ONE RULE. The daemon reports which fields the live driver's
  * `configure()` accepts (`configureFields`, POD-3087). A running session whose
- * driver lists `model` gets two menus; the change is sticky, and the driver says
- * whether it took effect now or from the next turn. Every other session gets the
- * same words as a readout whose tooltip says why it cannot change here: the
- * harness reads its model at launch, the session is not running, or the daemon
- * has not said.
+ * driver lists `model` gets two menus, each drawn as a selector (glyph, value,
+ * chevron) so it reads as something that opens; the change is sticky, and the
+ * driver says whether it took effect now or from the next turn. Every other
+ * session gets the value as plain text whose tooltip says why it cannot change
+ * here: the harness reads its model at launch, the session is not running, or
+ * the daemon has not said.
  */
 export const SessionModelChip = observer(function SessionModelChip({
   session,
@@ -104,26 +105,30 @@ const ConfigurableChip = observer(function ConfigurableChip({
     [sessionId, trpc],
   )
   return (
-    <span className={CHIP} data-testid="session-model" data-configurable="true">
+    // Glyph · value · chevron on each half (POD-6264): the selector's own
+    // grammar, so it never reads as the readout a fixed-at-launch session shows.
+    <span
+      className="inline-flex min-w-0 max-w-full items-center gap-0.5"
+      data-testid="session-model"
+      data-configurable="true"
+    >
       <ModelPicker
-        variant="inline"
+        variant="selector"
         agentKind={agentKind}
         machineId={session.machineId}
         value={model}
-        className="h-7 pr-1 pl-2 hover:text-text-strong"
         onChange={(next) => {
           if (next !== model) void configure({ model: next })
         }}
       />
-      <span className="shrink-0" aria-hidden="true">·</span>
       <EffortPicker
-        variant="inline"
+        variant="selector"
         agentKind={agentKind}
         machineId={session.machineId}
         model={model}
         value={effort}
         disabled={session.configureFields?.includes('effort') !== true}
-        className="h-7 shrink-0 pr-2 pl-1 enabled:hover:text-text-strong"
+        className="shrink-0"
         onChange={(next) => {
           if (next !== effort) void configure({ effort: next })
         }}

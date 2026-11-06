@@ -62,6 +62,16 @@ describe('a session whose driver can change model mid-conversation', () => {
     expect(effort.disabled).toBe(false)
   })
 
+  it('draws each half as a selector: glyph, value, chevron', () => {
+    render(<SessionModelChip session={configurable()} />)
+    const model = screen.getByRole('button', { name: 'Model' })
+    const effort = screen.getByRole('button', { name: 'Effort' })
+    expect(model.querySelector('.lucide-cpu')).not.toBeNull()
+    expect(model.querySelector('.lucide-chevron-down')).not.toBeNull()
+    expect(effort.querySelector('.lucide-gauge')).not.toBeNull()
+    expect(effort.querySelector('.lucide-chevron-down')).not.toBeNull()
+  })
+
   it('sends only the field that changed', async () => {
     render(<SessionModelChip session={configurable()} />)
     fireEvent.click(screen.getByRole('button', { name: 'Model' }))
@@ -85,9 +95,10 @@ describe('a session whose driver can change model mid-conversation', () => {
         session={session({ configureFields: ['model'], observedModel: 'claude-opus-5-5' })}
       />,
     )
-    expect((screen.getByRole('button', { name: 'Effort' }) as HTMLButtonElement).disabled).toBe(
-      true,
-    )
+    const effort = screen.getByRole('button', { name: 'Effort' }) as HTMLButtonElement
+    expect(effort.disabled).toBe(true)
+    // Nothing opens, so no chevron promises it.
+    expect(effort.querySelector('.lucide-chevron-down')).toBeNull()
   })
 
   it('reads as a readout once the session is not running', () => {
@@ -109,6 +120,8 @@ describe('a session that takes its model at launch', () => {
     expect(chip.getAttribute('data-configurable')).toBe('false')
     expect(chip.textContent).toBe('Opus 5.5 · High')
     expect(chip.getAttribute('aria-label')).toContain('cannot change mid-conversation')
+    // The readout keeps its plain face: no glyph, no chevron.
+    expect(chip.querySelector('svg')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Model' })).toBeNull()
   })
 
