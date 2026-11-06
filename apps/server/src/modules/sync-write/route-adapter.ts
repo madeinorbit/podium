@@ -65,9 +65,13 @@ export async function submitFromRoute(ctx: Context, call: RouteCall): Promise<De
 /**
  * A refusal with no family error behind it (the coarse or the target check),
  * as the tRPC error the client outbox classifies the same way: every one of
- * these is definitive, and none is a 500 it would retry.
+ * these is definitive, and none is a 500 it would retry. A target check that
+ * refused in the family's own words (`refuseTarget`) answers with them.
  */
 export function refusalAsTrpcError(command: string, refusal: SyncSubmitRefusal): TRPCError {
+  if (refusal.message !== undefined) {
+    return new TRPCError({ code: TRPC_CODES[refusal.kind], message: refusal.message })
+  }
   switch (refusal.kind) {
     case 'unauthorized':
       return new TRPCError({ code: 'FORBIDDEN', message: `${command} was refused` })
@@ -87,6 +91,14 @@ export function refusalAsTrpcError(command: string, refusal: SyncSubmitRefusal):
       })
   }
 }
+
+const TRPC_CODES = {
+  unauthorized: 'FORBIDDEN',
+  'target-not-found': 'NOT_FOUND',
+  conflict: 'CONFLICT',
+  invalid: 'BAD_REQUEST',
+  'confirmation-required': 'PRECONDITION_FAILED',
+} as const satisfies Record<SyncSubmitRefusal['kind'], TRPCError['code']>
 
 /**
  * The common adapter: the result on `applied`, and on a refusal the family's

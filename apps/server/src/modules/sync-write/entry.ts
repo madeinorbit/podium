@@ -47,6 +47,7 @@ import { outsideWriteProvenance, withWriteProvenance } from '../../write-provena
 import { coarselyPermitted, parseCommandInput } from '../front-door'
 import {
   isNoTarget,
+  isTargetRefused,
   type SyncCommand,
   type SyncWriteContext,
   type SyncWriteLedger,
@@ -183,18 +184,14 @@ export class SyncWriteEntry {
     const input: unknown = parsed.input
 
     // 4. The target check, live, on the parsed input.
-    const denied = await this.targetRefusal(command, input, principal, envelope.confirmed === true)
+    const confirmed = envelope.confirmed === true
+    const denied = await this.targetRefusal(command, input, principal, confirmed)
     if (denied !== undefined) return answer(rejected(denied))
 
     // 5–7. Dedup; then provenance around one unit holding the handler and the record.
     const mutationId = envelope.mutationId
     const provenance = { mutationId, causationId: mutationId }
-    const ctx = this.contextFor(
-      principal,
-      mutationId,
-      envelope.expectedRevision,
-      envelope.confirmed === true,
-    )
+    const ctx = this.contextFor(principal, mutationId, envelope.expectedRevision, confirmed)
     let application: { outcome: 'applied' | 'replayed'; value: unknown }
     try {
       application = await this.deps.mutations.apply(
@@ -210,7 +207,7 @@ export class SyncWriteEntry {
       // The unit has rolled back. A family that keeps a trail of refusals (the
       // settings audit) writes it now, outside the write it is about.
       try {
-        await command.rolledBack?.({ principal }, input, error)
+        await command.rolledBack?.({ principal, confirmed }, input, error)
       } catch (trailError) {
         log.warn('sync write: a rolled-back hook failed', {
           command: command.name,
@@ -239,8 +236,9 @@ export class SyncWriteEntry {
     confirmed: boolean,
   ): Promise<SyncSubmitRefusal | undefined> {
     if (principal.kind === 'system') return UNAUTHORIZED
-    const target = await command.target(input, { principal })
+    const target = await command.target(input, { principal, confirmed })
     if (target === undefined) return UNAUTHORIZED
+    if (isTargetRefused(target)) return target.syncWriteRefused
     const decision = authorize(
       capabilityFor(principal, target),
       command.action,

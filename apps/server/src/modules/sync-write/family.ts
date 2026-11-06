@@ -37,6 +37,7 @@ import { SyncWriteRefused } from './entry'
 import {
   NO_TARGET,
   type SyncTargetContext,
+  type SyncWriteContext,
   type SyncWriteRegistry,
   type SyncWriteTarget,
 } from './registry'
@@ -48,7 +49,23 @@ type MaybePromise<T> = T | Promise<T>
 export interface SyncFamilyState {
   readonly modules: RegistryModules
   readonly caller: FamilyState['caller']
+  /** Who is asking, whole: a family whose service takes the principal itself
+   *  (automations, workflows) reads it here, never from the input. */
+  readonly principal: CommandPrincipal
+  /** The caller's out-of-scope confirmation, as the target check saw it. */
+  readonly confirmed: boolean
+  /**
+   * The unit of work's `afterCommit` (`SyncWriteContext.afterCommit`): work
+   * outside the database (a delivery to a daemon) runs once the write has
+   * committed, never on a rollback, and outside the write's provenance.
+   */
+  afterCommit(step: () => void | Promise<void>, label: string): void
+  /** An account's role NOW (ADR 3 D16), for a family whose own rules grade by it. */
+  roleOf(user: UserId): Promise<UserRole | undefined>
 }
+
+/** The parts of a write's context the per-call state carries. */
+type WriteContextPart = Pick<SyncWriteContext, 'principal' | 'confirmed' | 'afterCommit'>
 
 /**
  * The bundle for one call. The principal has a human behind it: every sync
@@ -57,8 +74,10 @@ export interface SyncFamilyState {
  */
 export function syncFamilyState(
   modules: RegistryModules,
-  principal: CommandPrincipal,
+  ctx: WriteContextPart,
+  roleOf: SyncFamilyState['roleOf'],
 ): SyncFamilyState {
+  const { principal } = ctx
   const userId = onBehalfOfUser(principal)
   if (principal.kind === 'system' || userId === null) {
     throw new Error('sync family: a write reached its handler without a human')
@@ -70,6 +89,10 @@ export function syncFamilyState(
       sessionState: sessionStatePrincipalFor(principal),
       actorSessionId: principal.capability.actorSessionId,
     },
+    principal,
+    confirmed: ctx.confirmed,
+    afterCommit: (step, label) => ctx.afterCommit(step, label),
+    roleOf,
   }
 }
 
@@ -125,7 +148,7 @@ export function registerSyncFamily<Svc, C extends Record<string, AnyDerivedComma
           roleOf: deps.roleOf,
         }),
       handle: async (ctx, input) => {
-        const service = family.service(syncFamilyState(deps.modules(), ctx.principal))
+        const service = family.service(syncFamilyState(deps.modules(), ctx, deps.roleOf))
         try {
           return await handler(service, input)
         } catch (error) {

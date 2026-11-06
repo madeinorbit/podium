@@ -21,6 +21,7 @@
 
 import type { AnyCommandContract, CommandDef } from '@podium/commands'
 import type { AuthTarget, MutationId } from '@podium/model'
+import type { SyncSubmitRefusal } from '@podium/protocol'
 import type { Ledger } from '@podium/sync'
 import type { z } from 'zod'
 import type { CommandPrincipal } from '../../command-principal'
@@ -56,13 +57,35 @@ export const NO_TARGET: NoTarget = Object.freeze({ syncWriteNoTarget: true })
  *  object-typed constant does not narrow the union. */
 export const isNoTarget = (target: SyncWriteTarget): target is NoTarget => target === NO_TARGET
 
+/**
+ * A resolver's refusal IN THE FAMILY'S OWN WORDS (POD-6418): the target check
+ * decided no, and the family says why, as its handler would have. For a family
+ * whose callers read the reason (the workflow CLI turns "approval required" into
+ * an approval request). The words must not tell a missing record from an
+ * invisible one (ADR 3 Amendment 1 D20.2): one answer for both, as `undefined`.
+ */
+export interface TargetRefused {
+  readonly syncWriteRefused: SyncSubmitRefusal
+}
+export const refuseTarget = (refusal: SyncSubmitRefusal): TargetRefused => ({
+  syncWriteRefused: refusal,
+})
+export const isTargetRefused = (target: SyncWriteTarget): target is TargetRefused =>
+  typeof target === 'object' && target !== null && 'syncWriteRefused' in target
+
 /** `undefined` refuses: the target is missing, or this principal cannot see it.
  *  The two are deliberately one answer (no existence oracle, ADR 3 Amendment D20). */
-export type SyncWriteTarget = AuthTarget | NoTarget | undefined
+export type SyncWriteTarget = AuthTarget | NoTarget | TargetRefused | undefined
 
 /** What a target resolver may know: who is asking. Never the request. */
 export interface SyncTargetContext {
   readonly principal: CommandPrincipal
+  /**
+   * The caller's out-of-scope confirmation (ADR 3 D8 outcome 3), as the envelope
+   * carried it: an agent's `--outside-scope`. A family whose own scope rule reads
+   * it (the workflows' agent scope arm) decides with it, as `authorize` does.
+   */
+  readonly confirmed: boolean
 }
 
 /** The Authority-bound writers of the unit of work. Every change row they append
