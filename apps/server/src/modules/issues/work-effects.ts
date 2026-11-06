@@ -327,7 +327,7 @@ export function registerIssueWorkEffects(deps: IssueWorkEffectDeps): void {
     ready: machineKindReady,
     run: async (ctx) =>
       await spawnOnce(ctx.record, 'start', ctx.input as IssueBeginInput & { sessionId: string }),
-    recover: async (ctx) => await spawnRecover(ctx.input.sessionId),
+    recover: async (ctx) => await spawnRecover(String(ctx.input.sessionId)),
   }
 
   const addSession: EffectExecutor<IssueAddSessionInput> = {

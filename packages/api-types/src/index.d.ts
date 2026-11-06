@@ -1763,6 +1763,12 @@ type Input_interactions_answer = {
     id: string;
     text?: string | undefined;
 };
+type Input_issues_addSession = {
+    agentKind?: string | undefined;
+    forceUnknownModel?: boolean | undefined;
+    id: string;
+    sessionId?: string | undefined;
+};
 type Input_issues_attachSession = {
     confirmRehome?: boolean | undefined;
     newSpinoff?: undefined | {
@@ -1906,6 +1912,7 @@ type Input_issues_start = {
     forceUnknownModel?: boolean | undefined;
     id: string;
     mutationId?: string | undefined;
+    sessionId?: string | undefined;
 };
 type Input_issues_subscriptionAdd = {
     deliver?: undefined | {
@@ -7026,17 +7033,14 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             meta: unknown;
         }>;
         "addSession": TRPC.TRPCMutationProcedure<{
-            input: {
-                agentKind?: string | undefined;
-                forceUnknownModel?: boolean | undefined;
-                id: string;
-            };
+            input: Input_issues_addSession;
             output: Output_issues_addComment;
             meta: unknown;
         }>;
         "addShell": TRPC.TRPCMutationProcedure<{
             input: {
                 id: string;
+                sessionId?: string | undefined;
             };
             output: Output_issues_addComment;
             meta: unknown;
