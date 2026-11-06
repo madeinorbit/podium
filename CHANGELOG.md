@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Desktop clients register automatically after sign-in so their companion runtime can receive managed updates, while preserving the installation identity and client-only role.
+- Retained clients recover rejected credentials through a fresh verified sign-in. Expired pairing attempts stay bounded, and concurrent config changes are preserved.
+- A newer matching-channel desktop bundle can rescue an older companion runtime at cold start, with checks that protect active updates, pinned targets, identities and data.
+- Claiming desktop update ownership no longer stops the companion respawn monitor or shares the shutdown flag.
+- Server shutdown waits for the turn reaper before draining the database scheduler, preventing a shutdown error.
+
+### Testing
+
+- This edge build is published for testing. Targeted component and combined Rust/server checks passed; the final combined lean gate, signed update after rescue, and macOS GUI lifecycle checks remain incomplete.
+
 ## [0.3.0] - 2026-11-05
 
 **One flight deck for the whole mission, a calmer chat, and a server that uses far less memory.**
