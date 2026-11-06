@@ -108,6 +108,8 @@ import { registerEffectCommands } from './modules/effects/sync-write'
 import { EventLogRetention } from './modules/events/retention'
 import { registerFileWriteEffect } from './modules/files/write-effect'
 import { registerDiscoveryEffects } from './modules/fleet/discovery-effects'
+import { registerFolderEffects } from './modules/fleet/folder-effects'
+import { registerMachineUpdateEffect } from './modules/fleet/update-effect'
 import { registerServerMoveEffect } from './modules/fleet/server-move-effect'
 import { WriteFunnel } from './modules/funnel'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
@@ -332,6 +334,10 @@ interface SessionRegistryOptions {
   rehearseBoot?: boolean
   /** Which parked sessions stay in memory (POD-6160 D2f); absent keeps them all. */
   sessionResidency?: { evictParked?: boolean; sweepIntervalMs?: number }
+  /** Whether this server runs the hub role (`roles.ts`). Absent = hub, as a tRPC
+   *  context with no role is: the fleet's hub-only writes on `sync.submit` are
+   *  refused when it is false, as their routes 404 (POD-6417). */
+  servesHub?: boolean
 }
 
 /** The composed module set (issue #13 Phase 2): the typed seam every caller —
@@ -3972,7 +3978,15 @@ export class SessionRegistry {
     }
     registerOutboxCommands(syncWrite.registry, syncFamilyDeps)
     // The rest of the synced writes, family by family (POD-6359).
-    registerFamilyCommands(syncWrite.registry, syncFamilyDeps)
+    const fleetRepos = new RepoRegistry(this, this.store)
+    registerFamilyCommands(syncWrite.registry, {
+      ...syncFamilyDeps,
+      fleet: {
+        repos: () => fleetRepos,
+        store: () => this.store,
+        servesHub: () => options.servesHub !== false,
+      },
+    })
     // The generic create, edit and remove of every declared synced kind (ADR 12
     // D3, POD-6391), beside the queued commands they replace one by one.
     registerRecordCommands(syncWrite.registry, { modules: () => this.modules })
@@ -4042,6 +4056,17 @@ export class SessionRegistry {
       discovery: this.repoDiscovery,
       addKnownOrigin: async (path, machineId, originUrl) =>
         await cloneRegistry.addKnownOrigin(path, machineId, originUrl),
+    })
+    // The folder picker's writes and a machine's update (POD-6417).
+    registerFolderEffects({
+      modules: () => this.modules,
+      register: async (path, machineId) => await cloneRegistry.add(path, machineId),
+      registeredPaths: async (machineId) => await cloneRegistry.list(machineId),
+    })
+    registerMachineUpdateEffect({
+      modules: () => this.modules,
+      roleOf: async (userId) => await this.store.users.roleOf(userId),
+      servesHub: () => options.servesHub !== false,
     })
     const agentRelayGate = new AgentRelayGate({
       // issues/repos ops run through the registry dispatcher (guard + schema +

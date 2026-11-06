@@ -78,6 +78,17 @@ export function asSystemWrite<T>(fn: () => T): T {
 }
 
 /**
+ * Send a sync command from inside a plain command, as its caller, through the
+ * sync write entry point (POD-6417): `cloud.moveSession` parks the local session
+ * once its runtime exists, as a `records.session` edit. The entry point checks,
+ * deduplicates and records that write on its own; only the call leaves the plain
+ * scope. Never a direct synced write: that is what the scope refuses.
+ */
+export function asSyncCommand<T>(fn: () => T): T {
+  return storage.exit(fn)
+}
+
+/**
  * The write-seam Ledger's provenance port: the ambient command's provenance, and
  * a refusal inside a plain command. `relay.ts` passes this to the Ledger.
  */

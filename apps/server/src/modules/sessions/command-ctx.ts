@@ -213,7 +213,9 @@ function answerWithoutAction(desired: SessionDesired, pass: ReconcileResult): Li
   return desired === 'hibernated' ? { ok: false, reason: 'not running' } : { ok: true }
 }
 
-function lifecycleEditsFor(
+/** The lifecycle edits as `principal` (`records.session` on the entry point):
+ *  for the routes here, and `cloud.moveSession`'s local hibernate (POD-6417). */
+export function lifecycleEditsFor(
   modules: RegistryModules,
   principal: CommandPrincipal,
   overrideScope: boolean | undefined,

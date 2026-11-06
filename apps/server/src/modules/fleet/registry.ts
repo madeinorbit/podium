@@ -24,6 +24,7 @@ import {
   discoveryScanFolderHandler,
   discoveryScanMachineHandler,
   type FleetHandler,
+  type FleetSyncHandler,
   machineAdoptHandler,
   machineSupersedeHandler,
   machineApplyUpdateHandler,
@@ -50,8 +51,11 @@ import {
 /** One contract joined to the handler that implements it. */
 export interface FleetCommand {
   readonly contract: AnyCommandContract & { readonly serverRole: FleetServerRole }
+  /** A route's handler (`FleetHandler`, with the request), or, for a command on
+   *  the sync write entry point (`sync-write.ts`), one that runs from the
+   *  principal and the modules (`FleetSyncHandler`). */
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous fleet handler table
-  readonly handler: FleetHandler<any, unknown>
+  readonly handler: FleetHandler<any, unknown> | FleetSyncHandler<any, unknown>
 }
 
 /**

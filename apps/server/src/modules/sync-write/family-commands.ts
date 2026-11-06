@@ -10,6 +10,7 @@
 import { AGENT_PROFILE_SYNC_FAMILY } from '../agent-profiles/sync-write'
 import { AUTOMATION_SYNC_FAMILY } from '../automations/sync-write'
 import { CONVERSATION_SYNC_FAMILY } from '../conversations/sync-write'
+import { FLEET_SYNC_COMMANDS, type FleetSyncDeps, registerFleetCommands } from '../fleet/sync-write'
 import { READ_POSITION_SYNC_FAMILY } from '../read-position/sync-write'
 import { registerSessionFamilyCommands } from '../sessions/sync-write'
 import { registerSettingsWrite } from '../settings/sync-write'
@@ -43,9 +44,16 @@ export const FAMILY_COMMAND_NAMES = [
   'workflows.skip',
   'workflows.retry',
   'workflows.adopt',
+  // The machine and repository writes (POD-6417).
+  ...FLEET_SYNC_COMMANDS,
 ] as const
 
-export function registerFamilyCommands(registry: SyncWriteRegistry, deps: SyncFamilyDeps): void {
+/** What the families need beyond the shared deps. */
+export interface FamilyCommandDeps extends SyncFamilyDeps {
+  readonly fleet: Omit<FleetSyncDeps, 'modules' | 'roleOf'>
+}
+
+export function registerFamilyCommands(registry: SyncWriteRegistry, deps: FamilyCommandDeps): void {
   registerSyncFamily(registry, AGENT_PROFILE_SYNC_FAMILY, deps)
   registerSyncFamily(registry, AUTOMATION_SYNC_FAMILY, deps)
   registerSyncFamily(registry, WORKFLOW_SYNC_FAMILY, deps)
@@ -58,4 +66,5 @@ export function registerFamilyCommands(registry: SyncWriteRegistry, deps: SyncFa
     'settings.updateInstance',
   )
   registerSessionFamilyCommands(registry, deps)
+  registerFleetCommands(registry, { ...deps.fleet, modules: deps.modules, roleOf: deps.roleOf })
 }

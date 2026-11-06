@@ -59,6 +59,7 @@ import {
   machineAccessMessage,
   ownershipSnapshotFromMachines,
 } from '../../machine-access'
+import type { RegistryModules } from '../../relay'
 import type { Context } from '../../trpc'
 import { mods } from '../../trpc'
 
@@ -365,7 +366,6 @@ async function machineRefusal(
  * calling" is what ADR 3 D7 exists to prevent.
  */
 export async function fleetAuthzDeps(ctx: Context): Promise<FleetAuthzDeps> {
-  const machines = mods(ctx).machines
   const sessions = mods(ctx).sessions
   const principal = await resolvePrincipalAsync(ctx.capability, {
     parentSessionOf: async (sessionId) =>
@@ -374,10 +374,23 @@ export async function fleetAuthzDeps(ctx: Context): Promise<FleetAuthzDeps> {
       // waste — `sessionSpawnedBy` reads the one field under the same check.
       spawnedByParentSessionId(await sessions.sessionSpawnedBy(sessionId)),
   })
+  return await fleetAuthzDepsFor(mods(ctx).machines, principal, await accountRoleOf(principal, ctx))
+}
+
+/**
+ * The gate's dependencies for a principal the transport already resolved: the
+ * sync write entry point's (POD-6417), which has no request. `role` is the
+ * account's role NOW (ADR 3 D16).
+ */
+export async function fleetAuthzDepsFor(
+  machines: RegistryModules['machines'],
+  principal: CommandPrincipal,
+  role: UserRole | undefined,
+): Promise<FleetAuthzDeps> {
   return {
     principal,
     ownership: await ownershipSnapshotFromMachines(machines),
-    role: await accountRoleOf(principal, ctx),
+    role,
     defaultMachine: async () => await machines.defaultMachine(),
     allMachineIds: async () => (await machines.ownershipRows()).map((row) => row.id),
     machineName: async (machineId) => (await machines.ownershipRows()).find((r) => r.id === machineId)?.name,

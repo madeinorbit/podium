@@ -37,6 +37,11 @@
       "types": "./src/issues/synced.ts",
       "import": "./src/issues/synced.ts"
     },
+    "./fleet-synced": {
+      "@podium/source": "./src/fleet/synced.ts",
+      "types": "./src/fleet/synced.ts",
+      "import": "./src/fleet/synced.ts"
+    },
     "./settings-write-plan": {
       "@podium/source": "./src/settings/write-plan.ts",
       "types": "./src/settings/write-plan.ts",

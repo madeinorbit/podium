@@ -17,6 +17,7 @@
 
 import type { AnyCommandContract } from '@podium/commands'
 import { TRPCError } from '@trpc/server'
+import type { CommandPrincipal } from '../../command-principal'
 import { t } from '../../trpc'
 import {
   type AnyDerivedCommand,
@@ -25,6 +26,7 @@ import {
   type DerivedFamily,
   derivedFamilyProcedures,
   type FamilyProcedures,
+  type FamilyState,
   familyState,
 } from '../derived-family'
 import {
@@ -57,11 +59,25 @@ export function plainRefusalError(
   }
 }
 
+/**
+ * A plain family's declaration. Its service selector may also read the caller's
+ * PRINCIPAL, for a plain command that sends a sync command as its caller
+ * (`cloud.moveSession`'s local hibernate, POD-6417). Its queries are built
+ * without one.
+ */
+export type PlainFamily<
+  Svc,
+  C extends Record<string, AnyDerivedCommand>,
+  Q extends Record<string, AnyDerivedQuery>,
+> = DerivedFamily<Svc, C, Q> & {
+  readonly service: (state: FamilyState, principal?: CommandPrincipal) => Svc
+}
+
 export function plainFamilyProcedures<
   Svc,
   C extends Record<string, AnyDerivedCommand>,
   Q extends Record<string, AnyDerivedQuery>,
->(spec: DerivedFamily<Svc, C, Q>): FamilyProcedures<C, Q> {
+>(spec: PlainFamily<Svc, C, Q>): FamilyProcedures<C, Q> {
   const built: Record<string, unknown> = derivedFamilyProcedures({ ...spec, commands: {} })
 
   for (const [name, command] of Object.entries(spec.commands) as [string, PlainCommandEntry][]) {
@@ -75,7 +91,7 @@ export function plainFamilyProcedures<
         transport: 'trpc',
         input,
         targetPermitted: command.targetPermitted,
-        run: (parsed) => command.handler(spec.service(familyState(ctx)), parsed),
+        run: (parsed) => command.handler(spec.service(familyState(ctx), ctx.principal), parsed),
       })
       if (reply.outcome === 'rejected') throw plainRefusalError(contract, reply.refusal)
       return reply.result

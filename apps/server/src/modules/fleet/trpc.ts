@@ -44,6 +44,9 @@ import { z } from 'zod'
 import type { MachineDiscoveryResult } from '../../repo-discovery'
 import { settingsAuditAttribution } from '../../store/settings-audit'
 import { mods, t } from '../../trpc'
+import { assertPlainContract, runPlainCommand } from '../plain-command/entry'
+import { plainRefusalError } from '../plain-command/family'
+import { refusalAsTrpcError, submitFromRoute } from '../sync-write/route-adapter'
 import { fleetAuthzDeps, fleetAuthzFailure } from './authz'
 import { MACHINE_SCAN_KIND } from './discovery-effects'
 import type { FleetHandler, FleetPorts } from './handlers'
@@ -53,6 +56,7 @@ import {
   fleetCommandsOn,
   isFleetCommandExposedOn,
 } from './registry'
+import { type FleetSyncCommandName, isFleetSyncCommand } from './sync-write'
 
 /**
  * The hub-role gate, moved from `router.ts` unchanged.
@@ -87,6 +91,20 @@ type FleetProcedure<N extends FleetCommandName> = TRPCMutationProcedure<{
   output: Awaited<ReturnType<(typeof FLEET_COMMANDS)[N]['handler']>>
 }>
 
+/** The fleet writes on the sync write entry point whose per-command route is
+ *  deleted: no shipped client ever called it (POD-6417). `sync.submit` is their
+ *  only door. */
+export const FLEET_SUBMIT_ONLY = [
+  'machines.share',
+  'machines.unshare',
+  'machines.setAssignment',
+] as const satisfies readonly FleetSyncCommandName[]
+
+type FleetRoutedName = Exclude<FleetCommandName, (typeof FLEET_SUBMIT_ONLY)[number]>
+
+const isSubmitOnly = (name: string): boolean =>
+  (FLEET_SUBMIT_ONLY as readonly string[]).includes(name)
+
 /**
  * Every derived procedure, grouped by the router it belongs on — a MAPPED type
  * over the table, so a command added to `FLEET_COMMANDS` appears here without
@@ -95,7 +113,7 @@ type FleetProcedure<N extends FleetCommandName> = TRPCMutationProcedure<{
  */
 export type FleetProcedures = {
   [R in RouterOf<FleetCommandName>]: {
-    [N in FleetCommandName as N extends `${R}.${infer K}` ? K : never]: FleetProcedure<N>
+    [N in FleetRoutedName as N extends `${R}.${infer K}` ? K : never]: FleetProcedure<N>
   }
 }
 
@@ -105,9 +123,84 @@ export type FleetProcedures = {
 
 const log = createLogger('server:fleet')
 
+/** The input is parsed by the entry point, after the coarse check. */
+const unparsed = (raw: unknown): unknown => raw
+
+/**
+ * LEGACY(remove-after: 2027-03): a fleet write's old route, as a thin adapter
+ * onto `sync.submit` (POD-6417), for the shipped clients that still call it:
+ * the desktop app bundles its own web, and an older CLI's `podium machine
+ * adopt|supersede`. Removing one breaks that client's write. It answers as the
+ * route did: the result, or the gate's or the handler's own error.
+ */
+function syncAdapter(name: FleetSyncCommandName, base: typeof hubProc | typeof t.procedure) {
+  return base.input(unparsed).mutation(async ({ ctx, input }) => {
+    // A revoke's refusal is logged with who asked (POD-1079): at the gate (a
+    // refusal reply) or in the service (a throw).
+    const refused = (stage: 'authorization' | 'service', error: unknown) => {
+      if (name !== 'machines.revoke') return
+      log.warn('machine revoke refused', {
+        machineId: (input as { id?: string } | undefined)?.id,
+        ...settingsAuditAttribution(ctx.principal),
+        stage,
+        reason: error instanceof Error ? error.message : String(error),
+      })
+    }
+    let answer: Awaited<ReturnType<typeof submitFromRoute>>
+    try {
+      answer = await submitFromRoute(ctx, { command: name, input })
+    } catch (error) {
+      refused('service', error)
+      throw error
+    }
+    const { reply, cause } = answer
+    if (reply.outcome === 'applied') return reply.result
+    const error = cause ?? refusalAsTrpcError(name, reply.refusal)
+    refused('authorization', error)
+    throw error
+  })
+}
+
+/**
+ * The fleet commands on the PLAIN path (ADR 12 D8, POD-6417).
+ * `discovery.refreshRepos` is the boot's repository and machine snapshot: a
+ * read of what the machines' daemons report, whose only write is the origins
+ * they reported (the server's own write, `RepoRegistry.scanReposAll`). The
+ * daemon fan-out runs outside any unit of work, and nothing is recorded for a
+ * replay. Its route stays: the shipped mobile app calls it.
+ */
+const FLEET_PLAIN_COMMANDS: readonly FleetCommandName[] = ['discovery.refreshRepos']
+
+function plainProcedure(
+  name: FleetCommandName,
+  ports: FleetPorts,
+  base: typeof hubProc | typeof t.procedure,
+) {
+  const { contract, handler } = FLEET_COMMANDS[name]
+  const run = handler as FleetHandler<unknown, unknown>
+  assertPlainContract(contract)
+  return base.input(unparsed).mutation(async ({ ctx, input }) => {
+    const reply = await runPlainCommand({
+      contract,
+      principal: ctx.principal,
+      transport: 'trpc',
+      input,
+      run: async (parsed) => {
+        const refusal = await fleetAuthzFailure(name, parsed, await fleetAuthzDeps(ctx))
+        if (refusal) throw refusal
+        return await run({ ctx, input: parsed, ports })
+      },
+    })
+    if (reply.outcome === 'rejected') throw plainRefusalError(contract, reply.refusal)
+    return reply.result
+  })
+}
+
 function buildProcedure(name: FleetCommandName, ports: FleetPorts): unknown {
   const { contract, handler } = FLEET_COMMANDS[name]
   const base = contract.serverRole === 'hub' ? hubProc : t.procedure
+  if (isFleetSyncCommand(name)) return syncAdapter(name, base)
+  if (FLEET_PLAIN_COMMANDS.includes(name)) return plainProcedure(name, ports, base)
   // The table is heterogeneous, so at THIS point the handler's input type is the
   // union of all ten and the parsed input is the union of all ten schemas —
   // TypeScript cannot pair them up here. It does not need to: each pairing is
@@ -125,23 +218,9 @@ function buildProcedure(name: FleetCommandName, ports: FleetPorts): unknown {
     // that declares a verb a COMPILE error until it says how its machine is
     // named.
     const authz = await fleetAuthzDeps(ctx)
-    let stage: 'authorization' | 'service' = 'authorization'
-    try {
-      const refusal = await fleetAuthzFailure(name, input, authz)
-      if (refusal) throw refusal
-      stage = 'service'
-      return await run({ ctx, input, ports })
-    } catch (error) {
-      if (name === 'machines.revoke') {
-        log.warn('machine revoke refused', {
-          machineId: (input as { id: string }).id,
-          ...settingsAuditAttribution(authz.principal),
-          stage,
-          reason: error instanceof Error ? error.message : String(error),
-        })
-      }
-      throw error
-    }
+    const refusal = await fleetAuthzFailure(name, input, authz)
+    if (refusal) throw refusal
+    return await run({ ctx, input, ports })
   })
 }
 
@@ -154,6 +233,11 @@ function assertSurfaceMatchesContracts(built: Record<string, Record<string, unkn
   for (const name of Object.keys(FLEET_CONTRACTS) as FleetCommandName[]) {
     const [router, key] = name.split('.') as [string, string]
     const present = built[router] !== undefined && built[router][key] !== undefined
+    if (isSubmitOnly(name)) {
+      // Served on tRPC through `sync.submit` alone (POD-6417): its route must be gone.
+      if (present) throw new Error(`the derived router serves ${name}, whose route was deleted`)
+      continue
+    }
     if (isFleetCommandExposedOn(name, 'trpc') && !present) {
       throw new Error(
         `fleet contract ${name} declares trpc exposure but the derived router would not serve it`,
@@ -174,6 +258,7 @@ function assertSurfaceMatchesContracts(built: Record<string, Record<string, unkn
 export function fleetProcedures(ports: FleetPorts): FleetProcedures {
   const grouped: Record<string, Record<string, unknown>> = {}
   for (const name of fleetCommandsOn('trpc')) {
+    if (isSubmitOnly(name)) continue
     const [router, key] = name.split('.') as [string, string]
     grouped[router] ??= {}
     grouped[router][key] = buildProcedure(name, ports)

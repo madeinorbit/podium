@@ -1,5 +1,5 @@
 import type { MachineId, UserId } from '@podium/model'
-import { type EnrollmentHost, type MachineManagementContext, withMachineTransition } from './enrollment'
+import { broadcastAfterWrite, type EnrollmentHost, type MachineManagementContext, machineTransition } from './enrollment'
 
 /** An explicit admin decision; cancelling authority never grants it to a new identity. */
 export async function supersedeMachine(
@@ -14,9 +14,7 @@ export async function supersedeMachine(
     throw new Error('only an admin with manage access to both machines may supersede a machine')
   }
   if (id === replacementId) throw new Error('replacement must be a different machine')
-  // Stable ordering prevents opposing A→B/B→A requests from deadlocking.
-  const [first, second] = [id, replacementId].sort() as [MachineId, MachineId]
-  await withMachineTransition(host, first, () => withMachineTransition(host, second, async () => {
+  await machineTransition(host, [id, replacementId], async () => {
     await host.deps.store.transact(async () => {
       const old = await host.deps.store.machines.getMachine(id)
       const replacement = await host.deps.store.machines.getMachine(replacementId)
@@ -35,7 +33,8 @@ export async function supersedeMachine(
         redactedPaths: [], createdAt: new Date().toISOString(),
       })
     })
-    host.retireIncarnation(id)
-  }))
-  await host.broadcastMachines()
+    // No retirement step: superseding sets `revoked_at`, and the machines
+    // table's commit funnel retires a revoked machine once the write commits.
+  }, async () => {}, 'machines:supersede')
+  await broadcastAfterWrite(host, 'machines:supersede:broadcast')
 }

@@ -379,6 +379,8 @@ export async function runMachineEffect(
     readonly waitMs: number
     /** A record of this kind already running on the machine that this call may join. */
     readonly joins?: (row: EffectRow) => boolean
+    /** The tRPC code of a failed record, by its error code. Default PRECONDITION_FAILED. */
+    readonly failedCode?: (code: string | undefined) => 'BAD_REQUEST' | 'PRECONDITION_FAILED'
   },
 ): Promise<EffectRow> {
   const effects = familyState(ctx).modules.effects
@@ -418,7 +420,7 @@ export async function runMachineEffect(
       throw new TRPCError({
         // The machine's own refusals (cannot host repositories, no GitHub CLI) are
         // the precondition answers the routes always gave.
-        code: 'PRECONDITION_FAILED',
+        code: call.failedCode?.(row.error?.code) ?? 'PRECONDITION_FAILED',
         message: row.error?.message ?? `${call.command} failed`,
       })
     default:

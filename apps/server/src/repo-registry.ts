@@ -4,6 +4,7 @@ import { dirname, isAbsolute, join } from 'node:path'
 import { createLogger, describeError } from '@podium/logger'
 import type { GitRepositoryWire, MachineId } from '@podium/model'
 import { isAbsoluteMachinePath, isMachinePathWithinRoot, machinePathKey } from '@podium/model'
+import { asSystemWrite } from './plain-command-scope'
 import type { ScanReposResult, SessionRegistry } from './relay'
 import { readLocalOriginUrl } from './repo-id'
 import { normalizeRepoPath, type SessionStore } from './store'
@@ -173,6 +174,21 @@ export class RepoRegistry {
     branch: string | null,
     machineId?: MachineId,
   ): Promise<void> {
+    await this.verifyDefaultParentBranch(path, branch, machineId)
+    await this.storeDefaultParentBranch(path, branch, machineId)
+  }
+
+  /**
+   * The check half of {@link setDefaultParentBranch}: the name is a branch name
+   * and the branch exists in the checkout, asked of the machine that holds it.
+   * Throws the refusal. A daemon round trip, so it runs before any unit of work
+   * (the sync write path asks it at the target check, POD-6417).
+   */
+  async verifyDefaultParentBranch(
+    path: string,
+    branch: string | null,
+    machineId?: MachineId,
+  ): Promise<void> {
     const mid = machineId ?? (await this.sessionReg.modules.machines.defaultMachine())
     const p = normalizeRepoPath(path)
     const name = branch?.trim() || null
@@ -191,7 +207,16 @@ export class RepoRegistry {
         throw new Error(`branch '${name}' does not exist in ${p}`)
       }
     }
-    await this.store.repos.setRepoDefaultParentBranch(mid, p, name)
+  }
+
+  /** The write half of {@link setDefaultParentBranch}, database only. */
+  async storeDefaultParentBranch(
+    path: string,
+    branch: string | null,
+    machineId?: MachineId,
+  ): Promise<void> {
+    const mid = machineId ?? (await this.sessionReg.modules.machines.defaultMachine())
+    await this.store.repos.setRepoDefaultParentBranch(mid, normalizeRepoPath(path), branch?.trim() || null)
     await this.publishRepos()
   }
 
@@ -340,7 +365,9 @@ export class RepoRegistry {
       }),
     )
 
-    if (originsMoved) await this.publishRepos()
+    // The origins are what the machines reported: the server's own write, also
+    // from inside `discovery.refreshRepos`, a plain command (POD-6417).
+    if (originsMoved) await asSystemWrite(async () => await this.publishRepos())
     const online = new Set(machineIds)
     return {
       repositories: [

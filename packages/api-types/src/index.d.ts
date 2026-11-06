@@ -7790,31 +7790,10 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Array<_podium_model.MachineWire>;
             meta: unknown;
         }>;
-        "setAssignment": TRPC.TRPCMutationProcedure<{
-            input: {
-                assignment: {
-                    agentExecution: boolean;
-                    server: boolean;
-                };
-                id: string;
-                requestId: string;
-            };
-            output: Array<_podium_model.MachineWire>;
-            meta: unknown;
-        }>;
         "setUpdateChannel": TRPC.TRPCMutationProcedure<{
             input: {
                 channel: "dev" | "edge" | "stable" | null;
                 id: string;
-            };
-            output: Array<_podium_model.MachineWire>;
-            meta: unknown;
-        }>;
-        "share": TRPC.TRPCMutationProcedure<{
-            input: {
-                grantee: string;
-                id: string;
-                verb: "manage" | "see" | "use";
             };
             output: Array<_podium_model.MachineWire>;
             meta: unknown;
@@ -7831,15 +7810,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             input: {
                 id: string;
                 newOwnerUserId: string;
-            };
-            output: Array<_podium_model.MachineWire>;
-            meta: unknown;
-        }>;
-        "unshare": TRPC.TRPCMutationProcedure<{
-            input: {
-                grantee: string;
-                id: string;
-                verb: "manage" | "see" | "use";
             };
             output: Array<_podium_model.MachineWire>;
             meta: unknown;

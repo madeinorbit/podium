@@ -786,6 +786,8 @@ export async function startServer(
     // Node role = no manager = `pair` handshakes rejected, minting throws; the
     // local daemon's `hello` path is untouched.
     ...(role.hub ? { pairing: new PairingManager({ installationId: installation.installationId }) } : {}),
+    // The fleet's hub-only writes on `sync.submit` follow the role too (POD-6417).
+    servesHub: role.hub,
     installationId: installation.installationId,
     updatePubkey: () => updateSigningKey.publicKey,
     // Under `updateScope: 'fleet-only'` this server's binary belongs to the
