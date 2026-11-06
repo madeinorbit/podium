@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1-edge.2] - 2026-11-06
+
 ### Fixed
 
 - Restore macOS Codex transcript recovery when native hooks are missing or not yet trusted, and install hooks using the same verified Codex installation used to launch the session.
