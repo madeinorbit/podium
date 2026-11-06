@@ -48,13 +48,18 @@ import { type Capability, checkIssueAccess } from '../../issue-authz'
 import type { RegistryModules } from '../../relay'
 import { isGenericClaudeTitle, isTransientTitle } from '../../title-filter'
 import type { ApprovalService } from '../approvals/service'
-import type { IssueSessionLifecycle } from '../issue-session-lifecycle'
 import type { LockCommandDispatcher } from '../lock/registry'
 import type { MessageGate } from '../messages/gate'
-import { fleetViewFor, sessionCommandCtx, visibleMachinesFor } from '../sessions/command-ctx'
+import {
+  fleetViewFor,
+  lifecycleEditsFor,
+  sessionCommandCtx,
+  visibleMachinesFor,
+} from '../sessions/command-ctx'
 import { dispatchSessionCommand, isCommandPlaneProc } from '../sessions/command-plane'
 import type { SessionLifecycle } from '../sessions/lifecycle'
 import type { SessionReadToolkit } from '../sessions/read-toolkit'
+import { handoffThroughEffect } from '../sessions/session-handoff-effect'
 import { submitPlaneCommand } from '../sessions/sync-write'
 import { dispatchSpecRelay, NO_SUCH_SPEC_PROC } from '../specs/relay'
 import type { SpecsService } from '../specs/service'
@@ -76,7 +81,6 @@ export interface AgentRelayDispatchDeps {
   readonly featureStates: () => ReturnType<typeof getFeatureStates>
   readonly featureEnabled: (id: Parameters<typeof isFeatureEnabled>[0]) => boolean
   readonly issueCommands: IssueCommandDispatcher
-  readonly issueSessionLifecycle: IssueSessionLifecycle
   readonly issues: IssueService
   readonly listRepos: () =>
     | Parameters<typeof fleetViewFor>[2]
@@ -162,7 +166,6 @@ export function makeAgentRelayDispatch(
     featureStates,
     featureEnabled,
     issueCommands,
-    issueSessionLifecycle,
     issues,
     listRepos,
     lockCommands,
@@ -437,6 +440,13 @@ export function makeAgentRelayDispatch(
       // Clean end [spec:SP-9904]: stop process, free worktree, keep branch.
       // No id → self-stop (the calling session). Outside subtree needs
       // --outside-scope; self / same-issue siblings / subtree are free.
+      //
+      // BY DESIRED STATE (POD-6422): the arm keeps its scope gates and its
+      // answer, and writes `desired: stopped` through `records.session.edit` as
+      // the agent; the lifecycle controller acts after the commit and the arm
+      // answers with what it did. A self-stop is the agent's own revision, so the
+      // controller parks and frees but leaves the process alive, and the
+      // relay's after-reply hook ends it once this answer is on the wire.
       if (proc === 'stop') {
         return await (async () => {
           const raw = (input ?? {}) as Record<string, unknown>
@@ -478,11 +488,17 @@ export function makeAgentRelayDispatch(
               }
             }
           }
-          const r = await issueSessionLifecycle.stopSession({
+          const { principal } = await sessionCommandCtx(
+            modules(),
+            capability,
+            overrideScope,
+            'relay',
+          )
+          const r = await lifecycleEditsFor(modules(), principal, overrideScope).desire(
             sessionId,
-            force: raw.force === true,
-            selfStop,
-          })
+            'stopped',
+            raw.force === true,
+          )
           if (!r.ok) throw new Error(r.reason ?? 'stop refused')
           return r
         })()
@@ -502,8 +518,11 @@ export function makeAgentRelayDispatch(
       // returns the substrate's dead_letter. Both are POD-379-pinned.
       /**
        * `sessions.handoff` over the relay (POD-1386) — the SAME schema and the
-       * SAME handler the tRPC procedure uses (`modules/sessions/trpc.ts`
-       * `handoffProcedure`), so this arm is transport and nothing else.
+       * SAME adapter the tRPC procedure uses (`modules/sessions/trpc.ts`
+       * `handoffProcedure`), so this arm is transport and nothing else. Since
+       * POD-6422 that adapter creates a `session.handoff` effect record as the
+       * agent and waits for it. LEGACY(remove-after: 2027-03): the CLI's
+       * `podium session handoff` calls this arm.
        *
        * Deliberately NOT hand-validated: parsing with the contract's own
        * `sessionHandoffInput` is what keeps the two transports from drifting,
@@ -523,11 +542,8 @@ export function makeAgentRelayDispatch(
        */
       if (proc === 'handoff') {
         const parsed = sessionHandoffInput.parse(input)
-        return await issueSessionLifecycle.handoffSession(parsed, {
-          capability,
-          principal: (await sessionCommandCtx(modules(), capability, overrideScope, 'relay'))
-            .principal,
-        })
+        const { principal } = await sessionCommandCtx(modules(), capability, overrideScope, 'relay')
+        return await handoffThroughEffect(modules(), principal, parsed)
       }
       // `continue` is on the sync write entry point (POD-6416): this arm is
       // its relay adapter. LEGACY(remove-after: 2027-03): an older CLI's

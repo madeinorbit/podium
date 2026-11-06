@@ -38,6 +38,15 @@
  * they only reduce work, and refusing them would keep a process running on a
  * machine its user may no longer use.
  *
+ * SELF-STOP DEFERS ITS KILL (POD-6422). A stop whose revision the session's own
+ * agent wrote (`byAgent` is the session) is that agent stopping itself, and the
+ * agent is waiting for the answer: the action parks the row and frees the
+ * worktree but leaves the process alive, answering `deferredKill`, and whoever
+ * holds the reply ends it once the reply is out (the relay's after-reply hook,
+ * `finishSelfStop`). Only on a commit's pass: a pass from a machine's reconnect
+ * answers nobody, so it stops and kills as any stop does, and a retried
+ * self-stop never leaves a parked row with a live process.
+ *
  * MEMORY. The in-flight chain per session and the last outcome per session are
  * live runtime state (server-data: grows with activity, not history); every
  * fact the controller decides on is read from the row.
@@ -71,10 +80,13 @@ export interface LifecycleControllerPorts {
   pending(machineId: MachineId): Promise<readonly SessionId[]>
   /** Whether the machine's daemon is attached right now. */
   connected(machineId: MachineId): boolean
+  /** `selfStop`: the session's own agent asked and waits for the answer; park
+   *  and free, and leave the process for the reply's holder to end. */
   stop(
     sessionId: SessionId,
     force: boolean,
     principal?: CommandPrincipal,
+    selfStop?: boolean,
   ): Promise<LifecycleOutcome>
   hibernate(sessionId: SessionId): Promise<LifecycleOutcome>
   resurrect(sessionId: SessionId): Promise<LifecycleOutcome>
@@ -92,6 +104,16 @@ export interface LifecycleControllerPorts {
 export interface ReconcileHint {
   /** Who edited, for the audit trail of what the action does (a freed worktree). */
   readonly principal?: CommandPrincipal
+  /** The pass a machine's reconnect asked for: nobody waits on its answer. */
+  readonly reconnect?: true
+}
+
+/** Two requests for one pass: any request other than a reconnect's makes it a
+ *  commit's pass (someone may be waiting on its answer). */
+function mergeHints(previous: ReconcileHint | undefined, next: ReconcileHint): ReconcileHint {
+  if (previous === undefined || previous.reconnect === next.reconnect) return next
+  const { reconnect: _reconnect, ...commit } = next
+  return { ...(previous.principal ? { principal: previous.principal } : {}), ...commit }
 }
 
 /** What one reconcile pass did. */
@@ -141,7 +163,7 @@ export class SessionLifecycleController {
   reconcile(sessionId: SessionId, hint: ReconcileHint = {}): Promise<ReconcileResult> {
     const running = this.chains.get(sessionId)
     if (running) {
-      this.again.set(sessionId, hint)
+      this.again.set(sessionId, mergeHints(this.again.get(sessionId), hint))
       // The running chain takes the request on its next loop turn; if it had
       // already left its loop when the request came, the request is still
       // here when it settles, and runs now.
@@ -162,7 +184,9 @@ export class SessionLifecycleController {
   /** Every pending session on a machine whose daemon just attached. */
   async reconcileMachine(machineId: MachineId): Promise<void> {
     const ids = await this.ports.pending(machineId)
-    await Promise.all(ids.map((id) => this.reconcile(id).catch(() => undefined)))
+    await Promise.all(
+      ids.map((id) => this.reconcile(id, { reconnect: true }).catch(() => undefined)),
+    )
   }
 
   private start(sessionId: SessionId, hint: ReconcileHint): Promise<ReconcileResult> {
@@ -208,7 +232,7 @@ export class SessionLifecycleController {
     }
     let outcome: LifecycleOutcome
     try {
-      outcome = await this.act(sessionId, desired, lifecycle.force, hint)
+      outcome = await this.act(row, desired, hint)
     } catch (error) {
       log.warn('session lifecycle action failed; left pending', {
         sessionId,
@@ -228,18 +252,23 @@ export class SessionLifecycleController {
   }
 
   private async act(
-    sessionId: SessionId,
+    row: LifecycleSnapshot,
     desired: SessionDesired,
-    force: boolean,
     hint: ReconcileHint,
   ): Promise<LifecycleOutcome> {
+    const { sessionId, lifecycle } = row
     switch (desired) {
       case 'running':
         return await this.ports.resurrect(sessionId)
       case 'hibernated':
         return await this.ports.hibernate(sessionId)
       case 'stopped':
-        return await this.ports.stop(sessionId, force, hint.principal)
+        return await this.ports.stop(
+          sessionId,
+          lifecycle.force,
+          hint.principal,
+          hint.reconnect !== true && lifecycle.byAgent === sessionId,
+        )
     }
   }
 }

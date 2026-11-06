@@ -130,6 +130,18 @@ async function editLabels(
   }
 }
 
+/** An agent's `desired: stopped` (with or without `force`) on its own session. */
+function isSelfStop(
+  op: string,
+  id: string,
+  principal: CommandPrincipal,
+  edited: Edited | undefined,
+): boolean {
+  if (op !== 'edit' || principal.kind !== 'agent' || principal.agentSessionId !== id) return false
+  if (edited === undefined || edited.patch.desired !== 'stopped') return false
+  return named(edited).every((field) => field === 'desired' || field === 'force')
+}
+
 const gone = (): never => {
   throw new SyncWriteRefused({ kind: 'target-not-found' })
 }
@@ -141,7 +153,7 @@ export function registerSessionLifecycleRecord(
   const sessions = () => deps.modules().sessions
 
   registerRecordKind(registry, SESSION_RECORD, {
-    target: async (op, id, { principal }, edited) => {
+    target: async (op, id, { principal, confirmed }, edited) => {
       if (principal.kind === 'system') return undefined
       const labels = edited === undefined ? [] : labelFields(edited)
       if (labels.length > 0) {
@@ -150,7 +162,13 @@ export function registerSessionLifecycleRecord(
         if (edited !== undefined && touchesLifecycle(edited)) return undefined
         return await labelTarget(deps.modules(), id as SessionId, principal, labels, edited)
       }
-      const plane = await sessionCommandCtx(deps.modules(), principal.capability, false, 'trpc')
+      // A session may always stop itself [spec:SP-9904] (POD-6422): its agent's
+      // own stop needs no scope, as the relay's self-stop never did. This kind
+      // is not on the relay, so only the server's own adapters write it as an
+      // agent (the relay's stop arm, `finishSelfStop`).
+      if (isSelfStop(op, id, principal, edited)) return NO_TARGET
+      // `confirmed` is the caller's --outside-scope (the routes send it so).
+      const plane = await sessionCommandCtx(deps.modules(), principal.capability, confirmed, 'trpc')
       try {
         const row = await plane.target(
           id as SessionId,

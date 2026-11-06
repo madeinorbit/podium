@@ -722,6 +722,140 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
     ).toMatch(/hibernated|exited/)
   })
 
+  /**
+   * Every frame on the relay's machine and on the session's own, in one order,
+   * resolved with the relay's answer to `requestId` (POD-6422).
+   */
+  const recordUntilReply = async (sessionId: string) => {
+    // The session is live on the relay's machine, as an agent calling it is.
+    await attachRelayDaemon(registry, machineId, () => {})
+    registry.gateway.routeDaemonFrame(machineId, {
+      type: 'bind',
+      sessionId: asSessionId(sessionId),
+      cmd: 'sh',
+      cwd: wtA,
+      agentKind: 'shell',
+      geometry: { cols: 80, rows: 24 },
+    })
+    const sessionMachine = String(
+      (await registry.modules.sessions.sessionById(asSessionId(sessionId)))?.machineId,
+    )
+    const frames: ControlMessage[] = []
+    let replyAt = -1
+    const reply = new Promise<RelayResult>((resolve) => {
+      void attachRelayDaemon(registry, machineId, (msg) => {
+        frames.push(msg)
+        if (msg.type === 'agentRelayResult') {
+          replyAt = frames.length - 1
+          resolve(msg)
+        }
+      })
+    })
+    if (sessionMachine !== machineId) {
+      await attachRelayDaemon(registry, sessionMachine, (msg) => frames.push(msg))
+    }
+    const retiredAt = () =>
+      frames.findIndex(
+        (m) =>
+          (m.type === 'runtimeLifecycleRequest' || m.type === 'kill') && m.sessionId === sessionId,
+      )
+    return { frames, reply, replyAt: () => replyAt, retiredAt }
+  }
+
+  it('a self-stop is its own desired state: parked before the reply, ended only after it (POD-6422)', async () => {
+    const entry = vi.spyOn(registry.modules.syncWrite, 'submitDetailed')
+    const service = vi.spyOn(registry.modules.issueSessionLifecycle, 'stopSession')
+    const seen = await recordUntilReply(sA)
+    registry.gateway.routeDaemonFrame(machineId, {
+      type: 'agentRelayRequest',
+      requestId: 'stop-self-desired',
+      sessionId: asSessionId(sA),
+      router: 'sessions',
+      proc: 'stop',
+      input: {},
+    })
+    const r = await seen.reply
+    expect(r.ok).toBe(true)
+    expect(r.result).toMatchObject({ ok: true, deferredKill: true })
+    // Written as the agent, on its own session; acted on by the controller.
+    const edit = entry.mock.calls.find(([env]) => env.command === 'records.session.edit')
+    expect(edit?.[0].input).toMatchObject({ id: sA, patch: { desired: 'stopped' } })
+    expect(edit?.[1]).toMatchObject({ kind: 'agent', agentSessionId: sA })
+    expect(
+      (await registry.modules.sessions.desiredStateOf(asSessionId(sA)))?.lifecycle,
+    ).toMatchObject({ desired: 'stopped', byAgent: sA })
+    expect(service).toHaveBeenCalledWith(expect.objectContaining({ sessionId: sA, selfStop: true }))
+    // Nothing reached the process before the answer; the after-reply hook ends it.
+    expect(seen.retiredAt() === -1 || seen.retiredAt() > seen.replyAt()).toBe(true)
+    for (let i = 0; i < 200 && seen.retiredAt() === -1; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    expect(seen.retiredAt()).toBeGreaterThan(seen.replyAt())
+  })
+
+  it('a self-stop over unsaved work is refused with the same words, and nothing is parked (POD-6422)', async () => {
+    const rpc = (
+      registry.modules.sessions as unknown as {
+        rpc: { repoOp: (...args: unknown[]) => Promise<{ ok: boolean; output: string }> }
+      }
+    ).rpc
+    rpc.repoOp = async () => ({ ok: true, output: '## issue-stop-a\n M src/a.ts\n' })
+    const seen = await recordUntilReply(sA)
+    const before = (await registry.modules.sessions.sessionById(asSessionId(sA)))?.status
+    expect(before).toBe('live')
+    registry.gateway.routeDaemonFrame(machineId, {
+      type: 'agentRelayRequest',
+      requestId: 'stop-self-dirty',
+      sessionId: asSessionId(sA),
+      router: 'sessions',
+      proc: 'stop',
+      input: {},
+    })
+    const r = await seen.reply
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/refusing stop: unsaved changes in the working tree/)
+    expect(r.error).toContain('M src/a.ts')
+    expect((await registry.modules.sessions.sessionById(asSessionId(sA)))?.status).toBe(before)
+    const lifecycle = (await registry.modules.sessions.desiredStateOf(asSessionId(sA)))?.lifecycle
+    expect(lifecycle?.failure?.reason).toMatch(/^refusing stop: unsaved changes/)
+    expect(seen.retiredAt()).toBe(-1)
+  })
+
+  it('a peer stop is the sibling’s desired state, written by the agent; never a direct stop (POD-6422)', async () => {
+    const sibling = (
+      await registry.modules.sessions.createSession({
+        cwd: wtA,
+        agentKind: 'shell',
+        issueId: asIssueId(A.id),
+      })
+    ).sessionId
+    const entry = vi.spyOn(registry.modules.syncWrite, 'submitDetailed')
+    const service = vi.spyOn(registry.modules.issueSessionLifecycle, 'stopSession')
+    const reply = captureReply(registry, machineId)
+    registry.gateway.routeDaemonFrame(machineId, {
+      type: 'agentRelayRequest',
+      requestId: 'stop-peer-desired',
+      sessionId: asSessionId(sA),
+      router: 'sessions',
+      proc: 'stop',
+      input: { sessionId: sibling },
+    })
+    const r = await reply
+    expect(r.ok).toBe(true)
+    expect(r.result).not.toHaveProperty('deferredKill', true)
+    const edit = entry.mock.calls.find(([env]) => env.command === 'records.session.edit')
+    expect(edit?.[0].input).toMatchObject({ id: sibling, patch: { desired: 'stopped' } })
+    expect((await registry.modules.sessions.desiredStateOf(sibling))?.lifecycle).toMatchObject({
+      desired: 'stopped',
+      byAgent: sA,
+    })
+    expect(service).toHaveBeenCalledTimes(1)
+    expect(service.mock.calls[0]?.[0]).not.toHaveProperty('selfStop')
+    expect((await registry.modules.sessions.sessionById(sibling))?.status).toMatch(
+      /hibernated|exited/,
+    )
+  })
+
   it('issues.stop by a member stops its sibling by desired state, and itself only after the reply', async () => {
     attachRelayDaemon(registry, machineId, () => {})
     registry.gateway.routeDaemonFrame(machineId, {

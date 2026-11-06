@@ -529,7 +529,7 @@ async function desireStopped(
   sessionId: SessionId,
   force: boolean,
   recordId: string,
-): Promise<{ ok?: boolean; reason?: string; waiting?: boolean }> {
+): Promise<{ ok?: boolean; reason?: string; waiting?: boolean; deferredKill?: unknown }> {
   const state = await modules.sessions.desiredStateOf(sessionId)
   if (!state) return { ok: true }
   const { reply } = await modules.syncWrite.submitDetailed(
@@ -568,7 +568,9 @@ async function desireStopped(
 /**
  * The writing agent's own stop, after its reply is on the wire (the relay's
  * reply hook, for an `issues.stop` answered with `deferredKill`): its own
- * `desired: stopped`, as itself. The controller parks it and ends the process.
+ * `desired: stopped`, as itself. The controller parks it and, as for any
+ * self-stop (POD-6422), leaves the process to whoever holds the reply: here
+ * that is this function, so it ends the process once the row is parked.
  */
 export async function finishSelfStop(
   modules: RegistryModules,
@@ -577,7 +579,8 @@ export async function finishSelfStop(
 ): Promise<void> {
   const principal = await agentCommandPrincipal(modules, sessionId)
   if (principal === undefined) return
-  await desireStopped(modules, principal, sessionId, force, `self_${randomUUID()}`)
+  const outcome = await desireStopped(modules, principal, sessionId, force, `self_${randomUUID()}`)
+  if (outcome.deferredKill === true) await modules.sessions.finalizeDeferredStopKill(sessionId)
 }
 
 // ---------------------------------------------------------------------------

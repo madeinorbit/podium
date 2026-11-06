@@ -190,12 +190,15 @@ export async function assertMayCommandSession(
   // Issueless target: no issue to gate on used to mean NO gate at all. Only the
   // operator (unscoped capability) or the target's own parent (spawnedBy
   // provenance) may command it; --outside-scope confirms scope-crossing on ISSUE
-  // targets and never substitutes here.
+  // targets and never substitutes here, except for a STOP, where it is the
+  // agent's assertion of human permission [spec:SP-9904] (the relay's stop arm
+  // has always taken it, and its desired-state edit is checked here, POD-6422).
   const isOperator = capability.scope.kind === 'all'
   const isParent =
     capability.actorSessionId !== undefined &&
     isSpawnedBy(session.spawnedBy, { kind: 'session', id: capability.actorSessionId })
-  if (!isOperator && !isParent) {
+  const confirmedStop = overrideScope === true && proc === 'sessions.stop'
+  if (!isOperator && !isParent && !confirmedStop) {
     throw new Error('target session has no issue; only its parent or the operator may message it')
   }
 }

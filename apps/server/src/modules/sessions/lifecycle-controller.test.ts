@@ -29,6 +29,8 @@ function fixture(
   opts: { connected?: boolean; mayStart?: boolean } = {},
 ) {
   const calls: string[] = []
+  /** The `selfStop` each stop was asked with, in order (POD-6422). */
+  const selfStops: boolean[] = []
   const acks: { id: string; revision: number; failure?: string }[] = []
   let answer: (verb: string) => Promise<LifecycleOutcome> = async () => ({ ok: true })
   const act = (verb: string, id: SessionId) => {
@@ -48,7 +50,10 @@ function fixture(
         .map(([id]) => id as SessionId),
     connected: () => opts.connected ?? true,
     mayStart: async () => opts.mayStart ?? true,
-    stop: async (id) => await act('stop', id),
+    stop: async (id, _force, _principal, selfStop) => {
+      selfStops.push(selfStop === true)
+      return await act('stop', id)
+    },
     hibernate: async (id) => await act('hibernate', id),
     resurrect: async (id) => await act('resurrect', id),
     acknowledge: async (id, revision, failure) => {
@@ -66,6 +71,7 @@ function fixture(
   return {
     controller: new SessionLifecycleController(ports),
     calls,
+    selfStops,
     acks,
     answerWith: (fn: (verb: string) => Promise<LifecycleOutcome>) => {
       answer = fn
@@ -207,5 +213,60 @@ describe('SessionLifecycleController', () => {
     expect([...f.calls].sort()).toEqual(['resurrect:b:4', 'stop:a:2'])
     await f.controller.reconcileMachine(M)
     expect(f.calls).toHaveLength(2)
+  })
+
+  describe('a session stopping itself (POD-6422)', () => {
+    /** A stop at `revision` written by `byAgent`. */
+    const stopBy = (byAgent: SessionId | null, revision = 2): Row => {
+      const r = row('live', 'stopped', revision, revision - 1)
+      return { ...r, lifecycle: { ...r.lifecycle, byAgent } }
+    }
+
+    it('defers the kill on a commit’s pass when the session’s own agent wrote the stop', async () => {
+      const f = fixture({ [S]: stopBy(S) })
+      await f.controller.reconcile(S)
+      expect(f.calls).toEqual(['stop:s1:2'])
+      expect(f.selfStops).toEqual([true])
+    })
+
+    it('stops and kills as any stop when another agent or a person wrote it', async () => {
+      const f = fixture({ [S]: stopBy('other' as SessionId), t: stopBy(null) })
+      await f.controller.reconcile(S)
+      await f.controller.reconcile('t' as SessionId)
+      expect(f.selfStops).toEqual([false, false])
+    })
+
+    it('a reconnect’s pass answers nobody, so it kills even the agent’s own stop', async () => {
+      const f = fixture({ [S]: stopBy(S) })
+      await f.controller.reconcileMachine(M)
+      expect(f.calls).toEqual(['stop:s1:2'])
+      expect(f.selfStops).toEqual([false])
+    })
+
+    it('a reconnect queued behind a commit’s request still answers the commit', async () => {
+      const rows = { [S]: row('live', 'hibernated', 2, 1) }
+      const f = fixture(rows)
+      let release!: () => void
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      f.answerWith(async (verb) => {
+        if (verb === 'hibernate') await gate
+        return { ok: true }
+      })
+      const first = f.controller.reconcile(S)
+      while (f.calls.length === 0) await new Promise((resolve) => setTimeout(resolve, 0))
+      // The agent's own stop commits while the hibernate runs, and its machine
+      // reconnects before the next pass starts.
+      const target = rows[S]
+      if (!target) throw new Error('fixture row')
+      target.lifecycle = { ...target.lifecycle, desired: 'stopped', revision: 3, byAgent: S }
+      const commit = f.controller.reconcile(S)
+      const reconnect = f.controller.reconcile(S, { reconnect: true })
+      release()
+      await Promise.all([first, commit, reconnect])
+      expect(f.calls).toEqual(['hibernate:s1:2', 'stop:s1:3'])
+      expect(f.selfStops).toEqual([true])
+    })
   })
 })

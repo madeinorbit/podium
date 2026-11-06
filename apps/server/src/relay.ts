@@ -200,6 +200,7 @@ import {
   registerSessionInterruptEffect,
   type SessionInterruptsHandle,
 } from './modules/sessions/session-interrupt-effect'
+import { registerSessionHandoffEffect } from './modules/sessions/session-handoff-effect'
 import {
   registerSessionLaunchEffect,
   SESSION_LAUNCH_KIND,
@@ -2355,11 +2356,14 @@ export class SessionRegistry {
       read: async (sessionId) => await sessionsSvc.desiredStateOf(sessionId),
       pending: async (machineId) => await this.store.sessions.lifecyclePending(machineId),
       connected: (machineId) => machines.hasDaemon(machineId),
-      stop: async (sessionId, force, principal) =>
+      stop: async (sessionId, force, principal, selfStop) =>
         await issueSessionLifecycle.stopSession({
           sessionId,
           ...(force ? { force: true } : {}),
           ...(principal ? { principal } : {}),
+          // An agent stopping itself (POD-6422): park and free now; its process
+          // ends after the reply (the hook below, or `finishSelfStop`).
+          ...(selfStop ? { selfStop: true } : {}),
         }),
       hibernate: async (sessionId) => await sessionsSvc.hibernateSession({ sessionId }),
       resurrect: async (sessionId) => await issueSessionLifecycle.resurrectSession({ sessionId }),
@@ -4117,6 +4121,8 @@ export class SessionRegistry {
         return { ok: true, choices: r.choices, ...(r.note ? { note: r.note } : {}) }
       },
     })
+    // Moving a session to another machine (POD-6422).
+    registerSessionHandoffEffect({ modules: () => this.modules, users: this.store.users })
     // Software update and server move start from effect records; the
     // Operations engine is their executor (ADR 12 D5 E3, POD-6358).
     this.modules.updateEffects = registerUpdateEffect({
@@ -4185,7 +4191,6 @@ export class SessionRegistry {
         featureStates: () => getFeatureStates(currentSettings),
         featureEnabled,
         issueCommands,
-        issueSessionLifecycle,
         issues,
         listRepos: async () => await this.store.repos.listRepos(),
         lockCommands,

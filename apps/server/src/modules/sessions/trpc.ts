@@ -88,6 +88,7 @@ import {
 } from './command-plane'
 import { handoffRefusalOf } from './handoff/refusal'
 import { dispatchRename, renamePath } from './rename-adapter'
+import { handoffThroughEffect } from './session-handoff-effect'
 import { SessionStateRegistry, sessionStatePrincipalFor } from './session-state/registry'
 import {
   IMMEDIATE_PLANE_COMMANDS,
@@ -413,23 +414,23 @@ type HandoffProcedure = TRPCMutationProcedure<{
 }>
 
 /**
- * `sessions.handoff` (POD-642). The caller is passed as a SEPARATE argument, from
- * the context's capability — never out of `input`, whose schema carries no identity
- * field at all (ADR 3 D7: payload identity is inert, here by construction).
+ * `sessions.handoff` (POD-642). The caller is the context's principal — never out
+ * of `input`, whose schema carries no identity field at all (ADR 3 D7: payload
+ * identity is inert, here by construction).
  *
- * Not folded into the command plane: handoff gates `use` on BOTH machines,
- * re-authorizes at two apply points minutes apart, and single-flights duplicate
- * dispatch instead of deduping on a `mutationId` it deliberately does not carry.
+ * A `session.handoff` effect record since POD-6422: the route creates it as its
+ * caller and waits for it, so the move runs after commit, never inside this
+ * request. The coordinator it runs still gates `use` on BOTH machines,
+ * re-authorizes at two apply points and single-flights duplicate dispatch.
+ * LEGACY(remove-after: 2027-03): the CLI and older apps call this route; the
+ * apps now create the record themselves.
  */
 function handoffProcedure(): HandoffProcedure {
   return t.procedure
     .input(sessionHandoffInput)
     .mutation(async ({ ctx, input }): Promise<SessionHandoffOutput> => {
       try {
-        return await familyState(ctx).modules.issueSessionLifecycle.handoffSession(input, {
-          capability: ctx.capability,
-          principal: ctx.principal,
-        })
+        return await handoffThroughEffect(familyState(ctx).modules, ctx.principal, input)
       } catch (error) {
         const refusal = handoffRefusalOf(error)
         if (!refusal) throw error

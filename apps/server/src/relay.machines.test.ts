@@ -5,6 +5,7 @@ import {
   asAgentIdentityId,
   asMachineId,
   asRepoId,
+  asSessionId,
   asUserId,
   firstAdminMemberId,
 } from '@podium/model'
@@ -12,7 +13,12 @@ import type { ServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
+import { HandoffRefusalError } from './modules/sessions/handoff/refusal'
+import { handoffThroughEffect } from './modules/sessions/session-handoff-effect'
+import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
+import { RepoRegistry } from './repo-registry'
+import { appRouter } from './router'
 import { withReadScope } from './store/executor/read-scope'
 import { captureLogs } from './test-support/capture-logs'
 import { attachTestClient } from './test-support/client-transport'
@@ -942,3 +948,175 @@ describe('session handoff orchestration', () => {
     expect(source.filter((message) => message.type === 'spawn')).toHaveLength(2)
   })
 })
+
+// POD-6422: the route creates a `session.handoff` effect record and waits for
+// it; the move itself runs after commit, through the unchanged coordinator.
+describe('session handoff as an effect record (POD-6422)', () => {
+  /** Every `effects.create` the entry point applied, with who sent it. */
+  const effectCreates = (spy: { mock: { calls: unknown[][] } }) =>
+    spy.mock.calls
+      .map(([envelope, principal, transport]) => ({
+        envelope: envelope as { command: string; input: { id: string; kind: string } },
+        principal: principal as { kind: string },
+        transport,
+      }))
+      .filter((call) => call.envelope.command === 'effects.create')
+
+  const callerFor = async (reg: SessionRegistry) => {
+    const repos = new RepoRegistry(reg, reg.sessionStore)
+    const superagent = await SuperagentService.create(reg.modules, repos, reg.sessionStore)
+    return appRouter.createCaller({
+      registry: reg,
+      repos,
+      superagent,
+      capability: TEST_CAPABILITY,
+      principal: TEST_PRINCIPAL,
+    })
+  }
+
+  it('the tRPC route answers as it did, from a record that ran the coordinator once', async () => {
+    const { reg, source, target, sessionId } = await handoffRegistry()
+    const submit = vi.spyOn(reg.modules.syncWrite, 'submitDetailed')
+    const coordinator = vi.spyOn(reg.modules.issueSessionLifecycle, 'handoffSession')
+    const call = await callerFor(reg)
+
+    await expect(
+      call.sessions.handoff({ sessionId, machineId: asMachineId('m2') }),
+    ).resolves.toEqual({ ok: true, newCwd: '/target/repo/.worktrees/x' })
+
+    const [created] = effectCreates(submit)
+    expect(created?.envelope.input).toMatchObject({
+      kind: 'session.handoff',
+      target: { kind: 'session', id: sessionId },
+      input: { machineId: 'm2' },
+    })
+    expect(created?.transport).toBe('trpc')
+    const row = await reg.sessionStore.effects.get(created?.envelope.input.id ?? '')
+    expect(row).toMatchObject({
+      status: 'succeeded',
+      result: { ok: true, newCwd: '/target/repo/.worktrees/x' },
+      createdBy: firstAdminMemberId(),
+    })
+    expect(coordinator).toHaveBeenCalledTimes(1)
+    expect(source.filter((m) => m.type === 'handoffExportRequest')).toHaveLength(1)
+    expect(target.filter((m) => m.type === 'spawn')).toHaveLength(1)
+  })
+
+  it('a refusal is the record’s failure, and the route rethrows it unchanged', async () => {
+    const { reg, sessionId } = await handoffRegistry()
+    const submit = vi.spyOn(reg.modules.syncWrite, 'submitDetailed')
+    const call = await callerFor(reg)
+
+    // A plain refusal keeps its words.
+    await expect(
+      call.sessions.handoff({ sessionId, machineId: asMachineId('m1') }),
+    ).rejects.toThrow('session is already on that machine')
+    // A classified one keeps its class: an unknown machine fails as one.
+    const unknown = await handoffThroughEffect(reg.modules, TEST_PRINCIPAL, {
+      sessionId,
+      machineId: asMachineId('no-such-machine'),
+    }).catch((error: unknown) => error)
+    expect(unknown).toBeInstanceOf(HandoffRefusalError)
+    expect((unknown as HandoffRefusalError).refusal).toBe('unknown-target')
+
+    const rows = await Promise.all(
+      effectCreates(submit).map((c) => reg.sessionStore.effects.get(c.envelope.input.id)),
+    )
+    expect(rows.map((r) => [r?.status, r?.error?.code])).toEqual([
+      ['failed', 'refused'],
+      ['failed', 'unknown-target'],
+    ])
+    expect(rows[0]?.error?.message).toBe('session is already on that machine')
+    expect(await meta(reg, sessionId)).toMatchObject({ machineId: 'm1' })
+  })
+
+  it('an unknown session is the route’s pinned throw, and no record is made', async () => {
+    const { reg } = await handoffRegistry()
+    const submit = vi.spyOn(reg.modules.syncWrite, 'submitDetailed')
+    await expect(
+      handoffThroughEffect(reg.modules, TEST_PRINCIPAL, {
+        sessionId: asSessionId('00000000-0000-4000-8000-000000000000'),
+        machineId: asMachineId('m2'),
+      }),
+    ).rejects.toThrow(/^unknown session$/)
+    const [created] = effectCreates(submit)
+    expect(created).toBeDefined()
+    expect(await reg.sessionStore.effects.get(created?.envelope.input.id ?? '')).toBeUndefined()
+  })
+
+  it('an agent’s relay handoff is a record written as that agent', async () => {
+    const { reg, sessionId } = await handoffRegistry()
+    const submit = vi.spyOn(reg.modules.syncWrite, 'submitDetailed')
+    const reply = new Promise<Extract<ControlMessage, { type: 'agentRelayResult' }>>((resolve) => {
+      void attachDaemonWithInventory(
+        reg,
+        'm1',
+        (msg) => {
+          if (msg.type === 'agentRelayResult') resolve(msg)
+        },
+        fixtureInventory({
+          agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
+        }),
+      )
+    })
+    await reg.gateway.routeDaemonFrame('m1', {
+      type: 'agentRelayRequest',
+      requestId: 'agent-handoff',
+      sessionId,
+      router: 'sessions',
+      proc: 'handoff',
+      // Itself, onto a machine that does not exist: refused by the run, as the agent.
+      input: { sessionId, machineId: 'no-such-machine' },
+    })
+    const answer = await reply
+    expect(answer.ok).toBe(false)
+    const [created] = effectCreates(submit)
+    expect(created?.principal).toMatchObject({ kind: 'agent', agentSessionId: sessionId })
+    expect(created?.transport).toBe('relay')
+    const row = await reg.sessionStore.effects.get(created?.envelope.input.id ?? '')
+    expect(row).toMatchObject({
+      kind: 'session.handoff',
+      actor: `session:${sessionId}`,
+      status: 'failed',
+    })
+    // The relay names the error's class, as it did when the arm threw it itself.
+    expect(answer.error).toBe(`HandoffRefusalError: ${row?.error?.message}`)
+  })
+
+  it('recovers from the session row: arrived, untouched on the source, or unknown', async () => {
+    const { reg, sessionId } = await handoffRegistry()
+    const executor = reg.modules.effects?.executors.get('session.handoff')
+    if (executor?.recover === undefined) throw new Error('no session.handoff executor')
+    const recoverWith = async (row: Record<string, unknown> | undefined) => {
+      vi.spyOn(reg.modules.sessions, 'sessionById').mockResolvedValueOnce(row as never)
+      return await executor.recover?.({
+        record: { target: { kind: 'session', id: sessionId } } as never,
+        input: { machineId: asMachineId('m2') },
+        stage: async () => {},
+        cancelRequested: async () => false,
+        signal: new AbortController().signal,
+        stopped: new AbortController().signal,
+      })
+    }
+    expect(await recoverWith({ machineId: 'm2', cwd: '/t/x', status: 'starting' })).toEqual({
+      status: 'succeeded',
+      result: { ok: true, newCwd: '/t/x' },
+    })
+    expect(await recoverWith({ machineId: 'm1', cwd: '/s/x', status: 'live' })).toMatchObject({
+      status: 'failed',
+      error: { code: 'interrupted' },
+    })
+    expect(
+      await recoverWith({
+        machineId: 'm1',
+        cwd: '/s/x',
+        status: 'hibernated',
+        handoffTargetMachineId: 'm2',
+      }),
+    ).toMatchObject({ status: 'unknown' })
+  })
+})
+
+async function meta(reg: SessionRegistry, sessionId: string) {
+  return await reg.modules.sessions.sessionById(asSessionId(sessionId))
+}
