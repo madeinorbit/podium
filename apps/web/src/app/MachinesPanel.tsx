@@ -1,3 +1,4 @@
+import { machineWrites } from '@podium/commands/fleet-synced'
 import { type FailureReason, MachineFailureReason } from '@/features/updates/MachineFailureReason'
 // This app-level surface composes settings, setup, and machine capabilities.
 
@@ -1040,7 +1041,7 @@ const MachineRow = observer(function MachineRow({
     setSuperseding(true)
     setSupersedeError(null)
     try {
-      await trpc.machines.supersede.mutate({ id: machine.id, replacementId })
+      await machineWrites(trpc).supersede.mutate({ id: machine.id, replacementId })
       setSupersedeOpen(false)
       onConvergenceChanged()
     } catch (error) {
@@ -1055,7 +1056,7 @@ const MachineRow = observer(function MachineRow({
     setAdopting(true)
     setAdoptError(null)
     try {
-      await trpc.machines.adopt.mutate({ id: machine.id })
+      await machineWrites(trpc).adopt.mutate({ id: machine.id })
     } catch (error) {
       setAdoptError(error instanceof Error ? error.message : String(error))
     } finally {
@@ -1082,7 +1083,7 @@ const MachineRow = observer(function MachineRow({
     }
     setRenaming(true)
     try {
-      await trpc.machines.rename.mutate({ id: machine.id, name: trimmed })
+      await machineWrites(trpc).rename.mutate({ id: machine.id, name: trimmed })
     } finally {
       setRenaming(false)
       setEditing(false)
@@ -1209,7 +1210,7 @@ const MachineRow = observer(function MachineRow({
     setRevoking(true)
     setRevokeError(null)
     try {
-      await trpc.machines.revoke.mutate({ id: machine.id })
+      await machineWrites(trpc).revoke.mutate({ id: machine.id })
       setRevokeOpen(false)
     } catch (error) {
       setRevokeError(error instanceof Error ? error.message : String(error))
@@ -1227,7 +1228,7 @@ const MachineRow = observer(function MachineRow({
     setTransferring(true)
     setTransferError(null)
     try {
-      await trpc.machines.transferOwnership.mutate({
+      await machineWrites(trpc).transferOwnership.mutate({
         id: machine.id,
         newOwnerUserId: recipient,
       })
@@ -1964,7 +1965,7 @@ const MachineUpdateControls = observer(function MachineUpdateControls({
     setUpdateError(null)
     setUpdateStatus(null)
     try {
-      const machines = await trpc.machines.setUpdateChannel.mutate({
+      const machines = await machineWrites(trpc).setUpdateChannel.mutate({
         id: machine.id,
         channel: nextChannel,
       })

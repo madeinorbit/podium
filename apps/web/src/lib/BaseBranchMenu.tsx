@@ -9,6 +9,7 @@
  * (`repos.setDefaultParentBranch` is a direct call that checks the branch
  * exists); the task page's edit is queued, so it rejects only on enqueue.
  */
+
 import { useStoreHandle } from '@podium/client-core/react'
 import { here } from '@podium/client-graph/lookup'
 import {
@@ -16,6 +17,7 @@ import {
   podiumDefaultLabel,
   repositoryScanOf,
 } from '@podium/client-graph/repo-base-branch'
+import { repoWrites } from '@podium/commands/fleet-synced'
 import type { MachineId } from '@podium/model/browser'
 import { Check } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
@@ -225,7 +227,7 @@ export const RepoBaseBranchMenu = observer(function RepoBaseBranchMenu({
       note="New tasks here branch from it and land on it. Existing tasks keep theirs."
       onSave={async (branch) => {
         if (!target) throw new Error('No machine reports this repository right now.')
-        await trpc.repos.setDefaultParentBranch.mutate({ ...target, branch })
+        await repoWrites(trpc).setDefaultParentBranch.mutate({ ...target, branch })
       }}
       onDone={onDone}
       align={align}

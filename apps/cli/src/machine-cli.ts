@@ -20,6 +20,7 @@
  */
 
 import { makeRelayIssueClient } from '@podium/issue-client'
+import { type SyncSubmitTransport, submitNow } from '@podium/protocol'
 import {
   type AgentInventory,
   type MachineId,
@@ -40,7 +41,7 @@ type Mutation = { mutate(input?: unknown): Promise<unknown> }
  * shapes; and the repo rows are joined SERVER-side because the unscoped
  * `repos.listDetailed` would disclose paths on machines the caller cannot see.
  */
-export interface MachineClient {
+export interface MachineClient extends SyncSubmitTransport {
   machines: { listWithRepos: Proc; reprobe: Mutation; adopt?: Mutation; supersede?: Mutation }
 }
 
@@ -266,8 +267,15 @@ export async function runMachineCli(
     const replacement = machines.find((machine) => machine.id === args[2])
     if (!old || !replacement) throw new MachineCliError('supersede requires two visible machine IDs; names are not accepted')
     if (old.id === replacement.id) throw new MachineCliError('replacement must be a different machine')
-    if (!client.machines.supersede) throw new MachineCliError('machine supersession is unavailable')
-    await client.machines.supersede.mutate({ id: old.id, replacementId: replacement.id })
+    const supersede = client.machines.supersede
+    if (!supersede) throw new MachineCliError('machine supersession is unavailable')
+    // On the sync write entry point (POD-6417). LEGACY(remove-after: 2027-03):
+    // an older server takes the command's own route.
+    const input = { id: old.id, replacementId: replacement.id }
+    await submitNow(client, 'machines.supersede', input, {
+      action: 'supersede this machine',
+      legacy: async () => await supersede.mutate(input),
+    })
     return json ? JSON.stringify({ command: 'machines supersede', ok: true, data: { machineId: old.id, supersededBy: replacement.id } })
       : `Superseded ${old.name} (${old.id}) by ${replacement.name} (${replacement.id}). Old grants and queued work cancelled.`
   }
@@ -275,8 +283,13 @@ export async function runMachineCli(
   if (argv[0] === 'adopt') {
     const args = argv.slice(1).filter((arg) => arg !== '--json')
     const machine = selectMachine(machines, args[0]!)
-    if (!client.machines.adopt) throw new MachineCliError('machine adoption is unavailable')
-    await client.machines.adopt.mutate({ id: machine.id, ...(args[2] ? { newOwnerUserId: args[2] } : {}) })
+    const adopt = client.machines.adopt
+    if (!adopt) throw new MachineCliError('machine adoption is unavailable')
+    const input = { id: machine.id, ...(args[2] ? { newOwnerUserId: args[2] } : {}) }
+    await submitNow(client, 'machines.adopt', input, {
+      action: 'adopt this machine',
+      legacy: async () => await adopt.mutate(input),
+    })
     return json ? JSON.stringify({ command: 'machines adopt', ok: true, data: { machineId: machine.id } })
       : `Adopted ${machine.name} (${machine.id})${args[2] ? ` for ${args[2]}` : ''}.`
   }

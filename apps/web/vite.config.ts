@@ -290,6 +290,9 @@ export default defineConfig(({ command, mode }) => {
         '@podium/commands/issues-synced': fileURLToPath(
           new URL('../../packages/commands/src/issues/synced.ts', import.meta.url),
         ),
+        '@podium/commands/fleet-synced': fileURLToPath(
+          new URL('../../packages/commands/src/fleet/synced.ts', import.meta.url),
+        ),
         '@podium/commands/records': fileURLToPath(
           new URL('../../packages/commands/src/records/index.ts', import.meta.url),
         ),
