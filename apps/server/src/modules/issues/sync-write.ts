@@ -39,7 +39,12 @@ import type { CommandPrincipal } from '../../command-principal'
 import type { RegistryModules } from '../../relay'
 import { type DetailedSubmit, type SyncWriteEntry, SyncWriteRefused } from '../sync-write/entry'
 import { trpcErrorRefusal } from '../sync-write/family'
-import { NO_TARGET, type SyncWriteRegistry, type SyncWriteTarget } from '../sync-write/registry'
+import {
+  NO_TARGET,
+  refuseTarget,
+  type SyncWriteRegistry,
+  type SyncWriteTarget,
+} from '../sync-write/registry'
 import { mutationIdOf } from '../sync-write/route-adapter'
 import { commandAccess, type IssueCaller, spawnProvenanceOf } from './command-ctx'
 import { type AnyIssueCommandDef, issueRegistry } from './registry'
@@ -63,7 +68,7 @@ export async function issueTarget(
   caller: IssueCaller,
 ): Promise<SyncWriteTarget> {
   const scope = caller.capability.scope
-  if (scope.kind === 'all' || def.target === undefined) return NO_TARGET
+  if (def.target === undefined) return NO_TARGET
   const access = commandAccess(modules.issues)
   const raw = def.target((input ?? {}) as Record<string, unknown>)
   // Display refs (#seq) resolve to the internal id before the scope check, scoped
@@ -73,10 +78,21 @@ export async function issueTarget(
       ? ((await access.getMeta(scope.rootId))?.repoPath ?? undefined)
       : undefined
   const targetId = typeof raw === 'string' ? await access.resolveRef(raw, scopeRepoPath) : raw
-  if (!targetId || !(await access.has(targetId))) return NO_TARGET
+  // A named issue that does not exist is refused HERE, before the handler, so
+  // no handler words ("unknown issue <id>") reach the caller: an existence
+  // oracle otherwise (ADR 3 Amendment 1 D20.2). An `owned` scope answers it as
+  // it answers an issue it does not hold, `undefined`; the others, which may
+  // see every issue under their human, as a missing target. No id at all is
+  // the handler's own default (a ship from the agent's subtree root).
+  if (!targetId) return raw === undefined || raw === '' ? NO_TARGET : missingTarget(scope.kind)
+  if (!(await access.has(targetId))) return missingTarget(scope.kind)
+  if (scope.kind === 'all') return NO_TARGET
   if (scope.kind === 'owned') return (await access.ownedTarget?.(targetId, def.action)) ?? undefined
   return { id: targetId, ancestorIds: await access.ancestorIds(targetId) }
 }
+
+const missingTarget = (scope: IssueCaller['capability']['scope']['kind']): SyncWriteTarget =>
+  scope === 'owned' ? undefined : refuseTarget({ kind: 'target-not-found' })
 
 /**
  * A definitive error from an issue handler, as a refusal; undefined to propagate.
