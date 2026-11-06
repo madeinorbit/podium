@@ -32,6 +32,7 @@ import { harnessSupportsNoTools } from '../../harness-manifest'
 import type { ObservationLeaseRecord } from '../../store/types'
 import { authorReattachBinding, authorSpawnBinding } from '../sessions/binding-mint'
 import { Session, type SessionDurableState } from '../sessions/session'
+import { afterCommitOrNow } from './after-commit'
 
 export interface HeadlessRuntimeRelay {
   send(input: {
@@ -240,11 +241,18 @@ export class HeadlessService {
     // without it the daemon refuses with "server-minted SessionBinding
     // instruction is required" (POD-4806).
     const observationLease = await this.deps.fenceObservation(session)
-    try {
-      this.deps.toMachine(machineId, this.spawnFrameFor(session, authored.binding, observationLease))
-    } catch {
-      // Establishment is best-effort; the turn path reports the failure.
-    }
+    // The frame AFTER THE COMMIT (POD-6419): the fence and the row are the
+    // write; a rolled-back create sends the daemon nothing.
+    await afterCommitOrNow(() => {
+      try {
+        this.deps.toMachine(
+          machineId,
+          this.spawnFrameFor(session, authored.binding, observationLease),
+        )
+      } catch {
+        // Establishment is best-effort; the turn path reports the failure.
+      }
+    }, 'headless-establish')
     return { sessionId }
   }
 

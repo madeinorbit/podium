@@ -221,6 +221,7 @@ import {
 import { SpecsService } from './modules/specs/service'
 import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
 import type { HeadlessService } from './modules/superagent/headless'
+import type { SuperagentService } from './modules/superagent/service'
 import { SyncWriteEntry } from './modules/sync-write/entry'
 import { registerFamilyCommands } from './modules/sync-write/family-commands'
 import { registerOutboxCommands } from './modules/sync-write/outbox-commands'
@@ -439,6 +440,13 @@ export interface RegistryModules {
   /** Software update as an effect record, and the ports it runs with (POD-6358). */
   updateEffects?: UpdateEffects
   headless: HeadlessService
+  /**
+   * The superagent, LATE-BOUND (POD-6419): it is built after this registry
+   * (`server.ts`) over these modules, and {@link SuperagentService.create} sets
+   * it. Its writes on the sync write entry point read it per call; absent until
+   * then.
+   */
+  superagent?: SuperagentService
   notify: NotifyService
   issues: IssueService
   /** Named agent setups (POD-6107): the library and the launch resolver. */
@@ -602,7 +610,7 @@ export class SessionRegistry {
   private localDaemonPortableState: LocalPortableStateControl | undefined
   /** The superagent service, once assembly has built it — see
    *  {@link adoptSuperagent}. */
-  private adoptedSuperagent: { dispose(): void } | undefined
+  private adoptedSuperagent: SuperagentService | undefined
   /** Disposer for the runtime's config-write seam bridged onto the bus (POD-3840). */
   private readonly configChangedBridge: () => void
 
@@ -4392,7 +4400,7 @@ export class SessionRegistry {
    * `dispose()` here. One of them getting a new line and the others not is
    * exactly the shape this bug already had.
    */
-  adoptSuperagent(service: { dispose(): void }): void {
+  adoptSuperagent(service: SuperagentService): void {
     this.adoptedSuperagent = service
   }
 

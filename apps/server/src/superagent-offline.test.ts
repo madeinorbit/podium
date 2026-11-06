@@ -83,7 +83,9 @@ async function offlineHarness() {
     }
   }
   await registry.gateway.attachDaemon(host, peer)
-  registry.gateway.routeDaemonFrame(host, {
+  // Awaited: the report seeds the superagent's default harness (POD-1313), and
+  // a real daemon's report lands long before anyone's first turn.
+  await registry.gateway.routeDaemonFrame(host, {
     type: 'inventoryReport',
     machineId: host,
     inventory: {

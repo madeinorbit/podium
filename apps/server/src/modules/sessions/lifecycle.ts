@@ -610,6 +610,11 @@ export class SessionLifecycle {
   ): Promise<{ sessionId: SessionId }> {
     return await this.sessionRevival.resumeSession(input, issues)
   }
+  /** The canonical PTY row for a conversation, or undefined: the row a
+   *  {@link resumeSession} of `resume` lands on. A read (POD-6419). */
+  async findLiveByResume(resume: ResumeRef): Promise<{ sessionId: SessionId } | undefined> {
+    return await this.sessionRevival.findLiveByResume(resume)
+  }
   continueSession(...args: any[]): any {
     return (this.sessionMetaOps as any).continueSession(...args)
   }

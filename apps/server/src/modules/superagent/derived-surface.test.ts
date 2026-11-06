@@ -18,7 +18,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { appRouter } from '../../router'
-import { SUPERAGENT_COMMANDS, isSuperagentProcExposedOn } from './registry'
+import { isSuperagentProcExposedOn, SUPERAGENT_COMMANDS } from './registry'
 
 /** The assembled procedure map, keyed by dotted path — what tRPC dispatches on. */
 const procedures = (): Record<string, { _def?: { type?: string } }> =>
@@ -102,7 +102,7 @@ describe('the assembled superagent router', () => {
     Object.defineProperty(entry.contract, 'exposure', { value: [], configurable: true })
     try {
       const { superagentFamilyProcedures } = await import('./trpc')
-      expect(() => superagentFamilyProcedures()).toThrow(/does not declare the trpc transport/)
+      expect(() => superagentFamilyProcedures()).toThrow(/is not served on tRPC/)
     } finally {
       Object.defineProperty(entry.contract, 'exposure', {
         value: original,

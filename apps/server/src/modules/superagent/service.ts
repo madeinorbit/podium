@@ -52,6 +52,7 @@ import type {
   SuperagentThreadRow,
 } from '../../store'
 import { selectHarnessAccountId } from '../sessions/harness-account'
+import { afterCommitOrNow } from './after-commit'
 import { buildBtwDelta, buildBtwSeed, buildHandoffSeed, transcriptDelta } from './btw'
 import {
   buildConciergeDelta,
@@ -72,6 +73,7 @@ import {
 } from './global'
 import { classifyHarnessError, type HarnessErrorKind } from './harness-error'
 import type { HeadlessTurnResult } from './headless'
+import { SuperagentRefusal } from './refusal'
 import {
   type Args,
   buildSuperagentTools,
@@ -320,6 +322,9 @@ export class SuperagentService {
     opts?: { waitPollMs?: number; eventReadLimit?: number; reapIntervalMs?: number },
   ): Promise<SuperagentService> {
     const service = new SuperagentService(modules, repos, store, opts)
+    // Its writes on the sync write entry point reach it through the modules it
+    // was built over (`sync-write.ts`, POD-6419).
+    modules.superagent = service
     // ADOPT BEFORE SUBSCRIBING, which is the order the constructor had: a
     // `machine.connected` handled before the in-flight set is loaded would
     // resume a turn this process does not yet know is running. Nothing can
@@ -383,12 +388,36 @@ export class SuperagentService {
   ): Promise<SuperagentThreadRow> {
     const threadId = await this.resolveThreadId(ownerUserId, requested)
     const thread = await this.store.superagent.getSuperagentThread(threadId, ownerUserId)
-    if (!thread) throw new Error(`unknown thread: ${requested}`)
+    if (!thread) throw new SuperagentRefusal('target-not-found', `unknown thread: ${requested}`)
     return thread
   }
 
   async threadOwner(threadId: ThreadId): Promise<UserId | undefined> {
     return (await this.store.superagent.getSuperagentThread(threadId))?.ownerUserId
+  }
+
+  /**
+   * WHOSE THREAD a command addressed to `requested` writes, as `caller` names it
+   * (the sync write target check, POD-6419): the thread's recorded owner when
+   * it exists; the caller when the name resolves to a thread the caller's own
+   * command creates (their global thread); `undefined` when it names no thread
+   * at all, which refuses exactly like someone else's (no existence oracle).
+   * A read: the handler decides again inside the write.
+   */
+  async ownerOfThread(caller: UserId, requested: ThreadId): Promise<UserId | undefined> {
+    const threadId = await this.resolveThreadId(caller, requested)
+    const owner = (await this.store.superagent.getSuperagentThread(threadId))?.ownerUserId
+    if (owner !== undefined) return owner
+    return requested === 'global' ? caller : undefined
+  }
+
+  /** Whose btw thread `startBtw` on `sessionId` writes: its owner when it
+   *  exists, else the caller, who creates it (POD-6419). */
+  async ownerOfBtwThread(caller: UserId, sessionId: SessionId): Promise<UserId> {
+    return (
+      (await this.store.superagent.getSuperagentThread(asThreadId(`btw_${sessionId}`)))
+        ?.ownerUserId ?? caller
+    )
   }
 
   /** Point harness agents at the in-process MCP server (Podium's orchestrator
@@ -553,13 +582,17 @@ export class SuperagentService {
       terminalSessionId: null,
     })
     await this.store.superagent.setThreadWatermark(threadId, '', undefined)
-    if (thread.podiumSessionId) {
-      // Best-effort: a stale/absent row must not block the reset the user asked for.
-      try {
-        await this.modules.sessions.killSession({ sessionId: thread.podiumSessionId })
-      } catch {
-        // already gone
-      }
+    const podiumSessionId = thread.podiumSessionId
+    if (podiumSessionId) {
+      // The kill is a daemon call: after the reset commits (POD-6419).
+      await afterCommitOrNow(async () => {
+        // Best-effort: a stale/absent row must not block the reset the user asked for.
+        try {
+          await this.modules.sessions.killSession({ sessionId: podiumSessionId })
+        } catch {
+          // already gone
+        }
+      }, 'superagent-clear-kill')
     }
   }
 
@@ -617,25 +650,14 @@ export class SuperagentService {
     /** Prompt-box connector pick. When set, this turn runs that harness. */
     agentKind?: HarnessAgentKind
   }): Promise<{ threadId: ThreadId; podiumSessionId: SessionId; queued: boolean }> {
-    const thread = await this.ownedThread(ownerUserId, requested)
+    let thread = await this.ownedThread(ownerUserId, requested)
     const threadId = asThreadId(thread.id)
     const lockError = await this.terminalLockError(thread)
-    if (lockError) throw new Error(lockError)
+    if (lockError) throw new SuperagentRefusal('conflict', lockError)
     await this.applyBackendChoice(threadId, {
       ...(model ? { model } : {}),
       ...(effort ? { effort } : {}),
     })
-    const queued = await this.store.superagent.putQueuedInput({
-      inputId: randomUUID(),
-      ownerUserId,
-      threadId,
-      text,
-      ...(focus ? { focus } : {}),
-      ...(agentKind ? { agentKind } : {}),
-      ...(attachSessionId ? { attachSessionId } : {}),
-    })
-    if (agentKind) this.queuedHarness.set(queued.inputId, agentKind)
-
     // A TURN IS ALREADY RUNNING — QUEUE, DON'T REFUSE (POD-782).
     //
     // This used to throw "a turn is already running on this thread". The main
@@ -643,22 +665,79 @@ export class SuperagentService {
     // superagent was the one surface in the product where typing a second
     // thought lost it and returned an error — and the orchestrator's turns are
     // the LONGEST in the product, which is exactly when a person types again.
-    // The durable queue row is already written above; the pump drains it in
-    // arrival order the moment the running turn ends (see `finishPendingTurn`).
-    if (this.turnInFlight.has(threadId)) {
-      return { threadId, podiumSessionId: await this.ensureHeadlessSession(thread), queued: true }
+    // The durable queue row is written below; the pump drains it in arrival
+    // order the moment the running turn ends (see `finishPendingTurn`).
+    const inFlight = this.turnInFlight.has(threadId)
+    // THE SESSION THE ACK NAMES, decided here, in the write (POD-6419): the
+    // client renders the thread's transcript against it before the turn runs.
+    // A running turn owns the agent and the session it has.
+    // An idle thread's turn runs next, so its harness is decided now and rides
+    // the queued row: the turn that runs it after the commit decides nothing
+    // again (Settings may move in between).
+    let podiumSessionId: SessionId
+    let turnAgent = agentKind
+    if (inFlight) {
+      podiumSessionId = await this.ensureHeadlessSession(thread)
+    } else {
+      // The thread as the backend choice above left it (a model override keeps
+      // its frozen harness).
+      thread = (await this.store.superagent.getSuperagentThread(threadId, ownerUserId)) ?? thread
+      turnAgent = await this.intendedAgent(thread, agentKind, ownerUserId)
+      thread = await this.freezeIntendedAgent(thread, turnAgent, ownerUserId)
+      // A switch to another harness is the turn's own work (it hands the
+      // outgoing session's context on, a daemon read): until it runs, the
+      // thread's session is the outgoing one.
+      podiumSessionId =
+        thread.agentKind === turnAgent || !thread.podiumSessionId
+          ? await this.ensureHeadlessSession(thread)
+          : asSessionId(thread.podiumSessionId)
     }
+    const queued = await this.store.superagent.putQueuedInput({
+      inputId: randomUUID(),
+      ownerUserId,
+      threadId,
+      text,
+      ...(focus ? { focus } : {}),
+      ...(turnAgent ? { agentKind: turnAgent } : {}),
+      ...(attachSessionId ? { attachSessionId } : {}),
+    })
+    let ack = { threadId, podiumSessionId, queued: inFlight }
+    // THE TURN RUNS AFTER THE COMMIT (POD-6419): preparing it reads transcripts
+    // from the daemon and dispatching it is a daemon frame, neither of which
+    // may happen inside the write. With no unit of work open (an in-process
+    // caller) it runs now, and its failure is thrown to that caller as before.
+    await afterCommitOrNow(async () => {
+      if (agentKind) this.queuedHarness.set(queued.inputId, agentKind)
+      // Queued, or a turn started between the write and its commit: the pump
+      // runs it when the thread is free (and finds it now if it already is).
+      if (inFlight || this.turnInFlight.has(threadId)) {
+        await this.pump(threadId)
+        return
+      }
+      ack = { ...(await this.runFirstQueuedTurn(queued, ownerUserId)), queued: false }
+    }, 'superagent-turn')
+    return ack
+  }
 
+  /**
+   * Run the turn a send just queued on an idle thread, and report its own
+   * failure to the sender.
+   *
+   * The FIRST send of a burst reports its own failure — the client can hand the
+   * text back for a retry. It ALSO leaves the durable user + failure rows
+   * (POD-4806): without them a reload shows an empty thread, as if the message
+   * was never sent. A queued failure cannot throw to anyone, which is why the
+   * pump writes the same rows instead.
+   */
+  private async runFirstQueuedTurn(
+    queued: QueuedSuperagentInputRow,
+    ownerUserId: UserId,
+  ): Promise<{ threadId: ThreadId; podiumSessionId: SessionId }> {
+    const { threadId } = queued
     this.turnInFlight.add(threadId)
     try {
-      const ack = await this.prepareQueuedInput(queued, true)
-      return { ...ack, queued: false }
+      return await this.prepareQueuedInput(queued, true)
     } catch (err) {
-      // The FIRST send of a burst reports its own failure synchronously — the
-      // client can hand the text back for a retry. It ALSO leaves the durable
-      // user + failure rows (POD-4806): without them a reload shows an empty
-      // thread, as if the message was never sent. A queued failure cannot
-      // throw to anyone, which is why the pump writes the same rows instead.
       const threadNow = await this.store.superagent.getSuperagentThread(threadId, ownerUserId)
       // Never dispatched (preparation threw before promote), so the
       // transcript cannot hold the prompt — keep the user row.
@@ -666,7 +745,7 @@ export class SuperagentService {
         threadId,
         ownerUserId,
         queued.inputId,
-        text,
+        queued.text,
         err,
         threadNow?.podiumSessionId,
       )
@@ -680,6 +759,54 @@ export class SuperagentService {
       if (err instanceof TRPCError) throw err
       throw new Error(message)
     }
+  }
+
+  /**
+   * THE HARNESS THIS THREAD'S NEXT TURN RUNS (#199). Settings is the DEFAULT. An
+   * explicit prompt-box connector wins; a thread that already has a model
+   * override stays on its frozen harness (that model is for that CLI). Auto (no
+   * model override, no request) follows Settings, including a later Settings
+   * change. One rule for the send that accepts a turn and the turn that runs it.
+   */
+  private async intendedAgent(
+    thread: SuperagentThreadRow,
+    requested: HarnessAgentKind | undefined,
+    ownerUserId: UserId,
+  ): Promise<HarnessAgentKind> {
+    if (requested) return requested
+    const frozen = HarnessAgent.safeParse(thread.agentKind)
+    if (thread.model && frozen.success) return frozen.data
+    return superagentHarnessAgent(await this.store.settings.getSettingsFor(ownerUserId))
+  }
+
+  /**
+   * Freeze the next turn's harness onto an idle thread, in the send's write
+   * (POD-6419), so the headless session the ack names is minted for it: on first
+   * contact, and on a switch that has no outgoing session to hand context from
+   * (the turn would start that harness cold anyway, without the old harness's
+   * resume id). A switch away from a live session is left to the turn, which
+   * hands the outgoing context on (`prepareQueuedInputInner`).
+   */
+  private async freezeIntendedAgent(
+    thread: SuperagentThreadRow,
+    intended: HarnessAgentKind,
+    ownerUserId: UserId,
+  ): Promise<SuperagentThreadRow> {
+    const current =
+      (await this.store.superagent.getSuperagentThread(thread.id, ownerUserId)) ?? thread
+    const frozen = HarnessAgent.safeParse(current.agentKind)
+    if (frozen.success && frozen.data === intended) return current
+    if (!frozen.success) {
+      await this.store.superagent.updateSuperagentThreadBinding(current.id, { agentKind: intended })
+      return { ...current, agentKind: intended }
+    }
+    if (current.podiumSessionId) return current
+    await this.store.superagent.updateSuperagentThreadBinding(current.id, {
+      agentKind: intended,
+      harnessSessionId: null,
+    })
+    const { harnessSessionId: _dropped, ...cold } = current
+    return { ...cold, agentKind: intended }
   }
 
   /** Persist a prompt-box model/effort choice onto the thread. 'auto' clears the
@@ -876,12 +1003,7 @@ export class SuperagentService {
     const requested =
       this.queuedHarness.get(queued.inputId) ?? HarnessAgent.safeParse(queued.agentKind).data
     this.queuedHarness.delete(queued.inputId)
-    // Settings is the DEFAULT. An explicit prompt-box connector wins; a thread
-    // that already has a model override stays on its frozen harness (that
-    // model is for that CLI). Auto (no model override, no request) follows
-    // Settings, including a later Settings change (#199).
-    const intended =
-      requested ?? (thread.model && frozen.success ? frozen.data : superagentHarnessAgent(settings))
+    const intended = await this.intendedAgent(thread, requested, ownerUserId)
     // Freeze the agent onto the thread on first contact. On later turns, if the
     // user has since changed the superagent harness, SWITCH (#199): the harness
     // owns its native session so we can't retarget it — start a fresh one and
@@ -1272,7 +1394,7 @@ export class SuperagentService {
     const thread = await this.ownedThread(ownerUserId, requested)
     const threadId = asThreadId(thread.id)
     const lockError = await this.terminalLockError(thread)
-    if (lockError) throw new Error(lockError)
+    if (lockError) throw new SuperagentRefusal('conflict', lockError)
     // Same reasoning as `clear`: a wedged turn is the reason to restart, so it
     // is abandoned rather than allowed to refuse the restart.
     await this.abandonInFlight(threadId, thread.podiumSessionId)
@@ -1306,24 +1428,31 @@ export class SuperagentService {
   }): Promise<void> {
     const thread = await this.ownedThread(ownerUserId, requested)
     const threadId = asThreadId(thread.id)
-    if (!thread?.podiumSessionId) throw new Error(`no headless session for thread: ${threadId}`)
+    const podiumSessionId = thread?.podiumSessionId
+    if (!podiumSessionId) {
+      throw new SuperagentRefusal('invalid', `no headless session for thread: ${threadId}`)
+    }
     for (const queued of await this.store.superagent.listQueuedInputs(threadId)) {
       await this.store.superagent.deleteQueuedInput(queued.inputId)
     }
-    await this.modules.headless.headlessInterrupt(thread.podiumSessionId)
-    for (const pending of await this.store.superagent.listPendingTurns()) {
-      if (pending.threadId !== threadId) continue
-      if (this.interruptFallbacks.has(pending.turnId)) continue
-      const timer = setTimeout(async () => {
-        this.interruptFallbacks.delete(pending.turnId)
-        const still = (await this.store.superagent.listPendingTurns()).find(
-          (row) => row.turnId === pending.turnId,
-        )
-        if (still) await this.finishPendingTurn(still, { ok: false, error: 'stopped' })
-      }, INTERRUPT_FORCE_AFTER_MS)
-      timer.unref?.()
-      this.interruptFallbacks.set(pending.turnId, timer)
-    }
+    // The signal and its fallback timer: after the queue is dropped for good
+    // (POD-6419). A rolled-back stop interrupts nothing.
+    await afterCommitOrNow(async () => {
+      await this.modules.headless.headlessInterrupt(podiumSessionId)
+      for (const pending of await this.store.superagent.listPendingTurns()) {
+        if (pending.threadId !== threadId) continue
+        if (this.interruptFallbacks.has(pending.turnId)) continue
+        const timer = setTimeout(async () => {
+          this.interruptFallbacks.delete(pending.turnId)
+          const still = (await this.store.superagent.listPendingTurns()).find(
+            (row) => row.turnId === pending.turnId,
+          )
+          if (still) await this.finishPendingTurn(still, { ok: false, error: 'stopped' })
+        }, INTERRUPT_FORCE_AFTER_MS)
+        timer.unref?.()
+        this.interruptFallbacks.set(pending.turnId, timer)
+      }
+    }, 'superagent-interrupt')
   }
 
   /**
@@ -1340,23 +1469,30 @@ export class SuperagentService {
     for (const queued of await this.store.superagent.listQueuedInputs(threadId)) {
       await this.store.superagent.deleteQueuedInput(queued.inputId)
     }
-    if (podiumSessionId) await this.modules.headless.headlessInterrupt(podiumSessionId)
-    for (const pending of await this.store.superagent.listPendingTurns()) {
-      if (pending.threadId !== threadId) continue
-      const fallback = this.interruptFallbacks.get(pending.turnId)
-      if (fallback) {
-        clearTimeout(fallback)
-        this.interruptFallbacks.delete(pending.turnId)
+    const abandoned = (await this.store.superagent.listPendingTurns()).filter(
+      (pending) => pending.threadId === threadId,
+    )
+    for (const pending of abandoned) await this.store.superagent.deletePendingTurn(pending.turnId)
+    // The daemon is told, the timers and flags let go and the clients hear the
+    // turn end once the rows are gone for good (POD-6419): a rolled-back reset
+    // leaves the running turn running.
+    await afterCommitOrNow(async () => {
+      if (podiumSessionId) await this.modules.headless.headlessInterrupt(podiumSessionId)
+      for (const pending of abandoned) {
+        const fallback = this.interruptFallbacks.get(pending.turnId)
+        if (fallback) {
+          clearTimeout(fallback)
+          this.interruptFallbacks.delete(pending.turnId)
+        }
+        this.dispatchedTurnIds.delete(pending.turnId)
+        this.dispatchAttempts.delete(pending.turnId)
+        this.modules.headless.broadcastHeadlessActivity(pending.podiumSessionId, {
+          kind: 'turn-end',
+          error: 'stopped',
+        })
       }
-      await this.store.superagent.deletePendingTurn(pending.turnId)
-      this.dispatchedTurnIds.delete(pending.turnId)
-      this.dispatchAttempts.delete(pending.turnId)
-      this.modules.headless.broadcastHeadlessActivity(pending.podiumSessionId, {
-        kind: 'turn-end',
-        error: 'stopped',
-      })
-    }
-    this.turnInFlight.delete(threadId)
+      this.turnInFlight.delete(threadId)
+    }, 'superagent-abandon')
   }
 
   /**
@@ -1375,27 +1511,52 @@ export class SuperagentService {
     const thread = await this.ownedThread(ownerUserId, requested)
     const threadId = asThreadId(thread.id)
     if (this.turnInFlight.has(threadId)) {
-      throw new Error('a turn is running on this thread — wait for it to finish')
+      throw new SuperagentRefusal(
+        'conflict',
+        'a turn is running on this thread — wait for it to finish',
+      )
     }
     const agent = HarnessAgent.safeParse(thread.agentKind)
-    if (!agent.success || !thread.harnessSessionId) {
-      throw new Error('this thread has no harness session yet — send a message first')
+    const harnessSessionId = thread.harnessSessionId
+    if (!agent.success || !harnessSessionId) {
+      throw new SuperagentRefusal(
+        'invalid',
+        'this thread has no harness session yet — send a message first',
+      )
     }
-    // Re-opening while an earlier terminal attachment is still live just
-    // focuses it (resumeSession reuses the row for the same resume ref).
-    const { sessionId } = await this.modules.issueSessionLifecycle.resumeSession({
-      ownerUserId,
-      agentKind: agent.data,
-      cwd: await this.threadCwd(thread),
-      resume: { kind: harnessResumeKind(agent.data), value: thread.harnessSessionId },
-      conversationId: thread.harnessSessionId,
-      ...(thread.title ? { title: thread.title } : {}),
-      spawnedBy: spawnedByTag({ kind: 'superagent', threadId }),
-    })
+    const resume = { kind: harnessResumeKind(agent.data), value: harnessSessionId }
+    // THE TERMINAL'S ID IS DECIDED IN THE WRITE, the spawn happens after it
+    // (POD-6419). Re-opening while an earlier terminal attachment is still
+    // live just focuses it: the row that holds the conversation keeps its id
+    // (resumeSession reuses it), and a fresh spawn takes the id minted here.
+    const sessionId =
+      (await this.modules.sessions.findLiveByResume(resume))?.sessionId ?? asSessionId(randomUUID())
     await this.store.superagent.updateSuperagentThreadBinding(threadId, {
       terminalSessionId: sessionId,
     })
-    return { sessionId }
+    const cwd = await this.threadCwd(thread)
+    let opened = { sessionId }
+    await afterCommitOrNow(async () => {
+      const resumed = await this.modules.issueSessionLifecycle.resumeSession({
+        ownerUserId,
+        agentKind: agent.data,
+        cwd,
+        resume,
+        conversationId: harnessSessionId,
+        ...(thread.title ? { title: thread.title } : {}),
+        spawnedBy: spawnedByTag({ kind: 'superagent', threadId }),
+        sessionId,
+      })
+      // Another row took the conversation between the write and the spawn:
+      // the lock follows the session that holds it.
+      if (resumed.sessionId !== sessionId) {
+        await this.store.superagent.updateSuperagentThreadBinding(threadId, {
+          terminalSessionId: resumed.sessionId,
+        })
+        opened = resumed
+      }
+    }, 'superagent-open-in-terminal')
+    return opened
   }
 
   /** Ensure the repo's concierge thread, then run the turn (see sendTurn). */
@@ -1411,7 +1572,10 @@ export class SuperagentService {
     focus?: SuperagentUserFocus
   }): Promise<{ threadId: ThreadId; podiumSessionId: SessionId; isNew: boolean }> {
     if (!(await this.repos.list()).some(path => machinePathsEqual(path, repoPath))) {
-      throw new Error(`unknown repo: ${repoPath} — register it in Podium first`)
+      throw new SuperagentRefusal(
+        'invalid',
+        `unknown repo: ${repoPath} — register it in Podium first`,
+      )
     }
     const baseThreadId = conciergeThreadId(repoPath)
     const threadId = await this.personalThreadId(ownerUserId, baseThreadId)

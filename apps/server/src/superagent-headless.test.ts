@@ -210,7 +210,9 @@ async function harness() {
       )
     }
   })
-  registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+  // Awaited: the report seeds the superagent's default harness (POD-1313), and
+  // a real daemon's report lands long before anyone's first turn.
+  await registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
     type: 'inventoryReport',
     machineId: registry.sessionStore.hostMachineId,
     inventory: {

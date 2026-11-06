@@ -14,6 +14,7 @@ import { FLEET_SYNC_COMMANDS, type FleetSyncDeps, registerFleetCommands } from '
 import { READ_POSITION_SYNC_FAMILY } from '../read-position/sync-write'
 import { registerSessionFamilyCommands } from '../sessions/sync-write'
 import { registerSettingsWrite } from '../settings/sync-write'
+import { SUPERAGENT_SYNC_FAMILY } from '../superagent/sync-write'
 import { WORKFLOW_SYNC_FAMILY } from '../workflows/sync-write'
 import { registerSyncFamily, type SyncFamilyDeps } from './family'
 import type { SyncWriteRegistry } from './registry'
@@ -46,6 +47,15 @@ export const FAMILY_COMMAND_NAMES = [
   'workflows.adopt',
   // The machine and repository writes (POD-6417).
   ...FLEET_SYNC_COMMANDS,
+  // The superagent's thread writes (POD-6419).
+  'superagent.sendTurn',
+  'superagent.interruptTurn',
+  'superagent.openInTerminal',
+  'superagent.clear',
+  'superagent.restart',
+  'superagent.ensureSession',
+  'superagent.startBtw',
+  'superagent.concierge',
 ] as const
 
 /** What the families need beyond the shared deps. */
@@ -59,6 +69,7 @@ export function registerFamilyCommands(registry: SyncWriteRegistry, deps: Family
   registerSyncFamily(registry, WORKFLOW_SYNC_FAMILY, deps)
   registerSyncFamily(registry, CONVERSATION_SYNC_FAMILY, deps)
   registerSyncFamily(registry, READ_POSITION_SYNC_FAMILY, deps)
+  registerSyncFamily(registry, SUPERAGENT_SYNC_FAMILY, deps)
   // The settings family keeps its own registration: its gate and its trail.
   registerSettingsWrite(
     registry,

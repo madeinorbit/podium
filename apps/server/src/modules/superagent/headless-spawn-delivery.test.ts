@@ -27,8 +27,7 @@ import {
 } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { createHash } from 'node:crypto'
-import { TRPCError } from '@trpc/server'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BindingStore } from '../../../../daemon/src/binding-store'
 import { sessionHandlers } from '../../../../daemon/src/control/session'
 import { runtimeHandlers, sessionIsBehindContract } from '../../../../daemon/src/runtime/handlers'
@@ -121,7 +120,9 @@ async function onlineHarness() {
     }
   }
   await registry.gateway.attachDaemon(host, peer)
-  registry.gateway.routeDaemonFrame(host, {
+  // Awaited: the report seeds the superagent's default harness (POD-1313), and
+  // a real daemon's report lands long before anyone's first turn.
+  await registry.gateway.routeDaemonFrame(host, {
     type: 'inventoryReport',
     machineId: host,
     inventory: {
@@ -254,7 +255,7 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
     ).toBe('harness-1')
   })
 
-  it('the offline refusal is a typed client error with no server stack', async () => {
+  it('over the route the send is accepted, and the offline refusal is the turn’s durable failure', async () => {
     const h = await onlineHarness()
     const call = appRouter.createCaller({
       registry: h.registry,
@@ -265,9 +266,7 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
     })
     // Bind the thread's headless session to the host WITHOUT running a turn:
     // `ensureSession` mints the binding only, so no turn is ever in flight and
-    // the offline send below cannot queue behind one (a queued send resolves
-    // instead of refusing, which is what made a complete-the-first-turn setup
-    // race the finish).
+    // the offline send below cannot queue behind one.
     const ensured = await h.sa.ensureSession({
       ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
@@ -277,22 +276,24 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
     h.registry.gateway.detachDaemon(h.host, h.peer)
     expect(h.registry.modules.machines.hasDaemon(h.host)).toBe(false)
 
-    const outcome = await call.superagent
-      .sendTurn({ threadId: 'global', text: 'second', agentKind: 'codex' })
-      .then(
-        (r) => ({ returned: r }) as const,
-        (e: unknown) => ({ thrown: e as TRPCError }) as const,
-      )
-    const err = 'thrown' in outcome ? outcome.thrown : null
-    expect(err).not.toBeNull()
-    // Same message as before, but typed: PRECONDITION_FAILED (HTTP 412), the
-    // same code the machine picker uses for an offline machine — never the
-    // 500 INTERNAL_SERVER_ERROR with the server stack the re-check caught.
-    expect(err).toBeInstanceOf(TRPCError)
-    expect(err!.code).toBe('PRECONDITION_FAILED')
-    expect(err!.message).toContain('is offline')
-    expect(err!.message).toContain('bring its daemon online, then retry')
-    expect(err!.stack).toBeUndefined()
+    // The route is an adapter onto `sync.submit` (POD-6419): the write accepts
+    // the turn, and the turn runs after the commit. Its offline refusal is not
+    // an answer to the request any more; it is the turn's own failure, the
+    // durable rows a reload shows (POD-4806) and the turn-end every client
+    // already reads for a queued send.
+    const ack = await call.superagent.sendTurn({ threadId: 'global', text: 'second' })
+    expect(ack).toMatchObject({ threadId: 'global', queued: false })
+    await vi.waitFor(async () => {
+      const failure = await h.sa.latestTurnFailure(firstAdminMemberId(), asThreadId('global'))
+      expect(failure?.error).toContain('is offline')
+    })
+    const failure = await h.sa.latestTurnFailure(firstAdminMemberId(), asThreadId('global'))
+    expect(failure?.userText).toBe('second')
+    // The PRECONDITION_FAILED refusal's own sentence, never a class name or a
+    // server stack.
+    expect(failure?.error).toContain('bring its daemon online, then retry')
+    expect(failure?.error).not.toContain('TRPCError')
+    expect(failure?.error).not.toMatch(/\n\s+at /)
   })
 
   it('a daemon re-attach re-establishes a never-bound headless session before its first turn', async () => {

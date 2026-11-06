@@ -40,10 +40,20 @@ import type { SuperagentService } from './service'
  *  the contract's own schema so a handler cannot disagree with what validates. */
 type In<N extends SuperagentContractName> = ContractInput<(typeof SUPERAGENT_CONTRACTS)[N]>
 
+/**
+ * What a handler runs against: the service, and the human the command acts for
+ * (the thread owner a new thread gets, and the one `ownedThread` reads as). Built
+ * from the principal by the sync family (`sync-write.ts`), never from the input.
+ */
+export interface SuperagentScope {
+  readonly service: SuperagentService
+  readonly owner: UserId
+}
+
 /** One contract joined to the handler that implements it. */
 export interface SuperagentCommand {
   readonly contract: AnyCommandContract
-  readonly handler: (service: SuperagentService, input: never, ownerUserId: UserId) => unknown
+  readonly handler: (scope: SuperagentScope, input: never) => unknown
 }
 
 /**
@@ -64,42 +74,48 @@ export interface SuperagentCommand {
 export const SUPERAGENT_COMMANDS = {
   sendTurn: {
     contract: SUPERAGENT_CONTRACTS.sendTurn,
-    handler: async (s: SuperagentService, input: In<'sendTurn'>, ownerUserId: UserId) =>
+    handler: async ({ service: s, owner: ownerUserId }: SuperagentScope, input: In<'sendTurn'>) =>
       await s.sendTurn({ ...input, ownerUserId }),
   },
   interruptTurn: {
     contract: SUPERAGENT_CONTRACTS.interruptTurn,
-    handler: async (s: SuperagentService, input: In<'interruptTurn'>, ownerUserId: UserId) =>
-      await s.interruptTurn({ ...input, ownerUserId }),
+    handler: async (
+      { service: s, owner: ownerUserId }: SuperagentScope,
+      input: In<'interruptTurn'>,
+    ) => await s.interruptTurn({ ...input, ownerUserId }),
   },
   openInTerminal: {
     contract: SUPERAGENT_CONTRACTS.openInTerminal,
-    handler: async (s: SuperagentService, input: In<'openInTerminal'>, ownerUserId: UserId) =>
-      await s.openInTerminal({ ...input, ownerUserId }),
+    handler: async (
+      { service: s, owner: ownerUserId }: SuperagentScope,
+      input: In<'openInTerminal'>,
+    ) => await s.openInTerminal({ ...input, ownerUserId }),
   },
   clear: {
     contract: SUPERAGENT_CONTRACTS.clear,
-    handler: async (s: SuperagentService, input: In<'clear'>, ownerUserId: UserId) =>
+    handler: async ({ service: s, owner: ownerUserId }: SuperagentScope, input: In<'clear'>) =>
       await s.clear(ownerUserId, input.threadId),
   },
   restart: {
     contract: SUPERAGENT_CONTRACTS.restart,
-    handler: async (s: SuperagentService, input: In<'restart'>, ownerUserId: UserId) =>
+    handler: async ({ service: s, owner: ownerUserId }: SuperagentScope, input: In<'restart'>) =>
       await s.restartThread({ ...input, ownerUserId }),
   },
   ensureSession: {
     contract: SUPERAGENT_CONTRACTS.ensureSession,
-    handler: async (s: SuperagentService, input: In<'ensureSession'>, ownerUserId: UserId) =>
-      await s.ensureSession({ ...input, ownerUserId }),
+    handler: async (
+      { service: s, owner: ownerUserId }: SuperagentScope,
+      input: In<'ensureSession'>,
+    ) => await s.ensureSession({ ...input, ownerUserId }),
   },
   startBtw: {
     contract: SUPERAGENT_CONTRACTS.startBtw,
-    handler: async (s: SuperagentService, input: In<'startBtw'>, ownerUserId: UserId) =>
+    handler: async ({ service: s, owner: ownerUserId }: SuperagentScope, input: In<'startBtw'>) =>
       await s.startBtwTurn({ ...input, ownerUserId }),
   },
   concierge: {
     contract: SUPERAGENT_CONTRACTS.concierge,
-    handler: async (s: SuperagentService, input: In<'concierge'>, ownerUserId: UserId) =>
+    handler: async ({ service: s, owner: ownerUserId }: SuperagentScope, input: In<'concierge'>) =>
       await s.conciergeTurn({ ...input, ownerUserId }),
   },
 } as const satisfies Record<SuperagentContractName, SuperagentCommand>

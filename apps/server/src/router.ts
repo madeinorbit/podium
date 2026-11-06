@@ -221,10 +221,10 @@ function mailQuery<Out = unknown>(name: MailProcName) {
  */
 const sessionFamily = sessionFamilyProcedures()
 
-/** The seven superagent thread mutations, built from their contracts at module
- *  load (POD-383). Built once here for the same reason as `sessionFamily`: the
- *  spread stays readable at the router while the CONTRACT TABLE decides the
- *  membership — including that there are seven and not eight. */
+/** The eight superagent thread writes (POD-383): thin LEGACY adapters onto
+ *  `sync.submit` since POD-6419, for the shipped clients that still call them.
+ *  Built once here for the same reason as `sessionFamily`: the spread stays
+ *  readable at the router while the CONTRACT TABLE decides the membership. */
 const superagentFamily = superagentFamilyProcedures()
 
 /** The three spec writes, built from their contracts at module load (POD-386).
