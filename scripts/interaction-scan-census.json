@@ -9712,7 +9712,7 @@
       "file": "apps/web/src/lib/SessionContextMenu.tsx",
       "holder": "SessionContextMenu",
       "rule": "consume:map",
-      "tokens": "568a663508ca1b10eecc624fed19447465ee0645d0259fee7a32aa0bab1fa082",
+      "tokens": "55820505243bfed578bc00ae4f38a3df087f040aa67185f618b64d8aa17a0067",
       "gate": [
         "&&:ffdd3933061e9ad8d149cf8928dbf7faebe3cd2ecf03c6a314c072b396bdad0f"
       ],
@@ -9720,13 +9720,13 @@
         "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
         "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
       ],
-      "fingerprint": "8e29a7808cdd8771ecfd7490889f858804e2dad5e079ed9bfcb5cdfca3b67c42",
+      "fingerprint": "fe661c76df115efc5a6d60c9519afb7d5695de8aef9f6f1f720ced519c69b278",
       "count": 1,
       "classification": "visible output",
       "owner": "POD-5672",
       "trigger": "An opened Handoff submenu requests its destination choices.",
       "bound": "The source is one addressed session and repository; destination machines and clone identities are projected only while their target list is shown.",
-      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked.",
+      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked. POD-6422: a chosen target now writes a session.handoff effect record; collection origins, gates and multiplicity are unchanged. Predecessor: 8e29a7808cdd8771ecfd7490889f858804e2dad5e079ed9bfcb5cdfca3b67c42.",
       "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
     },
     {
