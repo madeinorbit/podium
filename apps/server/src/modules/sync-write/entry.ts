@@ -54,6 +54,7 @@ import {
   type SyncWriteRegistry,
   type SyncWriteTarget,
   type SyncWriteTransport,
+  type TargetRefused,
 } from './registry'
 
 // The wire shapes in `@podium/protocol` and the kernel's types in `@podium/sync`
@@ -126,7 +127,7 @@ const log = createLogger('server:sync-write')
  */
 function capabilityFor(
   principal: Exclude<CommandPrincipal, { kind: 'system' }>,
-  target: Exclude<SyncWriteTarget, undefined>,
+  target: Exclude<SyncWriteTarget, undefined | TargetRefused>,
 ): Capability {
   if (isNoTarget(target) || target.kind !== 'per-user-row') return principal.capability
   const human = onBehalfOfUser(principal)

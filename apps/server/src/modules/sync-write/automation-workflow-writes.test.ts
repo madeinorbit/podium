@@ -62,7 +62,7 @@ const nightly = (name: string) => ({
   name,
   scheduleKind: 'cron' as const,
   cron: '0 3 * * *',
-  agentKind: 'claude-code',
+  agentKind: 'claude-code' as const,
   prompt: 'sweep',
 })
 
@@ -310,6 +310,7 @@ describe('workflows on the entry point', () => {
       createdAt: new Date().toISOString(),
       actorKind: 'user',
       actorId: firstAdminMemberId(),
+      onBehalfOf: firstAdminMemberId(),
     })
     const principal = userCommandPrincipal(user, 'member')
     const input = { workflowId: workflow.id, instructions: 'shared edit', steps: [] }
