@@ -171,7 +171,7 @@ it('enrollment commits both personal edges and enforces one custodian', async ()
     assignmentEvidence: { version: 1 as const, source: 'pairing', requestId: 'pair-one' } }
   expect(await store.machines.enrollMachine(input)).toBe(true)
   const edges = await store.grants.listForResource('machine', input.id)
-  expect(edges.map(edge => [edge.grantee, edge.verb, edge.custody === true])).toEqual([[owner, 'use', false], [owner, 'manage', true]])
+  expect(edges.map(edge => [edge.grantee, edge.verb, edge.custody === true])).toEqual([[owner, 'manage', true], [owner, 'use', false]])
   expect(await store.machines.enrollMachine({ ...input, ownerUserId: asUserId(COLLEAGUE) })).toBe(false)
   const custodian = edges.find(edge => edge.custody)!
   await expect(store.grants.upsert({ ...custodian, grantee: COLLEAGUE })).rejects.toThrow()

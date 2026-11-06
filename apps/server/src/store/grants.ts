@@ -90,6 +90,9 @@ const noteAudience = prepared((db: StoreDrizzle) =>
   }).onConflictDoNothing().prepare(),
 )
 
+// Edges written together share a created_at (an enrollment writes use and
+// manage at once), so the rest of the primary key breaks the tie: a resource's
+// edges always come back in one order [POD-6596].
 const grantsOfResource = prepared((db: StoreDrizzle) =>
   db
     .select()
@@ -98,7 +101,7 @@ const grantsOfResource = prepared((db: StoreDrizzle) =>
       eq(grants.resourceKind, param(grants.resourceKind, 'resourceKind')),
       eq(grants.resourceId, param(grants.resourceId, 'resourceId')),
     ))
-    .orderBy(asc(grants.createdAt))
+    .orderBy(asc(grants.createdAt), asc(grants.grantee), asc(grants.verb))
     .prepare(),
 )
 
@@ -107,7 +110,7 @@ const grantsOfResources = preparedFamily((db: StoreDrizzle, size: number) =>
     .select()
     .from(grants)
     .where(and(eq(grants.resourceKind, param(grants.resourceKind, 'resourceKind')), inListOf(grants.resourceId, size)))
-    .orderBy(asc(grants.createdAt))
+    .orderBy(asc(grants.createdAt), asc(grants.grantee), asc(grants.verb))
     .prepare(),
 )
 
@@ -120,7 +123,7 @@ const grantsOfResourceKeys = preparedFamily((db: StoreDrizzle, shape: string) =>
     .select()
     .from(grants)
     .where(and(inListOf(grants.resourceKind, kindSize, 'kind'), inListOf(grants.resourceId, idSize, 'id')))
-    .orderBy(asc(grants.createdAt))
+    .orderBy(asc(grants.createdAt), asc(grants.grantee), asc(grants.verb))
     .prepare()
 })
 

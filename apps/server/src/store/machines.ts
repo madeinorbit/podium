@@ -828,9 +828,11 @@ export class MachinesRepository {
         await this.grantRepository.remove('machine', id, previous, 'manage')
       }
       if (grantee) {
+        // One act, one timestamp: both edges sort by created_at and then by key.
+        const createdAt = new Date().toISOString()
         for (const verb of ['use', 'manage'] as const) await this.grantRepository.upsert({
           resourceKind: 'machine', resourceId: id, grantee, verb, custody: verb === 'manage',
-          owner: grantee, visibility: 'owned-compute', createdAt: new Date().toISOString(),
+          owner: grantee, visibility: 'owned-compute', createdAt,
           actorKind: 'user', actorId: grantee, onBehalfOf: grantee,
         })
       }
