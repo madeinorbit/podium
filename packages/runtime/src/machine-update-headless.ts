@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
@@ -8,7 +8,7 @@ import type { MachineUpdateAdapter, PreparedUpdate } from './machine-update'
 import { readAppliedMigrations } from './migration-ledger'
 import { runningPlatform } from './parent-update-swap'
 import { fetchArtifact, PODIUM_UPDATE_PUBKEY } from './update-delivery'
-import { BUNDLE_EXTRACT_TIMEOUT_MS, oldBundlePath } from './update-install'
+import { activatePreparedBundle, BUNDLE_EXTRACT_TIMEOUT_MS, oldBundlePath } from './update-install'
 import { createSchemaGate, releaseCarriesNewMigrations } from './update-schema'
 
 export const INSTALLED_ARTIFACT_FILE = 'ARTIFACT.sha256'
@@ -57,17 +57,7 @@ export function createHeadlessMachineUpdateAdapter(deps: {
       installedPayloadVersion(replacement) !== grant.target.version
     )
       throw new Error('prepared artifact identity changed before activation')
-    const backup = oldBundlePath(deps.installDir)
-    if (existsSync(deps.installDir)) {
-      rmSync(backup, { recursive: true, force: true })
-      renameSync(deps.installDir, backup)
-    }
-    try {
-      renameSync(replacement, deps.installDir)
-    } catch (error) {
-      if (!existsSync(deps.installDir) && existsSync(backup)) renameSync(backup, deps.installDir)
-      throw error
-    }
+    activatePreparedBundle(replacement, deps.installDir)
     await discard()
   }
   return {

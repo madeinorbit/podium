@@ -1656,3 +1656,209 @@ test.each([
     await expect(svc.requireMachineForRepo(MACHINE, sibling)).rejects.toThrow('no repo registered')
   } finally { svc.dispose(); await store.close() }
 })
+
+// The authenticated desktop uses the same replacement transaction as explicit
+// pairing. Local history is a request, never authorization to replace a row.
+describe('administrator client registration recovery', () => {
+  async function fixture() {
+    const store = await openTestStore(':memory:')
+    const { PairingManager } = await import('../../hub/pairing')
+    const pairing = new PairingManager({ installationId: 'client-recovery' })
+    const svc = new MachinesService({
+      instanceId: 'default',
+      installationId: 'client-recovery',
+      store,
+      hostMachineId: store.hostMachineId,
+      pairing,
+      clients: () => [],
+      machinesForPrincipal: async () => [],
+    })
+    const actor = firstAdminMemberId()
+    const key = publicKeyWire(mintSigningKeyPair())
+    const id = asMachineId('retained-client')
+    const request = { machineId: id, publicKey: key }
+    const frame = {
+      type: 'pair' as const,
+      machineId: id,
+      publicKey: key,
+      hostname: 'retained-client',
+      assignment: { server: false, agentExecution: false },
+    }
+    return { store, svc, actor, key, id, request, frame, pairing }
+  }
+
+  test('binds new enrollment to one identity/key before consuming the code', async () => {
+    const f = await fixture()
+    try {
+      const code = await f.svc.mintClientRegistrationCode(f.request, f.actor)
+      for (const conflict of [
+        { machineId: asMachineId('other-client') },
+        { publicKey: publicKeyWire(mintSigningKeyPair()) },
+      ]) {
+        expect(await f.svc.authenticateDaemon({ ...f.frame, ...conflict, code })).toMatchObject({
+          ok: false,
+        })
+        expect(f.pairing.peek(code)).toBeDefined()
+      }
+      expect(
+        await f.svc.authenticateDaemon(
+          { ...f.frame, assignment: { server: true, agentExecution: true }, code },
+          { source: 'supervisor' },
+        ),
+      ).toMatchObject({ ok: true, enrolledPublicKey: f.key })
+      expect(f.pairing.peek(code)).toBeUndefined()
+      expect(await f.store.machines.getMachine(f.id)).toMatchObject({
+        podiumManaged: true,
+        serviceAssignment: f.frame.assignment,
+      })
+      await expect(f.svc.mintClientRegistrationCode(f.request, f.actor)).rejects.toThrow(
+        'already registered',
+      )
+    } finally {
+      f.svc.dispose()
+      await f.store.close()
+    }
+  })
+
+  test('restores revoked retained identity with current admin authority and preserves explicit unmanaged policy/history', async () => {
+    const f = await fixture()
+    try {
+      const original = f.svc.mintPairingCode({ ownerUserId: f.actor, podiumManaged: false })
+      await f.svc.authenticateDaemon({ ...f.frame, code: original })
+      await f.svc.renameMachine(f.id, 'Preserved name')
+      const before = await f.store.machines.getMachine(f.id)
+      await f.svc.revokeMachine(f.id)
+      const code = await f.svc.mintClientRegistrationCode(f.request, f.actor)
+      expect(f.pairing.peek(code)).toMatchObject({
+        replaceMachineId: f.id,
+        replaceIncarnation: f.key,
+        podiumManaged: false,
+        copyAgentCredentials: false,
+      })
+      expect(
+        await f.svc.authenticateDaemon({ ...f.frame, code }, { source: 'supervisor' }),
+      ).toMatchObject({ ok: true, enrolledPublicKey: f.key })
+      expect(await f.store.machines.getMachine(f.id)).toMatchObject({
+        id: f.id,
+        revokedAt: null,
+        podiumManaged: false,
+        createdAt: before!.createdAt,
+        name: 'Preserved name',
+      })
+      expect(
+        (await f.store.settingsAudit.list()).filter((row) => row.command === 'machines.replace'),
+      ).toHaveLength(1)
+    } finally {
+      f.svc.dispose()
+      await f.store.close()
+    }
+  })
+
+  test('keeps the enrollment decision statement count constant as the fleet grows', async () => {
+    const { expectConstantStatements, expectArmed } = await import(
+      '../../test-support/statement-count'
+    )
+    const pin = {
+      name: 'admin client registration decision',
+      setup: async (size: number) => {
+        const f = await fixture()
+        for (let i = 0; i < size; i++)
+          await f.store.machines.upsertMachine({
+            id: `other-${i}`,
+            name: `other-${i}`,
+            hostname: 'other',
+            tokenHash: `token-${i}`,
+            ownerUserId: f.actor,
+          })
+        return f
+      },
+      target: (f: Awaited<ReturnType<typeof fixture>>) => f.store,
+      run: (f: Awaited<ReturnType<typeof fixture>>) =>
+        f.svc.mintClientRegistrationCode(f.request, f.actor),
+      check: (code: unknown, f: Awaited<ReturnType<typeof fixture>>) => {
+        expect(f.pairing.peek(String(code))).toMatchObject({ clientRegistration: f.request })
+      },
+      teardown: async (f: Awaited<ReturnType<typeof fixture>>) => {
+        f.svc.dispose()
+        await f.store.close()
+      },
+    }
+    await expectConstantStatements(pin, 2)
+    await expectArmed(pin, 2, (f, size) => {
+      const read = f.store.machines.getMachine.bind(f.store.machines)
+      const spy = vi.spyOn(f.store.machines, 'getMachine').mockImplementation(async (id) => {
+        for (let i = 0; i < size; i++) await read(asMachineId(`other-${i}`))
+        return read(id)
+      })
+      return () => spy.mockRestore()
+    })
+  })
+
+  test('refuses missing/non-admin authority, unrelated keys, supersession and stale replacement incarnations', async () => {
+    const f = await fixture()
+    try {
+      await expect(
+        f.svc.mintClientRegistrationCode(f.request, asUserId('missing-login')),
+      ).rejects.toThrow('administrator')
+      const member = asUserId('not-an-admin')
+      await f.store.users.create(
+        {
+          id: member,
+          displayName: 'Member',
+          role: 'member',
+          createdAt: new Date().toISOString(),
+          disabledAt: null,
+        },
+        'hash',
+      )
+      await expect(f.svc.mintClientRegistrationCode(f.request, member)).rejects.toThrow(
+        'administrator',
+      )
+      const code = await f.svc.mintClientRegistrationCode(f.request, f.actor)
+      await f.svc.authenticateDaemon({ ...f.frame, code })
+      const before = await f.store.machines.getMachine(f.id)
+      await expect(
+        f.svc.mintClientRegistrationCode(
+          { ...f.request, publicKey: publicKeyWire(mintSigningKeyPair()) },
+          f.actor,
+        ),
+      ).rejects.toThrow('already registered')
+      expect(await f.store.machines.getMachine(f.id)).toEqual(before)
+      await f.svc.revokeMachine(f.id)
+      await expect(
+        f.svc.mintClientRegistrationCode(
+          { ...f.request, publicKey: publicKeyWire(mintSigningKeyPair()) },
+          f.actor,
+        ),
+      ).rejects.toThrow('does not match')
+      const stale = await f.svc.mintClientRegistrationCode(f.request, f.actor)
+      const explicit = await f.svc.mintReplacementPairingCode(f.id, { ownerUserId: f.actor }, true)
+      const replacementKey = publicKeyWire(mintSigningKeyPair())
+      expect(
+        await f.svc.authenticateDaemon({ ...f.frame, publicKey: replacementKey, code: explicit }),
+      ).toMatchObject({ ok: true })
+      await f.svc.revokeMachine(f.id)
+      expect(await f.svc.authenticateDaemon({ ...f.frame, code: stale })).toMatchObject({
+        ok: false,
+        reason: 'replacement credential has changed',
+      })
+      expect(f.pairing.peek(stale)).toBeDefined()
+      // A superseded row remains ineligible even if its retained key agrees.
+      const replacementId = asMachineId('successor-client')
+      await f.store.machines.upsertMachine({
+        id: replacementId,
+        hostname: 'successor',
+        name: 'successor',
+        tokenHash: 'other',
+        ownerUserId: f.actor,
+      })
+      await f.svc.supersedeMachine(f.id, replacementId, f.actor)
+      await expect(
+        f.svc.mintClientRegistrationCode({ ...f.request, publicKey: replacementKey }, f.actor),
+      ).rejects.toThrow('superseded')
+    } finally {
+      f.svc.dispose()
+      await f.store.close()
+    }
+  })
+})

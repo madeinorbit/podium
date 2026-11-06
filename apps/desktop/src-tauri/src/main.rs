@@ -10,6 +10,7 @@ mod bootstrap;
 mod fullscreen_escape;
 mod handoff;
 mod logging;
+mod payload_startup;
 mod updater;
 mod version;
 
@@ -1222,7 +1223,7 @@ fn native_desktop_hook(
     // [spec:SP-3701] The hosting toggle is exposed only in client mode — the one state where
     // this device is not already running a daemon. The command itself re-checks the mode.
     let enable_hosting = if launch_mode == "client" {
-        ",\n            enableHosting: (pairCode) => window.__TAURI_INTERNALS__.invoke('enable_hosting', { pairCode })"
+        ",\n            enableHosting: (pairCode) => window.__TAURI_INTERNALS__.invoke('enable_hosting', { pairCode }),\n            clientRegistrationStatus: () => window.__TAURI_INTERNALS__.invoke('client_registration_status'),\n            registerClient: (pairCode, target) => window.__TAURI_INTERNALS__.invoke('register_client', { pairCode, target })"
     } else {
         ""
     };
@@ -1383,8 +1384,46 @@ fn parse_daemon_connectivity(text: &str) -> Option<DaemonConnectivity> {
 /// shell. The returned fields are already the status CLI's operator-safe set.
 #[tauri::command]
 fn daemon_connectivity() -> Option<DaemonConnectivity> {
-    let text = std::fs::read_to_string(bootstrap::state_dir().join("connectivity.json")).ok()?;
+    let dir = bootstrap::state_dir();
+    let canonical = dir.join("machine.json");
+    if canonical.exists() {
+        let machine: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(canonical).ok()?).ok()?;
+        if machine["version"] != 1 {
+            return None;
+        }
+        return parse_daemon_connectivity(&machine.get("connectivity")?.to_string());
+    }
+    let text = std::fs::read_to_string(dir.join("connectivity.json")).ok()?;
     parse_daemon_connectivity(&text)
+}
+
+/// These commands are granted only to the configured client window. The current
+/// URL is checked again because an earlier remote grant can outlive config changes.
+#[tauri::command]
+fn client_registration_status(
+    window: tauri::WebviewWindow,
+) -> Result<bootstrap::ClientRegistrationStatus, String> {
+    if window.label() != "main" {
+        return Err("registration requires the main window".to_string());
+    }
+    bootstrap::client_registration_status(window.url().map_err(|e| e.to_string())?.as_str())
+}
+
+#[tauri::command]
+fn register_client(
+    window: tauri::WebviewWindow,
+    pair_code: String,
+    target: String,
+) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("registration requires the main window".to_string());
+    }
+    bootstrap::write_client_registration(
+        &pair_code,
+        &target,
+        window.url().map_err(|e| e.to_string())?.as_str(),
+    )
 }
 
 /// Debug acceptance seam: page text crosses the real WebKit→Tauri invoke
@@ -1684,6 +1723,8 @@ fn main() {
         .plugin(tauri_plugin_sql::Builder::default().build())
         .invoke_handler(tauri::generate_handler![
             enable_hosting,
+            client_registration_status,
+            register_client,
             handoff::begin_cloud_sign_in,
             daemon_connectivity,
             runtime_probe_report,
@@ -1777,7 +1818,7 @@ fn main() {
             let shutting_down = Arc::new(AtomicBool::new(false));
             app.manage(shutting_down.clone());
 
-            let update_ownership: updater::UpdateOwnership = Arc::new(AtomicBool::new(false));
+            let update_ownership = updater::UpdateOwnership::default();
             app.manage(update_ownership.clone());
             app.manage(updater::PendingUpdate::default());
             updater::start_supervisor_recovery(app.handle().clone(), shutting_down.clone());
@@ -1827,8 +1868,8 @@ fn main() {
             let initial_action = action.clone();
 
             // Every mode seeds the complete external payload before the parent starts — a
-            // client too, since its supervisor runs from it (POD-3431). Presence of the install
-            // directory is the sole seed decision; after this point the fleet updater owns it.
+            // client too, since its supervisor runs from it (POD-3431). Cold-start bundle
+            // delivery has lower priority than existing installation/update owners.
             let mut payload_start_error: Option<String> = None;
             let payload_install = {
                 let seed = app
@@ -1840,15 +1881,23 @@ fn main() {
                     seed: seed.clone(),
                     install: install.clone(),
                 });
-                match bootstrap::seed_payload_if_absent(&seed, &install) {
-                    Ok(true) => log::info!("seeded desktop payload at {install:?}"),
-                    Ok(false) => log::info!("using fleet-managed desktop payload at {install:?}"),
+                // Bundle authority comes from the immutable build stamp inside prepare;
+                // the selected profile remains an independent constraint, not that source.
+                let install = match payload_startup::prepare(&seed, &install, &app_data) {
+                    Ok(usage) => {
+                        let canonical = usage.install.clone();
+                        // Keep shared installation usage across initial spawn, every child
+                        // crash, and parent self-handover. Only a new cold shell may retry.
+                        app.manage(Mutex::new(usage));
+                        canonical
+                    }
                     Err(error) => {
-                        let reason = format!("payload seed failed: {error}");
+                        let reason = format!("payload startup failed: {error}");
                         log::error!("{reason}");
                         payload_start_error = Some(reason);
+                        install
                     }
-                }
+                };
                 Some(install)
             };
 
@@ -2058,6 +2107,8 @@ fn main() {
                 tauri::ipc::CapabilityBuilder::new("enable-hosting")
                     .window("main")
                     .permission("allow-enable-hosting")
+                    .permission("allow-client-registration-status")
+                    .permission("allow-register-client")
             });
             // Replica SQLite persistence (POD-789): the web client's TanStack DB
             // persistence adapter drives the SQL plugin. Client/daemon modes load
@@ -2598,7 +2649,7 @@ fn main() {
                             .as_millis()
                             .min(u64::MAX as u128) as u64;
                         let native = crate::updater::should_show_native_dialog(
-                            update_ownership_for_window.load(Ordering::Acquire),
+                            update_ownership_for_window.is_claimed(),
                             elapsed_ms,
                             crate::updater::OWNERSHIP_GRACE_MS,
                         );
@@ -2988,6 +3039,11 @@ mod tests {
             .expect("spawn a long-lived stand-in for the backend");
         let child_state = Arc::new(Mutex::new(Some(child)));
         let shutting_down = Arc::new(AtomicBool::new(false));
+        let app = tauri::test::mock_app();
+        assert!(app.manage(shutting_down.clone()));
+        assert!(app.manage(updater::UpdateOwnership::default()));
+        claim_update_ownership(app.state()).expect("the mounted page claims update ownership");
+        assert!(!shutting_down.load(Ordering::Acquire));
 
         let supervised = child_state.clone();
         let flag = shutting_down.clone();
@@ -2997,9 +3053,15 @@ mod tests {
 
         // Give supervision time to settle into its wait before contending for the lock.
         std::thread::sleep(Duration::from_millis(50));
+        assert!(
+            !supervision.is_finished(),
+            "a mounted page must leave supervision waiting for the live backend"
+        );
 
         // What RunEvent::Exit does, in its order.
-        shutting_down.store(true, Ordering::Release);
+        app.state::<Arc<AtomicBool>>()
+            .store(true, Ordering::Release);
+        assert!(shutting_down.load(Ordering::Acquire));
         let deadline = Instant::now() + Duration::from_secs(2);
         let mut guard = loop {
             match child_state.try_lock() {
@@ -3013,6 +3075,7 @@ mod tests {
         };
         let mut child = guard.take().expect("the quit path finds the child to reap");
         reap_backend(&mut child);
+        assert!(child.try_wait().expect("poll the reaped backend").is_some());
         drop(guard);
 
         assert!(
@@ -3032,6 +3095,11 @@ mod tests {
             .expect("spawn an immediate exit");
         let child_state = Arc::new(Mutex::new(Some(child)));
         let shutting_down = Arc::new(AtomicBool::new(false));
+        let app = tauri::test::mock_app();
+        assert!(app.manage(shutting_down.clone()));
+        assert!(app.manage(updater::UpdateOwnership::default()));
+        claim_update_ownership(app.state()).expect("the mounted page claims update ownership");
+        assert!(!shutting_down.load(Ordering::Acquire));
 
         let exited = await_child_exit(
             &child_state,
@@ -3044,6 +3112,96 @@ mod tests {
         assert!(
             exited.expect("exit status is readable").success(),
             "`true` exits 0"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_managed_page_claim_allows_respawn_until_managed_shutdown() {
+        use std::sync::mpsc;
+        use std::time::{Duration, Instant};
+
+        // A failing assertion must still stop this test's monitor and owned process.
+        struct Cleanup {
+            child: Arc<Mutex<Option<std::process::Child>>>,
+            shutting_down: Arc<AtomicBool>,
+        }
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                self.shutting_down.store(true, Ordering::Release);
+                if let Some(mut child) = self.child.lock().unwrap().take() {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+            }
+        }
+
+        let child = Command::new("sleep").arg("30").spawn().unwrap();
+        let child_state = Arc::new(Mutex::new(Some(child)));
+        let shutting_down = Arc::new(AtomicBool::new(false));
+        let _cleanup = Cleanup {
+            child: child_state.clone(),
+            shutting_down: shutting_down.clone(),
+        };
+        let app = tauri::test::mock_app();
+        assert!(app.manage(shutting_down.clone()));
+        assert!(app.manage(updater::UpdateOwnership::default()));
+        let (respawned, respawns) = mpsc::channel();
+        spawn_respawn_monitor(
+            child_state.clone(),
+            shutting_down.clone(),
+            Arc::new(DesktopSuccessorState::default()),
+            None,
+            move || {
+                let child = Command::new("sleep").arg("30").spawn()?;
+                let _ = respawned.send(child.id());
+                Ok(child)
+            },
+            |_| unreachable!("an ordinary crash does not retarget the window"),
+            |_| unreachable!("an ordinary crash is not a server transport refusal"),
+            || bootstrap::BackendExitDecision::Respawn,
+            "ownership regression".to_string(),
+        );
+
+        claim_update_ownership(app.state()).expect("the mounted page claims update ownership");
+        // Give the real monitor a chance to observe the claim while the child is alive.
+        std::thread::sleep(SUPERVISION_POLL * 2);
+        child_state
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .kill()
+            .unwrap();
+        let replacement_pid = respawns
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the monitor must respawn a backend killed after the page claim");
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            let stored_pid = child_state.lock().unwrap().as_ref().map(|child| child.id());
+            if stored_pid == Some(replacement_pid) {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the replacement must reach the child slot"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+
+        // RunEvent::Exit sets this managed flag before taking and reaping the child.
+        app.state::<Arc<AtomicBool>>()
+            .store(true, Ordering::Release);
+        let mut child = child_state.lock().unwrap().take().unwrap();
+        reap_backend(&mut child);
+        assert!(child.try_wait().unwrap().is_some());
+        assert!(shutting_down.load(Ordering::Acquire));
+        assert!(
+            matches!(
+                respawns.recv_timeout(Duration::from_secs(2)),
+                Err(mpsc::RecvTimeoutError::Disconnected)
+            ),
+            "the quit flag must stop the monitor without another respawn"
         );
     }
 
@@ -3378,6 +3536,8 @@ mod tests {
         assert!(client.contains("launchMode: \"client\""));
         assert!(client.contains("enableHosting: (pairCode) =>"));
         assert!(client.contains("invoke('enable_hosting', { pairCode })"));
+        assert!(client.contains("clientRegistrationStatus"));
+        assert!(client.contains("registerClient"));
         for mode in ["daemon", "server", "all-in-one"] {
             assert!(!test_native_desktop_hook(mode, None).contains("enableHosting"));
         }
