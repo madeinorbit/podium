@@ -266,46 +266,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/mobile/src/components/ConfiguredIssueLaunchSheet.tsx",
-      "holder": "ConfiguredIssueLaunchSheetBody/ConfiguredIssueLaunchSheetBody/start/callback",
-      "rule": "reader-summary",
-      "tokens": "248b9f1a85f01f0ca8b3106cccb525ccef12b252f0c4870a56124c4eb3d59ed8",
-      "gate": [
-        "exit:then:77100ba1355adae7c85e8ee022ed0798713c117f1347926d0422d15a21b5cf01"
-      ],
-      "origin": [
-        "f0e526b9fbb6507b5fb07a96f13c265cd59ac1a08b53582dfd9026173d6ed5b7"
-      ],
-      "fingerprint": "7b2544e557c984f9ad242d9a543171d698a6a15bec4e6191a1aa879fff20a72e",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-5875",
-      "trigger": "Start agent in the configured issue launch sheet after its touched-field draft submits.",
-      "bound": "One addressed issue ID; addSession is attempted once, with one start fallback only for an issue-not-started refusal.",
-      "reason": "The issues value is the TRPC mutation API, not issue rows. spawnIssueAgent receives only the addressed issue ID and calls two fixed API members without enumerating records.",
-      "guard": "ConfiguredIssueLaunchSheet.draft.test.tsx proves touched-only update before the addressed spawn; configured-issue-launch.test.ts retains the addSession/start fallback and refusal assertions unchanged."
-    },
-    {
-      "file": "apps/mobile/src/components/ConfiguredIssueLaunchSheet.tsx",
-      "holder": "ConfiguredIssueLaunchSheetBody/ConfiguredIssueLaunchSheetBody/start/callback",
-      "rule": "helper-consumer",
-      "tokens": "41ec08726cd58ab8318ad94df58346480a75f48057756209e3a33f0de143e5d1",
-      "gate": [
-        "exit:then:77100ba1355adae7c85e8ee022ed0798713c117f1347926d0422d15a21b5cf01"
-      ],
-      "origin": [
-        "f0e526b9fbb6507b5fb07a96f13c265cd59ac1a08b53582dfd9026173d6ed5b7"
-      ],
-      "fingerprint": "f1b58f762954eaba4d09194db3406c05534acfc46878e5b6894fd398fb05ddd8",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-5875",
-      "trigger": "Start agent in the configured issue launch sheet after its touched-field draft submits.",
-      "bound": "One addressed issue ID; addSession is attempted once, with one start fallback only for an issue-not-started refusal.",
-      "reason": "The issues value is the TRPC mutation API, not issue rows. spawnIssueAgent receives only the addressed issue ID and calls two fixed API members without enumerating records.",
-      "guard": "ConfiguredIssueLaunchSheet.draft.test.tsx proves touched-only update before the addressed spawn; configured-issue-launch.test.ts retains the addSession/start fallback and refusal assertions unchanged."
-    },
-    {
       "file": "apps/mobile/src/components/InboxSessionRow.tsx",
       "holder": "NeedsYouCard/NeedsYouCard/fromTranscript",
       "rule": "reader-summary",
@@ -516,46 +476,6 @@
       "trigger": "Invocation of joined",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/lib/configured-issue-launch.ts",
-      "holder": "startConfiguredIssue",
-      "rule": "helper-consumer",
-      "tokens": "3024cb8af9899f48ffed7fe761a330aeacde7b9b02a60f1978fbab31ea73de56",
-      "gate": [
-        "exit:then:d339bd911c05976dfbd9a315f116ab5d69e93325d9f3a8a76f780611e4d5681a"
-      ],
-      "origin": [
-        "83a9a0ebb24f4f8c50157e15486e7892a9452e8895d3d71f3abb724763dd077a"
-      ],
-      "fingerprint": "c81d4cde6af385f3d73a3519917c97282fdad55ed78c855b5d6c0a32a2682315",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of startConfiguredIssue",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/lib/configured-issue-launch.ts",
-      "holder": "startConfiguredIssue",
-      "rule": "reader-summary",
-      "tokens": "ec218a15d451305da3ee491e5fe667afe214139fbc61631cf146bd414ca86dd9",
-      "gate": [
-        "exit:then:d339bd911c05976dfbd9a315f116ab5d69e93325d9f3a8a76f780611e4d5681a"
-      ],
-      "origin": [
-        "83a9a0ebb24f4f8c50157e15486e7892a9452e8895d3d71f3abb724763dd077a"
-      ],
-      "fingerprint": "5329f8f5eedddc1e59085dfb3f5e2b87ddfa5df264cbd385be50f77da23a43b1",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of startConfiguredIssue",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -1295,42 +1215,6 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Open-time answer and 1x/4x heartbeat tests cover the stored picker; retained classification is not a scan repair claim."
-    },
-    {
-      "file": "apps/web/src/app/FlightDeck.tsx",
-      "holder": "FlightDeckContent/FlightDeckContent/addMissionAgent/callback",
-      "rule": "helper-consumer",
-      "tokens": "87367a788a816db00866aa307f1c4d91e7889e0a12b7417650b955bc123858ad",
-      "gate": [],
-      "origin": [
-        "98eadb64a1faa7ed23512a0d3e8d36cdbe56179ad8f9b305c6a465315dfba89f"
-      ],
-      "fingerprint": "78ec31585a1cf0440711746904b71ba280d50da6cb472297ec8eeb8653922b17",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of FlightDeckContent/addMissionAgent/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5827 moves the existing read to the opening or model field; its collection classification is unchanged.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/FlightDeck.tsx",
-      "holder": "FlightDeckContent/FlightDeckContent/addMissionAgent/callback",
-      "rule": "reader-summary",
-      "tokens": "f890114edcd150d1625515b394af5387712441357460f5e2504c4a9cc126cda8",
-      "gate": [],
-      "origin": [
-        "98eadb64a1faa7ed23512a0d3e8d36cdbe56179ad8f9b305c6a465315dfba89f"
-      ],
-      "fingerprint": "666ceddb67c392b6297305d8f787f6ad8995a8a7f7f56affdaa2a96cc83987d5",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of FlightDeckContent/addMissionAgent/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5827 moves the existing read to the opening or model field; its collection classification is unchanged.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/web/src/app/FlightDeck.tsx",
@@ -4412,27 +4296,6 @@
     },
     {
       "file": "apps/web/src/features/issues/IssueCompactControls.tsx",
-      "holder": "IssueCompactControls/IssueCompactControls/startWork/callback/run",
-      "rule": "reader-summary",
-      "tokens": "e7cb4597e952c510d5324593facc50b44f88232313784b8a64f7f61f78bc88a2",
-      "gate": [
-        "exit:then:072be4420e192d0a320f4e7e5811c7b9bd6d7627bf4c35afb2d63ed1e067e844",
-        "else:58c4f9c55bcf8de16eda50f1488ca43f56b8c92c318f615130906679aeb828cc"
-      ],
-      "origin": [
-        "2e90313992f440fa9944c7fe4e0d46b69224a71f066fcc3e826d33e76e9dc64a"
-      ],
-      "fingerprint": "bf1285480750c634d1c4c7d1458a403a2bfd01344c440d264713abd7076c72c1",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of IssueCompactControls/startWork/callback/run",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/IssueCompactControls.tsx",
       "holder": "IssueDecisionBand/IssueDecisionBand",
       "rule": "helper-consumer",
       "tokens": "314f2728879503778886148fe884a049304ee4e8b6f7d33d574028fa271a32eb",
@@ -4697,48 +4560,6 @@
     },
     {
       "file": "apps/web/src/features/issues/IssueContextMenu.tsx",
-      "holder": "IssueContextMenu/IssueContextMenu/assignAgent/callback/run:callback",
-      "rule": "helper-consumer",
-      "tokens": "48440921e4bcb7addf9d09f4d55ceca8ed643221399746b79c366d039de31822",
-      "gate": [
-        "exit:then:c6f4dae444f8a54d4e095bf0f49d5e62cda06c9f73521f138f21e11eadb25806",
-        "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
-      ],
-      "origin": [
-        "7304f3739993577a1172c0420c7c7d7ccc36e5261055c2424b3d30a83dcfab2b"
-      ],
-      "fingerprint": "c3a4a72166cee946696079f7995dddab9d373d7f290ec3fa98a490518924bf52",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of IssueContextMenu/IssueContextMenu/assignAgent/callback/run:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/IssueContextMenu.tsx",
-      "holder": "IssueContextMenu/IssueContextMenu/assignAgent/callback/run:callback",
-      "rule": "reader-summary",
-      "tokens": "cb121554a83094ab19e45365295fe9c71aa6bda00ef950bb37cac50f333eeff1",
-      "gate": [
-        "exit:then:c6f4dae444f8a54d4e095bf0f49d5e62cda06c9f73521f138f21e11eadb25806",
-        "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
-      ],
-      "origin": [
-        "7304f3739993577a1172c0420c7c7d7ccc36e5261055c2424b3d30a83dcfab2b"
-      ],
-      "fingerprint": "5ffcea074c83cbf9d4fc0a75bbedbb561eb5f34227e1c9b033b4cb33bee9d4f4",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of IssueContextMenu/IssueContextMenu/assignAgent/callback/run:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/IssueContextMenu.tsx",
       "holder": "IssueContextMenu/IssueContextMenu/choiceViews",
       "rule": "reader-summary",
       "tokens": "17994dcb795857d0f6b5bb4eaf5c3f0d6b92444928f250e850d5bca91a38f66e",
@@ -4964,7 +4785,7 @@
       "file": "apps/web/src/features/issues/IssueContextMenu.tsx",
       "holder": "IssueContextMenu/IssueContextMenu/renderedEntries",
       "rule": "consume:map",
-      "tokens": "c64f6ab78c2cf449243436401f3c3aa1626685050f0a2296c49c5f569ff6362f",
+      "tokens": "c27cd1f6ef1f6a63753b5e9b713623c7ddff294f99a80670bdfc52fce87f76c5",
       "gate": [
         "exit:then:76f123297670b5a163440e69aeda15a69e75e517f0b03f56f0c40859ebf71a7d",
         "exit:then:c6f4dae444f8a54d4e095bf0f49d5e62cda06c9f73521f138f21e11eadb25806",
@@ -4974,13 +4795,13 @@
         "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
         "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
       ],
-      "fingerprint": "3e6696ff8478e2c3e8dcbf10b30df48f829022dc830623c33da8842e1165ee35",
+      "fingerprint": "d1ff6a38d6025e6840fc94cbdf32d960fc16392e69ff4b847fe326291ec1eefe",
       "count": 1,
       "classification": "visible output",
       "owner": "POD-5672",
       "trigger": "An opened Handoff submenu requests its destination choices.",
       "bound": "The source is one addressed session and repository; destination machines and clone identities are projected only while their target list is shown.",
-      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced.",
+      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced. POD-6526 moves the menu's start and agent entries onto the issue's effect record (startIssueSession) instead of the issues.start/addSession routes; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced.",
       "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
     },
     {
@@ -5879,28 +5700,6 @@
       "file": "apps/web/src/features/issues/issue-menu-commands.ts",
       "holder": "runIssueMenuCommand",
       "rule": "helper-consumer",
-      "tokens": "4164d95d7e56e6736f80e7da915bd5a8ec912c4b8ffcd21603cea9bf62444c89",
-      "gate": [
-        "exit:then:34fbd9309765a9958e997e147c21fe0eebe79179bc489fcbecb1cf4271763891",
-        "switch:b228e5a3778a12a509b91e33da28198b1cc643c5725cf87e78afb088f8fdabc2",
-        "case:b0a80a7fd52bcbc920c1c7ca670cb70b83b8c68ad8e7304fb8d24a2bd0623c4f"
-      ],
-      "origin": [
-        "20bb0ab9ebe08b78d9cdcacee0f5b35cc24a86bc6da2f53ba0dfc546efba9f38"
-      ],
-      "fingerprint": "931dfac8d4836a91c5b01af7d1f182fb17eaa7ce94acaf03e2ac627ca6f8c4c2",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of runIssueMenuCommand",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/issue-menu-commands.ts",
-      "holder": "runIssueMenuCommand",
-      "rule": "helper-consumer",
       "tokens": "c48f6532cface06b888a6d895aca48301e239aa0da2b8c2e7ee6fb4746209733",
       "gate": [
         "exit:then:34fbd9309765a9958e997e147c21fe0eebe79179bc489fcbecb1cf4271763891",
@@ -5933,28 +5732,6 @@
         "d705a7840084cbf09f265329532882761dd59cd72e922cf59ff51762dd6bad14"
       ],
       "fingerprint": "55ecd81bf9804f4a3aa88b787c8ec61c904b08c557301cf7ac8a64bcb4a399e8",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of runIssueMenuCommand",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/issue-menu-commands.ts",
-      "holder": "runIssueMenuCommand",
-      "rule": "reader-summary",
-      "tokens": "9d1dae5499e6ce584be629db687e711ded77cda66bc5a1578abc920c8016972b",
-      "gate": [
-        "exit:then:34fbd9309765a9958e997e147c21fe0eebe79179bc489fcbecb1cf4271763891",
-        "switch:b228e5a3778a12a509b91e33da28198b1cc643c5725cf87e78afb088f8fdabc2",
-        "case:b0a80a7fd52bcbc920c1c7ca670cb70b83b8c68ad8e7304fb8d24a2bd0623c4f"
-      ],
-      "origin": [
-        "20bb0ab9ebe08b78d9cdcacee0f5b35cc24a86bc6da2f53ba0dfc546efba9f38"
-      ],
-      "fingerprint": "e06430a066df74b2d001449446181fb9d40cbc44fd10d5202b71ac953ba287cc",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -6331,50 +6108,46 @@
       "file": "apps/web/src/features/issues/issue-menu-palette-commands.ts",
       "holder": "issueMenuPaletteCommands/flatMap:callback/map:callback/run/callback",
       "rule": "reader-summary",
-      "tokens": "719c2f600ac4c4dc6a4c9f786b89ce6ba613ffdbae30a39d09cd619cefe80dfa",
+      "tokens": "65f0eb8d26666744e6671823c3c5902ed2ba0eeb901994cd710ea232c6186a5d",
       "gate": [
         "exit:then:6fc6171510488d8c181edf13147bec2c5d9962f16053968c34b4cc660980c0ae"
       ],
       "origin": [
-        "20bb0ab9ebe08b78d9cdcacee0f5b35cc24a86bc6da2f53ba0dfc546efba9f38",
         "570003f505ff4f9aac9051384237bcbc90dd0b87c83ac0423040189901d24846",
-        "5a4523014c83bc64f0677aabe3644c873f17021f6d0e66add4630d64be39bc94",
         "6beec9149bb500feb42b52244dfd3075db6dc8aa4377390028e82706496d0131",
         "b113e78a03300f7c52a422ad46268d024325c5393b6b00a92a600ef146c075bd",
         "d705a7840084cbf09f265329532882761dd59cd72e922cf59ff51762dd6bad14"
       ],
-      "fingerprint": "9a0cdcad9f7268b574165a2bd2a411ae64dcc6ca2608eb4f679d6771f208b785",
+      "fingerprint": "19272a701d3acbda9263ad467598bb2cf4a6df0967a453cf0441b2635ded9d64",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of issueMenuPaletteCommands/flatMap:callback/map:callback/run/callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced. POD-6526 moves the menu's start and agent entries onto the issue's effect record (startIssueSession) instead of the issues.start/addSession routes; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/web/src/features/issues/issue-menu-palette-commands.ts",
       "holder": "issueMenuPaletteCommands/flatMap:callback/run/callback",
       "rule": "reader-summary",
-      "tokens": "bade42cc7d3acbb5b100d44991830954480974b5fd434ef6068a94605344ce98",
+      "tokens": "8630513ee04a7be2cc4284f356911359b279df7bd01e13e084ee4a57d20db450",
       "gate": [
         "then:6fc6171510488d8c181edf13147bec2c5d9962f16053968c34b4cc660980c0ae"
       ],
       "origin": [
-        "20bb0ab9ebe08b78d9cdcacee0f5b35cc24a86bc6da2f53ba0dfc546efba9f38",
         "570003f505ff4f9aac9051384237bcbc90dd0b87c83ac0423040189901d24846",
-        "5a4523014c83bc64f0677aabe3644c873f17021f6d0e66add4630d64be39bc94",
         "6beec9149bb500feb42b52244dfd3075db6dc8aa4377390028e82706496d0131",
         "b113e78a03300f7c52a422ad46268d024325c5393b6b00a92a600ef146c075bd",
         "d705a7840084cbf09f265329532882761dd59cd72e922cf59ff51762dd6bad14"
       ],
-      "fingerprint": "5312d2fb388163e7dfd5a4c695aeb3f90efe55910f68586629efea5d080fbfee",
+      "fingerprint": "f2a9af69e4d4797564680eb65d404a3ae4166ba58c3bfb99883b1cba264de4aa",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of issueMenuPaletteCommands/flatMap:callback/run/callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-2102 removes task color controls and tint props; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced. POD-6526 moves the menu's start and agent entries onto the issue's effect record (startIssueSession) instead of the issues.start/addSession routes; the retained operation keeps its trigger and classification, with collection demand unchanged or reduced.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -8197,46 +7970,6 @@
       "bound": "Opening ownership bounds lifetime, not collection cardinality; the existing collection path still requires a named-demand or cardinality bound.",
       "reason": "Per-opening context and query ownership expose the existing reader-summary collection path. This lifetime change does not claim to repair its collection work.",
       "guard": "Exact fingerprint and multiplicity only; POD-5866 opening tests prove release, and speed:structural compares work with the pilot baseline. This entry is not a collection-work fix."
-    },
-    {
-      "file": "apps/web/src/features/machines/HostMemoryView.tsx",
-      "holder": "ReclaimPanel/freeOne/callback",
-      "rule": "helper-consumer",
-      "tokens": "3824af9f9c7c909ed7c6df96b18f7b40611cab4e19b3947cf78eb836970462cf",
-      "gate": [
-        "exit:then:06c487774d1b573383af4cee430066328197ae806676d5a1597c2c5bd9f75d17"
-      ],
-      "origin": [
-        "c745314fa5d98ef649227d6b0ccb1cb2cc21639371bbb22f4e19df8a0ad0864b"
-      ],
-      "fingerprint": "d8bfa7d282cb31484cd36e77dda17ce3aac96ce6f372f1a09c502d78ad72c429",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ReclaimPanel/freeOne/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/machines/HostMemoryView.tsx",
-      "holder": "ReclaimPanel/freeOne/callback",
-      "rule": "reader-summary",
-      "tokens": "94baf8128c50f0e9c771ddac764ab9ef3eec4fcb319758b76592ab1fc17fcb42",
-      "gate": [
-        "exit:then:06c487774d1b573383af4cee430066328197ae806676d5a1597c2c5bd9f75d17"
-      ],
-      "origin": [
-        "c745314fa5d98ef649227d6b0ccb1cb2cc21639371bbb22f4e19df8a0ad0864b"
-      ],
-      "fingerprint": "3b6f778f47459dbfb751febc701c5fd75ad509d14e513fa32c5f3e955a15f097",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ReclaimPanel/freeOne/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/web/src/features/machines/HostMemoryView.tsx",
