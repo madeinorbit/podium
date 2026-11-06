@@ -25,7 +25,7 @@ describe('client registration member authority', () => {
         clientRegistration: { machineId: id, publicKey: publicKeyWire(mintSigningKeyPair()) },
         copyAgentCredentials: false,
       }),
-    ).rejects.toThrow(/administrator/)
+    ).rejects.toThrow(/requires an admin account/)
     expect(await store().machines.getMachine(id)).toBeUndefined()
     expect(await store().machines.custodian(f.machines.bob)).toBe(MEMBERS.bob.id)
   })
