@@ -183,6 +183,13 @@ import {
 import { BOUNDARY_ALLOWLIST } from './boundary-allowlist'
 import { checkIssuePredicates } from './check-issue-predicates'
 import {
+  HARNESS_AMBIENT_ALLOWLIST,
+  HARNESS_AMBIENT_BASELINE_OS_TOOL,
+  HARNESS_AMBIENT_BASELINE_TO_MIGRATE,
+  type HarnessAmbientAccess,
+  type HarnessAmbientAllowlistEntry,
+} from './harness-ambient-allowlist'
+import {
   HARNESS_BASELINE_LEAK_COUNT,
   HARNESS_BASELINE_POLICY_COUNT,
   HARNESS_BASELINE_TOTAL,
@@ -791,6 +798,385 @@ export function checkHarnessAllowlistTotals(
     }
   }
   return problems
+}
+
+// ---------------------------------------------------------------------------
+// Harness ambient access (POD-6545, design docs/design/harness-access-contract.md
+// §3.6). Freezes today's direct machine access in harness code so it can only
+// go down while the access-contract migration (POD-6520) runs.
+//
+// Scope A, the adapters and driver families: every value import of
+// `node:child_process`/`child_process`, every `Bun.spawn`/`Bun.spawnSync`,
+// every `homedir()`/`os.homedir` and every `process.env` read. A harness
+// reaches the machine through the context it is handed, not through the
+// daemon's own process.
+//
+// Scope B, apps/daemon/src: string literals naming a harness state folder
+// (`.codex`, `.claude`, `.grok`, `.pi/agent`). Folder rules belong to the
+// adapters' `roots`, never to daemon code.
+//
+// Counted per (file, access) against scripts/harness-ambient-allowlist.ts with
+// the vendor rule's ratchet: above the count fails, below it fails until the
+// count is lowered. Read off the TypeScript AST, so comments and prose never
+// count and a type-only import of `ChildProcess` is not machine access.
+// ---------------------------------------------------------------------------
+
+export const HARNESS_AMBIENT_RULE = 'harness-ambient-access'
+
+/** Scope A: where harness code lives. */
+export const HARNESS_AMBIENT_HARNESS_SCOPE: readonly string[] = [
+  'packages/harness/src/adapters/',
+  'packages/harness/src/driver/families/',
+]
+
+/** Scope B: the daemon, which must not know where a harness keeps its state. */
+export const HARNESS_AMBIENT_DAEMON_SCOPE = 'apps/daemon/src/'
+
+/**
+ * A literal names a harness state folder when one of its path segments is
+ * `.codex`, `.claude` or `.grok`, or it holds `.pi` as a segment that ends the
+ * literal or continues with `agent` (`'.pi/agent'`, and the split
+ * `join(home, '.pi', 'agent')`). `.claude.json` is a file, `.codexrc` is not a
+ * segment, and neither counts.
+ */
+const HARNESS_STATE_FOLDER_RE =
+  /(?:^|[\\/])(?:\.(?:codex|claude|grok)(?=$|[\\/])|\.pi(?=$|[\\/]agent(?:$|[\\/])))/
+
+function isHarnessAmbientExcluded(file: string): boolean {
+  if (!/\.tsx?$/.test(file) || file.endsWith('.d.ts')) return true
+  if (isTestFile(file)) return true
+  if (file.includes('__fixtures__') || /\.fixtures?\.tsx?$/.test(file)) return true
+  if (/(^|\/)test-support\.tsx?$/.test(file)) return true
+  return false
+}
+
+/** Which scope a file falls in, or null when the rule does not look at it. */
+export function harnessAmbientScopeOf(file: string): 'harness' | 'daemon' | null {
+  if (isHarnessAmbientExcluded(file)) return null
+  if (HARNESS_AMBIENT_HARNESS_SCOPE.some((root) => file.startsWith(root))) return 'harness'
+  if (file.startsWith(HARNESS_AMBIENT_DAEMON_SCOPE)) return 'daemon'
+  return null
+}
+
+const AMBIENT_WHAT: Record<HarnessAmbientAccess, string> = {
+  'child-process': 'child_process import',
+  'bun-spawn': 'Bun.spawn',
+  homedir: 'homedir()',
+  'process-env': 'process.env read',
+  'state-folder': 'harness state folder literal',
+}
+
+const AMBIENT_FIX: Record<'harness' | 'daemon', string> = {
+  harness:
+    'a harness reaches the machine through the context it is handed (account home, environment, selected installation), not through the daemon process',
+  daemon: "where a harness keeps its state is the adapter's `roots` rule, not daemon code",
+}
+
+/**
+ * Every direct machine access in one file, one violation per occurrence (so
+ * the allow-list counts occurrences and a second use in a listed file fails).
+ * `specifier` carries the access kind, which the allow-list keys on.
+ */
+export function checkHarnessAmbientAccess(file: string, source: string): Violation[] {
+  const scope = harnessAmbientScopeOf(file)
+  if (scope === null) return []
+  // Cheap pre-filter: most files never mention any of it.
+  if (
+    scope === 'harness'
+      ? !/child_process|bun|homedir|process/i.test(source)
+      : !/\.(?:codex|claude|grok|pi)/.test(source)
+  ) {
+    return []
+  }
+  const sf = ts.createSourceFile(
+    file,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  )
+  const violations: Violation[] = []
+  const hit = (node: ts.Node, access: HarnessAmbientAccess, detail: string): void => {
+    const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1
+    violations.push({
+      file,
+      specifier: access,
+      rule: HARNESS_AMBIENT_RULE,
+      message: `${file}:${line}: ${AMBIENT_WHAT[access]} (${detail}) — ${AMBIENT_FIX[scope]} (docs/design/harness-access-contract.md §3.6). See scripts/harness-ambient-allowlist.ts.`,
+    })
+  }
+  const isChildProcess = (node: ts.Node | undefined): boolean =>
+    node !== undefined &&
+    ts.isStringLiteralLike(node) &&
+    (node.text === 'node:child_process' || node.text === 'child_process')
+  // Names `node:os` is bound to here (`import * as os`, `import os`), so
+  // `os.homedir` counts under any alias and `opts.homedir` (a field) does not.
+  const osNames = new Set<string>(['os'])
+  const homedirNames = new Set<string>(['homedir'])
+  for (const statement of sf.statements) {
+    if (
+      ts.isImportDeclaration(statement) &&
+      ts.isStringLiteralLike(statement.moduleSpecifier) &&
+      (statement.moduleSpecifier.text === 'node:os' || statement.moduleSpecifier.text === 'os')
+    ) {
+      const clause = statement.importClause
+      if (clause?.name) osNames.add(clause.name.text)
+      if (clause?.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
+        osNames.add(clause.namedBindings.name.text)
+      }
+      if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+        for (const element of clause.namedBindings.elements) {
+          if ((element.propertyName ?? element.name).text === 'homedir') {
+            homedirNames.add(element.name.text)
+          }
+        }
+      }
+    }
+  }
+  // `homedir` (under any import alias) as a value: called, or passed on
+  // (`getHome = homedir`). Its
+  // import specifier, a property key and a declared name are not uses.
+  const isHomedirValue = (node: ts.Identifier): boolean => {
+    const parent = node.parent
+    if (ts.isImportSpecifier(parent) || ts.isImportClause(parent)) return false
+    if (ts.isPropertyAccessExpression(parent) && parent.name === node) return false
+    if (
+      (ts.isPropertyAssignment(parent) ||
+        ts.isPropertyDeclaration(parent) ||
+        ts.isPropertySignature(parent) ||
+        ts.isMethodDeclaration(parent) ||
+        ts.isMethodSignature(parent) ||
+        ts.isVariableDeclaration(parent) ||
+        ts.isParameter(parent) ||
+        ts.isFunctionDeclaration(parent) ||
+        ts.isBindingElement(parent)) &&
+      parent.name === node
+    ) {
+      return false
+    }
+    return true
+  }
+  const visit = (node: ts.Node): void => {
+    if (scope === 'harness') {
+      if (
+        ts.isImportDeclaration(node) &&
+        ts.isStringLiteralLike(node.moduleSpecifier) &&
+        node.moduleSpecifier.text === 'bun' &&
+        !node.importClause?.isTypeOnly &&
+        node.importClause?.namedBindings &&
+        ts.isNamedImports(node.importClause.namedBindings)
+      ) {
+        // `import { spawn, $ } from 'bun'` is Bun.spawn by another spelling.
+        for (const element of node.importClause.namedBindings.elements) {
+          const imported = (element.propertyName ?? element.name).text
+          if (!element.isTypeOnly && /^(?:spawn|spawnSync|\$)$/.test(imported)) {
+            hit(element, 'bun-spawn', `import { ${imported} } from 'bun'`)
+          }
+        }
+      } else if (ts.isImportDeclaration(node) && isChildProcess(node.moduleSpecifier)) {
+        const clause = node.importClause
+        const typeOnly =
+          clause !== undefined &&
+          (clause.isTypeOnly ||
+            (clause.name === undefined &&
+              clause.namedBindings !== undefined &&
+              ts.isNamedImports(clause.namedBindings) &&
+              clause.namedBindings.elements.length > 0 &&
+              clause.namedBindings.elements.every((e) => e.isTypeOnly)))
+        if (!typeOnly) hit(node, 'child-process', node.moduleSpecifier.getText(sf))
+      } else if (
+        ts.isExportDeclaration(node) &&
+        !node.isTypeOnly &&
+        isChildProcess(node.moduleSpecifier)
+      ) {
+        hit(node, 'child-process', node.moduleSpecifier?.getText(sf) ?? '')
+      } else if (
+        ts.isCallExpression(node) &&
+        (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+          (ts.isIdentifier(node.expression) && node.expression.text === 'require')) &&
+        isChildProcess(node.arguments[0])
+      ) {
+        hit(node, 'child-process', node.getText(sf))
+      } else if (ts.isPropertyAccessExpression(node)) {
+        const target = node.expression
+        const name = node.name.text
+        if (
+          ts.isIdentifier(target) &&
+          target.text === 'Bun' &&
+          /^(?:spawn|spawnSync|\$)$/.test(name)
+        ) {
+          hit(node, 'bun-spawn', `Bun.${name}`)
+        } else if (name === 'homedir' && ts.isIdentifier(target) && osNames.has(target.text)) {
+          hit(node, 'homedir', node.getText(sf))
+        } else if (
+          name === 'env' &&
+          ((ts.isIdentifier(target) && target.text === 'process') ||
+            (ts.isPropertyAccessExpression(target) && target.name.text === 'process'))
+        ) {
+          hit(node, 'process-env', 'process.env')
+        }
+      } else if (
+        ts.isElementAccessExpression(node) &&
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === 'process' &&
+        ts.isStringLiteralLike(node.argumentExpression) &&
+        node.argumentExpression.text === 'env'
+      ) {
+        hit(node, 'process-env', node.getText(sf))
+      } else if (ts.isIdentifier(node) && homedirNames.has(node.text) && isHomedirValue(node)) {
+        hit(node, 'homedir', node.text)
+      }
+    } else if (
+      (ts.isStringLiteral(node) ||
+        ts.isNoSubstitutionTemplateLiteral(node) ||
+        ts.isTemplateHead(node) ||
+        ts.isTemplateMiddle(node) ||
+        ts.isTemplateTail(node)) &&
+      // Module specifiers name modules, not folders.
+      !(ts.isImportDeclaration(node.parent) || ts.isExportDeclaration(node.parent)) &&
+      HARNESS_STATE_FOLDER_RE.test(node.text)
+    ) {
+      hit(node, 'state-folder', JSON.stringify(node.text))
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(sf)
+  return violations
+}
+
+const ambientKey = (file: string, access: string): string => `${file}\u0000${access}`
+
+/**
+ * The ratchet, the vendor rule's semantics keyed by (file, access): a use the
+ * allow-list does not cover (file or access not listed, or over its count)
+ * fails; an entry holding more than remains (slack, or dead at zero) fails
+ * with "lower the count" until it is lowered. Only this rule's violations are
+ * read, so the two harness families never declare each other's entries dead.
+ */
+export function applyHarnessAmbientAllowlist(
+  violations: readonly Violation[],
+  allowlist: readonly HarnessAmbientAllowlistEntry[] = HARNESS_AMBIENT_ALLOWLIST,
+): { warnings: Violation[]; errors: Violation[]; stale: string[] } {
+  const allowed = new Map<string, number>()
+  for (const entry of allowlist) {
+    const key = ambientKey(entry.file, entry.access)
+    allowed.set(key, (allowed.get(key) ?? 0) + entry.count)
+  }
+  const seen = new Map<string, Violation[]>()
+  for (const v of violations) {
+    if (v.rule !== HARNESS_AMBIENT_RULE) continue
+    const key = ambientKey(v.file, v.specifier)
+    seen.set(key, [...(seen.get(key) ?? []), v])
+  }
+  const warnings: Violation[] = []
+  const errors: Violation[] = []
+  for (const [key, group] of seen) {
+    const count = allowed.get(key) ?? 0
+    warnings.push(...group.slice(0, count))
+    errors.push(...group.slice(count))
+  }
+  const stale: string[] = []
+  for (const [key, count] of allowed) {
+    const [file, access] = key.split('\u0000')
+    const actual = seen.get(key)?.length ?? 0
+    if (actual === 0) {
+      stale.push(
+        `allowlist entry [${HARNESS_AMBIENT_RULE}] ${file} (${access}) is dead (0 uses) — remove it from scripts/harness-ambient-allowlist.ts and lower the baseline`,
+      )
+    } else if (actual < count) {
+      stale.push(
+        `allowlist entry [${HARNESS_AMBIENT_RULE}] ${file} (${access}) allows ${count} but only ${actual} remain — lower the count to ${actual} to hold the ground you gained`,
+      )
+    }
+  }
+  return { warnings, errors, stale }
+}
+
+/**
+ * The shrink-only guard on the allow-list itself, as for the vendor rule: a
+ * category total above its baseline fails (raising a count cannot admit new
+ * access), and a baseline above the seeded total fails (no slack to refill).
+ * Every entry carries its category pointer: `to-migrate` names the issue that
+ * removes it, `os-tool` says why the OS tool is not harness access.
+ */
+export function checkHarnessAmbientAllowlistTotals(
+  allowlist: readonly HarnessAmbientAllowlistEntry[] = HARNESS_AMBIENT_ALLOWLIST,
+  baselineToMigrate: number = HARNESS_AMBIENT_BASELINE_TO_MIGRATE,
+  baselineOsTool: number = HARNESS_AMBIENT_BASELINE_OS_TOOL,
+): string[] {
+  const sum = (category: string): number =>
+    allowlist.filter((e) => e.category === category).reduce((n, e) => n + e.count, 0)
+  const problems: string[] = []
+  for (const [category, seeded, baseline, constant] of [
+    ['to-migrate', sum('to-migrate'), baselineToMigrate, 'HARNESS_AMBIENT_BASELINE_TO_MIGRATE'],
+    ['os-tool', sum('os-tool'), baselineOsTool, 'HARNESS_AMBIENT_BASELINE_OS_TOOL'],
+  ] as const) {
+    if (seeded > baseline) {
+      problems.push(
+        `harness ambient allow-list ${category} total grew: ${seeded} > baseline ${baseline} — the list can only shrink; route the access through the harness context instead`,
+      )
+    } else if (baseline > seeded) {
+      problems.push(
+        `harness ambient baseline exceeds the seeded allow-list (${category}): baseline ${baseline} > seeded ${seeded} — lower ${constant} to ${seeded}`,
+      )
+    }
+  }
+  for (const entry of allowlist) {
+    if (!Number.isInteger(entry.count) || entry.count <= 0) {
+      problems.push(
+        `allowlist entry ${entry.file} (${entry.access}) has count ${entry.count} — remove the entry instead`,
+      )
+    }
+    if (entry.category === 'to-migrate' && !entry.issue?.trim()) {
+      problems.push(
+        `allowlist entry ${entry.file} (${entry.access}) is to-migrate but names no removing issue`,
+      )
+    }
+    if (entry.category === 'os-tool' && !entry.reason?.trim()) {
+      problems.push(
+        `allowlist entry ${entry.file} (${entry.access}) is os-tool but gives no reason — say which OS tool and why it is not harness access`,
+      )
+    }
+  }
+  return problems
+}
+
+/** Scope A and B files only — what `--harness-ambient-only` walks. */
+export function runHarnessAmbientCheck(repoRoot: string): Violation[] {
+  const violations: Violation[] = []
+  for (const root of [...HARNESS_AMBIENT_HARNESS_SCOPE, HARNESS_AMBIENT_DAEMON_SCOPE]) {
+    const dir = join(repoRoot, root)
+    if (!existsSync(dir)) continue
+    for (const abs of walk(dir)) {
+      const file = relative(repoRoot, abs).split(sep).join('/')
+      violations.push(...checkHarnessAmbientAccess(file, readFileSync(abs, 'utf8')))
+    }
+  }
+  return violations
+}
+
+/** Applies the allow-list and prints; true when the rule fails. */
+function reportHarnessAmbient(violations: readonly Violation[]): boolean {
+  const ambient = applyHarnessAmbientAllowlist(violations, HARNESS_AMBIENT_ALLOWLIST)
+  const totals = checkHarnessAmbientAllowlistTotals(HARNESS_AMBIENT_ALLOWLIST)
+  if (ambient.warnings.length > 0) {
+    console.warn(
+      `\nharness ambient access — ${ambient.warnings.length} allowlisted use(s) (warn, see scripts/harness-ambient-allowlist.ts)`,
+    )
+  }
+  if (ambient.stale.length > 0 || totals.length > 0) {
+    console.error(`\nharness ambient access — the ratchet only goes down:\n`)
+    for (const s of ambient.stale) console.error(`  ${s}`)
+    for (const t of totals) console.error(`  ${t}`)
+  }
+  if (ambient.errors.length > 0) {
+    console.error(`\nNEW ${HARNESS_AMBIENT_RULE} violations (${ambient.errors.length}):\n`)
+    for (const v of ambient.errors) console.error(`  [${v.rule}] ${v.message}`)
+    console.error(
+      '\nThese are not in scripts/harness-ambient-allowlist.ts (or exceed the declared count). Take the value from the harness context; the allow-list is a ratchet, it only goes down.',
+    )
+  }
+  return ambient.errors.length > 0 || ambient.stale.length > 0 || totals.length > 0
 }
 
 // ---------------------------------------------------------------------------
@@ -4362,6 +4748,7 @@ export function runCheck(repoRoot: string): {
       violations.push(...checkFile(file, source, ownAdapterCtx))
       violations.push(...checkPrincipalFree(file, source))
       violations.push(...checkHarnessVendorLiterals(file, source, vendorLiterals))
+      violations.push(...checkHarnessAmbientAccess(file, source))
       manifest.push(...checkManifestFile(file, source, harnessLiterals, modelExportNames))
     }
   }
@@ -4390,6 +4777,17 @@ function main(): void {
   const manifestOnly = process.argv.includes('--manifest-only')
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
   const start = performance.now()
+  // `--harness-ambient-only` runs the harness ambient-access ratchet alone over
+  // its two scopes (POD-6545). The lean gate (`bun run test`) runs this mode via
+  // `lint:harness-ambient`: the full scan is ~50s and carries other families'
+  // reds, while this rule must hold on every change during the migration.
+  if (process.argv.includes('--harness-ambient-only')) {
+    const failed = reportHarnessAmbient(runHarnessAmbientCheck(repoRoot))
+    const ms = Math.round(performance.now() - start)
+    if (failed) process.exit(1)
+    console.log(`${HARNESS_AMBIENT_RULE} OK (${ms}ms) — 0 new, 0 slack`)
+    return
+  }
   const { violations, manifest } = runCheck(repoRoot)
   if (process.argv.includes('--probe')) {
     const probeSource = readFileSync(
@@ -4517,7 +4915,11 @@ function main(): void {
   // a different family. Splitting vendor violations out first keeps each
   // family declaring only its own entries dead.
   const vendorViolations = violations.filter((v) => v.rule === HARNESS_VENDOR_RULE)
-  const nonVendorViolations = violations.filter((v) => v.rule !== HARNESS_VENDOR_RULE)
+  // The harness ambient-access ratchet (POD-6545) has its own allow-list too.
+  const ambientViolations = violations.filter((v) => v.rule === HARNESS_AMBIENT_RULE)
+  const nonVendorViolations = violations.filter(
+    (v) => v.rule !== HARNESS_VENDOR_RULE && v.rule !== HARNESS_AMBIENT_RULE,
+  )
   const harness = applyHarnessBoundaryAllowlist(vendorViolations, HARNESS_BOUNDARY_ALLOWLIST)
   const harnessTotals = checkHarnessAllowlistTotals(HARNESS_BOUNDARY_ALLOWLIST)
   // The legacy rules run through the SAME ratchet (POD-740): their two known
@@ -4593,11 +4995,14 @@ function main(): void {
     }
   }
 
+  const ambientFailed = !manifestOnly && reportHarnessAmbient(ambientViolations)
   const legacyFailed = !manifestOnly && (legacy.errors.length > 0 || legacy.stale.length > 0)
   const harnessFailed =
     !manifestOnly &&
     (harness.errors.length > 0 || harness.stale.length > 0 || harnessTotals.length > 0)
-  if (errors.length > 0 || stale.length > 0 || legacyFailed || harnessFailed) process.exit(1)
+  if (errors.length > 0 || stale.length > 0 || legacyFailed || harnessFailed || ambientFailed) {
+    process.exit(1)
+  }
   const allowlisted =
     warnings.length + (manifestOnly ? 0 : legacy.warnings.length + harness.warnings.length)
   console.log(
