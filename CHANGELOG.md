@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+**More reliable desktop updates and restored Codex chat on Mac.**
+
+### Fixed
+
+- **Codex chat on Mac.** Restored missing chat transcripts for Codex sessions on macOS, including sessions whose native hooks are missing or not yet trusted.
+- **Desktop updates after sign-in.** Desktop clients connected to another server now register automatically after sign-in so they can receive managed updates, while keeping their machine identity and staying in client mode.
+- **Reconnecting existing desktops.** A fresh sign-in can repair rejected machine credentials while preserving the existing installation and settings. Expired pairing attempts no longer leave the app retrying indefinitely.
+- **Startup recovery.** A newer desktop app can bring an older local runtime up to date at startup, while respecting update channels, pinned versions and updates already in progress.
+- **Desktop update handoffs.** Taking over an update no longer stops the monitor that restarts the local runtime if it exits.
+- **Clean server shutdown.** Fixed a shutdown error caused by background agent cleanup continuing after database shutdown had begun.
+
 ## [0.3.1-edge.1] - 2026-11-06
 
 ### Fixed
