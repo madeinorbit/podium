@@ -30,13 +30,16 @@
  */
 
 import { AUTOMATION_CONTRACTS, AUTOMATION_QUERY_NAMES } from '@podium/commands'
-import { asMachineId } from '@podium/model'
 import type { SessionId } from '@podium/model'
+import { asMachineId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import type { Capability } from './issue-authz'
 import { AUTOMATION_COMMANDS } from './modules/automations/registry'
+import { AUTOMATION_SYNC_FAMILY } from './modules/automations/sync-write'
 import { AgentRelayGate } from './modules/issues/relay-gate'
+import { registerSyncFamily } from './modules/sync-write/family'
+import { SyncWriteRegistry } from './modules/sync-write/registry'
 import { appRouter } from './router'
 
 /** The tRPC internals the router exposes for introspection. */
@@ -91,22 +94,31 @@ describe('POD-735 automation cutover gate', () => {
   /**
    * DERIVED, not merely EQUIVALENT — asserted by object IDENTITY (`toBe`).
    *
-   * A router that restated each schema beside the contract would satisfy every
-   * check above and would pass a deep-equality assertion too, right up until
-   * someone edited one copy. `toBe` can only pass if the procedure validates with
-   * the CONTRACT'S OWN INSTANCE, which is what makes a second declaration
-   * impossible rather than merely discouraged. Asserted PER ARM (POD-305), not on
-   * arm 0, because a restatement of one contract is invisible in an any-of check.
+   * Since POD-6418 every automation write goes through the sync write entry
+   * point, and the old route is a thin adapter that does NOT parse: the entry
+   * point parses, after its coarse check, with the schema of the command it
+   * looked up. So the identity that makes a second declaration impossible is
+   * the REGISTERED command's schema, and the route must carry no schema of its
+   * own (a restated copy there would be the second declaration).
    */
-  it("each mutation validates with its CONTRACT's own schema instance, not a copy", () => {
+  it("each write validates with its CONTRACT's own schema instance, on the entry point", () => {
+    const registry = new SyncWriteRegistry()
+    registerSyncFamily(registry, AUTOMATION_SYNC_FAMILY, {
+      modules: () => {
+        throw new Error('not called while registering')
+      },
+      roleOf: async () => undefined,
+    })
     const served = procedures()
     for (const [name, contract] of Object.entries(AUTOMATION_CONTRACTS)) {
-      expect(served[name]?._def.inputs, `automations.${name} input schema`).toEqual([
-        contract.input,
-      ])
-      expect(served[name]?._def.inputs[0], `automations.${name} input identity`).toBe(
-        contract.input,
-      )
+      const registered = registry.lookup(`automations.${name}`)
+      expect(registered?.input, `automations.${name} input identity`).toBe(contract.input)
+      const inputs = served[name]?._def.inputs ?? []
+      expect(inputs, `automations.${name} route`).toHaveLength(1)
+      expect(
+        typeof (inputs[0] as { safeParse?: unknown }).safeParse,
+        `automations.${name} route restates no schema`,
+      ).toBe('undefined')
     }
   })
 
