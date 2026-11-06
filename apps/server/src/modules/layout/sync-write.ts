@@ -70,12 +70,13 @@ export function registerLayoutCommands(
     contract: layoutSetContract,
     target: targetFor(deps, layoutSetContract.name),
     handle: async (ctx, input) =>
-      await deps.layout.set(actorOf(ctx.principal), input.values, now()),
+      await deps.layout.set(ctx.ledger, actorOf(ctx.principal), input.values, now()),
   })
   registry.register({
     contract: layoutClearContract,
     target: targetFor(deps, layoutClearContract.name),
-    handle: async (ctx, input) => await deps.layout.clear(actorOf(ctx.principal), input.keys),
+    handle: async (ctx, input) =>
+      await deps.layout.clear(ctx.ledger, actorOf(ctx.principal), input.keys),
   })
   registerLayoutRecord(registry, deps, now)
 }
@@ -116,10 +117,10 @@ function registerLayoutRecord(
     edit: async (ctx, id, patch, _expected, unset) => {
       const key = keyFor(id, ctx.principal)
       const actor = actorOf(ctx.principal)
-      if (unset.includes('value')) return await deps.layout.clear(actor, [key])
-      return await deps.layout.set(actor, { [key]: patch.value }, now())
+      if (unset.includes('value')) return await deps.layout.clear(ctx.ledger, actor, [key])
+      return await deps.layout.set(ctx.ledger, actor, { [key]: patch.value }, now())
     },
     remove: async (ctx, id) =>
-      await deps.layout.clear(actorOf(ctx.principal), [keyFor(id, ctx.principal)]),
+      await deps.layout.clear(ctx.ledger, actorOf(ctx.principal), [keyFor(id, ctx.principal)]),
   })
 }

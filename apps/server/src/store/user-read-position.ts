@@ -33,6 +33,7 @@ import {
   type UserId,
 } from '@podium/model'
 import { and, eq, sql } from 'drizzle-orm'
+import type { WriteScope } from '@podium/sync'
 import { userReadPosition } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import { param, prepared } from './executor/sync-drizzle'
@@ -131,8 +132,13 @@ export class UserReadPositionRepository {
    *
    * THROWS on a feed outside the closed vocabulary — a mis-routed key must not
    * grow a server row.
+   *
+   * `user_read_position` is a synced table: its writer takes the commit's write
+   * scope, so it only runs inside the `Ledger.commit` that appends the row's
+   * change entry (ADR 12 D9, POD-6594).
    */
   async advance(
+    _scope: WriteScope,
     userId: UserId,
     streamId: string,
     proposed: StoredReadPosition,

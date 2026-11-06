@@ -8,6 +8,7 @@
  */
 
 import { asUserId, firstAdminMemberId, type UserId } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { stageASeam } from '../test-support/stage-a-seam'
@@ -26,8 +27,20 @@ beforeEach(() => {
 
 describe('UserReadPositionRepository', () => {
   it('two people reading one stream hold two independent positions', async () => {
-    await cursors.advance(ALICE, 'issueEvents', { lastEventId: 90, seenAt: AT }, AT)
-    await cursors.advance(BOB, 'issueEvents', { lastEventId: 4, seenAt: null }, AT)
+    await cursors.advance(
+      fixtureWriteScope(),
+      ALICE,
+      'issueEvents',
+      { lastEventId: 90, seenAt: AT },
+      AT,
+    )
+    await cursors.advance(
+      fixtureWriteScope(),
+      BOB,
+      'issueEvents',
+      { lastEventId: 4, seenAt: null },
+      AT,
+    )
 
     expect(await cursors.get(ALICE, 'issueEvents')).toEqual({ lastEventId: 90, seenAt: AT })
     expect(await cursors.get(BOB, 'issueEvents')).toEqual({ lastEventId: 4, seenAt: null })
@@ -40,10 +53,22 @@ describe('UserReadPositionRepository', () => {
   })
 
   it("one person's advance never moves another's position", async () => {
-    await cursors.advance(BOB, 'issueEvents', { lastEventId: 4, seenAt: null }, AT)
+    await cursors.advance(
+      fixtureWriteScope(),
+      BOB,
+      'issueEvents',
+      { lastEventId: 4, seenAt: null },
+      AT,
+    )
     // Alice reads far ahead of Bob. If the row were keyed by the feed alone,
     // Bob's position would follow hers and his unread events would vanish.
-    await cursors.advance(ALICE, 'issueEvents', { lastEventId: 1_000, seenAt: null }, AT)
+    await cursors.advance(
+      fixtureWriteScope(),
+      ALICE,
+      'issueEvents',
+      { lastEventId: 1_000, seenAt: null },
+      AT,
+    )
 
     expect((await cursors.get(BOB, 'issueEvents'))?.lastEventId).toBe(4)
     expect((await cursors.get(ALICE, 'issueEvents'))?.lastEventId).toBe(1_000)
@@ -56,28 +81,64 @@ describe('UserReadPositionRepository', () => {
 
   it('advance is monotonic: a stale proposal is a no-op, not a rewind', async () => {
     expect(
-      await cursors.advance(ALICE, 'issueEvents', { lastEventId: 50, seenAt: AT }, AT),
+      await cursors.advance(
+        fixtureWriteScope(),
+        ALICE,
+        'issueEvents',
+        { lastEventId: 50, seenAt: AT },
+        AT,
+      ),
     ).toEqual({
       lastEventId: 50,
       seenAt: AT,
     })
     // A second device that wrote before its hydration landed.
     expect(
-      await cursors.advance(ALICE, 'issueEvents', { lastEventId: 20, seenAt: 'later' }, AT),
+      await cursors.advance(
+        fixtureWriteScope(),
+        ALICE,
+        'issueEvents',
+        { lastEventId: 20, seenAt: 'later' },
+        AT,
+      ),
     ).toBeNull()
     expect(await cursors.get(ALICE, 'issueEvents')).toEqual({ lastEventId: 50, seenAt: AT })
     // Equal is also a no-op: re-proposing the same position is not a change.
     expect(
-      await cursors.advance(ALICE, 'issueEvents', { lastEventId: 50, seenAt: 'x' }, AT),
+      await cursors.advance(
+        fixtureWriteScope(),
+        ALICE,
+        'issueEvents',
+        { lastEventId: 50, seenAt: 'x' },
+        AT,
+      ),
     ).toBeNull()
     expect((await cursors.get(ALICE, 'issueEvents'))?.seenAt).toBe(AT)
   })
 
   it('a stale proposal from one person cannot rewind — and cannot touch the other', async () => {
-    await cursors.advance(ALICE, 'issueEvents', { lastEventId: 50, seenAt: null }, AT)
-    await cursors.advance(BOB, 'issueEvents', { lastEventId: 60, seenAt: null }, AT)
+    await cursors.advance(
+      fixtureWriteScope(),
+      ALICE,
+      'issueEvents',
+      { lastEventId: 50, seenAt: null },
+      AT,
+    )
+    await cursors.advance(
+      fixtureWriteScope(),
+      BOB,
+      'issueEvents',
+      { lastEventId: 60, seenAt: null },
+      AT,
+    )
     expect(
-      await cursors.advance(ALICE, 'issueEvents', { lastEventId: 10, seenAt: null }, AT),
+      await cursors.advance(
+        fixtureWriteScope(),
+        ALICE,
+        'issueEvents',
+        { lastEventId: 10, seenAt: null },
+        AT,
+      ),
     ).toBeNull()
 
     expect((await cursors.get(ALICE, 'issueEvents'))?.lastEventId).toBe(50)
@@ -85,13 +146,28 @@ describe('UserReadPositionRepository', () => {
   })
 
   it('refuses a stream outside the closed vocabulary', async () => {
-    await expect(cursors.advance(ALICE, 'notAStream', { lastEventId: 1, seenAt: null }, AT),
+    await expect(
+      cursors.advance(
+        fixtureWriteScope(),
+        ALICE,
+        'notAStream',
+        { lastEventId: 1, seenAt: null },
+        AT,
+      ),
     ).rejects.toThrow(/not a known event stream/)
     expect(await cursors.getSnapshot(ALICE)).toEqual({})
   })
 
   it('a first advance for a person who has never read stores the proposal verbatim', async () => {
-    expect(await cursors.advance(BOB, 'issueEvents', { lastEventId: 1, seenAt: AT }, AT)).toEqual({
+    expect(
+      await cursors.advance(
+        fixtureWriteScope(),
+        BOB,
+        'issueEvents',
+        { lastEventId: 1, seenAt: AT },
+        AT,
+      ),
+    ).toEqual({
       lastEventId: 1,
       seenAt: AT,
     })

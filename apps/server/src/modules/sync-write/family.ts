@@ -55,6 +55,12 @@ export interface SyncFamilyState {
   /** The caller's out-of-scope confirmation, as the target check saw it. */
   readonly confirmed: boolean
   /**
+   * The command's own writer, bound to its `sync` write scope
+   * (`SyncWriteContext.ledger`, ADR 12 D9). A family's service writes through
+   * this, per call, never through a writer of its own.
+   */
+  readonly writer: SyncWriteContext['ledger']
+  /**
    * The unit of work's `afterCommit` (`SyncWriteContext.afterCommit`): work
    * outside the database (a delivery to a daemon) runs once the write has
    * committed, never on a rollback, and outside the write's provenance.
@@ -65,7 +71,7 @@ export interface SyncFamilyState {
 }
 
 /** The parts of a write's context the per-call state carries. */
-type WriteContextPart = Pick<SyncWriteContext, 'principal' | 'confirmed' | 'afterCommit'>
+type WriteContextPart = Pick<SyncWriteContext, 'principal' | 'confirmed' | 'afterCommit' | 'ledger'>
 
 /**
  * The bundle for one call. The principal has a human behind it: every sync
@@ -91,6 +97,7 @@ export function syncFamilyState(
     },
     principal,
     confirmed: ctx.confirmed,
+    writer: ctx.ledger,
     afterCommit: (step, label) => ctx.afterCommit(step, label),
     roleOf,
   }

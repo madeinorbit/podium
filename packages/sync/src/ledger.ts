@@ -197,7 +197,13 @@ export class AuthorityArbitrationRejected extends Error {
  * decision in the type instead of an omission nobody notices.
  */
 export interface LedgerCommitOp<T> {
-  write: () => Promise<T>
+  /**
+   * The durable write. It receives the commit's {@link WriteScope}, which the
+   * mutating methods of a synced table's repository require (ADR 12 D9,
+   * POD-6594): a synced table is written only here, inside the commit that
+   * appends its change entry, never beside it.
+   */
+  write: (scope: WriteScope) => Promise<T>
   changes: (result: T) => EntityChangeSpec[] | Promise<EntityChangeSpec[]>
   /** Post-commit work, run on the OUTERMOST commit. See {@link Ledger.commit}. */
   apply?: (result: T, changes: MetadataChange[]) => void
@@ -211,9 +217,9 @@ export interface LedgerCommitResult<T> {
 }
 
 /** {@link Ledger.commit}, {@link Ledger.capture} and {@link Ledger.reconcile}
- *  bound to one {@link WriteScope} ({@link Ledger.writer}). */
+ *  bound to one {@link WriteScope} ({@link Ledger.writer}). The scope itself is
+ *  not exposed: code holds it only inside a commit's `write`. */
 export interface LedgerWriter {
-  readonly scope: WriteScope
   commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>>
   capture(specs: EntityChangeSpec[]): Promise<MetadataChange[]>
   reconcile(
@@ -353,7 +359,7 @@ export class Ledger {
     this.scopes.check(scope)
     const outcome = await this.authority.commit({
       ...(op.arbitrate === undefined ? {} : { arbitrate: op.arbitrate }),
-      write: op.write,
+      write: async () => await op.write(scope),
       changes: async (result: T) => (await op.changes(result)).map(toKernelSpec),
     })
     if (outcome.outcome !== 'committed') {
@@ -416,7 +422,6 @@ export class Ledger {
   writer(scope: WriteScope): LedgerWriter {
     this.scopes.check(scope)
     return {
-      scope,
       commit: async (op) => await this.commit(scope, op),
       capture: async (specs) => await this.capture(scope, specs),
       reconcile: async (entity, rows) => await this.reconcile(scope, entity, rows),

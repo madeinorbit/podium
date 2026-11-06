@@ -12,11 +12,13 @@ import { readPositionAdvanceContract } from '@podium/commands'
 import type { UserId } from '@podium/model'
 import type { z } from 'zod'
 import { humanWithRoleFloor, type SyncFamily, type SyncFamilyState } from '../sync-write/family'
-import type { ReadPositionService } from './service'
+import type { ReadPositionCommandWriter, ReadPositionService } from './service'
 
 /** The caller's own cursors: whose, and the service that moves them. */
 export interface ReadPositionWriter {
   readonly actor: UserId
+  /** The command's own writer (ADR 12 D9). */
+  readonly writer: ReadPositionCommandWriter
   readonly positions: Pick<ReadPositionService, 'advance'>
 }
 
@@ -27,6 +29,7 @@ export const READ_POSITION_COMMANDS = {
     contract: readPositionAdvanceContract,
     handler: async (svc: ReadPositionWriter, input: AdvanceInput) =>
       await svc.positions.advance(
+        svc.writer,
         svc.actor,
         input.streamId,
         { lastEventId: input.lastEventId, seenAt: input.seenAt ?? null },
@@ -42,6 +45,7 @@ export const READ_POSITION_SYNC_FAMILY: SyncFamily<
   family: 'readPosition',
   service: (state: SyncFamilyState) => ({
     actor: state.caller.userId,
+    writer: state.writer,
     positions: state.modules.readPosition,
   }),
   commands: READ_POSITION_COMMANDS,

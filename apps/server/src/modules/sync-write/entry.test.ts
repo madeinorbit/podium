@@ -20,6 +20,7 @@ import {
 } from '@podium/model'
 import type { SyncSubmitInput, SyncSubmitReply } from '@podium/protocol'
 import { DEVICE_GRADE_PRINCIPAL, Ledger, MutationLedger } from '@podium/sync'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { type CommandPrincipal, userCommandPrincipal } from '../../command-principal'
@@ -116,13 +117,18 @@ function registerPut(
     handle: async (ctx, input) => {
       if (opts.runs) opts.runs.count += 1
       await opts.gate?.(input)
-      await h.store.layout.set(
-        h.adminId,
-        `sidebar.section.${input.id}`,
-        input.note,
-        '2026-11-04T00:00:00.000Z',
-      )
-      await ctx.ledger.capture([conversation(input.id, input.note)])
+      // The data row and its change entry, in one commit on the command's writer.
+      await ctx.ledger.commit({
+        write: async (scope) =>
+          await h.store.layout.set(
+            scope,
+            h.adminId,
+            `sidebar.section.${input.id}`,
+            input.note,
+            '2026-11-04T00:00:00.000Z',
+          ),
+        changes: () => [conversation(input.id, input.note)],
+      })
       await opts.after?.(ctx, input)
       return { stored: input.id }
     },
@@ -605,8 +611,10 @@ describe('sync write entry point: what an old route adapter needs (POD-6350)', (
       },
       rolledBack: async (_ctx, input, error) => {
         heard.push({ error, spanOpen: spanOpen(), note: input.note })
-        // Outside the rolled-back unit: this write stays.
+        // Outside the rolled-back unit: this write stays. A trail row below the
+        // write path, so it takes a fixture scope.
         await h.store.layout.set(
+          fixtureWriteScope(),
           h.adminId,
           'sidebar.section.trail',
           input.note,

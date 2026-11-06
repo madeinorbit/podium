@@ -3690,7 +3690,10 @@ export class SessionRegistry {
     })
     // Layout service is composed here (not reached from tRPC via sessionStore) so
     // the transport only names familyState(ctx).modules.layout — router-triple-access.
-    const layout = new LayoutService({ layout: this.store.layout, ledger: writes.system('layout') })
+    const layout = new LayoutService({
+      layout: this.store.layout,
+      boot: writes.system('boot.reconcile'),
+    })
     // THE SYNC WRITE ENTRY POINT (ADR 12 D2, POD-6273), over the one dedup ledger,
     // the one write-seam Ledger and the store's unit of work. It starts with no
     // registrations: the outbox commands move onto it in POD-6350, the rest in
@@ -3751,7 +3754,6 @@ export class SessionRegistry {
     // Same composition seam for the read-cursor family (POD-1380).
     const readPosition = new ReadPositionService({
       cursors: this.store.readPositions,
-      ledger: writes.system('readPosition'),
     })
     // Server-owned dock-shell mapping (POD-4436): per user, per worktree →
     // shell session, so the same dock shell opens on every device. Its write

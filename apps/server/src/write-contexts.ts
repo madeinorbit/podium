@@ -58,7 +58,7 @@ const UNTIL_CONTEXT_PER_CALL = { removeAfter: '2027-03', owner: 'POD-6594' } as 
 
 export const SYSTEM_WRITE_ORIGINS = {
   'boot.reconcile': {
-    what: 'boot truth for kinds whose rows can change while the server is down (machines, the order plane)',
+    what: 'boot truth for kinds whose rows can change while the server is down (machines, the order plane, layout)',
     kind: 'server',
   },
   'machines.projection': {
@@ -103,16 +103,6 @@ export const SYSTEM_WRITE_ORIGINS = {
   },
   shipping: {
     what: 'the order plane: ship commands and the lanes that drive them',
-    kind: 'client',
-    legacy: UNTIL_CONTEXT_PER_CALL,
-  },
-  layout: {
-    what: "a user's layout: layout commands and the boot reconcile",
-    kind: 'client',
-    legacy: UNTIL_CONTEXT_PER_CALL,
-  },
-  readPosition: {
-    what: "a user's read marks",
     kind: 'client',
     legacy: UNTIL_CONTEXT_PER_CALL,
   },
@@ -173,7 +163,6 @@ export class WriteContexts {
     }
     return {
       origin,
-      scope: writer.scope,
       commit: async (op) => {
         guard()
         return await writer.commit(op)

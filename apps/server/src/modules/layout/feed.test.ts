@@ -23,9 +23,9 @@ import {
   NoDelegationsGranted,
   type VisibilityStatePort,
 } from '@podium/sync'
+import { fixtureCommitWriter, installedWorldOver } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import { LayoutService } from './service'
-import { installedWorldOver } from '@podium/sync/testing'
 
 const ALICE: UserId = asUserId('user:alice')
 const BOB: UserId = asUserId('user:bob')
@@ -98,13 +98,18 @@ function memoryLayoutRepo() {
       }
       m.set(key, value)
     },
-    setMany(userId: UserId, values: Record<string, unknown>, updatedAt: string): void {
+    setMany(
+      _scope: unknown,
+      userId: UserId,
+      values: Record<string, unknown>,
+      updatedAt: string,
+    ): void {
       for (const [k, v] of Object.entries(values)) this.set(userId, k, v, updatedAt)
     },
     clear(userId: UserId, key: string): void {
       byUser.get(userId)?.delete(key)
     },
-    clearMany(userId: UserId, keys: readonly string[]): void {
+    clearMany(_scope: unknown, userId: UserId, keys: readonly string[]): void {
       for (const k of keys) this.clear(userId, k)
     },
   }
@@ -133,31 +138,31 @@ function build() {
   const repo = memoryLayoutRepo()
   const service = new LayoutService({
     layout: repo as never,
-    ledger: {
+    boot: {
       reconcile: async (entity, rows) => {
         await authority.reconcile(entity, rows)
         return []
       },
-      capture: async (specs) => {
-        await authority.capture(
-          specs.map((s) => ({
-            entity: s.entity,
-            entityId: s.id,
-            op: s.op,
-            ...(s.value !== undefined ? { value: s.value } : {}),
-          })),
-        )
-        return [] as never
-      },
     },
   })
-  return { authority, service, repo }
+  // The command's writer: each commit's changes go onto the kernel feed.
+  const writer = fixtureCommitWriter(async (specs) => {
+    await authority.capture(
+      specs.map((s) => ({
+        entity: s.entity,
+        entityId: s.id,
+        op: s.op,
+        ...(s.value !== undefined ? { value: s.value } : {}),
+      })),
+    )
+  })
+  return { authority, service, repo, writer }
 }
 
 describe('layout rows scope to the owning user on the Authority feed', () => {
   it('Alice write is on Alice bootstrap; Bob bootstrap is empty; row exists', async () => {
-    const { authority, service, repo } = build()
-    await service.set(ALICE, { dockTab: 'files', superOpen: true }, 't')
+    const { authority, service, repo, writer } = build()
+    await service.set(writer, ALICE, { dockTab: 'files', superOpen: true }, 't')
 
     // Positive control: durable storage holds the row for Alice.
     expect(repo.getSnapshot(ALICE)).toEqual({ dockTab: 'files', superOpen: true })
@@ -183,10 +188,10 @@ describe('layout rows scope to the owning user on the Authority feed', () => {
   })
 
   it('a later write is visible on Alice changesSince; Bob receives no layout delta', async () => {
-    const { authority, service } = build()
-    await service.set(ALICE, { dockTab: 'chat' }, 't1')
+    const { authority, service, writer } = build()
+    await service.set(writer, ALICE, { dockTab: 'chat' }, 't1')
     const before = await authority.cursor()
-    await service.set(ALICE, { dockTab: 'files' }, 't2')
+    await service.set(writer, ALICE, { dockTab: 'files' }, 't2')
 
     const delivery = await authority.changesSince(before, humanPrincipal(ALICE))
     expect(delivery?.kind).toBe('batch')

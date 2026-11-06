@@ -1109,6 +1109,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'opaque',
     why: "the commit's own changes body — the twin of `AuthorityCommit.write` above and of `Ledger.changes` below. It is a SPAN ROOT in its own right: `Authority.commit` is declared with `{ props: ['write', 'changes'] }`, so wherever the object literal is written down both bodies are analysed as roots of their own.",
   },
+  'packages/sync/src/ledger.ts#LedgerCommitOp.write': {
+    kind: 'opaque',
+    why: "the commit's own write body, now called by `Ledger.commit` with its write scope (`write: () => op.write(scope)`, POD-6594) rather than handed on as is. It is a SPAN ROOT in its own right: `Ledger.commit` is declared with `{ props: ['write', 'changes'] }`, so wherever the object literal is written down its body is analysed there, the twin of `AuthorityCommit.write`.",
+  },
   'packages/sync/src/ledger.ts#Ledger.changes': {
     kind: 'opaque',
     why: "the commit's own changes body; it is a SPAN ROOT in its own right",

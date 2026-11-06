@@ -8,6 +8,7 @@
 
 import { firstAdminMemberId, layoutRowId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { SessionStore } from '../../store'
 import { disposeOracles, makeOracle } from '../sessions/oracle-support'
 import {
   appliedReply,
@@ -58,8 +59,10 @@ describe('layout on sync.submit', () => {
 
   it('a failed change append leaves neither the row nor the change entry', async () => {
     const o = await makeOracle()
+    // The append itself fails: the row is written in the same commit, so it
+    // goes with it.
     const capture = vi
-      .spyOn(o.reg.changeLedger, 'capture')
+      .spyOn(o.store.sync, 'appendChanges')
       .mockRejectedValueOnce(new Error('append failed'))
 
     await expect(
@@ -77,6 +80,44 @@ describe('layout on sync.submit', () => {
         await submit(o, envelope('layout.set', { values: { dockTab: 'files' } }, 'm-layout-fail')),
       ).replayed,
     ).toBe(false)
+  })
+})
+
+describe('layout and read marks are written only inside their commit (ADR 12 D9)', () => {
+  it('a store writer without the commit scope does not typecheck', () => {
+    const typeOnly = async (store: SessionStore) => {
+      // @ts-expect-error a layout row is written with its commit's scope
+      await store.layout.setMany(ME, { dockTab: 'files' }, 'now')
+      // @ts-expect-error a cleared key too
+      await store.layout.clearMany(ME, ['dockTab'])
+      // @ts-expect-error a read mark too
+      await store.readPositions.advance(ME, 'issueEvents', { lastEventId: 1, seenAt: null }, 'now')
+    }
+    void typeOnly
+  })
+
+  it('a read mark on sync.submit carries the command on its row', async () => {
+    const o = await makeOracle()
+    const { rows } = await expectAppliedOnPath(
+      o,
+      envelope('readPosition.advance', { streamId: 'issueEvents', lastEventId: 1 }, 'm-read'),
+      { writes: true },
+    )
+    expect(rows.map((row) => [row.entity, row.mutationId])).toEqual([
+      ['userReadPosition', 'm-read'],
+    ])
+  })
+
+  it('a read mark at or behind the stored one appends nothing', async () => {
+    const o = await makeOracle()
+    appliedReply(
+      await submit(o, envelope('readPosition.advance', { streamId: 'issueEvents', lastEventId: 2 }, 'm-r1')),
+    )
+    const before = (await changeRows(o)).length
+    appliedReply(
+      await submit(o, envelope('readPosition.advance', { streamId: 'issueEvents', lastEventId: 1 }, 'm-r2')),
+    )
+    expect((await changeRows(o)).length).toBe(before)
   })
 })
 
