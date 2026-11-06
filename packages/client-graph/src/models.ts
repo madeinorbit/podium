@@ -18,6 +18,7 @@ import {
   ISSUE_START_KIND,
   ISSUE_WORK_KINDS,
   SESSION_CONFIGURE_KIND,
+  SESSION_HANDOFF_KIND,
   SESSION_LAUNCH_KIND,
 } from '@podium/client-core/spawn-agent'
 import { asSessionId, type CoordinatedSeat, coordinatedSeat, sessionWorkingFact, isExcluded, isFinished, NO_INTERACTIONS, type SeatInteractions, type SeatRole, type SeatSessionFacts, type SessionWord, type SessionWordFacts, sessionWord, wordWantsAttention } from '@podium/model/browser'
@@ -911,6 +912,26 @@ export class SessionModel extends EntityModel {
       if (latest === undefined || effect.createdAt > latest.createdAt) latest = effect
     }
     return latest
+  }
+
+  /** The move to another machine asked for most recently on this session, as
+   *  its effect record (POD-6422): where it goes while it waits, the new
+   *  working directory or why it did not move once it ends. */
+  @lazy get handoff(): EffectModel | undefined {
+    let latest: EffectModel | undefined
+    for (const effect of this.effects.ready) {
+      if (effect.kind !== SESSION_HANDOFF_KIND) continue
+      if (latest === undefined || effect.createdAt > latest.createdAt) latest = effect
+    }
+    return latest
+  }
+  /** The machine a move still on its way is taking this session to: from the
+   *  press, before the server paints its own overlay (`handoffTarget`). */
+  @lazy get handingOffTo(): string | undefined {
+    const move = this.handoff
+    if (move?.inFlight !== true) return undefined
+    const machineId = (move.input as { machineId?: unknown } | null | undefined)?.machineId
+    return typeof machineId === 'string' ? machineId : undefined
   }
 
   // Stored session document, published by Draft Sync v2 rather than the meta feed.

@@ -461,6 +461,13 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
     sessionId: SessionId,
     patch: { model?: string; effort?: string },
   ) => Promise<string>
+  /**
+   * Move a session to another machine (POD-6422): a `session.handoff` effect
+   * record. Resolves once it is durably queued, with its id; the session model
+   * reads its progress (`handoff`, `handingOffTo`) from the record, on every
+   * device, and the caller that says how it ended waits for it (`awaitEffect`).
+   */
+  handoffSession: (sessionId: SessionId, machineId: MachineId) => Promise<string>
   /** Take an ended effect record off the feed (`effects.dismiss`). */
   dismissEffect: (id: string) => Promise<void>
   /**

@@ -199,3 +199,31 @@ it("an issue's own work is its latest issue action record, pending while it runs
     f.dispose()
   }
 })
+
+it("a move is the session's latest session.handoff record, naming its machine while it runs (POD-6422)", () => {
+  const move = (id: string, status: string, createdAt = stamp) => ({
+    ...effect(id, status, { kind: 'session.handoff', createdAt }),
+    input: { machineId: 'laptop' },
+  })
+  const f = fixture([move('eff_before', 'failed')])
+  try {
+    const seat = requireHere(f.pool.model('session', 'seat')) as SessionModel
+    expect(seat.handoff?.id).toBe('eff_before')
+    // An ended move names nothing: the session stays where it is.
+    expect(seat.handingOffTo).toBeUndefined()
+
+    const seen: (string | undefined)[] = []
+    const stop = autorun(() => seen.push(seat.handingOffTo))
+    f.publish('eff_move', move('eff_move', 'pending', later))
+    expect(seat.handoff?.id).toBe('eff_move')
+    expect(seat.handingOffTo).toBe('laptop')
+    f.publish('eff_move', move('eff_move', 'running', later))
+    f.publish('eff_move', move('eff_move', 'succeeded', later))
+    expect(seat.handingOffTo).toBeUndefined()
+    stop()
+    // Pending and running are one answer: one redraw for each change.
+    expect(seen).toEqual([undefined, 'laptop', undefined])
+  } finally {
+    f.dispose()
+  }
+})

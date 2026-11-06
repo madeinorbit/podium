@@ -18,9 +18,11 @@ import { createPoolWorkActions } from '@/features/worklist/use-pool-unified-work
 import { makeIssue } from './test-issue'
 import { PoolSessionContextMenu } from './PoolSessionContextMenu'
 
-const f = vi.hoisted(() => ({ pool: null as Pool | null, handoff: vi.fn(async () => ({})) }))
+// The move's record never reaches this fixture's pool, so the action stays
+// queued: how a move ends is the hook's own test (`session-handoff.test.tsx`).
+const f = vi.hoisted(() => ({ pool: null as Pool | null, handoff: vi.fn(() => new Promise<string>(() => {})) }))
 vi.mock('@podium/client-core/react', () => {
-  const owner = { access: { trpc: { sessions: { handoff: { mutate: f.handoff } } } } }
+  const owner = { access: { handoffSession: f.handoff } }
   return { useStoreHandle: () => owner }
 })
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => true }))
@@ -151,7 +153,7 @@ it('measures opened menu and handoff inputs at 1x and 4x hidden data', async () 
       await probe('sender-heartbeat', () => pool.apply({ type: 'update', rows: [{ kind: 'session', id: sessionId,
         value: { ...before, lastActiveAt: '2026-10-06T12:01:00Z' } }] }))
       fireEvent.click(within(targetMenu).getByRole('menuitem', { name: 'other-target' }))
-      expect(f.handoff).toHaveBeenLastCalledWith({ sessionId, machineId: asMachineId('other-target') })
+      expect(f.handoff).toHaveBeenLastCalledWith(sessionId, asMachineId('other-target'))
       report.push({ kind, scale, shownCandidates: 2, windows })
       cleanup()
       f.pool = null

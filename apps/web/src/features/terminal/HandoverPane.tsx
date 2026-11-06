@@ -45,8 +45,13 @@ export type HandoverView = {
  * once (its error toast does the explaining) and only a real arrival earns the
  * arrival beat.
  */
-export function useHandoverView(session: SessionView | undefined): HandoverView | null {
-  const target = session?.handoffTarget
+export function useHandoverView(
+  session: SessionView | undefined,
+  /** The machine a `session.handoff` record still on its way names (POD-6422):
+   *  the move shows from the press, until the server's overlay takes over. */
+  requested?: string,
+): HandoverView | null {
+  const target = session?.handoffTarget ?? requested
   const [view, setView] = useState<HandoverView | null>(null)
   // Read through refs: the effect must fire on the TRANSITIONS of handoffTarget
   // only, and sample the machine name at that instant (both change in the same

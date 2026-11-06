@@ -25,6 +25,6 @@ test('Handoff flyout lists and invokes an eligible target machine', async ({ pag
   await target.click()
   await expect(menu).toBeHidden()
   // Keyecho deliberately has no native resume ref; reaching this server error proves
-  // the real menu click invoked sessions.handoff instead of being a decorative flyout.
+  // the real menu click created a session.handoff record (POD-6422) instead of being a decorative flyout.
   await expect(page.locator('[data-sonner-toast]')).toContainText('session has no resume reference')
 })

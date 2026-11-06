@@ -31,7 +31,8 @@ const state: IssueMenuPoolInputs = {
   machines: [],
   sessions: [],
 }
-const handoffMutate = vi.fn(async () => ({ ok: true }))
+// A move is a `session.handoff` effect record (POD-6422): the action answers its id.
+const handoffSession = vi.fn(async () => 'eff_handoff')
 const markIssueRead = vi.fn(async () => {})
 const markIssueUnread = vi.fn(async () => {})
 
@@ -39,7 +40,7 @@ vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
   useStoreHandle: () => ({
     access: {
-      trpc: { sessions: { handoff: { mutate: handoffMutate } } },
+      handoffSession,
       markIssueRead,
       markIssueUnread,
       get sessions() {
@@ -140,7 +141,7 @@ const handoffItem = (): HTMLElement => screen.getByRole('menuitem', { name: /Han
 
 afterEach(() => {
   cleanup()
-  handoffMutate.mockClear()
+  handoffSession.mockClear()
   markIssueRead.mockClear()
   markIssueUnread.mockClear()
   featureEnabled.value = true
@@ -303,7 +304,7 @@ describe('IssueContextMenu handoff (POD-850)', () => {
     )
     fireEvent.click(handoffItem())
     fireEvent.click(screen.getByRole('menuitem', { name: LUD }))
-    expect(handoffMutate).toHaveBeenCalledWith({ sessionId: asSessionId('agent'), machineId: LUD })
+    expect(handoffSession).toHaveBeenCalledWith(asSessionId('agent'), LUD)
   })
 
   it('POD-779 shape: still shows Handoff with the reason when the agent drifted off its worktree', () => {

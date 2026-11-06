@@ -55,6 +55,7 @@ import {
   type StartIssueSession,
   sessionAnswerEffect,
   sessionConfigureEffect,
+  sessionHandoffEffect,
   type TaskSpawnOutcome,
 } from '../spawn-agent'
 import type { Router } from '../ui-state'
@@ -187,6 +188,7 @@ export const COMMAND_ACTIONS = [
   'endSession',
   'interruptTurn',
   'configureSession',
+  'handoffSession',
   'dismissEffect',
   'startIssueSession',
   'issueAction',
@@ -1193,6 +1195,14 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     configureSession: async (sessionId, patch) => {
       const id = `eff_${randomUUID()}`
       await rt.write('effectCreate', sessionConfigureEffect({ effectId: id, sessionId, ...patch }))
+      return id
+    },
+    // A move to another machine (POD-6422): a `session.handoff` effect record.
+    // The session's pane paints the move from the record until the server's own
+    // overlay takes over (`SessionModel.handingOffTo`).
+    handoffSession: async (sessionId, machineId) => {
+      const id = `eff_${randomUUID()}`
+      await rt.write('effectCreate', sessionHandoffEffect({ effectId: id, sessionId, machineId }))
       return id
     },
     dismissEffect: async (id) => await rt.write('effectDismiss', { id }),

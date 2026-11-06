@@ -27,7 +27,6 @@ import {
 } from 'lucide-react'
 import { type JSX, useCallback, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { toast } from 'sonner'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
@@ -52,6 +51,7 @@ import {
   handoffRejectionText,
   sessionMenuEligibility,
 } from './session-context-menu'
+import { useSessionHandoff } from './session-handoff'
 import { useCursorMenu } from './use-cursor-menu'
 import { sessionDisplayName } from './WorkerLabel'
 
@@ -91,8 +91,8 @@ export function SessionContextMenu({
     startBtw,
     markSessionRead,
     markSessionUnread,
-    trpc,
   } = owner.access
+  const handoffSession = useSessionHandoff()
   const { repos, machines, issue } = poolInputs
   const { guardedDelete, guardedEnd, guardedArchive } = useSessionGuard(undefined, undefined, [
     session,
@@ -128,15 +128,10 @@ export function SessionContextMenu({
   // the operator who is looking somewhere else: it names WHICH session landed
   // WHERE, and a failure names the target it never reached (the server rolls the
   // session back to where it was).
+  // A `session.handoff` effect record (POD-6422); the hook tells how it ended.
   const handoff = (machineId: MachineId, machineName: string): void => {
     onClose()
-    void trpc.sessions.handoff.mutate({ sessionId: id, machineId }).then(
-      () => toast.success(`${sessionDisplayName(session)} resumed on ${machineName}`),
-      (error: unknown) =>
-        toast.error(
-          `Handover to ${machineName} failed — ${error instanceof Error ? error.message : String(error)}`,
-        ),
-    )
+    handoffSession(id, machineId, { session: sessionDisplayName(session), machine: machineName })
   }
 
   const itemCls = MENU_ITEM

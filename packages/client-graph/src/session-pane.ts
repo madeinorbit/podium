@@ -18,6 +18,17 @@ export function paneMachines(pool: MobxPool): MachineWire[] {
     return row ? [row] : []
   })
 }
+/**
+ * The machine a move still on its way is taking this session to, by name
+ * (POD-6422): from its `session.handoff` record, so the pane shows the move from
+ * the press, before the server paints its own overlay (`handoffTarget`).
+ */
+export function paneHandingOffTo(pool: MobxPool, id: string): string | undefined {
+  const machineId = pool.sessionObject(id).handingOffTo
+  if (machineId === undefined) return undefined
+  const machine = here(pool.row('machine', machineId)) as MachineWire | undefined
+  return machine?.name || machineId
+}
 export function paneHasSessions(pool: MobxPool): boolean {
   return pool.queries.count('session') > 0
 }

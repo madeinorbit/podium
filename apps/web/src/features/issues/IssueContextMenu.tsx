@@ -1,4 +1,3 @@
-import { issueWrites } from '@podium/commands/issues-synced'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import {
@@ -8,6 +7,7 @@ import {
 } from '@podium/client-core/values'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import { missionView, readMissionHandoffTargets } from '@podium/client-graph/mission-view'
+import { issueWrites } from '@podium/commands/issues-synced'
 import {
   asIssueId,
   DEFER_NEXT_MESSAGE,
@@ -49,6 +49,7 @@ import {
   handoffRejectionText,
   issueHandoffBlockerText,
 } from '@/lib/session-context-menu'
+import { useSessionHandoff } from '@/lib/session-handoff'
 import { useCursorMenu } from '@/lib/use-cursor-menu'
 import { useFeature } from '@/lib/use-feature'
 import { sessionDisplayName } from '@/lib/WorkerLabel'
@@ -161,6 +162,7 @@ export const IssueContextMenu = observer(function IssueContextMenu({
     restoreIssue,
     startIssueSession,
   } = useStoreHandle<Trpc>().access
+  const handOff = useSessionHandoff()
   const readSettings = useCallback(() => trpc.settings.get.query(), [trpc])
   const settingsRequest = useSettingsRecord(readSettings)
   const { sessions, repos, machines } = poolInputs
@@ -268,16 +270,14 @@ export const IssueContextMenu = observer(function IssueContextMenu({
     onClose()
   }
 
+  // A `session.handoff` effect record (POD-6422); the hook tells how it ended.
   const handoffTo = (machineId: MachineId, machineName: string): void => {
     if (!handoffSession) return
     onClose()
-    void trpc.sessions.handoff.mutate({ sessionId: handoffSession.sessionId, machineId }).then(
-      () => toast.success(`${sessionDisplayName(handoffSession)} resumed on ${machineName}`),
-      (error: unknown) =>
-        toast.error(
-          `Handover to ${machineName} failed — ${error instanceof Error ? error.message : String(error)}`,
-        ),
-    )
+    handOff(handoffSession.sessionId, machineId, {
+      session: sessionDisplayName(handoffSession),
+      machine: machineName,
+    })
   }
 
   // Every one of these is optimistic + outboxed (POD-781). The menu serves the

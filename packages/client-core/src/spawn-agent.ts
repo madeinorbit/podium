@@ -245,6 +245,29 @@ export function sessionConfigureEffect(args: {
   }
 }
 
+/** The effect kind moving a session to another machine is (POD-6422). */
+export const SESSION_HANDOFF_KIND = 'session.handoff'
+
+/**
+ * Moving a session to another machine as a `session.handoff` effect record
+ * (POD-6422): the session is the target, the machine it moves to the input.
+ * The server runs the move once, after commit; the record carries the session's
+ * new working directory (`{ ok, newCwd }`) or why it did not move. A record that
+ * waits too long (2 minutes) expires unrun: a move is never replayed late.
+ */
+export function sessionHandoffEffect(args: {
+  effectId: string
+  sessionId: SessionId
+  machineId: MachineId
+}): EffectCreateInput {
+  return {
+    id: args.effectId,
+    kind: SESSION_HANDOFF_KIND,
+    target: { kind: 'session', id: args.sessionId },
+    input: { machineId: args.machineId },
+  }
+}
+
 /** The effect kind filing a task with its first agent is (POD-6410). */
 export const ISSUE_START_KIND = 'issue.start'
 

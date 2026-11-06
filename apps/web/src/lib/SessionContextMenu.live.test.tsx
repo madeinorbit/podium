@@ -17,7 +17,8 @@ const state: {
   issues: unknown[]
 } = { repos: [], machines: [], issues: [] }
 
-const handoffMutate = vi.fn(async () => ({ ok: true }))
+// A move is a `session.handoff` effect record (POD-6422): the action answers its id.
+const handoffSession = vi.fn(async () => 'eff_handoff')
 
 vi.mock('@podium/client-core/react', () => ({
   useStoreHandle: () => ({
@@ -30,7 +31,7 @@ vi.mock('@podium/client-core/react', () => ({
       startBtw: vi.fn(),
       markSessionRead: vi.fn(),
       markSessionUnread: vi.fn(),
-      trpc: { sessions: { handoff: { mutate: handoffMutate } } },
+      handoffSession,
       get repos() {
         throw new Error('Menu read legacy repositories')
       },
@@ -121,7 +122,7 @@ const handoffItem = (): HTMLElement =>
 
 afterEach(() => {
   cleanup()
-  handoffMutate.mockClear()
+  handoffSession.mockClear()
   featureEnabled.value = true
   state.repos = []
   state.machines = []
@@ -146,7 +147,7 @@ describe('SessionContextMenu handoff (POD-821)', () => {
     open()
     fireEvent.click(handoffItem())
     fireEvent.click(screen.getByRole('menuitem', { name: LUD }))
-    expect(handoffMutate).toHaveBeenCalledWith({ sessionId: asSessionId('s'), machineId: LUD })
+    expect(handoffSession).toHaveBeenCalledWith(asSessionId('s'), LUD)
   })
 
   it('still shows Handoff — with the reason — when the session cannot move at all', () => {
@@ -179,7 +180,7 @@ describe('SessionContextMenu handoff (POD-821)', () => {
     expect(row.textContent).toContain('offline')
     expect((row as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(row)
-    expect(handoffMutate).not.toHaveBeenCalled()
+    expect(handoffSession).not.toHaveBeenCalled()
   })
 
   it('says so when no other machine has the repo', () => {

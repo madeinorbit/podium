@@ -1136,6 +1136,18 @@ describe('real pool row mutations and receipts', () => {
   it('hands the pool-resolved session to the same shared Handoff menu command', async () => {
     features.handoff = true
     await mount((fixture) => {
+      // A move is a `session.handoff` effect record (POD-6422): this server
+      // takes it on the sync write entry point.
+      Object.assign(fixture.api, {
+        sync: {
+          submit: {
+            mutate: (input: Record<string, unknown>) =>
+              new Promise((resolve, reject) =>
+                requests.push({ procedure: 'sync.submit', input, resolve, reject }),
+              ),
+          },
+        },
+      })
       fixture.patch('session', 'synthetic-session-11', {
         machineId: 'source',
         harnessHandoff: true,
@@ -1170,10 +1182,20 @@ describe('real pool row mutations and receipts', () => {
     await menu()
     fireEvent.click(await item('Handoff'))
     fireEvent.click(await item('Synthetic target'))
-    const write = await request('sessions.handoff', 'synthetic-session-11')
-    expect(write.input).toEqual({ sessionId: 'synthetic-session-11', machineId: 'target' })
-    // Handoff retains the shared menu's existing direct command semantics.
-    expect(runtime.outbox.pending()).toHaveLength(0)
+    await waitFor(() =>
+      expect(requests.filter((r) => !r.settled && r.procedure === 'sync.submit')).toHaveLength(1),
+    )
+    const write = requests.find((r) => !r.settled && r.procedure === 'sync.submit')!
+    expect(write.input).toMatchObject({
+      command: 'effects.create',
+      input: {
+        kind: 'session.handoff',
+        target: { kind: 'session', id: 'synthetic-session-11' },
+        input: { machineId: 'target' },
+      },
+    })
+    // The old direct route is not called any more.
+    expect(requests.filter((r) => r.procedure === 'sessions.handoff')).toHaveLength(0)
     await act(async () => write.reject(new Error('Synthetic handoff refusal')))
     await settle()
   })
