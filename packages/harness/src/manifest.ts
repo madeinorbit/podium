@@ -92,7 +92,7 @@ export type DeclaredKeys<T> = {
   // keeps an OPTIONAL `Declared<…>` member counted as declared rather than
   // dropped via its `| undefined`.
   [K in keyof T]-?: Exclude<T[K], undefined> extends Declared<unknown> ? K : never
-  }[keyof T]
+}[keyof T]
 
 // ---------------------------------------------------------------------------
 // Launch (interactive PTY spawn) — the agentLaunchCommand axis.
@@ -649,6 +649,11 @@ export interface HarnessProviderRebind {
 
 export interface HarnessObserveInput {
   cwd: string
+  /** Local PTY ownership, available only while this attachment is live. Never
+   * serialized; the generation changes when the host attachment is replaced. */
+  ownedProcess?: () => { pid: number; generation: object } | undefined
+  /** Effective native state home for this session (e.g. CODEX_HOME). */
+  harnessHome?: string
   /** Daemon-owned shared cadence for transcript and native-state stat polls. */
   statTick?: StatTick
   /**
@@ -781,15 +786,15 @@ export interface HarnessTranscript {
    *  the tailer already reads every file grammar as a stream). */
   storage: 'file' | 'sqlite' | 'stream'
   /** Pure native-record parser selected by this manifest. SQLite-backed
-  *  transcripts declare this unsupported because their adapter maps typed rows
-  *  before applying the storage-neutral slice contract. */
+   *  transcripts declare this unsupported because their adapter maps typed rows
+   *  before applying the storage-neutral slice contract. */
   recordToItems: Declared<TranscriptRecordMapper>
   /** Pure native-record reader for RUNTIME facts — the model, effort and context
-  *  use this harness actually reports. Separate from `recordToItems` because it
-  *  answers a different question about the same record: that one produces the
-  *  conversation, this one produces what the agent is running as. Unsupported ⇒
-  *  no observed model/effort/context for this harness; the transcript still
-  *  reads. */
+   *  use this harness actually reports. Separate from `recordToItems` because it
+   *  answers a different question about the same record: that one produces the
+   *  conversation, this one produces what the agent is running as. Unsupported ⇒
+   *  no observed model/effort/context for this harness; the transcript still
+   *  reads. */
   recordRuntime: Declared<TranscriptRuntimeReader>
   /** Pure native-record reader for the agent identity colour (`/color`).
    *  Unsupported ⇒ no colour is ever observed for this harness; the transcript
@@ -797,18 +802,18 @@ export interface HarnessTranscript {
    *  carries no harness default of its own. */
   recordColor: Declared<TranscriptColorReader>
   /** Ordered oldest→newest JSONL files for a session ('file' storage only;
-  *  unsupported for 'sqlite', which has no files to chain). Every file-based
-  *  harness resolves the SPECIFIC conversation by its resume value — a cwd
-  *  bucket holds many DISTINCT conversations, so globbing the bucket would merge
-  *  unrelated sessions; no resume value ⇒ []. */
+   *  unsupported for 'sqlite', which has no files to chain). Every file-based
+   *  harness resolves the SPECIFIC conversation by its resume value — a cwd
+   *  bucket holds many DISTINCT conversations, so globbing the bucket would merge
+   *  unrelated sessions; no resume value ⇒ []. */
   chainPaths: Declared<(input: TranscriptSourceInput) => Promise<string[]>>
   /** The sqlite address of this session ('sqlite' storage only; unsupported
-  *  for 'file', which chains JSONL instead). A pure locator — the adapter's
-  *  db-path rule resolved for this input — never a source: the Store builds
-  *  the host-only source from it (`transcriptSourceFromGrammar`), so the
-  *  section stays data plus pure functions and the dependency points one way
-  *  (Store → grammar, spec §5). `undefined` when no resume value names a
-  *  session. */
+   *  for 'file', which chains JSONL instead). A pure locator — the adapter's
+   *  db-path rule resolved for this input — never a source: the Store builds
+   *  the host-only source from it (`transcriptSourceFromGrammar`), so the
+   *  section stays data plus pure functions and the dependency points one way
+   *  (Store → grammar, spec §5). `undefined` when no resume value names a
+   *  session. */
   sqliteLocator: Declared<(input: TranscriptSourceInput) => SqliteTranscriptLocator | undefined>
   /**
    * PROOF-ONLY RECORDS for the terminal driver's receipts (POD-4905): items
@@ -879,6 +884,8 @@ export interface InstrumentationDestination {
   homeDir?: string
   /** Effective spawn env, merged when matching the child environment. */
   env?: Readonly<Record<string, string>>
+  /** Version already verified for the exact installation selected for launch. */
+  verifiedVersion?: string
   /** Host telemetry plumbing: report one harness `--version` probe's raw output.
    *  Best-effort observations only, never an admission requirement. */
   reportVersionProbe?: (harness: string, output: string) => void

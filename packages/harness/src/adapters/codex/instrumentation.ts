@@ -12,22 +12,19 @@
  * Adapter — the same reader-takes-grammar shape as the transcript Store
  * (POD-4471).
  */
-import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { mkdir, open, readFile, rename, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { promisify } from 'node:util'
 import { createLogger } from '@podium/logger'
-import {
-  type HarnessInstrumentation,
-  type InstalledInstrumentation,
-  type InstrumentationDestination,
-} from '../../manifest.js'
-import { withStateChannel } from '../../agent-state/types.js'
 import type { AgentStateEvent, ProviderAgentStateEvent } from '../../agent-state/types.js'
+import { withStateChannel } from '../../agent-state/types.js'
+import type {
+  HarnessInstrumentation,
+  InstalledInstrumentation,
+  InstrumentationDestination,
+} from '../../manifest.js'
 import { withEventTime } from '../../observer.js'
-import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '../../version-probe.js'
 import { classifyCodexVerdict } from './state.js'
 
 const log = createLogger('harness:codex-instrumentation')
@@ -78,7 +75,6 @@ export const PODIUM_CODEX_HOOK_COMMAND = `bash -c 'p=$(cat); sid="$PODIUM_SESSIO
 export const PODIUM_CODEX_HOOK_COMMAND_WINDOWS = `if defined ${PODIUM_CODEX_HOOK_URL_ENV} (curl.exe -fsS -m 2 -X POST -H "content-type: application/json" --data-binary @- "%${PODIUM_CODEX_HOOK_URL_ENV}%" >NUL 2>&1) else (more >NUL) & exit /b 0`
 
 const PODIUM_CODEX_HOOK_TIMEOUT_SEC = 5
-const execFileAsync = promisify(execFile)
 
 /**
  * The first Codex whose public hooks.json contract Podium exercised. A FLOOR
@@ -119,15 +115,6 @@ export function parseCodexVersion(output: string): CodexVersion | null {
 export function supportsCodexHooks(version: CodexVersion): boolean {
   if (version.major !== 0) return version.major > 0
   return version.minor >= MINIMUM_CODEX_HOOKS_MINOR
-}
-
-export async function detectCodexVersion(report?: (output: string) => void): Promise<string> {
-  const { stdout, stderr } = await execFileAsync('codex', ['--version'], {
-    timeout: AGENT_VERSION_PROBE_TIMEOUT_MS,
-  })
-  const output = `${stdout}${stderr}`.trim()
-  report?.(output)
-  return output
 }
 
 const CODEX_HOOK_EVENTS = [
@@ -302,7 +289,10 @@ export function parseCodexHookTrustState(configText: string): Map<string, CodexH
     })
   }
   headers.forEach((header, index) => {
-    const bodyEnd = index + 1 < headers.length ? (headers[index + 1]?.start ?? configText.length) : configText.length
+    const bodyEnd =
+      index + 1 < headers.length
+        ? (headers[index + 1]?.start ?? configText.length)
+        : configText.length
     const body = configText.slice(header.bodyStart, bodyEnd)
     const hashMatch = /^\s*trusted_hash\s*=\s*"([^"]*)"/im.exec(body)
     const enabledMatch = /^\s*enabled\s*=\s*(true|false)/im.exec(body)
@@ -349,9 +339,8 @@ export async function ensurePodiumCodexHooks(opts?: {
   homeDir?: string
   codexHome?: string
   versionProbe?: CodexVersionProbe
+  verifiedVersion?: string
   onDegraded?: (diagnostic: CodexHookDiagnostic) => void
-  /** Host telemetry plumbing for the default version probe (best-effort). */
-  reportVersionProbe?: (output: string) => void
 }): Promise<{
   installed: boolean
   changed: boolean
@@ -366,8 +355,11 @@ export async function ensurePodiumCodexHooks(opts?: {
 
   let observedVersion: string
   try {
-    observedVersion = await (opts?.versionProbe ??
-      (() => detectCodexVersion(opts?.reportVersionProbe)))()
+    observedVersion =
+      opts?.verifiedVersion ??
+      (opts?.versionProbe
+        ? await opts.versionProbe()
+        : 'unavailable (selected installation version missing)')
   } catch (error) {
     observedVersion = `unavailable (${error instanceof Error ? error.message : String(error)})`
   }
@@ -717,9 +709,7 @@ async function decodeCodexHookPayload(payload: unknown): Promise<ProviderAgentSt
 async function installCodexInstrumentation(
   destination: InstrumentationDestination,
 ): Promise<InstalledInstrumentation> {
-  const codexHome =
-    destination.harnessHome ??
-    join(destination.homeDir ?? homedir(), '.codex')
+  const codexHome = destination.harnessHome ?? join(destination.homeDir ?? homedir(), '.codex')
   const wiring = {
     args: destination.seedTheme ? ['-c', 'tui.theme=ansi'] : [],
     env: {
@@ -733,9 +723,7 @@ async function installCodexInstrumentation(
   try {
     const result = await ensurePodiumCodexHooks({
       codexHome,
-      ...(destination.reportVersionProbe
-        ? { reportVersionProbe: (output) => destination.reportVersionProbe?.('codex', output) }
-        : {}),
+      ...(destination.verifiedVersion ? { verifiedVersion: destination.verifiedVersion } : {}),
     })
     const degradedReason = !result.installed
       ? (result.reason ?? 'hook installation failed')
@@ -747,7 +735,9 @@ async function installCodexInstrumentation(
       ...(degradedReason
         ? {
             degradedReason,
-            degradedKind: installerDegradedKind(result.reason) as InstalledInstrumentation['degradedKind'],
+            degradedKind: installerDegradedKind(
+              result.reason,
+            ) as InstalledInstrumentation['degradedKind'],
           }
         : {}),
     }
@@ -760,7 +750,13 @@ async function installCodexInstrumentation(
 /** Classify installer refusals. Exceptions always use error, regardless of text. */
 function installerDegradedKind(
   reason: string | undefined,
-): 'no-home' | 'unreadable-hooks-json' | 'not-an-object' | 'unsupported-version' | 'untrusted' | 'error' {
+):
+  | 'no-home'
+  | 'unreadable-hooks-json'
+  | 'not-an-object'
+  | 'unsupported-version'
+  | 'untrusted'
+  | 'error' {
   if (
     reason === 'untrusted' ||
     reason?.startsWith('untrusted codex hooks') ||

@@ -1571,6 +1571,7 @@
         "src/modules/superagent/index.ts",
         "src/modules/superagent/registry.ts",
         "src/modules/superagent/send.ts",
+        "src/modules/superagent/service.shutdown.test.ts",
         "src/modules/superagent/service.single-flight.test.ts",
         "src/modules/superagent/service.ts",
         "src/modules/superagent/tools.ts",

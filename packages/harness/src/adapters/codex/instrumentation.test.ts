@@ -14,11 +14,10 @@ import {
   type CodexVersionProbe,
   checkPodiumHookTrust,
   codexInstrumentation,
-  detectCodexVersion,
   ensurePodiumCodexHooks,
-  parseCodexHookTrustState,
   PODIUM_CODEX_HOOK_COMMAND,
   PODIUM_CODEX_HOOK_COMMAND_WINDOWS,
+  parseCodexHookTrustState,
   parseCodexVersion,
   podiumHookPositions,
   supportsCodexHooks,
@@ -74,7 +73,9 @@ describe('ensurePodiumCodexHooks', () => {
     ]) {
       expect(doc.hooks[event]?.[0]?.hooks?.[0]?.command).toBe(PODIUM_CODEX_HOOK_COMMAND)
       // Windows runs commandWindows (cmd.exe), never the bash command.
-      expect(doc.hooks[event]?.[0]?.hooks?.[0]?.commandWindows).toBe(PODIUM_CODEX_HOOK_COMMAND_WINDOWS)
+      expect(doc.hooks[event]?.[0]?.hooks?.[0]?.commandWindows).toBe(
+        PODIUM_CODEX_HOOK_COMMAND_WINDOWS,
+      )
       expect(doc.hooks[event]?.[0]?.hooks?.[0]?.timeout).toBe(5)
     }
     expect(existsSync(join(dir, '.codex', 'config.toml'))).toBe(false)
@@ -249,7 +250,10 @@ describe('codex hook trust detection (POD-4076)', () => {
     Stop: 'stop',
   }
 
-  function trustConfig(hooksJsonPath: string, opts?: { enabled?: boolean; omitHash?: boolean }): string {
+  function trustConfig(
+    hooksJsonPath: string,
+    opts?: { enabled?: boolean; omitHash?: boolean },
+  ): string {
     const lines = ['model = "gpt-5.5"', '']
     for (const event of events) {
       lines.push(`[hooks.state."${hooksJsonPath}:${snake[event]}:0:0"]`)
@@ -474,10 +478,13 @@ describe('PODIUM_CODEX_HOOK_COMMAND', () => {
       const primeBody = JSON.stringify({
         hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: 'PRIME' },
       })
-      const answerPrime = (req: { on: (event: string, fn: (chunk: Buffer) => void) => void }, res: {
-        writeHead: (code: number, headers: Record<string, string>) => void
-        end: (body: string) => void
-      }): void => {
+      const answerPrime = (
+        req: { on: (event: string, fn: (chunk: Buffer) => void) => void },
+        res: {
+          writeHead: (code: number, headers: Record<string, string>) => void
+          end: (body: string) => void
+        },
+      ): void => {
         const chunks: Buffer[] = []
         req.on('data', (chunk: Buffer) => chunks.push(chunk))
         req.on('end', () => {
@@ -549,7 +556,10 @@ describe('codex hooks real-binary smoke', () => {
   it.skipIf(!enabled)(
     'recognizes the installed real Codex binary before editing hook files',
     async () => {
-      const version = parseCodexVersion(await detectCodexVersion())
+      const { stdout } = await execFileAsync('codex', ['--version'], {
+        timeout: AGENT_VERSION_PROBE_TIMEOUT_MS,
+      })
+      const version = parseCodexVersion(stdout)
       if (!version) throw new Error('installed Codex binary did not report a parseable version')
       expect(supportsCodexHooks(version)).toBe(true)
     },
@@ -568,7 +578,7 @@ describe('codex hooks real-binary smoke', () => {
       const dir = await home()
       await copyFile(auth, join(dir, '.codex', 'auth.json'))
       await writeFile(join(dir, '.codex', 'config.toml'), '[features]\nhooks = true\n')
-      await ensurePodiumCodexHooks({ homeDir: dir })
+      await ensureHooks({ homeDir: dir })
 
       // SALVAGED FROM POD-4070 (commit 71dd868f6): the two-arm proof. The
       // isolated CODEX_HOME holds only Podium's hook and no persisted trust,

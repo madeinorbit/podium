@@ -35,6 +35,11 @@ on:
         required: false
         type: boolean
         default: false
+      publish_release:
+        description: Publish assets after building (disable to build the selected ref without publishing)
+        required: true
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -64,14 +69,17 @@ jobs:
         env:
           INPUT_CHANNEL: ${{ inputs.channel }}
           INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+          INPUT_PUBLISH_RELEASE: ${{ inputs.publish_release }}
         run: |
           set -euo pipefail
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
             channel="$INPUT_CHANNEL"
             stable_tag="$INPUT_RELEASE_TAG"
-            # Stable builds the immutable release tag; edge and dev build the ref selected in
-            # the UI, making the promoted source commit explicit.
-            if [ "$channel" = stable ]; then checkout_ref="$stable_tag"; else checkout_ref="$GITHUB_REF"; fi
+            # Publishing stable builds its immutable tag. An unpublished candidate instead
+            # builds this dispatch's exact commit, so fixes can be tested without moving a tag.
+            if [ "$INPUT_PUBLISH_RELEASE" = false ]; then
+              checkout_ref="${GITHUB_SHA:?unpublished builds require the dispatch commit}"
+            elif [ "$channel" = stable ]; then checkout_ref="$stable_tag"; else checkout_ref="$GITHUB_REF"; fi
           else
             # A prerelease tag naming the edge channel promotes to edge; every other version tag
             # is a stable cut. Anything else is a tag we do not know how to release.
@@ -97,8 +105,34 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ steps.resolve.outputs.checkout_ref }}
-      - uses: jdx/mise-action@v2
+      - name: Install Bun (attempt 1 of 3)
+        id: mise_setup_0
+        uses: jdx/mise-action@v2
+        continue-on-error: true
         with:
+          install_args: bun
+      - name: Wait before tool download attempt 2
+        if: steps.mise_setup_0.outcome == 'failure'
+        shell: bash
+        run: sleep 15
+      - name: Install Bun (attempt 2 of 3, alternate bootstrap host)
+        id: mise_setup_0_fallback
+        if: steps.mise_setup_0.outcome == 'failure'
+        uses: jdx/mise-action@v2
+        continue-on-error: true
+        with:
+          fetch_from_github: false
+          install_args: bun
+      - name: Wait before tool download attempt 3
+        if: steps.mise_setup_0_fallback.outcome == 'failure'
+        shell: bash
+        run: sleep 45
+      - name: Install Bun (attempt 3 of 3, alternate bootstrap host)
+        id: mise_setup_0_final
+        if: steps.mise_setup_0_fallback.outcome == 'failure'
+        uses: jdx/mise-action@v2
+        with:
+          fetch_from_github: false
           install_args: bun
       - name: Choose the desktop builds for this channel
         id: matrix
@@ -211,8 +245,34 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.validate.outputs.checkout_ref }}
-      - uses: jdx/mise-action@v2
+      - name: Install Bun (attempt 1 of 3)
+        id: mise_setup_1
+        uses: jdx/mise-action@v2
+        continue-on-error: true
         with:
+          install_args: bun
+      - name: Wait before tool download attempt 2
+        if: steps.mise_setup_1.outcome == 'failure'
+        shell: bash
+        run: sleep 15
+      - name: Install Bun (attempt 2 of 3, alternate bootstrap host)
+        id: mise_setup_1_fallback
+        if: steps.mise_setup_1.outcome == 'failure'
+        uses: jdx/mise-action@v2
+        continue-on-error: true
+        with:
+          fetch_from_github: false
+          install_args: bun
+      - name: Wait before tool download attempt 3
+        if: steps.mise_setup_1_fallback.outcome == 'failure'
+        shell: bash
+        run: sleep 45
+      - name: Install Bun (attempt 3 of 3, alternate bootstrap host)
+        id: mise_setup_1_final
+        if: steps.mise_setup_1_fallback.outcome == 'failure'
+        uses: jdx/mise-action@v2
+        with:
+          fetch_from_github: false
           install_args: bun
       - name: Pin Bun's install cache (and its global store) to the checkout volume
         if: matrix.target == 'windows-x86_64'
@@ -335,8 +395,34 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.validate.outputs.checkout_ref }}
-      - uses: jdx/mise-action@v2
+      - name: Install Bun (attempt 1 of 3)
+        id: mise_setup_2
+        uses: jdx/mise-action@v2
+        continue-on-error: true
         with:
+          install_args: bun
+      - name: Wait before tool download attempt 2
+        if: steps.mise_setup_2.outcome == 'failure'
+        shell: bash
+        run: sleep 15
+      - name: Install Bun (attempt 2 of 3, alternate bootstrap host)
+        id: mise_setup_2_fallback
+        if: steps.mise_setup_2.outcome == 'failure'
+        uses: jdx/mise-action@v2
+        continue-on-error: true
+        with:
+          fetch_from_github: false
+          install_args: bun
+      - name: Wait before tool download attempt 3
+        if: steps.mise_setup_2_fallback.outcome == 'failure'
+        shell: bash
+        run: sleep 45
+      - name: Install Bun (attempt 3 of 3, alternate bootstrap host)
+        id: mise_setup_2_final
+        if: steps.mise_setup_2_fallback.outcome == 'failure'
+        uses: jdx/mise-action@v2
+        with:
+          fetch_from_github: false
           install_args: bun
       - name: Collect promoted desktop bundles
         uses: actions/download-artifact@v4
@@ -358,7 +444,17 @@ jobs:
         env:
           SHELL_INPUT_HASH: ${{ needs.validate.outputs.shell_input_hash }}
         run: printf "%s\n" "$SHELL_INPUT_HASH" > dist-desktop/desktop-shell-input.sha256
+      - name: Retain unpublished desktop manifest
+        if: github.event_name == 'workflow_dispatch' && !inputs.publish_release
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-candidate-manifest
+          path: |
+            dist-desktop/latest.json
+            dist-desktop/desktop-shell-input.sha256
+          if-no-files-found: error
       - name: Upload promoted desktop assets
+        if: github.event_name != 'workflow_dispatch' || inputs.publish_release
         env:
           GH_TOKEN: ${{ github.token }}
           CHANNEL: ${{ needs.validate.outputs.channel }}

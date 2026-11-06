@@ -914,8 +914,8 @@ export async function startServer(
   // Automatic connect-scan orchestration RETIRED from the bus path [POD-925]:
   // janitor issues connect-scan commands; deep scans stay interactive via API.
   const superagent = await SuperagentService.create(registry.modules, repos, store)
-  // Its turn reaper is a periodic write; the registry's dispose is what stops it
-  // before `store.close()` on every close path (POD-2772).
+  // The registry owns disposal on failed listen and in test harnesses. Normal
+  // shutdown also settles its reaper before store.close starts scheduler drain.
   registry.adoptSuperagent(superagent)
   // Messaging-app bridge [spec:SP-5d81]: two-way Telegram chat with the
   // superagent, riding the notification bot config. configure() is a no-op
@@ -2574,7 +2574,13 @@ export async function startServer(
               acceptingRequests = false
               await ws.close()
             },
-            drainStore: (persist) => store.close(persist),
+            drainStore: async (persist) => {
+              // A timer pass keeps its original executor context: awaiting it
+              // inside persistence cannot grant it shutdown admission. Stop and
+              // join it BEFORE store.close marks the scheduler as draining.
+              await superagent.dispose()
+              await store.close(persist)
+            },
             server,
             persist: [
               ['messaging.stop', () => messaging.stop()],

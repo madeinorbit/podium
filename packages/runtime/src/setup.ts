@@ -1,6 +1,7 @@
 import { accessSync, constants } from 'node:fs'
 import { delimiter, join } from 'node:path'
 import {
+  consumeConfigPairCode,
   type EnvSource,
   type FleetUpdateChannel,
   inspectConfig,
@@ -490,10 +491,7 @@ export function applyServerUrl(
  * A stale code was previously harmless-but-confusing: it made the config look "unpaired".
  */
 export function consumePairCode(code: string): void {
-  const prev = loadConfig()
-  if (prev.pairCode !== code) return
-  const { pairCode: _consumed, ...rest } = prev
-  saveConfig(rest)
+  consumeConfigPairCode(code)
 }
 
 /**

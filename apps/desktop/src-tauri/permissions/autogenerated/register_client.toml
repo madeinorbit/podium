@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-register-client"
+description = "Enables the register_client command without any pre-configured scope."
+commands.allow = ["register_client"]
+
+[[permission]]
+identifier = "deny-register-client"
+description = "Denies the register_client command without any pre-configured scope."
+commands.deny = ["register_client"]

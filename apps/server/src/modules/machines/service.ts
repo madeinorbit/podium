@@ -179,6 +179,7 @@ export interface PairingGrant {
   /** Explicit replacement authority, scoped to this retained identity at mint. */
   replaceMachineId?: MachineId
   replaceIncarnation?: string
+  clientRegistration?: { machineId: MachineId; publicKey?: string }
   /**
    * WHO THE MACHINE WILL BELONG TO (POD-1079, ADR 9 D6 M3: "a newly paired
    * machine is private to its pairer").
@@ -904,6 +905,10 @@ export class MachinesService {
   mintPairingCode(grant: PairingGrant = {}): string {
     if (!this.deps.pairing) throw new Error('inbound pairing is disabled on this server')
     return this.deps.pairing.mint(grant)
+  }
+
+  async mintClientRegistrationCode(request: { machineId: MachineId; publicKey?: string }, actor: UserId): Promise<string> {
+    return credentials.mintClientRegistrationCode(this.enrollmentHost, request, actor)
   }
 
   /** Bind replacement authority to the revoked credential, never merely its id. */

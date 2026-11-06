@@ -1,20 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { basename, dirname, join, relative } from 'node:path'
 import { createLogger } from '@podium/logger'
 import { promptEchoCorrelation, submitHookCorrelation } from '../../accept-correlation.js'
-import {
-  codexStateProvider,
-  findCodexRolloutPath,
-  observeCodexState,
-  resolvePinnedCodexRollout,
-} from './state-provider.js'
 import { withStateChannel } from '../../agent-state/types.js'
-import {
-  readFreshnessFromAuthContents,
-  readIdentityFromAuthContents,
-} from './auth-identity.js'
-import { CodexCredentialAbsenceGrace } from './credential-absence-grace.js'
-import { createCodexConversationProvider } from './discovery.js'
 import { composeAgentInstructions } from '../../instructions.js'
 import {
   type AgentManifest,
@@ -28,15 +17,26 @@ import {
   supported,
   unsupported,
 } from '../../manifest.js'
-import { codexPromptTextMatches, codexTranscript } from './transcript.js'
-import { codexComposer } from './composer.js'
-import { codexInstrumentation } from './instrumentation.js'
-import { codexCredentials } from './credentials.js'
-import { codexInstall } from './install.js'
-import { codexUsage } from './usage.js'
-import { codexCatalog } from './catalog.js'
-import { codexDescriptor } from './descriptor.js'
+import { scheduleStatPoll } from '../../transcript-types.js'
 import { CODEX_VERSION_POLICY, harnessVersionFloor } from '../../version-policy.js'
+import { readFreshnessFromAuthContents, readIdentityFromAuthContents } from './auth-identity.js'
+import { codexCatalog } from './catalog.js'
+import { codexComposer } from './composer.js'
+import { CodexCredentialAbsenceGrace } from './credential-absence-grace.js'
+import { codexCredentials } from './credentials.js'
+import { codexDescriptor } from './descriptor.js'
+import { createCodexConversationProvider } from './discovery.js'
+import { codexInstall } from './install.js'
+import { codexInstrumentation } from './instrumentation.js'
+import { createOwnedCodexRolloutResolver } from './owned-rollout.js'
+import {
+  codexStateProvider,
+  findCodexRolloutPath,
+  observeCodexState,
+  resolvePinnedCodexRollout,
+} from './state-provider.js'
+import { codexPromptTextMatches, codexTranscript } from './transcript.js'
+import { codexUsage } from './usage.js'
 
 const log = createLogger('harness:codex')
 
@@ -231,8 +231,7 @@ export const codexManifest: AgentManifest = {
       // drift the way the daemon's two Codex credential lists did.
       files: codexCredentials.files.map((file) => join(file.dirName, file.fileName)),
       compareFreshness: (a, b) =>
-        codexCredentials.files.find((file) => file.propagatable)?.compareFreshness(a, b) ??
-        null,
+        codexCredentials.files.find((file) => file.propagatable)?.compareFreshness(a, b) ?? null,
     }),
     // Codex's own precedence, in order: OPENAI_API_KEY, CODEX_API_KEY,
     // CODEX_ACCESS_TOKEN — each ahead of the ChatGPT login in `auth.json`.
@@ -546,6 +545,7 @@ export const codexManifest: AgentManifest = {
     // the session's original spawn time so it can't latch onto an older
     // sibling's rollout. Spawn passes its own start; reattach the persisted one.
     const floor = input.startedAtMs ?? input.createdAtMs
+    let stopped = false
     let observationLease = input.observationLease
     let boundThread = observationLease?.providerSessionId ?? input.resumeValue
     /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
@@ -605,10 +605,12 @@ export const codexManifest: AgentManifest = {
         !lease || lease.providerSessionId === null ? input.podiumSessionId : undefined
       return observeCodexState({
         cwd: input.cwd,
+        allowCwdDiscovery: input.ownedProcess === undefined || process.platform !== 'darwin',
         ...(input.statTick ? { statTick: input.statTick } : {}),
         ...(processBindingSessionId ? { podiumSessionId: processBindingSessionId } : {}),
         ...(resumeValue ? { resumeValue } : {}),
         ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+        ...(input.harnessHome ? { codexHome: input.harnessHome } : {}),
         ...(startedAtMs !== undefined ? { startedAtMs } : {}),
         ...(lease && input.podiumSessionId
           ? {
@@ -646,8 +648,51 @@ export const codexManifest: AgentManifest = {
     // (which collapses sibling sessions in the same repo onto the newest
     // rollout). A fresh spawn passes undefined → discovery scoped by the floor.
     let inner = start(input.resumeValue, floor)
+    // Keep ownership discovery OUTSIDE the pinned inner observer: even after
+    // first bind, /new without trusted hooks must request an acknowledged rebind.
+    const resolveOwned = input.ownedProcess
+      ? createOwnedCodexRolloutResolver({
+          ownedProcess: input.ownedProcess,
+          sessionsRoot: join(
+            input.harnessHome ?? join(input.homeDir ?? homedir(), '.codex'),
+            'sessions',
+          ),
+          startedAtMs: floor,
+          resumeValue: input.resumeValue,
+        })
+      : undefined
+    let inspecting = false
+    let nextOwnedPollAt = 0
+    const pollOwned = async (): Promise<void> => {
+      if (stopped || !resolveOwned || inspecting || Date.now() < nextOwnedPollAt) return
+      nextOwnedPollAt = Date.now() + 10_000
+      inspecting = true
+      try {
+        const found = await resolveOwned()
+        if (stopped || !found || found.id === boundThread) return
+        discovered.set(found.id, { path: found.path, confidence: 'exact' })
+        const lease = observationLease
+        if (lease && lease.providerSessionId !== found.id) {
+          requestExactRebind(found.id, lease)
+          return
+        }
+        inner.stop()
+        inner = start(found.id, undefined)
+        publishSession(found.id, found.path, 'exact')
+      } finally {
+        inspecting = false
+      }
+    }
+    const stopOwnedPoll = resolveOwned
+      ? scheduleStatPoll(() => void pollOwned(), { statTick: input.statTick, pollMs: 10_000 })
+      : undefined
+    void pollOwned()
     return {
-      stop: () => inner.stop(),
+      stop: () => {
+        stopped = true
+        stopOwnedPoll?.()
+        inner.stop()
+      },
       onObservationAck(ack) {
         inner.onObservationAck(ack)
       },

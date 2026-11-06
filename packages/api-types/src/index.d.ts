@@ -2037,6 +2037,10 @@ type Input_machines_moveServer = {
     targetMachineId: string;
 };
 type Input_machines_pairingCode = (undefined) | ({
+    clientRegistration?: undefined | {
+        machineId: string;
+        publicKey?: string | undefined;
+    };
     copyAgentCredentials?: boolean | undefined;
     podiumManaged?: boolean | undefined;
     replaceMachineId?: string | undefined;

@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed update failures in rare configurations.
+
+## [0.3.1-edge.1] - 2026-11-06
+
+### Fixed
+
+- Desktop clients register automatically after sign-in so their companion runtime can receive managed updates, while preserving the installation identity and client-only role.
+- Retained clients recover rejected credentials through a fresh verified sign-in. Expired pairing attempts stay bounded, and concurrent config changes are preserved.
+- A newer matching-channel desktop bundle can rescue an older companion runtime at cold start, with checks that protect active updates, pinned targets, identities and data.
+- Claiming desktop update ownership no longer stops the companion respawn monitor or shares the shutdown flag.
+- Server shutdown waits for the turn reaper before draining the database scheduler, preventing a shutdown error.
+
+### Testing
+
+- This edge build is published for testing. Targeted component and combined Rust/server checks passed; the final combined lean gate, signed update after rescue, and macOS GUI lifecycle checks remain incomplete.
+
+## [0.3.0] - 2026-11-05
+
+**One flight deck for the whole mission, a calmer chat, and a server that uses far less memory.**
+
+### What's new
+
+- **Flight deck.** A task's deck now shows the whole mission in one view: its phases, every task and its state, who is working on what, what is blocked and by what, and the proposals that wait for you. Done work stays visible. Toggle it with ⌘B. The right sidebar moves to ⌥⌘B.
+- **A calmer chat.** Tool runs and notes fold into quiet one-line rows, with the time in the margin. Mail between agents shows as "Note to …" cards, and compaction summaries show as quiet notes.
+- **A calmer workspace.** The sidebar lists only your tasks, grouped by repository, on web and phone. Markdown opens in a full-height reading view with an outline and reading progress.
+- **Less memory, faster start.** The server no longer keeps a copy of all your data in memory. In our benchmark of a large workspace it used about 330 MB instead of about 1.2 GB, memory stopped growing with the data, and it started 8–52% faster.
+- **More reliable updates.** Large update downloads no longer fail when a machine pauses, and no update step can wait forever.
+- **And more.** Select text in a reply or a review finding to quote it in your next message, fullscreen fixes on Macs with a notch, Codex questions in the question card, and many smaller fixes.
+
+### Upgrading from 0.2.0
+
+- Podium backs up your database automatically before migrating. Rolling back means restoring `~/.podium/podium.db.backup-vupdate-*`.
+- Every client reloads once on first connect. Nothing is lost.
+- The text of each issue's "design" and "notes" fields is appended to its brief, under a heading.
+- Task colors are dropped.
+
+## [0.3.0-edge.2] - 2026-11-05
+
 ## [0.3.0-edge.1] - 2026-11-04
 
 **One flight deck for the whole mission, a calmer chat, and a server that uses far less memory.**

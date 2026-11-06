@@ -1,3 +1,5 @@
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import {
   type AgentRuntimeState,
@@ -63,6 +65,8 @@ export interface SessionObserverInit {
   /** Freshness floor for spawn-time session discovery (grok/codex/opencode/cursor);
    *  omitted on reattach so discovery has no floor. */
   startedAtMs?: number
+  /** Effective child environment, including its selected account/state home. */
+  env?: Readonly<Record<string, string>>
   /** The native id this spawn told the CLI to create under
    *  (capabilities.newSessionIdFlag). The session it names is the one the CLI is
    *  starting, so the observer binds it directly instead of polling for whatever
@@ -1560,6 +1564,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     sessionId: SessionId,
     adapter: HarnessAdapter,
     input: HarnessObserveInput,
+    session?: DurableAttachment,
   ): void => {
     stopObservation(sessionId)
     if (input.resumeValue) nativeSessionIds.set(sessionId, input.resumeValue)
@@ -1569,9 +1574,43 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     // another harness's conventions as this session's status.
     const observe = declaredValue(adapter.observer)
     if (!observe) return
+    if (!session || adapter.kind !== 'codex') {
+      observations.set(sessionId, { adapter, observation: observe(input, hostFor(sessionId, adapter)) })
+      return
+    }
+    let live = true
+    const generation = {}
+    const offExit = session?.onExit?.(() => {
+      live = false
+    })
+    const offLease = session?.onLeaseLost?.(() => {
+      live = false
+    })
+    const observation = observe(
+      {
+        ...input,
+        ...(session
+          ? {
+              ownedProcess: () =>
+                live && session.pid > 0 && session.holdsWriterLease?.() === true
+                  ? { pid: session.pid, generation }
+                  : undefined,
+            }
+          : {}),
+      },
+      hostFor(sessionId, adapter),
+    )
     observations.set(sessionId, {
       adapter,
-      observation: observe(input, hostFor(sessionId, adapter)),
+      observation: {
+        ...observation,
+        stop() {
+          live = false
+          offExit?.()
+          offLease?.()
+          observation.stop()
+        },
+      },
     })
   }
 
@@ -1757,39 +1796,51 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         msg.resume?.value ??
         init.newSessionId ??
         (msg.type === 'reattach' ? (observationLease?.providerSessionId ?? undefined) : undefined)
-      startObservation(msg.sessionId, adapter, {
-        cwd: msg.cwd,
-        statTick,
-        // Unconditional (all harnesses): only the opencode adapter reads it.
-        // A closure, not a module — the sqlite source loads on first stamp,
-        // never at observation start, so non-opencode sessions pay nothing.
-        loadOpencodeSource: () =>
-          import('@podium/harness').then((m) => ({ stampOpencodeItems: m.stampOpencodeItems })),
-        podiumSessionId: msg.sessionId,
-        ...(resumeValue ? { resumeValue } : {}),
-        ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
-        ...(deps.transcriptRoot ? { transcriptRoot: deps.transcriptRoot } : {}),
-        ...(init.startedAtMs !== undefined ? { startedAtMs: init.startedAtMs } : {}),
-        // Reattach carries the session's original spawn time — the codex
-        // lazy-rollout discovery floor (see HarnessObserveInput.createdAtMs).
-        ...('createdAtMs' in msg && msg.createdAtMs !== undefined
-          ? { createdAtMs: msg.createdAtMs }
-          : {}),
-        // Reattach carries the server's recorded segment path — evidence beats
-        // cwd derivation after a worktree move (conversation registry §3.3).
-        ...(pathHint ? { pathHint } : {}),
-        ...(observationLease
-          ? {
-              observationLease: {
-                provider: observationLease.provider,
-                providerSessionId: observationLease.providerSessionId,
-                bindingVersion: observationLease.bindingVersion,
-                observerGeneration: observationLease.observerGeneration,
-                acceptedCheckpoint: observationLease.acceptedCheckpoint,
-              },
-            }
-          : {}),
-      })
+      const sessionEnv = init.env ?? (msg.type === 'spawn' ? msg.env : undefined)
+      const codexHome = deps.homeDir
+        ? join(deps.homeDir, '.codex')
+        : sessionEnv?.CODEX_HOME?.trim() ||
+          process.env.CODEX_HOME?.trim() ||
+          join(sessionEnv?.HOME ?? homedir(), '.codex')
+      startObservation(
+        msg.sessionId,
+        adapter,
+        {
+          cwd: msg.cwd,
+          statTick,
+          // Unconditional (all harnesses): only the opencode adapter reads it.
+          // A closure, not a module — the sqlite source loads on first stamp,
+          // never at observation start, so non-opencode sessions pay nothing.
+          loadOpencodeSource: () =>
+            import('@podium/harness').then((m) => ({ stampOpencodeItems: m.stampOpencodeItems })),
+          podiumSessionId: msg.sessionId,
+          ...(resumeValue ? { resumeValue } : {}),
+          ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
+          ...(adapter.kind === 'codex' ? { harnessHome: codexHome } : {}),
+          ...(deps.transcriptRoot ? { transcriptRoot: deps.transcriptRoot } : {}),
+          ...(init.startedAtMs !== undefined ? { startedAtMs: init.startedAtMs } : {}),
+          // Reattach carries the session's original spawn time — the codex
+          // lazy-rollout discovery floor (see HarnessObserveInput.createdAtMs).
+          ...('createdAtMs' in msg && msg.createdAtMs !== undefined
+            ? { createdAtMs: msg.createdAtMs }
+            : {}),
+          // Reattach carries the server's recorded segment path — evidence beats
+          // cwd derivation after a worktree move (conversation registry §3.3).
+          ...(pathHint ? { pathHint } : {}),
+          ...(observationLease
+            ? {
+                observationLease: {
+                  provider: observationLease.provider,
+                  providerSessionId: observationLease.providerSessionId,
+                  bindingVersion: observationLease.bindingVersion,
+                  observerGeneration: observationLease.observerGeneration,
+                  acceptedCheckpoint: observationLease.acceptedCheckpoint,
+                },
+              }
+            : {}),
+        },
+        session,
+      )
       // Claude has no polling observer: without a fresh hook, merely restarting
       // its transcript tail cannot produce the lease bootstrap the server needs.
       // Re-adopt a surviving identity only when it exactly matches the

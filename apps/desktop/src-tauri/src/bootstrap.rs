@@ -339,23 +339,90 @@ pub fn read_config() -> DesktopConfig {
 
 /// Read-modify-write config.json, preserving every field this shell does not own, through a
 /// write-then-rename so a crash cannot leave a truncated file.
+static CONFIG_WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Shared with runtime/config-write-lock.ts. A rollback-only SQLite transaction
+/// serializes read/modify/publish across processes and releases on process death.
+/// The scoped thread permits callers both inside and outside Tauri's async runtime.
+fn with_config_write_lock(
+    path: &Path,
+    write: impl FnOnce() -> Result<(), String> + Send,
+) -> Result<(), String> {
+    use sqlx::sqlite::{SqliteConnectOptions, SqliteConnection};
+    use sqlx::{Connection, Executor};
+    let _local = CONFIG_WRITE_LOCK
+        .lock()
+        .map_err(|_| "config writer unavailable")?;
+    std::fs::create_dir_all(path.parent().ok_or("config has no parent")?)
+        .map_err(|error| error.to_string())?;
+    let lock = PathBuf::from(format!("{}.write-lock.sqlite", path.display()));
+    std::thread::scope(|scope| {
+        scope
+            .spawn(|| {
+                tauri::async_runtime::block_on(async {
+                    let options = SqliteConnectOptions::new()
+                        .filename(lock)
+                        .create_if_missing(true)
+                        .busy_timeout(std::time::Duration::from_secs(5));
+                    let mut connection = SqliteConnection::connect_with(&options)
+                        .await
+                        .map_err(|_| "cannot open config writer coordination")?;
+                    connection
+                        .execute("BEGIN IMMEDIATE")
+                        .await
+                        .map_err(|_| "config writer is busy or unavailable")?;
+                    let result = write();
+                    let released = connection.execute("ROLLBACK").await;
+                    let closed = connection.close().await;
+                    result?;
+                    released.map_err(|_| "cannot release config writer coordination")?;
+                    closed.map_err(|_| "cannot close config writer coordination")?;
+                    Ok(())
+                })
+            })
+            .join()
+            .map_err(|_| "config writer failed".to_string())?
+    })
+}
+
 fn update_config_json(
-    edit: impl FnOnce(&mut serde_json::Map<String, serde_json::Value>) -> Result<(), String>,
+    edit: impl FnOnce(&mut serde_json::Map<String, serde_json::Value>) -> Result<(), String> + Send,
 ) -> Result<(), String> {
     let path = state_dir().join("config.json");
-    let text = std::fs::read_to_string(&path)
-        .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-    let mut json: serde_json::Value =
-        serde_json::from_str(&text).map_err(|e| format!("config.json is not valid JSON: {e}"))?;
-    let obj = json
-        .as_object_mut()
-        .ok_or_else(|| "config.json is not a JSON object".to_string())?;
-    edit(obj)?;
-    let out = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, format!("{out}\n"))
-        .map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
-    std::fs::rename(&tmp, &path).map_err(|e| format!("cannot replace config.json: {e}"))
+    with_config_write_lock(&path, || {
+        let text = std::fs::read_to_string(&path)
+            .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+        let mut json: serde_json::Value =
+            serde_json::from_str(&text).map_err(|e| format!("config.json is not valid JSON: {e}"))?;
+        let obj = json
+            .as_object_mut()
+            .ok_or_else(|| "config.json is not a JSON object".to_string())?;
+        edit(obj)?;
+        let out = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
+        let tmp = path.with_extension("json.tmp");
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&tmp)
+            .map_err(|e| format!("cannot write config: {e}"))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(std::fs::Permissions::from_mode(0o600))
+                .map_err(|e| e.to_string())?;
+        }
+        file.write_all(format!("{out}\n").as_bytes())
+            .map_err(|e| e.to_string())?;
+        file.sync_all().map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, &path).map_err(|e| format!("cannot replace config.json: {e}"))?;
+        #[cfg(unix)]
+        std::fs::File::open(state_dir())
+            .and_then(|dir| dir.sync_all())
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    })
 }
 
 /// Remember the installation the window just authenticated to (POD-5921, `save_server_identity`).
@@ -739,6 +806,19 @@ pub fn backend_exit_decision(initial_action: &LaunchAction) -> BackendExitDecisi
 /// the web UI mark "this machine" in the
 /// machines list and skip the standalone hosting card for already-paired devices.
 pub fn read_supervisor_machine_id() -> Option<String> {
+    let canonical = state_dir().join("machine.json");
+    if canonical.exists() {
+        let json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(canonical).ok()?).ok()?;
+        return (json.get("version")?.as_u64()? == 1)
+            .then(|| {
+                json.get("machineId")?
+                    .as_str()
+                    .filter(|id| !id.is_empty())
+                    .map(str::to_string)
+            })
+            .flatten();
+    }
     for name in ["supervisor.json", "daemon.json"] {
         let Ok(text) = std::fs::read_to_string(state_dir().join(name)) else {
             continue;
@@ -758,7 +838,7 @@ pub fn read_supervisor_machine_id() -> Option<String> {
 /// NARROW: the webview content that can invoke this is served by the remote hub, so the only
 /// transition allowed is client → daemon against the serverUrl the user already configured
 /// (never a parameter), and every other config field is preserved verbatim.
-pub fn write_hosting_config(pair_code: &str) -> Result<(), String> {
+fn validate_pair_code(pair_code: &str) -> Result<(), String> {
     if pair_code.is_empty()
         || pair_code.len() > 32
         || !pair_code
@@ -767,42 +847,312 @@ pub fn write_hosting_config(pair_code: &str) -> Result<(), String> {
     {
         return Err("invalid pairing code".to_string());
     }
-    let path = state_dir().join("config.json");
-    let text = std::fs::read_to_string(&path)
-        .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
-    let mut json: serde_json::Value =
-        serde_json::from_str(&text).map_err(|e| format!("config.json is not valid JSON: {e}"))?;
-    let obj = json
-        .as_object_mut()
-        .ok_or_else(|| "config.json is not a JSON object".to_string())?;
-    let mode = obj.get("mode").and_then(|v| v.as_str());
-    if mode != Some("client") {
-        return Err(format!(
-            "hosting can only be enabled from client mode (current mode: {})",
-            mode.unwrap_or("unset")
-        ));
-    }
-    let has_server_url = obj
-        .get("serverUrl")
-        .and_then(|v| v.as_str())
-        .is_some_and(|s| !s.is_empty());
-    if !has_server_url {
-        return Err("config has no serverUrl to pair against".to_string());
-    }
-    obj.insert(
-        "mode".to_string(),
-        serde_json::Value::String("daemon".to_string()),
-    );
+    Ok(())
+}
+
+fn save_pair_code(obj: &mut serde_json::Map<String, serde_json::Value>, pair_code: &str) {
     obj.insert(
         "pairCode".to_string(),
         serde_json::Value::String(pair_code.to_string()),
     );
-    let out = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
-    // Write-then-rename so a crash mid-write can't leave a truncated config.
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, format!("{out}\n"))
-        .map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
-    std::fs::rename(&tmp, &path).map_err(|e| format!("cannot replace config.json: {e}"))
+}
+
+pub fn write_hosting_config(pair_code: &str) -> Result<(), String> {
+    validate_pair_code(pair_code)?;
+    update_config_json(|obj| {
+        if obj.get("mode").and_then(|v| v.as_str()) != Some("client") {
+            return Err("hosting can only be enabled from client mode".to_string());
+        }
+        if !obj
+            .get("serverUrl")
+            .and_then(|v| v.as_str())
+            .is_some_and(|url| !url.is_empty())
+        {
+            return Err("config has no serverUrl to pair against".to_string());
+        }
+        obj.insert(
+            "mode".to_string(),
+            serde_json::Value::String("daemon".to_string()),
+        );
+        save_pair_code(obj, pair_code);
+        Ok(())
+    })
+}
+
+/// Minimal public registration answer. No credential or raw state crosses IPC.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ClientRegistrationRequest {
+    target: String,
+    #[serde(rename = "machineId")]
+    machine_id: String,
+    #[serde(rename = "publicKey", skip_serializing_if = "Option::is_none")]
+    public_key: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(tag = "state", rename_all = "kebab-case")]
+pub enum ClientRegistrationStatus {
+    NotApplicable,
+    Starting,
+    Pending,
+    Enrolled,
+    Needed {
+        target: String,
+        #[serde(rename = "machineId")]
+        machine_id: String,
+        #[serde(rename = "publicKey", skip_serializing_if = "Option::is_none")]
+        public_key: Option<String>,
+    },
+    Rejected {
+        message: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        retry: Option<ClientRegistrationRequest>,
+    },
+    Unavailable { message: String },
+}
+
+fn registration_unavailable(message: &str) -> ClientRegistrationStatus {
+    ClientRegistrationStatus::Unavailable {
+        message: message.to_string(),
+    }
+}
+
+fn registration_endpoint(raw: &str) -> Result<String, String> {
+    let url = validated_webview_http_url(raw)?;
+    if !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err(
+            "registration target must not contain credentials, query or fragment".to_string(),
+        );
+    }
+    Ok(url.as_str().trim_end_matches('/').to_string())
+}
+
+fn inspect_client_registration(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    caller_url: &str,
+) -> Result<ClientRegistrationStatus, String> {
+    use serde_json::Value;
+    if obj.get("mode").and_then(Value::as_str) != Some("client") {
+        return Ok(ClientRegistrationStatus::NotApplicable);
+    }
+    let server = obj
+        .get("serverUrl")
+        .and_then(Value::as_str)
+        .ok_or("client has no configured server")?;
+    let endpoint = registration_endpoint(server)?;
+    let ui = remote_window_origin_url(server, obj.get("uiUrl").and_then(Value::as_str));
+    if Url::parse(caller_url).map_err(|e| e.to_string())?.origin()
+        != Url::parse(&ui).map_err(|e| e.to_string())?.origin()
+    {
+        return Err("client registration is limited to the configured frontend".to_string());
+    }
+    let dir = state_dir();
+    let raw = match std::fs::read_to_string(dir.join("machine.json")) {
+        Ok(raw) => raw,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(ClientRegistrationStatus::Starting),
+        Err(_) => return Ok(registration_unavailable("Cannot read this installation's supervisor state. Reopen the app or inspect its local logs.")),
+    };
+    let machine: Value = match serde_json::from_str(&raw) {
+        Ok(Value::Object(value)) => Value::Object(value),
+        _ => return Ok(registration_unavailable("This installation's supervisor state is invalid. Inspect its local logs before pairing again.")),
+    };
+    let unavailable = || {
+        registration_unavailable("This installation has incomplete or mismatched registration state. Inspect its local logs before pairing again.")
+    };
+    let Some(machine_id) = machine
+        .get("machineId")
+        .and_then(Value::as_str)
+        .filter(|id| !id.trim().is_empty())
+    else {
+        return Ok(unavailable());
+    };
+    if machine["version"] != 1 || !machine["importedFiles"].is_object() {
+        return Ok(unavailable());
+    }
+    let supervisor = &machine["supervisor"];
+    if supervisor["machineId"].as_str() != Some(machine_id) {
+        return Ok(unavailable());
+    }
+    let role = &machine["role"];
+    // The authenticated remote document may mount before the relaunched CLI
+    // adopts the first local bootstrap's newly saved client config. Wait for
+    // runtime policy to settle it; this answer never authorizes a handoff.
+    if role["coordinator"] == "local"
+        && matches!(role["mode"].as_str(), Some("all-in-one" | "server"))
+    {
+        return Ok(ClientRegistrationStatus::Starting);
+    }
+    if role["mode"] != "client" || role["coordinator"].as_str().is_none() {
+        return Ok(unavailable());
+    }
+    if let Some(installation) = obj.get("installationId").and_then(Value::as_str) {
+        if role["coordinator"] != "remote" && role["coordinator"] != installation {
+            return Ok(unavailable());
+        }
+    }
+    for field in ["token", "enrolledPublicKey"] {
+        if supervisor.get(field).is_some_and(|value| value.as_str().is_none_or(|value| value.is_empty())) {
+            return Ok(unavailable());
+        }
+    }
+    if let Some(setup) = supervisor.get("setupEnrollment") {
+        if setup["machineId"].as_str() != Some(machine_id)
+            || !["requestId", "publicKey"].iter().all(|field| setup[field].as_str().is_some_and(|value| !value.is_empty()))
+            || !["agentExecution", "preauthorized"].iter().all(|field| setup[field].is_boolean()) {
+            return Ok(unavailable());
+        }
+    }
+    if supervisor.get("assignment").is_some_and(|assignment| !assignment["server"].is_boolean() || !assignment["agentExecution"].is_boolean()) {
+        return Ok(unavailable());
+    }
+    let registration = &supervisor["registration"];
+    if supervisor.get("registration").is_some() && (!registration.is_object()
+        || !matches!(registration["state"].as_str(), Some("unregistered" | "pairing" | "enrolled" | "rejected"))
+        || registration.get("pendingPairCode").is_some_and(|code| code.as_str().is_none_or(|code| code.is_empty()))) {
+        return Ok(unavailable());
+    }
+    if registration.is_object()
+        && registration["serverUrl"]
+            .as_str()
+            .and_then(|url| registration_endpoint(url).ok())
+            .as_deref()
+            != Some(endpoint.as_str())
+    {
+        return Ok(unavailable());
+    }
+    let connectivity = &machine["connectivity"];
+    if let Some(url) = connectivity["serverUrl"].as_str() {
+        if registration_endpoint(url).ok().as_deref() != Some(endpoint.as_str()) {
+            return Ok(unavailable());
+        }
+    }
+    if supervisor.get("setupEnrollment").is_some() {
+        return Ok(ClientRegistrationStatus::Pending);
+    }
+    if supervisor["assignment"]["server"] != false
+        || supervisor["assignment"]["agentExecution"] != false
+    {
+        return Ok(unavailable());
+    }
+    // Runtime owns key validation, normal authentication and legacy import. Neither
+    // an old missing marker nor a connectivity observation authorizes enrollment.
+    // A recovery request only permits the page to ask the authenticated server.
+    let recovery = registration.get("recovery");
+    if connectivity["state"] == "blocked"
+        && connectivity["blockedReason"] != "Error: machine supervisor has no credential; pair it first"
+    {
+        return Ok(unavailable());
+    }
+    if registration["state"] == "enrolled" && connectivity["state"] != "unauthorized" {
+        let has_token = supervisor["token"].as_str().is_some_and(|token| !token.is_empty());
+        let has_key = supervisor["enrolledPublicKey"].as_str().is_some_and(|key| !key.is_empty());
+        if (!has_token && !has_key) || (has_key && !dir.join("machine.key").is_file()) {
+            return Ok(unavailable());
+        }
+        return Ok(ClientRegistrationStatus::Enrolled);
+    }
+    if registration["state"] == "pairing" {
+        return Ok(ClientRegistrationStatus::Pending);
+    }
+    let Some(recovery) = recovery else {
+        if registration["state"] == "rejected" {
+            return Ok(ClientRegistrationStatus::Rejected { message: "Client registration was refused. Inspect this machine's local logs before pairing again. Automatic registration will not retry.".to_string(), retry: None });
+        }
+        return Ok(ClientRegistrationStatus::Starting);
+    };
+    if !recovery.is_object()
+        || !matches!(registration["state"].as_str(), Some("unregistered" | "rejected"))
+        || recovery.get("publicKey").is_some_and(|key| key.as_str().is_none_or(|key| !key.starts_with("ed25519:") || key.len() != 51))
+        || recovery.get("pairCode").is_some_and(|code| code.as_str().is_none_or(|code| code.is_empty()))
+    {
+        return Ok(unavailable());
+    }
+    let public_key = recovery.get("publicKey").and_then(Value::as_str).map(str::to_string);
+    if public_key.is_some() && !dir.join("machine.key").is_file() {
+        return Ok(unavailable());
+    }
+    if public_key.is_none() && (supervisor.get("token").is_some()
+        || supervisor.get("enrolledPublicKey").is_some() || dir.join("machine.key").exists()
+        || machine.get("daemon").is_some() || machine.get("legacy").is_some()
+        || machine["importedFiles"].as_object().is_none_or(|files| !files.is_empty()))
+    {
+        return Ok(unavailable());
+    }
+    // A saved replacement code differs from the failed/absent code captured in
+    // the runtime request. It is already a durable handoff, even before restart.
+    if obj.get("pairCode") != recovery.get("pairCode") {
+        return Ok(ClientRegistrationStatus::Pending);
+    }
+
+    let material = serde_json::to_vec(&(
+        machine_id,
+        server,
+        obj.get("uiUrl"),
+        recovery,
+        obj.get("pairCode"),
+        registration.get("state"),
+        registration.get("pendingPairCode"),
+    ))
+    .map_err(|e| e.to_string())?;
+    use sha2::{Digest, Sha256};
+    let target = format!("sha256:{:x}", Sha256::new()
+        .chain_update(b"podium:client-registration:v1\0")
+        .chain_update(material).finalize());
+    if registration["state"] == "rejected"
+        && registration.get("pendingPairCode").is_some()
+        && registration.get("pendingPairCode") == recovery.get("pairCode")
+    {
+        // The supervisor already tried this saved authority. Expose its validated
+        // public request only as a fresh-sign-in retry, never as automatic work.
+        // Older pages also stop on Rejected. Only the server can authorize a code.
+        return Ok(ClientRegistrationStatus::Rejected {
+            message: "Client registration was refused. Sign in again to retry with this machine identity.".to_string(),
+            retry: Some(ClientRegistrationRequest {
+                target,
+                machine_id: machine_id.to_string(),
+                public_key,
+            }),
+        });
+    }
+    Ok(ClientRegistrationStatus::Needed { target, machine_id: machine_id.to_string(), public_key })
+}
+
+pub fn client_registration_status(caller_url: &str) -> Result<ClientRegistrationStatus, String> {
+    let raw =
+        std::fs::read_to_string(state_dir().join("config.json")).map_err(|e| e.to_string())?;
+    let config: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+    inspect_client_registration(
+        config.as_object().ok_or("invalid client config")?,
+        caller_url,
+    )
+}
+
+/// The caller supplies a status receipt, never a target URL or config path. Recheck
+/// eligibility and the complete configured target inside the shared write critical section.
+pub fn write_client_registration(
+    pair_code: &str,
+    target: &str,
+    caller_url: &str,
+) -> Result<(), String> {
+    validate_pair_code(pair_code)?;
+    update_config_json(|obj| {
+        match inspect_client_registration(obj, caller_url)? {
+            ClientRegistrationStatus::Needed { target: current, .. } if current == target => {}
+            ClientRegistrationStatus::Rejected { retry: Some(request), .. } if request.target == target => {}
+            _ => {
+                return Err(
+                    "client registration state or configured target changed; reopen the app"
+                        .to_string(),
+                )
+            }
+        }
+        save_pair_code(obj, pair_code);
+        Ok(())
+    })
 }
 
 /// Persist the desktop updater's production channel without disturbing config fields owned by
@@ -833,61 +1183,63 @@ fn write_channel(
     requirement: EndpointRequirement,
 ) -> Result<(), String> {
     let path = state_dir().join("config.json");
-    let mut json = match std::fs::read_to_string(&path) {
-        Ok(text) => serde_json::from_str::<serde_json::Value>(&text)
-            .map_err(|e| format!("config.json is not valid JSON: {e}"))?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            serde_json::Value::Object(serde_json::Map::new())
-        }
-        Err(error) => return Err(format!("cannot read {}: {error}", path.display())),
-    };
-    let obj = json
-        .as_object_mut()
-        .ok_or_else(|| "config.json is not a JSON object".to_string())?;
-    obj.insert(
-        "updateChannel".to_string(),
-        serde_json::Value::String(channel.as_str().to_string()),
-    );
-    if channel == UpdateChannel::Dev {
-        let given = feed_endpoint.map(str::trim).filter(|e| !e.is_empty());
-        let endpoint = match (given, requirement) {
-            (Some(endpoint), _) => Some(endpoint),
-            // A dev-built shell records `dev` and no endpoint, and the updater reports itself
-            // unavailable until an attached source server supplies one. The alternative is
-            // worse in both directions: failing here stops the shell from launching at all,
-            // and seeding some other channel would leave a test build quietly updating from
-            // the feed real installs follow.
-            (None, EndpointRequirement::SeedWithoutOne) => None,
-            (None, EndpointRequirement::Required) => {
-                return Err("the dev desktop channel needs a feed endpoint".to_string())
+    with_config_write_lock(&path, || {
+        let mut json = match std::fs::read_to_string(&path) {
+            Ok(text) => serde_json::from_str::<serde_json::Value>(&text)
+                .map_err(|e| format!("config.json is not valid JSON: {e}"))?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                serde_json::Value::Object(serde_json::Map::new())
             }
+            Err(error) => return Err(format!("cannot read {}: {error}", path.display())),
         };
-        if let Some(endpoint) = endpoint {
-            let url =
-                Url::parse(endpoint).map_err(|e| format!("invalid dev update endpoint: {e}"))?;
-            if url.scheme() != "https" {
-                return Err("the dev update endpoint must use https".to_string());
+        let obj = json
+            .as_object_mut()
+            .ok_or_else(|| "config.json is not a JSON object".to_string())?;
+        obj.insert(
+            "updateChannel".to_string(),
+            serde_json::Value::String(channel.as_str().to_string()),
+        );
+        if channel == UpdateChannel::Dev {
+            let given = feed_endpoint.map(str::trim).filter(|e| !e.is_empty());
+            let endpoint = match (given, requirement) {
+                (Some(endpoint), _) => Some(endpoint),
+                // A dev-built shell records `dev` and no endpoint, and the updater reports itself
+                // unavailable until an attached source server supplies one. The alternative is
+                // worse in both directions: failing here stops the shell from launching at all,
+                // and seeding some other channel would leave a test build quietly updating from
+                // the feed real installs follow.
+                (None, EndpointRequirement::SeedWithoutOne) => None,
+                (None, EndpointRequirement::Required) => {
+                    return Err("the dev desktop channel needs a feed endpoint".to_string())
+                }
+            };
+            if let Some(endpoint) = endpoint {
+                let url =
+                    Url::parse(endpoint).map_err(|e| format!("invalid dev update endpoint: {e}"))?;
+                if url.scheme() != "https" {
+                    return Err("the dev update endpoint must use https".to_string());
+                }
+                obj.insert(
+                    "updateFeedEndpoint".to_string(),
+                    serde_json::Value::String(endpoint.to_string()),
+                );
+            } else {
+                // A build-channel seed is not entitled to retain an endpoint whose producer is
+                // unknown. In particular, older dev shells accepted loopback HTTP here; pairing a
+                // fresh `dev` channel with that stale value arms a release build that Tauri refuses.
+                obj.remove("updateFeedEndpoint");
             }
-            obj.insert(
-                "updateFeedEndpoint".to_string(),
-                serde_json::Value::String(endpoint.to_string()),
-            );
         } else {
-            // A build-channel seed is not entitled to retain an endpoint whose producer is
-            // unknown. In particular, older dev shells accepted loopback HTTP here; pairing a
-            // fresh `dev` channel with that stale value arms a release build that Tauri refuses.
             obj.remove("updateFeedEndpoint");
         }
-    } else {
-        obj.remove("updateFeedEndpoint");
-    }
-    let out = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
-    std::fs::create_dir_all(state_dir())
-        .map_err(|e| format!("cannot create {}: {e}", state_dir().display()))?;
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, format!("{out}\n"))
-        .map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
-    std::fs::rename(&tmp, &path).map_err(|e| format!("cannot replace config.json: {e}"))
+        let out = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(state_dir())
+            .map_err(|e| format!("cannot create {}: {e}", state_dir().display()))?;
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, format!("{out}\n"))
+            .map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
+        std::fs::rename(&tmp, &path).map_err(|e| format!("cannot replace config.json: {e}"))
+    })
 }
 
 /// Give the bundled server the same initial channel as the native updater.
@@ -1643,7 +1995,8 @@ fn strip_payload_quarantine(path: &Path) -> std::io::Result<()> {
 
 /// Seed the external payload exactly once. Presence of the directory is the only
 /// decision: no version, health, or content judgment can overwrite an install that
-/// the fleet updater owns. Copying into a sibling and renaming keeps a crash from
+/// the fleet updater owns. Cold-start replacement is a separate shared-runtime
+/// entry point under an exclusive installation lease. Copying into a sibling and renaming keeps a crash from
 /// turning a partial seed into a permanently-present payload directory.
 pub fn seed_payload_if_absent(seed: &Path, install: &Path) -> std::io::Result<bool> {
     if install.exists() {
@@ -1699,7 +2052,7 @@ pub fn payload_launcher_env(install: &Path) -> Vec<(&'static str, PathBuf)> {
 }
 
 /// Ensure a payload entrypoint is executable without ever copying or refreshing it.
-/// First-run seeding and fleet grants are the only writers of the payload directory.
+/// Seeding, eligible cold-start delivery and fleet grants own payload writes.
 pub fn ensure_executable(path: &Path) -> std::io::Result<PathBuf> {
     #[cfg(unix)]
     {
@@ -2922,6 +3275,453 @@ mod tests {
             .unwrap();
             assert_eq!(read_supervisor_machine_id().as_deref(), Some("m-123"));
         });
+    }
+
+    fn fresh_client_machine() -> serde_json::Value {
+        serde_json::json!({
+            "version": 1, "machineId": "same-machine", "importedFiles": {},
+            "role": { "mode": "client", "coordinator": "remote" },
+            "supervisor": {
+                "machineId": "same-machine", "generation": 1,
+                "assignment": { "server": false, "agentExecution": false },
+                "registration": { "serverUrl": "wss://vps.example", "state": "unregistered", "recovery": {} }
+            },
+            "connectivity": { "serverUrl": "wss://vps.example", "state": "blocked", "blockedReason": "Error: machine supervisor has no credential; pair it first" }
+        })
+    }
+
+    fn put_client_machine(machine: &serde_json::Value) {
+        std::fs::write(state_dir().join("machine.json"), machine.to_string()).unwrap();
+    }
+
+    fn needed_client_target() -> String {
+        match client_registration_status("https://vps.example/work").unwrap() {
+            ClientRegistrationStatus::Needed { target, .. } => target,
+            other => panic!("expected fresh client, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn client_handoff_is_durable_role_preserving_and_only_saved_once() {
+        with_state_dir(
+            "client-handoff",
+            Some(r#"{"mode":"client","serverUrl":"wss://vps.example","extra":{"keep":42}}"#),
+            || {
+                put_client_machine(&fresh_client_machine());
+                let target = needed_client_target();
+                let attempts: Vec<_> = (0..2)
+                    .map(|_| {
+                        let target = target.clone();
+                        std::thread::spawn(move || {
+                            write_client_registration(
+                                "ABCD-EFGH",
+                                &target,
+                                "https://vps.example/work",
+                            )
+                        })
+                    })
+                    .collect();
+                assert_eq!(
+                    attempts
+                        .into_iter()
+                        .map(|thread| thread.join().unwrap())
+                        .filter(Result::is_ok)
+                        .count(),
+                    1
+                );
+                let config: serde_json::Value = serde_json::from_str(
+                    &std::fs::read_to_string(state_dir().join("config.json")).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(config["mode"], "client");
+                assert_eq!(config["pairCode"], "ABCD-EFGH");
+                assert_eq!(config["extra"]["keep"], 42);
+                assert_eq!(
+                    client_registration_status("https://vps.example/work").unwrap(),
+                    ClientRegistrationStatus::Pending
+                );
+                assert_eq!(
+                    read_supervisor_machine_id().as_deref(),
+                    Some("same-machine")
+                );
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    assert_eq!(
+                        std::fs::metadata(state_dir().join("config.json"))
+                            .unwrap()
+                            .permissions()
+                            .mode()
+                            & 0o777,
+                        0o600
+                    );
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn client_registration_rechecks_scope_and_configured_target() {
+        with_state_dir(
+            "client-target",
+            Some(r#"{"mode":"client","serverUrl":"wss://vps.example"}"#),
+            || {
+                put_client_machine(&fresh_client_machine());
+                let target = needed_client_target();
+                assert!(client_registration_status("https://other.example").is_err());
+                assert!(
+                    write_client_registration("ABCD-EFGH", &target, "https://other.example")
+                        .is_err()
+                );
+                assert!(
+                    write_client_registration("bad code!", &target, "https://vps.example").is_err()
+                );
+                write_server_identity(ID, KEY).unwrap();
+                // Learning the same server's identity after authentication is not
+                // a target change and must not invalidate an in-flight handoff.
+                assert_eq!(needed_client_target(), target);
+                update_config_json(|obj| {
+                    obj.insert(
+                        "serverUrl".to_string(),
+                        serde_json::json!("wss://other.example"),
+                    );
+                    Ok(())
+                })
+                .unwrap();
+                assert!(
+                    write_client_registration("ABCD-EFGH", &target, "https://vps.example").is_err()
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn client_registration_requires_runtime_request_after_normal_authentication() {
+        with_state_dir(
+            "client-history",
+            Some(r#"{"mode":"client","serverUrl":"wss://vps.example"}"#),
+            || {
+                assert_eq!(
+                    client_registration_status("https://vps.example").unwrap(),
+                    ClientRegistrationStatus::Starting
+                );
+                let mut local = fresh_client_machine();
+                local["role"] = serde_json::json!({ "mode": "all-in-one", "coordinator": "local" });
+                put_client_machine(&local);
+                assert_eq!(
+                    client_registration_status("https://vps.example").unwrap(),
+                    ClientRegistrationStatus::Starting
+                );
+                assert!(write_client_registration("ABCD-EFGH", "stale", "https://vps.example").is_err());
+                for patch in [
+                    serde_json::json!({ "registration": { "serverUrl": "wss://other.example", "state": "unregistered" } }),
+                    serde_json::json!({ "registration": { "serverUrl": "wss://vps.example", "state": "enrolled" } }),
+                    serde_json::json!({ "token": "" }),
+                    serde_json::json!({ "enrolledPublicKey": false }),
+                    serde_json::json!({ "assignment": { "server": false, "agentExecution": true } }),
+                ] {
+                    let mut machine = fresh_client_machine();
+                    machine["supervisor"]
+                        .as_object_mut()
+                        .unwrap()
+                        .extend(patch.as_object().unwrap().clone());
+                    put_client_machine(&machine);
+                    assert!(matches!(
+                        client_registration_status("https://vps.example").unwrap(),
+                        ClientRegistrationStatus::Unavailable { .. }
+                    ));
+                }
+                let mut machine = fresh_client_machine();
+                machine["importedFiles"] = serde_json::json!({ "supervisor.json": "prior-import" });
+                machine["daemon"] = serde_json::json!({ "machineId": "same-machine" });
+                put_client_machine(&machine);
+                std::fs::write(
+                    state_dir().join("machine.key"),
+                    "opaque private material: native status never reads or returns it",
+                )
+                .unwrap();
+                machine["supervisor"]["registration"]["recovery"] = serde_json::json!({ "publicKey": format!("ed25519:{}", "a".repeat(43)) });
+                put_client_machine(&machine);
+                // History is preserved; runtime has validated the retained credential.
+                let target = needed_client_target();
+                assert!(!target.contains("opaque private material"));
+                machine["supervisor"].as_object_mut().unwrap().remove("registration");
+                put_client_machine(&machine);
+                assert!(matches!(
+                    client_registration_status("https://vps.example").unwrap(),
+                    ClientRegistrationStatus::Starting
+                ));
+                std::fs::write(state_dir().join("machine.json"), "corrupt").unwrap();
+                assert!(matches!(
+                    client_registration_status("https://vps.example").unwrap(),
+                    ClientRegistrationStatus::Unavailable { .. }
+                ));
+            },
+        );
+    }
+
+    #[test]
+    fn client_registration_distinguishes_enrolled_rejected_pending_and_other_modes() {
+        with_state_dir(
+            "client-status",
+            Some(r#"{"mode":"client","serverUrl":"wss://vps.example"}"#),
+            || {
+                let mut machine = fresh_client_machine();
+                machine["supervisor"]["token"] = serde_json::json!("private-token");
+                machine["supervisor"]["registration"] = serde_json::json!({ "serverUrl": "wss://vps.example", "state": "enrolled" });
+                machine["connectivity"]["state"] = serde_json::json!("disconnected");
+                put_client_machine(&machine);
+                let status = client_registration_status("https://vps.example").unwrap();
+                assert_eq!(status, ClientRegistrationStatus::Enrolled);
+                assert_eq!(
+                    serde_json::to_string(&status).unwrap(),
+                    r#"{"state":"enrolled"}"#
+                );
+                machine["connectivity"]["state"] = serde_json::json!("unauthorized");
+                machine["supervisor"]["registration"]["state"] = serde_json::json!("rejected");
+                put_client_machine(&machine);
+                assert!(matches!(
+                    client_registration_status("https://vps.example").unwrap(),
+                    ClientRegistrationStatus::Rejected { .. }
+                ));
+                machine = fresh_client_machine();
+                machine["supervisor"]["setupEnrollment"] = serde_json::json!({ "machineId": "same-machine", "requestId": "setup", "publicKey": "public-key", "agentExecution": false, "preauthorized": false });
+                put_client_machine(&machine);
+                assert_eq!(
+                    client_registration_status("https://vps.example").unwrap(),
+                    ClientRegistrationStatus::Pending
+                );
+                for mode in ["daemon", "server", "all-in-one", "supervisor"] {
+                    update_config_json(|obj| {
+                        obj.insert("mode".to_string(), serde_json::json!(mode));
+                        Ok(())
+                    })
+                    .unwrap();
+                    assert_eq!(
+                        client_registration_status("https://vps.example").unwrap(),
+                        ClientRegistrationStatus::NotApplicable
+                    );
+                    assert!(
+                        write_client_registration("ABCD-EFGH", "any", "https://vps.example")
+                            .is_err()
+                    );
+                }
+            },
+        );
+    }
+
+    #[test]
+    fn client_revoked_recovery_uses_runtime_identity_and_one_durable_handoff() {
+        with_state_dir("client-recovery", Some(r#"{"mode":"client","serverUrl":"wss://vps.example","pairCode":"OLD-CODE","extra":42}"#), || {
+            let mut machine = fresh_client_machine();
+            let key = format!("ed25519:{}", "a".repeat(43));
+            machine["supervisor"]["registration"] = serde_json::json!({ "serverUrl": "wss://vps.example", "state": "rejected", "recovery": { "publicKey": key, "pairCode": "OLD-CODE" } });
+            machine["supervisor"]["enrolledPublicKey"] = serde_json::json!(key);
+            machine["connectivity"]["state"] = serde_json::json!("unauthorized");
+            machine["legacy"] = serde_json::json!({ "machineId": "historical-bare-id" });
+            std::fs::write(state_dir().join("machine.key"), "private material never crosses IPC").unwrap();
+            put_client_machine(&machine);
+            let before = std::fs::read_to_string(state_dir().join("machine.json")).unwrap();
+            let status = client_registration_status("https://vps.example").unwrap();
+            assert!(!serde_json::to_string(&status).unwrap().contains("OLD-CODE"));
+            let target = match status {
+                ClientRegistrationStatus::Needed { target, machine_id, public_key } => {
+                    assert_eq!(machine_id, "same-machine"); assert_eq!(public_key.as_deref(), Some(key.as_str())); target
+                },
+                other => panic!("expected authorized recovery request, got {other:?}"),
+            };
+            assert!(target.starts_with("sha256:"));
+            assert_eq!(target.len(), 71);
+            // The receipt still binds the prior code; only its digest crosses IPC.
+            machine["supervisor"]["registration"]["recovery"]["pairCode"] = serde_json::json!("CHANGED-CODE");
+            put_client_machine(&machine);
+            update_config_json(|obj| { obj.insert("pairCode".into(), serde_json::json!("CHANGED-CODE")); Ok(()) }).unwrap();
+            assert_ne!(needed_client_target(), target);
+            assert!(write_client_registration("ABCD-EFGH", &target, "https://vps.example").is_err());
+            std::fs::write(state_dir().join("machine.json"), &before).unwrap();
+            update_config_json(|obj| { obj.insert("pairCode".into(), serde_json::json!("OLD-CODE")); Ok(()) }).unwrap();
+            write_client_registration("ABCD-EFGH", &target, "https://vps.example").unwrap();
+            assert_eq!(client_registration_status("https://vps.example").unwrap(), ClientRegistrationStatus::Pending);
+            assert!(write_client_registration("JKLM-NPQR", &target, "https://vps.example").is_err());
+            assert_eq!(std::fs::read_to_string(state_dir().join("machine.json")).unwrap(), before);
+            assert_eq!(std::fs::read_to_string(state_dir().join("machine.key")).unwrap(), "private material never crosses IPC");
+        });
+    }
+
+    #[test]
+    fn client_saved_code_rejection_exposes_only_a_sign_in_retry_receipt() {
+        with_state_dir(
+            "client-saved-code-expiry",
+            Some(
+                r#"{"mode":"client","serverUrl":"wss://vps.example","pairCode":"EXPIRED-CODE","updateChannel":"edge","extra":42}"#,
+            ),
+            || {
+                let mut machine = fresh_client_machine();
+                let key = format!("ed25519:{}", "a".repeat(43));
+                machine["supervisor"]["enrolledPublicKey"] = serde_json::json!(key);
+                machine["supervisor"]["registration"] = serde_json::json!({
+                    "serverUrl": "wss://vps.example", "state": "rejected",
+                    "pendingPairCode": "EXPIRED-CODE",
+                    "recovery": { "publicKey": key, "pairCode": "EXPIRED-CODE" }
+                });
+                machine["connectivity"]["state"] = serde_json::json!("unauthorized");
+                machine["legacy"] = serde_json::json!({ "machineId": "retained-history" });
+                std::fs::write(state_dir().join("machine.key"), "retained private key").unwrap();
+                put_client_machine(&machine);
+                let before = std::fs::read(state_dir().join("machine.json")).unwrap();
+                let status = client_registration_status("https://vps.example").unwrap();
+                let serialized = serde_json::to_value(&status).unwrap();
+                assert_eq!(serialized["state"], "rejected");
+                assert_eq!(serialized["retry"]["machineId"], "same-machine");
+                assert_eq!(serialized["retry"]["publicKey"], key);
+                assert!(!serialized.to_string().contains("EXPIRED-CODE"));
+                assert!(!serialized.to_string().contains("retained private key"));
+                let target = serialized["retry"]["target"].as_str().unwrap().to_string();
+                assert!(target.starts_with("sha256:"));
+                for _ in 0..3 {
+                    assert_eq!(
+                        client_registration_status("https://vps.example").unwrap(),
+                        status
+                    );
+                }
+                // Retry eligibility is part of the receipt, not an unbound UI flag.
+                machine["supervisor"]["registration"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("pendingPairCode");
+                put_client_machine(&machine);
+                assert_ne!(needed_client_target(), target);
+                assert!(
+                    write_client_registration("RELOGIN-CODE", &target, "https://vps.example")
+                        .is_err()
+                );
+                std::fs::write(state_dir().join("machine.json"), &before).unwrap();
+                write_client_registration("RELOGIN-CODE", &target, "https://vps.example").unwrap();
+                assert_eq!(
+                    client_registration_status("https://vps.example").unwrap(),
+                    ClientRegistrationStatus::Pending
+                );
+                assert!(
+                    write_client_registration("ANOTHER-CODE", &target, "https://vps.example")
+                        .is_err()
+                );
+                let config: serde_json::Value = serde_json::from_str(
+                    &std::fs::read_to_string(state_dir().join("config.json")).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(config["pairCode"], "RELOGIN-CODE");
+                assert_eq!(config["mode"], "client");
+                assert_eq!(config["updateChannel"], "edge");
+                assert_eq!(config["extra"], 42);
+                assert_eq!(
+                    std::fs::read(state_dir().join("machine.json")).unwrap(),
+                    before
+                );
+                assert_eq!(
+                    std::fs::read_to_string(state_dir().join("machine.key")).unwrap(),
+                    "retained private key"
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn client_handoff_preserves_concurrent_native_config_edits() {
+        with_state_dir("client-config-writers", Some(r#"{"mode":"client","serverUrl":"wss://vps.example","extra":42}"#), || {
+            put_client_machine(&fresh_client_machine());
+            let target = needed_client_target();
+            let code = std::thread::spawn(move || write_client_registration("ABCD-EFGH", &target, "https://vps.example"));
+            let channel = std::thread::spawn(|| write_update_channel(UpdateChannel::Edge, None));
+            code.join().unwrap().unwrap();
+            channel.join().unwrap().unwrap();
+            let config: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(state_dir().join("config.json")).unwrap()).unwrap();
+            assert_eq!(config["mode"], "client");
+            assert_eq!(config["pairCode"], "ABCD-EFGH");
+            assert_eq!(config["updateChannel"], "edge");
+            assert_eq!(config["extra"], 42);
+        });
+    }
+
+    #[test]
+    fn native_config_publication_excludes_an_independent_runtime_writer() {
+        with_state_dir(
+            "cross-runtime-config-writers",
+            Some(r#"{"mode":"client","serverUrl":"wss://vps.example","pairCode":"OLD-CODE"}"#),
+            || {
+                let path = state_dir().join("config.json");
+                let report = state_dir().join("writer-barrier.json");
+                let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("../../../scripts/fixtures/config-competing-writer.ts");
+                let mut writer = None;
+                let native = update_config_json(|obj| {
+                    writer = Some(
+                        std::process::Command::new(
+                            std::env::var("PODIUM_CONFIG_TEST_BUN").unwrap_or_else(|_| "bun".into()),
+                        )
+                        .arg("--conditions=@podium/source")
+                        .arg(&fixture)
+                        .arg(&path)
+                        .arg(&report)
+                        .env("PODIUM_STATE_DIR", state_dir())
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::piped())
+                        .spawn()
+                        .map_err(|error| error.to_string())?,
+                    );
+                    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+                    while !report.exists() {
+                        if std::time::Instant::now() > deadline {
+                            return Err("runtime writer barrier timed out".into());
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                    }
+                    let barrier: serde_json::Value = serde_json::from_str(
+                        &std::fs::read_to_string(&report).map_err(|error| error.to_string())?,
+                    )
+                    .map_err(|error| error.to_string())?;
+                    if barrier["contended"] != true {
+                        return Err("runtime writer bypassed native ownership".into());
+                    }
+                    obj.remove("pairCode");
+                    Ok(())
+                });
+                // Publication has finished and SQLite ownership is released before
+                // the competing real runtime can save its replacement code/policy.
+                let output = writer
+                    .take()
+                    .expect("runtime writer launched")
+                    .wait_with_output()
+                    .unwrap();
+                native.unwrap();
+                assert!(
+                    output.status.success(),
+                    "{}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                let config: serde_json::Value =
+                    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+                assert_eq!(config["pairCode"], "NEWER-CODE");
+                assert_eq!(config["updateChannel"], "edge");
+                assert_eq!(config["mode"], "client");
+            },
+        );
+    }
+
+    #[tokio::test]
+    async fn config_publication_is_safe_inside_an_async_native_command() {
+        with_state_dir(
+            "async-config-writer",
+            Some(r#"{"mode":"client","serverUrl":"wss://vps.example","pairCode":"PRESERVE-CODE"}"#),
+            || {
+                write_update_channel(UpdateChannel::Edge, None).unwrap();
+                let config: serde_json::Value = serde_json::from_str(
+                    &std::fs::read_to_string(state_dir().join("config.json")).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(config["pairCode"], "PRESERVE-CODE");
+                assert_eq!(config["updateChannel"], "edge");
+            },
+        );
     }
 
     #[test]

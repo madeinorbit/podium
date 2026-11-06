@@ -82,6 +82,48 @@ shell only when that hash differs from the standing channel shell. A headless-on
 forward the standing `latest.json` and `desktop-shell-input.sha256`, so its shell version and URLs
 stay unchanged.
 
+On a cold app start, the signed shell seeds a missing external companion payload as
+before. A release shell can also supply its complete bundled runtime when the installed
+runtime is provably older under Podium's channel-aware version rules. Equal versions,
+newer Dev runtimes, unordered/source/debug builds, incompatible local channels, explicit
+feed choices and delivered downgrade/target constraints are preserved. A historical
+successful forward update is not a permanent pin. Coordinator-only policy that has never
+been delivered locally cannot be enforced offline; this path adds no network boot dependency.
+The source channel is stamped into the shell build, independently of the selected profile;
+an Edge source defers for an existing runtime following Dev or Stable.
+
+This source is lower priority than the existing updater. Unfinished headless or native
+updates, held preparation, activation/restart, staging, transfer recovery and live installation
+owners defer fallback for that launch. A native app update's first relaunch may still have an
+unfinished native journal; only a later eligible cold start can use the bundled fallback.
+Child respawns and WebView mounts never retry it. Startup creates no fleet receipt and does
+not relax exact authorized version, artifact digest and health confirmation.
+
+Installation usage is keyed by the canonical payload directory, independently of selected
+instance roots. New shells, parents, successors and children share usage leases; startup
+replacement requires exclusive ownership and uses the shared full-bundle activation primitive.
+Normal app cold starts are serialized on every platform. Linux also fences legacy executable
+inodes against execution while replacement is prepared. Preexisting legacy owners on other
+platforms are detected and cause deferral, but a simultaneous direct/headless launch of a
+pre-lease 0.2/0.3 binary is not serialized by that older code. Automatic non-Linux replacement
+is restricted to the normal app-owned payload; custom/shared headless-managed destinations
+defer it. Packaged macOS and Windows acceptance must prove their native boundaries separately.
+
+At first adoption, arbitrary dormant legacy/custom state roots that were never selected or
+registered and left no install-global marker are not discoverable from the app payload.
+The selected canonical root, every known registered root and install-global recovery state
+are checked. An unreadable known record defers fallback; it never becomes empty history.
+An entirely absent retired root is absent; permission/IO failures or broken aliases defer.
+Unavailable filesystem content, including an unmounted journal, cannot be inferred.
+An unknown legacy root's journal stays untouched and retains normal exact-target recovery
+when that root is later selected.
+
+Preparation preserves config, machine identity/key, consent and user data. Invalid payloads
+or identity remain explicit repair cases. The predecessor stays available across activation
+until ordinary startup health owns its disposition; fallback never blindly rolls binaries
+back after server migrations might have run. The server still owns migrations and backups,
+and a client-only runtime does not migrate its remote coordinator database.
+
 GitHub Actions must contain `TAURI_SIGNING_PRIVATE_KEY` and
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. The private key must match `plugins.updater.pubkey` in
 `apps/desktop/src-tauri/tauri.conf.json`; changing the key strands existing installations.
@@ -93,9 +135,9 @@ experimental: it can fail or hit its 30-minute cap without holding the release b
 release then ships the other platforms with no Windows entry in `latest.json`. It runs beside the
 macOS legs, so it only lengthens a release when it outlasts the slowest of them.
 
-The headless release does not build a Windows server bundle yet. A Windows desktop install
-therefore runs the server its installer seeded and cannot update that server; shell updates
-still arrive through the updater. The same
+The headless release does not build a Windows server bundle yet, so regular supervisor
+delivery cannot update that runtime independently. A later app can supply its bundled runtime
+on an eligible cold start as described above. Shell updates still arrive through the updater. The same
 installer is the Tauri updater payload, with its detached `.sig` included in `latest.json` under
 `windows-x86_64`. The dispatch-only Windows smoke compiles the Tauri executable, launches it
 against a real local Podium server, checks exported mobile asset references, and packages an
@@ -119,6 +161,16 @@ macOS builds (Apple Silicon and Intel) are signed with a Developer ID Applicatio
 by Apple, and stapled, so a downloaded DMG opens without a Gatekeeper warning. This is separate
 from the Tauri updater key: Apple's signature is what macOS trusts, and the Tauri key is what the
 updater trusts. A release needs both.
+
+Ticket stapling, ticket validation, and Gatekeeper assessment retry up to five times, waiting
+15, 30, 60, then 120 seconds between attempts. Apple's ticket service can drop a connection even
+after accepting notarization; these retries repeat the service call without rebuilding the app.
+Exhausting the retries still blocks publication.
+
+Release tool setup also gets three attempts, waiting 15 then 45 seconds. Recovery attempts
+download the mise bootstrap from its own host when available; Bun and the other tools still
+use the repository's pinned versions and checksum verification. A third failure stops the job
+before compilation.
 
 These GitHub Actions secrets drive it. A missing one does not fail loudly at Apple — it degrades to
 a signed-but-un-notarized bundle — so the build runs `apps/desktop/scripts/verify-macos-signing.sh`
@@ -200,6 +252,14 @@ never landed.
 
 Useful flags: `--dry-run` prints the version transition and the notes it would ship, changing
 nothing; `--no-push` commits and tags locally so you can inspect before pushing.
+
+To build an unpublished fallback without moving a tag or an update channel, dispatch both
+release workflows against the candidate branch with `publish_release=false`. Use `channel=stable`
+for the full platform set, and give the desktop workflow the intended `release_tag` and
+`rebuild_desktop=true`. The desktop build uses the dispatch commit rather than that tag, and
+retains its validated manifest and signed bundles as Actions artifacts. The headless workflow
+builds and checks all four bundles; stable dispatches refuse publication. Publishing remains a
+separate decision.
 
 It refuses, before creating anything, a version that is not greater than the current one, a version
 that is neither `X.Y.Z` nor `X.Y.Z-edge.N`, a dirty tree, a branch out of sync with its remote, and

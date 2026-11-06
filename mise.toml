@@ -26,7 +26,9 @@ min_version = "2026.9.11"
 [tools]
 bun = "1.4.4"
 zig = "0.16.0"
-"github:indygreg/apple-platform-rs" = { version = "apple-codesign/0.29.0", exe = "rcodesign" }
+# The archives already contain rcodesign; the github backend discovers it on PATH.
+# `exe` is not a supported github backend option (mise 2026.11+ rejects it).
+"github:indygreg/apple-platform-rs" = { version = "apple-codesign/0.29.0" }
 "conda:pigz" = "2.8"
 # podium-tunnel (native/podium-tunnel, POD-4640): Rust, cross-linked with the pinned zig
 # through cargo-zigbuild (scripts/tunnel-cross.ts). Keep `rust` in step with the crate's

@@ -423,7 +423,14 @@ impl log::Log for NdjsonLogger {
         // with; the old `[podium-desktop]` also duplicated what `{ns}` already
         // says (`desktop:shell`, `desktop:updater`), so the runtime is still on
         // the line — once, and under the product's name.
-        eprintln!("[podium] {} {ns} {msg}", level.to_uppercase());
+        // Not eprintln!: it panics when stderr is gone, e.g. a shell relaunched by a
+        // mode switch inherits the pipe of a `tauri dev` that has exited, and that
+        // panic inside setup aborts the app. The NDJSON line above is the record.
+        let _ = writeln!(
+            std::io::stderr(),
+            "[podium] {} {ns} {msg}",
+            level.to_uppercase()
+        );
     }
 
     fn flush(&self) {}

@@ -25,8 +25,9 @@ import {
   readRoleOrigin,
   TRANSFER_ASSIGNMENT_FILE,
 } from './machine-supervisor'
-import { writeConnectivity } from './connectivity'
+import { clearConnectivity, writeConnectivity } from './connectivity'
 import { confirmSetupEnrollment, prepareSetupEnrollment } from './setup-enrollment'
+import { applyLocalSetupDefault, applyMode } from './setup'
 import { loadConfig, saveConfig } from './config'
 import { readConnectivityForTest } from './connectivity'
 import { createMachineCredential, readMachineCredential, machinePublicKeyWire, verifyWithMachineKey } from './machine-credential'
@@ -42,11 +43,141 @@ function stateDir(): string {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
   vi.useRealTimers()
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
 })
 
 describe('supervisor credential ownership', () => {
+  it('keeps a previous rejection through status cleanup until this server acknowledges the existing credential', () => {
+    class Socket extends EventTarget {
+      static OPEN = 1
+      static current: Socket
+      readyState = 1
+      sent: Array<{ v: number }> = []
+      constructor() { super(); Socket.current = this }
+      send(raw: string) { this.sent.push(JSON.parse(raw)) }
+      close() {}
+    }
+    vi.stubGlobal('WebSocket', Socket)
+    const dir = stateDir()
+    const state = loadSupervisorState(dir)
+    state.token = 'existing-test-token'
+    state.registration = { serverUrl: 'wss://vps.example', state: 'rejected' }
+    saveSupervisorState(dir, state)
+    writeConnectivity({
+      serverUrl: 'wss://vps.example',
+      state: 'unauthorized',
+      processId: process.pid,
+      appVersion: 'test',
+      authorizationReason: 'peerHelloRejected: auth-failed',
+    }, dir)
+    clearConnectivity(dir)
+    expect(readConnectivityForTest(dir)).toBeUndefined()
+    expect(loadSupervisorState(dir)).toEqual(state)
+    const service = { policy: 'disabled' as const, state: 'stopped' as const, observedAt: new Date().toISOString() }
+    const connection = createMachineSupervisorConnection({
+      stateDir: dir, state, serverUrl: 'wss://vps.example', build: { appVersion: 'test' },
+      deliveryCaps: [], report: () => ({ server: service, agentExecution: service }), onGrant: vi.fn(),
+    })
+    try {
+      connection.start()
+      expect(loadSupervisorState(dir).registration?.state).toBe('rejected')
+      Socket.current.dispatchEvent(new Event('open'))
+      Socket.current.dispatchEvent(new MessageEvent('message', { data: JSON.stringify({ type: 'peerHelloOk', v: Socket.current.sent[0]?.v, caps: [] }) }))
+      expect(loadSupervisorState(dir).registration).toEqual({ serverUrl: 'wss://vps.example', state: 'enrolled' })
+    } finally { connection.close() }
+  })
+
+  it('attests never-enrolled client state without minting or changing its identity/key', () => {
+    vi.useFakeTimers()
+    const dir = stateDir()
+    const state = loadSupervisorState(dir)
+    reconcileSupervisorAssignment(state, { mode: 'client', serverUrl: 'wss://vps.example' }, dir)
+    const service = {
+      policy: 'disabled' as const,
+      state: 'stopped' as const,
+      observedAt: new Date().toISOString(),
+    }
+    const connection = createMachineSupervisorConnection({
+      stateDir: dir,
+      state,
+      serverUrl: 'wss://vps.example',
+      build: { appVersion: 'test' },
+      deliveryCaps: [],
+      report: () => ({ server: service, agentExecution: service }),
+      onGrant: vi.fn(),
+    })
+    try {
+      connection.start()
+      expect(loadSupervisorState(dir)).toMatchObject({
+        machineId: state.machineId,
+        registration: { serverUrl: 'wss://vps.example', state: 'unregistered' },
+      })
+      expect(readMachineCredential(dir)).toBeUndefined()
+      vi.advanceTimersByTime(600)
+      expect(loadSupervisorState(dir).registration?.state).toBe('unregistered')
+    } finally {
+      connection.close()
+    }
+  })
+
+  it.each([
+    'legacy',
+    'enrolled',
+    'rejected',
+  ] as const)('never treats %s history as fresh enrollment', (history) => {
+    vi.useFakeTimers()
+    const dir = stateDir()
+    if (history === 'legacy') writeFileSync(join(dir, 'machine.id'), 'existing-machine')
+    const state = loadSupervisorState(dir)
+    reconcileSupervisorAssignment(state, { mode: 'client', serverUrl: 'wss://vps.example' }, dir)
+    if (history !== 'legacy') {
+      state.registration = { state: history, serverUrl: 'wss://vps.example' }
+      saveSupervisorState(dir, state)
+    }
+    const service = {
+      policy: 'disabled' as const,
+      state: 'stopped' as const,
+      observedAt: new Date().toISOString(),
+    }
+    const connection = createMachineSupervisorConnection({
+      stateDir: dir,
+      state,
+      serverUrl: 'wss://vps.example',
+      build: { appVersion: 'test' },
+      deliveryCaps: [],
+      report: () => ({ server: service, agentExecution: service }),
+      onGrant: vi.fn(),
+    })
+    try {
+      connection.start()
+      expect(loadSupervisorState(dir).registration?.state).not.toBe('unregistered')
+      expect(loadSupervisorState(dir).machineId).toBe(state.machineId)
+      expect(readMachineCredential(dir)).toBeUndefined()
+    } finally {
+      connection.close()
+    }
+  })
+
+  it.each([
+    { token: false }, { token: '' }, { enrolledPublicKey: 42 },
+    { setupEnrollment: { incomplete: true } },
+    { registration: { state: 'unregistered' } },
+    { assignment: { server: false } },
+  ])('refuses corrupt enrollment before a generation write can erase it: %j', (corrupt) => {
+    const dir = stateDir()
+    const state = loadSupervisorState(dir)
+    saveSupervisorState(dir, state)
+    const path = join(dir, 'machine.json')
+    const machine = JSON.parse(readFileSync(path, 'utf8'))
+    Object.assign(machine.supervisor, corrupt)
+    const raw = JSON.stringify(machine)
+    writeFileSync(path, raw)
+    expect(() => loadSupervisorState(dir)).toThrow(/invalid supervisor/)
+    expect(readFileSync(path, 'utf8')).toBe(raw)
+  })
+
   it('imports the exact enrolled daemon identity once before removing the legacy copy', () => {
     const dir = stateDir()
     const legacy = {
@@ -215,6 +346,57 @@ describe('a setup that changes the role outside a transfer (POD-5983)', () => {
     )
     return state
   }
+
+  it('adopts the normal local welcome to VPS client setup without presenting or replacing the local key', () => {
+    vi.useFakeTimers()
+    const dir = stateDir()
+    vi.stubEnv('PODIUM_STATE_DIR', dir)
+    expect(applyLocalSetupDefault()).toBe('applied')
+    const request = loadSupervisorState(dir).setupEnrollment!
+    confirmSetupEnrollment(request.requestId, request.publicKey, dir)
+    const local = loadSupervisorState(dir)
+    local.assignment = reconcileSupervisorAssignment(local, loadConfig(), dir)
+    local.registration = { serverUrl: 'ws://localhost:18787', state: 'enrolled' }
+    saveSupervisorState(dir, local)
+    const originalKey = readFileSync(join(dir, 'machine.key'), 'utf8')
+    const client = applyMode({ mode: 'client', serverUrl: joined.serverUrl, identity: {
+      installationId: VPS, installationPublicKey: 'local-fixture-server-key',
+    } })
+    const state = loadSupervisorState(dir)
+    expect(reconcileSupervisorAssignment(state, client, dir)).toEqual({ server: false, agentExecution: false })
+    expect(loadSupervisorState(dir)).toMatchObject({
+      machineId: local.machineId,
+      registration: { serverUrl: joined.serverUrl, state: 'unregistered' },
+    })
+    expect(loadSupervisorState(dir).enrolledPublicKey).toBeUndefined()
+    expect(readFileSync(join(dir, 'machine.key'), 'utf8')).toBe(originalKey)
+
+    const dial = vi.fn()
+    vi.stubGlobal('WebSocket', dial)
+    const service = { policy: 'disabled' as const, state: 'stopped' as const, observedAt: new Date().toISOString() }
+    const connection = createMachineSupervisorConnection({
+      stateDir: dir, state, serverUrl: joined.serverUrl, build: { appVersion: 'test' },
+      deliveryCaps: [], report: () => ({ server: service, agentExecution: service }), onGrant: vi.fn(),
+    })
+    try {
+      connection.start()
+      vi.advanceTimersByTime(2_000)
+      expect(dial).not.toHaveBeenCalled()
+      expect(readFileSync(join(dir, 'machine.key'), 'utf8')).toBe(originalKey)
+      expect(loadSupervisorState(dir).registration?.state).toBe('unregistered')
+      expect(reconcileSupervisorAssignment(loadSupervisorState(dir), client, dir)).toEqual({ server: false, agentExecution: false })
+    } finally { connection.close() }
+  })
+
+  it('does not declare a new client target when the local enrolled key is missing', () => {
+    const dir = stateDir()
+    firstLocalLaunch(dir)
+    rmSync(join(dir, 'machine.key'))
+    const before = readFileSync(join(dir, 'machine.json'), 'utf8')
+    expect(() => reconcileSupervisorAssignment(loadSupervisorState(dir), { ...joined, mode: 'client' }, dir)).toThrow('enrolled machine key unavailable')
+    expect(readFileSync(join(dir, 'machine.json'), 'utf8')).toBe(before)
+    expect(existsSync(join(dir, 'machine.key'))).toBe(false)
+  })
 
   it('takes the joined role and drops the local server credential', () => {
     const dir = stateDir()
@@ -880,5 +1062,208 @@ describe('supervisor credential rotation', () => {
       expect(fresh.sent[1]!.credential.rotation).toBeUndefined()
       expect(verifyWithMachineKey(next, machineHelloTranscript({ ...challenge, connectionId: 'fresh', nonce: 'nonce-fresh' }), fresh.sent[1]!.credential.proof.signature)).toBe(true)
     } finally { connection.close() }
+  })
+})
+
+describe('retained credential recovery', () => {
+  class Socket extends EventTarget {
+    static OPEN = 1
+    static all: Socket[] = []
+    readyState = 1
+    sent: Array<any> = []
+    constructor() { super(); Socket.all.push(this) }
+    send(raw: string) { this.sent.push(JSON.parse(raw)) }
+    close() {}
+    open() { this.dispatchEvent(new Event('open')) }
+    message(value: unknown) { this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify(value) })) }
+  }
+  const service = { policy: 'disabled' as const, state: 'stopped' as const, observedAt: new Date().toISOString() }
+  function fixture(kind: 'key' | 'token' = 'key') {
+    Socket.all = []; vi.stubGlobal('WebSocket', Socket)
+    const dir = stateDir(), state = loadSupervisorState(dir)
+    const key = createMachineCredential(dir), publicKey = machinePublicKeyWire(key)
+    if (kind === 'token') state.token = 'legacy-bearer'
+    saveSupervisorState(dir, state)
+    const base = { stateDir: dir, serverUrl: 'wss://vps.example', build: { appVersion: 'test' },
+      deliveryCaps: [], report: () => ({ server: service, agentExecution: service }), onGrant: vi.fn() }
+    const prove = (socket: Socket) => socket.message({ type: 'machineChallenge', machineId: state.machineId,
+      installationId: 'installation', connectionId: 'connection', nonce: 'nonce', expiresAtMs: Date.now() + 30_000 })
+    const accept = (socket: Socket) => socket.message({ type: 'peerHelloOk', v: socket.sent[0].v, caps: [] })
+    const refuse = (socket: Socket) => socket.message({ type: 'peerHelloRejected', reason: 'auth-failed' })
+    return { dir, state, key, publicKey, base, prove, accept, refuse }
+  }
+  it('repairs a legacy missing receipt from the exact accepted signed challenge without a key receipt in the old server ACK', () => {
+    const f = fixture()
+    const ack = vi.fn()
+    const connection = createMachineSupervisorConnection({ ...f.base, state: f.state, pairCode: 'OLD-CODE', onPaired: ack })
+    try {
+      connection.start(); connection.start()
+      expect(Socket.all).toHaveLength(1)
+      const socket = Socket.all[0]!
+      socket.open(); expect(socket.sent[0].credential.kind).toBe('machineKey')
+      f.prove(socket); f.accept(socket)
+      expect(loadSupervisorState(f.dir)).toMatchObject({ enrolledPublicKey: f.publicKey,
+        registration: { state: 'enrolled', serverUrl: f.base.serverUrl } })
+      expect(ack).toHaveBeenCalledOnce()
+      expect(readMachineCredential(f.dir)).toEqual(f.key)
+    } finally { connection.close() }
+  })
+  it('does not attest a disk key after a successful token hello', () => {
+    const f = fixture('token')
+    const connection = createMachineSupervisorConnection({ ...f.base, state: f.state })
+    try {
+      connection.start(); const socket = Socket.all[0]!; socket.open(); f.accept(socket)
+      expect(loadSupervisorState(f.dir).enrolledPublicKey).toBeUndefined()
+      expect(loadSupervisorState(f.dir).token).toBe('legacy-bearer')
+    } finally { connection.close() }
+  })
+  it('retains a durable ACK and exact code when code consumption is interrupted', () => {
+    const f = fixture()
+    const connection = createMachineSupervisorConnection({ ...f.base, state: f.state, pairCode: 'COMMITTED-CODE', onPaired: () => { throw new Error('interrupted config write') } })
+    connection.start(); const first = Socket.all[0]!; first.open(); f.prove(first); f.accept(first); connection.close()
+    expect(loadSupervisorState(f.dir).registration).toMatchObject({ state: 'enrolled', pendingPairCode: 'COMMITTED-CODE' })
+    const ack = vi.fn()
+    const retry = createMachineSupervisorConnection({ ...f.base, state: loadSupervisorState(f.dir), pairCode: 'COMMITTED-CODE', onPaired: ack })
+    try {
+      retry.start(); const next = Socket.all.at(-1)!; next.open(); f.prove(next); f.accept(next)
+      expect(ack).toHaveBeenCalledOnce()
+      expect(loadSupervisorState(f.dir).registration?.pendingPairCode).toBeUndefined()
+    } finally { retry.close() }
+  })
+  it('tries existing credentials first, then one authorized code, and retains refusal across subsequent starts', () => {
+    const f = fixture()
+    f.state.registration = { serverUrl: f.base.serverUrl, state: 'rejected', recovery: { publicKey: f.publicKey } }
+    saveSupervisorState(f.dir, f.state)
+    const connection = createMachineSupervisorConnection({ ...f.base, state: f.state, pairCode: 'NEW-CODE' })
+    connection.start(); const first = Socket.all[0]!; first.open(); expect(first.sent[0].credential.kind).toBe('machineKey'); f.refuse(first)
+    const pair = Socket.all[1]!; pair.open(); expect(pair.sent[0].credential.kind).toBe('pairCode'); f.refuse(pair); connection.close()
+    expect(loadSupervisorState(f.dir).registration).toMatchObject({ state: 'rejected', pendingPairCode: 'NEW-CODE' })
+    expect(loadSupervisorState(f.dir).registration?.recovery).toEqual({ publicKey: f.publicKey, pairCode: 'NEW-CODE' })
+    const retry = createMachineSupervisorConnection({ ...f.base, state: loadSupervisorState(f.dir), pairCode: 'NEW-CODE' })
+    try {
+      retry.start(); const next = Socket.all.at(-1)!; next.open(); const count = Socket.all.length; f.refuse(next)
+      expect(Socket.all).toHaveLength(count)
+      expect(loadSupervisorState(f.dir).registration?.recovery).toEqual({ publicKey: f.publicKey, pairCode: 'NEW-CODE' })
+    } finally { retry.close() }
+  })
+  it('keeps a saved-code refusal recoverable after restart without reusing the failed authority', () => {
+    const f = fixture()
+    f.state.registration = {
+      serverUrl: f.base.serverUrl,
+      state: 'rejected',
+      recovery: { publicKey: f.publicKey },
+    }
+    saveSupervisorState(f.dir, f.state)
+    const connection = createMachineSupervisorConnection({
+      ...f.base,
+      state: f.state,
+      pairCode: 'EXPIRED-CODE',
+    })
+    try {
+      connection.start()
+      const existing = Socket.all.at(-1)!
+      existing.open()
+      f.refuse(existing)
+      const expired = Socket.all.at(-1)!
+      expired.open()
+      expect(expired.sent[0].credential.kind).toBe('pairCode')
+      expired.message({
+        type: 'peerHelloRejected',
+        reason: 'auth-failed',
+        message: 'invalid or expired code',
+      })
+    } finally {
+      connection.close()
+    }
+    for (let boot = 0; boot < 3; boot++) {
+      expect(loadSupervisorState(f.dir).registration).toMatchObject({
+        state: 'rejected',
+        pendingPairCode: 'EXPIRED-CODE',
+        recovery: { publicKey: f.publicKey, pairCode: 'EXPIRED-CODE' },
+      })
+      const retry = createMachineSupervisorConnection({
+        ...f.base,
+        state: loadSupervisorState(f.dir),
+        pairCode: 'EXPIRED-CODE',
+      })
+      try {
+        const count = Socket.all.length
+        retry.start()
+        const existing = Socket.all.at(-1)!
+        existing.open()
+        expect(existing.sent[0].credential.kind).toBe('machineKey')
+        f.refuse(existing)
+        expect(Socket.all).toHaveLength(count + 1)
+      } finally {
+        retry.close()
+      }
+    }
+    const ack = vi.fn()
+    const relogin = createMachineSupervisorConnection({
+      ...f.base,
+      state: loadSupervisorState(f.dir),
+      pairCode: 'RELOGIN-CODE',
+      onPaired: ack,
+    })
+    try {
+      relogin.start()
+      const existing = Socket.all.at(-1)!
+      existing.open()
+      expect(existing.sent[0].credential.kind).toBe('machineKey')
+      f.refuse(existing)
+      const replacement = Socket.all.at(-1)!
+      replacement.open()
+      expect(replacement.sent[0].credential).toMatchObject({
+        kind: 'pairCode',
+        code: 'RELOGIN-CODE',
+        publicKey: f.publicKey,
+      })
+      replacement.message({
+        type: 'peerHelloOk',
+        v: replacement.sent[0].v,
+        caps: [],
+        enrolledPublicKey: f.publicKey,
+      })
+      expect(ack).toHaveBeenCalledOnce()
+      expect(loadSupervisorState(f.dir)).toMatchObject({
+        machineId: f.state.machineId,
+        enrolledPublicKey: f.publicKey,
+        registration: { state: 'enrolled', serverUrl: f.base.serverUrl },
+      })
+      expect(readMachineCredential(f.dir)).toEqual(f.key)
+    } finally {
+      relogin.close()
+    }
+  })
+  it('repairs an already persisted saved-code refusal request without retrying its code', () => {
+    const f = fixture()
+    f.state.registration = {
+      serverUrl: f.base.serverUrl,
+      state: 'rejected',
+      pendingPairCode: 'EXPIRED-CODE',
+    }
+    saveSupervisorState(f.dir, f.state)
+    const connection = createMachineSupervisorConnection({
+      ...f.base,
+      state: f.state,
+      pairCode: 'EXPIRED-CODE',
+    })
+    try {
+      connection.start()
+      const existing = Socket.all.at(-1)!
+      existing.open()
+      expect(existing.sent[0].credential.kind).toBe('machineKey')
+      f.refuse(existing)
+      expect(Socket.all).toHaveLength(1)
+      expect(loadSupervisorState(f.dir).registration).toEqual({
+        serverUrl: f.base.serverUrl,
+        state: 'rejected',
+        pendingPairCode: 'EXPIRED-CODE',
+        recovery: { publicKey: f.publicKey, pairCode: 'EXPIRED-CODE' },
+      })
+      expect(readMachineCredential(f.dir)).toEqual(f.key)
+    } finally {
+      connection.close()
+    }
   })
 })

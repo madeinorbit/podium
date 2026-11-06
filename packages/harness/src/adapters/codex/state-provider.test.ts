@@ -1754,7 +1754,18 @@ describe('observeCodexState rollout pinning', () => {
     }
   })
 
-  it('ignores an older rollout transiently opened by an unprompted fresh Linux TUI', async () => {
+  it.each([
+    {
+      platform: 'linux' as const,
+      floor: '2026-08-14T13:16:56.000Z',
+      scenario: 'an older startup FD on Linux',
+    },
+    {
+      platform: 'darwin' as const,
+      floor: '2026-08-12T10:00:00.000Z',
+      scenario: '/proc evidence on macOS',
+    },
+  ])('ignores $scenario', async ({ platform, floor }) => {
     const home = await mkdtemp(join(tmpdir(), 'podium-codex-stale-process-rollout-'))
     tempRoots.push(home)
     const sessions = join(home, '.codex', 'sessions')
@@ -1793,9 +1804,9 @@ describe('observeCodexState rollout pinning', () => {
       cwd: '/repo/x',
       homeDir: home,
       podiumSessionId,
-      startedAtMs: Date.parse('2026-08-14T13:16:56.000Z'),
+      startedAtMs: Date.parse(floor),
       procRoot,
-      platform: 'linux',
+      platform,
       pollMs: 10,
       onSession,
       onEvents: () => {},

@@ -2,10 +2,6 @@ import {
   readBrowserSignInWithEmail,
   rememberBrowserSignInWithEmail,
 } from '@podium/client-core/accounts'
-import { webAuth, webAccounts } from '@/lib/accounts'
-import { AccountContext } from '@/lib/account-context'
-import { nativeDesktopBridge } from '@/lib/nativeDesktop'
-import { InviteView } from './InviteView'
 import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -14,10 +10,15 @@ import {
   useRef,
   useState,
 } from 'react'
+import { clientRegistration } from '@/app/client-registration'
 import { LoadingScreen } from '@/app/LoadingScreen'
 import { serverConfig } from '@/app/trpc'
+import { AccountContext } from '@/lib/account-context'
+import { webAccounts, webAuth } from '@/lib/accounts'
 import { WorkingMark } from '@/lib/motion/WorkingMark'
+import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import type { AuthBootstrap } from '@/lib/use-kernel-replica'
+import { InviteView } from './InviteView'
 import { AsciiWordmark, prefersReducedMotion } from './podium-wordmark'
 
 type GatePhase = 'loading' | 'login' | 'success' | 'reveal' | 'ready'
@@ -529,6 +530,7 @@ export function LoginGate({
   }, [])
   const httpOrigin = serverConfig(window.location).httpOrigin
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: authAttempt explicitly re-probes live credentials after sign-out or expiry.
   useEffect(() => {
     if (inviteToken) return
     let alive = true
@@ -645,6 +647,7 @@ export function LoginGate({
             () => credentialOwner === authGeneration.current,
           )
           if (credentialOwner !== authGeneration.current) return
+          clientRegistration.retryAfterSignIn()
           setAuth({ kind: 'principal', principal })
           setPhase('success')
         }}

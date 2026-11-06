@@ -11,6 +11,8 @@
 #   bundle-dir defaults to the aarch64 release bundle dir.
 set -euo pipefail
 
+source "$(dirname "${BASH_SOURCE[0]}")/apple-service-retry.sh"
+
 BUNDLE_DIR="${1:-apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle}"
 APP="$BUNDLE_DIR/macos/Podium.app"
 SIDECAR="$APP/Contents/Resources/resources/payload/podium-cli"
@@ -82,16 +84,16 @@ rm -rf "$seed_work"
 # against an artifact no user ever receives.
 
 echo "== notarization =="
-# stapler validate is the offline proof: it reads the ticket stapled INTO the bundle. It is the
-# only check here that a machine with no network still honors.
-xcrun stapler validate "$APP" || fail "app has no stapled notarization ticket"
-spctl --assess --type exec -vvv "$APP" 2>&1 | tee /dev/stderr | grep -q 'source=Notarized Developer ID' \
+# Check the ticket stapled into the bundle. Apple's validator also contacts its ticket
+# service, so a dropped connection must retry before declaring an accepted app unstapled.
+retry_apple_service xcrun stapler validate "$APP" || fail "app has no stapled notarization ticket"
+retry_apple_service spctl --assess --type exec -vvv "$APP" 2>&1 | tee /dev/stderr | grep -q 'source=Notarized Developer ID' \
   || fail "Gatekeeper does not see this app as notarized"
 
 for dmg in "$BUNDLE_DIR"/dmg/*.dmg; do
   [ -e "$dmg" ] || continue
   echo "== dmg: $(basename "$dmg") =="
-  xcrun stapler validate "$dmg" || fail "$dmg has no stapled notarization ticket"
+  retry_apple_service xcrun stapler validate "$dmg" || fail "$dmg has no stapled notarization ticket"
   # The Finder layout (background, window size, icon positions) lives in the volume's .DS_Store,
   # which only exists if bundle_dmg's AppleScript ran. Tauri skips it on CI unless told not to,
   # and the DMG still builds fine without it, so check the volume instead of the build log.
@@ -116,7 +118,7 @@ for tarball in "$BUNDLE_DIR"/macos/*.app.tar.gz; do
   tar -xzf "$tarball" -C "$workdir"
   extracted="$(find "$workdir" -maxdepth 1 -name '*.app' -print -quit)"
   [ -n "$extracted" ] || fail "$tarball contains no .app"
-  xcrun stapler validate "$extracted" || fail "the .app inside $tarball is not stapled"
+  retry_apple_service xcrun stapler validate "$extracted" || fail "the .app inside $tarball is not stapled"
   rm -rf "$workdir"
 done
 

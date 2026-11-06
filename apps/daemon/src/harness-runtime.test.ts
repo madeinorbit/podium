@@ -64,6 +64,19 @@ describe('DaemonHarnessRuntime', () => {
     expect(launch.env?.PATH).toBe(snapshot.commandEnvironment.env.PATH)
   })
 
+  it('retains the instrumentation selection if inventory refreshes before spawn', async () => {
+    const selected = testHarnessSnapshot({ codex: '/opt/homebrew/bin/codex' }, 0)
+    const replacement = testHarnessSnapshot({ codex: '/other/codex' }, 1)
+    const runtime = new DaemonHarnessRuntime({
+      buildSnapshot: async (generation) => (generation === 0 ? selected : replacement),
+    })
+    const snapshot = await runtime.current()
+    await runtime.refresh()
+    const launch = await runtime.launch('codex', { cwd: '/repo' }, snapshot)
+    expect(launch.cmd).toBe('/opt/homebrew/bin/codex')
+    expect(launch.env).toMatchObject(selected.commandEnvironment.env)
+  })
+
   it('reprobe reuses the command environment and injectable login runner', async () => {
     const machineHome = mkdtempSync(join(tmpdir(), 'harness-runtime-login-'))
     try {
