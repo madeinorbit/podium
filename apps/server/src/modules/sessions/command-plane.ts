@@ -89,6 +89,7 @@ import {
   type SessionAccessDeps,
   type SessionTargetRow,
 } from './session-access'
+import type { ExplicitWake } from './session-revival'
 import type { SessionSpawnResult } from './session-start'
 // ---------------------------------------------------------------------------
 // Execution context
@@ -111,6 +112,8 @@ export type SessionCommandServices = Pick<
   | 'configureSession'
   | 'answerAskUserQuestion'
   | 'continueSession'
+  // POD-6415: a send's explicit wake choice, checked before anything is queued.
+  | 'explicitWakeSelection'
   // POD-1646: the by-id read. POD-3857 removed the full-list member beside it:
   // no command handler ever read it, and leaving it exposed the projection to
   // every handler that takes this bundle.
@@ -205,6 +208,22 @@ export interface LifecycleEditsPort {
    * (POD-6415), in the route's shape. The route never types at the menu itself.
    */
   answer(input: AnswerInput): Promise<{ ok: boolean; reason?: string }>
+  /**
+   * A chat send's explicit wake (--model/--effort, POD-6415) as a
+   * `session.launch` resume record created IN THE SEND'S UNIT OF WORK: the
+   * record's run wakes the parked session with these choices after the commit,
+   * and the queued message drains on its bind. The send never spawns itself.
+   */
+  wakeWith(input: { session: WakeTarget; wake: ExplicitWake }): Promise<void>
+}
+
+/** What a wake record names of the parked session it wakes. */
+export interface WakeTarget {
+  sessionId: SessionId
+  agentKind: AgentKind
+  cwd: string
+  resume: { kind: string; value: string }
+  machineId?: MachineId
 }
 
 export interface SessionCommandDeps {
@@ -670,6 +689,36 @@ function sendHandler(lifecycle: 'wait' | 'wake', proc: string) {
           disposition: 'dead_letter',
         }
       }
+      // ON THE ONE WRITE PATH (POD-6415): the choice is checked now, in the
+      // send's unit (reads only), so an invalid one queues nothing; then the
+      // wake is a `session.launch` resume record and the message waits for it.
+      // The direct wake below serves only the plane's hand-built test contexts.
+      const edits = ctx.deps.lifecycleEdits
+      if (edits) {
+        const wake = {
+          ...(input.model !== undefined ? { model: input.model } : {}),
+          ...(input.effort !== undefined ? { effort: input.effort } : {}),
+          ...(input.forceUnknownModel ? { forceUnknownModel: true } : {}),
+        }
+        const checked = await ctx.sessions.explicitWakeSelection(target.sessionId, wake)
+        if (!checked.ok) return { ok: false, reason: checked.reason, disposition: 'dead_letter' }
+        const row = await ctx.sessions.sessionById(target.sessionId)
+        const resume = (row as { resume?: { kind: string; value: string } } | undefined)?.resume
+        if (!row || !resume) return { ok: false, reason: 'no resume ref', disposition: 'dead_letter' }
+        await edits.wakeWith({
+          session: {
+            sessionId: target.sessionId,
+            agentKind: row.agentKind,
+            cwd: row.cwd,
+            resume,
+            ...(row.machineId !== undefined ? { machineId: row.machineId } : {}),
+          },
+          wake,
+        })
+        // 'wait', never 'wake': the record wakes it, with the caller's choice.
+        const result = await substrateSend(ctx, input, 'wait')
+        return result.ok ? { ...result, wakeSelection: checked.selection } : result
+      }
       // The target and machine-use gates above authorize this wake just like
       // sessions.resurrect. Validate and finish the explicit launch before mail
       // dispatch: an invalid selection must not queue input or start a process.
@@ -808,6 +857,8 @@ export async function resumeSessionNow(
   ctx: SessionCommandCtx,
   input: ResumeInput,
   sessionId?: SessionId,
+  /** An explicit wake selection for the parked row it lands on (POD-6415). */
+  wake?: ExplicitWake,
 ): Promise<{ sessionId: SessionId }> {
   if (input.machineId !== undefined) ctx.assertMachineUse(input.machineId)
   const ownership = createdOwnership(ctx.principal, undefined)
@@ -821,6 +872,7 @@ export async function resumeSessionNow(
     spawnedBy: spawnedByFor(ctx.principal),
     ownerUserId: ownership.owner as import('@podium/model').UserId,
     ...(sessionId !== undefined ? { sessionId } : {}),
+    ...(wake !== undefined ? { wake } : {}),
   })
 }
 

@@ -44,7 +44,7 @@ import {
   type SessionId,
 } from '@podium/model'
 import { TRPCError } from '@trpc/server'
-import type { z } from 'zod'
+import { z } from 'zod'
 import { type CommandPrincipal, userCommandPrincipal } from '../../command-principal'
 import { checkMachineUse, ownershipSnapshotFromMachines } from '../../machine-access'
 import type { RegistryModules } from '../../relay'
@@ -92,6 +92,19 @@ export const SessionLaunchInput = sessionCommandPlaneInputs.create
      */
     resume: sessionCommandPlaneInputs.resume.shape.resume.optional(),
     conversationId: sessionCommandPlaneInputs.resume.shape.conversationId.optional(),
+    /**
+     * A WAKE WITH A SELECTION (POD-6415): a chat send naming --model/--effort for
+     * a parked session. With a resume, the parked row it lands on is woken with
+     * these choices; a live row refuses them. The send that asked checked them.
+     */
+    wake: z
+      .object({
+        model: z.string().min(1).optional(),
+        effort: z.string().min(1).optional(),
+        forceUnknownModel: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
   })
 export type SessionLaunchInput = z.infer<typeof SessionLaunchInput>
 
@@ -188,7 +201,10 @@ export function registerSessionLaunchEffect(deps: SessionLaunchEffectDeps): {
       if (resumed !== undefined) {
         if (!resumed.success) return refused('a resume names its agent and its conversation')
         // The row that holds the conversation, or a fresh one under this id.
-        return { status: 'succeeded', result: await resumeSessionNow(ctx, resumed.data, sessionId) }
+        return {
+          status: 'succeeded',
+          result: await resumeSessionNow(ctx, resumed.data, sessionId, input.wake),
+        }
       }
       const parsed: CreateInput = sessionCommandPlaneInputs.create.parse({ ...input, sessionId })
       const result: SessionSpawnResult = await createSessionNow(ctx, parsed)
@@ -236,6 +252,7 @@ export function registerSessionLaunchEffect(deps: SessionLaunchEffectDeps): {
       ...(input.title !== undefined ? { title: input.title } : {}),
       ...(input.model !== undefined ? { model: input.model } : {}),
       ...(input.effort !== undefined ? { effort: input.effort } : {}),
+      ...(input.wake !== undefined ? { wake: input.wake } : {}),
       // Where its draft task goes (POD-6408): a device that reloads while the
       // launch waits paints the task's placeholder from this. Not a secret.
       ...(input.draftIssue !== undefined ? { draftIssue: input.draftIssue } : {}),

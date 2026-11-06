@@ -105,7 +105,7 @@ import type { SessionBindingReceipts } from './session-binding'
 import type { SessionClientPlane } from './session-client-plane'
 import type { SessionKill } from './session-kill'
 import type { SessionMetaOps } from './session-meta-ops'
-import type { SessionRevival } from './session-revival'
+import type { ExplicitWake, SessionRevival } from './session-revival'
 import type { SessionStart } from './session-start'
 import { SessionStateRegistry } from './session-state/registry'
 import type { SessionStatePrincipal, SessionStateService } from './session-state/service'
@@ -605,10 +605,19 @@ export class SessionLifecycle {
       use?: MachineUseResolver
       /** The id a FRESH spawn takes (a `session.launch` record's target, POD-6416). */
       sessionId?: SessionId
+      /** An explicit wake selection for the parked row it lands on (POD-6415). */
+      wake?: ExplicitWake
     },
     issues: SessionIssueWorkflowPort,
   ): Promise<{ sessionId: SessionId }> {
     return await this.sessionRevival.resumeSession(input, issues)
+  }
+  /** An explicit wake's selection, decided now without starting anything (POD-6415). */
+  explicitWakeSelection(
+    sessionId: SessionId,
+    wake: ExplicitWake,
+  ): ReturnType<SessionRevival['explicitWakeSelection']> {
+    return this.sessionRevival.explicitWakeSelection(sessionId, wake)
   }
   /** The canonical PTY row for a conversation, or undefined: the row a
    *  {@link resumeSession} of `resume` lands on. A read (POD-6419). */

@@ -373,10 +373,10 @@ function planeProcedure<K extends SessionCommandKey>(key: K): PlaneProcedure<K> 
   const queuedSend = (QUEUED_SEND_COMMANDS as readonly string[]).includes(key)
   const onEntry = (IMMEDIATE_PLANE_COMMANDS as readonly string[]).includes(key)
   const built = t.procedure.input(schema).mutation(async ({ ctx, input }): Promise<unknown> => {
-    // THE CHAT SENDS ARE THIN ADAPTERS ONTO `sync.submit` (POD-6350), except a
-    // send carrying a wake choice (--model/--effort), which stays on the plane
-    // until POD-6356 moves it. So is `continue` (POD-6416).
-    if ((queuedSend && !carriesWakeChoice(input)) || onEntry) {
+    // THE CHAT SENDS ARE THIN ADAPTERS ONTO `sync.submit` (POD-6350), a send
+    // carrying a wake choice (--model/--effort) included since POD-6415. So is
+    // `continue` (POD-6416).
+    if (queuedSend || onEntry) {
       return await routeThroughEntry(ctx, { command: `sessions.${key}`, input })
     }
     return await dispatchSessionCommand(
@@ -392,15 +392,6 @@ function planeProcedure<K extends SessionCommandKey>(key: K): PlaneProcedure<K> 
   // infer means reconciling eleven input/output pairs in one signature, which it
   // does by picking one and rejecting the other ten.
   return built as unknown as PlaneProcedure<K>
-}
-
-/** Whether a chat send names a model, an effort or the unknown-model override. */
-function carriesWakeChoice(input: unknown): boolean {
-  if (input === null || typeof input !== 'object') return false
-  const send = input as { model?: unknown; effort?: unknown; forceUnknownModel?: unknown }
-  return (
-    send.model !== undefined || send.effort !== undefined || send.forceUnknownModel !== undefined
-  )
 }
 
 // ---------------------------------------------------------------------------

@@ -17,10 +17,12 @@ import type {
   SessionDesired,
   SessionId,
 } from '@podium/model'
-import { asMutationId, asSessionId, spawnedByParentSessionId } from '@podium/model'
+import { asMutationId, asSessionId, mintDeviceId, spawnedByParentSessionId } from '@podium/model'
 import type { SyncSubmitRefusal, SyncSubmitReply } from '@podium/protocol'
 import {
+  attributionOf,
   type CommandPrincipal,
+  onBehalfOfUser,
   resolvePrincipal,
   resolvePrincipalAsync,
 } from '../../command-principal'
@@ -45,7 +47,11 @@ import type { LifecycleOutcome, ReconcileResult } from './lifecycle-controller'
 import { asyncSessionIssueAccess } from './session-access'
 import { configureThroughEffect } from './session-configure-effect'
 import { interruptThroughEffect } from './session-interrupt-effect'
-import { createThroughLaunchEffect, resumeThroughLaunchEffect } from './session-launch-effect'
+import {
+  createThroughLaunchEffect,
+  resumeThroughLaunchEffect,
+  SESSION_LAUNCH_KIND,
+} from './session-launch-effect'
 
 /** Explicit L3 command service: core session capabilities plus atomic issue workflows. */
 export function sessionCommandServices(modules: RegistryModules): SessionCommandServices {
@@ -60,6 +66,7 @@ export function sessionCommandServices(modules: RegistryModules): SessionCommand
     configureSession: sessions.configureSession,
     answerAskUserQuestion: sessions.answerAskUserQuestion,
     continueSession: sessions.continueSession.bind(sessions),
+    explicitWakeSelection: sessions.explicitWakeSelection.bind(sessions),
     sessionById: sessions.sessionById.bind(sessions),
     resumeSession: issueSessions.resumeSession.bind(issueSessions),
     resurrectSession: issueSessions.resurrectSession.bind(issueSessions),
@@ -318,6 +325,29 @@ export function lifecycleEditsFor(
     resume: async (input) => {
       if (modules.sessionLaunches === undefined) throw new Error('no session.launch executor')
       return await resumeThroughLaunchEffect(modules, principal, modules.sessionLaunches, input)
+    },
+    // A chat send's explicit wake (POD-6415): a `session.launch` resume record
+    // created in the SEND's own unit of work, under a fresh target id; its run
+    // lands on the parked row that holds the conversation and wakes it with
+    // the caller's choice.
+    wakeWith: async ({ session, wake }) => {
+      const effects = modules.effects
+      if (effects === undefined) throw new Error('no effects module is composed')
+      await effects.createInUnit({
+        id: mintDeviceId('eff_'),
+        kind: SESSION_LAUNCH_KIND,
+        target: { kind: 'session', id: randomUUID() },
+        input: {
+          agentKind: session.agentKind,
+          cwd: session.cwd,
+          resume: session.resume,
+          conversationId: session.resume.value,
+          ...(session.machineId !== undefined ? { machineId: session.machineId } : {}),
+          wake,
+        },
+        createdBy: onBehalfOfUser(principal),
+        actor: attributionOf(principal).actor,
+      })
     },
   }
 }

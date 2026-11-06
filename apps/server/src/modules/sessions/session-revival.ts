@@ -61,6 +61,17 @@ import type { SessionTerminalProof } from './terminal-proof'
 import type { SessionWorkspace } from './workspace'
 import { MissingManagedKeyError } from './account-env'
 
+/** The explicit choices a wake may carry (`--model`, `--effort`, `--force-unknown-model`). */
+export interface ExplicitWake {
+  model?: string
+  effort?: string
+  forceUnknownModel?: boolean
+}
+
+/** An explicit wake asked of a session that is running, or already being woken. */
+export const EXPLICIT_WAKE_ON_LIVE =
+  '--model/--effort apply only when the session is woken; this session is already running or being woken and will not respawn with these flags.'
+
 export interface SessionRevivalPorts {
   store: SessionStore
   repository: SessionRepository
@@ -141,6 +152,9 @@ export class SessionRevival {
        *  the device (POD-6416). A resume that lands on an existing row keeps
        *  that row's id. Absent: the server mints one. */
       sessionId?: SessionId
+      /** An explicit wake selection for a PARKED row the resume lands on (a chat
+       *  send with --model/--effort, POD-6415). A live row refuses it. */
+      wake?: ExplicitWake
     },
     issues: SessionIssueWorkflowPort,
   ): Promise<{ sessionId: SessionId }> {
@@ -155,8 +169,10 @@ export class SessionRevival {
     const existing = await this.findLiveByResume(input.resume)
     if (existing) {
       if (existing.status === 'hibernated' || existing.status === 'exited') {
-        const woke = await this.resurrectSession({ sessionId: existing.sessionId }, issues)
+        const woke = await this.resurrectSession({ sessionId: existing.sessionId, ...input.wake }, issues)
         if (!woke.ok) throw new Error(woke.reason ?? 'failed to resume parked session')
+      } else if (input.wake !== undefined) {
+        throw new Error(EXPLICIT_WAKE_ON_LIVE)
       } else {
         // Reopening a still-live but long-idle session also resets its hibernation
         // timer — the user is back on it even with no new message. (resurrectSession
@@ -319,6 +335,52 @@ export class SessionRevival {
     return this.handoffCoordinator
   }
 
+  /**
+   * An explicit wake's selection, decided NOW without starting anything (POD-6415):
+   * the write that asks for the wake checks it inside its unit of work, so an
+   * invalid choice refuses the send before it queues input or creates a record.
+   * The wake itself (a `session.launch` resume record's run) decides again.
+   */
+  async explicitWakeSelection(
+    sessionId: SessionId,
+    wake: ExplicitWake,
+  ): Promise<{ ok: true; selection: { model: string; effort: string } } | { ok: false; reason: string }> {
+    const check = async () => {
+      const session = this.ports.sessions.get(sessionId)
+      if (!session) return { ok: false as const, reason: 'unknown session' }
+      if (this.pendingResurrections.has(sessionId) || (session.status !== 'hibernated' && session.status !== 'exited')) {
+        return { ok: false as const, reason: EXPLICIT_WAKE_ON_LIVE }
+      }
+      // An invalid choice throws its `ModelValidationError`, as the wake does.
+      const selection = await this.explicitSelectionFor(session, wake)
+      return { ok: true as const, selection: { model: selection.model, effort: selection.effort } }
+    }
+    if (!this.ports.withSession) return await check()
+    return await this.ports.withSession(sessionId, 'wake-selection', check)
+  }
+
+  /** Wake overrides are explicit launches, but restart never inherits a
+   *  Settings, start, requested or observed model/effort (POD-3911). */
+  private async explicitSelectionFor(session: Session, wake: ExplicitWake): Promise<ResolvedLaunchSelection> {
+    const [settings, catalog] = await Promise.all([
+      this.ports.store.settings.getSettingsFor(session.ownerUserId),
+      this.ports.store.settings.getModelCatalog(session.machineId),
+    ])
+    return resolveLaunchSelection({
+      agentKind: session.agentKind,
+      explicit: { model: wake.model, effort: wake.effort },
+      settings: {
+        ...settings,
+        roles: {
+          ...settings.roles,
+          coding: { ...settings.roles.coding, model: 'auto', effort: 'auto' },
+        },
+      },
+      catalog,
+      force: wake.forceUnknownModel,
+    })
+  }
+
   /** Wake a hibernated session: respawn under the same id with its resume ref.
    *  If stop freed the worktree, recreates it from the preserved branch first
    *  [spec:SP-9904]. */
@@ -360,7 +422,7 @@ export class SessionRevival {
     const explicitWake = model !== undefined || effort !== undefined || forceUnknownModel === true
     const noOverride = {
       ok: false,
-      reason: '--model/--effort apply only when the session is woken; this session is already running or being woken and will not respawn with these flags.',
+      reason: EXPLICIT_WAKE_ON_LIVE,
     }
     const pending = this.pendingResurrections.get(sessionId)
     if (pending) return explicitWake ? noOverride : pending
@@ -409,25 +471,7 @@ export class SessionRevival {
 
     let selection: ResolvedLaunchSelection | undefined
     if (explicitWake) {
-      const [settings, catalog] = await Promise.all([
-        this.ports.store.settings.getSettingsFor(session.ownerUserId),
-        this.ports.store.settings.getModelCatalog(session.machineId),
-      ])
-      // Wake overrides are explicit launches, but restart never inherits a
-      // Settings, start, requested or observed model/effort (POD-3911).
-      selection = resolveLaunchSelection({
-        agentKind: session.agentKind,
-        explicit: { model, effort },
-        settings: {
-          ...settings,
-          roles: {
-            ...settings.roles,
-            coding: { ...settings.roles.coding, model: 'auto', effort: 'auto' },
-          },
-        },
-        catalog,
-        force: forceUnknownModel,
-      })
+      selection = await this.explicitSelectionFor(session, { model, effort, forceUnknownModel })
       // Catalog/settings reads suspend. Another wake may have claimed this
       // session meanwhile; never silently discard a caller's explicit choice.
       if (

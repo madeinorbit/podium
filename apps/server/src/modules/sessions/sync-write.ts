@@ -42,6 +42,7 @@ import { TRPCError } from '@trpc/server'
 import type { CommandPrincipal } from '../../command-principal'
 import type { RegistryModules } from '../../relay'
 import { commandAccess } from '../issues/command-ctx'
+import { ModelValidationError } from '../../model-validation'
 import { SyncWriteRefused } from '../sync-write/entry'
 import {
   NO_TARGET,
@@ -192,9 +193,6 @@ async function sessionIssueTarget(
   return { id: issueId, ancestorIds: await access.ancestorIds(issueId) }
 }
 
-/** The wake choices a send may carry, which this path does not take yet. */
-const WAKE_CHOICES = ['model', 'effort', 'forceUnknownModel'] as const
-
 /**
  * One command-plane command on the entry point. The target resolver runs the
  * plane's own gates and refuses on a denial; an ABSENT session is the
@@ -241,7 +239,18 @@ function registerPlaneCommand(
       // to be); the handler's own gate must not ask a second time.
       const plane = await planeCtx(deps, ctx.principal, scopeByAuthorize)
       const residency = deps.modules().sessions.residency
-      const run = async () => await handler(plane, input)
+      const run = async () => {
+        try {
+          return await handler(plane, input)
+        } catch (error) {
+          // An explicit wake's invalid model or effort (POD-6415) is the
+          // caller's to fix, refused with its own words; the route throws it.
+          if (error instanceof ModelValidationError) {
+            throw new SyncWriteRefused({ kind: 'invalid', message: error.message }, { cause: error })
+          }
+          throw error
+        }
+      }
       return residency ? await residency.withSession(input.sessionId, name, run) : await run()
     },
   })
@@ -250,8 +259,8 @@ function registerPlaneCommand(
 function registerSends(registry: SyncWriteRegistry, deps: SessionSyncWriteDeps): void {
   for (const key of QUEUED_SEND_COMMANDS) {
     registerPlaneCommand(registry, deps, key, (ctx, input) => {
-      const wake = WAKE_CHOICES.filter((field) => input[field] !== undefined)
-      if (wake.length > 0) throw new SyncWriteRefused({ kind: 'invalid', details: wake })
+      // A wake choice (--model/--effort) is the plane's to take: it becomes a
+      // `session.launch` resume record in this unit (POD-6415).
       // A chat send's mutationId IS its message's id (POD-4763). The envelope
       // carries it; an input that does not repeat it still names the message.
       return input.mutationId === undefined && MessageId.safeParse(ctx.mutationId).success
