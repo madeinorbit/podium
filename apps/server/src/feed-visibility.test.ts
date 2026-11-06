@@ -204,6 +204,12 @@ describe('feed visibility grant semantics', () => {
   })
   it("effect records share their target's audience and ride its grant/revoke subjects (POD-6401)", async () => {
     const { store, policy, grant } = await fixture()
+    const principalOf = (user: typeof owner): Principal => ({
+      kind: 'user',
+      user,
+      device: asDeviceId(`device:${user}`),
+      capability: asCapabilityRef(`cap:${user}`),
+    })
     const authority = new Authority({
       store: store.sync,
       now: () => 1_000,
@@ -231,12 +237,7 @@ describe('feed visibility grant semantics', () => {
         value: { id: 'shared', revision: 2 },
       },
     ])
-    const delta = await authority.changesSince(cursor, {
-      kind: 'user',
-      user: reader,
-      device: asDeviceId('reader-device'),
-      capability: asCapabilityRef('reader-cap'),
-    })
+    const delta = await authority.changesSince(cursor, principalOf(reader))
     if (delta?.kind !== 'batch') throw new Error('expected a delta batch')
     // The grant hands the reader the issue's record at once, not at its next
     // change; the session's, which the issue grant does not open, is an evict.
@@ -248,6 +249,12 @@ describe('feed visibility grant semantics', () => {
       ['eff_issue', 'upsert'],
       ['eff_session', 'evict'],
     ])
+    // A device that bootstraps after the grant gets the issue's record too.
+    expect(
+      (await authority.bootstrap(principalOf(reader))).changes
+        .filter((change) => change.entity === 'effect')
+        .map((change) => change.entityId),
+    ).toEqual(['eff_issue'])
 
     // The issue's records and its session's ride the issue's edge, and no other target's.
     const effectsOf = async () =>
@@ -278,6 +285,29 @@ describe('feed visibility grant semantics', () => {
     expect(revokedEdge?.subjects).toContainEqual({ entity: 'effect', entityId: 'eff_issue' })
     state = await policy.state.forBatch!(subjects)
     expect(state.mayRead(reader, subjects[0]!)).toBe(false)
+    // On the live feed the issue's next write takes the record off the reader's
+    // devices; the session's stays, through its own grant.
+    const beforeRevokeWrite = await authority.cursor()
+    await authority.capture([
+      {
+        entity: 'issueProjection',
+        entityId: 'shared',
+        op: 'upsert',
+        value: { id: 'shared', revision: 3 },
+      },
+    ])
+    const revokedDelta = await authority.changesSince(beforeRevokeWrite, principalOf(reader))
+    if (revokedDelta?.kind !== 'batch') throw new Error('expected a delta batch')
+    expect(
+      revokedDelta.changes
+        .filter((change) => change.entity === 'effect' && change.entityId === 'eff_issue')
+        .map((change) => change.op),
+    ).toEqual(['evict'])
+    expect(
+      (await authority.bootstrap(principalOf(reader))).changes.some(
+        (change) => change.entity === 'effect' && change.entityId === 'eff_issue',
+      ),
+    ).toBe(false)
   })
   it('an effect is read by its creator and by the readers of its target (POD-6357)', async () => {
     const { policy, grant } = await fixture()
