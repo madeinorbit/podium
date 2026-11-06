@@ -32,7 +32,7 @@ import {
 } from './command-ctx'
 import { type AnyIssueCommandDef, guardIssueCommand, issueRegistry } from './registry'
 import { startAfterCreate, submitIssueWrite } from './sync-write'
-import { isIssueWorkCommand } from './work-effects'
+import { isIssueWorkCommand, RUN_INLINE } from './work-effects'
 
 /** A ledger that runs the body every time and records nothing: see `withoutDedup`. */
 const RUN_EVERY_TIME: MutationLedgerPort = {
@@ -92,7 +92,8 @@ export class IssueCommandDispatcher {
     // every transport its old answer comes from the record once it settles.
     const work = this.deps.workEffects
     if (work !== undefined && isIssueWorkCommand(name)) {
-      return (await work.run(caller, name, input)) as Awaited<ReturnType<D['handler']>>
+      const answer = await work.run(caller, name, input)
+      if (answer !== RUN_INLINE) return answer as Awaited<ReturnType<D['handler']>>
     }
     const execute = async (): Promise<Awaited<ReturnType<D['handler']>>> =>
       (await def.handler(

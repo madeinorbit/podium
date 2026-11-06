@@ -43,7 +43,8 @@
  *
  *  - TARGET: the issue command's own scope check on the record's issue.
  *  - READY: a daemon for the issue's machine (any machine for an issue placed
- *    nowhere yet). The assistant needs none.
+ *    nowhere yet). The assistant needs none, and neither does a stop: it writes
+ *    desired states, and a member whose machine is away stops when it attaches.
  *  - RECOVER: check the world where it can say (the session row exists; the
  *    worktree is gone and nothing runs); otherwise `unknown`.
  *  - PUBLISH: the input, which holds no secret (an agent kind, a model).
@@ -52,8 +53,9 @@
  * commands here (every transport reaches it: the tRPC routes, the relay, MCP):
  * it creates the record through `sync.submit` as its caller, waits for it to
  * settle, and answers the command's old shape, or throws its old error. With no
- * daemon to run it now, it creates nothing and answers at once, as the old
- * route failed at once.
+ * daemon to run it now it creates nothing, and the old route answers as it always
+ * did (session.launch's rule), its own refusals first. A stop always takes the
+ * record path.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -366,6 +368,7 @@ export function registerIssueWorkEffects(deps: IssueWorkEffectDeps): void {
     )
     const force = input.force === true
     const stopped: string[] = []
+    const waiting: string[] = []
     let deferredKill = false
     for (const member of members) {
       if (member.sessionId === self) continue
@@ -377,6 +380,7 @@ export function registerIssueWorkEffects(deps: IssueWorkEffectDeps): void {
         )
       }
       stopped.push(member.sessionId)
+      if (outcome.waiting === true) waiting.push(member.sessionId)
     }
     // The writing agent's own session goes last, after its reply (the relay's
     // reply hook): its worktree is freed below while it is still alive, as the
@@ -400,6 +404,20 @@ export function registerIssueWorkEffects(deps: IssueWorkEffectDeps): void {
       return {
         status: 'succeeded',
         result: { ok: true, stopped, worktreeFreed: Boolean(current?.branch), ...kill },
+      }
+    }
+    // A member still waiting for its machine runs in the worktree, and that
+    // machine is the one that would free it.
+    if (waiting.length > 0) {
+      return {
+        status: 'succeeded',
+        result: {
+          ok: true,
+          reason: `sessions stop when their machine attaches; worktree not freed: ${waiting.join(', ')}`,
+          stopped,
+          worktreeFreed: false,
+          ...kill,
+        },
       }
     }
     const stillUsing = liveSessionsUsingWorktree(
@@ -440,7 +458,8 @@ export function registerIssueWorkEffects(deps: IssueWorkEffectDeps): void {
     input: IssueStopInput as unknown as z.ZodType<IssueStopInput>,
     deadlineMs: ISSUE_WORK_DEADLINE_MS,
     target: targetOf('stop'),
-    ready: machineKindReady,
+    // No machine gate: it writes desired states, which the controller acts on
+    // when each session's machine is there.
     run: async (ctx) => await stopRun(ctx.record, ctx.input),
     // Stopped and freed: done. Anything else the controller may still be acting
     // on; the person looks and stops again (a second stop is harmless).
@@ -517,7 +536,7 @@ async function desireStopped(
   sessionId: SessionId,
   force: boolean,
   recordId: string,
-): Promise<{ ok?: boolean; reason?: string }> {
+): Promise<{ ok?: boolean; reason?: string; waiting?: boolean }> {
   const state = await modules.sessions.desiredStateOf(sessionId)
   if (!state) return { ok: true }
   const { reply } = await modules.syncWrite.submitDetailed(
@@ -547,9 +566,9 @@ async function desireStopped(
   // Joins the pass the commit already started, and waits for its action.
   await controller.reconcile(sessionId, { principal })
   const outcome = controller.outcomeFor(sessionId, revision)
-  if (outcome === undefined) {
-    return { ok: false, reason: `session ${sessionId} is waiting for its machine to stop it` }
-  }
+  // Its machine is away: the stop is written and the controller acts on it when
+  // the machine attaches (the session is pending until then).
+  if (outcome === undefined) return { ok: true, waiting: true }
   return outcome
 }
 
@@ -572,8 +591,12 @@ export async function finishSelfStop(
 // The old commands as adapters
 // ---------------------------------------------------------------------------
 
+/** The port's answer when no record was made: the dispatcher runs the old route. */
+export const RUN_INLINE: unique symbol = Symbol('issue work: run inline')
+
 export interface IssueWorkEffectPort {
-  /** Run one command as an effect record, as this caller; answer as it always did. */
+  /** Run one command as an effect record, as this caller; answer as it always did,
+   *  or {@link RUN_INLINE} when no daemon can run it now and nothing was created. */
   run(caller: IssueCaller, name: IssueWorkCommand, input: unknown): Promise<unknown>
 }
 
@@ -635,16 +658,15 @@ export function issueWorkEffectPort(
       } = (input ?? {}) as { id?: string; mutationId?: MutationId } & Record<string, unknown>
       const issueId = await issueOf(modules, caller, name, ref)
       const kind = ISSUE_WORK_EFFECT_KIND[name]
-      // Nothing can run it now: the old route failed at once, and so does this
-      // (a record would sit pending while the caller waits for minutes).
+      // Nothing can run it now: the old route answers, as it always did, with
+      // its own refusal or the daemon's (session.launch's rule). A record would
+      // sit pending while the caller waits for minutes.
       if (
         kind !== ISSUE_WORK_EFFECT_KIND.refreshAssistant &&
+        kind !== ISSUE_WORK_EFFECT_KIND.stop &&
         !(await machineReady(modules, issueId))
       ) {
-        throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message: `issues.${name}: the issue's machine is offline`,
-        })
+        return RUN_INLINE
       }
       // A retry of the same command (its mutationId) writes the same record,
       // when that id can be one (a device id is its kind's prefix and a UUID).
