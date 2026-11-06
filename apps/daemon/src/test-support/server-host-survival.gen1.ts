@@ -31,7 +31,7 @@ import {
 import { createDurableProcess } from '@podium/process/durable'
 import { manifestFor } from '@podium/harness'
 import type { SessionId } from '@podium/model'
-import { serverFamilyLaunch } from '@podium/harness/driver/testing'
+import { serverFamilyLaunch, testHarnessContext } from '@podium/harness/driver/testing'
 import { stageRuntimeAttachment } from '../runtime/attachment-staging.js'
 import {
   engineEnvBuilder,
@@ -80,6 +80,7 @@ const codexHost = createCodexEngineHost({
 const codexRuntime = createCodexRuntime(codexHost, driverSlotsOver(testSessions()))
 const codexHandle = await codexRuntime.driver.create({
   harness: 'codex',
+  harnessContext: testHarnessContext({ kind: 'codex' }),
   selection: {
     auth: 'subscription',
     platform: 'linux',
@@ -110,6 +111,7 @@ const opencodeHost = createOpencodeEngineHost({
 const opencodeRuntime = createOpencodeRuntime(opencodeHost, driverSlotsOver(testSessions()))
 const opencodeHandle = await opencodeRuntime.driver.create({
   harness: 'opencode',
+  harnessContext: testHarnessContext({ kind: 'opencode' }),
   selection: {
     auth: 'api-key',
     platform: 'linux',
@@ -135,6 +137,7 @@ const grokHost = createGrokEngineHost({
 const grokRuntime = createGrokAcpRuntime({ ...grokHost, stageAttachment: stageRuntimeAttachment }, driverSlotsOver(testSessions()))
 const grokHandle = await grokRuntime.driver.create({
   harness: 'grok',
+  harnessContext: testHarnessContext({ kind: 'grok' }),
   selection: {
     auth: 'subscription',
     platform: 'linux',
@@ -177,6 +180,7 @@ const claudeRuntime = createClaudeSdkSessionRuntime({ stageAttachment: stageRunt
 })
 const claudeHandle = await claudeRuntime.launch(
   serverFamilyLaunch({
+    harnessContext: testHarnessContext({ kind: 'claude-code' }),
     sessionId: 'claude-surv-1' as SessionId,
     cwd: workdir,
     initialPrompt: 'survive this',

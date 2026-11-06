@@ -26,7 +26,7 @@ export function codexRoots(home: string, env: HarnessEnvironment): Required<Harn
  * TRANSITIONAL (POD-6532 until POD-6533/POD-6534 hand callers a context).
  *
  * Many Codex call sites hold a home plus an already-resolved Codex home
- * (`codexHome` / `harnessHome`) instead of an environment. Treating that value
+ * (`codexHome`) instead of an environment. Treating that value
  * as the `CODEX_HOME` selector routes them through the same rule rather than a
  * separate `?? join(home, '.codex')`.
  */

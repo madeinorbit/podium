@@ -11,6 +11,7 @@
  * podium-host across a daemon restart, by the daemon's
  * `headless-turn-restart.integration.test.ts`).
  */
+
 import { createHash } from 'node:crypto'
 import { rmSync } from 'node:fs'
 import { asAccountId, asSessionId, type SessionId } from '@podium/model'
@@ -27,6 +28,7 @@ import {
 } from '../../contract.js'
 import { createMemoryAttachmentStager } from '../../testing/attachment-stager.js'
 import { createMemoryDriverSlots } from '../../testing/driver-slots.js'
+import { testHarnessContext } from '../../testing/harness-context.js'
 import type { AttachmentRef } from '../../turns.js'
 import type { EngineProcessOwner } from '../engine-supervision.js'
 import {
@@ -218,6 +220,7 @@ function makeRuntime(overrides: Partial<Pick<FakeHost, 'nativeAccount'>> = {}): 
 function makeSpec(harness = 'claude-code', extra: Partial<SessionSpec> = {}): SessionSpec {
   return {
     harness,
+    harnessContext: testHarnessContext({ kind: 'claude-code' }),
     selection: { auth: 'unknown', platform: 'linux', available: [] },
     workdir: '/repo',
     model: {},

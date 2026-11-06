@@ -103,7 +103,12 @@ import type {
   PendingInteraction,
 } from '../../interactions.js'
 import type { OnQueueAbandoned } from '../../queue-abandonment.js'
-import { instructionsText, type ModelPolicy, type SessionSpec } from '../../session-spec.js'
+import {
+  type EngineSessionSpec,
+  instructionsText,
+  type ModelPolicy,
+  type SessionSpec,
+} from '../../session-spec.js'
 import {
   type AnswerOptions,
   type AttachmentStager,
@@ -523,7 +528,7 @@ interface CodexConnection {
 
 interface DriverSession {
   sessionId: SessionId
-  spec: SessionSpec
+  spec: EngineSessionSpec
   endpoint: CodexServerEndpoint
   connection: CodexConnection
   client: CodexClient
@@ -1593,7 +1598,7 @@ export function createCodexRuntime(
 
   /** The session's sticky model, if it names one. `auto` means Codex's own
    *  default, which is not ours to override. */
-  function modelOf(spec: SessionSpec): string | undefined {
+  function modelOf(spec: EngineSessionSpec): string | undefined {
     const raw = spec.model.model
     return raw && raw !== 'auto' ? raw : undefined
   }
@@ -1606,14 +1611,14 @@ export function createCodexRuntime(
    * and falsy. The host's argv builder branches on presence, and an empty inline
    * config would make it mount nothing while looking like it mounted something.
    */
-  function mcpOf(spec: SessionSpec): {
+  function mcpOf(spec: EngineSessionSpec): {
     mcpServers?: { transport: 'path'; path: string } | { transport: 'inline'; config: string }
   } {
     return spec.mcpServers.supported ? { mcpServers: spec.mcpServers.value } : {}
   }
 
   /** The session's instructions for the host to hand Codex, or nothing. */
-  function instructionsOf(spec: SessionSpec): { instructions?: string } {
+  function instructionsOf(spec: EngineSessionSpec): { instructions?: string } {
     const instructions = instructionsText(spec)
     return instructions ? { instructions } : {}
   }
@@ -2651,7 +2656,7 @@ export function createCodexRuntime(
 
   async function attachSession(input: {
     sessionId: SessionId
-    spec: SessionSpec
+    spec: EngineSessionSpec
     endpoint: CodexServerEndpoint
     connection: CodexConnection
     threadId: CodexThreadId
@@ -2753,7 +2758,7 @@ export function createCodexRuntime(
 
   async function createWithId(
     sessionId: SessionId,
-    spec: SessionSpec,
+    spec: EngineSessionSpec,
   ): Promise<AgentSessionHandle> {
     const endpoint = await host.launch({
       sessionId,
@@ -2803,7 +2808,7 @@ export function createCodexRuntime(
    *  `resume()` and `adopt()` wait for this before publishing a live handle. */
   async function resumeThread(input: {
     sessionId: SessionId
-    spec: SessionSpec
+    spec: EngineSessionSpec
     threadId: CodexThreadId
     bindingVersion: number
     observerGeneration: number
@@ -2859,7 +2864,7 @@ export function createCodexRuntime(
     }
   }
 
-  const adoptedSpec = (workdir: string, model: ModelPolicy = {}): SessionSpec => ({
+  const adoptedSpec = (workdir: string, model: ModelPolicy = {}): EngineSessionSpec => ({
     harness: 'codex',
     selection: {
       auth: 'subscription',

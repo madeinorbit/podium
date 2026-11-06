@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { testHarnessContext } from '../../driver/testing/harness-context.js'
 import { claudeCodeInstrumentation } from './instrumentation.js'
 
 const base = { session_id: 'cc1', transcript_path: '/nonexistent.jsonl', cwd: '/tmp' }
@@ -37,6 +38,7 @@ describe('claudeCodeInstrumentation.payloadCodec', () => {
       sessionId: 's1' as never,
       endpointUrl: 'http://127.0.0.1:1/hooks/s1',
       settingsDir: '/settings',
+      harnessContext: testHarnessContext({ kind: 'claude-code' }),
     })
     expect(installed.args).toEqual(['--settings', '/settings/s1.json'])
     expect(installed.file?.path).toBe('/settings/s1.json')

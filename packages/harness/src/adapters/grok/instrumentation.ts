@@ -590,11 +590,7 @@ async function decodeGrokHookPayload(payload: unknown): Promise<ProviderAgentSta
 async function installGrokInstrumentation(
   destination: InstrumentationDestination,
 ): Promise<InstalledInstrumentation> {
-  const grokHome =
-    destination.harnessHome ??
-    (destination.homeDir
-      ? join(destination.homeDir, '.grok')
-      : process.env.GROK_HOME?.trim() || join(homedir(), '.grok'))
+  const grokHome = grokHomeOf(destination)
   const wiring = {
     args: [],
     env: { [PODIUM_GROK_HOOK_URL_ENV]: destination.endpointUrl },
@@ -641,22 +637,13 @@ function installerDegradedKind(
 // ---------------------------------------------------------------------------
 
 /**
- * The Grok home the install serializes by (POD-4531).
- *
- * The same rule the terminal family applied when it owned the
- * `global-env` branch: instance-owned homes override session values, an
- * ambient `GROK_HOME` redirects otherwise, and the fallback is
- * `<home>/.grok`. Owned here so the mechanism never reads the environment
- * section — it only looks the `home` strategy up by scope.
+ * The Grok home the install serializes by and writes under (POD-4531): the
+ * session-pinned context's state root (POD-6533), the folder the session's
+ * child uses. Owned here so the mechanism never reads the environment section;
+ * it only looks the `home` strategy up by scope.
  */
 function grokHomeOf(destination: InstrumentationDestination): string {
-  const env: Record<string, string | undefined> = {
-    ...process.env,
-    ...(destination.env ?? {}),
-    ...(destination.homeDir ? { GROK_HOME: join(destination.homeDir, '.grok') } : {}),
-  }
-  const homeDir = destination.homeDir ?? env.HOME ?? homedir()
-  return env.GROK_HOME?.trim() || join(homeDir, '.grok')
+  return destination.harnessContext.roots.state
 }
 
 export const grokInstrumentation: HarnessInstrumentation = {

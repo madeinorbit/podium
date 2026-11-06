@@ -1,4 +1,3 @@
-import { homedir } from 'node:os'
 import { isDeepStrictEqual } from 'node:util'
 import {
   type AgentRuntimeState,
@@ -12,14 +11,13 @@ import {
   claudeTranscriptSegmentId,
   declaredValue,
   type HarnessAdapter,
+  type HarnessContext,
   type HarnessObservation,
   type HarnessObservationLease,
   type HarnessObserveInput,
   type HarnessObserverHost,
   type HarnessProviderRebind,
   harnessAdapterFor,
-  harnessInstanceHomeEnv,
-  harnessRoots,
   initialAgentState,
   locateClaudeSessionFile,
   parseClaudeTranscriptSegmentId,
@@ -66,8 +64,14 @@ export interface SessionObserverInit {
   /** Freshness floor for spawn-time session discovery (grok/codex/opencode/cursor);
    *  omitted on reattach so discovery has no floor. */
   startedAtMs?: number
-  /** Effective child environment, including its selected account/state home. */
-  env?: Readonly<Record<string, string>>
+  /**
+   * The session's pinned harness context (POD-6533): the observer reads the
+   * folders the session's child writes from its `roots`. Spawn passes the one
+   * the spec was built with; reattach passes the one the session holds or one
+   * rebuilt from the current inventory. Absent for a shell, and for a survivor
+   * whose harness left the inventory (the adapter's home-based default stands).
+   */
+  harnessContext?: HarnessContext
   /** The native id this spawn told the CLI to create under
    *  (capabilities.newSessionIdFlag). The session it names is the one the CLI is
    *  starting, so the observer binds it directly instead of polling for whatever
@@ -125,28 +129,6 @@ export function pathHintOf(msg: SpawnControl | ReattachControl): string | undefi
 }
 
 export type SessionObservers = ReturnType<typeof createSessionObservers>
-
-/**
- * The harness home a session's child runs under, by the SAME rule as launch
- * (POD-6532). The env is the launch composition: the daemon env, then the
- * session env, then the instance HOME and selector whenever the daemon has an
- * agent home (`control/session.ts` puts those in `podiumEnv`, which wins). The
- * folder itself comes from the adapter's `roots`, the rule hooks and usage use.
- *
- * TRANSITIONAL: POD-6533 pins a context on the session and this goes away.
- */
-function sessionHarnessHome(
-  kind: 'codex',
-  homeDir: string | undefined,
-  sessionEnv: Readonly<Record<string, string>> | undefined,
-): string {
-  const env: Record<string, string | undefined> = {
-    ...process.env,
-    ...(sessionEnv ?? {}),
-    ...(homeDir ? { HOME: homeDir, ...harnessInstanceHomeEnv(kind, homeDir) } : {}),
-  }
-  return harnessRoots(kind, env.HOME ?? homedir(), env).state
-}
 
 /**
  * Hold before emitting a transition INTO phase `idle` on the wire.
@@ -1819,9 +1801,6 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         msg.resume?.value ??
         init.newSessionId ??
         (msg.type === 'reattach' ? (observationLease?.providerSessionId ?? undefined) : undefined)
-      const sessionEnv = init.env ?? (msg.type === 'spawn' ? msg.env : undefined)
-      const codexHome =
-        adapter.kind === 'codex' ? sessionHarnessHome('codex', deps.homeDir, sessionEnv) : undefined
       startObservation(
         msg.sessionId,
         adapter,
@@ -1836,7 +1815,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           podiumSessionId: msg.sessionId,
           ...(resumeValue ? { resumeValue } : {}),
           ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
-          ...(codexHome ? { harnessHome: codexHome } : {}),
+          ...(init.harnessContext ? { harnessContext: init.harnessContext } : {}),
           ...(deps.transcriptRoot ? { transcriptRoot: deps.transcriptRoot } : {}),
           ...(init.startedAtMs !== undefined ? { startedAtMs: init.startedAtMs } : {}),
           // Reattach carries the session's original spawn time — the codex

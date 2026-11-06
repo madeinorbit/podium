@@ -2,13 +2,13 @@ import {
   agentLaunchCommand,
   bindHarnessLaunch,
   buildResolvedInventory,
+  type HarnessContext,
   type HarnessLaunchOptions,
   type LaunchSpec,
   type LoginProbeExec,
   type ProbeExec,
   type ResolvedHarnessInventory,
 } from '@podium/harness'
-import type { AgentKind } from '@podium/model'
 import { createCommandEnvironment } from '@podium/runtime/command-environment'
 
 export interface HarnessRuntimeOptions {
@@ -84,20 +84,28 @@ export class DaemonHarnessRuntime {
     return this.authoritativeValue === snapshot
   }
 
+  /**
+   * The launch spec for one session. A harness session launches from ITS
+   * context (POD-6533): the installation and account environment pinned when
+   * the session was spawned, never the inventory as it stands now, so a
+   * refresh between spawn and launch cannot move the session to another
+   * executable. A plain shell has no harness and runs in the current command
+   * environment.
+   */
   async launch(
-    kind: AgentKind,
+    target: HarnessContext | 'shell',
     options: HarnessLaunchOptions,
-    selectedSnapshot?: ResolvedHarnessInventory,
   ): Promise<LaunchSpec> {
-    const invocation = (this.options.launch ?? agentLaunchCommand)(kind, options)
-    if (kind === 'shell') {
+    const build = this.options.launch ?? agentLaunchCommand
+    if (target === 'shell') {
+      const invocation = build('shell', options)
       const snapshot = await this.current()
       return {
         ...invocation,
         env: { ...snapshot.commandEnvironment.env, ...invocation.env },
       }
     }
-    return bindHarnessLaunch(selectedSnapshot ?? (await this.current()), kind, invocation)
+    return bindHarnessLaunch(target, build(target.installation.kind, options))
   }
 
   private install(

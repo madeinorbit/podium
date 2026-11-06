@@ -89,7 +89,12 @@ import type {
   PendingInteraction,
 } from '../../interactions.js'
 import type { OnQueueAbandoned } from '../../queue-abandonment.js'
-import { instructionsText, type ModelPolicy, type SessionSpec } from '../../session-spec.js'
+import {
+  type EngineSessionSpec,
+  instructionsText,
+  type ModelPolicy,
+  type SessionSpec,
+} from '../../session-spec.js'
 import {
   type AnswerOptions,
   type AttachmentStager,
@@ -455,7 +460,7 @@ interface PromptRecordWaiter {
 
 interface DriverSession {
   sessionId: SessionId
-  spec: SessionSpec
+  spec: EngineSessionSpec
   endpoint: OpencodeServerEndpoint
   promptRecords: Set<PromptRecordWaiter>
   promptFingerprints: Map<string, PromptFingerprint>
@@ -1708,7 +1713,7 @@ export function createOpencodeRuntime(
    * asymmetric here and a 400 from getting it wrong names neither field.
    */
   function modelFor(
-    spec: SessionSpec,
+    spec: EngineSessionSpec,
     input: TurnInput,
   ): { providerID: string; modelID: string } | undefined {
     const override = input.overrides?.supported ? input.overrides.value.model : undefined
@@ -1732,7 +1737,7 @@ export function createOpencodeRuntime(
    * `auto` means opencode's own default, so it sends no `variant` at all rather
    * than a variant literally named "auto".
    */
-  function effortFor(spec: SessionSpec, input: TurnInput): string | undefined {
+  function effortFor(spec: EngineSessionSpec, input: TurnInput): string | undefined {
     const override = input.overrides?.supported ? input.overrides.value.effort : undefined
     const raw = override ?? spec.model.effort
     return raw && raw !== 'auto' ? raw : undefined
@@ -2606,7 +2611,7 @@ export function createOpencodeRuntime(
 
   async function attachSession(input: {
     sessionId: SessionId
-    spec: SessionSpec
+    spec: EngineSessionSpec
     endpoint: OpencodeServerEndpoint
     opencodeSessionId: OpencodeSessionId
     bindingVersion: number
@@ -2707,7 +2712,7 @@ export function createOpencodeRuntime(
 
   async function createWithId(
     sessionId: SessionId,
-    spec: SessionSpec,
+    spec: EngineSessionSpec,
   ): Promise<AgentSessionHandle> {
     const secret = host.randomSecret()
     const username = 'podium'

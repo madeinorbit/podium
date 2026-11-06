@@ -11,6 +11,7 @@
 import type { SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { SessionSpec } from '../../host.js'
+import { testHarnessContext } from '../../testing/harness-context.js'
 import { createMemoryAttachmentStager, createMemoryDriverSlots } from '../../testing/index.js'
 import type { AskUserGate } from '../ask-user-gate.js'
 import {
@@ -22,6 +23,7 @@ import { type FakeGrokAcpServer, startFakeGrokAcpServer } from './test-support/f
 
 const spec = (): SessionSpec => ({
   harness: 'grok',
+  harnessContext: testHarnessContext({ kind: 'grok' }),
   selection: {
     auth: 'subscription',
     platform: 'linux',

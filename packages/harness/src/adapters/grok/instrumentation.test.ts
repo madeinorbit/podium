@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { testHarnessContext } from '../../driver/testing/harness-context.js'
 import {
   ensurePodiumGrokHooks,
   grokInstrumentation,
@@ -79,7 +80,7 @@ describe('grokInstrumentation.payloadCodec', () => {
       sessionId: 's1' as never,
       endpointUrl: 'http://127.0.0.1:1/hooks/s1',
       settingsDir: '/settings',
-      harnessHome: join(home, '.grok'),
+      harnessContext: testHarnessContext({ kind: 'grok', home }),
     })
     expect(installed.args).toEqual([])
     expect(installed.env?.PODIUM_GROK_HOOK_URL).toBe('http://127.0.0.1:1/hooks/s1')

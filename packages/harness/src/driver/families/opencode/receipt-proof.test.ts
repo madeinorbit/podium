@@ -2,6 +2,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { AgentSessionHandle, RuntimeEvent, SessionSpec, TurnReceipt } from '../../host.js'
 import { DeliveryUnprovenError } from '../../errors.js'
+import { testHarnessContext } from '../../testing/harness-context.js'
 import { createMemoryDriverSlots } from '../../testing/index.js'
 import evidence from './__fixtures__/receipt-proof-v1.json' with { type: 'json' }
 import { deltaItemIdForPart } from './map.js'
@@ -11,6 +12,7 @@ import { makeOpencodeTestHost } from './test-support/host.js'
 
 const spec: SessionSpec = {
   harness: 'opencode',
+  harnessContext: testHarnessContext({ kind: 'opencode' }),
   selection: { auth: 'api-key', platform: 'linux', available: ['opencode-server'] },
   workdir: '/tmp/opencode-receipt-proof',
   model: {},

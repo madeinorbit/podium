@@ -2,6 +2,7 @@ import type { SessionId, TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { pageHistory } from '../../history'
 import { PERMITTED_FAILURES } from '../../permitted-failures.js'
+import { testHarnessContext } from '../../testing/harness-context.js'
 import type { ConformanceControl, ConformanceTarget } from '../../testing/index.js'
 import {
   createMemoryAttachmentStager,
@@ -234,6 +235,7 @@ function makeWorld(): {
     },
     spec: () => ({
       harness: 'claude-code',
+      harnessContext: testHarnessContext({ kind: 'claude-code' }),
       selection: {
         auth: 'api-key',
         platform: 'linux',

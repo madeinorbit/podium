@@ -27,6 +27,7 @@ import type {
   AttachmentStageResult,
   AttachmentStager,
   ConfigureRequest,
+  EngineSessionSpec,
   EventStreamStart,
   InteractionAnswerOutcome,
   InteractionAskSpec,
@@ -193,7 +194,7 @@ export interface ClaudeSdkRuntimeHost {
   stageAttachment: AttachmentStager
   startTurn(input: {
     sessionId: SessionId
-    spec: SessionSpec
+    spec: EngineSessionSpec
     turn: TurnInput
     resumeValue: string
     newConversation: boolean
@@ -273,7 +274,7 @@ interface QueuedTurn {
 
 interface SessionCore {
   sessionId: SessionId
-  spec: SessionSpec
+  spec: EngineSessionSpec
   binding: SessionBinding
   state: AgentRuntimeState
   seq: number
@@ -336,8 +337,12 @@ interface SessionCore {
 export interface ClaudeSdkRuntime extends RuntimeDriver {
   /** The RuntimeDriver view used by daemon registries that accept several concrete runtimes. */
   readonly driver: RuntimeDriver
-  createWithId(sessionId: SessionId, spec: SessionSpec): Promise<AgentSessionHandle>
-  resumeWithId(sessionId: SessionId, ref: ResumeRef, spec: SessionSpec): Promise<AgentSessionHandle>
+  createWithId(sessionId: SessionId, spec: EngineSessionSpec): Promise<AgentSessionHandle>
+  resumeWithId(
+    sessionId: SessionId,
+    ref: ResumeRef,
+    spec: EngineSessionSpec,
+  ): Promise<AgentSessionHandle>
   handleFor(sessionId: SessionId): AgentSessionHandle | undefined
   bindings(): readonly SessionBinding[]
   dispose(): void
@@ -379,7 +384,7 @@ export function createClaudeSdkRuntime(
    * session layer's) is what a daemon RESTART wakes from; this answers the
    * same promise inside one daemon life.
    */
-  const parked = new Map<SessionId, { spec: SessionSpec; binding: SessionBinding }>()
+  const parked = new Map<SessionId, { spec: EngineSessionSpec; binding: SessionBinding }>()
   /** Each session's last coarse stream position in this daemon life (POD-6280). */
   const streamPositions = new Map<SessionId, ClaudeSdkStreamPosition>()
 
@@ -1510,7 +1515,7 @@ export function createClaudeSdkRuntime(
 
   function newCore(
     sessionId: SessionId,
-    spec: SessionSpec,
+    spec: EngineSessionSpec,
     resume: ResumeRef,
     fresh: boolean,
   ): SessionCore {
@@ -1583,7 +1588,7 @@ export function createClaudeSdkRuntime(
 
   async function createWithId(
     sessionId: SessionId,
-    spec: SessionSpec,
+    spec: EngineSessionSpec,
   ): Promise<AgentSessionHandle> {
     if (spec.harness !== 'claude-code') throw new Error(`claude-sdk cannot drive ${spec.harness}`)
     if (cores.has(sessionId)) throw new Error(`claude-sdk session '${sessionId}' already exists`)
@@ -1599,7 +1604,7 @@ export function createClaudeSdkRuntime(
   async function resumeWithId(
     sessionId: SessionId,
     ref: ResumeRef,
-    spec: SessionSpec,
+    spec: EngineSessionSpec,
   ): Promise<AgentSessionHandle> {
     if (spec.harness !== 'claude-code') throw new Error(`claude-sdk cannot drive ${spec.harness}`)
     if (cores.has(sessionId)) throw new Error(`claude-sdk session '${sessionId}' already exists`)

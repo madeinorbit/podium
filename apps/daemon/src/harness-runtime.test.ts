@@ -1,7 +1,12 @@
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { LoginProbeExec, ProbeExec, ResolvedHarnessInventory } from '@podium/harness'
+import {
+  harnessContext,
+  type LoginProbeExec,
+  type ProbeExec,
+  type ResolvedHarnessInventory,
+} from '@podium/harness'
 import { describe, expect, it } from 'vitest'
 import { DaemonHarnessRuntime } from './harness-runtime'
 import { testHarnessSnapshot } from './test-support/harness-snapshot'
@@ -56,25 +61,27 @@ describe('DaemonHarnessRuntime', () => {
     await expect(runtime.current()).resolves.toBe(next)
   })
 
-  it('launches the exact executable and PATH captured by its snapshot', async () => {
+  it('launches the exact executable and PATH captured by its context', async () => {
     const snapshot = testHarnessSnapshot({ codex: '/home/user/.brew/bin/codex' }, 4)
     const runtime = new DaemonHarnessRuntime({ buildSnapshot: async () => snapshot })
-    const launch = await runtime.launch('codex', { cwd: '/repo' })
+    const context = harnessContext(await runtime.current(), 'codex', '/home/user')
+    const launch = await runtime.launch(context, { cwd: '/repo' })
     expect(launch.cmd).toBe('/home/user/.brew/bin/codex')
     expect(launch.env?.PATH).toBe(snapshot.commandEnvironment.env.PATH)
   })
 
-  it('retains the instrumentation selection if inventory refreshes before spawn', async () => {
+  it('launches the session context it is handed even after the inventory refreshes', async () => {
     const selected = testHarnessSnapshot({ codex: '/opt/homebrew/bin/codex' }, 0)
     const replacement = testHarnessSnapshot({ codex: '/other/codex' }, 1)
     const runtime = new DaemonHarnessRuntime({
       buildSnapshot: async (generation) => (generation === 0 ? selected : replacement),
     })
-    const snapshot = await runtime.current()
+    const context = harnessContext(await runtime.current(), 'codex', '/home/user')
     await runtime.refresh()
-    const launch = await runtime.launch('codex', { cwd: '/repo' }, snapshot)
+    const launch = await runtime.launch(context, { cwd: '/repo' })
     expect(launch.cmd).toBe('/opt/homebrew/bin/codex')
-    expect(launch.env).toMatchObject(selected.commandEnvironment.env)
+    expect(launch.env).toMatchObject(context.env)
+    expect(launch.env?.PATH).toBe(selected.commandEnvironment.env.PATH)
   })
 
   it('reprobe reuses the command environment and injectable login runner', async () => {

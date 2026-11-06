@@ -63,7 +63,7 @@ export interface HarnessAmbientAllowlistEntry {
 }
 
 /** Seeded category totals; the list may only go down from these. */
-export const HARNESS_AMBIENT_BASELINE_TO_MIGRATE = 39
+export const HARNESS_AMBIENT_BASELINE_TO_MIGRATE = 32
 export const HARNESS_AMBIENT_BASELINE_OS_TOOL = 3
 
 const A = 'packages/harness/src/adapters'
@@ -72,7 +72,6 @@ const D = 'apps/daemon/src'
 
 // Steps of POD-6520 (design §4).
 const ROOTS = 'POD-6532' // context and roots: the Codex folder derivations
-const SESSION = 'POD-6533' // session-pinned context: instrumentation
 const ENGINE = 'POD-6546' // engine and attach binding: engine env, admission probes
 const ACCOUNT = 'POD-6534' // account-scoped operations: usage, credentials, transcript reads
 const CHILD_ENV = 'POD-6535' // single harness child environment
@@ -136,16 +135,9 @@ export const HARNESS_AMBIENT_ALLOWLIST: readonly HarnessAmbientAllowlistEntry[] 
   {
     file: `${A}/codex/instrumentation.ts`,
     access: 'homedir',
-    count: 3,
-    category: 'to-migrate',
-    issue: ROOTS,
-  },
-  {
-    file: `${A}/codex/instrumentation.ts`,
-    access: 'process-env',
     count: 1,
     category: 'to-migrate',
-    issue: SESSION,
+    issue: ROOTS,
   },
   {
     file: `${A}/codex/owned-rollout.ts`,
@@ -191,16 +183,22 @@ export const HARNESS_AMBIENT_ALLOWLIST: readonly HarnessAmbientAllowlistEntry[] 
   {
     file: `${A}/grok/instrumentation.ts`,
     access: 'homedir',
-    count: 4,
+    count: 2,
     category: 'to-migrate',
-    issue: SESSION,
+    // POD-6533 moved the install onto the session context; what is left is
+    // grokRoot (hook-payload session paths, a transcript read) and the
+    // installer's no-home default.
+    issue: ACCOUNT,
   },
   {
     file: `${A}/grok/instrumentation.ts`,
     access: 'process-env',
-    count: 4,
+    count: 2,
     category: 'to-migrate',
-    issue: SESSION,
+    // POD-6533 moved the install onto the session context; what is left is
+    // grokRoot (hook-payload session paths, a transcript read) and the
+    // installer's no-home default.
+    issue: ACCOUNT,
   },
   {
     file: `${A}/grok/state-locate.ts`,

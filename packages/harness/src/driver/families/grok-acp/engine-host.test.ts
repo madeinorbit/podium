@@ -16,6 +16,7 @@ import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { grokEngineFacts } from './engine-facts.js'
 import { manifestFor } from '../../../registry.js'
+import { testHarnessContext } from '../../testing/harness-context.js'
 import {
   type GrokEngineHostDeps,
   createGrokEngineHost,
@@ -387,6 +388,7 @@ describe('readHistory — the Store read over updates.jsonl', () => {
       })
       const spec = () => ({
         harness: 'grok' as const,
+        harnessContext: testHarnessContext({ kind: 'grok' }),
         selection: {
           auth: 'subscription' as const,
           platform: 'linux' as const,

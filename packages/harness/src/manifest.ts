@@ -20,6 +20,7 @@ import type {
   QuotaHistorySampleWire,
   SessionObservationCheckpointV1,
 } from '@podium/protocol'
+import type { HarnessContext } from './harness-context.js'
 import type {
   Declared,
   OpencodeMessagePartRow,
@@ -715,8 +716,14 @@ export interface HarnessObserveInput {
   /** Local PTY ownership, available only while this attachment is live. Never
    * serialized; the generation changes when the host attachment is replaced. */
   ownedProcess?: () => { pid: number; generation: object } | undefined
-  /** Effective native state home for this session (e.g. CODEX_HOME). */
-  harnessHome?: string
+  /**
+   * The session-pinned harness context (POD-6533): the folders this session's
+   * child reads and writes are `harnessContext.roots`, resolved once at spawn.
+   * The host passes it for every session it holds one for; absent only when
+   * none could be built (a survivor whose harness has since left the
+   * inventory), where an observer keeps its home-based default.
+   */
+  harnessContext?: HarnessContext
   /** Daemon-owned shared cadence for transcript and native-state stat polls. */
   statTick?: StatTick
   /**
@@ -948,16 +955,14 @@ export interface InstrumentationDestination {
   seedTheme?: boolean
   /** Directory holding the per-session settings file the install writes. */
   settingsDir: string
-  /** The harness's own state home (CODEX_HOME / GROK_HOME / …), resolved for
-   *  the child environment. Absent for settings-args installs, which touch no
-   *  global home. */
-  harnessHome?: string
-  /** Instance agent home override, for harness-home resolution. */
-  homeDir?: string
-  /** Effective spawn env, merged when matching the child environment. */
-  env?: Readonly<Record<string, string>>
-  /** Version already verified for the exact installation selected for launch. */
-  verifiedVersion?: string
+  /**
+   * The session-pinned harness context (POD-6533). The ONLY source of the
+   * install's facts: the harness's state folders are `roots` (a global-home
+   * install writes under them; settings-args installs touch none), and the
+   * version to gate on is `installation.version`, read when the inventory
+   * verified the very executable this session launches.
+   */
+  harnessContext: HarnessContext
   /** Host telemetry plumbing: report one harness `--version` probe's raw output.
    *  Best-effort observations only, never an admission requirement. */
   reportVersionProbe?: (harness: string, output: string) => void

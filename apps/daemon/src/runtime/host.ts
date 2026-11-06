@@ -19,12 +19,11 @@ import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import type { AcceptedDriverId } from '@podium/harness'
-import { discoveryRoots, type ResolvedHarnessInventory, resolveWithinRoots } from '@podium/harness'
+import { discoveryRoots, resolveWithinRoots } from '@podium/harness'
 import type {
   AttachmentStager,
   CodexRawSocket,
   OpencodeEngineClientTerminals,
-  InstalledTerminalInstrumentation,
   TerminalHostPorts,
 } from '@podium/harness/driver/host'
 import { installTerminalInstrumentation } from '@podium/harness/driver/host'
@@ -61,9 +60,6 @@ export function daemonRuntimeHost(
   send: TerminalHostPorts['send'],
   stageAttachment: AttachmentStager = stageRuntimeAttachment,
 ): TerminalHostPorts {
-  // Instrumentation and launch are separate driver calls. Retain their single
-  // immutable selection across an inventory refresh, without a second lookup.
-  const launchSnapshots = new WeakMap<InstalledTerminalInstrumentation, ResolvedHarnessInventory>()
   return {
     send,
     stageAttachment,
@@ -103,32 +99,21 @@ export function daemonRuntimeHost(
       const label = ctx.sessions.get(sessionId)?.label ?? ctx.durableLabelFor(sessionId)
       return stopSessionProcess(ctx, { sessionId, durableLabel: label })
     },
-    installInstrumentation: async (sessionId, spec) => {
-      const snapshot = await ctx.harnessRuntime?.current()
-      const version = snapshot?.executables.get(
-        spec.harness as Exclude<AgentKind, 'shell'>,
-      )?.version
-      const wiring = await installTerminalInstrumentation({
+    // Instrumentation and launch are separate driver calls over ONE spec, and
+    // both read the session's pinned context off it (POD-6533): the hooks gate
+    // on the version of the executable the launch binds, in the folders the
+    // observer reads. Neither asks the inventory, so a refresh between them
+    // changes nothing for this session.
+    installInstrumentation: (sessionId, spec) =>
+      installTerminalInstrumentation({
         sessionId,
         harness: spec.harness,
         spec,
         sections: terminalInstrumentationSectionsFor(spec.harness),
         settingsDir: ctx.settingsDir,
-        ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
         reportVersionProbe: (harness, output) => reportHarnessProbe(harness, output),
-        ...(version ? { verifiedVersion: version } : {}),
-      })
-      if (snapshot) launchSnapshots.set(wiring, snapshot)
-      return wiring
-    },
-    launch: (input) => {
-      const harnessSnapshot = launchSnapshots.get(input.instrumentation)
-      launchSnapshots.delete(input.instrumentation)
-      return launchTerminalProcess(ctx, {
-        ...input,
-        ...(harnessSnapshot ? { harnessSnapshot } : {}),
-      })
-    },
+      }),
+    launch: (input) => launchTerminalProcess(ctx, input),
     readHistory: async (session, range) => {
       const segmentId = `history:${session.sessionId}:${session.resume?.value ?? ''}`
       if (range.from && (range.from.segmentId !== segmentId || !range.from.pathHint)) {

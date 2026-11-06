@@ -2,6 +2,7 @@
 // surface's five governing rules and the core-vs-extended tier boundary.
 
 import type { Declared, SelectionContext } from '../manifest.js'
+import type { HarnessContext } from '../harness-context.js'
 import type { AgentInstruction } from '@podium/protocol'
 import type { InteractionKind } from './interactions.js'
 
@@ -59,6 +60,20 @@ export type McpServers = Declared<
  */
 export interface SessionSpec {
   harness: string
+  /**
+   * THE SESSION-PINNED HARNESS CONTEXT (POD-6533, docs/design/
+   * harness-access-contract.md §3.3): which executable runs, with which account
+   * environment, over which folders. Built ONCE by the host at spawn from the
+   * inventory and never rebuilt for the life of the process, so an inventory
+   * refresh between hook installation and launch cannot split one session
+   * across two installations. Launch, hook installation and observation all
+   * read this value; none of them asks the inventory again.
+   *
+   * REQUIRED: every driver session is a harness session. A plain shell or a
+   * login pane is not a SessionSpec at the driver boundary (the host launches
+   * those itself) and carries none.
+   */
+  harnessContext: HarnessContext
   /** Chooses the harness-native login to spawn under; recorded on the binding.
    *  Absent = whichever account the harness itself defaults to.
    *
@@ -112,6 +127,18 @@ export interface SessionSpec {
   /** Exact native-login fingerprint for the session (durable identity). */
   accountId?: string
 }
+
+/**
+ * WHAT A SERVER FAMILY'S OWN SESSION RECORDS HOLD (POD-6533): the spec without
+ * the pinned harness context.
+ *
+ * A server family adopts a surviving engine by rebuilding its spec from its own
+ * binding journal, and the journal records no context. Engines do not read the
+ * context yet; POD-6546 hands them the session's one. Until then a family keeps
+ * this narrower shape internally, while `create`/`resume` still take the whole
+ * {@link SessionSpec}, so a host cannot start an engine session without one.
+ */
+export type EngineSessionSpec = Omit<SessionSpec, 'harnessContext'>
 
 /**
  * The per-session interaction policy's shape at the contract boundary. The

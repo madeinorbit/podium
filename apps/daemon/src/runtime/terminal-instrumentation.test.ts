@@ -8,7 +8,8 @@ import {
   prepareTerminalInstrumentation,
   reportInstrumentationDegradation,
 } from '@podium/harness/driver/host'
-import { asSessionId } from '@podium/model'
+import { testHarnessContext } from '@podium/harness/driver/testing'
+import { asSessionId, type BuiltinHarnessKind } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { terminalInstrumentationSectionsFor, terminalProfileFor } from './registry'
 
@@ -23,9 +24,14 @@ afterEach(async () => {
   vi.unstubAllEnvs()
   await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true })))
 })
-function spec(harness: string, endpointUrl = 'http://127.0.0.1:1234/hooks/session'): SessionSpec {
+function spec(
+  harness: BuiltinHarnessKind,
+  endpointUrl = 'http://127.0.0.1:1234/hooks/session',
+  context: { home?: string; version?: string } = {},
+): SessionSpec {
   return {
     harness,
+    harnessContext: testHarnessContext({ kind: harness, ...context }),
     selection: { auth: 'unknown', platform: 'linux', available: [] },
     workdir: '/project',
     model: {},
@@ -44,7 +50,7 @@ describe('terminal instrumentation installation', () => {
     const foreign = { type: 'command', command: 'orca-handler' }
     await writeFile(hooksPath, JSON.stringify({ hooks: { Stop: [{ hooks: [foreign] }] } }))
     await writeFile(join(homeDir, '.codex', 'config.toml'), '# retain trust state\n')
-    const selected = spec('codex')
+    const selected = spec('codex', undefined, { home: homeDir, version: 'codex-cli 0.162.0' })
     selected.env = { PATH: '/usr/bin:/bin:/usr/sbin:/sbin' }
     const wiring = await installTerminalInstrumentation({
       sessionId: asSessionId('selected-codex'),
@@ -52,8 +58,6 @@ describe('terminal instrumentation installation', () => {
       spec: selected,
       sections: terminalInstrumentationSectionsFor('codex'),
       settingsDir: join(homeDir, 'settings'),
-      homeDir,
-      verifiedVersion: 'codex-cli 0.162.0',
     })
     expect(wiring).toMatchObject({
       degradedKind: 'untrusted',
@@ -73,10 +77,9 @@ describe('terminal instrumentation installation', () => {
     const wiring = await installTerminalInstrumentation({
       sessionId: asSessionId('no-selected-codex'),
       harness: 'codex',
-      spec: spec('codex'),
+      spec: spec('codex', undefined, { home: homeDir }),
       sections: terminalInstrumentationSectionsFor('codex'),
       settingsDir: join(homeDir, 'settings'),
-      homeDir,
     })
     expect(wiring).toMatchObject({
       degradedKind: 'unsupported-version',
@@ -212,9 +215,8 @@ describe('terminal instrumentation installation', () => {
         installTerminalInstrumentation({
           sessionId: asSessionId(name),
           harness: 'grok',
-          spec: spec('grok', `http://localhost/hooks/${name}`),
+          spec: spec('grok', `http://localhost/hooks/${name}`, { home: homeDir }),
           sections: terminalInstrumentationSectionsFor('grok'),
-          homeDir,
           settingsDir: join(homeDir, 'settings'),
         }),
       ),
@@ -235,9 +237,8 @@ describe('terminal instrumentation installation', () => {
       installTerminalInstrumentation({
         sessionId: asSessionId('broken'),
         harness: 'grok',
-        spec: spec('grok'),
+        spec: spec('grok', undefined, { home: homeDir }),
         sections: terminalInstrumentationSectionsFor('grok'),
-        homeDir,
         settingsDir: join(homeDir, 'settings'),
       }),
     ).resolves.toMatchObject({
@@ -249,6 +250,10 @@ describe('terminal instrumentation installation', () => {
 
   it('uses the instance Codex home over inherited or session overrides and returns degradation', async () => {
     const homeDir = await directory()
+    const overridden: SessionSpec = {
+      ...spec('codex', undefined, { home: homeDir }),
+      env: { CODEX_HOME: '/foreign/codex' },
+    }
     const install = vi.spyOn(codexHooks.codexInstrumentation, 'install').mockResolvedValue({
       args: [],
       env: { PODIUM_CODEX_HOOK_URL: 'http://127.0.0.1:1234/hooks/codex' },
@@ -259,18 +264,22 @@ describe('terminal instrumentation installation', () => {
       installTerminalInstrumentation({
         sessionId: asSessionId('codex'),
         harness: 'codex',
-        spec: { ...spec('codex'), env: { CODEX_HOME: '/foreign/codex' } },
+        spec: overridden,
         sections: terminalInstrumentationSectionsFor('codex'),
-        homeDir,
         settingsDir: join(homeDir, 'settings'),
       }),
     ).resolves.toMatchObject({
       degradedReason: 'unsupported codex version',
       env: expect.any(Object),
     })
-    // The instance home (not the session's CODEX_HOME override) reaches the section.
+    // The instance home (not the session's CODEX_HOME override) reaches the
+    // section, as the session context's state root.
     expect(install).toHaveBeenCalledWith(
-      expect.objectContaining({ harnessHome: join(homeDir, '.codex') }),
+      expect.objectContaining({
+        harnessContext: expect.objectContaining({
+          roots: expect.objectContaining({ state: join(homeDir, '.codex') }),
+        }),
+      }),
     )
   })
 
@@ -288,9 +297,8 @@ describe('terminal instrumentation installation', () => {
     const result = await installTerminalInstrumentation({
       sessionId: asSessionId('codex-untrusted'),
       harness: 'codex',
-      spec: spec('codex'),
+      spec: spec('codex', undefined, { home: homeDir }),
       sections: terminalInstrumentationSectionsFor('codex'),
-      homeDir,
       settingsDir: join(homeDir, 'settings'),
     })
     expect(result).toMatchObject({
@@ -324,9 +332,8 @@ describe('terminal instrumentation installation', () => {
     const result = await installTerminalInstrumentation({
       sessionId: asSessionId('codex-trusted'),
       harness: 'codex',
-      spec: spec('codex'),
+      spec: spec('codex', undefined, { home: homeDir }),
       sections: terminalInstrumentationSectionsFor('codex'),
-      homeDir,
       settingsDir: join(homeDir, 'settings'),
     })
     expect(result.degradedReason).toBeUndefined()

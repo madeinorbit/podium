@@ -1,4 +1,5 @@
 import type { BuiltinHarnessKind } from '@podium/protocol'
+import type { HarnessContext } from './harness-context.js'
 import type { HarnessExecSpec, LaunchSpec } from './manifest.js'
 import type { ResolvedHarnessInventory } from './inventory/build-inventory.js'
 
@@ -32,15 +33,24 @@ function effectiveEnv(
   return { ...snapshot.commandEnvironment.env, ...overlay }
 }
 
+/**
+ * Bind an adapter's launch argv to ONE harness context (POD-6533): the
+ * executable is the installation the context pinned, and the environment is
+ * the context's account environment with the invocation's own env on top.
+ *
+ * Nothing here asks the inventory again. A session whose context was built
+ * before an inventory refresh launches the installation it was built from.
+ */
 export function bindHarnessLaunch(
-  snapshot: ResolvedHarnessInventory,
-  kind: BuiltinHarnessKind,
+  context: HarnessContext,
   invocation: HarnessInvocationSpec,
 ): LaunchSpec {
   return {
     ...invocation,
-    cmd: executablePath(snapshot, kind),
-    env: effectiveEnv(snapshot, invocation.env),
+    // Do not resolve again. If the verified file disappeared, spawn fails
+    // against this exact path instead of silently selecting another one.
+    cmd: context.installation.executable,
+    env: { ...context.env, ...invocation.env },
   }
 }
 

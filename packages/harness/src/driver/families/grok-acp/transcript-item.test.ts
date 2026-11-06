@@ -16,6 +16,7 @@
 import type { SessionId, TranscriptItem, TranscriptItemRef } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { RuntimeEvent, SessionSpec } from '../../host.js'
+import { testHarnessContext } from '../../testing/harness-context.js'
 import { createMemoryAttachmentStager, createMemoryDriverSlots } from '../../testing/index.js'
 import type { TurnReceipt } from '../../turns.js'
 import {
@@ -32,6 +33,7 @@ import {
 
 const spec = (): SessionSpec => ({
   harness: 'grok',
+  harnessContext: testHarnessContext({ kind: 'grok' }),
   selection: {
     auth: 'subscription',
     platform: 'linux',

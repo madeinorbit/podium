@@ -58,7 +58,7 @@ import type {
   PermissionAnswer,
 } from '../../interactions.js'
 import type { OnQueueAbandoned } from '../../queue-abandonment.js'
-import { instructionsText, type SessionSpec } from '../../session-spec.js'
+import { type EngineSessionSpec, instructionsText, type SessionSpec } from '../../session-spec.js'
 import {
   type AnswerOptions,
   type AttachmentStager,
@@ -276,7 +276,7 @@ interface PromptDelivery {
 
 interface DriverSession {
   sessionId: SessionId
-  spec: SessionSpec
+  spec: EngineSessionSpec
   endpoint: GrokAcpEndpoint
   client: GrokAcpClient
   grokSessionId: string
@@ -1179,7 +1179,7 @@ export function createGrokAcpRuntime(
 
   function attachSession(input: {
     sessionId: SessionId
-    spec: SessionSpec
+    spec: EngineSessionSpec
     endpoint: GrokAcpEndpoint
     connection: BufferedConnection
     grokSessionId: string
@@ -2397,14 +2397,14 @@ export function createGrokAcpRuntime(
    * and `_meta.systemPrompt`/`_meta.instructions` reach nothing. `session/load`
    * sends the same field, so a reloaded session asks for its rules too.
    */
-  function sessionRules(spec: SessionSpec): { _meta?: { rules: string } } {
+  function sessionRules(spec: EngineSessionSpec): { _meta?: { rules: string } } {
     const rules = instructionsText(spec)
     return rules ? { _meta: { rules } } : {}
   }
 
   async function createWithId(
     sessionId: SessionId,
-    spec: SessionSpec,
+    spec: EngineSessionSpec,
   ): Promise<AgentSessionHandle> {
     const endpoint = await host.launch({
       sessionId,
@@ -2438,7 +2438,7 @@ export function createGrokAcpRuntime(
 
   async function loadSession(input: {
     sessionId: SessionId
-    spec: SessionSpec
+    spec: EngineSessionSpec
     grokSessionId: string
     bindingVersion: number
     observerGeneration: number
@@ -2494,7 +2494,7 @@ export function createGrokAcpRuntime(
     }
   }
 
-  const adoptedSpec = (workdir: string): SessionSpec => ({
+  const adoptedSpec = (workdir: string): EngineSessionSpec => ({
     harness: 'grok',
     selection: { auth: 'subscription', platform: 'linux', available: [GROK_ACP_DRIVER_ID] },
     workdir,

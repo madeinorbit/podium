@@ -1,9 +1,11 @@
 /** Receipt proof from the Grok 1.0.44 frames measured in POD-4837. */
+
 import type { HarnessRef, SessionId, TranscriptItem, TranscriptItemRef } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { AgentSessionHandle } from '../../driver.js'
 import type { RuntimeEvent } from '../../host.js'
 import type { SessionSpec } from '../../session-spec.js'
+import { testHarnessContext } from '../../testing/harness-context.js'
 import { createMemoryAttachmentStager, createMemoryDriverSlots } from '../../testing/index.js'
 import promptAck from './__fixtures__/prompt-ack.json' with { type: 'json' }
 import type { GrokAcpTransport } from './client.js'
@@ -32,6 +34,7 @@ const updateKind = (frame: Frame): string | undefined =>
 
 const spec: SessionSpec = {
   harness: 'grok',
+  harnessContext: testHarnessContext({ kind: 'grok' }),
   selection: {
     auth: 'subscription',
     platform: 'linux',

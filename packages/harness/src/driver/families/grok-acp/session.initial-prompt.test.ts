@@ -20,6 +20,7 @@ import {
   createMemoryDriverSlots,
   serverFamilyLaunch,
   createMemoryAttachmentStager,
+  testHarnessContext,
 } from '../../testing/index.js'
 import { grokEngineFacts } from './engine-facts.js'
 import { createGrokSessionRuntime, type DaemonGrokRuntime } from './session.js'
@@ -80,6 +81,7 @@ describe('grok-acp launch with an initial prompt', () => {
 
     await runtime.launch(
       serverFamilyLaunch({
+        harnessContext: testHarnessContext({ kind: 'grok' }),
         sessionId: SESSION_ID,
         cwd: '/work',
         initialPrompt: PROMPT,

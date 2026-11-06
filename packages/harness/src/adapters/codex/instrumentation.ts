@@ -26,7 +26,7 @@ import type {
 } from '../../manifest.js'
 import { withEventTime } from '../../observer.js'
 import { classifyCodexVerdict } from './state.js'
-import { codexRoots, codexRootsFor } from './roots.js'
+import { codexRootsFor } from './roots.js'
 
 const log = createLogger('harness:codex-instrumentation')
 
@@ -711,7 +711,8 @@ async function decodeCodexHookPayload(payload: unknown): Promise<ProviderAgentSt
 async function installCodexInstrumentation(
   destination: InstrumentationDestination,
 ): Promise<InstalledInstrumentation> {
-  const codexHome = codexRootsFor(destination.homeDir ?? homedir(), destination.harnessHome).state
+  const context = destination.harnessContext
+  const codexHome = context.roots.state
   const wiring = {
     args: destination.seedTheme ? ['-c', 'tui.theme=ansi'] : [],
     env: {
@@ -725,7 +726,9 @@ async function installCodexInstrumentation(
   try {
     const result = await ensurePodiumCodexHooks({
       codexHome,
-      ...(destination.verifiedVersion ? { verifiedVersion: destination.verifiedVersion } : {}),
+      // The version the inventory read off the executable this session
+      // launches; '' (the CLI printed none) degrades as a missing version.
+      ...(context.installation.version ? { verifiedVersion: context.installation.version } : {}),
     })
     const degradedReason = !result.installed
       ? (result.reason ?? 'hook installation failed')
@@ -786,26 +789,13 @@ function installerDegradedKind(
 // ---------------------------------------------------------------------------
 
 /**
- * The Codex home the install serializes by (POD-4531).
- *
- * The same rule the terminal family applied when it owned the
- * `global-env` branch: instance-owned homes override session values, an
- * ambient `CODEX_HOME` redirects otherwise, and the fallback is
- * `<home>/.codex`. Owned here so the mechanism never reads the environment
- * section — it only looks the `home` strategy up by scope.
- *
- * The env below is the launch child's composition (POD-6532): the folder rule
- * itself is `codexRoots`, the same one the observer applies, so hooks land in
- * the folder the session reads. Replaced by the session-pinned context in
- * POD-6533.
+ * The Codex home the install serializes by (POD-4531): the session-pinned
+ * context's state root (POD-6533), the folder the session's child and its
+ * observer use. Owned here so the mechanism never reads the environment
+ * section; it only looks the `home` strategy up by scope.
  */
 function codexHomeOf(destination: InstrumentationDestination): string {
-  const env: Record<string, string | undefined> = {
-    ...process.env,
-    ...(destination.env ?? {}),
-    ...(destination.homeDir ? { CODEX_HOME: codexRoots(destination.homeDir, {}).state } : {}),
-  }
-  return codexRoots(destination.homeDir ?? env.HOME ?? homedir(), env).state
+  return destination.harnessContext.roots.state
 }
 
 export const codexInstrumentation: HarnessInstrumentation = {

@@ -5,6 +5,7 @@ import type { SessionId } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RuntimeEvent, SessionSpec } from '../../host.js'
+import { testHarnessContext } from '../../testing/harness-context.js'
 import { createMemoryDriverSlots } from '../../testing/index.js'
 import type { OpencodeClient } from '../opencode/client.js'
 import { deltaItemIdForPart } from '../opencode/map.js'
@@ -154,6 +155,7 @@ async function fixture(lane: string, label = 'S1', file?: string) {
   cleanups.push(() => runtime.dispose())
   const spec: SessionSpec = {
     harness: 'opencode',
+    harnessContext: testHarnessContext({ kind: 'opencode' }),
     selection: { auth: 'api-key', platform: 'linux', available: ['opencode2-server'] },
     workdir: directory,
     model: {},

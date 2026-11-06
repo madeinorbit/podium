@@ -14,6 +14,7 @@ import {
   claudeEngineProcessKey,
   pageHistory,
 } from '@podium/harness/driver/host'
+import { testHarnessContext } from '@podium/harness/driver/testing'
 import type { ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
@@ -159,6 +160,7 @@ describe('Claude SDK sessions through the machine root', () => {
       RESUME,
       {
         harness: 'claude-code',
+        harnessContext: testHarnessContext({ kind: 'claude-code' }),
         selection: {
           auth: 'unknown',
           platform: 'linux',

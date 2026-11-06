@@ -1,10 +1,11 @@
 import { readFileSync } from 'node:fs'
-import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { request } from 'node:http'
 import { tmpdir } from 'node:os'
-import { delimiter, join } from 'node:path'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { boundaryHookResponse, installTerminalInstrumentation, pageHistory, startHookIngest } from '@podium/harness/driver/host'
+import { testHarnessContext } from '../../testing/harness-context.js'
 
 /**
  * THE RECEIPTS, PINNED (POD-1761 W3).
@@ -718,6 +719,7 @@ const answeredEvents = (world: World): Array<{ id: string; answeredBy: string }>
 const SPEC = {
   instrumentation: { endpointUrl: 'http://localhost:1/hooks/test' },
   harness: 'claude-code',
+  harnessContext: testHarnessContext({ kind: 'claude-code' }),
   selection: { auth: 'subscription' as const, platform: 'linux' as NodeJS.Platform, available: [] },
   workdir: '/tmp/w3',
   model: {},
@@ -811,17 +813,6 @@ describe('instrumented terminal creation', () => {
   ])('starts Codex with %s and emits one reason-specific diagnostic', async (scenario, reason, slug) => {
     const homeDir = await mkdtemp(join(tmpdir(), 'codex-spawn-'))
     const world = makeWorld()
-    // A fake `codex` ahead on PATH pins the version gate deterministically:
-    // the section install shells out to `codex --version`, and the real binary
-    // (or its absence) must not decide this test's outcome.
-    const binDir = await mkdtemp(join(tmpdir(), 'codex-bin-'))
-    await writeFile(
-      join(binDir, 'codex'),
-      `#!/bin/sh\nprintf "${scenario === 'garbage version' ? 'garbage banner' : 'codex-cli 0.142.0'}\\n"\n`,
-    )
-    await chmod(join(binDir, 'codex'), 0o755)
-    const previousPath = process.env.PATH
-    process.env.PATH = `${binDir}${delimiter}${previousPath ?? ''}`
     try {
       const codexHome = join(homeDir, '.codex')
       if (scenario !== 'missing home') await mkdir(codexHome)
@@ -836,14 +827,20 @@ describe('instrumented terminal creation', () => {
           harness: spec.harness,
           spec,
           sections: testInstrumentationSectionsFor(spec.harness),
-          homeDir,
           settingsDir: join(homeDir, 'settings'),
         })
       const launch = vi.spyOn(world.host, 'launch')
       const profile = testProfileFor('codex')
       if (!profile) throw new Error('missing Codex profile')
       const driver = world.runtime.driverFor('codex', profile)
-      for (let i = 0; i < 2; i++) await driver.create({ ...SPEC, harness: 'codex' })
+      // The version gate reads the session's context: the version the
+      // inventory verified for the executable this session launches.
+      const harnessContext = testHarnessContext({
+        kind: 'codex',
+        home: homeDir,
+        version: scenario === 'garbage version' ? 'garbage banner' : 'codex-cli 0.142.0',
+      })
+      for (let i = 0; i < 2; i++) await driver.create({ ...SPEC, harness: 'codex', harnessContext })
       expect(launch).toHaveBeenCalledTimes(2)
       for (const call of launch.mock.calls) {
         expect(call[0].instrumentation.env).toEqual(
@@ -858,10 +855,8 @@ describe('instrumented terminal creation', () => {
         body: expect.stringContaining(reason),
       })
     } finally {
-      process.env.PATH = previousPath
       world.runtime.dispose()
       await rm(homeDir, { recursive: true, force: true })
-      await rm(binDir, { recursive: true, force: true })
     }
   })
 

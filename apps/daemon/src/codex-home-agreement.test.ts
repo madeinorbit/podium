@@ -21,6 +21,7 @@ import { dirname, join, sep } from 'node:path'
 import {
   declaredValue,
   harnessAccount,
+  type HarnessContext,
   manifestFor,
   resolvePinnedCodexRollout,
 } from '@podium/harness'
@@ -54,8 +55,11 @@ vi.mock('../../../packages/harness/src/adapters/codex/owned-rollout.js', async (
 })
 
 import { codexAuthPathFor } from './control/codex'
+import { DaemonHarnessRuntime } from './harness-runtime'
 import { terminalInstrumentationSectionsFor } from './runtime/registry'
+import { buildSessionHarnessContext } from './session-harness-context'
 import { createSessionObservers } from './session-observers'
+import { testHarnessSnapshot } from './test-support/harness-snapshot'
 
 type Folder = 'machine' | 'account' | 'decoy'
 
@@ -139,9 +143,10 @@ function folderOf(world: Layout, path: string | undefined): Folder | 'none' {
   return 'none'
 }
 
-function terminalSpec(): SessionSpec {
+function terminalSpec(harnessContext: HarnessContext): SessionSpec {
   return {
     harness: 'codex',
+    harnessContext,
     selection: { auth: 'unknown', platform: 'linux', available: [] },
     workdir: '/repo',
     model: {},
@@ -151,7 +156,10 @@ function terminalSpec(): SessionSpec {
   }
 }
 
-async function observerSessionsRoot(homeDir: string | undefined): Promise<string | undefined> {
+async function observerSessionsRoot(
+  homeDir: string | undefined,
+  harnessContext: HarnessContext,
+): Promise<string | undefined> {
   const watchers = new Set<() => void>()
   const statTick: StatTick = {
     subscribe(watcher) {
@@ -193,7 +201,7 @@ async function observerSessionsRoot(homeDir: string | undefined): Promise<string
     },
     session,
     undefined,
-    { seedOnFrame: false, startedAtMs: Date.now() },
+    { seedOnFrame: false, startedAtMs: Date.now(), harnessContext },
   )
   observers.clearSession(sessionId)
   return observed.sessionsRoots.at(-1)
@@ -224,6 +232,30 @@ async function sitesFor(world: Layout, accountHome: string | undefined) {
 
   const rollout = await resolvePinnedCodexRollout(world.threadId, accountHome)
 
+  // The session context, built the way a spawn builds it: the daemon's
+  // credential home over the inventory's command environment, which carries
+  // whatever the daemon's own environment holds (the decoy included).
+  const base = testHarnessSnapshot({}, 0)
+  const commandEnv: Record<string, string> = {}
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined) commandEnv[key] = value
+  }
+  const snapshot = {
+    ...base,
+    commandEnvironment: {
+      ...base.commandEnvironment,
+      env: commandEnv,
+      machineHome: world.machineHome,
+    },
+  }
+  const harnessContext = await buildSessionHarnessContext(
+    {
+      harnessRuntime: new DaemonHarnessRuntime({ buildSnapshot: async () => snapshot }),
+      homeDir: accountHome,
+    },
+    'codex',
+  )
+
   const settingsDir = join(world.root, `settings-${randomUUID()}`)
   await mkdir(settingsDir)
   const sessionId = asSessionId(`hooks-${randomUUID()}`)
@@ -234,11 +266,12 @@ async function sitesFor(world: Layout, accountHome: string | undefined) {
   await installTerminalInstrumentation({
     sessionId,
     harness: 'codex',
-    spec: terminalSpec(),
+    spec: terminalSpec({
+      ...harnessContext,
+      installation: { ...harnessContext.installation, version: 'codex-cli 0.162.0' },
+    }),
     sections: terminalInstrumentationSectionsFor('codex'),
     settingsDir,
-    ...(accountHome ? { homeDir: accountHome } : {}),
-    verifiedVersion: 'codex-cli 0.162.0',
   })
   const hooksFolders = (Object.entries(world.folders) as [Folder, string][])
     .filter(([label, folder]) => !before.get(label) && existsSync(join(folder, 'hooks.json')))
@@ -253,7 +286,7 @@ async function sitesFor(world: Layout, accountHome: string | undefined) {
     usageScan: scannedFolders.length === 1 ? scannedFolders[0] : scannedFolders.join('+'),
     stateProviderRollout: folderOf(world, rollout?.path),
     instrumentationHooks: hooksFolders.length === 1 ? hooksFolders[0] : hooksFolders.join('+'),
-    observerSessions: folderOf(world, await observerSessionsRoot(accountHome)),
+    observerSessions: folderOf(world, await observerSessionsRoot(accountHome, harnessContext)),
   }
 }
 

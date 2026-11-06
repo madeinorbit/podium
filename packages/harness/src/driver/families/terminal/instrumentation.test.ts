@@ -11,11 +11,13 @@
  */
 import { describe, expect, it } from 'vitest'
 import { asSessionId } from '@podium/model'
+import type { HarnessContext } from '../../../harness-context.js'
 import type {
   InstalledInstrumentation,
   InstrumentationDestination,
   InstrumentationInstallScope,
 } from '../../../manifest.js'
+import { testHarnessContext } from '../../testing/harness-context.js'
 import {
   installTerminalInstrumentation,
   type TerminalInstrumentationSections,
@@ -65,6 +67,7 @@ describe('handed terminal instrumentation sections', () => {
       harness: 'fixture',
       spec: {
         instrumentation: { endpointUrl: 'http://127.0.0.1:1234/hooks/fixture' },
+        harnessContext: testHarnessContext({ kind: 'codex' }),
       },
       sections: FIXTURE_SECTIONS,
       settingsDir: '/unused',
@@ -78,6 +81,7 @@ describe('handed terminal instrumentation sections', () => {
       harness: 'fixture',
       spec: {
         instrumentation: { endpointUrl: 'http://127.0.0.1:1/hooks/t' },
+        harnessContext: testHarnessContext({ kind: 'codex' }),
       },
       sections: FIXTURE_SECTIONS,
       settingsDir: '/unused',
@@ -102,13 +106,14 @@ describe('handed terminal instrumentation sections', () => {
 describe('declared install scope', () => {
   it('serializes two concurrent installs into one home', async () => {
     const home = '/test/scope-home'
-    const seenHomes: (string | undefined)[] = []
+    const context = testHarnessContext({ kind: 'codex', home })
+    const seenContexts: HarnessContext[] = []
     let active = 0
     let maxActive = 0
     const sections = fixtureSections({ kind: 'home', homeOf: () => home }, async (destination) => {
       active += 1
       maxActive = Math.max(maxActive, active)
-      seenHomes.push(destination.harnessHome)
+      seenContexts.push(destination.harnessContext)
       await delay(30)
       active -= 1
       return { args: [] }
@@ -119,24 +124,26 @@ describe('declared install scope', () => {
         installTerminalInstrumentation({
           sessionId: asSessionId(name),
           harness: 'fixture',
-          spec: { instrumentation: channel },
+          spec: { instrumentation: channel, harnessContext: context },
           sections,
           settingsDir: '/unused',
         }),
       ),
     )
     expect(maxActive).toBe(1)
-    expect(seenHomes).toEqual([home, home])
+    // The section reads the session's own context; the family stamps nothing.
+    expect(seenContexts).toEqual([context, context])
   })
 
   it('does not serialize session-scoped installs', async () => {
-    const seenHomes: (string | undefined)[] = []
+    const context = testHarnessContext({ kind: 'codex' })
+    const seenContexts: HarnessContext[] = []
     let active = 0
     let maxActive = 0
     const sections = fixtureSections({ kind: 'session' }, async (destination) => {
       active += 1
       maxActive = Math.max(maxActive, active)
-      seenHomes.push(destination.harnessHome)
+      seenContexts.push(destination.harnessContext)
       await delay(30)
       active -= 1
       return { args: [] }
@@ -147,13 +154,13 @@ describe('declared install scope', () => {
         installTerminalInstrumentation({
           sessionId: asSessionId(name),
           harness: 'fixture',
-          spec: { instrumentation: channel },
+          spec: { instrumentation: channel, harnessContext: context },
           sections,
           settingsDir: '/unused',
         }),
       ),
     )
-    expect(seenHomes).toEqual([undefined, undefined])
+    expect(seenContexts).toEqual([context, context])
     expect(maxActive).toBe(2)
   })
 })

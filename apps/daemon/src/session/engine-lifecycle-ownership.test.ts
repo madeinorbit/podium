@@ -49,7 +49,7 @@ import {
   createGrokEngineHost,
   grokEngineFacts,
 } from '@podium/harness/driver/host'
-import { createMemoryBindingRecords } from '@podium/harness/driver/testing'
+import { createMemoryBindingRecords, testHarnessContext } from '@podium/harness/driver/testing'
 import { manifestFor } from '@podium/harness'
 import type { DurableProcess } from '@podium/process/durable'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -267,6 +267,7 @@ describe('the family is handed its address and reports its binding (POD-4611)', 
     const runtime = createCodexRuntime(host, driverSlotsOver(new SessionRegistry()))
     const handle = await runtime.driver.create({
       harness: 'codex',
+      harnessContext: testHarnessContext({ kind: 'codex' }),
       selection: { auth: 'subscription', platform: 'linux', available: ['codex-app-server'] },
       workdir: '/tmp/codex-ownership',
       model: {},

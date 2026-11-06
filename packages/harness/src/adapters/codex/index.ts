@@ -595,6 +595,13 @@ export const codexManifest: AgentManifest = {
         rebindId,
       })
     }
+    // THE SESSION'S FOLDERS (POD-6533): the pinned context's roots, the ones
+    // its child and its hooks use. Without a context (a survivor whose Codex
+    // left the inventory) the home-based default stands.
+    const sessionHome = input.harnessContext?.home ?? input.homeDir
+    const sessionsRoot =
+      input.harnessContext?.roots.transcripts ??
+      codexRootsFor(sessionHome ?? homedir(), undefined).transcripts
     const start = (
       resumeValue: string | undefined,
       startedAtMs: number | undefined,
@@ -612,8 +619,8 @@ export const codexManifest: AgentManifest = {
         ...(input.statTick ? { statTick: input.statTick } : {}),
         ...(processBindingSessionId ? { podiumSessionId: processBindingSessionId } : {}),
         ...(resumeValue ? { resumeValue } : {}),
-        ...(input.homeDir ? { homeDir: input.homeDir } : {}),
-        ...(input.harnessHome ? { codexHome: input.harnessHome } : {}),
+        ...(sessionHome ? { homeDir: sessionHome } : {}),
+        ...(input.harnessContext ? { codexHome: input.harnessContext.roots.state } : {}),
         ...(startedAtMs !== undefined ? { startedAtMs } : {}),
         ...(lease && input.podiumSessionId
           ? {
@@ -656,7 +663,7 @@ export const codexManifest: AgentManifest = {
     const resolveOwned = input.ownedProcess
       ? createOwnedCodexRolloutResolver({
           ownedProcess: input.ownedProcess,
-          sessionsRoot: codexRootsFor(input.homeDir ?? homedir(), input.harnessHome).transcripts,
+          sessionsRoot,
           startedAtMs: floor,
           resumeValue: input.resumeValue,
         })

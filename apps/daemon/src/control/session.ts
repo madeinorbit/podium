@@ -14,12 +14,12 @@ import {
   bindHarnessLaunch,
   canonicalDriverId,
   type DriverId,
+  type HarnessContext,
   type HarnessVersionDiagnostic,
   harnessCapabilitiesFor,
   harnessTranscriptStorage,
   type LaunchFile,
   parseHarnessVersion,
-  type ResolvedHarnessInventory,
   serverDriverExecutable,
 } from '@podium/harness'
 import { managementLoginCommandFor } from '../harness-management.js'
@@ -28,6 +28,7 @@ import {
   type AgentKind,
   type AgentRuntimeState,
   asMachineId,
+  type BuiltinHarnessKind,
   type Geometry,
   type SessionId,
 } from '@podium/model'
@@ -77,6 +78,7 @@ import type {
   TerminalRecover,
   TerminalRecovered,
 } from '@podium/harness/driver/host'
+import { buildSessionHarnessContext, sessionHarnessContextFor } from '../session-harness-context.js'
 import type { ReattachControl, SpawnControl } from '../session-observers'
 import type { DaemonSession } from '../session/daemon-session.js'
 import { removeSessionUploads } from '../session-uploads'
@@ -679,13 +681,19 @@ const NOMINAL_TERMINAL_GEOMETRY = { cols: 120, rows: 40 } as const
  */
 export async function launchTerminalProcess(
   ctx: DaemonContext,
-  input: TerminalLaunch & {
+  input: Omit<TerminalLaunch, 'spec'> & {
+    /** An agent's whole SessionSpec, or a shell's or login pane's
+     *  {@link PlainTerminalSpec}, which carries no harness context. */
+    spec: SessionSpec | PlainTerminalSpec
     loginHarness?: SpawnControl['loginHarness']
-    harnessSnapshot?: ResolvedHarnessInventory
   },
 ): Promise<TerminalLaunched> {
   const { sessionId, spec, instrumentation, resume, loginHarness } = input
   const agentKind = spec.harness as AgentKind
+  // THE SESSION'S ONE CONTEXT (POD-6533): the installation and folders the
+  // spec was built with at spawn. Launch binds it below, the observers read its
+  // roots, and the session keeps it for a later re-init of its observers.
+  const harnessContext = 'harnessContext' in spec ? spec.harnessContext : undefined
   const order = ctx.sessions.get(sessionId)?.order
   const ordered: SpawnControl = (order?.frame.type === 'spawn' ? order.frame : undefined) ?? {
     type: 'spawn',
@@ -757,20 +765,26 @@ export async function launchTerminalProcess(
       ...(spec.env ? { env: spec.env } : {}),
     }
     // loginCommand is intentionally a static argv declaration: the production
-    // branch below binds it to the current generation's verified executable and
-    // command environment. Resolving here would duplicate that snapshot and let
-    // login drift from the executable the rest of the launch uses. The injected
+    // branch below binds it to a harness context built from the current
+    // generation: its verified executable and account environment. Resolving
+    // here would duplicate that snapshot and let login drift from the
+    // executable the rest of the launch uses. The injected
     // ctx.launch branch is a legacy/test seam; production host runtime always
     // supplies the binder for this path.
+    if (!loginHarness && agentKind !== 'shell' && !harnessContext) {
+      throw new Error(`a ${agentKind} launch needs the session's harness context`)
+    }
     const cmd = loginCommand
       ? ctx.harnessRuntime
-        ? bindHarnessLaunch(await ctx.harnessRuntime.current(), loginHarness!, {
+        ? // A login pane has no session context: it binds the login harness's
+          // account context, built now, for this one launch.
+          bindHarnessLaunch(await buildSessionHarnessContext(ctx, loginHarness!), {
             args: [...loginCommand.args],
             cwd: spec.workdir,
           })
         : { cmd: loginCommand.cmd, args: [...loginCommand.args], cwd: spec.workdir }
       : ctx.harnessRuntime
-        ? await ctx.harnessRuntime.launch(agentKind, launchOptions, input.harnessSnapshot)
+        ? await ctx.harnessRuntime.launch(harnessContext ?? 'shell', launchOptions)
         : ctx.launch(agentKind, launchOptions)
     materializeLaunchFiles(cmd.files)
     // SQLite-backed harnesses create their store parent lazily. Create the
@@ -833,6 +847,7 @@ export async function launchTerminalProcess(
       adopted: session.adopted,
     })
     const terminal = wireBridge(ctx, sessionId, session, agentKind, label)
+    ctx.sessions.ensure(sessionId).harnessContext = harnessContext
     // The size the program is at: the host's WELCOME (the Terminal already
     // stated it through the size event), or — on a backend that cannot read
     // its size back — the size it was born at.
@@ -844,7 +859,7 @@ export async function launchTerminalProcess(
       seedOnFrame: true,
       startedAtMs: spawnStartedAt,
       ...(newSessionId ? { newSessionId } : {}),
-      env: childEnv,
+      ...(harnessContext ? { harnessContext } : {}),
     })
     // The size event above ran before these observers existed: tell them now.
     ctx.observers.onResize?.(sessionId, geometry.cols, geometry.rows)
@@ -969,8 +984,8 @@ function reportSpawnFailure(ctx: DaemonContext, sessionId: SessionId, err: unkno
  * screen and reaper as every terminal session, and announces itself.
  */
 async function launchPlainTerminal(ctx: DaemonContext, msg: SpawnControl): Promise<void> {
-  const spec: SessionSpec = {
-    ...sessionSpecForSpawn(msg, { auth: 'unknown', role: 'interactive' }),
+  const spec: PlainTerminalSpec = {
+    ...plainSpecForSpawn(msg, { auth: 'unknown', role: 'interactive' }),
     ...(msg.durableLabel ? { durableLabel: msg.durableLabel } : {}),
   }
   try {
@@ -1019,11 +1034,13 @@ async function launchAgentTerminal(ctx: DaemonContext, msg: SpawnControl): Promi
     }
     const runtime = ctx.agentRuntime
     if (!runtime) throw new Error('agent runtime is unavailable; retry after the daemon recovers')
-    const base = sessionSpecForSpawn(msg, {
-      driverId: profile.driverId,
-      auth: 'unknown',
-      role: 'interactive',
-    })
+    // Built ONCE, here, for the life of the session (POD-6533): the driver
+    // hands this one value to hook installation and launch.
+    const base = sessionSpecForSpawn(
+      msg,
+      { driverId: profile.driverId, auth: 'unknown', role: 'interactive' },
+      await buildSessionHarnessContext(ctx, msg.agentKind as BuiltinHarnessKind),
+    )
     const spec: SessionSpec = {
       ...base,
       model: {
@@ -1235,13 +1252,29 @@ async function withOrder(
  */
 export function sessionSpecForSpawn(
   msg: SpawnControl,
-  selection: {
-    /** Absent for a plain terminal, which no driver runs. */
-    driverId?: AcceptedDriverId
-    auth: SessionSpec['selection']['auth']
-    role: 'executor' | 'interactive'
-  },
+  selection: SpawnSelection,
+  harnessContext: HarnessContext,
 ): SessionSpec {
+  return { ...plainSpecForSpawn(msg, selection), harnessContext }
+}
+
+/** How a spawn frame selects its driver, for {@link sessionSpecForSpawn}. */
+interface SpawnSelection {
+  /** Absent for a plain terminal, which no driver runs. */
+  driverId?: AcceptedDriverId
+  auth: SessionSpec['selection']['auth']
+  role: 'executor' | 'interactive'
+}
+
+/**
+ * A SHELL'S OR LOGIN PANE'S SPEC: everything a spawn frame says, without a
+ * harness context. No driver runs a plain terminal, so it never reaches the
+ * driver boundary where {@link SessionSpec} requires one (POD-6533).
+ */
+export type PlainTerminalSpec = Omit<SessionSpec, 'harnessContext'>
+
+/** The spawn frame's fields as a spec, before any harness context. */
+function plainSpecForSpawn(msg: SpawnControl, selection: SpawnSelection): PlainTerminalSpec {
   const executor = selection.role === 'executor'
   return {
     harness: msg.agentKind,
@@ -1585,6 +1618,7 @@ async function adoptHeadlessSession(
     try {
       const spec: SessionSpec = {
         harness: msg.agentKind,
+        harnessContext: await buildSessionHarnessContext(ctx, msg.agentKind as BuiltinHarnessKind),
         selection: {
           auth: 'unknown',
           platform: process.platform,
@@ -2169,13 +2203,19 @@ export async function launchServerDriverSession(
   }
   try {
     const isHeadless = resolution.driverId === 'headless'
-    const spec = sessionSpecForSpawn(msg, {
-      driverId: resolution.driverId,
-      auth: selectionAuth,
-      // Headless sessions are executor-owned, never interactive: their first
-      // prompt arrives as a turn, not at creation.
-      role: isHeadless ? 'executor' : 'interactive',
-    })
+    const spec = sessionSpecForSpawn(
+      msg,
+      {
+        driverId: resolution.driverId,
+        auth: selectionAuth,
+        // Headless sessions are executor-owned, never interactive: their first
+        // prompt arrives as a turn, not at creation.
+        role: isHeadless ? 'executor' : 'interactive',
+      },
+      // The same carrier as a terminal session (POD-6533); engines start
+      // reading it in POD-6546.
+      await buildSessionHarnessContext(ctx, msg.agentKind as BuiltinHarnessKind),
+    )
     // A resume ref goes to the driver only where its source can continue a
     // conversation from the ref alone (headless, the Claude stream engine);
     // the vendor servers resume from their journal above.
@@ -2444,8 +2484,12 @@ export async function recoverTerminalProcess(
     const hasAuthoritativeObservationLease =
       msg.observationGeneration !== undefined && msg.observationBindingVersion !== undefined
     if (hasAuthoritativeObservationLease) {
+      // This daemon spawned (or already reattached) the session: the context
+      // it holds is the one its process runs under (POD-6533).
+      const harnessContext = await sessionHarnessContextFor(ctx, msg.sessionId, msg.agentKind)
       ctx.observers.initSessionObservers(msg, existing.attachment, agentStateProviderFor(msg.agentKind), {
         seedOnFrame: false,
+        ...(harnessContext ? { harnessContext } : {}),
       })
     }
     const cmd = durableProcessFor(ctx)?.primary.attachCommand(msg.durableLabel) ?? msg.durableLabel
@@ -2538,6 +2582,12 @@ export async function recoverTerminalProcess(
     // Inside the gate on purpose — a restart reattaches every session at once, and
     // this forks git.
     void ctx.sessionCwdTracker.setLaunchCwd(msg.sessionId, msg.cwd)
+    // A RESTARTED DAEMON REBUILDS THE CONTEXT (POD-6533) from the current
+    // inventory: the old one went with the old process. Roots depend only on
+    // the home and the account env, so the observer reads the same folders the
+    // running harness writes; nothing here relaunches it. Before the host
+    // attach, so no wait sits between wiring the bridge and its observers.
+    const harnessContext = await sessionHarnessContextFor(ctx, msg.sessionId, msg.agentKind)
     let found: DurableReattach | undefined
     const durable = durableProcessFor(ctx)
     if (durable) {
@@ -2577,6 +2627,7 @@ export async function recoverTerminalProcess(
     // WELCOME size through the size event — which reports it and sizes the
     // model before the ring replay below — and the bind carries the same size.
     const terminal = wireBridge(ctx, msg.sessionId, found.attachment, msg.agentKind, msg.durableLabel)
+    if (harnessContext) ctx.sessions.ensure(msg.sessionId).harnessContext = harnessContext
     // The settings file from the original spawn still points at our fixed port,
     // so a reattached agent keeps reporting. A fresh daemon (post-redeploy) lost
     // all in-memory per-session state — rebuild it via the same path spawn uses.
@@ -2586,6 +2637,7 @@ export async function recoverTerminalProcess(
     // native view still has scrollback).
     ctx.observers.initSessionObservers(msg, found.attachment, agentStateProviderFor(msg.agentKind), {
       seedOnFrame: false,
+      ...(harnessContext ? { harnessContext } : {}),
     })
     // THE HEADLESS SCREENS, AT THE BEST HINT THERE IS. The observers did not
     // exist when the size event ran, so they take the host's size now, or the
@@ -2689,11 +2741,12 @@ export async function stealTerminalWriter(
     cwd: msg.cwd,
     lastKnownGeometry: msg.lastKnownGeometry ?? modelSize ?? { cols: 80, rows: 24 },
   } as const
+  const harnessContext = await sessionHarnessContextFor(ctx, msg.sessionId, msg.agentKind)
   ctx.observers.initSessionObservers(
     observerMsg,
     found.attachment,
     agentStateProviderFor(msg.agentKind),
-    { seedOnFrame: false },
+    { seedOnFrame: false, ...(harnessContext ? { harnessContext } : {}) },
   )
   const screens = terminal.size() ?? observerMsg.lastKnownGeometry
   ctx.observers.onResize?.(msg.sessionId, screens.cols, screens.rows)

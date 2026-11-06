@@ -27,6 +27,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import type { HarnessContext } from '@podium/harness'
 import type {
   AbandonedQueuedTurn,
   AgentSessionHandle,
@@ -213,6 +214,15 @@ export class DaemonSession {
    * ownership fact the keyed map used to carry.
    */
   driver: AgentSessionHandle | undefined = undefined
+
+  /**
+   * THE SESSION-PINNED HARNESS CONTEXT (POD-6533): the installation, account
+   * environment and folders this session's harness runs under, built once when
+   * the session was spawned (`session-harness-context.ts`). Daemon memory only:
+   * a restarted daemon rebuilds it from the current inventory on reattach.
+   * Undefined for a plain shell or login pane.
+   */
+  harnessContext: HarnessContext | undefined = undefined
 
   /**
    * THE ORDER THIS DAEMON IS CARRYING OUT (POD-5814, POD-5841): the server's

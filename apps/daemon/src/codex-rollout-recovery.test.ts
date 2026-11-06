@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { acceptAgentObservation } from '@podium/harness'
 import { ensurePodiumCodexHooks } from '@podium/harness/adapters/codex/instrumentation'
+import { testHarnessContext } from '@podium/harness/driver/testing'
 import type { StatTick } from '@podium/harness/store'
 import { asSessionId } from '@podium/model'
 import type { DurableAttachment } from '@podium/process/durable'
@@ -130,7 +131,13 @@ async function setup(reattach: boolean, redirected = false, untrusted = false) {
     {
       seedOnFrame: false,
       ...(reattach ? {} : { startedAtMs: now }),
-      ...(redirected ? { env: { CODEX_HOME: nativeHome } } : {}),
+      // The session's pinned context names its Codex folder; a redirected
+      // session's context points CODEX_HOME at the account folder.
+      harnessContext: testHarnessContext({
+        kind: 'codex',
+        home,
+        ...(redirected ? { env: { CODEX_HOME: nativeHome } } : {}),
+      }),
     },
   )
   async function rollout(text: string) {

@@ -20,17 +20,23 @@ import {
   createMemoryAttachmentStager,
   createMemoryDriverSlots,
   serverFamilyLaunch,
+  testHarnessContext,
 } from '../../testing/index.js'
 
 /** A Claude launch from the facts a test names; `resume` rides beside the spec. */
 function launchOf({
   resume,
   ...facts
-}: Omit<Parameters<typeof serverFamilyLaunch>[0], 'harness' | 'driverId'> & {
+}: Omit<Parameters<typeof serverFamilyLaunch>[0], 'harness' | 'driverId' | 'harnessContext'> & {
   resume?: ResumeRef
 }): ClaudeSdkSessionLaunch {
   return {
-    ...serverFamilyLaunch({ harness: 'claude-code', driverId: 'claude-sdk', ...facts }),
+    ...serverFamilyLaunch({
+      harness: 'claude-code',
+      driverId: 'claude-sdk',
+      harnessContext: testHarnessContext({ kind: 'claude-code' }),
+      ...facts,
+    }),
     ...(resume ? { resume } : {}),
   }
 }
