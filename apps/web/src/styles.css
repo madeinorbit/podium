@@ -13849,9 +13849,6 @@ button.waterfall-fold:hover {
   padding-bottom: 3px;
 }
 .flight-v6-card {
-  /* Paint the surface after its positioned tree guides. Bounded indentation
-     lets the card cover those guides at narrow widths, including the caret. */
-  position: relative;
   display: flow-root;
   min-width: 0;
   border-radius: 6px;
@@ -14227,9 +14224,11 @@ button.waterfall-fold:hover {
   padding: 3px 6px;
   text-align: left;
 }
-.flight-full-phase-toggle > svg {
+.flight-full-phase-identity > svg {
   flex: none;
   color: var(--text-faint);
+  align-self: start;
+  margin-top: 3px;
 }
 .flight-full-phase-index {
   letter-spacing: 0.08em;
@@ -14659,7 +14658,8 @@ button.waterfall-fold:hover {
   --v6-state-width: 76px;
   --v6-gap: 8px;
   --v6-title-min: 60px;
-  --v6-indent-limit: clamp(0px, calc(100cqi - 440px), 66px);
+  /* Keep one complete connector step outside nested rows at every width. */
+  --v6-indent-limit: clamp(22px, calc(100cqi - 440px), 66px);
 }
 .flight-v6-rows,
 .flight-full-coordinator,
@@ -14696,7 +14696,7 @@ button.waterfall-fold:hover {
   pointer-events: none;
   top: 0;
   bottom: 0;
-  left: min(calc(var(--v6-indent, 0px) + 11px), var(--v6-indent-limit, 66px));
+  left: min(calc(var(--v6-indent, 0px) + 11px), calc(var(--v6-indent-limit, 66px) - 11px));
   border-left: 2px solid var(--border);
 }
 .flight-full-phase-content[data-has-lead="true"]::before {
@@ -14736,7 +14736,8 @@ button.waterfall-fold:hover {
   height: 13px;
 }
 .flight-v6-guide {
-  left: min(var(--v6-guide-left), var(--v6-indent-limit, 66px));
+  /* The elbow ends at the card edge; its stem stays half a step outside it. */
+  left: min(var(--v6-guide-left), calc(var(--v6-indent-limit, 66px) - 22px));
 }
 .flight-v6-strip {
   container-type: normal;
@@ -14897,10 +14898,26 @@ button.waterfall-fold:hover {
 }
 .flight-full-phase-toggle {
   flex-wrap: wrap;
+  row-gap: 4px;
+}
+.flight-full-phase-identity {
+  display: grid;
+  grid-template-columns: 12px max-content minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
 }
 .flight-full-phase-name {
   min-width: 0;
-  flex: 0 1 auto;
+}
+.flight-full-phase-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  margin-left: auto;
 }
 .flight-full-phase-hairline {
   min-width: 0;

@@ -284,32 +284,36 @@ const PhaseHeader = observer(function PhaseHeader({
             task.deck.toggleFold(task.id)
           }}
         >
-          {task.open ? (
-            <ChevronDown size={12} aria-hidden />
-          ) : (
-            <ChevronRight size={12} aria-hidden />
-          )}
-          <span className="flight-full-phase-index">
-            {String(task.deck.phaseIds.indexOf(task.id) + 1).padStart(2, '0')}
+          <span className="flight-full-phase-identity">
+            {task.open ? (
+              <ChevronDown size={12} aria-hidden />
+            ) : (
+              <ChevronRight size={12} aria-hidden />
+            )}
+            <span className="flight-full-phase-index">
+              {String(task.deck.phaseIds.indexOf(task.id) + 1).padStart(2, '0')}
+            </span>
+            <span className="flight-full-phase-name">{task.row.title}</span>
           </span>
-          <span className="flight-full-phase-name">{task.row.title}</span>
           <span className="flight-full-phase-hairline" aria-hidden />
-          {/* biome-ignore lint/a11y/useSemanticElements: a styled bar; a native <meter> cannot take the deck's band styling */}
-          <span
-            className="flight-full-phase-meter"
-            role="meter"
-            aria-label="Direct sub-issues done"
-            aria-valuemin={0}
-            aria-valuemax={Math.max(1, counter.total)}
-            aria-valuenow={counter.done}
-            aria-valuetext={`${counter.done} of ${counter.total} direct sub-issues done`}
-          >
+          <span className="flight-full-phase-progress">
+            {/* biome-ignore lint/a11y/useSemanticElements: a styled bar; a native <meter> cannot take the deck's band styling */}
             <span
-              style={{ width: `${counter.total ? (counter.done / counter.total) * 100 : 0}%` }}
-            />
-          </span>
-          <span className="flight-full-phase-counter">
-            {counter.done}/{counter.total}
+              className="flight-full-phase-meter"
+              role="meter"
+              aria-label="Direct sub-issues done"
+              aria-valuemin={0}
+              aria-valuemax={Math.max(1, counter.total)}
+              aria-valuenow={counter.done}
+              aria-valuetext={`${counter.done} of ${counter.total} direct sub-issues done`}
+            >
+              <span
+                style={{ width: `${counter.total ? (counter.done / counter.total) * 100 : 0}%` }}
+              />
+            </span>
+            <span className="flight-full-phase-counter">
+              {counter.done}/{counter.total}
+            </span>
           </span>
         </button>
       )}

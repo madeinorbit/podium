@@ -84,7 +84,7 @@ it('keeps intrinsic identity/state, title minima and the edge gutter through wra
   expect(declaration(300, '.flight-v6-ref', 'overflow-wrap')).toBe('anywhere')
   expect(declaration(300, '.flight-v6-state', 'min-width')).toBe('max-content')
   expect(declaration(300, '.flight-v6-title', 'min-width')).toBe('var(--v6-title-min, 60px)')
-  expect(full).toContain('--v6-indent-limit: clamp(0px, calc(100cqi - 440px), 66px)')
+  expect(full).toContain('--v6-indent-limit: clamp(22px, calc(100cqi - 440px), 66px)')
   expect(full.replace(/\s+/g, ' ')).toContain(
     '.flight-full-phase-content { position: relative; margin-left: 0; padding-left: 0; border-left: 0; }',
   )
