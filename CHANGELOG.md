@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1-edge.1] - 2026-11-06
+
 ### Fixed
 
 - Desktop clients register automatically after sign-in so their companion runtime can receive managed updates, while preserving the installation identity and client-only role.
