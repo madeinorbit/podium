@@ -10,7 +10,20 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 use tauri_plugin_updater::{RemoteRelease, Update, UpdaterExt};
 
-pub type UpdateOwnership = Arc<AtomicBool>;
+/// Tauri keys managed state by concrete type. Keep page ownership distinct from
+/// the shell's `Arc<AtomicBool>` shutdown signal.
+#[derive(Clone, Default)]
+pub struct UpdateOwnership(Arc<AtomicBool>);
+
+impl UpdateOwnership {
+    pub fn claim(&self) {
+        self.0.store(true, Ordering::Release);
+    }
+
+    pub fn is_claimed(&self) -> bool {
+        self.0.load(Ordering::Acquire)
+    }
+}
 
 const STABLE_ENDPOINT: &str =
     "https://github.com/madeinorbit/podium/releases/latest/download/latest.json";
@@ -1146,7 +1159,7 @@ pub fn is_critical_update(raw: &serde_json::Value, _body: Option<&str>) -> bool 
 /// fallback timer reads the same flag and never needs the page to perform an update.
 #[tauri::command]
 pub fn claim_update_ownership(ownership: State<'_, UpdateOwnership>) -> Result<(), String> {
-    ownership.store(true, Ordering::Release);
+    ownership.claim();
     Ok(())
 }
 
@@ -1322,6 +1335,94 @@ pub async fn check_and_prompt_update(app: AppHandle, persisted_channel: Option<U
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn managed_update_claim_does_not_signal_shutdown() {
+        let app = tauri::test::mock_builder()
+            .invoke_handler(tauri::generate_handler![claim_update_ownership])
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("build the Tauri test app");
+        let shutting_down = Arc::new(AtomicBool::new(false));
+        assert!(app.manage(shutting_down.clone()));
+        // Match production registration order: shutdown first, page ownership second.
+        let ownership_registered = app.manage(UpdateOwnership::default());
+        let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .expect("build the test webview");
+
+        tauri::test::assert_ipc_response(
+            &window,
+            tauri::webview::InvokeRequest {
+                cmd: "claim_update_ownership".into(),
+                callback: tauri::ipc::CallbackFn(0),
+                error: tauri::ipc::CallbackFn(1),
+                url: if cfg!(windows) {
+                    "http://tauri.localhost"
+                } else {
+                    "tauri://localhost"
+                }
+                .parse()
+                .unwrap(),
+                body: tauri::ipc::InvokeBody::default(),
+                headers: Default::default(),
+                invoke_key: tauri::test::INVOKE_KEY.to_string(),
+            },
+            Ok::<(), ()>(()),
+        );
+
+        assert!(
+            !shutting_down.load(Ordering::Acquire),
+            "claiming the page update dialog must not signal shell shutdown"
+        );
+        assert!(
+            ownership_registered,
+            "shutdown and update ownership must both be managed"
+        );
+    }
+
+    #[test]
+    fn managed_update_claim_suppresses_native_dialogs_through_the_window_clone() {
+        let app = tauri::test::mock_app();
+        let shutting_down = Arc::new(AtomicBool::new(false));
+        let ownership = UpdateOwnership::default();
+        // The window timer receives its clone before the page mounts.
+        let window_ownership = ownership.clone();
+        assert!(app.manage(shutting_down.clone()));
+        assert!(app.manage(ownership));
+        assert!(should_show_native_dialog(
+            window_ownership.is_claimed(),
+            OWNERSHIP_GRACE_MS + 1,
+            OWNERSHIP_GRACE_MS,
+        ));
+
+        // Remounts can claim again, and both claims belong to the same UI owner.
+        for _ in 0..2 {
+            claim_update_ownership(app.state()).expect("claim the page update dialog");
+            assert!(window_ownership.is_claimed());
+            assert!(!shutting_down.load(Ordering::Acquire));
+            assert!(!should_show_native_dialog(
+                window_ownership.is_claimed(),
+                OWNERSHIP_GRACE_MS + 1,
+                OWNERSHIP_GRACE_MS,
+            ));
+        }
+    }
+
+    #[test]
+    fn managed_shell_shutdown_does_not_claim_update_ownership() {
+        let app = tauri::test::mock_app();
+        let shutting_down = Arc::new(AtomicBool::new(false));
+        let ownership = UpdateOwnership::default();
+        assert!(app.manage(shutting_down.clone()));
+        assert!(app.manage(ownership.clone()));
+
+        // Keep the existing quit API: shutdown is still the raw shared atomic.
+        app.state::<Arc<AtomicBool>>()
+            .store(true, Ordering::Release);
+
+        assert!(shutting_down.load(Ordering::Acquire));
+        assert!(!ownership.is_claimed());
+    }
 
     fn recovery_state(phase: &str) -> serde_json::Value {
         serde_json::json!({ "phase": phase, "grant": {

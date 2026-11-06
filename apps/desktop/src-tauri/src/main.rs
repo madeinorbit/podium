@@ -1817,7 +1817,7 @@ fn main() {
             let shutting_down = Arc::new(AtomicBool::new(false));
             app.manage(shutting_down.clone());
 
-            let update_ownership: updater::UpdateOwnership = Arc::new(AtomicBool::new(false));
+            let update_ownership = updater::UpdateOwnership::default();
             app.manage(update_ownership.clone());
             app.manage(updater::PendingUpdate::default());
             updater::start_supervisor_recovery(app.handle().clone(), shutting_down.clone());
@@ -2640,7 +2640,7 @@ fn main() {
                             .as_millis()
                             .min(u64::MAX as u128) as u64;
                         let native = crate::updater::should_show_native_dialog(
-                            update_ownership_for_window.load(Ordering::Acquire),
+                            update_ownership_for_window.is_claimed(),
                             elapsed_ms,
                             crate::updater::OWNERSHIP_GRACE_MS,
                         );
@@ -3030,6 +3030,11 @@ mod tests {
             .expect("spawn a long-lived stand-in for the backend");
         let child_state = Arc::new(Mutex::new(Some(child)));
         let shutting_down = Arc::new(AtomicBool::new(false));
+        let app = tauri::test::mock_app();
+        assert!(app.manage(shutting_down.clone()));
+        assert!(app.manage(updater::UpdateOwnership::default()));
+        claim_update_ownership(app.state()).expect("the mounted page claims update ownership");
+        assert!(!shutting_down.load(Ordering::Acquire));
 
         let supervised = child_state.clone();
         let flag = shutting_down.clone();
@@ -3039,9 +3044,15 @@ mod tests {
 
         // Give supervision time to settle into its wait before contending for the lock.
         std::thread::sleep(Duration::from_millis(50));
+        assert!(
+            !supervision.is_finished(),
+            "a mounted page must leave supervision waiting for the live backend"
+        );
 
         // What RunEvent::Exit does, in its order.
-        shutting_down.store(true, Ordering::Release);
+        app.state::<Arc<AtomicBool>>()
+            .store(true, Ordering::Release);
+        assert!(shutting_down.load(Ordering::Acquire));
         let deadline = Instant::now() + Duration::from_secs(2);
         let mut guard = loop {
             match child_state.try_lock() {
@@ -3055,6 +3066,7 @@ mod tests {
         };
         let mut child = guard.take().expect("the quit path finds the child to reap");
         reap_backend(&mut child);
+        assert!(child.try_wait().expect("poll the reaped backend").is_some());
         drop(guard);
 
         assert!(
@@ -3074,6 +3086,11 @@ mod tests {
             .expect("spawn an immediate exit");
         let child_state = Arc::new(Mutex::new(Some(child)));
         let shutting_down = Arc::new(AtomicBool::new(false));
+        let app = tauri::test::mock_app();
+        assert!(app.manage(shutting_down.clone()));
+        assert!(app.manage(updater::UpdateOwnership::default()));
+        claim_update_ownership(app.state()).expect("the mounted page claims update ownership");
+        assert!(!shutting_down.load(Ordering::Acquire));
 
         let exited = await_child_exit(
             &child_state,
@@ -3086,6 +3103,96 @@ mod tests {
         assert!(
             exited.expect("exit status is readable").success(),
             "`true` exits 0"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_managed_page_claim_allows_respawn_until_managed_shutdown() {
+        use std::sync::mpsc;
+        use std::time::{Duration, Instant};
+
+        // A failing assertion must still stop this test's monitor and owned process.
+        struct Cleanup {
+            child: Arc<Mutex<Option<std::process::Child>>>,
+            shutting_down: Arc<AtomicBool>,
+        }
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                self.shutting_down.store(true, Ordering::Release);
+                if let Some(mut child) = self.child.lock().unwrap().take() {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                }
+            }
+        }
+
+        let child = Command::new("sleep").arg("30").spawn().unwrap();
+        let child_state = Arc::new(Mutex::new(Some(child)));
+        let shutting_down = Arc::new(AtomicBool::new(false));
+        let _cleanup = Cleanup {
+            child: child_state.clone(),
+            shutting_down: shutting_down.clone(),
+        };
+        let app = tauri::test::mock_app();
+        assert!(app.manage(shutting_down.clone()));
+        assert!(app.manage(updater::UpdateOwnership::default()));
+        let (respawned, respawns) = mpsc::channel();
+        spawn_respawn_monitor(
+            child_state.clone(),
+            shutting_down.clone(),
+            Arc::new(DesktopSuccessorState::default()),
+            None,
+            move || {
+                let child = Command::new("sleep").arg("30").spawn()?;
+                let _ = respawned.send(child.id());
+                Ok(child)
+            },
+            |_| unreachable!("an ordinary crash does not retarget the window"),
+            |_| unreachable!("an ordinary crash is not a server transport refusal"),
+            || bootstrap::BackendExitDecision::Respawn,
+            "ownership regression".to_string(),
+        );
+
+        claim_update_ownership(app.state()).expect("the mounted page claims update ownership");
+        // Give the real monitor a chance to observe the claim while the child is alive.
+        std::thread::sleep(SUPERVISION_POLL * 2);
+        child_state
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .kill()
+            .unwrap();
+        let replacement_pid = respawns
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the monitor must respawn a backend killed after the page claim");
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            let stored_pid = child_state.lock().unwrap().as_ref().map(|child| child.id());
+            if stored_pid == Some(replacement_pid) {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the replacement must reach the child slot"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+
+        // RunEvent::Exit sets this managed flag before taking and reaping the child.
+        app.state::<Arc<AtomicBool>>()
+            .store(true, Ordering::Release);
+        let mut child = child_state.lock().unwrap().take().unwrap();
+        reap_backend(&mut child);
+        assert!(child.try_wait().unwrap().is_some());
+        assert!(shutting_down.load(Ordering::Acquire));
+        assert!(
+            matches!(
+                respawns.recv_timeout(Duration::from_secs(2)),
+                Err(mpsc::RecvTimeoutError::Disconnected)
+            ),
+            "the quit flag must stop the monitor without another respawn"
         );
     }
 

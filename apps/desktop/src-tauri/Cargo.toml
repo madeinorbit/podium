@@ -77,6 +77,8 @@ objc2 = "0.6"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSWindow"] }
 
 [dev-dependencies]
+# Use Tauri's real managed-state registry and command dispatch without a GUI.
+tauri = { version = "2", features = ["test"] }
 tokio = { version = "1", features = ["test-util"] }
 # Integration tests (tests/) see only the crate and its DEV dependencies, never
 # its ordinary ones — so the panic-hook runtime check needs its own serde_json
