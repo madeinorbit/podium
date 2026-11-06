@@ -251,6 +251,121 @@ describe('sessions.continue is on the sync write entry point', () => {
   })
 })
 
+describe('the relay chat sends are on the sync write entry point (POD-6591)', () => {
+  /** An agent in issue A, and a shell to send to in issue A or B. */
+  async function caller(o: Oracle) {
+    const issues = await twoIssues(o)
+    const { sessionId } = await o.reg.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/r/.worktrees/a',
+    })
+    return { ...issues, caller: sessionId }
+  }
+
+  async function shellIn(o: Oracle, cwd: string): Promise<SessionId> {
+    return (await o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd })).sessionId
+  }
+
+  for (const proc of ['sendText', 'resumeAndSend'] as const) {
+    it(`${proc}: as the calling agent, under the CLI's message id; a replay runs nothing`, async () => {
+      const o = await makeOracle()
+      const { caller: agent } = await caller(o)
+      const target = await shellIn(o, '/r/.worktrees/a')
+      const submitted = vi.spyOn(o.reg.modules.syncWrite, 'submitDetailed')
+      const id =
+        proc === 'sendText'
+          ? 'msg_00000000-0000-4000-8000-000000006591'
+          : 'msg_00000000-0000-4000-8000-000000006592'
+      const send = async (requestId: string) =>
+        await o.relay({
+          requestId,
+          sessionId: agent,
+          router: 'sessions',
+          proc,
+          input: { sessionId: target, text: 'over the path', mutationId: id },
+        })
+
+      expect(await send(`${proc}-1`)).toMatchObject({ ok: true, result: { ok: true } })
+      const call = submitted.mock.calls.find(([env]) => env.command === `sessions.${proc}`)
+      expect(call?.[0]).toMatchObject({ mutationId: id })
+      expect(call?.[0].confirmed).toBeUndefined()
+      expect(call?.[1]).toMatchObject({ kind: 'agent', agentSessionId: agent })
+      expect(call?.[2]).toBe('relay')
+      expect(await o.store.sync.getAppliedMutation(asMutationId(id))).toBeDefined()
+      expect(await o.store.messages.getMessage(id)).not.toBeNull()
+
+      const mailSend = vi.spyOn(o.reg.modules.messageGate, 'dispatch')
+      expect(await send(`${proc}-2`)).toMatchObject({ ok: true, result: { ok: true } })
+      const replay = (await submitted.mock.results.at(-1)?.value) as {
+        reply: { outcome: string; replayed?: boolean }
+      }
+      expect(replay.reply).toMatchObject({ outcome: 'applied', replayed: true })
+      expect(mailSend).not.toHaveBeenCalled()
+    })
+  }
+
+  it("a send outside the agent's scope is refused in the plane's words; --outside-scope confirms it", async () => {
+    const o = await makeOracle()
+    const { caller: agent, b } = await caller(o)
+    const outside = await shellIn(o, '/r/.worktrees/b')
+    const submitted = vi.spyOn(o.reg.modules.syncWrite, 'submitDetailed')
+    const id = 'msg_00000000-0000-4000-8000-000000006593'
+    const send = async (requestId: string, outsideScope?: true) =>
+      await o.relay({
+        requestId,
+        sessionId: agent,
+        router: 'sessions',
+        proc: 'sendText',
+        input: { sessionId: outside, text: 'across issues', mutationId: id },
+        ...(outsideScope ? { outsideScope } : {}),
+      })
+
+    const refused = await send('send-outside')
+    expect(refused.ok).toBe(false)
+    expect(refused.error).toBe(
+      `issue ${b.id} is outside your subtree; re-run with --outside-scope to confirm`,
+    )
+    expect(await o.store.messages.getMessage(id)).toBeNull()
+    expect(await o.store.sync.getAppliedMutation(asMutationId(id))).toBeUndefined()
+
+    expect(await send('send-outside-confirmed', true)).toMatchObject({
+      ok: true,
+      result: { ok: true },
+    })
+    expect(submitted.mock.calls.at(-1)?.[0]).toMatchObject({ mutationId: id, confirmed: true })
+    expect(await o.store.messages.getMessage(id)).not.toBeNull()
+
+    // The target check runs before the dedup: the recorded send replayed
+    // WITHOUT the confirmation is refused again, in the same words.
+    const replay = await send('send-outside-replay')
+    expect(replay.ok).toBe(false)
+    expect(replay.error).toMatch(/outside your subtree/)
+  })
+
+  it("an issueless session is refused in the plane's words, and --outside-scope does not substitute", async () => {
+    const o = await makeOracle()
+    const { caller: agent } = await caller(o)
+    const issueless = await shellIn(o, '/nowhere/unrelated')
+    const id = 'msg_00000000-0000-4000-8000-000000006594'
+
+    for (const outsideScope of [false, true]) {
+      const reply = await o.relay({
+        requestId: `send-issueless-${outsideScope}`,
+        sessionId: agent,
+        router: 'sessions',
+        proc: 'sendText',
+        input: { sessionId: issueless, text: 'hello?', mutationId: id },
+        ...(outsideScope ? { outsideScope } : {}),
+      })
+      expect(reply).toMatchObject({
+        ok: false,
+        error: 'target session has no issue; only its parent or the operator may message it',
+      })
+    }
+    expect(await o.store.messages.getMessage(id)).toBeNull()
+  })
+})
+
 describe('sessions.setIssueId is on sync.submit only', () => {
   it('has no tRPC route: no shipped client ever called one', () => {
     expect(routerRecord('sessions').setIssueId).toBeUndefined()
