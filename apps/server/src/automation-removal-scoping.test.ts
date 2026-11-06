@@ -38,9 +38,9 @@
  * could pass against a subscription that receives nothing at all.
  */
 
-import { asAutomationRunId, asUserId, firstAdminMemberId } from '@podium/model'
+import { asAutomationRunId, asMutationId, asUserId, firstAdminMemberId } from '@podium/model'
 import { asCapabilityRef, asDeviceId, type Principal } from '@podium/protocol'
-import type { Ledger, ScopedDelivery } from '@podium/sync'
+import type { Ledger, ScopedDelivery, WriteScope } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
@@ -49,7 +49,7 @@ import type { WriteContexts } from './write-contexts'
 
 /** The one store method this suite reaches for, named rather than `any`. */
 interface AutomationRunWriter {
-  addRun(run: AutomationRunRow): void
+  addRun(scope: WriteScope, run: AutomationRunRow): void
 }
 
 /** `firstAdminMemberId()` is declared as a plain string; the brand is applied here, at
@@ -76,6 +76,10 @@ interface Row {
 const ledgerOf = (reg: SessionRegistry): Ledger => (reg as unknown as { ledger: Ledger }).ledger
 const writesOf = (reg: SessionRegistry): WriteContexts =>
   (reg as unknown as { writes: WriteContexts }).writes
+/** A device's command writer, as `sync.submit` would mint one. */
+let commandN = 0
+const commandWriter = (reg: SessionRegistry) =>
+  writesOf(reg).sync(asMutationId(`m-test-${++commandN}`))
 
 /** The fixture observes its real subscription, not the store's private executor.
  * A durable commit alone does not establish that this principal received a row. */
@@ -112,7 +116,11 @@ describe('POD-1509 — a removal reaches the principal who owned the row', () =>
     const principal = userCommandPrincipal(OWNER, 'admin')
     const delivered = deliveriesFor(reg, feedPrincipalFor(firstAdminMemberId()))
 
-    const created = await reg.modules.automations.create(automationInput, principal)
+    const created = await reg.modules.automations.create(
+      commandWriter(reg),
+      automationInput,
+      principal,
+    )
 
     // CONTROL: the arm that always worked. If this is empty the subscription is
     // wrong and the remove assertion below would pass for the wrong reason.
@@ -123,7 +131,9 @@ describe('POD-1509 — a removal reaches the principal who owned the row', () =>
       op: 'upsert',
     })
 
-    expect(await reg.modules.automations.remove(created.id, principal)).toEqual({ removed: true })
+    expect(await reg.modules.automations.remove(commandWriter(reg), created.id, principal)).toEqual(
+      { removed: true },
+    )
 
     // THE ASSERTION THAT WAS FAILING. Before the fix this array held the upsert
     // and nothing else: the removal was evaluated, refused, and turned into a
@@ -146,7 +156,11 @@ describe('POD-1509 — a removal reaches the principal who owned the row', () =>
     const delivered = deliveriesFor(reg, feedPrincipalFor(firstAdminMemberId()))
     const store = (reg as unknown as { store: { automations: AutomationRunWriter } }).store
 
-    const created = await reg.modules.automations.create(automationInput, principal)
+    const created = await reg.modules.automations.create(
+      commandWriter(reg),
+      automationInput,
+      principal,
+    )
     // THROUGH THE LEDGER, exactly as `recordRun` does, and not straight into the
     // store. The Authority drops a `remove` for an id its log never recorded, so
     // a run inserted behind the ledger would make this assertion fail for a
@@ -163,16 +177,16 @@ describe('POD-1509 — a removal reaches the principal who owned the row', () =>
       onBehalfOf: OWNER,
     }
     await writesOf(reg)
-      .system('automations')
+      .system('automations.schedule')
       .commit({
-        write: async () => {
-          await store.automations.addRun(run)
+        write: async (scope) => {
+          await store.automations.addRun(scope, run)
           return undefined
         },
         changes: () => [{ entity: 'automationRun', id: run.id, op: 'upsert', value: run }],
       })
 
-    await reg.modules.automations.remove(created.id, principal)
+    await reg.modules.automations.remove(commandWriter(reg), created.id, principal)
 
     // `automation_runs` used to leave through `ON DELETE CASCADE`. The parent row
     // now survives as a tombstone, so that cascade does not fire and the child
@@ -197,8 +211,8 @@ describe('POD-1509 — a removal reaches the principal who owned the row', () =>
     const owner = userCommandPrincipal(OWNER, 'admin')
     const stranger = deliveriesFor(reg, feedPrincipalFor('user:someone-else'))
 
-    const created = await reg.modules.automations.create(automationInput, owner)
-    await reg.modules.automations.remove(created.id, owner)
+    const created = await reg.modules.automations.create(commandWriter(reg), automationInput, owner)
+    await reg.modules.automations.remove(commandWriter(reg), created.id, owner)
 
     // Reading ownership THROUGH the tombstone must not become "everyone may see
     // deletions". A principal who could never see the automation is told

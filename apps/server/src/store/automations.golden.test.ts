@@ -33,6 +33,7 @@ import type {
   SessionId,
   UserId,
 } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { expect, it } from 'vitest'
 import { openTestStore } from '../test-support/open-test-store'
 import type { AutomationRow, AutomationRunRow } from './automations'
@@ -85,17 +86,21 @@ it('round-trips an automation through insert, including the boolean and the null
     expect(await store.automations.get('auto-1')).toBeUndefined()
 
     const row = automation()
-    await store.automations.insert(row)
+    await store.automations.insert(fixtureWriteScope(), row)
     expect(await store.automations.get('auto-1')).toEqual(row)
 
     // `enabled` is an INTEGER column and a boolean in the row type; the mapper
     // is what bridges them, in both directions.
-    await store.automations.insert(automation({ id: 'auto-2' as AutomationId, enabled: false }))
+    await store.automations.insert(
+      fixtureWriteScope(),
+      automation({ id: 'auto-2' as AutomationId, enabled: false }),
+    )
     expect((await store.automations.get('auto-2'))?.enabled).toBe(false)
     expect((await store.automations.get('auto-1'))?.enabled).toBe(true)
 
     // Every nullable column survives as null rather than becoming undefined.
     await store.automations.insert(
+      fixtureWriteScope(),
       automation({
         id: 'auto-3' as AutomationId,
         repoPath: null,
@@ -122,24 +127,37 @@ it('lists live automations oldest first and hides the tombstoned ones', async ()
   const store = await openTestStore(':memory:')
   try {
     await store.automations.insert(
+      fixtureWriteScope(),
       automation({ id: 'b' as AutomationId, createdAt: '2026-09-01T02:00:00.000Z' }),
     )
     await store.automations.insert(
+      fixtureWriteScope(),
       automation({ id: 'a' as AutomationId, createdAt: '2026-09-01T01:00:00.000Z' }),
     )
     await store.automations.insert(
+      fixtureWriteScope(),
       automation({ id: 'c' as AutomationId, createdAt: '2026-09-01T03:00:00.000Z' }),
     )
 
     expect((await store.automations.list()).map((a) => a.id)).toEqual(['a', 'b', 'c'])
 
-    expect(await store.automations.remove('b', '2026-09-01T04:00:00.000Z')).toBe(true)
+    expect(
+      await store.automations.remove(fixtureWriteScope(), 'b', '2026-09-01T04:00:00.000Z'),
+    ).toBe(true)
     expect((await store.automations.list()).map((a) => a.id)).toEqual(['a', 'c'])
     expect(await store.automations.get('b')).toBeUndefined()
 
     // Tombstoning is idempotent and says so: the second call finds nothing live.
-    expect(await store.automations.remove('b', '2026-09-01T05:00:00.000Z')).toBe(false)
-    expect(await store.automations.remove('never-existed', '2026-09-01T05:00:00.000Z')).toBe(false)
+    expect(
+      await store.automations.remove(fixtureWriteScope(), 'b', '2026-09-01T05:00:00.000Z'),
+    ).toBe(false)
+    expect(
+      await store.automations.remove(
+        fixtureWriteScope(),
+        'never-existed',
+        '2026-09-01T05:00:00.000Z',
+      ),
+    ).toBe(false)
   } finally {
     await store.close()
   }
@@ -148,10 +166,14 @@ it('lists live automations oldest first and hides the tombstoned ones', async ()
 it('answers ownership through the tombstone, which is the one fact that outlives an automation', async () => {
   const store = await openTestStore(':memory:')
   try {
-    await store.automations.insert(automation())
-    await store.automations.insert(automation({ id: 'auto-2' as AutomationId, ownerUserId: other }))
-    await store.automations.addRun(run())
+    await store.automations.insert(fixtureWriteScope(), automation())
+    await store.automations.insert(
+      fixtureWriteScope(),
+      automation({ id: 'auto-2' as AutomationId, ownerUserId: other }),
+    )
+    await store.automations.addRun(fixtureWriteScope(), run())
     await store.automations.addRun(
+      fixtureWriteScope(),
       run({ id: 'run-2' as AutomationRunId, automationId: 'auto-2' as AutomationId }),
     )
 
@@ -160,7 +182,7 @@ it('answers ownership through the tombstone, which is the one fact that outlives
     expect(await store.automations.runOwnerOf('run-1')).toBe(owner)
     expect(await store.automations.runOwnerOf('run-2')).toBe(other)
 
-    await store.automations.remove('auto-1', '2026-09-01T04:00:00.000Z')
+    await store.automations.remove(fixtureWriteScope(), 'auto-1', '2026-09-01T04:00:00.000Z')
 
     // THE POINT OF THE TOMBSTONE. `get` and `getRun` are gone; the owner is not.
     // A conversion that adds `deleted_at IS NULL` here for consistency turns the
@@ -175,7 +197,9 @@ it('answers ownership through the tombstone, which is the one fact that outlives
 
     // The batched forms [POD-6149] answer the same, tombstone included, and
     // leave an unknown id out of the map.
-    expect(await store.automations.ownersOf(['auto-1', 'auto-2', 'never-existed', 'auto-1'])).toEqual(
+    expect(
+      await store.automations.ownersOf(['auto-1', 'auto-2', 'never-existed', 'auto-1']),
+    ).toEqual(
       new Map([
         ['auto-1', owner],
         ['auto-2', other],
@@ -196,7 +220,7 @@ it('answers ownership through the tombstone, which is the one fact that outlives
 it('updates every mutable column and round-trips a null cron through the empty string', async () => {
   const store = await openTestStore(':memory:')
   try {
-    await store.automations.insert(automation())
+    await store.automations.insert(fixtureWriteScope(), automation())
     const patched = automation({
       name: 'renamed',
       enabled: false,
@@ -213,7 +237,7 @@ it('updates every mutable column and round-trips a null cron through the empty s
       nextRunAt: '2026-09-05T00:00:00.000Z',
       lastRunAt: '2026-09-02T03:00:00.000Z',
     })
-    await store.automations.update(patched)
+    await store.automations.update(fixtureWriteScope(), patched)
 
     // The write stores '' for a null cron and the read maps '' back to null, so
     // the row the caller gets back equals the row it wrote. Both halves or
@@ -232,19 +256,26 @@ it('updates every mutable column and round-trips a null cron through the empty s
 it('pages an automation’s runs newest first with a total order, and lists all runs oldest first', async () => {
   const store = await openTestStore(':memory:')
   try {
-    await store.automations.insert(automation())
-    await store.automations.insert(automation({ id: 'auto-2' as AutomationId }))
+    await store.automations.insert(fixtureWriteScope(), automation())
+    await store.automations.insert(
+      fixtureWriteScope(),
+      automation({ id: 'auto-2' as AutomationId }),
+    )
     // Two runs sharing a timestamp: the tie-break is what makes the page stable.
     await store.automations.addRun(
+      fixtureWriteScope(),
       run({ id: 'r1' as AutomationRunId, firedAt: '2026-09-01T01:00:00.000Z' }),
     )
     await store.automations.addRun(
+      fixtureWriteScope(),
       run({ id: 'r2' as AutomationRunId, firedAt: '2026-09-01T02:00:00.000Z' }),
     )
     await store.automations.addRun(
+      fixtureWriteScope(),
       run({ id: 'r3' as AutomationRunId, firedAt: '2026-09-01T02:00:00.000Z' }),
     )
     await store.automations.addRun(
+      fixtureWriteScope(),
       run({
         id: 'r4' as AutomationRunId,
         automationId: 'auto-2' as AutomationId,
@@ -258,14 +289,20 @@ it('pages an automation’s runs newest first with a total order, and lists all 
       'r2',
       'r1',
     ])
-    expect((await store.automations.listRuns('auto-1' as AutomationId, 2)).map((r) => r.id)).toEqual([
-      'r3',
-      'r2',
+    expect(
+      (await store.automations.listRuns('auto-1' as AutomationId, 2)).map((r) => r.id),
+    ).toEqual(['r3', 'r2'])
+    expect((await store.automations.listRuns('auto-2' as AutomationId)).map((r) => r.id)).toEqual([
+      'r4',
     ])
-    expect((await store.automations.listRuns('auto-2' as AutomationId)).map((r) => r.id)).toEqual(['r4'])
 
     // The full-truth read is the other direction, and it spans automations.
-    expect((await store.automations.listAllRuns()).map((r) => r.id)).toEqual(['r1', 'r2', 'r3', 'r4'])
+    expect((await store.automations.listAllRuns()).map((r) => r.id)).toEqual([
+      'r1',
+      'r2',
+      'r3',
+      'r4',
+    ])
   } finally {
     await store.close()
   }
@@ -274,10 +311,13 @@ it('pages an automation’s runs newest first with a total order, and lists all 
 it('tombstones an automation’s runs with it, and refuses to finalize a tombstoned run', async () => {
   const store = await openTestStore(':memory:')
   try {
-    await store.automations.insert(automation())
-    await store.automations.addRun(run({ id: 'r1' as AutomationRunId, outcome: 'missed' }))
+    await store.automations.insert(fixtureWriteScope(), automation())
+    await store.automations.addRun(
+      fixtureWriteScope(),
+      run({ id: 'r1' as AutomationRunId, outcome: 'missed' }),
+    )
 
-    await store.automations.updateRun('r1', {
+    await store.automations.updateRun(fixtureWriteScope(), 'r1', {
       sessionId: 'sess-1' as SessionId,
       outcome: 'spawned' as AutomationRunOutcome,
       detail: 'the detail',
@@ -288,7 +328,7 @@ it('tombstones an automation’s runs with it, and refuses to finalize a tombsto
       detail: 'the detail',
     })
 
-    await store.automations.remove('auto-1', '2026-09-01T04:00:00.000Z')
+    await store.automations.remove(fixtureWriteScope(), 'auto-1', '2026-09-01T04:00:00.000Z')
     // The runs leave with the parent. They used to leave through ON DELETE
     // CASCADE, which no longer fires now that the parent row stays.
     expect(await store.automations.getRun('r1')).toBeUndefined()
@@ -296,7 +336,7 @@ it('tombstones an automation’s runs with it, and refuses to finalize a tombsto
     expect(await store.automations.listRuns('auto-1' as AutomationId)).toEqual([])
 
     // Finalizing a tombstoned run is a no-op, not a resurrection.
-    await store.automations.updateRun('r1', {
+    await store.automations.updateRun(fixtureWriteScope(), 'r1', {
       sessionId: 'sess-2' as SessionId,
       outcome: 'error' as AutomationRunOutcome,
       detail: 'too late',
@@ -310,9 +350,15 @@ it('tombstones an automation’s runs with it, and refuses to finalize a tombsto
 it('names the last spawned session per automation by insertion order, not by timestamp', async () => {
   const store = await openTestStore(':memory:')
   try {
-    await store.automations.insert(automation())
-    await store.automations.insert(automation({ id: 'auto-2' as AutomationId }))
-    await store.automations.insert(automation({ id: 'auto-3' as AutomationId }))
+    await store.automations.insert(fixtureWriteScope(), automation())
+    await store.automations.insert(
+      fixtureWriteScope(),
+      automation({ id: 'auto-2' as AutomationId }),
+    )
+    await store.automations.insert(
+      fixtureWriteScope(),
+      automation({ id: 'auto-3' as AutomationId }),
+    )
 
     // THE DISCRIMINATING CASE, and it has to be the timestamps DISAGREEING with
     // insertion order rather than merely tying. A tie does not separate the two
@@ -322,6 +368,7 @@ it('names the last spawned session per automation by insertion order, not by tim
     // different sessions. Verified by mutation: keying on MAX(fired_at) survives
     // the tie and dies here.
     await store.automations.addRun(
+      fixtureWriteScope(),
       run({
         id: 'r1' as AutomationRunId,
         firedAt: '2026-09-01T03:00:00.000Z',
@@ -329,6 +376,7 @@ it('names the last spawned session per automation by insertion order, not by tim
       }),
     )
     await store.automations.addRun(
+      fixtureWriteScope(),
       run({
         id: 'r2' as AutomationRunId,
         firedAt: '2026-09-01T02:00:00.000Z',
@@ -337,6 +385,7 @@ it('names the last spawned session per automation by insertion order, not by tim
     )
     // Not spawned, and spawned-without-a-session: neither is the overlap input.
     await store.automations.addRun(
+      fixtureWriteScope(),
       run({
         id: 'r3' as AutomationRunId,
         automationId: 'auto-2' as AutomationId,
@@ -345,6 +394,7 @@ it('names the last spawned session per automation by insertion order, not by tim
       }),
     )
     await store.automations.addRun(
+      fixtureWriteScope(),
       run({ id: 'r4' as AutomationRunId, automationId: 'auto-3' as AutomationId, sessionId: null }),
     )
 
@@ -355,13 +405,18 @@ it('names the last spawned session per automation by insertion order, not by tim
     expect(last.has('auto-2' as AutomationId)).toBe(false)
     expect(last.has('auto-3' as AutomationId)).toBe(false)
     // The one-automation read gives the same answers (POD-6172).
-    expect(await store.automations.lastSpawnedSessionOf('auto-1' as AutomationId)).toBe('sess-second')
+    expect(await store.automations.lastSpawnedSessionOf('auto-1' as AutomationId)).toBe(
+      'sess-second',
+    )
     expect(await store.automations.lastSpawnedSessionOf('auto-2' as AutomationId)).toBeUndefined()
     expect(await store.automations.lastSpawnedSessionOf('auto-3' as AutomationId)).toBeUndefined()
-    expect((await store.automations.liveRunIdsOf('auto-1' as AutomationId)).sort()).toEqual(['r1', 'r2'])
+    expect((await store.automations.liveRunIdsOf('auto-1' as AutomationId)).sort()).toEqual([
+      'r1',
+      'r2',
+    ])
 
     // A tombstoned automation's runs leave the map with it.
-    await store.automations.remove('auto-1', '2026-09-01T04:00:00.000Z')
+    await store.automations.remove(fixtureWriteScope(), 'auto-1', '2026-09-01T04:00:00.000Z')
     expect((await store.automations.lastSpawnedSessions()).size).toBe(0)
     expect(await store.automations.lastSpawnedSessionOf('auto-1' as AutomationId)).toBeUndefined()
     expect(await store.automations.liveRunIdsOf('auto-1' as AutomationId)).toEqual([])

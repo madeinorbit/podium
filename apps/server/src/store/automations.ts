@@ -16,10 +16,18 @@ import type {
   SessionId,
   UserId,
 } from '@podium/model'
-import { and, asc, desc, eq, isNull, sql, type SQL } from 'drizzle-orm'
+import type { WriteScope } from '@podium/sync'
+import { and, asc, desc, eq, isNull, type SQL, sql } from 'drizzle-orm'
 import { automationRuns, automations } from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { inListOf, inListSize, inListValues, param, prepared, preparedFamily } from './executor/sync-drizzle'
+import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
+import {
+  inListOf,
+  inListSize,
+  inListValues,
+  param,
+  prepared,
+  preparedFamily,
+} from './executor/sync-drizzle'
 
 export type { AutomationRunOutcome } from '@podium/model'
 export type AutomationRow = AutomationWire & {
@@ -101,16 +109,29 @@ const automationIdIs = () => eq(automations.id, param(automations.id, 'id'))
 const runIdIs = () => eq(automationRuns.id, param(automationRuns.id, 'id'))
 
 const liveAutomations = prepared((db: StoreDrizzle) =>
-  db.select().from(automations).where(isNull(automations.deletedAt)).orderBy(asc(automations.createdAt)).prepare(),
+  db
+    .select()
+    .from(automations)
+    .where(isNull(automations.deletedAt))
+    .orderBy(asc(automations.createdAt))
+    .prepare(),
 )
 
 const liveAutomationById = prepared((db: StoreDrizzle) =>
-  db.select().from(automations).where(and(automationIdIs(), isNull(automations.deletedAt))).prepare(),
+  db
+    .select()
+    .from(automations)
+    .where(and(automationIdIs(), isNull(automations.deletedAt)))
+    .prepare(),
 )
 
 // THE ABSENT `isNull(deletedAt)` IS THE POINT (see `ownerOf`).
 const automationOwner = prepared((db: StoreDrizzle) =>
-  db.select({ ownerUserId: automations.ownerUserId }).from(automations).where(automationIdIs()).prepare(),
+  db
+    .select({ ownerUserId: automations.ownerUserId })
+    .from(automations)
+    .where(automationIdIs())
+    .prepare(),
 )
 
 const runOwner = prepared((db: StoreDrizzle) =>
@@ -180,8 +201,11 @@ const updateAutomation = prepared((db: StoreDrizzle) =>
 )
 
 const tombstoneAutomation = prepared((db: StoreDrizzle) =>
-  db.update(automations).set({ deletedAt: P('deletedAt') })
-    .where(and(automationIdIs(), isNull(automations.deletedAt))).prepare(),
+  db
+    .update(automations)
+    .set({ deletedAt: P('deletedAt') })
+    .where(and(automationIdIs(), isNull(automations.deletedAt)))
+    .prepare(),
 )
 
 const tombstoneRunsOf = prepared((db: StoreDrizzle) =>
@@ -214,7 +238,11 @@ const insertRun = prepared((db: StoreDrizzle) =>
 )
 
 const liveRunById = prepared((db: StoreDrizzle) =>
-  db.select().from(automationRuns).where(and(runIdIs(), isNull(automationRuns.deletedAt))).prepare(),
+  db
+    .select()
+    .from(automationRuns)
+    .where(and(runIdIs(), isNull(automationRuns.deletedAt)))
+    .prepare(),
 )
 
 const finalizeRun = prepared((db: StoreDrizzle) =>
@@ -229,10 +257,12 @@ const runsOfAutomation = prepared((db: StoreDrizzle) =>
   db
     .select()
     .from(automationRuns)
-    .where(and(
-      eq(automationRuns.automationId, param(automationRuns.automationId, 'automationId')),
-      isNull(automationRuns.deletedAt),
-    ))
+    .where(
+      and(
+        eq(automationRuns.automationId, param(automationRuns.automationId, 'automationId')),
+        isNull(automationRuns.deletedAt),
+      ),
+    )
     // The rowid tie-break makes the order TOTAL: two fires can share a
     // timestamp, and without it the page is whatever the engine returns.
     .orderBy(desc(automationRuns.firedAt), desc(sql`rowid`))
@@ -254,10 +284,12 @@ const liveRunIdsOf = prepared((db: StoreDrizzle) =>
   db
     .select({ id: automationRuns.id })
     .from(automationRuns)
-    .where(and(
-      eq(automationRuns.automationId, param(automationRuns.automationId, 'automationId')),
-      isNull(automationRuns.deletedAt),
-    ))
+    .where(
+      and(
+        eq(automationRuns.automationId, param(automationRuns.automationId, 'automationId')),
+        isNull(automationRuns.deletedAt),
+      ),
+    )
     .prepare(),
 )
 
@@ -282,7 +314,10 @@ const lastSpawnedRuns = prepared((db: StoreDrizzle) =>
       sessionId: automationRuns.sessionId,
     })
     .from(automations)
-    .innerJoin(automationRuns, sql`${automationRuns}.rowid = ${latestSpawnedRowid(sql`${automations.id}`)}`)
+    .innerJoin(
+      automationRuns,
+      sql`${automationRuns}.rowid = ${latestSpawnedRowid(sql`${automations.id}`)}`,
+    )
     .prepare(),
 )
 
@@ -290,7 +325,9 @@ const lastSpawnedRunOf = prepared((db: StoreDrizzle) =>
   db
     .select({ sessionId: automationRuns.sessionId })
     .from(automationRuns)
-    .where(sql`${automationRuns}.rowid = ${latestSpawnedRowid(sql`${sql.placeholder('automationId')}`)}`)
+    .where(
+      sql`${automationRuns}.rowid = ${latestSpawnedRowid(sql`${sql.placeholder('automationId')}`)}`,
+    )
     .prepare(),
 )
 
@@ -404,7 +441,7 @@ export class AutomationsRepository {
     return out
   }
 
-  async insert(a: AutomationRow): Promise<void> {
+  async insert(_scope: WriteScope, a: AutomationRow): Promise<void> {
     await insertAutomation(this.db).run({
       id: a.id,
       ...automationValues(a),
@@ -416,7 +453,7 @@ export class AutomationsRepository {
   }
 
   /** Whole-row update (the service reads, patches, writes back). */
-  async update(a: AutomationRow): Promise<void> {
+  async update(_scope: WriteScope, a: AutomationRow): Promise<void> {
     await updateAutomation(this.db).run({ id: a.id, ...automationValues(a) })
   }
 
@@ -434,7 +471,7 @@ export class AutomationsRepository {
    * fires now that the parent row stays; a cascade that silently stopped
    * happening would leave every run of a deleted automation live and listable.
    */
-  async remove(id: string, deletedAt: string): Promise<boolean> {
+  async remove(_scope: WriteScope, id: string, deletedAt: string): Promise<boolean> {
     const removed =
       Number(
         (await tombstoneAutomation(this.db).run({ id: id as AutomationId, deletedAt })).changes,
@@ -447,7 +484,7 @@ export class AutomationsRepository {
 
   // ---- runs ----
 
-  async addRun(run: AutomationRunRow): Promise<void> {
+  async addRun(_scope: WriteScope, run: AutomationRunRow): Promise<void> {
     await insertRun(this.db).run({
       id: run.id,
       automationId: run.automationId,
@@ -468,6 +505,7 @@ export class AutomationsRepository {
   /** Finalize a reserved occurrence after side effects [POD-925]. A tombstoned
    *  run is not finalizable: its automation is gone and the row is history. */
   async updateRun(
+    _scope: WriteScope,
     id: string,
     patch: { sessionId: SessionId | null; outcome: AutomationRunOutcome; detail: string | null },
   ): Promise<void> {
@@ -481,10 +519,7 @@ export class AutomationsRepository {
 
   /** Most recent runs first — the tab's "Recent runs" list. */
   async listRuns(automationId: AutomationId, limit = 20): Promise<AutomationRunRow[]> {
-    return (
-      (await runsOfAutomation(this.db).all({ automationId, limit }))
-        .map(rowToRun)
-    )
+    return (await runsOfAutomation(this.db).all({ automationId, limit })).map(rowToRun)
   }
 
   /** Full run truth for durable snapshots and boot reconciliation. */

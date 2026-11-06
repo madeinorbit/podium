@@ -1,4 +1,3 @@
-import { clientSessionViews } from './test-support/session-views'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -20,6 +19,8 @@ import {
 } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
+import { clientSessionViews } from './test-support/session-views'
+import type { WriteContexts } from './write-contexts'
 
 /** One host across the simulated restart: storeA writes rows under this id and storeB
  *  re-opens the same file as the same machine, which is what a real reboot is. Without
@@ -61,7 +62,10 @@ const pastesContaining = (daemon: ControlMessage[], text: string): string[] =>
 
 /** live claude session with a resume ref, parked via hibernate. */
 async function hibernatedSession(reg: SessionRegistry): Promise<string> {
-  const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+  const { sessionId } = await reg.modules.sessions.createSession({
+    agentKind: 'claude-code',
+    cwd: '/w',
+  })
   await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
   await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
     type: 'sessionResumeRef',
@@ -254,22 +258,28 @@ describe('queueText (durable outbox sends)', () => {
         }
       })
 
-      const source = (await reg.modules.sessions.createSession({
-        agentKind: 'claude-code',
-        cwd: '/source',
-      })).sessionId
-      const target = (await reg.modules.sessions.createSession({
-        agentKind: 'claude-code',
-        cwd: '/target',
-        spawnedBy: `session:${source}`,
-      })).sessionId
+      const source = (
+        await reg.modules.sessions.createSession({
+          agentKind: 'claude-code',
+          cwd: '/source',
+        })
+      ).sessionId
+      const target = (
+        await reg.modules.sessions.createSession({
+          agentKind: 'claude-code',
+          cwd: '/target',
+          spawnedBy: `session:${source}`,
+        })
+      ).sessionId
       await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(target))
       await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'sessionResumeRef',
         sessionId: target,
         resume: { kind: 'claude-session', value: 'revocation-proof' },
       })
-      expect(await reg.modules.sessions.hibernateSession({ sessionId: target })).toEqual({ ok: true })
+      expect(await reg.modules.sessions.hibernateSession({ sessionId: target })).toEqual({
+        ok: true,
+      })
       daemon.length = 0
 
       const principal = {
@@ -282,12 +292,12 @@ describe('queueText (durable outbox sends)', () => {
         },
       }
       expect(
-        (await reg.modules.sessions.queueText({
+        await reg.modules.sessions.queueText({
           sessionId: target,
           text: 'must not cross revocation',
           mutationId: asMutationId('revoke-before-drain'),
           principal,
-        })),
+        }),
       ).toEqual({ ok: true, queued: true })
 
       await vi.waitFor(() =>
@@ -302,27 +312,34 @@ describe('queueText (durable outbox sends)', () => {
         .run('2026-08-01T00:00:00.000Z', firstAdminMemberId())
 
       const handedOnBeforeRevocation = daemon.filter(
-        (message) => message.type === 'runtimeDurableSendRequest' && message.rowId === 'revoke-before-drain',
+        (message) =>
+          message.type === 'runtimeDurableSendRequest' && message.rowId === 'revoke-before-drain',
       ).length
       await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(target))
       await settle(reg, target)
 
       // The drain asked the daemon to give the row back...
       expect(daemon).toContainEqual(
-        expect.objectContaining({ type: 'runtimeInterruptRequest', sessionId: target, cancelRowId: 'revoke-before-drain' }),
+        expect.objectContaining({
+          type: 'runtimeInterruptRequest',
+          sessionId: target,
+          cancelRowId: 'revoke-before-drain',
+        }),
       )
       // ...never handed it on again after the revocation, never typed it...
       expect(
         daemon.filter(
-          (message) => message.type === 'runtimeDurableSendRequest' && message.rowId === 'revoke-before-drain',
+          (message) =>
+            message.type === 'runtimeDurableSendRequest' && message.rowId === 'revoke-before-drain',
         ),
       ).toHaveLength(handedOnBeforeRevocation)
       expect(pastesContaining(daemon, 'must not cross revocation')).toEqual([])
       // ...and rejected it: the durable row is gone and nothing is counted.
       expect(await reg.sessionStore.sync.listQueuedMessages(target)).toEqual([])
       expect(
-        (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((session) => session.sessionId === target)
-          ?.queuedMessageCount,
+        (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+          (session) => session.sessionId === target,
+        )?.queuedMessageCount,
       ).toBeUndefined()
     } finally {
       vi.useRealTimers()
@@ -338,7 +355,10 @@ describe('queueText (durable outbox sends)', () => {
       daemon.length = 0
 
       expect(
-        (await reg.modules.sessions.queueText({ sessionId: asSessionId(sessionId), text: 'wake-up-msg' })),
+        await reg.modules.sessions.queueText({
+          sessionId: asSessionId(sessionId),
+          text: 'wake-up-msg',
+        }),
       ).toEqual({
         ok: true,
         queued: true,
@@ -355,9 +375,14 @@ describe('queueText (durable outbox sends)', () => {
         ),
       )
       // The queued count rides the session meta while the message waits.
-      expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.queuedMessageCount).toBe(1)
+      expect(
+        (await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.queuedMessageCount,
+      ).toBe(1)
 
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(asSessionId(sessionId)))
+      await reg.gateway.routeDaemonFrame(
+        reg.sessionStore.hostMachineId,
+        bind(asSessionId(sessionId)),
+      )
       await vi.waitFor(() => expect(durableSends(daemon, sessionId).length).toBeGreaterThan(0))
       // ONE write of the text, keyed by the row. Any further hand-on of the same
       // row is a recovery to the new owner, never a second write.
@@ -369,14 +394,18 @@ describe('queueText (durable outbox sends)', () => {
       }
       // CUSTODY IS NOT DELIVERY. The daemon holds the row and it is still the
       // operator's: counted, durable, and visible in the meta.
-      expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.queuedMessageCount).toBe(1)
+      expect(
+        (await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.queuedMessageCount,
+      ).toBe(1)
       expect(await queuedRows(reg, sessionId)).toHaveLength(1)
 
       await deliverRows(reg, daemon, sessionId, [write!.rowId])
       await vi.waitFor(async () => expect(await queuedRows(reg, sessionId)).toEqual([]))
 
       // Delivered: the count leaves the meta and the durable row is gone.
-      expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.queuedMessageCount).toBeUndefined()
+      expect(
+        (await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.queuedMessageCount,
+      ).toBeUndefined()
       // Still exactly one write, and nothing ever typed.
       expect(freshSends(daemon, sessionId)).toHaveLength(1)
       expect(decodedInputs(daemon)).toEqual([])
@@ -395,7 +424,10 @@ describe('queueText (durable outbox sends)', () => {
       // The lost wake is admitted while the process is live, then the process
       // dies before a wake can be reconstructed. A bare bind after hibernation
       // does not resume a parked row (Session.markLive deliberately preserves it).
-      const { sessionId } = await regA.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/w' })
+      const { sessionId } = await regA.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/w',
+      })
       await regA.gateway.routeDaemonFrame(regA.sessionStore.hostMachineId, bind(sessionId))
       await regA.gateway.routeDaemonFrame(regA.sessionStore.hostMachineId, {
         type: 'sessionResumeRef',
@@ -403,11 +435,11 @@ describe('queueText (durable outbox sends)', () => {
         resume: { kind: 'claude-session', value: 'abc-123' },
       })
       expect(
-        (await regA.modules.sessions.queueText({
+        await regA.modules.sessions.queueText({
           sessionId: asSessionId(sessionId),
           text: 'wake',
           mutationId: asMutationId('restart-wake'),
-        })),
+        }),
       ).toEqual({ ok: true, queued: true })
       await regA.gateway.routeDaemonFrame(regA.sessionStore.hostMachineId, {
         type: 'agentExit',
@@ -423,7 +455,9 @@ describe('queueText (durable outbox sends)', () => {
       const daemon: ControlMessage[] = []
       await attachHostDaemon(regB, custodyGranting(regB, daemon))
       expect(
-        (await regB.modules.sessions.listSessions(undefined, 'rpc')).find((session) => session.sessionId === sessionId),
+        (await regB.modules.sessions.listSessions(undefined, 'rpc')).find(
+          (session) => session.sessionId === sessionId,
+        ),
       ).toMatchObject({ status: 'exited', queuedMessageCount: 1 })
 
       await regB.gateway.routeDaemonFrame(regB.sessionStore.hostMachineId, {
@@ -435,7 +469,10 @@ describe('queueText (durable outbox sends)', () => {
         expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(1),
       )
 
-      await regB.gateway.routeDaemonFrame(regB.sessionStore.hostMachineId, bind(asSessionId(sessionId)))
+      await regB.gateway.routeDaemonFrame(
+        regB.sessionStore.hostMachineId,
+        bind(asSessionId(sessionId)),
+      )
       await vi.waitFor(() => expect(durableSends(daemon, sessionId).length).toBeGreaterThan(0))
       // The woken process is handed the row the dead one was holding, by its
       // durable id and text — and only that row.
@@ -466,6 +503,7 @@ describe('queueText (durable outbox sends)', () => {
       daemon.length = 0
       const runAt = '2026-07-16T22:02:00.000Z'
       const automation = await reg.modules.automations.create(
+        (reg as unknown as { writes: WriteContexts }).writes.sync(asMutationId('m-quota-wake')),
         {
           name: 'Night quota wake',
           scheduleKind: 'once',
@@ -493,7 +531,10 @@ describe('queueText (durable outbox sends)', () => {
         ),
       )
 
-      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(asSessionId(sessionId)))
+      await reg.gateway.routeDaemonFrame(
+        reg.sessionStore.hostMachineId,
+        bind(asSessionId(sessionId)),
+      )
       await vi.waitFor(() => expect(freshSends(daemon, sessionId)).toHaveLength(1))
       // An automation's prompt is typed in the short frame (POD-4868), so the
       // agent's history can confirm it by id; the body is the prompt, unchanged.
@@ -539,13 +580,15 @@ describe('queueText (durable outbox sends)', () => {
     })
     daemon.length = 0
 
-    expect((await reg.modules.sessions.queueText({ sessionId, text: 'into-the-void' }))).toEqual({
+    expect(await reg.modules.sessions.queueText({ sessionId, text: 'into-the-void' })).toEqual({
       ok: false,
       reason: 'no resume ref',
     })
     // No durable row, no count on the meta, no wake attempt.
     expect(await reg.sessionStore.sync.listQueuedMessages(sessionId)).toEqual([])
-    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.queuedMessageCount).toBeUndefined()
+    expect(
+      (await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.queuedMessageCount,
+    ).toBeUndefined()
     expect(daemon.filter((m) => m.type === 'spawn')).toEqual([])
   })
 
@@ -559,10 +602,10 @@ describe('queueText (durable outbox sends)', () => {
       await attachHostDaemon(regA, (m) => daemonA.push(m))
       const sessionId = await hibernatedSession(regA)
       expect(
-        (await regA.modules.sessions.queueText({
+        await regA.modules.sessions.queueText({
           sessionId: asSessionId(sessionId),
           text: 'survive-restart',
-        })),
+        }),
       ).toEqual({
         ok: true,
         queued: true,
@@ -577,15 +620,19 @@ describe('queueText (durable outbox sends)', () => {
       const storeB = await openTestStore(file, TEST_MACHINE)
       const regB = await SessionRegistry.create(storeB, undefined, { instanceId: 'default' })
       expect(
-        (await regB.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
-          ?.queuedMessageCount,
+        (await regB.modules.sessions.listSessions(undefined, 'rpc')).find(
+          (s) => s.sessionId === sessionId,
+        )?.queuedMessageCount,
       ).toBe(1)
       const [row] = await queuedRows(regB, sessionId)
       expect(row?.text).toBe('survive-restart')
 
       const daemonB: ControlMessage[] = []
       await attachHostDaemon(regB, custodyGranting(regB, daemonB))
-      await regB.gateway.routeDaemonFrame(regB.sessionStore.hostMachineId, bind(asSessionId(sessionId)))
+      await regB.gateway.routeDaemonFrame(
+        regB.sessionStore.hostMachineId,
+        bind(asSessionId(sessionId)),
+      )
       await vi.waitFor(() => expect(durableSends(daemonB, sessionId).length).toBeGreaterThan(0))
       // The NEW process is handed the row the old one queued — that row, by its
       // durable id, and nothing else.
@@ -603,8 +650,9 @@ describe('queueText (durable outbox sends)', () => {
       await deliverRows(regB, [...daemonA, ...daemonB], sessionId, [row!.id])
       await vi.waitFor(async () => expect(await queuedRows(regB, sessionId)).toEqual([]))
       expect(
-        (await regB.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
-          ?.queuedMessageCount,
+        (await regB.modules.sessions.listSessions(undefined, 'rpc')).find(
+          (s) => s.sessionId === sessionId,
+        )?.queuedMessageCount,
       ).toBeUndefined()
       expect(decodedInputs(daemonA)).toEqual([])
       expect(decodedInputs(daemonB)).toEqual([])
@@ -628,7 +676,9 @@ describe('queueText (durable outbox sends)', () => {
 
       await reg.modules.sessions.queueText({ sessionId, text: 'first-msg' })
       await reg.modules.sessions.queueText({ sessionId, text: 'second-msg' })
-      expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.queuedMessageCount).toBe(2)
+      expect(
+        (await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.queuedMessageCount,
+      ).toBe(2)
 
       await vi.waitFor(() => expect(durableSends(daemon, sessionId)).toHaveLength(1))
       const [first] = durableSends(daemon, sessionId)
@@ -645,11 +695,15 @@ describe('queueText (durable outbox sends)', () => {
       expect(second!.rowId).not.toBe(first!.rowId)
       await grantCustody(reg, second!)
       // Custody is not delivery: both are still the operator's.
-      expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.queuedMessageCount).toBe(2)
+      expect(
+        (await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.queuedMessageCount,
+      ).toBe(2)
 
       await deliverRows(reg, daemon, sessionId, [first!.rowId, second!.rowId])
       await vi.waitFor(async () => expect(await queuedRows(reg, sessionId)).toEqual([]))
-      expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.queuedMessageCount).toBeUndefined()
+      expect(
+        (await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.queuedMessageCount,
+      ).toBeUndefined()
       // Each its own write, in enqueue order; nothing typed.
       expect(durableSends(daemon, sessionId).map((send) => send.text)).toEqual([
         'first-msg',
@@ -681,7 +735,9 @@ describe('queueText (durable outbox sends)', () => {
       await vi.advanceTimersByTimeAsync(26_000)
       // Nothing gave up and nothing was dropped: the row is durable and counted.
       expect(await reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
-      expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.queuedMessageCount).toBe(1)
+      expect(
+        (await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.queuedMessageCount,
+      ).toBe(1)
 
       // The PTY finally binds: the new owner gets the same row as a recovery.
       const before = durableSends(daemon, sessionId).length
@@ -733,8 +789,14 @@ describe('queueText (durable outbox sends)', () => {
     })
     await reg.modules.sessions.flushBroadcasts() // earlier setup broadcasts armed the coalescer — run the pending pipeline
 
-    await expect.poll(() => inbox.slice(before).flatMap((m) => m.type === 'feedDelta' ? m.changes : [])
-      .some((c) => c.entity === 'session' && (c.value as SessionMeta).queuedMessageCount === 1)).toBe(true)
+    await expect
+      .poll(() =>
+        inbox
+          .slice(before)
+          .flatMap((m) => (m.type === 'feedDelta' ? m.changes : []))
+          .some((c) => c.entity === 'session' && (c.value as SessionMeta).queuedMessageCount === 1),
+      )
+      .toBe(true)
     const changes = inbox.slice(before).flatMap((message) => {
       if (message.type === 'metadataDelta') return message.changes
       if (message.type !== 'feedDelta') return []

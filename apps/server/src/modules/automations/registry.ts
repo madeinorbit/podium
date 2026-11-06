@@ -27,7 +27,7 @@ import {
 } from '@podium/commands'
 import type { z } from 'zod'
 import type { CommandPrincipal } from '../../command-principal'
-import type { AutomationsService } from './service'
+import type { AutomationCommandWriter, AutomationsService } from './service'
 
 /**
  * What an automation handler reaches: the service, and who is asking. The
@@ -37,6 +37,8 @@ import type { AutomationsService } from './service'
 export interface AutomationState {
   readonly automations: AutomationsService
   readonly principal: CommandPrincipal
+  /** The command's own writer (ADR 12 D9, POD-6594). */
+  readonly writer: AutomationCommandWriter
 }
 
 export type AutomationHandler<In, Out> = (state: AutomationState, input: In) => Out
@@ -71,15 +73,17 @@ export const AUTOMATION_COMMANDS = {
   create: {
     contract: AUTOMATION_CONTRACTS.create,
     handler: (async (state, input) =>
-      await state.automations.create(input, state.principal)) satisfies AutomationHandler<
-      InputOf<'create'>,
-      unknown
-    >,
+      await state.automations.create(
+        state.writer,
+        input,
+        state.principal,
+      )) satisfies AutomationHandler<InputOf<'create'>, unknown>,
   },
   update: {
     contract: AUTOMATION_CONTRACTS.update,
     handler: (async (state, input) =>
       await state.automations.update(
+        state.writer,
         input.id,
         input.patch,
         state.principal,
@@ -89,6 +93,7 @@ export const AUTOMATION_COMMANDS = {
     contract: AUTOMATION_CONTRACTS.setEnabled,
     handler: (async (state, input) =>
       await state.automations.setEnabled(
+        state.writer,
         input.id,
         input.enabled,
         state.principal,
@@ -97,10 +102,11 @@ export const AUTOMATION_COMMANDS = {
   remove: {
     contract: AUTOMATION_CONTRACTS.remove,
     handler: (async (state, input) =>
-      await state.automations.remove(input.id, state.principal)) satisfies AutomationHandler<
-      InputOf<'remove'>,
-      unknown
-    >,
+      await state.automations.remove(
+        state.writer,
+        input.id,
+        state.principal,
+      )) satisfies AutomationHandler<InputOf<'remove'>, unknown>,
   },
 } as const satisfies Record<AutomationContractName, AutomationCommand>
 

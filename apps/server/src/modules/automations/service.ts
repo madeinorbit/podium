@@ -41,9 +41,17 @@ import type { DeliverAutomationPrompt } from './prompt'
 
 const log = createLogger('server:automations')
 
+/** What an automation command writes through: the command's own writer. */
+export type AutomationCommandWriter = Pick<LedgerWriter, 'commit'>
+
 export interface AutomationsDeps {
   store: AutomationsRepository
-  /** Durable metadata transaction + ordered delta path [spec:SP-3fe2]. */
+  /**
+   * The scheduler's own writer, a `server` origin (`automations.schedule`): the
+   * runs it records, the re-arms, and the boot reconcile. Never a command's: the
+   * four automation commands write through the writer of the command that asked
+   * (ADR 12 D9, POD-6594), passed per call.
+   */
   ledger: Pick<LedgerWriter, 'commit' | 'reconcile'>
   /** SessionLifecycle.createSession, narrowed to what a scheduled spawn needs.
    *  NOT the `sessions.create` tRPC procedure — that stamps spawnedBy 'user'. */
@@ -265,7 +273,11 @@ export class AutomationsService {
 
   /** Create an automation. Validation happens before persistence, including the
    *  explicit one-minute floor [spec:SP-17db]. */
-  async create(input: AutomationInput, principal: CommandPrincipal): Promise<AutomationRow> {
+  async create(
+    writer: AutomationCommandWriter,
+    input: AutomationInput,
+    principal: CommandPrincipal,
+  ): Promise<AutomationRow> {
     const attribution = attributionOf(principal)
     const ownerUserId = this.ownerFor(principal)
     const scheduleKind = input.scheduleKind ?? 'cron'
@@ -302,9 +314,9 @@ export class AutomationsService {
       createdByOnBehalfOf: ownerUserId,
     }
     const created = (
-      await this.deps.ledger.commit({
-        write: async () => {
-          await this.deps.store.insert(row)
+      await writer.commit({
+        write: async (scope) => {
+          await this.deps.store.insert(scope, row)
           return row
         },
         changes: (automation) => [
@@ -318,6 +330,7 @@ export class AutomationsService {
   /** Patch an automation. Any schedule/enabled change re-arms from now; an edited
    *  cron never retains the old expression's pending fire. */
   async update(
+    writer: AutomationCommandWriter,
     id: string,
     patch: Partial<AutomationInput>,
     principal: CommandPrincipal,
@@ -373,9 +386,9 @@ export class AutomationsService {
       next.nextRunAt = this.armFrom(next.scheduleKind, next.cron, next.runAt, next.enabled)
     }
     const updated = (
-      await this.deps.ledger.commit({
-        write: async () => {
-          await this.deps.store.update(next)
+      await writer.commit({
+        write: async (scope) => {
+          await this.deps.store.update(scope, next)
           return next
         },
         changes: (automation) => [
@@ -387,14 +400,19 @@ export class AutomationsService {
   }
 
   async setEnabled(
+    writer: AutomationCommandWriter,
     id: string,
     enabled: boolean,
     principal: CommandPrincipal,
   ): Promise<AutomationRow> {
-    return await this.update(id, { enabled }, principal)
+    return await this.update(writer, id, { enabled }, principal)
   }
 
-  async remove(id: string, principal: CommandPrincipal): Promise<{ removed: boolean }> {
+  async remove(
+    writer: AutomationCommandWriter,
+    id: string,
+    principal: CommandPrincipal,
+  ): Promise<{ removed: boolean }> {
     const current = await this.deps.store.get(id)
     if (!current) return { removed: false }
     this.assertOwner(principal, current)
@@ -404,8 +422,8 @@ export class AutomationsService {
     // time still controls what a deletion is stamped with.
     const deletedAt = this.now().toISOString()
     const removed = (
-      await this.deps.ledger.commit({
-        write: async () => await this.deps.store.remove(id, deletedAt),
+      await writer.commit({
+        write: async (scope) => await this.deps.store.remove(scope, id, deletedAt),
         changes: (didRemove) =>
           didRemove
             ? [
@@ -476,9 +494,9 @@ export class AutomationsService {
     if (decision.kind !== 'spawn') {
       const outcome: AutomationRunOutcome = decision.kind
       await this.deps.ledger.commit({
-        write: async () => {
+        write: async (scope) => {
           if (!existing) {
-            await this.deps.store.addRun({
+            await this.deps.store.addRun(scope, {
               id: runId,
               automationId: automation.id,
               firedAt: decision.firedAt,
@@ -489,13 +507,13 @@ export class AutomationsService {
               onBehalfOf: automation.ownerUserId,
             })
           } else {
-            await this.deps.store.updateRun(runId, {
+            await this.deps.store.updateRun(scope, runId, {
               sessionId: null,
               outcome,
               detail: decision.detail ?? null,
             })
           }
-          await this.deps.store.update(rearmed)
+          await this.deps.store.update(scope, rearmed)
           return { runId, automation: rearmed }
         },
         changes: async (result) => [
@@ -519,8 +537,8 @@ export class AutomationsService {
     // Reserve occurrence ONLY — do not re-arm nextRunAt until side effects finish.
     if (!existing) {
       await this.deps.ledger.commit({
-        write: async () => {
-          await this.deps.store.addRun({
+        write: async (scope) => {
+          await this.deps.store.addRun(scope, {
             id: runId,
             automationId: automation.id,
             firedAt: decision.firedAt,
@@ -552,9 +570,9 @@ export class AutomationsService {
 
     // Finalize run + re-arm only after the side-effect attempt (success or terminal error).
     await this.deps.ledger.commit({
-      write: async () => {
-        await this.deps.store.updateRun(runId, { sessionId, outcome, detail })
-        await this.deps.store.update(rearmed)
+      write: async (scope) => {
+        await this.deps.store.updateRun(scope, runId, { sessionId, outcome, detail })
+        await this.deps.store.update(scope, rearmed)
         return { run: (await this.deps.store.getRun(runId))!, automation: rearmed }
       },
       changes: (result) => [

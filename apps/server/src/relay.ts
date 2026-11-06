@@ -3045,7 +3045,7 @@ export class SessionRegistry {
     // makes the next occurrence a skipped_overlap rather than a pile-up.
     const automations = new AutomationsService({
       store: this.store.automations,
-      ledger: writes.system('automations'),
+      ledger: writes.system('automations.schedule'),
       createSession: async (o) =>
         await sessionsSvc.createSession({ ...o, requestTerminalDriver: true }),
       // A run's prompt is its owner's message (POD-4846): stored, typed without a
@@ -3171,7 +3171,11 @@ export class SessionRegistry {
             // Scheduling snapshots defaults without probing; spawn vets the selected host's row.
             catalog: null,
           })
+          // An approved server op, run by the `approval.execute` effect after
+          // its decision committed: the server's own write on the requester's
+          // behalf (ADR 12 D2), under its declared origin.
           const scheduled = await automations.create(
+            writes.system('approvals.execute'),
             {
               name: op.name,
               scheduleKind: 'once',

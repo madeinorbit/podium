@@ -37,6 +37,7 @@ import { AutomationRefusal } from './service'
 export const selectAutomationState = (state: SyncFamilyState): AutomationState => ({
   automations: state.modules.automations,
   principal: state.principal,
+  writer: state.writer,
 })
 
 /** The automation an input names, when it names one (every write but `create`). */

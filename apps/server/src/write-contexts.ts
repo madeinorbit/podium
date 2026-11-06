@@ -61,6 +61,14 @@ export const SYSTEM_WRITE_ORIGINS = {
     what: 'boot truth for kinds whose rows can change while the server is down (machines, the order plane, layout)',
     kind: 'server',
   },
+  'automations.schedule': {
+    what: "the automation scheduler: each occurrence's run row and the re-arm, from its timer and the maintenance re-check, and the boot reconcile",
+    kind: 'server',
+  },
+  'approvals.execute': {
+    what: 'an approved server op (a one-off automation), run by the approval.execute effect after its decision commits',
+    kind: 'server',
+  },
   'machines.projection': {
     what: "a machine's display projection, republished whenever its row changes",
     kind: 'mirror',
@@ -93,11 +101,6 @@ export const SYSTEM_WRITE_ORIGINS = {
   },
   conversations: {
     what: 'conversation discovery, meta and list reconciles (the memory service), and conversation commands',
-    kind: 'client',
-    legacy: UNTIL_CONTEXT_PER_CALL,
-  },
-  automations: {
-    what: 'automation commands, their scheduled runs and the boot reconcile',
     kind: 'client',
     legacy: UNTIL_CONTEXT_PER_CALL,
   },

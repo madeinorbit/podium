@@ -28,6 +28,7 @@ import {
   userCommandPrincipal,
 } from '../../command-principal'
 import { currentPlainCommand } from '../../plain-command-scope'
+import type { AutomationRow, AutomationRunRow } from '../../store/automations'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 import { workflowRelayWrite } from '../workflows/rpc'
 import type { WorkflowServiceDeps } from '../workflows/service'
@@ -237,6 +238,24 @@ async function adminWorkflow(o: Oracle, name: string, scope: 'global' | 'task' =
   )
   return reply.result as { workflow: { id: string }; revision: { id: string } }
 }
+
+describe('automation rows are written only inside their commit (ADR 12 D9)', () => {
+  it('a store writer without the commit scope does not typecheck', () => {
+    const typeOnly = async (o: Oracle, row: AutomationRow, run: AutomationRunRow) => {
+      // @ts-expect-error an automation row is written with its commit's scope
+      await o.store.automations.insert(row)
+      // @ts-expect-error an update too
+      await o.store.automations.update(row)
+      // @ts-expect-error a tombstone too
+      await o.store.automations.remove(row.id, 'now')
+      // @ts-expect-error a run row too
+      await o.store.automations.addRun(run)
+      // @ts-expect-error a command writes through the writer it is given
+      await o.reg.modules.automations.create(nightly('x'), undefined as never)
+    }
+    void typeOnly
+  })
+})
 
 describe('workflows on the entry point', () => {
   it('create applies once with a receipt; the replay runs nothing', async () => {
