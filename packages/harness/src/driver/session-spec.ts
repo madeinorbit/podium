@@ -2,7 +2,7 @@
 // surface's five governing rules and the core-vs-extended tier boundary.
 
 import type { Declared, SelectionContext } from '../manifest.js'
-import type { HarnessContext } from '../harness-context.js'
+import type { HarnessContext } from '../harness-context-types.js'
 import type { AgentInstruction } from '@podium/protocol'
 import type { InteractionKind } from './interactions.js'
 

@@ -6,6 +6,7 @@ import type { SessionSpec } from '../../../../packages/harness/src/driver/sessio
 import {
   createMemoryAttachmentStager,
   createMemoryDriverSlots,
+  testHarnessContext,
 } from '../../../../packages/harness/src/driver/testing/index.js'
 import {
   createCodexRuntime,
@@ -40,6 +41,7 @@ function spec(
 ): SessionSpec {
   return {
     harness,
+    harnessContext: testHarnessContext({ kind: 'codex' }),
     workdir: '/ordering-fixture',
     model: {},
     selection: {

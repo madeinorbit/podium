@@ -13,6 +13,7 @@ import {
 import {
   createMemoryAttachmentStager,
   createMemoryDriverSlots,
+  testHarnessContext,
 } from '../../../../packages/harness/src/driver/testing/index.js'
 import {
   createHeadlessRuntime,
@@ -105,6 +106,7 @@ async function fixture() {
   cleanups.push(async () => { runtime.dispose(); await registry.dispose() })
   const spec: SessionSpec = {
     harness: 'claude-code', workdir: '/fixture', model: {},
+    harnessContext: testHarnessContext({ kind: 'claude-code' }),
     selection: { auth: 'unknown' as const, platform: 'linux', available: [] },
     instructions: { supported: false as const, reason: 'fixture' },
     mcpServers: { supported: false as const, reason: 'fixture' },

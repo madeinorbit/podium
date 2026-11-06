@@ -1,5 +1,5 @@
 import type { BuiltinHarnessKind } from '@podium/protocol'
-import type { HarnessContext } from './harness-context.js'
+import type { HarnessContext } from './harness-context-types.js'
 import type { HarnessExecSpec, LaunchSpec } from './manifest.js'
 import type { ResolvedHarnessInventory } from './inventory/build-inventory.js'
 
