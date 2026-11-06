@@ -52,7 +52,8 @@
 
 import type { FamilyProcedures } from '../derived-family'
 import { plainFamilyProcedures } from '../plain-command/family'
-import { SPEC_COMMANDS_TRPC } from './registry'
+import { SPEC_PLAIN_FAMILY } from './plain-family'
+import type { SPEC_COMMANDS_TRPC } from './registry'
 
 const NO_QUERIES = {} as const
 
@@ -60,10 +61,5 @@ export type SpecProcedures = FamilyProcedures<typeof SPEC_COMMANDS_TRPC, typeof 
 
 /** The three writes, spread into `router.ts`'s `specs` router beside its reads. */
 export function specFamilyProcedures(): SpecProcedures {
-  return plainFamilyProcedures({
-    family: 'specs',
-    service: (state) => state.modules.specs,
-    commands: SPEC_COMMANDS_TRPC,
-    queries: NO_QUERIES,
-  })
+  return plainFamilyProcedures(SPEC_PLAIN_FAMILY, NO_QUERIES)
 }

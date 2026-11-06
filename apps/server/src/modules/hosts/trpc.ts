@@ -15,7 +15,8 @@
 
 import type { FamilyProcedures } from '../derived-family'
 import { plainFamilyProcedures } from '../plain-command/family'
-import { HOST_COMMANDS_TRPC } from './registry'
+import { HOST_PLAIN_FAMILY } from './plain-family'
+import type { HOST_COMMANDS_TRPC } from './registry'
 
 const HOST_QUERIES = {} as const
 
@@ -23,14 +24,4 @@ export type HostProcedures = FamilyProcedures<typeof HOST_COMMANDS_TRPC, typeof 
 
 /** The two host procedures, spread into `router.ts`'s `hosts` router. */
 export const hostFamilyProcedures = (): HostProcedures =>
-  plainFamilyProcedures({
-    family: 'hosts',
-    service: (state) => ({
-      hosts: state.modules.hosts,
-      rpc: state.modules.rpc,
-      issues: state.modules.issues,
-      repos: state.repos,
-    }),
-    commands: HOST_COMMANDS_TRPC,
-    queries: HOST_QUERIES,
-  })
+  plainFamilyProcedures(HOST_PLAIN_FAMILY, HOST_QUERIES)

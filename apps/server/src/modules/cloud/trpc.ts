@@ -19,46 +19,13 @@
  * method has to remember it.
  */
 
-import type { SessionId } from '@podium/model'
-import type { CommandPrincipal } from '../../command-principal'
-import { asSyncCommand } from '../../plain-command-scope'
-import type { FamilyProcedures, FamilyState } from '../derived-family'
+import type { FamilyProcedures } from '../derived-family'
 import { plainFamilyProcedures } from '../plain-command/family'
-import { lifecycleEditsFor } from '../sessions/command-ctx'
+import { CLOUD_PLAIN_FAMILY } from './plain-family'
 import { CLOUD_QUERIES } from './queries'
-import { CLOUD_COMMANDS_TRPC } from './registry'
-import { CloudService } from './service'
+import type { CLOUD_COMMANDS_TRPC } from './registry'
 
 export type CloudProcedures = FamilyProcedures<typeof CLOUD_COMMANDS_TRPC, typeof CLOUD_QUERIES>
 
-/** Park the local session as the caller, through `sync.submit` (see the header). */
-const hibernateAs =
-  (state: FamilyState, principal: CommandPrincipal | undefined) =>
-  async (sessionId: SessionId): Promise<{ ok: boolean; reason?: string }> => {
-    if (principal === undefined) throw new Error('a cloud read does not park sessions')
-    const outcome = await asSyncCommand(
-      async () =>
-        await lifecycleEditsFor(state.modules, principal, false).desire(
-          sessionId,
-          'hibernated',
-          false,
-        ),
-    )
-    return outcome.ok ? { ok: true } : { ok: false, reason: outcome.reason ?? 'unknown reason' }
-  }
-
-/** THE PROCEDURES, spread into `router.ts`'s `cloud` router. */
 export const cloudFamilyProcedures = (): CloudProcedures =>
-  plainFamilyProcedures({
-    family: 'cloud',
-    service: (state, principal?: CommandPrincipal) =>
-      new CloudService({
-        provider: state.cloud,
-        sessions: state.modules.sessions,
-        repos: state.repos,
-        store: state.store,
-        hibernateLocal: hibernateAs(state, principal),
-      }),
-    commands: CLOUD_COMMANDS_TRPC,
-    queries: CLOUD_QUERIES,
-  })
+  plainFamilyProcedures(CLOUD_PLAIN_FAMILY, CLOUD_QUERIES)

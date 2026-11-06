@@ -11,7 +11,8 @@
 
 import type { FamilyProcedures } from '../derived-family'
 import { plainFamilyProcedures } from '../plain-command/family'
-import { LOGS_COMMANDS_TRPC } from './registry'
+import { LOGS_PLAIN_FAMILY } from './plain-family'
+import type { LOGS_COMMANDS_TRPC } from './registry'
 
 const NO_QUERIES = {} as const
 
@@ -19,16 +20,4 @@ export type LogsProcedures = FamilyProcedures<typeof LOGS_COMMANDS_TRPC, typeof 
 
 /** THE DERIVED PROCEDURES, spread into `router.ts`'s `logs` router. */
 export const logsFamilyProcedures = (): LogsProcedures =>
-  plainFamilyProcedures({
-    family: 'logs',
-    // The emitter is `Pick`ed to the crash tier's entry point by `LogsState`, so
-    // the widening a reviewer sees here is exactly what the handler can do.
-    service: (state) => ({
-      ingest: state.modules.logs,
-      levels: state.modules.clientLogLevels,
-      fleetLevels: state.modules.fleetLogLevels,
-      telemetry: state.telemetry?.emitter,
-    }),
-    commands: LOGS_COMMANDS_TRPC,
-    queries: NO_QUERIES,
-  })
+  plainFamilyProcedures(LOGS_PLAIN_FAMILY, NO_QUERIES)
