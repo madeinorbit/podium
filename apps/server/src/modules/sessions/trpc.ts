@@ -89,7 +89,12 @@ import {
 import { handoffRefusalOf } from './handoff/refusal'
 import { dispatchRename, renamePath } from './rename-adapter'
 import { SessionStateRegistry, sessionStatePrincipalFor } from './session-state/registry'
-import { QUEUED_SEND_COMMANDS, QUEUED_SESSION_STATE_COMMANDS } from './sync-write'
+import {
+  IMMEDIATE_PLANE_COMMANDS,
+  IMMEDIATE_SESSION_STATE_COMMANDS,
+  QUEUED_SEND_COMMANDS,
+  QUEUED_SESSION_STATE_COMMANDS,
+} from './sync-write'
 
 // ---------------------------------------------------------------------------
 // Durable session-state class
@@ -106,13 +111,16 @@ const RENAME_NAME = 'sessions.rename' as const
  * The session-state contracts served over tRPC — the type-level half of the exposure
  * filter, kept honest by the runtime cross-check in {@link sessionStateEntries}.
  *
- * `sessions.setDraft` is deliberately absent: `ws` only.
+ * `sessions.setDraft` is deliberately absent: `ws` only. Its keystrokes are a
+ * live stream (ADR 12 D1), not a write on the sync entry point.
+ *
+ * `sessions.setIssueId` is absent too: it is on `sync.submit` only (POD-6416),
+ * because no shipped client ever called its route ({@link SUBMIT_ONLY_NAMES}).
  */
 const TRPC_SESSION_STATE_NAMES = [
   'sessions.rename',
   'sessions.setArchived',
   'sessions.setWorkState',
-  'sessions.setIssueId',
   'sessions.dismissOffer',
   'sessions.markRead',
   'sessions.markUnread',
@@ -123,6 +131,13 @@ const TRPC_SESSION_STATE_NAMES = [
 ] as const satisfies readonly SessionStateName[]
 
 type TrpcSessionStateName = (typeof TRPC_SESSION_STATE_NAMES)[number]
+
+/**
+ * Session-state contracts that declare `trpc` because `sync.submit` is served over
+ * tRPC, and that have no per-command route of their own (POD-6416). The exposure
+ * cross-check reads them as accounted for.
+ */
+const SUBMIT_ONLY_NAMES: ReadonlySet<string> = new Set(IMMEDIATE_SESSION_STATE_COMMANDS)
 
 /**
  * WHAT EACH DURABLE SESSION STATE COMMAND RETURNS ON THE WIRE.
@@ -311,6 +326,25 @@ function renameProcedure(): SessionStateProcedure<'sessions.rename'> {
 // Command plane
 // ---------------------------------------------------------------------------
 
+/*
+ * LEGACY(remove-after: 2027-03): the command plane's per-command routes, kept for
+ * the shipped clients that still call them (POD-6416; checked at v0.1.3, v0.2.0
+ * and v0.2.1-edge.3). Removing one breaks that client's control. Each is an
+ * adapter onto the write path; none acts on a daemon from inside the request:
+ *  - stop, hibernate, resurrect, kill: `records.session.edit` / `.remove`, which
+ *    the lifecycle controller acts on after the commit (client-core's outbox
+ *    kinds, an older CLI).
+ *  - create, resume: a `session.launch` effect record (the mobile app, the
+ *    desktop web; resume only the v0.1.3 desktop web). A create carrying the
+ *    browser's `draftArtifacts` still starts in the request (see the handler).
+ *  - interrupt: a `session.interrupt` effect record (the mobile app, the web).
+ *  - configure: a `session.configure` effect record (the web's model chip).
+ *  - continue: `sessions.continue` on `sync.submit` (client-core, an older CLI).
+ * Not sync writes, so they stay as they are: answerAskUserQuestion (POD-6415
+ * gives answers their effect kind), uploadImage (bytes to a held upload or a
+ * machine; no synced row).
+ */
+
 /**
  * The precise procedure type one command-plane contract derives to — what keeps
  * `AppRouter` (and therefore the web client and every `createCaller` test) typed
@@ -336,11 +370,12 @@ function planeProcedure<K extends SessionCommandKey>(key: K): PlaneProcedure<K> 
   // though this line does not.
   const schema = sessionCommandPlaneInputs[key] as z.ZodTypeAny
   const queuedSend = (QUEUED_SEND_COMMANDS as readonly string[]).includes(key)
+  const onEntry = (IMMEDIATE_PLANE_COMMANDS as readonly string[]).includes(key)
   const built = t.procedure.input(schema).mutation(async ({ ctx, input }): Promise<unknown> => {
     // THE CHAT SENDS ARE THIN ADAPTERS ONTO `sync.submit` (POD-6350), except a
     // send carrying a wake choice (--model/--effort), which stays on the plane
-    // until POD-6356 moves it.
-    if (queuedSend && !carriesWakeChoice(input)) {
+    // until POD-6356 moves it. So is `continue` (POD-6416).
+    if ((queuedSend && !carriesWakeChoice(input)) || onEntry) {
       return await routeThroughEntry(ctx, { command: `sessions.${key}`, input })
     }
     return await dispatchSessionCommand(
@@ -462,7 +497,7 @@ function sessionStateEntries(): SessionSurfaceEntry[] {
   }
   const listed = new Set<string>(TRPC_SESSION_STATE_NAMES)
   for (const name of exposedByContract) {
-    if (!listed.has(name)) {
+    if (!listed.has(name) && !SUBMIT_ONLY_NAMES.has(name)) {
       throw new Error(
         `session-state contract ${name} declares trpc exposure but is not in TRPC_SESSION_STATE_NAMES — the derived router would not serve it`,
       )

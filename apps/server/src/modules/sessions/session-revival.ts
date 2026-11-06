@@ -137,6 +137,10 @@ export class SessionRevival {
       spawnedBy?: string
       /** The calling principal's `use` decision per machine — see createSession. */
       use?: MachineUseResolver
+      /** The id a FRESH spawn takes: a `session.launch` record's target, minted on
+       *  the device (POD-6416). A resume that lands on an existing row keeps
+       *  that row's id. Absent: the server mints one. */
+      sessionId?: SessionId
     },
     issues: SessionIssueWorkflowPort,
   ): Promise<{ sessionId: SessionId }> {
@@ -197,9 +201,10 @@ export class SessionRevival {
     machineId: MachineId,
     issueId: IssueId | undefined,
   ): Promise<{ sessionId: SessionId }> {
-    // MINT SITE: a server-minted session id. The brand belongs where the id is
-    // GENERATED — nothing upstream had it, so this is not an adapter cast.
-    const sessionId = asSessionId(randomUUID())
+    // MINT SITE: a server-minted session id, unless a launch record named the
+    // one its device minted. The brand belongs where the id is GENERATED —
+    // nothing upstream had it, so this is not an adapter cast.
+    const sessionId = input.sessionId ?? asSessionId(randomUUID())
     const preparedInstructions = await this.ports.instructionsForStart({
       sessionId,
       cwd: input.cwd,

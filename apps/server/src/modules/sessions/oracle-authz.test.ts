@@ -317,8 +317,10 @@ describe('oracle: continue and stop ARE reachable by an agent, under different g
       input: { sessionId: stranger.sessionId },
     })
     expect(denied.ok).toBe(false)
+    // Since POD-6416 the entry point decides the scope (`confirmation-required`)
+    // and the relay adapter answers its refusal in the route adapters' words.
     expect(denied.error).toBe(
-      `issue ${b.id} is outside your subtree; re-run with --outside-scope to confirm`,
+      'sessions.continue is outside your scope; re-run with --outside-scope to confirm',
     )
   })
 

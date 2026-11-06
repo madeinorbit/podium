@@ -54,7 +54,7 @@ import { attachHostDaemon } from '../../test-support/host-daemon'
 import { openTestStore } from '../../test-support/open-test-store'
 import { MIGRATED_COMMANDS, RENAME_PATH_ENV, renamePath } from './rename-adapter'
 import { type RenameServices, renameOnTargetPath } from './rename-target-path'
-import { SessionStateRegistry} from './session-state/registry'
+import { SessionStateRegistry } from './session-state/registry'
 import { sessionSurfaceManifest } from './trpc'
 
 const registries: SessionRegistry[] = []
@@ -131,7 +131,14 @@ async function runLegacy(input: { sessionId: string; name: string }, actor: Acto
         ? { kind: 'rejected', reason: value.reason ?? '' }
         : { kind: 'applied' }
 
-  return { verdict, row: await observe(sessions, created.sessionId), sessions, store, mutations, created }
+  return {
+    verdict,
+    row: await observe(sessions, created.sessionId),
+    sessions,
+    store,
+    mutations,
+    created,
+  }
 }
 
 /** Run the SAME rename on the TARGET path, on its own identically-seeded stack. */
@@ -474,7 +481,7 @@ describe('rename is served by the derived surface, on the target envelope', () =
     expect(rows[0]?.key).toBe('rename')
   })
 
-  it('is the ONLY command on that envelope — its eleven siblings stay on presence', () => {
+  it('is the ONLY command on that envelope — its siblings stay on presence', () => {
     // The counterfactual for the assertion above: `source` would also read
     // 'walking-skeleton' for rename if the walk had put EVERY session-state command on
     // it. This is the "legacy path unchanged for all other commands" criterion,
@@ -485,10 +492,10 @@ describe('rename is served by the derived surface, on the target envelope', () =
     const presence = sessionSurfaceManifest()
       .filter((e) => e.source === 'session-state')
       .map((e) => e.name)
+    // `sessions.setIssueId` has no route: `sync.submit` is its only door (POD-6416).
     expect(presence).toEqual([
       'sessions.setArchived',
       'sessions.setWorkState',
-      'sessions.setIssueId',
       'sessions.dismissOffer',
       'sessions.markRead',
       'sessions.markUnread',

@@ -603,6 +603,8 @@ export class SessionLifecycle {
       machineId?: MachineId
       spawnedBy?: string
       use?: MachineUseResolver
+      /** The id a FRESH spawn takes (a `session.launch` record's target, POD-6416). */
+      sessionId?: SessionId
     },
     issues: SessionIssueWorkflowPort,
   ): Promise<{ sessionId: SessionId }> {

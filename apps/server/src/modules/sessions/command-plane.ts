@@ -80,7 +80,7 @@ import type { SendDisposition } from '../messages/service'
 import { type AnswerChoice, type InterruptOutcome, inboxPrincipalFromCommand } from './inbox'
 import type { SessionLifecycle } from './lifecycle'
 import type { LifecycleOutcome } from './lifecycle-controller'
-import type { SessionSpawnResult } from './session-start'
+import type { ConfigureOutcome } from './runtime-gateway'
 import {
   ambiguousSessionPrefixMessage,
   assertMayCommandSession,
@@ -89,6 +89,7 @@ import {
   type SessionAccessDeps,
   type SessionTargetRow,
 } from './session-access'
+import type { SessionSpawnResult } from './session-start'
 // ---------------------------------------------------------------------------
 // Execution context
 // ---------------------------------------------------------------------------
@@ -162,35 +163,43 @@ export type SessionDaemonRpc = Pick<DaemonRpcService, 'uploadImage'>
  * `sessions.stop`, `hibernate` and `resurrect` edit the session's desired state
  * through `records.session.edit` on the entry point, and `sessions.kill` removes
  * the record, so the CLI, MCP and older apps take the same path as the queue.
- * `desire` answers the outcome of the controller's action for that edit, in the
- * route's own shape; `undefined` means nothing was acted on through the path
- * (the session already was so, its machine is offline, the transport has no
- * adapter, or the edit was refused), and the route then answers as it always
- * did, from the service. That answer is safe to give: the controller re-checks
- * the level before it acts, so a later reconnect never does the work twice.
+ *
+ * ONLY THE PATH ACTS (POD-6416). `desire` answers the outcome of the
+ * controller's action for that edit, in the route's own shape, and when the
+ * controller took none it answers what the record now shows (already so,
+ * waiting for its machine): the route never calls the service itself, so no
+ * daemon is reached from inside a request.
  */
 export interface LifecycleEditsPort {
-  desire(
-    sessionId: SessionId,
-    desired: SessionDesired,
-    force: boolean,
-  ): Promise<LifecycleOutcome | undefined>
-  /** True when the kill went through `records.session.remove`. */
-  kill(sessionId: SessionId): Promise<boolean>
+  desire(sessionId: SessionId, desired: SessionDesired, force: boolean): Promise<LifecycleOutcome>
+  /** Kill through `records.session.remove`; a session already gone is a no-op. */
+  kill(sessionId: SessionId): Promise<void>
   /**
-   * `sessions.create` through `records.session.create` (POD-6398): the launch
-   * this caller's create started, in the route's shape; it throws the launch's
-   * refusal as the route always did. `undefined` when it went nothing through
-   * the path (the machine has no daemon, the edit was refused) and nothing is
-   * left pending: the route then starts the session itself, as before.
+   * `sessions.create` as a `session.launch` effect record (POD-6398): the
+   * launch this caller's create started, in the route's shape; it throws the
+   * launch's refusal as the route always did, and refuses at once when no
+   * daemon can take it. The route never starts a session itself (POD-6416).
    */
-  create(input: CreateInput): Promise<SessionSpawnResult | undefined>
+  create(input: CreateInput): Promise<SessionSpawnResult>
   /**
    * `sessions.interrupt` as a `session.interrupt` effect record (POD-6397), in
-   * the route's shape. `undefined` when the effect path took nothing: the route
-   * then interrupts directly, as before.
+   * the route's shape. The route never interrupts directly (POD-6416).
    */
-  interrupt?(input: { sessionId: SessionId; messageId?: string }): Promise<InterruptOutcome | undefined>
+  interrupt(input: { sessionId: SessionId; messageId?: string }): Promise<InterruptOutcome>
+  /**
+   * `sessions.configure` as a `session.configure` effect record (POD-6416), in
+   * the route's shape. The route never asks the driver itself.
+   */
+  configure(input: {
+    sessionId: SessionId
+    model?: string
+    effort?: string
+  }): Promise<ConfigureOutcome>
+  /**
+   * `sessions.resume` as a `session.launch` record carrying the resume ref
+   * (POD-6416), in the route's shape. The route never spawns itself.
+   */
+  resume(input: ResumeInput): Promise<{ sessionId: SessionId }>
 }
 
 export interface SessionCommandDeps {
@@ -237,7 +246,11 @@ export interface SessionCommandDeps {
   isAgentDriven(sessionId: SessionId): Promise<boolean>
   /** The legacy daemon control leg for pre-contract and cold-start uploads. */
   rpc(): SessionDaemonRpc
-  /** POD-6356. Absent in hand-built fixtures: the lifecycle routes call the services. */
+  /**
+   * POD-6356. Every composed server has it (`sessionCommandCtx`), and then the
+   * lifecycle routes act only through the path. It is absent only in the
+   * hand-built contexts of the plane's unit tests, which call the services.
+   */
   lifecycleEdits?: LifecycleEditsPort
   access: SessionAccessDeps
   ownership: MachineOwnershipIndex
@@ -487,11 +500,16 @@ export function createdOwnership(
  * as debt, and it counted these two before they were derived.
  */
 export type CreateInput = z.infer<typeof sessionCommandPlaneInputs.create>
-type ResumeInput = z.infer<typeof sessionCommandPlaneInputs.resume>
+export type ResumeInput = z.infer<typeof sessionCommandPlaneInputs.resume>
 type InterruptInput = z.infer<typeof sessionCommandPlaneInputs.interrupt>
 type SendInput = z.infer<typeof sessionCommandPlaneInputs.sendText>
 type TargetInput = { sessionId: SessionId }
-type AnswerInput = { sessionId: SessionId; interactionId?: string; choices?: AnswerChoice[]; skip?: true }
+type AnswerInput = {
+  sessionId: SessionId
+  interactionId?: string
+  choices?: AnswerChoice[]
+  skip?: true
+}
 
 /** What `mail.send` answers with, narrowed to the keys the chat paths return.
  *  Exported because it is the INFERRED return type of two tRPC procedures — an
@@ -642,7 +660,8 @@ function sendHandler(lifecycle: 'wait' | 'wake', proc: string) {
       if (target.status !== 'exited' && target.status !== 'hibernated') {
         return {
           ok: false,
-          reason: '--model/--effort apply only when the session is woken; this session is already running and will not respawn.',
+          reason:
+            '--model/--effort apply only when the session is woken; this session is already running and will not respawn.',
           disposition: 'dead_letter',
         }
       }
@@ -706,141 +725,172 @@ type Handler = (ctx: SessionCommandCtx, input: any) => unknown
  * runs it directly only when nothing could be submitted.
  */
 export async function createSessionNow(ctx: SessionCommandCtx, input: CreateInput) {
-    const { draftIssue, draftArtifacts, attachments, mutationId: _mutationId, ...rest } = input
-    // A shell has no driver to hand files to, so it refuses them before any
-    // claim or spawn, as a send to one does (POD-2148).
-    if (attachments?.length && rest.agentKind === 'shell') {
-      throw new Error('this agent cannot accept file attachments')
-    }
-    // Explicit placement is gated BEFORE the target is prepared, because
-    // preparing may clone a repository onto the target machine — a side effect
-    // a denied principal must never cause.
-    if (rest.machineId !== undefined) ctx.assertMachineUse(rest.machineId)
-    const target = await ctx.sessions.workspace.prepareTarget({ ...rest, use: ctx.machineUse })
-    const ownership = createdOwnership(
-      ctx.principal,
-      rest.issueId
-        ? { id: rest.issueId, owner: await ctx.deps.issueOwner(rest.issueId) }
-        : undefined,
-    )
-    if (!ownership.owner) throw new Error('session creation requires an accountable human owner')
-    const createdDraftId =
-      !rest.issueId && draftIssue
-        ? (await ctx.deps.createDraftIssue(draftIssue.repoPath, rest.agentKind, draftIssue.issueId, {
+  const { draftIssue, draftArtifacts, attachments, mutationId: _mutationId, ...rest } = input
+  // A shell has no driver to hand files to, so it refuses them before any
+  // claim or spawn, as a send to one does (POD-2148).
+  if (attachments?.length && rest.agentKind === 'shell') {
+    throw new Error('this agent cannot accept file attachments')
+  }
+  // Explicit placement is gated BEFORE the target is prepared, because
+  // preparing may clone a repository onto the target machine — a side effect
+  // a denied principal must never cause.
+  if (rest.machineId !== undefined) ctx.assertMachineUse(rest.machineId)
+  const target = await ctx.sessions.workspace.prepareTarget({ ...rest, use: ctx.machineUse })
+  const ownership = createdOwnership(
+    ctx.principal,
+    rest.issueId ? { id: rest.issueId, owner: await ctx.deps.issueOwner(rest.issueId) } : undefined,
+  )
+  if (!ownership.owner) throw new Error('session creation requires an accountable human owner')
+  const createdDraftId =
+    !rest.issueId && draftIssue
+      ? (
+          await ctx.deps.createDraftIssue(draftIssue.repoPath, rest.agentKind, draftIssue.issueId, {
             ownerUserId: ownership.owner as import('@podium/model').UserId,
             createdByActor: attributionOf(ctx.principal).actor,
             createdByOnBehalfOf: ownership.owner as import('@podium/model').UserId,
-          })).id
-        : undefined
-    const issueId = rest.issueId ?? createdDraftId
-    // The draft-issue vessel path produces an OWNED draft, not an ownerless
-    // one: the session and its vessel resolve the same owner because they
-    // resolve it from the same principal.
-    try {
-      if (draftArtifacts?.length) {
-        if (!createdDraftId) throw new Error('draft artifacts require a newly-created draft issue')
-        await ctx.deps.attachDraftArtifacts(createdDraftId, draftArtifacts)
-      }
-      // The task's files join its issue before the session exists, so the
-      // first prompt's row can be staged the moment it is forwarded (POD-2148).
-      if (attachments?.length) {
-        if (!rest.initialPrompt?.trim()) throw new Error('file attachments need a first prompt')
-        const refusal = await claimHeldUploads(ctx, issueId, attachments)
-        if (refusal) throw new Error(refusal)
-      }
-      return await ctx.sessions.createSession({
-        ...rest,
-        ...target,
-        ...(issueId ? { issueId } : {}),
-        ...(attachments?.length ? { initialAttachments: attachments } : {}),
-        use: ctx.machineUse,
-        spawnedBy: spawnedByFor(ctx.principal),
-        ownerUserId: ownership.owner as import('@podium/model').UserId,
-        binding: {
-          principal: bindingPrincipalFor(ctx.principal),
-          ...(ctx.overrideScope && ctx.principal.kind !== 'system'
-            ? {
-                requestedScope: ctx.principal.capability.scope,
-                scopeOverrideConfirmed: true,
-              }
-            : {}),
-        },
-      })
-    } catch (error) {
-      // A discarded draft hands its claimed uploads back to pending (POD-2148);
-      // one kept because its session registered keeps them.
-      if (createdDraftId) await ctx.deps.discardUnlaunchedDraft(createdDraftId)
-      throw error
+          })
+        ).id
+      : undefined
+  const issueId = rest.issueId ?? createdDraftId
+  // The draft-issue vessel path produces an OWNED draft, not an ownerless
+  // one: the session and its vessel resolve the same owner because they
+  // resolve it from the same principal.
+  try {
+    if (draftArtifacts?.length) {
+      if (!createdDraftId) throw new Error('draft artifacts require a newly-created draft issue')
+      await ctx.deps.attachDraftArtifacts(createdDraftId, draftArtifacts)
     }
+    // The task's files join its issue before the session exists, so the
+    // first prompt's row can be staged the moment it is forwarded (POD-2148).
+    if (attachments?.length) {
+      if (!rest.initialPrompt?.trim()) throw new Error('file attachments need a first prompt')
+      const refusal = await claimHeldUploads(ctx, issueId, attachments)
+      if (refusal) throw new Error(refusal)
+    }
+    return await ctx.sessions.createSession({
+      ...rest,
+      ...target,
+      ...(issueId ? { issueId } : {}),
+      ...(attachments?.length ? { initialAttachments: attachments } : {}),
+      use: ctx.machineUse,
+      spawnedBy: spawnedByFor(ctx.principal),
+      ownerUserId: ownership.owner as import('@podium/model').UserId,
+      binding: {
+        principal: bindingPrincipalFor(ctx.principal),
+        ...(ctx.overrideScope && ctx.principal.kind !== 'system'
+          ? {
+              requestedScope: ctx.principal.capability.scope,
+              scopeOverrideConfirmed: true,
+            }
+          : {}),
+      },
+    })
+  } catch (error) {
+    // A discarded draft hands its claimed uploads back to pending (POD-2148);
+    // one kept because its session registered keeps them.
+    if (createdDraftId) await ctx.deps.discardUnlaunchedDraft(createdDraftId)
+    throw error
+  }
+}
+
+/**
+ * `sessions.resume`'s own work under the caller's gates: reuse the row that
+ * holds the conversation (resurrecting a parked one) or spawn a fresh session.
+ * The `session.launch` executor runs it (POD-6416), with the record's target as
+ * the id a fresh spawn takes; the route never runs it in a request.
+ */
+export async function resumeSessionNow(
+  ctx: SessionCommandCtx,
+  input: ResumeInput,
+  sessionId?: SessionId,
+): Promise<{ sessionId: SessionId }> {
+  if (input.machineId !== undefined) ctx.assertMachineUse(input.machineId)
+  const ownership = createdOwnership(ctx.principal, undefined)
+  if (!ownership.owner) throw new Error('session resume requires an accountable human owner')
+  // A resume landing on an EXISTING row keeps that row's provenance; the stamp
+  // here is the fresh-spawn fallback only.
+  return await ctx.sessions.resumeSession({
+    ...input,
+    resume: input.resume as ResumeInput['resume'] & { kind: string; value: string },
+    use: ctx.machineUse,
+    spawnedBy: spawnedByFor(ctx.principal),
+    ownerUserId: ownership.owner as import('@podium/model').UserId,
+    ...(sessionId !== undefined ? { sessionId } : {}),
+  })
 }
 
 export const SESSION_COMMAND_HANDLERS = {
   create: async (ctx: SessionCommandCtx, input: CreateInput) => {
-    // The legacy browser bytes (POD-2148) never go into a stored launch spec.
-    if (!input.draftArtifacts?.length) {
-      const launched = await ctx.deps.lifecycleEdits?.create(input)
-      if (launched) return launched
-    }
+    const edits = ctx.deps.lifecycleEdits
+    // LEGACY(remove-after: 2027-03): the browser bytes of a v0.2.x desktop app's
+    // bundled web (`draftArtifacts`, POD-2148) never go into a stored launch
+    // spec, so that one shape still starts in the request. Removing this arm
+    // refuses that app's cold start with files attached.
+    if (edits && !input.draftArtifacts?.length) return await edits.create(input)
     return await createSessionNow(ctx, input)
   },
 
   resume: async (ctx: SessionCommandCtx, input: ResumeInput) => {
-    if (input.machineId !== undefined) ctx.assertMachineUse(input.machineId)
-    const ownership = createdOwnership(ctx.principal, undefined)
-    if (!ownership.owner) throw new Error('session resume requires an accountable human owner')
-    // A resume landing on an EXISTING row keeps that row's provenance; the stamp
-    // here is the fresh-spawn fallback only.
-    return await ctx.sessions.resumeSession({
-      ...input,
-      resume: input.resume as ResumeInput['resume'] & { kind: string; value: string },
-      use: ctx.machineUse,
-      spawnedBy: spawnedByFor(ctx.principal),
-      ownerUserId: ownership.owner as import('@podium/model').UserId,
-    })
+    // A `session.launch` record with a resume ref (POD-6416): the reattach,
+    // the resurrect or the fresh spawn happen in its run, after its commit.
+    // The direct call serves only the plane's hand-built test contexts.
+    const edits = ctx.deps.lifecycleEdits
+    if (edits) return await edits.resume(input)
+    return await resumeSessionNow(ctx, input)
   },
 
   kill: async (ctx: SessionCommandCtx, input: TargetInput) => {
     // Absent ⇒ the pinned shape: kill neither throws nor tombstones.
-    if (!await ctx.target(input.sessionId, 'sessions.kill')) return undefined
-    if (await ctx.deps.lifecycleEdits?.kill(input.sessionId)) return undefined
+    if (!(await ctx.target(input.sessionId, 'sessions.kill'))) return undefined
+    const edits = ctx.deps.lifecycleEdits
+    if (edits) return await edits.kill(input.sessionId)
     return await ctx.sessions.killSession(input)
   },
 
   hibernate: async (ctx: SessionCommandCtx, input: TargetInput) => {
-    if (!await ctx.target(input.sessionId, 'sessions.hibernate')) {
+    if (!(await ctx.target(input.sessionId, 'sessions.hibernate'))) {
       return { ok: false, reason: 'unknown session' }
     }
-    const outcome = await ctx.deps.lifecycleEdits?.desire(input.sessionId, 'hibernated', false)
-    return outcome
-      ? (outcome as Awaited<ReturnType<SessionCommandServices['hibernateSession']>>)
-      : await ctx.sessions.hibernateSession(input)
+    const edits = ctx.deps.lifecycleEdits
+    if (!edits) return await ctx.sessions.hibernateSession(input)
+    return (await edits.desire(input.sessionId, 'hibernated', false)) as Awaited<
+      ReturnType<SessionCommandServices['hibernateSession']>
+    >
   },
 
   interrupt: async (ctx: SessionCommandCtx, input: InterruptInput) => {
-    if (!await ctx.target(input.sessionId, 'sessions.interrupt')) {
-      return { ok: false, reason: 'unknown session' }
-    }
+    const target = await ctx.target(input.sessionId, 'sessions.interrupt')
+    if (!target) return { ok: false, reason: 'unknown session' }
     const reserved = input.messageId
-      ? (await ctx.deps.mutations.apply(asMutationId(input.messageId), 'sessions.sendText', () => ({
-          ...INTERRUPTED_SEND,
-        }))).outcome === 'applied'
+      ? (
+          await ctx.deps.mutations.apply(
+            asMutationId(input.messageId),
+            'sessions.sendText',
+            () => ({
+              ...INTERRUPTED_SEND,
+            }),
+          )
+        ).outcome === 'applied'
       : false
     // A `session.interrupt` effect record (POD-6397): every device sees the stop
-    // until the turn ends. The direct call stays for module sets without it.
-    const viaEffect = await ctx.deps.lifecycleEdits?.interrupt?.({
-      sessionId: input.sessionId,
-      ...(input.messageId ? { messageId: input.messageId } : {}),
-    })
+    // until the turn ends. It names the session by its full id, which the gate
+    // resolved from what may have been a prefix. The direct call serves only
+    // the plane's hand-built test contexts, which compose no effects.
+    const edits = ctx.deps.lifecycleEdits
     // AWAITED: a server-family session's stop goes down the runtime contract and
     // answers asynchronously, so reading `.ok` off the return value would be
     // reading it off a Promise (POD-2792).
     return await Promise.resolve(
-      viaEffect ??
-        ctx.sessions.interruptTurn({
-          sessionId: input.sessionId,
-          ...(input.messageId ? { sourceMessageId: input.messageId } : {}),
-          principal: inboxPrincipalFromCommand(ctx.principal),
-        }),
+      edits
+        ? edits.interrupt({
+            sessionId: target.sessionId,
+            ...(input.messageId ? { messageId: input.messageId } : {}),
+          })
+        : ctx.sessions.interruptTurn({
+            sessionId: input.sessionId,
+            ...(input.messageId ? { sourceMessageId: input.messageId } : {}),
+            principal: inboxPrincipalFromCommand(ctx.principal),
+          }),
     ).then((result) =>
       // The CLI may have no safe idle abort key, but reserving the not-yet-arrived
       // send still completed the operator's stop request.
@@ -861,20 +911,27 @@ export const SESSION_COMMAND_HANDLERS = {
     ctx: SessionCommandCtx,
     input: { sessionId: SessionId; model?: string; effort?: string },
   ) => {
-    if (!await ctx.target(input.sessionId, 'sessions.configure')) {
+    const target = await ctx.target(input.sessionId, 'sessions.configure')
+    if (!target) {
       return await Promise.resolve({ reason: 'not_running' as const, detail: 'unknown session' })
     }
+    // The driver is asked by the record's run, after its commit (POD-6416),
+    // for the full id the gate resolved. The direct call serves only the
+    // plane's hand-built test contexts, which compose no effects.
+    const edits = ctx.deps.lifecycleEdits
+    if (edits) return await edits.configure({ ...input, sessionId: target.sessionId })
     return await ctx.sessions.configureSession(input)
   },
 
   resurrect: async (ctx: SessionCommandCtx, input: TargetInput) => {
-    if (!await ctx.target(input.sessionId, 'sessions.resurrect')) {
+    if (!(await ctx.target(input.sessionId, 'sessions.resurrect'))) {
       return await Promise.resolve({ ok: false, reason: 'unknown session' })
     }
-    const outcome = await ctx.deps.lifecycleEdits?.desire(input.sessionId, 'running', false)
-    return outcome
-      ? (outcome as Awaited<ReturnType<SessionCommandServices['resurrectSession']>>)
-      : await ctx.sessions.resurrectSession(input)
+    const edits = ctx.deps.lifecycleEdits
+    if (!edits) return await ctx.sessions.resurrectSession(input)
+    return (await edits.desire(input.sessionId, 'running', false)) as Awaited<
+      ReturnType<SessionCommandServices['resurrectSession']>
+    >
   },
 
   sendText: sendHandler('wait', 'sessions.sendText'),
@@ -885,7 +942,7 @@ export const SESSION_COMMAND_HANDLERS = {
     // WHICH HUMAN answered is the transport's answer: the contract's schema
     // carries no identity field, so there is nothing to ignore and nothing to
     // spoof. The pair comes from `ctx.principal`.
-    if (!await ctx.target(input.sessionId, 'sessions.answerAskUserQuestion')) return { ok: false }
+    if (!(await ctx.target(input.sessionId, 'sessions.answerAskUserQuestion'))) return { ok: false }
     return ctx.sessions.answerAskUserQuestion({
       ...input,
       principal: inboxPrincipalFromCommand(ctx.principal),
@@ -893,7 +950,7 @@ export const SESSION_COMMAND_HANDLERS = {
   },
 
   continue: async (ctx: SessionCommandCtx, input: TargetInput) => {
-    if (!await ctx.target(input.sessionId, 'sessions.continue')) return { ok: false }
+    if (!(await ctx.target(input.sessionId, 'sessions.continue'))) return { ok: false }
     return ctx.sessions.continueSession(input)
   },
 
@@ -905,15 +962,15 @@ export const SESSION_COMMAND_HANDLERS = {
    * see the contract.
    */
   stop: async (ctx: SessionCommandCtx, input: { sessionId: SessionId; force?: boolean }) => {
-    if (!await ctx.target(input.sessionId, 'sessions.stop')) {
+    if (!(await ctx.target(input.sessionId, 'sessions.stop'))) {
       return await Promise.resolve({ ok: false, reason: 'unknown session' })
     }
-    const outcome = await ctx.deps.lifecycleEdits?.desire(
-      input.sessionId,
-      'stopped',
-      input.force === true,
-    )
-    if (outcome) return outcome as Awaited<ReturnType<SessionCommandServices['stopSession']>>
+    const edits = ctx.deps.lifecycleEdits
+    if (edits) {
+      return (await edits.desire(input.sessionId, 'stopped', input.force === true)) as Awaited<
+        ReturnType<SessionCommandServices['stopSession']>
+      >
+    }
     // Thread the transport principal so free-worktree audit comments name the
     // caller rather than system:stop (POD-1344).
     return await ctx.sessions.stopSession({ ...input, principal: ctx.principal })
@@ -1075,11 +1132,11 @@ export async function dispatchSessionCommand<K extends SessionCommandKey>(
   // six lifecycle commands and identical-by-construction for the three that do.
   const mutationId = (input as { mutationId?: unknown }).mutationId
   const run = async () =>
-    await ctx.deps.mutations.once(
+    (await ctx.deps.mutations.once(
       typeof mutationId === 'string' ? asMutationId(mutationId) : undefined,
       name,
       () => handler(ctx, input),
-    ) as Awaited<SessionCommandResult<K>>
+    )) as Awaited<SessionCommandResult<K>>
   // THE COMMAND'S SESSION IS RESIDENT WHILE IT RUNS (POD-6160 D2f): a parked
   // session is restored from its row for the command, gates included, and may
   // leave memory again once the command has settled.

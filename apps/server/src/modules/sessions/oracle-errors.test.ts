@@ -18,7 +18,13 @@
  * Messages are pinned with EXACT equality, never a substring (POD-743).
  */
 
-import { type AgentInventory, asMachineId, asUserId, firstAdminMemberId } from '@podium/model'
+import {
+  type AgentInventory,
+  asMachineId,
+  asMutationId,
+  asUserId,
+  firstAdminMemberId,
+} from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   disposeOracles,
@@ -57,9 +63,16 @@ describe('oracle: not-found shape, per write', () => {
     await expect(
       o.call.sessions.setWorkState({ sessionId: GHOST, workState: 'done' }),
     ).resolves.toBeUndefined()
+    // On `sync.submit` only since POD-6416: an unknown session is refused as
+    // one the caller may not see, and still writes no row.
     await expect(
-      o.call.sessions.setIssueId({ sessionId: GHOST, issueId: null }),
-    ).resolves.toBeUndefined()
+      o.call.sync.submit({
+        mutationId: asMutationId('m-ghost-issue'),
+        command: 'sessions.setIssueId',
+        version: 1,
+        input: { sessionId: GHOST, issueId: null },
+      }),
+    ).resolves.toEqual({ outcome: 'rejected', refusal: { kind: 'unauthorized' } })
 
     expect(await o.store.sessions.loadSessions()).toEqual([])
     expect(await o.reg.modules.sessions.listSessions(undefined, 'rpc')).toEqual([])

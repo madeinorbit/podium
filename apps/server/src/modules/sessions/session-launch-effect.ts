@@ -33,14 +33,17 @@
 import { randomUUID } from 'node:crypto'
 import { sessionCommandPlaneInputs } from '@podium/commands'
 import {
+  type AgentKind,
   asMutationId,
   asUserId,
   type EffectTarget,
   type MachineId,
+  machineRejectionMessage,
   mintDeviceId,
   NewSessionId,
   type SessionId,
 } from '@podium/model'
+import { TRPCError } from '@trpc/server'
 import type { z } from 'zod'
 import { type CommandPrincipal, userCommandPrincipal } from '../../command-principal'
 import { checkMachineUse, ownershipSnapshotFromMachines } from '../../machine-access'
@@ -49,8 +52,14 @@ import type { EffectRow } from '../../store/effects'
 import type { UsersRepository } from '../../store/users'
 import type { EffectExecutor, EffectOutcome } from '../effects/registry'
 import { NO_TARGET } from '../sync-write/registry'
+import { refusalAsTrpcError } from '../sync-write/route-adapter'
 import { sessionCommandCtx } from './command-ctx'
-import { type CreateInput, createSessionNow } from './command-plane'
+import {
+  type CreateInput,
+  createSessionNow,
+  type ResumeInput,
+  resumeSessionNow,
+} from './command-plane'
 import { NO_LONGER_ALLOWED } from './lifecycle-controller'
 import type { SessionSpawnResult } from './session-start'
 
@@ -67,12 +76,37 @@ export const SESSION_LAUNCH_WAIT_MS = 5 * 60 * 1000
  * record's target), the route's dedup key, and the legacy browser bytes, which
  * never go into a stored record.
  */
-export const SessionLaunchInput = sessionCommandPlaneInputs.create.omit({
-  sessionId: true,
-  mutationId: true,
-  draftArtifacts: true,
-})
+export const SessionLaunchInput = sessionCommandPlaneInputs.create
+  .omit({
+    sessionId: true,
+    mutationId: true,
+    draftArtifacts: true,
+  })
+  .extend({
+    /**
+     * A RESUME (POD-6416): the durable conversation to reattach, as
+     * `sessions.resume` names it. The run reuses the row that holds it
+     * (resurrecting a parked one) or spawns a fresh session under the record's
+     * target. With it, `agentKind` and `conversationId` are required
+     * ({@link resumeInputOf}).
+     */
+    resume: sessionCommandPlaneInputs.resume.shape.resume.optional(),
+    conversationId: sessionCommandPlaneInputs.resume.shape.conversationId.optional(),
+  })
 export type SessionLaunchInput = z.infer<typeof SessionLaunchInput>
+
+/** A resume launch's input as `sessions.resume` takes it; undefined when it is not one. */
+function resumeInputOf(input: SessionLaunchInput) {
+  if (input.resume === undefined) return undefined
+  return sessionCommandPlaneInputs.resume.safeParse({
+    agentKind: input.agentKind,
+    cwd: input.cwd,
+    resume: input.resume,
+    conversationId: input.conversationId,
+    ...(input.title !== undefined ? { title: input.title } : {}),
+    ...(input.machineId !== undefined ? { machineId: input.machineId } : {}),
+  })
+}
 
 export interface SessionLaunchEffectDeps {
   modules(): RegistryModules
@@ -149,8 +183,14 @@ export function registerSessionLaunchEffect(deps: SessionLaunchEffectDeps): {
     }
     const capability = userCommandPrincipal(asUserId(writer.id), writer.role).capability
     const ctx = await sessionCommandCtx(deps.modules(), capability, false, 'trpc')
-    const parsed: CreateInput = sessionCommandPlaneInputs.create.parse({ ...input, sessionId })
+    const resumed = resumeInputOf(input)
     try {
+      if (resumed !== undefined) {
+        if (!resumed.success) return refused('a resume names its agent and its conversation')
+        // The row that holds the conversation, or a fresh one under this id.
+        return { status: 'succeeded', result: await resumeSessionNow(ctx, resumed.data, sessionId) }
+      }
+      const parsed: CreateInput = sessionCommandPlaneInputs.create.parse({ ...input, sessionId })
       const result: SessionSpawnResult = await createSessionNow(ctx, parsed)
       return { status: 'succeeded', result }
     } catch (error) {
@@ -183,6 +223,11 @@ export function registerSessionLaunchEffect(deps: SessionLaunchEffectDeps): {
         return undefined
       }
     },
+    /** A resume names its agent and its conversation, or it is refused now. */
+    admit: async (input) =>
+      resumeInputOf(input)?.success === false
+        ? { kind: 'invalid', message: 'a resume names its agent and its conversation' }
+        : undefined,
     publish: (input) => ({
       ...(input.agentKind !== undefined ? { agentKind: input.agentKind } : {}),
       cwd: input.cwd,
@@ -200,13 +245,23 @@ export function registerSessionLaunchEffect(deps: SessionLaunchEffectDeps): {
     recover: async (ctx) =>
       (await sessionExists(ctx.record.target.id))
         ? { status: 'succeeded', result: { sessionId: ctx.record.target.id } }
-        : {
-            status: 'failed',
-            error: {
-              code: 'interrupted',
-              message: 'The server stopped before the session started; nothing was started.',
+        : ctx.input.resume !== undefined
+          ? {
+              // A resume may have landed on the row that already held the
+              // conversation; asking again finds it and does nothing twice.
+              status: 'failed',
+              error: {
+                code: 'interrupted',
+                message: 'The server stopped while resuming; resume again to reattach.',
+              },
+            }
+          : {
+              status: 'failed',
+              error: {
+                code: 'interrupted',
+                message: 'The server stopped before the session started; nothing was started.',
+              },
             },
-          },
   }
   effects.executors.register(executor)
 
@@ -227,26 +282,59 @@ const refused = (message: string): EffectOutcome => ({
 })
 
 /**
+ * A launch with no daemon to start on NOW is refused at once, as the route
+ * always refused it, and creates no record: the placement gate's own refusal
+ * (an unknown machine, one this caller may not use, one that is offline;
+ * pinned in oracle-errors), or "no machine is online". These are reads:
+ * nothing is prepared or cloned.
+ */
+async function refuseUnplaceable(
+  modules: RegistryModules,
+  principal: Exclude<CommandPrincipal, { kind: 'system' }>,
+  input: { machineId?: MachineId; cwd: string; agentKind?: AgentKind },
+): Promise<void> {
+  if (input.machineId !== undefined && !modules.machines.hasDaemon(input.machineId)) {
+    const plane = await sessionCommandCtx(modules, principal.capability, false, 'trpc')
+    plane.assertMachineUse(input.machineId)
+    await modules.machines.resolveMachineForAgent(
+      input.machineId,
+      input.cwd,
+      // The reachability checks come before any harness check, so the kind
+      // does not change the answer here.
+      input.agentKind ?? 'shell',
+      plane.machineUse,
+    )
+    const name = await modules.machines.machineName(input.machineId)
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: machineRejectionMessage(name, 'no-daemon', 'start a session'),
+    })
+  }
+  if (input.machineId === undefined && modules.machines.onlineMachineIds().length === 0) {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'no machine is online to start this session on',
+    })
+  }
+}
+
+/**
  * `sessions.create` through the effect path, as its caller: create the record,
  * wait for it to settle, answer the old shape (or throw the launch's own
- * refusal). `undefined` when nothing was submitted (no daemon to launch on now:
- * the route answers at once, as it always did).
+ * refusal). It never starts a session itself (POD-6416): with no daemon to
+ * launch on now it refuses at once, as the route always did, and creates no
+ * record; a shape the effect refuses is refused with the effect's reason.
  */
 export async function createThroughLaunchEffect(
   modules: RegistryModules,
   principal: CommandPrincipal,
   launches: { errorOf(effectId: string): unknown },
   input: CreateInput,
-): Promise<SessionSpawnResult | undefined> {
+): Promise<SessionSpawnResult> {
   const effects = modules.effects
-  if (effects === undefined || principal.kind === 'system') return undefined
-  if (
-    input.machineId !== undefined
-      ? !modules.machines.hasDaemon(input.machineId)
-      : modules.machines.onlineMachineIds().length === 0
-  ) {
-    return undefined
-  }
+  if (effects === undefined) throw new Error('sessions.create: no effects module is composed')
+  if (principal.kind === 'system') throw new Error('a system principal has no session create')
+  await refuseUnplaceable(modules, principal, input)
   const { mutationId: _mutationId, sessionId: given, draftArtifacts: _bytes, ...rest } = input
   const sessionId = given ?? (randomUUID() as SessionId)
   const id = mintDeviceId('eff_')
@@ -266,11 +354,10 @@ export async function createThroughLaunchEffect(
     'trpc',
   )
   if (reply.outcome !== 'applied') {
-    // A shape the effect path refuses (a non-v4 id the old route accepted) is
-    // the old route's to answer, as before.
-    if (reply.refusal.kind === 'invalid' || reply.refusal.kind === 'unauthorized') return undefined
     if (cause !== undefined) throw cause
-    throw new Error(`sessions.create was refused (${reply.refusal.kind})`)
+    // A session id the effect will not take (the launch target is a NEW v4 id
+    // or one this caller may command), or a caller refused on that target.
+    throw refusalAsTrpcError('sessions.create', reply.refusal)
   }
   const settled = await effects.awaitSettled(id, SESSION_LAUNCH_WAIT_MS)
   if (settled?.status === 'succeeded') {
@@ -285,5 +372,69 @@ export async function createThroughLaunchEffect(
   }
   throw new Error(
     `session ${sessionId} is ${settled?.status ?? 'unknown'}; it shows on the session list`,
+  )
+}
+
+/**
+ * `sessions.resume` through the effect path, as its caller (POD-6416): a
+ * `session.launch` record carrying the resume ref, under a fresh session id.
+ * Its run reattaches the row that already holds the conversation (resurrecting
+ * a parked one) or spawns a new session under that id; the route answers with
+ * the id the run settled on. It never spawns itself.
+ */
+export async function resumeThroughLaunchEffect(
+  modules: RegistryModules,
+  principal: CommandPrincipal,
+  launches: { errorOf(effectId: string): unknown },
+  input: ResumeInput,
+): Promise<{ sessionId: SessionId }> {
+  const effects = modules.effects
+  if (effects === undefined) throw new Error('sessions.resume: no effects module is composed')
+  if (principal.kind === 'system') throw new Error('a system principal has no session resume')
+  await refuseUnplaceable(modules, principal, input)
+  const sessionId = randomUUID() as SessionId
+  const id = mintDeviceId('eff_')
+  const { reply, cause } = await modules.syncWrite.submitDetailed(
+    {
+      mutationId: asMutationId(`mut_resume_${randomUUID()}`),
+      command: 'effects.create',
+      version: 1,
+      input: {
+        id,
+        kind: SESSION_LAUNCH_KIND,
+        target: { kind: 'session', id: sessionId },
+        input: {
+          agentKind: input.agentKind,
+          cwd: input.cwd,
+          resume: input.resume,
+          conversationId: input.conversationId,
+          ...(input.title !== undefined ? { title: input.title } : {}),
+          ...(input.machineId !== undefined ? { machineId: input.machineId } : {}),
+        },
+      },
+    },
+    principal,
+    'trpc',
+  )
+  if (reply.outcome !== 'applied') {
+    if (cause !== undefined) throw cause
+    throw refusalAsTrpcError('sessions.resume', reply.refusal)
+  }
+  const settled = await effects.awaitSettled(id, SESSION_LAUNCH_WAIT_MS)
+  if (settled?.status === 'succeeded') {
+    const result = settled.result as { sessionId?: unknown } | null | undefined
+    return {
+      sessionId: (typeof result?.sessionId === 'string'
+        ? result.sessionId
+        : sessionId) as SessionId,
+    }
+  }
+  if (settled?.status === 'failed') {
+    throw (
+      launches.errorOf(id) ?? new Error(settled.error?.message ?? 'the session could not resume')
+    )
+  }
+  throw new Error(
+    `the resume is ${settled?.status ?? 'unknown'}; its session shows on the session list`,
   )
 }

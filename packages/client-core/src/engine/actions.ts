@@ -32,6 +32,7 @@ import {
   isSessionIdPrefix,
   resolveSessionIdentifier,
   type SessionIdentifierResolution,
+  submitNow,
 } from '@podium/protocol'
 import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/runtime'
 import type { PodiumClientApi } from '../api'
@@ -1107,7 +1108,16 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       })
     },
     continueSession: async (sessionId) => {
-      await api.sessions.continue.mutate({ sessionId }).catch(() => {})
+      // On the sync write entry point (POD-6416). LEGACY(remove-after: 2027-03):
+      // an older server has no `sync.submit` and takes the command's own route.
+      await submitNow(
+        api,
+        'sessions.continue',
+        { sessionId },
+        {
+          legacy: async () => await api.sessions.continue.mutate({ sessionId }),
+        },
+      ).catch(() => {})
       try {
         const settings = await api.settings.get.query()
         if (shouldPromptAutoContinue(settings)) rt.apply({ autoContinuePromptSessionId: sessionId })

@@ -45,6 +45,7 @@ import {
 import { getFeatureStates } from './features'
 import { buildJoinCommand } from './hub/machines-join'
 import { accountFamilyProcedures } from './modules/accounts/trpc'
+import { agentProfileFamilyProcedures } from './modules/agent-profiles/trpc'
 import { approvalFamilyProcedures } from './modules/approvals/trpc'
 import { automationProcedures } from './modules/automations/trpc'
 import { cloudFamilyProcedures } from './modules/cloud/trpc'
@@ -78,11 +79,9 @@ import {
   USAGE_QUERIES,
 } from './modules/misc-queries'
 import { modelFamilyProcedures } from './modules/models/trpc'
-import { agentProfileFamilyProcedures } from './modules/agent-profiles/trpc'
 import { operationProcedures } from './modules/operations/trpc'
 import { perfFamilyProcedures } from './modules/perf/trpc'
 import { readPositionFamilyProcedures } from './modules/read-position/trpc'
-import { shellFamilyProcedures } from './modules/shells/trpc'
 import {
   PIN_QUERIES,
   SESSION_QUERIES,
@@ -92,6 +91,7 @@ import {
 } from './modules/sessions/queries'
 import { settingsAuthzDeps, settingsCommandsPermitted } from './modules/settings/authz'
 import { settingsFamilyProcedures } from './modules/settings/trpc'
+import { shellFamilyProcedures } from './modules/shells/trpc'
 import { specsInputs } from './modules/specs/service'
 import { specFamilyProcedures } from './modules/specs/trpc'
 import { superagentFamilyProcedures } from './modules/superagent/trpc'
@@ -290,10 +290,11 @@ export const appRouter = t.router({
     // WRITES — THE DERIVED SURFACE (POD-382). create · resume · kill · handoff ·
     // continue · sendText · answerAskUserQuestion · resumeAndSend · hibernate ·
     // stop · resurrect · uploadImage · rename · setArchived · markRead ·
-    // markUnread · setIssueId · setWorkState · dismissOffer, every one built from its contract
+    // markUnread · setWorkState · dismissOffer, every one built from its contract
     // by modules/sessions/trpc.ts. Which commands exist is the CONTRACT TABLE's
     // answer, including which transports serve them — which is why `setDraft` is
-    // absent (it declares `ws`).
+    // absent (it declares `ws`). `setIssueId` is absent too: `sync.submit` is its
+    // only door (POD-6416).
     ...sessionFamily.sessions,
     // READS — the query table (POD-314). Declared in modules/sessions/queries.ts;
     // they carry no contract because a visibility class describes what a command
@@ -450,8 +451,8 @@ export const appRouter = t.router({
      * costs four lines. When POD-1075 lands a real principal this is where it
      * belongs.
      */
-    list: t.procedure.query(async ({ ctx }) =>
-      await visibleMachinesFor(familyState(ctx).modules, ctx.capability),
+    list: t.procedure.query(
+      async ({ ctx }) => await visibleMachinesFor(familyState(ctx).modules, ctx.capability),
     ),
     /**
      * Served harness descriptors for one machine (POD-4475): the daemon's

@@ -42,9 +42,9 @@ import {
   type EffectTarget,
   hasTurnEnded,
   mintDeviceId,
+  SESSION_INTERRUPT_KIND,
   type SessionId,
   type SessionMeta,
-  SESSION_INTERRUPT_KIND,
   type UserId,
 } from '@podium/model'
 import { asDelegationRef } from '@podium/protocol'
@@ -320,17 +320,18 @@ export const NO_TURN_RUNNING = 'no turn is running'
  * `sessions.interrupt` through the effect path, as its caller (POD-6397):
  * create a `session.interrupt` record naming whatever turn runs now, and answer
  * the old shape once the stop has been asked for, or once the record ended
- * without one. `undefined` when the effect path took nothing (no effects
- * module, a shape it refuses): the route then interrupts directly, as before.
+ * without one. It never interrupts directly (POD-6416): a refused record is
+ * answered in the route's `{ ok: false, reason }` shape.
  */
 export async function interruptThroughEffect(
   modules: RegistryModules,
   principal: CommandPrincipal,
   interrupts: SessionInterruptsHandle,
   input: { sessionId: SessionId; messageId?: string },
-): Promise<InterruptOutcome | undefined> {
+): Promise<InterruptOutcome> {
   const effects = modules.effects
-  if (effects === undefined || principal.kind === 'system') return undefined
+  if (effects === undefined) throw new Error('sessions.interrupt: no effects module is composed')
+  if (principal.kind === 'system') return { ok: false, reason: 'unknown session' }
   const id = mintDeviceId('eff_')
   const { reply, cause } = await modules.syncWrite.submitDetailed(
     {
@@ -348,8 +349,12 @@ export async function interruptThroughEffect(
     'trpc',
   )
   if (reply.outcome !== 'applied') {
-    if (reply.refusal.kind === 'invalid' || reply.refusal.kind === 'unauthorized') return undefined
     if (cause !== undefined) throw cause
+    // The route's gate passed on this full id a moment ago: an unauthorized
+    // answer now is a session gone out of reach, which reads as an unknown one.
+    if (reply.refusal.kind === 'unauthorized' || reply.refusal.kind === 'target-not-found') {
+      return { ok: false, reason: 'unknown session' }
+    }
     return { ok: false, reason: `the interrupt was refused (${reply.refusal.kind})` }
   }
   // Answer once the stop was asked for, or once the record ended without one.

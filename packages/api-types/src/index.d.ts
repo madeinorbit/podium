@@ -1148,169 +1148,6 @@ interface AgentConcurrencyHistoryResult {
 
 type NativeLoginAttemptStatus = 'running' | 'refreshing' | 'succeeded' | 'failed';
 
-type OperationActionResult = Record<string, unknown>;
-
-/** Transient reports from the local tunnel supervisor; no credentials or persisted state. */
-
-declare const TunnelHealthReport: z.ZodObject<{
-    state: z.ZodEnum<["starting", "working", "unhealthy", "restarting", "stopped"]>;
-    url: z.ZodNullable<z.ZodString>;
-    lastOkAt: z.ZodNullable<z.ZodNumber>;
-    failedSince: z.ZodNullable<z.ZodNumber>;
-    lastError: z.ZodNullable<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    state: "starting" | "stopped" | "working" | "restarting" | "unhealthy";
-    url: string | null;
-    lastError: string | null;
-    lastOkAt: number | null;
-    failedSince: number | null;
-}, {
-    state: "starting" | "stopped" | "working" | "restarting" | "unhealthy";
-    url: string | null;
-    lastError: string | null;
-    lastOkAt: number | null;
-    failedSince: number | null;
-}>;
-type TunnelHealthReport = z.infer<typeof TunnelHealthReport>;
-type TunnelHealth = TunnelHealthReport & {
-    reportedAt: number;
-};
-
-type CloudRuntimeKind = 'cloud-machine' | 'cloud-agent';
-type CloudRuntimeState = 'provisioning' | 'running' | 'stopped' | 'failed';
-interface CloudProviderCapabilities {
-    provider: string;
-    cloudMachines: boolean;
-    cloudAgents: boolean;
-    previews: boolean;
-    artifacts: boolean;
-    wake: boolean;
-    suspend: boolean;
-    destroy: boolean;
-}
-interface CloudRuntime {
-    id: string;
-    kind: CloudRuntimeKind;
-    tenantId: string;
-    state: CloudRuntimeState;
-    provider: string;
-    displayName: string;
-    machineId: MachineId;
-    createdAt: string;
-    updatedAt: string;
-    previewBaseUrl?: string | undefined;
-    metadata?: Record<string, unknown> | undefined;
-}
-
-/**
- * THE REACHABILITY VOCABULARY (POD-4534). `connect.check` asks Podium Connect to
- * probe a public URL from the outside and say precisely why it does not work;
- * these are the codes it can answer with, and the one human sentence each one
- * is shown as during setup.
- *
- * Pure strings, no IO — which is why this lives in @podium/runtime rather than
- * beside the signed HTTP client: the CLI setup flow (node-only) and, later, the
- * web setup screen (browser-safe, via `trpc.connect.check`) share the wording
- * without either dragging the other's transport along.
- */
-type CheckError = 'INVALID_URL' | 'DNS_FAILED' | 'PRIVATE_ADDRESS' | 'REDIRECTED' | 'TLS_INVALID' | 'PORT_NOT_REACHABLE' | 'UNREACHABLE' | 'NOT_PODIUM' | 'IDENTITY_MISMATCH'
-/** Connect itself could not be reached or refused the request. Never a failed check. */
- | 'CONNECT_UNAVAILABLE';
-
-type DirectoryBrowserEntry = {
-    name: string;
-    path: string;
-};
-
-interface UpdateFleetMachine {
-    id: MachineId;
-    name?: string;
-    version: string;
-    state: ConvergenceState;
-    online: boolean;
-    busy: boolean;
-    detail?: string;
-    reason?: WaveMachine['reason'];
-}
-interface UpdateFleetBlocker {
-    id: MachineId;
-    name?: string;
-    reason: 'legacy-instance-trust';
-}
-interface UpdateFleetSnapshot {
-    /** Running coordinator version; additive so an older web bundle can ignore it. */
-    appVersion?: string;
-    /** Running coordinator source identity; authoritative when comparing build labels. */
-    sourceDigest?: string;
-    /** Served desktop-web checkout identity. A digest is comparison evidence, not display copy. */
-    servedWebDigest?: string;
-    /** Served phone bundle identity, absent when this installation has no phone export. */
-    servedMobileWeb?: MobileWebIdentity;
-    targetVersion: string | null;
-    total: number;
-    behind: number;
-    converging: number;
-    failed: number;
-    /** Machines that are behind but cannot safely join this wave without host-local repair. */
-    blocked?: number;
-    /** Kept separate from the grantable machine set: visible, but never authorized. */
-    blockers?: UpdateFleetBlocker[];
-    preparation?: {
-        webReady: boolean;
-        bundleReady: boolean;
-        failureDetail?: string;
-    };
-    machines: UpdateFleetMachine[];
-    /**
-     * Every registered machine, whatever its channel. `machines` above is the
-     * dev-authority wave the global dialog accounts for; Settings needs one row
-     * per machine so an edge/stable row can show its own convergence.
-     */
-    allMachines: UpdateFleetMachine[];
-    /**
-     * When each channel in use was last checked and what came back (POD-2100).
-     * ADDITIVE and tolerant of absence per the frozen-contract law (spec P8): an
-     * old bundle rendering a new server ignores it, and a channel that has never
-     * been checked has no entry rather than a fabricated one.
-     */
-    channelChecks: ChannelCheckRecord[];
-    /** Whether the server would accept the update action represented by this snapshot. */
-    startability?: UpdateStartability;
-    /**
-     * The durable operation currently converging this fleet, if one is (POD-2098).
-     *
-     * ADDITIVE, and deliberately only an id: this payload is the OLD read model
-     * and it stays exactly as it was, so the current dialog and Settings do not
-     * change. The id is the thread from here to `operations.active`, which the
-     * update panel picks up in its own issue. An old bundle ignores it (P8).
-     */
-    operationId?: string;
-    operation?: {
-        id: string;
-        failureReason?: string;
-    };
-    /**
-     * A version published while the operation ran, waiting its turn (§3.2). Shown
-     * so "0.4.4 arrived and will be offered when this finishes" is sayable rather
-     * than a target that silently changes underneath the panel.
-     */
-    nextTargetVersion?: string;
-}
-/**
- * The preconditions that must refuse BEFORE an operation exists (§6.3).
- *
- * "Never show an internal precondition as an error" cuts both ways: the panel
- * must not render one, and the server must not manufacture an operation that
- * exists only to fail with one. A refusal here is the same sentence the old
- * `startUpdate` produced, so the current dialog's copy is unchanged.
- */
-type UpdateStartability = {
-    startable: true;
-} | {
-    startable: false;
-    reason: string;
-};
-
 type ReclaimDiskEstimateState = {
     status: 'unknown';
     recoverableBytes: null;
@@ -1517,6 +1354,8 @@ interface CrashResult {
     id?: string;
 }
 
+type OperationActionResult = Record<string, unknown>;
+
 interface TelegramSetupStartResult {
     setupId: string;
     code: string;
@@ -1545,6 +1384,167 @@ interface SpecSearchHit {
     /** Plain-text snippet around the first match. */
     snippet: string;
 }
+
+/** Transient reports from the local tunnel supervisor; no credentials or persisted state. */
+
+declare const TunnelHealthReport: z.ZodObject<{
+    state: z.ZodEnum<["starting", "working", "unhealthy", "restarting", "stopped"]>;
+    url: z.ZodNullable<z.ZodString>;
+    lastOkAt: z.ZodNullable<z.ZodNumber>;
+    failedSince: z.ZodNullable<z.ZodNumber>;
+    lastError: z.ZodNullable<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    state: "starting" | "stopped" | "working" | "restarting" | "unhealthy";
+    url: string | null;
+    lastError: string | null;
+    lastOkAt: number | null;
+    failedSince: number | null;
+}, {
+    state: "starting" | "stopped" | "working" | "restarting" | "unhealthy";
+    url: string | null;
+    lastError: string | null;
+    lastOkAt: number | null;
+    failedSince: number | null;
+}>;
+type TunnelHealthReport = z.infer<typeof TunnelHealthReport>;
+type TunnelHealth = TunnelHealthReport & {
+    reportedAt: number;
+};
+
+type CloudRuntimeKind = 'cloud-machine' | 'cloud-agent';
+type CloudRuntimeState = 'provisioning' | 'running' | 'stopped' | 'failed';
+interface CloudProviderCapabilities {
+    provider: string;
+    cloudMachines: boolean;
+    cloudAgents: boolean;
+    previews: boolean;
+    artifacts: boolean;
+    wake: boolean;
+    suspend: boolean;
+    destroy: boolean;
+}
+interface CloudRuntime {
+    id: string;
+    kind: CloudRuntimeKind;
+    tenantId: string;
+    state: CloudRuntimeState;
+    provider: string;
+    displayName: string;
+    machineId: MachineId;
+    createdAt: string;
+    updatedAt: string;
+    previewBaseUrl?: string | undefined;
+    metadata?: Record<string, unknown> | undefined;
+}
+
+/**
+ * THE REACHABILITY VOCABULARY (POD-4534). `connect.check` asks Podium Connect to
+ * probe a public URL from the outside and say precisely why it does not work;
+ * these are the codes it can answer with, and the one human sentence each one
+ * is shown as during setup.
+ *
+ * Pure strings, no IO — which is why this lives in @podium/runtime rather than
+ * beside the signed HTTP client: the CLI setup flow (node-only) and, later, the
+ * web setup screen (browser-safe, via `trpc.connect.check`) share the wording
+ * without either dragging the other's transport along.
+ */
+type CheckError = 'INVALID_URL' | 'DNS_FAILED' | 'PRIVATE_ADDRESS' | 'REDIRECTED' | 'TLS_INVALID' | 'PORT_NOT_REACHABLE' | 'UNREACHABLE' | 'NOT_PODIUM' | 'IDENTITY_MISMATCH'
+/** Connect itself could not be reached or refused the request. Never a failed check. */
+ | 'CONNECT_UNAVAILABLE';
+
+type DirectoryBrowserEntry = {
+    name: string;
+    path: string;
+};
+
+interface UpdateFleetMachine {
+    id: MachineId;
+    name?: string;
+    version: string;
+    state: ConvergenceState;
+    online: boolean;
+    busy: boolean;
+    detail?: string;
+    reason?: WaveMachine['reason'];
+}
+interface UpdateFleetBlocker {
+    id: MachineId;
+    name?: string;
+    reason: 'legacy-instance-trust';
+}
+interface UpdateFleetSnapshot {
+    /** Running coordinator version; additive so an older web bundle can ignore it. */
+    appVersion?: string;
+    /** Running coordinator source identity; authoritative when comparing build labels. */
+    sourceDigest?: string;
+    /** Served desktop-web checkout identity. A digest is comparison evidence, not display copy. */
+    servedWebDigest?: string;
+    /** Served phone bundle identity, absent when this installation has no phone export. */
+    servedMobileWeb?: MobileWebIdentity;
+    targetVersion: string | null;
+    total: number;
+    behind: number;
+    converging: number;
+    failed: number;
+    /** Machines that are behind but cannot safely join this wave without host-local repair. */
+    blocked?: number;
+    /** Kept separate from the grantable machine set: visible, but never authorized. */
+    blockers?: UpdateFleetBlocker[];
+    preparation?: {
+        webReady: boolean;
+        bundleReady: boolean;
+        failureDetail?: string;
+    };
+    machines: UpdateFleetMachine[];
+    /**
+     * Every registered machine, whatever its channel. `machines` above is the
+     * dev-authority wave the global dialog accounts for; Settings needs one row
+     * per machine so an edge/stable row can show its own convergence.
+     */
+    allMachines: UpdateFleetMachine[];
+    /**
+     * When each channel in use was last checked and what came back (POD-2100).
+     * ADDITIVE and tolerant of absence per the frozen-contract law (spec P8): an
+     * old bundle rendering a new server ignores it, and a channel that has never
+     * been checked has no entry rather than a fabricated one.
+     */
+    channelChecks: ChannelCheckRecord[];
+    /** Whether the server would accept the update action represented by this snapshot. */
+    startability?: UpdateStartability;
+    /**
+     * The durable operation currently converging this fleet, if one is (POD-2098).
+     *
+     * ADDITIVE, and deliberately only an id: this payload is the OLD read model
+     * and it stays exactly as it was, so the current dialog and Settings do not
+     * change. The id is the thread from here to `operations.active`, which the
+     * update panel picks up in its own issue. An old bundle ignores it (P8).
+     */
+    operationId?: string;
+    operation?: {
+        id: string;
+        failureReason?: string;
+    };
+    /**
+     * A version published while the operation ran, waiting its turn (§3.2). Shown
+     * so "0.4.4 arrived and will be offered when this finishes" is sayable rather
+     * than a target that silently changes underneath the panel.
+     */
+    nextTargetVersion?: string;
+}
+/**
+ * The preconditions that must refuse BEFORE an operation exists (§6.3).
+ *
+ * "Never show an internal precondition as an error" cuts both ways: the panel
+ * must not render one, and the server must not manufacture an operation that
+ * exists only to fail with one. A refusal here is the same sentence the old
+ * `startUpdate` produced, so the current dialog's copy is unchanged.
+ */
+type UpdateStartability = {
+    startable: true;
+} | {
+    startable: false;
+    reason: string;
+};
 
 /**
  * [spec:SP-3701] Tiered repo discovery for a (newly paired or reconnecting) machine —
@@ -8374,15 +8374,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         "setArchived": TRPC.TRPCMutationProcedure<{
             input: {
                 archived: boolean;
-                mutationId?: string | undefined;
-                sessionId: string;
-            };
-            output: void;
-            meta: unknown;
-        }>;
-        "setIssueId": TRPC.TRPCMutationProcedure<{
-            input: {
-                issueId: null | string;
                 mutationId?: string | undefined;
                 sessionId: string;
             };

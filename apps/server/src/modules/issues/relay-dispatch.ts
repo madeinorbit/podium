@@ -56,6 +56,7 @@ import { fleetViewFor, sessionCommandCtx, visibleMachinesFor } from '../sessions
 import { dispatchSessionCommand, isCommandPlaneProc } from '../sessions/command-plane'
 import type { SessionLifecycle } from '../sessions/lifecycle'
 import type { SessionReadToolkit } from '../sessions/read-toolkit'
+import { submitPlaneCommand } from '../sessions/sync-write'
 import type { SpecsService } from '../specs/service'
 import { dispatchWorkflowRpc } from '../workflows/rpc'
 import type { WorkflowCaller, WorkflowService } from '../workflows/service'
@@ -612,6 +613,17 @@ export function makeAgentRelayDispatch(
           capability,
           principal: (await sessionCommandCtx(modules(), capability, overrideScope, 'relay'))
             .principal,
+        })
+      }
+      // `continue` is on the sync write entry point (POD-6416): this arm is
+      // its relay adapter. LEGACY(remove-after: 2027-03): an older CLI's
+      // `podium session continue` calls it; removing it breaks that command.
+      if (proc === 'continue') {
+        const ctx = await sessionCommandCtx(modules(), capability, overrideScope, 'relay')
+        return await submitPlaneCommand(modules(), ctx.principal, 'relay', {
+          command: 'sessions.continue',
+          input,
+          ...(overrideScope ? { confirmed: true } : {}),
         })
       }
       if (isCommandPlaneProc(proc) && isExposedOn(sessionCommandPlane.defs[proc], 'relay')) {

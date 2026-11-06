@@ -5,7 +5,6 @@
  * Dispose: none.
  */
 
-import type { SessionRecordReads } from './records'
 import type {
   Attribution,
   IssueId,
@@ -17,20 +16,21 @@ import type {
 } from '@podium/model'
 import { asUserId } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
-import type { MachinesService } from '../machines/service'
-import type { WriteFunnel } from '../funnel'
-import type { SessionTeardown } from './session-teardown'
-import type { SessionKill, SessionKillPorts } from './session-kill'
-import type { EntityChangeSpec } from '@podium/sync'
-import type { MutationLedgerPort } from '@podium/sync'
+import type { EntityChangeSpec, MutationLedgerPort } from '@podium/sync'
 import { sessionsForIssue } from '../../issue-util'
 import type { SessionRow, SessionStore } from '../../store'
-import type { SessionRepository } from './repository'
-import type { SessionView } from './view'
-import type { SessionStateService } from './session-state/service'
+import { afterCommit } from '../../store/executor/executor'
+import type { WriteFunnel } from '../funnel'
+import type { MachinesService } from '../machines/service'
 import type { SessionDeletePlan, SessionRestorePlan } from './lifecycle'
+import type { SessionRecordReads } from './records'
+import type { SessionRepository } from './repository'
 import type { Session, SessionDurableState } from './session'
+import type { SessionKill, SessionKillPorts } from './session-kill'
 import type { SessionStateRegistry } from './session-state/registry'
+import type { SessionStateService } from './session-state/service'
+import type { SessionTeardown } from './session-teardown'
+import type { SessionView } from './view'
 
 export interface SessionMetaOpsPorts {
   broadcastSessions(): void
@@ -42,12 +42,28 @@ export interface SessionMetaOpsPorts {
   failMessagesToRemovedSessions: SessionKillPorts['failMessagesToRemovedSessions']
   repository: Pick<
     SessionRepository,
-    'write' | 'draft' | 'persistDraft' | 'sessionFromStoredRow' | 'prepareStoredSessionInstall' | 'publishSessionProjection'
+    | 'write'
+    | 'draft'
+    | 'persistDraft'
+    | 'sessionFromStoredRow'
+    | 'prepareStoredSessionInstall'
+    | 'publishSessionProjection'
   >
   sessionRemovalSpecs(sessionId: SessionId): EntityChangeSpec[]
   sessionTeardown: Pick<SessionTeardown, 'tryAutoArchiveStoppedObserved'>
   sessions: Map<SessionId, Session>
-  state: Pick<SessionStateService, 'setSnooze' | 'clearSnooze' | 'markRead' | 'markUnread' | 'setWorkState' | 'setArchived' | 'clearAllSnoozes' | 'suppressNativeDraft' | 'prepareStoredDrafts'>
+  state: Pick<
+    SessionStateService,
+    | 'setSnooze'
+    | 'clearSnooze'
+    | 'markRead'
+    | 'markUnread'
+    | 'setWorkState'
+    | 'setArchived'
+    | 'clearAllSnoozes'
+    | 'suppressNativeDraft'
+    | 'prepareStoredDrafts'
+  >
   store: SessionStore
   toPtyInput: MachinesService['toPtyInput']
   /**
@@ -60,7 +76,10 @@ export interface SessionMetaOpsPorts {
     sessionId: SessionId
     erroredTurn: string
   }) => Promise<{ ok: boolean; reason?: string }>
-  view: Pick<SessionView, 'principalForTrustedUser' | 'prepareRefAllocation' | 'overlay' | 'wire' | 'buildProjectionPass'>
+  view: Pick<
+    SessionView,
+    'principalForTrustedUser' | 'prepareRefAllocation' | 'overlay' | 'wire' | 'buildProjectionPass'
+  >
 }
 
 export class SessionMetaOps {
@@ -318,7 +337,11 @@ export class SessionMetaOps {
     return this.ports.sessionTeardown.tryAutoArchiveStoppedObserved(observed, nowMs)
   }
 
-  async continueSession({ sessionId }: { sessionId: SessionId }): Promise<{ ok: boolean; reason?: string }> {
+  async continueSession({
+    sessionId,
+  }: {
+    sessionId: SessionId
+  }): Promise<{ ok: boolean; reason?: string }> {
     const session = this.ports.sessions.get(sessionId)
     if (!session) return { ok: false }
     // Status gate as well as phase: a session can read 'errored' while its
@@ -346,11 +369,18 @@ export class SessionMetaOps {
       return { ok: false, ...(result.reason !== undefined ? { reason: result.reason } : {}) }
     }
     session.terminal.recordInputActivity(this.ports.now(), 'auto_continue')
-    this.ports.toPtyInput(session.machineId, {
-      sessionId,
-      inputOrigin: 'auto_continue',
-      bytes: Buffer.from('continue\r'),
-    })
+    // The keystroke waits for the commit of the write it belongs to (POD-6416,
+    // ADR 2 D10): `sessions.continue` runs inside the entry point's unit of
+    // work, and a rolled-back continue must type nothing. Outside a unit it is
+    // typed now, as before.
+    const machineId = session.machineId
+    afterCommit(() => {
+      this.ports.toPtyInput(machineId, {
+        sessionId,
+        inputOrigin: 'auto_continue',
+        bytes: Buffer.from('continue\r'),
+      })
+    }, 'session-continue-keystroke')
     return { ok: true }
   }
 
@@ -447,11 +477,20 @@ export class SessionMetaOps {
     })
   }
 
-  async prepareIssueSessionDelete(issueId: IssueId, worktreePath: string | null): Promise<SessionDeletePlan> {
+  async prepareIssueSessionDelete(
+    issueId: IssueId,
+    worktreePath: string | null,
+  ): Promise<SessionDeletePlan> {
     // Every member, parked ones included: each is tombstoned, failed and killed.
     const sessionIds = this.ports.records
-      ? (await this.ports.records.issueMembers(worktreePath, issueId, 'prepareIssueSessionDelete')).map((s) => s.sessionId)
-      : sessionsForIssue(worktreePath, [...this.ports.sessions.values()].map((s) => s.toMeta()), issueId).map((s) => s.sessionId)
+      ? (
+          await this.ports.records.issueMembers(worktreePath, issueId, 'prepareIssueSessionDelete')
+        ).map((s) => s.sessionId)
+      : sessionsForIssue(
+          worktreePath,
+          [...this.ports.sessions.values()].map((s) => s.toMeta()),
+          issueId,
+        ).map((s) => s.sessionId)
     const deletedAt = new Date(this.ports.now()).toISOString()
     const removals: (() => void)[] = []
     for (const sessionId of sessionIds)
@@ -487,10 +526,15 @@ export class SessionMetaOps {
     // Read before apply because that post-commit closure must remain synchronous.
     // The commit cannot change this answer: restoreDeletedForIssue updates only
     // the sessions table, and loadFromStore does not touch offers.
-    const offers = await this.ports.store.sessions.offersOf(restored.map(({ session }) => session.sessionId))
-    const installDrafts = await this.ports.state.prepareStoredDrafts(restored.map(({ session }) => session.sessionId))
+    const offers = await this.ports.store.sessions.offersOf(
+      restored.map(({ session }) => session.sessionId),
+    )
+    const installDrafts = await this.ports.state.prepareStoredDrafts(
+      restored.map(({ session }) => session.sessionId),
+    )
     const installs: Awaited<ReturnType<SessionRepository['prepareStoredSessionInstall']>>[] = []
-    for (const { session } of restored) installs.push(await this.ports.repository.prepareStoredSessionInstall(session, offers))
+    for (const { session } of restored)
+      installs.push(await this.ports.repository.prepareStoredSessionInstall(session, offers))
     const view: Pick<SessionView, 'wire' | 'buildProjectionPass'> = this.ports.view
     const pass = await view.buildProjectionPass(restored.map(({ session }) => session))
     const restoredSessions: SessionMeta[] = []

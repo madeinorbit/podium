@@ -10,6 +10,7 @@
 import { AGENT_PROFILE_SYNC_FAMILY } from '../agent-profiles/sync-write'
 import { CONVERSATION_SYNC_FAMILY } from '../conversations/sync-write'
 import { READ_POSITION_SYNC_FAMILY } from '../read-position/sync-write'
+import { registerSessionFamilyCommands } from '../sessions/sync-write'
 import { registerSettingsWrite } from '../settings/sync-write'
 import { registerSyncFamily, type SyncFamilyDeps } from './family'
 import type { SyncWriteRegistry } from './registry'
@@ -23,6 +24,9 @@ export const FAMILY_COMMAND_NAMES = [
   'conversations.setMeta',
   'readPosition.advance',
   'settings.updateInstance',
+  // The session command plane's immediate writes (POD-6416).
+  'sessions.setIssueId',
+  'sessions.continue',
 ] as const
 
 export function registerFamilyCommands(registry: SyncWriteRegistry, deps: SyncFamilyDeps): void {
@@ -35,4 +39,5 @@ export function registerFamilyCommands(registry: SyncWriteRegistry, deps: SyncFa
     { settings: () => deps.modules().settings, roleOf: deps.roleOf },
     'settings.updateInstance',
   )
+  registerSessionFamilyCommands(registry, deps)
 }

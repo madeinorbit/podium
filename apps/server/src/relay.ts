@@ -105,11 +105,10 @@ import { makeEffectFeedCapture } from './modules/effects/feed'
 import { EffectExecutorRegistry } from './modules/effects/registry'
 import { EffectsRunner } from './modules/effects/runner'
 import { registerEffectCommands } from './modules/effects/sync-write'
-import { registerServerMoveEffect } from './modules/fleet/server-move-effect'
-import { registerUpdateEffect, type UpdateEffects } from './modules/updates/update-effect'
 import { EventLogRetention } from './modules/events/retention'
 import { registerFileWriteEffect } from './modules/files/write-effect'
 import { registerDiscoveryEffects } from './modules/fleet/discovery-effects'
+import { registerServerMoveEffect } from './modules/fleet/server-move-effect'
 import { WriteFunnel } from './modules/funnel'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
 import { InteractionFeedPublisher } from './modules/interactions/feed'
@@ -183,6 +182,7 @@ import { SessionLifecycleController } from './modules/sessions/lifecycle-control
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
 import { readSessionRefs } from './modules/sessions/refs'
 import type { Session } from './modules/sessions/session'
+import { registerSessionConfigureEffect } from './modules/sessions/session-configure-effect'
 import {
   registerSessionInterruptEffect,
   type SessionInterruptsHandle,
@@ -225,6 +225,7 @@ import { UpdateReconciler } from './modules/updates/reconciler'
 import { type ChannelFeed, resolveReleaseTarget } from './modules/updates/release-target'
 import type { ServerPlacement } from './modules/updates/service'
 import { UpdatesService } from './modules/updates/service'
+import { registerUpdateEffect, type UpdateEffects } from './modules/updates/update-effect'
 import { WorkflowService } from './modules/workflows/service'
 import { asSystemWrite, syncedWriteProvenance } from './plain-command-scope'
 import { MachineRepoDiscovery } from './repo-discovery'
@@ -3987,6 +3988,8 @@ export class SessionRegistry {
       modules: () => this.modules,
       now: this.now,
     })
+    // A running session's model or effort changes through its driver (POD-6416).
+    registerSessionConfigureEffect({ modules: () => this.modules })
     // Software update and server move start from effect records; the
     // Operations engine is their executor (ADR 12 D5 E3, POD-6358).
     this.modules.updateEffects = registerUpdateEffect({
