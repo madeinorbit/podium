@@ -81,6 +81,11 @@ export const fixtureManifest: AgentManifest = {
     interruptQuitsWhenIdle: false,
   },
   resumeKind: 'fixture-session',
+  // No selector: the fixture keeps everything under `<home>/.fixture`.
+  roots: (home) => {
+    const state = join(home, '.fixture')
+    return { state, credentials: state, transcripts: join(state, 'sessions') }
+  },
   environment: { removeInherited: [] },
 
   inventory: {

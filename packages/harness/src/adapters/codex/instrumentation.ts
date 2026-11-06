@@ -26,6 +26,7 @@ import type {
 } from '../../manifest.js'
 import { withEventTime } from '../../observer.js'
 import { classifyCodexVerdict } from './state.js'
+import { codexRoots, codexRootsFor } from './roots.js'
 
 const log = createLogger('harness:codex-instrumentation')
 
@@ -349,9 +350,10 @@ export async function ensurePodiumCodexHooks(opts?: {
   trusted?: boolean
   untrustedEvents?: string[]
 }> {
-  const codexHome = opts?.codexHome ?? join(opts?.homeDir ?? homedir(), '.codex')
+  const roots = codexRootsFor(opts?.homeDir ?? homedir(), opts?.codexHome)
+  const codexHome = roots.state
   if (!existsSync(codexHome)) return { installed: false, changed: false, reason: 'no ~/.codex' }
-  const hooksJsonPath = join(codexHome, 'hooks.json')
+  const hooksJsonPath = join(roots.hooks, 'hooks.json')
 
   let observedVersion: string
   try {
@@ -401,7 +403,7 @@ export async function ensurePodiumCodexHooks(opts?: {
   }
   const upserted = upsertHooksJson(doc)
   if (upserted.changed) {
-    await mkdir(codexHome, { recursive: true })
+    await mkdir(roots.hooks, { recursive: true })
     await writeAtomic(hooksJsonPath, `${JSON.stringify(upserted.doc, null, 2)}\n`)
   }
 
@@ -410,7 +412,7 @@ export async function ensurePodiumCodexHooks(opts?: {
   // config.toml's [hooks.state] table and say so when our handlers lack it.
   let configText: string | undefined
   try {
-    configText = await readFile(join(codexHome, 'config.toml'), 'utf8')
+    configText = await readFile(join(roots.config, 'config.toml'), 'utf8')
   } catch {
     configText = undefined
   }
@@ -709,7 +711,7 @@ async function decodeCodexHookPayload(payload: unknown): Promise<ProviderAgentSt
 async function installCodexInstrumentation(
   destination: InstrumentationDestination,
 ): Promise<InstalledInstrumentation> {
-  const codexHome = destination.harnessHome ?? join(destination.homeDir ?? homedir(), '.codex')
+  const codexHome = codexRootsFor(destination.homeDir ?? homedir(), destination.harnessHome).state
   const wiring = {
     args: destination.seedTheme ? ['-c', 'tui.theme=ansi'] : [],
     env: {
@@ -791,15 +793,19 @@ function installerDegradedKind(
  * ambient `CODEX_HOME` redirects otherwise, and the fallback is
  * `<home>/.codex`. Owned here so the mechanism never reads the environment
  * section — it only looks the `home` strategy up by scope.
+ *
+ * The env below is the launch child's composition (POD-6532): the folder rule
+ * itself is `codexRoots`, the same one the observer applies, so hooks land in
+ * the folder the session reads. Replaced by the session-pinned context in
+ * POD-6533.
  */
 function codexHomeOf(destination: InstrumentationDestination): string {
   const env: Record<string, string | undefined> = {
     ...process.env,
     ...(destination.env ?? {}),
-    ...(destination.homeDir ? { CODEX_HOME: join(destination.homeDir, '.codex') } : {}),
+    ...(destination.homeDir ? { CODEX_HOME: codexRoots(destination.homeDir, {}).state } : {}),
   }
-  const homeDir = destination.homeDir ?? env.HOME ?? homedir()
-  return env.CODEX_HOME?.trim() || join(homeDir, '.codex')
+  return codexRoots(destination.homeDir ?? env.HOME ?? homedir(), env).state
 }
 
 export const codexInstrumentation: HarnessInstrumentation = {

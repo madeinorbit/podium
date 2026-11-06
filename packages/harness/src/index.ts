@@ -61,6 +61,7 @@ export type {
 export * from './descriptors.js'
 export * from './discovery/index.js'
 export * from './executable-runtime.js'
+export * from './harness-context.js'
 export * from './instructions.js'
 export * from './inventory/build-inventory.js'
 export * from './issue-system-pointer.js'

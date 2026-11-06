@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
 import { cursorStateProvider, observeCursorState } from './state.js'
 import { withStateChannel } from '../../agent-state/types.js'
-import { cursorSessionPaths } from '../../cursor/paths.js'
+import { cursorRoot, cursorSessionPaths } from '../../cursor/paths.js'
 import { createCursorConversationProvider } from './discovery.js'
 import { composeAgentInstructions } from '../../instructions.js'
 import {
@@ -56,6 +56,12 @@ export const cursorManifest: AgentManifest = {
     interruptQuitsWhenIdle: false,
   },
   resumeKind: 'cursor-chat',
+  // No selector: Podium's Cursor paths (cursor/paths.ts) have only ever read
+  // `<home>/.cursor`, so the env never redirects it.
+  roots: (home) => {
+    const state = cursorRoot(home)
+    return { state, transcripts: join(state, 'projects') }
+  },
   environment: { removeInherited: [] },
 
   inventory: {

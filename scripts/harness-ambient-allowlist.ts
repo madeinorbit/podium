@@ -33,7 +33,8 @@
  *
  * Measured at integrate/6520-harness-access-contract f619595514
  * (2026-11-06): 32 entries, 54 uses — to-migrate 51, os-tool 3. POD-6532
- * edits the Codex files in parallel; whichever lands second re-measures.
+ * then removed the daemon's Codex folder literals (control/codex.ts,
+ * session-observers.ts): 30 entries, 51 uses — to-migrate 48, os-tool 3.
  */
 
 export type HarnessAmbientAccess =
@@ -60,7 +61,7 @@ export interface HarnessAmbientAllowlistEntry {
 }
 
 /** Seeded category totals; the list may only go down from these. */
-export const HARNESS_AMBIENT_BASELINE_TO_MIGRATE = 51
+export const HARNESS_AMBIENT_BASELINE_TO_MIGRATE = 48
 export const HARNESS_AMBIENT_BASELINE_OS_TOOL = 3
 
 const A = 'packages/harness/src/adapters'
@@ -77,25 +78,11 @@ const CHILD_ENV = 'POD-6535' // single harness child environment
 export const HARNESS_AMBIENT_ALLOWLIST: readonly HarnessAmbientAllowlistEntry[] = [
   // --- Scope B: harness state folders named in the daemon -------------------
   {
-    file: `${D}/control/codex.ts`,
-    access: 'state-folder',
-    count: 1,
-    category: 'to-migrate',
-    issue: ROOTS,
-  },
-  {
     file: `${D}/host-runtime.ts`,
     access: 'state-folder',
     count: 1,
     category: 'to-migrate',
     issue: CHILD_ENV,
-  },
-  {
-    file: `${D}/session-observers.ts`,
-    access: 'state-folder',
-    count: 2,
-    category: 'to-migrate',
-    issue: ROOTS,
   },
 
   // --- Scope A: claude-code -------------------------------------------------

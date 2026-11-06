@@ -16,6 +16,7 @@ import {
   type HarnessEnvironment,
   isSet,
   promptArgv,
+  selectedRoot,
   type SelectionContext,
   selectRuntimeDriver,
   supported,
@@ -85,6 +86,13 @@ export const claudeCodeManifest: AgentManifest = {
     interruptQuitsWhenIdle: false,
   },
   resumeKind: 'claude-session',
+  // CLAUDE_CONFIG_DIR relocates settings, credentials and the projects store
+  // (the credential layout's homeEnvVar). No global hook folder: Claude's
+  // hooks ride per-session settings args.
+  roots: (home, env) => {
+    const state = selectedRoot(env, 'CLAUDE_CONFIG_DIR', home, '.claude')
+    return { state, config: state, credentials: state, transcripts: join(state, 'projects') }
+  },
   environment: {
     // A daemon started inside Claude carries another conversation's identity.
     // Passing it on makes the child subordinate itself to that session and

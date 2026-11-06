@@ -30,6 +30,7 @@ import {
   type CodexThreadMetadata,
   createTimedCodexStateMetadataReader,
 } from '../../discovery/providers/codex-state.js'
+import { codexRoots } from './roots.js'
 
 const log = createLogger('harness:discovery')
 const providerId = 'codex-jsonl'
@@ -39,7 +40,7 @@ export function createCodexConversationProvider(): ConversationProvider {
   return {
     id: providerId,
     agentKind: 'codex',
-    defaultRoots: ({ homeDir }) => [join(homeDir, '.codex')],
+    defaultRoots: ({ homeDir }) => [codexRoots(homeDir, {}).state],
     listRoot,
     summarizeFile,
     scanRoot,

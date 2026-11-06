@@ -27,6 +27,7 @@ import { codexCredentials } from './credentials.js'
 import { codexDescriptor } from './descriptor.js'
 import { createCodexConversationProvider } from './discovery.js'
 import { codexInstall } from './install.js'
+import { codexRoots, codexRootsFor } from './roots.js'
 import { codexInstrumentation } from './instrumentation.js'
 import { createOwnedCodexRolloutResolver } from './owned-rollout.js'
 import {
@@ -51,8 +52,7 @@ interface CodexAuthFile {
 }
 
 function codexAuthPath(homeDir: string, env: HarnessEnvironment = process.env): string {
-  const codexHome = env.CODEX_HOME?.trim() || join(homeDir, '.codex')
-  return join(codexHome, 'auth.json')
+  return join(codexRoots(homeDir, env).credentials, 'auth.json')
 }
 
 function codexProfile(idToken: string | undefined): string | undefined {
@@ -162,7 +162,9 @@ export function codexTranscriptPlacement(
   filename: string,
 ): string {
   const safeDir = (relativeDir ?? '').split(/[\\/]+/u).filter((part) => part && part !== '..')
-  return join(home, '.codex', 'sessions', ...safeDir, basename(filename))
+  // A handoff places into the TARGET home's default store: the importing
+  // daemon holds no environment for it yet.
+  return join(codexRoots(home, {}).transcripts, ...safeDir, basename(filename))
 }
 
 /**
@@ -214,6 +216,7 @@ export const codexManifest: AgentManifest = {
     interruptQuitsWhenIdle: false,
   },
   resumeKind: 'codex-thread',
+  roots: codexRoots,
   environment: {
     removeInherited: [],
     instanceHome: { variable: 'CODEX_HOME', relativeDir: '.codex' },
@@ -653,10 +656,7 @@ export const codexManifest: AgentManifest = {
     const resolveOwned = input.ownedProcess
       ? createOwnedCodexRolloutResolver({
           ownedProcess: input.ownedProcess,
-          sessionsRoot: join(
-            input.harnessHome ?? join(input.homeDir ?? homedir(), '.codex'),
-            'sessions',
-          ),
+          sessionsRoot: codexRootsFor(input.homeDir ?? homedir(), input.harnessHome).transcripts,
           startedAtMs: floor,
           resumeValue: input.resumeValue,
         })
@@ -773,7 +773,7 @@ export const codexManifest: AgentManifest = {
     async transcriptForExport({ homeDir, resumeValue }) {
       const found = await resolvePinnedCodexRollout(resumeValue, homeDir)
       if (!found) throw new Error('Codex transcript not found')
-      const rel = relative(join(homeDir, '.codex', 'sessions'), dirname(found.path))
+      const rel = relative(codexRoots(homeDir, {}).transcripts, dirname(found.path))
       if (rel.startsWith('..')) throw new Error('Codex transcript is outside the sessions root')
       return { path: found.path, ...(rel ? { relativeDir: rel } : {}) }
     },

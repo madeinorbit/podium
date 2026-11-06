@@ -1,5 +1,4 @@
 import { homedir } from 'node:os'
-import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import {
   type AgentRuntimeState,
@@ -19,6 +18,8 @@ import {
   type HarnessObserverHost,
   type HarnessProviderRebind,
   harnessAdapterFor,
+  harnessInstanceHomeEnv,
+  harnessRoots,
   initialAgentState,
   locateClaudeSessionFile,
   parseClaudeTranscriptSegmentId,
@@ -124,6 +125,28 @@ export function pathHintOf(msg: SpawnControl | ReattachControl): string | undefi
 }
 
 export type SessionObservers = ReturnType<typeof createSessionObservers>
+
+/**
+ * The harness home a session's child runs under, by the SAME rule as launch
+ * (POD-6532). The env is the launch composition: the daemon env, then the
+ * session env, then the instance HOME and selector whenever the daemon has an
+ * agent home (`control/session.ts` puts those in `podiumEnv`, which wins). The
+ * folder itself comes from the adapter's `roots`, the rule hooks and usage use.
+ *
+ * TRANSITIONAL: POD-6533 pins a context on the session and this goes away.
+ */
+function sessionHarnessHome(
+  kind: 'codex',
+  homeDir: string | undefined,
+  sessionEnv: Readonly<Record<string, string>> | undefined,
+): string {
+  const env: Record<string, string | undefined> = {
+    ...process.env,
+    ...(sessionEnv ?? {}),
+    ...(homeDir ? { HOME: homeDir, ...harnessInstanceHomeEnv(kind, homeDir) } : {}),
+  }
+  return harnessRoots(kind, env.HOME ?? homedir(), env).state
+}
 
 /**
  * Hold before emitting a transition INTO phase `idle` on the wire.
@@ -1797,11 +1820,8 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         init.newSessionId ??
         (msg.type === 'reattach' ? (observationLease?.providerSessionId ?? undefined) : undefined)
       const sessionEnv = init.env ?? (msg.type === 'spawn' ? msg.env : undefined)
-      const codexHome = deps.homeDir
-        ? join(deps.homeDir, '.codex')
-        : sessionEnv?.CODEX_HOME?.trim() ||
-          process.env.CODEX_HOME?.trim() ||
-          join(sessionEnv?.HOME ?? homedir(), '.codex')
+      const codexHome =
+        adapter.kind === 'codex' ? sessionHarnessHome('codex', deps.homeDir, sessionEnv) : undefined
       startObservation(
         msg.sessionId,
         adapter,
@@ -1816,7 +1836,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           podiumSessionId: msg.sessionId,
           ...(resumeValue ? { resumeValue } : {}),
           ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
-          ...(adapter.kind === 'codex' ? { harnessHome: codexHome } : {}),
+          ...(codexHome ? { harnessHome: codexHome } : {}),
           ...(deps.transcriptRoot ? { transcriptRoot: deps.transcriptRoot } : {}),
           ...(init.startedAtMs !== undefined ? { startedAtMs: init.startedAtMs } : {}),
           // Reattach carries the session's original spawn time — the codex

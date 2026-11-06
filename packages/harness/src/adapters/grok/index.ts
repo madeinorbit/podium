@@ -14,6 +14,7 @@ import {
   type HarnessEnvironment,
   isSet,
   promptArgv,
+  selectedRoot,
   selectRuntimeDriver,
   supported,
   unsupported,
@@ -104,6 +105,16 @@ export const grokManifest: AgentManifest = {
     interruptQuitsWhenIdle: false,
   },
   resumeKind: 'grok-session',
+  // GROK_HOME relocates auth, personal hooks and the sessions store.
+  roots: (home, env) => {
+    const state = selectedRoot(env, 'GROK_HOME', home, '.grok')
+    return {
+      state,
+      credentials: state,
+      transcripts: join(state, 'sessions'),
+      hooks: join(state, 'hooks'),
+    }
+  },
   environment: {
     removeInherited: [],
     instanceHome: { variable: 'GROK_HOME', relativeDir: '.grok' },

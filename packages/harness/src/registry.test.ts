@@ -811,6 +811,8 @@ describe('open HarnessId vs closed BuiltinHarnessKind (POD-303)', () => {
       },
       capabilities: { ...AGENT_MANIFESTS['claude-code'].capabilities },
       resumeKind: 'fictional-session',
+      // Irreducible (POD-6532): every harness says where its state lives.
+      roots: (home) => ({ state: `${home}/.fictional` }),
       environment: { removeInherited: [] },
       inventory: {
         executable: { names: ['fictional'], versionArgs: ['--version'] },

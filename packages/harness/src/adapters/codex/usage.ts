@@ -25,6 +25,7 @@ import type { QuotaHistorySampleWire } from '@podium/protocol'
 import {
   supported,
   unsupported,
+  type HarnessEnvironment,
   type HarnessUsage,
   type QuotaProbeOptions,
 } from '../../manifest.js'
@@ -36,6 +37,7 @@ import {
   type UsageRecord,
   type UsageScanCache,
 } from '../../usage-records.js'
+import { codexRoots } from './roots.js'
 
 const USAGE_URL = 'https://chatgpt.com/backend-api/wham/usage'
 
@@ -93,8 +95,14 @@ export function parseWhamUsage(body: WhamUsageResponse): QuotaWindowWire[] {
   return windows
 }
 
+/**
+ * `env` is the account environment the caller holds, when it holds one: its
+ * `CODEX_HOME` is honoured through the one Codex folder rule (POD-6532). An
+ * absent env reads the default `<home>/.codex` — never the daemon's own
+ * `process.env`, which is not the account's.
+ */
 export async function fetchCodexQuota(
-  deps: QuotaProbeOptions = {},
+  deps: QuotaProbeOptions & { env?: HarnessEnvironment } = {},
 ): Promise<AgentQuotaWire> {
   const now = deps.now ?? Date.now()
   const fetchImpl = deps.fetchImpl ?? fetch
@@ -103,7 +111,10 @@ export async function fetchCodexQuota(
     windows: [] as QuotaWindowWire[],
     fetchedAt: new Date(now).toISOString(),
   }
-  const authPath = join(deps.homeDir ?? homedir(), '.codex', 'auth.json')
+  const authPath = join(
+    codexRoots(deps.homeDir ?? homedir(), deps.env ?? {}).credentials,
+    'auth.json',
+  )
   let accessToken: string | undefined
   let accountId: string | undefined
   try {
@@ -217,8 +228,10 @@ export function codexUsageFromRecord(record: unknown, model: string): UsageRecor
  * day of slack on both ends to stay correct, and the mtime check below already
  * costs one stat and skips the read.
  *
- * A non-default `CODEX_HOME` is not followed — the daemon's environment is not
- * the shell codex was launched from, so reading it there would be a guess.
+ * The daemon's OWN `CODEX_HOME` is not followed — the daemon's environment is
+ * not the shell codex was launched from, so reading it there would be a guess.
+ * A `CODEX_HOME` in the account env the caller passes is (POD-6532): that env
+ * is the one the session child gets.
  *
  * Every rollout counts, including the "guardian" subagent rollout Codex ≥0.142
  * writes alongside an interactive session. The sheet answers what the account
@@ -227,9 +240,10 @@ export function codexUsageFromRecord(record: unknown, model: string): UsageRecor
 export async function scanCodexUsage(opts: {
   sinceMs: number
   homeDir?: string
+  env?: HarnessEnvironment
   cache?: UsageScanCache
 }): Promise<UsageFileScan[]> {
-  const sessionsDir = join(opts.homeDir ?? homedir(), '.codex', 'sessions')
+  const sessionsDir = codexRoots(opts.homeDir ?? homedir(), opts.env ?? {}).transcripts
   const paths: string[] = []
   await collectJsonlFiles(sessionsDir, paths)
   return scanJsonlTranscripts(paths, 'codex', opts, {
@@ -359,9 +373,9 @@ async function collectRollouts(dir: string, out: string[]): Promise<void> {
   }
 }
 
-async function codexAccountEmail(homeDir: string): Promise<string | undefined> {
+async function codexAccountEmail(credentialsDir: string): Promise<string | undefined> {
   try {
-    const auth: unknown = JSON.parse(await readFile(join(homeDir, '.codex', 'auth.json'), 'utf8'))
+    const auth: unknown = JSON.parse(await readFile(join(credentialsDir, 'auth.json'), 'utf8'))
     const tokens = (auth as { tokens?: { id_token?: unknown } }).tokens
     const idToken = tokens?.id_token
     if (typeof idToken !== 'string') return undefined
@@ -386,11 +400,12 @@ export async function scanCodexQuotaHistory(opts: {
   sinceMs: number
   machineId: string
   homeDir?: string
+  env?: HarnessEnvironment
 }): Promise<QuotaHistorySampleWire[]> {
-  const home = opts.homeDir ?? homedir()
-  const email = await codexAccountEmail(home)
+  const roots = codexRoots(opts.homeDir ?? homedir(), opts.env ?? {})
+  const email = await codexAccountEmail(roots.credentials)
   const files: string[] = []
-  await collectRollouts(join(home, '.codex', 'sessions'), files)
+  await collectRollouts(roots.transcripts, files)
   const samples: QuotaHistorySampleWire[] = []
   for (const path of files) {
     try {

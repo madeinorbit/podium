@@ -50,6 +50,7 @@ import {
   classifyCodexVerdict,
   codexUsageLimitSummary,
 } from './state.js'
+import { codexRootsFor } from './roots.js'
 
 export { codexApprovalsReviewerFromTranscript } from './instrumentation.js'
 export {
@@ -914,8 +915,9 @@ export function observeCodexState(opts: {
   /** Test/attribution seam for the expensive unbound corpus fallback. */
   onFilesystemRolloutScan?: () => void
 }): CodexStateObservation {
-  const codexHome = opts.codexHome ?? join(opts.homeDir ?? homedir(), '.codex')
-  const root = join(codexHome, 'sessions')
+  const codexRootsForSession = codexRootsFor(opts.homeDir ?? homedir(), opts.codexHome)
+  const codexHome = codexRootsForSession.state
+  const root = codexRootsForSession.transcripts
   const startedAtMs = opts.startedAtMs ?? 0
   // The cwd/time walk is a compatibility fallback only. A Podium-owned Linux
   // session has two exact identity channels instead: its inherited stable P id
@@ -1815,7 +1817,8 @@ export async function findCodexRolloutPath(opts: {
   /** UNBRANDED BY DECISION: a provider/harness-native thread id, not a Podium messaging ThreadId. */
   readThreadState?: (threadId: string) => ReturnType<typeof readCodexThreadMetadata>
 }): Promise<string | undefined> {
-  const root = opts.codexHome ?? join(opts.homeDir ?? homedir(), '.codex')
+  const roots = codexRootsFor(opts.homeDir ?? homedir(), opts.codexHome)
+  const root = roots.state
   try {
     const meta = opts.readThreadState
       ? await opts.readThreadState(opts.resumeValue)
@@ -1840,7 +1843,7 @@ export async function findCodexRolloutPath(opts: {
       else if (e.name.endsWith('.jsonl') && e.name.includes(opts.resumeValue)) match = full
     }
   }
-  await walk(join(root, 'sessions'))
+  await walk(roots.transcripts)
   return match
 }
 

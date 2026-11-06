@@ -8,6 +8,7 @@ import {
   type AgentManifest,
   isSet,
   type LaunchFile,
+  selectedRoot,
   selectRuntimeDriver,
   supported,
   unsupported,
@@ -58,6 +59,22 @@ export const opencodeManifest: AgentManifest = {
     interruptQuitsWhenIdle: false,
   },
   resumeKind: 'opencode-session',
+  // XDG base directories, as OpenCode itself reads them: data (auth.json and
+  // opencode.db) under XDG_DATA_HOME, config under XDG_CONFIG_HOME. The
+  // defaults are what paths.ts and opencode/db.ts read today; those helpers
+  // move onto this rule with their callers (POD-6533/POD-6534).
+  roots: (home, env) => {
+    const state = join(
+      selectedRoot(env, 'XDG_DATA_HOME', home, join('.local', 'share')),
+      'opencode',
+    )
+    return {
+      state,
+      config: join(selectedRoot(env, 'XDG_CONFIG_HOME', home, '.config'), 'opencode'),
+      credentials: state,
+      transcripts: state,
+    }
+  },
   environment: { removeInherited: [] },
 
   inventory: {

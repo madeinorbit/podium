@@ -11,6 +11,7 @@ import {
   type HarnessEnvironment,
   isSet,
   promptArgv,
+  selectedRoot,
   selectRuntimeDriver,
   supported,
   unsupported,
@@ -158,6 +159,17 @@ export const piManifest: AgentManifest = {
     composerReadiness: 'on-bind',
   },
   resumeKind: 'pi-session',
+  // PI_CODING_AGENT_DIR relocates the whole agent dir; PI_CODING_AGENT_SESSION_DIR
+  // only the sessions tree (pi/paths.ts, which states the layout once).
+  roots: (home, env) => {
+    const state = selectedRoot(env, 'PI_CODING_AGENT_DIR', home, join('.pi', 'agent'))
+    return {
+      state,
+      config: state,
+      credentials: state,
+      transcripts: selectedRoot(env, 'PI_CODING_AGENT_SESSION_DIR', state, 'sessions'),
+    }
+  },
   // PI_CODING_AGENT_DIR relocates the whole config/session/auth root, so an
   // instance-owned agent home keeps one Podium instance's Pi state to itself.
   environment: {

@@ -8,6 +8,8 @@ import {
   codexAccessTokenExpiryMs,
   CodexHttpError,
   codexResponsesHeaders,
+  harnessLoginReadEnv,
+  harnessRoots,
   hasValidCodexCredential,
   parseCodexAuthContents,
   parseCodexResponsesSse,
@@ -53,13 +55,22 @@ export interface CodexDaemonAuth {
  */
 export const CODEX_DAEMON_HTTP_TIMEOUT_MS = 110_000
 
-function codexHome(credentialHome: string | undefined): string {
-  if (process.env.CODEX_HOME && process.env.CODEX_HOME.length > 0) return process.env.CODEX_HOME
-  return join(credentialHome ?? homedir(), '.codex')
+/**
+ * The account's Codex credential folder (POD-6532, F07). The account env is
+ * the one the child gets for this credential home (`harnessLoginReadEnv`), so
+ * the daemon's OWN `CODEX_HOME` never redirects which login answers: the
+ * Responses call reads the same auth.json the inventory reported and the
+ * session runs under. The machine env contributes nothing to the folder, so
+ * none is passed.
+ */
+function codexCredentialsDir(credentialHome: string | undefined): string {
+  const home = credentialHome ?? homedir()
+  const roots = harnessRoots('codex', home, harnessLoginReadEnv('codex', home, {}))
+  return roots.credentials ?? roots.state
 }
 
 export function codexAuthPathFor(credentialHome: string | undefined): string {
-  return join(codexHome(credentialHome), 'auth.json')
+  return join(codexCredentialsDir(credentialHome), 'auth.json')
 }
 
 /** Cheap sync check so the handler can fail fast with a clear message. */

@@ -204,6 +204,43 @@ export interface HarnessLogin {
 
 export type HarnessEnvironment = Readonly<Record<string, string | undefined>>
 
+/**
+ * WHERE ONE HARNESS KEEPS ITS STATE for one (home, environment) pair
+ * (POD-6532, docs/design/harness-access-contract.md §3.2). Absolute folders.
+ *
+ * `state` is the harness's own root; the optional folders are filled only
+ * where the adapter reads or writes that kind of file today. Every folder is
+ * derived by the adapter's {@link AgentManifest.roots} rule, never by a caller,
+ * so launch, hooks, observation, usage and credentials cannot disagree.
+ */
+export interface HarnessRoots {
+  /** The harness's own state root (`CODEX_HOME`, `~/.claude`, …). */
+  state: string
+  /** Configuration files the harness reads (`config.toml`, `settings.json`). */
+  config?: string
+  /** The folder holding its credential file (`auth.json`, `.credentials.json`). */
+  credentials?: string
+  /** Root of its native transcript store. */
+  transcripts?: string
+  /** Where its global hook declarations live. */
+  hooks?: string
+}
+
+/**
+ * THE ONE ROOT RULE (POD-6532): a non-blank selector wins, otherwise the
+ * default folder under `home`. The same precedence the credential layouts'
+ * `homeEnvVar` already uses ({@link resolveCredentialFilePath}), so a
+ * credential file and its state root can never resolve to different folders.
+ */
+export function selectedRoot(
+  env: HarnessEnvironment,
+  selector: string,
+  home: string,
+  defaultDir: string,
+): string {
+  return env[selector]?.trim() || join(home, defaultDir)
+}
+
 /** Complete, bounded output from a non-interactive native login probe. */
 export interface LoginCommandResult {
   readonly stdout: string
@@ -1601,6 +1638,13 @@ export interface AgentManifest {
       relativeDir: string
     }
   }
+  /**
+   * Where this harness keeps its state for one (home, env) pair (POD-6532).
+   * Required, never Declared: every harness has a state root, and a caller that
+   * derives one itself is exactly the drift this rule exists to end. Pure path
+   * arithmetic — never reads the process environment or the filesystem.
+   */
+  roots(home: string, env: HarnessEnvironment): HarnessRoots
   /** Machine-local installation and account discovery owned by this harness. */
   inventory: HarnessInventory
   /** Credential files, freshness, identity and harness-local transfer (keychain). */
