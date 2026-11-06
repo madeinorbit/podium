@@ -122,7 +122,6 @@ import { IssueAuthorityArbitration } from './modules/issues/authority-arbitratio
 import { IssueAutoArchive } from './modules/issues/auto-archive'
 import { IssueCommandDispatcher } from './modules/issues/dispatcher'
 import { issueGitEffectPort, registerIssueGitEffects } from './modules/issues/git-effects'
-import { issueWorkEffectPort, registerIssueWorkEffects } from './modules/issues/work-effects'
 import { IssueGitWatch } from './modules/issues/git-watch'
 import { readIssue } from './modules/issues/issue-reader'
 import { PENDING_UPLOAD_SWEEP_MS, PendingUploadStore } from './modules/issues/pending-uploads'
@@ -132,6 +131,11 @@ import { AgentRelayGate } from './modules/issues/relay-gate'
 import { IssueService } from './modules/issues/service'
 import { seatText } from './modules/issues/service/seat'
 import { registerIssueStartEffect } from './modules/issues/start-effect'
+import {
+  finishSelfStop,
+  issueWorkEffectPort,
+  registerIssueWorkEffects,
+} from './modules/issues/work-effects'
 import { LayoutService } from './modules/layout/service'
 import { LockCommandDispatcher } from './modules/lock/registry'
 import { LockService } from './modules/lock/service'
@@ -4074,12 +4078,15 @@ export class SessionRegistry {
       afterSuccessfulReply: (msg, result) => {
         if (!result || typeof result !== 'object') return
         if ((result as { deferredKill?: boolean }).deferredKill !== true) return
-        if (
-          (msg.router === 'sessions' && msg.proc === 'stop') ||
-          (msg.router === 'issues' && msg.proc === 'stop')
-        ) {
-          void sessionsSvc.finalizeDeferredStopKill(msg.sessionId).catch(() => {})
+        if (!(msg.router === 'sessions' || msg.router === 'issues') || msg.proc !== 'stop') return
+        // `issues.stop` as an effect record (POD-6414) left the caller's own
+        // session running: its `desired: stopped` now, as itself.
+        const self = result as { selfStopPending?: boolean; force?: boolean }
+        if (msg.router === 'issues' && self.selfStopPending === true) {
+          void finishSelfStop(this.modules, msg.sessionId, self.force === true).catch(() => {})
+          return
         }
+        void sessionsSvc.finalizeDeferredStopKill(msg.sessionId).catch(() => {})
       },
     })
     // Module boot hook: eager hydration (a corrupt row is quarantined by the

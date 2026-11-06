@@ -1,4 +1,3 @@
-import { deepestOwner } from '../folder-owner'
 import { createLogger } from '@podium/logger'
 import {
   asMachineId,
@@ -18,7 +17,11 @@ import {
 } from '@podium/model'
 import { formatIssueRef, type WorktreeGcObservation } from '@podium/protocol'
 import { resolveSpawnDefaults } from '@podium/runtime'
-import { type CommandAttribution, type CommandPrincipal, systemPrincipal } from '../../../command-principal'
+import {
+  type CommandAttribution,
+  type CommandPrincipal,
+  systemPrincipal,
+} from '../../../command-principal'
 import { sessionsForIssue } from '../../../issue-util'
 import { type LinearIssue, searchIssues } from '../../../linear'
 import { resolveLaunchSelection } from '../../../model-validation'
@@ -30,6 +33,7 @@ import {
   shellQuietMs,
 } from '../../sessions/terminal-lifetime'
 import { resolveShellOwningIssue } from '../../shells/service'
+import { deepestOwner } from '../folder-owner'
 import { issueRefsPattern, probeGitState } from '../git-state'
 import { IssueAssistantDigestModule } from './assistant'
 import type { IssueAttentionModule } from './attention'
@@ -282,7 +286,10 @@ export class IssueGitWorkflowModule {
       return found
     }
     if (row.parentId) {
-      return (await chain(row.parentId)).find((ancestor) => ancestor.agentProfileId)?.agentProfileId ?? null
+      return (
+        (await chain(row.parentId)).find((ancestor) => ancestor.agentProfileId)?.agentProfileId ??
+        null
+      )
     }
     const originId = (await this.store.deps.store.issues.listIssueDeps(row.id)).find(
       (dep) => dep.type === 'discovered-from',
@@ -1861,7 +1868,11 @@ export class IssueGitWorkflowModule {
     if (!sess) return
     // The live issues carrying a deferral, in one SQL listing (POD-6194).
     const deferred = await this.store.deps.store.issues.listIssueRowsWhere({
-      repo: false, readable: false, live: true, deferred: true, order: 'path-seq',
+      repo: false,
+      readable: false,
+      live: true,
+      deferred: true,
+      order: 'path-seq',
     })
     for (const row of deferred) {
       if (row.deferUntil !== DEFER_NEXT_MESSAGE || row.deletedAt) continue
@@ -2120,7 +2131,12 @@ export class IssueGitWorkflowModule {
     }
     // The live, unarchived issues with a worktree, in one SQL listing (POD-6194).
     const watched = await this.store.deps.store.issues.listIssueRowsWhere({
-      repo: false, readable: false, live: true, unarchived: true, hasWorktree: true, order: 'path-seq',
+      repo: false,
+      readable: false,
+      live: true,
+      unarchived: true,
+      hasWorktree: true,
+      order: 'path-seq',
     })
     for (const row of watched) {
       if (!watchesParentBranch(row)) continue

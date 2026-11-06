@@ -388,8 +388,7 @@ const defs = {
     handler: async (ctx, input) =>
       await ctx.readIssue(
         input.id,
-        async () =>
-          await ctx.reports.epicStatus(input.id, ctx.issueReader()),
+        async () => await ctx.reports.epicStatus(input.id, ctx.issueReader()),
       ),
   }),
   children: def('children', {
@@ -398,11 +397,7 @@ const defs = {
       await ctx.readIssue(
         input.id,
         async () =>
-          await ctx.reports.children(
-            input.id,
-            input.recursive ?? false,
-            ctx.issueReader(),
-          ),
+          await ctx.reports.children(input.id, input.recursive ?? false, ctx.issueReader()),
       ),
   }),
   tree: def('tree', {
@@ -419,21 +414,16 @@ const defs = {
   }),
   deck: def('deck', {
     kind: 'query',
-    handler: async (ctx, input) =>
-      await ctx.reports.deck(input.id, ctx.issueReader()),
+    handler: async (ctx, input) => await ctx.reports.deck(input.id, ctx.issueReader()),
   }),
   depReport: def('depReport', {
     kind: 'query',
-    handler: async (ctx, input) =>
-      await ctx.reports.depReport(input, ctx.issueReader()),
+    handler: async (ctx, input) => await ctx.reports.depReport(input, ctx.issueReader()),
   }),
   closeEligibleEpics: def('closeEligibleEpics', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.reports.closeEligibleEpics(
-        input.repoPath,
-        ctx.issueReader(),
-      ),
+      await ctx.reports.closeEligibleEpics(input.repoPath, ctx.issueReader()),
   }),
   labelList: def('labelList', {
     kind: 'query',
@@ -442,31 +432,20 @@ const defs = {
   findDuplicates: def('findDuplicates', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.reports.findDuplicates(
-        input.repoPath,
-        input.threshold,
-        ctx.issueReader(),
-      ),
+      await ctx.reports.findDuplicates(input.repoPath, input.threshold, ctx.issueReader()),
   }),
   stale: def('stale', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.reports.staleList(
-        input.repoPath,
-        input.days,
-        Date.now(),
-        ctx.issueReader(),
-      ),
+      await ctx.reports.staleList(input.repoPath, input.days, Date.now(), ctx.issueReader()),
   }),
   doctor: def('doctor', {
     kind: 'query',
-    handler: async (ctx, input) =>
-      await ctx.reports.doctor(input.repoPath, ctx.issueReader()),
+    handler: async (ctx, input) => await ctx.reports.doctor(input.repoPath, ctx.issueReader()),
   }),
   preflight: def('preflight', {
     kind: 'query',
-    handler: async (ctx, input) =>
-      await ctx.reports.preflight(input.repoPath, ctx.issueReader()),
+    handler: async (ctx, input) => await ctx.reports.preflight(input.repoPath, ctx.issueReader()),
   }),
   deliveryReceipt: def('deliveryReceipt', {
     kind: 'query',
@@ -483,28 +462,23 @@ const defs = {
   }),
   search: def('search', {
     kind: 'query',
-    handler: async (ctx, input) =>
-      await ctx.reports.search(input, ctx.issueReader()),
+    handler: async (ctx, input) => await ctx.reports.search(input, ctx.issueReader()),
   }),
   searchNormalized: def('searchNormalized', {
     kind: 'query',
-    handler: async (ctx, input) =>
-      await ctx.reports.searchNormalized(input, ctx.issueReader()),
+    handler: async (ctx, input) => await ctx.reports.searchNormalized(input, ctx.issueReader()),
   }),
   count: def('count', {
     kind: 'query',
-    handler: async (ctx, input) =>
-      await ctx.reports.count(input.repoPath, ctx.issueReader()),
+    handler: async (ctx, input) => await ctx.reports.count(input.repoPath, ctx.issueReader()),
   }),
   stats: def('stats', {
     kind: 'query',
-    handler: async (ctx, input) =>
-      await ctx.reports.stats(input.repoPath, ctx.issueReader()),
+    handler: async (ctx, input) => await ctx.reports.stats(input.repoPath, ctx.issueReader()),
   }),
   orphans: def('orphans', {
     kind: 'query',
-    handler: async (ctx, input) =>
-      await ctx.reports.orphans(input.repoPath, ctx.issueReader()),
+    handler: async (ctx, input) => await ctx.reports.orphans(input.repoPath, ctx.issueReader()),
   }),
   get: def('get', {
     kind: 'query',
