@@ -405,8 +405,16 @@ export const NOT_YET_GENERIC: Readonly<
   shipOrder: { reason: 'Shipping is system-owned.', by: 'POD-6359' },
   shipLane: { reason: 'Shipping is system-owned.', by: 'POD-6359' },
   conversation: { reason: 'Titles convert with the conversations family.', by: 'POD-6359' },
-  automation: { reason: 'Automations convert with their family.', by: 'POD-6359' },
-  automationRun: { reason: 'A run conforms to the effect status with its family.', by: 'POD-6359' },
+  automation: {
+    reason:
+      'Its schedule rules (validation, the re-arm, the run cascade) are server commands on sync.submit (`automations.*`, POD-6418).',
+    by: 'never (automations.*)',
+  },
+  automationRun: {
+    reason:
+      'All status: written by the scheduler, never client-written; read as an effect through `automationRunEffect` (POD-6418).',
+    by: 'never (status)',
+  },
   userReadPosition: { reason: 'Read positions convert with their family.', by: 'POD-6359' },
   issueEvent: { reason: 'An append-only history; never edited.', by: 'never (append)' },
   pendingInteraction: { reason: 'Answers are one-off effects.', by: 'POD-6359' },

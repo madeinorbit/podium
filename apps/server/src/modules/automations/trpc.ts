@@ -1,8 +1,11 @@
-import { familyState } from '../derived-family'
 /**
  * THE DERIVED AUTOMATION SURFACE (POD-735, the 3.11 cutover) — every automation
  * tRPC mutation, produced from the joined table in `registry.ts` rather than
  * written out.
+ *
+ * ON THE SYNC WRITE ENTRY POINT SINCE POD-6418. The four writes are registered on
+ * `sync.submit` (`sync-write.ts`), and the procedures built here are thin
+ * adapters onto it, kept for shipped clients (see {@link automationProcedures}).
  *
  * `router.ts` spreads the result into its `automations` router alongside the two
  * QUERIES, which are not derived: they have no contracts, because a `visibility`
@@ -64,58 +67,19 @@ import { familyState } from '../derived-family'
  */
 
 import { AUTOMATION_CONTRACTS } from '@podium/commands'
-import { TRPCError, type TRPCMutationProcedure } from '@trpc/server'
-import type { z } from 'zod'
-import { mods, t, type Context } from '../../trpc'
+import type { MutationProcedures } from '../derived-family'
+import { legacyRouteAdapters } from '../sync-write/family'
 import {
-  AUTOMATION_COMMANDS,
+  type AUTOMATION_COMMANDS,
   type AutomationProcName,
-  automationCommandsOn,
   isAutomationCommandExposedOn,
 } from './registry'
-import type { AutomationsService } from './service'
+import { AUTOMATION_SYNC_FAMILY } from './sync-write'
 
 /** The transports that would make this surface agent-reachable. Named as a set so
  *  the check below is about the CLASS of transport and not about one tag someone
  *  happened to think of. */
 const AGENT_TRANSPORTS = ['relay', 'mcp', 'cli', 'peer', 'outbox'] as const
-
-type MutationProcedure<N extends AutomationProcName> = TRPCMutationProcedure<{
-  meta: unknown
-  input: z.input<(typeof AUTOMATION_COMMANDS)[N]['contract']['input']>
-  output: Awaited<ReturnType<(typeof AUTOMATION_COMMANDS)[N]['handler']>>
-}>
-
-/**
- * One mutation, built out of its contract: the CONTRACT'S OWN schema instance for
- * validation (so a restated copy is impossible rather than merely discouraged),
- * and the joined handler for the body.
- */
-function automationMutation<N extends AutomationProcName>(name: N): MutationProcedure<N> {
-  const { contract, handler } = AUTOMATION_COMMANDS[name]
-  if (!contract.exposure.includes('trpc')) {
-    throw new Error(`automations.${name} does not declare the trpc transport`)
-  }
-  // The table is heterogeneous by construction, so at THIS point the handler's
-  // input type is the INTERSECTION of all four and the parsed input is the UNION —
-  // TypeScript cannot pair them up here. It does not need to: each pairing is
-  // checked where it is declared (`AUTOMATION_COMMANDS` is `satisfies
-  // Record<AutomationContractName, AutomationCommand>`, and each handler annotates
-  // the input it accepts), and `MutationProcedure<N>` re-derives the per-command
-  // types for the client. This erasure is the one place the two meet — the same
-  // shape `modules/fleet/trpc.ts` carries, for the same reason.
-  const run = handler as (
-    service: AutomationsService,
-    input: unknown,
-    principal: NonNullable<Context['principal']>,
-  ) => unknown
-  return t.procedure.input(contract.input).mutation(({ ctx, input }) => {
-    if (!ctx.principal) {
-      throw new TRPCError({ code: 'UNAUTHORIZED', message: 'authentication required' })
-    }
-    return run(familyState(ctx).modules.automations, input, ctx.principal)
-  }) as unknown as MutationProcedure<N>
-}
 
 /**
  * The operator-only claim, refused at module load rather than reported later.
@@ -158,23 +122,26 @@ function assertSurfaceMatchesContracts(built: Record<string, unknown>): void {
   }
 }
 
-type AutomationProcedures = { [N in AutomationProcName]: MutationProcedure<N> }
+type AutomationProcedures = MutationProcedures<typeof AUTOMATION_COMMANDS>
 
 /**
- * Every derived automation procedure, keyed by its bare proc name — spread into
+ * Every automation write procedure, keyed by its bare proc name — spread into
  * the `automations:` router in `router.ts`, which then contains no mutation of its
  * own.
  *
- * Built by iterating the TABLE, not a list written here: a fifth contract is
- * served because it was declared, and the only way to remove a procedure is to
- * remove its declaration.
+ * LEGACY(remove-after: 2027-03): since POD-6418 every automation write goes
+ * through `sync.submit`, and these four routes are thin adapters onto it. The
+ * desktop app ships its own build of the web app, whose Automations tab calls
+ * them; removing them breaks that build's automation edits against this server.
  */
 export function automationProcedures(): AutomationProcedures {
   assertOperatorOnly()
-  const record: Record<string, unknown> = {}
-  for (const name of automationCommandsOn('trpc')) {
-    record[name] = automationMutation(name)
-  }
-  assertSurfaceMatchesContracts(record)
-  return record as AutomationProcedures
+  const built = legacyRouteAdapters(AUTOMATION_SYNC_FAMILY, [
+    'create',
+    'update',
+    'setEnabled',
+    'remove',
+  ])
+  assertSurfaceMatchesContracts(built)
+  return built
 }

@@ -15,9 +15,10 @@ import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { assertScheduleFloor, nextAfter, nextRunAfter, parseCron } from '@podium/commands'
 import { createLogger, describeError } from '@podium/logger'
-import type { IssueId, SessionId, AutomationId } from '@podium/model'
+import type { AutomationId, IssueId, SessionId } from '@podium/model'
 import {
   type AgentKind,
+  AUTOMATION_RUN_RESERVED,
   type AutomationScheduleKind,
   type AutomationSessionMode,
   asAutomationId,
@@ -104,6 +105,28 @@ export interface AutomationInput {
   sessionMode?: AutomationSessionMode
 }
 
+/**
+ * A write the automation rules refuse (POD-6418): a schedule that is not valid, a
+ * harness this build cannot run, an automation that is not the caller's. A
+ * definitive answer, not a failure: through the sync write entry point it is the
+ * reply's refusal, with this message (`sync-write.ts`). `not-found` covers an
+ * automation that is missing and one that is someone else's alike, so the answer
+ * is not an existence oracle.
+ */
+export class AutomationRefusal extends Error {
+  constructor(
+    readonly kind: 'invalid' | 'not-found',
+    message: string,
+  ) {
+    super(message)
+    this.name = 'AutomationRefusal'
+  }
+}
+
+const invalid = (message: string): AutomationRefusal => new AutomationRefusal('invalid', message)
+const unknownAutomation = (id: string): AutomationRefusal =>
+  new AutomationRefusal('not-found', `unknown automation: ${id}`)
+
 class AutomationSpawnError extends Error {
   constructor(
     message: string,
@@ -166,7 +189,7 @@ export class AutomationsService {
    *  failing at write time tells whoever typed it, while failing at fire time
    *  tells nobody. Rows that predate this check are caught at the spawn seam. */
   private validateAgentKind(kind: string): void {
-    if (!isAgentKind(kind)) throw new Error(`unknown agent kind: ${kind}`)
+    if (!isAgentKind(kind)) throw invalid(`unknown agent kind: ${kind}`)
   }
 
   private validateSchedule(
@@ -176,19 +199,24 @@ export class AutomationsService {
     requireFuture: boolean,
   ): void {
     if (scheduleKind === 'cron') {
-      if (!cron) throw new Error('cron schedule requires an expression')
-      parseCron(cron)
-      assertScheduleFloor(cron, this.now())
-      if (runAt !== null) throw new Error('cron schedule cannot also have a runAt timestamp')
+      if (!cron) throw invalid('cron schedule requires an expression')
+      try {
+        parseCron(cron)
+        assertScheduleFloor(cron, this.now())
+      } catch (error) {
+        // The parser's and the floor's own words, as a refusal of this write.
+        throw invalid(error instanceof Error ? error.message : String(error))
+      }
+      if (runAt !== null) throw invalid('cron schedule cannot also have a runAt timestamp')
       return
     }
-    if (cron !== null) throw new Error('one-off schedule cannot also have a cron expression')
+    if (cron !== null) throw invalid('one-off schedule cannot also have a cron expression')
     const timestamp = runAt === null ? Number.NaN : Date.parse(runAt)
     if (!Number.isFinite(timestamp)) {
-      throw new Error('one-off schedule requires a valid runAt timestamp')
+      throw invalid('one-off schedule requires a valid runAt timestamp')
     }
     if (requireFuture && timestamp <= this.now().getTime()) {
-      throw new Error('one-off runAt timestamp must be in the future')
+      throw invalid('one-off runAt timestamp must be in the future')
     }
   }
 
@@ -204,9 +232,23 @@ export class AutomationsService {
     return await this.deps.store.listRuns(automationId, limit)
   }
 
-  async runsForUser(userId: UserId, automationId: AutomationId, limit?: number): Promise<AutomationRunRow[]> {
+  async runsForUser(
+    userId: UserId,
+    automationId: AutomationId,
+    limit?: number,
+  ): Promise<AutomationRunRow[]> {
     const automation = await this.deps.store.get(automationId)
-    return automation?.ownerUserId === userId ? await this.deps.store.listRuns(automationId, limit) : []
+    return automation?.ownerUserId === userId
+      ? await this.deps.store.listRuns(automationId, limit)
+      : []
+  }
+
+  /**
+   * Whose automation `id` is, read now: the sync write entry point's target
+   * check (`sync-write.ts`). `undefined` when there is no such automation.
+   */
+  async ownerOf(id: AutomationId): Promise<UserId | undefined> {
+    return (await this.deps.store.get(id))?.ownerUserId
   }
 
   private ownerFor(principal: CommandPrincipal): UserId {
@@ -217,7 +259,7 @@ export class AutomationsService {
 
   private assertOwner(principal: CommandPrincipal, automation: AutomationRow): void {
     if (this.ownerFor(principal) !== automation.ownerUserId) {
-      throw new Error('unknown automation: ' + automation.id)
+      throw unknownAutomation(automation.id)
     }
   }
 
@@ -259,23 +301,29 @@ export class AutomationsService {
       createdByActor: attribution.actor,
       createdByOnBehalfOf: ownerUserId,
     }
-    const created = (await this.deps.ledger.commit({
-      write: async () => {
-        await this.deps.store.insert(row)
-        return row
-      },
-      changes: (automation) => [
-        { entity: 'automation', id: automation.id, op: 'upsert', value: automation },
-      ],
-    })).result
+    const created = (
+      await this.deps.ledger.commit({
+        write: async () => {
+          await this.deps.store.insert(row)
+          return row
+        },
+        changes: (automation) => [
+          { entity: 'automation', id: automation.id, op: 'upsert', value: automation },
+        ],
+      })
+    ).result
     return created
   }
 
   /** Patch an automation. Any schedule/enabled change re-arms from now; an edited
    *  cron never retains the old expression's pending fire. */
-  async update(id: string, patch: Partial<AutomationInput>, principal: CommandPrincipal): Promise<AutomationRow> {
+  async update(
+    id: string,
+    patch: Partial<AutomationInput>,
+    principal: CommandPrincipal,
+  ): Promise<AutomationRow> {
     const current = await this.deps.store.get(id)
-    if (!current) throw new Error('unknown automation: ' + id)
+    if (!current) throw unknownAutomation(id)
     this.assertOwner(principal, current)
     const scheduleKind = patch.scheduleKind ?? current.scheduleKind
     const cron = patch.cron !== undefined ? patch.cron?.trim() || null : current.cron
@@ -317,26 +365,32 @@ export class AutomationsService {
       patch.enabled === true &&
       !scheduleChanged
     ) {
-      throw new Error('completed one-off schedule needs a new runAt timestamp before enabling')
+      throw invalid('completed one-off schedule needs a new runAt timestamp before enabling')
     }
     if (scheduleChanged) next.lastRunAt = null
     const rearm = scheduleChanged || patch.enabled !== undefined
     if (rearm) {
       next.nextRunAt = this.armFrom(next.scheduleKind, next.cron, next.runAt, next.enabled)
     }
-    const updated = (await this.deps.ledger.commit({
-      write: async () => {
-        await this.deps.store.update(next)
-        return next
-      },
-      changes: (automation) => [
-        { entity: 'automation', id: automation.id, op: 'upsert', value: automation },
-      ],
-    })).result
+    const updated = (
+      await this.deps.ledger.commit({
+        write: async () => {
+          await this.deps.store.update(next)
+          return next
+        },
+        changes: (automation) => [
+          { entity: 'automation', id: automation.id, op: 'upsert', value: automation },
+        ],
+      })
+    ).result
     return updated
   }
 
-  async setEnabled(id: string, enabled: boolean, principal: CommandPrincipal): Promise<AutomationRow> {
+  async setEnabled(
+    id: string,
+    enabled: boolean,
+    principal: CommandPrincipal,
+  ): Promise<AutomationRow> {
     return await this.update(id, { enabled }, principal)
   }
 
@@ -349,20 +403,22 @@ export class AutomationsService {
     // injected here rather than reaching into the store, so a test that freezes
     // time still controls what a deletion is stamped with.
     const deletedAt = this.now().toISOString()
-    const removed = (await this.deps.ledger.commit({
-      write: async () => await this.deps.store.remove(id, deletedAt),
-      changes: (didRemove) =>
-        didRemove
-          ? [
-              ...runIds.map((runId) => ({
-                entity: 'automationRun' as const,
-                id: runId,
-                op: 'remove' as const,
-              })),
-              { entity: 'automation' as const, id, op: 'remove' as const },
-            ]
-          : [],
-    })).result
+    const removed = (
+      await this.deps.ledger.commit({
+        write: async () => await this.deps.store.remove(id, deletedAt),
+        changes: (didRemove) =>
+          didRemove
+            ? [
+                ...runIds.map((runId) => ({
+                  entity: 'automationRun' as const,
+                  id: runId,
+                  op: 'remove' as const,
+                })),
+                { entity: 'automation' as const, id, op: 'remove' as const },
+              ]
+            : [],
+      })
+    ).result
     return { removed }
   }
 
@@ -407,7 +463,7 @@ export class AutomationsService {
     const runId = automationOccurrenceRunId(automation.id, decision.firedAt)
     const existing = await this.deps.store.getRun(runId)
     // Fully settled occurrence — idempotent no-op.
-    if (existing && existing.detail !== 'reserved') return
+    if (existing && existing.detail !== AUTOMATION_RUN_RESERVED) return
 
     const rearmed: AutomationRow = {
       ...automation,
@@ -470,7 +526,7 @@ export class AutomationsService {
             firedAt: decision.firedAt,
             sessionId: null,
             outcome: 'error',
-            detail: 'reserved',
+            detail: AUTOMATION_RUN_RESERVED,
             actor: `automation:${automation.id}`,
             onBehalfOf: automation.ownerUserId,
           })
@@ -482,7 +538,7 @@ export class AutomationsService {
 
     let outcome: AutomationRunOutcome = 'error'
     let sessionId: SessionId | null = null
-    let detail: string | null = 'reserved'
+    let detail: string | null = AUTOMATION_RUN_RESERVED
     try {
       sessionId = await this.spawn(automation, runId)
       outcome = 'spawned'
@@ -529,7 +585,7 @@ export class AutomationsService {
     if (!automation || !automation.enabled || !input.enabled) return 'precondition'
     const runId = automationOccurrenceRunId(automation.id, input.nextRunAt)
     const existing = await this.deps.store.getRun(runId)
-    if (existing && existing.detail !== 'reserved') return 'already'
+    if (existing && existing.detail !== AUTOMATION_RUN_RESERVED) return 'already'
 
     // Resume reserved: nextRunAt was intentionally NOT re-armed, so it still matches.
     // Fresh: nextRunAt must still equal the observed due occurrence.
@@ -556,7 +612,7 @@ export class AutomationsService {
     })
     // For a reserved resume, decideTick may still yield spawn for the same occurrence.
     let decision = decisions[0]
-    if (!decision && existing?.detail === 'reserved') {
+    if (!decision && existing?.detail === AUTOMATION_RUN_RESERVED) {
       // Force resume spawn: recompute re-arm from now without requiring due again.
       let nextRunAt: string | null = null
       if (automation.scheduleKind === 'cron' && automation.cron) {
@@ -597,7 +653,7 @@ export class AutomationsService {
     if (!principal) {
       throw new AutomationSpawnError('automation creator account is disabled or missing', null)
     }
-    if (!await this.deps.mayUseDefaultMachine(principal)) {
+    if (!(await this.deps.mayUseDefaultMachine(principal))) {
       throw new AutomationSpawnError('automation creator no longer has machine use access', null)
     }
     if (automation.targetSessionId !== null || automation.sessionMode === 'resume') {

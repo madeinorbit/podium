@@ -29,6 +29,18 @@ import type { z } from 'zod'
 import type { CommandPrincipal } from '../../command-principal'
 import type { AutomationsService } from './service'
 
+/**
+ * What an automation handler reaches: the service, and who is asking. The
+ * principal is the transport's (the sync write entry point's), never the input's,
+ * so the owner every row is stamped with is the human behind the call.
+ */
+export interface AutomationState {
+  readonly automations: AutomationsService
+  readonly principal: CommandPrincipal
+}
+
+export type AutomationHandler<In, Out> = (state: AutomationState, input: In) => Out
+
 /** One contract joined to the handler that implements it. */
 export interface AutomationCommand {
   readonly contract: AnyCommandContract
@@ -38,12 +50,10 @@ export interface AutomationCommand {
    * would make the table untypeable rather than safer.
    */
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous table — see above
-  readonly handler: (
-    service: AutomationsService,
-    input: any,
-    principal: CommandPrincipal,
-  ) => unknown
+  readonly handler: AutomationHandler<any, unknown>
 }
+
+type InputOf<N extends AutomationContractName> = z.infer<(typeof AUTOMATION_CONTRACTS)[N]['input']>
 
 /**
  * The joined table, keyed by the BARE proc name the wire already dispatches on —
@@ -54,27 +64,43 @@ export interface AutomationCommand {
  * describes what a command WRITES and a read writes nothing. They stay hand-written
  * queries in `router.ts`, and `AUTOMATION_QUERY_NAMES` names them so the cutover
  * audit's totality check knows they are declared rather than stray.
+ *
+ * Every write runs through the sync write entry point (`sync-write.ts`, POD-6418).
  */
 export const AUTOMATION_COMMANDS = {
   create: {
     contract: AUTOMATION_CONTRACTS.create,
-    handler: async (service, input: z.infer<typeof AUTOMATION_CONTRACTS.create.input>, principal) =>
-      await service.create(input, principal),
+    handler: (async (state, input) =>
+      await state.automations.create(input, state.principal)) satisfies AutomationHandler<
+      InputOf<'create'>,
+      unknown
+    >,
   },
   update: {
     contract: AUTOMATION_CONTRACTS.update,
-    handler: async (service, input: z.infer<typeof AUTOMATION_CONTRACTS.update.input>, principal) =>
-      await service.update(input.id, input.patch, principal),
+    handler: (async (state, input) =>
+      await state.automations.update(
+        input.id,
+        input.patch,
+        state.principal,
+      )) satisfies AutomationHandler<InputOf<'update'>, unknown>,
   },
   setEnabled: {
     contract: AUTOMATION_CONTRACTS.setEnabled,
-    handler: async (service, input: z.infer<typeof AUTOMATION_CONTRACTS.setEnabled.input>, principal) =>
-      await service.setEnabled(input.id, input.enabled, principal),
+    handler: (async (state, input) =>
+      await state.automations.setEnabled(
+        input.id,
+        input.enabled,
+        state.principal,
+      )) satisfies AutomationHandler<InputOf<'setEnabled'>, unknown>,
   },
   remove: {
     contract: AUTOMATION_CONTRACTS.remove,
-    handler: async (service, input: z.infer<typeof AUTOMATION_CONTRACTS.remove.input>, principal) =>
-      await service.remove(input.id, principal),
+    handler: (async (state, input) =>
+      await state.automations.remove(input.id, state.principal)) satisfies AutomationHandler<
+      InputOf<'remove'>,
+      unknown
+    >,
   },
 } as const satisfies Record<AutomationContractName, AutomationCommand>
 

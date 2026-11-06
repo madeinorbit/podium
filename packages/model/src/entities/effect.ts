@@ -23,6 +23,7 @@
 import { z } from 'zod'
 import { deviceIdSchema } from '../ids/device-id'
 import { defineMachine } from '../state-machine'
+import type { AutomationRunWire } from './automation'
 import type { MessageDeliveryStatus } from './message-delivery'
 
 export const EFFECT_STATUSES = [
@@ -165,5 +166,48 @@ export function messageEffect(status: MessageDeliveryStatus): EffectView {
     case 'expired':
     case 'unknown':
       return { status }
+  }
+}
+
+/**
+ * The detail an automation run carries while its fire is under way: the
+ * scheduler reserves the occurrence before it spawns, and finishes the row
+ * after (`modules/automations/service.ts`). Written by the scheduler only.
+ */
+export const AUTOMATION_RUN_RESERVED = 'reserved'
+
+/**
+ * AUTOMATION RUNS CONFORM (ADR 12 D5 E2, POD-6418). A run row is one scheduled
+ * fire: an effect the scheduler performs once, recorded on its own natural
+ * record. Like chat, it keeps its own outcome vocabulary, and this is how every
+ * "in progress" surface reads it.
+ *
+ *  - a reserved occurrence (outcome `error`, detail `reserved`) is a fire under
+ *    way: `running`, at the stage `spawning`;
+ *  - `spawned`: the session started and took the prompt: `succeeded`;
+ *  - `error`: the fire failed, with its detail: `failed`;
+ *  - `missed`: the occurrence passed while the server could not fire it and is
+ *    not backfilled. That is an expiry by definition: past its time, never run;
+ *  - `skipped_overlap`: the previous fire's session was still live, so this one
+ *    was deliberately not run: `cancelled`, by the schedule's own rule.
+ *
+ * There is no `pending` and no `unknown`: the scheduler writes a row only when it
+ * fires, and a reserved row it lost track of is resumed by the next pass, not
+ * left to guess (`applyObservedOccurrence`).
+ */
+export function automationRunEffect(
+  run: Pick<AutomationRunWire, 'outcome' | 'detail'>,
+): EffectView {
+  switch (run.outcome) {
+    case 'spawned':
+      return { status: 'succeeded' }
+    case 'error':
+      return run.detail === AUTOMATION_RUN_RESERVED
+        ? { status: 'running', stage: 'spawning' }
+        : { status: 'failed' }
+    case 'missed':
+      return { status: 'expired' }
+    case 'skipped_overlap':
+      return { status: 'cancelled' }
   }
 }
