@@ -53,6 +53,7 @@ import {
   type SpawnDraftAgentArgs,
   type SpawnIssueAgentArgs,
   type StartIssueSession,
+  sessionAnswerEffect,
   sessionConfigureEffect,
   type TaskSpawnOutcome,
 } from '../spawn-agent'
@@ -189,6 +190,7 @@ export const COMMAND_ACTIONS = [
   'dismissEffect',
   'startIssueSession',
   'issueAction',
+  'answerSession',
   'resurrectSession',
   'sendChat',
   'chatSendsFor',
@@ -1208,6 +1210,20 @@ export function createEngineActions<TApi extends PodiumClientApi>(
           action,
           ...(opts?.force === true ? { force: true } : {}),
         }),
+      )
+      return id
+    },
+    // An answer to an agent's question (POD-6415): a `session.answer` effect
+    // record, created at once and never queued. An answer is online-only: one
+    // that reached the server later would land on whatever menu is up by then,
+    // so offline it fails here, and the record's own deadline covers the rest.
+    answerSession: async (sessionId, answer) => {
+      const id = `eff_${randomUUID()}`
+      await submitNow(
+        api,
+        'effects.create',
+        sessionAnswerEffect({ effectId: id, sessionId, answer }),
+        { action: 'answer the question' },
       )
       return id
     },

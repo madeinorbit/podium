@@ -15,6 +15,7 @@ import { StyleSheet, Text, View } from 'react-native'
 import { useHttpOrigin, useStoreActions, useTrpc } from '../client/hooks'
 import { useMobilePoolProjection } from '../client/mobile-pool'
 import type { MobileTrpc } from '../client/trpc'
+import { menuAnswer, useAnswerSession } from '../lib/answer-session'
 import { Composer } from '../components/Composer'
 import { Icon } from '../components/Icon'
 import { Eraser } from '../components/icons'
@@ -81,6 +82,7 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
   // Narrow subscriptions: everything this screen reads off the store is
   // either an identity-stable static or the sessions slice it paints from.
   const trpc = useTrpc()
+  const answerSession = useAnswerSession()
   const { refreshSuperThreads } = useStoreActions()
   const httpOrigin = useHttpOrigin()
   // The signed-in user's threads, from the store's published slice — the same
@@ -335,12 +337,9 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
                     throw new Error('The question changed; wait for the current menu.')
                   }
                   if (!podiumSid) return
-                  const sent = await trpc.sessions.answerAskUserQuestion.mutate({
-                    sessionId: podiumSid,
-                    interactionId: answer.interactionId,
-                    ...answer,
-                  })
-                  if (sent?.ok === false) throw new Error(sent.reason ?? 'answer not delivered')
+                  // A `session.answer` record (POD-6415).
+                  const sent = await answerSession(podiumSid, menuAnswer(answer))
+                  if (!sent.ok) throw new Error(sent.reason ?? 'answer not delivered')
                 }}
               />
             </PullToRefreshBoundary>

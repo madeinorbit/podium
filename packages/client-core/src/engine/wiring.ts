@@ -19,6 +19,7 @@ import {
   SYNC_REFUSAL_CODES,
   type SyncSubmitRefusal,
   SyncSubmitReply,
+  submitNow,
 } from '@podium/protocol'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import {
@@ -961,7 +962,15 @@ export function outboxExecutors(
       readOutboxReply('sendText', i, await api.sessions.sendText.mutate(i), hooks),
     resumeAndSend: async (i) =>
       readOutboxReply('resumeAndSend', i, await api.sessions.resumeAndSend.mutate(i), hooks),
-    dismissOffer: (i) => api.sessions.dismissOffer.mutate(i),
+    // On the sync write entry point (POD-6415), under the entry's own id.
+    // LEGACY(remove-after: 2027-03): a server without `sync.submit` (or this
+    // command on it) takes the old route.
+    dismissOffer: (i) => {
+      const { mutationId, ...input } = i as typeof i & WithMutationId
+      const legacy = async () => await api.sessions.dismissOffer.mutate(i)
+      if (hooks.syncSubmitMissing === true) return legacy()
+      return submitNow(api, 'sessions.dismissOffer', input, { mutationId, legacy })
+    },
     issueUpdate: (i) => api.issues.update.mutate(i),
     issueDelete: (i) => api.issues.delete.mutate(i),
     issueClose: (i) => api.issues.close.mutate(i),

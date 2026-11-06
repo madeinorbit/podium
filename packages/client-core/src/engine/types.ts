@@ -32,9 +32,10 @@ import type { SocketHub } from '../socket-transport'
 import type {
   IssueWorkAction,
   LaunchSessionArgs,
-  StartIssueSession,
+  SessionAnswer,
   SpawnDraftAgentArgs,
   SpawnIssueAgentArgs,
+  StartIssueSession,
   TaskSpawnOutcome,
 } from '../spawn-agent'
 import type { MainView, RoutedUiState } from '../ui-state'
@@ -446,7 +447,10 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    * record is durably queued, with its id; the session model reads its progress
    * (`interrupting`, `interruptStuck`) from the record, on every device.
    */
-  interruptTurn: (sessionId: SessionId, args: { turn?: string; messageId?: string }) => Promise<string>
+  interruptTurn: (
+    sessionId: SessionId,
+    args: { turn?: string; messageId?: string },
+  ) => Promise<string>
   /**
    * Change a running session's model or effort (POD-6523): a
    * `session.configure` effect record with the patch. Resolves once it is
@@ -475,7 +479,18 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    * reads its progress (`workAction`) from the record, on every device, and a
    * caller that says how it ended waits for it (`awaitEffect`).
    */
-  issueAction: (issueId: IssueId, action: IssueWorkAction, opts?: { force?: boolean }) => Promise<string>
+  issueAction: (
+    issueId: IssueId,
+    action: IssueWorkAction,
+    opts?: { force?: boolean },
+  ) => Promise<string>
+  /**
+   * Answer a session's question (POD-6415): a `session.answer` effect record,
+   * created at once (never queued; an answer is online-only). Resolves with its
+   * id once the server holds it; how the delivery went is the record's
+   * `result`, which a caller waits for (`awaitAnswer`).
+   */
+  answerSession: (sessionId: SessionId, answer: SessionAnswer) => Promise<string>
   resurrectSession: (sessionId: SessionId) => Promise<SessionResurrectionResult>
   /**
    * Send one chat message to a session through the durable outbox (POD-4762),

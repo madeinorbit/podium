@@ -12,7 +12,7 @@ import { runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import { here } from '../lookup'
 import { createRuntimeWorklistPool, type WorklistRuntime } from '../runtime-pool'
-import { awaitEffect } from './await-effect'
+import { awaitAnswer, awaitEffect } from './await-effect'
 
 const EFFECT = 'eff_00000000-0000-4000-8000-0000000000ee'
 const stamp = '2026-11-06T12:00:00.000Z'
@@ -133,6 +133,57 @@ describe('awaitEffect (POD-6523)', () => {
       const ending = awaitEffect(rt.pool, EFFECT, { signal: abort.signal })
       abort.abort(new Error('left the screen'))
       await expect(ending).rejects.toThrow()
+    } finally {
+      rt.dispose()
+    }
+  })
+})
+
+describe('awaitAnswer (POD-6415)', () => {
+  it("reads the delivery's own reply off the record: delivered, or not with its reason", async () => {
+    const rt = runtime()
+    try {
+      const ending = awaitAnswer(rt.pool, EFFECT)
+      rt.record(configureRecord('succeeded', { ok: true }))
+      expect(await ending).toEqual({ ok: true })
+      rt.record(
+        configureRecord('failed', {
+          ok: false,
+          reason: 'delivery-failed',
+          detail: 'the menu went away',
+        }),
+      )
+      await published()
+      expect(await awaitAnswer(rt.pool, EFFECT)).toEqual({
+        ok: false,
+        reason: 'the menu went away',
+      })
+    } finally {
+      rt.dispose()
+    }
+  })
+
+  it('says why when a record ended with no reply (expired before it ran)', async () => {
+    const rt = runtime()
+    try {
+      rt.record({
+        ...configureRecord('expired'),
+        effect: { status: 'expired', attempts: 0, error: { code: 'expired', message: 'too late' } },
+      })
+      await published()
+      expect(await awaitAnswer(rt.pool, EFFECT)).toEqual({ ok: false, reason: 'too late' })
+    } finally {
+      rt.dispose()
+    }
+  })
+
+  it('gives up when no word comes, saying so rather than claiming either way', async () => {
+    const rt = runtime()
+    try {
+      const abort = new AbortController()
+      const ending = awaitAnswer(rt.pool, EFFECT, { signal: abort.signal })
+      abort.abort()
+      expect(await ending).toMatchObject({ ok: false, reason: expect.stringMatching(/No word/) })
     } finally {
       rt.dispose()
     }

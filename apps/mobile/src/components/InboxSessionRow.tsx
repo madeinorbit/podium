@@ -7,7 +7,8 @@ import { useRouter } from 'expo-router'
 import { StyleSheet, Text, View } from 'react-native'
 import { useMobilePool } from '../client/mobile-pool'
 import { issueObserver } from '../client/issue-observer'
-import { useStoreActions, useTrpc } from '../client/hooks'
+import { useStoreActions } from '../client/hooks'
+import { menuAnswer, useAnswerSession } from '../lib/answer-session'
 import { usePendingQuestion } from '../hooks/usePendingQuestion'
 import { sessionHref } from '../lib/session-route'
 import { color, font, radius, sans, space } from '../theme/theme'
@@ -29,7 +30,7 @@ const NeedsYouCard = issueObserver(function NeedsYouCard({
   now: number
 }) {
   const router = useRouter()
-  const trpc = useTrpc()
+  const answerSession = useAnswerSession()
   const continueSession = useStoreActions().continueSession
   const needsQuestion = session.agentState?.phase === 'needs_user'
   const fromTranscript = usePendingQuestion(
@@ -70,11 +71,9 @@ const NeedsYouCard = issueObserver(function NeedsYouCard({
             item={pending}
             live
             onAnswer={async (answer) => {
-              const sent = await trpc.sessions.answerAskUserQuestion.mutate({
-                sessionId: session.sessionId,
-                ...answer,
-              })
-              if (sent?.ok === false) throw new Error(sent.reason ?? 'answer not delivered')
+              // A `session.answer` record (POD-6415).
+              const sent = await answerSession(session.sessionId, menuAnswer(answer))
+              if (!sent.ok) throw new Error(sent.reason ?? 'answer not delivered')
             }}
           />
         </View>

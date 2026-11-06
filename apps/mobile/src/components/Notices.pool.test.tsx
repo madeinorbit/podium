@@ -1,4 +1,3 @@
-import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { Outbox, type OutboxEntry } from '@podium/client-core/outbox'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
@@ -6,12 +5,13 @@ import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import { messageNotices, pendingInteractionCards } from '@podium/client-core/values'
-import { noticeFixture } from '../../../../tests/worklist/diagnostics/notice-fixture'
 import { asMutationId, asSessionId, asUserId } from '@podium/model'
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { cloneElement } from 'react'
 import { Alert } from 'react-native'
 import { afterEach, expect, it, vi } from 'vitest'
+import { noticeFixture } from '../../../../tests/worklist/diagnostics/notice-fixture'
+import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import { createHeaderFixture } from '../../../web/test/header-fixture'
 import type { MobilePool } from '../client/mobile-pool'
 
@@ -20,6 +20,7 @@ vi.mock('../client/mobile-pool', async (importOriginal) => {
   const real = await importOriginal<typeof import('../client/mobile-pool')>()
   return {
     ...real,
+    useMobilePoolNow: () => state.host!.host.usePoolNow(),
     useMobilePoolProjection: <T,>(
       read: Parameters<MobilePool['host']['usePoolProjection']>[0],
       empty: T,
@@ -101,9 +102,49 @@ async function mount() {
     evict('pendingInteraction', id)
     return { ok: true }
   })
+  // An answer is a `session.answer` record (POD-6415): the server creates it,
+  // runs it (here: `answer`, the delivery) and the record reaches the pool
+  // with the delivery's reply as its result.
+  const submit = vi.fn(
+    async (envelope: {
+      command: string
+      input: { id: string; kind: string; target: unknown; input: Record<string, unknown> }
+    }) => {
+      if (envelope.command !== 'effects.create') throw new Error(`unexpected ${envelope.command}`)
+      const { id, kind, target, input } = envelope.input
+      const reply = await answer({ id: String(input.interactionId), answer: input.answer } as never)
+      const at = new Date().toISOString()
+      const record = {
+        entity: 'effect',
+        entityId: id,
+        provenance: { seq: 1 },
+        value: {
+          id,
+          kind,
+          target,
+          input: { via: input.via, interactionId: input.interactionId },
+          result: reply,
+          cancelRequested: false,
+          effect: { status: reply.ok ? 'succeeded' : 'failed', attempts: 1 },
+          createdBy: null,
+          createdAt: at,
+          updatedAt: at,
+          revision: 1,
+        },
+      }
+      fixture.records.set(`effect:${id}`, record)
+      fixture.replica.onKernelEvent({ type: 'upserted', record, readmitted: false } as never)
+      return {
+        outcome: 'applied',
+        result: { id },
+        receipt: { feedId: 'f', epoch: 'e', seq: 0 },
+        replayed: false,
+      }
+    },
+  )
   Object.assign(fixture.api, {
     messages: { dismissNotice: { mutate: dismiss } },
-    interactions: { answer: { mutate: answer } },
+    sync: { submit: { mutate: submit } },
   })
   let queued: OutboxEntry[] = [],
     parked: OutboxEntry[] = data.deadLetters.map((row) => ({

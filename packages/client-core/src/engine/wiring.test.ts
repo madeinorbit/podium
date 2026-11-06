@@ -6,7 +6,7 @@ import {
   issueUserStateRowId,
   sessionUserStateRowId,
 } from '@podium/model'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
   deadLetterHandlingFor,
@@ -15,6 +15,7 @@ import {
   OUTBOX_DEAD_LETTER_HANDLING,
   OUTBOX_ROUTING,
   type OutboxKinds,
+  outboxExecutors,
   outboxRoutingFor,
   shouldParkDeadLetter,
 } from './wiring'
@@ -399,5 +400,54 @@ describe('POD-785 — only writes a later one subsumes may collapse', () => {
       const other = outboxRoutingFor(kind, SAMPLE[kind], asMutationId('mid-2'))
       expect(other.partitionKey).toBe(routed.partitionKey)
     }
+  })
+})
+
+describe('POD-6415 — an offer dismissal drains on the sync write entry point', () => {
+  const entry = {
+    sessionId: asSessionId('s-1'),
+    offerCreatedAt: '2026-11-06T12:00:00.000Z',
+    mutationId: asMutationId('m-dismiss-1'),
+  }
+  const applied = {
+    outcome: 'applied',
+    result: null,
+    receipt: { feedId: 'f', epoch: 'e', seq: 1 },
+    replayed: false,
+  }
+
+  it('sends sessions.dismissOffer on sync.submit under the entry’s own mutationId', async () => {
+    const submit = vi.fn(async (_envelope: unknown) => applied)
+    const route = vi.fn(async () => ({}))
+    const api = {
+      sync: { submit: { mutate: submit } },
+      sessions: { dismissOffer: { mutate: route } },
+    }
+    await outboxExecutors(api as never).dismissOffer(entry as OutboxKinds['dismissOffer'])
+    expect(submit).toHaveBeenCalledWith({
+      mutationId: 'm-dismiss-1',
+      command: 'sessions.dismissOffer',
+      version: 1,
+      input: { sessionId: 's-1', offerCreatedAt: '2026-11-06T12:00:00.000Z' },
+    })
+    expect(route).not.toHaveBeenCalled()
+  })
+
+  it('a server without the entry point takes the old route (LEGACY until 2027-03)', async () => {
+    const route = vi.fn(async (_input: unknown) => ({}))
+    const api = { sessions: { dismissOffer: { mutate: route } } }
+    await outboxExecutors(api as never).dismissOffer(entry as OutboxKinds['dismissOffer'])
+    expect(route).toHaveBeenCalledWith(entry)
+  })
+
+  it('a refusal is definitive: it carries a tRPC code the outbox classifies', async () => {
+    const submit = vi.fn(async () => ({ outcome: 'rejected', refusal: { kind: 'conflict' } }))
+    const api = {
+      sync: { submit: { mutate: submit } },
+      sessions: { dismissOffer: { mutate: vi.fn() } },
+    }
+    await expect(
+      outboxExecutors(api as never).dismissOffer(entry as OutboxKinds['dismissOffer']),
+    ).rejects.toMatchObject({ data: { code: 'CONFLICT' } })
   })
 })

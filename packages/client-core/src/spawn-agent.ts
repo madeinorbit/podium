@@ -411,6 +411,43 @@ const ISSUE_ACTION_KIND: Readonly<Record<IssueWorkAction, string>> = {
   assistant: ISSUE_ASSISTANT_KIND,
 }
 
+/** The effect kind answering an agent's question is, every way Podium answers (POD-6415). */
+export const SESSION_ANSWER_KIND = 'session.answer'
+
+/**
+ * What an answer says, by how it is delivered: `menu` for a live
+ * AskUserQuestion menu (`choices`, or `skip`), `interaction` for a durable ask
+ * row (`text`, or a typed `answer`). The server checks it against the session's
+ * own ask at create.
+ */
+export type SessionAnswer =
+  | {
+      via: 'menu'
+      interactionId?: string
+      choices?: readonly Record<string, unknown>[]
+      skip?: true
+    }
+  | {
+      via: 'interaction'
+      interactionId: string
+      text?: string
+      answer?: { kind: string } & Record<string, unknown>
+    }
+
+/** An answer to a session's question as its `session.answer` effect record. */
+export function sessionAnswerEffect(args: {
+  effectId: string
+  sessionId: SessionId
+  answer: SessionAnswer
+}): EffectCreateInput {
+  return {
+    id: args.effectId,
+    kind: SESSION_ANSWER_KIND,
+    target: { kind: 'session', id: args.sessionId },
+    input: args.answer,
+  }
+}
+
 /** One of those as its effect record. Only a stop takes an input (`force`). */
 export function issueActionEffect(args: {
   effectId: string

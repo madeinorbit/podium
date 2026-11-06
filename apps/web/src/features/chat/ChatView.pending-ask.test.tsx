@@ -41,7 +41,8 @@ interface ReadCall {
 }
 
 const reads: ReadCall[] = []
-const answerMutate = vi.fn(async (_input: unknown) => ({ ok: true }))
+// An answer is a `session.answer` record (POD-6415): the store's answerSession.
+const answerMutate = vi.fn(async (_sessionId: unknown, _answer: unknown) => 'eff_answer')
 const fakeTrpc = {
   sessions: {
     transcriptRead: {
@@ -51,8 +52,13 @@ const fakeTrpc = {
         })
       },
     },
-    sendText: { mutate: vi.fn(async (_input: unknown): Promise<{ ok: boolean; disposition?: string; position?: number }> => ({ ok: true })) },
-    answerAskUserQuestion: { mutate: answerMutate },
+    sendText: {
+      mutate: vi.fn(
+        async (
+          _input: unknown,
+        ): Promise<{ ok: boolean; disposition?: string; position?: number }> => ({ ok: true }),
+      ),
+    },
     uploadImage: { mutate: vi.fn(async () => ({ path: '/x' })) },
   },
 }
@@ -87,6 +93,7 @@ vi.mock('@/app/store', () => {
     setPanelMode: vi.fn(),
     openFile: vi.fn(),
     httpOrigin: 'http://x',
+    answerSession: answerMutate,
   })
   return {
     useStore,
@@ -221,7 +228,10 @@ describe('a pending question the transcript does not carry', () => {
     })
     await flush()
     expect(answerMutate).toHaveBeenCalledTimes(1)
-    expect(answerMutate.mock.calls[0]?.[0]).toMatchObject({ choices: [{ optionIndices: [1] }] })
+    expect(answerMutate.mock.calls[0]?.[1]).toMatchObject({
+      via: 'menu',
+      choices: [{ optionIndices: [1] }],
+    })
   })
 
   it('hands the question back when the transcript item lands, not showing it twice', async () => {

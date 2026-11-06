@@ -34,6 +34,7 @@ import { useMobilePool } from '../client/mobile-pool'
 import { AppState, Pressable, StyleSheet, Text, View } from 'react-native'
 import Svg, { Circle } from 'react-native-svg'
 import type { MobileTrpc } from '../client/trpc'
+import { menuAnswer, useAnswerSession } from '../lib/answer-session'
 import {
   useSessionContextIssue,
   useSessionContextMachine,
@@ -421,7 +422,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
     return homeName || 'This machine'
   }, [machine, homeName])
   const currentQuestion = useSessionContextQuestion(sessionId)
-  const trpc = store.trpc
+  const answerSession = useAnswerSession()
   /**
    * THE SEND ROUTE, READ PER SEND (POD-4688). The Conversation is
    * created once per session and owns the pending turns, so it must not be
@@ -628,14 +629,11 @@ const SessionConversationBody = observer(function SessionConversationBody({
       ) {
         throw new Error('The question changed; wait for the current menu.')
       }
-      const sent = await trpc.sessions.answerAskUserQuestion.mutate({
-        sessionId,
-        interactionId: answer.interactionId,
-        ...answer,
-      })
-      if (sent?.ok === false) throw new Error(sent.reason ?? 'answer not delivered')
+      // A `session.answer` record (POD-6415); its result is the delivery's reply.
+      const sent = await answerSession(sessionId, menuAnswer(answer))
+      if (!sent.ok) throw new Error(sent.reason ?? 'answer not delivered')
     },
-    [sessionId, currentQuestion, trpc.sessions.answerAskUserQuestion],
+    [sessionId, currentQuestion, answerSession],
   )
 
   /**

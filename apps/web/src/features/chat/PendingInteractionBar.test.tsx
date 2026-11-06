@@ -9,17 +9,29 @@ import { PendingInteractionBar } from './PendingInteractionBar'
 // THE BLOCKED-SESSION BAR (POD-2414). §4 promises a blocking ask renders where
 // a person is, and answering it from any surface resolves it everywhere. These
 // tests hold the two halves the shell owns: it draws only while an ask is open,
-// and pressing a button submits the viewmodel's TYPED answer through
-// `interactions.answer` rather than a shape this file invented.
+// and pressing a button submits the viewmodel's TYPED answer as a
+// `session.answer` record (POD-6415) rather than a shape this file invented.
 // ---------------------------------------------------------------------------
 
-const answer = vi.fn(async () => ({ ok: true }))
+const answer = vi.fn(async (_sessionId: string, _answer: unknown) => ({ ok: true }))
 const rows: PendingInteractionWire[] = []
 
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: (select: (state: unknown) => unknown) =>
-    select({ trpc: { interactions: { answer: { mutate: answer } } }, pendingInteractions: rows }),
+    select({ pendingInteractions: rows }),
 }))
+// The answer and its wait on the record (`answer-session.ts`) are the hook's;
+// this file pins what the bar hands it.
+vi.mock('./answer-session', () => ({ useAnswerSession: () => answer }))
+// The cards come from the viewmodel the pool's notice view runs; the fixture
+// pool declares no notice view, so the rows go through that viewmodel here.
+vi.mock('./use-pool-notices', async () => {
+  const { pendingInteractionCards } = await import('@podium/client-core/values')
+  return {
+    usePoolInteractionCards: (id: string) =>
+      pendingInteractionCards(rows as never, id).filter((card) => card.surface === 'aggregate'),
+  }
+})
 
 const login = (id: string): PendingInteractionWire =>
   ({
@@ -75,8 +87,9 @@ describe('PendingInteractionBar', () => {
     act(() => {
       button?.click()
     })
-    expect(answer).toHaveBeenCalledWith({
-      id: 'ixn_1',
+    expect(answer).toHaveBeenCalledWith('ses_1', {
+      via: 'interaction',
+      interactionId: 'ixn_1',
       answer: { kind: 'login', outcome: 'completed' },
     })
   })

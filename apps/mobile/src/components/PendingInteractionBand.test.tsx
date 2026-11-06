@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 // THE BLOCKED-SESSION BAND (POD-2414) — the phone's half of "every blocking ask
 // renders in the web UI, the Tray, mobile, and any attached CLI". What is
 // pinned here is what the SHELL owns: draw only while an ask is open, and
-// submit the viewmodel's typed answer through `interactions.answer`.
+// submit the viewmodel's typed answer as a `session.answer` record (POD-6415).
 // ---------------------------------------------------------------------------
 
 // This lane does not run testing-library's auto-cleanup.
@@ -16,13 +16,13 @@ vi.mock('expo-haptics', () => ({
   impactAsync: vi.fn(async () => {}),
 }))
 
-const answer = vi.fn(async () => ({ ok: true }))
+const answer = vi.fn(async (_sessionId: string, _answer: unknown) => ({ ok: true }))
 // Loosely typed on purpose: the mobile lane resolves `@podium/protocol` to its
 // built output, and this file only needs rows the band can read.
 const rows: Record<string, unknown>[] = []
 
-vi.mock('../client/hooks', () => ({
-  useTrpc: () => ({ interactions: { answer: { mutate: answer } } }),
+vi.mock('../lib/answer-session', () => ({
+  useAnswerSession: () => answer,
 }))
 vi.mock('../client/use-pool-notices', async () => {
   const { pendingInteractionCards } = await import('@podium/client-core/values')
@@ -79,8 +79,9 @@ describe('PendingInteractionBand', () => {
     render(<PendingInteractionBand sessionId={'ses_1' as never} />)
     fireEvent.click(screen.getByTestId('pending-interaction-action-full-resume'))
     await waitFor(() =>
-      expect(answer).toHaveBeenCalledWith({
-        id: 'ixn_1',
+      expect(answer).toHaveBeenCalledWith('ses_1', {
+        via: 'interaction',
+        interactionId: 'ixn_1',
         answer: { kind: 'recovery', choice: 'full-resume' },
       }),
     )

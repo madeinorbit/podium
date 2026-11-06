@@ -115,6 +115,12 @@ function harness(
     return entry
   })
   const dismissOffer = vi.fn(async (_input: unknown) => ({}))
+  const submit = vi.fn(async (_envelope: unknown) => ({
+    outcome: 'applied',
+    result: {},
+    receipt: { feedId: 'f', epoch: 'e', seq: 0 },
+    replayed: false,
+  }))
   // The old controller fetched `layout.get` at boot and after every applied
   // layout command. Nothing may call it now: the base is the replica's.
   const layoutGet = vi.fn(layout.fetch ?? (async () => ({})))
@@ -137,6 +143,7 @@ function harness(
         kill: { mutate: vi.fn(async () => ({})) },
         dismissOffer: { mutate: dismissOffer },
       },
+      sync: { submit: { mutate: submit } },
     } as unknown as PodiumClientApi,
     hub: (hub ?? {}) as SocketHub,
     outbox: {
@@ -195,6 +202,7 @@ function harness(
   return {
     actions,
     dismissOffer,
+    submit,
     enqueue,
     pending,
     awaiting,
@@ -280,6 +288,43 @@ describe('engine action ownership boundary', () => {
     expect(h.state().transcriptReveal).toEqual(second)
     h.actions.clearTranscriptReveal(second?.nonce ?? 0)
     expect(h.state().transcriptReveal).toBeNull()
+  })
+
+  it('answers a question as a session.answer record created at once, never queued (POD-6415)', async () => {
+    const h = harness()
+
+    const id = await h.actions.answerSession(sessionId, {
+      via: 'menu',
+      interactionId: 'ask-1',
+      choices: [{ optionIndices: [2] }],
+    })
+
+    expect(id).toMatch(/^eff_/)
+    // Online-only: an answer that reached the server later would land on a
+    // later menu, so it is never in the durable queue.
+    expect(h.queued).toEqual([])
+    expect(h.submit).toHaveBeenCalledTimes(1)
+    expect(h.submit.mock.calls[0]?.[0]).toMatchObject({
+      command: 'effects.create',
+      input: {
+        id,
+        kind: 'session.answer',
+        target: { kind: 'session', id: sessionId },
+        input: { via: 'menu', interactionId: 'ask-1', choices: [{ optionIndices: [2] }] },
+      },
+    })
+  })
+
+  it('a refused answer rejects in words, and nothing is queued', async () => {
+    const h = harness()
+    h.submit.mockResolvedValueOnce({
+      outcome: 'rejected',
+      refusal: { kind: 'target-not-found' },
+    } as never)
+    await expect(h.actions.answerSession(sessionId, { via: 'menu', skip: true })).rejects.toThrow(
+      /answer the question/,
+    )
+    expect(h.queued).toEqual([])
   })
 
   it('queues an offer dismissal through the Outbox, carrying the offer it names', async () => {

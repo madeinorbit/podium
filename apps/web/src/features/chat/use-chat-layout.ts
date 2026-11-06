@@ -13,6 +13,7 @@ import { usePoolMachine } from '@/app/header-data'
 import { useRuntimeActions } from '@/app/keyed-runtime'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
+import { useAnswerSession } from './answer-session'
 import { ChatViewModel } from './chat-view-model'
 import { RENDER_WINDOW } from './conversation-presentation'
 import { revealFoldedRow } from './fold-reveal'
@@ -73,6 +74,7 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
   const { conversation, sessionId, active, compact } = opts
   const { trpc, openFile, httpOrigin, clearAttachedSession, clearTranscriptReveal } =
     useRuntimeActions(LAYOUT_ACTIONS)
+  const answerSession = useAnswerSession()
   // Thread routing belongs to the conversation's existing identity. An inline
   // parent prop with the same thread must not replace this mounted reader.
   const view = useMemo(
@@ -241,14 +243,20 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
           !matchesQuestionInteraction(question, answer.question))
       )
         throw new Error('The question changed; wait for the current menu.')
-      const sent = (await trpc.sessions.answerAskUserQuestion.mutate(
+      // A `session.answer` record (POD-6415); its result is the delivery's reply.
+      const sent = await answerSession(
+        sessionId,
         'skip' in answer
-          ? { sessionId, interactionId: answer.interactionId, skip: true }
-          : { sessionId, interactionId: answer.interactionId, choices: answer.choices },
-      )) as { ok?: boolean; reason?: string } | undefined
-      if (sent?.ok === false) throw new Error(sent.reason ?? 'answer not delivered')
+          ? { via: 'menu', interactionId: answer.interactionId, skip: true }
+          : {
+              via: 'menu',
+              interactionId: answer.interactionId,
+              choices: answer.choices as readonly Record<string, unknown>[],
+            },
+      )
+      if (!sent.ok) throw new Error(sent.reason ?? 'answer not delivered')
     },
-    [view, presentation, trpc, sessionId, sends, scroll.pinToBottom],
+    [view, presentation, answerSession, sessionId, sends, scroll.pinToBottom],
   )
   const activeRow = presentation.search.activeRow
   const activeMatch = presentation.search.activeMatch

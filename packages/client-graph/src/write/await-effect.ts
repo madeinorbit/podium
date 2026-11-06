@@ -74,3 +74,38 @@ export function effectShortfall(effect: Pick<EffectModel, 'status' | 'error'>): 
       return effect.error?.message ?? 'it did not run'
   }
 }
+
+/** How long a device waits for an answer: past the record's own one-minute deadline. */
+export const ANSWER_WAIT_MS = 90_000
+
+/**
+ * A `session.answer` record's answer once it ended (POD-6415): the delivery's
+ * own reply (its `result`, `{ ok, reason? }`) when it has one, else why it did
+ * not run. Gives up after {@link ANSWER_WAIT_MS}, saying so.
+ */
+export async function awaitAnswer(
+  pool: EffectPool,
+  id: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<{ ok: boolean; reason?: string }> {
+  const signal = options.signal ?? AbortSignal.timeout(ANSWER_WAIT_MS)
+  let effect: EffectModel
+  try {
+    effect = await awaitEffect(pool, id, { signal })
+  } catch {
+    return { ok: false, reason: 'No word yet on whether the answer arrived; check the session.' }
+  }
+  const reply = effect.result as { ok?: unknown; reason?: unknown; detail?: unknown } | undefined
+  if (reply !== null && typeof reply === 'object' && typeof reply.ok === 'boolean') {
+    if (reply.ok) return { ok: true }
+    const reason =
+      typeof reply.detail === 'string'
+        ? reply.detail
+        : typeof reply.reason === 'string'
+          ? reply.reason
+          : undefined
+    return reason === undefined ? { ok: false } : { ok: false, reason }
+  }
+  const why = effectShortfall(effect)
+  return why === undefined ? { ok: effect.status === 'succeeded' } : { ok: false, reason: why }
+}
