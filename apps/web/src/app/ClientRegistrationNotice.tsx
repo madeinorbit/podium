@@ -6,19 +6,24 @@ import type { Trpc } from './trpc'
 
 /** Mounted in the shared app lifecycle, after LoginGate confirms live authentication. */
 export function ClientRegistrationNotice({ auth, trpc }: { auth?: AuthBootstrap; trpc: Trpc }) {
-  const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<{
+    principal: string
+    trpc: Trpc
+    message: string | null
+  }>()
   const principal = auth?.kind === 'principal' ? auth.principal : undefined
   useEffect(() => {
     if (principal === undefined) return
     let disposed = false
     void clientRegistration.start(nativeDesktopBridge(), trpc, principal).then((message) => {
-      if (!disposed) setError(message)
+      if (!disposed) setNotice({ principal, trpc, message })
     })
     return () => {
       disposed = true
     }
   }, [principal, trpc])
 
+  const error = notice?.principal === principal && notice?.trpc === trpc ? notice.message : null
   if (!error) return null
   return (
     <div

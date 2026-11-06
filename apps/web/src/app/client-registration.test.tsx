@@ -361,6 +361,34 @@ describe('registration principal lifetime', () => {
     return { mint, trpc: { machines: { pairingCode: { mutate: mint } } } as unknown as Trpc }
   }
 
+  it('renders only the current member’s notice while the next registration is pending', async () => {
+    const fixture = setup({ state: 'unavailable', message: 'Alice registration detail' })
+    vi.spyOn(clientRegistration, 'start').mockImplementation((...args) =>
+      fixture.registration.start(...args),
+    )
+    const view = render(
+      <ClientRegistrationNotice
+        trpc={fixture.trpc}
+        auth={{ kind: 'principal', principal: 'alice' }}
+      />,
+    )
+    expect((await screen.findByRole('alert')).textContent).toBe('Alice registration detail')
+    const pending = deferred<NativeClientRegistrationStatus>()
+    fixture.read.mockReturnValueOnce(pending.promise)
+    const bob = bobClient()
+    view.rerender(
+      <ClientRegistrationNotice trpc={bob.trpc} auth={{ kind: 'principal', principal: 'bob' }} />,
+    )
+    await vi.waitFor(() => expect(fixture.read).toHaveBeenCalledTimes(2))
+    const whileBobPending = screen.queryByRole('alert')?.textContent ?? null
+    pending.resolve({ state: 'unavailable', message: 'Bob registration detail' })
+    await act(async () => {})
+    expect(whileBobPending).toBeNull()
+    expect((await screen.findByRole('alert')).textContent).toBe('Bob registration detail')
+    expect(fixture.mint).not.toHaveBeenCalled()
+    expect(bob.mint).not.toHaveBeenCalled()
+  })
+
   it('drops a departed member’s pending native read before minting for the next member', async () => {
     const fixture = setup()
     const pending = deferred<NativeClientRegistrationStatus>()
