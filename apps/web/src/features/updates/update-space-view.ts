@@ -40,7 +40,7 @@ export class UpdateSpaceView extends RequestAnswer<UpdateSpacePreview> {
 
   @lazy get summary(): string {
     if (this.loading) return 'Estimating disk space…'
-    if (this.warnings.length) return 'Storage details'
+    if (this.warnings.length) return ''
     if (this.error || this.unverified) return 'Disk space could not be verified.'
     if (this.enoughCount) return 'Disk space looks sufficient'
     return 'No pending machine updates'

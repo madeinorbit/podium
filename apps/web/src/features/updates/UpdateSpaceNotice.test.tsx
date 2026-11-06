@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import type { UpdateSpacePreview } from '@podium/protocol'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Trpc } from '@/app/trpc'
 import type { UpdatePanelView } from './operation-view'
@@ -80,28 +80,20 @@ describe('informational disk warning', () => {
     const query = vi.fn().mockResolvedValue(result)
     const f = offer(query)
     const notice = screen.getByTestId('update-space-notice')
-    await waitFor(() =>
-      expect(notice.querySelector('summary')?.textContent).toBe(
-        status === 'low'
-          ? 'Storage details'
-          : status === 'enough'
-            ? 'Disk space looks sufficient'
-            : 'Disk space could not be verified.',
-      ),
+    await screen.findByText(
+      status === 'low'
+        ? /Low disk space on build-box/
+        : status === 'enough'
+          ? 'Disk space looks sufficient'
+          : 'Disk space could not be verified.',
     )
     const button = screen.getByRole('button', { name: 'Update now' })
     expect(button.hasAttribute('disabled')).toBe(false)
     fireEvent.click(button)
     expect(f.onAction).toHaveBeenCalledWith('start')
     expect(query).toHaveBeenCalledTimes(1)
-    const details = notice.querySelector('details')
-    expect(details?.open).toBe(false)
-    if (status === 'low') {
-      expect(screen.getByText(/Low disk space on build-box/)).toBeTruthy()
-      fireEvent.click(screen.getByText('Storage details'))
-      expect(details?.open).toBe(true)
-      expect(screen.getByText(/Free at least .* on this volume/)).toBeTruthy()
-    }
+    expect(notice.querySelector('details')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Check again' })).toBeNull()
   })
 
   it.each([
@@ -175,7 +167,7 @@ describe('informational disk warning', () => {
     expect(query).toHaveBeenCalledTimes(1)
   })
 
-  it('checks only on presentation and manual refresh, ignoring late answers after replacement', async () => {
+  it('checks only on presentation, ignoring late answers after replacement', async () => {
     let resolve!: (result: unknown) => void
     const query = vi
       .fn()
@@ -194,21 +186,21 @@ describe('informational disk warning', () => {
       />,
     )
     await waitFor(() => expect(query).toHaveBeenCalledTimes(2))
-    resolve({
-      machines: [
-        {
-          machineId: 'old',
-          name: 'obsolete',
-          targetVersion: 'next',
-          status: 'unknown',
-          checkedAt: 1,
-          volumes: [],
-        },
-      ],
+    await act(async () => {
+      resolve({
+        machines: [
+          {
+            machineId: 'old',
+            name: 'obsolete',
+            targetVersion: 'next',
+            status: 'unknown',
+            checkedAt: 1,
+            volumes: [],
+          },
+        ],
+      })
     })
-    await waitFor(() => expect(screen.queryByText(/obsolete/)).toBeNull())
-    fireEvent.click(screen.getByText('No pending machine updates'))
-    fireEvent.click(screen.getByRole('button', { name: 'Check again' }))
-    await waitFor(() => expect(query).toHaveBeenCalledTimes(3))
+    expect(screen.getByText('No pending machine updates')).toBeTruthy()
+    expect(query).toHaveBeenCalledTimes(2)
   })
 })

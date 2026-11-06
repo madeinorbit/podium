@@ -43,6 +43,7 @@ describe('disk space request answer', () => {
     expect(v.warnings).toEqual([
       'Low disk space on build-box: 1.2 GiB available; about 3.0 GiB needed. This update is likely to fail.',
     ])
+    expect(v.summary).toBe('')
     await vi.advanceTimersByTimeAsync(30_000)
     expect(v.stale).toBe(true)
     expect(read).toHaveBeenCalledTimes(1)
