@@ -100,6 +100,70 @@ describe('focused test execution', () => {
     expect(files.map((entry) => relative(root, entry.file))).toEqual([file])
   }, 35_000)
 
+  it('preserves assertion results and mapped locations with a Bun native frame', () => {
+    const source = join(directory, 'source-location.test.ts')
+    const mapped = join(directory, 'mapped.cjs')
+    const original = join(directory, 'original.ts')
+    writeFileSync(
+      original,
+      "export function fail() {\n  throw new Error('mapped external sentinel')\n}\n",
+    )
+    const map = Buffer.from(
+      JSON.stringify({
+        version: 3,
+        sources: ['original.ts'],
+        sourcesContent: [
+          "export function fail() {\n  throw new Error('mapped external sentinel')\n}\n",
+        ],
+        names: [],
+        // Map generated line 1 to original line 2, zero-based column 2.
+        // Vitest preserves the mapped column when formatting the location.
+        mappings: 'AACE',
+      }),
+    ).toString('base64')
+    // Assign the generated location explicitly so Bun cannot remap it first:
+    // this control must exercise Vitest's external-file source-map reader.
+    const stack = `Error: mapped external sentinel\n    at fail (${mapped}:1:1)`
+    writeFileSync(
+      mapped,
+      `exports.fail = function () { const error = new Error('mapped external sentinel'); error.stack = ${JSON.stringify(stack)}; throw error }\n` +
+        `//# sourceMappingURL=data:application/json;base64,${map}\n`,
+    )
+    writeFileSync(
+      source,
+      String.raw`
+import { createRequire } from 'node:module'
+import { expect, it } from 'vitest'
+const { fail } = createRequire(import.meta.url)('./mapped.cjs')
+it('positive before failure', () => expect(1).toBe(1))
+it('native frame payload failure', () => {
+  try {
+    expect({ payload: 'actual' }).toEqual({ payload: 'expected' })
+  } catch (error) {
+    // Bun can put this pseudo-location in an assertion stack. The repository
+    // contains native/, so an existence-only source-map read opens a directory.
+    error.stack += '\n    at new Promise (native:1:11)\n    at caller (missing-stack-source.ts:1:1)'
+    throw error
+  }
+})
+it('mapped external failure', () => fail())
+it('positive after failure', () => expect(2).toBe(2))
+`,
+    )
+    const result = run(['test:file', '--', source])
+    expect(result.code, result.output).toBe(1)
+    expect(result.output).not.toContain('EISDIR')
+    expect(result.output).not.toContain('Unhandled Errors')
+    expect(result.output).toMatch(/Tests\s+2 failed\s*\|\s*2 passed\s*\(4\)/)
+    expect(result.output).toContain('"payload": "actual"')
+    expect(result.output).toContain('"payload": "expected"')
+    expect(result.output).toContain('source-location.test.ts:')
+    expect(result.output).toContain('original.ts:2:2')
+    expect(result.output).toContain('new Promise native:1:11')
+    expect(result.output).toContain('caller missing-stack-source.ts:1:1')
+    expect(result.output).toContain('mapped external sentinel')
+  }, 35_000)
+
   it('requires an executed test in every named file', () => {
     expect(
       executionErrors(
