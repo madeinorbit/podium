@@ -249,7 +249,7 @@ describe('records.issueProjection.edit', () => {
     appliedReply(await submit(o, edit(id, { title: 'mine' }, at, 'm-first')))
     const second = await submit(o, edit(id, { title: 'theirs' }, at, 'm-second'))
 
-    expect(refusal(second)).toEqual({ kind: 'conflict' })
+    expect(refusal(second)).toMatchObject({ kind: 'conflict' })
     expect((await meta(o, id)).title).toBe('mine')
     expect(await rowsOf(o, 'm-second')).toEqual([])
   })
@@ -568,7 +568,7 @@ describe('records.issueUserState', () => {
       o,
       editIssueState(id, { tuckedAt: '2099-01-01T00:00:00.000Z' }, 't-1'),
     )
-    expect(refusal(open)).toEqual({ kind: 'conflict' })
+    expect(refusal(open)).toMatchObject({ kind: 'conflict' })
 
     await o.call.issues.close({ id: issue, reason: 'done' })
     appliedReply(

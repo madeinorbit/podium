@@ -41,10 +41,10 @@ import type { PodiumClientApi } from '../api'
 import { randomUUID } from '../id'
 import {
   createRecordsApi,
-  RECORD_KINDS,
   type RecordKind,
   type RecordPatch,
   type RecordRef,
+  recordKinds,
   UNSET,
 } from '../records'
 import type { SocketHub } from '../socket-transport'
@@ -520,11 +520,18 @@ function splitIssuePatch(patch: Record<string, unknown>): {
   return { plain, rest }
 }
 
-const ISSUE_PLAIN_FIELDS: ReadonlySet<string> = new Set(
-  Object.keys(RECORD_KINDS.issueProjection.fields).filter(
-    (name) => fieldConflict(RECORD_KINDS.issueProjection, name) === 'field-LWW',
-  ),
-)
+/** Read on first use: the record table is not ready while modules load. */
+let issuePlainFields: ReadonlySet<string> | undefined
+const ISSUE_PLAIN_FIELDS = {
+  has: (name: string): boolean => {
+    issuePlainFields ??= new Set(
+      Object.keys(recordKinds().issueProjection.fields).filter(
+        (field) => fieldConflict(recordKinds().issueProjection, field) === 'field-LWW',
+      ),
+    )
+    return issuePlainFields.has(name)
+  },
+}
 
 export function createEngineActions<TApi extends PodiumClientApi>(
   rt: EngineActionRuntime<TApi>,
