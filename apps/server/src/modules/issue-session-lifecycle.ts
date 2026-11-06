@@ -1,6 +1,6 @@
 import { createLogger } from '@podium/logger'
 import { type IssueId, type IssueProjection, isIssueClosed } from '@podium/model'
-import type { Ledger } from '@podium/sync'
+import type { LedgerWriter } from '@podium/sync'
 import { systemPrincipal } from '../command-principal'
 import { afterCommit } from '../store/executor/executor'
 import type { IssueService } from './issues/service'
@@ -37,7 +37,7 @@ export class IssueSessionLifecycle {
     private readonly deps: {
       issues: IssueService
       sessions: SessionLifecycle
-      ledger: Pick<Ledger, 'commit'>
+      ledger: Pick<LedgerWriter, 'commit'>
     },
   ) {}
 
@@ -277,7 +277,10 @@ export class IssueSessionLifecycle {
     const current = await this.deps.issues.reports.getMeta(id)
     if (!current) throw new IssueNotFound(id)
     if (current.deletedAt)
-      return { issue: await this.deps.issues.reports.store.projection(current), deletedSessionIds: [] }
+      return {
+        issue: await this.deps.issues.reports.store.projection(current),
+        deletedSessionIds: [],
+      }
 
     const sessionPlan = await this.deps.sessions.prepareIssueSessionDelete(
       current.id,
@@ -329,7 +332,10 @@ export class IssueSessionLifecycle {
     const current = await this.deps.issues.reports.getMeta(id)
     if (!current) throw new IssueNotFound(id)
     if (!current.deletedAt)
-      return { issue: await this.deps.issues.reports.store.projection(current), restoredSessionIds: [] }
+      return {
+        issue: await this.deps.issues.reports.store.projection(current),
+        restoredSessionIds: [],
+      }
 
     const sessionPlan = await this.deps.sessions.prepareIssueSessionRestore(current.id)
     const issuePlan = await this.deps.issues.crud.prepareRestore(current.id)

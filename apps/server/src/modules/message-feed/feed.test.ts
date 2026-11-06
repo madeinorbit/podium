@@ -28,6 +28,7 @@ import {
   messageRecordRowId,
 } from '@podium/model'
 import { Ledger } from '@podium/sync'
+import { testLedgerWriter } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../store'
 import { afterCommit, applyAfterCommit, spanOpen } from '../../store/executor/executor'
@@ -58,7 +59,7 @@ async function harness(
     applyCommit: { spanOpen, onCommit: applyAfterCommit },
   })
   const feed = new MessageFeedPublisher({
-    ledger,
+    ledger: { ...testLedgerWriter(ledger), onAppended: (listener) => ledger.onAppended(listener) },
     sessions: store.sessions,
     snapshot: async () => await ledger.authority.snapshot('message'),
     listOpen: async () => await store.messages.listOpenChat(),
@@ -69,7 +70,9 @@ async function harness(
   // Each session is on the feed as it is in the server, so its removal is a change.
   for (const id of opts.sessions ?? [S1, S2]) {
     await store.sessions.upsertSession(session(id))
-    await ledger.capture([{ entity: 'session', id, op: 'upsert', value: sessionValue(id, {}) }])
+    await testLedgerWriter(ledger).capture([
+      { entity: 'session', id, op: 'upsert', value: sessionValue(id, {}) },
+    ])
   }
   if (opts.live !== false) await feed.resolve()
   /** What a device bootstrapping now would receive, keyed by message id. */
@@ -80,7 +83,10 @@ async function harness(
   /** A second publisher over the same table and log — the next boot. */
   const reboot = async (window?: number): Promise<MessageFeedPublisher> => {
     const next = new MessageFeedPublisher({
-      ledger,
+      ledger: {
+        ...testLedgerWriter(ledger),
+        onAppended: (listener) => ledger.onAppended(listener),
+      },
       sessions: store.sessions,
       snapshot: async () => await ledger.authority.snapshot('message'),
       listOpen: async () => await store.messages.listOpenChat(),
@@ -98,7 +104,7 @@ async function harness(
    */
   const move = async (id: string, patch: Partial<SessionRow> | null | 'purge'): Promise<void> => {
     const sessionId = asSessionId(id)
-    await ledger.commit({
+    await testLedgerWriter(ledger).commit({
       write: async () => {
         if (patch === 'purge') await store.sessions.purgeSession(sessionId)
         else if (patch === null) await store.sessions.softDeleteSessions([id], 't', 'standalone')

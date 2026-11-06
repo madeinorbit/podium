@@ -108,8 +108,9 @@ export interface SyncWriteEntryDeps {
   readonly afterCommit: (step: () => void | Promise<void>, label: string) => void
   /** Whether a unit of work is already open in the caller's context. */
   readonly spanOpen: () => boolean
-  /** The write-seam Ledger, whose Authority reads the provenance scope. */
-  readonly ledger: SyncWriteLedger
+  /** The writer of one command, bound to its own `sync` write scope
+   *  (`WriteContexts.sync`, ADR 12 D9). Minted here and nowhere else. */
+  readonly writer: (mutationId: MutationId) => SyncWriteLedger
   /** The feed identity and the change-log head, read now (`relay.writeReceiptNow`). */
   readonly receipt: () => Promise<WriteReceipt>
 }
@@ -268,7 +269,7 @@ export class SyncWriteEntry {
       mutationId,
       expectedRevision,
       confirmed,
-      ledger: this.deps.ledger,
+      ledger: this.deps.writer(mutationId),
       afterCommit: (step, label) => afterCommit(() => outsideWriteProvenance(step), label),
     }
   }

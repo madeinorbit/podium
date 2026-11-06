@@ -9,6 +9,7 @@
 import { type AnyCommandContract, accountsConnectContract } from '@podium/commands'
 import { asUserId, firstAdminMemberId } from '@podium/model'
 import { DEVICE_GRADE_PRINCIPAL, Ledger } from '@podium/sync'
+import { testLedgerWriter } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import {
@@ -193,7 +194,7 @@ describe('a plain handler cannot obtain a synced writer', () => {
         principal: admin,
         transport: 'trpc',
         input: { note: 'x' },
-        run: async () => await ledger.capture(conversation('c-plain')),
+        run: async () => await testLedgerWriter(ledger).capture(conversation('c-plain')),
       }),
     ).rejects.toBeInstanceOf(PlainCommandWroteSyncedData)
     expect(await changeCount(ledger)).toBe(0)
@@ -209,7 +210,7 @@ describe('a plain handler cannot obtain a synced writer', () => {
         transport: 'trpc',
         input: { note: 'x' },
         run: async () =>
-          await ledger.commit({
+          await testLedgerWriter(ledger).commit({
             write: async () => {
               wrote = true
             },
@@ -223,7 +224,7 @@ describe('a plain handler cannot obtain a synced writer', () => {
 
   it('the same capture outside any plain command succeeds (the refusal is the scope, not the ledger)', async () => {
     const ledger = await realLedger()
-    await ledger.capture(conversation('c-outside'))
+    await testLedgerWriter(ledger).capture(conversation('c-outside'))
     expect(await changeCount(ledger)).toBe(1)
   })
 
@@ -235,7 +236,9 @@ describe('a plain handler cannot obtain a synced writer', () => {
       transport: 'trpc',
       input: { note: 'x' },
       run: async () => {
-        await asSystemWrite(async () => await ledger.capture(conversation('c-system')))
+        await asSystemWrite(
+          async () => await testLedgerWriter(ledger).capture(conversation('c-system')),
+        )
         return 'done'
       },
     })
@@ -256,7 +259,9 @@ describe('a plain handler cannot obtain a synced writer', () => {
       transport: 'trpc',
       input: { note: 'x' },
       run: () => {
-        later = gate.then(async () => await ledger.capture(conversation('c-later')))
+        later = gate.then(
+          async () => await testLedgerWriter(ledger).capture(conversation('c-later')),
+        )
       },
     })
     release()
@@ -277,7 +282,7 @@ describe('a plain handler cannot obtain a synced writer', () => {
       input: { note: 'x' },
       run: async () => await held,
     })
-    await ledger.capture(conversation('c-beside'))
+    await testLedgerWriter(ledger).capture(conversation('c-beside'))
     release()
     await plain
     expect(await changeCount(ledger)).toBe(1)

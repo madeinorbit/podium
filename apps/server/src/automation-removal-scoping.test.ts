@@ -38,13 +38,14 @@
  * could pass against a subscription that receives nothing at all.
  */
 
-import { asCapabilityRef, asDeviceId, type Principal } from '@podium/protocol'
 import { asAutomationRunId, asUserId, firstAdminMemberId } from '@podium/model'
+import { asCapabilityRef, asDeviceId, type Principal } from '@podium/protocol'
 import type { Ledger, ScopedDelivery } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
 import type { AutomationRunRow } from './store/automations'
+import type { WriteContexts } from './write-contexts'
 
 /** The one store method this suite reaches for, named rather than `any`. */
 interface AutomationRunWriter {
@@ -73,6 +74,8 @@ interface Row {
 /** The registry's own `Ledger` — private, so this is the one place that names the
  *  reach-in, rather than a cast repeated at every call site. */
 const ledgerOf = (reg: SessionRegistry): Ledger => (reg as unknown as { ledger: Ledger }).ledger
+const writesOf = (reg: SessionRegistry): WriteContexts =>
+  (reg as unknown as { writes: WriteContexts }).writes
 
 /** The fixture observes its real subscription, not the store's private executor.
  * A durable commit alone does not establish that this principal received a row. */
@@ -159,13 +162,15 @@ describe('POD-1509 — a removal reaches the principal who owned the row', () =>
       actor: OWNER,
       onBehalfOf: OWNER,
     }
-    await ledgerOf(reg).commit({
-      write: async () => {
-        await store.automations.addRun(run)
-        return undefined
-      },
-      changes: () => [{ entity: 'automationRun', id: run.id, op: 'upsert', value: run }],
-    })
+    await writesOf(reg)
+      .system('automations')
+      .commit({
+        write: async () => {
+          await store.automations.addRun(run)
+          return undefined
+        },
+        changes: () => [{ entity: 'automationRun', id: run.id, op: 'upsert', value: run }],
+      })
 
     await reg.modules.automations.remove(created.id, principal)
 
@@ -174,7 +179,11 @@ describe('POD-1509 — a removal reaches the principal who owned the row', () =>
     // must be stamped explicitly — and its removal is scoped through
     // `runOwnerOf`, which is a SECOND lookup that reads past a tombstone. Without
     // this arm that line is never entered by any test.
-    await waitForDelivery(delivered, { entity: 'automationRun', entityId: 'run_pod1509', op: 'remove' })
+    await waitForDelivery(delivered, {
+      entity: 'automationRun',
+      entityId: 'run_pod1509',
+      op: 'remove',
+    })
     expect(delivered).toContainEqual({
       entity: 'automationRun',
       entityId: 'run_pod1509',

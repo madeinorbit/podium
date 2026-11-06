@@ -259,6 +259,7 @@ import { applyAfterCommit, spanOpen } from './store/executor/executor'
 import { currentReadScope, readScopeSlot } from './store/executor/read-scope'
 import type { SyncDeltaPorts } from './sync/route-support'
 import { autoContinueSender, systemIssueNotice } from './system-notices'
+import { WriteContexts } from './write-contexts'
 
 // Re-exported so repo-registry/superagent/tests keep importing the daemon-RPC
 // result shapes from './relay'.
@@ -603,6 +604,9 @@ export class SessionRegistry {
   /** Durable change-log owner, retained so shutdown cancels maintenance slices. */
   readonly syncDelta: SyncDeltaPorts
   private readonly ledger: Ledger
+  /** The write contexts over {@link ledger} (ADR 12 D9): the only source of a
+   *  write scope in the process. */
+  private readonly writes: WriteContexts
   /** Curated issue-event window, resolved during async registry hydration. */
   private readonly issueEventFeed: IssueEventFeedPublisher
   /** Open interaction set, resolved during async registry hydration. */
@@ -660,7 +664,9 @@ export class SessionRegistry {
     stageStarted = performance.now()
     // Migration-seeded account state must be in the feed before the first bootstrap.
     await this.modules.layout.reconcileAllToLedger()
-    await this.ledger.reconcile('machine', await this.modules.machines.projectionRows())
+    await this.writes
+      .system('boot.reconcile')
+      .reconcile('machine', await this.modules.machines.projectionRows())
     await this.issueEventFeed.resolve()
     await this.interactionFeed.resolve()
     await this.messageFeed.resolve()
@@ -673,8 +679,9 @@ export class SessionRegistry {
       await this.store.shipping.listReceipts(),
       await this.store.shipping.listNativeStackEdges(),
     )
-    await this.ledger.reconcile('shipOrder', orderPlane.orders)
-    await this.ledger.reconcile('shipLane', orderPlane.lanes)
+    const bootTruth = this.writes.system('boot.reconcile')
+    await bootTruth.reconcile('shipOrder', orderPlane.orders)
+    await bootTruth.reconcile('shipLane', orderPlane.lanes)
     // The one boot WRITE, owned by the memory service rather than by the store.
     await this.modules.memory.repairSubagentEvidence()
     // Full boot truth for both automation kinds.
@@ -853,7 +860,10 @@ export class SessionRegistry {
       // triggers it (`setup.complete` enrolling the host, POD-6360).
       publishMachineProjection: async (id, value) => {
         await asSystemWrite(
-          async () => await this.ledger.capture([{ entity: 'machine', id, op: 'upsert', value }]),
+          async () =>
+            await this.writes
+              .system('machines.projection')
+              .capture([{ entity: 'machine', id, op: 'upsert', value }]),
         )
       },
       instanceId,
@@ -1148,12 +1158,17 @@ export class SessionRegistry {
       },
     })
     this.ledger = ledger
+    // WHO MAY WRITE (ADR 12 D9, POD-6592): the Ledger's scope mint, taken once,
+    // here. The sync write entry point mints each command's scope from it; every
+    // other writer is a declared origin (`write-contexts.ts`).
+    const writes = new WriteContexts(ledger, ledger.takeScopeMint())
+    this.writes = writes
     // ONE HOOK ON THE ONE APPEND (POD-1772): every orchestrator event write in
     // the server goes through `store.events.appendEvent`, so the curated
     // feed-kind subset reaches the metadata feed from the write path rather than
     // from a list of call sites somebody has to keep complete.
     this.issueEventFeed = issueEventFeed = new IssueEventFeedPublisher({
-      ledger,
+      ledger: writes.system('feed.issueEvents'),
       seed: async () => (await ledger.authority.snapshot('issueEvent')) as IssueEventWire[],
     })
     this.store.events.onAppend(async (id, event) => await issueEventFeed?.publish(id, event))
@@ -1162,7 +1177,10 @@ export class SessionRegistry {
     // transaction, so a person's messages and their delivery status reach every
     // device from the write path, whichever module moved them.
     const messageFeed = new MessageFeedPublisher({
-      ledger,
+      ledger: {
+        ...writes.system('feed.messages'),
+        onAppended: (listener) => ledger.onAppended(listener),
+      },
       sessions: this.store.sessions,
       snapshot: async () => await ledger.authority.snapshot('message'),
       listOpen: async () => await this.store.messages.listOpenChat(),
@@ -1170,7 +1188,7 @@ export class SessionRegistry {
     })
     this.messageFeed = messageFeed
     this.store.messages.setFeedCapture(messageFeed.capture)
-    const issueArbitration = new IssueAuthorityArbitration(ledger)
+    const issueArbitration = new IssueAuthorityArbitration(writes.system('issues'))
     // THE write funnel (modules/funnel): authorize → repo write → change append →
     // broadcast. Bridges ledger appends onto the bus and runs THE ordered
     // metadataDelta pipe (#256) — sendDelta is the one seam deltas reach
@@ -1289,7 +1307,7 @@ export class SessionRegistry {
         // Conversation writes commit through the write-seam ledger (#257):
         // discovery/meta commits + list reconciles append durably at
         // the write; the feed serves them (POD-1203 deleted the snapshot tail).
-        ledger,
+        ledger: writes.system('conversations'),
         // Scan diagnostics are not feed content and the v1 wire carried them
         // inside `conversationsChanged`; the edge re-serves them to the wire
         // versions that still need them (POD-1203).
@@ -1792,7 +1810,9 @@ export class SessionRegistry {
       clients: clientRegistry,
       subscriptions,
       // Session writes commit through the write-seam ledger at persist() (#256).
-      ledger,
+      // The repository also reads the installed snapshot at boot (its prior
+      // personal rows), so the port carries the Authority's reads too.
+      ledger: { ...writes.system('sessions'), authority: ledger.authority },
       machines,
       rpc,
       onSpawnTargetLogin: async ({ machineId, agentKind, ownerUserId }) =>
@@ -3025,7 +3045,7 @@ export class SessionRegistry {
     // makes the next occurrence a skipped_overlap rather than a pile-up.
     const automations = new AutomationsService({
       store: this.store.automations,
-      ledger,
+      ledger: writes.system('automations'),
       createSession: async (o) =>
         await sessionsSvc.createSession({ ...o, requestTerminalDriver: true }),
       // A run's prompt is its owner's message (POD-4846): stored, typed without a
@@ -3408,7 +3428,7 @@ export class SessionRegistry {
           }
         },
       },
-      ledger,
+      ledger: writes.system('shipping'),
       daemon: rpc,
       authorization: {
         attribution: (principal) => {
@@ -3670,7 +3690,7 @@ export class SessionRegistry {
     })
     // Layout service is composed here (not reached from tRPC via sessionStore) so
     // the transport only names familyState(ctx).modules.layout — router-triple-access.
-    const layout = new LayoutService({ layout: this.store.layout, ledger })
+    const layout = new LayoutService({ layout: this.store.layout, ledger: writes.system('layout') })
     // THE SYNC WRITE ENTRY POINT (ADR 12 D2, POD-6273), over the one dedup ledger,
     // the one write-seam Ledger and the store's unit of work. It starts with no
     // registrations: the outbox commands move onto it in POD-6350, the rest in
@@ -3680,7 +3700,9 @@ export class SessionRegistry {
     // the one after-commit trigger and the recovery sweep. Kinds register their
     // executors on `modules.effects.executors`.
     const effectExecutors = new EffectExecutorRegistry()
-    this.store.effects.setFeedCapture(makeEffectFeedCapture(ledger, effectExecutors))
+    this.store.effects.setFeedCapture(
+      makeEffectFeedCapture(writes.system('feed.effects'), effectExecutors),
+    )
     this.effectsRunner = new EffectsRunner({
       repo: this.store.effects,
       registry: effectExecutors,
@@ -3723,13 +3745,13 @@ export class SessionRegistry {
       unitOfWork: async (fn) => await this.store.transact(fn),
       afterCommit: (step, label) => this.store.effect(step, label),
       spanOpen,
-      ledger,
+      writer: (mutationId) => writes.sync(mutationId),
       receipt: async () => await this.writeReceiptNow(),
     })
     // Same composition seam for the read-cursor family (POD-1380).
     const readPosition = new ReadPositionService({
       cursors: this.store.readPositions,
-      ledger,
+      ledger: writes.system('readPosition'),
     })
     // Server-owned dock-shell mapping (POD-4436): per user, per worktree →
     // shell session, so the same dock shell opens on every device. Its write
@@ -3843,7 +3865,7 @@ export class SessionRegistry {
      * behavior is unchanged" structural rather than careful.
      */
     const interactionFeed = new InteractionFeedPublisher({
-      ledger,
+      ledger: writes.system('feed.interactions'),
       seed: async () =>
         (await ledger.authority.snapshot('pendingInteraction')) as readonly {
           readonly id: string

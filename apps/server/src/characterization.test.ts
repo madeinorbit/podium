@@ -14,6 +14,7 @@ import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { Ledger } from '@podium/sync'
+import { testLedgerWriter } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import { runIssueCli } from '../../cli/src/issue-cli'
 import { resolvePrincipal, userCommandPrincipal } from './command-principal'
@@ -411,7 +412,11 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId)
     try {
-      const w = await reg.issues.crud.create({ repoPath: '/r', title: 'reopen me', startNow: false })
+      const w = await reg.issues.crud.create({
+        repoPath: '/r',
+        title: 'reopen me',
+        startNow: false,
+      })
       await reg.issues.crud.close(w.id) // stage done + closedReason 'done'
       // The obvious "reopen": drag the card back to in_progress.
       const reopened = await reg.issues.crud.update(w.id, { stage: 'in_progress' })
@@ -497,7 +502,7 @@ describe('characterization: change-log delta client heals to identical state (co
 
     // Round 1 — both clients see it. reconcile() is the full-truth diff path
     // (the same semantics the deleted broadcast-seam oplog's record() had).
-    let changes = await ledger.reconcile('issueProjection', [
+    let changes = await testLedgerWriter(ledger).reconcile('issueProjection', [
       { id: 'a', value: { id: 'a', title: 'a1' } },
       { id: 'b', value: { id: 'b', title: 'b1' } },
     ])
@@ -508,9 +513,11 @@ describe('characterization: change-log delta client heals to identical state (co
     // and a brand-new entity.
     apply(
       liveState,
-      await ledger.reconcile('issueProjection', [{ id: 'a', value: { id: 'a', title: 'a2' } }]),
+      await testLedgerWriter(ledger).reconcile('issueProjection', [
+        { id: 'a', value: { id: 'a', title: 'a2' } },
+      ]),
     )
-    changes = await ledger.reconcile('issueProjection', [
+    changes = await testLedgerWriter(ledger).reconcile('issueProjection', [
       { id: 'a', value: { id: 'a', title: 'a3' } },
       { id: 'c', value: { id: 'c', title: 'c1' } },
     ])
@@ -564,7 +571,11 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
       agentKind: 'claude-code',
       cwd: '/proj',
     })
-    const issue = await reg1.issues.crud.create({ repoPath: '/repo', title: 'survive', startNow: false })
+    const issue = await reg1.issues.crud.create({
+      repoPath: '/repo',
+      title: 'survive',
+      startNow: false,
+    })
     await reg1.issues.commentsMail.addComment(issue.id, 'agent:test', 'durable note', AS_OPERATOR)
     await reg1.issues.crud.close(issue.id, 'done')
     await reg1.modules.mutations.once(asMutationId('mut-char-1'), 'issues.close', () => ({

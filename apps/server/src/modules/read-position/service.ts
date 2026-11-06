@@ -15,7 +15,7 @@ import {
   readPositionRowId,
   type UserId,
 } from '@podium/model'
-import type { EntityChangeSpec, Ledger } from '@podium/sync'
+import type { EntityChangeSpec, LedgerWriter } from '@podium/sync'
 import type { StoredReadPosition, UserReadPositionRepository } from '../../store/user-read-position'
 
 export interface ReadPositionServiceDeps {
@@ -25,7 +25,7 @@ export interface ReadPositionServiceDeps {
    * and delta share one log. Optional only for pure unit tests of storage;
    * production always wires it.
    */
-  readonly ledger?: Pick<Ledger, 'capture'>
+  readonly ledger?: Pick<LedgerWriter, 'capture'>
 }
 
 export class ReadPositionService {
@@ -54,7 +54,11 @@ export class ReadPositionService {
     return await this.deps.cursors.getSnapshot(userId)
   }
 
-  private async publish(userId: UserId, streamId: string, cursor: StoredReadPosition): Promise<void> {
+  private async publish(
+    userId: UserId,
+    streamId: string,
+    cursor: StoredReadPosition,
+  ): Promise<void> {
     const ledger = this.deps.ledger
     if (!ledger) return
     const value: ReadPositionWire = {

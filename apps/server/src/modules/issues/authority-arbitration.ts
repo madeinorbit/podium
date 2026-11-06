@@ -1,12 +1,12 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { ROW, type IssueId } from '@podium/model'
+import { type IssueId, ROW } from '@podium/model'
 import type { MetadataChange, MetadataEntityKind } from '@podium/protocol'
 import {
   AuthorityArbitrationRejected,
   type EntityChangeSpec,
-  type Ledger,
   type LedgerCommitOp,
   type LedgerCommitResult,
+  type LedgerWriter,
 } from '@podium/sync'
 import { throwIssueRevisionConflict } from './conflict'
 
@@ -45,7 +45,7 @@ export class IssueAuthorityArbitration {
     ): Promise<MetadataChange[]>
   }
 
-  constructor(private readonly source: Ledger) {
+  constructor(private readonly source: Omit<LedgerWriter, 'scope'>) {
     this.ledger = {
       commit: async (op) => await this.commit(op),
       capture: async (specs) => await this.source.capture(specs),

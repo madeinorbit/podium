@@ -28,7 +28,7 @@ import {
   type UserId,
 } from '@podium/model'
 import { automationOccurrenceRunId } from '@podium/protocol'
-import type { Ledger } from '@podium/sync'
+import type { LedgerWriter } from '@podium/sync'
 import { attributionOf, type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import type {
   AutomationRow,
@@ -44,7 +44,7 @@ const log = createLogger('server:automations')
 export interface AutomationsDeps {
   store: AutomationsRepository
   /** Durable metadata transaction + ordered delta path [spec:SP-3fe2]. */
-  ledger: Pick<Ledger, 'commit' | 'reconcile'>
+  ledger: Pick<LedgerWriter, 'commit' | 'reconcile'>
   /** SessionLifecycle.createSession, narrowed to what a scheduled spawn needs.
    *  NOT the `sessions.create` tRPC procedure — that stamps spawnedBy 'user'. */
   createSession(input: {

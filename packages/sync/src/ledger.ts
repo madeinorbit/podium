@@ -24,6 +24,7 @@ import {
   DeviceGradeNoAnchors,
   DeviceGradeUnscopedPolicy,
 } from './feed/visibility'
+import { type WriteScope, WriteScopeIssuer, type WriteScopeMint } from './write-scope'
 
 /** This package runs on BOTH hosts (server and client), so the namespace names
  *  the module and the `role` field on every record names the host — no
@@ -209,6 +210,18 @@ export interface LedgerCommitResult<T> {
   changes: MetadataChange[]
 }
 
+/** {@link Ledger.commit}, {@link Ledger.capture} and {@link Ledger.reconcile}
+ *  bound to one {@link WriteScope} ({@link Ledger.writer}). */
+export interface LedgerWriter {
+  readonly scope: WriteScope
+  commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>>
+  capture(specs: EntityChangeSpec[]): Promise<MetadataChange[]>
+  reconcile(
+    entity: MetadataEntityKind,
+    rows: { id: string; value: unknown }[],
+  ): Promise<MetadataChange[]>
+}
+
 export class Ledger {
   /**
    * THE implementation, and the composition root's seam onto it.
@@ -225,6 +238,9 @@ export class Ledger {
   private readonly shutdown = new AbortController()
   private pruneFlight: Promise<void> | undefined
   private pruneRerunRequested = false
+  /** Who may write (ADR 12 D9): every commit and capture names a scope this
+   *  issuer handed out. */
+  private readonly scopes = new WriteScopeIssuer()
 
   constructor(private readonly deps: LedgerDeps) {
     this.authority = new Authority({
@@ -333,7 +349,8 @@ export class Ledger {
    * feature writers that still consume this facade. The decision is delegated to
    * the SAME Authority instance; this class does not compare revisions itself.
    */
-  async commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>> {
+  async commit<T>(scope: WriteScope, op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>> {
+    this.scopes.check(scope)
     const outcome = await this.authority.commit({
       ...(op.arbitrate === undefined ? {} : { arbitrate: op.arbitrate }),
       write: op.write,
@@ -358,11 +375,21 @@ export class Ledger {
   }
 
   /**
+   * THE MINT (ADR 12 D9, POD-6592), handed out once, to the composition root:
+   * the sync write entry point gets its `sync` half, the server's declared
+   * write origins their `system` scopes. Nothing else can make a scope.
+   */
+  takeScopeMint(): WriteScopeMint {
+    return this.scopes.takeMint()
+  }
+
+  /**
    * Capture an explicitly owned mutation with no durable entity-row write to bind
    * to (volatile session view state, an upstream mirror). The caller supplies the
    * exact upserts/removes; this never diffs a full list.
    */
-  async capture(specs: EntityChangeSpec[]): Promise<MetadataChange[]> {
+  async capture(scope: WriteScope, specs: EntityChangeSpec[]): Promise<MetadataChange[]> {
+    this.scopes.check(scope)
     return (await this.authority.capture(specs.map(toKernelSpec))).map(toWireChange)
   }
 
@@ -373,10 +400,27 @@ export class Ledger {
    * the first client reads it.
    */
   async reconcile(
+    scope: WriteScope,
     entity: MetadataEntityKind,
     rows: { id: string; value: unknown }[],
   ): Promise<MetadataChange[]> {
+    this.scopes.check(scope)
     return (await this.authority.reconcile(entity, rows)).map(toWireChange)
+  }
+
+  /**
+   * The three writes bound to one scope: what a write context hands a handler
+   * or a service, so the scope is chosen once, where the context is made, and
+   * not at every call. Checked here, so a foreign scope fails at binding.
+   */
+  writer(scope: WriteScope): LedgerWriter {
+    this.scopes.check(scope)
+    return {
+      scope,
+      commit: async (op) => await this.commit(scope, op),
+      capture: async (specs) => await this.capture(scope, specs),
+      reconcile: async (entity, rows) => await this.reconcile(scope, entity, rows),
+    }
   }
 
   /** Catch-up read for `sync.changesSince` — null means "fall back to a

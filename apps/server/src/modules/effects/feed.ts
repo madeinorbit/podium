@@ -12,7 +12,7 @@
  */
 
 import type { EffectRecordWire } from '@podium/model'
-import type { EntityChangeSpec, Ledger } from '@podium/sync'
+import type { EntityChangeSpec, LedgerWriter } from '@podium/sync'
 import type { EffectFeedCapture, EffectRow } from '../../store/effects'
 import type { EffectExecutorRegistry } from './registry'
 
@@ -61,7 +61,7 @@ export function effectChangeOf(row: EffectRow, registry: EffectExecutorRegistry)
 }
 
 export function makeEffectFeedCapture(
-  ledger: Pick<Ledger, 'capture'>,
+  ledger: Pick<LedgerWriter, 'capture'>,
   registry: EffectExecutorRegistry,
 ): EffectFeedCapture {
   return async (rows) => {

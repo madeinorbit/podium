@@ -32,6 +32,7 @@ import type { AnyCommandContract, CommandDef } from '@podium/commands'
 import type { z } from 'zod'
 import type { CommandPrincipal } from '../../command-principal'
 import { withPlainCommand } from '../../plain-command-scope'
+import type { PlainContext } from '../../write-contexts'
 import {
   coarselyPermitted,
   contractFrontDoor,
@@ -59,8 +60,9 @@ export interface PlainCommandCall<Out> {
   /** The command's target check, after the parse; absent when the coarse check
    *  is the whole answer. A refusal here is `unauthorized`, like the coarse one. */
   readonly targetPermitted?: PlainTargetCheck | undefined
-  /** The plain handler, given the parsed input. */
-  readonly run: (input: unknown) => Out | Promise<Out>
+  /** The plain handler, given the parsed input and its {@link PlainContext}:
+   *  who is asking, and no writer (ADR 12 D9). */
+  readonly run: (input: unknown, ctx: PlainContext) => Out | Promise<Out>
 }
 
 /**
@@ -79,12 +81,7 @@ export async function runPlainCommand<Out>(
   call: PlainCommandCall<Out>,
 ): Promise<PlainCommandReply<Awaited<Out>>> {
   const { contract } = call
-  return await runThroughFrontDoor(
-    contract.name,
-    contractFrontDoor(contract),
-    contract.input,
-    call,
-  )
+  return await runThroughFrontDoor(contract.name, contractFrontDoor(contract), contract.input, call)
 }
 
 /**
@@ -124,7 +121,8 @@ async function runThroughFrontDoor<Out>(
   if (call.targetPermitted && !call.targetPermitted(call.principal, parsed.input)) {
     return { outcome: 'rejected', refusal: { kind: 'unauthorized' } }
   }
-  const result = await withPlainCommand(name, async () => await call.run(parsed.input))
+  const ctx: PlainContext = { principal: call.principal, command: name }
+  const result = await withPlainCommand(name, async () => await call.run(parsed.input, ctx))
   return { outcome: 'applied', result }
 }
 

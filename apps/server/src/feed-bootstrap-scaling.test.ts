@@ -47,6 +47,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { statementBudget } from './test-support/statement-budget'
+import type { WriteContexts } from './write-contexts'
 
 const OWNER = firstAdminMemberId()
 
@@ -63,7 +64,7 @@ const feedPrincipal: Principal = {
  *  once here rather than cast at every call site (as `automation-removal-
  *  scoping.test.ts` does for the same reason). */
 const internals = (reg: SessionRegistry) =>
-  reg as unknown as { ledger: Ledger; store: SessionStore }
+  reg as unknown as { ledger: Ledger; store: SessionStore; writes: WriteContexts }
 
 /**
  * Append `count` conversation rows to the change log, through the Ledger — the
@@ -77,7 +78,7 @@ async function seedConversations(reg: SessionRegistry, count: number): Promise<n
     op: 'upsert',
     value: { id: `conv-${i}`, machineId: 'm1', nativeId: `conv-${i}` },
   }))
-  return (await internals(reg).ledger.capture(specs)).length
+  return (await internals(reg).writes.system('conversations').capture(specs)).length
 }
 
 /** How many times a bootstrap loads the WHOLE sessions table. */
@@ -350,12 +351,14 @@ async function seedGrantedIssues(reg: SessionRegistry, count: number): Promise<n
     })
   }
   return (
-    await ledger.capture(
-      ids.map(
-        (id) =>
-          ({ entity: 'issueProjection', id, op: 'upsert', value: { id } }) as EntityChangeSpec,
-      ),
-    )
+    await internals(reg)
+      .writes.system('conversations')
+      .capture(
+        ids.map(
+          (id) =>
+            ({ entity: 'issueProjection', id, op: 'upsert', value: { id } }) as EntityChangeSpec,
+        ),
+      )
   ).length
 }
 
@@ -483,14 +486,16 @@ describe('POD-6155 — feed passes read grants in one grouped query', () => {
     try {
       const publish = () =>
         grantReadsDuring(reg, async () => {
-          await ledger.capture(
-            Array.from({ length: 50 }, (_, i) => ({
-              entity: 'session',
-              id: `shared_${i}`,
-              op: 'upsert',
-              value: { id: `shared_${i}`, v: 2 },
-            })) as EntityChangeSpec[],
-          )
+          await internals(reg)
+            .writes.system('conversations')
+            .capture(
+              Array.from({ length: 50 }, (_, i) => ({
+                entity: 'session',
+                id: `shared_${i}`,
+                op: 'upsert',
+                value: { id: `shared_${i}`, v: 2 },
+              })) as EntityChangeSpec[],
+            )
           await delivery
         })
       // Attribution must be enabled before import. The focused acceptance run

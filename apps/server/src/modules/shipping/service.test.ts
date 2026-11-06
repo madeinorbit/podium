@@ -13,6 +13,7 @@ import {
 import { type ShippingJobResult, shippingEvidenceFingerprint } from '@podium/protocol/daemon'
 import { normalizeSettings } from '@podium/runtime'
 import { Ledger } from '@podium/sync'
+import { testLedgerWriter } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -98,7 +99,7 @@ async function harness(
     }),
     repoOp: async () => ({ ok: true, output: '' }),
     funnel: { run: (op) => op.write() },
-    ledger,
+    ledger: testLedgerWriter(ledger),
   })
   const createIssue = issues.crud.create.bind(issues.crud)
   issues.crud.create = (async (input) =>
@@ -152,7 +153,9 @@ async function harness(
         ...issue,
         branch: issue.branch ?? `issue/${issue.seq}-shipping-test`,
       })),
-    shippingCommit: checked(issues.crud.shippingCommit.bind(issues.crud)) as typeof issues.crud.shippingCommit,
+    shippingCommit: checked(
+      issues.crud.shippingCommit.bind(issues.crud),
+    ) as typeof issues.crud.shippingCommit,
     shippingCommitMany: checked(
       issues.crud.shippingCommitMany.bind(issues.crud),
     ) as typeof issues.crud.shippingCommitMany,
@@ -162,8 +165,10 @@ async function harness(
     repository: store.shipping,
     issues: issuePort,
     ledger: {
-      commit: checked(async (op) => await ledger.commit(op)) as typeof ledger.commit,
-      reconcile: async (entity, rows) => await ledger.reconcile(entity, rows),
+      commit: checked(async (op) => await testLedgerWriter(ledger).commit(op)) as ReturnType<
+        typeof testLedgerWriter
+      >['commit'],
+      reconcile: async (entity, rows) => await testLedgerWriter(ledger).reconcile(entity, rows),
     },
     daemon: { shippingJob },
     authorization: {
@@ -294,7 +299,9 @@ describe('ShippingService enqueue transaction', () => {
 
       // Its queue rank is its train in the published lane: the first.
       expect(
-        ((await ledger.authority.snapshot('shipLane')) as ShipLaneProjection[]).map((lane) => lane.trains),
+        ((await ledger.authority.snapshot('shipLane')) as ShipLaneProjection[]).map(
+          (lane) => lane.trains,
+        ),
       ).toEqual([[{ orderIds: [admitted.order.id] }]])
       expect(attempts).not.toHaveBeenCalled()
 
@@ -316,7 +323,11 @@ describe('ShippingService enqueue transaction', () => {
 
   it('O1 publishes live order rows without train or waitEstimate', async () => {
     const { store, ledger, issues, service } = await harness()
-    const issue = await issues.crud.create({ repoPath: '/repo', title: 'compact wire', startNow: false })
+    const issue = await issues.crud.create({
+      repoPath: '/repo',
+      title: 'compact wire',
+      startNow: false,
+    })
     await issues.crud.update(issue.id, { stage: 'review' })
     try {
       const cursor = await ledger.cursor()
@@ -1514,8 +1525,16 @@ describe('ShippingService enqueue transaction', () => {
       checkOrderPlane: false,
       isAncestor: async () => true,
     })
-    const issueA = await issues.crud.create({ repoPath: '/repo', title: 'covered a', startNow: false })
-    const issueB = await issues.crud.create({ repoPath: '/repo', title: 'covered b', startNow: false })
+    const issueA = await issues.crud.create({
+      repoPath: '/repo',
+      title: 'covered a',
+      startNow: false,
+    })
+    const issueB = await issues.crud.create({
+      repoPath: '/repo',
+      title: 'covered b',
+      startNow: false,
+    })
     await issues.crud.update(issueA.id, { branch: 'issue/covered-a' })
     await issues.crud.update(issueB.id, { branch: 'issue/covered-b' })
     await issues.crud.update(issueA.id, { stage: 'review' })
@@ -2099,7 +2118,11 @@ describe('ShippingService enqueue transaction', () => {
         if (crashBeforeAcknowledgement) throw new Error('crash before repair ack')
       },
     })
-    const issue = await issues.crud.create({ repoPath: '/repo', title: 'repair ack', startNow: false })
+    const issue = await issues.crud.create({
+      repoPath: '/repo',
+      title: 'repair ack',
+      startNow: false,
+    })
     await issues.crud.update(issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
 
@@ -2470,8 +2493,16 @@ describe('ShippingService enqueue transaction', () => {
       finishedAt: '2026-08-13T10:00:00.000Z',
     })
     const { store, issues, service } = await harness(heldDaemon)
-    const issueA = await issues.crud.create({ repoPath: '/repo', title: 'train a', startNow: false })
-    const issueB = await issues.crud.create({ repoPath: '/repo', title: 'train b', startNow: false })
+    const issueA = await issues.crud.create({
+      repoPath: '/repo',
+      title: 'train a',
+      startNow: false,
+    })
+    const issueB = await issues.crud.create({
+      repoPath: '/repo',
+      title: 'train b',
+      startNow: false,
+    })
     await issues.crud.update(issueA.id, {
       branch: 'issue/train-a',
       machineId: asMachineId('machine-1'),
@@ -2920,7 +2951,11 @@ describe('ShippingService under the async store (POD-3820)', () => {
         })
       },
     })
-    const issue = await issues.crud.create({ repoPath: '/repo', title: 'approved', startNow: false })
+    const issue = await issues.crud.create({
+      repoPath: '/repo',
+      title: 'approved',
+      startNow: false,
+    })
     await issues.crud.update(issue.id, { stage: 'review' })
 
     await store.transact(async () => {
@@ -2946,7 +2981,11 @@ describe('ShippingService under the async store (POD-3820)', () => {
         })
       },
     })
-    const issue = await issues.crud.create({ repoPath: '/repo', title: 'approved', startNow: false })
+    const issue = await issues.crud.create({
+      repoPath: '/repo',
+      title: 'approved',
+      startNow: false,
+    })
     await issues.crud.update(issue.id, { stage: 'review' })
 
     await expect(
@@ -3015,8 +3054,8 @@ describe('POD-4974 O2 ship lanes', () => {
    * without `reconcile()`, whose tick would start running the seeded orders. */
   const publishSeeded = async (service: ShippingService, ledger: Ledger) => {
     const truth = await service['fullProjection']()
-    await ledger.reconcile('shipOrder', truth.orders)
-    await ledger.reconcile('shipLane', truth.lanes)
+    await testLedgerWriter(ledger).reconcile('shipOrder', truth.orders)
+    await testLedgerWriter(ledger).reconcile('shipLane', truth.lanes)
   }
   const published = async (ledger: Ledger) => {
     const lanes = (await ledger.authority.snapshot('shipLane')) as ShipLaneProjection[]
@@ -3080,14 +3119,14 @@ describe('POD-4974 O2 ship lanes', () => {
       const truth = await service['fullProjection']()
       // A ledger persisted by O2 still carries ranks. Boot/reconnect must replace
       // those rows once; subsequent lane movement must not stamp them again.
-      await ledger.reconcile(
+      await testLedgerWriter(ledger).reconcile(
         'shipOrder',
         truth.orders.map((row, index) => ({
           ...row,
           value: { ...row.value, queueRank: index + 1 },
         })),
       )
-      await ledger.reconcile('shipLane', truth.lanes)
+      await testLedgerWriter(ledger).reconcile('shipLane', truth.lanes)
       expect((await published(ledger)).orders.every((row) => 'queueRank' in row)).toBe(true)
       await publishSeeded(service, ledger)
       const before = await published(ledger)
@@ -3235,7 +3274,11 @@ describe('POD-4974 O2 ship lanes', () => {
   it('O2 a dependency that ships unblocks its dependent in another lane', async () => {
     const { store, ledger, issues, service } = await harness(provedShippingJob)
     try {
-      const issue = await issues.crud.create({ repoPath: '/repo', title: 'dependency', startNow: false })
+      const issue = await issues.crud.create({
+        repoPath: '/repo',
+        title: 'dependency',
+        startNow: false,
+      })
       await issues.crud.update(issue.id, { stage: 'review' })
       const dependency = (await service.enqueue({ issueId: issue.id, ...approval })).order
       const dependent = await seedOrder(issues, store, {

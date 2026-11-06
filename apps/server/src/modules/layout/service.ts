@@ -6,7 +6,7 @@
 
 import { createLogger } from '@podium/logger'
 import { type LayoutSnapshot, type LayoutWire, layoutRowId, type UserId } from '@podium/model'
-import type { EntityChangeSpec, Ledger } from '@podium/sync'
+import type { EntityChangeSpec, LedgerWriter } from '@podium/sync'
 import type { UserLayoutRepository } from '../../store/user-layout'
 
 const log = createLogger('server:layout')
@@ -20,7 +20,7 @@ export interface LayoutServiceDeps {
    * and delta share one log. Optional only for pure unit tests of storage;
    * production always wires it.
    */
-  readonly ledger?: Pick<Ledger, 'capture' | 'reconcile'>
+  readonly ledger?: Pick<LedgerWriter, 'capture' | 'reconcile'>
 }
 
 export class LayoutService {

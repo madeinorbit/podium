@@ -1,7 +1,9 @@
 /** HTTP-only admission over the real Authority, ledger and publisher. */
+
 import type { ServerMessage } from '@podium/protocol'
 import { CLIENT_WIRE_VERSION, MIN_CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { DEVICE_GRADE_PRINCIPAL, type ScopedChange } from '@podium/sync'
+import { testLedgerWriter } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
 import { toFeedChange } from './feed-serving'
 import { feedTestPlumbing } from './feed-test-plumbing'
@@ -33,7 +35,7 @@ const commit = (
   id: string,
   value: unknown,
 ) =>
-  plumbing.ledger.commit({
+  testLedgerWriter(plumbing.ledger).commit({
     write: async () => {},
     changes: () => [{ entity, id, op: 'upsert', value }],
   })

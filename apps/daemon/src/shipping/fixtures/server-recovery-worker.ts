@@ -13,6 +13,7 @@ import {
 import { type ControlMessage, shippingJobRequestFingerprint } from '@podium/protocol/daemon'
 import { normalizeSettings } from '@podium/runtime'
 import { Ledger } from '@podium/sync'
+import { testLedgerWriter } from '@podium/sync/testing'
 import { IssueService } from '../../../../server/src/modules/issues/service'
 import { DaemonRpcService } from '../../../../server/src/modules/machines/rpc'
 import {
@@ -53,7 +54,7 @@ const issues = await IssueService.create({
   spawnSession: async () => ({ sessionId: 'recovery-session' as never, machine: machineId }),
   repoOp: async () => ({ ok: true, output: '' }),
   funnel: { run: (op) => op.write() },
-  ledger,
+  ledger: testLedgerWriter(ledger),
 })
 await issues.boot()
 
@@ -117,7 +118,7 @@ const evidence: ShippingEvidencePort = {
 const service = new ShippingService({
   repository: store.shipping,
   issues: issuePort,
-  ledger,
+  ledger: testLedgerWriter(ledger),
   daemon: rpc,
   authorization: {
     attribution: () => ({

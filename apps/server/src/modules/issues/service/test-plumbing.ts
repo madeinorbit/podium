@@ -1,7 +1,7 @@
 import type { MetadataChange } from '@podium/protocol'
 import { Ledger, type LedgerDeps, type StoredChangeRow } from '@podium/sync'
+import { installedWorldOver, testLedgerWriter } from '@podium/sync/testing'
 import type { IssueDeps } from './types'
-import { installedWorldOver } from '@podium/sync/testing'
 
 /**
  * TEST-ONLY funnel/ledger/publish plumbing for IssueDeps (issues #190, #255):
@@ -36,7 +36,10 @@ export function issueTestPlumbing(
    * open, and it is the only way to open one today.
    */
   opts: { transact?: LedgerDeps['transact'] } = {},
-): Pick<IssueDeps, 'funnel' | 'ledger'> {
+): Pick<IssueDeps, 'funnel' | 'ledger'> & {
+  /** The real Ledger behind `ledger`, for a test that reads the log back. */
+  readonly changeLog: Ledger
+} {
   const ledger = new Ledger({
     repo: memoryChangeLogStore(),
     now: Date.now,
@@ -52,7 +55,8 @@ export function issueTestPlumbing(
         return await op.write()
       },
     },
-    ledger,
+    ledger: testLedgerWriter(ledger),
+    changeLog: ledger,
   }
 }
 

@@ -334,6 +334,16 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
     label: 'IssueLedger.commit',
   },
   {
+    // The sessions service's narrow face on the same writer, for the reason the
+    // entry above gives. Before POD-6592 its calls resolved through to
+    // `Ledger.commit`; the port now holds a scoped `LedgerWriter`, so it is named
+    // here in its own right.
+    file: 'apps/server/src/modules/sessions/session-lifecycle-types.ts',
+    symbol: 'commit',
+    body: { props: ['write', 'changes'] },
+    label: 'SessionLedger.commit',
+  },
+  {
     file: 'apps/server/src/modules/funnel.ts',
     symbol: 'run',
     body: { props: ['write'] },
@@ -384,8 +394,8 @@ export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
   },
   {
     file: 'packages/sync/src/ledger.ts',
-    line: 121,
-    why: 'the Ledger deps property; it is handed straight to the Authority, so every call goes through the port entry above.',
+    line: 122,
+    why: "the Ledger deps property; it is handed straight to the Authority, so every call goes through the port entry above. (Was 121; POD-6592's write-scope import moved it.)",
   },
   {
     file: 'packages/sync/src/adapters/indexeddb/idb.ts',
@@ -600,6 +610,18 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   'apps/server/src/store/messages.ts#MessageFeedCapture.MessageFeedCapture': {
     kind: 'contained',
     why: "The chat message feed's capture [POD-4764]: it appends the rows' feed changes to the change log through Ledger.capture, which joins this same transaction, and defers both the subscriber delivery (the Authority's postCommit) and its own memory (applyAfterCommit) past the outermost commit. A rollback takes the appended changes with it and nothing outside the process saw them.",
+  },
+  'packages/sync/src/ledger.ts#LedgerWriter.capture': {
+    kind: 'contained',
+    why: "A scoped capture [POD-6592]: `Ledger.capture` bound to one write scope. It appends the declared changes to the change log inside the caller's own transaction, and subscriber delivery waits for the outermost commit because relay.ts wires `AuthorityDeps.postCommit` (ledger §A row 3; the immediate arm stays adjudicated at its own span root, authority.ts). A rollback takes the appended rows with it and nothing outside the process saw them.",
+  },
+  'packages/sync/src/ledger.ts#LedgerWriter.reconcile': {
+    kind: 'contained',
+    why: "A scoped reconcile [POD-6592]: `Ledger.reconcile` bound to one write scope, contained for the reason `LedgerWriter.capture` gives. The message feed's boot reconcile and the issue git-state and projection reconciles run it inside a span on purpose, so the read and the diff are one unit.",
+  },
+  'apps/server/src/modules/issues/service/types.ts#IssueLedger.reconcile': {
+    kind: 'contained',
+    why: "The issues service's narrow face on its scoped writer's reconcile [POD-6592]; contained for the reason `LedgerWriter.reconcile` gives.",
   },
   'packages/sync/src/ledger.ts#LedgerCommitOp.changes': {
     kind: 'contained',

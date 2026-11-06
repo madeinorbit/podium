@@ -6,6 +6,7 @@ import {
 import type { MetadataChange, ServerMessage } from '@podium/protocol'
 import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
+import { testLedgerWriter } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
@@ -142,7 +143,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     ])
     const cursorBefore = await ledger.cursor()
     await expect(
-      ledger.commit({
+      testLedgerWriter(ledger).commit({
         // BOTH store methods open their own transaction() internally — inside
         // the ledger's transact span they degrade to savepoints (depth 1), and
         // the outer rollback must unwind them together.
@@ -168,7 +169,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
     expect(await ledger.cursor()).toBe(cursorBefore)
 
     // And the same nested layering COMMITS as one unit when nothing throws.
-    await ledger.commit({
+    await testLedgerWriter(ledger).commit({
       write: async () => {
         await store.conversations.index.upsert([
           {

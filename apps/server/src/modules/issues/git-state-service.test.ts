@@ -1,7 +1,6 @@
 import type { SessionMeta } from '@podium/model'
 import { asIssueId, asSessionId, type SessionId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
-import type { Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { openTestStore } from '../../test-support/open-test-store'
 import { sessionReadPorts } from '../../test-support/session-facts'
@@ -57,14 +56,14 @@ async function harness(
     setSessionArchived: vi.fn(),
     now: () => '2026-07-20T00:00:00.000Z',
   }
-  // The plumbing wires a REAL Ledger; widen from the narrow IssueLedger face so
-  // tests can read the log back (cursor/changesSince).
+  // The plumbing wires a REAL Ledger; its `changeLog` lets tests read the log
+  // back (cursor/changesSince).
   return {
     svc: await IssueService.create(deps),
     store,
     repoOp,
     broadcast,
-    ledger: plumbing.ledger as Ledger,
+    ledger: plumbing.changeLog,
   }
 }
 
@@ -94,8 +93,9 @@ describe('POD-98 git-state service wiring', () => {
       logHead: 'sha-bound\t2026-07-20T11:30:00Z',
       logIssueCommits: 'sha-bound',
     })
-    const id = (await svc.crud.create({ repoPath: '/repo', title: 'bound receiver', startNow: false }))
-      .id
+    const id = (
+      await svc.crud.create({ repoPath: '/repo', title: 'bound receiver', startNow: false })
+    ).id
     sessions.push(member(asSessionId('sess-bound'), id))
 
     const { recordSessionGitActivity, refreshGitState, onSessionRemovedOrArchived } =
@@ -121,7 +121,9 @@ describe('POD-98 git-state service wiring', () => {
 
     // Daemon-captured attribution: one touched file. Registration also fires
     // the repopulation probe in the background, so poll until one settles.
-    await svc.gitWorkflow.recordSessionGitActivity(asSessionId('sess-1'), { touched: ['/repo/apps/a.ts'] })
+    await svc.gitWorkflow.recordSessionGitActivity(asSessionId('sess-1'), {
+      touched: ['/repo/apps/a.ts'],
+    })
     await svc.gitWorkflow.refreshGitState(id, '/repo')
     for (let i = 0; i < 50; i++) {
       const gs = (await svc.reports.list()).find((w) => w.id === id)?.gitState
@@ -299,7 +301,9 @@ describe('POD-98 git-state service wiring', () => {
     // Recording is fire-and-forget and finds the session's issue in the
     // database (POD-6194): wait until it has asked the active refresh for a
     // trailing probe, which is the case under test, before the probe settles.
-    const refreshes = (svc.gitWorkflow as unknown as { gitRefreshes: Map<string, { rerun: boolean }> }).gitRefreshes
+    const refreshes = (
+      svc.gitWorkflow as unknown as { gitRefreshes: Map<string, { rerun: boolean }> }
+    ).gitRefreshes
     await vi.waitFor(() => expect(refreshes.get(id)?.rerun).toBe(true))
     releaseStatus()
     await initial

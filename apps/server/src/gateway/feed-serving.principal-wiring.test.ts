@@ -66,6 +66,7 @@ import {
   NoDelegationsGranted,
   type VisibilityStatePort,
 } from '@podium/sync'
+import { testLedgerWriter } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
 import { attachTestClient } from '../test-support/client-transport'
 import { ClientMux } from './client-mux'
@@ -187,7 +188,7 @@ const commitIssue = (
   value: unknown,
   op: 'upsert' | 'remove' = 'upsert',
 ) =>
-  plumbing.ledger.commit({
+  testLedgerWriter(plumbing.ledger).commit({
     write: async () => {},
     changes: () => [{ entity: 'issueProjection', id, op, ...(op === 'upsert' ? { value } : {}) }],
   })

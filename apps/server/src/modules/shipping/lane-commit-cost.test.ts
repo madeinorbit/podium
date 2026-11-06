@@ -13,6 +13,7 @@ import { createHash } from 'node:crypto'
 import { asMachineId, asShipOrderId, firstAdminMemberId, type ShipOrder } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { Ledger } from '@podium/sync'
+import { testLedgerWriter } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -61,7 +62,7 @@ async function world(outside: number, laneSize: number, outsideQueued = true) {
     spawnSession: async () => ({ sessionId: 'session-1' as never, machine: 'machine-1' }),
     repoOp: async () => ({ ok: true, output: '' }),
     funnel: { run: (op) => op.write() },
-    ledger,
+    ledger: testLedgerWriter(ledger),
   })
   const service = new ShippingService({
     repository: store.shipping,
@@ -71,7 +72,7 @@ async function world(outside: number, laneSize: number, outsideQueued = true) {
       shippingCommit: issues.crud.shippingCommit.bind(issues.crud),
       shippingCommitMany: issues.crud.shippingCommitMany.bind(issues.crud),
     },
-    ledger,
+    ledger: testLedgerWriter(ledger),
     daemon: {
       shippingJob: async () => {
         throw new Error('not used')
@@ -209,9 +210,7 @@ describe('POD-4974 O2 commit cost against orders outside the lane', () => {
     const counts: number[] = []
     for (const outside of [10, 100, 1_000]) {
       const { store, service } = await world(outside, 4, false)
-      counts.push(
-        await rowsRead(store, async () => await service['ordersWithNativeStackEdges']()),
-      )
+      counts.push(await rowsRead(store, async () => await service['ordersWithNativeStackEdges']()))
       service.dispose()
     }
     expect(counts[0]).toBeGreaterThan(0)

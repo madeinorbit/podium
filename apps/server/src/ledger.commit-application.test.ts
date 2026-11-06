@@ -1,5 +1,6 @@
 import { type MatrixRow, OWNERSHIP_MATRIX } from '@podium/model'
 import { Ledger } from '@podium/sync'
+import { testLedgerWriter } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import type { SessionStore } from './store'
 import { applyAfterCommit, spanOpen } from './store/executor/executor'
@@ -50,7 +51,7 @@ describe("Ledger.commit's apply arm runs on the outermost commit (POD-3366)", ()
     const ledger = makeLedger(store)
     const applied: string[] = []
 
-    await ledger.commit({
+    await testLedgerWriter(ledger).commit({
       write: async () => 'w',
       changes: () => [upsert('c-inline')],
       apply: (result) => applied.push(`applied:${result}`),
@@ -67,7 +68,7 @@ describe("Ledger.commit's apply arm runs on the outermost commit (POD-3366)", ()
     const applied: string[] = []
 
     await store.transact(async () => {
-      await ledger.commit({
+      await testLedgerWriter(ledger).commit({
         write: async () => {},
         changes: () => [upsert('c-deferred')],
         apply: () => applied.push('applied'),
@@ -87,7 +88,7 @@ describe("Ledger.commit's apply arm runs on the outermost commit (POD-3366)", ()
 
     await expect(
       store.transact(async () => {
-        await ledger.commit({
+        await testLedgerWriter(ledger).commit({
           write: async () => {
             await store.conversations.index.upsert([
               { ...conversationRow('c-rolled-back'), machineId: store.hostMachineId },
@@ -101,7 +102,9 @@ describe("Ledger.commit's apply arm runs on the outermost commit (POD-3366)", ()
     ).rejects.toThrow('enclosing span failed')
 
     // The database forgot the row…
-    expect((await store.conversations.index.search({})).map((r) => r.id)).not.toContain('c-rolled-back')
+    expect((await store.conversations.index.search({})).map((r) => r.id)).not.toContain(
+      'c-rolled-back',
+    )
     // …and the install that would have claimed it never happened.
     expect(applied).toEqual([])
   })
@@ -115,11 +118,14 @@ describe("Ledger.commit's apply arm runs on the outermost commit (POD-3366)", ()
     const store = await openTestStore(':memory:')
     const ledger = makeLedger(store)
 
-    const first = await ledger.commit({ write: async () => {}, changes: () => [upsert('c-dedup')] })
+    const first = await testLedgerWriter(ledger).commit({
+      write: async () => {},
+      changes: () => [upsert('c-dedup')],
+    })
     expect(first.changes.map((c) => c.id)).toEqual(['c-dedup'])
 
     const applied: string[] = []
-    const second = await ledger.commit({
+    const second = await testLedgerWriter(ledger).commit({
       write: async () => {},
       changes: () => [upsert('c-dedup')],
       apply: () => applied.push('applied'),
@@ -138,17 +144,19 @@ describe("Ledger.commit's apply arm runs on the outermost commit (POD-3366)", ()
     const foldedIds = async () =>
       (await ledger.authority.snapshot('conversation')).map((v) => (v as { id: string }).id)
 
-    await ledger.commit({
+    await testLedgerWriter(ledger).commit({
       write: async () => {},
       changes: () => [upsert('c-order-outer')],
-      apply: async () => seen.push((await foldedIds()).includes('c-order-outer') ? 'after' : 'before'),
+      apply: async () =>
+        seen.push((await foldedIds()).includes('c-order-outer') ? 'after' : 'before'),
     })
 
     await store.transact(async () => {
-      await ledger.commit({
+      await testLedgerWriter(ledger).commit({
         write: async () => {},
         changes: () => [upsert('c-order-inner')],
-        apply: async () => seen.push((await foldedIds()).includes('c-order-inner') ? 'after' : 'before'),
+        apply: async () =>
+          seen.push((await foldedIds()).includes('c-order-inner') ? 'after' : 'before'),
       })
     })
 
@@ -168,7 +176,7 @@ describe("Ledger.commit's apply arm runs on the outermost commit (POD-3366)", ()
     const applied: string[] = []
 
     await expect(
-      ledger.commit({
+      testLedgerWriter(ledger).commit({
         arbitrate: {
           rowId: expRevRow.id,
           attempt: { expectedRevision: 1 },
@@ -191,7 +199,7 @@ describe("Ledger.commit's apply arm runs on the outermost commit (POD-3366)", ()
     const applied: string[] = []
 
     await expect(
-      ledger.commit({
+      testLedgerWriter(ledger).commit({
         write: async () => {
           throw new Error('the write failed')
         },

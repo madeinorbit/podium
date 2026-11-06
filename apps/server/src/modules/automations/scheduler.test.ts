@@ -1,12 +1,13 @@
-import { asAutomationId, firstAdminMemberId, asIssueId, asSessionId } from '@podium/model'
+import { asAutomationId, asIssueId, asSessionId, firstAdminMemberId } from '@podium/model'
 import { automationOccurrenceRunId } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
+import { testLedgerWriter } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
+import { openTestStore } from '../../test-support/open-test-store'
 import { type AutomationDecision, decideTick, GRACE_MS, type Schedulable } from './decide'
 import type { AutomationPrompt } from './prompt'
-import { AutomationsService, type AutomationInput } from './service'
-import { openTestStore } from '../../test-support/open-test-store'
+import { type AutomationInput, AutomationsService } from './service'
 
 const TEST_PRINCIPAL = userCommandPrincipal(firstAdminMemberId(), 'admin')
 
@@ -212,7 +213,7 @@ async function harness(
   const createIssue = vi.fn(() => ({ id: asIssueId(`iss_${++issueN}`) }))
   const service = new TestAutomationsService({
     store: store.automations,
-    ledger,
+    ledger: testLedgerWriter(ledger),
     createSession,
     deliverPrompt,
     createIssue,
@@ -241,7 +242,10 @@ async function harness(
 }
 
 /** A daily-at-09:00 automation, enabled and armed for today's 09:00. */
-async function daily(h: Awaited<ReturnType<typeof harness>>, over: { repoPath?: string | null } = {}) {
+async function daily(
+  h: Awaited<ReturnType<typeof harness>>,
+  over: { repoPath?: string | null } = {},
+) {
   const created = await h.service.create({
     name: 'Nightly sweep',
     cron: '0 9 * * *',
@@ -657,7 +661,11 @@ describe('AutomationsService.tick — spawn', () => {
     expect(h.createSession).toHaveBeenCalledTimes(1)
     expect(h.freshPrompts()).toHaveLength(1)
     expect(h.resumePrompts()).toMatchObject([
-      { sessionId: asSessionId('sess_1'), text: 'Continue the sweep.', runId: expect.stringMatching(/^arun_/) },
+      {
+        sessionId: asSessionId('sess_1'),
+        text: 'Continue the sweep.',
+        runId: expect.stringMatching(/^arun_/),
+      },
     ])
     expect(await h.service.runs(a.id)).toHaveLength(2)
     expect((await h.service.runs(a.id)).every((run) => run.sessionId === 'sess_1')).toBe(true)
@@ -745,7 +753,7 @@ describe('AutomationsService.tick — the missed / overlap / error policy', () =
     const live = await harness({ live: ['sess_1'] })
     const service = new AutomationsService({
       store: h.store.automations,
-      ledger: h.ledger,
+      ledger: testLedgerWriter(h.ledger),
       createSession: live.createSession,
       deliverPrompt: live.deliverPrompt,
       createIssue: live.createIssue,

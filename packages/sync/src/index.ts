@@ -89,6 +89,12 @@ export * from './mirror'
  * can forget.
  */
 export * from './mutation-ledger'
+export {
+  ForeignWriteScope,
+  type WriteScope,
+  type WriteScopeMint,
+  type WriteScopeOrigin,
+} from './write-scope'
 export * from './outbox'
 export * from './replica/index'
 export * from './adapters/sqlite/sync-repository'

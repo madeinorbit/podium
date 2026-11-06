@@ -10,6 +10,7 @@ import { createHash } from 'node:crypto'
 import { asDeliveryReceiptId, asMachineId, asShipOrderId, firstAdminMemberId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { Ledger } from '@podium/sync'
+import { testLedgerWriter } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -56,7 +57,7 @@ async function world(shipped: number): Promise<{ store: SessionStore; service: S
     spawnSession: async () => ({ sessionId: 'session-1' as never, machine: 'machine-1' }),
     repoOp: async () => ({ ok: true, output: '' }),
     funnel: { run: (op) => op.write() },
-    ledger,
+    ledger: testLedgerWriter(ledger),
   })
   const service = new ShippingService({
     repository: store.shipping,
@@ -66,7 +67,7 @@ async function world(shipped: number): Promise<{ store: SessionStore; service: S
       shippingCommit: issues.crud.shippingCommit.bind(issues.crud),
       shippingCommitMany: issues.crud.shippingCommitMany.bind(issues.crud),
     },
-    ledger,
+    ledger: testLedgerWriter(ledger),
     daemon: {
       shippingJob: async () => {
         throw new Error('not used')

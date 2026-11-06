@@ -22,9 +22,9 @@
 import type { AnyCommandContract, CommandDef } from '@podium/commands'
 import type { AuthTarget, MutationId } from '@podium/model'
 import type { SyncSubmitRefusal } from '@podium/protocol'
-import type { Ledger } from '@podium/sync'
 import type { z } from 'zod'
 import type { CommandPrincipal } from '../../command-principal'
+import type { SyncCommandWriter } from '../../write-contexts'
 import {
   contractFrontDoor,
   defFrontDoor,
@@ -88,13 +88,15 @@ export interface SyncTargetContext {
   readonly confirmed: boolean
 }
 
-/** The Authority-bound writers of the unit of work. Every change row they append
- *  carries the command's provenance. */
-export type SyncWriteLedger = Pick<Ledger, 'commit' | 'capture'>
+/** The Authority-bound writers of the unit of work, bound to the command's own
+ *  write scope (ADR 12 D9). Every change row they append carries the command's
+ *  provenance. */
+export type SyncWriteLedger = SyncCommandWriter
 
 /**
- * What a handler gets (ADR 12 D9's `SyncWriteContext`). Task 18 makes it the only
- * way to write a synced table.
+ * What a handler gets (ADR 12 D9's `SyncWriteContext`). Its `ledger` is the only
+ * writer bound to a `sync` scope: the entry point mints one per call
+ * (`write-contexts.ts`).
  */
 export interface SyncWriteContext {
   readonly principal: CommandPrincipal

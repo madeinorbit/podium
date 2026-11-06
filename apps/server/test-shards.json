@@ -682,7 +682,8 @@
         "apps/server/src/sync/bootstrap-routes.test.ts",
         "apps/server/src/sync/routes.test.ts",
         "apps/server/src/telemetry.test.ts",
-        "apps/server/src/transcript-indexer.test.ts"
+        "apps/server/src/transcript-indexer.test.ts",
+        "apps/server/src/write-contexts.test.ts"
       ],
       "inputs": [
         "$TURBO_ROOT$/apps/daemon/src/**",
@@ -1523,6 +1524,8 @@
         "src/title-filter.ts",
         "src/transcript-indexer.test.ts",
         "src/trpc.ts",
+        "src/write-contexts.test.ts",
+        "src/write-contexts.ts",
         "src/write-provenance.ts",
         "test-shard-report.ts",
         "test-shards.json",
@@ -2439,6 +2442,7 @@
         "src/title-filter.ts",
         "src/trpc.ts",
         "src/web-bundle-stamp.ts",
+        "src/write-contexts.ts",
         "src/write-provenance.ts",
         "test-shard-report.ts",
         "test-shards.json",
@@ -3384,6 +3388,7 @@
         "src/web-bundle-stamp.ts",
         "src/well-known-route.ts",
         "src/workflow-cutover.audit.test.ts",
+        "src/write-contexts.ts",
         "src/write-provenance.ts",
         "src/wsServer.client-auth.test.ts",
         "src/wsServer.daemon.test.ts",
@@ -3887,6 +3892,7 @@
         "src/test-support/open-test-store.ts",
         "src/title-filter.ts",
         "src/trpc.ts",
+        "src/write-contexts.ts",
         "src/write-provenance.ts",
         "test-shard-report.ts",
         "test-shards.json",

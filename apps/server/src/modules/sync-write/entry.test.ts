@@ -26,6 +26,7 @@ import { type CommandPrincipal, userCommandPrincipal } from '../../command-princ
 import type { SessionStore } from '../../store'
 import { applyAfterCommit, spanOpen } from '../../store/executor/executor'
 import { openTestStore } from '../../test-support/open-test-store'
+import { WriteContexts } from '../../write-contexts'
 import { currentWriteProvenance } from '../../write-provenance'
 import { SyncWriteEntry, SyncWriteRefused } from './entry'
 import {
@@ -63,13 +64,14 @@ async function harness(): Promise<Harness> {
     provenance: { current: currentWriteProvenance },
   })
   const registry = new SyncWriteRegistry()
+  const writes = new WriteContexts(ledger, ledger.takeScopeMint())
   const entry = new SyncWriteEntry({
     registry,
     mutations: new MutationLedger(store.sync, () => 1_000),
     unitOfWork: async (fn) => await store.transact(fn),
     afterCommit: (step, label) => store.effect(step, label),
     spanOpen,
-    ledger,
+    writer: (mutationId) => writes.sync(mutationId),
     receipt: async () => ({ ...FEED, seq: await ledger.cursor() }),
   })
   const adminId = firstAdminMemberId()
