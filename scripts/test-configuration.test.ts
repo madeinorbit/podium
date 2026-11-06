@@ -297,6 +297,9 @@ describe('test lane configuration', () => {
       // server package) because every lane that collects apps/server must make the
       // same real-chain-vs-clone decision per file.
       './test-pre-migrated-store.ts',
+      // POD-6423: client files get the record declarations the app loads when it
+      // opens its outbox; a no-op for server and daemon files.
+      './test-record-declarations.ts',
     ])
     const bunfig = readFileSync(new URL('../bunfig.toml', import.meta.url), 'utf8')
     expect(bunfig).toContain('preload = ["./test-hermetic-env.ts", "./test-hermetic-bun-hooks.ts"]')
