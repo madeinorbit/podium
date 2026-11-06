@@ -10,6 +10,7 @@
  */
 
 import {
+  MAIL_ISSUE_COMMANDS,
   QUEUED_ISSUE_COMMANDS,
   SESSION_ISSUE_COMMANDS,
   STRUCTURE_ISSUE_COMMANDS,
@@ -56,6 +57,7 @@ describe('the listed issue commands on the entry point', () => {
       ...QUEUED_ISSUE_COMMANDS,
       ...STRUCTURE_ISSUE_COMMANDS,
       ...SESSION_ISSUE_COMMANDS,
+      ...MAIL_ISSUE_COMMANDS,
     ])
     const o = await makeOracle()
     const names = o.reg.modules.syncWrite.registry.names()

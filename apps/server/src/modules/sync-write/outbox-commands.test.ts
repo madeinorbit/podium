@@ -7,6 +7,7 @@
  */
 
 import {
+  MAIL_ISSUE_COMMANDS,
   RECORD_CONTRACTS,
   SESSION_ISSUE_COMMANDS,
   STRUCTURE_ISSUE_COMMANDS,
@@ -38,6 +39,8 @@ describe('the outbox commands on sync.submit', () => {
         // The issue structure writes (POD-6413), on the issue family's registration.
         ...STRUCTURE_ISSUE_COMMANDS.map((proc) => `issues.${proc}`),
         ...SESSION_ISSUE_COMMANDS.map((proc) => `issues.${proc}`),
+        // An issue's agent mail (POD-6525).
+        ...MAIL_ISSUE_COMMANDS.map((proc) => `issues.${proc}`),
       ].sort(),
     )
   })
