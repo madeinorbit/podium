@@ -79,6 +79,8 @@ const harness = vi.hoisted(() => ({
   setPlacement: vi.fn(async (_input: unknown) => undefined),
   startIssue: vi.fn(async (_input: unknown) => undefined),
   addSession: vi.fn(async (_input: unknown) => undefined),
+  // Sessions start on an issue as its effect record (POD-6526): begin or add.
+  startIssueSession: vi.fn((_args: unknown) => ({ settled: Promise.resolve(true) })),
   transcriptRead: vi.fn(
     async (_input: unknown): Promise<{ items: unknown[]; hasMore: boolean; head?: string }> => ({
       items: [],
@@ -188,6 +190,7 @@ vi.mock('./store', () => ({
       openSessionAtTranscript: harness.openSessionAtTranscript,
       issueVisitBaseline: harness.issueVisitBaseline,
       focusIssueSession: harness.focusIssueSession,
+      startIssueSession: harness.startIssueSession,
       setPanelMode: harness.setPanelMode,
       preferPanelMode: harness.preferPanelMode,
       setView: vi.fn(),
@@ -384,6 +387,7 @@ beforeEach(() => {
   harness.updateIssue.mockClear()
   harness.closeIssue.mockClear()
   harness.startIssue.mockClear()
+  harness.startIssueSession.mockClear()
   harness.addSession.mockClear()
   harness.setPlacement.mockClear()
   harness.transcriptRead.mockClear()
@@ -663,7 +667,7 @@ describe('Full mission header', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open task details' }))
     expect(opened).toHaveBeenCalledTimes(1)
     expect((opened.mock.calls[0]?.[0] as CustomEvent).detail).toBe('issue')
-    expect(harness.addSession).not.toHaveBeenCalled()
+    expect(harness.startIssueSession).not.toHaveBeenCalled()
   })
 
   it('shows acceptance without substituting instructions when the description is absent', async () => {
@@ -756,7 +760,7 @@ describe('Full mission header', () => {
     captureHeader('Live crew · partial cost · Add agent')
     fireEvent.click(screen.getByRole('button', { name: 'Add agent to mission' }))
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Add Codex (default)' }))
-    await waitFor(() => expect(harness.addSession).toHaveBeenCalledWith({ id: 'root' }))
+    await waitFor(() => expect(harness.startIssueSession).toHaveBeenCalledWith({ issueId: 'root' }))
     expect(harness.focusIssueSession).toHaveBeenCalledWith('root', { excludeSessionIds: ['present'] })
   })
 })
@@ -795,7 +799,7 @@ describe('flight deck mission agent action', () => {
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Add Codex' }))
 
     await waitFor(() =>
-      expect(harness.addSession).toHaveBeenCalledWith({ id: 'root', agentKind: 'codex' }),
+      expect(harness.startIssueSession).toHaveBeenCalledWith({ issueId: 'root', agentKind: 'codex' }),
     )
     expect(harness.focusIssueSession).toHaveBeenCalledWith('root', { excludeSessionIds: [] })
     expect(harness.startIssue).not.toHaveBeenCalled()
@@ -813,13 +817,12 @@ describe('flight deck mission agent action', () => {
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Add Codex' }))
 
     await waitFor(() =>
-      expect(harness.addSession).toHaveBeenCalledWith({ id: 'root', agentKind: 'codex' }),
+      expect(harness.startIssueSession).toHaveBeenCalledWith({ issueId: 'root', agentKind: 'codex' }),
     )
     expect(harness.startIssue).not.toHaveBeenCalled()
   })
 
-  it('starts only when addSession says the issue has never been started', async () => {
-    harness.addSession.mockRejectedValueOnce(new Error('issue not started'))
+  it('leaves begin-or-add to the store action and never calls the old routes', async () => {
     harness.issues = harness.issues.map((candidate) =>
       (candidate as Issue).id === 'root'
         ? { ...(candidate as Issue), defaultAgent: 'claude-code' }
@@ -830,9 +833,13 @@ describe('flight deck mission agent action', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add agent to mission' }))
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Add Codex' }))
 
+    // No mode: the launch paint begins a never-started issue and adds to a
+    // started one, from the issue's own row (POD-6526).
     await waitFor(() =>
-      expect(harness.startIssue).toHaveBeenCalledWith({ id: 'root', agentKind: 'codex' }),
+      expect(harness.startIssueSession).toHaveBeenCalledWith({ issueId: 'root', agentKind: 'codex' }),
     )
+    expect(harness.addSession).not.toHaveBeenCalled()
+    expect(harness.startIssue).not.toHaveBeenCalled()
   })
 
   it('opens the newly added agent instead of a session already on the mission', async () => {
@@ -911,7 +918,7 @@ describe('flight deck mission agent action', () => {
     expect(cursor.textContent).toContain('not installed')
     expect(cursor.getAttribute('data-refused')).toBe('true')
     fireEvent.click(cursor)
-    expect(harness.addSession).not.toHaveBeenCalled()
+    expect(harness.startIssueSession).not.toHaveBeenCalled()
 
     const codex = await screen.findByRole('menuitem', { name: 'Add Codex (default)' })
     expect(codex.getAttribute('data-refused')).toBeNull()
@@ -1533,7 +1540,8 @@ describe('flight deck task menu (POD-771)', () => {
     const proposal = document.querySelector('[data-flight-issue="p1"] button')
     fireEvent.contextMenu(proposal as HTMLElement)
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Start issue' }))
-    expect(harness.startIssue).toHaveBeenCalledWith({ id: 'p1' })
+    expect(harness.startIssueSession).toHaveBeenCalledWith({ issueId: 'p1', mode: 'begin' })
+    expect(harness.startIssue).not.toHaveBeenCalled()
   })
 
   it('uses the shared draft name in the strip and its rename editor', async () => {

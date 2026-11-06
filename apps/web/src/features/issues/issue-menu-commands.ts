@@ -1,7 +1,8 @@
 import { issueWrites } from '@podium/commands/issues-synced'
-import { spawnIssueAgent } from '@podium/client-core/values'
+import type { StartIssueSession } from '@podium/client-core/spawn-agent'
 import type { IssueUpdatePatch } from '@podium/commands'
 import {
+  asIssueId,
   asMachineId,
   DEFER_NEXT_MESSAGE,
   type IssueCloseReason,
@@ -38,6 +39,9 @@ export interface IssueMenuCommandDeps {
   /** Optimistic + outboxed (POD-781): the undo of a delete. A delete still in the
    *  queue collapses against it rather than round-tripping out and back. */
   restoreIssue: (id: string) => Promise<unknown>
+  /** Start a session on the issue as its effect record (POD-6526): painted on
+   *  the press, told once if it fails. Resolves once it is durably queued. */
+  startIssueSession: StartIssueSession
   setOpenIssueId: (id: string) => void
   setView: (view: 'issues') => void
   handoff?: (machineId: MachineId) => void
@@ -73,7 +77,7 @@ export function runIssueMenuCommand(
         deps.setView('issues')
         return
       case 'start':
-        return deps.trpc.issues.start.mutate({ id })
+        return deps.startIssueSession({ issueId: asIssueId(id), mode: 'begin' }).settled
       case 'rename':
         return
       case 'markUnread':
@@ -146,7 +150,11 @@ export function runIssueMenuCommand(
       return Promise.all(data.issues.map((issue) => deps.updateIssue(issue.id, { priority })))
     }
     case 'agent':
-      return spawnIssueAgent(deps.trpc.issues, value ? { id, agentKind: value } : { id })
+      // One more agent, or the first when the issue was never started.
+      return deps.startIssueSession({
+        issueId: asIssueId(id),
+        ...(value ? { agentKind: value } : {}),
+      }).settled
     case 'labels':
       return Promise.all(
         toggleLabelAcross(data.issues, value).map((patch) =>

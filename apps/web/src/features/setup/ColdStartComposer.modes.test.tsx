@@ -100,6 +100,10 @@ const store = {
   focusIssueSession,
   spawnDraftAgent,
   spawnIssueAgent,
+  // The half-made mission's start is an `issue.begin` record (POD-6526).
+  startIssueSession: (args: unknown) => ({
+    settled: Promise.resolve(start(args)).then(() => true),
+  }),
   setSelectedIssueId,
   setSelectedWorktree,
   setPane,
@@ -109,7 +113,7 @@ const store = {
     settings: {
       get: { query: vi.fn(async () => ({ sessionDefaults: { agent: 'claude-code' } })) },
     },
-    issues: { create: { mutate: create }, start: { mutate: start } },
+    issues: { create: { mutate: create } },
     sessions: { uploadImage: { mutate: vi.fn() } },
   },
 }
@@ -291,7 +295,11 @@ describe('a retry in flight', () => {
     render(<ColdStartComposer first={false} />)
     fireEvent.click(launch())
 
-    await waitFor(() => expect(start).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(start).toHaveBeenCalledWith(
+        expect.objectContaining({ issueId: 'issue-half-made', mode: 'begin' }),
+      ),
+    )
     expect(spawnDraftAgent).not.toHaveBeenCalled()
     // The issue already exists; a retry must not make a second one.
     expect(create).not.toHaveBeenCalled()

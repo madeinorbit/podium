@@ -322,6 +322,7 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
     resurrectSession,
     startBtw,
     spawnDraftAgent,
+    startIssueSession,
   } = useCommandLaunchActions()
   const repoViews = data.repoViews
   const workflowsEnabled = useFeature('workflows')
@@ -522,6 +523,7 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
           undeferIssue,
           setIssueLabels,
           restoreIssue,
+          startIssueSession,
           setOpenIssueId: (id) => setOpenIssueId(id as IssueId),
           setView: (view) => setView(view),
           // Closing goes to the shared guard, not straight to the store action

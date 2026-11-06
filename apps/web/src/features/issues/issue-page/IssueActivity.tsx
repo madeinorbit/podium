@@ -38,6 +38,7 @@ import {
   type IssueEventIcon,
   type IssueEventLine,
 } from '@podium/client-core/values'
+import { ISSUE_ASSISTANT_KIND } from '@podium/client-core/spawn-agent'
 import type { IssueHistoryView } from '@podium/client-graph/issue-activity'
 import type { IssueId } from '@podium/model'
 import {
@@ -60,6 +61,7 @@ import {
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import type { IssueViewModel } from '@/app/store'
+import { useWorklistPool } from '@/app/store-worklist-pool'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { modChord } from '@/lib/mod-chord'
@@ -336,6 +338,37 @@ const DayDivider = observer(function DayDivider({ label }: { label: ReactNode })
 })
 
 /** The activity section: assistant note, then the day-grouped feed. */
+/**
+ * Refresh the assistant's notes: an `issue.assistant` record (POD-6526). While
+ * one runs, asked from this device or another, the button spins and waits.
+ */
+const AssistantRefresh = observer(function AssistantRefresh({
+  issueId,
+  busy,
+  onRefresh,
+}: {
+  issueId: string
+  busy: boolean
+  onRefresh: () => void
+}): JSX.Element {
+  const pool = useWorklistPool()
+  const refreshing = pool?.issueObject(issueId).workPending === ISSUE_ASSISTANT_KIND
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-sm"
+      title={refreshing ? 'Refreshing AI notes…' : 'Refresh AI notes'}
+      aria-label="Refresh AI notes"
+      aria-busy={refreshing}
+      disabled={busy || refreshing}
+      onClick={onRefresh}
+    >
+      <RefreshCw size={13} aria-hidden="true" className={refreshing ? 'animate-spin' : undefined} />
+    </Button>
+  )
+})
+
 export const IssueActivitySection = observer(function IssueActivitySection({
   issue,
   busy,
@@ -358,17 +391,11 @@ export const IssueActivitySection = observer(function IssueActivitySection({
     <section className="group/section flex flex-col gap-2">
       <SectionHeading
         action={
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            title="Refresh AI notes"
-            aria-label="Refresh AI notes"
-            disabled={busy}
-            onClick={commands.refreshAssistant}
-          >
-            <RefreshCw size={13} aria-hidden="true" />
-          </Button>
+          <AssistantRefresh
+            issueId={issue.id}
+            busy={busy}
+            onRefresh={commands.refreshAssistant}
+          />
         }
       >
         Activity

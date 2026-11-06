@@ -9,7 +9,6 @@ import {
   type MissionDeparture,
   type machineViewsFromWire,
   continuationPresenceLine as sharedContinuationPresenceLine,
-  spawnIssueAgent,
 } from '@podium/client-core/values'
 import type { MissionScreen } from '@podium/client-graph/mission-screen'
 import { settled } from '@podium/client-graph/mission-view'
@@ -1097,6 +1096,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
     setSelectedIssueId,
     openSessionTab,
     focusIssueSession,
+    startIssueSession,
     preferPanelMode,
     setView,
     markIssueRead,
@@ -1104,7 +1104,6 @@ export const FlightDeckContent = observer(function FlightDeckContent({
     setIssueTucked,
     closeIssue,
     updateIssue,
-    trpc,
   } = useRuntimeSelector(
     (store) => ({
       paneA: store.paneA,
@@ -1122,6 +1121,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
       // which session the operator is actually in.
       openSessionTab: store.openSessionTab,
       focusIssueSession: store.focusIssueSession,
+      startIssueSession: store.startIssueSession,
       preferPanelMode: store.preferPanelMode,
       setView: store.setView,
       markIssueRead: store.markIssueRead,
@@ -1131,7 +1131,6 @@ export const FlightDeckContent = observer(function FlightDeckContent({
       // it can be tucked (POD-1212) — the fold is for finished work.
       closeIssue: store.closeIssue,
       updateIssue: store.updateIssue,
-      trpc: store.trpc,
     }),
     shallowEqual,
   )
@@ -1378,12 +1377,17 @@ export const FlightDeckContent = observer(function FlightDeckContent({
 
   const rootFinished = screen.rootFinished
   const addMissionAgent = async (agentKind?: IssueAgentKind): Promise<void> => {
-    const input = agentKind ? { id: rootId, agentKind } : { id: rootId }
     const existingSessionIds = source
       .attached(rootId)
       .filter((session) => !(session as SessionModel).archived)
       .map((session) => session.sessionId)
-    await spawnIssueAgent(trpc.issues, input)
+    // One more agent, or the first when the mission was never started: an
+    // effect record, painted on the issue on the press (POD-6526).
+    const started = startIssueSession({
+      issueId: asIssueId(rootId),
+      ...(agentKind ? { agentKind } : {}),
+    })
+    if (!(await started.settled)) return
     await focusIssueSession(asIssueId(rootId), { excludeSessionIds: existingSessionIds })
   }
   const selectSession = (

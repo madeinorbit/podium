@@ -15,6 +15,7 @@
 import { issueWrites } from '@podium/commands/issues-synced'
 import type { ActivityComment, IssueEvent, RelationEntry } from '@podium/client-core/values'
 import type { IssueActivityPorts } from '@podium/client-graph/issue-activity'
+import type { IssueWorkAction, StartIssueSession } from '@podium/client-core/spawn-agent'
 import type { IssueUpdatePatch } from '@podium/commands'
 import { type IssueId, parseIssueStatusValue, type StoredIssueDepType } from '@podium/model/browser'
 import type { IssueViewModel } from '@/app/store'
@@ -38,6 +39,9 @@ export interface IssuePageDeps {
   undeferIssue: (id: string) => Promise<unknown>
   setIssueLabels: (id: string, labels: string[]) => Promise<unknown>
   restoreIssue: (id: string) => Promise<unknown>
+  /** The issue's own work as effect records (POD-6526). */
+  startIssueSession: StartIssueSession
+  issueAction: (issueId: IssueId, action: IssueWorkAction) => Promise<string>
 }
 
 export type IssuePageCommands = ReturnType<typeof issuePageCommands>
@@ -55,8 +59,11 @@ export function issuePageCommands({
   undeferIssue,
   setIssueLabels,
   restoreIssue,
+  startIssueSession,
+  issueAction,
 }: IssuePageDeps) {
   const id = issue.id
+  const issueId = id as IssueId
 
   /** Generic field patch — the single `issues.update` call site. This page's
    *  established clear-value surface is intentionally broader than the
@@ -127,8 +134,10 @@ export function issuePageCommands({
         onPosted(body)
       })
     },
+    /** An `issue.assistant` record: resolves once queued; the page shows it
+     *  running from the record and the ending is told once (POD-6526). */
     refreshAssistant: (): void => {
-      void run(() => trpc.issues.refreshAssistant.mutate({ id }))
+      void run(() => issueAction(issueId, 'assistant'))
     },
 
     // ---- overflow menu ----
@@ -215,8 +224,14 @@ export function issuePageCommands({
     },
 
     // ---- sessions / agent start ----
+    /** An `issue.begin` record: the starting session paints on the press and
+     *  a failure is told once (POD-6526). */
     startWork: (agentKind?: IssueAgentKind): void => {
-      void run(() => trpc.issues.start.mutate(agentKind ? { id, agentKind } : { id }))
+      void run(
+        () =>
+          startIssueSession({ issueId, mode: 'begin', ...(agentKind ? { agentKind } : {}) })
+            .settled,
+      )
     },
 
     // ---- git workflow ----

@@ -10,6 +10,8 @@ vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 
 const startMutate = vi.fn(async () => ({}))
 const addSessionMutate = vi.fn(async () => ({}))
+// Starting is the issue's effect record (POD-6526), never the routes above.
+const startIssueSession = vi.fn(() => ({ settled: Promise.resolve(true) }))
 
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
@@ -22,6 +24,7 @@ vi.mock('@podium/client-core/react', async (original) => ({
       },
       markIssueRead: vi.fn(),
       markIssueUnread: vi.fn(),
+      startIssueSession,
       get sessions() {
         throw new Error('Task menu read legacy sessions')
       },
@@ -65,6 +68,7 @@ afterEach(() => {
   cleanup()
   startMutate.mockClear()
   addSessionMutate.mockClear()
+  startIssueSession.mockClear()
 })
 
 /**
@@ -95,7 +99,8 @@ describe('IssueContextMenu — the agent entry is off the menu (POD-110 → POD-
     open(makeIssue({ worktreePath: null, stage: 'backlog' }), true)
     expect(screen.queryByRole('menuitem', { name: /Run now/ })).toBeNull()
     fireEvent.click(screen.getByRole('menuitem', { name: 'Start issue' }))
-    expect(startMutate).toHaveBeenCalledWith({ id: 'i' })
+    expect(startIssueSession).toHaveBeenCalledWith({ issueId: 'i', mode: 'begin' })
+    expect(startMutate).not.toHaveBeenCalled()
     expect(addSessionMutate).not.toHaveBeenCalled()
   })
 })

@@ -53,6 +53,7 @@ const ACTION_KEYS = [
   'startBtw',
   'spawnDraftAgent',
   'launchSession',
+  'startIssueSession',
   'setPanelMode',
   'openFileInWorktree',
   'openArtifact',

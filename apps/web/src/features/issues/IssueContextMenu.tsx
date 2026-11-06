@@ -5,11 +5,11 @@ import {
   discoveredPlacement,
   type ProposalPlacement,
   reposToViews,
-  spawnIssueAgent,
 } from '@podium/client-core/values'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import { missionView, readMissionHandoffTargets } from '@podium/client-graph/mission-view'
 import {
+  asIssueId,
   DEFER_NEXT_MESSAGE,
   type IssueId,
   type IssueStage,
@@ -159,6 +159,7 @@ export const IssueContextMenu = observer(function IssueContextMenu({
     setIssueLabels,
     setIssuePlacement,
     restoreIssue,
+    startIssueSession,
   } = useStoreHandle<Trpc>().access
   const readSettings = useCallback(() => trpc.settings.get.query(), [trpc])
   const settingsRequest = useSettingsRecord(readSettings)
@@ -290,9 +291,13 @@ export const IssueContextMenu = observer(function IssueContextMenu({
     run(() =>
       Promise.all(toggleLabelAcross(issues, label).map((p) => setIssueLabels(p.id, p.labels))),
     )
+  // One more agent, or the first when the issue was never started: an effect
+  // record, painted on the issue on the press (POD-6526).
   const assignAgent = (agentKind: string): void =>
-    run(() =>
-      spawnIssueAgent(trpc.issues, agentKind ? { id: first.id, agentKind } : { id: first.id }),
+    run(
+      () =>
+        startIssueSession({ issueId: asIssueId(first.id), ...(agentKind ? { agentKind } : {}) })
+          .settled,
     )
   const close = (reason: IssueCloseReason): void => {
     if (onRequestClose) {
@@ -449,7 +454,7 @@ export const IssueContextMenu = observer(function IssueContextMenu({
         onClose()
         return
       case 'start':
-        run(() => trpc.issues.start.mutate({ id: first.id }))
+        run(() => startIssueSession({ issueId: asIssueId(first.id), mode: 'begin' }).settled)
         return
       case 'rename':
         rename()

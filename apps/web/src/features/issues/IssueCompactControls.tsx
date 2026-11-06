@@ -9,6 +9,7 @@ import {
 } from '@podium/client-core/values'
 import type { SessionModel } from '@podium/client-graph/models'
 import {
+  asIssueId,
   type IssueId,
   type IssueStage,
   isFinished,
@@ -544,10 +545,11 @@ export const IssueCompactControls = observer(function IssueCompactControls({
   // NAVIGATION, so it left the action row entirely: it is now a named link in
   // the panel's head (`InspectHead`), above the title, where the trail and the
   // other "where am I" chrome lives.
-  const { trpc, updateIssue } = useRuntimeSelector(
+  const { trpc, updateIssue, startIssueSession } = useRuntimeSelector(
     (s) => ({
       trpc: s.trpc,
       updateIssue: s.updateIssue,
+      startIssueSession: s.startIssueSession,
     }),
     shallowEqual,
   )
@@ -628,7 +630,10 @@ export const IssueCompactControls = observer(function IssueCompactControls({
   const startWork = (moveTo?: ProposalPlacement): void => {
     setStarting(true)
     const origin = placement?.originId
-    const start = (): Promise<unknown> => trpc.issues.start.mutate({ id: issue.id })
+    // An `issue.begin` record (POD-6526): the starting session paints on the
+    // press; a failure is told once, from the record.
+    const start = (): Promise<unknown> =>
+      startIssueSession({ issueId: asIssueId(issue.id), mode: 'begin' }).settled
     // Nothing to move is the ordinary case, and it stays a DIRECT call: routing
     // it through a resolved promise would delay every plain start by a tick for
     // the sake of one branch's symmetry.

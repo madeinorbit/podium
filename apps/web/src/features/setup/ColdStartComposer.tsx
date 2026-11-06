@@ -252,6 +252,7 @@ export function ColdStartComposer({
     focusIssueSession,
     spawnDraftAgent,
     spawnIssueAgent,
+    startIssueSession,
     setSelectedIssueId,
     setSelectedWorktree,
     setPane,
@@ -793,9 +794,16 @@ export function ColdStartComposer({
         const pendingIssueId = draft.pendingIssueId
         const startMutationId = draft.startMutationId || asMutationId(randomUUID())
         setDraft({ ...draft, startMutationId, launchError: '' })
-        void trpc.issues.start
-          .mutate({ id: pendingIssueId, mutationId: startMutationId })
-          .then(async () => {
+        // An `issue.begin` record under the draft's mutation id (POD-6526): a
+        // retry writes the same record. Queued is launched; a later failure is
+        // told once, from the record.
+        void startIssueSession({
+          issueId: asIssueId(pendingIssueId),
+          mode: 'begin',
+          mutationId: startMutationId,
+        })
+          .settled.then(async (queued) => {
+            if (!queued) throw new Error("Couldn't start the task")
             clearFirstTaskDraft(uiState)
             attachments.clear()
             const opened = await focusIssueSession(pendingIssueId)

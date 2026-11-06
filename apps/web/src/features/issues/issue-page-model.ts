@@ -13,7 +13,9 @@ import type { Store } from '@/app/store'
 import { type IssueViewModel, useRuntimeSelector } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 import type { PropertyOption } from '@/lib/PropertyMenu'
+import { useWorklistPool } from '@/app/store-worklist-pool'
 import { issueNeighbors } from './issue-page'
+import { tellIssueActionEnding } from './issue-action-ending'
 import type { RunMutation } from './issue-page-commands'
 
 export interface IssuePageModel {
@@ -27,6 +29,8 @@ export interface IssuePageModel {
     | 'undeferIssue'
     | 'setIssueLabels'
     | 'restoreIssue'
+    | 'startIssueSession'
+    | 'issueAction'
   >
   busy: boolean
   run: RunMutation
@@ -49,10 +53,13 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
       undeferIssue: s.undeferIssue,
       setIssueLabels: s.setIssueLabels,
       restoreIssue: s.restoreIssue,
+      startIssueSession: s.startIssueSession,
+      issueAction: s.issueAction,
       navigateToSession: s.navigateToSession,
     }),
     shallowEqual,
   )
+  const pool = useWorklistPool()
   const [busy, setBusy] = useState(false)
   const run: RunMutation = async (fn) => {
     setBusy(true)
@@ -66,7 +73,15 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
   }
   return {
     trpc: ports.trpc,
-    issueWrites: ports,
+    issueWrites: {
+      ...ports,
+      // The action answers on its record; this device says how it ended.
+      issueAction: async (id, action, opts) => {
+        const effectId = await ports.issueAction(id, action, opts)
+        tellIssueActionEnding(pool, effectId, action)
+        return effectId
+      },
+    },
     busy,
     run,
     ...issueNeighbors(orderedIds, issue.id),
