@@ -57,8 +57,9 @@ import { dispatchSessionCommand, isCommandPlaneProc } from '../sessions/command-
 import type { SessionLifecycle } from '../sessions/lifecycle'
 import type { SessionReadToolkit } from '../sessions/read-toolkit'
 import { submitPlaneCommand } from '../sessions/sync-write'
+import { dispatchSpecRelay, NO_SUCH_SPEC_PROC } from '../specs/relay'
 import type { SpecsService } from '../specs/service'
-import { dispatchWorkflowRpc } from '../workflows/rpc'
+import { dispatchWorkflowRpc, workflowRelayWrite } from '../workflows/rpc'
 import type { WorkflowCaller, WorkflowService } from '../workflows/service'
 import type { IssueCommandDispatcher } from './dispatcher'
 import type { AgentRelayGateDeps } from './relay-gate'
@@ -176,6 +177,12 @@ export function makeAgentRelayDispatch(
   } = deps
 
   return async (capability, overrideScope, router, proc, input) => {
+    // The relay caller as a principal, resolved when an arm needs one.
+    const relayPrincipal = async () =>
+      await resolvePrincipalAsync(capability, {
+        parentSessionOf: async (sessionId) =>
+          spawnedByParentSessionId((await sessionsSvc.sessionById(sessionId))?.spawnedBy),
+      })
     // The sync write entry point's relay adapter (ADR 12 D2, POD-6413). The gate
     // has bound the relay context onto the envelope's input and checked its
     // command against the allowlist; the entry point does the rest. The agent's
@@ -183,10 +190,7 @@ export function makeAgentRelayDispatch(
     if (router === 'sync') {
       if (proc !== 'submit') return NO_SUCH_PROCEDURE
       const envelope = SyncSubmitInput.parse(input)
-      const principal = await resolvePrincipalAsync(capability, {
-        parentSessionOf: async (sessionId) =>
-          spawnedByParentSessionId((await sessionsSvc.sessionById(sessionId))?.spawnedBy),
-      })
+      const principal = await relayPrincipal()
       return await modules().syncWrite.submit(
         overrideScope === true ? { ...envelope, confirmed: true } : envelope,
         principal,
@@ -253,7 +257,9 @@ export function makeAgentRelayDispatch(
       return await Promise.resolve({ machineId: machine.id, requested: true })
     }
     if (router === 'specs') {
-      return specs.has(proc) ? await specs.invoke(proc, input) : NO_SUCH_PROCEDURE
+      // Writes on the plain command path, reads the service's own (POD-6418).
+      const answer = await dispatchSpecRelay(specs, relayPrincipal, proc, input)
+      return answer === NO_SUCH_SPEC_PROC ? NO_SUCH_PROCEDURE : answer
     }
     // Advisory lease locks [spec:SP-85d1]: the caller's session identity is
     // stamped server-side via the capability (actorSessionId), never from input.
@@ -281,6 +287,9 @@ export function makeAgentRelayDispatch(
         await workflowCallerForCapability(capability, overrideScope),
         proc,
         input,
+        'relay',
+        // A write goes onto the sync write entry point (POD-6418).
+        workflowRelayWrite(modules().syncWrite, relayPrincipal, overrideScope === true),
       )
     }
     // Lazy cross-machine workspace fetch [POD-658]: materialize another

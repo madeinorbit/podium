@@ -8,10 +8,12 @@
  */
 
 import { AGENT_PROFILE_SYNC_FAMILY } from '../agent-profiles/sync-write'
+import { AUTOMATION_SYNC_FAMILY } from '../automations/sync-write'
 import { CONVERSATION_SYNC_FAMILY } from '../conversations/sync-write'
 import { READ_POSITION_SYNC_FAMILY } from '../read-position/sync-write'
 import { registerSessionFamilyCommands } from '../sessions/sync-write'
 import { registerSettingsWrite } from '../settings/sync-write'
+import { WORKFLOW_SYNC_FAMILY } from '../workflows/sync-write'
 import { registerSyncFamily, type SyncFamilyDeps } from './family'
 import type { SyncWriteRegistry } from './registry'
 
@@ -21,16 +23,32 @@ export const FAMILY_COMMAND_NAMES = [
   'agentProfiles.update',
   'agentProfiles.delete',
   'agentProfiles.import',
+  'automations.create',
+  'automations.update',
+  'automations.setEnabled',
+  'automations.remove',
   'conversations.setMeta',
   'readPosition.advance',
   'settings.updateInstance',
   // The session command plane's immediate writes (POD-6416).
   'sessions.setIssueId',
   'sessions.continue',
+  'workflows.create',
+  'workflows.revise',
+  'workflows.fork',
+  'workflows.publish',
+  'workflows.assign',
+  'workflows.checkpoint',
+  'workflows.assignStep',
+  'workflows.skip',
+  'workflows.retry',
+  'workflows.adopt',
 ] as const
 
 export function registerFamilyCommands(registry: SyncWriteRegistry, deps: SyncFamilyDeps): void {
   registerSyncFamily(registry, AGENT_PROFILE_SYNC_FAMILY, deps)
+  registerSyncFamily(registry, AUTOMATION_SYNC_FAMILY, deps)
+  registerSyncFamily(registry, WORKFLOW_SYNC_FAMILY, deps)
   registerSyncFamily(registry, CONVERSATION_SYNC_FAMILY, deps)
   registerSyncFamily(registry, READ_POSITION_SYNC_FAMILY, deps)
   // The settings family keeps its own registration: its gate and its trail.

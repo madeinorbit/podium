@@ -4,6 +4,9 @@ import { familyState } from '../derived-family'
  * tRPC procedure, produced from the contract table and the query table rather
  * than written out.
  *
+ * Since POD-6418 the writes go through the sync write entry point
+ * (`sync-write.ts`); the mutations built here are thin adapters onto it.
+ *
  * ---------------------------------------------------------------------------
  * WHAT WAS THERE BEFORE
  * ---------------------------------------------------------------------------
@@ -43,12 +46,19 @@ import { familyState } from '../derived-family'
  * off its table entry's `run`. Neither is written down a second time.
  */
 
-import { TRPCError, type TRPCMutationProcedure, type TRPCQueryProcedure } from '@trpc/server'
+import { TRPCError, type TRPCQueryProcedure } from '@trpc/server'
 import type { z } from 'zod'
-import { type Context, mods, t } from '../../trpc'
+import { type Context, t } from '../../trpc'
+import type { MutationProcedures } from '../derived-family'
+import { legacyRouteAdapters } from '../sync-write/family'
 import { WORKFLOW_QUERIES, type WorkflowQueryName } from './queries'
-import { WORKFLOW_COMMANDS, type WorkflowProcName } from './registry'
+import type { WorkflowProcName } from './registry'
 import type { WorkflowCaller } from './service'
+import {
+  WORKFLOW_SYNC_COMMANDS,
+  WORKFLOW_SYNC_FAMILY,
+  type WorkflowSyncCommands,
+} from './sync-write'
 
 /**
  * The transport principal for a workflow tRPC call.
@@ -84,36 +94,22 @@ export function workflowCaller(ctx: Context): WorkflowCaller {
 }
 
 // ---------------------------------------------------------------------------
-// The eleven mutations
+// The ten mutations: thin adapters onto the sync write entry point
 // ---------------------------------------------------------------------------
 
-type MutationProcedure<N extends WorkflowProcName> = TRPCMutationProcedure<{
-  meta: unknown
-  input: z.input<(typeof WORKFLOW_COMMANDS)[N]['contract']['input']>
-  output: Awaited<ReturnType<(typeof WORKFLOW_COMMANDS)[N]['handler']>>
-}>
-
 /**
- * One mutation, built out of its contract: the contract's own schema instance
- * for the client's input type, and a body that is the framework envelope —
- * `WorkflowService.execute`, which parses through the same contract, authorizes
- * through `WorkflowAccess` and applies the framework's run-scoped idempotency.
- *
- * The envelope is NOT inlined here. A transport that assembled the handler
- * context itself would be a second place the ledger could be supplied, and the
- * single-ledger rule is structural or it is nothing.
+ * LEGACY(remove-after: 2027-03): since POD-6418 every workflow write goes through
+ * `sync.submit` (`sync-write.ts`), and these routes are thin adapters onto it.
+ * Shipped clients still call every one: the desktop app's own build of the web
+ * app (create, revise, publish, assign, skip, retry) and an older `podium
+ * workflow` CLI on the operator's tRPC (all ten). Removing one breaks that
+ * client's write against this server.
  */
-function workflowMutation<N extends WorkflowProcName>(name: N): MutationProcedure<N> {
-  const { contract } = WORKFLOW_COMMANDS[name]
-  if (!contract.exposure.includes('trpc')) {
-    throw new Error(`workflows.${name} does not declare the trpc transport`)
-  }
-  return t.procedure
-    .input(contract.input)
-    .mutation(async ({ ctx, input }) =>
-      await familyState(ctx).modules.workflows.execute(workflowCaller(ctx), name, input),
-    ) as MutationProcedure<N>
-}
+const workflowWriteRoutes = (): MutationProcedures<WorkflowSyncCommands> =>
+  legacyRouteAdapters(
+    WORKFLOW_SYNC_FAMILY,
+    Object.keys(WORKFLOW_SYNC_COMMANDS) as WorkflowProcName[],
+  )
 
 // ---------------------------------------------------------------------------
 // The seven queries
@@ -145,7 +141,7 @@ function workflowQuery<N extends WorkflowQueryName>(name: N): QueryProcedure<N> 
 // The surface
 // ---------------------------------------------------------------------------
 
-type WorkflowProcedures = { [N in WorkflowProcName]: MutationProcedure<N> } & {
+type WorkflowProcedures = MutationProcedures<WorkflowSyncCommands> & {
   [N in WorkflowQueryName]: QueryProcedure<N>
 }
 
@@ -158,10 +154,7 @@ type WorkflowProcedures = { [N in WorkflowProcName]: MutationProcedure<N> } & {
  * remove its declaration.
  */
 export function workflowFamilyProcedures(): WorkflowProcedures {
-  const record: Record<string, unknown> = {}
-  for (const name of Object.keys(WORKFLOW_COMMANDS) as WorkflowProcName[]) {
-    record[name] = workflowMutation(name)
-  }
+  const record: Record<string, unknown> = { ...workflowWriteRoutes() }
   for (const name of Object.keys(WORKFLOW_QUERIES) as WorkflowQueryName[]) {
     record[name] = workflowQuery(name)
   }
