@@ -1,19 +1,23 @@
-import type { ServerPlacement } from './service'
-import type { PrepareCoordinatorUpdate } from './installed-restart'
 import { createLogger } from '@podium/logger'
 import { asMachineId, type MachineId, type UpdateChannel } from '@podium/model'
-import { stateDir } from '@podium/runtime/config'
 import type { ConvergenceState, MobileWebIdentity, Operation, UpdateTarget } from '@podium/protocol'
 import { buildsDiffer, targetPlatforms } from '@podium/protocol'
+import { stateDir } from '@podium/runtime/config'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { serverBuildSourceDigest, serverBuildVersion } from '../../build-version'
 import { attributionOf } from '../../command-principal'
+import {
+  canSeeMachine,
+  machineUseDecision,
+  ownershipSnapshotFromMachines,
+} from '../../machine-access'
 import { type Context, t } from '../../trpc'
 import { familyState } from '../derived-family'
-import { legacyTransferInProgress } from '../server-transfer/journal'
 import type { OperationsModule } from '../operations'
 import { LIFECYCLE_EXCLUSION_GROUP } from '../operations/lifecycle'
+import { legacyTransferInProgress } from '../server-transfer/journal'
+import type { PrepareCoordinatorUpdate } from './installed-restart'
 import {
   fleetCanTakeTargetNow,
   planInputFrom,
@@ -27,8 +31,9 @@ import {
   updateOperationDetails,
 } from './operation'
 import { ReleaseApprovalRefusal } from './release-approval'
-import { readUpdateSpacePreview } from './space-preview'
+import type { ServerPlacement } from './service'
 import { type ChannelCheckRecord, legacyInstanceTrustMessage, type UpdatesService } from './service'
+import { readUpdateSpacePreview } from './space-preview'
 import {
   isPackagedRolloutTarget,
   machineCanTakeTargetPlatform,
@@ -608,10 +613,7 @@ async function describeWaveDecision(
 export async function updateFleet(ctx: Context): Promise<UpdateFleetSnapshot> {
   const state = familyState(ctx)
   const updates = state.modules.updates
-  const fleet = await fleetSnapshot(
-    updates,
-    serverPlacementOf(ctx),
-  )
+  const fleet = await fleetSnapshot(updates, serverPlacementOf(ctx))
   const preparation = ctx.updatePreparation?.()
   const active = await state.modules.operations.engine.active(LIFECYCLE_EXCLUSION_GROUP)
   // The queued version belongs to the same authority as the counts above: a dev
@@ -623,7 +625,9 @@ export async function updateFleet(ctx: Context): Promise<UpdateFleetSnapshot> {
     ? updateStartability(await planInputFrom(await contextFor(ctx)))
     : {
         startable: false as const,
-        reason: updates.targetUnavailableReasonForChannel(hostChannel) ?? missingTargetReason(hostChannel, preparation?.failureDetail),
+        reason:
+          updates.targetUnavailableReasonForChannel(hostChannel) ??
+          missingTargetReason(hostChannel, preparation?.failureDetail),
       }
   let servedWebDigest: string | undefined
   let servedMobileWeb: MobileWebIdentity | undefined
@@ -736,19 +740,55 @@ export function updateProcedures() {
   return {
     /** Separate informational request. Never called by start/retry/converge. */
     checkSpace: t.procedure
-      .input(z.object({
-        scope: z.enum(['operation', 'all']).optional(),
-        expectedVersion: z.string().optional(),
-      }).optional())
+      .input(
+        z
+          .object({
+            scope: z.enum(['operation', 'all']).optional(),
+            expectedVersion: z.string().optional(),
+          })
+          .optional(),
+      )
       .query(async ({ ctx, input }) => {
         const state = familyState(ctx)
-        return readUpdateSpacePreview({
-          machines: () => state.store.machines.listMachines(),
-          target: (channel) => state.modules.updates.target(channel),
-          fleetChannel: state.modules.updates.fleetDefaultChannel(),
-          placement: serverPlacementOf(ctx),
-          check: (machineId, target, fingerprint) => state.modules.machines.checkUpdateSpace(machineId, target, fingerprint),
-        }, input)
+        const rows = await state.store.machines.listMachines()
+        // Reuse the directory read: one grouped grant read supplies this call's
+        // existing SEE/USE policy, without querying separately for each machine.
+        const ownership = await ownershipSnapshotFromMachines({
+          ownershipRows: () => rows,
+          grantsForMachines: (ids) => state.store.grants.listForResources('machine', ids),
+        })
+        return readUpdateSpacePreview(
+          {
+            machines: async () => rows,
+            // Keep the real host in the directory for operation-channel selection;
+            // invisible machines are removed before any supervisor is probed.
+            canSee: (id) => canSeeMachine(ctx.principal, id, ownership),
+            target: (channel) => state.modules.updates.target(channel),
+            fleetChannel: state.modules.updates.fleetDefaultChannel(),
+            placement: serverPlacementOf(ctx),
+            check: async (machineId, target, fingerprint) => {
+              const estimate = await state.modules.machines.checkUpdateSpace(
+                machineId,
+                target,
+                fingerprint,
+              )
+              if (machineUseDecision(ctx.principal, machineId, ownership) === 'granted')
+                return estimate
+              // SEE includes update health, not inventory paths, even for admins.
+              // Keep the required wire field schema-valid with public volume labels;
+              // freeform supervisor reasons can contain paths and stay private too.
+              return {
+                status: estimate.status,
+                checkedAt: estimate.checkedAt,
+                volumes: estimate.volumes.map((volume, index) => ({
+                  ...volume,
+                  path: `Volume ${index + 1}`,
+                })),
+              }
+            },
+          },
+          input,
+        )
       }),
     proposal: t.procedure.query(async ({ ctx }) => await releaseProposalFor(ctx)),
     approveProposal: t.procedure

@@ -13,6 +13,7 @@ import { isPackagedRolloutTarget, machineCanUseTargetTrust } from './wave'
 
 export interface SpacePreviewDeps {
   machines(): Promise<MachineRecord[]>
+  canSee(machineId: MachineId): boolean
   target(channel: UpdateChannel): UpdateTarget | undefined
   fleetChannel: UpdateChannel
   placement: ServerPlacement
@@ -37,7 +38,7 @@ export async function readUpdateSpacePreview(
   const operationChannel = resolveMachineChannel(host?.updateChannelOverride, deps.fleetChannel)
   const selected = rows
     .flatMap((machine) => {
-      if (machine.revokedAt || machine.supersededBy) return []
+      if (!deps.canSee(machine.id) || machine.revokedAt || machine.supersededBy) return []
       const channel = resolveMachineChannel(machine.updateChannelOverride, deps.fleetChannel)
       if (input.scope !== 'all' && channel !== operationChannel) return []
       const target = deps.target(channel)

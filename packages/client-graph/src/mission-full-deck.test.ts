@@ -750,12 +750,22 @@ describe('execution buckets', () => {
       sessions: [session('worker', 'leaf', 'working')],
     })
     expect(tracked(() => full.leafIds)).toEqual(['leaf'])
-    expect(tracked(() => full.buckets)).toEqual({ total: 1, done: 0, working: 1, waiting: 0, todo: 0 })
+    expect(tracked(() => full.buckets)).toEqual({
+      total: 1,
+      done: 0,
+      working: 1,
+      waiting: 0,
+      todo: 0,
+    })
     const expected = { total: 1, done: 0, working: 1, waiting: 0, todo: 0 }
     expect(tracked(() => screen.progress)).toEqual(expected)
     expect(tracked(() => pool.worklistRow('root')!.progress)).toEqual(expected)
     expect(tracked(() => pool.worklistRow('phase')!.progress)).toEqual(expected)
-    expect(tracked(() => unitsBelowPartOf(pool.rollupInputs, 'root'))).toMatchObject({ units: 1, done: 0, progress: { working: 1, waiting: 0 } })
+    expect(tracked(() => unitsBelowPartOf(pool.rollupInputs, 'root'))).toMatchObject({
+      units: 1,
+      done: 0,
+      progress: { working: 1, waiting: 0 },
+    })
     expect(tracked(() => pool.worklistRow('empty-phase')!.progress)).toMatchObject({ total: 0 })
   })
 
@@ -790,17 +800,31 @@ describe('execution buckets', () => {
     const original = session('worker', 'history', 'working', { refIssueId: 'history' })
     const { full, screen, pool } = await open({ issues, sessions: [original] })
     expect(tracked(() => full.buckets.working)).toBe(1)
-    pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'worker',
-      value: { ...original, issueId: 'elsewhere' } as never }] })
-    expect(tracked(() => full.buckets)).toEqual({ total: 1, done: 0, working: 0, waiting: 1, todo: 0 })
-    expect(tracked(() => screen.progress)).toMatchObject({ total: 1,
+    pool.apply({
+      type: 'update',
+      rows: [
+        { kind: 'session', id: 'worker', value: { ...original, issueId: 'elsewhere' } as never },
+      ],
+    })
+    expect(tracked(() => full.buckets)).toEqual({
+      total: 1,
+      done: 0,
       working: 0,
       waiting: 1,
-      todo: 0 })
-    expect(tracked(() => pool.worklistRow('root')!.progress)).toMatchObject({ total: 1,
+      todo: 0,
+    })
+    expect(tracked(() => screen.progress)).toMatchObject({
+      total: 1,
       working: 0,
       waiting: 1,
-      todo: 0 })
+      todo: 0,
+    })
+    expect(tracked(() => pool.worklistRow('root')!.progress)).toMatchObject({
+      total: 1,
+      working: 0,
+      waiting: 1,
+      todo: 0,
+    })
     const rebuilt = rollupInputsOf({ ...pool.visibleInputs, missionBucket: undefined })
     expect(rebuilt.missionBucket?.('history')).toBe('waiting')
   })
@@ -871,7 +895,6 @@ describe('execution buckets', () => {
   })
 })
 
-
 it('keeps shared launch defaults while Full uses only each member’s private roster', async () => {
   const shared = issue('root', 1, null, {
     ownerUserId: 'mem-alice',
@@ -884,15 +907,25 @@ it('keeps shared launch defaults while Full uses only each member’s private ro
   // never stand in for the private sessions that supply the deck’s controls.
   const aliceLoad = vi.fn(() => undefined)
   const bobLoad = vi.fn(() => undefined)
-  const alice = await open({
-    issues: [shared],
-    sessions: [session('alice-run', 'root', 'working', { ownerUserId: 'mem-alice',
-      agentState: { phase: 'working', nativeSubagentCount: 1 } })],
-  }, { load: aliceLoad, summaries: MISSION_VIEW_SUMMARIES, schedule: () => () => {} })
-  const bob = await open({
-    issues: [shared],
-    sessions: [session('bob-run', 'root', 'working', { ownerUserId: 'mem-bob' })],
-  }, { load: bobLoad, summaries: MISSION_VIEW_SUMMARIES, schedule: () => () => {} })
+  const alice = await open(
+    {
+      issues: [shared],
+      sessions: [
+        session('alice-run', 'root', 'working', {
+          ownerUserId: 'mem-alice',
+          agentState: { phase: 'working', nativeSubagentCount: 1 },
+        }),
+      ],
+    },
+    { load: aliceLoad, summaries: MISSION_VIEW_SUMMARIES, schedule: () => () => {} },
+  )
+  const bob = await open(
+    {
+      issues: [shared],
+      sessions: [session('bob-run', 'root', 'working', { ownerUserId: 'mem-bob' })],
+    },
+    { load: bobLoad, summaries: MISSION_VIEW_SUMMARIES, schedule: () => () => {} },
+  )
 
   for (const member of [alice, bob]) {
     expect(member.screen.root.description).toBe('Shared task content')

@@ -13,6 +13,7 @@ import { appRouter } from './router'
 import type { SessionStore } from './store'
 import { OPERATOR } from './test-support/capabilities'
 import { openTestStore } from './test-support/open-test-store'
+import { countStatements } from './test-support/statement-count'
 import { writeTestBackup } from './test-support/write-test-backup'
 
 /**
@@ -91,7 +92,9 @@ async function harness(requestCoordinatorRestart?: (() => void) | HarnessOptions
     typeof requestCoordinatorRestart === 'function'
       ? { requestCoordinatorRestart }
       : (requestCoordinatorRestart ?? {})
-  const registry = await SessionRegistry.create(opts.store, undefined, { instanceId: 'updates-test' })
+  const registry = await SessionRegistry.create(opts.store, undefined, {
+    instanceId: 'updates-test',
+  })
   const hostMachineId = registry.sessionStore.hostMachineId
   // Registry construction no longer enrolls the host. Supply the enrolled
   // coordinator and its running identity before attaching an update receiver.
@@ -156,26 +159,73 @@ afterEach(async () => {
  * wire is therefore the RESOLVED answer; `updateChannelOverride` is the pin.
  */
 describe('read-only update space RPC', () => {
+  it.each([
+    5, 200,
+  ])('scopes %i previews with one directory and one grouped grant read', async (size) => {
+    const { registry, caller } = await harness()
+    try {
+      const store = registry.sessionStore
+      for (let index = 0; index < size; index++)
+        await store.machines.upsertMachine({
+          id: `space-visible-${index}`,
+          name: `space-visible-${index}`,
+          hostname: 'fixture',
+          tokenHash: 'fixture',
+          ownerUserId: firstAdminMemberId(),
+        })
+      vi.spyOn(registry.modules.updates, 'target').mockReturnValue(target())
+      const check = vi.spyOn(registry.modules.machines, 'checkUpdateSpace').mockResolvedValue({
+        status: 'enough',
+        checkedAt: 1,
+        volumes: [],
+      })
+      const counted = await countStatements(store, () =>
+        caller.updates.checkSpace({ scope: 'all' }),
+      )
+      expect(counted.statements).toBe(2)
+      expect(counted.result.machines).toHaveLength(size + 1)
+      expect(check).toHaveBeenCalledTimes(size + 1)
+    } finally {
+      vi.restoreAllMocks()
+      await registry.dispose()
+    }
+  })
+
   it('requests information without invoking fleet reconciliation, creating an operation or preparing an update', async () => {
     const { registry, caller } = await harness()
     try {
       registry.modules.updates.setTarget('dev', target())
-      const fleet = vi.spyOn(registry.modules.updates, 'fleet').mockRejectedValue(new Error('Preview must not reconcile the fleet'))
+      const fleet = vi
+        .spyOn(registry.modules.updates, 'fleet')
+        .mockRejectedValue(new Error('Preview must not reconcile the fleet'))
       const check = vi.spyOn(registry.modules.machines, 'checkUpdateSpace').mockResolvedValue({
-        status: 'low', checkedAt: 1, volumes: [],
+        status: 'low',
+        checkedAt: 1,
+        volumes: [],
       })
       const start = vi.spyOn(registry.modules.operations.engine, 'start')
       const result = await caller.updates.checkSpace()
-      expect(result.machines.some((machine) => machine.machineId === registry.sessionStore.hostMachineId && machine.status === 'low')).toBe(true)
+      expect(
+        result.machines.some(
+          (machine) =>
+            machine.machineId === registry.sessionStore.hostMachineId && machine.status === 'low',
+        ),
+      ).toBe(true)
       expect(check).toHaveBeenCalledTimes(1)
       expect(fleet).not.toHaveBeenCalled()
       expect(start).not.toHaveBeenCalled()
-    } finally { vi.restoreAllMocks(); await registry.dispose() }
+    } finally {
+      vi.restoreAllMocks()
+      await registry.dispose()
+    }
   })
 })
 
 describe('fleet default update channel', () => {
-  async function addMachine(registry: Awaited<Awaited<ReturnType<typeof harness>>>['registry'], id: string) {
+  async function addMachine(
+    registry: Awaited<Awaited<ReturnType<typeof harness>>>['registry'],
+    id: string,
+  ) {
     await registry.sessionStore.machines.upsertMachine({
       id,
       name: id,
@@ -191,9 +241,9 @@ describe('fleet default update channel', () => {
     const { registry } = await harness()
     await addMachine(registry, 'unpinned')
 
-    const machine = (await registry.modules.machines
-      .listMachines())
-      .find((candidate) => candidate.id === 'unpinned')
+    const machine = (await registry.modules.machines.listMachines()).find(
+      (candidate) => candidate.id === 'unpinned',
+    )
     expect(machine?.updateChannelOverride ?? null).toBeNull()
     expect(machine?.updateChannel).toBe('edge')
     expect(await registry.modules.machines.updateChannel(asMachineId('unpinned'))).toBe('edge')
@@ -211,9 +261,9 @@ describe('fleet default update channel', () => {
     // The fleet moves; the pinned machine does not.
     process.env.PODIUM_UPDATE_CHANNEL = 'dev'
     expect(await registry.modules.machines.updateChannel(asMachineId('pinned'))).toBe('stable')
-    const pinned = (await registry.modules.machines
-      .listMachines())
-      .find((candidate) => candidate.id === 'pinned')
+    const pinned = (await registry.modules.machines.listMachines()).find(
+      (candidate) => candidate.id === 'pinned',
+    )
     expect(pinned?.updateChannelOverride).toBe('stable')
     await registry.dispose()
   })
@@ -258,9 +308,9 @@ describe('fleet default update channel', () => {
     await registry.modules.machines.setUpdateChannel(asMachineId('released'), null)
 
     expect(await registry.modules.machines.updateChannel(asMachineId('released'))).toBe('edge')
-    const released = (await registry.modules.machines
-      .listMachines())
-      .find((candidate) => candidate.id === 'released')
+    const released = (await registry.modules.machines.listMachines()).find(
+      (candidate) => candidate.id === 'released',
+    )
     expect(released?.updateChannelOverride ?? null).toBeNull()
     await registry.dispose()
   })
@@ -277,7 +327,10 @@ describe('fleet default update channel', () => {
  * three paths, one channel.
  */
 describe('one default channel', () => {
-  async function addMachine(registry: Awaited<Awaited<ReturnType<typeof harness>>>['registry'], id: string) {
+  async function addMachine(
+    registry: Awaited<Awaited<ReturnType<typeof harness>>>['registry'],
+    id: string,
+  ) {
     await registry.sessionStore.machines.upsertMachine({
       id,
       name: id,
@@ -492,7 +545,12 @@ describe('the fleet counted is the fleet the global action would grant', () => {
   ) => {
     const id = registry.sessionStore.hostMachineId
     await registry.modules.machines.setUpdateChannel(id, channel)
-    await registry.modules.machines.setMachineBuild(id, { appVersion }, [], '2026-08-13T00:00:00.000Z')
+    await registry.modules.machines.setMachineBuild(
+      id,
+      { appVersion },
+      [],
+      '2026-08-13T00:00:00.000Z',
+    )
   }
 
   /** THE DEFECT: a real stable release, a host behind it, and a read model that
@@ -644,9 +702,10 @@ describe('the fleet counted is the fleet the global action would grant', () => {
     await registry.modules.updates.setTarget('stable', target('0.1.3'))
 
     const fleet = await caller.updates.fleet()
-    const channel = await registry.modules.updates.operationChannel(
-      { kind: 'fleet', machineId: registry.sessionStore.hostMachineId },
-    )
+    const channel = await registry.modules.updates.operationChannel({
+      kind: 'fleet',
+      machineId: registry.sessionStore.hostMachineId,
+    })
 
     expect(channel).toBe('stable')
     expect(fleet.targetVersion).toBe(registry.modules.updates.target(channel)?.version)
@@ -962,7 +1021,10 @@ describe('updates tRPC', () => {
     const grants: unknown[] = []
     let finish: (() => void) | undefined
     const requestDestBundle = vi.fn(
-      () => new Promise<void>((resolve) => { finish = resolve }),
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve
+        }),
     )
     const { registry, caller } = await harness({
       hostUpdateReceiver: (message) => grants.push(message),
@@ -1202,9 +1264,9 @@ describe('updates tRPC', () => {
     await caller.updates.converge()
     expect(requestCoordinatorRestart).not.toHaveBeenCalled()
     expect(
-      (await registry.modules.operations.engine
-        .active('lifecycle'))
-        ?.operation?.steps?.map((step) => step.id),
+      (await registry.modules.operations.engine.active('lifecycle'))?.operation?.steps?.map(
+        (step) => step.id,
+      ),
     ).toContain('prepare')
     await vi.waitFor(() => expect(requestDestBundle).toHaveBeenCalledOnce())
     expect(requestCoordinatorRestart).not.toHaveBeenCalled()

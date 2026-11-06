@@ -23,6 +23,7 @@ function row(id: string, patch: Partial<MachineRecord> = {}): MachineRecord {
 function deps(rows: MachineRecord[]): SpacePreviewDeps {
   return {
     machines: vi.fn().mockResolvedValue(rows),
+    canSee: () => true,
     target: vi.fn().mockReturnValue(target),
     fleetChannel: 'stable',
     placement: { kind: 'fleet', machineId: 'host' },
