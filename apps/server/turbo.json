@@ -2524,6 +2524,7 @@
         "src/two-member-side-effects.test.ts",
         "src/two-member-task-detail.test.ts",
         "src/two-member-tasks.test.ts",
+        "src/two-member-update-preview.test.ts",
         "src/update-participant-skip.ts",
         "src/upstream-retirement.ts",
         "src/version-route.test.ts",

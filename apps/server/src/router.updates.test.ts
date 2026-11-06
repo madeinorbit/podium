@@ -13,7 +13,7 @@ import { appRouter } from './router'
 import type { SessionStore } from './store'
 import { OPERATOR } from './test-support/capabilities'
 import { openTestStore } from './test-support/open-test-store'
-import { countStatements } from './test-support/statement-count'
+import { countStatements, quietShipping } from './test-support/statement-count'
 import { writeTestBackup } from './test-support/write-test-backup'
 
 /**
@@ -179,10 +179,11 @@ describe('read-only update space RPC', () => {
         checkedAt: 1,
         volumes: [],
       })
+      await quietShipping(registry)
       const counted = await countStatements(store, () =>
         caller.updates.checkSpace({ scope: 'all' }),
       )
-      expect(counted.statements).toBe(2)
+      expect(counted.statements, JSON.stringify([...counted.byQuery])).toBe(2)
       expect(counted.result.machines).toHaveLength(size + 1)
       expect(check).toHaveBeenCalledTimes(size + 1)
     } finally {
