@@ -1594,6 +1594,37 @@ interface SuperagentTurnFailure {
     at: string;
 }
 
+/**
+ * THE DOCK SHELL'S WRITE ON THE SYNC WRITE ENTRY POINT (POD-6419).
+ *
+ * `shells.forWorktree` answers "which shell is my dock's for this worktree",
+ * creating one when there is none. CLASSIFIED SYNCED (ADR 12 D1): it can start a
+ * session, and a session is a synced record every device lists. The mapping row
+ * itself (`user_dock_shell`) is the caller's own per-user state.
+ *
+ * NOTHING OUTSIDE THE DATABASE RUNS IN THE WRITE. The old route spawned the
+ * shell inside the request. Now the write claims (or replaces) the mapping row
+ * and creates the shell's start as a `session.launch` effect record, minted
+ * under the session id the mapping names; the runner spawns it after the commit,
+ * and the session row is born under that id when it succeeds (every device sees
+ * the start pending meanwhile). A mapped shell whose start is still pending or
+ * running is live, so a second device attaches to it instead of replacing it.
+ *
+ * TARGET: the caller's own mapping row, for a person whose account is a member
+ * or an admin now (the old route's rule, read live). A named machine must be one
+ * the caller can see, and may use: an unknown one is not found, a denied one is
+ * refused, with the old route's words.
+ *
+ * THE OLD ROUTE stays as a thin adapter (`trpc.ts`): the desktop app bundles its
+ * own web, which calls it.
+ */
+
+interface ForWorktreeOutput {
+    readonly sessionId: SessionId;
+    /** True when this call asked for the shell; false when it attached to an existing one. */
+    readonly created: boolean;
+}
+
 type NetworkOption = 'tailscale-funnel' | 'tailscale-serve' | 'cloudflare-tunnel' | 'manual';
 
 /** What `mail.send` answers with, narrowed to the keys the chat paths return.
@@ -8541,10 +8572,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 machineId?: string | undefined;
                 worktreePath: string;
             };
-            output: {
-                created: boolean;
-                sessionId: string & z.BRAND<"SessionId">;
-            };
+            output: ForWorktreeOutput;
             meta: unknown;
         }>;
     };
@@ -8812,7 +8840,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             meta: unknown;
         }>;
         "checkNow": TRPC.TRPCMutationProcedure<{
-            input: void;
+            input: undefined;
             output: Array<ChannelCheckRecord>;
             meta: unknown;
         }>;
@@ -8832,7 +8860,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             meta: unknown;
         }>;
         "repairCompatibility": TRPC.TRPCMutationProcedure<{
-            input: void;
+            input: undefined;
             output: {
                 state: "in-progress";
                 version: string;
