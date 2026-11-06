@@ -13,7 +13,6 @@ import type { SessionView } from '../session-values'
 import { fieldConflict } from '@podium/commands/records'
 import { createLogger } from '@podium/logger'
 import type {
-  AgentKind,
   IssueId,
   LayoutSnapshot,
   MutationId,
@@ -52,8 +51,8 @@ import {
   issueActionEffect,
   type LaunchSessionArgs,
   type SpawnDraftAgentArgs,
+  type SpawnIssueAgentArgs,
   type StartIssueSession,
-  type SpawnTarget,
   sessionConfigureEffect,
   type TaskSpawnOutcome,
 } from '../spawn-agent'
@@ -353,19 +352,7 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
   }
   launchSession(args: LaunchSessionArgs): { sessionId: SessionId; settled: Promise<boolean> }
   startIssueSession: StartIssueSession
-  spawnIssueAgent(args: {
-    issueId?: IssueId
-    sessionId?: SessionId
-    mutationId?: MutationId
-    target: SpawnTarget
-    title: string
-    description: string
-    brief?: string
-    parentBranch?: string
-    agentKind: AgentKind
-    model?: string
-    effort?: string
-  }): {
+  spawnIssueAgent(args: SpawnIssueAgentArgs): {
     sessionId: SessionId
     issueId: IssueId
     mutationId: MutationId

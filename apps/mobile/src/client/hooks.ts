@@ -56,6 +56,7 @@ const pickActions = (s: MobileStore) => ({
   spawnDraftAgent: s.spawnDraftAgent,
   startIssueSession: s.startIssueSession,
   issueAction: s.issueAction,
+  spawnIssueAgent: s.spawnIssueAgent,
   refreshSuperThreads: s.refreshSuperThreads,
 })
 

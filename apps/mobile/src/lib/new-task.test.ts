@@ -1,6 +1,6 @@
 import { asMachineId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { newTaskInput } from './new-task'
+import { newTaskInput, newTaskStart } from './new-task'
 
 const launch = {
   defaultAgent: 'codex',
@@ -90,5 +90,56 @@ describe('newTaskInput', () => {
     expect(input).not.toHaveProperty('defaultModel')
     expect(input).not.toHaveProperty('defaultEffort')
     expect(input).not.toHaveProperty('machineId')
+  })
+})
+
+describe('newTaskStart', () => {
+  it('starts on the pinned agent with the prompt verbatim, its priority and stage', () => {
+    const prompt = '  Keep this exact first prompt\n'
+    expect(
+      newTaskStart({
+        repoPath: ' /repo ',
+        title: ' Task ',
+        prompt,
+        priority: 1,
+        stage: 'review',
+        agentKind: 'claude-code',
+        launch,
+      }),
+    ).toEqual({
+      target: { path: '/repo', repoPath: '/repo', machineId: asMachineId('phone-host') },
+      title: 'Task',
+      description: prompt,
+      agentKind: 'codex',
+      model: 'gpt-5.6-sol',
+      effort: 'high',
+      priority: 1,
+      stage: 'review',
+    })
+  })
+
+  it('leaves Auto choices and the defaults off, on the configured agent', () => {
+    const start = newTaskStart({
+      repoPath: '/repo',
+      title: 'Configured',
+      prompt: '   ',
+      priority: 2,
+      stage: 'backlog',
+      agentKind: 'claude-code',
+      launch: {
+        defaultAgent: undefined,
+        defaultModel: 'auto',
+        defaultEffort: 'auto',
+        machineId: null,
+      },
+    })
+    expect(start).toEqual({
+      target: { path: '/repo', repoPath: '/repo' },
+      title: 'Configured',
+      description: '',
+      // Painted while it waits; the server resolves the configured agent.
+      agentKind: 'claude-code',
+      inheritAgent: true,
+    })
   })
 })

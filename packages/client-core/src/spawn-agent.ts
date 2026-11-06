@@ -1,4 +1,12 @@
-import type { AgentKind, IssueId, MachineId, MutationId, RepoId, SessionId } from '@podium/model'
+import type {
+  AgentKind,
+  IssueBoardStage,
+  IssueId,
+  MachineId,
+  MutationId,
+  RepoId,
+  SessionId,
+} from '@podium/model'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 
@@ -34,6 +42,29 @@ export type SpawnDraftAgentArgs = DraftSpawnReservation & {
   /** The per-spawn driver override, forwarded verbatim — see `sessions.create`
    *  in `api.ts`. Absent changes nothing, which is every caller today. */
   requestedDriverId?: string
+}
+
+/** A named task with its first agent, as the `issue.start` it is (POD-6410). */
+export interface SpawnIssueAgentArgs {
+  issueId?: IssueId
+  sessionId?: SessionId
+  mutationId?: MutationId
+  target: SpawnTarget
+  title: string
+  description: string
+  brief?: string
+  parentBranch?: string
+  /** The agent it starts, and what every device paints while it waits. */
+  agentKind: AgentKind
+  /** Leave the task on the configured default agent: `agentKind` is then only
+   *  what this device paints, and the server resolves the agent at run time. */
+  inheritAgent?: boolean
+  model?: string
+  effort?: string
+  /** 0–4; absent, the family's default. */
+  priority?: number
+  /** Where the task is moved once started; absent, it reads In progress. */
+  stage?: IssueBoardStage
 }
 
 /**
@@ -233,21 +264,16 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
  * (POD-6410): `issues.create`'s fields under an effect id, the issue id the
  * device minted as its target and the session id it minted in its input. Every
  * device paints the starting task from it while it waits, and the issue and
- * session rows are born under those ids when it runs.
+ * session rows are born under those ids when it runs. Priority and the chosen
+ * stage ride it too (POD-6421).
  */
-export function issueStartEffect(args: {
-  effectId: string
-  sessionId: SessionId
-  issueId: IssueId
-  target: SpawnTarget
-  title: string
-  description: string
-  brief?: string
-  parentBranch?: string
-  agentKind: AgentKind
-  model?: string
-  effort?: string
-}): EffectCreateInput {
+export function issueStartEffect(
+  args: Omit<SpawnIssueAgentArgs, 'issueId' | 'sessionId' | 'mutationId'> & {
+    effectId: string
+    sessionId: SessionId
+    issueId: IssueId
+  },
+): EffectCreateInput {
   assertSpawnPlacement(args.target)
   return {
     id: args.effectId,
@@ -261,9 +287,11 @@ export function issueStartEffect(args: {
       description: args.description,
       ...(args.brief ? { brief: args.brief } : {}),
       ...(args.parentBranch ? { parentBranch: args.parentBranch } : {}),
-      defaultAgent: args.agentKind,
+      ...(args.inheritAgent ? {} : { defaultAgent: args.agentKind }),
       ...(args.model ? { defaultModel: args.model } : {}),
       ...(args.effort ? { defaultEffort: args.effort } : {}),
+      ...(args.priority !== undefined ? { priority: args.priority } : {}),
+      ...(args.stage !== undefined ? { stage: args.stage } : {}),
     },
   }
 }

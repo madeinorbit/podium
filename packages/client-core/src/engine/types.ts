@@ -9,7 +9,6 @@ import type { NavigationIntent } from './navigation'
 
 import type { IssueUpdatePatch } from '@podium/commands'
 import type {
-  AgentKind,
   ArtifactId,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
@@ -35,7 +34,7 @@ import type {
   LaunchSessionArgs,
   StartIssueSession,
   SpawnDraftAgentArgs,
-  SpawnTarget,
+  SpawnIssueAgentArgs,
   TaskSpawnOutcome,
 } from '../spawn-agent'
 import type { MainView, RoutedUiState } from '../ui-state'
@@ -399,19 +398,7 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
     settled: Promise<boolean>
   }
   /** Start a named task optimistically, including its first chat turn. */
-  spawnIssueAgent: (args: {
-    issueId?: IssueId
-    sessionId?: SessionId
-    mutationId?: MutationId
-    target: SpawnTarget
-    title: string
-    description: string
-    brief?: string
-    parentBranch?: string
-    agentKind: AgentKind
-    model?: string
-    effort?: string
-  }) => {
+  spawnIssueAgent: (args: SpawnIssueAgentArgs) => {
     sessionId: SessionId
     issueId: IssueId
     mutationId: MutationId

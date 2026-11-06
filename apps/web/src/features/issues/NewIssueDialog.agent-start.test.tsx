@@ -12,6 +12,22 @@ import { NewIssueDialog } from './NewIssueDialog'
 // Typed input so the assertions below can read back the payload create received.
 const create = vi.fn(async (_input: Record<string, unknown>) => makeIssue({ id: 'new-issue' }))
 const update = vi.fn(async () => ({}))
+/** Start work now is the pool's `issue.start` (POD-6421); `queued` is whether
+ *  the start was durably queued. */
+const { queued } = vi.hoisted(() => ({ queued: { ok: true } }))
+const spawnIssueAgent = vi.fn((_input: Record<string, unknown>) => {
+  const settled = Promise.resolve(queued.ok)
+  return {
+    sessionId: 'started-session',
+    issueId: 'iss_started',
+    mutationId: 'm-1',
+    settled,
+    outcome: settled.then((ok) => (ok ? 'started' : 'failed')),
+    proposed: Promise.resolve(false),
+  }
+})
+/** The one start the dialog asked for. */
+const started = () => spawnIssueAgent.mock.calls[0]?.[0]
 const { machines } = vi.hoisted(() => ({ machines: [] as Array<Record<string, unknown>> }))
 const liveCatalog = {
   'claude-code': [{ value: 'reported-opus', label: 'Reported Opus', efforts: ['low', 'high'] }],
@@ -35,6 +51,7 @@ vi.mock('@/app/store', () => {
     ],
     issues: [],
     machines,
+    spawnIssueAgent,
     trpc: {
       settings: {
         get: {
@@ -81,6 +98,8 @@ afterEach(() => {
   cleanup()
   create.mockClear()
   update.mockClear()
+  spawnIssueAgent.mockClear()
+  queued.ok = true
   machines.length = 0
   modelCatalogFixture.current = {}
 })
@@ -97,7 +116,9 @@ describe('NewIssueDialog start-work band', () => {
     fireEvent.click(screen.getByRole('switch').parentElement!.querySelector('input')!)
     expect(screen.getByRole('switch').getAttribute('aria-checked')).toBe('true')
     fireEvent.click(screen.getByRole('button', { name: 'Create' }))
-    await waitFor(() => expect(create).toHaveBeenCalledWith(expect.objectContaining({ title: 'First task' })))
+    await waitFor(() =>
+      expect(spawnIssueAgent).toHaveBeenCalledWith(expect.objectContaining({ title: 'First task' })),
+    )
     await waitFor(() => {
       expect(title.value).toBe('')
       expect(description.value).toBe('')
@@ -106,9 +127,10 @@ describe('NewIssueDialog start-work band', () => {
     fireEvent.change(title, { target: { value: 'Second task' } })
     fireEvent.change(description, { target: { value: 'Second description' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create' }))
-    await waitFor(() => expect(create).toHaveBeenNthCalledWith(2, expect.objectContaining({
+    await waitFor(() => expect(spawnIssueAgent).toHaveBeenNthCalledWith(2, expect.objectContaining({
       title: 'Second task', description: 'Second description',
     })))
+    expect(create).not.toHaveBeenCalled()
   })
 
   it('preselects the default agent and sends the one you pick', async () => {
@@ -125,14 +147,62 @@ describe('NewIssueDialog start-work band', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create' }))
 
     await waitFor(() =>
-      expect(create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          title: 'Cursor task',
-          defaultAgent: 'cursor',
-          startNow: true,
-        }),
+      expect(spawnIssueAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Cursor task', agentKind: 'cursor' }),
       ),
     )
+    // A picked agent is pinned on the task, not left on the configured one.
+    expect(started()).not.toHaveProperty('inheritAgent')
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('starts on the configured agent when you pick none, painting it meanwhile', async () => {
+    render(<NewIssueDialog onClose={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Default agent' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+
+    await waitFor(() => expect(spawnIssueAgent).toHaveBeenCalled())
+    expect(started()).toEqual(
+      expect.objectContaining({
+        title: 'Default agent',
+        description: '',
+        agentKind: 'claude-code',
+        inheritAgent: true,
+        target: expect.objectContaining({ path: '/repo', repoPath: '/repo' }),
+      }),
+    )
+    // Defaults stay off the start, as they stayed off the create.
+    for (const key of ['model', 'effort', 'priority', 'stage'])
+      expect(started()).not.toHaveProperty(key)
+    expect(started()?.target).not.toHaveProperty('machineId')
+  })
+
+  it('carries the priority and the chosen stage on the start', async () => {
+    const onClose = vi.fn()
+    render(<NewIssueDialog onClose={onClose} initialStage="planning" />)
+    fireEvent.click(screen.getByRole('button', { name: /P2/ }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: /P1/ }))
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Planned task' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(started()).toEqual(
+      expect.objectContaining({ title: 'Planned task', priority: 1, stage: 'planning' }),
+    )
+    // The stage rides the start: no follow-up patch on a task that is not a row.
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it('stays open and says so when the start could not be queued', async () => {
+    queued.ok = false
+    const onClose = vi.fn()
+    render(<NewIssueDialog onClose={onClose} />)
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Not queued' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+
+    expect(await screen.findByText("Couldn't start the task.")).toBeTruthy()
+    expect(onClose).not.toHaveBeenCalled()
+    expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('Not queued')
   })
 
   it('greys out harnesses unavailable on every repo host', async () => {
@@ -180,6 +250,7 @@ describe('NewIssueDialog start-work band', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create' }))
 
     await waitFor(() => expect(create).toHaveBeenCalled())
+    expect(spawnIssueAgent).not.toHaveBeenCalled()
     expect(create.mock.calls[0]?.[0]).toEqual(
       expect.objectContaining({ title: 'Deferred task', startNow: false }),
     )
@@ -197,7 +268,7 @@ describe('NewIssueDialog start-work band', () => {
     expect(screen.getByRole('button', { name: 'Agent' })).toBeTruthy()
   })
 
-  it('lets you pick a model and passes it to create', async () => {
+  it('lets you pick a model and passes it to the start', async () => {
     // (Effort is per-model and needs the live catalog, so the effort→create wiring is
     // covered in ModelEffortPicker.live.test.tsx; here we cover model selection.)
     // POD-3911: no static model list; the machine reports the choices.
@@ -212,8 +283,8 @@ describe('NewIssueDialog start-work band', () => {
 
     // POD-3911: reported model IDs replace static aliases in the create payload.
     await waitFor(() =>
-      expect(create).toHaveBeenCalledWith(
-        expect.objectContaining({ title: 'Tune the model', defaultModel: 'reported-opus' }),
+      expect(spawnIssueAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Tune the model', model: 'reported-opus' }),
       ),
     )
   })
@@ -232,9 +303,9 @@ describe('NewIssueDialog start-work band', () => {
     fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Switched agent' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create' }))
 
-    await waitFor(() => expect(create).toHaveBeenCalled())
-    expect(create.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ defaultAgent: 'cursor' }))
-    expect(create.mock.calls[0]?.[0]).not.toHaveProperty('defaultModel')
+    await waitFor(() => expect(spawnIssueAgent).toHaveBeenCalled())
+    expect(started()).toEqual(expect.objectContaining({ agentKind: 'cursor' }))
+    expect(started()).not.toHaveProperty('model')
   })
 
   it('offers only Auto without a reported catalog and no effort under Auto', async () => {
@@ -281,13 +352,13 @@ describe('NewIssueDialog start-work band', () => {
     fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Context link' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create' }))
 
-    await waitFor(() => expect(create).toHaveBeenCalled())
-    expect(create.mock.calls[0]?.[0]).toEqual(
+    await waitFor(() => expect(spawnIssueAgent).toHaveBeenCalled())
+    expect(started()).toEqual(
       expect.objectContaining({
         description: 'context: https://linear.app/acme/issue/ENG-412/fix-the-login',
       }),
     )
-    expect(create.mock.calls[0]?.[0]).not.toHaveProperty('linear')
+    expect(started()).not.toHaveProperty('linear')
   })
 })
 
@@ -309,7 +380,9 @@ it('offers the online name instead of stale offline rows in the new-task picker'
   fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Online laptop task' } })
   fireEvent.click(screen.getByRole('button', { name: 'Create' }))
   await waitFor(() =>
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({ machineId: 'fresh' })),
+    expect(spawnIssueAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ target: expect.objectContaining({ machineId: 'fresh' }) }),
+    ),
   )
 })
 

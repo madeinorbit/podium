@@ -4,6 +4,7 @@ import {
   type AgentKind,
   actorUser,
   DRAFT_ISSUE_TITLE,
+  type IssueBoardStage,
   type IssueId,
   isSortKey,
   type MachineId,
@@ -172,6 +173,9 @@ export function startedIssueRow(args: {
   agentKind: AgentKind
   model?: string
   effort?: string
+  priority?: number
+  /** Where it is moved once started; absent, In progress. */
+  stage?: IssueBoardStage
   nowIso: string
 }): IssueViewModel {
   return {
@@ -191,7 +195,8 @@ export function startedIssueRow(args: {
     parentBranch: args.parentBranch ?? 'main',
     defaultModel: args.model ?? 'auto',
     defaultEffort: args.effort ?? 'auto',
-    stage: 'in_progress',
+    ...(args.priority !== undefined ? { priority: args.priority } : {}),
+    stage: args.stage ?? 'in_progress',
     isDraftVessel: false,
   }
 }

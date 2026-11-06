@@ -48,6 +48,7 @@ import {
   type LaunchSessionArgs,
   SESSION_LAUNCH_KIND,
   type SpawnDraftAgentArgs,
+  type SpawnIssueAgentArgs,
   type StartIssueSessionArgs,
   type SpawnTarget,
   sessionLaunchEffect,
@@ -60,6 +61,7 @@ import {
   asMutationId,
   asSessionId,
   type EffectRecordWire,
+  type IssueBoardStage,
   type IssueId,
   IssueProjection,
   type MachineId,
@@ -160,6 +162,8 @@ interface LaunchInput {
   readonly defaultEffort?: string
   // `issue.begin` / `issue.addSession` (POD-6526).
   readonly shell?: boolean
+  readonly priority?: number
+  readonly stage?: IssueBoardStage
 }
 
 /** The start an effect create or record describes, or none for another kind. */
@@ -226,7 +230,14 @@ export class PoolLaunches {
   /** What this device knows of a start it made itself (its repo, its prompt). */
   private readonly local = new Map<
     SessionId,
-    { target: SpawnTarget; prompt?: string; description?: string; brief?: string }
+    {
+      target: SpawnTarget
+      /** The agent it starts: painted also when the record names none. */
+      agentKind?: AgentKind
+      prompt?: string
+      description?: string
+      brief?: string
+    }
   >()
   private readonly settlers = new Map<SessionId, (started: boolean) => void>()
   /** Own named-task starts waiting to learn whether they became a proposal. */
@@ -299,19 +310,7 @@ export class PoolLaunches {
 
   /** Paint a named task, its first session and its first chat turn, then
    *  queue the `issue.start` that files and starts it. */
-  spawnIssueAgent(args: {
-    issueId?: IssueId
-    sessionId?: SessionId
-    mutationId?: MutationId
-    target: SpawnTarget
-    title: string
-    description: string
-    brief?: string
-    parentBranch?: string
-    agentKind: AgentKind
-    model?: string
-    effort?: string
-  }): {
+  spawnIssueAgent(args: SpawnIssueAgentArgs): {
     sessionId: SessionId
     issueId: IssueId
     mutationId: MutationId
@@ -336,11 +335,15 @@ export class PoolLaunches {
       ...(args.brief !== undefined ? { brief: args.brief } : {}),
       ...(args.parentBranch !== undefined ? { parentBranch: args.parentBranch } : {}),
       agentKind: args.agentKind,
+      ...(args.inheritAgent ? { inheritAgent: true } : {}),
       ...(args.model !== undefined ? { model: args.model } : {}),
       ...(args.effort !== undefined ? { effort: args.effort } : {}),
+      ...(args.priority !== undefined ? { priority: args.priority } : {}),
+      ...(args.stage !== undefined ? { stage: args.stage } : {}),
     })
     this.local.set(sessionId, {
       target: args.target,
+      agentKind: args.agentKind,
       ...(args.description ? { prompt: args.description, description: args.description } : {}),
       ...(args.brief ? { brief: args.brief } : {}),
     })
@@ -677,7 +680,9 @@ export class PoolLaunches {
           input.defaultAgent ??
           (home?.defaultAgent && home.defaultAgent !== 'auto'
             ? (home.defaultAgent as AgentKind)
-            : 'claude-code'))
+            : // A task left on the configured agent names none: this device
+              // paints the one it chose; another the fallback, until the row lands.
+              (local?.agentKind ?? 'claude-code')))
     const session: SessionMeta = {
       ...startingSessionRow({
         sessionId: launch.sessionId,
@@ -732,6 +737,8 @@ export class PoolLaunches {
             ...(input.parentBranch !== undefined ? { parentBranch: input.parentBranch } : {}),
             ...(input.defaultModel !== undefined ? { model: input.defaultModel } : {}),
             ...(input.defaultEffort !== undefined ? { effort: input.defaultEffort } : {}),
+            ...(input.priority !== undefined ? { priority: input.priority } : {}),
+            ...(input.stage !== undefined ? { stage: input.stage } : {}),
           })
     const shown: IssueViewModel = proposed ? { ...issue, stage: 'proposed' } : issue
     const row: Record<string, unknown> = {}

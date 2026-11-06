@@ -128,6 +128,49 @@ describe('an issue.start effect', () => {
     expect(spawns(o, sessionId)).toHaveLength(1)
   })
 
+  it('files it at its priority and moves it to the chosen stage once started (POD-6421)', async () => {
+    const o = await oracle()
+    const effectId = mintDeviceId('eff_')
+    const issueId = newIssueId()
+    const sessionId = newSessionId()
+    appliedReply(
+      await submit(
+        o,
+        startEnvelope(effectId, issueId, task(sessionId, { priority: 1, stage: 'review' }), 's-1'),
+      ),
+    )
+    expect(await settled(o, effectId)).toMatchObject({
+      status: 'succeeded',
+      result: { issueId, sessionId },
+    })
+    expect((await settled(o, effectId))?.result).not.toHaveProperty('stageRefused')
+    expect(await issueRow(o, issueId)).toMatchObject({ priority: 1, stage: 'review' })
+    expect(spawns(o, sessionId)).toHaveLength(1)
+  })
+
+  it('without a stage the started task reads In progress', async () => {
+    const o = await oracle()
+    const effectId = mintDeviceId('eff_')
+    const issueId = newIssueId()
+    appliedReply(await submit(o, startEnvelope(effectId, issueId, task(newSessionId()), 's-1')))
+    expect((await settled(o, effectId))?.status).toBe('succeeded')
+    expect(await issueRow(o, issueId)).toMatchObject({ stage: 'in_progress' })
+  })
+
+  it('refuses a stage that is not a board lane before anything is recorded', async () => {
+    const o = await oracle()
+    const reply = await submit(
+      o,
+      startEnvelope(
+        mintDeviceId('eff_'),
+        newIssueId(),
+        task(newSessionId(), { stage: 'shipping' }),
+        's-1',
+      ),
+    )
+    expect(reply.outcome).toBe('rejected')
+  })
+
   it('a replayed create (same mutationId) files once and spawns once', async () => {
     const o = await oracle()
     const effectId = mintDeviceId('eff_')
@@ -277,6 +320,31 @@ describe('an issue.start effect', () => {
     })
     expect(await issueRow(o, issueId)).toMatchObject({ id: issueId, stage: 'proposed' })
     expect(spawns(o, sessionId)).toHaveLength(0)
+  })
+
+  it('a proposal keeps its stage: a chosen one is never applied to it', async () => {
+    const o = await oracle()
+    const writer = asUserId('mem_start_staged')
+    await o.store.users.create(
+      {
+        id: writer,
+        displayName: 'Member',
+        role: 'member',
+        createdAt: '2026-11-05T00:00:00.000Z',
+        disabledAt: null,
+      },
+      'test-only',
+    )
+    const effectId = mintDeviceId('eff_')
+    const issueId = newIssueId()
+    const { reply } = await o.reg.modules.syncWrite.submitDetailed(
+      startEnvelope(effectId, issueId, task(newSessionId(), { stage: 'planning' }), 's-1'),
+      userCommandPrincipal(writer, 'member'),
+      'trpc',
+    )
+    appliedReply(reply)
+    expect((await settled(o, effectId))?.error?.code).toBe(ISSUE_START_PROPOSED)
+    expect(await issueRow(o, issueId)).toMatchObject({ stage: 'proposed' })
   })
 
   it('a start that fails after filing keeps the issue, and the failure is on its record', async () => {

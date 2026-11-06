@@ -26,6 +26,11 @@
  *    the proposal it is, never as an error.
  *  - RECOVER: the session row → succeeded; the issue alone → failed, the task
  *    kept and its agent not started; neither → failed, nothing filed.
+ *    A chosen `stage` (the New task dialogs' stage pick, POD-6421) is the
+ *    family's own `issues.update` once the task is filed and its agent asked
+ *    for (the start itself moves it to In progress), never on a proposal. A
+ *    refused stage leaves the started task where it is: the record still
+ *    succeeds, its result saying why the stage did not apply.
  *  - PUBLISH: everything but the description and the brief, which come with the
  *    issue row.
  */
@@ -33,6 +38,7 @@
 import {
   asUserId,
   type EffectTarget,
+  IssueBoardStage,
   type IssueId,
   type MachineId,
   NewIssueId,
@@ -71,13 +77,15 @@ function defOf(name: 'create' | 'update'): AnyIssueCommandDef {
 }
 
 /** `issues.create`'s own fields, without the ids (the record's target and the
- *  session below), the start flag (always on) and the route's dedup key. */
+ *  session below), the start flag (always on) and the route's dedup key; plus
+ *  the stage the task is moved to once it has started. */
 export const IssueStartInput = (defOf('create').input as unknown as z.AnyZodObject)
   .omit({ id: true, startSessionId: true, startNow: true, mutationId: true })
-  .extend({ sessionId: NewSessionId })
+  .extend({ sessionId: NewSessionId, stage: IssueBoardStage.optional() })
 export type IssueStartInput = z.infer<typeof IssueStartInput> & {
   readonly sessionId: string
   readonly machineId?: MachineId
+  readonly stage?: IssueBoardStage
 }
 
 export interface IssueStartEffectDeps {
@@ -125,7 +133,7 @@ export function registerIssueStartEffect(deps: IssueStartEffectDeps): void {
 
   const run = async (record: EffectRow, input: IssueStartInput): Promise<EffectOutcome> => {
     const issueId = record.target.id as IssueId
-    const { sessionId, ...create } = input
+    const { sessionId, stage, ...create } = input
     if (await sessionExists(sessionId)) {
       return { status: 'succeeded', result: { issueId, sessionId, output: 'already started' } }
     }
@@ -153,7 +161,10 @@ export function registerIssueStartEffect(deps: IssueStartEffectDeps): void {
       const message = error instanceof Error ? error.message : String(error)
       // Filed, then its agent could not start: the task stays (it is the
       // writer's now), and the record says why its agent did not.
-      if (await issueExists(issueId)) return failed('start-failed', message)
+      if (await issueExists(issueId)) {
+        if (stage !== undefined) await moveTo(caller, issueId, stage)
+        return failed('start-failed', message)
+      }
       return failed(refusalOf(error) ? 'refused' : 'failed', message)
     }
     // Filed as a proposal (the family files a non-operator's top-level task,
@@ -162,7 +173,28 @@ export function registerIssueStartEffect(deps: IssueStartEffectDeps): void {
     if (!(await sessionExists(sessionId))) {
       return failed(ISSUE_START_PROPOSED, PROPOSED_MESSAGE)
     }
-    return { status: 'succeeded', result: { issueId, sessionId } }
+    const stageRefused = stage === undefined ? undefined : await moveTo(caller, issueId, stage)
+    return {
+      status: 'succeeded',
+      result: { issueId, sessionId, ...(stageRefused ? { stageRefused } : {}) },
+    }
+  }
+
+  /** The chosen stage as the family's own update; why it did not apply, if not. */
+  const moveTo = async (
+    caller: IssueCaller,
+    issueId: IssueId,
+    stage: IssueBoardStage,
+  ): Promise<string | undefined> => {
+    const def = defOf('update')
+    const parsed = def.input.safeParse({ id: issueId, patch: { stage } })
+    if (!parsed.success) return parsed.error.message
+    try {
+      await deps.modules().issueCommands.withoutDedup().run(caller, 'update', def, parsed.data)
+      return undefined
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error)
+    }
   }
 
   const executor: EffectExecutor<IssueStartInput> = {

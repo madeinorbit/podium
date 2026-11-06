@@ -365,6 +365,34 @@ describe('a named task with its first agent as an issue.start effect (POD-6410)'
     p.tx.dispose()
   })
 
+  it('carries priority and the chosen stage, and paints the task there (POD-6421)', async () => {
+    const p = pool({ record: startRecord })
+    p.tx.spawnIssueAgent({
+      sessionId: SESSION,
+      issueId: ISSUE,
+      mutationId: asMutationId('m-task'),
+      target: TARGET,
+      title: 'Fix the login',
+      description: 'the private plan',
+      agentKind: 'codex',
+      inheritAgent: true,
+      priority: 1,
+      stage: 'planning',
+    })
+    await Promise.resolve()
+    const [entry] = p.queue()
+    expect(entry?.input).toMatchObject({
+      kind: ISSUE_START_KIND,
+      input: { title: 'Fix the login', priority: 1, stage: 'planning' },
+    })
+    // Left on the configured agent: the record names none, so the server
+    // resolves it when it runs; this device still paints the one it showed.
+    expect((entry?.input as { input: object }).input).not.toHaveProperty('defaultAgent')
+    expect(p.shown('issueProjections', ISSUE)).toMatchObject({ priority: 1, stage: 'planning' })
+    expect(p.shown('sessions', SESSION)).toMatchObject({ agentKind: 'codex', status: 'starting' })
+    p.tx.dispose()
+  })
+
   it('a retry of the same reservation writes the same record', async () => {
     const p = pool({ record: startRecord })
     const id = '00000000-0000-4000-8000-0000000000ee'
