@@ -1,4 +1,5 @@
 import type { LockAcquireResultWire } from '@podium/protocol'
+import { buildCleanup, buildDeadlineAt, buildTask } from './build-attempt'
 import { DEV_BUNDLE_LOCK_NAME, type DevBundleLock } from './dev-bundle'
 
 /**
@@ -71,19 +72,28 @@ export function createServerDevBundleLock(
 
   return {
     async acquire() {
-      const deadline = now() + DEV_BUNDLE_LOCK_TTL_SECONDS * 1_000
-      for (;;) {
-        const result = await locks.acquire(DEV_BUNDLE_LOCK_CALLER, {
-          ...ref,
-          ttlSeconds: DEV_BUNDLE_LOCK_TTL_SECONDS,
-          note: 'server-owned development bundle build',
-        })
-        if (result.granted) return true
-        if (now() >= deadline) {
-          await locks.cancel(DEV_BUNDLE_LOCK_CALLER, ref)
-          return false
+      const deadline = buildDeadlineAt() ?? now() + DEV_BUNDLE_LOCK_TTL_SECONDS * 1_000
+      try {
+        for (;;) {
+          const result = await buildTask(() =>
+            locks.acquire(DEV_BUNDLE_LOCK_CALLER, {
+              ...ref,
+              ttlSeconds: DEV_BUNDLE_LOCK_TTL_SECONDS,
+              note: 'server-owned development bundle build',
+            }),
+          )
+          if (result.granted) return true
+          if (now() >= deadline) {
+            await locks.cancel(DEV_BUNDLE_LOCK_CALLER, ref)
+            return false
+          }
+          await buildTask(() => sleep(Math.min(pollIntervalMs, Math.max(0, deadline - now()))))
         }
-        await sleep(Math.min(pollIntervalMs, Math.max(0, deadline - now())))
+      } catch (error) {
+        await buildCleanup(async () => {
+          await locks.cancel(DEV_BUNDLE_LOCK_CALLER, ref)
+        })
+        throw error
       }
     },
     async renew() {

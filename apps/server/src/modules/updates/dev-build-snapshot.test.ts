@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ReleaseBuildTimingRecord } from '@podium/runtime/release-build-timing'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { BuildTimeoutError, withBuildAttempt } from './build-attempt'
 import { installSnapshotDependencies, withDevBuildSnapshot } from './dev-build-snapshot'
 
 const roots: string[] = []
@@ -33,6 +34,48 @@ function repository(): { root: string; sha: string } {
 }
 
 describe('approved development build snapshot', () => {
+  it('removes its snapshot after the overall deadline interrupts preparation', async () => {
+    const { root, sha } = repository()
+    let installed!: () => void
+    let cleaned!: () => void
+    const preparing = new Promise<void>((resolve) => {
+      installed = resolve
+    })
+    const cleanup = new Promise<void>((resolve) => {
+      cleaned = resolve
+    })
+    let snapshot = ''
+    vi.useFakeTimers()
+    try {
+      const result = withBuildAttempt(
+        () =>
+          withDevBuildSnapshot(
+            {
+              sourceRoot: root,
+              approvedSha: sha,
+              install: async (path) => {
+                snapshot = path
+                installed()
+                await new Promise(() => {})
+              },
+            },
+            async () => 'must not build',
+          ).finally(cleaned),
+        1_000,
+      ).catch((error) => error)
+      await preparing
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(await result).toBeInstanceOf(BuildTimeoutError)
+      await cleanup
+      expect(existsSync(snapshot)).toBe(false)
+      expect(
+        execFileSync('git', ['worktree', 'list', '--porcelain'], { cwd: root, encoding: 'utf8' }),
+      ).not.toContain(snapshot)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('keeps live-checkout changes out of the approved build inputs', async () => {
     const { root, sha } = repository()
     await expect(

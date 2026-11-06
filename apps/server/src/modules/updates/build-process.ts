@@ -1,24 +1,19 @@
 import { spawn } from 'node:child_process'
+import { buildSignal, throwIfBuildAborted } from './build-attempt'
 
-export const DEV_BUILD_TIMEOUT_MS = 20 * 60_000
-export const DEV_BUILD_CONTROL_TIMEOUT_MS = 10_000
-export const DEV_BUILD_GIT_TIMEOUT_MS = 30_000
-export const DEV_BUILD_INSTALL_TIMEOUT_MS = 5 * 60_000
-
-export class BuildCommandTimeoutError extends Error {}
-
-/** Bound the wait and kill the command's descendants, including inherited pipes. */
+/** Cancel this command and its descendants when the overall attempt expires. */
 export function runBuildCommand(
   file: string,
   args: readonly string[],
   opts: {
     cwd?: string
     env: NodeJS.ProcessEnv
-    timeoutMs: number
     label: string
     stdio?: 'inherit' | 'ignore' | 'pipe'
   },
 ): Promise<{ stdout: string; stderr: string }> {
+  throwIfBuildAborted()
+  const signal = buildSignal()
   return new Promise((resolve, reject) => {
     const child = spawn(file, [...args], {
       cwd: opts.cwd,
@@ -33,7 +28,7 @@ export function runBuildCommand(
     const finish = (error?: Error): void => {
       if (settled) return
       settled = true
-      clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
       if (error) reject(error)
       else resolve({ stdout, stderr })
     }
@@ -44,8 +39,6 @@ export function runBuildCommand(
           const killer = spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
             stdio: 'ignore',
             windowsHide: true,
-            timeout: DEV_BUILD_CONTROL_TIMEOUT_MS,
-            killSignal: 'SIGKILL',
           })
           killer.once('error', () => child.kill('SIGKILL'))
           killer.unref()
@@ -78,15 +71,9 @@ export function runBuildCommand(
     }
     child.stdout?.setEncoding('utf8').on('data', (chunk: string) => capture(chunk, 'stdout'))
     child.stderr?.setEncoding('utf8').on('data', (chunk: string) => capture(chunk, 'stderr'))
-    const timer = setTimeout(
-      () =>
-        stop(
-          new BuildCommandTimeoutError(
-            `${opts.label} timed out after ${Math.ceil(opts.timeoutMs / 1_000)}s; the build command was terminated.`,
-          ),
-        ),
-      opts.timeoutMs,
-    )
+    const onAbort = (): void => stop(signal?.reason ?? new Error('Build attempt canceled'))
+    signal?.addEventListener('abort', onAbort, { once: true })
+    if (signal?.aborted) onAbort()
     child.once('error', finish)
     child.once('close', (status, signal) =>
       finish(

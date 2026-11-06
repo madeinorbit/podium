@@ -10,7 +10,7 @@ import type {
 } from '@podium/runtime/release-build-timing'
 import { fetchArtifact } from '@podium/runtime/update-delivery'
 import { Hono } from 'hono'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { registerDevFeedRoutes } from './artifact-route'
 import {
   type BuildRecord,
@@ -52,6 +52,7 @@ import {
   requireDefinedMigrations,
 } from './dev-bundle'
 import { createServerDevBundleLock } from './dev-bundle-lock'
+import { BuildTimeoutError, withBuildAttempt } from './build-attempt'
 import { readDevPublisherState, writeDevPublisherState } from './dev-publisher-state'
 import { classifyMachineFailure, describeUpdateOperationFailure } from './operation'
 import { type DesktopFeedChannel, desktopManifestFeedChannel } from './release-target'
@@ -475,6 +476,28 @@ describe('the node filesystem seam', () => {
 })
 
 describe('createServerDevBundleLock', () => {
+  it('cancels a queued lock request when the overall build budget expires', async () => {
+    vi.useFakeTimers()
+    try {
+      const cancel = vi.fn()
+      const lock = createServerDevBundleLock('/repo/podium', {
+        acquire: () => ({ granted: false } as never),
+        cancel,
+        renew: () => {},
+        release: () => {},
+      })
+      const result = withBuildAttempt(() => lock.acquire(), 100).catch((error) => error)
+      await vi.advanceTimersByTimeAsync(100)
+      expect(await result).toBeInstanceOf(BuildTimeoutError)
+      expect(cancel).toHaveBeenCalledWith(expect.anything(), {
+        repoPath: '/repo/podium',
+        name: 'podium:dev-bundle',
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('uses one in-process system identity scoped to the bundle lock', async () => {
     const calls: Array<{
       operation: string

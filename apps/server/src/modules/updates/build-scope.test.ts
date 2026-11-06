@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   DEV_BUILD_CPU_QUOTA,
   DEV_BUILD_CPU_WEIGHT,
@@ -24,7 +24,7 @@ describe('development build scopes', () => {
     expect(argv).toContain(`--property=CPUWeight=${DEV_BUILD_CPU_WEIGHT}`)
     expect(argv).toContain(`--property=IOWeight=${DEV_BUILD_IO_WEIGHT}`)
     expect(argv).toContain(`--property=CPUQuota=${DEV_BUILD_CPU_QUOTA}`)
-    expect(argv).toContain('--property=RuntimeMaxSec=1200s')
+    expect(argv.some((arg) => arg.startsWith('--property=RuntimeMaxSec='))).toBe(false)
     expect(argv).toContain('--property=KillSignal=SIGKILL')
     // The interactive tier the server itself runs at, which the build used to
     // inherit by being a plain child of it (POD-1985).
@@ -39,6 +39,21 @@ describe('development build scopes', () => {
     expect(separator).toBeGreaterThan(0)
     expect(argv.slice(separator + 1)).toEqual(['bun', 'scripts/build-bun.ts'])
     expect(argv.slice(0, separator).every((arg) => arg.startsWith('-'))).toBe(true)
+  })
+
+  it('mirrors only the remaining overall budget into the scope', () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000)
+    try {
+      expect(devBuildScopeArgv('u.scope', ['bun', 'x'], { deadlineAt: 2_000 })).toContain(
+        '--property=RuntimeMaxSec=1000ms',
+      )
+      now.mockReturnValue(1_800)
+      expect(devBuildScopeArgv('u.scope', ['bun', 'x'], { deadlineAt: 2_000 })).toContain(
+        '--property=RuntimeMaxSec=200ms',
+      )
+    } finally {
+      now.mockRestore()
+    }
   })
 
   it('runs the scope under a deterministic name it can reclaim', () => {
@@ -65,9 +80,6 @@ describe('development build scopes', () => {
       args: ['scripts/build-bun.ts'],
     })
     expect(lowTierSpawnPlan(build, true).file).toBe('systemd-run')
-    expect(lowTierSpawnPlan({ ...build, timeoutMs: 1_250 }, true).args).toContain(
-      '--property=RuntimeMaxSec=2s',
-    )
   })
 
   it('bounds the build, not just its CPU tier', () => {

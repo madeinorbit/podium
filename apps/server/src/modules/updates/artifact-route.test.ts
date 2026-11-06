@@ -442,10 +442,10 @@ describe('development artifact route', () => {
       return { wiring, publications: () => publications, unavailable }
     }
 
-    it('ends approval when the post-publication target refresh never answers', async () => {
+    it('uses the overall build deadline when the post-publication refresh never answers', async () => {
       const { wiring, publications } = await wiringFor({
         releaseTiming: false,
-        targetRefreshTimeoutMs: 10,
+        buildTimeoutMs: 250,
         refreshDevTarget: () => new Promise(() => {}),
         createPublisher: () =>
           ({
@@ -469,7 +469,7 @@ describe('development artifact route', () => {
       await vi.waitFor(async () =>
         expect(await wiring.proposal()).toMatchObject({
           state: 'failed',
-          failure: { logs: expect.stringContaining('refreshing its update offer timed out') },
+          failure: { logs: expect.stringContaining('build and publication timed out') },
         }),
       )
       expect(publications()).toBe(1)

@@ -80,7 +80,6 @@
  * `cpu.weight` (50) and `cpu.max` (200000 100000).
  */
 
-import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { createLogger } from '@podium/logger'
 import { instanceBuildSliceName } from '@podium/runtime/instance'
@@ -92,12 +91,8 @@ import {
   type ScopeBudgetEnv,
   scopeBudgetProperties,
 } from '@podium/runtime/scope'
-import {
-  BuildCommandTimeoutError,
-  DEV_BUILD_CONTROL_TIMEOUT_MS,
-  DEV_BUILD_TIMEOUT_MS,
-  runBuildCommand,
-} from './build-process'
+import { BuildTimeoutError, buildDeadlineAt, throwIfBuildAborted } from './build-attempt'
+import { runBuildCommand } from './build-process'
 
 const log = createLogger('server:updates')
 
@@ -140,7 +135,7 @@ export function devBuildScopeUnit(role: string, instanceId: string): string {
 export function devBuildScopeArgv(
   unit: string,
   command: readonly string[],
-  opts: { description?: string; slice?: string; budget?: ScopeBudget; timeoutMs?: number } = {},
+  opts: { description?: string; slice?: string; budget?: ScopeBudget; deadlineAt?: number } = {},
 ): string[] {
   return [
     '--user',
@@ -153,8 +148,10 @@ export function devBuildScopeArgv(
     `--property=CPUWeight=${DEV_BUILD_CPU_WEIGHT}`,
     `--property=IOWeight=${DEV_BUILD_IO_WEIGHT}`,
     `--property=CPUQuota=${DEV_BUILD_CPU_QUOTA}`,
-    // systemd keeps this limit even if the server exits before its own timer.
-    `--property=RuntimeMaxSec=${Math.ceil((opts.timeoutMs ?? DEV_BUILD_TIMEOUT_MS) / 1_000)}s`,
+    // Mirror the attempt's remaining overall budget if the server exits.
+    ...(opts.deadlineAt !== undefined
+      ? [`--property=RuntimeMaxSec=${Math.max(1, opts.deadlineAt - Date.now())}ms`]
+      : []),
     '--property=KillSignal=SIGKILL',
     ...scopeBudgetProperties(opts.budget ?? resolveBuildBudget()),
     '--',
@@ -197,18 +194,31 @@ let scopeProbe: boolean | undefined
  * as NO here — otherwise every build takes the failure path instead of the
  * fallback. Memoized: the answer cannot change within a process.
  */
-export function canScopeDevBuild(): boolean {
+export async function canScopeDevBuild(): Promise<boolean> {
   if (scopeProbe !== undefined) return scopeProbe
-  scopeProbe =
-    !process.env.PODIUM_NO_SCOPE &&
-    process.platform === 'linux' &&
-    userRuntimeDir() !== undefined &&
-    spawnSync('systemd-run', ['--user', '--scope', '--collect', '--quiet', '--', 'true'], {
-      stdio: 'ignore',
-      timeout: 8000,
-      killSignal: 'SIGKILL',
-      env: scopeEnv(process.env),
-    }).status === 0
+  if (
+    process.env.PODIUM_NO_SCOPE ||
+    process.platform !== 'linux' ||
+    userRuntimeDir() === undefined
+  ) {
+    scopeProbe = false
+    return false
+  }
+  try {
+    await runBuildCommand(
+      'systemd-run',
+      ['--user', '--scope', '--collect', '--quiet', '--', 'true'],
+      {
+        stdio: 'ignore',
+        env: scopeEnv(process.env),
+        label: 'Development build scope probe',
+      },
+    )
+    scopeProbe = true
+  } catch {
+    throwIfBuildAborted()
+    scopeProbe = false
+  }
   return scopeProbe
 }
 
@@ -233,7 +243,6 @@ export interface LowTierBuild {
   args: readonly string[]
   cwd: string
   env: NodeJS.ProcessEnv
-  timeoutMs?: number
 }
 
 /**
@@ -269,7 +278,7 @@ export function lowTierSpawnPlan(
     args: devBuildScopeArgv(build.unit, [build.command, ...build.args], {
       ...(build.description ? { description: build.description } : {}),
       ...(build.slice ? { slice: build.slice } : {}),
-      ...(build.timeoutMs !== undefined ? { timeoutMs: build.timeoutMs } : {}),
+      ...(buildDeadlineAt() !== undefined ? { deadlineAt: buildDeadlineAt() } : {}),
       // The BUILD's env, not the process's: it is the env the build actually
       // runs with, so the cap the scope carries is the cap the failure message
       // later names.
@@ -349,13 +358,12 @@ async function runQuietly(file: string, args: string[], env: NodeJS.ProcessEnv):
     await runBuildCommand(file, args, {
       env,
       stdio: 'ignore',
-      timeoutMs: DEV_BUILD_CONTROL_TIMEOUT_MS,
       label: `${file} ${args.join(' ')}`,
     })
   } catch (error) {
     // A missing old unit is normal; an unresponsive stop must not allow a new
     // build to race an old one that may still be writing its artifacts.
-    if (error instanceof BuildCommandTimeoutError) throw error
+    if (error instanceof BuildTimeoutError) throw error
   }
 }
 
@@ -370,7 +378,7 @@ async function runQuietly(file: string, args: string[], env: NodeJS.ProcessEnv):
  * genuine compile error.
  */
 export async function runLowTierBuild(build: LowTierBuild): Promise<void> {
-  const scoped = canScopeDevBuild()
+  const scoped = await canScopeDevBuild()
   const env = scoped ? scopeEnv(build.env) : build.env
   const budget = scoped ? resolveBuildBudget(build.env) : {}
   const sliceBudget = scoped ? resolveBuildsSliceBudget(build.env) : {}
@@ -389,11 +397,11 @@ export async function runLowTierBuild(build: LowTierBuild): Promise<void> {
     await runBuildCommand(plan.file, plan.args, {
       cwd: build.cwd,
       env,
-      timeoutMs: build.timeoutMs ?? DEV_BUILD_TIMEOUT_MS,
       label: build.description ?? build.unit,
     })
   } catch (error) {
-    if (error instanceof BuildCommandTimeoutError) throw error
+    throwIfBuildAborted()
+    if (error instanceof BuildTimeoutError) throw error
     const exit = error as { status?: number | null; signal?: NodeJS.Signals | null }
     if (exit.status === undefined) throw error
     throw new Error(
@@ -452,10 +460,12 @@ function runReporting(
   return runBuildCommand(file, args, {
     env,
     stdio: 'ignore',
-    timeoutMs: DEV_BUILD_CONTROL_TIMEOUT_MS,
     label: `${file} ${args.join(' ')}`,
   }).then(
     () => 0,
-    (error: unknown) => (error as { status?: number | null }).status ?? null,
+    (error: unknown) => {
+      throwIfBuildAborted()
+      return (error as { status?: number | null }).status ?? null
+    },
   )
 }

@@ -422,7 +422,7 @@ async function main(): Promise<void> {
   }
 
   const unit = iterateScopeUnit(config.webPort)
-  const scoped = canScopeDevBuild()
+  const scoped = await canScopeDevBuild()
   const env = iterateChildEnv(config, process.env)
   if (scoped) {
     if (unitIsActive(unit, env)) {

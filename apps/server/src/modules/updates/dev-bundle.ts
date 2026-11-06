@@ -28,7 +28,8 @@ import {
   releaseBuildTimingFileName,
   timeReleaseBuildTask,
 } from '@podium/runtime/release-build-timing'
-import { DEV_BUILD_GIT_TIMEOUT_MS, runBuildCommand } from './build-process'
+import { buildSignal, buildTask, throwIfBuildAborted } from './build-attempt'
+import { runBuildCommand } from './build-process'
 import {
   advanceOutcome,
   type BuildOutcome,
@@ -98,7 +99,6 @@ async function git(root: string, args: readonly string[]): Promise<string> {
     cwd: root,
     env: gitEnv(),
     stdio: 'pipe',
-    timeoutMs: DEV_BUILD_GIT_TIMEOUT_MS,
     label: `Development build git ${args[0] ?? ''}`,
   })
   return stdout
@@ -1413,7 +1413,7 @@ export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDev
   const sha = shortSha(deps.headSha ?? (await developmentHeadSha(root)))
   const publisherStateDir = deps.publisherStateDir ?? stateDir()
   const lock = deps.lock
-  const acquired = await lock.acquire()
+  const acquired = await buildTask(() => lock.acquire())
   if (acquired === false) throw new Error('could not acquire the development bundle lock')
 
   let renewal = Promise.resolve()
@@ -1528,15 +1528,17 @@ export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDev
     // and every platform is packaged from that single output.
     let result: DevBuildSpawnResult
     try {
-      result = await spawnBuild({
-        root,
-        version,
-        artifacts: requests,
-        recordDir,
-        ...(Object.keys(timingEnv).length > 0 ? { timingEnv } : {}),
-        ...(deps.signingKey ? { signingKey: deps.signingKey } : {}),
-        ...(deps.instanceId ? { instanceId: deps.instanceId } : {}),
-      })
+      result = await buildTask(() =>
+        spawnBuild({
+          root,
+          version,
+          artifacts: requests,
+          recordDir,
+          ...(Object.keys(timingEnv).length > 0 ? { timingEnv } : {}),
+          ...(deps.signingKey ? { signingKey: deps.signingKey } : {}),
+          ...(deps.instanceId ? { instanceId: deps.instanceId } : {}),
+        }),
+      )
     } catch (error) {
       // WHICH STEP REFUSED, from what the child left behind. A `client.json` means the
       // clients verified and the failure is downstream of them; its absence means the
@@ -1928,7 +1930,10 @@ async function fetchStandingDesktopManifest(
 ): Promise<StandingDesktopManifest> {
   const url = desktopReleaseManifestUrl(channel)
   try {
-    const response = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(5_000) })
+    const response = await fetch(url, {
+      cache: 'no-store',
+      signal: buildSignal() ?? AbortSignal.timeout(5_000),
+    })
     if (!response.ok) {
       return { missing: `${channel} desktop manifest returned HTTP ${response.status}` }
     }
@@ -2279,8 +2284,10 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
       // Read fresh, per build: a Mac that enrolled since the last one must be served by
       // the NEXT build, not by the next restart.
       const platforms = devBuildPlatforms(await deps.fleetPlatforms?.())
+      throwIfBuildAborted()
       const liveRoot = deps.root ?? SOURCE_ROOT
       const buildFrom = async (buildRoot: string): Promise<BuiltDevBundle> => {
+        throwIfBuildAborted()
         // The clients are no longer built here. The release child owns them: it builds
         // or RESTORES web and mobile through the Turbo lane inside the snapshot, once
         // for the whole publish, and packages every platform from that one output.
@@ -2397,6 +2404,7 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
         })
       const requested = (approved ? buildApproved() : buildFrom(liveRoot)).then(
         (built) => {
+          throwIfBuildAborted()
           current = built
           builtSha = headSha
           unavailable = undefined
@@ -2681,7 +2689,7 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
 
   return {
     requestBuild(explicit = false, approved) {
-      const admitted = admissions.then(() => admit(explicit, approved))
+      const admitted = admissions.then(() => buildTask(() => admit(explicit, approved)))
       admissions = admitted.catch(() => undefined)
       return admitted.then((admission) =>
         'error' in admission ? Promise.reject(admission.error) : admission.result,
@@ -2744,7 +2752,9 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
     desktopManifestPath: () => devDesktopManifestPath(deps.root ?? SOURCE_ROOT),
     desktopManifestSource: () => desktopManifestSource,
     publishFeed: async () => {
+      throwIfBuildAborted()
       const manifest = await builtManifest()
+      throwIfBuildAborted()
       if (!manifest) return false
       try {
         if (!builtSha) throw new Error('cannot publish a development release without its commit')
@@ -2776,8 +2786,11 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
             sourceSha: publishedSha,
           },
           async () => {
+            throwIfBuildAborted()
             const desktopPath = await writeDevDesktopManifest(fs, root, source.channel, desktopRaw)
+            throwIfBuildAborted()
             const path = await writeDevFeedManifest(fs, root, manifest)
+            throwIfBuildAborted()
             const statePath = deps.publisherStateDir ?? stateDir()
             const publisherState = readDevPublisherState(statePath)
             if (!publisherState) {

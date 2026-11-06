@@ -242,6 +242,7 @@ describe('UpdatesEngine', () => {
     })
     rerender(<UpdatesEngine httpOrigin="http://podium.test" />)
     expect(screen.getByTestId('release-proposal-card')).toBeTruthy()
+    expect(screen.getByTestId('approve-release-proposal')).toHaveProperty('disabled', true)
   })
 
   it('acknowledges a failure when the user hides it, keeping the warning indicator', () => {
