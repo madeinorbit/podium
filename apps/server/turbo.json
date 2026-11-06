@@ -2509,6 +2509,7 @@
         "src/two-member-admin-area.test.ts",
         "src/two-member-admission.test.ts",
         "src/two-member-assignee.test.ts",
+        "src/two-member-client-registration.test.ts",
         "src/two-member-discovery.test.ts",
         "src/two-member-edit-history.test.ts",
         "src/two-member-feed.test.ts",

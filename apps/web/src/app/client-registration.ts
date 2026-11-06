@@ -10,6 +10,16 @@ const restartGuidance = 'Client registration saved — quit and reopen the app t
 export class ClientRegistration {
   private attempt: Promise<string | null> | undefined
   private retryAfterLogin = false
+  private principal: string | undefined
+  private loginEpoch = 0
+  private attemptedEpoch: number | undefined
+
+  /** The LoginGate calls this only when its currently mounted principal expires. */
+  invalidateLogin(): void {
+    this.loginEpoch++
+    this.principal = undefined
+    this.retryAfterLogin = false
+  }
 
   /** Only the live login owner calls this after the server accepts new credentials.
    * Native receipts still fence saved authority; an older attempt settles first. */
@@ -20,6 +30,7 @@ export class ClientRegistration {
   start(
     bridge: NativeDesktopBridge | undefined,
     trpc: Pick<Trpc, 'machines'>,
+    principal?: string,
   ): Promise<string | null> {
     if (
       bridge?.launchMode !== 'client' ||
@@ -27,16 +38,27 @@ export class ClientRegistration {
       !bridge.registerClient
     )
       return Promise.resolve(null)
+    if (this.principal !== principal) {
+      this.principal = principal
+      this.loginEpoch++
+    }
+    const epoch = this.loginEpoch
+    const current = () => this.loginEpoch === epoch && this.principal === principal
     const register = (afterSignIn = false) =>
-      this.register(bridge, trpc, afterSignIn).catch((error: unknown) => {
+      this.register(bridge, trpc, afterSignIn, current).catch((error: unknown) => {
+        if (!current()) return null
         const message = error instanceof Error ? error.message : String(error)
         return message === restartGuidance
           ? message
           : `Client registration could not finish: ${message}`
       })
-    if (this.retryAfterLogin) {
+    if (this.retryAfterLogin || this.attemptedEpoch !== epoch) {
+      const afterSignIn = this.retryAfterLogin
       this.retryAfterLogin = false
-      this.attempt = this.attempt ? this.attempt.then(() => register(true)) : register(true)
+      this.attemptedEpoch = epoch
+      this.attempt = this.attempt
+        ? this.attempt.then(() => register(afterSignIn))
+        : register(afterSignIn)
     }
     this.attempt ??= register()
     return this.attempt
@@ -46,6 +68,7 @@ export class ClientRegistration {
     bridge: NativeDesktopBridge,
     trpc: Pick<Trpc, 'machines'>,
     afterSignIn: boolean,
+    current: () => boolean,
   ): Promise<string | null> {
     const read = bridge.clientRegistrationStatus
     const save = bridge.registerClient
@@ -54,7 +77,9 @@ export class ClientRegistration {
     // its first canonical declaration. Pending pairing can likewise settle after
     // this page mounts. Only these transitional answers are read again, bounded.
     for (let observation = 0; observation < 40; observation++) {
+      if (!current()) return null
       const status = await read()
+      if (!current()) return null
       switch (status.state) {
         case 'not-applicable':
         case 'enrolled':
@@ -79,7 +104,9 @@ export class ClientRegistration {
               ...(request.publicKey ? { publicKey: request.publicKey } : {}),
             },
           })
+          if (!current()) return null
           await save(code, request.target)
+          if (!current()) return null
           await restartNativeDesktop(restartGuidance)
           return null
         }

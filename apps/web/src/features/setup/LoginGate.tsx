@@ -531,8 +531,8 @@ export function LoginGate({
       const mounted = mountedAuth.current
       if (mounted === undefined) return
       const named = expiredPrincipalOf(event)
-      if (named !== undefined && mounted.kind === 'principal' && mounted.principal !== named)
-        return
+      if (named !== undefined && mounted.kind === 'principal' && mounted.principal !== named) return
+      clientRegistration.invalidateLogin()
       authGeneration.current += 1
       setAuth(undefined)
       setPhase('loading')

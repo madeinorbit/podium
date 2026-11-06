@@ -1,9 +1,9 @@
 import { cookieCredentials, watchAccountSwitch } from '@podium/client-core/accounts'
-import { replicaNamespaceKey } from '@podium/client-core/replica'
 import { createSocketLogin, observeLiveConnection } from '@podium/client-core/live-connection'
+import { parseReplicaNamespaceKey, replicaNamespaceKey } from '@podium/client-core/replica'
 import { observer } from '@podium/client-graph/react'
 import type { JSX, ReactNode } from 'react'
-import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { flushSync } from 'react-dom'
 import { toast } from 'sonner'
 import { PodiumLinkHost } from '@/components/PodiumLinkHost'
@@ -298,6 +298,16 @@ export function AppShell({
     auth,
     httpOrigin: config.httpOrigin,
   })
+  // Registration precedes replica opening, but uses the same verified member
+  // fence as that replica's requests. The factory itself is not a tRPC client.
+  const registrationPrincipal = auth.kind === 'principal' ? auth.principal : undefined
+  const registrationTrpc = useMemo(() => {
+    if (registrationPrincipal === undefined) return undefined
+    const identity = parseReplicaNamespaceKey(registrationPrincipal)
+    return identity
+      ? gateTrpc({ principal: registrationPrincipal, member: identity.memberId })
+      : undefined
+  }, [gateTrpc, registrationPrincipal])
 
   // ANOTHER TAB SWITCHED THE ACCOUNT (POD-6292, MU-12). This tab's runtime ends
   // the moment the saved account no longer names its member, exactly as an
@@ -429,7 +439,7 @@ export function AppShell({
   // recovered inside the replica effect, so that check stays parallel too.
   return (
     <>
-      <ClientRegistrationNotice auth={auth} trpc={gateTrpc} />
+      {registrationTrpc && <ClientRegistrationNotice auth={auth} trpc={registrationTrpc} />}
       <SetupGate>{shell}</SetupGate>
     </>
   )

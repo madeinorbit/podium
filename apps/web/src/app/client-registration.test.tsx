@@ -346,3 +346,48 @@ describe('authenticated native client registration', () => {
     })
   })
 })
+
+describe('registration principal lifetime', () => {
+  function deferred<T>() {
+    let resolve!: (value: T) => void
+    const promise = new Promise<T>((done) => {
+      resolve = done
+    })
+    return { promise, resolve }
+  }
+
+  function bobClient() {
+    const mint = vi.fn().mockResolvedValue({ code: 'BOB-CODE' })
+    return { mint, trpc: { machines: { pairingCode: { mutate: mint } } } as unknown as Trpc }
+  }
+
+  it('drops a departed member’s pending native read before minting for the next member', async () => {
+    const fixture = setup()
+    const pending = deferred<NativeClientRegistrationStatus>()
+    fixture.read.mockReturnValueOnce(pending.promise)
+    const alice = fixture.registration.start(fixture.bridge, fixture.trpc, 'alice')
+    const bob = bobClient()
+    const next = fixture.registration.start(fixture.bridge, bob.trpc, 'bob')
+    pending.resolve({ state: 'needed', target: 'departed-receipt', machineId: 'retained-client' })
+    await Promise.all([alice, next])
+    expect(fixture.mint).not.toHaveBeenCalled()
+    expect(bob.mint).toHaveBeenCalledOnce()
+    expect(fixture.save).toHaveBeenCalledExactlyOnceWith('BOB-CODE', 'native-receipt')
+    expect(fixture.restart).toHaveBeenCalledOnce()
+  })
+
+  it('does not persist a departed member’s late pairing reply or restart on their behalf', async () => {
+    const fixture = setup()
+    const pending = deferred<{ code: string }>()
+    fixture.mint.mockReturnValueOnce(pending.promise)
+    const alice = fixture.registration.start(fixture.bridge, fixture.trpc, 'alice')
+    await vi.waitFor(() => expect(fixture.mint).toHaveBeenCalledOnce())
+    const bob = bobClient()
+    const next = fixture.registration.start(fixture.bridge, bob.trpc, 'bob')
+    pending.resolve({ code: 'ALICE-CODE' })
+    await Promise.all([alice, next])
+    expect(bob.mint).toHaveBeenCalledOnce()
+    expect(fixture.save).toHaveBeenCalledExactlyOnceWith('BOB-CODE', 'native-receipt')
+    expect(fixture.restart).toHaveBeenCalledOnce()
+  })
+})

@@ -1,6 +1,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { ClientRegistration, clientRegistration } from '@/app/client-registration'
+import type { Trpc } from '@/app/trpc'
 import { useAccount } from '@/lib/account-context'
+import type { NativeClientRegistrationStatus, NativeDesktopBridge } from '@/lib/nativeDesktop'
 import { LoginGate, LoginView } from './LoginGate'
 
 // The refused account's erase (POD-6293) is observed, not run: jsdom has no
@@ -666,6 +669,75 @@ it('ignores a late expiry from an account that is no longer mounted (POD-6292)',
     }),
   )
   expect(await screen.findByLabelText(/password/i)).toBeTruthy()
+})
+
+it('keeps current native registration live on foreign expiry and cancels it on own expiry', async () => {
+  const principal = JSON.stringify(['installation-a', 'bob'])
+  const fetchMock = statusFetch({
+    needsAuth: true,
+    authed: true,
+    memberId: 'bob',
+    syncBoundaryId: 'installation-a',
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  const registration = new ClientRegistration()
+  vi.spyOn(clientRegistration, 'invalidateLogin').mockImplementation(() =>
+    registration.invalidateLogin(),
+  )
+  function pendingRead() {
+    let resolve!: (value: NativeClientRegistrationStatus) => void
+    const promise = new Promise<NativeClientRegistrationStatus>((done) => {
+      resolve = done
+    })
+    return { promise, resolve }
+  }
+  const firstRead = pendingRead()
+  const secondRead = pendingRead()
+  const read = vi
+    .fn()
+    .mockReturnValueOnce(firstRead.promise)
+    .mockReturnValueOnce(secondRead.promise)
+  const save = vi.fn(async () => {})
+  const mint = vi.fn().mockResolvedValue({ code: 'OWNER-CODE' })
+  const bridge: NativeDesktopBridge = {
+    platform: 'linux',
+    launchMode: 'client',
+    minimize: vi.fn(),
+    toggleMaximize: vi.fn(),
+    close: vi.fn(),
+    clientRegistrationStatus: read,
+    registerClient: save,
+  }
+  const trpc = { machines: { pairingCode: { mutate: mint } } } as unknown as Trpc
+  const needed = { state: 'needed', target: 'same-client', machineId: 'retained-client' } as const
+  render(<LoginGate>{child}</LoginGate>)
+  await screen.findByText('APP-READY')
+  const first = registration.start(bridge, trpc, principal)
+  fireEvent(
+    window,
+    new CustomEvent('podium:sync-auth-expired', {
+      detail: { principal: JSON.stringify(['installation-a', 'alice']) },
+    }),
+  )
+  firstRead.resolve(needed)
+  await first
+  expect(save).toHaveBeenCalledExactlyOnceWith('OWNER-CODE', 'same-client')
+  expect(screen.getByText('APP-READY')).toBeTruthy()
+
+  registration.retryAfterSignIn()
+  const second = registration.start(bridge, trpc, principal)
+  await waitFor(() => expect(read).toHaveBeenCalledTimes(2))
+  fetchMock.mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => ({ needsAuth: true, authed: false }),
+  })
+  fireEvent(window, new CustomEvent('podium:sync-auth-expired', { detail: { principal } }))
+  secondRead.resolve(needed)
+  await second
+  expect(await screen.findByLabelText(/password/i)).toBeTruthy()
+  expect(mint).toHaveBeenCalledTimes(1)
+  expect(save).toHaveBeenCalledTimes(1)
 })
 
 it("a refused account's stored data is erased before the sign-in shows again (POD-6293)", async () => {
