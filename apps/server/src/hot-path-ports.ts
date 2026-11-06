@@ -29,7 +29,7 @@ export interface FeedVisibilityStore {
     'issueIdsForOrders' | 'laneMemberIssueIdsMany' | 'ordersByIds' | 'orderIdsForIssues'
   >
   readonly automations: Pick<SessionStore['automations'], 'ownersOf' | 'runOwnersOf'>
-  readonly effects: Pick<SessionStore['effects'], 'audiencesOf'>
+  readonly effects: Pick<SessionStore['effects'], 'audiencesOf' | 'liveOnTargets'>
   /** Admins read every instance-wide effect record (POD-6358). */
   readonly users: Pick<SessionStore['users'], 'activeAdminIds'>
   readonly grants: Pick<SessionStore['grants'], 'loadForResource' | 'loadForResources' | 'loadForResourcesOfKinds' | 'listForResources'>

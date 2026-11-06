@@ -52,10 +52,10 @@ import type {
   VisibilityStatePort,
 } from '@podium/sync'
 import type { FeedVisibilityStore, GrantRow, IssueRow, SessionRow } from './hot-path-ports'
-import type { EffectAudience } from './store/effects'
 import { INSTANCE_EFFECT_KINDS } from './modules/operations/instance-effect-kinds'
 import { perfPrincipal } from './modules/perf/principal'
 import { perf } from './modules/perf/registry'
+import type { EffectAudience } from './store/effects'
 
 /**
  * The store reads a feed bootstrap can cause, named so each is separately
@@ -70,6 +70,7 @@ type BootstrapReadPhase =
   | 'visibility.automationRun.runOwnerOf'
   | 'visibility.effect.audiencesOf'
   | 'visibility.effect.adminIds'
+  | 'visibility.effect.liveOnTargets'
   | 'visibility.shipOrder.issueIdForOrder'
   | 'visibility.shipLane.memberIssueIds'
   | 'visibility.grants.listForResources'
@@ -122,6 +123,11 @@ type ShipOrderSubject = {
 
 type ShipLaneSubject = {
   entity: 'shipLane'
+  entityId: string
+}
+
+type EffectSubject = {
+  entity: 'effect'
   entityId: string
 }
 
@@ -644,13 +650,20 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
    *                   are never deleted and never change issue), then their
    *                   installed rows by key. The issue and the lane come from
    *                   the installed payload, as they always did.
+   *   effects         the live records on the issues and on their sessions,
+   *                   one read of `idx_effects_target` after the sessions are
+   *                   known (POD-6401): an effect is read by whoever reads its
+   *                   target, so it re-scopes with that target's audience.
    */
   const issueEdgeRows = async (issueIds: readonly string[]) => {
     const sessionsByIssue = new Map<string, SessionRow[]>()
     const depsByIssue = new Map<string, IssueDepSubject[]>()
     const ordersByIssue = new Map<string, ShipOrderSubject[]>()
     const lanesByIssue = new Map<string, ShipLaneSubject[]>()
-    if (issueIds.length === 0) return { sessionsByIssue, depsByIssue, ordersByIssue, lanesByIssue }
+    const effectsByIssue = new Map<string, EffectSubject[]>()
+    if (issueIds.length === 0) {
+      return { sessionsByIssue, depsByIssue, ordersByIssue, lanesByIssue, effectsByIssue }
+    }
     const wanted = new Set(issueIds)
     const [sessionRows, depRows, orderIds] = await Promise.all([
       store.sessions.findSessionsByIssueIds(issueIds.map((id) => asIssueId(id))),
@@ -670,12 +683,42 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       subjects.push({ entity: 'issueDep', entityId: row.entityId })
       depsByIssue.set(dep.fromId, subjects)
     }
-    const orderRows =
+    // Each target's issue, and its place in that issue's list: the issue's own
+    // records first, then each session's in session order.
+    const placeOfTarget = new Map<string, { issueId: string; rank: number }>()
+    for (const id of issueIds) placeOfTarget.set(`issue\u0000${id}`, { issueId: id, rank: 0 })
+    for (const [issueId, sessions] of sessionsByIssue) {
+      for (const [index, session] of sessions.entries()) {
+        placeOfTarget.set(`session\u0000${session.id}`, { issueId, rank: index + 1 })
+      }
+    }
+    const [orderRows, effectRows] = await Promise.all([
       orderIds.length === 0
         ? []
-        : await store.sync.installedStates(
+        : store.sync.installedStates(
             orderIds.map((id) => ({ entity: 'shipOrder' as const, entityId: id })),
-          )
+          ),
+      measure(
+        'visibility.effect.liveOnTargets',
+        async () =>
+          await store.effects.liveOnTargets([
+            ...issueIds.map((id) => ({ kind: 'issue', id })),
+            ...[...sessionsByIssue.values()]
+              .flat()
+              .map((session) => ({ kind: 'session', id: session.id })),
+          ]),
+      ),
+    ])
+    const placed = effectRows.flatMap((row) => {
+      const place = placeOfTarget.get(`${row.targetKind}\u0000${row.targetId}`)
+      return place === undefined ? [] : [{ id: row.id, ...place }]
+    })
+    // A stable sort: within one target, the read's oldest-first order stands.
+    for (const { id, issueId } of placed.sort((a, b) => a.rank - b.rank)) {
+      const subjects = effectsByIssue.get(issueId) ?? []
+      subjects.push({ entity: 'effect', entityId: id })
+      effectsByIssue.set(issueId, subjects)
+    }
     for (const row of [...orderRows].sort((a, b) => a.seq - b.seq)) {
       if (row.payload === null) continue
       const payload = parsedPayload(row.payload) as
@@ -711,7 +754,7 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         lanesByIssue.set(payload.issueId, lanes)
       }
     }
-    return { sessionsByIssue, depsByIssue, ordersByIssue, lanesByIssue }
+    return { sessionsByIssue, depsByIssue, ordersByIssue, lanesByIssue, effectsByIssue }
   }
 
   /**
@@ -734,17 +777,25 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
   ): Promise<Map<string, VisibilityEdge | null>> => {
     const out = new Map<string, VisibilityEdge | null>(orderIds.map((id) => [id, null]))
     if (orderIds.length === 0) return out
-    const departed = (await store.shipping.ordersByIds(orderIds)).filter((order) => order.state !== 'queued')
+    const departed = (await store.shipping.ordersByIds(orderIds)).filter(
+      (order) => order.state !== 'queued',
+    )
     if (departed.length === 0) return out
     const departedIssueIds = [...new Set(departed.map((order) => order.issueId))]
     const [owners, audiences] = await Promise.all([
-      measure('visibility.issue.getIssue', async () => await readIssues(store.issues, departedIssueIds)),
+      measure(
+        'visibility.issue.getIssue',
+        async () => await readIssues(store.issues, departedIssueIds),
+      ),
       deps.audiencesFor('issue', departedIssueIds),
     ])
     const laneOf = new Map(
       departed.map((order) => [
         order.id,
-        shipLaneId(order.repoId, canonicalShippingDestination(order.destination, order.targetBranch)),
+        shipLaneId(
+          order.repoId,
+          canonicalShippingDestination(order.destination, order.targetBranch),
+        ),
       ]),
     )
     const membersByLane = await store.shipping.laneMemberIssueIdsMany(laneOf.values())
@@ -753,7 +804,10 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       memberIds.length === 0
         ? [new Map<string, IssueRow>(), new Map<string, GrantRow[]>()]
         : await Promise.all([
-            measure('visibility.issue.getIssue', async () => await readIssues(store.issues, memberIds)),
+            measure(
+              'visibility.issue.getIssue',
+              async () => await readIssues(store.issues, memberIds),
+            ),
             measure(
               'visibility.grants.listForResources',
               async () => await store.grants.listForResources('issue', memberIds),
@@ -788,7 +842,9 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       // An issue write is the audience-change edge for its normalized companions;
       // a ship order leaving its queue can take a lane away. Nothing else anchors.
       const issueIds = [
-        ...new Set(refs.filter((ref) => ref.entity === 'issueProjection').map((ref) => ref.entityId)),
+        ...new Set(
+          refs.filter((ref) => ref.entity === 'issueProjection').map((ref) => ref.entityId),
+        ),
       ]
       const orderIds = [
         ...new Set(refs.filter((ref) => ref.entity === 'shipOrder').map((ref) => ref.entityId)),
@@ -813,7 +869,10 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           subjects: [
             { entity: 'issueProjection' as const, entityId: ref.entityId },
             { entity: 'issueGitState' as const, entityId: ref.entityId },
-            ...issueSessions.map((session) => ({ entity: 'session' as const, entityId: session.id })),
+            ...issueSessions.map((session) => ({
+              entity: 'session' as const,
+              entityId: session.id,
+            })),
             ...issueSessions.flatMap((session) =>
               session.resumeValue
                 ? [{ entity: 'conversation' as const, entityId: session.resumeValue }]
@@ -828,6 +887,9 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
             // The lanes of its queued orders: a grant can make a lane readable and a
             // revoke can take the last readable order in it away (POD-4974 O2).
             ...(rows.lanesByIssue.get(ref.entityId) ?? []),
+            // Its effect records and its sessions' (POD-6401): a merge's status is
+            // read by whoever reads the issue, so a grant hands it over at once.
+            ...(rows.effectsByIssue.get(ref.entityId) ?? []),
           ],
         }
       })

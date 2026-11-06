@@ -41,6 +41,7 @@ async function fixture() {
   const session = {
     id: asSessionId('shared'),
     ownerUserId: owner,
+    issueId: 'shared',
     resumeValue: 'conversation',
   } as SessionRow
   const rows: FeedVisibilityStore = {
@@ -51,7 +52,7 @@ async function fixture() {
     sessions: {
       getSessions: async () => new Map([[session.id, session]]),
       findSessionsByResumeValues: async () => new Map([['conversation', session]]),
-      findSessionsByIssueIds: async () => [],
+      findSessionsByIssueIds: async (ids) => (ids.includes(issue.id) ? [session] : []),
     },
     shipping: {
       issueIdsForOrders: async () => new Map(),
@@ -64,6 +65,18 @@ async function fixture() {
       // Three effects: one on the shared issue, one on the shared session, one on
       // a machine; each created by the stranger's neighbour `creator`.
       audiencesOf: async (ids) => new Map([...EFFECT_AUDIENCES].filter(([id]) => ids.includes(id))),
+      liveOnTargets: async (targets) =>
+        [...EFFECT_AUDIENCES]
+          .filter(([, audience]) =>
+            targets.some(
+              (target) => target.kind === audience.targetKind && target.id === audience.targetId,
+            ),
+          )
+          .map(([id, audience]) => ({
+            id,
+            targetKind: audience.targetKind,
+            targetId: audience.targetId,
+          })),
     },
     users: {
       activeAdminIds: async () => {
@@ -188,6 +201,83 @@ describe('feed visibility grant semantics', () => {
     expect(
       (await edgeOf(policy.anchors, { entity: 'issueProjection', entityId: 'shared' }))?.subjects,
     ).toContainEqual(git)
+  })
+  it("effect records share their target's audience and ride its grant/revoke subjects (POD-6401)", async () => {
+    const { store, policy, grant } = await fixture()
+    const authority = new Authority({
+      store: store.sync,
+      now: () => 1_000,
+      transact: async (fn) => await store.transact(fn),
+      visibility: new GrantEdgeVisibilityPolicy(policy.state, new NoDelegationsGranted()),
+      anchors: policy.anchors,
+    })
+    // The merge's record is written before anyone is let in, and does not change after.
+    await authority.capture([
+      {
+        entity: 'issueProjection',
+        entityId: 'shared',
+        op: 'upsert',
+        value: { id: 'shared', revision: 1 },
+      },
+      { entity: 'effect', entityId: 'eff_issue', op: 'upsert', value: { id: 'eff_issue' } },
+    ])
+    const cursor = await authority.cursor()
+    await grant('issue', reader, 'read')
+    await authority.capture([
+      {
+        entity: 'issueProjection',
+        entityId: 'shared',
+        op: 'upsert',
+        value: { id: 'shared', revision: 2 },
+      },
+    ])
+    const delta = await authority.changesSince(cursor, {
+      kind: 'user',
+      user: reader,
+      device: asDeviceId('reader-device'),
+      capability: asCapabilityRef('reader-cap'),
+    })
+    if (delta?.kind !== 'batch') throw new Error('expected a delta batch')
+    // The grant hands the reader the issue's record at once, not at its next
+    // change; the session's, which the issue grant does not open, is an evict.
+    expect(
+      delta.changes
+        .filter((change) => change.entity === 'effect')
+        .map((change) => [change.entityId, change.op]),
+    ).toEqual([
+      ['eff_issue', 'upsert'],
+      ['eff_session', 'evict'],
+    ])
+
+    // The issue's records and its session's ride the issue's edge, and no other target's.
+    const effectsOf = async () =>
+      (
+        await edgeOf(policy.anchors, { entity: 'issueProjection', entityId: 'shared' })
+      )?.subjects.filter((ref) => ref.entity === 'effect')
+    expect(await effectsOf()).toEqual([
+      { entity: 'effect', entityId: 'eff_issue' },
+      { entity: 'effect', entityId: 'eff_session' },
+    ])
+    // Each subject is still decided per reader: the issue grant opens the issue's
+    // record, not the session's.
+    const subjects = (await effectsOf()) ?? []
+    let state = await policy.state.forBatch!(subjects)
+    expect(subjects.map((ref) => state.mayRead(reader, ref))).toEqual([true, false])
+    await grant('session', reader, 'read')
+    state = await policy.state.forBatch!(subjects)
+    expect(subjects.map((ref) => state.mayRead(reader, ref))).toEqual([true, true])
+
+    // A revoke keeps the reader in the edge's audience with the same subjects, so
+    // the records leave their devices with the issue.
+    await store.grants.remove('issue', 'shared', reader, 'read')
+    const revokedEdge = await edgeOf(policy.anchors, {
+      entity: 'issueProjection',
+      entityId: 'shared',
+    })
+    expect(revokedEdge?.audience).toEqual([reader])
+    expect(revokedEdge?.subjects).toContainEqual({ entity: 'effect', entityId: 'eff_issue' })
+    state = await policy.state.forBatch!(subjects)
+    expect(state.mayRead(reader, subjects[0]!)).toBe(false)
   })
   it('an effect is read by its creator and by the readers of its target (POD-6357)', async () => {
     const { policy, grant } = await fixture()

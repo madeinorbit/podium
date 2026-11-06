@@ -238,6 +238,7 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
               { entity: 'issueDep', entityId: issueDepId('iss_0', 'shared_0', 'blocked-by') },
               { entity: 'shipOrder', entityId: 'order-0' },
               { entity: 'shipLane', entityId: shipLaneId(asRepoId('repo-0'), 'local:main') },
+              { entity: 'effect', entityId: 'eff-0' },
             ])
             expect(edges[1]).toBeNull()
             expect(edges[3]).toEqual({
@@ -271,6 +272,20 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
             'cancelled',
             '2026-08-12T11:00:00.000Z',
           )
+          // An effect record on every issue: the edge reads only the batch's (POD-6401).
+          for (let i = 0; i < f.size; i++) {
+            await f.store.effects.insert(
+              {
+                id: `eff-${i}`,
+                kind: 'issue.merge',
+                target: { kind: 'issue', id: `iss_${i}` },
+                input: {},
+                deadlineAt: undefined,
+                createdBy: null,
+              },
+              1_000,
+            )
+          }
           // The installed world: every issue, a dependency and an order each.
           const rows = Array.from({ length: f.size }, (_, i) => {
             const dep = issueDepId(`iss_${i}`, `shared_${i}`, 'blocked-by')
@@ -299,8 +314,8 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
       },
       // Audiences; the lane departure's order, owner, audience, lane members,
       // member rows and member grants; the issues' sessions, dependency ids,
-      // order ids and order rows; and the subjects' values.
-      12,
+      // order ids, order rows and effect records; and the subjects' values.
+      13,
     )
   })
 

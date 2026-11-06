@@ -156,6 +156,32 @@ const audiencesOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
     .prepare(),
 )
 
+// The live records on targets of SEVERAL kinds in one read (POD-6401): every
+// listed kind crossed with every listed id, seeking `idx_effects_target`; the
+// caller keeps only the (kind, id) pairs it asked for. Keyed `<kinds>x<ids>`.
+const liveOnTargetKeys = preparedFamily((db: StoreDrizzle, shape: string) => {
+  const [kindSize, idSize] = shape.split('x').map(Number) as [number, number]
+  return db
+    .select({ id: effects.id, targetKind: effects.targetKind, targetId: effects.targetId })
+    .from(effects)
+    .where(
+      and(
+        inListOf(effects.targetKind, kindSize, 'kind'),
+        inListOf(effects.targetId, idSize, 'id'),
+        live(),
+      ),
+    )
+    .orderBy(asc(effects.createdAt), asc(effects.id))
+    .prepare()
+})
+
+/** One live record's place, as {@link EffectsRepository.liveOnTargets} returns it. */
+export interface EffectOnTarget {
+  readonly id: string
+  readonly targetKind: string
+  readonly targetId: string
+}
+
 /** Which records {@link EffectsRepository.newestOnTarget} asks for. */
 export type EffectPhase = 'active' | 'succeeded'
 
@@ -505,6 +531,33 @@ export class EffectsRepository {
           targetId: row.targetId,
           createdBy: row.createdBy,
         })
+      }
+    }
+    return out
+  }
+
+  /**
+   * The live records on any of these targets, oldest first per target: what a
+   * change in a target's audience re-scopes (POD-6401). Tombstones are left out,
+   * since they have no value left to deliver.
+   */
+  async liveOnTargets(
+    targets: readonly { readonly kind: string; readonly id: string }[],
+  ): Promise<EffectOnTarget[]> {
+    if (targets.length === 0) return []
+    const wanted = new Set(targets.map((target) => `${target.kind}\u0000${target.id}`))
+    const kinds = [...new Set(targets.map((target) => target.kind))]
+    const ids = [...new Set(targets.map((target) => target.id))]
+    const kindSize = inListSize(kinds.length)
+    const out: EffectOnTarget[] = []
+    for (let at = 0; at < ids.length; at += AUDIENCE_CHUNK) {
+      const chunk = ids.slice(at, at + AUDIENCE_CHUNK)
+      const idSize = inListSize(chunk.length)
+      const rows = await liveOnTargetKeys(this.db, `${kindSize}x${idSize}`).all(
+        inListValues(chunk, idSize, 'id', inListValues(kinds, kindSize, 'kind')),
+      )
+      for (const row of rows) {
+        if (wanted.has(`${row.targetKind}\u0000${row.targetId}`)) out.push(row)
       }
     }
     return out
