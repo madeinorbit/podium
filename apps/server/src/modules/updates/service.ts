@@ -1182,9 +1182,17 @@ export class UpdatesService {
     const daemonRefused = message.state === 'current' && message.reasonCode === 'daemon-refused'
     const grantMismatch = message.grantId !== undefined && message.grantId !== pendingGrant?.grantId
     const previousReport = this.machineStates.get(machineId)
+    // A CANCELED PREDECESSOR IS NOT ITS SUCCESSOR'S VERDICT (POD-6529). The
+    // executor cancels an unfinished grant before it accepts the replacement,
+    // so that cancellation always lands while the replacement is pending here.
+    // A crash is `rejected`/`stuck` with another phase; only an executor cancel
+    // carries `canceled`, whatever cause it was given.
+    const supersededCancel =
+      grantMismatch && pendingGrant !== undefined && message.phaseDetail === 'canceled'
     const recoveredTerminal =
       grantMismatch &&
       terminal &&
+      !supersededCancel &&
       (message.targetVersion === target.version ||
         (previousReport?.channel === channel &&
           previousReport.grantId === message.grantId &&
@@ -1204,7 +1212,7 @@ export class UpdatesService {
       log.warn('update status dropped', {
         machineId,
         machine: machine.name,
-        because: 'grant-mismatch',
+        because: supersededCancel ? 'superseded-cancel' : 'grant-mismatch',
         channel,
         knownGrantId: pendingGrant?.grantId,
         ...reported,

@@ -1357,6 +1357,81 @@ describe('UpdatesService', () => {
       expect(await svc.operationActive('dev')).toBe(true)
     })
 
+    // POD-6529: the executor cancels its unfinished grant BEFORE it accepts the
+    // replacement, so that cancellation always arrives while the replacement is
+    // pending. It is the predecessor's ending, not the replacement's verdict.
+    it.each([
+      ['the default cancel', { reasonCode: 'update-canceled', detail: 'Update canceled before activation.' }],
+      ['a cancel with a supplied cause', {
+        reasonCode: 'coordinator-preparation-failed',
+        detail: 'Coordinator activation refused: authority moved',
+      }],
+    ])('keeps the replacement grant after its predecessor reports %s', async (_name, cancel) => {
+      const { svc, send } = make([m('a')])
+      svc.setTarget(target)
+      await svc.authorize()
+      await svc.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        grantId: 'g1',
+        targetVersion: '0.4.2',
+        state: 'downloading',
+        phaseDetail: 'downloading',
+        version: '0.4.1',
+      })
+      expect(await svc.reissueGrants('dev', undefined, TEST_RETRY)).toEqual(['a'])
+      expect(send.mock.calls.at(-1)?.[1]).toMatchObject({ grantId: 'g2' })
+
+      await svc.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        grantId: 'g1',
+        targetVersion: '0.4.2',
+        version: '0.4.1',
+        state: 'rejected',
+        phaseDetail: 'canceled',
+        ...cancel,
+      })
+
+      expect((await svc.fleet())[0]).toMatchObject({ state: 'granted' })
+      expect((await svc.fleet())[0]).not.toHaveProperty('detail')
+      expect(await svc.operationActive('dev')).toBe(true)
+
+      await svc.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        grantId: 'g2',
+        targetVersion: '0.4.2',
+        version: '0.4.1',
+        state: 'downloading',
+        phaseDetail: 'downloading',
+        percent: 5,
+      })
+      expect((await svc.fleet())[0]).toMatchObject({ state: 'downloading', percent: 5 })
+      expect(await svc.operationActive('dev')).toBe(true)
+    })
+
+    it('still fails the pending grant when that grant itself is canceled', async () => {
+      const { svc } = make([m('a')])
+      svc.setTarget(target)
+      await svc.authorize()
+      expect(await svc.reissueGrants('dev', undefined, TEST_RETRY)).toEqual(['a'])
+
+      await svc.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        grantId: 'g2',
+        targetVersion: '0.4.2',
+        version: '0.4.1',
+        state: 'rejected',
+        phaseDetail: 'canceled',
+        reasonCode: 'update-canceled',
+        detail: 'Update canceled before activation.',
+      })
+
+      expect((await svc.fleet())[0]).toMatchObject({
+        state: 'rejected',
+        detail: 'Update canceled before activation.',
+      })
+      expect(await svc.operationActive('dev')).toBe(false)
+    })
+
     it('does not re-grant a source checkout from legacy in-flight state', async () => {
       const source = { ...m('a'), installKind: 'installed' }
       const { svc, send } = make([source])
