@@ -109,23 +109,25 @@ describe('the session family on sync.submit', () => {
     expect(await o.store.messages.getMessage(id)).not.toBeNull()
   })
 
-  it('a send naming a model stays off this path until POD-6356', async () => {
+  it('a send naming a model to a running session answers the plane refusal and stores nothing', async () => {
+    // A wake choice is the plane's to take since POD-6415: a woken session gets
+    // a `session.launch` resume record (wake-model-selection.test.ts); a
+    // running one is not respawned, and no message is queued for it.
     const o = await makeOracle()
     const sessionId = await shellSession(o)
+    const id = 'msg_00000000-0000-4000-8000-0000000000ab'
 
-    const reply = await submit(
-      o,
-      envelope(
-        'sessions.sendText',
-        { sessionId, text: 'hi', model: 'opus' },
-        'msg_00000000-0000-4000-8000-0000000000ab',
-      ),
+    const reply = appliedReply(
+      await submit(o, envelope('sessions.sendText', { sessionId, text: 'hi', model: 'opus' }, id)),
     )
 
-    expect(reply).toEqual({
-      outcome: 'rejected',
-      refusal: { kind: 'invalid', details: ['model'] },
+    expect(reply.result).toEqual({
+      ok: false,
+      reason:
+        '--model/--effort apply only when the session is woken; this session is already running and will not respawn.',
+      disposition: 'dead_letter',
     })
+    expect(await o.store.messages.getMessage(id)).toBeNull()
   })
 
   it('a write to a session that does not exist is refused, and nothing is written', async () => {
