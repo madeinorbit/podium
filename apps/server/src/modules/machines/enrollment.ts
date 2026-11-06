@@ -129,7 +129,8 @@ async function authenticateDaemonUnlocked(
     const enrolled = await deps.store.transact(async () => {
       // Re-read in the enrollment transaction: minting a code does not freeze eligibility.
       const member = await deps.store.users.get(ownerUserId)
-      if (!member || (existing && await deps.store.machines.custodian(existing.id) !== ownerUserId && member.role !== 'admin')) return false
+      if (!member || (existing && await deps.store.machines.custodian(existing.id) !== ownerUserId &&
+        (pairingGrant.clientRegistration !== undefined || member.role !== 'admin'))) return false
       const changed = await deps.store.machines.enrollMachine({
         id: frame.machineId, name: pairingGrant.clientRegistration && existing ? existing.name : name, hostname: frame.hostname, tokenHash: '',
         credentialKind: 'ed25519', publicKey,
@@ -287,6 +288,8 @@ export async function mintClientRegistrationCode(host: EnrollmentHost,
       const incarnation = row ? await host.deps.store.machines.credentialIncarnation(request.machineId) : undefined
       if (row && (!request.publicKey || incarnation !== request.publicKey))
         throw new Error('retained machine key does not match the revoked identity')
+      if (row && await host.deps.store.machines.custodian(request.machineId) !== actor)
+        throw new Error('automatic client registration requires the current custodian; use explicit replacement')
       return { ownerUserId: actor, podiumManaged: row?.podiumManaged ?? true,
         copyAgentCredentials: false, clientRegistration: request,
         ...(row ? { replaceMachineId: request.machineId, replaceIncarnation: incarnation } : {}) }
