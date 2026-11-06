@@ -274,9 +274,7 @@ describe('issue.addSession and issue.begin spawn once per session id', () => {
     const created = entry.mock.calls
       .map(([env]) => env)
       .filter((env) => env.command === 'effects.create')
-    expect(created.map((env) => (env.input as { kind: string }).kind)).toEqual([
-      'issue.addSession',
-    ])
+    expect(created.map((env) => (env.input as { kind: string }).kind)).toEqual(['issue.addSession'])
     const sessionId = (created[0]?.input as { input: { sessionId: string } }).input.sessionId
     expect(spawns(o, sessionId)).toHaveLength(1)
   })
