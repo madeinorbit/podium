@@ -34,6 +34,7 @@ import {
   ownershipSnapshotFromMachines,
 } from '../../machine-access'
 import type { RegistryModules } from '../../relay'
+import { answerThroughEffect, settledResult } from '../interactions/answer-effect'
 import {
   type LifecycleEditsPort,
   SessionCommandCtx,
@@ -293,6 +294,26 @@ export function lifecycleEditsFor(
     },
     // `sessions.configure` as a `session.configure` effect record (POD-6416).
     configure: async (input) => await configureThroughEffect(modules, principal, input),
+    // `sessions.answerAskUserQuestion` as a `session.answer` record (POD-6415).
+    answer: async ({ sessionId, interactionId, choices, skip }) => {
+      const settled = await answerThroughEffect(
+        modules,
+        principal,
+        { kind: 'session', id: sessionId },
+        {
+          via: 'menu',
+          ...(interactionId !== undefined ? { interactionId } : {}),
+          ...(choices !== undefined ? { choices: choices as Record<string, unknown>[] } : {}),
+          ...(skip === true ? { skip: true } : {}),
+        },
+        overrideScope ? { confirmed: true } : {},
+      )
+      if (settled.kind === 'refused') return { ok: false }
+      const answer = settledResult(settled)
+      return 'result' in answer
+        ? (answer.result as { ok: boolean; reason?: string })
+        : { ok: false, reason: answer.message }
+    },
     // `sessions.resume` as a `session.launch` record with a resume ref (POD-6416).
     resume: async (input) => {
       if (modules.sessionLaunches === undefined) throw new Error('no session.launch executor')

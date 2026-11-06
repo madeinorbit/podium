@@ -208,6 +208,13 @@ export interface FamilyState {
     readonly actorSessionId: Capability['actorSessionId']
   }
   readonly feedPrincipal?: import('@podium/protocol').Principal
+  /**
+   * Who is asking, whole, for a family whose write is a record created AS the
+   * caller through the entry point (`interactions.answer` creates a
+   * `session.answer` effect record, POD-6415). The entry point decides on it;
+   * the handler only passes it on, so this is not a decision made here.
+   */
+  readonly principal: Context['principal']
   /** The superagent service. On the bundle because it is a request-context
    *  service like the others and two reads need it; it is NOT on
    *  `RegistryModules`, which is why it is named here rather than selected
@@ -440,6 +447,7 @@ export const familyState = (ctx: Context): FamilyState => ({
     actorSessionId: ctx.capability.actorSessionId,
   },
   feedPrincipal: syncFeedPrincipal(ctx.principal),
+  principal: ctx.principal,
   superagent: ctx.superagent,
 })
 

@@ -200,6 +200,11 @@ export interface LifecycleEditsPort {
    * (POD-6416), in the route's shape. The route never spawns itself.
    */
   resume(input: ResumeInput): Promise<{ sessionId: SessionId }>
+  /**
+   * `sessions.answerAskUserQuestion` as a `session.answer` effect record
+   * (POD-6415), in the route's shape. The route never types at the menu itself.
+   */
+  answer(input: AnswerInput): Promise<{ ok: boolean; reason?: string }>
 }
 
 export interface SessionCommandDeps {
@@ -504,7 +509,7 @@ export type ResumeInput = z.infer<typeof sessionCommandPlaneInputs.resume>
 type InterruptInput = z.infer<typeof sessionCommandPlaneInputs.interrupt>
 type SendInput = z.infer<typeof sessionCommandPlaneInputs.sendText>
 type TargetInput = { sessionId: SessionId }
-type AnswerInput = {
+export type AnswerInput = {
   sessionId: SessionId
   interactionId?: string
   choices?: AnswerChoice[]
@@ -942,7 +947,13 @@ export const SESSION_COMMAND_HANDLERS = {
     // WHICH HUMAN answered is the transport's answer: the contract's schema
     // carries no identity field, so there is nothing to ignore and nothing to
     // spoof. The pair comes from `ctx.principal`.
-    if (!(await ctx.target(input.sessionId, 'sessions.answerAskUserQuestion'))) return { ok: false }
+    const target = await ctx.target(input.sessionId, 'sessions.answerAskUserQuestion')
+    if (!target) return { ok: false }
+    // Delivered by the record's run, after its commit (POD-6415), for the full
+    // id the gate resolved. The direct call serves only the plane's hand-built
+    // test contexts, which compose no effects.
+    const edits = ctx.deps.lifecycleEdits
+    if (edits) return await edits.answer({ ...input, sessionId: target.sessionId })
     return ctx.sessions.answerAskUserQuestion({
       ...input,
       principal: inboxPrincipalFromCommand(ctx.principal),

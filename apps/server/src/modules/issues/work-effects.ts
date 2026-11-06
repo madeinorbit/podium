@@ -61,7 +61,6 @@
 import { randomUUID } from 'node:crypto'
 import {
   asMutationId,
-  asUserId,
   type EffectTarget,
   type IssueId,
   type MachineId,
@@ -69,21 +68,23 @@ import {
   mintDeviceId,
   NewSessionId,
   type SessionId,
-  spawnedByParentSessionId,
 } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
-import {
-  type CommandPrincipal,
-  resolvePrincipalAsync,
-  userCommandPrincipal,
-} from '../../command-principal'
+import type { CommandPrincipal } from '../../command-principal'
 import { liveSessionsUsingWorktree } from '../../issue-util'
 import { checkMachineUse, ownershipSnapshotFromMachines } from '../../machine-access'
 import type { RegistryModules } from '../../relay'
 import type { EffectRow } from '../../store/effects'
 import type { UsersRepository } from '../../store/users'
 import type { EffectExecutor, EffectOutcome } from '../effects/registry'
+import {
+  agentCommandPrincipal,
+  WRITER_NO_LONGER_ALLOWED,
+  writerPrincipalNow,
+  writingAgentOf,
+} from '../effects/writer'
+import { refusalAsTrpcError } from '../sync-write/route-adapter'
 import type { IssueCaller } from './command-ctx'
 import { type AnyIssueCommandDef, issueRegistry } from './registry'
 import { isIssueNotFound } from './service/not-found'
@@ -99,6 +100,9 @@ export const ISSUE_WORK_EFFECT_KIND = {
   cleanup: 'issue.cleanup',
   ship: 'issue.ship',
   refreshAssistant: 'issue.assistant',
+  /** The Tray's answer (POD-6415): the one answer kind, its target the issue
+   *  (`modules/interactions/answer-effect.ts` registers it). */
+  answerQuestion: 'session.answer',
 } as const
 
 export type IssueWorkCommand = keyof typeof ISSUE_WORK_EFFECT_KIND
@@ -120,6 +124,7 @@ const WAIT_MS: Readonly<Record<IssueWorkCommand, number>> = {
   cleanup: 5 * 60 * 1000,
   ship: 5 * 60 * 1000,
   refreshAssistant: 2 * 60 * 1000,
+  answerQuestion: 60 * 1000,
 }
 
 function defOf(name: IssueWorkCommand): AnyIssueCommandDef {
@@ -166,6 +171,9 @@ const failed = (code: string, message: string): EffectOutcome => ({
   error: { code, message },
 })
 
+/** An issue command's thrown refusal as a failed outcome, read back by {@link answerOf}. */
+export const issueCommandFailure = (error: unknown): EffectOutcome => failedOf(error)
+
 function failedOf(error: unknown): EffectOutcome {
   const message = error instanceof Error ? error.message : String(error)
   if (isIssueRefusal(error)) return failed(REFUSED, message)
@@ -182,8 +190,6 @@ const LOST_TRACK: EffectOutcome = {
   },
 }
 
-const NO_LONGER_ALLOWED = 'The writer may no longer do this.'
-
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export interface IssueWorkEffectDeps {
@@ -196,27 +202,6 @@ export interface IssueWorkEffectDeps {
 function callerOf(principal: CommandPrincipal): IssueCaller | undefined {
   if (principal.kind === 'system') return undefined
   return { capability: principal.capability, principal }
-}
-
-/** The writing agent, when an agent wrote it (`session:<id>`). */
-const agentOf = (record: EffectRow): SessionId | undefined =>
-  record.actor?.startsWith('session:')
-    ? (record.actor.slice('session:'.length) as SessionId)
-    : undefined
-
-/** An agent session's principal as it is now; undefined when it is gone. */
-async function agentPrincipal(
-  modules: RegistryModules,
-  agent: SessionId,
-): Promise<CommandPrincipal | undefined> {
-  const sessions = modules.sessions
-  if (!(await sessions.sessionRowExists(agent))) return undefined
-  const capability = await sessions.capabilityForSession(agent)
-  const principal = await resolvePrincipalAsync(capability, {
-    parentSessionOf: async (sessionId) =>
-      spawnedByParentSessionId((await sessions.sessionById(sessionId))?.spawnedBy),
-  })
-  return principal.kind === 'system' ? undefined : principal
 }
 
 /** Whether a daemon can do the work now: the issue's machine, or any machine
@@ -237,17 +222,8 @@ export async function effectWriterOf(
   deps: IssueWorkEffectDeps,
   record: EffectRow,
 ): Promise<IssueCaller | undefined> {
-  if (record.createdBy === null) return undefined
-  const user = await deps.users.get(record.createdBy)
-  if (!user || user.disabledAt) return undefined
-  const agent = agentOf(record)
-  if (agent === undefined) {
-    const principal = userCommandPrincipal(asUserId(user.id), user.role)
-    return { capability: principal.capability, principal }
-  }
-  const principal = await agentPrincipal(deps.modules(), agent)
-  if (principal === undefined || principal.kind === 'system') return undefined
-  return { capability: principal.capability, principal }
+  const principal = await writerPrincipalNow(deps.modules(), deps.users, record)
+  return principal === undefined ? undefined : callerOf(principal)
 }
 
 export function registerIssueWorkEffects(deps: IssueWorkEffectDeps): void {
@@ -268,7 +244,7 @@ export function registerIssueWorkEffects(deps: IssueWorkEffectDeps): void {
     if (checkMachineUse(caller.principal as CommandPrincipal, machineId as MachineId, ownership)) {
       return false
     }
-    const agent = agentOf(record)
+    const agent = writingAgentOf(record)
     const delegated = agent ? ownership.delegatedMachines?.(agent) : undefined
     return delegated === undefined || delegated.has(machineId as MachineId)
   }
@@ -317,8 +293,9 @@ export function registerIssueWorkEffects(deps: IssueWorkEffectDeps): void {
       }
     }
     const caller = await writerOf(record)
-    if (caller === undefined) return failed(REFUSED, NO_LONGER_ALLOWED)
-    if (!(await mayUseIssueMachine(record, caller))) return failed(REFUSED, NO_LONGER_ALLOWED)
+    if (caller === undefined) return failed(REFUSED, WRITER_NO_LONGER_ALLOWED)
+    if (!(await mayUseIssueMachine(record, caller)))
+      return failed(REFUSED, WRITER_NO_LONGER_ALLOWED)
     return await runHandler(record, caller, name, input)
   }
 
@@ -366,13 +343,13 @@ export function registerIssueWorkEffects(deps: IssueWorkEffectDeps): void {
 
   const stopRun = async (record: EffectRow, input: IssueStopInput): Promise<EffectOutcome> => {
     const caller = await writerOf(record)
-    if (caller === undefined) return failed(REFUSED, NO_LONGER_ALLOWED)
+    if (caller === undefined) return failed(REFUSED, WRITER_NO_LONGER_ALLOWED)
     const principal = caller.principal as CommandPrincipal
     const modules = deps.modules()
     const issueId = record.target.id as IssueId
     const issue = await modules.issues.reports.getMeta(issueId)
     if (!issue) return failed('PRECONDITION_FAILED', 'unknown issue')
-    const self = agentOf(record)
+    const self = writingAgentOf(record)
     const members = await modules.sessions.listSessionsForIssue(
       issue.worktreePath ?? null,
       issue.id,
@@ -501,7 +478,7 @@ export function registerIssueWorkEffects(deps: IssueWorkEffectDeps): void {
     ...(opts.needsMachine ? { ready: machineKindReady } : {}),
     run: async (ctx) => {
       const caller = await writerOf(ctx.record)
-      if (caller === undefined) return failed(REFUSED, NO_LONGER_ALLOWED)
+      if (caller === undefined) return failed(REFUSED, WRITER_NO_LONGER_ALLOWED)
       return await runHandler(ctx.record, caller, name, {})
     },
     recover: opts.recover ?? (async () => LOST_TRACK),
@@ -529,7 +506,12 @@ export function registerIssueWorkEffects(deps: IssueWorkEffectDeps): void {
   const kinds = new Set<string>(Object.values(ISSUE_WORK_EFFECT_KIND))
   deps.modules().bus.on('machine.connected', () => {
     for (const kind of kinds) {
-      if (kind === ISSUE_WORK_EFFECT_KIND.refreshAssistant) continue
+      if (
+        kind === ISSUE_WORK_EFFECT_KIND.refreshAssistant ||
+        kind === ISSUE_WORK_EFFECT_KIND.answerQuestion
+      ) {
+        continue
+      }
       effects.runner.poke(kind).catch(() => undefined)
     }
   })
@@ -593,7 +575,7 @@ export async function finishSelfStop(
   sessionId: SessionId,
   force: boolean,
 ): Promise<void> {
-  const principal = await agentPrincipal(modules, sessionId)
+  const principal = await agentCommandPrincipal(modules, sessionId)
   if (principal === undefined) return
   await desireStopped(modules, principal, sessionId, force, `self_${randomUUID()}`)
 }
@@ -646,6 +628,8 @@ function recordInputOf(name: IssueWorkCommand, rest: Record<string, unknown>): o
       return { shell: true, sessionId: rest.sessionId ?? randomUUID() }
     case 'stop':
       return rest.force === true ? { force: true } : {}
+    case 'answerQuestion':
+      return { via: 'issue', text: rest.answer }
     default:
       return {}
   }
@@ -675,6 +659,7 @@ export function issueWorkEffectPort(
       if (
         kind !== ISSUE_WORK_EFFECT_KIND.refreshAssistant &&
         kind !== ISSUE_WORK_EFFECT_KIND.stop &&
+        kind !== ISSUE_WORK_EFFECT_KIND.answerQuestion &&
         !(await machineReady(modules, issueId))
       ) {
         return RUN_INLINE
@@ -705,6 +690,11 @@ export function issueWorkEffectPort(
       )
       if (reply.outcome !== 'applied') {
         if (cause !== undefined) throw cause
+        // A missing or unreachable issue answers as the old route did (a 404 or a
+        // 403), refused at the target check before any record exists.
+        if (reply.refusal.kind === 'target-not-found' || reply.refusal.kind === 'unauthorized') {
+          throw refusalAsTrpcError(`issues.${name}`, reply.refusal)
+        }
         throw new IssueRefusal(`issues.${name} was refused (${reply.refusal.kind})`)
       }
       return answerOf(name, id, await effects.awaitSettled(id, WAIT_MS[name]))

@@ -110,10 +110,11 @@ import { EventLogRetention } from './modules/events/retention'
 import { registerFileWriteEffect } from './modules/files/write-effect'
 import { registerDiscoveryEffects } from './modules/fleet/discovery-effects'
 import { registerFolderEffects } from './modules/fleet/folder-effects'
-import { registerMachineUpdateEffect } from './modules/fleet/update-effect'
 import { registerServerMoveEffect } from './modules/fleet/server-move-effect'
+import { registerMachineUpdateEffect } from './modules/fleet/update-effect'
 import { WriteFunnel } from './modules/funnel'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
+import { registerSessionAnswerEffect } from './modules/interactions/answer-effect'
 import { InteractionFeedPublisher } from './modules/interactions/feed'
 import { deliverToNativeMenu } from './modules/interactions/native-menu-delivery'
 import { InteractionService } from './modules/interactions/service'
@@ -4093,6 +4094,29 @@ export class SessionRegistry {
     })
     // A running session's model or effort changes through its driver (POD-6416).
     registerSessionConfigureEffect({ modules: () => this.modules })
+    // Answering an agent's question, every way Podium answers (POD-6415).
+    registerSessionAnswerEffect({
+      modules: () => this.modules,
+      users: this.store.users,
+      superagentThread: async (id) => await this.store.superagent.getSuperagentThread(id),
+      deliverMenuText: async ({ sessionId, answer, principal }) => {
+        const r = await deliverAnswerToSession(
+          {
+            getSession: async (id) => await sessionsSvc.sessionById(id),
+            sessions: sessionsSvc,
+            messages: messagesSvc,
+            rpc: {
+              readTranscript: async (input) =>
+                await rpc.readTranscript(input, { kind: 'system', id: 'superagent-answer' }),
+            },
+          },
+          { sessionId, answer, principal },
+        )
+        if (!r.ok) return r
+        if (r.via !== 'menu') return { ok: false, message: 'failed: unexpected delivery path' }
+        return { ok: true, choices: r.choices, ...(r.note ? { note: r.note } : {}) }
+      },
+    })
     // Software update and server move start from effect records; the
     // Operations engine is their executor (ADR 12 D5 E3, POD-6358).
     this.modules.updateEffects = registerUpdateEffect({

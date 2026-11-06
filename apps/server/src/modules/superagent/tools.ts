@@ -24,7 +24,8 @@ import type { McpToolProvider } from '../../mcp-route'
 import { spawnPromptMessageId } from '../../message-ids'
 import type { RegistryModules } from '../../relay'
 import type { SessionStore } from '../../store'
-import { deliverAnswerToSession } from './answer-delivery'
+import { agentCommandPrincipal } from '../effects/writer'
+import { answerThroughEffect, settledResult } from '../interactions/answer-effect'
 import { superagentSender } from './send'
 
 /** MCP server name the harness agent sees Podium's tools under (→ tool ids
@@ -138,29 +139,29 @@ export async function buildSuperagentTools(
         const snoozes = await store.sessions.listSnoozes(listPrincipal.userId)
         return JSON.stringify(
           await Promise.all(
-            listed.map(
-              async (s) => {
-                // Reverse of issue_show's session list (issue #72): session cwd →
-                // bound issue, via the same worktree-containment rule as authz scope.
-                const issueId = await issues.reports.issueForCwd(s.cwd)
-                const issue = issueId ? await issues.reports.getMeta(issueId) : null
-                return {
-                  sessionId: s.sessionId,
-                  name: s.name ?? s.title,
-                  kind: s.agentKind,
-                  cwd: s.cwd,
-                  status: s.status,
-                  phase: s.agentState?.phase ?? 'unknown',
-                  archived: s.archived,
-                  lastActiveAt: s.lastActiveAt,
-                  // Provenance + snooze (issue #62): who created it, and whether it's
-                  // parked out of the attention flow (null = until next message).
-                  spawnedBy: s.spawnedBy,
-                  snoozedUntil: Object.hasOwn(snoozes, s.sessionId) ? snoozes[s.sessionId] : undefined,
-                  ...(issue ? { boundIssue: { seq: issue.seq, title: issue.title } } : {}),
-                }
-              },
-            ),
+            listed.map(async (s) => {
+              // Reverse of issue_show's session list (issue #72): session cwd →
+              // bound issue, via the same worktree-containment rule as authz scope.
+              const issueId = await issues.reports.issueForCwd(s.cwd)
+              const issue = issueId ? await issues.reports.getMeta(issueId) : null
+              return {
+                sessionId: s.sessionId,
+                name: s.name ?? s.title,
+                kind: s.agentKind,
+                cwd: s.cwd,
+                status: s.status,
+                phase: s.agentState?.phase ?? 'unknown',
+                archived: s.archived,
+                lastActiveAt: s.lastActiveAt,
+                // Provenance + snooze (issue #62): who created it, and whether it's
+                // parked out of the attention flow (null = until next message).
+                spawnedBy: s.spawnedBy,
+                snoozedUntil: Object.hasOwn(snoozes, s.sessionId)
+                  ? snoozes[s.sessionId]
+                  : undefined,
+                ...(issue ? { boundIssue: { seq: issue.seq, title: issue.title } } : {}),
+              }
+            }),
           ),
         )
       },
@@ -235,9 +236,9 @@ export async function buildSuperagentTools(
             // Not started yet — issues.start owns the whole flow (worktree, branch,
             // agent spawn with the description as first prompt and caller provenance).
             const started = await issues.gitWorkflow.start(issue.id, agentKind, { spawnedBy })
-            const spawned = (await sessions
-              .listSessionsForIssue(started.worktreePath ?? null, issue.id))
-              .find((s) => machinePathsEqual(s.cwd, started.worktreePath!) && s.status !== 'exited')
+            const spawned = (
+              await sessions.listSessionsForIssue(started.worktreePath ?? null, issue.id)
+            ).find((s) => machinePathsEqual(s.cwd, started.worktreePath!) && s.status !== 'exited')
             return JSON.stringify({
               ...(spawned ? { sessionId: spawned.sessionId } : {}),
               cwd: started.worktreePath,
@@ -273,7 +274,10 @@ export async function buildSuperagentTools(
           // a failed spawn attempt and a server restart, and delivered once the
           // CLI settles. It is the new session's spawn prompt, so its id is the
           // session's and a retried start stores it once.
-          await superagentSender(modules.messages, ownerUserId)({
+          await superagentSender(
+            modules.messages,
+            ownerUserId,
+          )({
             sessionId,
             text: first,
             messageId: spawnPromptMessageId(sessionId),
@@ -329,30 +333,29 @@ export async function buildSuperagentTools(
         // The menu gate + option matching live in answer-delivery.ts (issue #53),
         // shared with the web-callable issues.answerQuestion. Menu-only here: no
         // textFallback — this tool's contract is the native menu or a refusal.
+        // Delivered by a `session.answer` record (POD-6415), written as the
+        // superagent's own session.
         const actorSessionId = threadId
           ? (await store.superagent.getSuperagentThread(threadId))?.podiumSessionId
           : undefined
-        const principal = actorSessionId
-          ? await sessions.inboxPrincipalForSession(actorSessionId)
+        const actor = actorSessionId
+          ? await agentCommandPrincipal(modules, actorSessionId)
           : undefined
-        if (!principal || !memoryReader) return 'failed: answer caller identity unavailable'
-        const r = await deliverAnswerToSession(
-          {
-            getSession,
-            sessions,
-            messages: modules.messages,
-            rpc: {
-              readTranscript: async (input) => await rpc.readTranscript(input, memoryReader),
-            },
-          },
-          {
-            sessionId: sessionIdArg(args.sessionId),
-            answer: str(args.answer) ?? '',
-            principal,
-          },
+        if (!actor || !memoryReader) return 'failed: answer caller identity unavailable'
+        const settled = await answerThroughEffect(
+          modules,
+          actor,
+          { kind: 'session', id: sessionIdArg(args.sessionId) },
+          { via: 'tool', text: str(args.answer) ?? '' },
         )
+        // A session out of reach and a missing one answer alike.
+        if (settled.kind === 'refused') return 'unknown session'
+        const answer = settledResult(settled)
+        if (!('result' in answer)) return answer.message
+        const r = answer.result as
+          | { ok: true; choices: unknown; note?: string }
+          | { ok: false; message: string }
         if (!r.ok) return r.message
-        if (r.via !== 'menu') return 'failed: unexpected delivery path' // unreachable without textFallback
         return JSON.stringify({
           answered: true,
           choices: r.choices,
@@ -376,7 +379,10 @@ export async function buildSuperagentTools(
         // The superagent's message (POD-4846), like send_to_agent's, but a wake
         // message: a parked session is resumed. Enveloped, with a delivery
         // status and an id.
-        const r = await superagentSender(modules.messages, ownerUserId)({
+        const r = await superagentSender(
+          modules.messages,
+          ownerUserId,
+        )({
           sessionId: sessionIdArg(args.sessionId),
           text: str(args.text) ?? '',
         })
@@ -399,7 +405,7 @@ export async function buildSuperagentTools(
       },
       run: async (args) => {
         const sessionId = sessionIdArg(args.sessionId)
-        if (!await getSession(sessionId)) return 'unknown session'
+        if (!(await getSession(sessionId))) return 'unknown session'
         const r = await sessions.continueSession({ sessionId })
         return r.ok ? 'sent continue' : 'failed: session must be running and in the errored phase'
       },
@@ -442,7 +448,7 @@ export async function buildSuperagentTools(
       run: async (args) => {
         const sessionId = sessionIdArg(args.sessionId)
         const until = str(args.until) ?? ''
-        if (!await getSession(sessionId)) return 'unknown session'
+        if (!(await getSession(sessionId))) return 'unknown session'
         // null = until next message (SessionMeta.snoozedUntil semantics).
         const value = until === 'next-message' ? null : until
         if (value !== null && Number.isNaN(Date.parse(value))) {
@@ -468,7 +474,7 @@ export async function buildSuperagentTools(
       },
       run: async (args) => {
         const sessionId = sessionIdArg(args.sessionId)
-        if (!await getSession(sessionId)) return 'unknown session'
+        if (!(await getSession(sessionId))) return 'unknown session'
         if (!ownerUserId) return 'unknown superagent thread'
         await sessions.clearSnooze(ownerUserId, sessionId)
         return 'snooze cleared'
@@ -486,7 +492,7 @@ export async function buildSuperagentTools(
       },
       run: async (args) => {
         const sessionId = sessionIdArg(args.sessionId)
-        if (!await getSession(sessionId)) return 'unknown session'
+        if (!(await getSession(sessionId))) return 'unknown session'
         await sessions.renameSession({
           sessionId,
           name: typeof args.name === 'string' ? args.name : '',
@@ -514,7 +520,7 @@ export async function buildSuperagentTools(
         if (!parsed.success) {
           return `invalid workState: expected one of ${WorkState.options.join(' | ')}`
         }
-        if (!await getSession(sessionId)) return 'unknown session'
+        if (!(await getSession(sessionId))) return 'unknown session'
         await sessions.setWorkState({ sessionId, workState: parsed.data })
         return JSON.stringify({ workState: parsed.data })
       },
@@ -542,7 +548,7 @@ export async function buildSuperagentTools(
       },
       run: async (args) => {
         const sessionId = sessionIdArg(args.sessionId)
-        if (!await getSession(sessionId)) return 'unknown session'
+        if (!(await getSession(sessionId))) return 'unknown session'
         const timeoutS = Math.min(120, Math.max(0, num(args.timeoutSeconds) ?? 60))
         // Already settled? Answer from the current state without waiting — the
         // event log only carries TRANSITIONS, so an agent that finished before
@@ -566,9 +572,9 @@ export async function buildSuperagentTools(
         const since = await store.events.maxEventId()
         const deadline = Date.now() + timeoutS * 1000
         while (Date.now() < deadline) {
-          const evs = (await store.events
-            .listEventsSince(since, { kinds: ['session.phase'] }))
-            .filter((e) => e.subject === sessionId)
+          const evs = (
+            await store.events.listEventsSince(since, { kinds: ['session.phase'] })
+          ).filter((e) => e.subject === sessionId)
           const last = evs[evs.length - 1]
           if (last) {
             const p = last.payload as { phase?: string; verdict?: string }
@@ -932,7 +938,11 @@ export async function buildSuperagentTools(
           parameters: spec.inputSchema as Record<string, unknown>,
         },
         run: async (args) =>
-          await issueProvider.callMcpTool(spec.name, args, threadId ? asThreadId(threadId) : undefined),
+          await issueProvider.callMcpTool(
+            spec.name,
+            args,
+            threadId ? asThreadId(threadId) : undefined,
+          ),
       })
     }
   }
