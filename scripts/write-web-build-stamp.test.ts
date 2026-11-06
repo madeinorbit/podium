@@ -4,8 +4,8 @@
 // The chunk hash stays on the stamp as bundleVersion and in a <meta> so the
 // page can read the product string without treating the hash as `v`.
 
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -285,12 +285,13 @@ describe('writeWebBuildStamp and pre-compressed index.html', () => {
 // Pre-compressing it moves that cost into the batch-tier build scope where the
 // rest of the build already runs.
 //
-// A step MAY follow the stamp if it writes nothing into dist. `web-bundle-budget
-// --check` is the only such step (POD-3053: it moved into `build` when `build:dist`
-// was deleted); it reads dist and either passes or fails the command. The
+// A step MAY follow the stamp if it writes nothing into dist.
+// `web-bundle-correctness.ts` is the only such step (POD-3053 moved the bundle
+// check into `build`; POD-6423 cut it down to correctness); it reads dist and
+// either passes or fails the command. The
 // allow-list is deliberately literal — a new trailing step has to be justified
 // here, in front of the reason, rather than slipped in behind a loose pattern.
-const READS_ONLY = /web-bundle-budget\.ts .*--check\s*$/
+const READS_ONLY = /web-bundle-correctness\.ts dist\s*$/
 
 describe.each([
   { pkg: 'apps/web', scripts: ['build', 'build:dev'] },
@@ -376,7 +377,8 @@ describe('rewriteServiceWorkerIndexRevision', () => {
 })
 
 describe('writeWebBuildStamp and the generated service worker', () => {
-  const SW = 'const e=[{url:"assets/index-DHMkD0wf.js",revision:null},{url:"index.html",revision:"856b900ae6d209eaaa37d643e2d6bb76"}];'
+  const SW =
+    'const e=[{url:"assets/index-DHMkD0wf.js",revision:null},{url:"index.html",revision:"856b900ae6d209eaaa37d643e2d6bb76"}];'
   const distWithSw = (): string => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-stamp-sw-'))
     writeFileSync(join(dir, 'index.html'), BUILT_INDEX)
@@ -454,7 +456,9 @@ describe('writeWebBuildStamp and the generated service worker', () => {
       readFileSync(join(restored, CLIENT_BUILD_MANIFEST_FILE), 'utf8'),
     ) as ClientBuildManifest
     expect(manifest.files['sw.js']).toBe(
-      createHash('sha256').update(readFileSync(join(restored, 'sw.js'))).digest('hex'),
+      createHash('sha256')
+        .update(readFileSync(join(restored, 'sw.js')))
+        .digest('hex'),
     )
   })
 })

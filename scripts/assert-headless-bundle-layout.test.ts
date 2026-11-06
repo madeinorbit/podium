@@ -380,7 +380,7 @@ describe('assert-headless-bundle production layout', () => {
         TEST_SOURCE_SHA,
         '--client-root-digest',
         attackerDigest,
-        ],
+      ],
       { encoding: 'utf8', cwd: repoRoot },
     )
     const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
@@ -487,13 +487,7 @@ describe('assert-headless-bundle production layout', () => {
     const tarball = pack(root)
     const result = spawnSync(
       'bash',
-      [
-        'scripts/assert-headless-bundle.sh',
-        tarball,
-        'linux-x86_64',
-        '--source-commit',
-        'fffffff',
-        ],
+      ['scripts/assert-headless-bundle.sh', tarball, 'linux-x86_64', '--source-commit', 'fffffff'],
       { encoding: 'utf8', cwd: repoRoot },
     )
     const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
@@ -593,7 +587,7 @@ describe('the gate and the signing step name the same JIT keys', () => {
       scripts: Record<string, string | undefined>
     }
     expect(web.scripts.build).toBe(
-      'vite build && bun ../../scripts/archive-web-sourcemaps.ts dist && bun ../../scripts/precompress-dist.ts dist && bun --conditions=@podium/source ../../scripts/write-web-build-stamp.ts dist && bun ../../scripts/web-bundle-budget.ts dist --check',
+      'vite build && bun ../../scripts/archive-web-sourcemaps.ts dist && bun ../../scripts/precompress-dist.ts dist && bun --conditions=@podium/source ../../scripts/write-web-build-stamp.ts dist && bun ../../scripts/web-bundle-correctness.ts dist',
     )
     expect(web.scripts['build:dist']).toBeUndefined()
     expect(mobile.scripts.build).toBe(

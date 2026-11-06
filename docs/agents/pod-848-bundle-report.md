@@ -43,7 +43,6 @@ policy prose; the final chunk contains only `settings/write-plan.ts` and the sma
 
 ## Regression guard
 
-`scripts/web-bundle-budget.ts` reads the production HTML, JavaScript, and hidden source maps. The web
-build now fails if the ownership matrix returns to any browser chunk, command sources enter the eager
-graph, unrelated command registries enter Settings, or the eager/Settings raw, gzip, Brotli, and
-parsed-source budgets are exceeded.
+Removed in POD-6423. This report's numbers are a historical measurement: the web build no longer
+checks module placement or bundle size, so nothing fails if the ownership matrix or command
+sources return to the startup graph.

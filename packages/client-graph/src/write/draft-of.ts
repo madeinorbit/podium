@@ -1,6 +1,6 @@
 /** The edit draft of an issue form: `draft()` over the issue's editable fields.
  * Import it as `@podium/client-graph/write/draft-of` from the form's screen, so
- * it loads with that screen, never at startup (`scripts/web-bundle-budget.ts`). */
+ * it loads with that screen, never at startup. */
 import { type Draft, draft } from '@podium/mobx-helpers'
 import type { ModelOf } from '../models'
 import { EDITABLE_FIELDS, type EditPatch, type TxId } from './commands'
@@ -11,9 +11,9 @@ type IssueObject = ModelOf['issue']
  * (`commandFor` refuses it mixed with others), so it is never a form field. */
 export type IssueDraftField = Exclude<keyof EditPatch<'issue'>, 'readAt'>
 
-const ISSUE_DRAFT_FIELDS = (Object.keys(EDITABLE_FIELDS.issue) as (keyof EditPatch<'issue'>)[]).filter(
-  (field): field is IssueDraftField => field !== 'readAt',
-)
+const ISSUE_DRAFT_FIELDS = (
+  Object.keys(EDITABLE_FIELDS.issue) as (keyof EditPatch<'issue'>)[]
+).filter((field): field is IssueDraftField => field !== 'readAt')
 
 export type IssueDraft = Draft<IssueObject, IssueDraftField, TxId>
 

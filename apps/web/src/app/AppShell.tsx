@@ -145,9 +145,9 @@ const AutoContinueDialog = lazy(() =>
  * a `<Select>`, and `@base-ui/react`'s select is 27 modules and ~90 KB that
  * nothing else on the first paint uses.
  *
- * Deferred the way every other gesture surface here is (see
- * INTERACTION_ONLY_MODULES in scripts/web-bundle-budget.ts, which now fails the
- * build by name if this comes back eager). The first hover pays one chunk
+ * Deferred the way every other gesture surface here is; no build check guards
+ * this any more (the size budget was removed in POD-6423), so keep the import
+ * lazy by hand. The first hover pays one chunk
  * fetch; `prefetchAfterFirstPaint` below spends the idle time after the shell
  * mounts so that in practice it has already arrived.
  */
