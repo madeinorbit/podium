@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Restore macOS Codex transcript recovery when native hooks are missing or not yet trusted, and install hooks using the same verified Codex installation used to launch the session.
+- Include all registration, retained-client recovery, bundled startup rescue, ownership-state and server-shutdown fixes from 0.3.1-edge.1.
+
+### Testing
+
+- This edge build includes the macOS Codex hotfix from commit 4543f1c2f. Packaged macOS agent acceptance and the full signed-update-after-rescue journey remain under verification.
+
 ## [0.3.1-edge.1] - 2026-11-06
 
 ### Fixed
