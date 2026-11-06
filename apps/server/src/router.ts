@@ -515,6 +515,12 @@ export const appRouter = t.router({
   // and `router.mail-derivation.test.ts` asserts it against this file's TEXT —
   // an audit that reads the source is the only kind that notices the tenth
   // procedure someone adds by hand next year.
+  //
+  // THE WRITES ARE ON THE SYNC WRITE ENTRY POINT (POD-6525): `send`, `reply`,
+  // `inbox`, `dismiss`, `cancel`, `dismissNotice` and `sessions.ask` reach their
+  // handler through `submit` with the transport tag `trpc` (the gate is the
+  // adapter).
+  // LEGACY(remove-after: 2027-03): these write routes, for the shipped mobile app, the desktop app's bundled web and older CLIs; removing one breaks that client's mail.
   messages: t.router({
     send: mailMutation('send'),
     // A mutation on the wire, because the recipient's own inbox read CONSUMES

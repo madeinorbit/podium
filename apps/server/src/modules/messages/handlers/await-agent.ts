@@ -17,7 +17,7 @@
  */
 
 import type { awaitAgentContract, ContractInput } from '@podium/commands'
-import type { SessionMeta, SessionId } from '@podium/model'
+import type { SessionId, SessionMeta } from '@podium/model'
 import { isSpawnedBy } from '@podium/model'
 import type { Capability } from '../../../issue-authz'
 import type { MailHandlerContext } from './context'
@@ -45,7 +45,6 @@ export async function awaitAgentHandler(
   // ack from a previous round must not satisfy a new await, or the parent
   // believes new work finished when the child never acked the new instruction.
   const waitStart = deps.now?.() ?? new Date().toISOString()
-  // biome-ignore lint/nursery/noConstantCondition: loop exits via return
   for (;;) {
     const s = await deps.sessionById(input.sessionId)
     if (!s) {
@@ -151,12 +150,17 @@ function finishAwait(
 ): { done: boolean; result: string; snapshot: unknown; ack?: unknown } {
   if (isParent && shouldConsumeSessionParentSettle(outcome.result, phase, status)) {
     const parentId = caller.capability.actorSessionId
-    if (parentId) {
+    if (parentId && ctx.observed) {
+      // On the sync write entry point, as its own write after the wait (POD-6525).
+      ctx.observed(childSessionId)
+    } else if (parentId) {
       try {
-        ctx.deps.retireNotificationFact?.(
-          `sessionparentnudge:phase-reported:${childSessionId}`,
-          parentId,
-        )
+        void Promise.resolve(
+          ctx.deps.retireNotificationFact?.(
+            `sessionparentnudge:phase-reported:${childSessionId}`,
+            parentId,
+          ),
+        ).catch(() => undefined)
       } catch {
         // never throw from await
       }

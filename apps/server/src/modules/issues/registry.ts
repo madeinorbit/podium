@@ -1401,6 +1401,9 @@ const defs = {
         to: { kind: 'issue', id: input.id },
         body: input.body,
         ...(input.messageId ? { messageId: input.messageId } : {}),
+        // On the sync write entry point (POD-6525) an address that can never be
+        // delivered to is answered with its dead letter in the write.
+        terminalInUnit: true,
       })
       // Surface the honest disposition (#834): held / dead_letter must never be a
       // bare success. The old code discarded r.ok/queued/reason and returned only

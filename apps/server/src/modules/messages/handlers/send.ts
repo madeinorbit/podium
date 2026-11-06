@@ -60,6 +60,7 @@ export async function sendHandler(
     ...(input.lifecycle ? { lifecycle: input.lifecycle } : {}),
     ...(input.expectResponse ? { expectsResponse: true } : {}),
     ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
+    ...(ctx.inEntry ? { terminalInUnit: true } : {}),
   }
   const r = await svc.send(from, payload)
   return {

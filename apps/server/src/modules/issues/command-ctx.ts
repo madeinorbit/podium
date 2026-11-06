@@ -64,6 +64,12 @@ export function spawnProvenanceOf(capability: IssueCaller['capability']): string
   return 'agent'
 }
 
+/** A send's delivery outcome, as a send answers it (`MessageSendResult`'s part). */
+export type MailHandOn = Pick<
+  MessageSendResult,
+  'ok' | 'queued' | 'reason' | 'position' | 'disposition'
+>
+
 export interface IssueCommandDeps {
   /**
    * Merge, rebase, PR and integrate as effect records (POD-6394): the command
@@ -142,6 +148,9 @@ export interface IssueCommandDeps {
     from: MessageSender,
     input: MessageSendInput,
   ): MessageSendResult | Promise<MessageSendResult>
+  /** What a send's hand-on after its commit found (POD-6525,
+   *  `MessageDeliveryService.handOnOf`): `mailSend`'s old doors answer with it. */
+  mailHandOnOf?(messageId: string): Promise<MailHandOn | undefined>
   /** Deliver a Tray answer to the asking agent session (issue #53): the shared
    *  answer_question matching path (modules/superagent/answer-delivery) with
    *  text fallback for sessions without a live menu. Injected by the relay;

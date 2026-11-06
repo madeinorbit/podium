@@ -46,7 +46,7 @@ import {
   type SyncWriteTarget,
 } from '../sync-write/registry'
 import { mutationIdOf } from '../sync-write/route-adapter'
-import { commandAccess, type IssueCaller, spawnProvenanceOf } from './command-ctx'
+import { commandAccess, type IssueCaller, type MailHandOn, spawnProvenanceOf } from './command-ctx'
 import { type AnyIssueCommandDef, issueRegistry } from './registry'
 import type { IssueTrackerCapabilities } from './service'
 import { isIssueNotFound } from './service/not-found'
@@ -203,6 +203,30 @@ export async function submitIssueWrite(
     call.principal,
     call.transport,
   )
+}
+
+/**
+ * LEGACY(remove-after: 2027-03): `mailSend`'s answer on its old doors (the route, the relay, MCP), with the hand-on its send started after the commit; the CLI's `podium issue mail send` prints it. Removing it shows every send as queued.
+ *
+ * The write answers at its commit, before the hand-on; a replay, and a dead
+ * letter answered in the write, keep the recorded answer.
+ */
+export async function answerMailSendAsBefore(
+  handOnOf: ((messageId: string) => Promise<MailHandOn | undefined>) | undefined,
+  result: unknown,
+): Promise<unknown> {
+  const recorded = result as Record<string, unknown> | null
+  const id = recorded?.id
+  if (handOnOf === undefined || recorded === null || typeof id !== 'string') return result
+  const outcome = await handOnOf(id)
+  if (outcome === undefined) return result
+  const { ok: _ok, disposition: _disposition, reason: _reason, ...rest } = recorded
+  return {
+    ...rest,
+    ok: outcome.ok,
+    disposition: outcome.disposition,
+    ...(outcome.reason ? { reason: outcome.reason } : {}),
+  }
 }
 
 /** The create input fields the start reads. */

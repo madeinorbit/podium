@@ -95,6 +95,7 @@ import type { ModelProbe } from './model-catalog'
 import { resolveLaunchSelection } from './model-validation'
 import { NativeLoginService } from './modules/accounts/native-login'
 import { AgentProfileService } from './modules/agent-profiles/service'
+import { registerApprovalExecuteEffect } from './modules/approvals/execute-effect'
 import { APPROVAL_STALL_SWEEP_MS, ApprovalService } from './modules/approvals/service'
 import { automationPromptSender } from './modules/automations/prompt'
 import { AutomationScheduler } from './modules/automations/scheduler'
@@ -115,7 +116,6 @@ import { registerMachineUpdateEffect } from './modules/fleet/update-effect'
 import { WriteFunnel } from './modules/funnel'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
 import { registerSessionAnswerEffect } from './modules/interactions/answer-effect'
-import { registerApprovalExecuteEffect } from './modules/approvals/execute-effect'
 import { InteractionFeedPublisher } from './modules/interactions/feed'
 import { deliverToNativeMenu } from './modules/interactions/native-menu-delivery'
 import { InteractionService } from './modules/interactions/service'
@@ -197,14 +197,17 @@ import { SessionReadToolkit } from './modules/sessions/read-toolkit'
 import { readSessionRefs } from './modules/sessions/refs'
 import type { Session } from './modules/sessions/session'
 import { registerSessionConfigureEffect } from './modules/sessions/session-configure-effect'
+import { registerSessionHandoffEffect } from './modules/sessions/session-handoff-effect'
 import {
   registerSessionInterruptEffect,
   type SessionInterruptsHandle,
 } from './modules/sessions/session-interrupt-effect'
-import { registerSessionHandoffEffect } from './modules/sessions/session-handoff-effect'
 import {
+  createSpawnLaunchInUnit,
+  refuseUnplaceable,
   registerSessionLaunchEffect,
   SESSION_LAUNCH_KIND,
+  settledSpawnLaunch,
 } from './modules/sessions/session-launch-effect'
 import type { SnapshotTail } from './modules/sessions/session-lifecycle-types'
 import {
@@ -2514,9 +2517,7 @@ export class SessionRegistry {
       // whose scope refuses synced writes; the notice it triggers is not one.
       sendMail: async (issueId, from, body) => {
         try {
-          await asSystemWrite(
-            async () => await systemIssueNotice(messagesSvc, from)(issueId, body),
-          )
+          await asSystemWrite(async () => await systemIssueNotice(messagesSvc, from)(issueId, body))
         } catch {}
       },
       appendEvent: async (e) => {
@@ -2960,6 +2961,25 @@ export class SessionRegistry {
             new Date(this.now()).toISOString(),
           )
         },
+        // The mail writes go through the sync write entry point (POD-6525);
+        // read per call, because the entry point is composed after the gate.
+        // Before the module set exists (boot), a write dispatches directly.
+        syncWrite: () => (this.modules as RegistryModules | undefined)?.syncWrite,
+        // An agent's spawn is a `session.launch` record its write creates
+        // (POD-6525); the adapter waits for it.
+        spawnRecord: {
+          refuseUnplaceable: async (principal, input) => {
+            if (principal.kind === 'system') throw new Error('a system principal spawns no agent')
+            await refuseUnplaceable(this.modules, principal, {
+              cwd: input.cwd,
+              ...(input.machineId !== undefined ? { machineId: input.machineId } : {}),
+              ...(input.agentKind !== undefined ? { agentKind: input.agentKind as AgentKind } : {}),
+            })
+          },
+          create: async (principal, launch) =>
+            await createSpawnLaunchInUnit(this.modules, principal, launch),
+          settled: async (effectId) => await settledSpawnLaunch(this.modules, effectId),
+        },
       },
       mail.gateOptions,
     )
@@ -3210,6 +3230,8 @@ export class SessionRegistry {
         inferRepoFromRoots(await this.store.repos.listRepoPaths(), path),
       // mailSend rides the unified substrate (#237) [spec:SP-34d7].
       sendMessage: async (from, input) => await messagesSvc.send(from, input),
+      // mailSend's old doors answer with the hand-on after its commit (POD-6525).
+      mailHandOnOf: async (messageId) => await messagesSvc.handOnOf(messageId),
       // Tray answer delivery (issue #53): the shared answer_question matching
       // path, with text fallback — no live menu means the answer arrives as the
       // answerer's own message, which wakes a parked session (POD-4846).

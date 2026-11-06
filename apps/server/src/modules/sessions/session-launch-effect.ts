@@ -45,7 +45,12 @@ import {
 } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
-import { type CommandPrincipal, userCommandPrincipal } from '../../command-principal'
+import {
+  attributionOf,
+  type CommandPrincipal,
+  onBehalfOfUser,
+  userCommandPrincipal,
+} from '../../command-principal'
 import { checkMachineUse, ownershipSnapshotFromMachines } from '../../machine-access'
 import type { RegistryModules } from '../../relay'
 import type { EffectRow } from '../../store/effects'
@@ -102,6 +107,26 @@ export const SessionLaunchInput = sessionCommandPlaneInputs.create
         model: z.string().min(1).optional(),
         effort: z.string().min(1).optional(),
         forceUnknownModel: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
+    /**
+     * AN AGENT'S SPAWN (POD-6525): `podium agent spawn`, whose write decided
+     * everything a start decides (the issue, its folder, the harness, the
+     * machine, the budget) and checked it. The run starts the child as the
+     * spawn always did, under the spawning session and the issue's owner.
+     */
+    spawnAgent: z
+      .object({
+        /** The session's owner: the issue's, else the spawner's human. */
+        ownerUserId: z.string().min(1),
+        /** The spawner (`session:<id>`, `user`, `agent`): the child's parent. */
+        spawnedBy: z.string().min(1),
+        /** The curated name the spawner gave it (`--title`). */
+        name: z.string().min(1).optional(),
+        workflowRunId: z.string().optional(),
+        workflowStepId: z.string().optional(),
+        agentProfileId: z.string().optional(),
       })
       .strict()
       .optional(),
@@ -194,6 +219,17 @@ export function registerSessionLaunchEffect(deps: SessionLaunchEffectDeps): {
     if (input.machineId !== undefined && !(await mayUse(record, input.machineId, writer.role))) {
       return refused(NO_LONGER_ALLOWED)
     }
+    if (input.spawnAgent !== undefined) {
+      try {
+        return {
+          status: 'succeeded',
+          result: await spawnAgentNow(deps.modules(), sessionId, input, input.spawnAgent),
+        }
+      } catch (error) {
+        remember(record.id, error)
+        return refused(error instanceof Error ? error.message : String(error))
+      }
+    }
     const capability = userCommandPrincipal(asUserId(writer.id), writer.role).capability
     const ctx = await sessionCommandCtx(deps.modules(), capability, false, 'trpc')
     const resumed = resumeInputOf(input)
@@ -239,11 +275,18 @@ export function registerSessionLaunchEffect(deps: SessionLaunchEffectDeps): {
         return undefined
       }
     },
-    /** A resume names its agent and its conversation, or it is refused now. */
+    /**
+     * A resume names its agent and its conversation, or it is refused now. An
+     * agent's spawn is created only by `mail.spawnAgent`'s own write, which
+     * checked what it names (the owner, the parent): nobody creates one through
+     * `effects.create` (POD-6525).
+     */
     admit: async (input) =>
-      resumeInputOf(input)?.success === false
-        ? { kind: 'invalid', message: 'a resume names its agent and its conversation' }
-        : undefined,
+      input.spawnAgent !== undefined
+        ? { kind: 'invalid', message: 'an agent spawn is started with `podium agent spawn`' }
+        : resumeInputOf(input)?.success === false
+          ? { kind: 'invalid', message: 'a resume names its agent and its conversation' }
+          : undefined,
     publish: (input) => ({
       ...(input.agentKind !== undefined ? { agentKind: input.agentKind } : {}),
       cwd: input.cwd,
@@ -293,6 +336,41 @@ export function registerSessionLaunchEffect(deps: SessionLaunchEffectDeps): {
   return { errorOf: (id) => errors.get(id) }
 }
 
+/**
+ * An agent's spawn, run (POD-6525): wait for the machine's first inventory of
+ * this connection (a daemon that just attached is online before its probe
+ * ends), then the one spawn path, under the record's session id. The write
+ * already placed and checked it; the writer was checked again just now.
+ */
+async function spawnAgentNow(
+  modules: RegistryModules,
+  sessionId: SessionId,
+  input: SessionLaunchInput,
+  spawn: NonNullable<SessionLaunchInput['spawnAgent']>,
+): Promise<SessionSpawnResult> {
+  if (input.machineId !== undefined && input.agentKind !== 'shell') {
+    await modules.machines.waitForInventory(input.machineId)
+  }
+  return await modules.sessions.createSession({
+    requestTerminalDriver: true,
+    sessionId,
+    ownerUserId: asUserId(spawn.ownerUserId),
+    cwd: input.cwd,
+    ...(input.agentKind !== undefined ? { agentKind: input.agentKind } : {}),
+    ...(input.initialPrompt ? { initialPrompt: input.initialPrompt } : {}),
+    ...(input.model !== undefined ? { model: input.model } : {}),
+    ...(input.effort !== undefined ? { effort: input.effort } : {}),
+    ...(input.forceUnknownModel ? { forceUnknownModel: true } : {}),
+    ...(input.issueId !== undefined ? { issueId: input.issueId } : {}),
+    spawnedBy: spawn.spawnedBy,
+    ...(input.machineId !== undefined ? { machineId: input.machineId } : {}),
+    ...(spawn.name !== undefined ? { name: spawn.name } : {}),
+    ...(spawn.workflowRunId !== undefined ? { workflowRunId: spawn.workflowRunId } : {}),
+    ...(spawn.workflowStepId !== undefined ? { workflowStepId: spawn.workflowStepId } : {}),
+    ...(spawn.agentProfileId !== undefined ? { agentProfileId: spawn.agentProfileId } : {}),
+  })
+}
+
 const refused = (message: string): EffectOutcome => ({
   status: 'failed',
   error: { code: 'refused', message },
@@ -305,7 +383,7 @@ const refused = (message: string): EffectOutcome => ({
  * pinned in oracle-errors), or "no machine is online". These are reads:
  * nothing is prepared or cloned.
  */
-async function refuseUnplaceable(
+export async function refuseUnplaceable(
   modules: RegistryModules,
   principal: Exclude<CommandPrincipal, { kind: 'system' }>,
   input: { machineId?: MachineId; cwd: string; agentKind?: AgentKind },
@@ -453,5 +531,59 @@ export async function resumeThroughLaunchEffect(
   }
   throw new Error(
     `the resume is ${settled?.status ?? 'unknown'}; its session shows on the session list`,
+  )
+}
+
+/**
+ * AN AGENT'S SPAWN, CREATED IN ITS WRITE (POD-6525): the `session.launch` record
+ * of `mail.spawnAgent`, in the write's own unit of work, attributed to the
+ * spawner (its human, and the spawning session as actor). Its run checks that
+ * writer again before it starts anything.
+ */
+export async function createSpawnLaunchInUnit(
+  modules: RegistryModules,
+  principal: CommandPrincipal,
+  launch: { sessionId: SessionId; input: Record<string, unknown> },
+): Promise<{ effectId: string }> {
+  const effects = modules.effects
+  if (effects === undefined) throw new Error('agent spawn: no effects module is composed')
+  const effectId = mintDeviceId('eff_')
+  await effects.createInUnit({
+    id: effectId,
+    kind: SESSION_LAUNCH_KIND,
+    target: { kind: 'session', id: launch.sessionId },
+    input: launch.input,
+    createdBy: onBehalfOfUser(principal),
+    actor: attributionOf(principal).actor,
+  })
+  return { effectId }
+}
+
+/**
+ * Wait for an agent's spawn record to settle (POD-6525), for the adapter that
+ * answers `podium agent spawn` as before: the start's result, or the start's
+ * own refusal thrown. A record that started its child on an earlier run
+ * answers with the child's id.
+ */
+export async function settledSpawnLaunch(
+  modules: RegistryModules,
+  effectId: string,
+): Promise<SessionSpawnResult | { sessionId: string }> {
+  const effects = modules.effects
+  if (effects === undefined) throw new Error('agent spawn: no effects module is composed')
+  const settled = await effects.awaitSettled(effectId, SESSION_LAUNCH_WAIT_MS)
+  if (settled?.status === 'succeeded') {
+    const result = settled.result as SessionSpawnResult | { sessionId: string } | undefined
+    if (result !== undefined && typeof result.sessionId === 'string') return result
+    return { sessionId: settled.target.id }
+  }
+  if (settled?.status === 'failed') {
+    throw (
+      modules.sessionLaunches?.errorOf(effectId) ??
+      new Error(settled.error?.message ?? 'the agent could not start')
+    )
+  }
+  throw new Error(
+    `the agent's start is ${settled?.status ?? 'unknown'}; its session shows on the session list`,
   )
 }

@@ -35,16 +35,17 @@ import {
   asSessionId,
   type IssueId,
   isSpawnedBy,
-  type SessionId,
   type MachineId,
+  type SessionId,
   type UserId,
 } from '@podium/model'
 import { type CommandPrincipal, onBehalfOfUser } from '../../../command-principal'
 import { type Capability, checkIssueAccess, mayReadOwned } from '../../../issue-authz'
+import { failureNoticeId } from '../../../message-ids'
 import type { MessageRow } from '../../../store'
 import { withReadScope } from '../../../store/executor/read-scope'
-import { failureNoticeId } from '../../../message-ids'
 import type { MessageGateDeps, MessageWire } from '../gate'
+import { MailRefusal } from '../refusal'
 import type { MessageDeliveryDeps } from '../service'
 
 /** Wake-path placement port — see {@link MessageDeliveryDeps.placementAtWake}. */
@@ -151,7 +152,9 @@ export interface PrincipalMailPolicy {
   principalForMessage(
     message: MessageRow,
   ): CommandPrincipal | undefined | Promise<CommandPrincipal | undefined>
-  policyFor(principal: CommandPrincipal):
+  policyFor(
+    principal: CommandPrincipal,
+  ):
     | { ceiling: HumanCeiling; machines: MachineAccess }
     | Promise<{ ceiling: HumanCeiling; machines: MachineAccess }>
   /** The ceiling half of `policyFor` alone, for the apply-time check, which
@@ -165,7 +168,9 @@ export function principalMailPolicy(opts: PrincipalMailPolicy): {
   placementAtWake: WakePlacementPort
   gateOptions: {
     principalForCapability(capability: Capability): CommandPrincipal | Promise<CommandPrincipal>
-    policyFor(principal: CommandPrincipal):
+    policyFor(
+      principal: CommandPrincipal,
+    ):
       | { ceiling: HumanCeiling; machines: MachineAccess }
       | Promise<{ ceiling: HumanCeiling; machines: MachineAccess }>
   }
@@ -230,6 +235,20 @@ export interface MailHandlerContext {
   caller: MailCaller
   deps: MessageGateDeps
   access: MailAccess
+  /**
+   * The handler runs as a write on the sync write entry point (POD-6525), in
+   * its unit of work: a send answers an undeliverable address with its dead
+   * letter in the write, and work outside the database waits for the commit.
+   * Absent for a direct dispatch (a read, a fixture, a caller already inside
+   * someone else's write).
+   */
+  inEntry?: boolean
+  /**
+   * An await saw the child settle (POD-6525): the gate retires the parent's
+   * wake claim as its own write once the wait is over. Absent = the await
+   * retires it itself, directly.
+   */
+  observed?(child: SessionId): void
 }
 
 /**
@@ -292,11 +311,15 @@ export class MailAccess {
    *  slice (#237 authz): issue-bound targets need write access to that issue;
    *  issueless targets are parent/operator-only (--outside-scope never
    *  substitutes there). */
-  async assertSessionTargetAccess(caller: MailCaller, sessionId: SessionId, proc: string): Promise<void> {
+  async assertSessionTargetAccess(
+    caller: MailCaller,
+    sessionId: SessionId,
+    proc: string,
+  ): Promise<void> {
     const target = await this.deps.sessionById(sessionId)
-    if (!target) throw new Error('session not found')
+    if (!target) throw new MailRefusal('target-not-found', 'session not found')
     const issues = this.deps.issues
-    const targetIssueId = target.issueId ?? await issues.reports.issueForCwd(target.cwd)
+    const targetIssueId = target.issueId ?? (await issues.reports.issueForCwd(target.cwd))
     if (targetIssueId) {
       await checkIssueAccess(caller, commandAccess(issues), proc, 'write', targetIssueId)
       return
@@ -306,7 +329,10 @@ export class MailAccess {
       caller.capability.actorSessionId !== undefined &&
       isSpawnedBy(target.spawnedBy, { kind: 'session', id: caller.capability.actorSessionId })
     if (!isOperator && !isParent) {
-      throw new Error('target session has no issue; only its parent or the operator may message it')
+      throw new MailRefusal(
+        'unauthorized',
+        'target session has no issue; only its parent or the operator may message it',
+      )
     }
   }
 
@@ -375,14 +401,20 @@ export class MailAccess {
   /** `user` may read session `id`, as the session queries decide it. */
   private async mayReadSession(user: UserId, id: string): Promise<boolean> {
     const target = await this.deps.sessionOwner?.(asSessionId(id))
-    return target !== undefined && mayReadOwned(user, { id, owner: target.owner, grants: target.grants })
+    return (
+      target !== undefined && mayReadOwned(user, { id, owner: target.owner, grants: target.grants })
+    )
   }
 
   async wire(m: MessageRow): Promise<MessageWire> {
     const issues = this.deps.issues
     const notice =
       m.deliveryStatus === 'failed' ? await this.deps.messages.message(failureNoticeId(m.id)) : null
-    const label = async (kind: string, issueId: IssueId | null, sessionId: SessionId | null): Promise<string> => {
+    const label = async (
+      kind: string,
+      issueId: IssueId | null,
+      sessionId: SessionId | null,
+    ): Promise<string> => {
       if (kind === 'agent' || kind === 'issue') {
         if (issueId) {
           const issue = await issues.reports.getMeta(issueId)

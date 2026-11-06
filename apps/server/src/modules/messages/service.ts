@@ -26,20 +26,6 @@
  *    operator is an invariant).
  */
 
-import { createLogger } from '@podium/logger'
-import {
-  asThreadId,
-  isMessageHandedOn,
-  isMessagePending,
-  isSpawnedBy,
-  type IssueId,
-  type MachineId,
-  MessageDelivery,
-  type MessageDeliveryStatus,
-  type MessageHeld,
-  type HarnessRef,
-  type TranscriptItemRef,
-} from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import {
   AUTO_CONTINUE_SENDER,
@@ -48,6 +34,7 @@ import {
   type PlacementDecision,
   senderBrakeKey,
 } from '@podium/commands'
+import { createLogger } from '@podium/logger'
 import {
   type Attribution,
   actorAgent,
@@ -56,12 +43,23 @@ import {
   asAgentIdentityId,
   asIssueId,
   asSessionId,
-  isIssueClosed,
-  isNotInConversationCause,
+  asThreadId,
+  type HarnessRef,
+  type IssueId,
   type IssueScope,
+  isIssueClosed,
+  isMessageHandedOn,
+  isMessagePending,
+  isNotInConversationCause,
+  isSpawnedBy,
+  type MachineId,
+  MessageDelivery,
+  type MessageDeliveryStatus,
+  type MessageHeld,
   type NotInConversationCause,
   type SessionId,
   type SessionMeta,
+  type TranscriptItemRef,
 } from '@podium/model'
 import { asDelegationRef } from '@podium/protocol'
 import type {
@@ -81,25 +79,21 @@ import type {
   MessageUrgency,
 } from '../../store'
 import type { EventsRepository } from '../../store/events'
-import { type MessagePageCursor, type MessagesRepository, moved } from '../../store/messages'
 import { afterCommit, spanOpen } from '../../store/executor/executor'
-import { withReadScope } from '../../store/executor/read-scope'
 import { withOwnOperation } from '../../store/executor/operation-scope'
+import { withReadScope } from '../../store/executor/read-scope'
+import { type MessagePageCursor, type MessagesRepository, moved } from '../../store/messages'
 import type { NotificationFactsRepository } from '../../store/notification-facts'
 import { NotificationArbiter } from '../../store/notification-facts'
+import { outsideWriteProvenance } from '../../write-provenance'
 import type { IssueService } from '../issues/service'
-import type { InboxPrincipalReference, QueuedRetract } from '../sessions/inbox'
 import type { SessionFacts } from '../sessions/facts'
+import type { InboxPrincipalReference, QueuedRetract } from '../sessions/inbox'
 import { DeliveryBrakes, SPAWN_BUDGET_PER_DAY } from './brakes'
 import { MessageMailbox } from './mailbox'
 import { deliveredByAJob, INLINE_BODY_MAX, MessageRenderer, principalOfRow } from './render'
 import { type DeliveryRunner, DeliveryScheduler, type MessageDeliveryStats } from './scheduler'
-import type {
-  MessageSender,
-  MessageSendInput,
-  MessageSendResult,
-  SendDisposition,
-} from './types'
+import type { MessageSender, MessageSendInput, MessageSendResult, SendDisposition } from './types'
 import { SUPERAGENT_AGENT_IDENTITY } from './types'
 
 const log = createLogger('server:messages')
@@ -271,10 +265,7 @@ export interface MessageDeliveryDeps {
      *  REQUIRED since POD-3857 — the full-list port they used to fall back to is
      *  gone, so a fixture cannot silently reintroduce the pass. */
     sessionById(sessionId: SessionId): Promise<SessionMeta | undefined>
-    listSessionsForIssue(
-      worktreePath: string | null,
-      issueId: IssueId,
-    ): Promise<SessionMeta[]>
+    listSessionsForIssue(worktreePath: string | null, issueId: IssueId): Promise<SessionMeta[]>
     /** The member sessions of one issue, as cheap facts [POD-3857], read from
      *  the database where they are not resident (POD-6160). */
     readSessionFactsByIssue(worktreePath: string | null, issueId: IssueId): Promise<SessionFacts[]>
@@ -397,7 +388,10 @@ export interface MessageDeliveryDeps {
    */
   authorizeAtApply?(
     message: MessageRow,
-  ): { ok: true } | { ok: false; reason: string } | Promise<{ ok: true } | { ok: false; reason: string }>
+  ):
+    | { ok: true }
+    | { ok: false; reason: string }
+    | Promise<{ ok: true } | { ok: false; reason: string }>
   /**
    * WAKE-PATH MACHINE USE (POD-1193 / readiness §3.1.4 M2).
    *
@@ -555,6 +549,9 @@ export type SendFailure =
   | { kind: 'not-in-conversation'; cause: NotInConversationCause }
 
 const SESSION_GONE: SendFailure = { kind: 'session-gone' }
+
+/** How many after-commit follow-ups are kept for an adapter to wait on. */
+const RECENT_FOLLOW_UPS = 256
 /** Typed, about to be, taken by the program, or lost track of: past the point
  *  where "not delivered" can be claimed. */
 const MAY_HAVE_ARRIVED: ReadonlySet<MessageDeliveryStatus> = new Set([
@@ -642,6 +639,15 @@ export class MessageDeliveryService {
    *  that gave up waiting repeats its attempt while the first may still be
    *  running; the repeat waits for it and then answers from the stored row. */
   private readonly sending = new Map<string, Promise<unknown>>()
+  /**
+   * The work a write left for after its commit, per message (POD-6525): a
+   * send's hand-on, a retract's request to the machine. A write on the sync
+   * write entry point answers at its commit, before that work; the old routes
+   * and the agent relay answered with its outcome, so their adapters wait for
+   * it here ({@link handOnOf}, {@link retractOf}). Bounded: an entry nobody
+   * waits for is dropped once newer ones push it out.
+   */
+  private readonly followUps = new Map<string, Promise<unknown>>()
 
   private readonly notificationArbiter: NotificationArbiter
   /** Envelope/pointer rendering and the confirmation mode that follows from it
@@ -697,7 +703,8 @@ export class MessageDeliveryService {
         if (!sessionId || !deps.sessions.retractQueuedMessage) return 'not-queued'
         return await deps.sessions.retractQueuedMessage(asSessionId(sessionId), message.id)
       },
-      emitTransition: async (message, kind, extra) => await this.emitTransition(message, kind, extra),
+      emitTransition: async (message, kind, extra) =>
+        await this.emitTransition(message, kind, extra),
       fromLabel: async (message) => await this.render.fromLabel(message),
     })
     this.render = new MessageRenderer({
@@ -771,7 +778,10 @@ export class MessageDeliveryService {
       this.queueDeliveryTarget({ kind: 'issue', id: issueId })
       const issue = await this.deps.issues.reports.getMeta(issueId)
       const worktreePath = issue?.worktreePath ?? null
-      for (const session of await this.deps.sessions.readSessionFactsByIssue(worktreePath, asIssueId(issueId))) {
+      for (const session of await this.deps.sessions.readSessionFactsByIssue(
+        worktreePath,
+        asIssueId(issueId),
+      )) {
         candidates.set(session.sessionId, session)
       }
       const previous = previousWorktrees.get(issueId)
@@ -819,30 +829,32 @@ export class MessageDeliveryService {
       // One operation of its own (a drained queue serves many senders): the
       // target issues are read once, together, and each attempt's own read of
       // its issue is answered from the operation's memo (POD-6158).
-      attemptPass: async (messages, failed) => await withOwnOperation(async () => {
-        await this.deps.issues.reports.preloadIssues(
-          messages.flatMap((message) =>
-            message.toKind === 'issue' && message.toId ? [message.toId] : [],
-          ),
-        )
-        // The cooldown key of every wake row, with the brake's cold reads
-        // answered in one read [POD-6174].
-        const wakeKeys = await this.wakeKeysOf(messages)
-        const members = new PassIssueMembers()
-        // A row the cooldown held back had its retry armed by the check itself;
-        // only the attempted ones are read back afterwards.
-        const attempted: MessageRow[] = []
-        for (const message of messages) {
-          try {
-            if (!await this.prepareQueuedAttemptSafely(message, wakeKeys.get(message.id))) continue
-            attempted.push(message)
-            await this.attemptDelivery(message, { viaSweep: true, members })
-          } catch (error) {
-            failed(message, error)
+      attemptPass: async (messages, failed) =>
+        await withOwnOperation(async () => {
+          await this.deps.issues.reports.preloadIssues(
+            messages.flatMap((message) =>
+              message.toKind === 'issue' && message.toId ? [message.toId] : [],
+            ),
+          )
+          // The cooldown key of every wake row, with the brake's cold reads
+          // answered in one read [POD-6174].
+          const wakeKeys = await this.wakeKeysOf(messages)
+          const members = new PassIssueMembers()
+          // A row the cooldown held back had its retry armed by the check itself;
+          // only the attempted ones are read back afterwards.
+          const attempted: MessageRow[] = []
+          for (const message of messages) {
+            try {
+              if (!(await this.prepareQueuedAttemptSafely(message, wakeKeys.get(message.id))))
+                continue
+              attempted.push(message)
+              await this.attemptDelivery(message, { viaSweep: true, members })
+            } catch (error) {
+              failed(message, error)
+            }
           }
-        }
-        await this.scheduleQueuedWakeRetries(attempted)
-      }),
+          await this.scheduleQueuedWakeRetries(attempted)
+        }),
     }
   }
 
@@ -905,7 +917,10 @@ export class MessageDeliveryService {
     return [...issueIds].map((id) => ({ kind: 'issue' as const, id }))
   }
 
-  private async prepareQueuedAttemptSafely(message: MessageRow, wakeKey?: string): Promise<boolean> {
+  private async prepareQueuedAttemptSafely(
+    message: MessageRow,
+    wakeKey?: string,
+  ): Promise<boolean> {
     try {
       return await this.prepareQueuedAttempt(message, wakeKey)
     } catch (error) {
@@ -1020,7 +1035,7 @@ export class MessageDeliveryService {
     if (lifecycle === 'wake' && !exemptFromWakeCooldown(principalOf(from))) {
       const issueKey =
         input.to.kind === 'issue' ? (toId ?? '') : await this.issueForSession(targetSession)
-      const key = `${(await this.senderKey(from))}|${issueKey ?? toId ?? ''}`
+      const key = `${await this.senderKey(from)}|${issueKey ?? toId ?? ''}`
       if (await this.brakes.isWakeHot(key)) {
         clamps.push({ lifecycle, reason: 'wake cooldown (1 per 10min per sender+issue)' })
         lifecycle = 'wait'
@@ -1149,9 +1164,13 @@ export class MessageDeliveryService {
 
     // Inside a unit of work the hand-on waits for the commit [POD-6349].
     if (spanOpen()) {
+      // An address that can never be delivered to is answered now, in the
+      // write, as a send outside one answered it (POD-6525): the reply is the
+      // dead letter, and there is no attempt and no notice.
+      const terminal = input.terminalInUnit ? await this.terminalOutcome(message) : undefined
       return {
         message: (await this.deps.messages.getMessage(id)) ?? message,
-        ...this.deliverAfterCommit(message),
+        ...(terminal ?? this.deliverAfterCommit(message)),
         legacy,
       }
     }
@@ -1163,7 +1182,7 @@ export class MessageDeliveryService {
       outcome.position ?? (outcome.queued ? await this.queuePositionForMessage(message) : undefined)
     await this.scheduleQueuedWakeRetry(message)
     return {
-      message: await this.deps.messages.getMessage(id) ?? message,
+      message: (await this.deps.messages.getMessage(id)) ?? message,
       ...outcome,
       ...(position !== undefined ? { position } : {}),
       legacy,
@@ -1252,7 +1271,8 @@ export class MessageDeliveryService {
       if (spanOpen()) return { message: stored, ...this.deliverAfterCommit(stored) }
       const outcome = await this.attemptDelivery(stored)
       const position =
-        outcome.position ?? (outcome.queued ? await this.queuePositionForMessage(stored) : undefined)
+        outcome.position ??
+        (outcome.queued ? await this.queuePositionForMessage(stored) : undefined)
       await this.scheduleQueuedWakeRetry(stored)
       return {
         message: (await this.deps.messages.getMessage(stored.id)) ?? stored,
@@ -1284,18 +1304,115 @@ export class MessageDeliveryService {
    * outcome, which is every caller today.
    */
   private deliverAfterCommit(message: MessageRow): DeliveryOutcome {
-    afterCommit(async () => {
-      try {
-        await this.attemptDelivery(message, { viaSweep: true })
-        await this.scheduleQueuedWakeRetry(message)
-      } catch (error) {
-        log.warn('message delivery after commit failed; the stored row waits for the next pass', {
-          err: error,
-          messageId: message.id,
-        })
-      }
-    }, 'message-delivery')
+    // Outside the write's provenance: the attempt is not part of the write the
+    // receipt covers, and what it changes later is the delivery's own record.
+    afterCommit(
+      () =>
+        outsideWriteProvenance(async () => {
+          const attempt = this.handOn(message)
+          this.rememberFollowUp(`send:${message.id}`, attempt)
+          await attempt
+        }),
+      'message-delivery',
+    )
     return { ok: true, queued: true, disposition: 'queued' }
+  }
+
+  /** One hand-on after a commit, answered as an inline send answers (with its
+   *  queue position); `undefined` when the attempt failed and the row waits. */
+  private async handOn(message: MessageRow): Promise<DeliveryOutcome | undefined> {
+    try {
+      const outcome = await this.attemptDelivery(message, { viaSweep: true })
+      const position =
+        outcome.position ??
+        (outcome.queued ? await this.queuePositionForMessage(message) : undefined)
+      await this.scheduleQueuedWakeRetry(message)
+      return { ...outcome, ...(position !== undefined ? { position } : {}) }
+    } catch (error) {
+      log.warn('message delivery after commit failed; the stored row waits for the next pass', {
+        err: error,
+        messageId: message.id,
+      })
+      return undefined
+    }
+  }
+
+  private rememberFollowUp(key: string, work: Promise<unknown>): void {
+    this.followUps.delete(key)
+    this.followUps.set(key, work)
+    if (this.followUps.size > RECENT_FOLLOW_UPS) {
+      const oldest = this.followUps.keys().next().value
+      if (oldest !== undefined) this.followUps.delete(oldest)
+    }
+  }
+
+  private async followUpOf(key: string): Promise<unknown> {
+    const work = this.followUps.get(key)
+    if (work === undefined) return undefined
+    this.followUps.delete(key)
+    return await work
+  }
+
+  /**
+   * THE OUTCOME OF THE HAND-ON a send started after its commit (POD-6525), for
+   * an adapter that answers as the send did before it was a write: what the
+   * attempt found, or `undefined` when no attempt of this process is known
+   * (a replay, a dead letter answered in the write, an attempt that failed).
+   */
+  async handOnOf(messageId: string): Promise<DeliveryOutcome | undefined> {
+    return (await this.followUpOf(`send:${messageId}`)) as DeliveryOutcome | undefined
+  }
+
+  /**
+   * THE DEAD LETTERS A SEND CAN TELL IN ITS OWN WRITE (POD-6525): the checks
+   * at the head of a delivery attempt that read only the database — the
+   * apply-time authorization, a session that is gone or archived, an issue
+   * that is gone, archived, closed or deleted — and the self-send that has no
+   * recipient. One of them stores the row's end in the unit of work and
+   * answers as the inline attempt did (no notice: the sender reads the
+   * answer). `undefined` leaves the attempt to after the commit.
+   */
+  private async terminalOutcome(message: MessageRow): Promise<DeliveryOutcome | undefined> {
+    const auth = await this.applyAuth(message)
+    if (!auth.ok) {
+      return await this.deadLetter(message, auth.reason, { failure: notAllowed(auth.reason) })
+    }
+    if (message.toKind === 'operator') return undefined
+    if (message.toKind === 'session') {
+      if (message.fromSession && message.toId === message.fromSession) {
+        return await this.suppressSelf(message)
+      }
+      const target = message.toId
+        ? await this.deps.sessions.sessionById(asSessionId(message.toId))
+        : undefined
+      if (!target) {
+        return await this.deadLetter(message, 'session no longer exists', { failure: SESSION_GONE })
+      }
+      if (target.archived) {
+        return await this.deadLetter(message, 'session is archived', { failure: SESSION_GONE })
+      }
+      return undefined
+    }
+    const issue = await this.deps.issues.reports.getMeta(message.toId ?? '')
+    if (!issue) {
+      return await this.deadLetter(message, 'issue no longer exists', { failure: ISSUE_ENDED })
+    }
+    if (issue.archived) {
+      return await this.deadLetter(message, `issue #${issue.seq} is archived`, {
+        failure: ISSUE_ENDED,
+      })
+    }
+    if (isIssueClosed(issue)) {
+      return await this.deadLetter(message, `issue #${issue.seq} is closed`, {
+        failure: ISSUE_ENDED,
+      })
+    }
+    if (issue.deletedAt) {
+      return await this.deadLetter(message, `issue #${issue.seq} is deleted`, {
+        failure: ISSUE_DELETED,
+      })
+    }
+    return undefined
   }
 
   /** Where a stored message stands, in the words a send answers with. */
@@ -1557,7 +1674,11 @@ export class MessageDeliveryService {
     // §3.1.4 M2 / POD-1193. Refuse before recordWake so a denied caller neither
     // starts a process nor burns the wake cooldown.
     {
-      const denied = await this.refuseWakeUnlessUsable(message, target.machineId, opts?.viaSweep === true)
+      const denied = await this.refuseWakeUnlessUsable(
+        message,
+        target.machineId,
+        opts?.viaSweep === true,
+      )
       if (denied) return denied
     }
     // A wake resumes the target, or spawns in its place: the pass reads the
@@ -1573,9 +1694,15 @@ export class MessageDeliveryService {
       // instead (issue.machineId), so re-check against that placement target.
       const issueId =
         (await this.issueForSession(target)) ?? (message.toId ? asIssueId(message.toId) : null)
-      const issueMachine = issueId ? (await this.deps.issues.reports.getMeta(issueId))?.machineId ?? undefined : undefined
+      const issueMachine = issueId
+        ? ((await this.deps.issues.reports.getMeta(issueId))?.machineId ?? undefined)
+        : undefined
       if (issueMachine && issueMachine !== target.machineId) {
-        const denied = await this.refuseWakeUnlessUsable(message, issueMachine, opts?.viaSweep === true)
+        const denied = await this.refuseWakeUnlessUsable(
+          message,
+          issueMachine,
+          opts?.viaSweep === true,
+        )
         if (denied) return denied
       }
       return await this.trySpawn(message, issueId)
@@ -2010,7 +2137,8 @@ export class MessageDeliveryService {
               ...(opts.endedIssueId !== undefined ? { issueEnded: true } : {}),
             }
       const notice = await this.failureNotice(message, failure)
-      if (!moved(await this.deps.messages.markDeadLetter(message.id, at, undefined, notice))) continue
+      if (!moved(await this.deps.messages.markDeadLetter(message.id, at, undefined, notice)))
+        continue
       const failed: MessageRow = { ...message, deliveryStatus: 'failed', deadLetteredAt: at }
       afterCommit(async () => {
         await this.emitTransition(failed, 'message.dead_letter', {
@@ -2073,7 +2201,10 @@ export class MessageDeliveryService {
     if (!this.deps.spawnOnWake) {
       // TODO(#237 stage 4/5): wire spawnOnWake to SessionLifecycle.spawn — the
       // message becomes the first prompt after prime.
-      await this.needsAttention(message, 'wake target is unresumable and spawn-on-wake is not wired')
+      await this.needsAttention(
+        message,
+        'wake target is unresumable and spawn-on-wake is not wired',
+      )
       return { ok: true, queued: true, reason: 'unresumable', disposition: 'held' }
     }
     this.brakes.chargeSpawn(key, day, count + 1)
@@ -2128,7 +2259,7 @@ export class MessageDeliveryService {
     // confirm it. Only a row the server still holds is ever pushed.
     if (message.deliveryStatus !== 'stored') return false
     if (checksWakeCooldown(message)) {
-      const key = wakeKey ?? await this.wakeKeyOfRow(message)
+      const key = wakeKey ?? (await this.wakeKeyOfRow(message))
       if (await this.brakes.isWakeHot(key)) {
         this.scheduleWakeRetry(key, message)
         return false
@@ -2162,7 +2293,9 @@ export class MessageDeliveryService {
   // service fronts its POD-320 capability modules.
 
   /** Where a reply to `original` goes: back to the sender principal. */
-  async replyTarget(original: MessageRow): Promise<{ kind: 'issue' | 'session' | 'operator'; id?: string }> {
+  async replyTarget(
+    original: MessageRow,
+  ): Promise<{ kind: 'issue' | 'session' | 'operator'; id?: string }> {
     return await this.mailbox.replyTarget(original)
   }
 
@@ -2176,6 +2309,7 @@ export class MessageDeliveryService {
       kind?: MessageKind
       urgency?: MessageUrgency
       lifecycle?: MessageLifecycle
+      terminalInUnit?: boolean
     },
   ): Promise<MessageSendResult> {
     return await this.mailbox.sendReply(from, input)
@@ -2192,7 +2326,9 @@ export class MessageDeliveryService {
   }
 
   /** The stop-hook's single-reminder set [POD-835 §04b]. */
-  async pendingReminders(sessionId: SessionId): Promise<{ id: string; from: string; body: string }[]> {
+  async pendingReminders(
+    sessionId: SessionId,
+  ): Promise<{ id: string; from: string; body: string }[]> {
     return await this.mailbox.pendingReminders(sessionId)
   }
 
@@ -2218,7 +2354,11 @@ export class MessageDeliveryService {
   }
 
   /** The per-issue / per-session delivery ledger (#237) — a pure read. */
-  async ledger(q: { issueId?: IssueId; sessionId?: SessionId; limit?: number }): Promise<MessageRow[]> {
+  async ledger(q: {
+    issueId?: IssueId
+    sessionId?: SessionId
+    limit?: number
+  }): Promise<MessageRow[]> {
     return await Promise.all(
       (await this.mailbox.ledger(q)).map(async (message) => await this.withQueuePosition(message)),
     )
@@ -2275,8 +2415,37 @@ export class MessageDeliveryService {
     return await this.mailbox.dismiss(messageId, consume)
   }
 
+  /**
+   * The sender retracts a pending message ({@link MessageMailbox.cancel}).
+   * Inside a unit of work (POD-6525) the write is the request: the stamp on
+   * the row, in the unit. Asking the machine that holds it to withdraw it is a
+   * round trip, so it follows the commit; {@link retractOf} waits for it.
+   */
   async cancel(messageId: string): Promise<MessageRow> {
-    return await this.mailbox.cancel(messageId)
+    if (!spanOpen()) return await this.mailbox.cancel(messageId)
+    const stamped = await this.mailbox.requestRetract(messageId)
+    afterCommit(
+      () =>
+        outsideWriteProvenance(async () => {
+          const retract = this.mailbox.finishRetract(stamped).catch((error: unknown) => {
+            log.warn('message retract after commit failed; the stamp stays on the row', {
+              err: error,
+              messageId,
+            })
+            return undefined
+          })
+          this.rememberFollowUp(`retract:${messageId}`, retract)
+          await retract
+        }),
+      'message-retract',
+    )
+    return stamped
+  }
+
+  /** The row a retract left after its commit (POD-6525); `undefined` when no
+   *  retract of this process is known. */
+  async retractOf(messageId: string): Promise<MessageRow | undefined> {
+    return (await this.followUpOf(`retract:${messageId}`)) as MessageRow | undefined
   }
 
   /** The sender dismissed the notice of a message that did not arrive
@@ -2287,7 +2456,10 @@ export class MessageDeliveryService {
 
   /** Retract the named chat send, or the newest held send for a native terminal
    * interrupt that cannot carry the chat mutation id. */
-  async cancelPendingOperatorMessage(sessionId: SessionId, messageId?: string): Promise<MessageRow | null> {
+  async cancelPendingOperatorMessage(
+    sessionId: SessionId,
+    messageId?: string,
+  ): Promise<MessageRow | null> {
     const message = messageId
       ? await this.deps.messages.getMessage(messageId)
       : await this.deps.messages.latestPendingOperatorForSession(sessionId)
@@ -2344,7 +2516,9 @@ export class MessageDeliveryService {
 
   // ---- state helpers ----
 
-  private async issueForSession(s: Pick<SessionMeta, 'issueId' | 'cwd'> | undefined): Promise<IssueId | null> {
+  private async issueForSession(
+    s: Pick<SessionMeta, 'issueId' | 'cwd'> | undefined,
+  ): Promise<IssueId | null> {
     if (!s) return null
     if (s.issueId) return s.issueId
     try {
@@ -2364,7 +2538,8 @@ export class MessageDeliveryService {
     const unbound = sessions.filter((session) => !session.issueId)
     let owners = new Map<string, IssueId | null>()
     try {
-      if (unbound.length > 0) owners = await this.deps.issues.reports.issuesForCwds(unbound.map((s) => s.cwd))
+      if (unbound.length > 0)
+        owners = await this.deps.issues.reports.issuesForCwds(unbound.map((s) => s.cwd))
     } catch {
       owners = new Map()
     }
@@ -2462,7 +2637,9 @@ export class MessageDeliveryService {
   private async recordWake(message: MessageRow, target: SessionMeta | undefined): Promise<void> {
     if (exemptFromWakeCooldown(principalOfRow(message))) return
     const issueKey = message.toKind === 'issue' ? message.toId : await this.issueForSession(target)
-    await this.brakes.recordWake(`${this.senderKeyOfRow(message)}|${issueKey ?? message.toId ?? ''}`)
+    await this.brakes.recordWake(
+      `${this.senderKeyOfRow(message)}|${issueKey ?? message.toId ?? ''}`,
+    )
   }
 
   /** stored → dispatched: record the hand-off toward `sessionId` without
@@ -2645,7 +2822,10 @@ export class MessageDeliveryService {
    * proof the agent has it in context, so the row moves to confirmed.
    * Best-effort and idempotent: a late/duplicate echo finds it already there.
    */
-  async onTranscriptDelta(sessionId: SessionId, items: { id?: string; role?: string; text?: string }[]): Promise<void> {
+  async onTranscriptDelta(
+    sessionId: SessionId,
+    items: { id?: string; role?: string; text?: string }[],
+  ): Promise<void> {
     // Only a user turn echoes a pasted prompt; assistant/tool text quoting the
     // id must never self-confirm a message the agent merely referenced.
     const echoes = items.flatMap((item) => {
@@ -2674,7 +2854,8 @@ export class MessageDeliveryService {
       if (row.deliveredTo !== sessionId) continue
       if (row.deliveryStatus === 'failed') {
         await this.reportFailedHistoryMatch(row, sessionId, {
-          kind: 'wrapped-frame', frameId: id,
+          kind: 'wrapped-frame',
+          frameId: id,
           ...(item.id ? { transcriptItem: { id: item.id } } : {}),
         })
         continue
@@ -2705,8 +2886,10 @@ export class MessageDeliveryService {
     const session = await this.deps.sessions.sessionById(sessionId)
     const program = session?.agentKind ?? 'unknown'
     await this.reportDeliveryContradiction({
-      messageId: row.id, sessionId, program,
-      programVersion: await this.deps.programVersion?.(sessionId, program) ?? null,
+      messageId: row.id,
+      sessionId,
+      program,
+      programVersion: (await this.deps.programVersion?.(sessionId, program)) ?? null,
       failedCause: row.deliveryDeferredReason ?? null,
       evidence,
     })
@@ -2717,16 +2900,26 @@ export class MessageDeliveryService {
   async reportDeliveryContradiction(diagnostic: DeliveryContradiction): Promise<void> {
     try {
       const recorded = await this.deps.events.appendEventOnce({
-        ts: this.deps.now(), kind: 'message.delivery_contradiction',
-        subject: diagnostic.messageId, payload: diagnostic,
+        ts: this.deps.now(),
+        kind: 'message.delivery_contradiction',
+        subject: diagnostic.messageId,
+        payload: diagnostic,
       })
       if (recorded !== undefined) {
-        afterCommit(() => log.warn('message delivery contradiction', { diagnostic }), 'delivery-contradiction-warning')
+        afterCommit(
+          () => log.warn('message delivery contradiction', { diagnostic }),
+          'delivery-contradiction-warning',
+        )
       }
     } catch (error) {
-      afterCommit(() => log.warn('message delivery contradiction recording failed', {
-        diagnostic, err: error,
-      }), 'delivery-contradiction-recording-failed')
+      afterCommit(
+        () =>
+          log.warn('message delivery contradiction recording failed', {
+            diagnostic,
+            err: error,
+          }),
+        'delivery-contradiction-recording-failed',
+      )
     }
   }
 
@@ -2838,15 +3031,15 @@ export class MessageDeliveryService {
    * it was never typed), or stop waiting for a reply. `outcome` replaces "was
    * not delivered" where that would claim more than is known.
    */
-  private async failureWords(
-    message: MessageRow,
-    failure: SendFailure,
-  ): Promise<FailureWords> {
+  private async failureWords(message: MessageRow, failure: SendFailure): Promise<FailureWords> {
     const words = await (async (): Promise<FailureWords> => {
       switch (failure.kind) {
         case 'session-gone': {
-          const action = failure.issueEnded ? NOBODY_HOLDS_IT : await this.reachIssueInstead(message)
-          const session = message.toKind === 'issue' ? 'the session it was handed to' : 'that session'
+          const action = failure.issueEnded
+            ? NOBODY_HOLDS_IT
+            : await this.reachIssueInstead(message)
+          const session =
+            message.toKind === 'issue' ? 'the session it was handed to' : 'that session'
           if (failure.mayHaveArrived)
             return {
               outcome: 'may not have been delivered',
@@ -2856,7 +3049,9 @@ export class MessageDeliveryService {
           return { reason: `${session} has ended`, action }
         }
         case 'issue-ended': {
-          const issue = message.toId ? await this.deps.issues.reports.getMeta(message.toId) : undefined
+          const issue = message.toId
+            ? await this.deps.issues.reports.getMeta(message.toId)
+            : undefined
           const ref = issue ? await this.deps.issues.reports.niceRef(issue) : 'that issue'
           return {
             reason: failure.deleted ? `${ref} was deleted` : `${ref} is finished`,
@@ -3043,7 +3238,9 @@ export class MessageDeliveryService {
    * Re-authorize a durable inbox row immediately before its daemon apply.
    * Neither this method nor the inbox/gateway caches a capability or decision.
    */
-  async authorizeQueuedInput(messageId: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+  async authorizeQueuedInput(
+    messageId: string,
+  ): Promise<{ ok: true } | { ok: false; reason: string }> {
     const message = await this.deps.messages.getMessage(messageId)
     if (!message) return { ok: false, reason: 'session no longer exists' }
     return await this.applyAuth(message)
@@ -3120,7 +3317,7 @@ export class MessageDeliveryService {
         return {
           attribution: {
             actor: actorAgent(asAgentIdentityId(SUPERAGENT_AGENT_IDENTITY)),
-            onBehalfOf: (await this.deps.firstAdminMemberId()),
+            onBehalfOf: await this.deps.firstAdminMemberId(),
           },
           delegationRef: SUPERAGENT_AGENT_IDENTITY,
         }
@@ -3129,7 +3326,7 @@ export class MessageDeliveryService {
         return {
           attribution: {
             actor: actorAgent(asAgentIdentityId(actorId)),
-            onBehalfOf: (await this.deps.firstAdminMemberId()),
+            onBehalfOf: await this.deps.firstAdminMemberId(),
           },
           delegationRef: from.sessionId ?? null,
         }
@@ -3211,7 +3408,11 @@ export class MessageDeliveryService {
   }
 
   /** One podium_events row per ledger transition (steward visibility, audit). */
-  private async emitTransition(message: MessageRow, kind: string, extra?: Record<string, unknown>): Promise<void> {
+  private async emitTransition(
+    message: MessageRow,
+    kind: string,
+    extra?: Record<string, unknown>,
+  ): Promise<void> {
     try {
       await this.deps.events.appendEvent({
         ts: this.deps.now(),

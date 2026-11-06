@@ -8,7 +8,7 @@ import { commandAccess } from './command-ctx'
 import { type AnyIssueCommandDef, guardIssueCommand } from './registry'
 import { isIssueNotFound } from './service/not-found'
 import { isIssueRefusal } from './service/refusal'
-import { startAfterCreate, submitIssueWrite } from './sync-write'
+import { answerMailSendAsBefore, startAfterCreate, submitIssueWrite } from './sync-write'
 
 /**
  * Derive the `issues:` tRPC sub-router from the command registry (#248
@@ -109,6 +109,12 @@ async function throughEntry(ctx: Context, name: string, input: unknown): Promise
   if (reply.outcome !== 'applied') {
     if (cause !== undefined) return rethrowAsTrpc(cause)
     throw refusalAsTrpcError(`issues.${name}`, reply.refusal)
+  }
+  if (name === 'mailSend') {
+    return await answerMailSendAsBefore(
+      async (id) => await modules.messages.handOnOf(id),
+      reply.result,
+    )
   }
   if (name !== 'create') return reply.result
   try {

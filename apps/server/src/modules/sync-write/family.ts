@@ -124,6 +124,17 @@ export interface SyncFamily<Svc, C extends Record<string, AnyDerivedCommand>> {
    * retries. The message, when set, is what the caller is shown.
    */
   refusalOf?(error: unknown): SyncSubmitRefusal | undefined
+  /**
+   * After a refused or failed write rolled back (`ContractRegistration.rolledBack`):
+   * a family that keeps a trail of what it refused writes it here, outside the
+   * write it is about. It must not change the outcome.
+   */
+  rolledBack?(
+    contract: AnyCommandContract,
+    input: unknown,
+    error: unknown,
+    ctx: SyncFamilyTargetContext,
+  ): Promise<void>
 }
 
 export interface SyncFamilyDeps {
@@ -157,6 +168,16 @@ export function registerSyncFamily<Svc, C extends Record<string, AnyDerivedComma
           throw new SyncWriteRefused(refusal, { cause: error })
         }
       },
+      ...(family.rolledBack === undefined
+        ? {}
+        : {
+            rolledBack: async (ctx, input, error) =>
+              await family.rolledBack?.(contract, input, error, {
+                ...ctx,
+                modules: deps.modules(),
+                roleOf: deps.roleOf,
+              }),
+          }),
     })
   }
 }

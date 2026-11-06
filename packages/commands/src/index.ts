@@ -298,6 +298,7 @@ export {
   ARTIFACT_EFFECT_OPS,
   clientSendsThroughSubmit,
   isSyncedIssueCommand,
+  MAIL_ISSUE_COMMANDS,
   QUEUED_ISSUE_COMMANDS,
   runsAsArtifactEffect,
   SESSION_ISSUE_COMMANDS,

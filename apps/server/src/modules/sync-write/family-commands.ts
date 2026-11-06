@@ -12,6 +12,12 @@ import { APPROVAL_SYNC_FAMILY } from '../approvals/sync-write'
 import { AUTOMATION_SYNC_FAMILY } from '../automations/sync-write'
 import { CONVERSATION_SYNC_FAMILY } from '../conversations/sync-write'
 import { FLEET_SYNC_COMMANDS, type FleetSyncDeps, registerFleetCommands } from '../fleet/sync-write'
+import {
+  MAIL_AWAIT_OBSERVED,
+  MAIL_SYNC_COMMANDS,
+  MAIL_SYNC_FAMILY,
+  registerMailAwaitObserved,
+} from '../messages/sync-write'
 import { READ_POSITION_SYNC_FAMILY } from '../read-position/sync-write'
 import { OFFER_SYNC_COMMANDS, registerOfferCommands } from '../sessions/offer-sync-write'
 import { registerSessionFamilyCommands } from '../sessions/sync-write'
@@ -66,6 +72,9 @@ export const FAMILY_COMMAND_NAMES = [
   ...OFFER_SYNC_COMMANDS,
   // The dock shell for a worktree; its start is an effect record (POD-6419).
   ...SHELL_SYNC_COMMANDS,
+  // Agent mail, and the claim an agent's await retires (POD-6525).
+  ...MAIL_SYNC_COMMANDS,
+  MAIL_AWAIT_OBSERVED,
 ] as const
 
 /** What the families need beyond the shared deps. */
@@ -81,6 +90,8 @@ export function registerFamilyCommands(registry: SyncWriteRegistry, deps: Family
   registerSyncFamily(registry, CONVERSATION_SYNC_FAMILY, deps)
   registerSyncFamily(registry, READ_POSITION_SYNC_FAMILY, deps)
   registerSyncFamily(registry, SUPERAGENT_SYNC_FAMILY, deps)
+  registerSyncFamily(registry, MAIL_SYNC_FAMILY, deps)
+  registerMailAwaitObserved(registry, deps)
   // The settings family keeps its own registration: its gate and its trail.
   registerSettingsWrite(
     registry,

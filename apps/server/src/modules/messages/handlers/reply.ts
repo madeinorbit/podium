@@ -7,6 +7,7 @@
  */
 
 import type { ContractInput, mailReplyContract } from '@podium/commands'
+import { MailRefusal } from '../refusal'
 import { senderFromPrincipal } from '../service'
 import type { MailHandlerContext } from './context'
 
@@ -17,16 +18,17 @@ export async function replyHandler(
   const { caller, deps, access } = ctx
   const svc = deps.messages
   const original = await svc.message(input.id)
-  if (!original) throw new Error(`unknown message ${input.id}`)
+  if (!original) throw new MailRefusal('target-not-found', `unknown message ${input.id}`)
   // Only the RECIPIENT (or the operator) replies — the reply routes to the
   // original's sender, so recipient-ship is the natural authz boundary.
   if (caller.capability.scope.kind !== 'all' && !access.isRecipient(caller.capability, original)) {
-    throw new Error('only the recipient of a message may reply to it')
+    throw new MailRefusal('unauthorized', 'only the recipient of a message may reply to it')
   }
   const r = await svc.sendReply(senderFromPrincipal(caller.principal), {
     inReplyTo: original.id,
     body: input.body,
     kind: input.kind ?? 'ack',
+    ...(ctx.inEntry ? { terminalInUnit: true } : {}),
   })
   return {
     id: r.message.id,

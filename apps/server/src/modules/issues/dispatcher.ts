@@ -37,7 +37,7 @@ import {
   type IssueCommandDeps,
 } from './command-ctx'
 import { type AnyIssueCommandDef, guardIssueCommand, issueRegistry } from './registry'
-import { startAfterCreate, submitIssueWrite } from './sync-write'
+import { answerMailSendAsBefore, startAfterCreate, submitIssueWrite } from './sync-write'
 import { isIssueWorkCommand, RUN_INLINE } from './work-effects'
 
 /** A ledger that runs the body every time and records nothing: see `withoutDedup`. */
@@ -211,6 +211,8 @@ export class IssueCommandDispatcher {
       if (cause !== undefined) throw cause
       throw new SyncSubmitRefusedError(`issues.${proc}`, reply.refusal)
     }
+    if (proc === 'mailSend')
+      return await answerMailSendAsBefore(this.deps.mailHandOnOf, reply.result)
     if (proc !== 'create') return reply.result
     return await startAfterCreate(this.deps.issues, caller, input, reply.result)
   }

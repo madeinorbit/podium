@@ -71,11 +71,23 @@ export const SESSION_ISSUE_COMMANDS = [
   'resolveShipHold',
 ] as const satisfies readonly IssueContractName[]
 
+/**
+ * An issue's agent mail (POD-6525): a send to its mailbox, the mailbox read
+ * that consumes, and a claim. The send's hand-on to the agent follows the
+ * commit; its old doors answer with the hand-on's outcome.
+ */
+export const MAIL_ISSUE_COMMANDS = [
+  'mailSend',
+  'mailInbox',
+  'mailClaim',
+] as const satisfies readonly IssueContractName[]
+
 /** Every issue command on the entry point, by its procedure name. */
 export const SYNCED_ISSUE_COMMANDS = [
   ...QUEUED_ISSUE_COMMANDS,
   ...STRUCTURE_ISSUE_COMMANDS,
   ...SESSION_ISSUE_COMMANDS,
+  ...MAIL_ISSUE_COMMANDS,
 ] as const
 
 export type SyncedIssueCommand = (typeof SYNCED_ISSUE_COMMANDS)[number]

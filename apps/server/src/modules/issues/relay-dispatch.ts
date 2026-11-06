@@ -276,6 +276,9 @@ export function makeAgentRelayDispatch(
     // Unified messaging command surface (#237) [spec:SP-34d7]: podium mail
     // send/inbox/show/reply + the stop-hook's pendingReminders. Authz lives
     // in the gate (session targets: same containment as the sessions arm).
+    // The writes go on through the sync write entry point as relay calls
+    // (POD-6525): the gate is their adapter.
+    // LEGACY(remove-after: 2027-03): this arm's writes, for the CLI's `podium mail` and `agent` commands; removing it breaks them against this server.
     if (router === 'messages') {
       return await messageGate.dispatch(capability, overrideScope, proc, input)
     }

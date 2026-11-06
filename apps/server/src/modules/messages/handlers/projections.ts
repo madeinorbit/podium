@@ -27,6 +27,7 @@ import type {
 import { MAIL_VIEW_REFUSED } from '@podium/commands/mail-pointer-nudge'
 import type { MessageRecordWire } from '@podium/model'
 import type { MessageWire } from '../gate'
+import { MailRefusal } from '../refusal'
 import type { MailHandlerContext } from './context'
 
 /** The shared read: resolve, gate on `mayView` (or on reading the session that
@@ -67,9 +68,9 @@ export async function dismissHandler(
   const { caller, deps, access } = ctx
   const svc = deps.messages
   const message = await svc.message(input.id)
-  if (!message) throw new Error(`unknown message ${input.id}`)
+  if (!message) throw new MailRefusal('target-not-found', `unknown message ${input.id}`)
   if (caller.capability.scope.kind !== 'all' && !access.isRecipient(caller.capability, message)) {
-    throw new Error('only the recipient of a message may dismiss it')
+    throw new MailRefusal('unauthorized', 'only the recipient of a message may dismiss it')
   }
   return await access.wire(await svc.dismiss(message.id, caller.capability.actorSessionId ?? null))
 }
@@ -80,9 +81,9 @@ export async function cancelHandler(
 ): Promise<MessageWire> {
   const { caller, deps, access } = ctx
   const message = await deps.messages.message(input.id)
-  if (!message) throw new Error(`unknown message ${input.id}`)
+  if (!message) throw new MailRefusal('target-not-found', `unknown message ${input.id}`)
   if (!access.isSender(caller, message)) {
-    throw new Error('only the sender of a message may cancel it')
+    throw new MailRefusal('unauthorized', 'only the sender of a message may cancel it')
   }
   return await access.wire(await deps.messages.cancel(message.id))
 }
@@ -94,9 +95,9 @@ export async function dismissNoticeHandler(
 ): Promise<{ ok: true; dismissed: boolean }> {
   const { caller, deps, access } = ctx
   const message = await deps.messages.message(input.id)
-  if (!message) throw new Error(`unknown message ${input.id}`)
+  if (!message) throw new MailRefusal('target-not-found', `unknown message ${input.id}`)
   if (!access.isSender(caller, message)) {
-    throw new Error('only the sender of a message may dismiss its notice')
+    throw new MailRefusal('unauthorized', 'only the sender of a message may dismiss its notice')
   }
   return { ok: true, dismissed: await deps.messages.dismissNotice(message.id) }
 }
@@ -113,7 +114,10 @@ export async function recordsHandler(
 ): Promise<{ records: MessageRecordWire[] }> {
   const { principal } = ctx.caller
   if (principal.kind !== 'user') return { records: [] }
-  return { records: 'ids' in input
-    ? await ctx.deps.messageRecords(principal.user, input.ids)
-    : await ctx.deps.messageRecords(principal.user, input.transcriptItemIds, input.sessionId) }
+  return {
+    records:
+      'ids' in input
+        ? await ctx.deps.messageRecords(principal.user, input.ids)
+        : await ctx.deps.messageRecords(principal.user, input.transcriptItemIds, input.sessionId),
+  }
 }

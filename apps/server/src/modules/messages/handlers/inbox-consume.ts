@@ -8,6 +8,7 @@
 
 import type { ContractInput, mailInboxConsumeContract } from '@podium/commands'
 import type { MessageWire } from '../gate'
+import { MailRefusal } from '../refusal'
 import type { MailHandlerContext } from './context'
 
 export async function inboxConsumeHandler(
@@ -51,7 +52,7 @@ export async function inboxConsumeHandler(
     )
   }
   const principals = access.callerPrincipals(caller.capability)
-  if (principals.length === 0) throw new Error('no mailbox bound to this caller')
+  if (principals.length === 0) throw new MailRefusal('invalid', 'no mailbox bound to this caller')
   return await Promise.all(
     (await svc.readInbox(principals, { consume: caller.capability.actorSessionId ?? null })).map(
       async (m) => await access.wire(m),
