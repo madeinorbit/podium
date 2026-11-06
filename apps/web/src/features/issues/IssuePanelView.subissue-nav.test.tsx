@@ -50,6 +50,7 @@ const CHILD_SESSION = {
 const setPane = vi.fn()
 const setView = vi.fn()
 const setSelectedIssueId = vi.fn()
+const setOpenIssueId = vi.fn()
 const markIssueRead = vi.fn()
 const markSessionRead = vi.fn()
 
@@ -68,8 +69,7 @@ const EMPTY_DRAFT = makeIssue({
   worktreePath: undefined,
 })
 
-/** Finished and filed. The deck can still show it; there is simply no work left
- *  to sit down to, which is what "Work on this" offers (POD-1269). */
+/** Finished tasks still have a full issue page to inspect. */
 const FINISHED = makeIssue({
   id: 'f',
   repoPath: '/r',
@@ -78,6 +78,8 @@ const FINISHED = makeIssue({
   stage: 'done',
   closedReason: 'done',
 })
+
+let fixtureIssues = [PARENT, CHILD, RELATED, EMPTY_DRAFT, FINISHED]
 
 // The task head's launch box carries model + effort segments, and those read
 // the live catalog through a hook that hangs off the REAL store provider rather
@@ -98,30 +100,34 @@ const trpc = {
 
 vi.mock('@/app/store', () => {
   let fixture: unknown
-  const state = () =>
-    (fixture ??= {
+  const state = () => {
+    fixture ??= {
       trpc,
       httpOrigin: '',
       openFileInWorktree: vi.fn(),
       uiState: { get: () => null, set: vi.fn(), subscribe: () => () => {} },
-      issues: [PARENT, CHILD, RELATED, EMPTY_DRAFT, FINISHED],
+      get issues() {
+        return fixtureIssues
+      },
       sessions: [CHILD_SESSION],
       machines: [],
       repos: [],
       setPane,
       setView,
       setSelectedIssueId,
+      setOpenIssueId,
       markIssueRead,
       markSessionRead,
-    }) as never
+    }
+    return fixture as never
+  }
   return {
     useStore: () => state(),
     useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(state()),
   }
 })
 
-/** Mounts the panel under a dock title bar, which is where Open in Work lives
- *  (POD-2077): the head portals it beside the dock's close. */
+/** Mounts the panel under a dock title bar, beside the dock's close. */
 function inDock(ui: JSX.Element): JSX.Element {
   const host = document.createElement('div')
   host.dataset.dockHost = ''
@@ -133,6 +139,7 @@ afterEach(() => {
   cleanup()
   for (const host of document.querySelectorAll('[data-dock-host]')) host.remove()
   vi.clearAllMocks()
+  fixtureIssues = [PARENT, CHILD, RELATED, EMPTY_DRAFT, FINISHED]
 })
 
 describe('IssuePanelView subissue rows', () => {
@@ -149,6 +156,7 @@ describe('IssuePanelView subissue rows', () => {
     const list = screen.getByTestId('dock-subissues')
     fireEvent.click(within(list).getByText('Live child'))
     expect(markIssueRead).toHaveBeenCalledWith('c')
+    expect(setSelectedIssueId).toHaveBeenCalledWith('p')
     expect(setPane).toHaveBeenCalledWith('A', 'cs')
     expect(setView).toHaveBeenCalledWith('workspace')
   })
@@ -171,13 +179,9 @@ describe('IssuePanelView subissue rows', () => {
     expect(setView).not.toHaveBeenCalled()
   })
 
-  // ...and `Open in Work` is the one control that still does move it. It was a
-  // chip called "Work on this", sitting one gap from `Start work` — two
-  // adjacent controls both promising to begin the work. It is now a link in the
-  // head's chrome line, named after the view it opens (POD-1457).
-  it('moves the shell from Open in Work, and only offers it in the dock', () => {
+  it('opens the full issue page only from the dock', () => {
     const { unmount } = render(<IssuePanelView cwd="/r" />)
-    expect(screen.queryByTestId('task-open-in-work')).toBeNull()
+    expect(screen.queryByTestId('task-open-fullscreen')).toBeNull()
     unmount()
 
     render(
@@ -187,59 +191,47 @@ describe('IssuePanelView subissue rows', () => {
         </OperatorFocusProvider>,
       ),
     )
-    fireEvent.click(screen.getByTestId('task-open-in-work'))
-    expect(setView).toHaveBeenCalledWith('workspace')
+    fireEvent.click(screen.getByRole('button', { name: 'Open full screen' }))
+    expect(setOpenIssueId).toHaveBeenCalledWith('p')
+    expect(setView).toHaveBeenCalledWith('issues')
   })
 
-  /**
-   * THE HALF THAT WAS MISSING (POD-1151). The sidebar highlights
-   * `selectedIssueId`, which is a mission ROOT; focus is the pointer inside it
-   * and is discarded when it names a task the selected mission does not hold.
-   * Setting focus alone — which is all this used to do — therefore arrived
-   * nowhere, and the control read as dead.
-   */
-  it('selects the top-level ancestor, not the sub-issue, when showing a child in the deck', () => {
+  it('opens the displayed child rather than its mission root or session', () => {
     render(
       inDock(
         <OperatorFocusProvider missionId="p">
-          <IssuePanelView cwd="/r" issueId={'c' as never} onNavigate={vi.fn()} />
+          <IssuePanelView cwd="/r" issueId={CHILD.id} onNavigate={vi.fn()} />
         </OperatorFocusProvider>,
       ),
     )
-    fireEvent.click(screen.getByTestId('task-open-in-work'))
+    fireEvent.click(screen.getByRole('button', { name: 'Open full screen' }))
 
-    // The MISSION is the parent — that is the row the sidebar can highlight —
-    // while the pane still opens the child's own session, so the operator lands
-    // on the task they asked for rather than on its epic.
-    expect(setSelectedIssueId).toHaveBeenCalledWith('p')
-    expect(setPane).toHaveBeenCalledWith('A', 'cs')
-    expect(setView).toHaveBeenCalledWith('workspace')
+    expect(setOpenIssueId).toHaveBeenCalledWith('c')
+    expect(markIssueRead).toHaveBeenCalledWith('c')
+    expect(setView).toHaveBeenCalledWith('issues')
+    expect(setSelectedIssueId).not.toHaveBeenCalled()
+    expect(setPane).not.toHaveBeenCalled()
+    expect(markSessionRead).not.toHaveBeenCalled()
   })
 
-  it('offers no jump for a task the deck cannot show', () => {
+  it.each([
+    EMPTY_DRAFT,
+    FINISHED,
+    { ...FINISHED, archived: true },
+  ])('opens $title full screen even without a workspace destination (archived=$archived)', (issue) => {
+    fixtureIssues = [PARENT, CHILD, RELATED, EMPTY_DRAFT, FINISHED].map((row) =>
+      row.id === issue.id ? issue : row,
+    )
     render(
       inDock(
-        <OperatorFocusProvider missionId="x">
-          <IssuePanelView cwd="/r" issueId={'x' as never} onNavigate={vi.fn()} />
+        <OperatorFocusProvider missionId="p">
+          <IssuePanelView cwd="/r" issueId={issue.id} onNavigate={vi.fn()} />
         </OperatorFocusProvider>,
       ),
     )
-    // The mission resolves to nothing, so the deck would answer this jump with
-    // its empty state. A link that lands nowhere is worse than no link.
-    expect(screen.queryByTestId('task-open-in-work')).toBeNull()
-  })
-
-  it('offers no crossing on a task that is no longer workable', () => {
-    render(
-      inDock(
-        <OperatorFocusProvider missionId="f">
-          <IssuePanelView cwd="/r" issueId={'f' as never} onNavigate={vi.fn()} />
-        </OperatorFocusProvider>,
-      ),
-    )
-    // Closed with a reason: the deck could show it, but a seat at work that is
-    // over is not a seat worth offering.
-    expect(screen.queryByTestId('task-open-in-work')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Open full screen' }))
+    expect(setOpenIssueId).toHaveBeenCalledWith(issue.id)
+    expect(setView).toHaveBeenCalledWith('issues')
   })
 
   it('shows the target status icon in relation rows', () => {
