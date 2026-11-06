@@ -8,11 +8,23 @@
  * the writer as they are now.
  */
 
-import { asIssueId, asUserId } from '@podium/model'
+import {
+  asIssueId,
+  asUserId,
+  firstAdminMemberId,
+  mintDeviceId,
+  type SessionId,
+} from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
-import { disposeOracles, makeOracle as makeBareOracle } from '../sessions/oracle-support'
+import {
+  disposeOracles,
+  makeOracle as makeBareOracle,
+  type Oracle,
+  waitFor,
+} from '../sessions/oracle-support'
+import { appliedReply, envelope, submit } from '../sync-write/outbox-test-support'
 import { type AnyIssueCommandDef, issueRegistry } from './registry'
 import { ISSUE_WORK_EFFECT_KIND, type IssueWorkCommand } from './work-effects'
 
@@ -121,10 +133,190 @@ describe('the issue work effects', () => {
     ).toBeUndefined()
   })
 
-  it('a record whose run the server lost says so instead of guessing', async () => {
+  it('a stop the server lost with its worktree still there says so instead of guessing', async () => {
     const o = await makeOracle()
+    const issue = await startedIssue(o, 'lost stop')
     const executor = o.reg.modules.effects?.executors.get('issue.stop')
-    const outcome = await executor?.recover?.({} as never)
+    const record = { id: 'eff_x', target: { kind: 'issue', id: issue.id } }
+    const outcome = await executor?.recover?.({ record, input: {} } as never)
     expect(outcome).toMatchObject({ status: 'unknown', error: { code: 'lost-track' } })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Spawns: once per session id, the writer re-checked, nothing on a rollback
+// ---------------------------------------------------------------------------
+
+async function startedIssue(o: Oracle, title: string) {
+  const issue = await newIssue(o, title)
+  const slug = title.replace(/\W+/g, '-')
+  await o.reg.issues.crud.update(issue.id, {
+    worktreePath: `/r/.worktrees/${slug}`,
+    branch: `issue/${slug}`,
+  })
+  return issue
+}
+
+const newSessionId = () => crypto.randomUUID() as SessionId
+
+const spawns = (o: Oracle, id: string) =>
+  o.daemon.filter((m) => m.type === 'spawn' && (m as { sessionId?: string }).sessionId === id)
+
+async function settled(o: Oracle, id: string) {
+  await waitFor(async () => {
+    const status = (await o.store.effects.get(id))?.status
+    return status !== undefined && status !== 'pending' && status !== 'running'
+  }, `effect ${id} to settle`)
+  return await o.store.effects.get(id)
+}
+
+const addShellEnvelope = (effectId: string, issueId: string, sessionId: string, m: string) =>
+  envelope(
+    'effects.create',
+    {
+      id: effectId,
+      kind: 'issue.addSession',
+      target: { kind: 'issue', id: issueId },
+      input: { shell: true, sessionId },
+    },
+    m,
+  )
+
+describe('issue.addSession and issue.begin spawn once per session id', () => {
+  it('a record spawns its session once; a replay and a second record for the id spawn nothing', async () => {
+    const o = await makeOracle()
+    const issue = await startedIssue(o, 'one shell')
+    const sessionId = newSessionId()
+    const first = mintDeviceId('eff_')
+    const env = addShellEnvelope(first, issue.id, sessionId, 'as-1')
+
+    appliedReply(await submit(o, env))
+    expect(await settled(o, first)).toMatchObject({ status: 'succeeded' })
+    expect(spawns(o, sessionId)).toHaveLength(1)
+
+    expect(appliedReply(await submit(o, env)).replayed).toBe(true)
+    const second = mintDeviceId('eff_')
+    appliedReply(await submit(o, addShellEnvelope(second, issue.id, sessionId, 'as-2')))
+    expect(await settled(o, second)).toMatchObject({
+      status: 'succeeded',
+      result: { sessionId, output: 'already started' },
+    })
+    await o.reg.modules.effects?.runner.idle()
+    expect(spawns(o, sessionId)).toHaveLength(1)
+  })
+
+  it('a record written in a unit of work that rolls back spawns nothing; committed, it spawns once', async () => {
+    const o = await makeOracle()
+    const issue = await startedIssue(o, 'rolled back')
+    const sessionId = newSessionId()
+    const record = (id: string) => ({
+      id,
+      kind: 'issue.addSession',
+      target: { kind: 'issue' as const, id: issue.id },
+      input: { shell: true, sessionId },
+      deadlineAt: undefined,
+      createdBy: firstAdminMemberId(),
+    })
+    await expect(
+      o.store.transact(async () => {
+        await o.store.effects.insert(record(mintDeviceId('eff_')), Date.now())
+        throw new Error('roll back')
+      }),
+    ).rejects.toThrow('roll back')
+    await o.reg.modules.effects?.runner.idle()
+    expect(spawns(o, sessionId)).toHaveLength(0)
+
+    const committed = mintDeviceId('eff_')
+    await o.store.effects.insert(record(committed), Date.now())
+    await o.reg.modules.effects?.runner.poke('issue.addSession')
+    expect(await settled(o, committed)).toMatchObject({ status: 'succeeded' })
+    expect(spawns(o, sessionId)).toHaveLength(1)
+  })
+
+  it('a writer whose account was disabled since is refused at run time and spawns nothing', async () => {
+    const o = await makeOracle()
+    const issue = await startedIssue(o, 'writer gone')
+    const gone = asUserId('usr_gone_6414')
+    await o.store.users.createUnclaimed({
+      id: gone,
+      displayName: 'Gone',
+      email: null,
+      role: 'admin',
+      createdAt: new Date().toISOString(),
+      disabledAt: new Date().toISOString(),
+    })
+    const sessionId = newSessionId()
+    const id = mintDeviceId('eff_')
+    await o.store.effects.insert(
+      {
+        id,
+        kind: 'issue.begin',
+        target: { kind: 'issue', id: issue.id },
+        input: { sessionId },
+        deadlineAt: undefined,
+        createdBy: gone,
+      },
+      Date.now(),
+    )
+    await o.reg.modules.effects?.runner.poke('issue.begin')
+    expect(await settled(o, id)).toMatchObject({ status: 'failed', error: { code: 'refused' } })
+    expect(spawns(o, sessionId)).toHaveLength(0)
+  })
+
+  it('the old addShell answers its old shape, through an issue.addSession record', async () => {
+    const o = await makeOracle()
+    const issue = await startedIssue(o, 'old shell')
+    const entry = vi.spyOn(o.reg.modules.syncWrite, 'submitDetailed')
+
+    const answer = await o.call.issues.addShell({ id: issue.id })
+
+    expect(answer).toMatchObject({ id: issue.id })
+    const created = entry.mock.calls
+      .map(([env]) => env)
+      .filter((env) => env.command === 'effects.create')
+    expect(created.map((env) => (env.input as { kind: string }).kind)).toEqual([
+      'issue.addSession',
+    ])
+    const sessionId = (created[0]?.input as { input: { sessionId: string } }).input.sessionId
+    expect(spawns(o, sessionId)).toHaveLength(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Stop: desired `stopped` on each member, then the worktree
+// ---------------------------------------------------------------------------
+
+describe('issue.stop', () => {
+  it('stops each member by writing its desired state, never through the stop service', async () => {
+    const o = await makeOracle()
+    const issue = await startedIssue(o, 'two members')
+    const wt = (await o.reg.issues.reports.get(issue.id))?.worktreePath as string
+    const member = (
+      await o.reg.modules.sessions.createSession({
+        cwd: wt,
+        agentKind: 'shell',
+        issueId: asIssueId(issue.id),
+      })
+    ).sessionId
+    const entry = vi.spyOn(o.reg.modules.syncWrite, 'submitDetailed')
+    const service = vi.spyOn(o.reg.modules.issueSessionLifecycle, 'stopIssue')
+    const free = vi.spyOn(o.reg.issues.gitWorkflow, 'freeWorktreeKeepBranch')
+
+    const answer = await o.call.issues.stop({ id: issue.id })
+
+    expect(answer).toMatchObject({ ok: true, stopped: [member] })
+    expect(service).not.toHaveBeenCalled()
+    const commands = entry.mock.calls.map(([env]) => env.command)
+    expect(commands).toEqual(['effects.create', 'records.session.edit'])
+    expect(entry.mock.calls[1]?.[0].input).toMatchObject({
+      id: member,
+      patch: { desired: 'stopped' },
+    })
+    const row = await o.reg.modules.sessions.desiredStateOf(member)
+    expect(row?.lifecycle).toMatchObject({ desired: 'stopped' })
+    expect(row?.lifecycle.observedRevision).toBe(row?.lifecycle.revision)
+    expect(row?.status).toMatch(/hibernated|exited/)
+    // Then the worktree, once nothing runs in it.
+    expect(free).toHaveBeenCalledTimes(1)
   })
 })
