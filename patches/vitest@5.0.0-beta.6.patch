@@ -1,5 +1,5 @@
 diff --git a/dist/chunks/cli-api.cZcvaUFI.js b/dist/chunks/cli-api.cZcvaUFI.js
-index a54557b4cd9da583313539f8af607746deec5484..f35c0ca91bff1ddd8c3e13947ab7bc78b11cd52d 100644
+index a54557b4cd9da583313539f8af607746deec5484..507fe9c6217751b3bbc1028238e9364e62beb533 100644
 --- a/dist/chunks/cli-api.cZcvaUFI.js
 +++ b/dist/chunks/cli-api.cZcvaUFI.js
 @@ -17654,7 +17654,9 @@ class TestRun {
@@ -9,7 +9,7 @@ index a54557b4cd9da583313539f8af607746deec5484..f35c0ca91bff1ddd8c3e13947ab7bc78
 -						if (!project.vite.moduleGraph.getModuleById(file)?.transformResult && existsSync(file)) return extractSourcemapFromFile(readFileSync(file, "utf-8"), file)?.map;
 +						// Bun native:1:11 frames can resolve to a directory named native.
 +						// Read source maps only from regular files; preserve the frame and result.
-+						if (!project.vite.moduleGraph.getModuleById(file)?.transformResult && statSync(file, { throwIfNoEntry: false })?.isFile()) return extractSourcemapFromFile(readFileSync(file, "utf-8"), file)?.map;
++						if (!project.vite.moduleGraph.getModuleById(file)?.transformResult && existsSync(file) && statSync(file, { throwIfNoEntry: false })?.isFile()) return extractSourcemapFromFile(readFileSync(file, "utf-8"), file)?.map;
  					}
  				});
  			});
