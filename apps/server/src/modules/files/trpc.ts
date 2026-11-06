@@ -14,9 +14,16 @@
  */
 
 import { FILE_CONTRACTS } from '@podium/commands'
-import { type Context, t } from '../../trpc'
-import { derivedFamilyProcedures, type FamilyProcedures, familyState } from '../derived-family'
-import { refusalAsTrpcError, submitFromRoute } from '../sync-write/route-adapter'
+import type { Context } from '../../trpc'
+import {
+  assertSurfaceMatchesDeclarations,
+  derivedFamilyProcedures,
+  type FamilyProcedures,
+  familyState,
+} from '../derived-family'
+import type { DetailedSubmit } from '../sync-write/entry'
+import { refusalAsTrpcError } from '../sync-write/route-adapter'
+import { syncRoute } from '../write-routes/sync'
 import { FILE_QUERIES } from './queries'
 import { assertAllowedRoot, FILE_COMMANDS_TRPC, type FileState } from './registry'
 import {
@@ -37,7 +44,11 @@ const fileState = (ctx: Context): FileState => {
 }
 
 /** `files.write` through an effect record, answering as the route always did. */
-async function writeThroughEffect(ctx: Context, input: FileWriteInput): Promise<FileWriteAnswer> {
+async function writeThroughEffect(
+  ctx: Context,
+  input: FileWriteInput,
+  submit: (envelopeInput: unknown) => Promise<DetailedSubmit>,
+): Promise<FileWriteAnswer> {
   // The shipped FORBIDDEN, with its message, before anything is recorded.
   if ('root' in input) await assertAllowedRoot(fileState(ctx), input.root)
   const state = familyState(ctx)
@@ -45,14 +56,11 @@ async function writeThroughEffect(ctx: Context, input: FileWriteInput): Promise<
   if (effects === undefined) throw new Error('files.write: the effect path is not wired')
   // A fresh envelope id: a save is never replayed (online-only, ADR 3 D18.3).
   const id = newFileEffectId()
-  const { reply, cause } = await submitFromRoute(ctx, {
-    command: 'effects.create',
-    input: {
-      id,
-      kind: FILE_WRITE_EFFECT_KIND,
-      target: fileWriteTarget(input, ctx.registry.sessionStore.hostMachineId),
-      input,
-    },
+  const { reply, cause } = await submit({
+    id,
+    kind: FILE_WRITE_EFFECT_KIND,
+    target: fileWriteTarget(input, ctx.registry.sessionStore.hostMachineId),
+    input,
   })
   if (reply.outcome !== 'applied') {
     if (cause !== undefined) throw cause
@@ -70,13 +78,18 @@ export const fileFamilyProcedures = (): FileProcedures => {
       artifacts: state.modules.issueArtifacts,
       repos: state.repos,
     }),
-    commands: FILE_COMMANDS_TRPC,
     queries: FILE_QUERIES,
   })
-  return {
+  const built = {
     ...derived,
-    write: t.procedure
-      .input(FILE_CONTRACTS.write.input)
-      .mutation(async ({ ctx, input }) => await writeThroughEffect(ctx, input)),
-  } as FileProcedures
+    // Served under its contract, reaching `effects.create` (see the header).
+    write: syncRoute({
+      command: FILE_CONTRACTS.write,
+      registration: 'effects.create',
+      input: FILE_CONTRACTS.write.input,
+      run: async ({ ctx, input, submit }) => await writeThroughEffect(ctx, input, submit),
+    }),
+  }
+  assertSurfaceMatchesDeclarations('files', FILE_COMMANDS_TRPC, FILE_QUERIES, built)
+  return built as unknown as FileProcedures
 }

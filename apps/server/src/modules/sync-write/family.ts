@@ -30,9 +30,9 @@ import type { SyncSubmitRefusal } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
 import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import type { RegistryModules } from '../../relay'
-import { t } from '../../trpc'
 import type { AnyDerivedCommand, FamilyState, MutationProcedures } from '../derived-family'
 import { sessionStatePrincipalFor } from '../sessions/session-state/registry'
+import { syncRoute } from '../write-routes/sync'
 import { SyncWriteRefused } from './entry'
 import {
   NO_TARGET,
@@ -41,7 +41,6 @@ import {
   type SyncWriteRegistry,
   type SyncWriteTarget,
 } from './registry'
-import { refusalAsTrpcError, submitFromRoute } from './route-adapter'
 
 type MaybePromise<T> = T | Promise<T>
 
@@ -235,9 +234,6 @@ export function trpcErrorRefusal(error: unknown): SyncSubmitRefusal | undefined 
   }
 }
 
-/** The input is parsed by the entry point, after the coarse check. */
-const unparsed = (raw: unknown): unknown => raw
-
 /**
  * LEGACY(remove-after: 2027-03): the old per-command tRPC routes of `keep`, as
  * thin adapters onto `submit`, for shipped clients that still call them.
@@ -261,12 +257,7 @@ export function legacyRouteAdapters<
     if (!contract.exposure.includes('trpc')) {
       throw new Error(`sync family ${family.family}: ${contract.name} is not served on tRPC`)
     }
-    built[key] = t.procedure.input(unparsed).mutation(async ({ ctx, input }) => {
-      const { reply, cause } = await submitFromRoute(ctx, { command: contract.name, input })
-      if (reply.outcome === 'applied') return reply.result
-      if (cause !== undefined) throw cause
-      throw refusalAsTrpcError(contract.name, reply.refusal)
-    })
+    built[key] = syncRoute({ command: contract })
   }
   return built as MutationProcedures<Pick<C, K>>
 }

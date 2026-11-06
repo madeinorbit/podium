@@ -20,7 +20,6 @@ export const agentProfileFamilyProcedures = (): AgentProfileProcedures => ({
   ...derivedFamilyProcedures({
     family: 'agentProfiles',
     service: selectAgentProfileState,
-    commands: {},
     queries: AGENT_PROFILE_QUERIES,
   }),
   // LEGACY(remove-after: 2027-03): an older CLI's `podium profile` calls these

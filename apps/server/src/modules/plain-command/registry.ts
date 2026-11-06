@@ -5,7 +5,7 @@
  * effect is a REGISTRATION, not a route. It supplies its declaration (an ADR 3
  * contract, or a `defineCommands` entry and its wire name), an optional target
  * check, and a handler. Every transport's adapter is generated from it
- * (`modules/write-routes/routes.ts`) and runs it through the plain entry
+ * (`modules/write-routes/`) and runs it through the plain entry
  * (`entry.ts`): coarse check, parse, target check, then the handler inside the
  * plain scope. A handler never sees the request's transport.
  *

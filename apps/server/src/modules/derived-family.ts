@@ -333,6 +333,12 @@ export interface DerivedFamily<
   readonly queries: Q
 }
 
+/** A family as the query builder reads it: its queries and their service. */
+export type DerivedQueryFamily<Svc, Q extends Record<string, AnyDerivedQuery>> = Omit<
+  DerivedFamily<Svc, Record<never, AnyDerivedCommand>, Q>,
+  'commands'
+>
+
 // ---------------------------------------------------------------------------
 // The builder
 // ---------------------------------------------------------------------------
@@ -451,37 +457,32 @@ export const familyState = (ctx: Context): FamilyState => ({
   superagent: ctx.superagent,
 })
 
-export function derivedFamilyProcedures<
-  Svc,
-  C extends Record<string, AnyDerivedCommand>,
-  Q extends Record<string, AnyDerivedQuery>,
->(spec: DerivedFamily<Svc, C, Q>): FamilyProcedures<C, Q> {
+/**
+ * A family's QUERIES, built from its query table. Its writes are not built here
+ * (ADR 12 D9, POD-6593): every write route is generated from a registration by
+ * `write-routes/`, and a family composes those routes beside these and checks
+ * the whole surface with {@link assertSurfaceMatchesDeclarations}.
+ */
+export function derivedFamilyProcedures<Svc, Q extends Record<string, AnyDerivedQuery>>(
+  spec: DerivedQueryFamily<Svc, Q>,
+): QueryProcedures<Q> {
   const built: Record<string, unknown> = {}
-
-  for (const [name, command] of Object.entries(spec.commands)) {
-    if (!command.contract.exposure.includes('trpc')) continue
-    built[name] = t.procedure
-      .input(command.contract.input)
-      // THE ONE ACCESS PATTERN: the seam is read here, the service is handed to
-      // the handler, and the handler never sees a ctx. `input` is erased at this
-      // point because the table is heterogeneous — each pairing is checked where
-      // it is declared, and re-derived for the client by `MutationProcedures`.
-      .mutation(({ ctx, input }) => command.handler(spec.service(familyState(ctx)), input))
-  }
 
   for (const [name, query] of Object.entries(spec.queries)) {
     if (!query.exposure.includes('trpc')) continue
+    // THE ONE ACCESS PATTERN: the seam is read here, the service is handed to
+    // the query, and the query never sees a ctx.
     built[name] = t.procedure
       .input(query.input)
       .query(({ ctx, input }) => query.run(spec.service(familyState(ctx)), input))
   }
 
-  assertSurfaceMatchesDeclarations(spec.family, spec.commands, spec.queries, built)
-  return built as FamilyProcedures<C, Q>
+  assertSurfaceMatchesDeclarations(spec.family, {}, spec.queries, built)
+  return built as QueryProcedures<Q>
 }
 
 /**
- * A QUERY-ONLY SURFACE — the same builder with an empty contract table.
+ * A QUERY-ONLY SURFACE — the same builder over the state bundle itself.
  *
  * Most of what `router.ts` still declares is reads: routers whose writes another
  * issue already derived (`superagent`, `specs`, `settings`, `automations`,
@@ -490,18 +491,10 @@ export function derivedFamilyProcedures<
  * every derived family — same state bundle, same both-directions membership
  * check — rather than a second, laxer one, because a query-only shortcut is
  * exactly where a mutation would eventually be added without anyone noticing.
- *
- * The empty commands table is written out rather than defaulted, so "this family
- * has no writes" is a statement rather than an omission.
  */
 export function queryProcedures<Q extends Record<string, AnyDerivedQuery>>(
   family: string,
   queries: Q,
 ): QueryProcedures<Q> {
-  return derivedFamilyProcedures({
-    family,
-    service: (state) => state,
-    commands: {},
-    queries,
-  }) as QueryProcedures<Q>
+  return derivedFamilyProcedures({ family, service: (state) => state, queries })
 }

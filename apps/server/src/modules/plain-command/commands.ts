@@ -3,7 +3,7 @@
  *
  * Every command on the plain path is registered here, once, from its family's
  * declaration (`<family>/plain-family.ts`). The write-route generator
- * (`write-routes/routes.ts`) builds every transport's adapter from this registry;
+ * (`write-routes/`) builds every transport's adapter from this registry;
  * a plain command that is not registered here has no route at all.
  *
  * A module-level instance, because a plain command holds no per-server state:

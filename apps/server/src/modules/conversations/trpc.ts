@@ -18,6 +18,5 @@ export const conversationFamilyProcedures = (): ConversationProcedures =>
   derivedFamilyProcedures({
     family: 'conversations',
     service: selectConversationReader,
-    commands: {},
     queries: CONVERSATION_QUERIES,
   })

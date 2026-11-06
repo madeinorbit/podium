@@ -31,7 +31,6 @@ export const approvalFamilyProcedures = (): ApprovalProcedures => ({
   ...derivedFamilyProcedures({
     family: 'approvals',
     service: (state) => state.modules.approvals,
-    commands: {},
     queries: APPROVAL_QUERIES,
   }),
   // LEGACY(remove-after: 2027-03): the desktop app bundles its own web, whose approval dialog calls these routes. Removing them breaks its decisions.
