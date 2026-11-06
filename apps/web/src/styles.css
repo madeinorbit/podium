@@ -14647,19 +14647,19 @@ button.waterfall-fold:hover {
   display: none;
 }
 
-/* Full alone sheds by the entire panel, never the viewport or an indented
-   strip. Expanded uses this same tree. POD-6000 approved wrapping mandatory
-   identity/state and bounded indentation when their intrinsic widths collide. */
+/* Full alone sheds optional slots by panel width. Every nesting level retains its
+   full step; deep trees scroll horizontally while row contents keep wrapping. */
 .flight-full-panel {
   container: flight-full / inline-size;
   width: 100%;
   min-width: 0;
-  overflow-x: hidden;
+  overflow-x: auto;
   --v6-state-width: 76px;
   --v6-gap: 8px;
   --v6-title-min: 60px;
-  /* Keep one complete connector step outside nested rows at every width. */
-  --v6-indent-limit: clamp(22px, calc(100cqi - 440px), 66px);
+}
+.flight-full-panel > .deck-chrome {
+  left: 0;
 }
 .flight-v6-rows,
 .flight-full-coordinator,
@@ -14671,13 +14671,24 @@ button.waterfall-fold:hover {
   min-width: 0;
 }
 .flight-v6-card,
-.flight-full-phase-header {
-  margin-left: min(var(--v6-indent, 0px), var(--v6-indent-limit, 66px));
+.flight-full-phase-header,
+.flight-full-phase-section > [data-deck-placeholder] {
+  margin-left: var(--v6-indent, 0px);
+  /* deck-rows is the inline-size container; its tree has 12px/4px gutters.
+     Minimum row width keeps deep controls usable without flattening ancestry. */
+  width: calc(100cqi - 16px - var(--v6-indent, 0px));
+  min-width: 240px;
 }
 /* A phase's own agents sit inside its rail, in line with its tasks: one depth
    step (V6_DEPTH_STEP) in from the header, where the child cards start. */
 .flight-full-phase-lead {
-  margin-left: min(calc(var(--v6-indent, 0px) + 22px), var(--v6-indent-limit, 66px));
+  margin-left: calc(var(--v6-indent, 0px) + 22px);
+  width: calc(100cqi - 38px - var(--v6-indent, 0px));
+  min-width: 240px;
+}
+.flight-full-done-line,
+.flight-full-helpers {
+  width: calc(100cqi - 16px);
 }
 /* Phase wrappers retain semantic nesting/disclosure IDs without accumulating
    horizontal padding. The rail is decoration, independent of content width. */
@@ -14696,7 +14707,7 @@ button.waterfall-fold:hover {
   pointer-events: none;
   top: 0;
   bottom: 0;
-  left: min(calc(var(--v6-indent, 0px) + 11px), calc(var(--v6-indent-limit, 66px) - 11px));
+  left: calc(var(--v6-indent, 0px) + 11px);
   border-left: 2px solid var(--border);
 }
 .flight-full-phase-content[data-has-lead="true"]::before {
@@ -14736,8 +14747,7 @@ button.waterfall-fold:hover {
   height: 13px;
 }
 .flight-v6-guide {
-  /* The elbow ends at the card edge; its stem stays half a step outside it. */
-  left: min(var(--v6-guide-left), calc(var(--v6-indent-limit, 66px) - 22px));
+  left: var(--v6-guide-left);
 }
 .flight-v6-strip {
   container-type: normal;
@@ -14798,6 +14808,7 @@ button.waterfall-fold:hover {
 }
 .flight-full-groups {
   position: relative;
+  min-width: min-content;
 }
 /* Blocker lines run over the right end of the rows (FULL_EDGE_INSET). While
    they show, the state words and phase meters they cross fade out, and come
