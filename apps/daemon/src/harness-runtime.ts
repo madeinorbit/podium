@@ -74,7 +74,11 @@ export class DaemonHarnessRuntime {
     return this.authoritativeValue === snapshot
   }
 
-  async launch(kind: AgentKind, options: HarnessLaunchOptions): Promise<LaunchSpec> {
+  async launch(
+    kind: AgentKind,
+    options: HarnessLaunchOptions,
+    selectedSnapshot?: ResolvedHarnessInventory,
+  ): Promise<LaunchSpec> {
     const invocation = (this.options.launch ?? agentLaunchCommand)(kind, options)
     if (kind === 'shell') {
       const snapshot = await this.current()
@@ -83,7 +87,7 @@ export class DaemonHarnessRuntime {
         env: { ...snapshot.commandEnvironment.env, ...invocation.env },
       }
     }
-    return bindHarnessLaunch(await this.current(), kind, invocation)
+    return bindHarnessLaunch(selectedSnapshot ?? (await this.current()), kind, invocation)
   }
 
   private install(

@@ -22,33 +22,34 @@ import type {
   AgentObservation,
   AgentObservationAckMessage,
   ProviderCursor,
-  SessionObservationCheckpointV1} from '@podium/protocol'
+  SessionObservationCheckpointV1,
+} from '@podium/protocol'
 import { fileMtimeIso } from '../../agent-state/boot-time.js'
 import {
   type AgentStateEvent,
   type AgentStateProvider,
   withStateChannel,
-  withStateChannelEvent} from '../../agent-state/types.js'
+  withStateChannelEvent,
+} from '../../agent-state/types.js'
 import { readCodexThreadMetadata } from '../../discovery/providers/codex-state.js'
 import { LineDecoder } from '../../jsonl-stream.js'
 import { initialAgentState, reduceAgentState } from '../../observer.js'
 import { type StatTick, scheduleStatPoll } from '../../transcript-types.js'
-import {
-  cleanCodexTitle,
-  codexPromptTitle,
-  isInteractiveCodexSource} from './discovery.js'
+import { cleanCodexTitle, codexPromptTitle, isInteractiveCodexSource } from './discovery.js'
 import {
   codexInstrumentation,
   codexQuestionSummary,
   isCodexQuestionTool,
   PODIUM_CODEX_HOOK_SOCKET_ENV,
   PODIUM_CODEX_HOOK_URL_ENV,
-  translateCodexEvent} from './instrumentation.js'
+  translateCodexEvent,
+} from './instrumentation.js'
 import {
   CODEX_TRUST_SUMMARY,
   classifyCodexScreen,
   classifyCodexVerdict,
-  codexUsageLimitSummary} from './state.js'
+  codexUsageLimitSummary,
+} from './state.js'
 
 export { codexApprovalsReviewerFromTranscript } from './instrumentation.js'
 export {
@@ -96,7 +97,6 @@ export function codexPodiumSessionMarker(sessionId: SessionId): string {
   return `<podium-session-id>${sessionId}</podium-session-id>`
 }
 
-
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
@@ -107,15 +107,9 @@ function strField(v: unknown, k: string): string | undefined {
   return typeof f === 'string' && f.length > 0 ? f : undefined
 }
 
-
-
 function codexCallId(payload: Record<string, unknown>): string | undefined {
   return strField(payload, 'call_id') ?? strField(payload, 'id')
 }
-
-
-
-
 
 async function codexBootEvents(opts: {
   cwd: string
@@ -852,7 +846,6 @@ export const codexStateProvider: AgentStateProvider = {
   bootEvents: async (opts) => withStateChannel(await codexBootEvents(opts), 'poll'),
 }
 
-
 export interface CodexCausalStateOptions {
   podiumSessionId: SessionId
   /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
@@ -886,6 +879,9 @@ export function observeCodexState(opts: {
   resumeValue?: string
   podiumSessionId?: SessionId
   homeDir?: string
+  codexHome?: string
+  /** An owned-process resolver supersedes the legacy marker corpus walk. */
+  allowCwdDiscovery?: boolean
   startedAtMs?: number
   pollMs?: number
   statTick?: StatTick
@@ -918,7 +914,7 @@ export function observeCodexState(opts: {
   /** Test/attribution seam for the expensive unbound corpus fallback. */
   onFilesystemRolloutScan?: () => void
 }): CodexStateObservation {
-  const codexHome = join(opts.homeDir ?? homedir(), '.codex')
+  const codexHome = opts.codexHome ?? join(opts.homeDir ?? homedir(), '.codex')
   const root = join(codexHome, 'sessions')
   const startedAtMs = opts.startedAtMs ?? 0
   // The cwd/time walk is a compatibility fallback only. A Podium-owned Linux
@@ -931,6 +927,7 @@ export function observeCodexState(opts: {
   // With no resumeValue AND no floor at all, discovering by cwd would grab a
   // sibling's rollout, so stay idle instead.
   const canDiscoverByCwd =
+    opts.allowCwdDiscovery !== false &&
     opts.startedAtMs !== undefined &&
     (!opts.podiumSessionId || (opts.platform ?? process.platform) !== 'linux')
   let stopped = false
@@ -1184,7 +1181,11 @@ export function observeCodexState(opts: {
       // cwd/time. Recheck slowly after binding so an untrusted hook's `/clear`
       // still advances to the new native thread.
       const now = Date.now()
-      if (opts.podiumSessionId && now >= nextProcessRolloutPollAt) {
+      if (
+        opts.podiumSessionId &&
+        (opts.platform ?? process.platform) === 'linux' &&
+        now >= nextProcessRolloutPollAt
+      ) {
         nextProcessRolloutPollAt = now + PROCESS_ROLLOUT_POLL_MS
         const processBound = await cachedProcessBoundCodexRollout(
           root,
@@ -1226,7 +1227,12 @@ export function observeCodexState(opts: {
           nextFilesystemRolloutPollAt = now + FILESYSTEM_ROLLOUT_POLL_MS
           opts.onFilesystemRolloutScan?.()
           found = opts.resumeValue
-            ? await resolvePinnedCodexRollout(opts.resumeValue, opts.homeDir, readThreadState)
+            ? await resolvePinnedCodexRollout(
+                opts.resumeValue,
+                opts.homeDir,
+                readThreadState,
+                codexHome,
+              )
             : canDiscoverByCwd
               ? await findLiveCodexRollout(root, opts.cwd, startedAtMs, opts.podiumSessionId)
               : undefined
@@ -1681,8 +1687,7 @@ export async function findLiveCodexRollout(
   // it without listing. The slack absorbs timezone skew between the dir's (local)
   // date and the session_meta (UTC) timestamp. This is what keeps an UNBOUND
   // observer's every-700ms walk from touching months of history.
-  const pruneBeforeMs =
-    startedAtMs > 0 ? startedAtMs - ROLLOUT_START_SLOP_MS - PRUNE_SLACK_MS : 0
+  const pruneBeforeMs = startedAtMs > 0 ? startedAtMs - ROLLOUT_START_SLOP_MS - PRUNE_SLACK_MS : 0
   // One reusable probe buffer for the whole walk — the walk previously allocated a
   // fresh 256 KB buffer PER FILE (~400 MB of churn per tick on a ~1000-rollout
   // tree; the POD-601 heap oscillation). allocUnsafe is fine: only bytesRead are read.
@@ -1781,11 +1786,13 @@ export async function resolvePinnedCodexRollout(
   homeDir: string | undefined,
   /** UNBRANDED BY DECISION: a provider/harness-native thread id, not a Podium messaging ThreadId. */
   readThreadState?: (threadId: string) => ReturnType<typeof readCodexThreadMetadata>,
+  codexHome?: string,
 ): Promise<{ path: string; id: string; createdMs: number; confidence: 'exact' } | undefined> {
   const path = await findCodexRolloutPath({
     resumeValue,
     ...(homeDir ? { homeDir } : {}),
     ...(readThreadState ? { readThreadState } : {}),
+    ...(codexHome ? { codexHome } : {}),
   })
   if (!path) return undefined
   try {
@@ -1804,10 +1811,11 @@ export async function resolvePinnedCodexRollout(
 export async function findCodexRolloutPath(opts: {
   resumeValue: string
   homeDir?: string
+  codexHome?: string
   /** UNBRANDED BY DECISION: a provider/harness-native thread id, not a Podium messaging ThreadId. */
   readThreadState?: (threadId: string) => ReturnType<typeof readCodexThreadMetadata>
 }): Promise<string | undefined> {
-  const root = join(opts.homeDir ?? homedir(), '.codex')
+  const root = opts.codexHome ?? join(opts.homeDir ?? homedir(), '.codex')
   try {
     const meta = opts.readThreadState
       ? await opts.readThreadState(opts.resumeValue)

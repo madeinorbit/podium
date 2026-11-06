@@ -19,17 +19,17 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { createServer, type RequestListener } from 'node:http'
 import { dirname } from 'node:path'
-import { listenUserSocket, type UserSocketServer } from '@podium/runtime/user-socket'
 import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
-import type { DriverCapabilities, SessionSpec } from '../../host.js'
-import {
-  type HarnessInstrumentation,
-  type InstalledInstrumentation,
-  type InstrumentationDestination,
-  type InstrumentationInstallScope,
+import { listenUserSocket, type UserSocketServer } from '@podium/runtime/user-socket'
+import type {
+  HarnessInstrumentation,
+  InstalledInstrumentation,
+  InstrumentationDestination,
+  InstrumentationInstallScope,
 } from '../../../manifest.js'
+import type { DriverCapabilities, SessionSpec } from '../../host.js'
 import {
   HOOK_INGEST_ENDPOINT,
   listenStableLoopbackPort,
@@ -117,14 +117,22 @@ export async function startHookIngest(opts: {
   socketPath?: string
   /** Driver-owned hidden context, evaluated before optional legacy responders.
    * Removing respondTo must not remove startup/compaction context delivery. */
-  boundaryContext?: (sessionId: SessionId, payload: unknown, signal: AbortSignal) => Promise<string | null>
+  boundaryContext?: (
+    sessionId: SessionId,
+    payload: unknown,
+    signal: AbortSignal,
+  ) => Promise<string | null>
   /**
    * Optional bounded response. When provided, the resolved JSON string is sent
    * as the hook response body (Claude Code reads it as e.g. additionalContext);
    * `null`/timeout/throw all fall back to `'{}'`. `onPayload` still fires for
    * every request. Absent → only the driver boundary is evaluated.
    */
-  respondTo?: (sessionId: SessionId, payload: unknown, signal: AbortSignal) => Promise<string | null>
+  respondTo?: (
+    sessionId: SessionId,
+    payload: unknown,
+    signal: AbortSignal,
+  ) => Promise<string | null>
   /** Max time for driver context and legacy responders together before falling back to `'{}'`. Default 3000. */
   respondTimeoutMs?: number
 }): Promise<HookIngest> {
@@ -224,7 +232,7 @@ export async function startHookIngest(opts: {
             const signal = responseLifetime.signal
             let context: string | null = null
             try {
-              context = await opts.boundaryContext?.(sessionId, payload, signal) ?? null
+              context = (await opts.boundaryContext?.(sessionId, payload, signal)) ?? null
             } catch {
               // Driver fetch failures remain fail-open for later responders.
             }
@@ -327,6 +335,8 @@ export async function installTerminalInstrumentation(input: {
   homeDir?: string
   /** Host telemetry plumbing for the harness version probe (best-effort). */
   reportVersionProbe?: (harness: string, output: string) => void
+  /** Version from the inventory snapshot retained for this spawn. */
+  verifiedVersion?: string
 }): Promise<InstalledTerminalInstrumentation> {
   const { spec, sections } = input
   const channel = spec.instrumentation
@@ -344,6 +354,7 @@ export async function installTerminalInstrumentation(input: {
     ...(input.homeDir ? { homeDir: input.homeDir } : {}),
     ...(spec.env ? { env: spec.env } : {}),
     ...(input.reportVersionProbe ? { reportVersionProbe: input.reportVersionProbe } : {}),
+    ...(input.verifiedVersion ? { verifiedVersion: input.verifiedVersion } : {}),
   }
   // The install scope is adapter-declared: one strategy per `scope.kind`,
   // looked up — never an `if` on a harness-shaped flag. The `home` strategy
