@@ -159,20 +159,37 @@ const audiencesOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
 // The live records on targets of SEVERAL kinds in one read (POD-6401): every
 // listed kind crossed with every listed id, seeking `idx_effects_target`; the
 // caller keeps only the (kind, id) pairs it asked for. Keyed `<kinds>x<ids>`.
+// The index is named with INDEXED BY: on default statistics the planner costs
+// `deleted_at IS NULL` on `idx_effects_deleted` below the crossed seeks, and
+// that walk reads every live record (POD-6599). Ordered as the index is, by
+// target, then `created_at`, then rowid, so the seeks need no sort: the caller
+// orders across targets itself and needs only each target's oldest-first order.
 const liveOnTargetKeys = preparedFamily((db: StoreDrizzle, shape: string) => {
   const [kindSize, idSize] = shape.split('x').map(Number) as [number, number]
-  return db
-    .select({ id: effects.id, targetKind: effects.targetKind, targetId: effects.targetId })
-    .from(effects)
-    .where(
-      and(
-        inListOf(effects.targetKind, kindSize, 'kind'),
-        inListOf(effects.targetId, idSize, 'id'),
-        live(),
-      ),
-    )
-    .orderBy(asc(effects.createdAt), asc(effects.id))
-    .prepare()
+  return (
+    db
+      // Bare column names: the FROM is an INDEXED BY clause, not the table object.
+      .select({
+        id: sql<string>`id`,
+        targetKind: sql<string>`target_kind`,
+        targetId: sql<string>`target_id`,
+      })
+      .from(sql`${effects} INDEXED BY idx_effects_target`)
+      .where(
+        and(
+          inListOf(effects.targetKind, kindSize, 'kind'),
+          inListOf(effects.targetId, idSize, 'id'),
+          live(),
+        ),
+      )
+      .orderBy(
+        asc(effects.targetKind),
+        asc(effects.targetId),
+        asc(effects.createdAt),
+        asc(sql`rowid`),
+      )
+      .prepare()
+  )
 })
 
 /** One live record's place, as {@link EffectsRepository.liveOnTargets} returns it. */
