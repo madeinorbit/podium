@@ -11,10 +11,7 @@ export function createReleaseApprovalFlow(deps: {
   now?: () => number
 }): {
   read(): Promise<ReleaseProposal | undefined>
-  approve(
-    approvedBy: string,
-    expected: ReleaseApprovalTarget,
-  ): Promise<ReleaseProposal | undefined>
+  approve(approvedBy: string, expected: ReleaseApprovalTarget): Promise<ReleaseProposal | undefined>
 } {
   let inFlight = false
   let proposalHead: string | undefined
@@ -63,18 +60,37 @@ export function createReleaseApprovalFlow(deps: {
         proposalHead = base.headSha
         approval = { approvedBy, approvedAt: now() }
         failure = undefined
-        await deps.release(base)
-        return await read()
-      } catch (error) {
-        if (error instanceof ReleaseApprovalRefusal) throw error
-        failure = {
-          message:
-            'Building and publishing this development release failed. Nothing was granted, so there is nothing to roll back.',
-          logs: deps.failureLogs(error),
+        // Admission is the HTTP mutation's result. A compile must not keep a
+        // request (and the client's local pending flag) open for minutes; the
+        // existing proposal query owns progress and the eventual failure.
+        const release = async (): Promise<void> => {
+          try {
+            await deps.release(base)
+          } catch (error) {
+            const logs = deps.failureLogs(error)
+            // A later HEAD is a different proposal, never this build's failure.
+            if (proposalHead === base.headSha) {
+              failure = {
+                message:
+                  'Building and publishing this development release failed. Nothing was granted, so there is nothing to roll back.',
+                logs,
+              }
+            }
+          } finally {
+            inFlight = false
+          }
         }
-        return await read()
-      } finally {
+        void release().catch((error: unknown) => {
+          // Keep even a failure in the diagnostic formatter off the process's
+          // unhandled-rejection path. Admission was released in finally.
+          if (proposalHead === base.headSha) {
+            failure = { message: 'The development release failed.', logs: String(error) }
+          }
+        })
+        return { ...base, state: 'building', approval }
+      } catch (error) {
         inFlight = false
+        throw error
       }
     },
   }

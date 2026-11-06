@@ -1,21 +1,24 @@
-import { execFile } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { promisify } from 'node:util'
 import {
-  timeReleaseBuildTask,
   type ReleaseBuildTimingDeps,
+  timeReleaseBuildTask,
 } from '@podium/runtime/release-build-timing'
+import {
+  DEV_BUILD_GIT_TIMEOUT_MS,
+  DEV_BUILD_INSTALL_TIMEOUT_MS,
+  runBuildCommand,
+} from './build-process'
 import { devBuildCommand } from './build-scope'
 
-const execFileAsync = promisify(execFile)
-
 async function git(root: string, args: readonly string[]): Promise<string> {
-  const { stdout } = await execFileAsync('git', [...args], {
+  const { stdout } = await runBuildCommand('git', args, {
     cwd: root,
-    encoding: 'utf8',
     env: { ...process.env },
+    stdio: 'pipe',
+    timeoutMs: DEV_BUILD_GIT_TIMEOUT_MS,
+    label: `Development build git ${args[0] ?? ''}`,
   })
   return stdout
 }
@@ -44,9 +47,12 @@ async function assertSnapshotIdentity(root: string, approvedSha: string): Promis
 export type BunInstall = (snapshotRoot: string, args: readonly string[]) => Promise<void>
 
 const runBunInstall: BunInstall = async (snapshotRoot, args) => {
-  await execFileAsync(devBuildCommand(process.env), [...args], {
+  await runBuildCommand(devBuildCommand(process.env), args, {
     cwd: snapshotRoot,
     env: { ...process.env },
+    stdio: 'pipe',
+    timeoutMs: DEV_BUILD_INSTALL_TIMEOUT_MS,
+    label: 'Development build dependency install',
   })
 }
 

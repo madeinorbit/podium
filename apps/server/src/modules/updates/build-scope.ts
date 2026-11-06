@@ -80,7 +80,7 @@
  * `cpu.weight` (50) and `cpu.max` (200000 100000).
  */
 
-import { spawn, spawnSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { createLogger } from '@podium/logger'
 import { instanceBuildSliceName } from '@podium/runtime/instance'
@@ -92,6 +92,12 @@ import {
   type ScopeBudgetEnv,
   scopeBudgetProperties,
 } from '@podium/runtime/scope'
+import {
+  BuildCommandTimeoutError,
+  DEV_BUILD_CONTROL_TIMEOUT_MS,
+  DEV_BUILD_TIMEOUT_MS,
+  runBuildCommand,
+} from './build-process'
 
 const log = createLogger('server:updates')
 
@@ -134,7 +140,7 @@ export function devBuildScopeUnit(role: string, instanceId: string): string {
 export function devBuildScopeArgv(
   unit: string,
   command: readonly string[],
-  opts: { description?: string; slice?: string; budget?: ScopeBudget } = {},
+  opts: { description?: string; slice?: string; budget?: ScopeBudget; timeoutMs?: number } = {},
 ): string[] {
   return [
     '--user',
@@ -147,6 +153,9 @@ export function devBuildScopeArgv(
     `--property=CPUWeight=${DEV_BUILD_CPU_WEIGHT}`,
     `--property=IOWeight=${DEV_BUILD_IO_WEIGHT}`,
     `--property=CPUQuota=${DEV_BUILD_CPU_QUOTA}`,
+    // systemd keeps this limit even if the server exits before its own timer.
+    `--property=RuntimeMaxSec=${Math.ceil((opts.timeoutMs ?? DEV_BUILD_TIMEOUT_MS) / 1_000)}s`,
+    '--property=KillSignal=SIGKILL',
     ...scopeBudgetProperties(opts.budget ?? resolveBuildBudget()),
     '--',
     ...command,
@@ -197,6 +206,7 @@ export function canScopeDevBuild(): boolean {
     spawnSync('systemd-run', ['--user', '--scope', '--collect', '--quiet', '--', 'true'], {
       stdio: 'ignore',
       timeout: 8000,
+      killSignal: 'SIGKILL',
       env: scopeEnv(process.env),
     }).status === 0
   return scopeProbe
@@ -223,6 +233,7 @@ export interface LowTierBuild {
   args: readonly string[]
   cwd: string
   env: NodeJS.ProcessEnv
+  timeoutMs?: number
 }
 
 /**
@@ -258,6 +269,7 @@ export function lowTierSpawnPlan(
     args: devBuildScopeArgv(build.unit, [build.command, ...build.args], {
       ...(build.description ? { description: build.description } : {}),
       ...(build.slice ? { slice: build.slice } : {}),
+      ...(build.timeoutMs !== undefined ? { timeoutMs: build.timeoutMs } : {}),
       // The BUILD's env, not the process's: it is the env the build actually
       // runs with, so the cap the scope carries is the cap the failure message
       // later names.
@@ -332,12 +344,19 @@ function formatCap(bytes: number): string {
     : `${(bytes / 1024 ** 3).toFixed(1)} GiB`
 }
 
-function runQuietly(file: string, args: string[], env: NodeJS.ProcessEnv): Promise<void> {
-  return new Promise((resolve) => {
-    const child = spawn(file, args, { stdio: 'ignore', env })
-    child.once('error', () => resolve())
-    child.once('close', () => resolve())
-  })
+async function runQuietly(file: string, args: string[], env: NodeJS.ProcessEnv): Promise<void> {
+  try {
+    await runBuildCommand(file, args, {
+      env,
+      stdio: 'ignore',
+      timeoutMs: DEV_BUILD_CONTROL_TIMEOUT_MS,
+      label: `${file} ${args.join(' ')}`,
+    })
+  } catch (error) {
+    // A missing old unit is normal; an unresponsive stop must not allow a new
+    // build to race an old one that may still be writing its artifacts.
+    if (error instanceof BuildCommandTimeoutError) throw error
+  }
 }
 
 /**
@@ -366,16 +385,30 @@ export async function runLowTierBuild(build: LowTierBuild): Promise<void> {
     })
   }
   const plan = lowTierSpawnPlan(build, scoped)
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(plan.file, plan.args, { cwd: build.cwd, env, stdio: 'inherit' })
-    child.once('error', reject)
-    child.once('close', (status, signal) => {
-      if (status === 0) resolve()
-      else {
-        reject(new Error(describeBuildExit(build.command, { status, signal }, budget, sliceBudget)))
-      }
+  try {
+    await runBuildCommand(plan.file, plan.args, {
+      cwd: build.cwd,
+      env,
+      timeoutMs: build.timeoutMs ?? DEV_BUILD_TIMEOUT_MS,
+      label: build.description ?? build.unit,
     })
-  })
+  } catch (error) {
+    if (error instanceof BuildCommandTimeoutError) throw error
+    const exit = error as { status?: number | null; signal?: NodeJS.Signals | null }
+    if (exit.status === undefined) throw error
+    throw new Error(
+      describeBuildExit(
+        build.command,
+        {
+          status: exit.status,
+          signal: exit.signal ?? null,
+        },
+        budget,
+        sliceBudget,
+      ),
+      { cause: error },
+    )
+  }
 }
 
 /**
@@ -416,9 +449,13 @@ function runReporting(
   args: string[],
   env: NodeJS.ProcessEnv,
 ): Promise<number | null> {
-  return new Promise((resolve) => {
-    const child = spawn(file, args, { stdio: 'ignore', env })
-    child.once('error', () => resolve(null))
-    child.once('close', (status) => resolve(status))
-  })
+  return runBuildCommand(file, args, {
+    env,
+    stdio: 'ignore',
+    timeoutMs: DEV_BUILD_CONTROL_TIMEOUT_MS,
+    label: `${file} ${args.join(' ')}`,
+  }).then(
+    () => 0,
+    (error: unknown) => (error as { status?: number | null }).status ?? null,
+  )
 }

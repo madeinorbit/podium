@@ -30,40 +30,45 @@ describe('release approval flow', () => {
       now: () => 123,
     })
 
-    const first = flow.approve('user:admin', TARGET)
-    await vi.waitFor(async () => {
-      expect(await flow.read()).toMatchObject({
-        state: 'building',
-        approval: { approvedBy: 'user:admin', approvedAt: 123 },
-      })
+    // This resolves while the build is still suspended: no long HTTP request.
+    await expect(flow.approve('user:admin', TARGET)).resolves.toMatchObject({
+      state: 'building',
+      approval: { approvedBy: 'user:admin', approvedAt: 123 },
     })
     await expect(flow.approve('user:other-admin', TARGET)).rejects.toThrow(/already building/)
     expect(release).toHaveBeenCalledOnce()
     expect(release).toHaveBeenCalledWith(expect.objectContaining({ headSha: 'aaaaaaa' }))
 
     finish()
-    await expect(first).resolves.toBeUndefined()
+    await vi.waitFor(() => expect(flow.read()).resolves.toBeUndefined())
     expect(release).toHaveBeenCalledOnce()
   })
 
   it('keeps build logs, approval identity, and the no-rollback explanation on failure', async () => {
+    let fail!: (error: Error) => void
+    const building = new Promise<void>((_, reject) => {
+      fail = reject
+    })
     const flow = createReleaseApprovalFlow({
       proposal: async () => BASE,
-      release: async (_proposal) => {
-        throw new Error('compile exited 1')
-      },
+      release: async (_proposal) => building,
       failureLogs: (error) => (error instanceof Error ? error.message : String(error)),
       now: () => 456,
     })
 
-    await expect(flow.approve('user:admin', TARGET)).resolves.toMatchObject({
-      state: 'failed',
-      approval: { approvedBy: 'user:admin', approvedAt: 456 },
-      failure: {
-        message: expect.stringMatching(/nothing was granted.*nothing to roll back/i),
-        logs: 'compile exited 1',
-      },
-    })
+    await flow.approve('user:admin', TARGET)
+    expect(await flow.read()).toMatchObject({ state: 'building' })
+    fail(new Error('compile exited 1'))
+    await vi.waitFor(() =>
+      expect(flow.read()).resolves.toMatchObject({
+        state: 'failed',
+        approval: { approvedBy: 'user:admin', approvedAt: 456 },
+        failure: {
+          message: expect.stringMatching(/nothing was granted.*nothing to roll back/i),
+          logs: 'compile exited 1',
+        },
+      }),
+    )
   })
 
   it('shows a newly landed HEAD as the next pending proposal while the old release builds', async () => {
@@ -78,13 +83,13 @@ describe('release approval flow', () => {
       failureLogs: String,
     })
 
-    const first = flow.approve('user:admin', TARGET)
+    await flow.approve('user:admin', TARGET)
     await vi.waitFor(() => expect(flow.read()).resolves.toMatchObject({ state: 'building' }))
     current = { ...BASE, headSha: 'bbbbbbb', version: '0.1.2-dev.2+bbbbbbb' }
     expect(await flow.read()).toMatchObject({ headSha: 'bbbbbbb', state: 'pending' })
     await expect(flow.approve('user:other-admin', TARGET)).rejects.toThrow(/already building/)
     finish()
-    await first
+    await vi.waitFor(() => expect(flow.read()).resolves.toMatchObject({ state: 'pending' }))
   })
 
   it('refuses when the displayed proposal moved instead of silently approving current HEAD', async () => {

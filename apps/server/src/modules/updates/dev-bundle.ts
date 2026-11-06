@@ -1,10 +1,8 @@
-import { execFile } from 'node:child_process'
 import { createHash, createPrivateKey, createPublicKey } from 'node:crypto'
 import { createReadStream, type Dirent, existsSync, readFileSync, renameSync } from 'node:fs'
 import { mkdir, readdir, readFile as readFileAsync, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { promisify } from 'node:util'
 import { createLogger, describeError } from '@podium/logger'
 import {
   commitShaFromDevVersion,
@@ -30,6 +28,7 @@ import {
   releaseBuildTimingFileName,
   timeReleaseBuildTask,
 } from '@podium/runtime/release-build-timing'
+import { DEV_BUILD_GIT_TIMEOUT_MS, runBuildCommand } from './build-process'
 import {
   advanceOutcome,
   type BuildOutcome,
@@ -65,8 +64,6 @@ import { targetDaemonWireRefusal } from './wave'
 
 const log = createLogger('server:updates')
 
-const execFileAsync = promisify(execFile)
-
 /**
  * EVERY GIT CALL HERE IS ASYNCHRONOUS, and that is a load-bearing property.
  *
@@ -97,10 +94,12 @@ function gitEnv(): NodeJS.ProcessEnv {
 const MIGRATIONS_TREE = 'apps/server/src/migrations/drizzle'
 
 async function git(root: string, args: readonly string[]): Promise<string> {
-  const { stdout } = await execFileAsync('git', [...args], {
+  const { stdout } = await runBuildCommand('git', args, {
     cwd: root,
-    encoding: 'utf8',
     env: gitEnv(),
+    stdio: 'pipe',
+    timeoutMs: DEV_BUILD_GIT_TIMEOUT_MS,
+    label: `Development build git ${args[0] ?? ''}`,
   })
   return stdout
 }

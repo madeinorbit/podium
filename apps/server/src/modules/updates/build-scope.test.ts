@@ -24,6 +24,8 @@ describe('development build scopes', () => {
     expect(argv).toContain(`--property=CPUWeight=${DEV_BUILD_CPU_WEIGHT}`)
     expect(argv).toContain(`--property=IOWeight=${DEV_BUILD_IO_WEIGHT}`)
     expect(argv).toContain(`--property=CPUQuota=${DEV_BUILD_CPU_QUOTA}`)
+    expect(argv).toContain('--property=RuntimeMaxSec=1200s')
+    expect(argv).toContain('--property=KillSignal=SIGKILL')
     // The interactive tier the server itself runs at, which the build used to
     // inherit by being a plain child of it (POD-1985).
     expect(DEV_BUILD_CPU_WEIGHT).toBeLessThan(900)
@@ -63,6 +65,9 @@ describe('development build scopes', () => {
       args: ['scripts/build-bun.ts'],
     })
     expect(lowTierSpawnPlan(build, true).file).toBe('systemd-run')
+    expect(lowTierSpawnPlan({ ...build, timeoutMs: 1_250 }, true).args).toContain(
+      '--property=RuntimeMaxSec=2s',
+    )
   })
 
   it('bounds the build, not just its CPU tier', () => {

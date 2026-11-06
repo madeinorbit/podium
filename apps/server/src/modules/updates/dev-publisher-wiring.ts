@@ -34,12 +34,12 @@ import { releaseTimingStagingDir } from './build-record'
 import {
   type BuiltDevBundle,
   createDevBundlePublisher,
-  readDaemonWireAt,
   DEV_ARTIFACT_ROUTE,
   DevBundleProposalMovedError,
   DevBundleUnavailableError,
   developmentHeadSha,
   finalizeTimingIntoRecord,
+  readDaemonWireAt,
 } from './dev-bundle'
 import { createServerDevBundleLock, type DevBundleLockService } from './dev-bundle-lock'
 import { createDevWebBuilder, type DevWebBuildState } from './dev-web-build'
@@ -230,6 +230,8 @@ export async function wireDevBundlePublisher(deps: {
    * (spec dispositions 19, 20).
    */
   readonly refreshDevTarget?: () => Promise<unknown>
+  /** Bound the post-publication nudge separately from compiling the release. */
+  readonly targetRefreshTimeoutMs?: number
   readonly locks: DevBundleLockService
   /** Names the transient build units. Defaults to the default instance. */
   readonly instanceId?: string
@@ -559,8 +561,29 @@ export async function wireDevBundlePublisher(deps: {
     }
     try {
       const published = await publisher.publishFeed()
-      if (published) await deps.refreshDevTarget?.()
-      else {
+      if (published && deps.refreshDevTarget) {
+        let timer: ReturnType<typeof setTimeout> | undefined
+        try {
+          // The feed already exists. A blocked observer must not hold approval
+          // open, and a late refresh is harmless: it only re-reads that feed.
+          await Promise.race([
+            deps.refreshDevTarget(),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(
+                () =>
+                  reject(
+                    new Error(
+                      'The release was published, but refreshing its update offer timed out.',
+                    ),
+                  ),
+                deps.targetRefreshTimeoutMs ?? 30_000,
+              )
+            }),
+          ])
+        } finally {
+          clearTimeout(timer)
+        }
+      } else if (!published) {
         const reason = publisher.unavailable()
         if (reason?.startsWith('Target daemon wire range ')) throw new Error(reason)
       }
@@ -619,7 +642,10 @@ export async function wireDevBundlePublisher(deps: {
         currentTimingRunId = undefined
       }
     },
-    failureLogs: (error) => releaseFailureLogs(publisher?.unavailable(), error),
+    failureLogs: (error) => {
+      log.warn('approved development release failed', { err: error })
+      return releaseFailureLogs(publisher?.unavailable(), error)
+    },
   })
 
   return {

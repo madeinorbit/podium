@@ -13,7 +13,7 @@ import { join } from 'node:path'
 import { UPDATE_ARTIFACT_INTEGRITY_REFUSAL, UPDATE_ARTIFACT_REFUSAL_HEADER } from '@podium/protocol'
 import { timeReleaseBuildTask } from '@podium/runtime/release-build-timing'
 import { Hono } from 'hono'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import { DEV_DESKTOP_CHANNEL_HEADER, openDevBundle, registerDevFeedRoutes } from './artifact-route'
 import { buildRecordDir, buildTimingPath, releaseTimingStagingDir } from './build-record'
 import {
@@ -442,6 +442,49 @@ describe('development artifact route', () => {
       return { wiring, publications: () => publications, unavailable }
     }
 
+    it('ends approval when the post-publication target refresh never answers', async () => {
+      const { wiring, publications } = await wiringFor({
+        releaseTiming: false,
+        targetRefreshTimeoutMs: 10,
+        refreshDevTarget: () => new Promise(() => {}),
+        createPublisher: () =>
+          ({
+            ...publisherFor(),
+            proposal: async () => ({
+              headSha: 'abc1234',
+              version: built.version,
+              branch: 'main',
+              commits: [],
+              addedMigrations: [],
+              state: 'pending',
+            }),
+          }) as never,
+      })
+      await expect(
+        wiring.approveRelease('operator', {
+          headSha: 'abc1234',
+          version: built.version,
+        }),
+      ).resolves.toMatchObject({ state: 'building' })
+      await vi.waitFor(async () =>
+        expect(await wiring.proposal()).toMatchObject({
+          state: 'failed',
+          failure: { logs: expect.stringContaining('refreshing its update offer timed out') },
+        }),
+      )
+      expect(publications()).toBe(1)
+      // The first attempt released admission; this is a new, explicit retry.
+      await expect(
+        wiring.approveRelease('operator', {
+          headSha: 'abc1234',
+          version: built.version,
+        }),
+      ).resolves.toMatchObject({ state: 'building' })
+      await vi.waitFor(async () =>
+        expect(await wiring.proposal()).toMatchObject({ state: 'failed' }),
+      )
+    })
+
     it('finalizes timing only after the approval total is written', async () => {
       const stateDirectory = mkdtempSync(join(tmpdir(), 'podium-release-finalization-'))
       const staging = releaseTimingStagingDir(stateDirectory)
@@ -503,6 +546,9 @@ describe('development artifact route', () => {
           headSha: 'abc1234',
           version: built.version,
         })
+        await vi.waitFor(() =>
+          expect(existsSync(buildTimingPath(stateDirectory, built.buildId))).toBe(true),
+        )
 
         const records = readFileSync(buildTimingPath(stateDirectory, built.buildId), 'utf8')
           .trim()
@@ -579,8 +625,12 @@ describe('development artifact route', () => {
             }) as never,
         })
 
-        for (const _ of buildIds)
+        for (const buildId of buildIds) {
           await wiring.approveRelease('operator', { headSha: 'abc1234', version: built.version })
+          await vi.waitFor(() =>
+            expect(existsSync(buildTimingPath(stateDirectory, buildId))).toBe(true),
+          )
+        }
 
         const runIds = buildIds.map((buildId) => {
           const lines = readFileSync(buildTimingPath(stateDirectory, buildId), 'utf8')
