@@ -42,6 +42,8 @@
  * old code would have entered — its detail effect fetched whatever `selectedId`
  * held and surfaced the failure as an error banner, forever.
  */
+
+import { useStoreHandle } from '@podium/client-core/react'
 import type { AgentProfileWire } from '@podium/model/browser'
 import type {
   WorkflowBindingWire,
@@ -49,7 +51,7 @@ import type {
   WorkflowRunWire,
   WorkflowWire,
 } from '@podium/protocol'
-import { useStoreHandle } from '@podium/client-core/react'
+import { submitNow } from '@podium/protocol'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Trpc } from '@/app/trpc'
 import type { WorkflowCommand } from './workflow-commands'
@@ -135,7 +137,9 @@ export function useWorkflows(): WorkflowsSource {
           trpc.workflows.list.query({}),
           trpc.workflows.bindings.query({}),
           trpc.agentProfiles.list.query({}),
-          trpc.workflows.runs.query(includeTerminal ? { includeTerminal, limit } : { includeTerminal }),
+          trpc.workflows.runs.query(
+            includeTerminal ? { includeTerminal, limit } : { includeTerminal },
+          ),
         ])
         setWorkflows(workflowRows)
         setBindings(bindingRows)
@@ -197,7 +201,7 @@ export function useWorkflows(): WorkflowsSource {
   }, [selectedId, detailNonce])
 
   const dispatch = useCallback(
-    async <TInput,>(command: WorkflowCommand<TInput>, input: TInput): Promise<boolean> => {
+    async <TInput>(command: WorkflowCommand<TInput>, input: TInput): Promise<boolean> => {
       setError(null)
       setNotice(null)
       const procs = trpc.workflows as unknown as WorkflowProcs
@@ -207,7 +211,13 @@ export function useWorkflows(): WorkflowsSource {
         // runtime condition — but it must not reach the transport as
         // `undefined.mutate`, whose failure would read like a denial.
         if (!proc) throw new Error(`no transport for workflow contract ${command.contract}`)
-        await proc.mutate(command.build(input))
+        // On the sync write entry point (ADR 12 D2, POD-6418), answered now.
+        // LEGACY(remove-after: 2027-03): an older server, without `sync.submit`
+        // or without this command on it, takes the command's own route.
+        const body = command.build(input)
+        await submitNow(trpc, `workflows.${command.contract}`, body, {
+          legacy: async () => await proc.mutate(body),
+        })
       } catch (cause) {
         // TERMINAL. The authority refused (or the transport failed) and this
         // path does not decide which — both are surfaced identically, and

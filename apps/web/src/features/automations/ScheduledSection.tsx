@@ -27,6 +27,7 @@ import { cn } from '@/lib/utils'
 import type { Automation, AutomationRun } from './AutomationsView'
 import { automationClassOf, automationRight } from './automation-form'
 import { AutomationHistory } from './automation-history'
+import { automationWrites } from './automation-writes'
 import { cronSummary, formatTime } from './cron-format'
 
 /**
@@ -127,7 +128,11 @@ export function ScheduledSection({
         </div>
       )}
 
-      {loading ? <p role="status" className="text-[12px] text-muted-foreground">Loading scheduled automations…</p> : automations.length === 0 ? (
+      {loading ? (
+        <p role="status" className="text-[12px] text-muted-foreground">
+          Loading scheduled automations…
+        </p>
+      ) : automations.length === 0 ? (
         <div className="rounded-md border border-border border-dashed bg-card px-3 py-4 text-center text-[12px] text-muted-foreground">
           No scheduled automations yet. Create one with “New automation”.
         </div>
@@ -140,9 +145,11 @@ export function ScheduledSection({
               busy={busyId === a.id}
               onEdit={() => onEdit(a)}
               onToggle={(enabled) =>
-                mutate(a.id, () => trpc.automations.setEnabled.mutate({ id: a.id, enabled }))
+                mutate(a.id, () => automationWrites(trpc).setEnabled.mutate({ id: a.id, enabled }))
               }
-              onRemove={() => mutate(a.id, () => trpc.automations.remove.mutate({ id: a.id }))}
+              onRemove={() =>
+                mutate(a.id, () => automationWrites(trpc).remove.mutate({ id: a.id }))
+              }
             />
           ))}
         </div>
