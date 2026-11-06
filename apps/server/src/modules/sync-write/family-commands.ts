@@ -8,14 +8,15 @@
  */
 
 import { AGENT_PROFILE_SYNC_FAMILY } from '../agent-profiles/sync-write'
+import { APPROVAL_SYNC_FAMILY } from '../approvals/sync-write'
 import { AUTOMATION_SYNC_FAMILY } from '../automations/sync-write'
 import { CONVERSATION_SYNC_FAMILY } from '../conversations/sync-write'
 import { FLEET_SYNC_COMMANDS, type FleetSyncDeps, registerFleetCommands } from '../fleet/sync-write'
 import { READ_POSITION_SYNC_FAMILY } from '../read-position/sync-write'
 import { OFFER_SYNC_COMMANDS, registerOfferCommands } from '../sessions/offer-sync-write'
-import { registerShellCommands, SHELL_SYNC_COMMANDS } from '../shells/sync-write'
 import { registerSessionFamilyCommands } from '../sessions/sync-write'
 import { registerSettingsWrite } from '../settings/sync-write'
+import { registerShellCommands, SHELL_SYNC_COMMANDS } from '../shells/sync-write'
 import { SUPERAGENT_SYNC_FAMILY } from '../superagent/sync-write'
 import { WORKFLOW_SYNC_FAMILY } from '../workflows/sync-write'
 import { registerSyncFamily, type SyncFamilyDeps } from './family'
@@ -27,6 +28,9 @@ export const FAMILY_COMMAND_NAMES = [
   'agentProfiles.update',
   'agentProfiles.delete',
   'agentProfiles.import',
+  // The approval decisions (POD-6415).
+  'approvals.approve',
+  'approvals.deny',
   'automations.create',
   'automations.update',
   'automations.setEnabled',
@@ -71,6 +75,7 @@ export interface FamilyCommandDeps extends SyncFamilyDeps {
 
 export function registerFamilyCommands(registry: SyncWriteRegistry, deps: FamilyCommandDeps): void {
   registerSyncFamily(registry, AGENT_PROFILE_SYNC_FAMILY, deps)
+  registerSyncFamily(registry, APPROVAL_SYNC_FAMILY, deps)
   registerSyncFamily(registry, AUTOMATION_SYNC_FAMILY, deps)
   registerSyncFamily(registry, WORKFLOW_SYNC_FAMILY, deps)
   registerSyncFamily(registry, CONVERSATION_SYNC_FAMILY, deps)

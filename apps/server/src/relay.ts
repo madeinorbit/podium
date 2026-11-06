@@ -115,6 +115,7 @@ import { registerMachineUpdateEffect } from './modules/fleet/update-effect'
 import { WriteFunnel } from './modules/funnel'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
 import { registerSessionAnswerEffect } from './modules/interactions/answer-effect'
+import { registerApprovalExecuteEffect } from './modules/approvals/execute-effect'
 import { InteractionFeedPublisher } from './modules/interactions/feed'
 import { deliverToNativeMenu } from './modules/interactions/native-menu-delivery'
 import { InteractionService } from './modules/interactions/service'
@@ -373,6 +374,19 @@ export interface EffectsModule {
     readonly target: EffectTarget
     readonly input: unknown
     readonly job: string
+  }): Promise<EffectRow>
+  /**
+   * A record a write creates in its OWN unit of work, attributed to whoever the
+   * write names (an approval's `approval.execute`, POD-6415). Only inside a
+   * unit: the record commits or rolls back with the write.
+   */
+  createInUnit(effect: {
+    readonly id: string
+    readonly kind: string
+    readonly target: EffectTarget
+    readonly input: unknown
+    readonly createdBy: UserId | null
+    readonly actor: string
   }): Promise<EffectRow>
 }
 
@@ -4003,6 +4017,7 @@ export class SessionRegistry {
             createdBy: null,
             actor: attributionOf(systemPrincipal(effect.job)).actor,
           }),
+        createInUnit: async (effect) => await createEffectInUnit(effect),
       },
       bus: this.bus,
       funnel,
@@ -4098,6 +4113,12 @@ export class SessionRegistry {
     })
     // A running session's model or effort changes through its driver (POD-6416).
     registerSessionConfigureEffect({ modules: () => this.modules })
+    // An approved server-catalog op runs from its record (POD-6415).
+    registerApprovalExecuteEffect({
+      modules: () => this.modules,
+      users: this.store.users,
+      approvals: () => this.modules.approvals,
+    })
     // Answering an agent's question, every way Podium answers (POD-6415).
     registerSessionAnswerEffect({
       modules: () => this.modules,
