@@ -3,7 +3,7 @@
   "$note": "Every top-level `<name>: t.router(` literal in apps/server/src/router.ts is accounted for exactly once, either as `migrated` (writes derived from a contract table) or in `pending` with the hand-written `.mutation(` keys it still carries. `total` may only go DOWN. A key in the router and not here is a finding; a key here and not in the router is a finding too \u2014 the census is not allowed to rot. A router in NEITHER list is a finding, so a whole new router cannot arrive unnoticed.",
   "total": 0,
   "migrated": {
-    "$note": "Writes DERIVED from their contract tables \u2014 POD-380/381/382 (sessions), POD-1350 (layout), POD-731/732 (workflows), POD-729 (messages), POD-383 (superagent), POD-384 (machines/repos/discovery), POD-386 (specs), POD-2020 (interactions), POD-6418 (automations: its four writes on sync.submit, the routes thin LEGACY adapters). Zero hand-written mutations, with the single documented exception below. Adding one here is the regression these cutovers exist to prevent.",
+    "$note": "Writes DERIVED from their contract tables \u2014 POD-380/381/382 (sessions), POD-1350 (layout), POD-731/732 (workflows), POD-729 (messages), POD-383 (superagent), POD-384 (machines/repos/discovery), POD-386 (specs), POD-2020 (interactions), POD-6418 (automations: its four writes on sync.submit, the routes thin LEGACY adapters), POD-6419 (superagent: its eight writes on sync.submit, every route a thin LEGACY adapter; shells: `forWorktree` on sync.submit, its start an effect record, the route a LEGACY adapter; hosts and the update panel's four commands on the plain command path). Zero hand-written mutations, with the single documented exception below. Adding one here is the regression these cutovers exist to prevent.",
     "routers": [
       "sessions",
       "layout",
@@ -33,6 +33,7 @@
       "accounts",
       "cloud",
       "updates",
+      "shells",
       "automations"
     ],
     "allowed": {
@@ -87,11 +88,6 @@
     "connect": {
       "owner": "PDM-51",
       "$note": "Podium Connect. `connect.check` is a QUERY: it asks the cloud to probe a public URL and returns the answer verbatim, storing nothing. Reads only, and must keep serving reads only.",
-      "keys": []
-    },
-    "shells": {
-      "owner": "POD-4436",
-      "$note": "Server-owned dock-shell mapping (POD-4436). `keys: []` is exact by this census's own definition \u2014 it counts hand-written `.mutation(` in router.ts, and this router's procedures are defined in apps/server/src/modules/shells/trpc.ts, the same shape as `operations`. It carries ONE write there, `shells.forWorktree`, which returns-or-creates the caller's dock shell for a worktree. Recorded as pending rather than migrated so the claim stays true.",
       "keys": []
     }
   }
