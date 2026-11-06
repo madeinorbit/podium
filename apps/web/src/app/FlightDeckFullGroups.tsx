@@ -279,7 +279,10 @@ const PhaseHeader = observer(function PhaseHeader({
           aria-label={`${task.open ? 'Collapse' : 'Expand'} phase ${task.row.title}`}
           aria-expanded={task.open}
           aria-controls={contentId}
-          onClick={() => task.deck.toggleFold(task.id)}
+          onClick={() => {
+            actions.onOpenTask(task)
+            task.deck.toggleFold(task.id)
+          }}
         >
           {task.open ? (
             <ChevronDown size={12} aria-hidden />

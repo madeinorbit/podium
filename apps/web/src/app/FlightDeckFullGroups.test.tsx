@@ -249,6 +249,8 @@ it('collapses a phase by pointer, Enter and Space without selecting a session or
   expect(f.task('parent')).not.toBeNull()
   await keyboard.keyboard(' ')
   expect(f.task('parent')).toBeNull()
+  expect(f.actions.onOpenTask).toHaveBeenCalledTimes(3)
+  expect(f.actions.onOpenTask).toHaveBeenLastCalledWith(f.full.task('build'))
   expect(f.actions.onSelectSession).not.toHaveBeenCalled()
   expect(f.actions.onStatusPick).not.toHaveBeenCalled()
   capture('Build collapsed · counts retained', f.ui.container)
@@ -280,7 +282,8 @@ it('folds a task branch from its row and chevron while preserving nested folds',
   await act(async () => fireEvent.click(chevron('parent')))
   expect(f.task('child')).not.toBeNull()
   expect(f.screen.folds.get('child')).toBe('closed')
-  expect(f.actions.onOpenTask).not.toHaveBeenCalled()
+  expect(f.actions.onOpenTask).toHaveBeenCalledTimes(5)
+  expect(f.actions.onOpenTask).toHaveBeenLastCalledWith(f.full.task('parent'))
   expect(f.actions.onSelectSession).not.toHaveBeenCalled()
 })
 

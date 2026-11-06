@@ -13849,6 +13849,9 @@ button.waterfall-fold:hover {
   padding-bottom: 3px;
 }
 .flight-v6-card {
+  /* Paint the surface after its positioned tree guides. Bounded indentation
+     lets the card cover those guides at narrow widths, including the caret. */
+  position: relative;
   display: flow-root;
   min-width: 0;
   border-radius: 6px;
