@@ -1,16 +1,20 @@
 /** Shipping sidebar with stubbed data. Use ?rows=N and ?mode=light|dark;
  *  ?board=1 draws the issue board beside it; ?fresh=<title> creates an issue
- *  through the real generic create, left queued (the network is off). */
+ *  through the real generic create, left queued (the network is off);
+ *  ?newtask=1 opens the real New task dialog, whose Create with Start work now
+ *  queues an `issue.start` that stays pending here (POD-6421). */
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider } from '@podium/client-core/react'
 import { setClockWakeSource } from '@podium/mobx-helpers'
 import { asUserId } from '@podium/model/browser'
+import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { OperatorFocusProvider } from '@/app/operator-focus'
 import { attachWorklistPool } from '@/app/store-worklist-pool'
 import { ToolbarSlotProvider, ToolbarSlotTarget } from '@/app/ToolbarSlot'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { IssuesView } from '@/features/issues/IssuesView'
+import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import { ResizableAside } from '@/features/worklist/sidebar-common'
 import { browserClockWakeSource } from '@/lib/clock-wake-source'
@@ -39,6 +43,12 @@ document.documentElement.dataset.theme = 'podium'
 document.documentElement.classList.toggle('dark', (params.get('mode') ?? 'dark') === 'dark')
 if (params.get('density'))
   document.documentElement.dataset.density = params.get('density') as string
+
+/** The real dialog, closed by its own Create the way the shell closes it. */
+function NewTask() {
+  const [open, setOpen] = useState(true)
+  return open ? <NewIssueDialog onClose={() => setOpen(false)} /> : null
+}
 
 createRoot(document.getElementById('root') as HTMLElement).render(
   <StoreProvider
@@ -95,6 +105,11 @@ createRoot(document.getElementById('root') as HTMLElement).render(
           )}
         </div>
       </div>
+      {params.get('newtask') && (
+        <TooltipProvider>
+          <NewTask />
+        </TooltipProvider>
+      )}
     </ConfirmProvider>
   </StoreProvider>,
 )
