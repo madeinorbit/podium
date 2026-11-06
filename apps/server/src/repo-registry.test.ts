@@ -120,7 +120,18 @@ describe('republishing the logical repo row', () => {
               diagnostics: [],
             }),
           },
-          issues: { reports: { store: { publishRepos: async () => void published.push(1) } } },
+          issues: {
+            reports: {
+              store: {
+                publishRepos: async () => void published.push(1),
+                commitRepoWrite: async <T>(write: () => Promise<T>) => {
+                  const value = await write()
+                  published.push(1)
+                  return value
+                },
+              },
+            },
+          },
         },
       } as unknown as SessionRegistry,
       {

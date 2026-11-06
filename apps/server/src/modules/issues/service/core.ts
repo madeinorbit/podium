@@ -815,6 +815,43 @@ export class IssueStore {
     }
   }
 
+  /**
+   * One repository registry write and the repo rows it moves, in ONE commit
+   * (POD-6524). The registry's writes (add, remove, prefix, base branch,
+   * origin) used to land in the store and then {@link publishRepos}: a
+   * reconcile, which by design carries no provenance (POD-6272), so a device's
+   * `repos.*` write could be confirmed only by its receipt. A declared commit is
+   * stamped with the causing command's provenance like every other synced write,
+   * and the store write and its change rows commit or roll back together.
+   *
+   * The declaration is still the full O(repos) truth, so nothing has to know
+   * which logical repo a checkout write touches: every row is declared as an
+   * upsert (the ledger's dedup drops the unchanged ones), and a logical repo
+   * that was there before the write and is gone after it is declared removed.
+   */
+  async commitRepoWrite<T>(write: () => Promise<T>): Promise<T> {
+    const { result } = await this.deps.ledger.commit({
+      write: async () => {
+        const before = repoProjectionRows(await this.deps.store.repos.listRepos())
+        return { value: await write(), before: new Set<string>(before.map((r) => r.id)) }
+      },
+      changes: async ({ before }) => {
+        const after = repoProjectionRows(await this.deps.store.repos.listRepos())
+        const listed = new Set<string>(after.map((r) => r.id))
+        const specs: EntityChangeSpec[] = after.map((r) => ({
+          entity: 'repo',
+          id: r.id,
+          op: 'upsert',
+          value: r.value,
+        }))
+        for (const id of before)
+          if (!listed.has(id)) specs.push({ entity: 'repo', id, op: 'remove' })
+        return specs
+      },
+    })
+    return result.value
+  }
+
   /** Reconcile own rows and companions at boot or after a hard delete. */
   async reconcileAndPublish(): Promise<void> {
     await this.reconcileProjections()

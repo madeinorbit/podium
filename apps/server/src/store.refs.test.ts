@@ -82,7 +82,14 @@ describe('repo base branches (POD-2065)', () => {
               : { ok: false, output: 'fatal: Needed a single revision' }
           },
         },
-        issues: { reports: { store: { publishRepos: async () => {} } } },
+        issues: {
+          reports: {
+            store: {
+              publishRepos: async () => {},
+              commitRepoWrite: async <T>(write: () => Promise<T>) => await write(),
+            },
+          },
+        },
       },
     } as unknown as SessionRegistry
     return { repos: new RepoRegistry(reg, s), asked }

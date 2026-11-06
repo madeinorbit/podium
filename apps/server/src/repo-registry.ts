@@ -137,10 +137,17 @@ export class RepoRegistry {
     // Best-effort origin capture: reads <p>/.git locally, so it only yields a URL
     // when the path exists on this host (remote repos get it later via scan).
     // `prefix` (uppercased courtesy) overrides the derived nice-id prefix (#474).
-    await this.store.repos.addRepo(p, mid, readLocalOriginUrl(p) ?? undefined, prefix?.toUpperCase())
     // A new repo mints a prefix (addRepo → ensurePrefixForRepoId), so it is a
     // new 'repo' entity on the feed [POD-822].
-    await this.publishRepos()
+    await this.commitRepoWrite(
+      async () =>
+        await this.store.repos.addRepo(
+          p,
+          mid,
+          readLocalOriginUrl(p) ?? undefined,
+          prefix?.toUpperCase(),
+        ),
+    )
   }
 
   /** Register a checkout whose origin was established by a machine-side clone. */
@@ -151,16 +158,17 @@ export class RepoRegistry {
     // Same gate as `add` — a clone lands a repo on a machine just as much as a
     // registration does, and this is the second write path (POD-2700).
     await this.sessionReg.modules.machines.requireRepoHostStructure(machineId)
-    await this.store.repos.addRepo(p, machineId, originUrl)
-    await this.publishRepos()
+    await this.commitRepoWrite(async () => await this.store.repos.addRepo(p, machineId, originUrl))
   }
 
   /** Change a repo's human-facing prefix (#474). Validated ^[A-Z]{2,5}$ + unique
    *  server-wide; previously written refs stop resolving (the caller warns). */
   async setPrefix(path: string, prefix: string, machineId?: MachineId): Promise<void> {
     const mid = machineId ?? await this.sessionReg.modules.machines.defaultMachine()
-    await this.store.repos.setRepoPrefix(mid, normalizeRepoPath(path), prefix.toUpperCase())
-    await this.publishRepos()
+    await this.commitRepoWrite(
+      async () =>
+        await this.store.repos.setRepoPrefix(mid, normalizeRepoPath(path), prefix.toUpperCase()),
+    )
   }
 
   /**
@@ -216,30 +224,45 @@ export class RepoRegistry {
     machineId?: MachineId,
   ): Promise<void> {
     const mid = machineId ?? (await this.sessionReg.modules.machines.defaultMachine())
-    await this.store.repos.setRepoDefaultParentBranch(mid, normalizeRepoPath(path), branch?.trim() || null)
-    await this.publishRepos()
+    await this.commitRepoWrite(
+      async () =>
+        await this.store.repos.setRepoDefaultParentBranch(
+          mid,
+          normalizeRepoPath(path),
+          branch?.trim() || null,
+        ),
+    )
   }
 
   /**
-   * Publish the repo truth onto the feed [POD-822].
+   * A registry write and the repo truth it moves, in one ledger commit
+   * [POD-822, POD-6524].
    *
    * The prefix is the join input for every `displayRef` a replica derives, and
-   * this registry is the ONLY thing that writes it. Without this call the write
-   * would land in sqlite and stop there: no ledger commit, no change row, and the
-   * replica keeps rendering `POD-13` under the old prefix until some unrelated
-   * issue write happened to trigger a full reconcile. That is a bug that presents
-   * as a caching problem and is really a missing emitter, so it is a call at the
-   * write, not a periodic sweep.
+   * this registry is the ONLY thing that writes it. Without a change row the
+   * write would land in sqlite and stop there: the replica keeps rendering
+   * `POD-13` under the old prefix until some unrelated issue write happened to
+   * trigger a full reconcile. That is a bug that presents as a caching problem
+   * and is really a missing emitter, so the change rides the write.
    *
-   * The whole cost is a reconcile over the LOGICAL repos — a handful of rows,
-   * deduped to no-op by the ledger when nothing changed. It is deliberately NOT
-   * O(the repo's issues): keeping the prefix on its own entity rather than
-   * materializing `displayRef` onto every issue is what buys that, and is the
-   * D7.2 decision POD-822 recorded (see model's `repo/fields.ts`).
-   *
-   * Best-effort by construction: the store write already succeeded, and a feed
-   * that missed one publish self-heals on the next boot reconcile. Never let it
-   * fail the mutation that triggered it.
+   * A declared commit rather than a reconcile after the write: the change rows
+   * carry the causing command's provenance (a `repos.*` write through
+   * `sync.submit` confirms by its `mutationId`, POD-6272), and the store write
+   * and its rows commit or roll back together. The declaration covers the
+   * LOGICAL repos, a handful of rows deduped to no-op when nothing changed;
+   * deliberately NOT O(the repo's issues), which is what keeping the prefix on
+   * its own entity buys (the D7.2 decision POD-822 recorded, see model's
+   * `repo/fields.ts`).
+   */
+  private async commitRepoWrite<T>(write: () => Promise<T>): Promise<T> {
+    return await this.sessionReg.modules.issues.reports.store.commitRepoWrite(write)
+  }
+
+  /**
+   * Publish the repo truth after writes made outside {@link commitRepoWrite}
+   * (scan-reported origins): a reconcile, with no provenance, which is right for
+   * the server's own write. Best-effort: the store writes already succeeded, and
+   * a feed that missed one publish self-heals on the next boot reconcile.
    */
   private async publishRepos(): Promise<void> {
     try {
@@ -251,10 +274,11 @@ export class RepoRegistry {
 
   async remove(path: string, machineId?: MachineId): Promise<void> {
     const mid = machineId ?? await this.sessionReg.modules.machines.defaultMachine()
-    await this.store.repos.removeRepo(normalizeRepoPath(path), mid)
     // The removed checkout may have been the repo's chosen root or the source
     // of its name (POD-6246): the logical repo row is a function of the rest.
-    await this.publishRepos()
+    await this.commitRepoWrite(
+      async () => await this.store.repos.removeRepo(normalizeRepoPath(path), mid),
+    )
   }
 
   /**

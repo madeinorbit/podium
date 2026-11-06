@@ -145,32 +145,79 @@ describe('the fleet writes are on the sync write entry point', () => {
     expect(rename).toHaveBeenCalledTimes(1)
   })
 
-  it('repos.add and repos.setPrefix apply once, with a receipt covering the repo entity', async () => {
+  it('repos.add, setPrefix and remove write repo rows carrying their mutationId (POD-6524)', async () => {
     const o = await oracle()
     const host = o.store.hostMachineId
-    // The repo entity is the projection's reconcile, which carries no
-    // provenance by design (POD-6272); the dedup record is the write's.
-    const before = await o.reg.changeLedger.cursor()
-    const { rows } = await expectAppliedOnPath(
+    const path = '/abs/repo-6417'
+    const repoIdOf = async () =>
+      (await o.store.repos.listRepos(host)).find((r) => r.path === path)?.repoId ?? undefined
+
+    // The registry write and its repo rows are one declared commit, stamped
+    // with the command's provenance like every other synced write: a device
+    // confirms it by its mutationId, not only by the receipt.
+    const added = await expectAppliedOnPath(
       o,
-      envelope('repos.add', { path: '/abs/repo-6417', machineId: host }, 'm-fleet-add-1'),
-      { writes: false },
+      envelope('repos.add', { path, machineId: host }, 'm-fleet-add-1'),
+      { writes: true },
     )
-    expect(rows).toEqual([])
-    const repoRows = (await o.store.sync.changesSince(before)).filter((r) => r.entity === 'repo')
-    expect(repoRows.length).toBeGreaterThan(0)
-    expect(await o.store.sync.getAppliedMutation(asMutationId('m-fleet-add-1'))).toBeDefined()
-    await expectAppliedOnPath(
+    const repoId = await repoIdOf()
+    expect(repoId).toBeDefined()
+    expect(added.rows.map((r) => [r.entity, r.entityId, r.op])).toEqual([
+      ['repo', repoId, 'upsert'],
+    ])
+    expect(added.rows[0]?.mutationId).toBe('m-fleet-add-1')
+
+    const prefixed = await expectAppliedOnPath(
       o,
-      envelope(
-        'repos.setPrefix',
-        { path: '/abs/repo-6417', prefix: 'FLT', machineId: host },
-        'm-fleet-prefix-1',
-      ),
-      { writes: false },
+      envelope('repos.setPrefix', { path, prefix: 'FLT', machineId: host }, 'm-fleet-prefix-1'),
+      { writes: true },
     )
-    const row = (await o.store.repos.listRepos(host)).find((r) => r.path === '/abs/repo-6417')
+    expect(prefixed.rows.map((r) => [r.entity, r.entityId, r.op])).toEqual([
+      ['repo', repoId, 'upsert'],
+    ])
+    expect(JSON.parse(prefixed.rows[0]!.payload!)).toMatchObject({ prefix: 'FLT' })
+    const row = (await o.store.repos.listRepos(host)).find((r) => r.path === path)
     expect(row?.prefix).toBe('FLT')
+
+    // The last checkout of a logical repo leaving removes the row, also stamped.
+    const removed = await expectAppliedOnPath(
+      o,
+      envelope('repos.remove', { path, machineId: host }, 'm-fleet-remove-1'),
+      { writes: true },
+    )
+    expect(removed.rows.map((r) => [r.entity, r.entityId, r.op])).toEqual([
+      ['repo', repoId, 'remove'],
+    ])
+  })
+
+  it('a repo write that changes nothing appends no repo row', async () => {
+    const o = await oracle()
+    const host = o.store.hostMachineId
+    const path = '/abs/repo-noop-6524'
+    await submit(o, envelope('repos.add', { path, machineId: host, prefix: 'NOP' }, 'm-noop-1'))
+    const again = await expectAppliedOnPath(
+      o,
+      envelope('repos.setPrefix', { path, prefix: 'NOP', machineId: host }, 'm-noop-2'),
+      { writes: false },
+    )
+    expect(again.rows).toEqual([])
+  })
+
+  it('a repo reconcile no write caused (a scan, boot) appends rows with no provenance', async () => {
+    const o = await oracle()
+    const host = o.store.hostMachineId
+    // A store write outside any command, then the full-truth publish the scan
+    // and boot paths use: the server's own write, so no command is named.
+    await o.store.repos.addRepo('/abs/repo-scan-6524', host, undefined, 'SCN')
+    const before = await o.reg.changeLedger.cursor()
+    await o.reg.modules.issues.reports.store.publishRepos()
+    const rows = (await o.store.sync.changesSince(before)).filter((r) => r.entity === 'repo')
+    expect(rows.length).toBeGreaterThan(0)
+    for (const row of rows) {
+      expect(row.mutationId).toBeUndefined()
+      expect(row.causationId).toBeUndefined()
+      expect(row.originId).toBeUndefined()
+    }
   })
 
   it('repos.addMany registers the good paths and returns the refused ones, in one write', async () => {
@@ -396,7 +443,7 @@ describe('work outside the database runs once after the commit, never after a ro
         { path: '/abs/branches-6417', branch: 'main', machineId: host },
         'm-fleet-br-2',
       ),
-      { writes: false },
+      { writes: true },
     )
     expect(asked.length).toBeGreaterThan(0)
     expect(asked.every((open) => !open)).toBe(true)
