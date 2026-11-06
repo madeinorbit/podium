@@ -111,7 +111,7 @@
 import {
   CLIENT_TERMINAL_HARNESSES,
   type ClientTerminalEndpoint,
-  type HarnessEnvironment,
+  type HarnessContext,
   clientTerminalFor,
 } from '@podium/harness'
 import { createLogger } from '@podium/logger'
@@ -340,8 +340,14 @@ export interface OpencodeClientTerminalPorts {
   homeDir?: string
   /** Immutable daemon ownership stamp for orphan attribution. */
   instanceUuid?: string
-  /** Current machine command environment used to resolve the client executable. */
-  commandEnvironment?: () => Promise<HarnessEnvironment>
+  /**
+   * THE SESSION'S PINNED HARNESS CONTEXT (POD-6546): the client runs the
+   * session's installation, over the session's environment. The daemon
+   * answers with the context the session holds (rebuilt from the inventory
+   * after a restart). REQUIRED: a client terminal never looks its harness up
+   * by name on the daemon's PATH.
+   */
+  harnessContext(sessionId: SessionId, target: ClientTerminalTarget): Promise<HarnessContext>
   /**
    * THE SESSION LAYER'S CLIENT HOLD (spec §5). Spawn, reclaim and the master
    * probe all go through IT — the relay never names a process verb itself, so
@@ -458,16 +464,18 @@ export function createOpencodeClientTerminals(
      * the first case and withheld for the second, so which one just happened is
      * the whole question — see the spawn call for where it is answered.
      */
-    const launch = client.launch({
+    const harnessContext = await ports.harnessContext(sessionId, target)
+    const declared = client.launch({
       cwd: target.workdir,
       conversation: target.conversation,
       endpoint: target.endpoint,
-      // The client terminal does not pass through the generation binder used by
-      // ordinary launches. Give its manifest the current machine command
-      // environment so it can resolve the installed CLI; the child overlay below
-      // still receives the isolated instance HOME for credentials.
-      env: await ports.commandEnvironment?.(),
+      env: harnessContext.env,
     })
+    // THE SESSION'S INSTALLATION RUNS, NOT THE DECLARATION'S NAME (POD-6546).
+    // The manifest says how its stock TUI is pointed at a session (args, env);
+    // which binary is the session's pinned executable, never `codex`/`grok`
+    // looked up on a GUI-launched daemon's PATH.
+    const launch = { ...declared, cmd: harnessContext.installation.executable }
     const podiumEnv = {
       // Whatever the harness's own declaration put there — for opencode that is
       // the per-session server credentials, which stay in the ENV and out of
@@ -531,8 +539,10 @@ export function createOpencodeClientTerminals(
       // The overlay the host layers over the daemon env — composed through the
       // same `spawnEnv` the PTY path uses, so an instance home overrides HOME
       // (and prepends its bin roots to PATH) here exactly as it does for the
-      // serve half (POD-2247).
-      env: spawnEnv({ podiumEnv }),
+      // serve half (POD-2247). Its BASE is the session's environment
+      // (POD-6546): the recovered command env for this account, so the client
+      // gets the same PATH as its engine rather than the daemon's own.
+      env: { ...harnessContext.env, ...spawnEnv({ podiumEnv }, harnessContext.env) },
     })
     driverTiming.nativeCliStage(sessionId, kind, 'native_cli_process_started', {
       adopted: session.adopted,

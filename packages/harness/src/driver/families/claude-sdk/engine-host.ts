@@ -30,6 +30,7 @@
 import { readFile } from 'node:fs/promises'
 import { createLogger } from '@podium/logger'
 import { markNeverSent } from '../../errors.js'
+import type { HarnessContext } from '../../../harness-context-types.js'
 import { type BoundaryContextSource, createBoundaryContext } from '../../boundary-context.js'
 import { instructionsText } from '../../session-spec.js'
 import type { HarnessAgent, SessionId } from '@podium/model'
@@ -164,8 +165,6 @@ export interface ClaudeEngineHostDeps {
    * writes the operator's REAL `~/.claude` credentials and session stores.
    */
   homeDir?: string
-  /** Installed Claude executable captured from this supervisor generation. */
-  executablePath?: string
   /**
    * Compose the engine child's environment (stored-login precedence, instance
    * overlay, managed credentials). Owned by the supervisor — the same merge
@@ -174,11 +173,16 @@ export interface ClaudeEngineHostDeps {
   buildEnv(input: {
     sessionId: SessionId
     agentKind: HarnessAgent
+    /** The session's pinned context: its environment is the child's base. */
+    harnessContext: HarnessContext
     homeDir?: string
     sessionEnv?: Readonly<Record<string, string>>
     harnessEnv?: Readonly<Record<string, string>>
     instanceUuid?: string
   }): Record<string, string>
+  /** The context an adopted session runs under: see
+   *  `ClaudeEngineHost.harnessContextFor`. */
+  harnessContextFor(sessionId: SessionId): Promise<HarnessContext>
   /** Immutable supervisor ownership stamp for orphan attribution. */
   instanceUuid?: string
   /**
@@ -302,6 +306,13 @@ export interface ClaudeEngineHost {
    *  read back, never a store this family holds. */
   bindings: EngineBindingRecords<ClaudeEngineJournalEntry>
   startTurn(input: StartTurnInput): ClaudeSdkTurnHandle
+  /**
+   * THE CONTEXT A SESSION RUNS UNDER WHEN NO SPEC IS IN HAND (POD-6546): a
+   * session adopted from its journal, whose later turns spawn the engine. The
+   * one the session was spawned with while this host holds it; after a
+   * supervisor restart, one rebuilt from the current inventory (design §3.3).
+   */
+  harnessContextFor(sessionId: SessionId): Promise<HarnessContext>
   stopEngine(sessionId: SessionId, retire: boolean): Promise<void>
   releaseEngines(): void
   /**
@@ -514,6 +525,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
     spec: ClaudeStreamTurnSpec,
     workdir: string,
     env: Record<string, string>,
+    executable: string,
   ): Promise<HeldEngine> {
     const held = engines.get(sessionId)
     if (held && held.exit === undefined) return held
@@ -566,7 +578,6 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
     // FRESH: the session owner starts the streaming child under the host and
     // this family binds the attachment it gets back; summoning the process
     // is the owner's job, never this family's.
-    const executable = deps.executablePath ?? deps.facts.command
     const { cmd, args } = buildClaudeStreamInvocation(spec, executable)
     const spawned = await claimEngine(
       sessionId,
@@ -616,6 +627,8 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
   return {
     bindings: records,
 
+    harnessContextFor: (sessionId) => deps.harnessContextFor(sessionId),
+
     processFor(sessionId) {
       const key = claudeEngineProcessKey(deps.facts, sessionId)
       const scopeUnit = deps.supervision?.scopeUnitFor(key)
@@ -647,6 +660,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
           ...(deps.instanceUuid ? { instanceUuid: deps.instanceUuid } : {}),
           sessionId,
           agentKind: deps.facts.harnessKind,
+          harnessContext: input.spec.harnessContext,
           ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
           ...(Object.keys(sessionEnv).length > 0 ? { sessionEnv } : {}),
         }),
@@ -746,7 +760,14 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
       }
       let held: HeldEngine
       try {
-        held = await ensureEngine(sessionId, spec, input.spec.workdir, env)
+        // argv[0] is the session's pinned installation (POD-6546).
+        held = await ensureEngine(
+          sessionId,
+          spec,
+          input.spec.workdir,
+          env,
+          input.spec.harnessContext.installation.executable,
+        )
       } catch (error) {
         failBeforeLine(error instanceof Error ? error : new Error(String(error)))
         return

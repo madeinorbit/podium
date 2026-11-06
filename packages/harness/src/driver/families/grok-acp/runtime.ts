@@ -22,6 +22,7 @@ import type {
   TranscriptItem,
 } from '@podium/model'
 import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
+import type { HarnessContext } from '../../../harness-context-types.js'
 import type {
   QueueDrainAbandonedReason,
   RuntimeHistoryPage,
@@ -131,8 +132,18 @@ export interface GrokAcpRuntimeHost {
   launch(input: {
     sessionId: SessionId
     workdir: string
+    /** The session's pinned harness context (POD-6546): the engine runs its
+     *  installation and starts from its environment. */
+    harnessContext: HarnessContext
     env?: Readonly<Record<string, string>>
   }): Promise<GrokAcpEndpoint>
+  /**
+   * THE CONTEXT A SESSION RUNS UNDER WHEN NO SPEC IS IN HAND (POD-6546): an
+   * adopt, which always opens a fresh stdio channel. The one the session was
+   * spawned with while this host holds it; after a supervisor restart, one
+   * rebuilt from the current inventory (design §3.3).
+   */
+  harnessContextFor(sessionId: SessionId): Promise<HarnessContext>
   readArchive?(input: {
     sessionId: SessionId
     grokSessionId: string
@@ -2404,11 +2415,12 @@ export function createGrokAcpRuntime(
 
   async function createWithId(
     sessionId: SessionId,
-    spec: EngineSessionSpec,
+    spec: SessionSpec,
   ): Promise<AgentSessionHandle> {
     const endpoint = await host.launch({
       sessionId,
       workdir: spec.workdir,
+      harnessContext: spec.harnessContext,
       ...(spec.env ? { env: spec.env } : {}),
     })
     const connection = await initializedConnection(endpoint, sessionId)
@@ -2439,6 +2451,7 @@ export function createGrokAcpRuntime(
   async function loadSession(input: {
     sessionId: SessionId
     spec: EngineSessionSpec
+    harnessContext: HarnessContext
     grokSessionId: string
     bindingVersion: number
     observerGeneration: number
@@ -2446,14 +2459,16 @@ export function createGrokAcpRuntime(
     seq?: number
     turnEpoch?: number
   }): Promise<AgentSessionHandle> {
+    const { harnessContext, ...attach } = input
     const endpoint = await host.launch({
       sessionId: input.sessionId,
       workdir: input.spec.workdir,
+      harnessContext,
       ...(input.spec.env ? { env: input.spec.env } : {}),
     })
     const connection = await initializedConnection(endpoint, input.sessionId)
     const handle = attachSession({
-      ...input,
+      ...attach,
       endpoint,
       connection,
     })
@@ -2513,6 +2528,7 @@ export function createGrokAcpRuntime(
       loadSession({
         sessionId: host.mintSessionId(),
         spec,
+        harnessContext: spec.harnessContext,
         grokSessionId: ref.value,
         bindingVersion: 1,
         observerGeneration: 1,
@@ -2532,6 +2548,7 @@ export function createGrokAcpRuntime(
       const handle = await loadSession({
         sessionId: binding.sessionId,
         spec: adoptedSpec(entry.workdir),
+        harnessContext: await host.harnessContextFor(binding.sessionId),
         grokSessionId: entry.grokSessionId,
         bindingVersion: binding.bindingVersion + 1,
         observerGeneration: binding.bindingVersion + 1,

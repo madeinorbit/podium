@@ -54,6 +54,7 @@ import { transcriptItemRefOf } from '@podium/model'
 import { stampOpencodeItems } from '../../../store/sources/sqlite.js'
 import type { OpencodeMessagePartRow } from '../../../transcript-types.js'
 import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
+import type { HarnessContext } from '../../../harness-context-types.js'
 import type {
   QueueDrainAbandonedReason,
   RuntimeHistoryPage,
@@ -217,8 +218,18 @@ export interface OpencodeRuntimeHost {
      *  so a host cannot accidentally reuse one across sessions. */
     secret: string
     username: string
+    /** The session's pinned harness context (POD-6546): the server runs its
+     *  installation and starts from its environment. */
+    harnessContext: HarnessContext
     env?: Readonly<Record<string, string>>
   }): Promise<OpencodeServerEndpoint>
+  /**
+   * THE CONTEXT A SESSION RUNS UNDER WHEN NO SPEC IS IN HAND (POD-6546): a
+   * wake that restarts a parked server. The one the session was spawned with
+   * while this host holds it; after a supervisor restart, one rebuilt from
+   * the current inventory (design §3.3).
+   */
+  harnessContextFor(sessionId: SessionId): Promise<HarnessContext>
 
   stageAttachment: AttachmentStager
 
@@ -2606,6 +2617,7 @@ export function createOpencodeRuntime(
       workdir: entry.workdir,
       secret: host.randomSecret(),
       username: entry.username,
+      harnessContext: await host.harnessContextFor(entry.sessionId),
     })
   }
 
@@ -2712,7 +2724,7 @@ export function createOpencodeRuntime(
 
   async function createWithId(
     sessionId: SessionId,
-    spec: EngineSessionSpec,
+    spec: SessionSpec,
   ): Promise<AgentSessionHandle> {
     const secret = host.randomSecret()
     const username = 'podium'
@@ -2721,6 +2733,7 @@ export function createOpencodeRuntime(
       workdir: spec.workdir,
       secret,
       username,
+      harnessContext: spec.harnessContext,
       ...(spec.env ? { env: spec.env } : {}),
     })
     const make = host.makeClient ?? createOpencodeClient
@@ -2785,6 +2798,7 @@ export function createOpencodeRuntime(
         workdir: spec.workdir,
         secret,
         username: 'podium',
+        harnessContext: spec.harnessContext,
         ...(spec.env ? { env: spec.env } : {}),
       })
       return attachSession({

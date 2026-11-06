@@ -90,6 +90,7 @@ async function world(stageAttachment?: CodexRuntimeHost['stageAttachment']): Pro
     },
   }
   const host: CodexRuntimeHost = {
+    harnessContextFor: async () => testHarnessContext({ kind: 'codex' }),
     stageAttachment:
       stageAttachment ??
       (async ({ source }) => ({

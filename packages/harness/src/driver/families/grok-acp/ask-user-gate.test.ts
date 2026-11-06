@@ -41,6 +41,7 @@ function world(askUserGate?: AskUserGate) {
   const servers = new Map<SessionId, FakeGrokAcpServer>()
   const entries = new Map<SessionId, GrokAcpJournalEntry>()
   const host: GrokAcpRuntimeHost = {
+    harnessContextFor: async () => testHarnessContext({ kind: 'grok' }),
     stageAttachment: createMemoryAttachmentStager(),
     ...(askUserGate ? { askUserGate } : {}),
     bindings: {

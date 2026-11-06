@@ -139,6 +139,7 @@ function makeWorld(options: WorldOptions = {}): { target: ConformanceTarget } {
     (/rollout-(.+)\.jsonl$/.exec(input.pathHint?.split('/').at(-1) ?? '')?.[1] ?? '')
 
   const host: CodexRuntimeHost = {
+    harnessContextFor: async () => testHarnessContext({ kind: 'codex' }),
     stageAttachment: async ({ source }) => {
       const id = 'attachment-' + ++seq
       return {

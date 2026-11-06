@@ -59,6 +59,7 @@ function world(options: FakeGrokAcpServerOptions = {}): {
   return {
     serverFor: (sessionId) => servers.get(sessionId)!,
     host: {
+      harnessContextFor: async () => testHarnessContext({ kind: 'grok' }),
       stageAttachment: createMemoryAttachmentStager(),
       bindings: {
         recorded: (id) => entries.get(id),

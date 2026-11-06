@@ -17,6 +17,7 @@ import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { EngineBindUnrecoverable } from '../engine-supervision.js'
+import { testHarnessContext } from '../../testing/harness-context.js'
 import { isDriverRefusal } from '../../errors.js'
 import { asSessionId } from '@podium/model'
 import {
@@ -63,6 +64,13 @@ it('passes the isolated store to the v2 pending-admission reader', () => {
   expect(configs).toMatchObject([{ databasePath: '/instance/state/opencode2.db' }])
 })
 
+/** The session's pinned installation (POD-6546): argv[0] comes from here. */
+const CONTEXT = testHarnessContext({ kind: 'opencode', executable: '/opt/rig/bin/opencode' })
+const OPENCODE2_CONTEXT = testHarnessContext({
+  kind: 'opencode',
+  executable: '/opt/rig/bin/opencode2',
+})
+
 function engineHost(extra: Partial<OpencodeEngineHostDeps> = {}) {
   return createOpencodeEngineHost({
     flavor: FLAVOR,
@@ -72,6 +80,7 @@ function engineHost(extra: Partial<OpencodeEngineHostDeps> = {}) {
     gracefulExitMs: 1,
     checkVersion: async () => null,
     freePort: async () => 41234,
+    harnessContextFor: async () => CONTEXT,
     ...extra,
   })
 }
@@ -182,7 +191,6 @@ function fakePorts(hooks: {
     const launched: Array<Parameters<EngineProcessOwner['startEngine']>[0]> = []
     const stopped = new Error('stop after argv capture')
     const host = engineHost({
-      executablePath: executable,
       checkVersion: async () => null,
       ...fakePorts({
         startEngine: async (opts) => {
@@ -198,6 +206,7 @@ function fakePorts(hooks: {
         workdir: '/tmp',
         secret: 'secret',
         username: 'podium',
+        harnessContext: testHarnessContext({ kind: 'opencode', executable }),
       }),
     ).rejects.toBe(stopped)
 
@@ -242,13 +251,14 @@ function fakePorts(hooks: {
         workdir: '/tmp',
         secret: 'secret',
         username: 'opencode',
+        harnessContext: OPENCODE2_CONTEXT,
       }),
     ).rejects.toBe(stopped)
     expect(host.driverId).toBe('opencode2-server')
     expect(launched).toHaveLength(1)
     expect(launched[0]).toMatchObject({
       label: 'podium-oc2-11111111-1111-4111-8111-111111111111',
-      cmd: 'opencode2',
+      cmd: OPENCODE2_CONTEXT.installation.executable,
       args: ['serve', '--port', '41234', '--hostname', '127.0.0.1'],
     })
     expect(launched[0]?.env).toMatchObject({
@@ -327,6 +337,7 @@ function fakePorts(hooks: {
           workdir: '/tmp',
           secret: 'fresh-secret',
           username: 'podium',
+          harnessContext: CONTEXT,
         })
         expect(endpoint.baseUrl).toBe(journalled.baseUrl)
         expect(endpoint.password).toBe(journalled.secret)
@@ -375,6 +386,7 @@ function fakePorts(hooks: {
             workdir: '/tmp',
             secret: 'fresh-secret',
             username: 'podium',
+            harnessContext: CONTEXT,
           }),
         ).rejects.toBeInstanceOf(OpencodeEngineLeaseRefused)
         expect(spawned).toHaveLength(0)
@@ -404,6 +416,7 @@ function fakePorts(hooks: {
           workdir: directory,
           secret: 'secret',
           username: 'podium',
+          harnessContext: CONTEXT,
         })
         expect(endpoint.engineExit?.()).toBeUndefined()
         expect(endpoint.databasePath).toBe(databasePath)
@@ -484,7 +497,13 @@ describe('§4.8 failure ownership — bind failure keeps the engine', () => {
       }),
     })
     const error = await host
-      .launch({ sessionId: SESSION, workdir: '/tmp', secret: 's3cret', username: 'podium' })
+      .launch({
+        sessionId: SESSION,
+        workdir: '/tmp',
+        secret: 's3cret',
+        username: 'podium',
+        harnessContext: CONTEXT,
+      })
       .then(
         () => null,
         (err: unknown) => err,

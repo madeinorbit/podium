@@ -42,6 +42,7 @@ describe('grok-acp launch with an initial prompt', () => {
     const entries = new Map<SessionId, never>()
     let seq = 0
     const host: GrokAcpRuntimeHost = {
+      harnessContextFor: async () => testHarnessContext({ kind: 'grok' }),
       stageAttachment: createMemoryAttachmentStager(),
       bindings: {
         recorded: (id) => entries.get(id),

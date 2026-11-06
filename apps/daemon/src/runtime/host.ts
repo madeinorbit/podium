@@ -18,7 +18,7 @@ import { DriverRefusalError } from '@podium/harness/driver/host'
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import type { AcceptedDriverId } from '@podium/harness'
+import type { AcceptedDriverId, HarnessContext } from '@podium/harness'
 import { discoveryRoots, resolveWithinRoots } from '@podium/harness'
 import type {
   AttachmentStager,
@@ -282,20 +282,30 @@ export function engineEnvBuilder(podium: SessionProcessEnv) {
   return (input: {
     sessionId: SessionId
     agentKind: AgentKind
+    /** The session's pinned harness context (POD-6546). */
+    harnessContext: HarnessContext
     homeDir?: string
     sessionEnv?: Readonly<Record<string, string>>
     harnessEnv?: Readonly<Record<string, string>>
     instanceUuid?: string
   }): Record<string, string> => {
-    const env = serverChildEnv({
-      ...(input.instanceUuid ? { instanceUuid: input.instanceUuid } : {}),
-      sessionId: input.sessionId,
-      agentKind: input.agentKind,
-      podiumEnv: podium(input.sessionId, input.agentKind),
-      ...(input.homeDir ? { homeDir: input.homeDir } : {}),
-      ...(input.sessionEnv ? { sessionEnv: input.sessionEnv } : {}),
-      ...(input.harnessEnv ? { harnessEnv: input.harnessEnv } : {}),
-    })
+    // THE BASE IS THE SESSION'S ENVIRONMENT, not the daemon's own (POD-6546).
+    // A GUI-launched daemon's `process.env` carries the app's bare PATH; the
+    // context's env is the recovered command environment for this account
+    // (harnessLoginReadEnv), the same one the terminal launch starts from.
+    // The full one-recipe child env is POD-6535.
+    const env = serverChildEnv(
+      {
+        ...(input.instanceUuid ? { instanceUuid: input.instanceUuid } : {}),
+        sessionId: input.sessionId,
+        agentKind: input.agentKind,
+        podiumEnv: podium(input.sessionId, input.agentKind),
+        ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+        ...(input.sessionEnv ? { sessionEnv: input.sessionEnv } : {}),
+        ...(input.harnessEnv ? { harnessEnv: input.harnessEnv } : {}),
+      },
+      input.harnessContext.env,
+    )
     const out: Record<string, string> = {}
     for (const [key, value] of Object.entries(env)) if (value !== undefined) out[key] = value
     return out

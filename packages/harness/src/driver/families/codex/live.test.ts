@@ -81,6 +81,7 @@ function liveHost(workdir: string): {
   }
 
   const host: CodexRuntimeHost = {
+    harnessContextFor: async () => testHarnessContext({ kind: 'codex' }),
     stageAttachment: async ({ source }) => ({
       id: 'live-attachment',
       path: '/tmp/live-' + source.filename,

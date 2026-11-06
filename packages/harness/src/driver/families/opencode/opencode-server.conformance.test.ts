@@ -162,6 +162,7 @@ function makeWorld(options: WorldOptions = {}): {
   })
 
   const host: OpencodeRuntimeHost = {
+    harnessContextFor: async () => testHarnessContext({ kind: 'opencode' }),
     promptRecordTimeoutMs: 100,
     reportObservedConfiguration: (input) => observed.push(input),
     stageAttachment:

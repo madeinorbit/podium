@@ -236,6 +236,7 @@ function opencodeHost(
     events: feed.events,
   }
   const host: OpencodeRuntimeHost = {
+    harnessContextFor: async () => testHarnessContext({ kind: 'opencode' }),
     driverId,
     now: w.now,
     mintSessionId: () => w.sessionId,
@@ -265,6 +266,7 @@ function codexHost(w: Awaited<ReturnType<typeof sessionWorld>>, earlyStatus: boo
   const server = startFakeAppServer()
   let startingId: number | undefined
   const host: CodexRuntimeHost = {
+    harnessContextFor: async () => testHarnessContext({ kind: 'codex' }),
     now: w.now,
     mintSessionId: () => w.sessionId,
     bindings: bindings(),
@@ -317,6 +319,7 @@ describe('driver turn-start ordering through the server projection', () => {
     const w = await sessionWorld('grok', 'grok-acp')
     const server = startFakeGrokAcpServer('grok-ordering', { ackPrompt: 'hold' })
     const host: GrokAcpRuntimeHost = {
+      harnessContextFor: async () => testHarnessContext({ kind: 'grok' }),
       stageAttachment: createMemoryAttachmentStager(),
       now: w.now,
       mintSessionId: () => w.sessionId,

@@ -5,6 +5,7 @@ import type { RuntimeEvent } from '../../events.js'
 import type { PendingInteraction } from '../../interactions.js'
 import type { AttachmentStager } from '../../turns.js'
 import { attachKindsForDriver, configureFieldsForDriver } from '../../configure-catalog.js'
+import type { HarnessContext } from '../../../harness-context-types.js'
 import {
   type ClaudeSdkRuntime,
   type ClaudeSdkRuntimeHost,
@@ -339,12 +340,14 @@ export function createClaudeSdkSessionRuntime(
   /** The spec a journal adopt runs under: only what the journal recorded. */
   function journalSpec(input: {
     cwd: string
+    harnessContext: HarnessContext
     model?: string
     effort?: string
     env?: Readonly<Record<string, string>>
   }): Parameters<ClaudeSdkRuntime['createWithId']>[1] {
     return {
       harness: claudeSdkHarnessKind,
+      harnessContext: input.harnessContext,
       selection: {
         auth: 'unknown',
         platform: process.platform,
@@ -437,6 +440,9 @@ export function createClaudeSdkSessionRuntime(
         {
           ...journalSpec({
             cwd: entry.workdir,
+            // No spec survives a restart: the session's context comes from
+            // the host, pinned or rebuilt from the inventory (POD-6546).
+            harnessContext: await deps.engine.harnessContextFor(sessionId),
             ...(entry.model ? { model: entry.model } : {}),
             ...(entry.effort ? { effort: entry.effort } : {}),
             ...(entry.env ? { env: entry.env } : {}),

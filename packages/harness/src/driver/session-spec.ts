@@ -133,10 +133,10 @@ export interface SessionSpec {
  * the pinned harness context.
  *
  * A server family adopts a surviving engine by rebuilding its spec from its own
- * binding journal, and the journal records no context. Engines do not read the
- * context yet; POD-6546 hands them the session's one. Until then a family keeps
- * this narrower shape internally, while `create`/`resume` still take the whole
- * {@link SessionSpec}, so a host cannot start an engine session without one.
+ * binding journal, and the journal records no context. Engines read the context
+ * off the spec on create/resume (POD-6546); a launch that has no spec in hand
+ * (adopt, wake) asks its host's `harnessContextFor`, so a family can keep this
+ * narrower shape for the specs it stores while no engine launches without one.
  */
 export type EngineSessionSpec = Omit<SessionSpec, 'harnessContext'>
 

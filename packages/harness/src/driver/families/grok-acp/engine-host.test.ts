@@ -39,6 +39,8 @@ import { startFakeGrokAcpServer } from './test-support/fake-acp-server.js'
 import type { SessionId } from '@podium/model'
 
 const FACTS = grokEngineFacts(manifestFor('grok')!)
+/** The session's pinned installation (POD-6546): argv[0] comes from here. */
+const CONTEXT = testHarnessContext({ kind: 'grok', executable: '/opt/rig/bin/grok' })
 
 function engineHost(extra: Partial<GrokEngineHostDeps> = {}) {
   return createGrokEngineHost({
@@ -47,6 +49,7 @@ function engineHost(extra: Partial<GrokEngineHostDeps> = {}) {
     buildEnv: () => ({}),
     gracefulExitMs: 1,
     checkVersion: async () => ({ drivable: true as const }),
+    harnessContextFor: async () => CONTEXT,
     ...extra,
   })
 }
@@ -150,11 +153,15 @@ describe('headless engine lifecycle (POD-4433)', () => {
         },
       }),
     })
-    const endpoint = await host.launch({ sessionId: SESSION, workdir: '/tmp' })
+    const endpoint = await host.launch({
+      sessionId: SESSION,
+      workdir: '/tmp',
+      harnessContext: CONTEXT,
+    })
     expect(launched).toHaveLength(1)
     expect(launched[0]).toMatchObject({
       label: grokAcpProcessKey(FACTS, SESSION),
-      cmd: 'grok',
+      cmd: CONTEXT.installation.executable,
       args: ['agent', 'stdio'],
       cwd: '/tmp',
     })
@@ -169,7 +176,11 @@ describe('headless engine lifecycle (POD-4433)', () => {
     const host = engineHost({
       ...fakePorts({ startEngine: async () => rig.session }),
     })
-    const endpoint = await host.launch({ sessionId: SESSION, workdir: '/tmp' })
+    const endpoint = await host.launch({
+      sessionId: SESSION,
+      workdir: '/tmp',
+      harnessContext: CONTEXT,
+    })
     const lines: string[] = []
     let closed = 0
     endpoint.transport.onLine({ line: (line) => void lines.push(line), closed: () => void closed++ })
@@ -192,9 +203,9 @@ describe('headless engine lifecycle (POD-4433)', () => {
     const host = engineHost({
       ...fakePorts({ startEngine: async () => session }),
     })
-    await expect(host.launch({ sessionId: SESSION, workdir: '/tmp' })).rejects.toBeInstanceOf(
-      GrokEngineLeaseRefused,
-    )
+    await expect(
+      host.launch({ sessionId: SESSION, workdir: '/tmp', harnessContext: CONTEXT }),
+    ).rejects.toBeInstanceOf(GrokEngineLeaseRefused)
   })
 
   it('closing the transport drops the channel without ending the engine', async () => {
@@ -202,7 +213,11 @@ describe('headless engine lifecycle (POD-4433)', () => {
     const host = engineHost({
       ...fakePorts({ startEngine: async () => rig.session }),
     })
-    const endpoint = await host.launch({ sessionId: SESSION, workdir: '/tmp' })
+    const endpoint = await host.launch({
+      sessionId: SESSION,
+      workdir: '/tmp',
+      harnessContext: CONTEXT,
+    })
     let closed = 0
     endpoint.transport.onLine({ line: () => {}, closed: () => void closed++ })
     endpoint.transport.close()
@@ -365,6 +380,7 @@ describe('readHistory — the Store read over updates.jsonl', () => {
         entries: Map<SessionId, GrokAcpJournalEntry>,
         seq: { n: number },
       ): GrokAcpRuntimeHost => ({
+        harnessContextFor: async () => testHarnessContext({ kind: 'grok' }),
         stageAttachment: createMemoryAttachmentStager(),
         bindings: {
           recorded: (id) => entries.get(id),

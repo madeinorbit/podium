@@ -116,6 +116,9 @@ function claudeWorld(journalled?: ClaudeEngineJournalEntry) {
       },
       stopEngine: async () => {},
       releaseEngines: () => {},
+      // The engine host's port for a journal adopt with no spec in hand
+      // (POD-6546): the context the rebuilt spec carries.
+      harnessContextFor: async () => testHarnessContext({ kind: 'claude-code' }),
     },
     transcript: {
       readHistory: host([]).readHistory,

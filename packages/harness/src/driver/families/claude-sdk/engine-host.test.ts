@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@podium/model'
 import { wasNeverSent } from '../../errors.js'
 import type { AttachmentRef } from '../../turns.js'
+import { testHarnessContext } from '../../testing/harness-context.js'
 import type {
   EngineAttachment,
   EngineProcessOwner,
@@ -32,6 +33,8 @@ import { manifestFor } from '../../../registry.js'
 import type { ClaudeSdkTurnHandle } from './runtime.js'
 
 const SESSION_ID = 'claude-engine-session' as SessionId
+/** The session's pinned installation (POD-6546): argv[0] comes from here. */
+const CONTEXT = testHarnessContext({ kind: 'claude-code', executable: '/bin/claude' })
 
 const FACTS = claudeEngineFacts({
   kind: manifestFor('claude-code')!.kind,
@@ -147,7 +150,7 @@ function hostDeps(
     buildEnv: ({ sessionEnv }) => ({ ...(sessionEnv ?? {}) }),
     gracefulExitMs: 50,
     homeDir: '/state/agent-home',
-    executablePath: '/bin/claude',
+    harnessContextFor: async () => CONTEXT,
     ...extra,
   }
 }
@@ -156,6 +159,7 @@ function turnInput(text = 'hello', resumeValue = 'resume-1', fresh = true) {
   return {
     sessionId: SESSION_ID,
     spec: {
+      harnessContext: CONTEXT,
       workdir: '/project',
       model: {},
       instructions: { supported: false as const, reason: 'fixture' },

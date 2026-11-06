@@ -15,6 +15,7 @@
 import type { SessionId, TranscriptItem } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { RuntimeEvent } from '../../host.js'
+import { testHarnessContext } from '../../testing/harness-context.js'
 import {
   type ClaudeSdkInterruptAck,
   type ClaudeSdkRuntimeHost,
@@ -29,6 +30,7 @@ const RESUME = '00000000-0000-4000-8000-0000000000a1'
 function spec() {
   return {
     harness: 'claude-code' as const,
+    harnessContext: testHarnessContext({ kind: 'claude-code' }),
     selection: {
       auth: 'subscription' as const,
       platform: 'linux' as const,

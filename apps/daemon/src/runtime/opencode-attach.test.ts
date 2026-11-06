@@ -20,7 +20,9 @@ import {
   createMemoryBindingRecords,
   createTestEngineOwner,
   type MemoryBindingRecords,
+  testHarnessContext,
 } from '@podium/harness/driver/testing'
+import type { BuiltinHarnessKind } from '@podium/protocol'
 import { AGENT_MANIFESTS, CLIENT_TERMINAL_HARNESSES, clientTerminalFor, manifestFor } from '@podium/harness'
 import { asSessionId, type SessionId } from '@podium/model'
 import { BUILTIN_HARNESS_KINDS } from '@podium/protocol'
@@ -52,6 +54,14 @@ import {
   opencodeScopeLabel,
 } from '@podium/harness/driver/host'
 import { engineClientTerminals } from './host'
+
+/** The session's pinned harness context (POD-6546): a client terminal runs the
+ *  session's executable, never the harness's bare name. */
+const testClientContext = async (_sessionId: string, target: { kind: string; driverId?: string }) =>
+  testHarnessContext({
+    kind: target.kind as BuiltinHarnessKind,
+    executable: `/opt/rig/bin/${target.driverId === 'opencode2-server' ? 'opencode2' : target.kind}`,
+  })
 
 const SESSION = asSessionId('11111111-1111-4111-8111-111111111111')
 const SECRET = 'e2d1c0ffee5eba11deadbeefcafef00dfeedfacefeedfacefeedfacefeedface'
@@ -256,6 +266,7 @@ function harness(opts: HarnessOptions = {}) {
     hasClientMaster: opts.hasMaster ?? (() => false),
   }
   const terminals = createOpencodeClientTerminals({
+    harnessContext: testClientContext,
     sessions,
     clients,
     ...(opts.sizeEvent ? { sizeEvent: opts.sizeEvent } : {}),
@@ -395,6 +406,7 @@ describe('the client terminal a server-family attach produces', () => {
       failSpawn = reject
     })
     const terminals = createOpencodeClientTerminals({
+      harnessContext: testClientContext,
       sessions: testSessions(),
       frames: () => {},
       clients: {
@@ -656,6 +668,7 @@ describe('the client terminal a server-family attach produces', () => {
     })
     const client = fakeClient()
     const terminals = createOpencodeClientTerminals({
+      harnessContext: testClientContext,
       sessions: testSessions(),
       frames: () => {},
       clients: {
@@ -685,6 +698,7 @@ describe('the client terminal a server-family attach produces', () => {
     })
     const client = fakeClient()
     const terminals = createOpencodeClientTerminals({
+      harnessContext: testClientContext,
       sessions: testSessions(),
       frames: () => {},
       clients: {
@@ -711,6 +725,7 @@ describe('the client terminal a server-family attach produces', () => {
     })
     const client = fakeClient()
     const terminals = createOpencodeClientTerminals({
+      harnessContext: testClientContext,
       sessions: testSessions(),
       frames: () => {},
       clients: {
@@ -738,6 +753,7 @@ describe('the client terminal a server-family attach produces', () => {
     })
     const client = fakeClient()
     const terminals = createOpencodeClientTerminals({
+      harnessContext: testClientContext,
       sessions: testSessions(),
       frames: () => {},
       clients: {
@@ -846,7 +862,7 @@ describe('the client terminal a server-family attach produces', () => {
 
     expect(state.spawns[0]).toMatchObject({
       label: 'podium-oc2-attach-11111111-1111-4111-8111-111111111111',
-      cmd: 'opencode2',
+      cmd: '/opt/rig/bin/opencode2',
       env: { OPENCODE_DB: '/instance/state/opencode2.db' },
     })
   })
@@ -864,7 +880,7 @@ describe('the client terminal a server-family attach produces', () => {
     })
     expect(codex.state.spawns[0]).toMatchObject({
       label: requireClientTerminalLabel(SESSION, 'codex'),
-      cmd: 'codex',
+      cmd: '/opt/rig/bin/codex',
       env: { CODEX_TUI_DISABLE_KEYBOARD_ENHANCEMENT: '1' },
       // No `-c sandbox_workspace_write.*`: Codex refuses any permission
       // override on a `--remote` resume ("Permission overrides are not
@@ -881,7 +897,7 @@ describe('the client terminal a server-family attach produces', () => {
     })
     expect(grok.state.spawns[0]).toMatchObject({
       label: requireClientTerminalLabel(SESSION, 'grok'),
-      cmd: 'grok',
+      cmd: '/opt/rig/bin/grok',
       args: ['--resume', 'grok-9'],
       stripEnv: ['XAI_API_KEY'],
     })
@@ -928,6 +944,7 @@ describe('warm-parking', () => {
     const clients: ReturnType<typeof fakeClient>[] = []
     const reclaimed: string[] = []
     const terminals = createOpencodeClientTerminals({
+      harnessContext: testClientContext,
       sessions: testSessions(),
       frames: () => {},
       clients: {
@@ -958,6 +975,7 @@ describe('warm-parking', () => {
     const resolvers: Array<(client: DurableAttachment) => void> = []
     const clients = [fakeClient(), fakeClient()]
     const terminals = createOpencodeClientTerminals({
+      harnessContext: testClientContext,
       sessions: testSessions(),
       frames: () => {},
       clients: {
@@ -1044,6 +1062,7 @@ describe('warm-parking', () => {
     const clients: ReturnType<typeof fakeClient>[] = []
     const frames: { streamId: string; data: Uint8Array }[] = []
     const terminals = createOpencodeClientTerminals({
+      harnessContext: testClientContext,
       sessions: testSessions(),
       frames: (streamId, data) => frames.push({ streamId, data }),
       clients: {
@@ -1124,6 +1143,7 @@ describe('warm-parking', () => {
     })
     const clients: ReturnType<typeof fakeClient>[] = []
     const terminals = createOpencodeClientTerminals({
+      harnessContext: testClientContext,
       sessions: testSessions(),
       frames: () => {},
       clients: {
@@ -1160,6 +1180,7 @@ describe('warm-parking', () => {
     const frames: { streamId: string; data: Uint8Array }[] = []
     let spawnCount = 0
     const terminals = createOpencodeClientTerminals({
+      harnessContext: testClientContext,
       sessions: testSessions(),
       frames: (streamId, data) => frames.push({ streamId, data }),
       clients: {
@@ -1309,6 +1330,7 @@ describe('warm-parking', () => {
         hasClientMaster: (label) => scope.hasClientMaster(label),
       }
       const terminals = createOpencodeClientTerminals({
+        harnessContext: testClientContext,
         sessions: testSessions(),
         clients,
         frames: () => {},
@@ -1419,6 +1441,7 @@ describe('warm-parking', () => {
         hasClientMaster: (label) => scope.hasClientMaster(label),
       }
       const terminals = createOpencodeClientTerminals({
+        harnessContext: testClientContext,
         sessions: testSessions(),
         clients,
         frames: () => {},
@@ -1600,6 +1623,7 @@ function engineHost(
     buildEnv: () => ({}),
     gracefulExitMs: 1,
     checkVersion: async () => null,
+    harnessContextFor: async () => testHarnessContext({ kind: 'opencode' }),
     // Production always holds the engine under podium-host; the default owner
     // hands back the attachment built above, so adopt exercises the adopt →
     // client-terminal path it was written for (POD-4511). Tests that need
@@ -1901,6 +1925,7 @@ describe('the client terminal lives in the host, reached through the session-own
       hasMasterSync: hostAdapter.hasMasterSync,
     }
     const terminals = createOpencodeClientTerminals({
+      harnessContext: testClientContext,
       sessions: testSessions(),
       // The relay reaches the host only through the session-owned scope: the
       // recording durable below is wrapped, never passed through.
@@ -1932,7 +1957,11 @@ describe('without a session client scope there are no client terminals (POD-3917
     // The deliberate answer to the one real decision: `undefined` in means
     // `undefined` out — never a durable object the daemon never selected.
     expect(
-      createClientTerminalsFor(undefined, { frames: () => {}, sessions: testSessions() }),
+      createClientTerminalsFor(undefined, {
+        frames: () => {},
+        sessions: testSessions(),
+        harnessContext: testClientContext,
+      }),
     ).toBeUndefined()
   })
 
@@ -1944,6 +1973,7 @@ describe('without a session client scope there are no client terminals (POD-3917
         hasClientMaster: () => false,
       },
       {
+        harnessContext: testClientContext,
         sessions: testSessions(),
         frames: () => {},
       },

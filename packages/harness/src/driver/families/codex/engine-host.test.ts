@@ -17,6 +17,7 @@ import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { codexEngineFacts } from './engine-facts.js'
+import { testHarnessContext } from '../../testing/harness-context.js'
 import {
   type CodexEngineHostDeps,
   codexAppServerConfigArgs,
@@ -37,6 +38,8 @@ import { isDriverRefusal } from '../../errors.js'
 import type { CodexJournalEntry } from './runtime.js'
 
 const FACTS = codexEngineFacts(manifestFor('codex')!)
+/** The session's pinned installation (POD-6546): argv[0] comes from here. */
+const CONTEXT = testHarnessContext({ kind: 'codex', executable: '/opt/rig/bin/codex' })
 // Tests read the manifest directly (they are not mechanisms); production code
 // reads the same array through the handed facts above.
 const STRIPPED_CODEX_CREDENTIALS = manifestFor('codex')!.inventory.foreignCredentialEnv
@@ -50,6 +53,7 @@ function engineHost(extra: Partial<CodexEngineHostDeps> = {}) {
     gracefulExitMs: 1,
     checkVersion: async () => ({ drivable: true as const }),
     dialSocket: () => Promise.reject(new Error('no listener in this test')),
+    harnessContextFor: async () => CONTEXT,
     ...extra,
   })
 }
@@ -434,11 +438,15 @@ describe('headless engine lifecycle (POD-4433)', () => {
       }),
     })
     try {
-      const endpoint = await host.launch({ sessionId: SESSION, workdir: '/tmp' })
+      const endpoint = await host.launch({
+        sessionId: SESSION,
+        workdir: '/tmp',
+        harnessContext: CONTEXT,
+      })
       expect(launched).toHaveLength(1)
       expect(launched[0]).toMatchObject({
         label: codexScopeLabel(FACTS, SESSION),
-        cmd: 'codex',
+        cmd: CONTEXT.installation.executable,
         cwd: '/tmp',
       })
       expect(launched[0]?.args?.slice(0, 2)).toEqual(['app-server', '-c'])
@@ -573,10 +581,12 @@ describe('§4.8 failure ownership — bind failure keeps the engine', () => {
           reported: written,
         }),
       })
-      const error = await host.launch({ sessionId: SESSION48, workdir: '/tmp' }).then(
-        () => null,
-        (err: unknown) => err,
-      )
+      const error = await host
+        .launch({ sessionId: SESSION48, workdir: '/tmp', harnessContext: CONTEXT })
+        .then(
+          () => null,
+          (err: unknown) => err,
+        )
       expect(error).toBeInstanceOf(EngineBindUnrecoverable)
       expect((error as EngineBindUnrecoverable).during).toBe('launch')
       expect((error as EngineBindUnrecoverable).address).toContain('unix://')

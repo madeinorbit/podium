@@ -105,6 +105,9 @@ function recordingScope(spawned: Array<{ label: string; cmd: string }>) {
   return createSessionEngineScope(recordingDurable, { sessions: new SessionRegistry() })
 }
 
+/** The session's pinned installation (POD-6546): argv[0] comes from here. */
+const GROK_CONTEXT = testHarnessContext({ kind: 'grok', executable: '/opt/rig/bin/grok' })
+
 function familyDeps(
   supervision: EngineSupervisor,
   engines: unknown,
@@ -115,6 +118,7 @@ function familyDeps(
     buildEnv: () => ({}),
     gracefulExitMs: 1,
     checkVersion: async () => ({ drivable: true as const }),
+    harnessContextFor: async () => GROK_CONTEXT,
     supervision,
     engines,
   } as unknown as Parameters<typeof createGrokEngineHost>[0]
@@ -134,14 +138,18 @@ describe('engine lifecycle ownership (§4.8: the session layer summons, the fami
       familyDeps(supervision, sessionEngines.ownerFor(FACTS.journalNamespace)),
     )
 
-    const endpoint = await host.launch({ sessionId: SESSION, workdir: '/tmp' })
+    const endpoint = await host.launch({
+      sessionId: SESSION,
+      workdir: '/tmp',
+      harnessContext: GROK_CONTEXT,
+    })
     expect(endpoint.process.key).toBe(grokAcpProcessKey(FACTS, SESSION))
     expect(endpoint.alive()).toBe(true)
     // The session layer summoned exactly one engine, under the session label.
     expect(spawned).toHaveLength(1)
     expect(spawned[0]).toMatchObject({
       label: grokAcpProcessKey(FACTS, SESSION),
-      cmd: 'grok',
+      cmd: GROK_CONTEXT.installation.executable,
     })
   })
 
@@ -150,9 +158,9 @@ describe('engine lifecycle ownership (§4.8: the session layer summons, the fami
       scopeUnitFor: () => undefined,
     }
     const host = createGrokEngineHost(familyDeps(supervision, undefined))
-    await expect(host.launch({ sessionId: SESSION, workdir: '/tmp' })).rejects.toThrow(
-      /requires the session engine owner/,
-    )
+    await expect(
+      host.launch({ sessionId: SESSION, workdir: '/tmp', harnessContext: GROK_CONTEXT }),
+    ).rejects.toThrow(/requires the session engine owner/)
   })
 })
 
@@ -259,6 +267,7 @@ describe('the family is handed its address and reports its binding (POD-4611)', 
       buildEnv: () => ({}),
       gracefulExitMs: 1,
       checkVersion: async () => ({ drivable: true as const }),
+      harnessContextFor: async () => testHarnessContext({ kind: 'codex' }),
       dialSocket: async (address) => {
         dialled.push(address)
         return rawSocketOver(server.transport)

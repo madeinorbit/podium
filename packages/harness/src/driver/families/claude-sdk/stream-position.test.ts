@@ -11,6 +11,7 @@
 import type { SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { RuntimeEvent } from '../../host.js'
+import { testHarnessContext } from '../../testing/harness-context.js'
 import { createMemoryAttachmentStager, createMemoryDriverSlots } from '../../testing/index.js'
 import {
   type ClaudeSdkRuntimeHost,
@@ -25,6 +26,7 @@ const RESUME = '00000000-0000-4000-8000-0000000000cc'
 function spec() {
   return {
     harness: 'claude-code' as const,
+    harnessContext: testHarnessContext({ kind: 'claude-code' }),
     selection: {
       auth: 'subscription' as const,
       platform: 'linux' as const,

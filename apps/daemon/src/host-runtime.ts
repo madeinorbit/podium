@@ -1,6 +1,6 @@
 import { legacyRollbackRefusal } from '@podium/runtime/legacy-daemon-update'
 import { createRecoveryReadiness } from './recovery-readiness'
-import type { BindingConfirmations } from '@podium/protocol'
+import type { BindingConfirmations, BuiltinHarnessKind } from '@podium/protocol'
 import { mkdir, readFile, stat } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
 import { isAbsolute, join } from 'node:path'
@@ -8,6 +8,9 @@ import { createOpencode2Client, DriverRefusalError } from '@podium/harness/drive
 import {
   type ClaudeEngineJournalEntry,
   type CodexJournalEntry,
+  CLAUDE_SDK_DRIVER_ID,
+  CODEX_APP_SERVER_DRIVER_ID,
+  GROK_ACP_DRIVER_ID,
   claudeEngineFacts,
   codexEngineFacts,
   codexHarnessKind,
@@ -36,11 +39,9 @@ import {
   buildMachineInventory,
   buildResolvedInventory,
   declaredValue,
-  type HarnessEnvironment,
   harnessDetectLogin,
   harnessLoginReadEnv,
   manifestFor,
-  resolvedHarnessPath,
 } from '@podium/harness'
 import { createLogger, resolveLevel, setNamespaceFloor } from '@podium/logger'
 import { asMachineId, asSessionId, asUserId, type AgentKind, type MachineId, type SessionId } from '@podium/model'
@@ -159,9 +160,10 @@ import { SERVER_GRACEFUL_EXIT_MS } from './runtime/server-teardown-budget'
 import {
   codexAppServerVersionProbe,
   grokAcpVersionProbe,
-  opencode2VersionProbeForExecutable,
-  opencodeVersionProbeForExecutable,
+  opencode2VersionProbe,
+  opencodeVersionProbe,
 } from './runtime/version-probe'
+import { engineSessionHarnessContext } from './session-harness-context'
 import { createDaemonMachineRuntime, type DaemonMachineRuntime } from './runtime/machine-runtime'
 import { createClientTerminalsFor } from './runtime/opencode-attach'
 import { createSessionClientScope } from './session/clients.js'
@@ -1118,14 +1120,17 @@ export async function createDaemonHostRuntime(args: {
       ctx.outputScheduler.enqueue(asSessionId(streamId), frame)
     },
     releaseStream: (streamId) => ctx.outputScheduler.remove(asSessionId(streamId)),
-    // Executable discovery belongs to the machine command environment, while
-    // `homeDir` below is the isolated credential home passed to the child. Keep
-    // those identities separate: the resolver must find the installed CLI before
-    // the child’s HOME is replaced for account isolation.
-    commandEnvironment: (): Promise<HarnessEnvironment> =>
-      harnessRuntime
-        ? harnessRuntime.current().then((snapshot) => snapshot.commandEnvironment.env)
-        : Promise.resolve(process.env),
+    // The client runs the SESSION'S installation over the session's env
+    // (POD-6546): the context it holds, rebuilt from the inventory after a
+    // restart. `homeDir` below is still the isolated credential home the
+    // child's HOME is pinned to.
+    harnessContext: (sessionId, target) =>
+      engineSessionHarnessContext(
+        ctx,
+        sessionId,
+        target.kind as BuiltinHarnessKind,
+        target.driverId,
+      ),
     ...(homeDir ? { homeDir } : {}),
     instanceUuid: instance.instanceUuid,
     // The client terminal is a durable session like any other: it lives under
@@ -1180,7 +1185,6 @@ export async function createDaemonHostRuntime(args: {
     onInterruptRequested: (sessionId: SessionId) => observers.onInterruptRequested(sessionId),
   }
   terminalRuntime = createTerminalRuntime(contractHost, primeSource, driverSlotsOver(ctx.sessions, args.deliveryJournal))
-  const generationInventory = harnessRuntime ? await harnessRuntime.current() : undefined
   // Engine-family facts (POD-4494, spec §4.1/§5): this composition root reads
   // the registry ONCE per harness and hands each family exactly the sections
   // it owns — the families never fetch an adapter by name. The kinds arrive
@@ -1225,7 +1229,19 @@ export async function createDaemonHostRuntime(args: {
     // same memoized resolve the host adapter itself runs at first spawn.
     hostAvailable: () => durableAvailable.host || isHostAvailable(),
   })
-  const opencode2Executable = generationInventory?.commandEnvironment.resolve(oc2Facts.executableName)
+  /**
+   * ENGINES READ THE SESSION'S CONTEXT (POD-6546), never a snapshot taken
+   * when this daemon started. Launch takes argv[0] and the env base off the
+   * spec's pinned context; `harnessContextFor` answers the launches that have
+   * no spec (adopt, wake) with the context the session holds, or one rebuilt
+   * from the current inventory. Version admission runs per installation: the
+   * inventory's verified version, or the executable itself under the MACHINE
+   * command environment of the current generation (design §3.3).
+   */
+  const engineContextFor = (kind: AgentKind, driverId: string) => (sessionId: SessionId) =>
+    engineSessionHarnessContext(ctx, sessionId, kind as BuiltinHarnessKind, driverId)
+  const machineCommandEnv = async (): Promise<Readonly<Record<string, string>>> =>
+    harnessRuntime ? (await harnessRuntime.current()).commandEnvironment.env : {}
   // Session-frame ports shared by the four headless families: the frame sink,
   // the one bind builder, timing stages and the mail continuation. The
   // supervisor owns the wire; the families own the translation.
@@ -1267,9 +1283,7 @@ export async function createDaemonHostRuntime(args: {
     // (control/transcripts.ts sourceForRead), so the engine child writes its
     // JSONL where sessions.read looks for it (POD-3057).
     ...(homeDir ? { homeDir } : {}),
-    ...(generationInventory?.executables.has(claudeSdkHarnessKind)
-      ? { executablePath: resolvedHarnessPath(generationInventory, claudeSdkHarnessKind) }
-      : {}),
+    harnessContextFor: engineContextFor(claudeSdkHarnessKind, CLAUDE_SDK_DRIVER_ID),
     instanceUuid: instance.instanceUuid,
     // The issue prime, from the same source the terminal family primes from,
     // delivered in band at the engine's own boundaries (POD-5814).
@@ -1307,10 +1321,11 @@ export async function createDaemonHostRuntime(args: {
     stageAttachment,
     buildEnv: buildEngineEnv,
     gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
-    checkVersion: ({ executable }) =>
-      opencodeVersionProbeForExecutable(executable).then((verdict) =>
+    checkVersion: async (installation) =>
+      opencodeVersionProbe(installation, { env: await machineCommandEnv() }).then((verdict) =>
         verdict.drivable ? null : verdict.diagnostic,
       ),
+    harnessContextFor: engineContextFor(ocFacts.harnessKind, ocFacts.driverId),
     /**
      * `attach()`'s client terminal (POD-2059), on the frames path this daemon
      * already runs. The stream id is the key, exactly as the engine variant's
@@ -1321,9 +1336,6 @@ export async function createDaemonHostRuntime(args: {
      * per-machine refusal instead.
      */
     ...(clientTerminals ? { clientTerminals: engineClientTerminals(clientTerminals) } : {}),
-    ...(generationInventory?.executables.has(ocFacts.harnessKind)
-      ? { executablePath: resolvedHarnessPath(generationInventory, ocFacts.harnessKind) }
-      : {}),
     // The instance agent home: a server-driver child's HOME must be the
     // instance's, exactly as the PTY path's children get it (POD-2247).
     ...(homeDir ? { homeDir } : {}),
@@ -1347,11 +1359,11 @@ export async function createDaemonHostRuntime(args: {
     stageAttachment,
     buildEnv: buildEngineEnv,
     gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
-    checkVersion: ({ executable }) =>
-      opencode2VersionProbeForExecutable(executable).then((verdict) =>
+    checkVersion: async (installation) =>
+      opencode2VersionProbe(installation, { env: await machineCommandEnv() }).then((verdict) =>
         verdict.drivable ? null : verdict.diagnostic,
       ),
-    ...(opencode2Executable ? { executablePath: opencode2Executable } : {}),
+    harnessContextFor: engineContextFor(oc2Facts.harnessKind, oc2Facts.driverId),
     ...(homeDir ? { homeDir } : {}),
     instanceUuid: instance.instanceUuid,
     // V2 migrates the stable CLI's default database to an incompatible
@@ -1381,7 +1393,9 @@ export async function createDaemonHostRuntime(args: {
     stageAttachment,
     buildEnv: buildEngineEnv,
     gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
-    checkVersion: () => codexAppServerVersionProbe(),
+    checkVersion: async (installation) =>
+      codexAppServerVersionProbe(installation, { env: await machineCommandEnv() }),
+    harnessContextFor: engineContextFor(codexFacts.harnessKind, CODEX_APP_SERVER_DRIVER_ID),
     dialSocket: sessionEngines.dialerFor(dialEngineSocket),
     // Omitted outright on a backend=none daemon (POD-3917): without a
     // terminal host the codex host reports it cannot host one, rather than
@@ -1429,7 +1443,9 @@ export async function createDaemonHostRuntime(args: {
     resources: (subject) => scopeMonitor.resources(subject),
     buildEnv: buildEngineEnv,
     gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
-    checkVersion: () => grokAcpVersionProbe(),
+    checkVersion: async (installation) =>
+      grokAcpVersionProbe(installation, { env: await machineCommandEnv() }),
+    harnessContextFor: engineContextFor(grokFacts.harnessKind, GROK_ACP_DRIVER_ID),
     // Omitted outright on a backend=none daemon (POD-3917): same rule as the
     // codex host above — no terminal host, no attach arm.
     ...(clientTerminals

@@ -72,6 +72,7 @@ import type {
   RuntimeHistoryPage,
   RuntimeHistoryRange,
 } from '@podium/protocol/daemon'
+import type { HarnessContext } from '../../../harness-context-types.js'
 import type { AttachEndpoint, AttachRequest, SessionLease } from '../../attach.js'
 import type {
   ProcessIdentity,
@@ -222,6 +223,12 @@ export interface CodexRuntimeHost {
   launch(input: {
     sessionId: SessionId
     workdir: string
+    /**
+     * THE SESSION'S PINNED HARNESS CONTEXT (POD-6546): the engine runs its
+     * installation and starts from its environment. From the spec on create
+     * and resume, from {@link harnessContextFor} where a launch has no spec.
+     */
+    harnessContext: HarnessContext
     env?: Readonly<Record<string, string>>
     /**
      * Podium's MCP configuration, forwarded VERBATIM from `SessionSpec`.
@@ -341,6 +348,13 @@ export interface CodexRuntimeHost {
    * it absent and every adopt resumes.
    */
   adopt?(binding: SessionBinding): Promise<CodexServerEndpoint | undefined>
+  /**
+   * THE CONTEXT A SESSION RUNS UNDER WHEN NO SPEC IS IN HAND (POD-6546): an
+   * adopt or wake that must start a fresh engine. The one the session was
+   * spawned with while this host holds it; after a supervisor restart, one
+   * rebuilt from the current inventory (design §3.3).
+   */
+  harnessContextFor(sessionId: SessionId): Promise<HarnessContext>
 
   /**
    * TURNS THIS DRIVER ACCEPTED AND WILL NEVER DELIVER (POD-2297).
@@ -2758,11 +2772,12 @@ export function createCodexRuntime(
 
   async function createWithId(
     sessionId: SessionId,
-    spec: EngineSessionSpec,
+    spec: SessionSpec,
   ): Promise<AgentSessionHandle> {
     const endpoint = await host.launch({
       sessionId,
       workdir: spec.workdir,
+      harnessContext: spec.harnessContext,
       ...(spec.env ? { env: spec.env } : {}),
       ...mcpOf(spec),
       ...instructionsOf(spec),
@@ -2813,6 +2828,9 @@ export function createCodexRuntime(
     bindingVersion: number
     observerGeneration: number
     endpoint?: CodexServerEndpoint
+    /** The context a fresh engine runs under; read only when no survivor
+     *  endpoint is supplied. */
+    harnessContext: () => Promise<HarnessContext>
     rolloutPath?: string
   }): Promise<AgentSessionHandle> {
     const endpoint =
@@ -2820,6 +2838,7 @@ export function createCodexRuntime(
       (await host.launch({
         sessionId: input.sessionId,
         workdir: input.spec.workdir,
+        harnessContext: await input.harnessContext(),
         ...(input.spec.env ? { env: input.spec.env } : {}),
         ...mcpOf(input.spec),
         ...instructionsOf(input.spec),
@@ -2896,6 +2915,7 @@ export function createCodexRuntime(
       return resumeThread({
         sessionId,
         spec,
+        harnessContext: async () => spec.harnessContext,
         threadId: ref.value,
         bindingVersion: previous + 1,
         observerGeneration: previous + 1,
@@ -2932,6 +2952,7 @@ export function createCodexRuntime(
       const handle = await resumeThread({
         sessionId: binding.sessionId,
         spec: adoptedSpec(journalled.workdir, journalled.model),
+        harnessContext: () => host.harnessContextFor(binding.sessionId),
         threadId: journalled.threadId,
         rolloutPath: journalled.rolloutPath,
         endpoint,

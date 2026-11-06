@@ -25,7 +25,7 @@ import {
   resolveManagementAccount,
 } from '../harness-management.js'
 import { sendHarnessVersion } from '../harness-version-reporting'
-import { opencode2VersionProbeForExecutable } from '../runtime/version-probe'
+import { opencode2VersionProbe } from '../runtime/version-probe'
 import type { ControlHandlers, DaemonContext } from './context'
 
 const log = createLogger('daemon:inventory')
@@ -177,9 +177,15 @@ export async function reportInventory(
       const drivableAlternatives: string[] = []
       for (const alternative of harnessServerAlternatives()) {
         const executable = snapshot.commandEnvironment.resolve(alternative.executable)
-        if (executable && (await opencode2VersionProbeForExecutable(executable)).drivable) {
-          drivableAlternatives.push(alternative.driverId)
-        }
+        // That executable, in this generation, under the machine command env
+        // (POD-6546): the verdict is cached for this installation only.
+        const verdict =
+          executable &&
+          (await opencode2VersionProbe(
+            { executable, version: '', generation: snapshot.commandEnvironment.generation },
+            { env: snapshot.commandEnvironment.env },
+          ))
+        if (verdict && verdict.drivable) drivableAlternatives.push(alternative.driverId)
       }
       if (!ctx.harnessRuntime.isCurrent(snapshot)) return
       ctx.send({

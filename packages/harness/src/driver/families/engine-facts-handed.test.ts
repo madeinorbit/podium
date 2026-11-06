@@ -17,6 +17,7 @@ import { describe, expect, it } from 'vitest'
 import { declaredValue, supported } from '../../manifest.js'
 import { manifestFor } from '../../registry.js'
 import { codexEngineFacts } from './codex/engine-facts.js'
+import { testHarnessContext } from '../testing/harness-context.js'
 import { createCodexEngineHost } from './codex/engine-host.js'
 import { grokEngineFacts } from './grok-acp/engine-facts.js'
 import { createGrokEngineHost, grokAcpProcessKey } from './grok-acp/engine-host.js'
@@ -148,6 +149,21 @@ function fakeEngineSession(): EngineAttachment {
 
 type SpawnOpts = Parameters<SessionEngineOwner<{ sessionId: SessionId }>['startEngine']>[0]
 
+/** The session's pinned installation: argv[0] comes from here (POD-6546),
+ *  the rest of the stem from the handed facts. */
+const CODEX_CONTEXT = testHarnessContext({
+  kind: 'codex',
+  executable: '/fixture/bin/fixture-codex',
+})
+const GROK_CONTEXT = testHarnessContext({ kind: 'grok', executable: '/fixture/bin/fixture-grok' })
+const OPENCODE_CONTEXT = testHarnessContext({
+  kind: 'opencode',
+  executable: '/fixture/bin/fixture-opencode',
+})
+const OPENCODE2_CONTEXT = testHarnessContext({
+  kind: 'opencode',
+  executable: '/fixture/bin/fixture-opencode2',
+})
 /**
  * The session-owned process verbs, capturing the composed spec and refusing
  * the start — plus the scope port the families read beside it. Spread at the
@@ -189,12 +205,16 @@ describe('engine facts come from handed sections', () => {
       gracefulExitMs: 1,
       checkVersion: async () => ({ drivable: true as const }),
       dialSocket: () => Promise.reject(new Error('no listener in this test')),
+      harnessContextFor: async () => CODEX_CONTEXT,
       supervision: { scopeUnitFor: () => undefined },
       engines: capturingOwner(captured, marker),
     })
-    await expect(host.launch({ sessionId, workdir: '/tmp' })).rejects.toBe(marker)
+    await expect(
+      host.launch({ sessionId, workdir: '/tmp', harnessContext: CODEX_CONTEXT }),
+    ).rejects.toBe(marker)
     expect(captured).toHaveLength(1)
-    expect(captured[0]?.cmd).toBe('fixture-codex')
+    expect(captured[0]?.cmd).toBe(CODEX_CONTEXT.installation.executable)
+    expect(captured[0]?.args.slice(0, 2)).toEqual(['app-server', '--fixture'])
     expect(captured[0]?.label).toBe(`podium-fx-${sessionId}`)
     expect(captured[0]?.stripEnv).toContain('FIXTURE_CODEX_SECRET')
   })
@@ -217,6 +237,7 @@ describe('engine facts come from handed sections', () => {
       buildEnv: () => ({}),
       gracefulExitMs: 1,
       checkVersion: async () => ({ drivable: true as const }),
+      harnessContextFor: async () => GROK_CONTEXT,
       supervision: { scopeUnitFor: () => undefined },
       engines: createTestEngineOwner({
         startEngine: async (opts) => {
@@ -225,9 +246,10 @@ describe('engine facts come from handed sections', () => {
         },
       }),
     })
-    const endpoint = await host.launch({ sessionId, workdir: '/tmp' })
+    const endpoint = await host.launch({ sessionId, workdir: '/tmp', harnessContext: GROK_CONTEXT })
     expect(captured).toHaveLength(1)
-    expect(captured[0]?.cmd).toBe('fixture-grok')
+    expect(captured[0]?.cmd).toBe(GROK_CONTEXT.installation.executable)
+    expect(captured[0]?.args).toEqual(['agent', 'stdio', '--fixture'])
     expect(captured[0]?.label).toBe(grokAcpProcessKey(facts, sessionId))
     expect(endpoint.process.key).toContain('fg')
     expect(captured[0]?.stripEnv).toContain('FIXTURE_GROK_SECRET')
@@ -254,14 +276,21 @@ describe('engine facts come from handed sections', () => {
       gracefulExitMs: 1,
       checkVersion: async () => null,
       freePort: async () => 41234,
+      harnessContextFor: async () => OPENCODE_CONTEXT,
       supervision: { scopeUnitFor: () => undefined },
       engines: capturingOwner(captured, marker),
     })
     await expect(
-      host.launch({ sessionId, workdir: '/tmp', secret: 'secret', username: 'podium' }),
+      host.launch({
+        sessionId,
+        workdir: '/tmp',
+        secret: 'secret',
+        username: 'podium',
+        harnessContext: OPENCODE_CONTEXT,
+      }),
     ).rejects.toBe(marker)
     expect(captured).toHaveLength(1)
-    expect(captured[0]?.cmd).toBe('fixture-opencode')
+    expect(captured[0]?.cmd).toBe(OPENCODE_CONTEXT.installation.executable)
     expect(captured[0]?.args).toEqual(['serve', '--port', '41234', '--hostname', '127.0.0.1'])
     expect(captured[0]?.label).toBe(opencodeScopeLabel(flavor, sessionId))
     expect(captured[0]?.label).toBe(`podium-fo-${sessionId}`)
@@ -288,14 +317,21 @@ describe('engine facts come from handed sections', () => {
       gracefulExitMs: 1,
       checkVersion: async () => null,
       freePort: async () => 49999,
+      harnessContextFor: async () => OPENCODE2_CONTEXT,
       supervision: { scopeUnitFor: () => undefined },
       engines: capturingOwner(captured, marker),
     })
     await expect(
-      host.launch({ sessionId, workdir: '/tmp', secret: 'secret', username: 'opencode' }),
+      host.launch({
+        sessionId,
+        workdir: '/tmp',
+        secret: 'secret',
+        username: 'opencode',
+        harnessContext: OPENCODE2_CONTEXT,
+      }),
     ).rejects.toBe(marker)
     expect(captured).toHaveLength(1)
-    expect(captured[0]?.cmd).toBe('fixture-opencode2')
+    expect(captured[0]?.cmd).toBe(OPENCODE2_CONTEXT.installation.executable)
     expect(captured[0]?.args).toEqual(['serve', '--port', '49999', '--hostname', '127.0.0.1'])
     expect(captured[0]?.label).toBe(`podium-fo2-${sessionId}`)
   })

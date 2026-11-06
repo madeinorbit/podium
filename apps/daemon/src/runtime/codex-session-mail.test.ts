@@ -71,6 +71,7 @@ function world(options: { sendThrows?: boolean } = {}) {
   const resumed: string[] = []
   let launches = 0
   const host: CodexRuntimeHost = {
+    harnessContextFor: async () => testHarnessContext({ kind: 'codex' }),
     stageAttachment: async ({ source }) => ({
       id: 'test-attachment',
       path: '/tmp/test-' + source.filename,

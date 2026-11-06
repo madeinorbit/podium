@@ -126,6 +126,7 @@ async function fixture(lane: string, label = 'S1', file?: string) {
   let client: OpencodeClient
   const readHistoryAfterExit = vi.fn(() => [])
   const host: OpencodeRuntimeHost = {
+    harnessContextFor: async () => testHarnessContext({ kind: 'opencode' }),
     driverId: 'opencode2-server',
     // History is a Store read (POD-4781); admission never reads it.
     readHistory: async () => ({ items: [], hasMore: false }),

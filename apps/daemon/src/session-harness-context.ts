@@ -17,7 +17,9 @@
 import { homedir } from 'node:os'
 import {
   type HarnessContext,
+  type HarnessExecutableSnapshot,
   harnessContext,
+  harnessDriverContext,
   harnessLoginReadEnv,
   harnessRoots,
 } from '@podium/harness'
@@ -47,6 +49,64 @@ export async function buildSessionHarnessContext(
   const snapshot = await ctx.harnessRuntime.current()
   const home = resolveManagementCredentialHome(ctx) ?? snapshot.commandEnvironment.machineHome
   return harnessContext(snapshot, kind, home)
+}
+
+/**
+ * The context a new SERVER-MODE session of `kind` on `driverId` runs under
+ * (POD-6546): {@link buildSessionHarnessContext}, except that a server
+ * alternative with its own binary (opencode2) pins that binary, resolved in
+ * the same command environment the inventory's alternative probe uses.
+ */
+export async function buildDriverHarnessContext(
+  ctx: ContextSource,
+  kind: BuiltinHarnessKind,
+  driverId: string | undefined,
+): Promise<HarnessContext> {
+  if (!ctx.harnessRuntime) return launchSeamHarnessContext(ctx, kind)
+  return driverHarnessContextFrom(ctx, await ctx.harnessRuntime.current(), kind, driverId)
+}
+
+/** {@link buildDriverHarnessContext} over a snapshot the caller already read,
+ *  so admission and the spec it admits share one inventory generation. */
+export function driverHarnessContextFrom(
+  ctx: Pick<DaemonContext, 'accountHome' | 'homeDir'>,
+  snapshot: HarnessExecutableSnapshot,
+  kind: BuiltinHarnessKind,
+  /** Undefined: the harness's primary server, which runs its own executable. */
+  driverId: string | undefined,
+): HarnessContext {
+  const home = resolveManagementCredentialHome(ctx) ?? snapshot.commandEnvironment.machineHome
+  return driverId === undefined
+    ? harnessContext(snapshot, kind, home)
+    : harnessDriverContext(snapshot, kind, home, driverId)
+}
+
+/**
+ * THE ENGINE FAMILIES' `harnessContextFor` (POD-6546): the context an engine
+ * launch with no spec in hand (adopt, wake) runs under.
+ *
+ * The one the session holds — the context it was spawned with, so a wake
+ * after an inventory refresh relaunches the installation the session started
+ * on. After a daemon restart the held one went with the old process: rebuilt
+ * from the current inventory for this driver and kept on the session from
+ * then on, which is also what native attach reads.
+ *
+ * Throws when the harness has left the inventory: an engine never falls back
+ * to a basename on the daemon's PATH.
+ */
+export async function engineSessionHarnessContext(
+  ctx: ContextSource & Pick<DaemonContext, 'sessions'>,
+  sessionId: SessionId,
+  kind: BuiltinHarnessKind,
+  driverId: string | undefined,
+): Promise<HarnessContext> {
+  const held = ctx.sessions.get(sessionId)?.harnessContext
+  if (held) return held
+  const rebuilt = await buildDriverHarnessContext(ctx, kind, driverId)
+  // Kept on an entry that already exists, as on the terminal reattach path.
+  const entry = ctx.sessions.get(sessionId)
+  if (entry) entry.harnessContext = rebuilt
+  return rebuilt
 }
 
 /**

@@ -62,6 +62,7 @@ function world(grokSessionId: string) {
     handler?.line(JSON.stringify({ ...inbound, jsonrpc: '2.0' }))
   }
   const host: GrokAcpRuntimeHost = {
+    harnessContextFor: async () => testHarnessContext({ kind: 'grok' }),
     stageAttachment: createMemoryAttachmentStager(),
     now: () => Date.now(),
     mintSessionId: () => 'grok-receipt-proof' as SessionId,

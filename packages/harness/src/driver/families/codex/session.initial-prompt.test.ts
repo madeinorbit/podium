@@ -44,6 +44,7 @@ describe('codex launch with an initial prompt', () => {
     const entries = new Map<string, unknown>()
     let seq = 0
     const host: CodexRuntimeHost = {
+      harnessContextFor: async () => testHarnessContext({ kind: 'codex' }),
       stageAttachment: async ({ source }) => ({
         id: 'test-attachment',
         path: '/tmp/test-' + source.filename,

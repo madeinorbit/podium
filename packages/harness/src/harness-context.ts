@@ -15,7 +15,7 @@ import type { BuiltinHarnessKind } from '@podium/protocol'
 import type { HarnessExecutableSnapshot } from './executable-runtime.js'
 import type { HarnessContext } from './harness-context-types.js'
 import type { HarnessAccountScope, HarnessEnvironment, HarnessRoots } from './manifest.js'
-import { harnessLoginReadEnv, manifestFor } from './registry.js'
+import { harnessLoginReadEnv, manifestFor, serverDriverExecutable } from './registry.js'
 
 export type { HarnessContext, HarnessInstallation } from './harness-context-types.js'
 
@@ -50,6 +50,51 @@ export function harnessContext(
       executable: executable.path,
       version: executable.version ?? '',
       generation: snapshot.commandEnvironment.generation,
+    }),
+    home: account.home,
+    env: account.env,
+    roots: account.roots,
+  })
+}
+
+/**
+ * The context a session of `kind` on driver `driverId` runs under (POD-6546).
+ *
+ * The same as {@link harnessContext} for every driver that runs the harness's
+ * own executable. A server alternative that declares a SECOND binary (today
+ * opencode2's preview server) runs that binary instead: it is resolved in the
+ * snapshot's command environment, exactly as the inventory's alternative probe
+ * resolves it, and pinned on the context like any other installation. Its
+ * version is `''` — the inventory verifies the harness's own executable, not
+ * the alternative — so admission probes it live.
+ *
+ * Throws when the binary is not found: never a basename on the daemon's PATH.
+ */
+export function harnessDriverContext(
+  snapshot: HarnessExecutableSnapshot,
+  kind: BuiltinHarnessKind,
+  home: string,
+  driverId: string,
+): HarnessContext {
+  const binary = serverDriverExecutable(driverId)
+  const manifest = manifestFor(kind)
+  if (!binary || !manifest || manifest.inventory.executable.names.includes(binary)) {
+    return harnessContext(snapshot, kind, home)
+  }
+  const environment = snapshot.commandEnvironment
+  const executable = environment.resolve(binary)
+  if (!executable) {
+    throw new Error(
+      `${driverId} needs ${binary}, which is not installed in command-environment generation ${environment.generation}`,
+    )
+  }
+  const account = harnessAccount(kind, home, environment.env)
+  return Object.freeze({
+    installation: Object.freeze({
+      kind,
+      executable,
+      version: '',
+      generation: environment.generation,
     }),
     home: account.home,
     env: account.env,

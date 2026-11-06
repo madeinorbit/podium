@@ -11,6 +11,7 @@ import {
 import {
   createMemoryAttachmentStager,
   createMemoryDriverSlots,
+  testHarnessContext,
 } from '../../../../packages/harness/src/driver/testing/index.js'
 import { SessionRegistry } from '../relay'
 import { openTestStore } from '../test-support/open-test-store'
@@ -76,6 +77,7 @@ async function fixture() {
   const runtime = createClaudeSdkRuntime(host, createMemoryDriverSlots())
   const handle = await runtime.createWithId(sessionId, {
     harness: 'claude-code', workdir: '/claude-state-fixture', model: {},
+    harnessContext: testHarnessContext({ kind: 'claude-code' }),
     selection: { auth: 'subscription', platform: 'linux', available: ['claude-sdk'], preference: 'claude-sdk' },
     instructions: { supported: false, reason: 'fixture' },
     mcpServers: { supported: false, reason: 'fixture' },

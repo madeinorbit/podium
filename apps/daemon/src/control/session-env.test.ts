@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { testHarnessContext } from '@podium/harness/driver/testing'
 import type { SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { engineEnvBuilder } from '../runtime/host'
@@ -201,6 +202,7 @@ it("gives every engine child its own session's relay, which a spawn frame cannot
   const env = buildEnv({
     sessionId: 'engine-1' as SessionId,
     agentKind: 'codex',
+    harnessContext: testHarnessContext({ kind: 'codex' }),
     sessionEnv: { PODIUM_AGENT_RELAY: 'http://elsewhere/session/other' },
     harnessEnv: { PODIUM_AGENT_RELAY: 'http://also/not/this' },
   })

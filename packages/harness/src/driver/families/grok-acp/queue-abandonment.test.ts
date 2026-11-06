@@ -60,6 +60,7 @@ function world(): World {
     reports,
     serverFor: (sessionId) => servers.get(sessionId),
     host: {
+      harnessContextFor: async () => testHarnessContext({ kind: 'grok' }),
       stageAttachment: createMemoryAttachmentStager(),
       bindings: {
         recorded: (id) => entries.get(id),

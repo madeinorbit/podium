@@ -20,7 +20,7 @@ import type {
   GrokAcpTransport,
 } from '@podium/harness/driver/host'
 import { agentStateProviderFor, claudeProjectSlug, type LaunchOptions, manifestFor } from '@podium/harness'
-import { createMemoryAttachmentStager } from '@podium/harness/driver/testing'
+import { createMemoryAttachmentStager, testHarnessContext } from '@podium/harness/driver/testing'
 import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
 import { asAgentIdentityId, asMachineId, asSessionId, asUserId, type SessionId } from '@podium/model'
 import { type PeerHelloReply, DAEMON_WIRE_VERSION } from '@podium/protocol'
@@ -1126,6 +1126,10 @@ function defaultServerTransport(kind: 'codex' | 'grok'): DefaultServerTransport 
   }
 }
 
+/** The installation admission probes are primed for (POD-6546: verdicts are
+ *  cached per installation). */
+const TEST_INSTALLATION = { executable: '/opt/rig/bin/codex', version: '', generation: 0 }
+
 function defaultCodexRuntime(sent: DaemonMessage[], sessions = testSessions()) {
   const entries = new Map<SessionId, Parameters<CodexRuntimeHost['bindings']['bound']>[0]>()
   const host: CodexRuntimeHost = {
@@ -1143,6 +1147,7 @@ function defaultCodexRuntime(sent: DaemonMessage[], sessions = testSessions()) {
     },
     now: () => 1_786_700_000_000,
     mintSessionId: () => asSessionId('fixture-codex-session'),
+    harnessContextFor: async () => testHarnessContext({ kind: 'codex' }),
     readHistory: async () => ({ items: [], hasMore: false }),
     async launch(input) {
       const transport = defaultServerTransport('codex') as CodexTransport
@@ -1178,6 +1183,7 @@ function defaultGrokRuntime(sent: DaemonMessage[]) {
     },
     now: () => 1_786_700_000_000,
     mintSessionId: () => asSessionId('fixture-grok-session'),
+    harnessContextFor: async () => testHarnessContext({ kind: 'grok' }),
     readHistory: async () => ({ items: [], hasMore: false }),
     async launch(input) {
       const transport = defaultServerTransport('grok') as GrokAcpTransport
@@ -1350,7 +1356,12 @@ describe('default server-driver spawn integration', () => {
   it('answers refused inside the codex readiness window, then delivers once the thread is minted', async () => {
     resetCodexAppServerVersionProbe()
     expect(
-      (await codexAppServerVersionProbe(() => ({ output: '0.147.0', ok: true }))).drivable,
+      (
+        await codexAppServerVersionProbe(TEST_INSTALLATION, {
+          env: {},
+          probe: () => ({ output: '0.147.0', ok: true }),
+        })
+      ).drivable,
     ).toBe(true)
     const sent: DaemonMessage[] = []
     const runtime = defaultCodexRuntime(sent)
@@ -1429,7 +1440,12 @@ describe('default server-driver spawn integration', () => {
   it('binds a server-family handle onto the session entry, and a kill removes the entry', async () => {
     resetCodexAppServerVersionProbe()
     expect(
-      (await codexAppServerVersionProbe(() => ({ output: '0.147.0', ok: true }))).drivable,
+      (
+        await codexAppServerVersionProbe(TEST_INSTALLATION, {
+          env: {},
+          probe: () => ({ output: '0.147.0', ok: true }),
+        })
+      ).drivable,
     ).toBe(true)
     const sent: DaemonMessage[] = []
     const sessions = testSessions()

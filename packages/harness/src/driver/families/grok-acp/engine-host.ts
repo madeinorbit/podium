@@ -24,6 +24,7 @@ import {
   readFileSync,
   readSync,
 } from 'node:fs'
+import type { HarnessContext, HarnessInstallation } from '../../../harness-context-types.js'
 import { createLogger } from '@podium/logger'
 import type { HarnessAgent, SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
@@ -136,18 +137,23 @@ export interface GrokEngineHostDeps {
   buildEnv(input: {
     sessionId: SessionId
     agentKind: HarnessAgent
+    /** The session's pinned context: its environment is the child's base. */
+    harnessContext: HarnessContext
     homeDir?: string
     sessionEnv?: Readonly<Record<string, string>>
     instanceUuid?: string
   }): Record<string, string>
+  /** The context a session runs under when a launch has no spec in hand
+   *  (adopt): see `GrokAcpRuntimeHost.harnessContextFor`. */
+  harnessContextFor(sessionId: SessionId): Promise<HarnessContext>
   /** How long a SIGTERM stop waits for the child to take its stdin EOF. Shared
    *  with the reap that has to outlast it — arrives as a value rather than
    *  living here twice. */
   gracefulExitMs: number
-  /** Version admission: only the floor can refuse a launch. The supervisor
-   *  owns the probe budget, the memo and the fork; this family owns the
-   *  evaluation (see `evaluateGrokAcpVersionProbe`). */
-  checkVersion(): Promise<GrokAcpProbeVerdict>
+  /** Version admission for the session's installation: only the floor can
+   *  refuse a launch. The supervisor owns the probe budget, the memo and the
+   *  fork; this family owns the evaluation (see `evaluateGrokAcpVersionProbe`). */
+  checkVersion(installation: HarnessInstallation): Promise<GrokAcpProbeVerdict>
 }
 
 /**
@@ -349,8 +355,10 @@ export function createGrokEngineHost(
           }
         : undefined,
 
+    harnessContextFor: (sessionId) => deps.harnessContextFor(sessionId),
+
     async launch(input) {
-      const verdict = await deps.checkVersion()
+      const verdict = await deps.checkVersion(input.harnessContext.installation)
       if (!verdict.drivable) {
         throw new Error(`${verdict.diagnostic.title}: ${verdict.diagnostic.body}`)
       }
@@ -360,12 +368,15 @@ export function createGrokEngineHost(
       // The ACP server receives cwd in session/new and session/load. A native
       // --worktree would create a second nested worktree; no SessionSpec sandbox
       // field exists, so GROK_SANDBOX/config remains authoritative.
-      const argv = [deps.facts.command, ...deps.facts.serverArgs]
-      const [command, ...args] = argv
+      // argv[0] is the session's pinned installation (POD-6546), never the
+      // adapter's bare command name.
+      const command = input.harnessContext.installation.executable
+      const args = [...deps.facts.serverArgs]
       const env = deps.buildEnv({
         ...(deps.instanceUuid ? { instanceUuid: deps.instanceUuid } : {}),
         sessionId: input.sessionId,
         agentKind: deps.facts.harnessKind,
+        harnessContext: input.harnessContext,
         ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
         ...(input.env ? { sessionEnv: input.env } : {}),
       })
@@ -392,7 +403,7 @@ export function createGrokEngineHost(
             await owner.startEngine({
             sessionId: input.sessionId,
             label,
-            cmd: command ?? deps.facts.command,
+              cmd: command,
             args,
             cwd: input.workdir,
             env,

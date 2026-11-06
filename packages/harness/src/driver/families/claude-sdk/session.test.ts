@@ -108,6 +108,7 @@ function fakeEngine(
   }),
 ): ClaudeEngineHost & { startTurn: ReturnType<typeof vi.fn> } {
   return {
+    harnessContextFor: async () => testHarnessContext({ kind: 'claude-code' }),
     bindings: { recorded: () => undefined, bound: vi.fn(), released: vi.fn() },
     startTurn: vi.fn(impl),
     stopEngine: vi.fn(async () => {}),
@@ -689,7 +690,7 @@ describe('Claude SDK daemon host adapter', () => {
       },
       buildEnv: ({ sessionEnv }) => ({ ...(sessionEnv ?? {}) }),
       gracefulExitMs: 50,
-      executablePath: '/bin/claude',
+      harnessContextFor: async () => testHarnessContext({ kind: 'claude-code' }),
     })
 
     const runtime = sessionWorld(sent, [], engine, {

@@ -54,6 +54,7 @@ import { asSessionId } from '@podium/model'
 import type { RuntimeHistoryPage, RuntimeHistoryRange } from '@podium/protocol/daemon'
 import { codexMcpArgs } from '../../../adapters/codex/index.js'
 import { codexTranscript } from '../../../adapters/codex/transcript.js'
+import type { HarnessContext, HarnessInstallation } from '../../../harness-context-types.js'
 import { readEngineHistoryFromGrammar } from '../engine-history.js'
 import {
   CODEX_VERSION_POLICY,
@@ -264,19 +265,24 @@ export interface CodexEngineHostDeps {
   buildEnv(input: {
     sessionId: SessionId
     agentKind: HarnessAgent
+    /** The session's pinned context: its environment is the child's base. */
+    harnessContext: HarnessContext
     homeDir?: string
     sessionEnv?: Readonly<Record<string, string>>
     harnessEnv?: Readonly<Record<string, string>>
     instanceUuid?: string
   }): Record<string, string>
+  /** The context a session runs under when a launch has no spec in hand
+   *  (adopt, wake): see `CodexRuntimeHost.harnessContextFor`. */
+  harnessContextFor(sessionId: SessionId): Promise<HarnessContext>
   /** How long a SIGTERM stop waits for the rollout's last flush. Shared with
    *  the reap that has to outlast it — the one declaration carries both
    *  numbers, so it arrives as a value rather than living here twice. */
   gracefulExitMs: number
-  /** Version admission: only the floor can refuse a launch. The supervisor
-   *  owns the probe budget, the memo and the fork; this family owns the
-   *  evaluation (see `evaluateCodexVersionProbe`). */
-  checkVersion(): Promise<CodexProbeVerdict>
+  /** Version admission for the session's installation: only the floor can
+   *  refuse a launch. The supervisor owns the probe budget, the memo and the
+   *  fork; this family owns the evaluation (see `evaluateCodexVersionProbe`). */
+  checkVersion(installation: HarnessInstallation): Promise<CodexProbeVerdict>
   /** Open one WebSocket client to the engine's listener, by the address the
    *  session layer handed. The supervisor owns the socket library and the
    *  socket file; the retry loop and the transport adapter below are this
@@ -604,8 +610,10 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
     now: deps.now ?? (() => Date.now()),
     mintSessionId: () => asSessionId(crypto.randomUUID()),
 
+    harnessContextFor: (sessionId) => deps.harnessContextFor(sessionId),
+
     async launch(input) {
-      const verdict = await deps.checkVersion()
+      const verdict = await deps.checkVersion(input.harnessContext.installation)
       if (!verdict.drivable) {
         // Only the floor can refuse a Codex launch.
         throw new Error(`${verdict.diagnostic.title}: ${verdict.diagnostic.body}`)
@@ -630,13 +638,16 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
           }
         },
       })
-      const argv = [deps.facts.command, ...deps.facts.serverArgs, ...config.args]
-      const [command, ...args] = argv
+      // argv[0] is the session's pinned installation (POD-6546), never the
+      // adapter's bare command name.
+      const command = input.harnessContext.installation.executable
+      const args = [...deps.facts.serverArgs, ...config.args]
 
       const env = deps.buildEnv({
         ...(deps.instanceUuid ? { instanceUuid: deps.instanceUuid } : {}),
         sessionId: input.sessionId,
         agentKind: deps.facts.harnessKind,
+        harnessContext: input.harnessContext,
         ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
         ...(input.env ? { sessionEnv: input.env } : {}),
         harnessEnv: config.env,
@@ -658,7 +669,7 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
         const started = await owner.startEngine({
           sessionId: input.sessionId,
           label,
-          cmd: command ?? deps.facts.command,
+          cmd: command,
           args,
           // The engine is TOLD its address by flag; the session layer mints it.
           listen: { argv: (address) => ['--listen', address] },

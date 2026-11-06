@@ -67,6 +67,7 @@ import type { HarnessAgent, SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import type { RuntimeHistoryPage, RuntimeHistoryRange } from '@podium/protocol/daemon'
 import { opencodeTranscript } from '../../../adapters/opencode/transcript.js'
+import type { HarnessContext, HarnessInstallation } from '../../../harness-context-types.js'
 import { readEngineHistoryFromGrammar } from '../engine-history.js'
 import {
   gateHarnessVersion,
@@ -338,8 +339,6 @@ export interface OpencodeEngineHostDeps {
    * declares is still the one this family produces wherever it CAN produce one.
    */
   clientTerminals?: OpencodeEngineClientTerminals
-  /** Exact engine executable resolved by this supervisor generation. */
-  executablePath?: string
   /**
    * Supervisor-layout env for the flavor (the preview's isolated database
    * path). Flavor flags live in the facts (`extraEnv`); paths live here.
@@ -365,21 +364,27 @@ export interface OpencodeEngineHostDeps {
   buildEnv(input: {
     sessionId: SessionId
     agentKind: HarnessAgent
+    /** The session's pinned context: its environment is the child's base. */
+    harnessContext: HarnessContext
     homeDir?: string
     sessionEnv?: Readonly<Record<string, string>>
     instanceUuid?: string
   }): Record<string, string>
+  /** The context a session runs under when a launch has no spec in hand
+   *  (wake): see `OpencodeRuntimeHost.harnessContextFor`. */
+  harnessContextFor(sessionId: SessionId): Promise<HarnessContext>
   /** How long a SIGTERM stop waits for the child to wind down. Shared with
    *  the reap that has to outlast it — arrives as a value rather than living
    *  here twice. */
   gracefulExitMs: number
   /**
-   * Version admission: a diagnostic refuses the launch, null admits it. The
-   * supervisor owns the probe budget, the memo and the fork; this family owns
-   * the evaluation (`evaluateOpencodeVersionProbe` /
-   * `evaluateOpencode2VersionProbe`). Selected per flavor by the supervisor.
+   * Version admission for the session's installation: a diagnostic refuses
+   * the launch, null admits it. The supervisor owns the probe budget, the
+   * memo and the fork; this family owns the evaluation
+   * (`evaluateOpencodeVersionProbe` / `evaluateOpencode2VersionProbe`).
+   * Selected per flavor by the supervisor.
    */
-  checkVersion(input: { executable: string }): Promise<OpencodeVersionDiagnostic | null>
+  checkVersion(installation: HarnessInstallation): Promise<OpencodeVersionDiagnostic | null>
   /** Test seam: point the protocol client at an in-process server. */
   makeClient?(config: OpencodeClientConfig): OpencodeClient
 }
@@ -667,9 +672,12 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
     randomSecret: () => randomBytes(32).toString('hex'),
     mintSessionId: () => asSessionId(crypto.randomUUID()),
 
+    harnessContextFor: (sessionId) => deps.harnessContextFor(sessionId),
+
     async launch(input) {
-      const executablePath = deps.executablePath ?? flavor.executableName
-      const diagnostic = await deps.checkVersion({ executable: executablePath })
+      // The session's pinned installation (POD-6546), never a bare name.
+      const executable = input.harnessContext.installation.executable
+      const diagnostic = await deps.checkVersion(input.harnessContext.installation)
       if (diagnostic) {
         // REFUSED, NOT DEGRADED. A driver written against shapes this binary may
         // not speak would fail somewhere deep in a mapping, and the operator
@@ -734,12 +742,13 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
       }
 
       // LOOPBACK, NOT A SETTING. The host is fixed and not configurable.
-      const serveArgv = flavor.serveArgs(executablePath, port)
+      const serveArgv = flavor.serveArgs(executable, port)
 
       const env: Record<string, string> = deps.buildEnv({
         ...(deps.instanceUuid ? { instanceUuid: deps.instanceUuid } : {}),
         sessionId: input.sessionId,
         agentKind: flavor.harnessKind,
+        harnessContext: input.harnessContext,
         ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
         ...(input.env ? { sessionEnv: input.env } : {}),
       })
@@ -769,7 +778,7 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
        * its composed spec and binds the attachment it gets back; summoning the
        * process is the owner's job, never this family's.
        */
-      const [command, ...args] = serveArgv
+      const [, ...args] = serveArgv
       let held: HeldEngine | undefined
       try {
         held = await claimEngine(
@@ -779,7 +788,7 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
             await owner.startEngine({
               sessionId: input.sessionId,
               label,
-              cmd: command ?? executablePath,
+              cmd: executable,
               args,
               cwd: input.workdir,
               env,

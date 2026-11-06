@@ -15,12 +15,12 @@ import {
   canonicalDriverId,
   type DriverId,
   type HarnessContext,
+  type HarnessInstallation,
   type HarnessVersionDiagnostic,
   harnessCapabilitiesFor,
   harnessTranscriptStorage,
   type LaunchFile,
   parseHarnessVersion,
-  serverDriverExecutable,
 } from '@podium/harness'
 import { managementLoginCommandFor } from '../harness-management.js'
 import { createLogger } from '@podium/logger'
@@ -53,12 +53,7 @@ import { driverTiming } from '../runtime/driver-timing'
 import { grokAcpVersionProbe } from '../runtime/version-probe'
 import { handleFor, runtimeDriverIdFor } from '../runtime/handlers'
 import { reapInstanceSessionProcesses } from '../runtime/instance-process-reaper'
-import {
-  opencode2VersionProbe,
-  opencode2VersionProbeForExecutable,
-  opencodeVersionProbe,
-  opencodeVersionProbeForExecutable,
-} from '../runtime/version-probe'
+import { opencode2VersionProbe, opencodeVersionProbe } from '../runtime/version-probe'
 import {
   availableDriverIds,
   droppedDriverPreference,
@@ -78,7 +73,12 @@ import type {
   TerminalRecover,
   TerminalRecovered,
 } from '@podium/harness/driver/host'
-import { buildSessionHarnessContext, sessionHarnessContextFor } from '../session-harness-context.js'
+import {
+  buildDriverHarnessContext,
+  buildSessionHarnessContext,
+  driverHarnessContextFrom,
+  sessionHarnessContextFor,
+} from '../session-harness-context.js'
 import type { ReattachControl, SpawnControl } from '../session-observers'
 import type { DaemonSession } from '../session/daemon-session.js'
 import { removeSessionUploads } from '../session-uploads'
@@ -1805,20 +1805,6 @@ export function admissionProbeDriver(
   return preferred
 }
 
-export function resolvedAdmissionExecutable(
-  preferred: string | undefined,
-  executables: ReadonlyMap<string, { readonly path: string }> | undefined,
-): string | undefined {
-  // The manifest-declared probe binary for this server driver, if any
-  // (POD-4737 D1). Drivers without one (today: everything but the opencode
-  // pair) resolve through family defaults, exactly as before — notably a
-  // second binary with no map entry still answers undefined.
-  if (preferred === undefined) return undefined
-  const executable = serverDriverExecutable(preferred)
-  if (executable === undefined) return undefined
-  return executables?.get(executable)?.path
-}
-
 /**
  * Emit the operator-facing record for a permitted runtime-driver degradation
  * (a manifest-default server preference this box cannot run) and return the
@@ -1906,28 +1892,35 @@ type ServerDriverProbeVerdict =
       diagnostic: { title: string; body: string }
     }
 
+/**
+ * Probe one server driver's admission for ONE installation (POD-6546): the
+ * one the session would pin. `installation` is undefined when the inventory
+ * has none for this driver, which answers as a probe that could not run —
+ * never as a lookup of the harness's name on the daemon's PATH. `env` is the
+ * machine command environment a live probe runs under.
+ */
 export type ServerDriverAdmissionProbe = (
   driverId: string,
-  policy?: { retryInconclusive?: boolean },
-  executablePath?: string,
+  policy: { retryInconclusive?: boolean } | undefined,
+  installation: HarnessInstallation | undefined,
+  env: Readonly<Record<string, string>>,
 ) => Promise<ServerDriverProbeVerdict>
 
 const defaultServerDriverAdmissionProbe: ServerDriverAdmissionProbe = (
   driverId,
   policy,
-  executablePath,
-) =>
-  driverId === 'codex-app-server'
-    ? codexAppServerVersionProbe(undefined, policy)
+  installation,
+  env,
+) => {
+  const options = { env, ...(policy ? { policy } : {}) }
+  return driverId === 'codex-app-server'
+    ? codexAppServerVersionProbe(installation, options)
     : driverId === 'opencode2-server'
-      ? executablePath
-        ? opencode2VersionProbeForExecutable(executablePath, policy)
-        : opencode2VersionProbe(undefined, policy)
+      ? opencode2VersionProbe(installation, options)
       : driverId === 'grok-acp'
-        ? grokAcpVersionProbe(undefined, policy)
-        : executablePath
-          ? opencodeVersionProbeForExecutable(executablePath, policy)
-          : opencodeVersionProbe(undefined, policy)
+        ? grokAcpVersionProbe(installation, options)
+        : opencodeVersionProbe(installation, options)
+}
 
 export async function launchServerDriverSession(
   ctx: DaemonContext,
@@ -1976,21 +1969,39 @@ export async function launchServerDriverSession(
    * another. The REFUSAL below still keys on `namedHere`: an unprobeable
    * manifest or machine default degrades, while a per-spawn server id refuses.
    */
-  const admissionInventory =
-    preferred === 'opencode-server' || preferred === 'opencode2-server'
-      ? await ctx.harnessRuntime?.current()
-      : undefined
-  const resolvedOpencodeExecutable = resolvedAdmissionExecutable(
-    preferred,
-    admissionInventory?.executables,
-  )
+  /**
+   * THE INSTALLATION ADMISSION JUDGES IS THE ONE THE SESSION PINS (POD-6546).
+   * One inventory read; each server driver's context is built from it once,
+   * its installation probed, and the same context handed to the spec below —
+   * so a refresh between admission and create cannot admit one binary and
+   * launch another. A harness the inventory does not list has no context.
+   */
+  const admissionSnapshot = ctx.harnessRuntime ? await ctx.harnessRuntime.current() : undefined
+  const admissionContexts = new Map<string, HarnessContext | undefined>()
+  const admissionContext = (driverId: string): HarnessContext | undefined => {
+    if (!admissionSnapshot) return undefined
+    if (!admissionContexts.has(driverId)) {
+      let context: HarnessContext | undefined
+      try {
+        context = driverHarnessContextFrom(
+          ctx,
+          admissionSnapshot,
+          msg.agentKind as BuiltinHarnessKind,
+          driverId,
+        )
+      } catch {
+        context = undefined
+      }
+      admissionContexts.set(driverId, context)
+    }
+    return admissionContexts.get(driverId)
+  }
   const probeFor = (driverId: string) =>
     probeDriver(
       driverId,
       namedHere === driverId ? { retryInconclusive: true } : undefined,
-      driverId === 'opencode-server' || driverId === 'opencode2-server'
-        ? resolvedOpencodeExecutable
-        : undefined,
+      admissionContext(driverId)?.installation,
+      admissionSnapshot?.commandEnvironment.env ?? {},
     )
   const preferredServer = admissionProbeDriver(preferred, selectionAuth)
   const preferredProbe = preferredServer === undefined ? undefined : await probeFor(preferredServer)
@@ -2212,9 +2223,14 @@ export async function launchServerDriverSession(
         // prompt arrives as a turn, not at creation.
         role: isHeadless ? 'executor' : 'interactive',
       },
-      // The same carrier as a terminal session (POD-6533); engines start
-      // reading it in POD-6546.
-      await buildSessionHarnessContext(ctx, msg.agentKind as BuiltinHarnessKind),
+      // The same carrier as a terminal session (POD-6533), and the very
+      // context admission judged (POD-6546): engines launch its installation.
+      admissionContext(resolution.driverId) ??
+        (await buildDriverHarnessContext(
+          ctx,
+          msg.agentKind as BuiltinHarnessKind,
+          resolution.driverId,
+        )),
     )
     // A resume ref goes to the driver only where its source can continue a
     // conversation from the ref alone (headless, the Claude stream engine);
@@ -2224,6 +2240,9 @@ export async function launchServerDriverSession(
     } else {
       await runtime.create(spec, msg.sessionId)
     }
+    // The session holds its context for its life (POD-6546): an engine wake
+    // or adopt relaunches this installation, and native attach runs it.
+    ctx.sessions.ensure(msg.sessionId).harnessContext = spec.harnessContext
     // Headless sessions have no terminal to attach: their capabilities refuse
     // `attach` as unsupported, so there is no native client to reconcile.
     if (!isHeadless) reconcileNativeClientTerminal(ctx, msg.sessionId)

@@ -314,6 +314,7 @@ function makeWorld(options: WorldOptions = {}): {
   }
   const processKey = (id: SessionId): string => `podium-gk-${id}`
   const host: GrokAcpRuntimeHost = {
+    harnessContextFor: async () => testHarnessContext({ kind: 'grok' }),
     stageAttachment: createMemoryAttachmentStager(),
     bindings,
     now: () => Date.UTC(2026, 7, 16) + ++seq * 1000,

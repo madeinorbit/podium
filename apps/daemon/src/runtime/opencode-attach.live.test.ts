@@ -62,6 +62,16 @@ import { createDurableProcess, hostHasSession } from '@podium/process/durable'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { attributeMemory, snapshotProcesses } from '../memory-breakdown'
 import { createOpencodeClientTerminals, requireClientTerminalLabel } from './opencode-attach'
+import { testHarnessContext } from '@podium/harness/driver/testing'
+import type { BuiltinHarnessKind } from '@podium/protocol'
+
+/** The session's pinned harness context (POD-6546): a client terminal runs the
+ *  session's executable, never the harness's bare name. */
+const testClientContext = async (_sessionId: string, target: { kind: string; driverId?: string }) =>
+  testHarnessContext({
+    kind: target.kind as BuiltinHarnessKind,
+    executable: `/opt/rig/bin/${target.driverId === 'opencode2-server' ? 'opencode2' : target.kind}`,
+  })
 import { createSessionClientScope } from '../session/clients.js'
 import { opencodeFlavor, opencodeScopeLabel } from '@podium/harness/driver/host'
 import { manifestFor } from '@podium/harness'
@@ -152,6 +162,7 @@ describe.skipIf(!LIVE)('a real opencode client terminal', () => {
     // These attachments are DURABLE by construction. Without an explicit close
     // each run would leave a master and a scope behind for the whole warm TTL.
     const terminals = createOpencodeClientTerminals({
+      harnessContext: testClientContext,
       // Through the session-owned scope, the relay's only process path
       // (POD-3917).
       clients: createSessionClientScope(createDurableProcess())!,
@@ -168,6 +179,7 @@ describe.skipIf(!LIVE)('a real opencode client terminal', () => {
   ): Promise<{ bytes: string; streamId: string }> => {
     const frames: Uint8Array[] = []
     const terminals = createOpencodeClientTerminals({
+      harnessContext: testClientContext,
       clients: createSessionClientScope(createDurableProcess())!,
       sessions: new SessionRegistry(),
       frames: (_streamId, frame) => frames.push(frame),
@@ -259,6 +271,7 @@ describe.skipIf(!LIVE)('a real opencode client terminal', () => {
       // And closing the attachment takes the master with it, rather than leaving
       // a scope resident for the machine's lifetime.
       await createOpencodeClientTerminals({
+        harnessContext: testClientContext,
         clients: createSessionClientScope(createDurableProcess())!,
         sessions: new SessionRegistry(),
         frames: () => {},

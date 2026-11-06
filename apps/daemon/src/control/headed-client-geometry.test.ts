@@ -21,6 +21,8 @@
 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { testHarnessContext } from '@podium/harness/driver/testing'
+import type { BuiltinHarnessKind } from '@podium/protocol'
 import { asSessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import type { AgentFrame, DurableAttachment } from '@podium/process/screen'
@@ -31,6 +33,14 @@ import type { ClientProcessOwner } from '../session/clients.js'
 import type { DaemonContext } from './context'
 import { onSessionSize, reconcileNativeClientTerminal, sessionHandlers, sessionSize } from './session'
 import { testSessions } from '../session/testing.js'
+
+/** The session's pinned harness context (POD-6546): a client terminal runs the
+ *  session's executable, never the harness's bare name. */
+const testClientContext = async (_sessionId: string, target: { kind: string; driverId?: string }) =>
+  testHarnessContext({
+    kind: target.kind as BuiltinHarnessKind,
+    executable: `/opt/rig/bin/${target.driverId === 'opencode2-server' ? 'opencode2' : target.kind}`,
+  })
 
 const SESSION = asSessionId('22222222-2222-4222-8222-222222222222')
 
@@ -120,6 +130,7 @@ function harness(over: { reportGeometry?: boolean; refuse?: boolean } = {}): Har
   // injected, and it is wired to the daemon exactly as `host-runtime.ts`
   // wires it.
   const clientTerminals = createOpencodeClientTerminals({
+    harnessContext: testClientContext,
     clients: {
       spawnClient: async (o) => {
         born.push([o.cols ?? 0, o.rows ?? 0])
