@@ -949,6 +949,7 @@ export const SESSION_COMMAND_HANDLERS = {
     // spoof. The pair comes from `ctx.principal`.
     const target = await ctx.target(input.sessionId, 'sessions.answerAskUserQuestion')
     if (!target) return { ok: false }
+    // LEGACY(remove-after: 2027-03): app builds before POD-6415 answer on this route; removing it drops their answers.
     // Delivered by the record's run, after its commit (POD-6415), for the full
     // id the gate resolved. The direct call serves only the plane's hand-built
     // test contexts, which compose no effects.
