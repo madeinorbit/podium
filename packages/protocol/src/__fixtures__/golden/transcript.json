@@ -78,6 +78,14 @@
             "event": "interrupt",
             "answer": true,
             "systemKind": "recap",
+            "summarizes": ["items[0].summarizes[0]"],
+            "compaction": {
+              "trigger": "items[0].compaction.trigger",
+              "preTokens": 1,
+              "postTokens": 1,
+              "idle": true,
+              "notice": "items[0].compaction.notice"
+            },
             "durationMs": 1
           }
         ],
@@ -87,7 +95,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"transcriptDelta\",\"sessionId\":\"sessionId\",\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"user\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"file-edit\",\"edit\":{\"kind\":\"file-edit\",\"path\":\"items[0].toolEffects[0].edit.path\",\"mode\":\"replace\",\"hunks\":[{\"path\":\"items[0].toolEffects[0].edit.hunks[0].path\",\"oldText\":\"items[0].toolEffects[0].edit.hunks[0].oldText\",\"newText\":\"items[0].toolEffects[0].edit.hunks[0].newText\"}],\"patch\":\"items[0].toolEffects[0].edit.patch\",\"added\":1,\"removed\":1,\"changedFileCount\":1,\"moreFiles\":1,\"unavailable\":true,\"truncated\":true},\"userModified\":true}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"image\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"recap\",\"durationMs\":1}],\"tail\":\"tail\",\"reset\":true}"
+      "encoded": "{\"type\":\"transcriptDelta\",\"sessionId\":\"sessionId\",\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"user\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"file-edit\",\"edit\":{\"kind\":\"file-edit\",\"path\":\"items[0].toolEffects[0].edit.path\",\"mode\":\"replace\",\"hunks\":[{\"path\":\"items[0].toolEffects[0].edit.hunks[0].path\",\"oldText\":\"items[0].toolEffects[0].edit.hunks[0].oldText\",\"newText\":\"items[0].toolEffects[0].edit.hunks[0].newText\"}],\"patch\":\"items[0].toolEffects[0].edit.patch\",\"added\":1,\"removed\":1,\"changedFileCount\":1,\"moreFiles\":1,\"unavailable\":true,\"truncated\":true},\"userModified\":true}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"image\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"recap\",\"summarizes\":[\"items[0].summarizes[0]\"],\"compaction\":{\"trigger\":\"items[0].compaction.trigger\",\"preTokens\":1,\"postTokens\":1,\"idle\":true,\"notice\":\"items[0].compaction.notice\"},\"durationMs\":1}],\"tail\":\"tail\",\"reset\":true}"
     },
     {
       "schema": "TranscriptDeltaMessage",
@@ -143,6 +151,14 @@
             "event": "interrupt",
             "answer": false,
             "systemKind": "duration",
+            "summarizes": ["items[0].summarizes[0]"],
+            "compaction": {
+              "trigger": "items[0].compaction.trigger",
+              "preTokens": 2,
+              "postTokens": 2,
+              "idle": false,
+              "notice": "items[0].compaction.notice"
+            },
             "durationMs": 2
           }
         ],
@@ -152,7 +168,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"transcriptDelta\",\"sessionId\":\"sessionId\",\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"assistant\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"git-operation\",\"operation\":{\"commit\":{\"sha\":\"items[0].toolEffects[0].operation.commit.sha\",\"kind\":\"items[0].toolEffects[0].operation.commit.kind\",\"branch\":\"items[0].toolEffects[0].operation.commit.branch\"},\"branch\":{\"ref\":\"items[0].toolEffects[0].operation.branch.ref\",\"action\":\"items[0].toolEffects[0].operation.branch.action\"}}}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"durationMs\":2}],\"tail\":\"tail\",\"reset\":false}"
+      "encoded": "{\"type\":\"transcriptDelta\",\"sessionId\":\"sessionId\",\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"assistant\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"git-operation\",\"operation\":{\"commit\":{\"sha\":\"items[0].toolEffects[0].operation.commit.sha\",\"kind\":\"items[0].toolEffects[0].operation.commit.kind\",\"branch\":\"items[0].toolEffects[0].operation.commit.branch\"},\"branch\":{\"ref\":\"items[0].toolEffects[0].operation.branch.ref\",\"action\":\"items[0].toolEffects[0].operation.branch.action\"}}}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"summarizes\":[\"items[0].summarizes[0]\"],\"compaction\":{\"trigger\":\"items[0].compaction.trigger\",\"preTokens\":2,\"postTokens\":2,\"idle\":false,\"notice\":\"items[0].compaction.notice\"},\"durationMs\":2}],\"tail\":\"tail\",\"reset\":false}"
     },
     {
       "schema": "TranscriptDeltaMessage",
@@ -198,6 +214,14 @@
             "event": "interrupt",
             "answer": true,
             "systemKind": "compaction",
+            "summarizes": ["items[0].summarizes[0]"],
+            "compaction": {
+              "trigger": "items[0].compaction.trigger",
+              "preTokens": 3,
+              "postTokens": 3,
+              "idle": true,
+              "notice": "items[0].compaction.notice"
+            },
             "durationMs": 3
           }
         ],
@@ -207,7 +231,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"transcriptDelta\",\"sessionId\":\"sessionId\",\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"tool\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"background-task\",\"taskId\":\"items[0].toolEffects[0].taskId\"}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"compaction\",\"durationMs\":3}],\"tail\":\"tail\",\"reset\":true}"
+      "encoded": "{\"type\":\"transcriptDelta\",\"sessionId\":\"sessionId\",\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"tool\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"background-task\",\"taskId\":\"items[0].toolEffects[0].taskId\"}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"compaction\",\"summarizes\":[\"items[0].summarizes[0]\"],\"compaction\":{\"trigger\":\"items[0].compaction.trigger\",\"preTokens\":3,\"postTokens\":3,\"idle\":true,\"notice\":\"items[0].compaction.notice\"},\"durationMs\":3}],\"tail\":\"tail\",\"reset\":true}"
     },
     {
       "schema": "TranscriptDeltaMessage",
@@ -254,7 +278,15 @@
             "toolPaths": ["items[0].toolPaths[0]"],
             "event": "interrupt",
             "answer": false,
-            "systemKind": "compaction",
+            "systemKind": "file-changed",
+            "summarizes": ["items[0].summarizes[0]"],
+            "compaction": {
+              "trigger": "items[0].compaction.trigger",
+              "preTokens": 4,
+              "postTokens": 4,
+              "idle": false,
+              "notice": "items[0].compaction.notice"
+            },
             "durationMs": 4
           }
         ],
@@ -264,7 +296,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"transcriptDelta\",\"sessionId\":\"sessionId\",\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"system\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"termination\",\"interrupted\":true,\"timedOutAfterMs\":4,\"interpretation\":\"items[0].toolEffects[0].interpretation\"}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"compaction\",\"durationMs\":4}],\"tail\":\"tail\",\"reset\":false}"
+      "encoded": "{\"type\":\"transcriptDelta\",\"sessionId\":\"sessionId\",\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"system\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"termination\",\"interrupted\":true,\"timedOutAfterMs\":4,\"interpretation\":\"items[0].toolEffects[0].interpretation\"}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"file-changed\",\"summarizes\":[\"items[0].summarizes[0]\"],\"compaction\":{\"trigger\":\"items[0].compaction.trigger\",\"preTokens\":4,\"postTokens\":4,\"idle\":false,\"notice\":\"items[0].compaction.notice\"},\"durationMs\":4}],\"tail\":\"tail\",\"reset\":false}"
     },
     {
       "schema": "TranscriptDeltaMessage",
@@ -309,7 +341,15 @@
             "toolPaths": ["items[0].toolPaths[0]"],
             "event": "interrupt",
             "answer": true,
-            "systemKind": "compaction",
+            "systemKind": "tool-summary",
+            "summarizes": ["items[0].summarizes[0]"],
+            "compaction": {
+              "trigger": "items[0].compaction.trigger",
+              "preTokens": 5,
+              "postTokens": 5,
+              "idle": true,
+              "notice": "items[0].compaction.notice"
+            },
             "durationMs": 5
           }
         ],
@@ -319,7 +359,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"transcriptDelta\",\"sessionId\":\"sessionId\",\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"system\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"unknown\",\"key\":\"items[0].toolEffects[0].key\"}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"compaction\",\"durationMs\":5}],\"tail\":\"tail\",\"reset\":true}"
+      "encoded": "{\"type\":\"transcriptDelta\",\"sessionId\":\"sessionId\",\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"system\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"unknown\",\"key\":\"items[0].toolEffects[0].key\"}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"tool-summary\",\"summarizes\":[\"items[0].summarizes[0]\"],\"compaction\":{\"trigger\":\"items[0].compaction.trigger\",\"preTokens\":5,\"postTokens\":5,\"idle\":true,\"notice\":\"items[0].compaction.notice\"},\"durationMs\":5}],\"tail\":\"tail\",\"reset\":true}"
     },
     {
       "schema": "TranscriptMirrorReadMessage",
@@ -503,6 +543,14 @@
             "event": "interrupt",
             "answer": true,
             "systemKind": "recap",
+            "summarizes": ["items[0].summarizes[0]"],
+            "compaction": {
+              "trigger": "items[0].compaction.trigger",
+              "preTokens": 1,
+              "postTokens": 1,
+              "idle": true,
+              "notice": "items[0].compaction.notice"
+            },
             "durationMs": 1
           }
         ],
@@ -513,7 +561,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"transcriptReadResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"user\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"file-edit\",\"edit\":{\"kind\":\"file-edit\",\"path\":\"items[0].toolEffects[0].edit.path\",\"mode\":\"replace\",\"hunks\":[{\"path\":\"items[0].toolEffects[0].edit.hunks[0].path\",\"oldText\":\"items[0].toolEffects[0].edit.hunks[0].oldText\",\"newText\":\"items[0].toolEffects[0].edit.hunks[0].newText\"}],\"patch\":\"items[0].toolEffects[0].edit.patch\",\"added\":1,\"removed\":1,\"changedFileCount\":1,\"moreFiles\":1,\"unavailable\":true,\"truncated\":true},\"userModified\":true}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"image\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"recap\",\"durationMs\":1}],\"head\":\"head\",\"tail\":\"tail\",\"hasMore\":true}"
+      "encoded": "{\"type\":\"transcriptReadResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"user\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"file-edit\",\"edit\":{\"kind\":\"file-edit\",\"path\":\"items[0].toolEffects[0].edit.path\",\"mode\":\"replace\",\"hunks\":[{\"path\":\"items[0].toolEffects[0].edit.hunks[0].path\",\"oldText\":\"items[0].toolEffects[0].edit.hunks[0].oldText\",\"newText\":\"items[0].toolEffects[0].edit.hunks[0].newText\"}],\"patch\":\"items[0].toolEffects[0].edit.patch\",\"added\":1,\"removed\":1,\"changedFileCount\":1,\"moreFiles\":1,\"unavailable\":true,\"truncated\":true},\"userModified\":true}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"image\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"recap\",\"summarizes\":[\"items[0].summarizes[0]\"],\"compaction\":{\"trigger\":\"items[0].compaction.trigger\",\"preTokens\":1,\"postTokens\":1,\"idle\":true,\"notice\":\"items[0].compaction.notice\"},\"durationMs\":1}],\"head\":\"head\",\"tail\":\"tail\",\"hasMore\":true}"
     },
     {
       "schema": "TranscriptReadResultMessage",
@@ -570,6 +618,14 @@
             "event": "interrupt",
             "answer": false,
             "systemKind": "duration",
+            "summarizes": ["items[0].summarizes[0]"],
+            "compaction": {
+              "trigger": "items[0].compaction.trigger",
+              "preTokens": 2,
+              "postTokens": 2,
+              "idle": false,
+              "notice": "items[0].compaction.notice"
+            },
             "durationMs": 2
           }
         ],
@@ -580,7 +636,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"transcriptReadResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"assistant\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"git-operation\",\"operation\":{\"commit\":{\"sha\":\"items[0].toolEffects[0].operation.commit.sha\",\"kind\":\"items[0].toolEffects[0].operation.commit.kind\",\"branch\":\"items[0].toolEffects[0].operation.commit.branch\"},\"branch\":{\"ref\":\"items[0].toolEffects[0].operation.branch.ref\",\"action\":\"items[0].toolEffects[0].operation.branch.action\"}}}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"durationMs\":2}],\"head\":\"head\",\"tail\":\"tail\",\"hasMore\":false}"
+      "encoded": "{\"type\":\"transcriptReadResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"assistant\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"git-operation\",\"operation\":{\"commit\":{\"sha\":\"items[0].toolEffects[0].operation.commit.sha\",\"kind\":\"items[0].toolEffects[0].operation.commit.kind\",\"branch\":\"items[0].toolEffects[0].operation.commit.branch\"},\"branch\":{\"ref\":\"items[0].toolEffects[0].operation.branch.ref\",\"action\":\"items[0].toolEffects[0].operation.branch.action\"}}}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"summarizes\":[\"items[0].summarizes[0]\"],\"compaction\":{\"trigger\":\"items[0].compaction.trigger\",\"preTokens\":2,\"postTokens\":2,\"idle\":false,\"notice\":\"items[0].compaction.notice\"},\"durationMs\":2}],\"head\":\"head\",\"tail\":\"tail\",\"hasMore\":false}"
     },
     {
       "schema": "TranscriptReadResultMessage",
@@ -627,6 +683,14 @@
             "event": "interrupt",
             "answer": true,
             "systemKind": "compaction",
+            "summarizes": ["items[0].summarizes[0]"],
+            "compaction": {
+              "trigger": "items[0].compaction.trigger",
+              "preTokens": 3,
+              "postTokens": 3,
+              "idle": true,
+              "notice": "items[0].compaction.notice"
+            },
             "durationMs": 3
           }
         ],
@@ -637,7 +701,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"transcriptReadResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"tool\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"background-task\",\"taskId\":\"items[0].toolEffects[0].taskId\"}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"compaction\",\"durationMs\":3}],\"head\":\"head\",\"tail\":\"tail\",\"hasMore\":true}"
+      "encoded": "{\"type\":\"transcriptReadResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"tool\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"background-task\",\"taskId\":\"items[0].toolEffects[0].taskId\"}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"compaction\",\"summarizes\":[\"items[0].summarizes[0]\"],\"compaction\":{\"trigger\":\"items[0].compaction.trigger\",\"preTokens\":3,\"postTokens\":3,\"idle\":true,\"notice\":\"items[0].compaction.notice\"},\"durationMs\":3}],\"head\":\"head\",\"tail\":\"tail\",\"hasMore\":true}"
     },
     {
       "schema": "TranscriptReadResultMessage",
@@ -685,7 +749,15 @@
             "toolPaths": ["items[0].toolPaths[0]"],
             "event": "interrupt",
             "answer": false,
-            "systemKind": "compaction",
+            "systemKind": "file-changed",
+            "summarizes": ["items[0].summarizes[0]"],
+            "compaction": {
+              "trigger": "items[0].compaction.trigger",
+              "preTokens": 4,
+              "postTokens": 4,
+              "idle": false,
+              "notice": "items[0].compaction.notice"
+            },
             "durationMs": 4
           }
         ],
@@ -696,7 +768,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"transcriptReadResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"system\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"termination\",\"interrupted\":true,\"timedOutAfterMs\":4,\"interpretation\":\"items[0].toolEffects[0].interpretation\"}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"compaction\",\"durationMs\":4}],\"head\":\"head\",\"tail\":\"tail\",\"hasMore\":false}"
+      "encoded": "{\"type\":\"transcriptReadResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"system\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"termination\",\"interrupted\":true,\"timedOutAfterMs\":4,\"interpretation\":\"items[0].toolEffects[0].interpretation\"}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"file-changed\",\"summarizes\":[\"items[0].summarizes[0]\"],\"compaction\":{\"trigger\":\"items[0].compaction.trigger\",\"preTokens\":4,\"postTokens\":4,\"idle\":false,\"notice\":\"items[0].compaction.notice\"},\"durationMs\":4}],\"head\":\"head\",\"tail\":\"tail\",\"hasMore\":false}"
     },
     {
       "schema": "TranscriptReadResultMessage",
@@ -742,7 +814,15 @@
             "toolPaths": ["items[0].toolPaths[0]"],
             "event": "interrupt",
             "answer": true,
-            "systemKind": "compaction",
+            "systemKind": "tool-summary",
+            "summarizes": ["items[0].summarizes[0]"],
+            "compaction": {
+              "trigger": "items[0].compaction.trigger",
+              "preTokens": 5,
+              "postTokens": 5,
+              "idle": true,
+              "notice": "items[0].compaction.notice"
+            },
             "durationMs": 5
           }
         ],
@@ -753,7 +833,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"transcriptReadResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"system\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"unknown\",\"key\":\"items[0].toolEffects[0].key\"}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"compaction\",\"durationMs\":5}],\"head\":\"head\",\"tail\":\"tail\",\"hasMore\":true}"
+      "encoded": "{\"type\":\"transcriptReadResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"system\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"unknown\",\"key\":\"items[0].toolEffects[0].key\"}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"tool-summary\",\"summarizes\":[\"items[0].summarizes[0]\"],\"compaction\":{\"trigger\":\"items[0].compaction.trigger\",\"preTokens\":5,\"postTokens\":5,\"idle\":true,\"notice\":\"items[0].compaction.notice\"},\"durationMs\":5}],\"head\":\"head\",\"tail\":\"tail\",\"hasMore\":true}"
     },
     {
       "schema": "TranscriptSubscribeMessage",
@@ -883,13 +963,21 @@
           "event": "interrupt",
           "answer": false,
           "systemKind": "duration",
+          "summarizes": ["item.summarizes[0]"],
+          "compaction": {
+            "trigger": "item.compaction.trigger",
+            "preTokens": 2,
+            "postTokens": 2,
+            "idle": false,
+            "notice": "item.compaction.notice"
+          },
           "durationMs": 2
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"kind\":\"running\",\"itemId\":\"itemId\",\"item\":{\"id\":\"item.id\",\"cursor\":\"item.cursor\",\"role\":\"assistant\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"item.harnessRef[0].kind\",\"id\":\"item.harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"item.ts\",\"text\":\"item.text\",\"toolName\":\"item.toolName\",\"toolInput\":\"item.toolInput\",\"toolTitle\":\"item.toolTitle\",\"toolInputJson\":\"item.toolInputJson\",\"toolResult\":\"item.toolResult\",\"toolEffects\":[{\"kind\":\"git-operation\",\"operation\":{\"commit\":{\"sha\":\"item.toolEffects[0].operation.commit.sha\",\"kind\":\"item.toolEffects[0].operation.commit.kind\",\"branch\":\"item.toolEffects[0].operation.commit.branch\"},\"branch\":{\"ref\":\"item.toolEffects[0].operation.branch.ref\",\"action\":\"item.toolEffects[0].operation.branch.action\"}}}],\"toolUseId\":\"item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.tags[0].label\"}],\"toolPaths\":[\"item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"durationMs\":2}}"
+      "encoded": "{\"kind\":\"running\",\"itemId\":\"itemId\",\"item\":{\"id\":\"item.id\",\"cursor\":\"item.cursor\",\"role\":\"assistant\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"item.harnessRef[0].kind\",\"id\":\"item.harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"item.ts\",\"text\":\"item.text\",\"toolName\":\"item.toolName\",\"toolInput\":\"item.toolInput\",\"toolTitle\":\"item.toolTitle\",\"toolInputJson\":\"item.toolInputJson\",\"toolResult\":\"item.toolResult\",\"toolEffects\":[{\"kind\":\"git-operation\",\"operation\":{\"commit\":{\"sha\":\"item.toolEffects[0].operation.commit.sha\",\"kind\":\"item.toolEffects[0].operation.commit.kind\",\"branch\":\"item.toolEffects[0].operation.commit.branch\"},\"branch\":{\"ref\":\"item.toolEffects[0].operation.branch.ref\",\"action\":\"item.toolEffects[0].operation.branch.action\"}}}],\"toolUseId\":\"item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.tags[0].label\"}],\"toolPaths\":[\"item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"summarizes\":[\"item.summarizes[0]\"],\"compaction\":{\"trigger\":\"item.compaction.trigger\",\"preTokens\":2,\"postTokens\":2,\"idle\":false,\"notice\":\"item.compaction.notice\"},\"durationMs\":2}}"
     },
     {
       "schema": "TurnPreviewItem",
@@ -934,13 +1022,21 @@
           "event": "interrupt",
           "answer": true,
           "systemKind": "compaction",
+          "summarizes": ["item.summarizes[0]"],
+          "compaction": {
+            "trigger": "item.compaction.trigger",
+            "preTokens": 3,
+            "postTokens": 3,
+            "idle": true,
+            "notice": "item.compaction.notice"
+          },
           "durationMs": 3
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"kind\":\"running\",\"itemId\":\"itemId\",\"item\":{\"id\":\"item.id\",\"cursor\":\"item.cursor\",\"role\":\"tool\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"item.harnessRef[0].kind\",\"id\":\"item.harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"item.ts\",\"text\":\"item.text\",\"toolName\":\"item.toolName\",\"toolInput\":\"item.toolInput\",\"toolTitle\":\"item.toolTitle\",\"toolInputJson\":\"item.toolInputJson\",\"toolResult\":\"item.toolResult\",\"toolEffects\":[{\"kind\":\"background-task\",\"taskId\":\"item.toolEffects[0].taskId\"}],\"toolUseId\":\"item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.tags[0].label\"}],\"toolPaths\":[\"item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"compaction\",\"durationMs\":3}}"
+      "encoded": "{\"kind\":\"running\",\"itemId\":\"itemId\",\"item\":{\"id\":\"item.id\",\"cursor\":\"item.cursor\",\"role\":\"tool\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"item.harnessRef[0].kind\",\"id\":\"item.harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"item.ts\",\"text\":\"item.text\",\"toolName\":\"item.toolName\",\"toolInput\":\"item.toolInput\",\"toolTitle\":\"item.toolTitle\",\"toolInputJson\":\"item.toolInputJson\",\"toolResult\":\"item.toolResult\",\"toolEffects\":[{\"kind\":\"background-task\",\"taskId\":\"item.toolEffects[0].taskId\"}],\"toolUseId\":\"item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.tags[0].label\"}],\"toolPaths\":[\"item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"compaction\",\"summarizes\":[\"item.summarizes[0]\"],\"compaction\":{\"trigger\":\"item.compaction.trigger\",\"preTokens\":3,\"postTokens\":3,\"idle\":true,\"notice\":\"item.compaction.notice\"},\"durationMs\":3}}"
     },
     {
       "schema": "TurnPreviewItem",
@@ -986,14 +1082,22 @@
           "toolPaths": ["item.toolPaths[0]"],
           "event": "interrupt",
           "answer": false,
-          "systemKind": "compaction",
+          "systemKind": "file-changed",
+          "summarizes": ["item.summarizes[0]"],
+          "compaction": {
+            "trigger": "item.compaction.trigger",
+            "preTokens": 4,
+            "postTokens": 4,
+            "idle": false,
+            "notice": "item.compaction.notice"
+          },
           "durationMs": 4
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"kind\":\"running\",\"itemId\":\"itemId\",\"item\":{\"id\":\"item.id\",\"cursor\":\"item.cursor\",\"role\":\"system\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"item.harnessRef[0].kind\",\"id\":\"item.harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"item.ts\",\"text\":\"item.text\",\"toolName\":\"item.toolName\",\"toolInput\":\"item.toolInput\",\"toolTitle\":\"item.toolTitle\",\"toolInputJson\":\"item.toolInputJson\",\"toolResult\":\"item.toolResult\",\"toolEffects\":[{\"kind\":\"termination\",\"interrupted\":true,\"timedOutAfterMs\":4,\"interpretation\":\"item.toolEffects[0].interpretation\"}],\"toolUseId\":\"item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.tags[0].label\"}],\"toolPaths\":[\"item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"compaction\",\"durationMs\":4}}"
+      "encoded": "{\"kind\":\"running\",\"itemId\":\"itemId\",\"item\":{\"id\":\"item.id\",\"cursor\":\"item.cursor\",\"role\":\"system\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"item.harnessRef[0].kind\",\"id\":\"item.harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"item.ts\",\"text\":\"item.text\",\"toolName\":\"item.toolName\",\"toolInput\":\"item.toolInput\",\"toolTitle\":\"item.toolTitle\",\"toolInputJson\":\"item.toolInputJson\",\"toolResult\":\"item.toolResult\",\"toolEffects\":[{\"kind\":\"termination\",\"interrupted\":true,\"timedOutAfterMs\":4,\"interpretation\":\"item.toolEffects[0].interpretation\"}],\"toolUseId\":\"item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.tags[0].label\"}],\"toolPaths\":[\"item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"file-changed\",\"summarizes\":[\"item.summarizes[0]\"],\"compaction\":{\"trigger\":\"item.compaction.trigger\",\"preTokens\":4,\"postTokens\":4,\"idle\":false,\"notice\":\"item.compaction.notice\"},\"durationMs\":4}}"
     },
     {
       "schema": "TurnPreviewItem",
@@ -1037,14 +1141,22 @@
           "toolPaths": ["item.toolPaths[0]"],
           "event": "interrupt",
           "answer": true,
-          "systemKind": "compaction",
+          "systemKind": "tool-summary",
+          "summarizes": ["item.summarizes[0]"],
+          "compaction": {
+            "trigger": "item.compaction.trigger",
+            "preTokens": 5,
+            "postTokens": 5,
+            "idle": true,
+            "notice": "item.compaction.notice"
+          },
           "durationMs": 5
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"kind\":\"running\",\"itemId\":\"itemId\",\"item\":{\"id\":\"item.id\",\"cursor\":\"item.cursor\",\"role\":\"system\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"item.harnessRef[0].kind\",\"id\":\"item.harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"item.ts\",\"text\":\"item.text\",\"toolName\":\"item.toolName\",\"toolInput\":\"item.toolInput\",\"toolTitle\":\"item.toolTitle\",\"toolInputJson\":\"item.toolInputJson\",\"toolResult\":\"item.toolResult\",\"toolEffects\":[{\"kind\":\"unknown\",\"key\":\"item.toolEffects[0].key\"}],\"toolUseId\":\"item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.tags[0].label\"}],\"toolPaths\":[\"item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"compaction\",\"durationMs\":5}}"
+      "encoded": "{\"kind\":\"running\",\"itemId\":\"itemId\",\"item\":{\"id\":\"item.id\",\"cursor\":\"item.cursor\",\"role\":\"system\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"item.harnessRef[0].kind\",\"id\":\"item.harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"item.ts\",\"text\":\"item.text\",\"toolName\":\"item.toolName\",\"toolInput\":\"item.toolInput\",\"toolTitle\":\"item.toolTitle\",\"toolInputJson\":\"item.toolInputJson\",\"toolResult\":\"item.toolResult\",\"toolEffects\":[{\"kind\":\"unknown\",\"key\":\"item.toolEffects[0].key\"}],\"toolUseId\":\"item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.tags[0].label\"}],\"toolPaths\":[\"item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"tool-summary\",\"summarizes\":[\"item.summarizes[0]\"],\"compaction\":{\"trigger\":\"item.compaction.trigger\",\"preTokens\":5,\"postTokens\":5,\"idle\":true,\"notice\":\"item.compaction.notice\"},\"durationMs\":5}}"
     },
     {
       "schema": "TurnPreviewMessage",
@@ -1142,6 +1254,14 @@
               "event": "interrupt",
               "answer": false,
               "systemKind": "duration",
+              "summarizes": ["items[0].item.summarizes[0]"],
+              "compaction": {
+                "trigger": "items[0].item.compaction.trigger",
+                "preTokens": 2,
+                "postTokens": 2,
+                "idle": false,
+                "notice": "items[0].item.compaction.notice"
+              },
               "durationMs": 2
             }
           }
@@ -1151,7 +1271,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"turnPreview\",\"sessionId\":\"sessionId\",\"turnEpoch\":2,\"seq\":2,\"items\":[{\"kind\":\"running\",\"itemId\":\"items[0].itemId\",\"item\":{\"id\":\"items[0].item.id\",\"cursor\":\"items[0].item.cursor\",\"role\":\"assistant\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"items[0].item.harnessRef[0].kind\",\"id\":\"items[0].item.harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"items[0].item.ts\",\"text\":\"items[0].item.text\",\"toolName\":\"items[0].item.toolName\",\"toolInput\":\"items[0].item.toolInput\",\"toolTitle\":\"items[0].item.toolTitle\",\"toolInputJson\":\"items[0].item.toolInputJson\",\"toolResult\":\"items[0].item.toolResult\",\"toolEffects\":[{\"kind\":\"git-operation\",\"operation\":{\"commit\":{\"sha\":\"items[0].item.toolEffects[0].operation.commit.sha\",\"kind\":\"items[0].item.toolEffects[0].operation.commit.kind\",\"branch\":\"items[0].item.toolEffects[0].operation.commit.branch\"},\"branch\":{\"ref\":\"items[0].item.toolEffects[0].operation.branch.ref\",\"action\":\"items[0].item.toolEffects[0].operation.branch.action\"}}}],\"toolUseId\":\"items[0].item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].item.tags[0].label\"}],\"toolPaths\":[\"items[0].item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"durationMs\":2}}],\"done\":false}"
+      "encoded": "{\"type\":\"turnPreview\",\"sessionId\":\"sessionId\",\"turnEpoch\":2,\"seq\":2,\"items\":[{\"kind\":\"running\",\"itemId\":\"items[0].itemId\",\"item\":{\"id\":\"items[0].item.id\",\"cursor\":\"items[0].item.cursor\",\"role\":\"assistant\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"items[0].item.harnessRef[0].kind\",\"id\":\"items[0].item.harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"items[0].item.ts\",\"text\":\"items[0].item.text\",\"toolName\":\"items[0].item.toolName\",\"toolInput\":\"items[0].item.toolInput\",\"toolTitle\":\"items[0].item.toolTitle\",\"toolInputJson\":\"items[0].item.toolInputJson\",\"toolResult\":\"items[0].item.toolResult\",\"toolEffects\":[{\"kind\":\"git-operation\",\"operation\":{\"commit\":{\"sha\":\"items[0].item.toolEffects[0].operation.commit.sha\",\"kind\":\"items[0].item.toolEffects[0].operation.commit.kind\",\"branch\":\"items[0].item.toolEffects[0].operation.commit.branch\"},\"branch\":{\"ref\":\"items[0].item.toolEffects[0].operation.branch.ref\",\"action\":\"items[0].item.toolEffects[0].operation.branch.action\"}}}],\"toolUseId\":\"items[0].item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].item.tags[0].label\"}],\"toolPaths\":[\"items[0].item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"summarizes\":[\"items[0].item.summarizes[0]\"],\"compaction\":{\"trigger\":\"items[0].item.compaction.trigger\",\"preTokens\":2,\"postTokens\":2,\"idle\":false,\"notice\":\"items[0].item.compaction.notice\"},\"durationMs\":2}}],\"done\":false}"
     },
     {
       "schema": "TurnPreviewMessage",
@@ -1202,6 +1322,14 @@
               "event": "interrupt",
               "answer": true,
               "systemKind": "compaction",
+              "summarizes": ["items[0].item.summarizes[0]"],
+              "compaction": {
+                "trigger": "items[0].item.compaction.trigger",
+                "preTokens": 3,
+                "postTokens": 3,
+                "idle": true,
+                "notice": "items[0].item.compaction.notice"
+              },
               "durationMs": 3
             }
           }
@@ -1211,7 +1339,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"turnPreview\",\"sessionId\":\"sessionId\",\"turnEpoch\":3,\"seq\":3,\"items\":[{\"kind\":\"running\",\"itemId\":\"items[0].itemId\",\"item\":{\"id\":\"items[0].item.id\",\"cursor\":\"items[0].item.cursor\",\"role\":\"tool\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"items[0].item.harnessRef[0].kind\",\"id\":\"items[0].item.harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"items[0].item.ts\",\"text\":\"items[0].item.text\",\"toolName\":\"items[0].item.toolName\",\"toolInput\":\"items[0].item.toolInput\",\"toolTitle\":\"items[0].item.toolTitle\",\"toolInputJson\":\"items[0].item.toolInputJson\",\"toolResult\":\"items[0].item.toolResult\",\"toolEffects\":[{\"kind\":\"background-task\",\"taskId\":\"items[0].item.toolEffects[0].taskId\"}],\"toolUseId\":\"items[0].item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].item.tags[0].label\"}],\"toolPaths\":[\"items[0].item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"compaction\",\"durationMs\":3}}],\"done\":true}"
+      "encoded": "{\"type\":\"turnPreview\",\"sessionId\":\"sessionId\",\"turnEpoch\":3,\"seq\":3,\"items\":[{\"kind\":\"running\",\"itemId\":\"items[0].itemId\",\"item\":{\"id\":\"items[0].item.id\",\"cursor\":\"items[0].item.cursor\",\"role\":\"tool\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"items[0].item.harnessRef[0].kind\",\"id\":\"items[0].item.harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"items[0].item.ts\",\"text\":\"items[0].item.text\",\"toolName\":\"items[0].item.toolName\",\"toolInput\":\"items[0].item.toolInput\",\"toolTitle\":\"items[0].item.toolTitle\",\"toolInputJson\":\"items[0].item.toolInputJson\",\"toolResult\":\"items[0].item.toolResult\",\"toolEffects\":[{\"kind\":\"background-task\",\"taskId\":\"items[0].item.toolEffects[0].taskId\"}],\"toolUseId\":\"items[0].item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].item.tags[0].label\"}],\"toolPaths\":[\"items[0].item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"compaction\",\"summarizes\":[\"items[0].item.summarizes[0]\"],\"compaction\":{\"trigger\":\"items[0].item.compaction.trigger\",\"preTokens\":3,\"postTokens\":3,\"idle\":true,\"notice\":\"items[0].item.compaction.notice\"},\"durationMs\":3}}],\"done\":true}"
     },
     {
       "schema": "TurnPreviewMessage",
@@ -1263,7 +1391,15 @@
               "toolPaths": ["items[0].item.toolPaths[0]"],
               "event": "interrupt",
               "answer": false,
-              "systemKind": "compaction",
+              "systemKind": "file-changed",
+              "summarizes": ["items[0].item.summarizes[0]"],
+              "compaction": {
+                "trigger": "items[0].item.compaction.trigger",
+                "preTokens": 4,
+                "postTokens": 4,
+                "idle": false,
+                "notice": "items[0].item.compaction.notice"
+              },
               "durationMs": 4
             }
           }
@@ -1273,7 +1409,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"turnPreview\",\"sessionId\":\"sessionId\",\"turnEpoch\":4,\"seq\":4,\"items\":[{\"kind\":\"running\",\"itemId\":\"items[0].itemId\",\"item\":{\"id\":\"items[0].item.id\",\"cursor\":\"items[0].item.cursor\",\"role\":\"system\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"items[0].item.harnessRef[0].kind\",\"id\":\"items[0].item.harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"items[0].item.ts\",\"text\":\"items[0].item.text\",\"toolName\":\"items[0].item.toolName\",\"toolInput\":\"items[0].item.toolInput\",\"toolTitle\":\"items[0].item.toolTitle\",\"toolInputJson\":\"items[0].item.toolInputJson\",\"toolResult\":\"items[0].item.toolResult\",\"toolEffects\":[{\"kind\":\"termination\",\"interrupted\":true,\"timedOutAfterMs\":4,\"interpretation\":\"items[0].item.toolEffects[0].interpretation\"}],\"toolUseId\":\"items[0].item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].item.tags[0].label\"}],\"toolPaths\":[\"items[0].item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"compaction\",\"durationMs\":4}}],\"done\":false}"
+      "encoded": "{\"type\":\"turnPreview\",\"sessionId\":\"sessionId\",\"turnEpoch\":4,\"seq\":4,\"items\":[{\"kind\":\"running\",\"itemId\":\"items[0].itemId\",\"item\":{\"id\":\"items[0].item.id\",\"cursor\":\"items[0].item.cursor\",\"role\":\"system\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"items[0].item.harnessRef[0].kind\",\"id\":\"items[0].item.harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"items[0].item.ts\",\"text\":\"items[0].item.text\",\"toolName\":\"items[0].item.toolName\",\"toolInput\":\"items[0].item.toolInput\",\"toolTitle\":\"items[0].item.toolTitle\",\"toolInputJson\":\"items[0].item.toolInputJson\",\"toolResult\":\"items[0].item.toolResult\",\"toolEffects\":[{\"kind\":\"termination\",\"interrupted\":true,\"timedOutAfterMs\":4,\"interpretation\":\"items[0].item.toolEffects[0].interpretation\"}],\"toolUseId\":\"items[0].item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].item.tags[0].label\"}],\"toolPaths\":[\"items[0].item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"file-changed\",\"summarizes\":[\"items[0].item.summarizes[0]\"],\"compaction\":{\"trigger\":\"items[0].item.compaction.trigger\",\"preTokens\":4,\"postTokens\":4,\"idle\":false,\"notice\":\"items[0].item.compaction.notice\"},\"durationMs\":4}}],\"done\":false}"
     },
     {
       "schema": "TurnPreviewMessage",
@@ -1323,7 +1459,15 @@
               "toolPaths": ["items[0].item.toolPaths[0]"],
               "event": "interrupt",
               "answer": true,
-              "systemKind": "compaction",
+              "systemKind": "tool-summary",
+              "summarizes": ["items[0].item.summarizes[0]"],
+              "compaction": {
+                "trigger": "items[0].item.compaction.trigger",
+                "preTokens": 5,
+                "postTokens": 5,
+                "idle": true,
+                "notice": "items[0].item.compaction.notice"
+              },
               "durationMs": 5
             }
           }
@@ -1333,7 +1477,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"turnPreview\",\"sessionId\":\"sessionId\",\"turnEpoch\":5,\"seq\":5,\"items\":[{\"kind\":\"running\",\"itemId\":\"items[0].itemId\",\"item\":{\"id\":\"items[0].item.id\",\"cursor\":\"items[0].item.cursor\",\"role\":\"system\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"items[0].item.harnessRef[0].kind\",\"id\":\"items[0].item.harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"items[0].item.ts\",\"text\":\"items[0].item.text\",\"toolName\":\"items[0].item.toolName\",\"toolInput\":\"items[0].item.toolInput\",\"toolTitle\":\"items[0].item.toolTitle\",\"toolInputJson\":\"items[0].item.toolInputJson\",\"toolResult\":\"items[0].item.toolResult\",\"toolEffects\":[{\"kind\":\"unknown\",\"key\":\"items[0].item.toolEffects[0].key\"}],\"toolUseId\":\"items[0].item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].item.tags[0].label\"}],\"toolPaths\":[\"items[0].item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"compaction\",\"durationMs\":5}}],\"done\":true}"
+      "encoded": "{\"type\":\"turnPreview\",\"sessionId\":\"sessionId\",\"turnEpoch\":5,\"seq\":5,\"items\":[{\"kind\":\"running\",\"itemId\":\"items[0].itemId\",\"item\":{\"id\":\"items[0].item.id\",\"cursor\":\"items[0].item.cursor\",\"role\":\"system\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"items[0].item.harnessRef[0].kind\",\"id\":\"items[0].item.harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"items[0].item.ts\",\"text\":\"items[0].item.text\",\"toolName\":\"items[0].item.toolName\",\"toolInput\":\"items[0].item.toolInput\",\"toolTitle\":\"items[0].item.toolTitle\",\"toolInputJson\":\"items[0].item.toolInputJson\",\"toolResult\":\"items[0].item.toolResult\",\"toolEffects\":[{\"kind\":\"unknown\",\"key\":\"items[0].item.toolEffects[0].key\"}],\"toolUseId\":\"items[0].item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].item.tags[0].label\"}],\"toolPaths\":[\"items[0].item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"tool-summary\",\"summarizes\":[\"items[0].item.summarizes[0]\"],\"compaction\":{\"trigger\":\"items[0].item.compaction.trigger\",\"preTokens\":5,\"postTokens\":5,\"idle\":true,\"notice\":\"items[0].item.compaction.notice\"},\"durationMs\":5}}],\"done\":true}"
     }
   ]
 }

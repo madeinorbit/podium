@@ -1658,7 +1658,6 @@
       "variant": "minimal",
       "wire": {
         "id": "id",
-        "path": "path",
         "filename": "filename",
         "mediaType": "mediaType",
         "kind": "image"
@@ -1666,7 +1665,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"path\":\"path\",\"filename\":\"filename\",\"mediaType\":\"mediaType\",\"kind\":\"image\"}"
+      "encoded": "{\"id\":\"id\",\"filename\":\"filename\",\"mediaType\":\"mediaType\",\"kind\":\"image\"}"
     },
     {
       "schema": "RuntimeAttachmentRef",
@@ -1702,12 +1701,13 @@
       "wire": {
         "dataBase64": "dataBase64",
         "filename": "filename",
-        "mediaType": "mediaType"
+        "mediaType": "mediaType",
+        "id": "00000000-0000-4000-8000-000000000000"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"dataBase64\":\"dataBase64\",\"filename\":\"filename\",\"mediaType\":\"mediaType\"}"
+      "encoded": "{\"dataBase64\":\"dataBase64\",\"filename\":\"filename\",\"mediaType\":\"mediaType\",\"id\":\"00000000-0000-4000-8000-000000000000\"}"
     },
     {
       "schema": "RuntimeCommandMessage",
@@ -1737,13 +1737,14 @@
         "source": {
           "dataBase64": "source.dataBase64",
           "filename": "source.filename",
-          "mediaType": "source.mediaType"
+          "mediaType": "source.mediaType",
+          "id": "00000000-0000-4000-8000-000000000000"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeStageAttachmentRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"source\":{\"dataBase64\":\"source.dataBase64\",\"filename\":\"source.filename\",\"mediaType\":\"source.mediaType\"}}"
+      "encoded": "{\"type\":\"runtimeStageAttachmentRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"source\":{\"dataBase64\":\"source.dataBase64\",\"filename\":\"source.filename\",\"mediaType\":\"source.mediaType\",\"id\":\"00000000-0000-4000-8000-000000000000\"}}"
     },
     {
       "schema": "RuntimeCommandMessage",
@@ -2525,7 +2526,15 @@
             "toolPaths": ["item.item.toolPaths[0]"],
             "event": "interrupt",
             "answer": false,
-            "systemKind": "compaction",
+            "systemKind": "file-changed",
+            "summarizes": ["item.item.summarizes[0]"],
+            "compaction": {
+              "trigger": "item.item.compaction.trigger",
+              "preTokens": 4,
+              "postTokens": 4,
+              "idle": false,
+              "notice": "item.item.compaction.notice"
+            },
             "durationMs": 4
           }
         }
@@ -2533,7 +2542,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"item.item.id\",\"cursor\":\"item.item.cursor\",\"role\":\"system\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"item.item.harnessRef[0].kind\",\"id\":\"item.item.harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"item.item.ts\",\"text\":\"item.item.text\",\"toolName\":\"item.item.toolName\",\"toolInput\":\"item.item.toolInput\",\"toolTitle\":\"item.item.toolTitle\",\"toolInputJson\":\"item.item.toolInputJson\",\"toolResult\":\"item.item.toolResult\",\"toolEffects\":[{\"kind\":\"termination\",\"interrupted\":true,\"timedOutAfterMs\":4,\"interpretation\":\"item.item.toolEffects[0].interpretation\"}],\"toolUseId\":\"item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.item.tags[0].label\"}],\"toolPaths\":[\"item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"compaction\",\"durationMs\":4}}}"
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"item.item.id\",\"cursor\":\"item.item.cursor\",\"role\":\"system\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"item.item.harnessRef[0].kind\",\"id\":\"item.item.harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"item.item.ts\",\"text\":\"item.item.text\",\"toolName\":\"item.item.toolName\",\"toolInput\":\"item.item.toolInput\",\"toolTitle\":\"item.item.toolTitle\",\"toolInputJson\":\"item.item.toolInputJson\",\"toolResult\":\"item.item.toolResult\",\"toolEffects\":[{\"kind\":\"termination\",\"interrupted\":true,\"timedOutAfterMs\":4,\"interpretation\":\"item.item.toolEffects[0].interpretation\"}],\"toolUseId\":\"item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.item.tags[0].label\"}],\"toolPaths\":[\"item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"file-changed\",\"summarizes\":[\"item.item.summarizes[0]\"],\"compaction\":{\"trigger\":\"item.item.compaction.trigger\",\"preTokens\":4,\"postTokens\":4,\"idle\":false,\"notice\":\"item.item.compaction.notice\"},\"durationMs\":4}}}"
     },
     {
       "schema": "RuntimeEvent",
@@ -2592,7 +2601,15 @@
             "toolPaths": ["items[0].toolPaths[0]"],
             "event": "interrupt",
             "answer": true,
-            "systemKind": "compaction",
+            "systemKind": "tool-summary",
+            "summarizes": ["items[0].summarizes[0]"],
+            "compaction": {
+              "trigger": "items[0].compaction.trigger",
+              "preTokens": 5,
+              "postTokens": 5,
+              "idle": true,
+              "notice": "items[0].compaction.notice"
+            },
             "durationMs": 5
           }
         ],
@@ -2601,7 +2618,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5,\"t\":\"transcript-reset\",\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"system\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"unknown\",\"key\":\"items[0].toolEffects[0].key\"}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"compaction\",\"durationMs\":5}],\"tail\":\"tail\"}"
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5,\"t\":\"transcript-reset\",\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"system\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"unknown\",\"key\":\"items[0].toolEffects[0].key\"}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"tool-summary\",\"summarizes\":[\"items[0].summarizes[0]\"],\"compaction\":{\"trigger\":\"items[0].compaction.trigger\",\"preTokens\":5,\"postTokens\":5,\"idle\":true,\"notice\":\"items[0].compaction.notice\"},\"durationMs\":5}],\"tail\":\"tail\"}"
     },
     {
       "schema": "RuntimeEvent",
@@ -2853,7 +2870,15 @@
             "toolPaths": ["item.item.toolPaths[0]"],
             "event": "interrupt",
             "answer": false,
-            "systemKind": "compaction",
+            "systemKind": "file-changed",
+            "summarizes": ["item.item.summarizes[0]"],
+            "compaction": {
+              "trigger": "item.item.compaction.trigger",
+              "preTokens": 4,
+              "postTokens": 4,
+              "idle": false,
+              "notice": "item.item.compaction.notice"
+            },
             "durationMs": 4
           }
         }
@@ -2861,7 +2886,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"item.item.id\",\"cursor\":\"item.item.cursor\",\"role\":\"system\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"item.item.harnessRef[0].kind\",\"id\":\"item.item.harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"item.item.ts\",\"text\":\"item.item.text\",\"toolName\":\"item.item.toolName\",\"toolInput\":\"item.item.toolInput\",\"toolTitle\":\"item.item.toolTitle\",\"toolInputJson\":\"item.item.toolInputJson\",\"toolResult\":\"item.item.toolResult\",\"toolEffects\":[{\"kind\":\"termination\",\"interrupted\":true,\"timedOutAfterMs\":4,\"interpretation\":\"item.item.toolEffects[0].interpretation\"}],\"toolUseId\":\"item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.item.tags[0].label\"}],\"toolPaths\":[\"item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"compaction\",\"durationMs\":4}}}"
+      "encoded": "{\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"item.item.id\",\"cursor\":\"item.item.cursor\",\"role\":\"system\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"item.item.harnessRef[0].kind\",\"id\":\"item.item.harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"item.item.ts\",\"text\":\"item.item.text\",\"toolName\":\"item.item.toolName\",\"toolInput\":\"item.item.toolInput\",\"toolTitle\":\"item.item.toolTitle\",\"toolInputJson\":\"item.item.toolInputJson\",\"toolResult\":\"item.item.toolResult\",\"toolEffects\":[{\"kind\":\"termination\",\"interrupted\":true,\"timedOutAfterMs\":4,\"interpretation\":\"item.item.toolEffects[0].interpretation\"}],\"toolUseId\":\"item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.item.tags[0].label\"}],\"toolPaths\":[\"item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"file-changed\",\"summarizes\":[\"item.item.summarizes[0]\"],\"compaction\":{\"trigger\":\"item.item.compaction.trigger\",\"preTokens\":4,\"postTokens\":4,\"idle\":false,\"notice\":\"item.item.compaction.notice\"},\"durationMs\":4}}}"
     },
     {
       "schema": "RuntimeEventBody",
@@ -2905,7 +2930,15 @@
             "toolPaths": ["items[0].toolPaths[0]"],
             "event": "interrupt",
             "answer": true,
-            "systemKind": "compaction",
+            "systemKind": "tool-summary",
+            "summarizes": ["items[0].summarizes[0]"],
+            "compaction": {
+              "trigger": "items[0].compaction.trigger",
+              "preTokens": 5,
+              "postTokens": 5,
+              "idle": true,
+              "notice": "items[0].compaction.notice"
+            },
             "durationMs": 5
           }
         ],
@@ -2914,7 +2947,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"t\":\"transcript-reset\",\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"system\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"unknown\",\"key\":\"items[0].toolEffects[0].key\"}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"compaction\",\"durationMs\":5}],\"tail\":\"tail\"}"
+      "encoded": "{\"t\":\"transcript-reset\",\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"system\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"unknown\",\"key\":\"items[0].toolEffects[0].key\"}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"tool-summary\",\"summarizes\":[\"items[0].summarizes[0]\"],\"compaction\":{\"trigger\":\"items[0].compaction.trigger\",\"preTokens\":5,\"postTokens\":5,\"idle\":true,\"notice\":\"items[0].compaction.notice\"},\"durationMs\":5}],\"tail\":\"tail\"}"
     },
     {
       "schema": "RuntimeEventBody",
@@ -3185,7 +3218,15 @@
               "toolPaths": ["event.item.item.toolPaths[0]"],
               "event": "interrupt",
               "answer": false,
-              "systemKind": "compaction",
+              "systemKind": "file-changed",
+              "summarizes": ["event.item.item.summarizes[0]"],
+              "compaction": {
+                "trigger": "event.item.item.compaction.trigger",
+                "preTokens": 4,
+                "postTokens": 4,
+                "idle": false,
+                "notice": "event.item.item.compaction.notice"
+              },
               "durationMs": 4
             }
           }
@@ -3194,7 +3235,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"event.item.item.id\",\"cursor\":\"event.item.item.cursor\",\"role\":\"system\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"event.item.item.harnessRef[0].kind\",\"id\":\"event.item.item.harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"event.item.item.ts\",\"text\":\"event.item.item.text\",\"toolName\":\"event.item.item.toolName\",\"toolInput\":\"event.item.item.toolInput\",\"toolTitle\":\"event.item.item.toolTitle\",\"toolInputJson\":\"event.item.item.toolInputJson\",\"toolResult\":\"event.item.item.toolResult\",\"toolEffects\":[{\"kind\":\"termination\",\"interrupted\":true,\"timedOutAfterMs\":4,\"interpretation\":\"event.item.item.toolEffects[0].interpretation\"}],\"toolUseId\":\"event.item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"event.item.item.tags[0].label\"}],\"toolPaths\":[\"event.item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"compaction\",\"durationMs\":4}}}}"
+      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"event.item.item.id\",\"cursor\":\"event.item.item.cursor\",\"role\":\"system\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"event.item.item.harnessRef[0].kind\",\"id\":\"event.item.item.harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"event.item.item.ts\",\"text\":\"event.item.item.text\",\"toolName\":\"event.item.item.toolName\",\"toolInput\":\"event.item.item.toolInput\",\"toolTitle\":\"event.item.item.toolTitle\",\"toolInputJson\":\"event.item.item.toolInputJson\",\"toolResult\":\"event.item.item.toolResult\",\"toolEffects\":[{\"kind\":\"termination\",\"interrupted\":true,\"timedOutAfterMs\":4,\"interpretation\":\"event.item.item.toolEffects[0].interpretation\"}],\"toolUseId\":\"event.item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"event.item.item.tags[0].label\"}],\"toolPaths\":[\"event.item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"file-changed\",\"summarizes\":[\"event.item.item.summarizes[0]\"],\"compaction\":{\"trigger\":\"event.item.item.compaction.trigger\",\"preTokens\":4,\"postTokens\":4,\"idle\":false,\"notice\":\"event.item.item.compaction.notice\"},\"durationMs\":4}}}}"
     },
     {
       "schema": "RuntimeEventMessage",
@@ -3257,7 +3298,15 @@
               "toolPaths": ["event.items[0].toolPaths[0]"],
               "event": "interrupt",
               "answer": true,
-              "systemKind": "compaction",
+              "systemKind": "tool-summary",
+              "summarizes": ["event.items[0].summarizes[0]"],
+              "compaction": {
+                "trigger": "event.items[0].compaction.trigger",
+                "preTokens": 5,
+                "postTokens": 5,
+                "idle": true,
+                "notice": "event.items[0].compaction.notice"
+              },
               "durationMs": 5
             }
           ],
@@ -3267,7 +3316,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5,\"t\":\"transcript-reset\",\"items\":[{\"id\":\"event.items[0].id\",\"cursor\":\"event.items[0].cursor\",\"role\":\"system\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"event.items[0].harnessRef[0].kind\",\"id\":\"event.items[0].harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"event.items[0].ts\",\"text\":\"event.items[0].text\",\"toolName\":\"event.items[0].toolName\",\"toolInput\":\"event.items[0].toolInput\",\"toolTitle\":\"event.items[0].toolTitle\",\"toolInputJson\":\"event.items[0].toolInputJson\",\"toolResult\":\"event.items[0].toolResult\",\"toolEffects\":[{\"kind\":\"unknown\",\"key\":\"event.items[0].toolEffects[0].key\"}],\"toolUseId\":\"event.items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"event.items[0].tags[0].label\"}],\"toolPaths\":[\"event.items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"compaction\",\"durationMs\":5}],\"tail\":\"event.tail\"}}"
+      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5,\"t\":\"transcript-reset\",\"items\":[{\"id\":\"event.items[0].id\",\"cursor\":\"event.items[0].cursor\",\"role\":\"system\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"event.items[0].harnessRef[0].kind\",\"id\":\"event.items[0].harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"event.items[0].ts\",\"text\":\"event.items[0].text\",\"toolName\":\"event.items[0].toolName\",\"toolInput\":\"event.items[0].toolInput\",\"toolTitle\":\"event.items[0].toolTitle\",\"toolInputJson\":\"event.items[0].toolInputJson\",\"toolResult\":\"event.items[0].toolResult\",\"toolEffects\":[{\"kind\":\"unknown\",\"key\":\"event.items[0].toolEffects[0].key\"}],\"toolUseId\":\"event.items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"event.items[0].tags[0].label\"}],\"toolPaths\":[\"event.items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"tool-summary\",\"summarizes\":[\"event.items[0].summarizes[0]\"],\"compaction\":{\"trigger\":\"event.items[0].compaction.trigger\",\"preTokens\":5,\"postTokens\":5,\"idle\":true,\"notice\":\"event.items[0].compaction.notice\"},\"durationMs\":5}],\"tail\":\"event.tail\"}}"
     },
     {
       "schema": "RuntimeEventMessage",
@@ -3502,6 +3551,14 @@
             "event": "interrupt",
             "answer": false,
             "systemKind": "duration",
+            "summarizes": ["item.item.summarizes[0]"],
+            "compaction": {
+              "trigger": "item.item.compaction.trigger",
+              "preTokens": 2,
+              "postTokens": 2,
+              "idle": false,
+              "notice": "item.item.compaction.notice"
+            },
             "durationMs": 2
           }
         }
@@ -3509,7 +3566,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":2}},\"observerGeneration\":2,\"turnEpoch\":2,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"item.item.id\",\"cursor\":\"item.item.cursor\",\"role\":\"assistant\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"item.item.harnessRef[0].kind\",\"id\":\"item.item.harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"item.item.ts\",\"text\":\"item.item.text\",\"toolName\":\"item.item.toolName\",\"toolInput\":\"item.item.toolInput\",\"toolTitle\":\"item.item.toolTitle\",\"toolInputJson\":\"item.item.toolInputJson\",\"toolResult\":\"item.item.toolResult\",\"toolEffects\":[{\"kind\":\"git-operation\",\"operation\":{\"commit\":{\"sha\":\"item.item.toolEffects[0].operation.commit.sha\",\"kind\":\"item.item.toolEffects[0].operation.commit.kind\",\"branch\":\"item.item.toolEffects[0].operation.commit.branch\"},\"branch\":{\"ref\":\"item.item.toolEffects[0].operation.branch.ref\",\"action\":\"item.item.toolEffects[0].operation.branch.action\"}}}],\"toolUseId\":\"item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.item.tags[0].label\"}],\"toolPaths\":[\"item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"durationMs\":2}}}"
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":2}},\"observerGeneration\":2,\"turnEpoch\":2,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"item.item.id\",\"cursor\":\"item.item.cursor\",\"role\":\"assistant\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"item.item.harnessRef[0].kind\",\"id\":\"item.item.harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"item.item.ts\",\"text\":\"item.item.text\",\"toolName\":\"item.item.toolName\",\"toolInput\":\"item.item.toolInput\",\"toolTitle\":\"item.item.toolTitle\",\"toolInputJson\":\"item.item.toolInputJson\",\"toolResult\":\"item.item.toolResult\",\"toolEffects\":[{\"kind\":\"git-operation\",\"operation\":{\"commit\":{\"sha\":\"item.item.toolEffects[0].operation.commit.sha\",\"kind\":\"item.item.toolEffects[0].operation.commit.kind\",\"branch\":\"item.item.toolEffects[0].operation.commit.branch\"},\"branch\":{\"ref\":\"item.item.toolEffects[0].operation.branch.ref\",\"action\":\"item.item.toolEffects[0].operation.branch.action\"}}}],\"toolUseId\":\"item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.item.tags[0].label\"}],\"toolPaths\":[\"item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"summarizes\":[\"item.item.summarizes[0]\"],\"compaction\":{\"trigger\":\"item.item.compaction.trigger\",\"preTokens\":2,\"postTokens\":2,\"idle\":false,\"notice\":\"item.item.compaction.notice\"},\"durationMs\":2}}}"
     },
     {
       "schema": "RuntimeFineEvent",
@@ -3570,6 +3627,14 @@
             "event": "interrupt",
             "answer": true,
             "systemKind": "compaction",
+            "summarizes": ["item.item.summarizes[0]"],
+            "compaction": {
+              "trigger": "item.item.compaction.trigger",
+              "preTokens": 3,
+              "postTokens": 3,
+              "idle": true,
+              "notice": "item.item.compaction.notice"
+            },
             "durationMs": 3
           }
         }
@@ -3577,7 +3642,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":3}},\"observerGeneration\":3,\"turnEpoch\":3,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"item.item.id\",\"cursor\":\"item.item.cursor\",\"role\":\"tool\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"item.item.harnessRef[0].kind\",\"id\":\"item.item.harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"item.item.ts\",\"text\":\"item.item.text\",\"toolName\":\"item.item.toolName\",\"toolInput\":\"item.item.toolInput\",\"toolTitle\":\"item.item.toolTitle\",\"toolInputJson\":\"item.item.toolInputJson\",\"toolResult\":\"item.item.toolResult\",\"toolEffects\":[{\"kind\":\"background-task\",\"taskId\":\"item.item.toolEffects[0].taskId\"}],\"toolUseId\":\"item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.item.tags[0].label\"}],\"toolPaths\":[\"item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"compaction\",\"durationMs\":3}}}"
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":3}},\"observerGeneration\":3,\"turnEpoch\":3,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"item.item.id\",\"cursor\":\"item.item.cursor\",\"role\":\"tool\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"item.item.harnessRef[0].kind\",\"id\":\"item.item.harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"item.item.ts\",\"text\":\"item.item.text\",\"toolName\":\"item.item.toolName\",\"toolInput\":\"item.item.toolInput\",\"toolTitle\":\"item.item.toolTitle\",\"toolInputJson\":\"item.item.toolInputJson\",\"toolResult\":\"item.item.toolResult\",\"toolEffects\":[{\"kind\":\"background-task\",\"taskId\":\"item.item.toolEffects[0].taskId\"}],\"toolUseId\":\"item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.item.tags[0].label\"}],\"toolPaths\":[\"item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"compaction\",\"summarizes\":[\"item.item.summarizes[0]\"],\"compaction\":{\"trigger\":\"item.item.compaction.trigger\",\"preTokens\":3,\"postTokens\":3,\"idle\":true,\"notice\":\"item.item.compaction.notice\"},\"durationMs\":3}}}"
     },
     {
       "schema": "RuntimeFineEvent",
@@ -3639,7 +3704,15 @@
             "toolPaths": ["item.item.toolPaths[0]"],
             "event": "interrupt",
             "answer": false,
-            "systemKind": "compaction",
+            "systemKind": "file-changed",
+            "summarizes": ["item.item.summarizes[0]"],
+            "compaction": {
+              "trigger": "item.item.compaction.trigger",
+              "preTokens": 4,
+              "postTokens": 4,
+              "idle": false,
+              "notice": "item.item.compaction.notice"
+            },
             "durationMs": 4
           }
         }
@@ -3647,7 +3720,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"item.item.id\",\"cursor\":\"item.item.cursor\",\"role\":\"system\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"item.item.harnessRef[0].kind\",\"id\":\"item.item.harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"item.item.ts\",\"text\":\"item.item.text\",\"toolName\":\"item.item.toolName\",\"toolInput\":\"item.item.toolInput\",\"toolTitle\":\"item.item.toolTitle\",\"toolInputJson\":\"item.item.toolInputJson\",\"toolResult\":\"item.item.toolResult\",\"toolEffects\":[{\"kind\":\"termination\",\"interrupted\":true,\"timedOutAfterMs\":4,\"interpretation\":\"item.item.toolEffects[0].interpretation\"}],\"toolUseId\":\"item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.item.tags[0].label\"}],\"toolPaths\":[\"item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"compaction\",\"durationMs\":4}}}"
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"item.item.id\",\"cursor\":\"item.item.cursor\",\"role\":\"system\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"item.item.harnessRef[0].kind\",\"id\":\"item.item.harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"item.item.ts\",\"text\":\"item.item.text\",\"toolName\":\"item.item.toolName\",\"toolInput\":\"item.item.toolInput\",\"toolTitle\":\"item.item.toolTitle\",\"toolInputJson\":\"item.item.toolInputJson\",\"toolResult\":\"item.item.toolResult\",\"toolEffects\":[{\"kind\":\"termination\",\"interrupted\":true,\"timedOutAfterMs\":4,\"interpretation\":\"item.item.toolEffects[0].interpretation\"}],\"toolUseId\":\"item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.item.tags[0].label\"}],\"toolPaths\":[\"item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"file-changed\",\"summarizes\":[\"item.item.summarizes[0]\"],\"compaction\":{\"trigger\":\"item.item.compaction.trigger\",\"preTokens\":4,\"postTokens\":4,\"idle\":false,\"notice\":\"item.item.compaction.notice\"},\"durationMs\":4}}}"
     },
     {
       "schema": "RuntimeFineEvent",
@@ -3707,7 +3780,15 @@
             "toolPaths": ["item.item.toolPaths[0]"],
             "event": "interrupt",
             "answer": true,
-            "systemKind": "compaction",
+            "systemKind": "tool-summary",
+            "summarizes": ["item.item.summarizes[0]"],
+            "compaction": {
+              "trigger": "item.item.compaction.trigger",
+              "preTokens": 5,
+              "postTokens": 5,
+              "idle": true,
+              "notice": "item.item.compaction.notice"
+            },
             "durationMs": 5
           }
         }
@@ -3715,7 +3796,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"item.item.id\",\"cursor\":\"item.item.cursor\",\"role\":\"system\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"item.item.harnessRef[0].kind\",\"id\":\"item.item.harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"item.item.ts\",\"text\":\"item.item.text\",\"toolName\":\"item.item.toolName\",\"toolInput\":\"item.item.toolInput\",\"toolTitle\":\"item.item.toolTitle\",\"toolInputJson\":\"item.item.toolInputJson\",\"toolResult\":\"item.item.toolResult\",\"toolEffects\":[{\"kind\":\"unknown\",\"key\":\"item.item.toolEffects[0].key\"}],\"toolUseId\":\"item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.item.tags[0].label\"}],\"toolPaths\":[\"item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"compaction\",\"durationMs\":5}}}"
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"item.item.id\",\"cursor\":\"item.item.cursor\",\"role\":\"system\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"item.item.harnessRef[0].kind\",\"id\":\"item.item.harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"item.item.ts\",\"text\":\"item.item.text\",\"toolName\":\"item.item.toolName\",\"toolInput\":\"item.item.toolInput\",\"toolTitle\":\"item.item.toolTitle\",\"toolInputJson\":\"item.item.toolInputJson\",\"toolResult\":\"item.item.toolResult\",\"toolEffects\":[{\"kind\":\"unknown\",\"key\":\"item.item.toolEffects[0].key\"}],\"toolUseId\":\"item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.item.tags[0].label\"}],\"toolPaths\":[\"item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"tool-summary\",\"summarizes\":[\"item.item.summarizes[0]\"],\"compaction\":{\"trigger\":\"item.item.compaction.trigger\",\"preTokens\":5,\"postTokens\":5,\"idle\":true,\"notice\":\"item.item.compaction.notice\"},\"durationMs\":5}}}"
     },
     {
       "schema": "RuntimeFineEventMessage",
@@ -3852,6 +3933,14 @@
               "event": "interrupt",
               "answer": false,
               "systemKind": "duration",
+              "summarizes": ["event.item.item.summarizes[0]"],
+              "compaction": {
+                "trigger": "event.item.item.compaction.trigger",
+                "preTokens": 2,
+                "postTokens": 2,
+                "idle": false,
+                "notice": "event.item.item.compaction.notice"
+              },
               "durationMs": 2
             }
           }
@@ -3860,7 +3949,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeFineEvent\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":2}},\"observerGeneration\":2,\"turnEpoch\":2,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"event.item.item.id\",\"cursor\":\"event.item.item.cursor\",\"role\":\"assistant\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"event.item.item.harnessRef[0].kind\",\"id\":\"event.item.item.harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"event.item.item.ts\",\"text\":\"event.item.item.text\",\"toolName\":\"event.item.item.toolName\",\"toolInput\":\"event.item.item.toolInput\",\"toolTitle\":\"event.item.item.toolTitle\",\"toolInputJson\":\"event.item.item.toolInputJson\",\"toolResult\":\"event.item.item.toolResult\",\"toolEffects\":[{\"kind\":\"git-operation\",\"operation\":{\"commit\":{\"sha\":\"event.item.item.toolEffects[0].operation.commit.sha\",\"kind\":\"event.item.item.toolEffects[0].operation.commit.kind\",\"branch\":\"event.item.item.toolEffects[0].operation.commit.branch\"},\"branch\":{\"ref\":\"event.item.item.toolEffects[0].operation.branch.ref\",\"action\":\"event.item.item.toolEffects[0].operation.branch.action\"}}}],\"toolUseId\":\"event.item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"event.item.item.tags[0].label\"}],\"toolPaths\":[\"event.item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"durationMs\":2}}}}"
+      "encoded": "{\"type\":\"runtimeFineEvent\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":2}},\"observerGeneration\":2,\"turnEpoch\":2,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"event.item.item.id\",\"cursor\":\"event.item.item.cursor\",\"role\":\"assistant\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"event.item.item.harnessRef[0].kind\",\"id\":\"event.item.item.harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"event.item.item.ts\",\"text\":\"event.item.item.text\",\"toolName\":\"event.item.item.toolName\",\"toolInput\":\"event.item.item.toolInput\",\"toolTitle\":\"event.item.item.toolTitle\",\"toolInputJson\":\"event.item.item.toolInputJson\",\"toolResult\":\"event.item.item.toolResult\",\"toolEffects\":[{\"kind\":\"git-operation\",\"operation\":{\"commit\":{\"sha\":\"event.item.item.toolEffects[0].operation.commit.sha\",\"kind\":\"event.item.item.toolEffects[0].operation.commit.kind\",\"branch\":\"event.item.item.toolEffects[0].operation.commit.branch\"},\"branch\":{\"ref\":\"event.item.item.toolEffects[0].operation.branch.ref\",\"action\":\"event.item.item.toolEffects[0].operation.branch.action\"}}}],\"toolUseId\":\"event.item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"event.item.item.tags[0].label\"}],\"toolPaths\":[\"event.item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"summarizes\":[\"event.item.item.summarizes[0]\"],\"compaction\":{\"trigger\":\"event.item.item.compaction.trigger\",\"preTokens\":2,\"postTokens\":2,\"idle\":false,\"notice\":\"event.item.item.compaction.notice\"},\"durationMs\":2}}}}"
     },
     {
       "schema": "RuntimeFineEventMessage",
@@ -3924,6 +4013,14 @@
               "event": "interrupt",
               "answer": true,
               "systemKind": "compaction",
+              "summarizes": ["event.item.item.summarizes[0]"],
+              "compaction": {
+                "trigger": "event.item.item.compaction.trigger",
+                "preTokens": 3,
+                "postTokens": 3,
+                "idle": true,
+                "notice": "event.item.item.compaction.notice"
+              },
               "durationMs": 3
             }
           }
@@ -3932,7 +4029,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeFineEvent\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":3}},\"observerGeneration\":3,\"turnEpoch\":3,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"event.item.item.id\",\"cursor\":\"event.item.item.cursor\",\"role\":\"tool\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"event.item.item.harnessRef[0].kind\",\"id\":\"event.item.item.harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"event.item.item.ts\",\"text\":\"event.item.item.text\",\"toolName\":\"event.item.item.toolName\",\"toolInput\":\"event.item.item.toolInput\",\"toolTitle\":\"event.item.item.toolTitle\",\"toolInputJson\":\"event.item.item.toolInputJson\",\"toolResult\":\"event.item.item.toolResult\",\"toolEffects\":[{\"kind\":\"background-task\",\"taskId\":\"event.item.item.toolEffects[0].taskId\"}],\"toolUseId\":\"event.item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"event.item.item.tags[0].label\"}],\"toolPaths\":[\"event.item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"compaction\",\"durationMs\":3}}}}"
+      "encoded": "{\"type\":\"runtimeFineEvent\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":3}},\"observerGeneration\":3,\"turnEpoch\":3,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"event.item.item.id\",\"cursor\":\"event.item.item.cursor\",\"role\":\"tool\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"event.item.item.harnessRef[0].kind\",\"id\":\"event.item.item.harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"event.item.item.ts\",\"text\":\"event.item.item.text\",\"toolName\":\"event.item.item.toolName\",\"toolInput\":\"event.item.item.toolInput\",\"toolTitle\":\"event.item.item.toolTitle\",\"toolInputJson\":\"event.item.item.toolInputJson\",\"toolResult\":\"event.item.item.toolResult\",\"toolEffects\":[{\"kind\":\"background-task\",\"taskId\":\"event.item.item.toolEffects[0].taskId\"}],\"toolUseId\":\"event.item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"event.item.item.tags[0].label\"}],\"toolPaths\":[\"event.item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"compaction\",\"summarizes\":[\"event.item.item.summarizes[0]\"],\"compaction\":{\"trigger\":\"event.item.item.compaction.trigger\",\"preTokens\":3,\"postTokens\":3,\"idle\":true,\"notice\":\"event.item.item.compaction.notice\"},\"durationMs\":3}}}}"
     },
     {
       "schema": "RuntimeFineEventMessage",
@@ -3997,7 +4094,15 @@
               "toolPaths": ["event.item.item.toolPaths[0]"],
               "event": "interrupt",
               "answer": false,
-              "systemKind": "compaction",
+              "systemKind": "file-changed",
+              "summarizes": ["event.item.item.summarizes[0]"],
+              "compaction": {
+                "trigger": "event.item.item.compaction.trigger",
+                "preTokens": 4,
+                "postTokens": 4,
+                "idle": false,
+                "notice": "event.item.item.compaction.notice"
+              },
               "durationMs": 4
             }
           }
@@ -4006,7 +4111,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeFineEvent\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"event.item.item.id\",\"cursor\":\"event.item.item.cursor\",\"role\":\"system\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"event.item.item.harnessRef[0].kind\",\"id\":\"event.item.item.harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"event.item.item.ts\",\"text\":\"event.item.item.text\",\"toolName\":\"event.item.item.toolName\",\"toolInput\":\"event.item.item.toolInput\",\"toolTitle\":\"event.item.item.toolTitle\",\"toolInputJson\":\"event.item.item.toolInputJson\",\"toolResult\":\"event.item.item.toolResult\",\"toolEffects\":[{\"kind\":\"termination\",\"interrupted\":true,\"timedOutAfterMs\":4,\"interpretation\":\"event.item.item.toolEffects[0].interpretation\"}],\"toolUseId\":\"event.item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"event.item.item.tags[0].label\"}],\"toolPaths\":[\"event.item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"compaction\",\"durationMs\":4}}}}"
+      "encoded": "{\"type\":\"runtimeFineEvent\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"event.item.item.id\",\"cursor\":\"event.item.item.cursor\",\"role\":\"system\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"event.item.item.harnessRef[0].kind\",\"id\":\"event.item.item.harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"event.item.item.ts\",\"text\":\"event.item.item.text\",\"toolName\":\"event.item.item.toolName\",\"toolInput\":\"event.item.item.toolInput\",\"toolTitle\":\"event.item.item.toolTitle\",\"toolInputJson\":\"event.item.item.toolInputJson\",\"toolResult\":\"event.item.item.toolResult\",\"toolEffects\":[{\"kind\":\"termination\",\"interrupted\":true,\"timedOutAfterMs\":4,\"interpretation\":\"event.item.item.toolEffects[0].interpretation\"}],\"toolUseId\":\"event.item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"event.item.item.tags[0].label\"}],\"toolPaths\":[\"event.item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"file-changed\",\"summarizes\":[\"event.item.item.summarizes[0]\"],\"compaction\":{\"trigger\":\"event.item.item.compaction.trigger\",\"preTokens\":4,\"postTokens\":4,\"idle\":false,\"notice\":\"event.item.item.compaction.notice\"},\"durationMs\":4}}}}"
     },
     {
       "schema": "RuntimeFineEventMessage",
@@ -4069,7 +4174,15 @@
               "toolPaths": ["event.item.item.toolPaths[0]"],
               "event": "interrupt",
               "answer": true,
-              "systemKind": "compaction",
+              "systemKind": "tool-summary",
+              "summarizes": ["event.item.item.summarizes[0]"],
+              "compaction": {
+                "trigger": "event.item.item.compaction.trigger",
+                "preTokens": 5,
+                "postTokens": 5,
+                "idle": true,
+                "notice": "event.item.item.compaction.notice"
+              },
               "durationMs": 5
             }
           }
@@ -4078,7 +4191,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeFineEvent\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"event.item.item.id\",\"cursor\":\"event.item.item.cursor\",\"role\":\"system\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"event.item.item.harnessRef[0].kind\",\"id\":\"event.item.item.harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"event.item.item.ts\",\"text\":\"event.item.item.text\",\"toolName\":\"event.item.item.toolName\",\"toolInput\":\"event.item.item.toolInput\",\"toolTitle\":\"event.item.item.toolTitle\",\"toolInputJson\":\"event.item.item.toolInputJson\",\"toolResult\":\"event.item.item.toolResult\",\"toolEffects\":[{\"kind\":\"unknown\",\"key\":\"event.item.item.toolEffects[0].key\"}],\"toolUseId\":\"event.item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"event.item.item.tags[0].label\"}],\"toolPaths\":[\"event.item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"compaction\",\"durationMs\":5}}}}"
+      "encoded": "{\"type\":\"runtimeFineEvent\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"event.item.item.id\",\"cursor\":\"event.item.item.cursor\",\"role\":\"system\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"event.item.item.harnessRef[0].kind\",\"id\":\"event.item.item.harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"event.item.item.ts\",\"text\":\"event.item.item.text\",\"toolName\":\"event.item.item.toolName\",\"toolInput\":\"event.item.item.toolInput\",\"toolTitle\":\"event.item.item.toolTitle\",\"toolInputJson\":\"event.item.item.toolInputJson\",\"toolResult\":\"event.item.item.toolResult\",\"toolEffects\":[{\"kind\":\"unknown\",\"key\":\"event.item.item.toolEffects[0].key\"}],\"toolUseId\":\"event.item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"event.item.item.tags[0].label\"}],\"toolPaths\":[\"event.item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"tool-summary\",\"summarizes\":[\"event.item.item.summarizes[0]\"],\"compaction\":{\"trigger\":\"event.item.item.compaction.trigger\",\"preTokens\":5,\"postTokens\":5,\"idle\":true,\"notice\":\"event.item.item.compaction.notice\"},\"durationMs\":5}}}}"
     },
     {
       "schema": "RuntimeHistoryPage",
@@ -4153,6 +4266,14 @@
             "event": "interrupt",
             "answer": true,
             "systemKind": "recap",
+            "summarizes": ["items[0].summarizes[0]"],
+            "compaction": {
+              "trigger": "items[0].compaction.trigger",
+              "preTokens": 1,
+              "postTokens": 1,
+              "idle": true,
+              "notice": "items[0].compaction.notice"
+            },
             "durationMs": 1
           }
         ],
@@ -4183,7 +4304,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"user\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"file-edit\",\"edit\":{\"kind\":\"file-edit\",\"path\":\"items[0].toolEffects[0].edit.path\",\"mode\":\"replace\",\"hunks\":[{\"path\":\"items[0].toolEffects[0].edit.hunks[0].path\",\"oldText\":\"items[0].toolEffects[0].edit.hunks[0].oldText\",\"newText\":\"items[0].toolEffects[0].edit.hunks[0].newText\"}],\"patch\":\"items[0].toolEffects[0].edit.patch\",\"added\":1,\"removed\":1,\"changedFileCount\":1,\"moreFiles\":1,\"unavailable\":true,\"truncated\":true},\"userModified\":true}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"image\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"recap\",\"durationMs\":1}],\"head\":{\"segmentId\":\"head.segmentId\",\"predecessorSegmentId\":\"head.predecessorSegmentId\",\"pathHint\":\"head.pathHint\",\"device\":\"head.device\",\"inode\":\"head.inode\",\"integrity\":\"head.integrity\",\"components\":{\"head.components.key\":1}},\"tail\":{\"segmentId\":\"tail.segmentId\",\"predecessorSegmentId\":\"tail.predecessorSegmentId\",\"pathHint\":\"tail.pathHint\",\"device\":\"tail.device\",\"inode\":\"tail.inode\",\"integrity\":\"tail.integrity\",\"components\":{\"tail.components.key\":1}},\"hasMore\":true}"
+      "encoded": "{\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"user\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"file-edit\",\"edit\":{\"kind\":\"file-edit\",\"path\":\"items[0].toolEffects[0].edit.path\",\"mode\":\"replace\",\"hunks\":[{\"path\":\"items[0].toolEffects[0].edit.hunks[0].path\",\"oldText\":\"items[0].toolEffects[0].edit.hunks[0].oldText\",\"newText\":\"items[0].toolEffects[0].edit.hunks[0].newText\"}],\"patch\":\"items[0].toolEffects[0].edit.patch\",\"added\":1,\"removed\":1,\"changedFileCount\":1,\"moreFiles\":1,\"unavailable\":true,\"truncated\":true},\"userModified\":true}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"image\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"recap\",\"summarizes\":[\"items[0].summarizes[0]\"],\"compaction\":{\"trigger\":\"items[0].compaction.trigger\",\"preTokens\":1,\"postTokens\":1,\"idle\":true,\"notice\":\"items[0].compaction.notice\"},\"durationMs\":1}],\"head\":{\"segmentId\":\"head.segmentId\",\"predecessorSegmentId\":\"head.predecessorSegmentId\",\"pathHint\":\"head.pathHint\",\"device\":\"head.device\",\"inode\":\"head.inode\",\"integrity\":\"head.integrity\",\"components\":{\"head.components.key\":1}},\"tail\":{\"segmentId\":\"tail.segmentId\",\"predecessorSegmentId\":\"tail.predecessorSegmentId\",\"pathHint\":\"tail.pathHint\",\"device\":\"tail.device\",\"inode\":\"tail.inode\",\"integrity\":\"tail.integrity\",\"components\":{\"tail.components.key\":1}},\"hasMore\":true}"
     },
     {
       "schema": "RuntimeHistoryPage",
@@ -4237,6 +4358,14 @@
             "event": "interrupt",
             "answer": false,
             "systemKind": "duration",
+            "summarizes": ["items[0].summarizes[0]"],
+            "compaction": {
+              "trigger": "items[0].compaction.trigger",
+              "preTokens": 2,
+              "postTokens": 2,
+              "idle": false,
+              "notice": "items[0].compaction.notice"
+            },
             "durationMs": 2
           }
         ],
@@ -4267,7 +4396,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"assistant\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"git-operation\",\"operation\":{\"commit\":{\"sha\":\"items[0].toolEffects[0].operation.commit.sha\",\"kind\":\"items[0].toolEffects[0].operation.commit.kind\",\"branch\":\"items[0].toolEffects[0].operation.commit.branch\"},\"branch\":{\"ref\":\"items[0].toolEffects[0].operation.branch.ref\",\"action\":\"items[0].toolEffects[0].operation.branch.action\"}}}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"durationMs\":2}],\"head\":{\"segmentId\":\"head.segmentId\",\"predecessorSegmentId\":\"head.predecessorSegmentId\",\"pathHint\":\"head.pathHint\",\"device\":\"head.device\",\"inode\":\"head.inode\",\"integrity\":\"head.integrity\",\"components\":{\"head.components.key\":2}},\"tail\":{\"segmentId\":\"tail.segmentId\",\"predecessorSegmentId\":\"tail.predecessorSegmentId\",\"pathHint\":\"tail.pathHint\",\"device\":\"tail.device\",\"inode\":\"tail.inode\",\"integrity\":\"tail.integrity\",\"components\":{\"tail.components.key\":2}},\"hasMore\":false}"
+      "encoded": "{\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"assistant\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"git-operation\",\"operation\":{\"commit\":{\"sha\":\"items[0].toolEffects[0].operation.commit.sha\",\"kind\":\"items[0].toolEffects[0].operation.commit.kind\",\"branch\":\"items[0].toolEffects[0].operation.commit.branch\"},\"branch\":{\"ref\":\"items[0].toolEffects[0].operation.branch.ref\",\"action\":\"items[0].toolEffects[0].operation.branch.action\"}}}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"summarizes\":[\"items[0].summarizes[0]\"],\"compaction\":{\"trigger\":\"items[0].compaction.trigger\",\"preTokens\":2,\"postTokens\":2,\"idle\":false,\"notice\":\"items[0].compaction.notice\"},\"durationMs\":2}],\"head\":{\"segmentId\":\"head.segmentId\",\"predecessorSegmentId\":\"head.predecessorSegmentId\",\"pathHint\":\"head.pathHint\",\"device\":\"head.device\",\"inode\":\"head.inode\",\"integrity\":\"head.integrity\",\"components\":{\"head.components.key\":2}},\"tail\":{\"segmentId\":\"tail.segmentId\",\"predecessorSegmentId\":\"tail.predecessorSegmentId\",\"pathHint\":\"tail.pathHint\",\"device\":\"tail.device\",\"inode\":\"tail.inode\",\"integrity\":\"tail.integrity\",\"components\":{\"tail.components.key\":2}},\"hasMore\":false}"
     },
     {
       "schema": "RuntimeHistoryPage",
@@ -4311,6 +4440,14 @@
             "event": "interrupt",
             "answer": true,
             "systemKind": "compaction",
+            "summarizes": ["items[0].summarizes[0]"],
+            "compaction": {
+              "trigger": "items[0].compaction.trigger",
+              "preTokens": 3,
+              "postTokens": 3,
+              "idle": true,
+              "notice": "items[0].compaction.notice"
+            },
             "durationMs": 3
           }
         ],
@@ -4341,7 +4478,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"tool\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"background-task\",\"taskId\":\"items[0].toolEffects[0].taskId\"}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"compaction\",\"durationMs\":3}],\"head\":{\"segmentId\":\"head.segmentId\",\"predecessorSegmentId\":\"head.predecessorSegmentId\",\"pathHint\":\"head.pathHint\",\"device\":\"head.device\",\"inode\":\"head.inode\",\"integrity\":\"head.integrity\",\"components\":{\"head.components.key\":3}},\"tail\":{\"segmentId\":\"tail.segmentId\",\"predecessorSegmentId\":\"tail.predecessorSegmentId\",\"pathHint\":\"tail.pathHint\",\"device\":\"tail.device\",\"inode\":\"tail.inode\",\"integrity\":\"tail.integrity\",\"components\":{\"tail.components.key\":3}},\"hasMore\":true}"
+      "encoded": "{\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"tool\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"background-task\",\"taskId\":\"items[0].toolEffects[0].taskId\"}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"compaction\",\"summarizes\":[\"items[0].summarizes[0]\"],\"compaction\":{\"trigger\":\"items[0].compaction.trigger\",\"preTokens\":3,\"postTokens\":3,\"idle\":true,\"notice\":\"items[0].compaction.notice\"},\"durationMs\":3}],\"head\":{\"segmentId\":\"head.segmentId\",\"predecessorSegmentId\":\"head.predecessorSegmentId\",\"pathHint\":\"head.pathHint\",\"device\":\"head.device\",\"inode\":\"head.inode\",\"integrity\":\"head.integrity\",\"components\":{\"head.components.key\":3}},\"tail\":{\"segmentId\":\"tail.segmentId\",\"predecessorSegmentId\":\"tail.predecessorSegmentId\",\"pathHint\":\"tail.pathHint\",\"device\":\"tail.device\",\"inode\":\"tail.inode\",\"integrity\":\"tail.integrity\",\"components\":{\"tail.components.key\":3}},\"hasMore\":true}"
     },
     {
       "schema": "RuntimeHistoryPage",
@@ -4386,7 +4523,15 @@
             "toolPaths": ["items[0].toolPaths[0]"],
             "event": "interrupt",
             "answer": false,
-            "systemKind": "compaction",
+            "systemKind": "file-changed",
+            "summarizes": ["items[0].summarizes[0]"],
+            "compaction": {
+              "trigger": "items[0].compaction.trigger",
+              "preTokens": 4,
+              "postTokens": 4,
+              "idle": false,
+              "notice": "items[0].compaction.notice"
+            },
             "durationMs": 4
           }
         ],
@@ -4417,7 +4562,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"system\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"termination\",\"interrupted\":true,\"timedOutAfterMs\":4,\"interpretation\":\"items[0].toolEffects[0].interpretation\"}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"compaction\",\"durationMs\":4}],\"head\":{\"segmentId\":\"head.segmentId\",\"predecessorSegmentId\":\"head.predecessorSegmentId\",\"pathHint\":\"head.pathHint\",\"device\":\"head.device\",\"inode\":\"head.inode\",\"integrity\":\"head.integrity\",\"components\":{\"head.components.key\":4}},\"tail\":{\"segmentId\":\"tail.segmentId\",\"predecessorSegmentId\":\"tail.predecessorSegmentId\",\"pathHint\":\"tail.pathHint\",\"device\":\"tail.device\",\"inode\":\"tail.inode\",\"integrity\":\"tail.integrity\",\"components\":{\"tail.components.key\":4}},\"hasMore\":false}"
+      "encoded": "{\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"system\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"termination\",\"interrupted\":true,\"timedOutAfterMs\":4,\"interpretation\":\"items[0].toolEffects[0].interpretation\"}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"file-changed\",\"summarizes\":[\"items[0].summarizes[0]\"],\"compaction\":{\"trigger\":\"items[0].compaction.trigger\",\"preTokens\":4,\"postTokens\":4,\"idle\":false,\"notice\":\"items[0].compaction.notice\"},\"durationMs\":4}],\"head\":{\"segmentId\":\"head.segmentId\",\"predecessorSegmentId\":\"head.predecessorSegmentId\",\"pathHint\":\"head.pathHint\",\"device\":\"head.device\",\"inode\":\"head.inode\",\"integrity\":\"head.integrity\",\"components\":{\"head.components.key\":4}},\"tail\":{\"segmentId\":\"tail.segmentId\",\"predecessorSegmentId\":\"tail.predecessorSegmentId\",\"pathHint\":\"tail.pathHint\",\"device\":\"tail.device\",\"inode\":\"tail.inode\",\"integrity\":\"tail.integrity\",\"components\":{\"tail.components.key\":4}},\"hasMore\":false}"
     },
     {
       "schema": "RuntimeHistoryPage",
@@ -4460,7 +4605,15 @@
             "toolPaths": ["items[0].toolPaths[0]"],
             "event": "interrupt",
             "answer": true,
-            "systemKind": "compaction",
+            "systemKind": "tool-summary",
+            "summarizes": ["items[0].summarizes[0]"],
+            "compaction": {
+              "trigger": "items[0].compaction.trigger",
+              "preTokens": 5,
+              "postTokens": 5,
+              "idle": true,
+              "notice": "items[0].compaction.notice"
+            },
             "durationMs": 5
           }
         ],
@@ -4491,7 +4644,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"system\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"unknown\",\"key\":\"items[0].toolEffects[0].key\"}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"compaction\",\"durationMs\":5}],\"head\":{\"segmentId\":\"head.segmentId\",\"predecessorSegmentId\":\"head.predecessorSegmentId\",\"pathHint\":\"head.pathHint\",\"device\":\"head.device\",\"inode\":\"head.inode\",\"integrity\":\"head.integrity\",\"components\":{\"head.components.key\":5}},\"tail\":{\"segmentId\":\"tail.segmentId\",\"predecessorSegmentId\":\"tail.predecessorSegmentId\",\"pathHint\":\"tail.pathHint\",\"device\":\"tail.device\",\"inode\":\"tail.inode\",\"integrity\":\"tail.integrity\",\"components\":{\"tail.components.key\":5}},\"hasMore\":true}"
+      "encoded": "{\"items\":[{\"id\":\"items[0].id\",\"cursor\":\"items[0].cursor\",\"role\":\"system\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"items[0].harnessRef[0].kind\",\"id\":\"items[0].harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"items[0].ts\",\"text\":\"items[0].text\",\"toolName\":\"items[0].toolName\",\"toolInput\":\"items[0].toolInput\",\"toolTitle\":\"items[0].toolTitle\",\"toolInputJson\":\"items[0].toolInputJson\",\"toolResult\":\"items[0].toolResult\",\"toolEffects\":[{\"kind\":\"unknown\",\"key\":\"items[0].toolEffects[0].key\"}],\"toolUseId\":\"items[0].toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"items[0].tags[0].label\"}],\"toolPaths\":[\"items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"tool-summary\",\"summarizes\":[\"items[0].summarizes[0]\"],\"compaction\":{\"trigger\":\"items[0].compaction.trigger\",\"preTokens\":5,\"postTokens\":5,\"idle\":true,\"notice\":\"items[0].compaction.notice\"},\"durationMs\":5}],\"head\":{\"segmentId\":\"head.segmentId\",\"predecessorSegmentId\":\"head.predecessorSegmentId\",\"pathHint\":\"head.pathHint\",\"device\":\"head.device\",\"inode\":\"head.inode\",\"integrity\":\"head.integrity\",\"components\":{\"head.components.key\":5}},\"tail\":{\"segmentId\":\"tail.segmentId\",\"predecessorSegmentId\":\"tail.predecessorSegmentId\",\"pathHint\":\"tail.pathHint\",\"device\":\"tail.device\",\"inode\":\"tail.inode\",\"integrity\":\"tail.integrity\",\"components\":{\"tail.components.key\":5}},\"hasMore\":true}"
     },
     {
       "schema": "RuntimeHistoryRange",
@@ -4660,6 +4813,14 @@
                 "event": "interrupt",
                 "answer": true,
                 "systemKind": "recap",
+                "summarizes": ["result.page.items[0].summarizes[0]"],
+                "compaction": {
+                  "trigger": "result.page.items[0].compaction.trigger",
+                  "preTokens": 1,
+                  "postTokens": 1,
+                  "idle": true,
+                  "notice": "result.page.items[0].compaction.notice"
+                },
                 "durationMs": 1
               }
             ],
@@ -4692,7 +4853,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeHistoryResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"page\":{\"items\":[{\"id\":\"result.page.items[0].id\",\"cursor\":\"result.page.items[0].cursor\",\"role\":\"user\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"result.page.items[0].harnessRef[0].kind\",\"id\":\"result.page.items[0].harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"result.page.items[0].ts\",\"text\":\"result.page.items[0].text\",\"toolName\":\"result.page.items[0].toolName\",\"toolInput\":\"result.page.items[0].toolInput\",\"toolTitle\":\"result.page.items[0].toolTitle\",\"toolInputJson\":\"result.page.items[0].toolInputJson\",\"toolResult\":\"result.page.items[0].toolResult\",\"toolEffects\":[{\"kind\":\"file-edit\",\"edit\":{\"kind\":\"file-edit\",\"path\":\"result.page.items[0].toolEffects[0].edit.path\",\"mode\":\"replace\",\"hunks\":[{\"path\":\"result.page.items[0].toolEffects[0].edit.hunks[0].path\",\"oldText\":\"result.page.items[0].toolEffects[0].edit.hunks[0].oldText\",\"newText\":\"result.page.items[0].toolEffects[0].edit.hunks[0].newText\"}],\"patch\":\"result.page.items[0].toolEffects[0].edit.patch\",\"added\":1,\"removed\":1,\"changedFileCount\":1,\"moreFiles\":1,\"unavailable\":true,\"truncated\":true},\"userModified\":true}],\"toolUseId\":\"result.page.items[0].toolUseId\",\"tags\":[{\"kind\":\"image\",\"label\":\"result.page.items[0].tags[0].label\"}],\"toolPaths\":[\"result.page.items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"recap\",\"durationMs\":1}],\"head\":{\"segmentId\":\"result.page.head.segmentId\",\"predecessorSegmentId\":\"result.page.head.predecessorSegmentId\",\"pathHint\":\"result.page.head.pathHint\",\"device\":\"result.page.head.device\",\"inode\":\"result.page.head.inode\",\"integrity\":\"result.page.head.integrity\",\"components\":{\"result.page.head.components.key\":1}},\"tail\":{\"segmentId\":\"result.page.tail.segmentId\",\"predecessorSegmentId\":\"result.page.tail.predecessorSegmentId\",\"pathHint\":\"result.page.tail.pathHint\",\"device\":\"result.page.tail.device\",\"inode\":\"result.page.tail.inode\",\"integrity\":\"result.page.tail.integrity\",\"components\":{\"result.page.tail.components.key\":1}},\"hasMore\":true}}}"
+      "encoded": "{\"type\":\"runtimeHistoryResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"page\":{\"items\":[{\"id\":\"result.page.items[0].id\",\"cursor\":\"result.page.items[0].cursor\",\"role\":\"user\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"result.page.items[0].harnessRef[0].kind\",\"id\":\"result.page.items[0].harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"result.page.items[0].ts\",\"text\":\"result.page.items[0].text\",\"toolName\":\"result.page.items[0].toolName\",\"toolInput\":\"result.page.items[0].toolInput\",\"toolTitle\":\"result.page.items[0].toolTitle\",\"toolInputJson\":\"result.page.items[0].toolInputJson\",\"toolResult\":\"result.page.items[0].toolResult\",\"toolEffects\":[{\"kind\":\"file-edit\",\"edit\":{\"kind\":\"file-edit\",\"path\":\"result.page.items[0].toolEffects[0].edit.path\",\"mode\":\"replace\",\"hunks\":[{\"path\":\"result.page.items[0].toolEffects[0].edit.hunks[0].path\",\"oldText\":\"result.page.items[0].toolEffects[0].edit.hunks[0].oldText\",\"newText\":\"result.page.items[0].toolEffects[0].edit.hunks[0].newText\"}],\"patch\":\"result.page.items[0].toolEffects[0].edit.patch\",\"added\":1,\"removed\":1,\"changedFileCount\":1,\"moreFiles\":1,\"unavailable\":true,\"truncated\":true},\"userModified\":true}],\"toolUseId\":\"result.page.items[0].toolUseId\",\"tags\":[{\"kind\":\"image\",\"label\":\"result.page.items[0].tags[0].label\"}],\"toolPaths\":[\"result.page.items[0].toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"recap\",\"summarizes\":[\"result.page.items[0].summarizes[0]\"],\"compaction\":{\"trigger\":\"result.page.items[0].compaction.trigger\",\"preTokens\":1,\"postTokens\":1,\"idle\":true,\"notice\":\"result.page.items[0].compaction.notice\"},\"durationMs\":1}],\"head\":{\"segmentId\":\"result.page.head.segmentId\",\"predecessorSegmentId\":\"result.page.head.predecessorSegmentId\",\"pathHint\":\"result.page.head.pathHint\",\"device\":\"result.page.head.device\",\"inode\":\"result.page.head.inode\",\"integrity\":\"result.page.head.integrity\",\"components\":{\"result.page.head.components.key\":1}},\"tail\":{\"segmentId\":\"result.page.tail.segmentId\",\"predecessorSegmentId\":\"result.page.tail.predecessorSegmentId\",\"pathHint\":\"result.page.tail.pathHint\",\"device\":\"result.page.tail.device\",\"inode\":\"result.page.tail.inode\",\"integrity\":\"result.page.tail.integrity\",\"components\":{\"result.page.tail.components.key\":1}},\"hasMore\":true}}}"
     },
     {
       "schema": "RuntimeHistoryResultMessage",
@@ -5115,13 +5276,14 @@
         "source": {
           "dataBase64": "source.dataBase64",
           "filename": "source.filename",
-          "mediaType": "source.mediaType"
+          "mediaType": "source.mediaType",
+          "id": "00000000-0000-4000-8000-000000000000"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeStageAttachmentRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"source\":{\"dataBase64\":\"source.dataBase64\",\"filename\":\"source.filename\",\"mediaType\":\"source.mediaType\"}}"
+      "encoded": "{\"type\":\"runtimeStageAttachmentRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"source\":{\"dataBase64\":\"source.dataBase64\",\"filename\":\"source.filename\",\"mediaType\":\"source.mediaType\",\"id\":\"00000000-0000-4000-8000-000000000000\"}}"
     },
     {
       "schema": "RuntimeMessage",
@@ -5768,13 +5930,14 @@
         "source": {
           "dataBase64": "source.dataBase64",
           "filename": "source.filename",
-          "mediaType": "source.mediaType"
+          "mediaType": "source.mediaType",
+          "id": "00000000-0000-4000-8000-000000000000"
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"runtimeStageAttachmentRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"source\":{\"dataBase64\":\"source.dataBase64\",\"filename\":\"source.filename\",\"mediaType\":\"source.mediaType\"}}"
+      "encoded": "{\"type\":\"runtimeStageAttachmentRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"source\":{\"dataBase64\":\"source.dataBase64\",\"filename\":\"source.filename\",\"mediaType\":\"source.mediaType\",\"id\":\"00000000-0000-4000-8000-000000000000\"}}"
     },
     {
       "schema": "RuntimeStageAttachmentResultMessage",
@@ -6763,6 +6926,36 @@
       "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"terminal\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":6},\"bindingVersion\":6},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":6}},\"observerGeneration\":6,\"turnEpoch\":6,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"recovery\",\"payload\":{\"v\":1,\"reason\":\"unknown\",\"prompt\":\"interactions[0].payload.prompt\",\"offered\":[\"abandon\"]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"draft\":\"draft\",\"title\":\"title\",\"metadata\":[{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"metadata[0].cursor.segmentId\",\"predecessorSegmentId\":\"metadata[0].cursor.predecessorSegmentId\",\"pathHint\":\"metadata[0].cursor.pathHint\",\"device\":\"metadata[0].cursor.device\",\"inode\":\"metadata[0].cursor.inode\",\"integrity\":\"metadata[0].cursor.integrity\",\"components\":{\"metadata[0].cursor.components.key\":6}},\"observerGeneration\":6,\"turnEpoch\":6,\"t\":\"metadata\",\"change\":{\"kind\":\"context\",\"source\":\"transcript\",\"percent\":6}}],\"at\":\"2026-01-02T03:04:05.000Z\"}"
     },
     {
+      "schema": "StagedAttachmentRef",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "path": "path",
+        "filename": "filename",
+        "mediaType": "mediaType",
+        "kind": "image"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"path\":\"path\",\"filename\":\"filename\",\"mediaType\":\"mediaType\",\"kind\":\"image\"}"
+    },
+    {
+      "schema": "StagedAttachmentRef",
+      "variant": "full",
+      "wire": {
+        "id": "id",
+        "path": "path",
+        "filename": "filename",
+        "mediaType": "mediaType",
+        "kind": "image"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"path\":\"path\",\"filename\":\"filename\",\"mediaType\":\"mediaType\",\"kind\":\"image\"}"
+    },
+    {
       "schema": "TranscriptItemDelta",
       "variant": "minimal",
       "wire": {
@@ -6839,13 +7032,21 @@
           "event": "interrupt",
           "answer": true,
           "systemKind": "recap",
+          "summarizes": ["item.summarizes[0]"],
+          "compaction": {
+            "trigger": "item.compaction.trigger",
+            "preTokens": 1,
+            "postTokens": 1,
+            "idle": true,
+            "notice": "item.compaction.notice"
+          },
           "durationMs": 1
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"kind\":\"complete\",\"item\":{\"id\":\"item.id\",\"cursor\":\"item.cursor\",\"role\":\"user\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"item.harnessRef[0].kind\",\"id\":\"item.harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"item.ts\",\"text\":\"item.text\",\"toolName\":\"item.toolName\",\"toolInput\":\"item.toolInput\",\"toolTitle\":\"item.toolTitle\",\"toolInputJson\":\"item.toolInputJson\",\"toolResult\":\"item.toolResult\",\"toolEffects\":[{\"kind\":\"file-edit\",\"edit\":{\"kind\":\"file-edit\",\"path\":\"item.toolEffects[0].edit.path\",\"mode\":\"replace\",\"hunks\":[{\"path\":\"item.toolEffects[0].edit.hunks[0].path\",\"oldText\":\"item.toolEffects[0].edit.hunks[0].oldText\",\"newText\":\"item.toolEffects[0].edit.hunks[0].newText\"}],\"patch\":\"item.toolEffects[0].edit.patch\",\"added\":1,\"removed\":1,\"changedFileCount\":1,\"moreFiles\":1,\"unavailable\":true,\"truncated\":true},\"userModified\":true}],\"toolUseId\":\"item.toolUseId\",\"tags\":[{\"kind\":\"image\",\"label\":\"item.tags[0].label\"}],\"toolPaths\":[\"item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"recap\",\"durationMs\":1}}"
+      "encoded": "{\"kind\":\"complete\",\"item\":{\"id\":\"item.id\",\"cursor\":\"item.cursor\",\"role\":\"user\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"item.harnessRef[0].kind\",\"id\":\"item.harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"item.ts\",\"text\":\"item.text\",\"toolName\":\"item.toolName\",\"toolInput\":\"item.toolInput\",\"toolTitle\":\"item.toolTitle\",\"toolInputJson\":\"item.toolInputJson\",\"toolResult\":\"item.toolResult\",\"toolEffects\":[{\"kind\":\"file-edit\",\"edit\":{\"kind\":\"file-edit\",\"path\":\"item.toolEffects[0].edit.path\",\"mode\":\"replace\",\"hunks\":[{\"path\":\"item.toolEffects[0].edit.hunks[0].path\",\"oldText\":\"item.toolEffects[0].edit.hunks[0].oldText\",\"newText\":\"item.toolEffects[0].edit.hunks[0].newText\"}],\"patch\":\"item.toolEffects[0].edit.patch\",\"added\":1,\"removed\":1,\"changedFileCount\":1,\"moreFiles\":1,\"unavailable\":true,\"truncated\":true},\"userModified\":true}],\"toolUseId\":\"item.toolUseId\",\"tags\":[{\"kind\":\"image\",\"label\":\"item.tags[0].label\"}],\"toolPaths\":[\"item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"recap\",\"summarizes\":[\"item.summarizes[0]\"],\"compaction\":{\"trigger\":\"item.compaction.trigger\",\"preTokens\":1,\"postTokens\":1,\"idle\":true,\"notice\":\"item.compaction.notice\"},\"durationMs\":1}}"
     },
     {
       "schema": "TranscriptItemDelta",
@@ -6902,13 +7103,21 @@
           "event": "interrupt",
           "answer": true,
           "systemKind": "compaction",
+          "summarizes": ["item.summarizes[0]"],
+          "compaction": {
+            "trigger": "item.compaction.trigger",
+            "preTokens": 3,
+            "postTokens": 3,
+            "idle": true,
+            "notice": "item.compaction.notice"
+          },
           "durationMs": 3
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"kind\":\"partial\",\"item\":{\"id\":\"item.id\",\"cursor\":\"item.cursor\",\"role\":\"tool\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"item.harnessRef[0].kind\",\"id\":\"item.harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"item.ts\",\"text\":\"item.text\",\"toolName\":\"item.toolName\",\"toolInput\":\"item.toolInput\",\"toolTitle\":\"item.toolTitle\",\"toolInputJson\":\"item.toolInputJson\",\"toolResult\":\"item.toolResult\",\"toolEffects\":[{\"kind\":\"background-task\",\"taskId\":\"item.toolEffects[0].taskId\"}],\"toolUseId\":\"item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.tags[0].label\"}],\"toolPaths\":[\"item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"compaction\",\"durationMs\":3}}"
+      "encoded": "{\"kind\":\"partial\",\"item\":{\"id\":\"item.id\",\"cursor\":\"item.cursor\",\"role\":\"tool\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"item.harnessRef[0].kind\",\"id\":\"item.harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"item.ts\",\"text\":\"item.text\",\"toolName\":\"item.toolName\",\"toolInput\":\"item.toolInput\",\"toolTitle\":\"item.toolTitle\",\"toolInputJson\":\"item.toolInputJson\",\"toolResult\":\"item.toolResult\",\"toolEffects\":[{\"kind\":\"background-task\",\"taskId\":\"item.toolEffects[0].taskId\"}],\"toolUseId\":\"item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.tags[0].label\"}],\"toolPaths\":[\"item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"compaction\",\"summarizes\":[\"item.summarizes[0]\"],\"compaction\":{\"trigger\":\"item.compaction.trigger\",\"preTokens\":3,\"postTokens\":3,\"idle\":true,\"notice\":\"item.compaction.notice\"},\"durationMs\":3}}"
     },
     {
       "schema": "TranscriptItemDelta",
@@ -6953,14 +7162,22 @@
           "toolPaths": ["item.toolPaths[0]"],
           "event": "interrupt",
           "answer": false,
-          "systemKind": "compaction",
+          "systemKind": "file-changed",
+          "summarizes": ["item.summarizes[0]"],
+          "compaction": {
+            "trigger": "item.compaction.trigger",
+            "preTokens": 4,
+            "postTokens": 4,
+            "idle": false,
+            "notice": "item.compaction.notice"
+          },
           "durationMs": 4
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"kind\":\"partial\",\"item\":{\"id\":\"item.id\",\"cursor\":\"item.cursor\",\"role\":\"system\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"item.harnessRef[0].kind\",\"id\":\"item.harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"item.ts\",\"text\":\"item.text\",\"toolName\":\"item.toolName\",\"toolInput\":\"item.toolInput\",\"toolTitle\":\"item.toolTitle\",\"toolInputJson\":\"item.toolInputJson\",\"toolResult\":\"item.toolResult\",\"toolEffects\":[{\"kind\":\"termination\",\"interrupted\":true,\"timedOutAfterMs\":4,\"interpretation\":\"item.toolEffects[0].interpretation\"}],\"toolUseId\":\"item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.tags[0].label\"}],\"toolPaths\":[\"item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"compaction\",\"durationMs\":4}}"
+      "encoded": "{\"kind\":\"partial\",\"item\":{\"id\":\"item.id\",\"cursor\":\"item.cursor\",\"role\":\"system\",\"promptEntry\":false,\"harnessRef\":[{\"kind\":\"item.harnessRef[0].kind\",\"id\":\"item.harnessRef[0].id\"}],\"queued\":false,\"dropped\":false,\"ts\":\"item.ts\",\"text\":\"item.text\",\"toolName\":\"item.toolName\",\"toolInput\":\"item.toolInput\",\"toolTitle\":\"item.toolTitle\",\"toolInputJson\":\"item.toolInputJson\",\"toolResult\":\"item.toolResult\",\"toolEffects\":[{\"kind\":\"termination\",\"interrupted\":true,\"timedOutAfterMs\":4,\"interpretation\":\"item.toolEffects[0].interpretation\"}],\"toolUseId\":\"item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.tags[0].label\"}],\"toolPaths\":[\"item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"file-changed\",\"summarizes\":[\"item.summarizes[0]\"],\"compaction\":{\"trigger\":\"item.compaction.trigger\",\"preTokens\":4,\"postTokens\":4,\"idle\":false,\"notice\":\"item.compaction.notice\"},\"durationMs\":4}}"
     },
     {
       "schema": "TranscriptItemDelta",
@@ -7003,14 +7220,22 @@
           "toolPaths": ["item.toolPaths[0]"],
           "event": "interrupt",
           "answer": true,
-          "systemKind": "compaction",
+          "systemKind": "tool-summary",
+          "summarizes": ["item.summarizes[0]"],
+          "compaction": {
+            "trigger": "item.compaction.trigger",
+            "preTokens": 5,
+            "postTokens": 5,
+            "idle": true,
+            "notice": "item.compaction.notice"
+          },
           "durationMs": 5
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"kind\":\"partial\",\"item\":{\"id\":\"item.id\",\"cursor\":\"item.cursor\",\"role\":\"system\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"item.harnessRef[0].kind\",\"id\":\"item.harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"item.ts\",\"text\":\"item.text\",\"toolName\":\"item.toolName\",\"toolInput\":\"item.toolInput\",\"toolTitle\":\"item.toolTitle\",\"toolInputJson\":\"item.toolInputJson\",\"toolResult\":\"item.toolResult\",\"toolEffects\":[{\"kind\":\"unknown\",\"key\":\"item.toolEffects[0].key\"}],\"toolUseId\":\"item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.tags[0].label\"}],\"toolPaths\":[\"item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"compaction\",\"durationMs\":5}}"
+      "encoded": "{\"kind\":\"partial\",\"item\":{\"id\":\"item.id\",\"cursor\":\"item.cursor\",\"role\":\"system\",\"promptEntry\":true,\"harnessRef\":[{\"kind\":\"item.harnessRef[0].kind\",\"id\":\"item.harnessRef[0].id\"}],\"queued\":true,\"dropped\":true,\"ts\":\"item.ts\",\"text\":\"item.text\",\"toolName\":\"item.toolName\",\"toolInput\":\"item.toolInput\",\"toolTitle\":\"item.toolTitle\",\"toolInputJson\":\"item.toolInputJson\",\"toolResult\":\"item.toolResult\",\"toolEffects\":[{\"kind\":\"unknown\",\"key\":\"item.toolEffects[0].key\"}],\"toolUseId\":\"item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.tags[0].label\"}],\"toolPaths\":[\"item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"tool-summary\",\"summarizes\":[\"item.summarizes[0]\"],\"compaction\":{\"trigger\":\"item.compaction.trigger\",\"preTokens\":5,\"postTokens\":5,\"idle\":true,\"notice\":\"item.compaction.notice\"},\"durationMs\":5}}"
     },
     {
       "schema": "TurnDelivery",
