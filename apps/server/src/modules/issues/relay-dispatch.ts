@@ -1,5 +1,4 @@
 import { commandAccess } from './command-ctx'
-import { seatRefusal } from './service/seat'
 /**
  * THE AGENT-RELAY DISPATCH ARM (POD-418).
  *
@@ -8,8 +7,8 @@ import { seatRefusal } from './service/seat'
  * declared and whose doc comment already called this "the dispatch arm in the
  * composition root". It is the last surface an agent's `podium <verb>` crosses
  * before it reaches a service, and it is emphatically not wiring: it routes
- * router/proc pairs, hand-validates the two inputs that have no contract
- * (`offer.set`, `sessions.title`), applies the scope gates that the allowlist in
+ * router/proc pairs, hand-validates the input that has no contract
+ * (`sessions.title`; `offer.set` has one since POD-6419), applies the scope gates that the allowlist in
  * `relay-gate.ts` deliberately leaves to it, and stitches the issue-prime tail.
  *
  * WHY IT WAS A SECOND JOB. The root's argument is that it decides nothing and
@@ -42,7 +41,7 @@ import {
   type SessionMeta,
   spawnedByParentSessionId,
 } from '@podium/model'
-import { bareSelfRefCount, SyncSubmitInput, selfRefNudge, sessionTitleRule } from '@podium/protocol'
+import { SyncSubmitInput, sessionTitleRule } from '@podium/protocol'
 import { resolvePrincipalAsync } from '../../command-principal'
 import type { getFeatureStates, isFeatureEnabled } from '../../features'
 import { type Capability, checkIssueAccess } from '../../issue-authz'
@@ -332,113 +331,18 @@ export function makeAgentRelayDispatch(
         })
       })()
     }
-    // Agent action offer [spec:SP-c7f1]: `podium offer` set/clear. Like
-    // sessions.title, the target is ALWAYS the CALLING session (bound from
-    // the capability, never from input), so no scope gate is needed — a
-    // session is always within its own scope.
+    // Agent action offer [spec:SP-c7f1]: `podium offer` set/clear, a sync write
+    // on the calling session (`sessions/offer-sync-write.ts`, POD-6419).
+    // LEGACY(remove-after: 2027-03): this arm is an older CLI's `podium offer`,
+    // as an adapter onto `submit`; the current CLI sends `sync.submit` itself.
+    // Removing it breaks that CLI's offers against this server.
     if (router === 'offer') {
-      const actorSessionId = capability.actorSessionId
-      if (!actorSessionId) {
-        throw new Error('offer is only callable by a session (no actor bound)')
-      }
-      if (proc === 'clear') {
-        await sessionsSvc.clearOffer(actorSessionId)
-        return await Promise.resolve({ ok: true, cleared: true })
-      }
-      if (proc === 'set') {
-        // D5 (POD-6108): only a session with no coordinator above it may put a
-        // decision in front of the user; every other session asks its coordinator.
-        const seat = await issues.reports.seatFor(actorSessionId)
-        if (seat.kind === 'below') throw new Error(seatRefusal(seat, '`podium offer`'))
-        const raw = (input ?? {}) as Record<string, unknown>
-        const message = typeof raw.message === 'string' ? raw.message.trim() : ''
-        if (!message || message.length > 4_000) {
-          throw new Error('message must contain 1..4000 characters')
-        }
-        if (!Array.isArray(raw.actions)) {
-          throw new Error('actions must be an array')
-        }
-        if (raw.actions.length > 6) {
-          throw new Error('at most 6 actions are allowed')
-        }
-        const actions = raw.actions.map((a, i) => {
-          const rec = (a ?? {}) as Record<string, unknown>
-          const label = typeof rec.label === 'string' ? rec.label.trim() : ''
-          const prompt = typeof rec.prompt === 'string' ? rec.prompt.trim() : ''
-          if (!label || label.length > 80) {
-            throw new Error(`action ${i + 1}: label must contain 1..80 characters`)
-          }
-          if (!prompt || prompt.length > 4_000) {
-            throw new Error(`action ${i + 1}: prompt must contain 1..4000 characters`)
-          }
-          // Feedback-collecting action [spec:SP-c7f1]: the UI asks for
-          // freeform text before sending, appended to the prompt.
-          return rec.input === true ? { label, prompt, input: true } : { label, prompt }
-        })
-        // Issue-artifact references [POD-120]: bare paths, resolved by the
-        // client against the issue panel's artifact list — validated here
-        // only for shape (the artifact may legitimately not exist yet).
-        let artifacts: string[] | undefined
-        if (raw.artifacts !== undefined) {
-          if (!Array.isArray(raw.artifacts)) {
-            throw new Error('artifacts must be an array')
-          }
-          if (raw.artifacts.length > 6) {
-            throw new Error('at most 6 artifacts are allowed')
-          }
-          artifacts = raw.artifacts.map((p, i) => {
-            const path = typeof p === 'string' ? p.trim() : ''
-            if (!path || path.length > 512) {
-              throw new Error(`artifact ${i + 1}: path must contain 1..512 characters`)
-            }
-            return path
-          })
-        }
-        // The agent's OWN issue — explicit attachment first, else cwd
-        // containment (see `capabilityForSession`). Both the retirement guard
-        // and the self-reference nudge below are about that one issue.
-        const ownIssueId = capability.scope.kind === 'subtree' ? capability.scope.rootId : null
-        const ownRow = ownIssueId ? await issues.reports.getMeta(ownIssueId) : null
-        const ownRef = ownRow ? await issues.reports.niceRef(ownRow) : null
-        // RETIRE ON CLOSE, IN EITHER ORDER (POD-1072). `retireIssueOffers`
-        // sweeps standing offers when the issue closes, but the common shape is
-        // the reverse: an agent closes and THEN posts its closing offer, which
-        // the sweep has already run past. That offer then stands forever —
-        // finished work still demanding a decision, which is exactly what
-        // POD-290 set out to stop. Refusing to store it is that same
-        // retirement, applied to the one order the sweep cannot reach.
-        // ADVISORY, NOT AN ERROR: this lands at the very end of a long turn and
-        // a closing report must not fail over it, so the reason rides back on
-        // the result instead of throwing.
-        if (ownRow && (ownRow.stage === 'done' || ownRow.closedReason)) {
-          return await Promise.resolve({
-            ok: true,
-            retired: true,
-            notice:
-              `Offer not set: ${ownRef} is already closed, and a closed issue never asks for ` +
-              `a decision. Post the offer BEFORE closing — or, if this is a decision about ` +
-              `NEW work, file that work as its own issue and offer from there.`,
-          })
-        }
-        await sessionsSvc.setOffer({
-          sessionId: actorSessionId,
-          message,
-          actions,
-          ...(artifacts && artifacts.length > 0 ? { artifacts } : {}),
-        })
-        // Self-reference nudge (POD-389). The offer headline is the most-read
-        // sentence an agent writes, and ~1 in 4 named the agent's own issue in
-        // it. The rule ships in prime, but prime is injected once per session
-        // and the headline is written at the far end of a long one — so remind
-        // at the moment of the mistake instead. Advisory only: the offer is
-        // already set; the notice just rides back on the result.
-        const notice =
-          ownRef && bareSelfRefCount(message, ownRef) > 0
-            ? selfRefNudge(ownRef, 'offer message')
-            : undefined
-        return await Promise.resolve({ ok: true, ...(notice ? { notice } : {}) })
-      }
-      return NO_SUCH_PROCEDURE
+      if (proc !== 'set' && proc !== 'clear') return NO_SUCH_PROCEDURE
+      return await submitPlaneCommand(modules(), await relayPrincipal(), 'relay', {
+        command: `offer.${proc}`,
+        input: input ?? {},
+        confirmed: overrideScope === true,
+      })
     }
     if (router === 'sessions') {
       // Read toolkit tiers 1–2 (#237) [spec:SP-34d7 read-toolkit]: status is

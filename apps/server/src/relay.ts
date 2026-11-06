@@ -30,6 +30,7 @@ import {
   asUserId,
   firstAdminMemberId,
   machinePathsEqual,
+  mintDeviceId,
   spawnedByParentSessionId,
 } from '@podium/model'
 import type {
@@ -198,7 +199,10 @@ import {
   registerSessionInterruptEffect,
   type SessionInterruptsHandle,
 } from './modules/sessions/session-interrupt-effect'
-import { registerSessionLaunchEffect } from './modules/sessions/session-launch-effect'
+import {
+  registerSessionLaunchEffect,
+  SESSION_LAUNCH_KIND,
+} from './modules/sessions/session-launch-effect'
 import type { SnapshotTail } from './modules/sessions/session-lifecycle-types'
 import {
   bridgeConfigChanged,
@@ -3628,6 +3632,37 @@ export class SessionRegistry {
       registry: effectExecutors,
       now: this.now,
     })
+    /**
+     * Write one effect record, in the caller's unit of work when one is open:
+     * the kind's schema and deadline apply, and the trigger runs it after the
+     * commit (never for a rollback). For the server's own records and for a sync
+     * command whose handler asks for an effect as part of its write (a dock
+     * shell's start, POD-6419), attributed to whoever the caller names.
+     */
+    const createEffectInUnit = async (effect: {
+      readonly id: string
+      readonly kind: string
+      readonly target: EffectTarget
+      readonly input: unknown
+      readonly createdBy: UserId | null
+      readonly actor: string
+    }) => {
+      const executor = effectExecutors.get(effect.kind)
+      if (executor === undefined) throw new Error(`effects: no executor for ${effect.kind}`)
+      const now = this.now()
+      return await this.store.effects.insert(
+        {
+          id: effect.id,
+          kind: effect.kind,
+          target: effect.target,
+          input: executor.input.parse(effect.input),
+          deadlineAt: now + executor.deadlineMs,
+          createdBy: effect.createdBy,
+          actor: effect.actor,
+        },
+        now,
+      )
+    }
     const syncWrite = new SyncWriteEntry({
       registry: new SyncWriteRegistry(),
       mutations,
@@ -3643,13 +3678,37 @@ export class SessionRegistry {
       ledger,
     })
     // Server-owned dock-shell mapping (POD-4436): per user, per worktree →
-    // shell session, so the same dock shell opens on every device. Creation
-    // stays the normal shell spawn; the service only owns the mapping row.
+    // shell session, so the same dock shell opens on every device. Its write
+    // runs on the sync write entry point (POD-6419): the shell's start is a
+    // `session.launch` effect record created in that write, and the spawn runs
+    // after the commit. A mapped shell whose start is still pending or running
+    // is live: its row is born when the start succeeds.
     const dockShells = new DockShellService({
       dockShells: this.store.dockShells,
       sessions: {
-        sessionById: (sessionId) => sessionsSvc.sessionById(sessionId),
-        createShell: (input) => sessionsSvc.createSession({ agentKind: 'shell', ...input }),
+        sessionById: async (sessionId) => {
+          const view = await sessionsSvc.sessionById(sessionId)
+          if (view !== undefined) return view
+          const launch = await this.store.effects.newestOnTarget(
+            SESSION_LAUNCH_KIND,
+            { kind: 'session', id: sessionId },
+            'active',
+          )
+          return launch === undefined
+            ? undefined
+            : { sessionId, agentKind: 'shell', archived: false, status: 'starting' }
+        },
+        createShell: async ({ sessionId, cwd, ownerUserId, machineId, actor }) => {
+          await createEffectInUnit({
+            id: mintDeviceId('eff_'),
+            kind: SESSION_LAUNCH_KIND,
+            target: { kind: 'session', id: sessionId },
+            input: { agentKind: 'shell', cwd, ...(machineId ? { machineId } : {}) },
+            createdBy: ownerUserId,
+            actor: actor ?? ownerUserId,
+          })
+          return { sessionId }
+        },
         archiveSession: (sessionId) => sessionsSvc.state.setArchived(sessionId, true),
       },
     })
@@ -3920,23 +3979,12 @@ export class SessionRegistry {
           await awaitEffectSettled(this.store.effects, id, timeoutMs),
         newestOnTarget: async (kind, target, phase) =>
           await this.store.effects.newestOnTarget(kind, target, phase),
-        createAsSystem: async (effect) => {
-          const executor = effectExecutors.get(effect.kind)
-          if (executor === undefined) throw new Error(`effects: no executor for ${effect.kind}`)
-          const now = this.now()
-          return await this.store.effects.insert(
-            {
-              id: effect.id,
-              kind: effect.kind,
-              target: effect.target,
-              input: executor.input.parse(effect.input),
-              deadlineAt: now + executor.deadlineMs,
-              createdBy: null,
-              actor: attributionOf(systemPrincipal(effect.job)).actor,
-            },
-            now,
-          )
-        },
+        createAsSystem: async (effect) =>
+          await createEffectInUnit({
+            ...effect,
+            createdBy: null,
+            actor: attributionOf(systemPrincipal(effect.job)).actor,
+          }),
       },
       bus: this.bus,
       funnel,

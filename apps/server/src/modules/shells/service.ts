@@ -49,11 +49,18 @@ import type { UserDockShellRepository } from '../../store/user-layout'
 /** The session facts `forWorktree` needs — a narrow port, not the lifecycle. */
 export interface DockShellSessionPort {
   sessionById(sessionId: SessionId): Promise<DockShellSessionView | undefined>
+  /**
+   * Start the shell under `sessionId`. Since POD-6419 this asks for the start
+   * (a `session.launch` effect record, in the write's unit of work) rather than
+   * spawning: the session row is born under that id once the start runs, after
+   * the commit. `actor` is who asked, for the record's attribution.
+   */
   createShell(input: {
     sessionId: SessionId
     cwd: string
     ownerUserId: UserId
     machineId?: MachineId
+    actor?: string
   }): Promise<{ sessionId: SessionId }>
   archiveSession?(sessionId: SessionId): Promise<void>
 }
@@ -91,7 +98,7 @@ export class DockShellService {
   async forWorktree(
     userId: UserId,
     worktreePath: string,
-    opts: { machineId?: MachineId } = {},
+    opts: { machineId?: MachineId; actor?: string } = {},
   ): Promise<ForWorktreeResult> {
     const key = normalizeDockWorktreeKey(worktreePath)
     if (key === null) {
@@ -115,6 +122,7 @@ export class DockShellService {
             cwd: key,
             ownerUserId: userId,
             ...(opts.machineId ? { machineId: opts.machineId } : {}),
+            ...(opts.actor ? { actor: opts.actor } : {}),
           })
           await this.deps.dockShells.set(userId, key, replacement, this.nowIso())
           return { sessionId: replacement, created: true }
@@ -128,6 +136,7 @@ export class DockShellService {
               cwd: key,
               ownerUserId: userId,
               ...(opts.machineId ? { machineId: opts.machineId } : {}),
+              ...(opts.actor ? { actor: opts.actor } : {}),
             })
           } catch (error) {
             await this.deps.dockShells.removeBySession(claimed).catch(() => {})

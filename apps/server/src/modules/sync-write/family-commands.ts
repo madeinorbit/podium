@@ -12,6 +12,8 @@ import { AUTOMATION_SYNC_FAMILY } from '../automations/sync-write'
 import { CONVERSATION_SYNC_FAMILY } from '../conversations/sync-write'
 import { FLEET_SYNC_COMMANDS, type FleetSyncDeps, registerFleetCommands } from '../fleet/sync-write'
 import { READ_POSITION_SYNC_FAMILY } from '../read-position/sync-write'
+import { OFFER_SYNC_COMMANDS, registerOfferCommands } from '../sessions/offer-sync-write'
+import { registerShellCommands, SHELL_SYNC_COMMANDS } from '../shells/sync-write'
 import { registerSessionFamilyCommands } from '../sessions/sync-write'
 import { registerSettingsWrite } from '../settings/sync-write'
 import { SUPERAGENT_SYNC_FAMILY } from '../superagent/sync-write'
@@ -56,6 +58,10 @@ export const FAMILY_COMMAND_NAMES = [
   'superagent.ensureSession',
   'superagent.startBtw',
   'superagent.concierge',
+  // An agent's action offer, on its own session (POD-6419).
+  ...OFFER_SYNC_COMMANDS,
+  // The dock shell for a worktree; its start is an effect record (POD-6419).
+  ...SHELL_SYNC_COMMANDS,
 ] as const
 
 /** What the families need beyond the shared deps. */
@@ -77,5 +83,7 @@ export function registerFamilyCommands(registry: SyncWriteRegistry, deps: Family
     'settings.updateInstance',
   )
   registerSessionFamilyCommands(registry, deps)
+  registerOfferCommands(registry, deps)
+  registerShellCommands(registry, deps)
   registerFleetCommands(registry, { ...deps.fleet, modules: deps.modules, roleOf: deps.roleOf })
 }
