@@ -43,7 +43,12 @@ import {
 } from '../outbox'
 import { couldNotSaveNotice, sessionGoneNotice } from '../outbox-recovery-copy'
 import { type RecordRevisionChain, recordRevisionChainFor } from '../record-revisions'
-import { isRecordOutboxKind, recordWireCommands, recordWireInput } from '../records'
+import {
+  isRecordOutboxKind,
+  loadRecordDeclarations,
+  recordOutboxKindOfCommand,
+  recordWireInput,
+} from '../records'
 import { outboxOverlayPort } from '../replica-assembly/outbox-overlay'
 import { LEGACY_OUTBOX_COMMANDS, type LegacyOutboxKind } from './legacy-outbox-kinds'
 import {
@@ -119,18 +124,24 @@ const LEGACY_SERVER_RECHECK_MS = 10 * 60_000
  *  queued that still drains (LEGACY, `./legacy-outbox-kinds.ts`). */
 type KernelKind = keyof OutboxKinds | LegacyOutboxKind
 
-const kindByCommand = new Map<string, KernelKind>([
+const fixedKindByCommand = new Map<string, KernelKind>([
   ...Object.entries(OUTBOX_COMMANDS).map(
     ([kind, command]) => [command.name, kind as keyof OutboxKinds] as const,
   ),
-  // Every `records.<kind>.<op>` a generic record write is sent as (POD-6392).
-  ...recordWireCommands(),
   // LEGACY(remove-after: 2027-03): the retired plain-edit commands, so an
   // older build's queued read mark or snooze still drains (POD-6404).
   ...Object.entries(LEGACY_OUTBOX_COMMANDS).map(
     ([kind, command]) => [command.name, kind as LegacyOutboxKind] as const,
   ),
 ])
+
+/** The kernel kind one wire command is queued as. Every `records.<kind>.<op>`
+ *  a generic record write is sent as (POD-6392) comes from the declarations,
+ *  which the outbox's open has loaded (POD-6423). */
+const kindByCommand = {
+  get: (name: string): KernelKind | undefined =>
+    fixedKindByCommand.get(name) ?? recordOutboxKindOfCommand(name),
+}
 
 /** The chat sends, whose mutationId IS the message id the server stores and
  *  the daemon types under (POD-4763) — so it takes a message id's shape. */
@@ -675,6 +686,12 @@ export async function openKernelEngineOutbox(
   const noticedGone = new Set<string>()
   const answers: Answers = new Map()
   const legacy = { recheckAt: 0 }
+  // The record declarations load beside the queue (POD-6423): every queued
+  // record write is read, sent and painted through them, and nothing reaches
+  // this queue's records before both have opened.
+  const declarationsLoaded = loadRecordDeclarations()
+  // Awaited below; a queue that fails to open first must not leave it unhandled.
+  declarationsLoaded.catch(() => {})
   const kernel = await KernelOutbox.open({
     store: options.store,
     principal: options.principal,
@@ -759,6 +776,7 @@ export async function openKernelEngineOutbox(
       if (event.type === 'applied') confirmApplied(event.mutationId)
     },
   })
+  await declarationsLoaded
   /** Entries left the queue by confirmation: what waited behind them goes now
    *  (a retirement frees a partition but starts no drain, POD-6275). */
   const drainAfterRetire = (ids: readonly MutationId[]): void => {

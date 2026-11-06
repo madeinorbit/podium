@@ -23,12 +23,17 @@
  * names a kind (`recordOverlays`).
  */
 
-import { freshRow, wireCells } from '@podium/commands/records'
 import type { SessionMeta, SessionUserStateWire, WorkState } from '@podium/model'
 import { IssueProjection, IssueUserStateWire, UNSNOOZE_BACKDATE_MS } from '@podium/model'
 import type { OutboxKinds } from './engine/wiring'
 import type { OutboxEntry } from './outbox'
-import { isRecordOutboxKind, RECORD_HOMES, recordDeclaration, recordOpOf } from './records'
+import {
+  isRecordOutboxKind,
+  loadedRecordDeclarations,
+  RECORD_HOMES,
+  recordDeclaration,
+  recordOpOf,
+} from './records'
 
 /** The entities a per-row reader may paint from transactions (the pool's row
  *  source reads exactly these). Conversations carry no optimistic writes. */
@@ -477,6 +482,7 @@ function recordOverlays(entry: OutboxEntry, viewer: ReducerViewer): PendingOverl
   const home = RECORD_HOMES[input.kind]
   if (d === undefined || home === undefined || home === null) return []
   const row = home.row(input.id)
+  const { freshRow, wireCells } = loadedRecordDeclarations()
   switch (recordOpOf(entry.kind)) {
     case 'edit': {
       // A kind with a spec revision paints the revision this edit will make

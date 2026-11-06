@@ -306,11 +306,15 @@ export const sharedVitestConfig = {
     // The third one is POD-523's pre-migrated store fixture: ordinary apps/server
     // test files clone a current-schema database instead of replaying all 54
     // migrations. It is a setupFile because the decision is per test FILE and has to
-    // be made before the file is imported. No-op for every other package.
+    // be made before the file is imported. No-op for every other package. The
+    // fourth loads the client's record declarations (see that file).
     setupFiles: [
       './test-hermetic-env.ts',
       './test-hermetic-vitest-hooks.ts',
       './test-pre-migrated-store.ts',
+      // The client's record declarations, loaded as the outbox's open loads
+      // them in the app (POD-6423). No-op for server and daemon files.
+      './test-record-declarations.ts',
     ],
     // The other half of that fixture: build the schema image once per lane, in the
     // main process, so no fork ever loads the migration chain's module graph. An

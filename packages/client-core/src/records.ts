@@ -23,22 +23,16 @@
  * that is certain to snap back helps nobody.
  */
 
-import {
-  editNeedsRevision,
+import type * as Declarations from '@podium/commands/records'
+import type {
   ISSUE_RECORD,
   ISSUE_USER_STATE_RECORD,
-  type RecordField,
-  type RecordOp,
-  recordCommandName,
-  recordCreateInput,
-  recordEditInput,
-  recordRemoveInput,
+  RecordField,
+  RecordOp,
   SESSION_RECORD,
   SESSION_USER_STATE_RECORD,
-  type SyncedKindDeclaration,
-  specFields,
+  SyncedKindDeclaration,
   USER_LAYOUT_RECORD,
-  unsettableFields,
 } from '@podium/commands/records'
 import {
   type DeviceIdPrefix,
@@ -46,32 +40,98 @@ import {
   parseIssueUserStateRowId,
   parseSessionUserStateRowId,
 } from '@podium/model'
+import { isPendingIssueSeq, PENDING_ISSUE_SEQ } from '@podium/protocol'
 import type { z } from 'zod'
+
+/**
+ * THE DECLARATIONS LOAD WITH THE OUTBOX, NOT WITH THE PAGE (POD-6423).
+ *
+ * `@podium/commands/records` carries every kind's zod schemas and its command
+ * policy, which a client needs only once there is a record write to check,
+ * send or paint. There is none before the outbox is open: a queued write is
+ * read from it, and a new one is written into it. So the module is imported
+ * dynamically, and `openKernelEngineOutbox` awaits it beside the queue it
+ * opens. Every synchronous reader below runs after that; one that runs before
+ * it is a wiring bug, and throws saying so rather than painting nothing.
+ *
+ * The types are imported as types only, so they cost the page nothing.
+ */
+type RecordDeclarations = typeof Declarations
+
+let declarations: RecordDeclarations | undefined
+let loading: Promise<RecordDeclarations> | undefined
+
+/** Load the record declarations, once. A failed fetch can be retried. */
+export function loadRecordDeclarations(): Promise<RecordDeclarations> {
+  loading ??= import('@podium/commands/records').then(
+    (module) => {
+      declarations = module
+      return module
+    },
+    (error: unknown) => {
+      loading = undefined
+      throw error
+    },
+  )
+  return loading
+}
+
+/** Whether {@link loadRecordDeclarations} has finished. */
+export const recordDeclarationsLoaded = (): boolean => declarations !== undefined
+
+/** The loaded declarations. Throws when nothing has loaded them yet. */
+export function loadedRecordDeclarations(): RecordDeclarations {
+  if (declarations === undefined) {
+    throw new Error(
+      'record declarations are not loaded: openKernelEngineOutbox loads them, ' +
+        'or await loadRecordDeclarations() first',
+    )
+  }
+  return declarations
+}
 
 /** Whether an issue row's number is still the creating device's placeholder
  *  (POD-6400): a reader shows it as pending until the server's row lands. */
-export { issueSeqPending, PENDING_ISSUE_SEQ } from '@podium/commands/records'
+export { PENDING_ISSUE_SEQ }
+export const issueSeqPending = (row: { readonly seq: number }): boolean =>
+  isPendingIssueSeq(row.seq)
+
+/** Every kind that takes generic edits, by name, as a type. */
+interface RecordKindTable {
+  readonly issueProjection: typeof ISSUE_RECORD
+  readonly sessionUserState: typeof SESSION_USER_STATE_RECORD
+  // My read and tuck marks on an issue (POD-6404).
+  readonly issueUserState: typeof ISSUE_USER_STATE_RECORD
+  // One of my layout keys (POD-6404); the layout controller paints it.
+  readonly userLayout: typeof USER_LAYOUT_RECORD
+  // The lifecycle as desired state (POD-6356): an edit paints `desired` on the
+  // session row until its entry retires.
+  readonly session: typeof SESSION_RECORD
+}
+
+let kinds: RecordKindTable | undefined
 
 /**
  * Every kind that takes generic edits, by name. `records.test.ts` holds this
  * table EQUAL to `SYNCED_KINDS`, so a kind declared there and not here (or the
  * reverse) fails a test rather than an edit.
  */
-export const RECORD_KINDS = {
-  issueProjection: ISSUE_RECORD,
-  sessionUserState: SESSION_USER_STATE_RECORD,
-  // My read and tuck marks on an issue (POD-6404).
-  issueUserState: ISSUE_USER_STATE_RECORD,
-  // One of my layout keys (POD-6404); the layout controller paints it.
-  userLayout: USER_LAYOUT_RECORD,
-  // The lifecycle as desired state (POD-6356): an edit paints `desired` on the
-  // session row until its entry retires.
-  session: SESSION_RECORD,
-} as const satisfies Record<string, SyncedKindDeclaration>
+export function recordKinds(): RecordKindTable {
+  if (kinds !== undefined) return kinds
+  const d = loadedRecordDeclarations()
+  kinds = {
+    issueProjection: d.ISSUE_RECORD,
+    sessionUserState: d.SESSION_USER_STATE_RECORD,
+    issueUserState: d.ISSUE_USER_STATE_RECORD,
+    userLayout: d.USER_LAYOUT_RECORD,
+    session: d.SESSION_RECORD,
+  } satisfies Record<string, SyncedKindDeclaration>
+  return kinds
+}
 
-export type RecordKind = keyof typeof RECORD_KINDS
+export type RecordKind = keyof RecordKindTable
 
-type FieldsOf<K extends RecordKind> = (typeof RECORD_KINDS)[K]['fields']
+type FieldsOf<K extends RecordKind> = RecordKindTable[K]['fields']
 type ValueOf<F> = F extends RecordField<infer S> ? z.input<S> : never
 type FieldsWithRole<K extends RecordKind, R extends string> = {
   [F in keyof FieldsOf<K>]: FieldsOf<K>[F] extends { readonly role: R } ? F : never
@@ -143,22 +203,34 @@ export const isRecordOutboxKind = (kind: string): kind is RecordOutboxKind => ki
 export const recordOpOf = (kind: RecordOutboxKind): RecordOp => OP_OF[kind]
 
 export function recordDeclaration(kind: string): SyncedKindDeclaration | undefined {
-  return Object.hasOwn(RECORD_KINDS, kind) ? RECORD_KINDS[kind as RecordKind] : undefined
+  const table = recordKinds()
+  return Object.hasOwn(table, kind) ? table[kind as RecordKind] : undefined
 }
 
 /** The wire command one queued record write is sent as. */
 export const recordWireCommand = (kind: RecordOutboxKind, recordKind: string): string =>
-  recordCommandName(recordKind as RecordKind, OP_OF[kind])
+  loadedRecordDeclarations().recordCommandName(recordKind as RecordKind, OP_OF[kind])
 
 /** Every wire command a record write can be sent as, with its outbox kind. */
 export function recordWireCommands(): ReadonlyArray<readonly [string, RecordOutboxKind]> {
+  const { recordCommandName } = loadedRecordDeclarations()
   const out: (readonly [string, RecordOutboxKind])[] = []
-  for (const d of Object.values(RECORD_KINDS) as SyncedKindDeclaration[]) {
+  for (const d of Object.values(recordKinds()) as SyncedKindDeclaration[]) {
     for (const op of Object.keys(d.ops) as RecordOp[]) {
       out.push([recordCommandName(d.kind, op), RECORD_OUTBOX_KINDS[op]])
     }
   }
   return out
+}
+
+let wireKinds: ReadonlyMap<string, RecordOutboxKind> | undefined
+
+/** The outbox kind a `records.<kind>.<op>` wire command is queued as, or
+ *  `undefined` for any other name. Read once the declarations are loaded. */
+export function recordOutboxKindOfCommand(name: string): RecordOutboxKind | undefined {
+  if (!name.startsWith('records.')) return undefined
+  wireKinds ??= new Map(recordWireCommands())
+  return wireKinds.get(name)
 }
 
 /** The command's input as the server parses it: the entry without its `kind`. */
@@ -224,6 +296,7 @@ function requireRevision(
   expectedRevision: number | undefined,
   fields?: readonly string[],
 ): void {
+  const { editNeedsRevision } = loadedRecordDeclarations()
   const needed = fields === undefined ? d.conflict === 'exp-rev' : editNeedsRevision(d, fields)
   if (needed && expectedRevision === undefined) {
     throw new RecordInputError(
@@ -246,6 +319,7 @@ export function recordCreateEntry<K extends RecordKind>(
   fields: RecordCreateFields<K>,
 ): RecordCreateEntry {
   const d = declarationFor(kind, 'create')
+  const { recordCommandName, recordCreateInput } = loadedRecordDeclarations()
   const input = parsed<{ id: string; fields: Record<string, unknown> }>(
     recordCreateInput(d),
     { id, fields },
@@ -260,6 +334,8 @@ export function recordEditEntry<K extends RecordKind>(
   expectedRevision?: number,
 ): RecordEditEntry {
   const d = declarationFor(ref.kind, 'edit')
+  const { recordCommandName, recordEditInput, specFields, unsettableFields } =
+    loadedRecordDeclarations()
   const writable = new Set(specFields(d))
   const named = Object.entries(patch as Record<string, unknown>).filter(([, v]) => v !== undefined)
   const forbidden = named.map(([name]) => name).filter((name) => !writable.has(name))
@@ -307,6 +383,7 @@ export function recordRemoveEntry<K extends RecordKind>(
   expectedRevision?: number,
 ): RecordRemoveEntry {
   const d = declarationFor(ref.kind, 'remove')
+  const { recordCommandName, recordRemoveInput } = loadedRecordDeclarations()
   requireRevision(d, expectedRevision)
   const input = parsed<{ id: string; expectedRevision?: number }>(
     recordRemoveInput(d),
@@ -346,13 +423,22 @@ export interface RecordOutboxInputs {
 export function createRecordsApi(
   write: (kind: RecordOutboxKind, input: RecordOutboxInputs[RecordOutboxKind]) => Promise<void>,
 ): RecordsApi {
+  // Loaded by the outbox's open before any of these can run, so a call builds
+  // and writes its entry synchronously exactly as before: the load is awaited
+  // only by a caller wired without that outbox.
   return {
-    create: async (kind, id, fields) =>
-      await write('recordCreate', recordCreateEntry(kind, id, fields)),
-    edit: async (ref, patch, expectedRevision) =>
-      await write('recordEdit', recordEditEntry(ref, patch, expectedRevision)),
-    remove: async (ref, expectedRevision) =>
-      await write('recordRemove', recordRemoveEntry(ref, expectedRevision)),
+    create: async (kind, id, fields) => {
+      if (!recordDeclarationsLoaded()) await loadRecordDeclarations()
+      await write('recordCreate', recordCreateEntry(kind, id, fields))
+    },
+    edit: async (ref, patch, expectedRevision) => {
+      if (!recordDeclarationsLoaded()) await loadRecordDeclarations()
+      await write('recordEdit', recordEditEntry(ref, patch, expectedRevision))
+    },
+    remove: async (ref, expectedRevision) => {
+      if (!recordDeclarationsLoaded()) await loadRecordDeclarations()
+      await write('recordRemove', recordRemoveEntry(ref, expectedRevision))
+    },
     newId: newRecordId,
   }
 }

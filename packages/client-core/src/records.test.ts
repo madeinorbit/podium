@@ -26,9 +26,10 @@ import {
   createRecordsApi,
   newRecordId,
   RECORD_HOMES,
-  RECORD_KINDS,
   RecordInputError,
+  type RecordKind,
   recordEditEntry,
+  recordKinds,
   recordWireCommands,
   UNSET,
 } from './records'
@@ -47,9 +48,9 @@ const entry = (kind: string, input: unknown, id = 'm-1'): OutboxEntry => ({
 
 describe('the record kinds the client knows', () => {
   it('are exactly the declared synced kinds', () => {
-    expect(Object.values(RECORD_KINDS)).toEqual(expect.arrayContaining([...SYNCED_KINDS]))
-    expect(Object.keys(RECORD_KINDS).sort()).toEqual(SYNCED_KINDS.map((d) => d.kind).sort())
-    for (const [name, d] of Object.entries(RECORD_KINDS)) expect(d.kind).toBe(name)
+    expect(Object.values(recordKinds())).toEqual(expect.arrayContaining([...SYNCED_KINDS]))
+    expect(Object.keys(recordKinds()).sort()).toEqual(SYNCED_KINDS.map((d) => d.kind).sort())
+    for (const [name, d] of Object.entries(recordKinds())) expect(d.kind).toBe(name)
   })
 
   it('reach every generated record command, and only those', () => {
@@ -63,14 +64,14 @@ describe('the record kinds the client knows', () => {
   it('mint new ids of the declared shape', () => {
     for (const d of SYNCED_KINDS) {
       if (d.ops.create === undefined) continue
-      const id = newRecordId(d.kind as keyof typeof RECORD_KINDS)
+      const id = newRecordId(d.kind as RecordKind)
       expect(d.newId?.safeParse(id).success, id).toBe(true)
     }
   })
 
   it('send each op under its own contract, with the contract’s confirmation', () => {
     for (const [name, outboxKind] of recordWireCommands()) {
-      const [, kind] = name.split('.') as [string, keyof typeof RECORD_KINDS]
+      const [, kind] = name.split('.') as [string, RecordKind]
       const command = outboxCommandOf(outboxKind, { kind, id: 'x', patch: {}, fields: {} } as never)
       const contract = RECORD_CONTRACTS[name]!
       expect(command).toMatchObject({

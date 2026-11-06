@@ -28,7 +28,6 @@ import {
   SESSION_INTERRUPT_KIND,
   sessionUserStateRowId,
 } from '@podium/model'
-import { randomUUID } from '../id'
 import {
   isSessionIdPrefix,
   resolveSessionIdentifier,
@@ -36,12 +35,12 @@ import {
 } from '@podium/protocol'
 import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/runtime'
 import type { PodiumClientApi } from '../api'
+import { randomUUID } from '../id'
 import {
   createRecordsApi,
   type RecordKind,
   type RecordPatch,
   type RecordRef,
-  recordEditEntry,
   UNSET,
 } from '../records'
 import type { SocketHub } from '../socket-transport'
@@ -526,17 +525,12 @@ export function createEngineActions<TApi extends PodiumClientApi>(
   // before durable enqueue has painted its overlay. Share that in-flight act.
   const pendingReads = new Map<string, { readAt?: string; write: Promise<void> }>()
   /** One generic edit of a plain record (ADR 12 D3): it paints at once and
-   *  retires with its outbox entry (POD-6404). */
+   *  retires with its outbox entry (POD-6404). Through `records`, which loads
+   *  the declarations first if no outbox open has (POD-6423). */
   const editRecord = <K extends RecordKind>(
     ref: RecordRef<K>,
     patch: RecordPatch<K>,
-  ): Promise<void> => {
-    try {
-      return Promise.resolve(rt.write('recordEdit', recordEditEntry(ref, patch)))
-    } catch (error) {
-      return Promise.reject(error)
-    }
-  }
+  ): Promise<void> => records.edit(ref, patch)
   const mySessionState = (sessionId: SessionId): RecordRef<'sessionUserState'> => ({
     kind: 'sessionUserState',
     id: sessionUserStateRowId(rt.userId, sessionId),
@@ -1091,7 +1085,7 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       if (!dismissed)
         await records
           .remove({ kind: 'session', id: sessionId }, sessionRevisionNow(rt, sessionId))
-        .catch(() => {})
+          .catch(() => {})
       const state = rt.state()
       // A killed session's tabs are views onto something that no longer exists —
       // the one case where a tab goes away without the operator closing it. The
