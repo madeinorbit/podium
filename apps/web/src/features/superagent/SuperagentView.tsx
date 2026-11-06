@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { DockHeaderActions } from '@/app/DockHeaderSlot'
 import { Button } from '@/components/ui/button'
 import { ChatView } from '@/features/chat/ChatView'
+import { superagentWrites } from './superagent-writes'
 import { useIssueEvents } from './useIssueEvents'
 import { useSuperagentAccess, useSuperagentSession, useSuperagentThread } from './use-superagent-inputs'
 
@@ -123,7 +124,8 @@ export function SuperagentView(): JSX.Element {
   useEffect(() => {
     if (podiumSessionId || threadLoading) return
     let cancelled = false
-    void trpc.superagent.ensureSession
+    void superagentWrites(trpc)
+      .ensureSession
       .mutate({ threadId: THREAD_ID })
       .then(() => {
         if (!cancelled) void refreshThreads()
@@ -165,7 +167,7 @@ export function SuperagentView(): JSX.Element {
   const openInTerminal = async () => {
     setError(null)
     try {
-      const r = await trpc.superagent.openInTerminal.mutate({ threadId: THREAD_ID })
+      const r = await superagentWrites(trpc).openInTerminal.mutate({ threadId: THREAD_ID })
       setFocusSessionId(r.sessionId)
       await refreshThreads()
     } catch (e) {
@@ -182,7 +184,7 @@ export function SuperagentView(): JSX.Element {
   const clear = async () => {
     setError(null)
     try {
-      await trpc.superagent.clear.mutate({ threadId: THREAD_ID })
+      await superagentWrites(trpc).clear.mutate({ threadId: THREAD_ID })
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
       return

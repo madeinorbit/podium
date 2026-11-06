@@ -28,6 +28,7 @@ import { actionBound, compareShallow, observable, reaction } from 'mobx'
 import { useCallback, useEffect, useRef } from 'react'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
+import { superagentWrites } from '@/features/superagent/superagent-writes'
 import {
   type ConversationPresentation,
   INITIAL_LIMIT,
@@ -295,7 +296,7 @@ export function createWebConversation(
         dismissOffer: (at) => store.dismissOffer(sessionId, at),
         interrupt: async (messageId) => {
           if (headless && mount.superThread) {
-            await trpc.superagent.interruptTurn.mutate({ threadId: mount.superThread.threadId })
+            await superagentWrites(trpc).interruptTurn.mutate({ threadId: mount.superThread.threadId })
             return
           }
           // A `session.interrupt` record naming the turn on screen (POD-6397):
@@ -368,7 +369,7 @@ export function createWebConversation(
           }
           try {
             if (route.kind === 'concierge') {
-              await trpc.superagent.concierge.mutate({
+              await superagentWrites(trpc).concierge.mutate({
                 repoPath: route.repoPath,
                 text: wire,
                 focus,
@@ -377,7 +378,7 @@ export function createWebConversation(
               return { state: 'sent' }
             }
             const attached = store.attachedSessionId
-            const answer = await trpc.superagent.sendTurn.mutate({
+            const answer = await superagentWrites(trpc).sendTurn.mutate({
               threadId: route.threadId,
               text: wire,
               focus,

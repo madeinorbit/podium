@@ -1,6 +1,7 @@
 import { MobileConversation } from '../lib/mobile-conversation'
 import { here } from '@podium/client-graph/lookup'
 import { MobileChatViewModel } from '../lib/chat-view-model'
+import { superagentWrites } from '../lib/superagent-writes'
 import { hubConnection, PHONE_WARM_CONVERSATIONS } from '@podium/client-core/conversation'
 import { randomUUID } from '@podium/client-core/id'
 import { REPLICA_TRANSCRIPT_ITEM_CAP } from '@podium/client-core/replica'
@@ -124,7 +125,7 @@ export function useThreadConversation() {
         createDeliveryId: () => `msg_${randomUUID()}`,
         deliver: async (turn) => {
           try {
-            const ack = await owner.access.trpc.superagent.sendTurn.mutate({
+            const ack = await superagentWrites(owner.access.trpc).sendTurn.mutate({
               threadId: THREAD_ID,
               text: turn.wire,
               ...superagentTurnChoice(resolveSuperagentBackend(pool ? superagentState(pool).active : undefined, turn.backend ?? {})),
@@ -139,7 +140,9 @@ export function useThreadConversation() {
           }
         },
         interrupt: () =>
-          owner.access.trpc.superagent.interruptTurn.mutate({ threadId: THREAD_ID }).then(() => {}),
+          superagentWrites(owner.access.trpc)
+            .interruptTurn.mutate({ threadId: THREAD_ID })
+            .then(() => {}),
       },
     }, { collapseContext: true }),
     {

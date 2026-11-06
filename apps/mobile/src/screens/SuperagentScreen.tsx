@@ -30,6 +30,7 @@ import { useKeyboardLift } from '../hooks/useKeyboardHeight'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { useTabBarInset } from '../hooks/useTabBarInset'
 import { humanizeSendFailure } from '../lib/send-failure'
+import { superagentWrites } from '../lib/superagent-writes'
 import {
   resolveSuperagentBackend,
   superagentTurnChoice,
@@ -120,13 +121,13 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
   const modelCatalog = useModelCatalog<MobileTrpc>(transcriptSession?.machineId)
   const prepareAttachmentSession = useCallback(async (): Promise<SessionId> => {
     if (podiumSid) return podiumSid
-    const result = await trpc.superagent.ensureSession.mutate({ threadId: THREAD_ID })
+    const result = await superagentWrites(trpc).ensureSession.mutate({ threadId: THREAD_ID })
     if (!result.podiumSessionId) throw new Error('Superagent could not prepare this attachment.')
     action(() => {
       binding.acked = result.podiumSessionId
     })()
     return result.podiumSessionId
-  }, [binding, podiumSid, trpc.superagent.ensureSession])
+  }, [binding, podiumSid, trpc])
   const attachments = useComposerAttachments(podiumSid, {
     prepareSession: prepareAttachmentSession,
   })
@@ -198,7 +199,7 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
 
   const clear = useCallback(async () => {
     try {
-      await trpc.superagent.clear.mutate({ threadId: THREAD_ID })
+      await superagentWrites(trpc).clear.mutate({ threadId: THREAD_ID })
       // The server drops the thread's harness+headless binding, so the old
       // session's transcript is no longer this thread's: forget it and let the
       // next turn's ack hand back a fresh session.
