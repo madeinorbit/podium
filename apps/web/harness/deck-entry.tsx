@@ -13,10 +13,8 @@
  * off the used inline size of its rows, so a hand-rolled wrapper measures a
  * different ladder than the one that ships.
  */
-import { FLIGHT_DECK_FULL_ISSUES_KEY } from '@podium/client-core/ui-state'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
-import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { FlightDeck } from '@/app/FlightDeck'
 import { MovedConversationPane } from '@/app/MovedConversationPane'
@@ -83,87 +81,7 @@ function statusCountsFixture(counts: readonly number[]) {
   }
 }
 
-/** The approved simple-deck handoff, including quiet completion and pending titles. */
-function compactFixture(kind: 'default' | 'one' | 'states' | 'done' | 'titles' | 'selected') {
-  const completed = kind === 'done'
-  state.issues = [
-    issue('root', {
-      seq: 412,
-      displayRef: 'POD-412',
-      title: 'Session token not refreshed after sleep',
-      description:
-        kind === 'one' || kind === 'titles'
-          ? ''
-          : 'Users get logged out after the laptop wakes. The refresh timer is paused during sleep and never re-armed, so the first request after wake 401s.',
-      createdAt: ago(31),
-      stage: completed ? 'review' : 'in_progress',
-      coordinatorSessionId: kind === 'states' ? undefined : 'compact-coord',
-      memberSessionIds: ['compact-coord', 'compact-peer', 'compact-done'],
-    }),
-  ]
-  state.sessions = [
-    session('compact-coord', {
-      issueId: 'root',
-      displayRef: 'POD-412-A',
-      nameSource: 'agent',
-      name:
-        kind === 'titles'
-          ? 'Re-arm the refresh timer on visibilitychange and on network reconnect events'
-          : 'Re-arm refresh timer on wake',
-      createdAt: ago(18),
-      lastActiveAt: ago(1),
-      status: completed ? 'exited' : 'live',
-      stoppedAt: completed ? ago(2) : undefined,
-      agentState: {
-        phase: completed ? 'idle' : kind === 'states' ? 'errored' : 'working',
-        since: ago(18),
-      },
-    }),
-    session('compact-peer', {
-      issueId: 'root',
-      displayRef: 'POD-412-B',
-      agentKind: 'codex',
-      name: kind === 'titles' ? undefined : 'Regression test for sleep/wake',
-      title:
-        kind === 'titles'
-          ? 'write a regression test that simulates sleep and then wakes the laptop'
-          : 'Regression test for sleep/wake',
-      nameSource: kind === 'titles' ? undefined : 'agent',
-      createdAt: ago(7),
-      lastActiveAt: ago(0),
-      status: completed ? 'exited' : 'live',
-      stoppedAt: completed ? ago(5) : undefined,
-      agentState: {
-        phase: completed ? 'idle' : kind === 'titles' ? 'working' : 'needs_user',
-        since: ago(7),
-      },
-    }),
-    session('compact-done', {
-      issueId: 'root',
-      displayRef: 'POD-412-C',
-      nameSource: 'agent',
-      name: kind === 'states' ? 'Draft PR description' : 'Reproduce logout after sleep',
-      agentKind: kind === 'states' ? 'codex' : 'claude-code',
-      createdAt: ago(22),
-      lastActiveAt: ago(12),
-      status: kind === 'states' ? 'live' : 'exited',
-      stoppedAt: kind === 'states' ? undefined : ago(12),
-      agentState: { phase: 'idle', since: ago(12) },
-    }),
-  ]
-  if (kind === 'one') state.sessions = state.sessions.slice(0, 1)
-  if (kind === 'titles') state.sessions = state.sessions.slice(0, 2)
-  state.selectedIssueId = 'root'
-  state.paneA = kind === 'selected' ? 'compact-peer' : null
-}
-
 const MISSIONS = {
-  compact: () => compactFixture('default'),
-  compactSelected: () => compactFixture('selected'),
-  compactOne: () => compactFixture('one'),
-  compactStates: () => compactFixture('states'),
-  compactDone: () => compactFixture('done'),
-  compactTitles: () => compactFixture('titles'),
   statusCounts: () => statusCountsFixture([4, 3, 2, 3]),
   statusCountsWide: () => statusCountsFixture([12, 13, 14, 15]),
   statusCountsWaiting: () => statusCountsFixture([0, 0, 7, 0]),
@@ -1195,15 +1113,8 @@ function Harness(): JSX.Element {
     window.deck = {
       setWidth: (px) => setWidth(px),
       setMission: (name) => {
-        // Commit the replacement before clearing its remembered layout; the
-        // previous fixture's live observer must not re-latch Full in between.
-        flushSync(() => {
-          setMission(name)
-          bump((v) => v + 1)
-        })
-        // Fixtures reuse root's ID; a new fixture is a fresh issue, not a shrink.
-        state.ui.delete(FLIGHT_DECK_FULL_ISSUES_KEY)
-        for (const listener of state.listeners) listener(new Set([FLIGHT_DECK_FULL_ISSUES_KEY]))
+        setMission(name)
+        bump((v) => v + 1)
       },
       setTheme: (mode) => {
         document.documentElement.classList.toggle('dark', mode === 'dark')

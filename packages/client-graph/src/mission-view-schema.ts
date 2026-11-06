@@ -15,7 +15,6 @@ export const MISSION_VIEW_SESSION_FIELDS: Readonly<Record<string, FieldSpec>> = 
   ['model', 'string', true], ['effort', 'string', true], ['refRepoId', 'id', true],
   ['refIssueId', 'id', true], ['refSeq', 'number', true], ['refLetter', 'string', true],
   ['resumable', 'boolean', true], ['spawnedBy', 'string', true], ['machineId', 'id', true],
-  ['nameSource', 'string', true],
 ].map(([name, type, optional]) => [name, { type, optional, source: { schema: 'SessionMeta', arrivesOn: 'replica:sessions' } }])) as Readonly<Record<string, FieldSpec>>
 
 /** What the Full view's seats read beyond the shared roster: the agent

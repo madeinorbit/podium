@@ -23,7 +23,6 @@ import { isFinished } from '@podium/model/browser'
 import { action, compareShallow, compareStructural, observable } from 'mobx'
 import { headerView } from './header-views'
 import { omitGone } from './lookup'
-import { CompactDeck } from './mission-compact-deck'
 import { FullDeck } from './mission-full-deck'
 import { type MissionDeckIssueModel, MissionViewReader, missionView, requireLoaded, settled } from './mission-view'
 import type { IssueModel, SessionModel } from './models'
@@ -85,15 +84,10 @@ export class MissionScreen {
   /** The Full view (flight deck v6): its own filter, Show done and default
    * folds over this opening's full deck. */
   readonly full: FullDeck = new FullDeck(this)
-  readonly compact: CompactDeck
 
   constructor(readonly pool: MobxPool, readonly rootId: string, private readonly options: MissionScreenOptions = {}) {
     this.reader = new MissionViewReader(pool)
     this.settingsRequest = new SettingsRecordRequest(pool)
-    this.compact = new CompactDeck(this, {
-      read: (key) => this.preference(key),
-      write: (key, raw) => this.options.setPreference?.(key, raw),
-    })
   }
 
   get sessionName(): (session: SessionView) => string {
