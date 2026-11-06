@@ -10,7 +10,7 @@ import { expect, it, vi } from 'vitest'
 import { EMPTY_PENDING } from '../../../tests/worklist/shared/src/row-source'
 import { createWorklistPool } from './create'
 import { requireHere } from './lookup'
-import type { EffectModel, SessionModel } from './models'
+import type { EffectModel, IssueModel, SessionModel } from './models'
 import { fixedLocals } from './shared/locals-source'
 import { createRowSource } from './shared/row-source'
 
@@ -27,6 +27,16 @@ const session = {
   lastActiveAt: stamp,
   createdAt: stamp,
   agentState: { phase: 'working', since: stamp, nativeSubagentCount: 0, turnStartedAt: stamp },
+}
+
+const issueRow = {
+  id: 'task',
+  seq: 1,
+  title: 'Task',
+  stage: 'in_progress',
+  repoPath: '/synthetic',
+  createdAt: stamp,
+  updatedAt: stamp,
 }
 
 const effect = (
@@ -54,6 +64,7 @@ const effect = (
 function fixture(effects: readonly Readonly<Record<string, unknown>>[]) {
   const rows = new Map<ReplicaKind, Map<string, Readonly<Record<string, unknown>>>>([
     ['sessions', new Map([['seat', session]])],
+    ['issueProjections', new Map([['task', issueRow]])],
     ['effects', new Map(effects.map((row) => [row.id as string, row]))],
   ])
   let addressed: (batch: ReplicaAddressedBatch) => void = () => {}
@@ -151,6 +162,39 @@ it('interrupting while the Stop is on its way; stuck only while its turn still r
     // A cancel is the person's own choice: nothing to offer.
     f.publish('eff_stop', effect('eff_stop', 'cancelled'))
     expect(seat.interruptStuck).toBe(false)
+  } finally {
+    f.dispose()
+  }
+})
+
+it("an issue's own work is its latest issue action record, pending while it runs (POD-6526)", () => {
+  const onTask = { target: { kind: 'issue', id: 'task' } }
+  const f = fixture([
+    effect('eff_begin', 'succeeded', { ...onTask, kind: 'issue.begin' }),
+    // Not issue work: the issue's git actions and another issue's stop.
+    effect('eff_merge', 'running', { ...onTask, kind: 'issue.merge', createdAt: later }),
+    effect('eff_other', 'running', {
+      target: { kind: 'issue', id: 'other' },
+      kind: 'issue.stop',
+      createdAt: later,
+    }),
+  ])
+  try {
+    const task = requireHere(f.pool.model('issue', 'task')) as IssueModel
+    expect(task.workAction?.id).toBe('eff_begin')
+    expect(task.workPending).toBeUndefined()
+
+    const seen: (string | undefined)[] = []
+    const stop = autorun(() => seen.push(task.workPending))
+    f.publish('eff_assist', effect('eff_assist', 'pending', { ...onTask, kind: 'issue.assistant', createdAt: later }))
+    expect(task.workPending).toBe('issue.assistant')
+    f.publish('eff_assist', effect('eff_assist', 'running', { ...onTask, kind: 'issue.assistant', createdAt: later }))
+    f.publish('eff_assist', effect('eff_assist', 'failed', { ...onTask, kind: 'issue.assistant', createdAt: later }))
+    expect(task.workPending).toBeUndefined()
+    expect(task.workAction?.unsuccessful).toBe(true)
+    stop()
+    // One redraw per answer change: pending and running are the same answer.
+    expect(seen).toEqual([undefined, 'issue.assistant', undefined])
   } finally {
     f.dispose()
   }

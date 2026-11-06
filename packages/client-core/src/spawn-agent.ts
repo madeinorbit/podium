@@ -267,3 +267,133 @@ export function issueStartEffect(args: {
     },
   }
 }
+
+/**
+ * THE ISSUE'S OWN WORK AS EFFECT RECORDS (POD-6414, moved to the apps by
+ * POD-6526). Starting an existing issue, adding an agent or a shell to it,
+ * stopping it, cleaning it up, shipping it and refreshing its assistant are
+ * each an effect record targeting the issue, created through `effects.create`
+ * (the outbox's `effectCreate`). The server's executors are in
+ * `apps/server/src/modules/issues/work-effects.ts`; the old `issues.*` routes
+ * stay as adapters onto them for older clients.
+ */
+export const ISSUE_BEGIN_KIND = 'issue.begin'
+export const ISSUE_ADD_SESSION_KIND = 'issue.addSession'
+export const ISSUE_STOP_KIND = 'issue.stop'
+export const ISSUE_CLEANUP_KIND = 'issue.cleanup'
+export const ISSUE_SHIP_KIND = 'issue.ship'
+export const ISSUE_ASSISTANT_KIND = 'issue.assistant'
+
+/** The kinds that act on an existing issue's work (not `issue.start`, which
+ *  files a new one). */
+export const ISSUE_WORK_KINDS: ReadonlySet<string> = new Set([
+  ISSUE_BEGIN_KIND,
+  ISSUE_ADD_SESSION_KIND,
+  ISSUE_STOP_KIND,
+  ISSUE_CLEANUP_KIND,
+  ISSUE_SHIP_KIND,
+  ISSUE_ASSISTANT_KIND,
+])
+
+/**
+ * A session start on an existing issue: `begin` cuts its worktree and starts
+ * its first session (`issues.start`); `agent` and `shell` add one to a started
+ * issue (`issues.addSession`, `issues.addShell`).
+ */
+export type IssueSessionMode = 'begin' | 'agent' | 'shell'
+
+/** What starting a session on an existing issue takes (POD-6526). */
+export interface StartIssueSessionArgs {
+  issueId: IssueId
+  /** `agent` when absent: one more agent, or the first when the issue has
+   *  never been started (no branch yet). */
+  mode?: IssueSessionMode
+  /** The id to start under; minted when absent. */
+  sessionId?: SessionId
+  /** A retry of the same start writes the same record (`startEffectId`). */
+  mutationId?: MutationId
+  agentKind?: AgentKind | string
+  /** `begin` only: persisted onto the issue as its profile. */
+  model?: string
+  effort?: string
+  forceUnknownModel?: boolean
+}
+
+/** The store action that starts one (`Store.startIssueSession`). */
+export type StartIssueSession = (args: StartIssueSessionArgs) => {
+  sessionId: SessionId
+  effectId: string
+  mode: IssueSessionMode
+  /** True once its record is durably queued; false when it never was (that
+   *  failure is told once, on this device). */
+  settled: Promise<boolean>
+}
+
+/**
+ * A session start on an existing issue as its effect record: `issue.begin`
+ * or `issue.addSession` (`shell: true` for a shell), with the session id the
+ * device minted in its input. The launch paint shows the starting session
+ * from it, on the issue, until the row is born under that id.
+ */
+export function issueSessionEffect(args: {
+  effectId: string
+  issueId: IssueId
+  sessionId: SessionId
+  mode: IssueSessionMode
+  agentKind?: AgentKind | string
+  model?: string
+  effort?: string
+  forceUnknownModel?: boolean
+}): EffectCreateInput {
+  const force = args.forceUnknownModel === true ? { forceUnknownModel: true } : {}
+  const agent = args.agentKind !== undefined ? { agentKind: args.agentKind } : {}
+  const target = { kind: 'issue' as const, id: args.issueId }
+  if (args.mode === 'begin') {
+    return {
+      id: args.effectId,
+      kind: ISSUE_BEGIN_KIND,
+      target,
+      input: {
+        sessionId: args.sessionId,
+        ...agent,
+        ...(args.model ? { defaultModel: args.model } : {}),
+        ...(args.effort ? { defaultEffort: args.effort } : {}),
+        ...force,
+      },
+    }
+  }
+  return {
+    id: args.effectId,
+    kind: ISSUE_ADD_SESSION_KIND,
+    target,
+    input:
+      args.mode === 'shell'
+        ? { sessionId: args.sessionId, shell: true }
+        : { sessionId: args.sessionId, ...agent, ...force },
+  }
+}
+
+/** The issue work that starts nothing: stop, cleanup, ship, the assistant. */
+export type IssueWorkAction = 'stop' | 'cleanup' | 'ship' | 'assistant'
+
+const ISSUE_ACTION_KIND: Readonly<Record<IssueWorkAction, string>> = {
+  stop: ISSUE_STOP_KIND,
+  cleanup: ISSUE_CLEANUP_KIND,
+  ship: ISSUE_SHIP_KIND,
+  assistant: ISSUE_ASSISTANT_KIND,
+}
+
+/** One of those as its effect record. Only a stop takes an input (`force`). */
+export function issueActionEffect(args: {
+  effectId: string
+  issueId: IssueId
+  action: IssueWorkAction
+  force?: boolean
+}): EffectCreateInput {
+  return {
+    id: args.effectId,
+    kind: ISSUE_ACTION_KIND[args.action],
+    target: { kind: 'issue', id: args.issueId },
+    input: args.action === 'stop' && args.force === true ? { force: true } : {},
+  }
+}

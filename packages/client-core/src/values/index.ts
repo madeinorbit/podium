@@ -6,7 +6,6 @@
 
 export * from './activity-display'
 export * from './agent-capability'
-export * from './agent-launch'
 export * from './agent-readiness'
 export * from './ask-question'
 export * from './board-scope'

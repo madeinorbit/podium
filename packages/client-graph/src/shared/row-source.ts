@@ -680,9 +680,10 @@ export function createRowSource(
   function effectRow(raw: AnyRow | undefined): AnyRow | undefined {
     if (!raw) return undefined
     const target = raw['target'] as { kind?: unknown; id?: unknown } | undefined
-    return target?.kind === 'session' && typeof target.id === 'string'
-      ? { ...raw, sessionId: target.id }
-      : raw
+    if (typeof target?.id !== 'string') return raw
+    if (target.kind === 'session') return { ...raw, sessionId: target.id }
+    if (target.kind === 'issue') return { ...raw, issueId: target.id }
+    return raw
   }
 
   function companions(kind: 'repo' | 'machine' | 'automation' | 'automationRun' | 'effect'): RowRecord[] {

@@ -31,7 +31,9 @@ import type { RecordsApi } from '../records'
 import type { Replica } from '../replica/kernel/facade'
 import type { SocketHub } from '../socket-transport'
 import type {
+  IssueWorkAction,
   LaunchSessionArgs,
+  StartIssueSession,
   SpawnDraftAgentArgs,
   SpawnTarget,
   TaskSpawnOutcome,
@@ -470,6 +472,23 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   ) => Promise<string>
   /** Take an ended effect record off the feed (`effects.dismiss`). */
   dismissEffect: (id: string) => Promise<void>
+  /**
+   * Start a session on an existing issue (POD-6526): its first, with its
+   * worktree (`issue.begin`), or one more agent or a shell
+   * (`issue.addSession`), as an effect record under a session id minted here.
+   * The session is painted on the issue from its queued create and then from
+   * its record (also while the machine is offline) until the row lands; a
+   * failure is told once on this device. Returns synchronously.
+   */
+  startIssueSession: StartIssueSession
+  /**
+   * Stop, clean up, ship or refresh the assistant of an issue (POD-6526): its
+   * `issue.stop`, `issue.cleanup`, `issue.ship` or `issue.assistant` effect
+   * record. Resolves once it is durably queued, with its id; the issue model
+   * reads its progress (`workAction`) from the record, on every device, and a
+   * caller that says how it ended waits for it (`awaitEffect`).
+   */
+  issueAction: (issueId: IssueId, action: IssueWorkAction, opts?: { force?: boolean }) => Promise<string>
   resurrectSession: (sessionId: SessionId) => Promise<SessionResurrectionResult>
   /**
    * Send one chat message to a session through the durable outbox (POD-4762),

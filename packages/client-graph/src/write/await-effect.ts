@@ -53,3 +53,24 @@ export async function awaitEffect(
   )
   return ended!
 }
+
+/**
+ * Why an ended effect did not do its work, for a person (POD-6526), or
+ * undefined when it succeeded or was cancelled (a cancel is the person's own
+ * choice). The record's own words where it has them.
+ */
+export function effectShortfall(effect: Pick<EffectModel, 'status' | 'error'>): string | undefined {
+  switch (effect.status) {
+    case 'succeeded':
+    case 'cancelled':
+    case 'pending':
+    case 'running':
+      return undefined
+    case 'expired':
+      return effect.error?.message ?? 'its machine did not take it in time'
+    case 'unknown':
+      return effect.error?.message ?? 'the server lost track of it; check before trying again'
+    default:
+      return effect.error?.message ?? 'it did not run'
+  }
+}

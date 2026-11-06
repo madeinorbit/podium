@@ -20,6 +20,13 @@
  *    with the error, until Dismiss takes the record off the feed
  *    (`effects.dismiss`). An `issue.start` that filed its task and then failed
  *    to start its agent keeps the task: the failed session shows on it.
+ *
+ * A session started on an EXISTING issue (POD-6526) is `issue.begin` (its
+ * first session, with its worktree) or `issue.addSession` (one more agent, or
+ * a shell): the target is the issue, which is already a row, and the session
+ * id rides in the input. Only the session is painted, in the issue's checkout.
+ * A begin of an issue that was already started is the server's deliberate
+ * no-op: its record succeeds naming no session of ours, and the paint goes.
  */
 
 import type { OverlayTarget, PendingOverlay } from '@podium/client-core/command-reducers'
@@ -31,12 +38,17 @@ import type { IssueViewModel } from '@podium/client-core/replica'
 import {
   draftLaunchEffect,
   type EffectCreateInput,
+  ISSUE_ADD_SESSION_KIND,
+  ISSUE_BEGIN_KIND,
   ISSUE_START_KIND,
   ISSUE_START_PROPOSED,
+  type IssueSessionMode,
+  issueSessionEffect,
   issueStartEffect,
   type LaunchSessionArgs,
   SESSION_LAUNCH_KIND,
   type SpawnDraftAgentArgs,
+  type StartIssueSessionArgs,
   type SpawnTarget,
   sessionLaunchEffect,
   startEffectId,
@@ -73,8 +85,9 @@ export interface PoolLaunchPorts {
   queued(): readonly OutboxEntry[]
   /** The outbox's refused entries (dead letters). */
   refused(): readonly { readonly kind: string; readonly input: unknown }[]
-  /** The effect records of kind `session.launch` and `issue.start`: in the
-   *  app, the pool's own effect models (POD-6411). */
+  /** The effect records of the start kinds (`session.launch`, `issue.start`,
+   *  `issue.begin`, `issue.addSession`): in the app, the pool's own effect
+   *  models (POD-6411). */
   launchEffects(): Iterable<LaunchRecord>
 }
 
@@ -83,6 +96,8 @@ export interface PoolLaunchPorts {
 export type LaunchRecord = Readonly<
   Pick<EffectRecordWire, 'kind' | 'target' | 'input' | 'createdAt' | 'effect'>
 > & {
+  /** The kind's answer: a begin's names the session it started, if any. */
+  readonly result?: unknown
   readonly id: string
 }
 
@@ -96,9 +111,20 @@ const isProposal = (launch: Launch): boolean =>
   launch.status === 'failed' &&
   launch.errorCode === ISSUE_START_PROPOSED
 
+/** The start kinds this paints. */
+type LaunchKind =
+  | typeof SESSION_LAUNCH_KIND
+  | typeof ISSUE_START_KIND
+  | typeof ISSUE_BEGIN_KIND
+  | typeof ISSUE_ADD_SESSION_KIND
+
+/** A session started on an existing issue (POD-6526): the issue is a row. */
+const onExistingIssue = (kind: LaunchKind): boolean =>
+  kind === ISSUE_BEGIN_KIND || kind === ISSUE_ADD_SESSION_KIND
+
 interface Launch {
   readonly effectId: string
-  readonly kind: typeof SESSION_LAUNCH_KIND | typeof ISSUE_START_KIND
+  readonly kind: LaunchKind
   readonly sessionId: SessionId
   /** The task it starts in: its draft task, or the named task it files. */
   readonly issueId: IssueId | undefined
@@ -109,6 +135,9 @@ interface Launch {
   readonly error?: string
   /** The record's error code: `proposed` is a proposal, not a failure. */
   readonly errorCode?: string
+  /** It succeeded and started no session under this id: a begin of an issue
+   *  that was already started (the server's deliberate no-op). */
+  readonly startedNothing?: boolean
 }
 
 /** What a start's published input says about where it starts. */
@@ -129,6 +158,8 @@ interface LaunchInput {
   readonly defaultAgent?: AgentKind
   readonly defaultModel?: string
   readonly defaultEffort?: string
+  // `issue.begin` / `issue.addSession` (POD-6526).
+  readonly shell?: boolean
 }
 
 /** The start an effect create or record describes, or none for another kind. */
@@ -149,16 +180,31 @@ function launchOf(
       input,
     }
   }
-  if (effect.kind === ISSUE_START_KIND && effect.target?.kind === 'issue' && input.sessionId) {
+  if (
+    (effect.kind === ISSUE_START_KIND ||
+      effect.kind === ISSUE_BEGIN_KIND ||
+      effect.kind === ISSUE_ADD_SESSION_KIND) &&
+    effect.target?.kind === 'issue' &&
+    input.sessionId
+  ) {
     return {
       effectId: effect.id,
-      kind: ISSUE_START_KIND,
+      kind: effect.kind,
       sessionId: input.sessionId,
       issueId: effect.target.id as IssueId,
       input,
     }
   }
   return undefined
+}
+
+/** Whether a succeeded start's answer names the session it started under
+ *  `sessionId`. A begin of an already-started issue answers the issue alone
+ *  (no `agentId`); a spawn that ran before answers `sessionId`. */
+function startedSession(result: unknown, sessionId: SessionId): boolean {
+  if (result === null || typeof result !== 'object') return false
+  const answer = result as { agentId?: unknown; sessionId?: unknown }
+  return answer.agentId === sessionId || answer.sessionId === sessionId
 }
 
 interface Painted {
@@ -307,8 +353,70 @@ export class PoolLaunches {
     return { sessionId, issueId, mutationId, settled, outcome, proposed }
   }
 
+  /**
+   * Paint a session starting on an existing issue, then queue its
+   * `issue.begin` or `issue.addSession` (POD-6526): the issue's first session
+   * with its worktree, one more agent, or a shell. Without a mode it adds an
+   * agent, or begins the issue when it has never been started (no branch; a
+   * freed checkout keeps its branch, and adding rebuilds it there).
+   */
+  startIssueSession(args: StartIssueSessionArgs): {
+    sessionId: SessionId
+    effectId: string
+    mode: IssueSessionMode
+    settled: Promise<boolean>
+  } {
+    if (this.disposed) throw new Error('PoolLaunches: spawn after dispose')
+    const sessionId = args.sessionId ?? asSessionId(randomUUID())
+    const issue = this.issueRow(args.issueId)
+    const mode: IssueSessionMode =
+      args.mode ?? (issue !== undefined && !issue.branch && !issue.worktreePath ? 'begin' : 'agent')
+    const effectId =
+      mode === 'begin' ? startEffectId(args.mutationId, randomUUID) : `eff_${randomUUID()}`
+    const create = issueSessionEffect({
+      effectId,
+      issueId: args.issueId,
+      sessionId,
+      mode,
+      ...(args.agentKind !== undefined ? { agentKind: args.agentKind } : {}),
+      ...(args.model !== undefined ? { model: args.model } : {}),
+      ...(args.effort !== undefined ? { effort: args.effort } : {}),
+      ...(args.forceUnknownModel === true ? { forceUnknownModel: true } : {}),
+    })
+    const path = issue?.worktreePath ?? issue?.repoPath ?? ''
+    this.local.set(sessionId, {
+      target: {
+        path,
+        repoPath: issue?.repoPath ?? path,
+        ...(issue?.machineId ? { machineId: issue.machineId as MachineId } : {}),
+      },
+    })
+    const settled = new Promise<boolean>((resolve) => this.settlers.set(sessionId, resolve))
+    this.begin(create, sessionId, mode === 'shell' ? 'shell' : 'agent')
+    return { sessionId, effectId, mode, settled }
+  }
+
+  /** The issue's row as the pool holds it, for where its session starts. */
+  private issueRow(issueId: IssueId):
+    | {
+        readonly branch?: string | null
+        readonly worktreePath?: string | null
+        readonly repoPath?: string
+        readonly machineId?: string | null
+        readonly defaultAgent?: string | null
+      }
+    | undefined {
+    return this.ports.truth('issueProjections', issueId) as
+      | ReturnType<PoolLaunches['issueRow']>
+      | undefined
+  }
+
   /** Paint an own start as queued and write its create. */
-  private begin(create: EffectCreateInput, sessionId: SessionId, subject: 'agent' | 'task'): void {
+  private begin(
+    create: EffectCreateInput,
+    sessionId: SessionId,
+    subject: 'agent' | 'task' | 'shell',
+  ): void {
     const launch = launchOf(create, create.input as LaunchInput)
     if (launch === undefined) throw new Error(`PoolLaunches: not a start (${create.kind})`)
     this.show({ ...launch, createdAt: new Date().toISOString(), status: 'queued' })
@@ -402,6 +510,11 @@ export class PoolLaunches {
         ...(record.effect.error
           ? { error: record.effect.error.message, errorCode: record.effect.error.code }
           : {}),
+        ...(onExistingIssue(launch.kind) &&
+        record.effect.status === 'succeeded' &&
+        !startedSession(record.result, launch.sessionId)
+          ? { startedNothing: true }
+          : {}),
       })
     }
     for (const [sessionId, launch] of live) {
@@ -413,6 +526,13 @@ export class PoolLaunches {
         this.forget(launch.sessionId)
         this.settle(launch.sessionId, true)
         this.answer(launch.sessionId, false)
+        continue
+      }
+      if (launch.startedNothing === true) {
+        // The issue was already started: no row will come under this id.
+        this.hide(launch.sessionId)
+        this.forget(launch.sessionId)
+        this.settle(launch.sessionId, true)
         continue
       }
       this.show(launch)
@@ -506,6 +626,11 @@ export class PoolLaunches {
   private failureText(launch: Launch): string {
     const why = launch.error ?? 'it did not run'
     if (launch.kind === SESSION_LAUNCH_KIND) return `Couldn't start the agent — ${why}`
+    if (onExistingIssue(launch.kind)) {
+      return launch.input.shell === true
+        ? `Couldn't open the shell — ${why}`
+        : `Couldn't start the agent — ${why}`
+    }
     return launch.issueId !== undefined &&
       this.ports.truth('issueProjections', launch.issueId) !== undefined
       ? `The task was saved, but its agent couldn't start — ${why}`
@@ -517,6 +642,7 @@ export class PoolLaunches {
    *  unlaunched draft, and an `issue.start` that filed one has its row). */
   private paintsIssue(launch: Launch, ended: boolean): boolean {
     if (ended || launch.issueId === undefined) return false
+    if (onExistingIssue(launch.kind)) return false
     if (launch.kind === SESSION_LAUNCH_KIND && launch.input.draftIssue === undefined) return false
     return this.ports.truth('issueProjections', launch.issueId) === undefined
   }
@@ -529,9 +655,29 @@ export class PoolLaunches {
   ): PendingOverlay[] {
     const local = this.local.get(launch.sessionId)
     const input = launch.input
-    const cwd = input.cwd ?? local?.target.path ?? input.repoPath ?? ''
-    const machineId = input.machineId ?? local?.target.machineId
-    const agentKind = input.agentKind ?? input.defaultAgent ?? 'claude-code'
+    // A session on an existing issue starts in the issue's checkout (its
+    // repo until a begin has cut one), on the issue's machine.
+    const home =
+      onExistingIssue(launch.kind) && launch.issueId !== undefined
+        ? this.issueRow(launch.issueId)
+        : undefined
+    const cwd =
+      input.cwd ??
+      local?.target.path ??
+      input.repoPath ??
+      home?.worktreePath ??
+      home?.repoPath ??
+      ''
+    const machineId =
+      input.machineId ?? local?.target.machineId ?? (home?.machineId as MachineId | undefined)
+    const agentKind =
+      input.shell === true
+        ? ('shell' as AgentKind)
+        : (input.agentKind ??
+          input.defaultAgent ??
+          (home?.defaultAgent && home.defaultAgent !== 'auto'
+            ? (home.defaultAgent as AgentKind)
+            : 'claude-code'))
     const session: SessionMeta = {
       ...startingSessionRow({
         sessionId: launch.sessionId,

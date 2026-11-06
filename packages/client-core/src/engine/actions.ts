@@ -49,8 +49,10 @@ import {
 } from '../records'
 import type { SocketHub } from '../socket-transport'
 import {
+  issueActionEffect,
   type LaunchSessionArgs,
   type SpawnDraftAgentArgs,
+  type StartIssueSession,
   type SpawnTarget,
   sessionConfigureEffect,
   type TaskSpawnOutcome,
@@ -186,6 +188,8 @@ export const COMMAND_ACTIONS = [
   'interruptTurn',
   'configureSession',
   'dismissEffect',
+  'startIssueSession',
+  'issueAction',
   'resurrectSession',
   'sendChat',
   'chatSendsFor',
@@ -348,6 +352,7 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
     settled: Promise<boolean>
   }
   launchSession(args: LaunchSessionArgs): { sessionId: SessionId; settled: Promise<boolean> }
+  startIssueSession: StartIssueSession
   spawnIssueAgent(args: {
     issueId?: IssueId
     sessionId?: SessionId
@@ -1202,6 +1207,23 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       return id
     },
     dismissEffect: async (id) => await rt.write('effectDismiss', { id }),
+    // An issue's own work as effect records (POD-6526): a session start paints
+    // from its record through the launch paint; the rest are read from their
+    // records by the issue model (`workAction`).
+    startIssueSession: (args) => rt.startIssueSession(args),
+    issueAction: async (issueId, action, opts) => {
+      const id = `eff_${randomUUID()}`
+      await rt.write(
+        'effectCreate',
+        issueActionEffect({
+          effectId: id,
+          issueId,
+          action,
+          ...(opts?.force === true ? { force: true } : {}),
+        }),
+      )
+      return id
+    },
     sendChat: async (input, mutationId) => {
       // Optimistic spawn paints the session id before the server has it. A send
       // in that window dead-letters as "unknown session" and used to be treated

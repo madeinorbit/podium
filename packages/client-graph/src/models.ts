@@ -12,7 +12,14 @@ import { attentionGroup, effectiveRecency } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
 import { groupRelations, type IssueCloseMemberCounts, type IssueCloseScalarSubject, type ReferentExit, motionPhase as sessionMotion, type TaskProgress } from '@podium/client-core/values'
 import { isTurnOpen, readEffectStatus, SESSION_INTERRUPT_KIND } from '@podium/model/browser'
-import { ISSUE_START_KIND, SESSION_CONFIGURE_KIND, SESSION_LAUNCH_KIND } from '@podium/client-core/spawn-agent'
+import {
+  ISSUE_ADD_SESSION_KIND,
+  ISSUE_BEGIN_KIND,
+  ISSUE_START_KIND,
+  ISSUE_WORK_KINDS,
+  SESSION_CONFIGURE_KIND,
+  SESSION_LAUNCH_KIND,
+} from '@podium/client-core/spawn-agent'
 import { asSessionId, type CoordinatedSeat, coordinatedSeat, sessionWorkingFact, isExcluded, isFinished, NO_INTERACTIONS, type SeatInteractions, type SeatRole, type SeatSessionFacts, type SessionWord, type SessionWordFacts, sessionWord, wordWantsAttention } from '@podium/model/browser'
 import type { ReaderQueries } from './reader-queries'
 import type { IssueSessionFactReader } from './shared/issue-session-facts'
@@ -364,6 +371,23 @@ export class IssueModel extends EntityModel {
   }
   @lazy get description(): string {
     return documentText(this.storedField('description'))
+  }
+
+  // The issue's own work (POD-6526): start, stop, cleanup, ship and the
+  // assistant are effect records targeting it, read here on every device.
+  /** The issue action asked for most recently, as its effect record. */
+  @lazy get workAction(): EffectModel | undefined {
+    let latest: EffectModel | undefined
+    for (const effect of this.effects.ready) {
+      if (!ISSUE_WORK_KINDS.has(effect.kind)) continue
+      if (latest === undefined || effect.createdAt > latest.createdAt) latest = effect
+    }
+    return latest
+  }
+  /** The kind of the issue action still on its way (`issue.stop`, …), if any. */
+  @lazy get workPending(): string | undefined {
+    const action = this.workAction
+    return action?.inFlight === true ? action.kind : undefined
   }
 
   // Activity and headless presence: raw ownership maxima/counters include
@@ -1173,9 +1197,17 @@ export class EffectModel extends EntityModel {
   @lazy({ equals: compareStructural }) get error(): EffectError | undefined { return this.effect?.error }
   /** Still on its way: waiting to start, or running. */
   @lazy get inFlight(): boolean { return this.status === 'pending' || this.status === 'running' }
-  /** A start: a draft agent's `session.launch` or a named task's `issue.start`
-   *  (POD-6408, POD-6410), which the launch paint reads (POD-6411). */
-  @lazy get isStart(): boolean { return this.kind === SESSION_LAUNCH_KIND || this.kind === ISSUE_START_KIND }
+  /** A start: a draft agent's `session.launch`, a named task's `issue.start`
+   *  (POD-6408, POD-6410), or a session on an existing issue, `issue.begin` or
+   *  `issue.addSession` (POD-6526), which the launch paint reads (POD-6411). */
+  @lazy get isStart(): boolean {
+    return (
+      this.kind === SESSION_LAUNCH_KIND ||
+      this.kind === ISSUE_START_KIND ||
+      this.kind === ISSUE_BEGIN_KIND ||
+      this.kind === ISSUE_ADD_SESSION_KIND
+    )
+  }
   /** Ended without doing its work, or without saying whether it did. A cancel
    *  is the person's own choice, not a failure. */
   @lazy get unsuccessful(): boolean {

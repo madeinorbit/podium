@@ -10,7 +10,12 @@ import { foldRowOverlays } from '@podium/client-core/command-reducers'
 import type { OutboxOutcome } from '@podium/client-core/engine'
 import type { OutboxEntry } from '@podium/client-core/outbox'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
-import { ISSUE_START_KIND, SESSION_LAUNCH_KIND } from '@podium/client-core/spawn-agent'
+import {
+  ISSUE_ADD_SESSION_KIND,
+  ISSUE_BEGIN_KIND,
+  ISSUE_START_KIND,
+  SESSION_LAUNCH_KIND,
+} from '@podium/client-core/spawn-agent'
 import {
   asIssueId,
   asMutationId,
@@ -536,6 +541,141 @@ describe('a plain session start as a launch effect (POD-6523)', () => {
       spawnFailure: 'machine refused',
     })
     expect(p.errors).toEqual(["Couldn't start the agent — machine refused"])
+    p.tx.dispose()
+  })
+})
+
+/**
+ * A SESSION STARTED ON AN EXISTING ISSUE (POD-6526): `issue.begin` (its first
+ * session, with its worktree) or `issue.addSession` (one more agent, a shell).
+ * The issue is a row already: only the session is painted, in its checkout.
+ */
+describe('a session on an existing issue as its effect record (POD-6526)', () => {
+  const ISSUE_ROW = {
+    id: ISSUE,
+    repoPath: '/r',
+    worktreePath: '/r/.worktrees/fix',
+    branch: 'issue/fix',
+    machineId: 'm-1',
+    defaultAgent: 'codex',
+  }
+
+  /** The record of an own start, answering `answer` when it succeeds. */
+  const onIssue =
+    (kind: string, input: Record<string, unknown>, answer: unknown) =>
+    (status: EffectStatus, error?: string): EffectRecordWire =>
+      ({
+        ...launchRecord(status, error),
+        kind,
+        target: { kind: 'issue', id: ISSUE },
+        input: { sessionId: SESSION, ...input },
+        ...(status === 'succeeded' ? { result: answer } : {}),
+      }) as EffectRecordWire
+
+  it('adds an agent to a started issue: paints the session in its checkout, queues issue.addSession', async () => {
+    const p = pool({ record: onIssue(ISSUE_ADD_SESSION_KIND, {}, { id: ISSUE }) })
+    p.row('issueProjections', ISSUE, ISSUE_ROW)
+    const started = p.tx.startIssueSession({ issueId: ISSUE, sessionId: SESSION })
+    expect(started.mode).toBe('agent')
+    await Promise.resolve()
+    expect(p.shown('sessions', SESSION)).toMatchObject({
+      status: 'starting',
+      issueId: ISSUE,
+      cwd: '/r/.worktrees/fix',
+      machineId: 'm-1',
+      agentKind: 'codex',
+    })
+    // The issue is a row: nothing of it is painted.
+    expect(p.painted('issueProjections', ISSUE)).toBe(0)
+    const [entry] = p.queue()
+    expect(entry?.kind).toBe('effectCreate')
+    expect(entry?.input).toMatchObject({
+      kind: ISSUE_ADD_SESSION_KIND,
+      target: { kind: 'issue', id: ISSUE },
+      input: { sessionId: SESSION },
+    })
+    await expect(started.settled).resolves.toBe(true)
+    // Its record keeps the paint while the machine is away, then the row lands.
+    p.confirmed('pending')
+    expect(p.shown('sessions', SESSION)).toMatchObject({ status: 'starting' })
+    p.confirmed('succeeded')
+    p.row('sessions', SESSION, { sessionId: SESSION, status: 'live' })
+    expect(p.painted('sessions', SESSION)).toBe(0)
+    p.tx.dispose()
+  })
+
+  it('begins an issue that was never started (no branch) without being told to', async () => {
+    const p = pool({ record: onIssue(ISSUE_BEGIN_KIND, {}, { agentId: SESSION }) })
+    p.row('issueProjections', ISSUE, { id: ISSUE, repoPath: '/r', branch: null, worktreePath: null })
+    const started = p.tx.startIssueSession({ issueId: ISSUE, sessionId: SESSION, agentKind: 'grok' })
+    expect(started.mode).toBe('begin')
+    await Promise.resolve()
+    expect(p.queue()[0]?.input).toMatchObject({
+      kind: ISSUE_BEGIN_KIND,
+      input: { sessionId: SESSION, agentKind: 'grok' },
+    })
+    // Until a begin cuts the worktree, the session paints in the repo.
+    expect(p.shown('sessions', SESSION)).toMatchObject({ cwd: '/r', agentKind: 'grok' })
+    p.tx.dispose()
+  })
+
+  it('a freed checkout keeps its branch, so adding rebuilds it there rather than beginning', () => {
+    const p = pool()
+    p.row('issueProjections', ISSUE, { ...ISSUE_ROW, worktreePath: null })
+    expect(p.tx.startIssueSession({ issueId: ISSUE, sessionId: SESSION }).mode).toBe('agent')
+    p.tx.dispose()
+  })
+
+  it('a retried begin under the same mutation id writes the same record', async () => {
+    const p = pool()
+    p.row('issueProjections', ISSUE, ISSUE_ROW)
+    const mutationId = asMutationId('00000000-0000-4000-8000-0000000000dd')
+    const first = p.tx.startIssueSession({ issueId: ISSUE, mode: 'begin', mutationId })
+    expect(first.effectId).toBe(`eff_${mutationId}`)
+    p.tx.dispose()
+  })
+
+  it("drops the paint when a begin finds the issue already started (the server's no-op)", async () => {
+    const p = pool({ record: onIssue(ISSUE_BEGIN_KIND, {}, { id: ISSUE, seq: 7 }) })
+    p.row('issueProjections', ISSUE, ISSUE_ROW)
+    p.tx.startIssueSession({ issueId: ISSUE, sessionId: SESSION, mode: 'begin' })
+    await Promise.resolve()
+    p.confirmed('running')
+    expect(p.shown('sessions', SESSION)).toMatchObject({ status: 'starting' })
+    // Succeeded, naming no session of ours: no row will ever come under this id.
+    p.confirmed('succeeded')
+    expect(p.painted('sessions', SESSION)).toBe(0)
+    expect(p.shown('sessions', SESSION)).toBeUndefined()
+    expect(p.errors).toEqual([])
+    p.tx.dispose()
+  })
+
+  it('keeps the paint for a succeeded begin that names our session until its row lands', async () => {
+    const p = pool({ record: onIssue(ISSUE_BEGIN_KIND, {}, { id: ISSUE, agentId: SESSION }) })
+    p.row('issueProjections', ISSUE, ISSUE_ROW)
+    p.tx.startIssueSession({ issueId: ISSUE, sessionId: SESSION, mode: 'begin' })
+    await Promise.resolve()
+    p.confirmed('succeeded')
+    expect(p.shown('sessions', SESSION)).toMatchObject({ status: 'starting' })
+    p.tx.dispose()
+  })
+
+  it('opens a shell as issue.addSession with shell: true, and names a failed one a shell', async () => {
+    const p = pool({ record: onIssue(ISSUE_ADD_SESSION_KIND, { shell: true }, { id: ISSUE }) })
+    p.row('issueProjections', ISSUE, ISSUE_ROW)
+    p.tx.startIssueSession({ issueId: ISSUE, sessionId: SESSION, mode: 'shell' })
+    await Promise.resolve()
+    expect(p.queue()[0]?.input).toMatchObject({
+      kind: ISSUE_ADD_SESSION_KIND,
+      input: { sessionId: SESSION, shell: true },
+    })
+    expect(p.shown('sessions', SESSION)).toMatchObject({ agentKind: 'shell' })
+    p.confirmed('failed', 'issue not started')
+    expect(p.shown('sessions', SESSION)).toMatchObject({
+      status: 'exited',
+      spawnFailure: 'issue not started',
+    })
+    expect(p.errors).toEqual(["Couldn't open the shell — issue not started"])
     p.tx.dispose()
   })
 })
