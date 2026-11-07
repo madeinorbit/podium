@@ -10,17 +10,25 @@
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { openDatabase } from '@podium/runtime/sqlite'
 import type { AgentKind, AgentRuntimeState, SessionId, TranscriptItem } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
-import { createTerminalRuntime, type TerminalHarnessProfile } from '../../driver/families/terminal/runtime.js'
 import type { TerminalTransport } from '../../driver/families/terminal/host-ports.js'
 import type { TerminalWriteRole } from '../../driver/families/terminal/injection.js'
+import {
+  createTerminalRuntime,
+  type TerminalHarnessProfile,
+} from '../../driver/families/terminal/runtime.js'
 import { createMemoryDriverSlots } from '../../driver/testing/driver-slots.js'
+import {
+  harnessInterrupt,
+  harnessNeedsSubmitVerification,
+  harnessUsesRawFirstTurn,
+  manifestFor,
+} from '../../registry.js'
 import { declaredValue } from '../../transcript-types.js'
-import { harnessInterrupt, harnessNeedsSubmitVerification, harnessUsesRawFirstTurn, manifestFor } from '../../registry.js'
 import { observeOpencodeState } from './state.js'
 
 const loadSource = () => import('../../store/sources/sqlite.js')
@@ -242,6 +250,7 @@ describe('adopt rebinding delivers mail (POD-4794 defect 1)', () => {
     const attached: string[] = []
     const obs = observeOpencodeState({
       cwd: '/repo/adopt',
+      homeDir: '/nonexistent-podium-home',
       databasePath,
       resumeValue: 'ses_stale_gone',
       pollMs: 10,
@@ -273,7 +282,13 @@ describe('adopt rebinding delivers mail (POD-4794 defect 1)', () => {
         testProfileFor('opencode'),
       )
       clock -= 6000
-      runtime.observe({ type: 'bind', sessionId: POD_SID, cmd: 'f', cwd: '/repo/adopt', agentKind: 'opencode' })
+      runtime.observe({
+        type: 'bind',
+        sessionId: POD_SID,
+        cmd: 'f',
+        cwd: '/repo/adopt',
+        agentKind: 'opencode',
+      })
       clock += 6000
 
       // THE REBIND: the observer must attach despite the stale resume, and the

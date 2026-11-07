@@ -1,10 +1,7 @@
-import { resolveCursorBin } from '../../cursor/cli.js'
 import { join } from 'node:path'
 import { transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
-import { cursorStateProvider, observeCursorState } from './state.js'
 import { withStateChannel } from '../../agent-state/types.js'
 import { cursorRoot, cursorSessionPaths } from '../../cursor/paths.js'
-import { createCursorConversationProvider } from './discovery.js'
 import { composeAgentInstructions } from '../../instructions.js'
 import {
   type AgentManifest,
@@ -13,12 +10,14 @@ import {
   supported,
   unsupported,
 } from '../../manifest.js'
-import { cursorTranscript } from './transcript.js'
-import { cursorCredentials } from './credentials.js'
-import { cursorInstall } from './install.js'
-import { cursorUsage } from './usage.js'
 import { cursorCatalog } from './catalog.js'
+import { cursorCredentials } from './credentials.js'
 import { cursorDescriptor } from './descriptor.js'
+import { createCursorConversationProvider } from './discovery.js'
+import { cursorInstall } from './install.js'
+import { cursorStateProvider, observeCursorState } from './state.js'
+import { cursorTranscript } from './transcript.js'
+import { cursorUsage } from './usage.js'
 
 /** Cursor's headless chat allocation, surfaced on the adapter's own index for the supervisor's headless machinery (reached through the registry — POD-4530). */
 export { cursorCreateChatInvocation, parseCursorChatId } from './chat.js'
@@ -92,7 +91,7 @@ export const cursorManifest: AgentManifest = {
       ...(isSet(opts.model) ? ['--model', opts.model] : []),
     ]
     const instructions = composeAgentInstructions(opts.instructions)
-    if (!instructions) return { cmd: resolveCursorBin(undefined, opts.env), args, cwd: opts.cwd }
+    if (!instructions) return { args, cwd: opts.cwd }
     if (!opts.runtimeDir) throw new Error('cursor launch requires an instruction runtime directory')
     const manifestPath = join(opts.runtimeDir, '.cursor-plugin', 'plugin.json')
     const rulePath = join(opts.runtimeDir, 'rules', 'podium-session-context.mdc')
@@ -111,7 +110,6 @@ export const cursorManifest: AgentManifest = {
     const rule = `---\ndescription: Podium session context\nalwaysApply: true\n---\n\n${instructions}\n`
     // No effort flag (capabilities.effortFlag 'none') and no argv prompt.
     return {
-      cmd: resolveCursorBin(undefined, opts.env),
       args: [...args, '--plugin-dir', opts.runtimeDir],
       cwd: opts.cwd,
       files: [
@@ -127,7 +125,7 @@ export const cursorManifest: AgentManifest = {
     const model = opts.model || 'auto'
     const sys = opts.systemPrompt?.trim() ? opts.systemPrompt.trim() : undefined
     const prompt = sys ? `${sys}\n\n---\n\n${opts.prompt}` : opts.prompt
-    return { cmd: resolveCursorBin(undefined, opts.env), args: ['-p', '--model', model, prompt] }
+    return { args: ['-p', '--model', model, prompt] }
   }),
 
   // TERMINAL TODAY, and unlike grok the reason is IGNORANCE rather than a
@@ -167,7 +165,6 @@ export const cursorManifest: AgentManifest = {
       const context = opts.contextPrompt?.trim()
       const prompt = [sys, context, opts.prompt].filter(Boolean).join('\n\n---\n\n')
       return {
-        cmd: resolveCursorBin(undefined, opts.env),
         args: [
           '-p',
           '--resume',
@@ -182,7 +179,9 @@ export const cursorManifest: AgentManifest = {
   }),
 
   state: supported(cursorStateProvider),
-  instrumentation: unsupported('Cursor posts no hook payloads; observation is poll-only over its transcript'),
+  instrumentation: unsupported(
+    'Cursor posts no hook payloads; observation is poll-only over its transcript',
+  ),
   stateChannels: [
     {
       source: 'poll',
@@ -198,7 +197,7 @@ export const cursorManifest: AgentManifest = {
       cursorSessionPaths({
         cwd: input.cwd,
         chatId,
-        ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+        homeDir: input.account.home,
       }).transcriptPath
     // With a known chat id the transcript path is derivable — tail immediately
     // so reattached chat has history before new activity.
@@ -207,7 +206,7 @@ export const cursorManifest: AgentManifest = {
       cwd: input.cwd,
       ...(input.statTick ? { statTick: input.statTick } : {}),
       ...(input.resumeValue ? { resumeValue: input.resumeValue } : {}),
-      ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+      homeDir: input.account.home,
       ...(input.startedAtMs !== undefined ? { startedAtMs: input.startedAtMs } : {}),
       onSession: (chatId) => {
         host.onResumeValue(chatId)

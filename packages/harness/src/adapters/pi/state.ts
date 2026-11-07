@@ -9,11 +9,16 @@
  */
 import { open, readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import { type StatTick, scheduleStatPoll } from '../../transcript-types.js'
+import {
+  type AgentStateEvent,
+  type AgentStateProvider,
+  withStateChannel,
+} from '../../agent-state/types.js'
 import { LineDecoder } from '../../jsonl-stream.js'
-import { locatePiSessionFile, piSessionDir, piSessionIdFromPath } from '../../pi/paths.js'
+import type { HarnessAccountScope } from '../../manifest.js'
 import { withEventTime } from '../../observer.js'
-import { type AgentStateEvent, type AgentStateProvider, withStateChannel } from '../../agent-state/types.js'
+import { locatePiSessionFile, piSessionDir, piSessionIdFromPath } from '../../pi/paths.js'
+import { type StatTick, scheduleStatPoll } from '../../transcript-types.js'
 
 const POLL_MS = 700
 const TAIL_BYTES = 128 * 1024
@@ -144,7 +149,7 @@ export function classifyPiIdleTranscript(
 async function piBootEvents(opts: {
   cwd: string
   resumeValue?: string
-  homeDir?: string
+  account: HarnessAccountScope
   pathHint?: string
 }): Promise<AgentStateEvent[]> {
   if (opts.resumeValue) {
@@ -152,7 +157,7 @@ async function piBootEvents(opts: {
       const path = await locatePiSessionFile({
         cwd: opts.cwd,
         sessionId: opts.resumeValue,
-        ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
+        homeDir: opts.account.home,
         ...(opts.pathHint ? { pathHint: opts.pathHint } : {}),
       })
       if (path) {

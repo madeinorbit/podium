@@ -8,35 +8,36 @@
  * strip lists) is read off the adapter's sections through the facts.
  */
 
-import { asSessionId } from '@podium/model'
 import { Buffer } from 'node:buffer'
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import type { SessionId } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { grokEngineFacts } from './engine-facts.js'
 import { manifestFor } from '../../../registry.js'
+import { isDriverRefusal } from '../../errors.js'
+import type { TestEngineSpawn } from '../../testing/binding-records.js'
+import { createTestEngineOwner } from '../../testing/binding-records.js'
 import { testHarnessContext } from '../../testing/harness-context.js'
-import {
-  type GrokEngineHostDeps,
-  createGrokEngineHost,
-  evaluateGrokAcpVersionProbe,
-  GrokEngineLeaseRefused,
-  grokAcpProcessKey,
-} from './engine-host.js'
+import { createMemoryAttachmentStager, createMemoryDriverSlots } from '../../testing/index.js'
 import type {
   EngineAttachment,
   EngineProcessOwner,
   EngineSupervisor,
   SessionEngineOwner,
 } from '../engine-supervision.js'
-import { createTestEngineOwner } from '../../testing/binding-records.js'
-import { createMemoryDriverSlots, createMemoryAttachmentStager } from '../../testing/index.js'
-import { isDriverRefusal } from '../../errors.js'
+import { grokEngineFacts } from './engine-facts.js'
+import {
+  createGrokEngineHost,
+  evaluateGrokAcpVersionProbe,
+  type GrokEngineHostDeps,
+  GrokEngineLeaseRefused,
+  grokAcpProcessKey,
+} from './engine-host.js'
 import type { GrokAcpJournalEntry, GrokAcpRuntimeHost } from './runtime.js'
 import { createGrokAcpRuntime } from './runtime.js'
 import { startFakeGrokAcpServer } from './test-support/fake-acp-server.js'
-import type { SessionId } from '@podium/model'
 
 const FACTS = grokEngineFacts(manifestFor('grok')!)
 /** The session's pinned installation (POD-6546): argv[0] comes from here. */
@@ -49,7 +50,12 @@ function engineHost(extra: Partial<GrokEngineHostDeps> = {}) {
     buildEnv: () => ({}),
     gracefulExitMs: 1,
     checkVersion: async () => ({ drivable: true as const }),
-    harnessContextFor: async () => CONTEXT,
+    // The session's context names the account home its files live under
+    // (POD-6536): a host built over `homeDir` pins a context for that home.
+    harnessContextFor: async () =>
+      extra.homeDir
+        ? testHarnessContext({ kind: 'grok', executable: '/opt/rig/bin/grok', home: extra.homeDir })
+        : CONTEXT,
     ...extra,
   })
 }
@@ -143,7 +149,7 @@ describe('headless engine lifecycle (POD-4433)', () => {
   }
 
   it('spawns grok stdio headless under the session label, without argv secrets', async () => {
-    const launched: Array<Parameters<EngineProcessOwner['startEngine']>[0]> = []
+    const launched: TestEngineSpawn[] = []
     const { session } = fakeEngineSession()
     const host = engineHost({
       ...fakePorts({
@@ -183,13 +189,22 @@ describe('headless engine lifecycle (POD-4433)', () => {
     })
     const lines: string[] = []
     let closed = 0
-    endpoint.transport.onLine({ line: (line) => void lines.push(line), closed: () => void closed++ })
+    endpoint.transport.onLine({
+      line: (line) => void lines.push(line),
+      closed: () => void closed++,
+    })
     endpoint.transport.write('{"jsonrpc":"2.0","id":1,"method":"initialize"}\n')
     expect(rig.written).toEqual(['{"jsonrpc":"2.0","id":1,"method":"initialize"}\n'])
     for (const listener of rig.dataListeners) {
-      listener(0n, Buffer.from('{"jsonrpc":"2.0","id":1,"result":{}}\n{"jsonrpc":"2.0","method":"m"}\n'))
+      listener(
+        0n,
+        Buffer.from('{"jsonrpc":"2.0","id":1,"result":{}}\n{"jsonrpc":"2.0","method":"m"}\n'),
+      )
     }
-    expect(lines).toEqual(['{"jsonrpc":"2.0","id":1,"result":{}}', '{"jsonrpc":"2.0","method":"m"}'])
+    expect(lines).toEqual([
+      '{"jsonrpc":"2.0","id":1,"result":{}}',
+      '{"jsonrpc":"2.0","method":"m"}',
+    ])
     expect(closed).toBe(0)
     // The engine's end arrives through the host's EXITED frame.
     for (const fire of rig.exits) fire(1, 0)
@@ -331,7 +346,9 @@ describe('readHistory — the Store read over updates.jsonl', () => {
           from: { segmentId: 'history:someone-else:other', pathHint: 'x', components: {} },
           limit: 10,
         }),
-      ).rejects.toSatisfy((err: unknown) => isDriverRefusal(err) && err.refusal.reason === 'invalid_value')
+      ).rejects.toSatisfy(
+        (err: unknown) => isDriverRefusal(err) && err.refusal.reason === 'invalid_value',
+      )
       // Same segment but no anchor is equally foreign: cursors are opaque.
       const own = await host.readHistory(session, { limit: 50 })
       expect(own.head).toBeDefined()
@@ -340,7 +357,9 @@ describe('readHistory — the Store read over updates.jsonl', () => {
           from: { segmentId: own.head!.segmentId, components: {} },
           limit: 10,
         }),
-      ).rejects.toSatisfy((err: unknown) => isDriverRefusal(err) && err.refusal.reason === 'invalid_value')
+      ).rejects.toSatisfy(
+        (err: unknown) => isDriverRefusal(err) && err.refusal.reason === 'invalid_value',
+      )
     } finally {
       rmSync(home, { recursive: true, force: true })
     }
@@ -419,7 +438,10 @@ describe('readHistory — the Store read over updates.jsonl', () => {
       const seq1 = { n: 0 }
       const entries1 = new Map<SessionId, GrokAcpJournalEntry>()
       const prod1 = engineHost({ homeDir: home })
-      const runtime1 = createGrokAcpRuntime(makeDriverHost(prod1, entries1, seq1), createMemoryDriverSlots())
+      const runtime1 = createGrokAcpRuntime(
+        makeDriverHost(prod1, entries1, seq1),
+        createMemoryDriverSlots(),
+      )
       const handle1 = await runtime1.driver.create(spec())
       try {
         const before = await handle1.transcript.history({ limit: 50 })
@@ -432,7 +454,10 @@ describe('readHistory — the Store read over updates.jsonl', () => {
         const seq2 = { n: 100 }
         const entries2 = new Map<SessionId, GrokAcpJournalEntry>()
         const prod2 = engineHost({ homeDir: home })
-        const runtime2 = createGrokAcpRuntime(makeDriverHost(prod2, entries2, seq2), createMemoryDriverSlots())
+        const runtime2 = createGrokAcpRuntime(
+          makeDriverHost(prod2, entries2, seq2),
+          createMemoryDriverSlots(),
+        )
         try {
           const handle2 = await runtime2.driver.create(spec())
           const after = await handle2.transcript.history({ limit: 50 })

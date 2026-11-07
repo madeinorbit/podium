@@ -54,19 +54,16 @@ import { asSessionId } from '@podium/model'
 import type { RuntimeHistoryPage, RuntimeHistoryRange } from '@podium/protocol/daemon'
 import { codexMcpArgs } from '../../../adapters/codex/index.js'
 import { codexTranscript } from '../../../adapters/codex/transcript.js'
+import { harnessCommand } from '../../../bound-command.js'
 import type { HarnessContext, HarnessInstallation } from '../../../harness-context-types.js'
-import { readEngineHistoryFromGrammar } from '../engine-history.js'
 import {
   CODEX_VERSION_POLICY,
   gateHarnessVersion,
   harnessVersionDiagnostic,
 } from '../../../version-policy.js'
-import type { AttachmentStager } from '../../turns.js'
 import type { ScopeResources } from '../../capabilities.js'
-import type { CodexJournalEntry, CodexRuntimeHost, CodexServerEndpoint } from './runtime.js'
-import type { CodexTransport } from './client.js'
-import type { CodexVersionDiagnostic } from './version.js'
-import type { CodexEngineFacts } from './engine-facts.js'
+import type { AttachmentStager } from '../../turns.js'
+import { readEngineHistoryFromGrammar } from '../engine-history.js'
 import type {
   EngineAttachment,
   EngineProcessOwner,
@@ -74,6 +71,10 @@ import type {
   SessionEngineOwner,
 } from '../engine-supervision.js'
 import { bindingRecordsOf, EngineBindUnrecoverable } from '../engine-supervision.js'
+import type { CodexTransport } from './client.js'
+import type { CodexEngineFacts } from './engine-facts.js'
+import type { CodexJournalEntry, CodexRuntimeHost, CodexServerEndpoint } from './runtime.js'
+import type { CodexVersionDiagnostic } from './version.js'
 
 const log = createLogger('harness:codex-engine-host')
 
@@ -327,7 +328,10 @@ export class CodexEngineLeaseRefused extends Error {
  * an owner cannot summon one at all. Loud, naming the session — a refused
  * launch beats a child no restart could re-adopt.
  */
-function engineOwner(engines: EngineProcessOwner | undefined, sessionId: SessionId): EngineProcessOwner {
+function engineOwner(
+  engines: EngineProcessOwner | undefined,
+  sessionId: SessionId,
+): EngineProcessOwner {
   if (!engines) {
     throw new Error(
       `codex engine for ${sessionId} requires the session engine owner: this family never spawns its own engine`,
@@ -527,7 +531,11 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
    * thing `resume()` and `adopt()` have to work from — and the rollout is
    * flushed incrementally during turns, not only at exit.
    */
-  async function terminate(sessionId: SessionId, signal: 'SIGTERM' | 'SIGKILL', held: HeldEngine | undefined): Promise<void> {
+  async function terminate(
+    sessionId: SessionId,
+    signal: 'SIGTERM' | 'SIGKILL',
+    held: HeldEngine | undefined,
+  ): Promise<void> {
     engines.delete(sessionId)
     if (held) {
       if (signal === 'SIGTERM') {
@@ -640,8 +648,9 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
       })
       // argv[0] is the session's pinned installation (POD-6546), never the
       // adapter's bare command name.
-      const command = input.harnessContext.installation.executable
-      const args = [...deps.facts.serverArgs, ...config.args]
+      const command = harnessCommand(input.harnessContext, {
+        args: [...deps.facts.serverArgs, ...config.args],
+      })
 
       const env = deps.buildEnv({
         ...(deps.instanceUuid ? { instanceUuid: deps.instanceUuid } : {}),
@@ -669,8 +678,7 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
         const started = await owner.startEngine({
           sessionId: input.sessionId,
           label,
-          cmd: command,
-          args,
+          command,
           // The engine is TOLD its address by flag; the session layer mints it.
           listen: { argv: (address) => ['--listen', address] },
           cwd: input.workdir,
@@ -755,7 +763,12 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
       const banner = (): string => held.banner
       try {
         if (address === undefined) throw new Error('the session layer handed no listener address')
-        const socket = await connectCodexWebSocket(deps.dialSocket, address, livenessFor(held), banner)
+        const socket = await connectCodexWebSocket(
+          deps.dialSocket,
+          address,
+          livenessFor(held),
+          banner,
+        )
         const transport = websocketTransport(socket, held, banner)
         return endpointFor({
           sessionId: binding.sessionId,
@@ -812,7 +825,12 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
         direction?: RuntimeHistoryRange['direction']
       },
     ): Promise<RuntimeHistoryPage> {
-      return readEngineHistoryFromGrammar(codexTranscript, session, range, deps.homeDir)
+      return readEngineHistoryFromGrammar(
+        codexTranscript,
+        session,
+        range,
+        await deps.harnessContextFor(session.sessionId),
+      )
     },
 
     reportAuthMode({ sessionId, authMethod, subscription }) {
@@ -1022,35 +1040,32 @@ export async function connectCodexWebSocket(
         // large payload ceiling); a library that errors after the first
         // failed attempt is terminated must not surface that cleanup as an
         // unhandled `error`, so the port keeps one durable listener for it.
-        dial(path).then(
-          (candidate) => {
-            candidate.on('error', () => undefined)
-            let timer: ReturnType<typeof setTimeout>
-            const failed = (err: Error): void => {
-              clearTimeout(timer)
-              candidate.off('open', opened)
-              candidate.terminate()
-              reject(err)
-            }
-            const opened = (): void => {
-              clearTimeout(timer)
-              candidate.off('error', failed)
-              resolve(candidate)
-            }
-            timer = setTimeout(
-              () =>
-                failed(
-                  new HandshakeTimeout(
-                    `the listener did not complete the upgrade within ${attemptMs}ms`,
-                  ),
+        dial(path).then((candidate) => {
+          candidate.on('error', () => undefined)
+          let timer: ReturnType<typeof setTimeout>
+          const failed = (err: Error): void => {
+            clearTimeout(timer)
+            candidate.off('open', opened)
+            candidate.terminate()
+            reject(err)
+          }
+          const opened = (): void => {
+            clearTimeout(timer)
+            candidate.off('error', failed)
+            resolve(candidate)
+          }
+          timer = setTimeout(
+            () =>
+              failed(
+                new HandshakeTimeout(
+                  `the listener did not complete the upgrade within ${attemptMs}ms`,
                 ),
-              attemptMs,
-            )
-            candidate.once('open', opened)
-            candidate.once('error', failed)
-          },
-          reject,
-        )
+              ),
+            attemptMs,
+          )
+          candidate.once('open', opened)
+          candidate.once('error', failed)
+        }, reject)
       })
       return socket
     } catch (err) {

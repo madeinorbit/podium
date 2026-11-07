@@ -4,32 +4,11 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import type { ResolvedHarnessInventory } from '../../inventory/build-inventory.js'
 import { cursorCreateChatInvocation, parseCursorChatId } from './chat.js'
 
-function snapshot(): ResolvedHarnessInventory {
-  return {
-    executables: new Map([
-      ['cursor', { kind: 'cursor', path: '/opt/cursor-agent', generation: 1 }],
-    ]),
-    commandEnvironment: {
-      env: { PATH: '/opt:/usr/bin:/bin', HOME: '/tmp' },
-      pathEntries: ['/opt', '/usr/bin', '/bin'],
-      source: 'inherited',
-      generation: 1,
-      machineHome: '/tmp',
-      loginShell: '/bin/sh',
-      resolve: () => undefined,
-    },
-  } as unknown as ResolvedHarnessInventory
-}
-
 describe('cursor create-chat allocation', () => {
-  it('resolves the cursor executable off the adapter and passes bare create-chat', () => {
-    expect(cursorCreateChatInvocation(snapshot())).toEqual({
-      cmd: '/opt/cursor-agent',
-      args: ['create-chat'],
-    })
+  it('declares bare create-chat argv; the turn binds the executable (POD-6536)', () => {
+    expect(cursorCreateChatInvocation()).toEqual({ args: ['create-chat'] })
   })
 
   it('takes the chat id from the last stdout line', () => {

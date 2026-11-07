@@ -42,12 +42,20 @@ describe('runInstallTarget — steps come from the adapter', () => {
     rmSync(bin, { recursive: true, force: true })
   })
 
-  const ports = (over: Record<string, unknown> = {}) => ({
-    fetch: vi.fn((_url: string, out: string) => writeFileSync(out, '#!/bin/sh\n')),
-    run: vi.fn(() => ''),
-    env: {} as NodeJS.ProcessEnv,
-    ...over,
-  })
+  // One `run` mock sees every command: the installer's shell arrives through
+  // `runTool` (the OS-tool port, POD-6536) and is recorded beside the verify.
+  const ports = (over: Record<string, unknown> = {}) => {
+    const base = {
+      fetch: vi.fn((_url: string, out: string) => writeFileSync(out, '#!/bin/sh\n')),
+      run: vi.fn((_cmd: string, _args: string[], _env: NodeJS.ProcessEnv) => ''),
+      env: {} as NodeJS.ProcessEnv,
+      ...over,
+    }
+    return {
+      ...base,
+      runTool: (tool: string, args: string[], env: NodeJS.ProcessEnv) => base.run(tool, args, env),
+    }
+  }
 
   it('runs the Codex installer with the env its script requires', () => {
     const p = ports()

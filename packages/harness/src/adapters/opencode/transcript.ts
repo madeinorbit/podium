@@ -229,16 +229,13 @@ export const opencodeTranscript: Declared<HarnessTranscript> = supported({
     // through the roots rule) when the caller names the account.
     const databasePath =
       opencodeDbPathForSession({
-        homeDir: input.homeDir,
+        homeDir: input.account.home,
         podiumSessionId: input.podiumSessionId,
         resumeValue: input.resumeValue,
-      }) ??
-      (input.homeDir !== undefined && input.env !== undefined
-        ? opencodeDbPath(input.homeDir, input.env)
-        : undefined)
+      }) ?? opencodeDbPath(input.account.home, input.account.env)
     return {
       sessionKey: input.resumeValue,
-      ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
+      homeDir: input.account.home,
       ...(databasePath ? { databasePath } : {}),
     }
   }),

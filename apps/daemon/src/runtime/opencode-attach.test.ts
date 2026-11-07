@@ -15,34 +15,13 @@
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { hostname, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import {
+  AGENT_MANIFESTS,
+  CLIENT_TERMINAL_HARNESSES,
+  clientTerminalFor,
+  manifestFor,
+} from '@podium/harness'
 import type { OpencodeJournalEntry, SessionBinding } from '@podium/harness/driver/host'
-import {
-  createMemoryBindingRecords,
-  createTestEngineOwner,
-  type MemoryBindingRecords,
-  testHarnessContext,
-} from '@podium/harness/driver/testing'
-import type { BuiltinHarnessKind } from '@podium/protocol'
-import { AGENT_MANIFESTS, CLIENT_TERMINAL_HARNESSES, clientTerminalFor, manifestFor } from '@podium/harness'
-import { asSessionId, type SessionId } from '@podium/model'
-import { BUILTIN_HARNESS_KINDS } from '@podium/protocol'
-import type { AgentFrame, AgentPicture, DurableAttachment } from '@podium/process/screen'
-import { createDurableProcess, hostSocketPath, scopeUnitName } from '@podium/process/durable'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { attributeMemory, type ProcSample } from '../memory-breakdown'
-import {
-  CLIENT_TERMINAL_INPUT_MAX_BYTES,
-  CLIENT_TERMINAL_INPUT_MAX_MESSAGES,
-  type ClientTerminalKind,
-  clientTerminalLabel,
-  createClientTerminalsFor,
-  createOpencodeClientTerminals,
-  requireClientTerminalLabel,
-  WARM_TTL_MS,
-} from './opencode-attach'
-import { SessionRegistry } from '../session/registry.js'
-import { createSessionClientScope, type ClientProcessOwner } from '../session/clients.js'
-import { testSessions } from '../session/testing.js'
 import {
   createOpencodeEngineHost,
   type EngineAttachment,
@@ -53,7 +32,33 @@ import {
   opencodeFlavor,
   opencodeScopeLabel,
 } from '@podium/harness/driver/host'
+import {
+  createMemoryBindingRecords,
+  createTestEngineOwner,
+  type MemoryBindingRecords,
+  testHarnessContext,
+} from '@podium/harness/driver/testing'
+import { asSessionId, type SessionId } from '@podium/model'
+import { createDurableProcess, hostSocketPath, scopeUnitName } from '@podium/process/durable'
+import type { AgentFrame, AgentPicture, DurableAttachment } from '@podium/process/screen'
+import type { BuiltinHarnessKind } from '@podium/protocol'
+import { BUILTIN_HARNESS_KINDS } from '@podium/protocol'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { attributeMemory, type ProcSample } from '../memory-breakdown'
+import { type ClientProcessOwner, createSessionClientScope } from '../session/clients.js'
+import { SessionRegistry } from '../session/registry.js'
+import { testSessions } from '../session/testing.js'
 import { engineClientTerminals } from './host'
+import {
+  CLIENT_TERMINAL_INPUT_MAX_BYTES,
+  CLIENT_TERMINAL_INPUT_MAX_MESSAGES,
+  type ClientTerminalKind,
+  clientTerminalLabel,
+  createClientTerminalsFor,
+  createOpencodeClientTerminals,
+  requireClientTerminalLabel,
+  WARM_TTL_MS,
+} from './opencode-attach'
 
 /** The session's pinned harness context (POD-6546): a client terminal runs the
  *  session's executable, never the harness's bare name. */
@@ -236,8 +241,8 @@ function harness(opts: HarnessOptions = {}) {
     spawnClient: async (o) => {
       state.spawns.push({
         label: o.label,
-        cmd: o.cmd,
-        args: o.args ?? [],
+        cmd: o.command.cmd,
+        args: [...o.command.args],
         ...(o.cols !== undefined ? { cols: o.cols } : {}),
         ...(o.rows !== undefined ? { rows: o.rows } : {}),
         ...(o.env ? { env: o.env } : {}),
@@ -886,7 +891,14 @@ describe('the client terminal a server-family attach produces', () => {
       // override on a `--remote` resume ("Permission overrides are not
       // supported when resuming a remote task."); the app-server owns the
       // thread's sandbox.
-      args: ['resume', '-C', '/work/codex', 'thread-9', '--remote', 'unix:///instance/runtime/codex-9.sock'],
+      args: [
+        'resume',
+        '-C',
+        '/work/codex',
+        'thread-9',
+        '--remote',
+        'unix:///instance/runtime/codex-9.sock',
+      ],
     })
     expect(codex.state.spawns[0]?.args.join(' ')).not.toMatch(/sandbox|approval|permissions/)
 
@@ -968,7 +980,10 @@ describe('warm-parking', () => {
     await expect(attaching).rejects.toThrow(/closed while it was starting/)
     expect(clients[0]?.disposed).toBe(true)
     expect(clients[0]?.writes).toEqual([])
-    expect(reclaimed).toEqual([requireClientTerminalLabel(SESSION, 'opencode'), requireClientTerminalLabel(SESSION, 'opencode')])
+    expect(reclaimed).toEqual([
+      requireClientTerminalLabel(SESSION, 'opencode'),
+      requireClientTerminalLabel(SESSION, 'opencode'),
+    ])
   })
 
   it('never drains a stale completion into a replacement generation', async () => {
@@ -1129,7 +1144,9 @@ describe('warm-parking', () => {
 
     await terminals.close(SESSION)
 
-    await vi.waitFor(() => expect(state.reclaimed).toEqual([requireClientTerminalLabel(SESSION, 'opencode')]))
+    await vi.waitFor(() =>
+      expect(state.reclaimed).toEqual([requireClientTerminalLabel(SESSION, 'opencode')]),
+    )
   })
 
   it('parks a client that was still STARTING when the viewer switched away', async () => {
@@ -1221,7 +1238,9 @@ describe('warm-parking', () => {
     const { terminals, state } = harness()
     await terminals.attach({ sessionId: SESSION, target })
     await terminals.close(SESSION)
-    await vi.waitFor(() => expect(state.reclaimed).toEqual([requireClientTerminalLabel(SESSION, 'opencode')]))
+    await vi.waitFor(() =>
+      expect(state.reclaimed).toEqual([requireClientTerminalLabel(SESSION, 'opencode')]),
+    )
     expect(state.clients[0]?.disposed).toBe(true)
   })
 
@@ -1242,7 +1261,9 @@ describe('warm-parking', () => {
     terminals.viewers(SESSION, false)
     // Past the warm TTL: the server orders the close.
     await terminals.close(SESSION)
-    await vi.waitFor(() => expect(state.reclaimed).toEqual([requireClientTerminalLabel(SESSION, 'opencode')]))
+    await vi.waitFor(() =>
+      expect(state.reclaimed).toEqual([requireClientTerminalLabel(SESSION, 'opencode')]),
+    )
     expect(state.clients[0]?.disposed).toBe(true)
     // THE AGENT IS UNTOUCHED: the entry survives, only the client policy retires.
     const owned = sessions.get(SESSION)
@@ -1258,7 +1279,9 @@ describe('warm-parking', () => {
     expect(state.spawns).toHaveLength(0)
     expect(terminals.reclaimable()).toBe(1)
     await terminals.close(SESSION)
-    return vi.waitFor(() => expect(state.reclaimed).toEqual([requireClientTerminalLabel(SESSION, 'opencode')]))
+    return vi.waitFor(() =>
+      expect(state.reclaimed).toEqual([requireClientTerminalLabel(SESSION, 'opencode')]),
+    )
   })
 
   it('does not adopt what is not there, and does not fork to find out on teardown', async () => {
@@ -1618,7 +1641,9 @@ function engineHost(
   }
   return createOpencodeEngineHost({
     flavor: OC_FLAVOR,
-    stageAttachment: async () => { throw new Error('attachments are not under test') },
+    stageAttachment: async () => {
+      throw new Error('attachments are not under test')
+    },
     resources: () => undefined,
     buildEnv: () => ({}),
     gracefulExitMs: 1,
@@ -1830,7 +1855,10 @@ describe('a client terminal states its size through the size event', () => {
 
   it('is BORN at the size the daemon answers with, and states it once', async () => {
     const { sizes, sizeEvent } = stated()
-    const { terminals, state } = harness({ sizeEvent, birthGeometry: () => ({ cols: 203, rows: 51 }) })
+    const { terminals, state } = harness({
+      sizeEvent,
+      birthGeometry: () => ({ cols: 203, rows: 51 }),
+    })
     // ARMED: nothing is stated until the attach actually spawns.
     expect(sizes).toEqual([])
 

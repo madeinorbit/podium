@@ -16,6 +16,7 @@ import type { MachineRecord } from './store/types'
 /** A row in the Accounts hub. Native rows are observed from the machine catalog;
  * managed rows reflect what Podium stores. */
 export type { AccountView } from '@podium/model'
+
 import type { AccountView } from '@podium/model'
 
 /** Display-only preview of a secret. The full value never leaves the server. */
@@ -29,7 +30,7 @@ export function maskCredential(secret: string): string {
  * calls pass machine records, so this path is never reached by the account query.
  */
 function detectNative(homeDir: string, kind: HarnessAgent, provider: string): AccountView {
-  const login = harnessDetectLogin(kind, homeDir)
+  const login = harnessDetectLogin(kind, homeDir, {})
   if (!login) {
     return {
       id: `native:${kind}`,
@@ -77,11 +78,13 @@ function nativeFromCatalog(
   return pairs.flatMap(({ kind: harness, provider }): AccountView[] => {
     const entries = catalogEntriesForHarness(catalog, harness)
     if (entries.length === 0) {
-      const reports = machines.filter((machine) => !machine.revokedAt).flatMap((machine) =>
-        (machine.inventory?.agents ?? [])
-          .filter((agent) => agent.kind === harness)
-          .map((agent) => ({ machine, login: agent.login })),
-      )
+      const reports = machines
+        .filter((machine) => !machine.revokedAt)
+        .flatMap((machine) =>
+          (machine.inventory?.agents ?? [])
+            .filter((agent) => agent.kind === harness)
+            .map((agent) => ({ machine, login: agent.login })),
+        )
       const loggedIn = reports.filter(({ login }) => login.state === 'in')
       if (loggedIn.length > 0) {
         const labels = [...new Set(loggedIn.map(({ login }) => login.account).filter(Boolean))]

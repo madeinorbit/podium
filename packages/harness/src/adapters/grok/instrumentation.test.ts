@@ -2,13 +2,16 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { testHarnessContext } from '../../driver/testing/harness-context.js'
+import { testAccount, testHarnessContext } from '../../driver/testing/harness-context.js'
 import {
   ensurePodiumGrokHooks,
   grokInstrumentation,
   grokSessionPaths,
   PODIUM_GROK_HOOK_COMMAND,
 } from './instrumentation.js'
+
+/** No account folders exist: the payloads below name everything they need. */
+const NO_ACCOUNT = testAccount('grok', '/nonexistent-podium-home')
 
 const tmpDirs: string[] = []
 afterEach(async () => {
@@ -33,14 +36,17 @@ describe('grokInstrumentation.payloadCodec', () => {
 
   it('decodes native hooks with the poll channel', async () => {
     await expect(
-      codec.decode({ hookEventName: 'SessionStart', sessionId: 'g-native' }),
+      codec.decode({ hookEventName: 'SessionStart', sessionId: 'g-native' }, NO_ACCOUNT),
     ).resolves.toEqual([{ kind: 'session_started', source: 'poll', confidence: 0.7 }])
     await expect(
-      codec.decode({
-        hookEventName: 'PreToolUse',
-        toolName: 'AskUserQuestion',
-        toolInput: { questions: [{ question: 'Which implementation?' }] },
-      }),
+      codec.decode(
+        {
+          hookEventName: 'PreToolUse',
+          toolName: 'AskUserQuestion',
+          toolInput: { questions: [{ question: 'Which implementation?' }] },
+        },
+        NO_ACCOUNT,
+      ),
     ).resolves.toEqual([
       {
         kind: 'needs_user',
@@ -50,7 +56,7 @@ describe('grokInstrumentation.payloadCodec', () => {
         confidence: 0.7,
       },
     ])
-    await expect(codec.decode(null)).resolves.toEqual([])
+    await expect(codec.decode(null, NO_ACCOUNT)).resolves.toEqual([])
   })
 
   it('classifies Stop from chat history through the section', async () => {
@@ -60,7 +66,7 @@ describe('grokInstrumentation.payloadCodec', () => {
     await mkdir(paths.sessionDir, { recursive: true })
     await writeFile(paths.chatHistoryPath, JSON.stringify({ type: 'assistant', content: 'Done.' }))
     await expect(
-      codec.decode({ hookEventName: 'Stop', chatHistoryPath: paths.chatHistoryPath }),
+      codec.decode({ hookEventName: 'Stop', chatHistoryPath: paths.chatHistoryPath }, NO_ACCOUNT),
     ).resolves.toEqual([
       {
         kind: 'turn_completed',

@@ -30,18 +30,18 @@
 import { appendFile, cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it, beforeEach, afterEach } from 'vitest'
 import { openDatabase } from '@podium/runtime/sqlite'
-import { opencodeDbSource } from './sources/sqlite.js'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { claudeRecordToItems } from '../adapters/claude-code/transcript.js'
 import { codexRecordToItems } from '../adapters/codex/transcript.js'
 import { cursorRecordToItems } from '../adapters/cursor/transcript.js'
 import { grokRecordToItems } from '../adapters/grok/transcript.js'
 import { piRecordToItems } from '../adapters/pi/transcript.js'
-import type { TranscriptRecordMapper } from './source.js'
-import { readTranscriptSlice } from './slice.js'
 import { fileIdFor } from './file-chain.js'
 import * as storeBarrel from './index.js'
+import { readTranscriptSlice } from './slice.js'
+import type { TranscriptRecordMapper } from './source.js'
+import { opencodeDbSource } from './sources/sqlite.js'
 
 interface FileGrammar {
   name: string
@@ -64,20 +64,34 @@ const ts = '2026-09-21T12:00:00.000Z'
 function grokUpdate(sessionUpdate: string, text: string) {
   return {
     method: 'session/update',
-    params: { sessionId: 'gold', update: { sessionUpdate, content: { type: 'text', text } }, _meta: { agentTimestampMs: Date.parse(ts) } },
+    params: {
+      sessionId: 'gold',
+      update: { sessionUpdate, content: { type: 'text', text } },
+      _meta: { agentTimestampMs: Date.parse(ts) },
+    },
   }
 }
 
 const grammars: FileGrammar[] = [
   {
     name: 'claude',
-    parse: claudeRecordToItems,    records: () => [
-      { type: 'user', uuid: 'gold-u1', sessionId: 'gold', message: { role: 'user', content: 'hello' } },
+    parse: claudeRecordToItems,
+    records: () => [
+      {
+        type: 'user',
+        uuid: 'gold-u1',
+        sessionId: 'gold',
+        message: { role: 'user', content: 'hello' },
+      },
       {
         type: 'assistant',
         uuid: 'gold-a1',
         sessionId: 'gold',
-        message: { role: 'assistant', model: 'gold-model', content: [{ type: 'text', text: 'hi' }] },
+        message: {
+          role: 'assistant',
+          model: 'gold-model',
+          content: [{ type: 'text', text: 'hi' }],
+        },
       },
     ],
     extra: () => ({
@@ -99,11 +113,19 @@ const grammars: FileGrammar[] = [
         type: 'event_msg',
         payload: {
           type: 'item_completed',
-          item: { type: 'UserMessage', id: 'gold-um-1', content: [{ type: 'text', text: 'push it' }] },
+          item: {
+            type: 'UserMessage',
+            id: 'gold-um-1',
+            content: [{ type: 'text', text: 'push it' }],
+          },
         },
       },
     ],
-    extra: () => ({ timestamp: ts, type: 'event_msg', payload: { type: 'user_message', message: 'more' } }),
+    extra: () => ({
+      timestamp: ts,
+      type: 'event_msg',
+      payload: { type: 'user_message', message: 'more' },
+    }),
     extraText: 'more',
     uuidStableIds: false,
   },
@@ -111,7 +133,10 @@ const grammars: FileGrammar[] = [
     name: 'cursor',
     parse: cursorRecordToItems,
     records: () => [
-      { role: 'user', message: { content: [{ type: 'text', text: '<user_query>\nhello\n</user_query>' }] } },
+      {
+        role: 'user',
+        message: { content: [{ type: 'text', text: '<user_query>\nhello\n</user_query>' }] },
+      },
       { role: 'assistant', message: { content: [{ type: 'text', text: 'Hi there.' }] } },
     ],
     extra: () => ({
@@ -125,7 +150,10 @@ const grammars: FileGrammar[] = [
     name: 'grok',
     parse: grokRecordToItems,
     // updates.jsonl lines (POD-4875): text entries are named by position.
-    records: () => [grokUpdate('user_message_chunk', 'hello'), grokUpdate('agent_message_chunk', 'hi there')],
+    records: () => [
+      grokUpdate('user_message_chunk', 'hello'),
+      grokUpdate('agent_message_chunk', 'hi there'),
+    ],
     extra: () => grokUpdate('agent_message_chunk', 'later'),
     extraText: 'later',
     uuidStableIds: false,
@@ -134,13 +162,23 @@ const grammars: FileGrammar[] = [
     name: 'pi',
     parse: piRecordToItems,
     records: () => [
-      { type: 'message', id: 'gold-p1', parentId: null, timestamp: ts, message: { role: 'user', content: [{ type: 'text', text: 'hi' }] } },
+      {
+        type: 'message',
+        id: 'gold-p1',
+        parentId: null,
+        timestamp: ts,
+        message: { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+      },
       {
         type: 'message',
         id: 'gold-p2',
         parentId: null,
         timestamp: ts,
-        message: { role: 'assistant', content: [{ type: 'text', text: 'Reply.' }], stopReason: 'stop' },
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'Reply.' }],
+          stopReason: 'stop',
+        },
       },
     ],
     extra: () => ({
@@ -155,7 +193,8 @@ const grammars: FileGrammar[] = [
   },
 ]
 
-const toJsonl = (records: unknown[]): string => `${records.map((r) => JSON.stringify(r)).join('\n')}\n`
+const toJsonl = (records: unknown[]): string =>
+  `${records.map((r) => JSON.stringify(r)).join('\n')}\n`
 
 describe('transcript identity goldens (POD-4471)', () => {
   let dir: string
@@ -176,8 +215,13 @@ describe('transcript identity goldens (POD-4471)', () => {
       await writeFile(mirror, bytes)
       await writeFile(moved, bytes)
       const fileId = fileIdFor('gold-conversation')
-      const read = (path: string) => readTranscriptSlice([{ path, fileId }], grammar.parse, { direction: 'before', limit: 100 })
-      const [liveSlice, mirrorSlice, movedSlice] = await Promise.all([read(live), read(mirror), read(moved)])
+      const read = (path: string) =>
+        readTranscriptSlice([{ path, fileId }], grammar.parse, { direction: 'before', limit: 100 })
+      const [liveSlice, mirrorSlice, movedSlice] = await Promise.all([
+        read(live),
+        read(mirror),
+        read(moved),
+      ])
       expect(liveSlice.items.length).toBeGreaterThan(0)
       const liveIds = liveSlice.items.map((i) => [i.id, i.cursor])
       expect(mirrorSlice.items.map((i) => [i.id, i.cursor])).toEqual(liveIds)
@@ -188,13 +232,19 @@ describe('transcript identity goldens (POD-4471)', () => {
       const path = join(dir, 'session.jsonl')
       const fileId = fileIdFor('gold-truncate')
       await writeFile(path, toJsonl(grammar.records()))
-      const before = await readTranscriptSlice([{ path, fileId }], grammar.parse, { direction: 'before', limit: 100 })
+      const before = await readTranscriptSlice([{ path, fileId }], grammar.parse, {
+        direction: 'before',
+        limit: 100,
+      })
       expect(before.items.length).toBeGreaterThan(0)
       const oldTail = before.tail
       const beforeIds = new Set(before.items.map((i) => i.id))
       await writeFile(path, toJsonl([grammar.extra()]))
       // The re-seed path reads WITHOUT an anchor: the new generation serves whole.
-      const reseeded = await readTranscriptSlice([{ path, fileId }], grammar.parse, { direction: 'before', limit: 100 })
+      const reseeded = await readTranscriptSlice([{ path, fileId }], grammar.parse, {
+        direction: 'before',
+        limit: 100,
+      })
       expect(reseeded.items.length).toBeGreaterThan(0)
       expect(JSON.stringify(reseeded.items)).toContain(grammar.extraText)
       // A control file holding only the new record reads identically — no ghosts
@@ -209,11 +259,11 @@ describe('transcript identity goldens (POD-4471)', () => {
       expect(reseeded.items.map((i) => [i.id, i.cursor])).toEqual(controlKeys)
       // The stale anchor either misses exactly (empty) or lands the new window —
       // every item it returns belongs to the new generation.
-      const stale = await readTranscriptSlice(
-        [{ path, fileId }],
-        grammar.parse,
-        { ...(oldTail ? { anchor: oldTail } : {}), direction: 'before', limit: 100 },
-      )
+      const stale = await readTranscriptSlice([{ path, fileId }], grammar.parse, {
+        ...(oldTail ? { anchor: oldTail } : {}),
+        direction: 'before',
+        limit: 100,
+      })
       const controlIds = new Set(controlSlice.items.map((i) => i.id))
       for (const item of stale.items) expect(controlIds.has(item.id)).toBe(true)
       if (grammar.uuidStableIds) {
@@ -233,14 +283,26 @@ describe('transcript identity goldens (POD-4471)', () => {
         { path: archived, fileId: fileIdFor(ns, 1) },
         { path: active, fileId: fileIdFor(ns) },
       ]
-      const first = await readTranscriptSlice(chain, grammar.parse, { direction: 'before', limit: 100 })
-      const second = await readTranscriptSlice(chain, grammar.parse, { direction: 'before', limit: 100 })
-      expect(first.items.map((i) => [i.id, i.cursor])).toEqual(second.items.map((i) => [i.id, i.cursor]))
-      // The active file under the lake chain reads exactly as the live file does.
-      const liveActive = await readTranscriptSlice([{ path: active, fileId: fileIdFor(ns) }], grammar.parse, {
+      const first = await readTranscriptSlice(chain, grammar.parse, {
         direction: 'before',
         limit: 100,
       })
+      const second = await readTranscriptSlice(chain, grammar.parse, {
+        direction: 'before',
+        limit: 100,
+      })
+      expect(first.items.map((i) => [i.id, i.cursor])).toEqual(
+        second.items.map((i) => [i.id, i.cursor]),
+      )
+      // The active file under the lake chain reads exactly as the live file does.
+      const liveActive = await readTranscriptSlice(
+        [{ path: active, fileId: fileIdFor(ns) }],
+        grammar.parse,
+        {
+          direction: 'before',
+          limit: 100,
+        },
+      )
       expect(first.items.slice(-liveActive.items.length).map((i) => [i.id, i.cursor])).toEqual(
         liveActive.items.map((i) => [i.id, i.cursor]),
       )
@@ -248,11 +310,17 @@ describe('transcript identity goldens (POD-4471)', () => {
       // cursors — the incarnation is part of the identity, so generations never
       // share a position. (Item ids stay stable when the record carries its own
       // uuid: that stability across incarnations is the point of uuids.)
-      const liveArchived = await readTranscriptSlice([{ path: archived, fileId: fileIdFor(ns) }], grammar.parse, {
-        direction: 'before',
-        limit: 100,
-      })
-      const archivedCursors = new Set(first.items.slice(0, liveArchived.items.length).map((i) => i.cursor))
+      const liveArchived = await readTranscriptSlice(
+        [{ path: archived, fileId: fileIdFor(ns) }],
+        grammar.parse,
+        {
+          direction: 'before',
+          limit: 100,
+        },
+      )
+      const archivedCursors = new Set(
+        first.items.slice(0, liveArchived.items.length).map((i) => i.cursor),
+      )
       expect(liveArchived.items.length).toBeGreaterThan(0)
       for (const item of liveArchived.items) expect(archivedCursors.has(item.cursor)).toBe(false)
     })
@@ -263,15 +331,24 @@ describe('transcript identity goldens (POD-4471)', () => {
       const [first, second] = grammar.records()
       const complete = `${JSON.stringify(first)}\n${JSON.stringify(second)}`
       await writeFile(path, complete) // no trailing newline: in-flight record
-      const open = await readTranscriptSlice([{ path, fileId }], grammar.parse, { direction: 'before', limit: 100 })
+      const open = await readTranscriptSlice([{ path, fileId }], grammar.parse, {
+        direction: 'before',
+        limit: 100,
+      })
       expect(open.items.length).toBeGreaterThan(0)
       const openCursors = open.items.map((i) => i.cursor)
       await writeFile(path, `${complete}\n`) // the newline lands
-      const closed = await readTranscriptSlice([{ path, fileId }], grammar.parse, { direction: 'before', limit: 100 })
+      const closed = await readTranscriptSlice([{ path, fileId }], grammar.parse, {
+        direction: 'before',
+        limit: 100,
+      })
       expect(closed.items.map((i) => i.cursor)).toEqual(openCursors)
       // A torn line between two good records is skipped but consumed.
       await writeFile(path, `${JSON.stringify(first)}\n{not json\n${JSON.stringify(second)}\n`)
-      const torn = await readTranscriptSlice([{ path, fileId }], grammar.parse, { direction: 'before', limit: 100 })
+      const torn = await readTranscriptSlice([{ path, fileId }], grammar.parse, {
+        direction: 'before',
+        limit: 100,
+      })
       const cleanPath = join(dir, 'clean.jsonl')
       await writeFile(cleanPath, `${JSON.stringify(first)}\n${JSON.stringify(second)}\n`)
       const cleanAfter = await readTranscriptSlice([{ path: cleanPath, fileId }], grammar.parse, {
@@ -288,40 +365,62 @@ describe('transcript identity goldens (POD-4471)', () => {
       const path = join(dir, 'replay.jsonl')
       const fileId = fileIdFor('gold-replay')
       await writeFile(path, toJsonl(grammar.records()))
-      const first = await readTranscriptSlice([{ path, fileId }], grammar.parse, { direction: 'before', limit: 100 })
+      const first = await readTranscriptSlice([{ path, fileId }], grammar.parse, {
+        direction: 'before',
+        limit: 100,
+      })
       expect(first.items.length).toBeGreaterThan(0)
       expect(first.tail).toBeDefined()
       await appendFile(path, toJsonl([grammar.extra()]))
-      const delta = await readTranscriptSlice(
-        [{ path, fileId }],
-        grammar.parse,
-        { ...(first.tail ? { anchor: first.tail } : {}), direction: 'after', limit: 100 },
-      )
+      const delta = await readTranscriptSlice([{ path, fileId }], grammar.parse, {
+        ...(first.tail ? { anchor: first.tail } : {}),
+        direction: 'after',
+        limit: 100,
+      })
       expect(delta.items.length).toBeGreaterThan(0)
       const firstIds = new Set(first.items.map((i) => i.id))
       for (const item of delta.items) expect(firstIds.has(item.id)).toBe(false)
-      const full = await readTranscriptSlice([{ path, fileId }], grammar.parse, { direction: 'before', limit: 100 })
-      expect(full.items.slice(0, first.items.length).map((i) => i.id)).toEqual(first.items.map((i) => i.id))
+      const full = await readTranscriptSlice([{ path, fileId }], grammar.parse, {
+        direction: 'before',
+        limit: 100,
+      })
+      expect(full.items.slice(0, first.items.length).map((i) => i.id)).toEqual(
+        first.items.map((i) => i.id),
+      )
     })
   })
 
   describe('opencode (sqlite)', () => {
     const sessionId = 'gold-opencode-session'
-    const buildDb = (path: string, parts: { partId: string; role: string; text: string; created: number }[]): void => {
+    const buildDb = (
+      path: string,
+      parts: { partId: string; role: string; text: string; created: number }[],
+    ): void => {
       const db = openDatabase(path)
       try {
-        db.exec('CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, data TEXT, time_updated INTEGER)')
+        db.exec(
+          'CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, data TEXT, time_updated INTEGER)',
+        )
         db.exec(
           'CREATE TABLE part (id TEXT PRIMARY KEY, session_id TEXT, message_id TEXT, data TEXT, time_created INTEGER, time_updated INTEGER)',
         )
-        const insertMessage = db.prepare('INSERT INTO message (id, session_id, data, time_updated) VALUES (?, ?, ?, ?)')
+        const insertMessage = db.prepare(
+          'INSERT INTO message (id, session_id, data, time_updated) VALUES (?, ?, ?, ?)',
+        )
         const insertPart = db.prepare(
           'INSERT INTO part (id, session_id, message_id, data, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?)',
         )
         for (const part of parts) {
           const messageId = `msg-${part.partId}`
           insertMessage.run(messageId, sessionId, JSON.stringify({ role: part.role }), part.created)
-          insertPart.run(part.partId, sessionId, messageId, JSON.stringify({ type: 'text', text: part.text }), part.created, part.created)
+          insertPart.run(
+            part.partId,
+            sessionId,
+            messageId,
+            JSON.stringify({ type: 'text', text: part.text }),
+            part.created,
+            part.created,
+          )
         }
       } finally {
         db.close()
@@ -338,29 +437,40 @@ describe('transcript identity goldens (POD-4471)', () => {
       await mkdir(join(dir, 'sub'))
       await cp(live, relocated)
       const read = (databasePath: string) =>
-        opencodeDbSource({ sessionId, databasePath }).readSlice({ direction: 'before', limit: 100 })
+        opencodeDbSource({
+          sessionId,
+          homeDir: '/nonexistent-podium-home',
+          databasePath,
+        }).readSlice({ direction: 'before', limit: 100 })
       const [liveSlice, movedSlice] = await Promise.all([read(live), read(relocated)])
       expect(liveSlice.items.length).toBeGreaterThan(0)
-      expect(movedSlice.items.map((i) => [i.id, i.cursor])).toEqual(liveSlice.items.map((i) => [i.id, i.cursor]))
+      expect(movedSlice.items.map((i) => [i.id, i.cursor])).toEqual(
+        liveSlice.items.map((i) => [i.id, i.cursor]),
+      )
     })
 
     it('append + replay: old ids stable, paging from the old tail yields only the new', async () => {
       const path = join(dir, 'append.db')
       buildDb(path, [{ partId: 'prt-1', role: 'user', text: 'hello', created: 1_700_000_000_000 }])
-      const source = () => opencodeDbSource({ sessionId, databasePath: path })
+      const source = () =>
+        opencodeDbSource({ sessionId, homeDir: '/nonexistent-podium-home', databasePath: path })
       const first = await source().readSlice({ direction: 'before', limit: 100 })
       expect(first.items.length).toBeGreaterThan(0)
       const db = openDatabase(path)
       try {
-        db.prepare('INSERT INTO message (id, session_id, data, time_updated) VALUES (?, ?, ?, ?)').run(
-          'msg-prt-2',
-          sessionId,
-          JSON.stringify({ role: 'assistant' }),
-          1_700_000_000_100,
-        )
+        db.prepare(
+          'INSERT INTO message (id, session_id, data, time_updated) VALUES (?, ?, ?, ?)',
+        ).run('msg-prt-2', sessionId, JSON.stringify({ role: 'assistant' }), 1_700_000_000_100)
         db.prepare(
           'INSERT INTO part (id, session_id, message_id, data, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?)',
-        ).run('prt-2', sessionId, 'msg-prt-2', JSON.stringify({ type: 'text', text: 'hi' }), 1_700_000_000_100, 1_700_000_000_100)
+        ).run(
+          'prt-2',
+          sessionId,
+          'msg-prt-2',
+          JSON.stringify({ type: 'text', text: 'hi' }),
+          1_700_000_000_100,
+          1_700_000_000_100,
+        )
       } finally {
         db.close()
       }
@@ -372,7 +482,10 @@ describe('transcript identity goldens (POD-4471)', () => {
       expect(delta.items).toHaveLength(1)
       expect(delta.items[0]).toMatchObject({ role: 'assistant', text: 'hi' })
       const full = await source().readSlice({ direction: 'before', limit: 100 })
-      expect(full.items.map((i) => i.id)).toEqual([...first.items.map((i) => i.id), ...(delta.items[0] ? [delta.items[0].id] : [])])
+      expect(full.items.map((i) => i.id)).toEqual([
+        ...first.items.map((i) => i.id),
+        ...(delta.items[0] ? [delta.items[0].id] : []),
+      ])
     })
   })
 

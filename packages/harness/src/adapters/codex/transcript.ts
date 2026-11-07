@@ -641,10 +641,10 @@ export async function codexChainPaths(input: TranscriptSourceInput): Promise<str
   if (!input.resumeValue) return []
   const path = await findCodexRolloutPath({
     resumeValue: input.resumeValue,
-    ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
+    homeDir: input.account.home,
     // The account env's CODEX_HOME is the selector the one Codex root rule
     // reads (POD-6534); absent, the default `<home>/.codex`.
-    ...(input.env?.CODEX_HOME ? { codexHome: input.env.CODEX_HOME } : {}),
+    ...(input.account.env.CODEX_HOME ? { codexHome: input.account.env.CODEX_HOME } : {}),
   })
   return path ? [path] : []
 }

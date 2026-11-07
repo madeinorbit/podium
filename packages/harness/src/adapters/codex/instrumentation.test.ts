@@ -10,6 +10,7 @@ import { promisify } from 'node:util'
 import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '@podium/harness'
 import { addSink, type LogRecord } from '@podium/logger'
 import { afterAll, describe, expect, it, vi } from 'vitest'
+import { testAccount } from '../../driver/testing/harness-context.js'
 import {
   type CodexVersionProbe,
   checkPodiumHookTrust,
@@ -22,6 +23,9 @@ import {
   podiumHookPositions,
   supportsCodexHooks,
 } from './instrumentation.js'
+
+/** No account folders exist: the payloads below name everything they need. */
+const NO_ACCOUNT = testAccount('codex', '/nonexistent-podium-home')
 
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
 // tests finish, so a suite run leaves nothing behind in tmp.
@@ -39,7 +43,7 @@ const LEGACY_PODIUM_CODEX_HOOK_COMMAND = `bash -c 'u="$PODIUM_CODEX_HOOK_URL"; [
 
 const execFileAsync = promisify(execFile)
 const knownVersion: CodexVersionProbe = async () => 'codex-cli 0.146.0'
-const ensureHooks = (opts: Parameters<typeof ensurePodiumCodexHooks>[0] = {}) =>
+const ensureHooks = (opts: Parameters<typeof ensurePodiumCodexHooks>[0]) =>
   ensurePodiumCodexHooks({ ...opts, versionProbe: opts.versionProbe ?? knownVersion })
 
 const home = async (): Promise<string> => {
@@ -681,17 +685,20 @@ describe('codexInstrumentation.payloadCodec', () => {
   it('decodes native hooks with the hook channel', async () => {
     const codec = codexInstrumentation.payloadCodec
     await expect(
-      codec.decode({ hook_event_name: 'SessionStart', session_id: 'cx1' }),
+      codec.decode({ hook_event_name: 'SessionStart', session_id: 'cx1' }, NO_ACCOUNT),
     ).resolves.toEqual([{ kind: 'session_started', source: 'hook', confidence: 1 }])
     await expect(
-      codec.decode({ hook_event_name: 'UserPromptSubmit', session_id: 'cx1' }),
+      codec.decode({ hook_event_name: 'UserPromptSubmit', session_id: 'cx1' }, NO_ACCOUNT),
     ).resolves.toEqual([{ kind: 'prompt_submitted', source: 'hook', confidence: 1 }])
     await expect(
-      codec.decode({
-        hook_event_name: 'Stop',
-        session_id: 'cx1',
-        last_assistant_message: 'All done.',
-      }),
+      codec.decode(
+        {
+          hook_event_name: 'Stop',
+          session_id: 'cx1',
+          last_assistant_message: 'All done.',
+        },
+        NO_ACCOUNT,
+      ),
     ).resolves.toEqual([
       {
         kind: 'turn_completed',
@@ -700,7 +707,7 @@ describe('codexInstrumentation.payloadCodec', () => {
         confidence: 1,
       },
     ])
-    await expect(codec.decode(null)).resolves.toEqual([])
+    await expect(codec.decode(null, NO_ACCOUNT)).resolves.toEqual([])
   })
 
   it('declares the loopback transport', () => {

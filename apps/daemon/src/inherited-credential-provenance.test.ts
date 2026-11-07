@@ -70,7 +70,7 @@ describe('an inherited credential never reaches a harness child as if it were ch
       } as BufferedHarnessRequest,
       {
         snapshot: async () => snapshotWithInheritedKey(),
-        runChild: async (_cmd, _args, opts) => {
+        runChild: async (_command, opts) => {
           childEnv = opts.env
           return { stdout: 'ok' }
         },

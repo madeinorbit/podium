@@ -1,6 +1,6 @@
-import { execFile } from 'node:child_process'
 import { open, realpath } from 'node:fs/promises'
 import { isAbsolute, relative, resolve } from 'node:path'
+import type { HostToolName, HostTools } from '../../host-tools.js'
 import type { HarnessObserveInput } from '../../manifest.js'
 import { isInteractiveCodexSource } from './discovery.js'
 
@@ -18,26 +18,30 @@ export interface OwnedCodexRollout {
 }
 
 export type ProcessInspection = (
-  command: string,
+  command: HostToolName,
   args: string[],
   limits: { timeout: number; maxBuffer: number },
 ) => Promise<string>
 
-const inspectProcess: ProcessInspection = (command, args, limits) =>
-  new Promise((done, reject) => {
-    execFile(
-      command,
-      args,
-      { ...limits, encoding: 'utf8', env: { LC_ALL: 'C', TZ: 'UTC' } },
-      (err, stdout, stderr) => {
-        // pgrep/lsof use 1 for an empty result. Diagnostics (including permission
-        // failures) are never evidence, even when the exit code happens to be 1.
-        if (err && !(err.code === 1 && !stdout && !stderr)) reject(err)
-        else if (stderr) reject(new Error(`${command} reported an inspection failure`))
-        else done(stdout)
-      },
-    )
-  })
+/** pgrep/lsof/ps through the OS-tool port: absolute paths from the session's
+ *  command environment, never the daemon's PATH (POD-6536). */
+export const hostProcessInspection =
+  (tools: HostTools): ProcessInspection =>
+  (command, args, limits) =>
+    new Promise((done, reject) => {
+      tools.execFile(
+        command,
+        args,
+        { ...limits, env: { LC_ALL: 'C', TZ: 'UTC' } },
+        (err, stdout, stderr) => {
+          // pgrep/lsof use 1 for an empty result. Diagnostics (including permission
+          // failures) are never evidence, even when the exit code happens to be 1.
+          if (err && !(err.code === 1 && !stdout && !stderr)) reject(err)
+          else if (stderr) reject(new Error(`${command} reported an inspection failure`))
+          else done(stdout)
+        },
+      )
+    })
 
 interface ProcessIdentity {
   pid: number
@@ -55,9 +59,11 @@ export function createOwnedCodexRolloutResolver(input: {
   startedAtMs?: number
   resumeValue?: string
   platform?: NodeJS.Platform
-  inspect?: ProcessInspection
+  /** How to run pgrep/lsof/ps: {@link hostProcessInspection} over the
+   *  session's {@link HostTools} (production), or a test's script. */
+  inspect: ProcessInspection
 }): () => Promise<OwnedCodexRollout | undefined> {
-  const inspect = input.inspect ?? inspectProcess
+  const inspect = input.inspect
   let anchor: { owner: object; identity: ProcessIdentity } | undefined
   return async () => {
     if ((input.platform ?? process.platform) !== 'darwin') return undefined
@@ -68,7 +74,7 @@ export function createOwnedCodexRolloutResolver(input: {
       return live?.pid === owner.pid && live.generation === owner.generation
     }
     const deadline = Date.now() + INSPECTION_MS
-    const run = async (command: string, args: string[], maxBuffer = OUTPUT_BYTES) => {
+    const run = async (command: HostToolName, args: string[], maxBuffer = OUTPUT_BYTES) => {
       if (!current() || Date.now() >= deadline) throw new Error('owned process inspection expired')
       const result = await inspect(command, args, {
         timeout: Math.min(1_000, deadline - Date.now()),
@@ -79,11 +85,7 @@ export function createOwnedCodexRolloutResolver(input: {
       return result
     }
     const identities = async (pids: number[]): Promise<ProcessIdentity[]> => {
-      const output = await run(
-        '/bin/ps',
-        ['-p', pids.join(','), '-o', 'pid=,ppid=,lstart='],
-        16 * 1024,
-      )
+      const output = await run('ps', ['-p', pids.join(','), '-o', 'pid=,ppid=,lstart='], 16 * 1024)
       const rows = output
         .trim()
         .split('\n')
@@ -104,7 +106,7 @@ export function createOwnedCodexRolloutResolver(input: {
       return rows
     }
     const openFiles = async (pids: number[]): Promise<Set<string>> => {
-      const output = await run('/usr/sbin/lsof', ['-nP', '-a', '-p', pids.join(','), '-F0pfn'])
+      const output = await run('lsof', ['-nP', '-a', '-p', pids.join(','), '-F0pfn'])
       let pid: number | undefined
       let file = false
       const paths = new Set<string>()
@@ -145,7 +147,7 @@ export function createOwnedCodexRolloutResolver(input: {
       for (let i = 0; i < tree.length; i++) {
         const parent = tree[i]
         if (!parent) return undefined
-        const children = (await run('/usr/bin/pgrep', ['-P', String(parent.pid)], 4 * 1024)).trim()
+        const children = (await run('pgrep', ['-P', String(parent.pid)], 4 * 1024)).trim()
         if (!children) continue
         if (!/^\d+(?:\s+\d+)*$/.test(children)) return undefined
         const pids = children.split(/\s+/).map(Number)

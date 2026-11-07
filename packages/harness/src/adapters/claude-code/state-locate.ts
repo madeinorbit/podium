@@ -7,7 +7,6 @@
  * `./transcript.js` reads through here too.
  */
 import { readdir, stat } from 'node:fs/promises'
-import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import type { HarnessEnvironment } from '../../manifest.js'
 import { claudeRoots } from './roots.js'
@@ -41,7 +40,8 @@ export async function locateClaudeSessionFile(opts: {
   /** Recorded segment evidence (server-known absolute path) — checked FIRST, so
    *  the common moved-worktree read costs one stat instead of a bucket sweep. */
   pathHint?: string
-  homeDir?: string
+  /** The account home (required, POD-6536: never `homedir()`). */
+  homeDir: string
   /** The account env (POD-6534): its `CLAUDE_CONFIG_DIR` relocates the
    *  projects store through the adapter's roots rule. Absent: `<home>/.claude`. */
   env?: HarnessEnvironment
@@ -56,7 +56,7 @@ export async function locateClaudeSessionFile(opts: {
     (await isFile(opts.pathHint))
   )
     return opts.pathHint
-  const home = opts.homeDir ?? homedir()
+  const home = opts.homeDir
   const projects = claudeRoots(home, opts.env ?? {}).transcripts
   const exact = join(projects, claudeProjectSlug(opts.cwd), `${opts.resumeValue}.jsonl`)
   if (await isFile(exact)) return exact

@@ -10,9 +10,8 @@
 // this module never touches the filesystem — the staged MCP path arrives as
 // a value.
 
-import type { ResolvedHarnessInventory } from '../../../inventory/build-inventory.js'
-import { resolvedHarnessPath } from '../../../executable-runtime.js'
-import { claudeSdkHarnessKind } from './session.js'
+import { type BoundCommand, harnessCommand } from '../../../bound-command.js'
+import type { HarnessContext } from '../../../harness-context-types.js'
 
 /** The turn, as this family reads it: prompt facts plus supervisor facts. */
 export interface ClaudeDurableTurnSpec {
@@ -33,11 +32,6 @@ export interface ClaudeDurableTurnSpec {
   sessionUuid?: string
 }
 
-/** The resolved executable for a durable Claude turn, off the adapter. */
-export function claudeDurableExecutable(snapshot: ResolvedHarnessInventory): string {
-  return resolvedHarnessPath(snapshot, claudeSdkHarnessKind)
-}
-
 /**
  * The `claude -p …` invocation for one durable turn.
  *
@@ -45,16 +39,14 @@ export function claudeDurableExecutable(snapshot: ResolvedHarnessInventory): str
  * continues, `--session-id` mints; `toolPolicy: 'none'` removes tools, MCP
  * and every setting source rather than merely declining to mount them.
  * `knownSessionId` is the conversation this turn belongs to, for the durable
- * journal to record. The executable arrives resolved (see
- * `claudeDurableExecutable`) — argv building never resolves it twice.
+ * journal to record. argv[0] is the installation `context` pinned.
  */
 export function buildClaudeDurableTurn(
   spec: ClaudeDurableTurnSpec,
   paths: { mcp: string },
-  executable: string,
+  context: Pick<HarnessContext, 'installation'>,
 ): {
-  cmd: string
-  args: string[]
+  command: BoundCommand
   stdin: string
   /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   knownSessionId?: string
@@ -89,14 +81,8 @@ export function buildClaudeDurableTurn(
   ]
   const knownSessionId = spec.resumeValue ?? spec.sessionUuid
   return {
-    cmd: executable,
-    args,
+    command: harnessCommand(context, { args }),
     stdin: spec.prompt,
     ...(knownSessionId ? { knownSessionId } : {}),
   }
-}
-
-/** The executable the in-process SDK path resolves for its host child. */
-export function claudeSdkExecutablePath(snapshot: ResolvedHarnessInventory): string {
-  return resolvedHarnessPath(snapshot, claudeSdkHarnessKind)
 }

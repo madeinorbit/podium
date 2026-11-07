@@ -28,6 +28,8 @@ import {
   type ConversationDiscoveryCache,
   type LaunchOptions,
   type LaunchSpec,
+  manifestFor,
+  shellCommand,
 } from '@podium/harness'
 import { ensurePodiumCodexHooks } from '@podium/harness/adapters/codex/instrumentation'
 import {
@@ -294,19 +296,30 @@ const launch = (kind: AgentKind, requested: LaunchOptions): LaunchSpec => {
       ? { ...requested, model: CLAUDE_MODEL }
       : requested
   if (SILENT_START_MS > 0) {
-    return withHarnessChildEnv({
-      cmd: process.execPath,
-      args: [
-        '-e',
-        // Silent, then a prompt and a live process: the panel must show the
-        // wait for the first stretch and get out of the way for the second.
-        `setTimeout(() => { process.stdout.write('booted $ '); setInterval(() => {}, 1000) }, ${SILENT_START_MS})`,
-      ],
-      cwd: REPO_ROOT,
-    })
+    return withHarnessChildEnv(
+      shellCommand({
+        cmd: process.execPath,
+        args: [
+          '-e',
+          // Silent, then a prompt and a live process: the panel must show the
+          // wait for the first stretch and get out of the way for the second.
+          `setTimeout(() => { process.stdout.write('booted $ '); setInterval(() => {}, 1000) }, ${SILENT_START_MS})`,
+        ],
+        cwd: REPO_ROOT,
+      }),
+    )
   }
   if (kind === 'shell' || REAL_AGENTS) {
-    const spec = agentLaunchCommand(kind, opts)
+    // The daemon's launch seam hands a label-only context (no inventory), so a
+    // real agent here runs the harness's own CLI name from the e2e PATH: test
+    // tooling standing in for the inventory, never production.
+    const spec =
+      kind === 'shell'
+        ? agentLaunchCommand(kind, opts)
+        : shellCommand({
+            ...agentLaunchCommand(kind, opts),
+            cmd: manifestFor(kind)?.inventory.executable.names[0] ?? kind,
+          })
     // The isolated CODEX_HOME contains only the reviewed Podium hook. This
     // documented automation bypass is test-only and never changes production trust.
     if (REAL_AGENTS && kind === 'codex') {
@@ -317,11 +330,13 @@ const launch = (kind: AgentKind, requested: LaunchOptions): LaunchSpec => {
     }
     return withHarnessChildEnv(spec)
   }
-  return withHarnessChildEnv({
-    cmd: process.execPath,
-    args: [KEYECHO_CLI, '--mode', 'both'],
-    cwd: KEYECHO_PKG,
-  })
+  return withHarnessChildEnv(
+    shellCommand({
+      cmd: process.execPath,
+      args: [KEYECHO_CLI, '--mode', 'both'],
+      cwd: KEYECHO_PKG,
+    }),
+  )
 }
 
 /**

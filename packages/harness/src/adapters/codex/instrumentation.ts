@@ -14,7 +14,6 @@
  */
 import { existsSync } from 'node:fs'
 import { mkdir, open, readFile, rename, writeFile } from 'node:fs/promises'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import type { AgentStateEvent, ProviderAgentStateEvent } from '../../agent-state/types.js'
@@ -25,8 +24,8 @@ import type {
   InstrumentationDestination,
 } from '../../manifest.js'
 import { withEventTime } from '../../observer.js'
-import { classifyCodexVerdict } from './state.js'
 import { codexRootsFor } from './roots.js'
+import { classifyCodexVerdict } from './state.js'
 
 const log = createLogger('harness:codex-instrumentation')
 
@@ -336,8 +335,9 @@ export function checkPodiumHookTrust(input: {
  * removes or reorders another tool's hooks. Skips silently when
  * `<home>/.codex` doesn't exist (codex not installed / not used).
  */
-export async function ensurePodiumCodexHooks(opts?: {
-  homeDir?: string
+export async function ensurePodiumCodexHooks(opts: {
+  /** The account home (required, POD-6536: never `homedir()`). */
+  homeDir: string
   codexHome?: string
   versionProbe?: CodexVersionProbe
   verifiedVersion?: string
@@ -350,7 +350,7 @@ export async function ensurePodiumCodexHooks(opts?: {
   trusted?: boolean
   untrustedEvents?: string[]
 }> {
-  const roots = codexRootsFor(opts?.homeDir ?? homedir(), opts?.codexHome)
+  const roots = codexRootsFor(opts.homeDir, opts.codexHome)
   const codexHome = roots.state
   if (!existsSync(codexHome)) return { installed: false, changed: false, reason: 'no ~/.codex' }
   const hooksJsonPath = join(roots.hooks, 'hooks.json')
@@ -725,6 +725,7 @@ async function installCodexInstrumentation(
   // reason reported instead of being refused.
   try {
     const result = await ensurePodiumCodexHooks({
+      homeDir: destination.harnessContext.home,
       codexHome,
       // The version the inventory read off the executable this session
       // launches; '' (the CLI printed none) degrades as a missing version.

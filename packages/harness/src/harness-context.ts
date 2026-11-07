@@ -14,7 +14,7 @@
 import { delimiter, dirname, join } from 'node:path'
 import type { BuiltinHarnessKind } from '@podium/protocol'
 import type { HarnessExecutableSnapshot } from './executable-runtime.js'
-import type { HarnessContext } from './harness-context-types.js'
+import type { HarnessContext, HarnessInstallation } from './harness-context-types.js'
 import type { HarnessAccountScope, HarnessEnvironment, HarnessRoots } from './manifest.js'
 import {
   harnessInstanceHomeEnv,
@@ -43,23 +43,37 @@ export function harnessContext(
   kind: BuiltinHarnessKind,
   home: string,
 ): HarnessContext {
+  const installation = harnessInstallation(snapshot, kind)
+  const account = harnessAccount(kind, home, snapshot.commandEnvironment.env)
+  return Object.freeze({
+    installation,
+    home: account.home,
+    env: account.env,
+    roots: account.roots,
+  })
+}
+
+/**
+ * The machine half of {@link harnessContext}: the installation the snapshot
+ * verified for `kind`, for a caller that binds a command but reads no account
+ * folder (a headless turn's argv, a version probe). Throws when `kind` is not
+ * installed: never a basename on the daemon's PATH.
+ */
+export function harnessInstallation(
+  snapshot: HarnessExecutableSnapshot,
+  kind: BuiltinHarnessKind,
+): HarnessInstallation {
   const executable = snapshot.executables.get(kind)
   if (!executable) {
     throw new Error(
       `harness ${kind} is not installed in command-environment generation ${snapshot.commandEnvironment.generation}`,
     )
   }
-  const account = harnessAccount(kind, home, snapshot.commandEnvironment.env)
   return Object.freeze({
-    installation: Object.freeze({
-      kind,
-      executable: executable.path,
-      version: executable.version ?? '',
-      generation: snapshot.commandEnvironment.generation,
-    }),
-    home: account.home,
-    env: account.env,
-    roots: account.roots,
+    kind,
+    executable: executable.path,
+    version: executable.version ?? '',
+    generation: snapshot.commandEnvironment.generation,
   })
 }
 
@@ -263,7 +277,11 @@ function childPath(
   podiumPath: string | undefined,
 ): string {
   const entries = path.split(delimiter).filter(Boolean)
-  const roots = [join(home, '.local', 'bin'), join(home, '.bun', 'bin'), join(home, '.opencode', 'bin')]
+  const roots = [
+    join(home, '.local', 'bin'),
+    join(home, '.bun', 'bin'),
+    join(home, '.opencode', 'bin'),
+  ]
   return [
     ...(podiumCliPath ? [dirname(podiumCliPath)] : []),
     ...(podiumPath ?? '').split(delimiter),

@@ -675,8 +675,9 @@ describe('Claude SDK daemon host adapter', () => {
       supervision: { scopeUnitFor: () => undefined },
       engines: {
         startEngine: async (req) => {
-          const at = req.args.indexOf('--session-id')
-          claudeSessionId = at >= 0 ? (req.args[at + 1] ?? '') : ''
+          const { args } = req.command
+          const at = args.indexOf('--session-id')
+          claudeSessionId = at >= 0 ? (args[at + 1] ?? '') : ''
           return { attachment }
         },
         reattachEngine: async () => {

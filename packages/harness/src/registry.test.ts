@@ -7,12 +7,13 @@ import {
 } from '@podium/protocol'
 import { SUPERAGENT_HARNESS_PRIORITY } from '@podium/runtime'
 import { describe, expect, it } from 'vitest'
+import { testAccount, testHarnessContext } from './driver/testing/harness-context.js'
 import {
   type AgentManifest,
   type Declared,
   type DeclaredKeys,
-  declinedReasonIsValid,
   declaredValue,
+  declinedReasonIsValid,
   supported,
   unsupported,
 } from './manifest.js'
@@ -21,14 +22,14 @@ import {
   agentStateProviderFor,
   assertDeclinedReasonsValid,
   CLIENT_TERMINAL_HARNESSES,
-  clientTerminalFor,
   CREDENTIAL_PROPAGATION_HARNESSES,
+  clientTerminalFor,
   driverFamilyForId,
   driverIdIsServerFamily,
+  HARNESS_KINDS,
   harnessCapabilitiesFor,
   harnessComposerReadiness,
   harnessDisplayName,
-  HARNESS_KINDS,
   harnessInterrupt,
   harnessLoginNeedsInteractive,
   harnessResumeKind,
@@ -211,9 +212,9 @@ describe('agent manifest registry', () => {
         cwd: '/work',
         conversation: 'ses_v2',
         endpoint: { address: 'http://127.0.0.1:41427', username: 'opencode', secret: 'secret' },
+        harnessContext: testHarnessContext({ kind: 'opencode' }),
       }),
     ).toEqual({
-      cmd: 'opencode2',
       args: ['mini', '--server', 'http://127.0.0.1:41427', '--session', 'ses_v2'],
       cwd: '/work',
       env: { OPENCODE_SERVER_USERNAME: 'opencode', OPENCODE_SERVER_PASSWORD: 'secret' },
@@ -242,6 +243,7 @@ describe('agent manifest registry', () => {
       const address = server.transport === 'stdio' ? undefined : `addr-for-${kind}`
       const spec = client.launch({
         cwd: '/work',
+        harnessContext: testHarnessContext({ kind }),
         conversation: `conversation-for-${kind}`,
         endpoint: {
           ...(address ? { address } : {}),
@@ -308,9 +310,7 @@ describe('agent manifest registry', () => {
     // harness with rules must admit the controller uses them.
     for (const kind of BUILTIN_HARNESS_KINDS) {
       const declared = declaredValue(AGENT_MANIFESTS[kind].composer) !== undefined
-      expect(declared, `${kind}.composer`).toBe(
-        AGENT_MANIFESTS[kind].capabilities.composerScrape,
-      )
+      expect(declared, `${kind}.composer`).toBe(AGENT_MANIFESTS[kind].capabilities.composerScrape)
     }
   })
 
@@ -340,8 +340,10 @@ describe('agent manifest registry', () => {
   it("declares each harness's real native login command", () => {
     const declared = Object.fromEntries(
       BUILTIN_HARNESS_KINDS.map((kind) => {
-        const command = declaredValue(AGENT_MANIFESTS[kind].inventory.loginCommand)
-        return [kind, command ? [command.cmd, ...command.args].join(' ') : null]
+        const { inventory } = AGENT_MANIFESTS[kind]
+        const command = declaredValue(inventory.loginCommand)
+        // argv only (POD-6536); the CLI's own name reads the line back.
+        return [kind, command ? [inventory.executable.names[0], ...command.args].join(' ') : null]
       }),
     )
     expect(declared).toEqual({
@@ -408,8 +410,11 @@ describe('agent manifest registry', () => {
       if (!provider) throw new Error(`${kind} has no state provider`)
       const events =
         kind === 'opencode'
-          ? await provider.bootEvents?.({ cwd: '/repo' })
-          : await provider.translate(payloads[kind])
+          ? await provider.bootEvents?.({
+              cwd: '/repo',
+              account: testAccount(kind, '/nonexistent-podium-home'),
+            })
+          : await provider.translate(payloads[kind], testAccount(kind, '/nonexistent-podium-home'))
       expect(events?.length, kind).toBeGreaterThan(0)
       for (const event of events ?? []) {
         expect(event.source, kind).toBe(AGENT_MANIFESTS[kind].stateChannels[0]?.source)
@@ -825,7 +830,7 @@ describe('open HarnessId vs closed BuiltinHarnessKind (POD-303)', () => {
         // login" is an answer, and the type demands one.
         foreignCredentialEnv: [],
       },
-      launch: (opts) => ({ cmd: 'fictional', args: [], cwd: opts.cwd }),
+      launch: (opts) => ({ args: [], cwd: opts.cwd }),
       discovery: {
         id: 'fictional',
         agentKind: fictional,
@@ -846,7 +851,11 @@ describe('open HarnessId vs closed BuiltinHarnessKind (POD-303)', () => {
       runtime: {
         server: unsupported('no server mode'),
         embedded: unsupported('no library to host'),
-        terminal: { driverId: 'generic-pty', sendProof: ['transcript-echo'], transcriptTimestamps: 'absent' },
+        terminal: {
+          driverId: 'generic-pty',
+          sendProof: ['transcript-echo'],
+          transcriptTimestamps: 'absent',
+        },
         select: () => 'generic-pty',
       },
       state: unsupported('no state instrumentation yet'),
@@ -870,7 +879,9 @@ describe('open HarnessId vs closed BuiltinHarnessKind (POD-303)', () => {
       expect(declaredValue(declared), field).toBeUndefined()
     }
     // …while the irreducible half genuinely works.
-    expect(minimal.launch({ cwd: '/tmp' })).toEqual({ cmd: 'fictional', args: [], cwd: '/tmp' })
+    expect(
+      minimal.launch({ cwd: '/tmp', harnessContext: testHarnessContext({ kind: 'codex' }) }),
+    ).toEqual({ args: [], cwd: '/tmp' })
   })
 
   it('supported() round-trips a value and unsupported() carries its reason', () => {
@@ -914,9 +925,7 @@ describe('open HarnessId vs closed BuiltinHarnessKind (POD-303)', () => {
       ...AGENT_MANIFESTS.codex,
       usage: unsupported('todo'),
     }
-    expect(() => assertDeclinedReasonsValid({ codex: mutant })).toThrow(
-      /codex\.usage.*todo/,
-    )
+    expect(() => assertDeclinedReasonsValid({ codex: mutant })).toThrow(/codex\.usage.*todo/)
     const nestedMutant: AgentManifest = {
       ...AGENT_MANIFESTS.grok,
       inventory: { ...AGENT_MANIFESTS.grok.inventory, loginCommandProbe: unsupported('') },

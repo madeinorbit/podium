@@ -1,14 +1,13 @@
-import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { TranscriptItem } from '@podium/model'
 import {
-  fileTranscript,
-  supported,
-  transcriptFileExists,
   type Declared,
+  fileTranscript,
   type HarnessHandoffTranscript,
   type HarnessTranscript,
+  supported,
   type TranscriptSourceInput,
+  transcriptFileExists,
 } from '../../manifest.js'
 import { isRecord, stringField } from '../shared/json-util.js'
 
@@ -59,7 +58,7 @@ export async function fixtureChainPaths(input: TranscriptSourceInput): Promise<s
   // Same contract as every file harness: no resume value names no
   // conversation (a cwd bucket holds many), so there is nothing to chain.
   if (!input.resumeValue) return []
-  const home = input.homeDir ?? homedir()
+  const home = input.account.home
   const path = fixtureSessionPath(home, input.resumeValue)
   return (await transcriptFileExists(path)) ? [path] : []
 }

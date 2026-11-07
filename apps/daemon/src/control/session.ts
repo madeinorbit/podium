@@ -1,17 +1,8 @@
-import { seedRuntimeHistory } from '../runtime/history-seed'
 import { randomUUID } from 'node:crypto'
-import { dispatchInputBytes } from './legacy-terminal-input'
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import type { AcceptedDriverId, RefusalReason, SessionSpec } from '@podium/harness/driver/host'
-import {
-  attachKindsForDriver,
-  configureFieldsForDriver,
-  EngineBindUnrecoverable,
-} from '@podium/harness/driver/host'
 import {
   agentStateProviderFor,
-  bindHarnessLaunch,
   canonicalDriverId,
   type DriverId,
   type HarnessContext,
@@ -19,11 +10,28 @@ import {
   type HarnessVersionDiagnostic,
   harnessCapabilitiesFor,
   harnessChildEnv,
+  harnessCommand,
   harnessTranscriptStorage,
   type LaunchFile,
+  type LaunchSpec,
   parseHarnessVersion,
+  withArgs,
 } from '@podium/harness'
-import { managementLoginCommandFor } from '../harness-management.js'
+import type {
+  AcceptedDriverId,
+  RefusalReason,
+  SessionSpec,
+  TerminalLaunch,
+  TerminalLaunched,
+  TerminalRecover,
+  TerminalRecovered,
+} from '@podium/harness/driver/host'
+import {
+  attachKindsForDriver,
+  configureFieldsForDriver,
+  EngineBindUnrecoverable,
+  TerminalRecoveryRefusal,
+} from '@podium/harness/driver/host'
 import { createLogger } from '@podium/logger'
 import {
   type AgentKind,
@@ -41,20 +49,18 @@ import {
   WriterLeaseRefusedError,
 } from '@podium/process/durable'
 import type { AgentPicture } from '@podium/process/screen'
-import { Terminal } from '../terminal/terminal.js'
-import { adaptTerminal } from '../runtime/terminal-transport.js'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { measureTask } from '@podium/runtime/task-attribution'
 import type { SessionBindingTransitionOutcome } from '../binding-store'
 import { noDurableBackendRefusal } from '../durable-backend'
+import { managementLoginCommandFor } from '../harness-management.js'
 import { countFrame } from '../loop-attribution'
 import type { Tier } from '../output-scheduler'
-import { codexAppServerVersionProbe } from '../runtime/version-probe'
+import { decideReopenScreen } from '../reopen-policy'
 import { driverTiming } from '../runtime/driver-timing'
-import { grokAcpVersionProbe } from '../runtime/version-probe'
 import { handleFor, runtimeDriverIdFor } from '../runtime/handlers'
+import { seedRuntimeHistory } from '../runtime/history-seed'
 import { reapInstanceSessionProcesses } from '../runtime/instance-process-reaper'
-import { opencode2VersionProbe, opencodeVersionProbe } from '../runtime/version-probe'
 import {
   availableDriverIds,
   droppedDriverPreference,
@@ -66,14 +72,16 @@ import {
   terminalProfileFor,
   unhonouredSpawnDriver,
 } from '../runtime/registry'
-import { TerminalRecoveryRefusal } from '@podium/harness/driver/host'
 import { beginServerDriverReap } from '../runtime/server-reap'
-import type {
-  TerminalLaunch,
-  TerminalLaunched,
-  TerminalRecover,
-  TerminalRecovered,
-} from '@podium/harness/driver/host'
+import { adaptTerminal } from '../runtime/terminal-transport.js'
+import {
+  codexAppServerVersionProbe,
+  grokAcpVersionProbe,
+  opencode2VersionProbe,
+  opencodeVersionProbe,
+} from '../runtime/version-probe'
+import type { DaemonSession } from '../session/daemon-session.js'
+import { spawnSessionProcess } from '../session/harness-spawn.js'
 import {
   buildDriverHarnessContext,
   buildSessionHarnessContext,
@@ -81,13 +89,6 @@ import {
   sessionHarnessContextFor,
 } from '../session-harness-context.js'
 import type { ReattachControl, SpawnControl } from '../session-observers'
-import type { DaemonSession } from '../session/daemon-session.js'
-import { removeSessionUploads } from '../session-uploads'
-import { type BindFacts, bindFrame, reportSize } from './applied-geometry'
-import type { ControlHandlers, DaemonContext } from './context'
-import { shellChildEnv } from './session-env'
-
-import { decideReopenScreen } from '../reopen-policy'
 import {
   forgetSessionScreen,
   sessionScreenFor,
@@ -95,6 +96,12 @@ import {
   trackSessionOutput,
   trackSessionSize,
 } from '../session-screens'
+import { removeSessionUploads } from '../session-uploads'
+import { Terminal } from '../terminal/terminal.js'
+import { type BindFacts, bindFrame, reportSize } from './applied-geometry'
+import type { ControlHandlers, DaemonContext } from './context'
+import { dispatchInputBytes } from './legacy-terminal-input'
+import { shellChildEnv } from './session-env'
 
 const log = createLogger('daemon:session')
 
@@ -344,7 +351,10 @@ export function reconcileNativeClientTerminal(
       entry.nativeTransition = undefined
       // A request can change after the final equality check but before cleanup.
       // Re-run once the slot is free; attach and release are both idempotent.
-      if (applied !== undefined && (ctx.sessions.get(sessionId)?.nativeRequested === true) !== applied)
+      if (
+        applied !== undefined &&
+        (ctx.sessions.get(sessionId)?.nativeRequested === true) !== applied
+      )
         reconcileNativeClientTerminal(ctx, sessionId)
     })
   entry.nativeTransition = transition
@@ -584,7 +594,10 @@ export function wireBridge(
   owned.label = durableLabel
   // The screen is held (not fed) here — see the Terminal contract. Feeding
   // stays in the fan-out below, unchanged.
-  const terminal = Terminal.attach(session, owned, {
+  const terminal = Terminal.attach(
+    session,
+    owned,
+    {
       onSize: (size, birth) =>
         onSessionSize(ctx, sessionId, size, birth, session.keepsScreen?.() === true),
       onPicture: (picture, seed) => forwardPicture(ctx, sessionId, picture, seed),
@@ -615,7 +628,7 @@ export function wireBridge(
       // frame-rate), which would clobber the real title the codex observer derives
       // (capabilities.oscTitle: false). Every other harness sets a meaningful OSC
       // title, so forward it for them.
-      ...(harnessCapabilitiesFor(agentKind)?.oscTitle ?? true
+      ...((harnessCapabilitiesFor(agentKind)?.oscTitle ?? true)
         ? {
             onTitle: (title: string) =>
               ctx.send({ type: 'title', sessionId, title, source: 'osc' }),
@@ -756,7 +769,6 @@ export async function launchTerminalProcess(
       : undefined
     const launchOptions = {
       cwd: spec.workdir,
-      ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
       podiumSessionId: sessionId,
       ...(resume ? { resume } : {}),
       ...(newSessionId ? { newSessionId } : {}),
@@ -784,16 +796,15 @@ export async function launchTerminalProcess(
       ? await buildSessionHarnessContext(ctx, loginHarness)
       : undefined
     const childContext = loginContext ?? harnessContext
-    const cmd = loginCommand
-      ? ctx.harnessRuntime && loginContext
-        ? bindHarnessLaunch(loginContext, {
-            args: [...loginCommand.args],
-            cwd: spec.workdir,
-          })
-        : { cmd: loginCommand.cmd, args: [...loginCommand.args], cwd: spec.workdir }
-      : ctx.harnessRuntime
-        ? await ctx.harnessRuntime.launch(harnessContext ?? 'shell', launchOptions)
-        : ctx.launch(agentKind, launchOptions)
+    const cmd: LaunchSpec =
+      loginCommand && loginContext
+        ? harnessCommand(loginContext, { args: [...loginCommand.args], cwd: spec.workdir })
+        : ctx.harnessRuntime
+          ? await ctx.harnessRuntime.launch(harnessContext ?? 'shell', launchOptions)
+          : ctx.launch(agentKind, {
+              ...launchOptions,
+              ...(harnessContext ? { harnessContext } : {}),
+            })
     materializeLaunchFiles(cmd.files)
     // SQLite-backed harnesses create their store parent lazily. Create the
     // Podium-owned directory before the PTY starts so two fresh sessions
@@ -834,14 +845,13 @@ export async function launchTerminalProcess(
           }),
           strip: [],
         }
-    const session = await durable.spawn({
+    const session = await spawnSessionProcess(durable, {
       // DEMAND THE WRITER LEASE (POD-4434). A spawn that adopts a live master
       // while another writer holds it is the update-overlap symptom: two
       // daemons, one host, and a session that looks live and swallows input.
       requireLease: true,
       label,
-      cmd: cmd.cmd,
-      args: instrumentedLaunchArgs(cmd.args, instrumentation.args),
+      command: withArgs(cmd, instrumentedLaunchArgs(cmd.args, instrumentation.args)),
       cwd: cmd.cwd,
       cols: orderFrame.geometry.cols,
       rows: orderFrame.geometry.rows,
@@ -1062,7 +1072,9 @@ async function launchAgentTerminal(ctx: DaemonContext, msg: SpawnControl): Promi
       ...base,
       model: {
         ...base.model,
-        ...(msg.subagentModel ? { subagentModel: { supported: true, value: msg.subagentModel } } : {}),
+        ...(msg.subagentModel
+          ? { subagentModel: { supported: true, value: msg.subagentModel } }
+          : {}),
       },
       ...(msg.durableLabel ? { durableLabel: msg.durableLabel } : {}),
       ...(profile.instrumentationRequired
@@ -1081,7 +1093,12 @@ async function launchAgentTerminal(ctx: DaemonContext, msg: SpawnControl): Promi
   } catch (err) {
     // A process may already exist when handle construction fails. Use the shared
     // reaper before reporting failure; never acknowledge a driverless agent.
-    reapFailedLaunch(ctx, msg.sessionId, msg.durableLabel ?? ctx.durableLabelFor(msg.sessionId), err)
+    reapFailedLaunch(
+      ctx,
+      msg.sessionId,
+      msg.durableLabel ?? ctx.durableLabelFor(msg.sessionId),
+      err,
+    )
     reportSpawnFailure(ctx, msg.sessionId, err)
   }
 }
@@ -1102,12 +1119,17 @@ function requireTerminalHandle(
     handle.binding.family !== 'terminal' ||
     handle.binding.driver !== profile.driverId
   ) {
-    throw new Error(`terminal driver '${profile.driverId}' did not establish a handle; retry this session`)
+    throw new Error(
+      `terminal driver '${profile.driverId}' did not establish a handle; retry this session`,
+    )
   }
   // REFRESH THE HANDED TERMINAL (POD-4785): the entry's surface may have been
   // replaced (reattach, steal) without a new bind carrying it, so push the
   // current one.
-  ctx.agentRuntime?.setTerminal?.(msg.sessionId, adaptTerminal(ctx.sessions.get(msg.sessionId)?.terminal))
+  ctx.agentRuntime?.setTerminal?.(
+    msg.sessionId,
+    adaptTerminal(ctx.sessions.get(msg.sessionId)?.terminal),
+  )
 }
 
 async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void> {
@@ -1221,10 +1243,8 @@ export async function launchTerminalSpawn(
   msg: SpawnControl,
   requestedDriverId?: string,
 ): Promise<void> {
-  await withOrder(
-    ctx,
-    { frame: msg, ...(requestedDriverId ? { requestedDriverId } : {}) },
-    () => launchAgentTerminal(ctx, msg),
+  await withOrder(ctx, { frame: msg, ...(requestedDriverId ? { requestedDriverId } : {}) }, () =>
+    launchAgentTerminal(ctx, msg),
   )
 }
 
@@ -1576,15 +1596,11 @@ async function adoptServerDriverSession(
  * re-indexes via `runtime.adopt` on the exact durable label, falling back to
  * `runtime.resume` when the resume ref is known. Anything else is not ours.
  */
-async function adoptHeadlessSession(
-  ctx: DaemonContext,
-  msg: ReattachControl,
-): Promise<boolean> {
+async function adoptHeadlessSession(ctx: DaemonContext, msg: ReattachControl): Promise<boolean> {
   const runtime = ctx.agentRuntime
   if (!runtime) return false
   const existing = runtime.handleFor(msg.sessionId)
-  const existingHeadless =
-    existing && existing.binding.driver === 'headless' ? existing : undefined
+  const existingHeadless = existing && existing.binding.driver === 'headless' ? existing : undefined
   const requested =
     typeof msg.requestedDriverId === 'string' &&
     canonicalDriverId(msg.requestedDriverId) === 'headless'
@@ -1625,9 +1641,7 @@ async function adoptHeadlessSession(
     return true
   } catch (adoptionError) {
     if (!requested) {
-      return fail(
-        adoptionError instanceof Error ? adoptionError.message : String(adoptionError),
-      )
+      return fail(adoptionError instanceof Error ? adoptionError.message : String(adoptionError))
     }
     if (!msg.resume) {
       return fail(adoptionError instanceof Error ? adoptionError.message : String(adoptionError))
@@ -2273,7 +2287,8 @@ export async function launchServerDriverSession(
     // pending turns invalidated, kept engine recorded, spawnError surfaced
     // (POD-4490) — rather than this generic arm.
     if (err instanceof EngineBindUnrecoverable) {
-      ctx.sessions.ensure(msg.sessionId)
+      ctx.sessions
+        .ensure(msg.sessionId)
         // COLD LAUNCH: no driver ever existed in this daemon's life, so no
         // queue exists to drain. An unbound send is refused, never queued, so
         // this daemon took custody of nothing and reports no abandonment —
@@ -2483,7 +2498,9 @@ export async function recoverTerminalProcess(
   // identity, the conversation and the lease the driver registers under — is
   // the binding's, and wins.
   const ordered: Partial<ReattachControl> =
-    order?.frame.type === 'reattach' ? order.frame : { lastKnownGeometry: { ...NOMINAL_RECOVERY_GEOMETRY } }
+    order?.frame.type === 'reattach'
+      ? order.frame
+      : { lastKnownGeometry: { ...NOMINAL_RECOVERY_GEOMETRY } }
   const msg = {
     ...ordered,
     type: 'reattach',
@@ -2523,10 +2540,15 @@ export async function recoverTerminalProcess(
       // This daemon spawned (or already reattached) the session: the context
       // it holds is the one its process runs under (POD-6533).
       const harnessContext = await sessionHarnessContextFor(ctx, msg.sessionId, msg.agentKind)
-      ctx.observers.initSessionObservers(msg, existing.attachment, agentStateProviderFor(msg.agentKind), {
-        seedOnFrame: false,
-        ...(harnessContext ? { harnessContext } : {}),
-      })
+      ctx.observers.initSessionObservers(
+        msg,
+        existing.attachment,
+        agentStateProviderFor(msg.agentKind),
+        {
+          seedOnFrame: false,
+          ...(harnessContext ? { harnessContext } : {}),
+        },
+      )
     }
     const cmd = durableProcessFor(ctx)?.primary.attachCommand(msg.durableLabel) ?? msg.durableLabel
     // Draft Sync v2 (POD-859): ensure the engine is running if flagged (idempotent —
@@ -2662,7 +2684,13 @@ export async function recoverTerminalProcess(
     // THE ATTACH RESIZES NOTHING (POD-4723). The Terminal states the host's
     // WELCOME size through the size event — which reports it and sizes the
     // model before the ring replay below — and the bind carries the same size.
-    const terminal = wireBridge(ctx, msg.sessionId, found.attachment, msg.agentKind, msg.durableLabel)
+    const terminal = wireBridge(
+      ctx,
+      msg.sessionId,
+      found.attachment,
+      msg.agentKind,
+      msg.durableLabel,
+    )
     if (harnessContext) ctx.sessions.ensure(msg.sessionId).harnessContext = harnessContext
     // The settings file from the original spawn still points at our fixed port,
     // so a reattached agent keeps reporting. A fresh daemon (post-redeploy) lost
@@ -2671,10 +2699,15 @@ export async function recoverTerminalProcess(
     // so seed immediately (an idle session would otherwise read 'unknown' →
     // 'working') and re-tail its transcript (else chat stays empty while the
     // native view still has scrollback).
-    ctx.observers.initSessionObservers(msg, found.attachment, agentStateProviderFor(msg.agentKind), {
-      seedOnFrame: false,
-      ...(harnessContext ? { harnessContext } : {}),
-    })
+    ctx.observers.initSessionObservers(
+      msg,
+      found.attachment,
+      agentStateProviderFor(msg.agentKind),
+      {
+        seedOnFrame: false,
+        ...(harnessContext ? { harnessContext } : {}),
+      },
+    )
     // THE HEADLESS SCREENS, AT THE BEST HINT THERE IS. The observers did not
     // exist when the size event ran, so they take the host's size now, or the
     // server's last-known where the backend cannot say. Neither number reaches
@@ -2822,17 +2855,17 @@ export function stopSessionProcess(
   opts: { retire?: boolean } = {},
 ): Promise<boolean> {
   let pending = pendingSessionStops.get(ctx)
-  if (!pending) pendingSessionStops.set(ctx, pending = new Map())
+  if (!pending) pendingSessionStops.set(ctx, (pending = new Map()))
   const previous = pending.get(msg.sessionId)
   // A timeout retry must observe the same retirement, not the now-empty
   // registry. Binding retirement may strengthen a park after it completes.
   if (previous && !opts.retire) return previous
-  const work = (previous ? previous.catch(() => false) : Promise.resolve()).then(
-    () => stopSessionProcessOnce(ctx, msg, opts),
-  ).catch((error) => {
-    log.warn('session retirement failed', { error, sessionId: msg.sessionId })
-    return false
-  })
+  const work = (previous ? previous.catch(() => false) : Promise.resolve())
+    .then(() => stopSessionProcessOnce(ctx, msg, opts))
+    .catch((error) => {
+      log.warn('session retirement failed', { error, sessionId: msg.sessionId })
+      return false
+    })
   pending.set(msg.sessionId, work)
   void work.finally(() => {
     if (pending.get(msg.sessionId) === work) pending.delete(msg.sessionId)
@@ -2874,24 +2907,35 @@ async function stopSessionProcessOnce(
   // receipts for one session are harmless — the server acts only on
   // `killed:false`, and a receipt for an identity that was never there is a
   // truthful "nothing to kill".
-  reaps.push((async () => {
-    let retired = false
-    const owned = await beginServerDriverReap(ctx, msg.sessionId, {
-      retire: opts.retire === true,
-      completed: (value) => { retired = value; measured = true },
-    }, ctx.serverReapIo)
-    return !owned || retired
-  })())
+  reaps.push(
+    (async () => {
+      let retired = false
+      const owned = await beginServerDriverReap(
+        ctx,
+        msg.sessionId,
+        {
+          retire: opts.retire === true,
+          completed: (value) => {
+            retired = value
+            measured = true
+          },
+        },
+        ctx.serverReapIo,
+      )
+      return !owned || retired
+    })(),
+  )
   // Reap the durable host unconditionally — NOT only when a bridge exists.
   // Generic kill is process policy (hibernate, stop, handoff); retirement is a
   // separate server-authored binding transition.
   if (ctx.backend !== 'none') {
-    const durableLabel =
-      msg.durableLabel ?? owned?.label ?? ctx.durableLabelFor(msg.sessionId)
-    reaps.push(reapDurableHost(ctx, msg.sessionId, durableLabel).then((retired) => {
-      measured = true
-      return retired
-    }))
+    const durableLabel = msg.durableLabel ?? owned?.label ?? ctx.durableLabelFor(msg.sessionId)
+    reaps.push(
+      reapDurableHost(ctx, msg.sessionId, durableLabel).then((retired) => {
+        measured = true
+        return retired
+      }),
+    )
   }
   if (owned) {
     owned.clear()
@@ -2901,16 +2945,25 @@ async function stopSessionProcessOnce(
   removeSessionInstructions(ctx, msg.sessionId)
   const results = await Promise.allSettled(reaps)
   // Give cooperative teardown its flush window before escalating descendants.
-  const descendants = await reapInstanceSessionProcesses({ instanceUuid: ctx.instanceUuid, sessionId: msg.sessionId })
-  measured ||= descendants.examined > 0
-  if (descendants.remaining > 0) ctx.send({
-    type: 'sessionKillResult', sessionId: msg.sessionId,
-    durableLabel: msg.durableLabel ?? ctx.durableLabelFor(msg.sessionId),
-    killed: false, reason: 'instance-owned descendants survived process retirement',
+  const descendants = await reapInstanceSessionProcesses({
+    instanceUuid: ctx.instanceUuid,
+    sessionId: msg.sessionId,
   })
-  const retired = measured && descendants.remaining === 0 &&
+  measured ||= descendants.examined > 0
+  if (descendants.remaining > 0)
+    ctx.send({
+      type: 'sessionKillResult',
+      sessionId: msg.sessionId,
+      durableLabel: msg.durableLabel ?? ctx.durableLabelFor(msg.sessionId),
+      killed: false,
+      reason: 'instance-owned descendants survived process retirement',
+    })
+  const retired =
+    measured &&
+    descendants.remaining === 0 &&
     results.every((result) => result.status === 'fulfilled' && result.value)
-  if (!retired) log.warn('session process retirement was not confirmed', { sessionId: msg.sessionId })
+  if (!retired)
+    log.warn('session process retirement was not confirmed', { sessionId: msg.sessionId })
   return retired
 }
 
@@ -2943,7 +2996,9 @@ async function reapDurableHost(
       log.warn('the durable host is STILL running after a kill', { sessionId, durableLabel })
     }
     ctx.send({
-      type: 'sessionKillResult', sessionId, durableLabel,
+      type: 'sessionKillResult',
+      sessionId,
+      durableLabel,
       killed: !alive,
       ...(alive ? { reason: 'the durable host is still running' } : {}),
     })
@@ -3018,7 +3073,10 @@ export const sessionHandlers: Pick<
         })
         // A refused lease belongs to another/newer owner. Only a composition
         // failure may reap an acquired bridge, as required by agent admission.
-      } else if (!(error instanceof TerminalRecoveryRefusal) && ctx.sessions.get(msg.sessionId)?.attached) {
+      } else if (
+        !(error instanceof TerminalRecoveryRefusal) &&
+        ctx.sessions.get(msg.sessionId)?.attached
+      ) {
         stopSessionProcess(ctx, msg)
       }
       ctx.send({

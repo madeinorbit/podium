@@ -103,13 +103,15 @@ export async function sourceForRead(
   // the session wrote to — never the daemon's own selectors. The settled
   // snapshot, not an inventory wave in flight: this read is on the switch path.
   const account = await resolveManagementAccount(ctx, { wait: false })
-  const scope = account ? managementAccountFor(account, agentKind) : undefined
+  // No home to name at all: nothing to read, never the daemon's own HOME.
+  if (!account) return fileChainSource([], () => [])
+  const scope = managementAccountFor(account, agentKind)
   const source = await transcriptSourceFromGrammar(grammar, {
     podiumSessionId: msg.sessionId,
     cwd: msg.cwd,
     ...(msg.resume?.value ? { resumeValue: msg.resume.value } : {}),
     ...(msg.pathHint ? { pathHint: msg.pathHint } : {}),
-    ...(scope ? { homeDir: scope.home, env: scope.env } : {}),
+    account: scope,
     transcriptRoot: join(stateDir(), 'transcripts'),
   })
   return withTranscriptAnnotations(source, () => annotations.read(msg.sessionId))

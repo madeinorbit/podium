@@ -31,7 +31,7 @@ import * as fs from 'node:fs'
 import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asSessionId, type SessionId } from '@podium/model'
+import { manifestFor } from '@podium/harness'
 import type {
   CodexJournalEntry,
   CodexRawSocket,
@@ -47,19 +47,23 @@ import {
   createCodexEngineHost,
   createCodexRuntime,
   createGrokEngineHost,
+  grokAcpProcessKey,
   grokEngineFacts,
 } from '@podium/harness/driver/host'
-import { createMemoryBindingRecords, testHarnessContext } from '@podium/harness/driver/testing'
-import { manifestFor } from '@podium/harness'
+import {
+  createMemoryBindingRecords,
+  testBoundCommand,
+  testHarnessContext,
+} from '@podium/harness/driver/testing'
+import { asSessionId, type SessionId } from '@podium/model'
 import type { DurableProcess } from '@podium/process/durable'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { startFakeAppServer } from '../../../../packages/harness/src/driver/families/codex/test-support/fake-app-server'
-import { driverSlotsOver } from './driver-slots.js'
 import { noDurableBackendRefusal } from '../durable-backend'
+import { driverSlotsOver } from './driver-slots.js'
+import { createSessionEngineScope, type EngineJournal, engineSocketFile } from './engines.js'
 import { createEngineJournal } from './journal.js'
 import { SessionRegistry } from './registry.js'
-import { grokAcpProcessKey } from '@podium/harness/driver/host'
-import { createSessionEngineScope, engineSocketFile, type EngineJournal } from './engines.js'
 
 /**
  * Every filesystem verb a socket's or a journal's lifecycle needs, watched.
@@ -108,10 +112,7 @@ function recordingScope(spawned: Array<{ label: string; cmd: string }>) {
 /** The session's pinned installation (POD-6546): argv[0] comes from here. */
 const GROK_CONTEXT = testHarnessContext({ kind: 'grok', executable: '/opt/rig/bin/grok' })
 
-function familyDeps(
-  supervision: EngineSupervisor,
-  engines: unknown,
-) {
+function familyDeps(supervision: EngineSupervisor, engines: unknown) {
   return {
     facts: FACTS,
     resources: () => undefined,
@@ -289,7 +290,7 @@ describe('the family is handed its address and reports its binding (POD-4611)', 
     // and the family dialled exactly that one.
     expect(run.minted).toHaveLength(1)
     expect(run.started[0]?.listen?.argv(run.minted[0]!)).toEqual(['--listen', run.minted[0]])
-    expect(run.started[0]?.args).not.toContain('--listen')
+    expect(run.started[0]?.command.args).not.toContain('--listen')
     expect(dialled).toEqual([run.minted[0]])
 
     // REPORTED, NOT JOURNALLED: the family's facts carry no address of its
@@ -347,7 +348,11 @@ describe('the session layer mints, seals and removes the listener, and keeps the
       has: async () => true,
       kill: async (label: string) => void killed.push(label),
     }
-    const durable = { backend: 'host', primary: hostAdapter, all: [hostAdapter] } as unknown as DurableProcess
+    const durable = {
+      backend: 'host',
+      primary: hostAdapter,
+      all: [hostAdapter],
+    } as unknown as DurableProcess
     const scope = createSessionEngineScope(durable, {
       sessions,
       socketRoot: () => join(root, 'sock'),
@@ -367,8 +372,7 @@ describe('the session layer mints, seals and removes the listener, and keeps the
     const hold = await owner.startEngine({
       sessionId: SESSION,
       label,
-      cmd: 'engine',
-      args: ['serve'],
+      command: testBoundCommand('engine', ['serve']),
       listen: { argv: (address) => ['--listen', address] },
       cwd: '/tmp',
       env: {},
@@ -413,8 +417,7 @@ describe('the session layer mints, seals and removes the listener, and keeps the
       owner.startEngine({
         sessionId: SESSION,
         label: `podium-cx-${SESSION}`,
-        cmd: 'engine',
-        args: [],
+        command: testBoundCommand('engine', []),
         listen: { argv: (address) => ['--listen', address] },
         cwd: '/tmp',
         env: {},
@@ -436,8 +439,7 @@ describe('the session layer mints, seals and removes the listener, and keeps the
     const hold = await owner.startEngine({
       sessionId: SESSION,
       label,
-      cmd: 'engine',
-      args: [],
+      command: testBoundCommand('engine', []),
       listen: { argv: (address) => ['--listen', address] },
       cwd: '/tmp',
       env: {},
@@ -460,7 +462,11 @@ describe('the session layer mints, seals and removes the listener, and keeps the
     const sessions = new SessionRegistry()
     const { scope } = scopeOver(sessions, store)
     const owner = scope.ownerFor<{ sessionId: SessionId }>('ns')
-    const hold = await owner.reattachEngine({ label: 'survivor', fromSeq: 'tail', sessionId: SESSION })
+    const hold = await owner.reattachEngine({
+      label: 'survivor',
+      fromSeq: 'tail',
+      sessionId: SESSION,
+    })
     expect(hold.address).toBe('unix:///run/podium-test/survivor.sock')
     expect(sessions.get(SESSION)?.engine).toMatchObject({
       label: 'survivor',
@@ -472,7 +478,9 @@ describe('the session layer mints, seals and removes the listener, and keeps the
     const previous = process.env.PODIUM_STATE_DIR
     process.env.PODIUM_STATE_DIR = root
     try {
-      createEngineJournal<{ sessionId: SessionId; clientAddress: string }>({ namespace: 'legacy' }).write({
+      createEngineJournal<{ sessionId: SessionId; clientAddress: string }>({
+        namespace: 'legacy',
+      }).write({
         sessionId: SESSION,
         clientAddress: 'unix:///run/podium-test/legacy.sock',
       })

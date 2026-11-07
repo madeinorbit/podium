@@ -10,6 +10,7 @@ import {
   claudePromptHookFingerprint,
   claudeTranscriptSegmentId,
   declaredValue,
+  type HarnessAccountScope,
   type HarnessAdapter,
   type HarnessContext,
   type HarnessObservation,
@@ -17,6 +18,7 @@ import {
   type HarnessObserveInput,
   type HarnessObserverHost,
   type HarnessProviderRebind,
+  harnessAccount,
   harnessAdapterFor,
   initialAgentState,
   locateClaudeSessionFile,
@@ -91,6 +93,13 @@ export interface SessionObserversDeps {
   statTick?: StatTick
   /** Discovery homeDir override (tests / isolated HOME). */
   homeDir?: string | undefined
+  /**
+   * The account a harness kind's sessions run under, for an observer that has
+   * no session context (a survivor whose harness left the inventory, a
+   * headless bind) (POD-6536). Production names the credential home and the
+   * settled command env; absent (tests), the default folders under `homeDir`.
+   */
+  accountFor?: (kind: AgentKind) => HarnessAccountScope
   /** Product-owned transcript authority root, distinct from the harness account home. */
   transcriptRoot?: string | undefined
   /** A live transcript tail appended — mark the file dirty for the active index refresh. */
@@ -192,6 +201,12 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   const captureTranscript = deps.captureClaudeTranscript ?? captureClaudeTranscript
   // observer lifecycle only adds/removes callbacks. [spec:SP-c29e]
   const statTick = deps.statTick ?? createSharedStatTick()
+  // TEST SEAM DEFAULT: production always passes `accountFor`. A test that names
+  // no home reads the folders under the process's own HOME, as it always has.
+  const accountFor =
+    deps.accountFor ??
+    ((kind: AgentKind): HarnessAccountScope =>
+      harnessAccount(kind, deps.homeDir ?? process.env.HOME ?? '/', {}))
   const trackers = new Map<
     string,
     {
@@ -220,7 +235,13 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   // branches.
   const observations = new Map<
     SessionId,
-    { adapter: HarnessAdapter; observation: HarnessObservation }
+    {
+      adapter: HarnessAdapter
+      observation: HarnessObservation
+      /** The account the session runs under (POD-6536): hook translation
+       *  reads its folders, never the daemon's HOME. */
+      account: HarnessAccountScope
+    }
   >()
   type CausalLease = HarnessObservationLease & {
     cwd: string
@@ -692,6 +713,13 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     }
   }
 
+  /** Where a Claude session's transcripts live: the account its observation
+   *  runs under (POD-6536), else the Claude account for this daemon. */
+  const claudeLocateAccount = (sessionId: SessionId) => {
+    const account = observations.get(sessionId)?.account ?? accountFor('claude-code')
+    return { homeDir: account.home, env: account.env }
+  }
+
   const startClaudeCausal = async (
     sessionId: SessionId,
     payload: unknown,
@@ -741,7 +769,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         cwd: lease.cwd,
         resumeValue: providerSessionId,
         ...(acceptedIdentity?.path ? { pathHint: acceptedIdentity.path } : {}),
-        ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
+        ...claudeLocateAccount(sessionId),
       }).catch(() => null)
       if (located !== null && located !== effectivePath) {
         try {
@@ -1580,7 +1608,11 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     const observe = declaredValue(adapter.observer)
     if (!observe) return
     if (!session || adapter.kind !== 'codex') {
-      observations.set(sessionId, { adapter, observation: observe(input, hostFor(sessionId, adapter)) })
+      observations.set(sessionId, {
+        adapter,
+        observation: observe(input, hostFor(sessionId, adapter)),
+        account: input.account,
+      })
       return
     }
     let live = true
@@ -1607,6 +1639,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     )
     observations.set(sessionId, {
       adapter,
+      account: input.account,
       observation: {
         ...observation,
         stop() {
@@ -1630,8 +1663,9 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     sessionId: SessionId,
     provider: AgentStateProvider,
     cwd: string,
-    resumeValue?: string,
-    pathHint?: string,
+    resumeValue: string | undefined,
+    pathHint: string | undefined,
+    account: HarnessAccountScope,
   ): Promise<void> => {
     if (!provider.bootEvents) return
     const originalTracker = trackers.get(sessionId)
@@ -1640,7 +1674,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       events = await provider.bootEvents({
         cwd,
         podiumSessionId: sessionId,
-        ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
+        account,
         ...(resumeValue ? { resumeValue } : {}),
         ...(pathHint ? { pathHint } : {}),
       })
@@ -1814,7 +1848,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
             import('@podium/harness').then((m) => ({ stampOpencodeItems: m.stampOpencodeItems })),
           podiumSessionId: msg.sessionId,
           ...(resumeValue ? { resumeValue } : {}),
-          ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
+          account: init.harnessContext ?? accountFor(msg.agentKind),
           ...(init.harnessContext ? { harnessContext: init.harnessContext } : {}),
           ...(deps.transcriptRoot ? { transcriptRoot: deps.transcriptRoot } : {}),
           ...(init.startedAtMs !== undefined ? { startedAtMs: init.startedAtMs } : {}),
@@ -1891,7 +1925,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         void locateClaudeSessionFile({
           cwd: msg.cwd,
           resumeValue: providerSessionId,
-          ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
+          ...claudeLocateAccount(msg.sessionId),
         })
           .catch(() => null)
           .then((transcriptPath) => {
@@ -1980,7 +2014,14 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       const bootProvider = provider
       const seed = (): void => {
         const run = () =>
-          seedBootState(msg.sessionId, bootProvider, msg.cwd, msg.resume?.value, pathHintOf(msg))
+          seedBootState(
+            msg.sessionId,
+            bootProvider,
+            msg.cwd,
+            msg.resume?.value,
+            pathHintOf(msg),
+            init.harnessContext ?? accountFor(msg.agentKind),
+          )
         // Reattach can enqueue 100+ full-rollout reads/classifications at once.
         // Pace those boot-state seeds with transcript backfills so their synchronous
         // parse completions cannot starve watchdog/interaction timers. [spec:SP-c29e]
@@ -2020,7 +2061,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
         import('@podium/harness').then((m) => ({ stampOpencodeItems: m.stampOpencodeItems })),
       podiumSessionId: sessionId,
       resumeValue,
-      ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
+      account: accountFor(agentKind),
       ...(deps.transcriptRoot ? { transcriptRoot: deps.transcriptRoot } : {}),
     })
   }
@@ -2147,7 +2188,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     // as legacy and Working waits on the delayed JSONL write instead.
     if (bound.observation.onHookPayload?.(payload)) return
     void tracker.provider
-      .translate(payload)
+      .translate(payload, bound.account)
       .then((events) => {
         if (trackers.get(sessionId) === tracker) applyAgentStateEvents(sessionId, events)
       })

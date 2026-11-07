@@ -7,7 +7,6 @@
  * transcript reader exists; `./transcript.js` reads through here too.
  */
 import { lstat, readdir, realpath, stat } from 'node:fs/promises'
-import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { type HarnessEnvironment, selectedRoot } from '../../manifest.js'
 
@@ -45,7 +44,7 @@ export async function locateGrokSessionPaths(opts: {
   cwd: string
   sessionId: string
   pathHint?: string
-  homeDir?: string
+  homeDir: string
   /** The account env (POD-6534): its `GROK_HOME` selects the root through
    *  the adapter's roots rule. Only read when `homeDir` is given. */
   env?: HarnessEnvironment
@@ -85,7 +84,7 @@ export async function locateGrokTranscript(opts: {
   cwd: string
   sessionId: string
   pathHint?: string
-  homeDir?: string
+  homeDir: string
   env?: HarnessEnvironment
   transcriptRoot?: string
 }): Promise<string | null> {
@@ -195,7 +194,7 @@ function pathsFromHint(pathHint: string, sessionId: string): GrokSessionPaths | 
 function derivedPaths(
   cwd: string,
   sessionId: string,
-  homeDir?: string,
+  homeDir: string,
   env?: HarnessEnvironment,
 ): GrokSessionPaths {
   return pathsFromDir(
@@ -214,9 +213,8 @@ function pathsFromDir(sessionDir: string, sessionId: string): GrokSessionPaths {
   }
 }
 
-function grokRoot(homeDir: string | undefined, env?: HarnessEnvironment): string {
-  if (homeDir) return selectedRoot(env ?? {}, 'GROK_HOME', homeDir, '.grok')
-  return process.env.GROK_HOME || join(homedir(), '.grok')
+function grokRoot(homeDir: string, env?: HarnessEnvironment): string {
+  return selectedRoot(env ?? {}, 'GROK_HOME', homeDir, '.grok')
 }
 
 async function sessionMtimeMs(paths: GrokSessionPaths): Promise<number | null> {

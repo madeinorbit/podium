@@ -942,8 +942,8 @@ export async function claudeChainPaths(input: TranscriptSourceInput): Promise<st
     cwd: input.cwd,
     resumeValue: input.resumeValue,
     ...(input.pathHint ? { pathHint: input.pathHint } : {}),
-    ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
-    ...(input.env !== undefined ? { env: input.env } : {}),
+    homeDir: input.account.home,
+    env: input.account.env,
   })
   return path ? [path] : []
 }

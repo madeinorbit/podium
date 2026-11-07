@@ -554,7 +554,7 @@ describe('native attach spawns the session context', () => {
     const spawns: { cmd: string; env?: Record<string, string> }[] = []
     const clients: ClientProcessOwner = {
       spawnClient: async (opts) => {
-        spawns.push({ cmd: opts.cmd, ...(opts.env ? { env: opts.env } : {}) })
+        spawns.push({ cmd: opts.command.cmd, ...(opts.env ? { env: opts.env } : {}) })
         throw new Error('recorded')
       },
       reclaimClient: async () => {},

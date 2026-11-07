@@ -98,6 +98,6 @@ describe('Codex manifest settled-file rules', () => {
 
   it('treats valid JSON without credentials as immediately settled out', () => {
     writeFileSync(join(home, '.codex', 'auth.json'), JSON.stringify({ tokens: {} }))
-    expect(codexManifest.inventory.detectLogin(home)).toEqual({ state: 'out' })
+    expect(codexManifest.inventory.detectLogin(home, {})).toEqual({ state: 'out' })
   })
 })

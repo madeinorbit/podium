@@ -20,8 +20,8 @@ import { tmpdir } from 'node:os'
 import { dirname, join, sep } from 'node:path'
 import {
   declaredValue,
-  harnessAccount,
   type HarnessContext,
+  harnessAccount,
   manifestFor,
   resolvePinnedCodexRollout,
 } from '@podium/harness'
@@ -230,7 +230,7 @@ async function sitesFor(world: Layout, accountHome: string | undefined) {
   const scans = await transcripts.scan({ sinceMs: 0, account })
   const scannedFolders = [...new Set(scans.map((scan) => folderOf(world, scan.path)))]
 
-  const rollout = await resolvePinnedCodexRollout(world.threadId, accountHome)
+  const rollout = await resolvePinnedCodexRollout(world.threadId, accountHome ?? world.machineHome)
 
   // The session context, built the way a spawn builds it: the daemon's
   // credential home over the inventory's command environment, which carries

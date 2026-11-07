@@ -8,10 +8,15 @@
  * generic (`observer.ts`) and names no harness.
  */
 import type { TranscriptItem } from '@podium/model'
-import { type StatTick, scheduleStatPoll } from '../../transcript-types.js'
-import type { OpencodeMessagePartRow } from '../../transcript-types.js'
+import {
+  type AgentStateEvent,
+  type AgentStateProvider,
+  withStateChannel,
+} from '../../agent-state/types.js'
+import type { HarnessAccountScope } from '../../manifest.js'
 import { withEventTime } from '../../observer.js'
-import { type AgentStateEvent, type AgentStateProvider, withStateChannel } from '../../agent-state/types.js'
+import type { OpencodeMessagePartRow } from '../../transcript-types.js'
+import { type StatTick, scheduleStatPoll } from '../../transcript-types.js'
 
 /** An opencode row's `time_updated` (epoch ms) as ISO event-time, or undefined. */
 function isoFromMs(ms: number | undefined): string | undefined {
@@ -76,7 +81,7 @@ export function observeOpencodeState(opts: {
   /** Stable Podium row identity; used to select a session-owned store. */
   podiumSessionId?: string
   resumeValue?: string
-  homeDir?: string
+  homeDir: string
   /** Explicit store path for tests/embedders that already selected one. */
   databasePath?: string
   startedAtMs?: number
@@ -418,7 +423,7 @@ async function opencodeBootEvents(opts: {
   cwd: string
   podiumSessionId?: string
   resumeValue?: string
-  homeDir?: string
+  account: HarnessAccountScope
   databasePath?: string
 }): Promise<AgentStateEvent[]> {
   const rt = await maybeLoadOpencodeCore()
@@ -426,11 +431,11 @@ async function opencodeBootEvents(opts: {
   const databasePath =
     opts.databasePath ??
     rt.opencodeDbPathForSession({
-      homeDir: opts.homeDir,
+      homeDir: opts.account.home,
       podiumSessionId: opts.podiumSessionId,
       resumeValue: opts.resumeValue,
     })
-  const db = rt.openOpencodeDb(opts.homeDir, databasePath)
+  const db = rt.openOpencodeDb(opts.account.home, databasePath)
   if (!db) return [{ kind: 'session_started' }]
   try {
     const sessionId = opts.resumeValue

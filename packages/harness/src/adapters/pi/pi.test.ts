@@ -2,8 +2,11 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { testHarnessContext } from '../../driver/testing/harness-context.js'
 import { declaredValue } from '../../manifest.js'
 import { piManifest } from './index.js'
+
+const piContext = testHarnessContext({ kind: 'pi' })
 
 const headless = declaredValue(piManifest.headless)
 const buildExec = headless ? declaredValue(headless.buildExec) : undefined
@@ -30,7 +33,6 @@ describe('pi manifest', () => {
       permissionMode: 'auto',
     })
     expect(spec).toEqual({
-      cmd: 'pi',
       args: [
         '-p',
         '--mode',
@@ -89,7 +91,6 @@ describe('pi manifest', () => {
   it('one-shot exec prints the answer, keeps no session, prompt on stdin', () => {
     expect(exec?.({ prompt: 'summarize', model: 'openai/gpt-5.5', systemPrompt: ' sys ' })).toEqual(
       {
-        cmd: 'pi',
         args: ['-p', '--no-session', '--model', 'openai/gpt-5.5', '--append-system-prompt', 'sys'],
         stdin: 'summarize',
       },
@@ -104,9 +105,9 @@ describe('pi manifest', () => {
         model: 'anthropic/claude-opus-4-8',
         effort: 'medium',
         initialPrompt: '- dashy prompt',
+        harnessContext: piContext,
       }),
     ).toEqual({
-      cmd: 'pi',
       args: [
         '--session-id',
         'new-id',
@@ -120,13 +121,18 @@ describe('pi manifest', () => {
       cwd: '/w',
     })
     expect(
-      piManifest.launch({ cwd: '/w', resume: { kind: 'pi-session', value: 'old-id' } }).args,
+      piManifest.launch({
+        cwd: '/w',
+        harnessContext: piContext,
+        resume: { kind: 'pi-session', value: 'old-id' },
+      }).args,
     ).toEqual(['--session', 'old-id'])
   })
 
   it('launch carries machine-authored instructions on the native system-prompt channel', () => {
     const spec = piManifest.launch({
       cwd: '/w',
+      harnessContext: piContext,
       instructions: [{ source: 'issue', content: 'Work on POD-1.' }],
     })
     expect(spec.args).toContain('--append-system-prompt')
@@ -143,12 +149,12 @@ describe('pi manifest', () => {
 
   it('detects a login from auth.json provider entries; nothing on disk is unknown, not out', async () => {
     const home = await mkdtemp(join(tmpdir(), 'podium-pi-manifest-'))
-    expect(piManifest.inventory.detectLogin(home)).toEqual({ state: 'unknown' })
+    expect(piManifest.inventory.detectLogin(home, {})).toEqual({ state: 'unknown' })
 
     const dir = join(home, '.pi', 'agent')
     await mkdir(dir, { recursive: true })
     await writeFile(join(dir, 'auth.json'), '{}')
-    expect(piManifest.inventory.detectLogin(home)).toEqual({ state: 'unknown' })
+    expect(piManifest.inventory.detectLogin(home, {})).toEqual({ state: 'unknown' })
 
     await writeFile(
       join(dir, 'auth.json'),
@@ -158,7 +164,7 @@ describe('pi manifest', () => {
         empty: {},
       }),
     )
-    const login = piManifest.inventory.detectLogin(home)
+    const login = piManifest.inventory.detectLogin(home, {})
     expect(login).toMatchObject({ state: 'in', account: 'anthropic, openai' })
     const identity = declaredValue(piManifest.inventory.loginIdentity)?.(home)
     expect(identity?.fingerprint).toMatch(/^[0-9a-f]{64}$/)

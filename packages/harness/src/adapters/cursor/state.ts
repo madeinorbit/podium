@@ -11,7 +11,12 @@ import type { Dirent } from 'node:fs'
 import { open, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { type StatTick, scheduleStatPoll } from '../../transcript-types.js'
+import { fileMtimeIso } from '../../agent-state/boot-time.js'
+import {
+  type AgentStateEvent,
+  type AgentStateProvider,
+  withStateChannel,
+} from '../../agent-state/types.js'
 import {
   type CursorSessionPaths,
   cursorProjectSlug,
@@ -19,9 +24,9 @@ import {
   cursorSessionPaths,
 } from '../../cursor/paths.js'
 import { LineDecoder } from '../../jsonl-stream.js'
-import { fileMtimeIso } from '../../agent-state/boot-time.js'
+import type { HarnessAccountScope } from '../../manifest.js'
 import { withEventTime } from '../../observer.js'
-import { type AgentStateEvent, type AgentStateProvider, withStateChannel } from '../../agent-state/types.js'
+import { type StatTick, scheduleStatPoll } from '../../transcript-types.js'
 
 const POLL_MS = 700
 const TAIL_BYTES = 128 * 1024
@@ -204,13 +209,13 @@ export function observeCursorState(opts: {
 async function cursorBootEvents(opts: {
   cwd: string
   resumeValue?: string
-  homeDir?: string
+  account: HarnessAccountScope
 }): Promise<AgentStateEvent[]> {
   if (opts.resumeValue) {
     const paths = cursorSessionPaths({
       cwd: opts.cwd,
       chatId: opts.resumeValue,
-      ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
+      homeDir: opts.account.home,
     })
     try {
       const verdict = classifyCursorIdleTranscript(

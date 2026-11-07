@@ -1,4 +1,3 @@
-import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { machinePathBasename } from '@podium/model'
 import { pathExists } from '../../discovery/paths.js'
@@ -18,7 +17,6 @@ import { AgentConversationLoadError } from '../../discovery/types.js'
 import {
   listOpencodeSessions,
   loadOpencodeMessageParts,
-  openOpencodeDb,
   openOpencodeDbAt,
 } from '../../opencode/db.js'
 import { opencodeDataRoot } from './paths.js'
@@ -159,7 +157,9 @@ async function summarizeFile(
 }
 
 async function loadConversation(summary: AgentConversationSummary): Promise<AgentConversation> {
-  const db = openOpencodeDb()
+  // The root the summary was read from (its account's data root), never a
+  // default under the daemon's HOME (POD-6536).
+  const db = openOpencodeDbAt(summary.source.root)
   if (!db) {
     throw new AgentConversationLoadError('opencode database cannot be opened')
   }
@@ -187,6 +187,6 @@ async function loadConversation(summary: AgentConversationSummary): Promise<Agen
   }
 }
 
-export function opencodeDefaultRoot(homeDir?: string): string {
-  return join(homeDir ?? homedir(), '.local', 'share', 'opencode')
+export function opencodeDefaultRoot(homeDir: string): string {
+  return join(homeDir, '.local', 'share', 'opencode')
 }

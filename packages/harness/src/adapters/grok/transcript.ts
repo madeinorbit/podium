@@ -474,8 +474,8 @@ export async function grokChainPaths(input: TranscriptSourceInput): Promise<stri
     cwd: input.cwd,
     sessionId: input.resumeValue,
     ...(input.pathHint !== undefined ? { pathHint: input.pathHint } : {}),
-    ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
-    ...(input.env !== undefined ? { env: input.env } : {}),
+    homeDir: input.account.home,
+    env: input.account.env,
     ...(input.transcriptRoot !== undefined ? { transcriptRoot: input.transcriptRoot } : {}),
   })
   return path ? [path] : []

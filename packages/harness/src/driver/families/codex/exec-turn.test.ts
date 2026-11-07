@@ -8,9 +8,10 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { harnessInstallation } from '../../../harness-context.js'
 import type { ResolvedHarnessInventory } from '../../../inventory/build-inventory.js'
-import { buildCodexExecTurn } from './exec-turn.js'
 import { manifestFor } from '../../../registry.js'
+import { buildCodexExecTurn } from './exec-turn.js'
 
 /** The real headless section, handed in (tests may read the registry). */
 function headlessSections() {
@@ -19,9 +20,7 @@ function headlessSections() {
 
 function snapshot(): ResolvedHarnessInventory {
   return {
-    executables: new Map([
-      ['codex', { kind: 'codex', path: '/opt/codex', generation: 1 }],
-    ]),
+    executables: new Map([['codex', { kind: 'codex', path: '/opt/codex', generation: 1 }]]),
     commandEnvironment: {
       env: { PATH: '/opt:/usr/bin:/bin', HOME: '/tmp' },
       pathEntries: ['/opt', '/usr/bin', '/bin'],
@@ -36,7 +35,11 @@ function snapshot(): ResolvedHarnessInventory {
 
 describe('buildCodexExecTurn argv shapes', () => {
   it('first turn: exec --json with positional prompt, no resume subcommand', () => {
-    const { cmd, args } = buildCodexExecTurn({ prompt: 'hi there' }, snapshot(), headlessSections())
+    const { cmd, args } = buildCodexExecTurn(
+      { prompt: 'hi there' },
+      harnessInstallation(snapshot(), 'codex'),
+      headlessSections(),
+    )
     expect(cmd).toBe('/opt/codex')
     expect(args).toEqual(['exec', '--json', '--skip-git-repo-check', 'hi there'])
   })
@@ -44,7 +47,7 @@ describe('buildCodexExecTurn argv shapes', () => {
   it('resume turn: exec resume <id> subcommand before flags', () => {
     const { args } = buildCodexExecTurn(
       { prompt: 'go on', resumeValue: '019f-abc', model: 'gpt-5.2-codex' },
-      snapshot(),
+      harnessInstallation(snapshot(), 'codex'),
       headlessSections(),
     )
     expect(args.slice(0, 3)).toEqual(['exec', 'resume', '019f-abc'])

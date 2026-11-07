@@ -51,10 +51,11 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asSessionId, type SessionId } from '@podium/model'
+import { manifestFor } from '@podium/harness'
 import type { AgentSessionHandle, EngineAttachment } from '@podium/harness/driver/host'
 import { codexEngineFacts, codexScopeLabel } from '@podium/harness/driver/host'
-import { manifestFor } from '@podium/harness'
+import { testBoundCommand } from '@podium/harness/driver/testing'
+import { asSessionId, type SessionId } from '@podium/model'
 import type { DurableAttachment, DurableProcess } from '@podium/process/durable'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Terminal } from '../terminal/terminal.js'
@@ -200,8 +201,7 @@ describe('a daemon restart changes no owner (codex + native attach, decided clus
     const started = await owner1.startEngine({
       sessionId: SESSION,
       label: engineLabel,
-      cmd: 'codex',
-      args: ['app-server'],
+      command: testBoundCommand('codex', ['app-server']),
       listen: { argv: (address) => ['--listen', address] },
       cwd: '/tmp',
       env: {},
@@ -220,8 +220,7 @@ describe('a daemon restart changes no owner (codex + native attach, decided clus
     // never sees that Terminal.
     const clientAttachment1 = await clientScope1.spawnClient({
       label: clientLabel,
-      cmd: 'codex',
-      args: ['resume'],
+      command: testBoundCommand('codex', ['resume']),
       cwd: '/tmp',
       cols: 80,
       rows: 24,
@@ -232,7 +231,12 @@ describe('a daemon restart changes no owner (codex + native attach, decided clus
     // label is what teardown names after the policy is retired.
     entry1.clientLabel = clientLabel
     entry1.nativeRequested = true
-    const terminal1 = Terminal.attach(clientAttachment1, entry1, { onFrame: () => {} }, { kind: 'client' })
+    const terminal1 = Terminal.attach(
+      clientAttachment1,
+      entry1,
+      { onFrame: () => {} },
+      { kind: 'client' },
+    )
     entry1.replaceTerminal(terminal1)
 
     // -- Before: each object has its decided holder -------------------------
@@ -290,7 +294,11 @@ describe('a daemon restart changes no owner (codex + native attach, decided clus
 
     // The engine re-attaches with the recorded address, from the durable copy
     // alone — no entry, no handle, no Terminal involved.
-    const reattached = await owner2.reattachEngine({ label: engineLabel, fromSeq: 'tail', sessionId: SESSION })
+    const reattached = await owner2.reattachEngine({
+      label: engineLabel,
+      fromSeq: 'tail',
+      sessionId: SESSION,
+    })
     expect(reattached.address).toBe(address1)
     // The family reports again; the session keeps the record on the NEW entry.
     owner2.bound({ sessionId: SESSION })
@@ -300,8 +308,7 @@ describe('a daemon restart changes no owner (codex + native attach, decided clus
     expect(clientScope2.hasClientMaster(clientLabel)).toBe(true)
     const clientAttachment2 = await clientScope2.spawnClient({
       label: clientLabel,
-      cmd: 'codex',
-      args: ['resume'],
+      command: testBoundCommand('codex', ['resume']),
       cwd: '/tmp',
       cols: 80,
       rows: 24,
@@ -310,7 +317,12 @@ describe('a daemon restart changes no owner (codex + native attach, decided clus
     entry2.client = { label: clientLabel, kind: 'codex' }
     entry2.clientLabel = clientLabel
     entry2.nativeRequested = true
-    const terminal2 = Terminal.attach(clientAttachment2, entry2, { onFrame: () => {} }, { kind: 'client' })
+    const terminal2 = Terminal.attach(
+      clientAttachment2,
+      entry2,
+      { onFrame: () => {} },
+      { kind: 'client' },
+    )
     entry2.replaceTerminal(terminal2)
 
     // The driver rebinds a FRESH handle and holds a fresh lease; the old

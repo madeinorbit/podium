@@ -9,32 +9,36 @@
  */
 
 import { createHash } from 'node:crypto'
-import { manifestFor } from '../../../registry.js'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { codexEngineFacts } from './engine-facts.js'
-import { testHarnessContext } from '../../testing/harness-context.js'
+import { manifestFor } from '../../../registry.js'
+import { isDriverRefusal } from '../../errors.js'
 import {
-  type CodexEngineHostDeps,
-  codexAppServerConfigArgs,
-  codexScopeLabel,
-  CodexEngineLeaseRefused,
-  createCodexEngineHost,
-  evaluateCodexVersionProbe,
-} from './engine-host.js'
-import { EngineBindUnrecoverable } from '../engine-supervision.js'
+  createMemoryBindingRecords,
+  flattenEngineSpawn,
+  type TestEngineSpawn,
+} from '../../testing/binding-records.js'
+import { testHarnessContext } from '../../testing/harness-context.js'
 import type {
   EngineAttachment,
   EngineProcessOwner,
   EngineSupervisor,
   SessionEngineOwner,
 } from '../engine-supervision.js'
-import { createMemoryBindingRecords } from '../../testing/binding-records.js'
-import { isDriverRefusal } from '../../errors.js'
+import { EngineBindUnrecoverable } from '../engine-supervision.js'
+import { codexEngineFacts } from './engine-facts.js'
+import {
+  type CodexEngineHostDeps,
+  CodexEngineLeaseRefused,
+  codexAppServerConfigArgs,
+  codexScopeLabel,
+  createCodexEngineHost,
+  evaluateCodexVersionProbe,
+} from './engine-host.js'
 import type { CodexJournalEntry } from './runtime.js'
 
 const FACTS = codexEngineFacts(manifestFor('codex')!)
@@ -47,7 +51,9 @@ const STRIPPED_CODEX_CREDENTIALS = manifestFor('codex')!.inventory.foreignCreden
 function engineHost(extra: Partial<CodexEngineHostDeps> = {}) {
   return createCodexEngineHost({
     facts: FACTS,
-    stageAttachment: async () => { throw new Error('attachments are not under test') },
+    stageAttachment: async () => {
+      throw new Error('attachments are not under test')
+    },
     resources: () => undefined,
     buildEnv: () => ({}),
     gracefulExitMs: 1,
@@ -115,7 +121,9 @@ describe('the spawn config', () => {
 
   it("hands a session's instructions to Codex as developer instructions (POD-5814)", () => {
     expect(codexAppServerConfigArgs({}).args.join(' ')).not.toContain('developer_instructions')
-    const { args } = codexAppServerConfigArgs({ instructions: 'Run "podium issue prime".\nThen work.' })
+    const { args } = codexAppServerConfigArgs({
+      instructions: 'Run "podium issue prime".\nThen work.',
+    })
     expect(args.slice(-2)).toEqual([
       '-c',
       'developer_instructions="Run \\"podium issue prime\\".\\nThen work."',
@@ -297,7 +305,9 @@ describe('headless engine lifecycle (POD-4433)', () => {
     /** The session layer's socket root the fake mints listener addresses under. */
     socketRoot?: string
     /** What the session layer recorded for the session (address included). */
-    recorded?: Array<Parameters<SessionEngineOwner<CodexJournalEntry>['bound']>[0] & { address?: string }>
+    recorded?: Array<
+      Parameters<SessionEngineOwner<CodexJournalEntry>['bound']>[0] & { address?: string }
+    >
     /** Every fact set the family reported as bound. */
     reported?: CodexJournalEntry[]
   }): {
@@ -321,7 +331,7 @@ describe('headless engine lifecycle (POD-4433)', () => {
             ? `unix://${join(hooks.socketRoot ?? tmpdir(), `${addresses.size}-engine.sock`)}`
             : undefined
           if (address) addresses.set(req.label, address)
-          const { listen: _listen, sessionId: _sessionId, ...spawn } = req
+          const { listen: _listen, sessionId: _sessionId, ...spawn } = flattenEngineSpawn(req)
           const attachment = await hooks.startEngine({
             ...spawn,
             args: [...spawn.args, ...(req.listen && address ? req.listen.argv(address) : [])],
@@ -413,7 +423,7 @@ describe('headless engine lifecycle (POD-4433)', () => {
   } as never
 
   it('spawns the engine headless and connects the listener it was given', async () => {
-    const launched: Array<Parameters<EngineProcessOwner['startEngine']>[0]> = []
+    const launched: TestEngineSpawn[] = []
     let listener: { frames: Buffer[]; close(): void } | undefined
     const { session } = fakeEngineSession()
     const host = engineHost({
@@ -466,7 +476,7 @@ describe('headless engine lifecycle (POD-4433)', () => {
     const socketPath = join(dir, 'engine.sock')
     const socketListener = listen(socketPath)
     const clientAddress = `unix://${socketPath}`
-    const spawned: Array<Parameters<EngineProcessOwner['startEngine']>[0]> = []
+    const spawned: TestEngineSpawn[] = []
     const { session, exits } = fakeEngineSession({ childPid: 7777 })
     const host = engineHost({
       dialSocket: async (address) => {
@@ -558,46 +568,46 @@ describe('headless engine lifecycle (POD-4433)', () => {
     await expect(host.adopt?.(binding)).resolves.toBeUndefined()
   })
 
-describe('§4.8 failure ownership — bind failure keeps the engine', () => {
-  const SESSION48 = asSessionId('33333333-3333-4333-8333-333333334448')
+  describe('§4.8 failure ownership — bind failure keeps the engine', () => {
+    const SESSION48 = asSessionId('33333333-3333-4333-8333-333333334448')
 
-  it('engine up but listener silent: launch rejects typed, kills nothing, journals nothing', async () => {
-    // §4.8 step 4: an unbuildable driver is a spawnError with the process
-    // kept for an operator decision — never silently orphaned, never quietly
-    // reaped. The address rides the error so the lifecycle owner can adopt
-    // from it; the journal stays untouched because nothing adoptable exists.
-    const root = mkdtempSync(join(tmpdir(), 'pod-4470-cx-48-'))
-    try {
-      const killed: string[] = []
-      const written: CodexJournalEntry[] = []
-      const { session } = fakeEngineSession()
-      const host = engineHost({
-        checkVersion: async () => ({ drivable: true as const }),
-        dialSocket: () => Promise.reject(new Error('listener silent')),
-        ...fakePorts({
-          socketRoot: root,
-          startEngine: async () => session,
-          destroyed: (label) => void killed.push(label),
-          reported: written,
-        }),
-      })
-      const error = await host
-        .launch({ sessionId: SESSION48, workdir: '/tmp', harnessContext: CONTEXT })
-        .then(
-          () => null,
-          (err: unknown) => err,
-        )
-      expect(error).toBeInstanceOf(EngineBindUnrecoverable)
-      expect((error as EngineBindUnrecoverable).during).toBe('launch')
-      expect((error as EngineBindUnrecoverable).address).toContain('unix://')
-      // Kept: no SIGTERM, no SIGKILL, no scope sweep, no journal write.
-      expect(killed).toEqual([])
-      expect(written).toEqual([])
-    } finally {
-      rmSync(root, { recursive: true, force: true })
-    }
-  }, 60_000)
-})
+    it('engine up but listener silent: launch rejects typed, kills nothing, journals nothing', async () => {
+      // §4.8 step 4: an unbuildable driver is a spawnError with the process
+      // kept for an operator decision — never silently orphaned, never quietly
+      // reaped. The address rides the error so the lifecycle owner can adopt
+      // from it; the journal stays untouched because nothing adoptable exists.
+      const root = mkdtempSync(join(tmpdir(), 'pod-4470-cx-48-'))
+      try {
+        const killed: string[] = []
+        const written: CodexJournalEntry[] = []
+        const { session } = fakeEngineSession()
+        const host = engineHost({
+          checkVersion: async () => ({ drivable: true as const }),
+          dialSocket: () => Promise.reject(new Error('listener silent')),
+          ...fakePorts({
+            socketRoot: root,
+            startEngine: async () => session,
+            destroyed: (label) => void killed.push(label),
+            reported: written,
+          }),
+        })
+        const error = await host
+          .launch({ sessionId: SESSION48, workdir: '/tmp', harnessContext: CONTEXT })
+          .then(
+            () => null,
+            (err: unknown) => err,
+          )
+        expect(error).toBeInstanceOf(EngineBindUnrecoverable)
+        expect((error as EngineBindUnrecoverable).during).toBe('launch')
+        expect((error as EngineBindUnrecoverable).address).toContain('unix://')
+        // Kept: no SIGTERM, no SIGKILL, no scope sweep, no journal write.
+        expect(killed).toEqual([])
+        expect(written).toEqual([])
+      } finally {
+        rmSync(root, { recursive: true, force: true })
+      }
+    }, 60_000)
+  })
 })
 
 describe('readHistory — the Store read over the rollout file', () => {
@@ -708,7 +718,9 @@ describe('readHistory — the Store read over the rollout file', () => {
           from: { segmentId: 'history:someone-else:thr-other', pathHint: 'x', components: {} },
           limit: 10,
         }),
-      ).rejects.toSatisfy((err: unknown) => isDriverRefusal(err) && err.refusal.reason === 'invalid_value')
+      ).rejects.toSatisfy(
+        (err: unknown) => isDriverRefusal(err) && err.refusal.reason === 'invalid_value',
+      )
       // Same segment but no anchor is equally foreign: cursors are opaque.
       const own = await host.readHistory(session, { limit: 50 })
       expect(own.head).toBeDefined()
@@ -717,7 +729,9 @@ describe('readHistory — the Store read over the rollout file', () => {
           from: { segmentId: own.head!.segmentId, components: {} },
           limit: 10,
         }),
-      ).rejects.toSatisfy((err: unknown) => isDriverRefusal(err) && err.refusal.reason === 'invalid_value')
+      ).rejects.toSatisfy(
+        (err: unknown) => isDriverRefusal(err) && err.refusal.reason === 'invalid_value',
+      )
     } finally {
       rmSync(home, { recursive: true, force: true })
     }

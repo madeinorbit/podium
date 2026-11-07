@@ -19,7 +19,9 @@
 import {
   type AgentKind,
   type IssueProjection,
-  idleVerdictFinishedTurn, machinePathBasename } from '@podium/model'
+  idleVerdictFinishedTurn,
+  machinePathBasename,
+} from '@podium/model'
 import { isFinished } from '@podium/model/browser'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import { attentionGroup } from '../focus'
@@ -156,13 +158,16 @@ export interface AgentBadge {
 
 /** Map harness-observed runtime state to the little badge on a session row.
  *  Null = nothing to show (uninstrumented agent kinds stay clean). */
-export function agentBadge(meta: Pick<SessionView, 'agentState' | 'offer'>, issue?: Pick<IssueProjection, 'stage' | 'closedReason'>, offer = meta.offer): AgentBadge | null {
+export function agentBadge(
+  meta: Pick<SessionView, 'agentState' | 'offer'>,
+  issue?: Pick<IssueProjection, 'stage' | 'closedReason'>,
+  offer = meta.offer,
+): AgentBadge | null {
   // An offer is an explicit pending decision even when the turn that produced
   // it has already classified as idle/done. Keep every status surface (session
   // dot, sidebar meta, chat activity) amber until that offer is cleared —
   // except on a finished issue, where the close retired the decision (POD-290).
-  const issueFinished =
-    issue !== undefined && (isFinished(issue))
+  const issueFinished = issue !== undefined && isFinished(issue)
   if (offer && !issueFinished) {
     return { label: 'waiting on decision', tone: 'attention', showContinue: false }
   }
@@ -255,7 +260,10 @@ export interface ChatActivity {
  * `justSent` only covers the optimistic gap before the send's own meta update
  * lands, and only while the session is still parked.
  */
-export function sessionWaking(meta: Pick<SessionView, 'status' | 'queuedMessageCount'> | undefined, justSent = false): boolean {
+export function sessionWaking(
+  meta: Pick<SessionView, 'status' | 'queuedMessageCount'> | undefined,
+  justSent = false,
+): boolean {
   if (!meta) return false
   const queued = (meta.queuedMessageCount ?? 0) > 0
   if (meta.status === 'hibernated' || meta.status === 'exited') return queued || justSent
@@ -310,7 +318,9 @@ export function sessionWaking(meta: Pick<SessionView, 'status' | 'queuedMessageC
  * and dropped the offer line entirely, with no send anywhere in sight.
  */
 export function chatActivity(
-  meta: Pick<SessionView, 'status' | 'queuedMessageCount' | 'agentState' | 'offer' | 'busy'> | undefined,
+  meta:
+    | Pick<SessionView, 'status' | 'queuedMessageCount' | 'agentState' | 'offer' | 'busy'>
+    | undefined,
   justSent: boolean,
   offer = meta?.offer,
 ): ChatActivity | null {
@@ -458,7 +468,10 @@ export type MotionPhase = 'queued' | 'working' | 'waiting' | 'done'
  * (POD-415); starting/exited/uninstrumented-quiet sessions fall through to
  * `queued`.
  */
-export function motionPhase(s: SessionView, issue?: Pick<IssueProjection, 'stage' | 'closedReason'>): MotionPhase {
+export function motionPhase(
+  s: SessionView,
+  issue?: Pick<IssueProjection, 'stage' | 'closedReason'>,
+): MotionPhase {
   const state = s.agentState
   // Offers outlive the turn that created them, so attention must win over the
   // transcript's terminal idle/done verdict — unless the owning issue is already
@@ -466,7 +479,7 @@ export function motionPhase(s: SessionView, issue?: Pick<IssueProjection, 'stage
   // drops historical stale offers so a closed row cannot keep demanding a
   // decision. Open review work still counts.
   if (attentionGroup(s) === 'needsYou') {
-    const finished = issue !== undefined && (isFinished(issue))
+    const finished = issue !== undefined && isFinished(issue)
     if (!(finished && s.offer && !hasNonOfferNeedsYou(s))) return 'waiting'
   }
   if (
@@ -678,7 +691,7 @@ export function resumeCommand(s: SessionView): string | null {
     case 'opencode-session':
       return `opencode --session ${id}`
     case 'cursor-chat':
-      // Cursor's CLI binary is `agent` (Cursor Agent) — see resolveCursorBin.
+      // Cursor's CLI binary is `agent` (Cursor Agent) (the cursor manifest's inventory.executable.names).
       return `agent --resume ${id}`
     default:
       // Unknown ref kind — fall back to the agent kind's flag so a future

@@ -27,7 +27,6 @@ const hasClaude = ((): boolean => {
   }
 })()
 
-
 describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasClaude)(
   '[real-agent:claude] real claude binary smoke (issue #84)',
   () => {
@@ -36,15 +35,15 @@ describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasClaude)(
       const mcpConfigPath = join(dir, 'mcp.json')
       writeFileSync(mcpConfigPath, JSON.stringify({ mcpServers: {} }))
       try {
-        const { cmd, args, stdin } = buildHarnessExec(
-          'claude-code',
-          {
-            prompt: 'reply with the word pong',
-            systemPrompt: 'You are a smoke test. Answer in one word.',
-            mcpConfigPath,
-            allowedTools: ['Read', 'Grep'],
-          },
-        )
+        // A LIVE smoke: the developer's own `claude` on PATH stands in for the
+        // inventory's installation. Production binds argv to a context.
+        const cmd = 'claude'
+        const { args, stdin } = buildHarnessExec('claude-code', {
+          prompt: 'reply with the word pong',
+          systemPrompt: 'You are a smoke test. Answer in one word.',
+          mcpConfigPath,
+          allowedTools: ['Read', 'Grep'],
+        })
         const started = Date.now()
         const { code, stdout, stderr } = await new Promise<{
           code: number | null

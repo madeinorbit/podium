@@ -14,7 +14,6 @@ import {
 import { harnessVersionFloor, OPENCODE_VERSION_POLICY } from '../../version-policy.js'
 import { detectOpencodeLogin } from './auth.js'
 import { opencodeCatalog } from './catalog.js'
-import { resolveOpencode2Bin, resolveOpencodeBin } from './cli.js'
 import { opencodeCredentials } from './credentials.js'
 import { opencodeDescriptor } from './descriptor.js'
 import { createOpencodeConversationProvider } from './discovery.js'
@@ -77,12 +76,9 @@ export const opencodeManifest: AgentManifest = {
       fallbackCandidates: (machineHome) => [join(machineHome, '.opencode', 'bin', 'opencode')],
       versionArgs: ['--version'],
     },
-    // DELIBERATELY a bare name, unlike every other cmd in this file: the daemon binds
-    // this one to the current generation's verified executable and command environment
-    // (apps/daemon/src/control/session.ts, above bindHarnessLaunch). Resolving here
-    // would duplicate that snapshot and let login drift from the executable the rest of
-    // the launch uses. Not an oversight — POD-2914.
-    loginCommand: supported({ cmd: 'opencode', args: ['auth', 'login'] }),
+    // argv only, like every declaration here: the daemon binds it to the login
+    // account's harness context (POD-2914, POD-6536).
+    loginCommand: supported({ args: ['auth', 'login'] }),
     loginCommandProbe: unsupported(
       'OpenCode login detection still uses its local authentication database',
     ),
@@ -114,7 +110,7 @@ export const opencodeManifest: AgentManifest = {
 
   launch(opts) {
     const databasePath = opencodeDbPathForSession({
-      homeDir: opts.homeDir,
+      homeDir: opts.harnessContext.home,
       podiumSessionId: opts.podiumSessionId,
       resumeValue: opts.resume?.value,
     })
@@ -134,7 +130,6 @@ export const opencodeManifest: AgentManifest = {
       })
     }
     const base = {
-      cmd: resolveOpencodeBin(undefined, opts.env),
       args: [
         // Headed TUI always runs in auto permissions mode: auto-approve
         // permissions that are not explicitly denied (`opencode --help`).
@@ -164,7 +159,9 @@ export const opencodeManifest: AgentManifest = {
     let config: Record<string, unknown>
     try {
       config = JSON.parse(
-        opts.env?.OPENCODE_CONFIG_CONTENT ?? process.env.OPENCODE_CONFIG_CONTENT ?? '{}',
+        opts.env?.OPENCODE_CONFIG_CONTENT ??
+          opts.harnessContext.env.OPENCODE_CONFIG_CONTENT ??
+          '{}',
       ) as Record<string, unknown>
     } catch {
       throw new Error('malformed OPENCODE_CONFIG_CONTENT — refusing to discard existing config')
@@ -190,7 +187,6 @@ export const opencodeManifest: AgentManifest = {
     const sys = opts.systemPrompt?.trim() ? opts.systemPrompt.trim() : undefined
     const prompt = sys ? `${sys}\n\n---\n\n${opts.prompt}` : opts.prompt
     return {
-      cmd: resolveOpencodeBin(undefined, opts.env),
       args: [
         'run',
         ...(model ? ['-m', model] : []),
@@ -265,8 +261,7 @@ export const opencodeManifest: AgentManifest = {
          * generation is not reset.
          */
         parkOnRelease: true,
-        launch: ({ cwd, conversation, endpoint, env }) => ({
-          cmd: resolveOpencodeBin(undefined, env),
+        launch: ({ cwd, conversation, endpoint }) => ({
           args: ['attach', endpoint.address ?? '', '--session', conversation],
           cwd,
           env: {
@@ -295,8 +290,7 @@ export const opencodeManifest: AgentManifest = {
         clientTerminal: supported({
           labelToken: 'oc2',
           parkOnRelease: true,
-          launch: ({ cwd, conversation, endpoint, env }) => ({
-            cmd: resolveOpencode2Bin(undefined, env),
+          launch: ({ cwd, conversation, endpoint }) => ({
             args: ['mini', '--server', endpoint.address ?? '', '--session', conversation],
             cwd,
 
@@ -359,7 +353,6 @@ export const opencodeManifest: AgentManifest = {
       const context = opts.contextPrompt?.trim()
       const prompt = [sys, context, opts.prompt].filter(Boolean).join('\n\n---\n\n')
       return {
-        cmd: resolveOpencodeBin(undefined, opts.env),
         args: [
           'run',
           '--format',
@@ -396,7 +389,7 @@ export const opencodeManifest: AgentManifest = {
       ...(input.statTick ? { statTick: input.statTick } : {}),
       ...(input.loadOpencodeSource ? { loadSource: input.loadOpencodeSource } : {}),
       ...(input.resumeValue ? { resumeValue: input.resumeValue } : {}),
-      ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+      homeDir: input.account.home,
       ...(input.startedAtMs !== undefined ? { startedAtMs: input.startedAtMs } : {}),
       onSession: (opencodeSessionId) => host.onResumeValue(opencodeSessionId),
       onModel: (model, effort) => host.onModel?.(model, effort),

@@ -19,6 +19,7 @@
 
 import type { Buffer } from 'node:buffer'
 import type { SessionId } from '@podium/model'
+import type { BoundCommand } from '../../bound-command.js'
 
 /** One held engine attachment: the supervisor's handle on a live engine. */
 export interface EngineAttachment {
@@ -64,8 +65,11 @@ export interface EngineSpawnRequest {
    * address — the flag is the harness's knowledge, the path is not.
    */
   listen?: { argv(address: string): readonly string[] }
-  cmd: string
-  args: string[]
+  /**
+   * What runs: only a {@link BoundCommand} (POD-6536), whose argv[0] is the
+   * session's pinned installation. A plain `{ cmd, args }` does not compile.
+   */
+  command: BoundCommand
   cwd: string
   env: Record<string, string>
   /** Credential overrides that must not reach the child (stored-login precedence). */
@@ -209,9 +213,7 @@ export interface EngineOwnership {
 
 /** Build the supervision-facing error for a label no host adapter can own. */
 export function engineBackendError(sessionId: SessionId, detail: string): Error {
-  return new Error(
-    `engine for ${sessionId} requires the podium-host backend: ${detail}`,
-  )
+  return new Error(`engine for ${sessionId} requires the podium-host backend: ${detail}`)
 }
 
 /**

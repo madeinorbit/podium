@@ -186,7 +186,7 @@ async function bufferedEnv() {
     } as BufferedHarnessRequest,
     {
       snapshot: async () => snapshot(),
-      runChild: async (_cmd, _args, opts) => {
+      runChild: async (_command, opts) => {
         env = opts.env
         return { stdout: '' }
       },

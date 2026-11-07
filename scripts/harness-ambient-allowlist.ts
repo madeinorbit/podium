@@ -20,8 +20,12 @@
  * category:
  * - `to-migrate`: names the POD-6520 step that removes it. POD-6536 (Harness
  *   access lockdown) takes this category to zero.
- * - `os-tool`: an OS utility, not a harness, with a reason (ps/pgrep/lsof
- *   process inspection, /usr/bin/security). Stays.
+ * - `os-tool`: an OS utility, not a harness, with a reason. Since POD-6536
+ *   there are none: every OS tool (ps/pgrep/lsof, /usr/bin/security,
+ *   curl/wget/ldd, an installer's sh/bash) runs through the `HostTools` port
+ *   (packages/harness/src/host-tools.ts), which resolves an absolute path in
+ *   the command environment. An adapter that imports `child_process` again
+ *   fails here.
  *
  * Ratchet (the vendor rule's semantics, keyed by file and access):
  * - a use the list does not cover (pair not listed, or over its count) FAILS;
@@ -37,6 +41,11 @@
  * session-observers.ts): 30 entries, 51 uses — to-migrate 48, os-tool 3.
  * POD-6534 moved the usage/quota sections onto the account's roots (Claude,
  * Codex, Grok usage.ts): 26 entries, 42 uses — to-migrate 39, os-tool 3.
+ * POD-6536 (Harness access lockdown) took the list to ZERO: adapters bind argv
+ * to a context, every remaining home/env read takes the account it is handed,
+ * and the OS tools run through `HostTools`. 0 entries, 0 uses. The list stays
+ * as the ratchet's anchor: any new direct access fails, and there is nothing
+ * left to lower.
  */
 
 export type HarnessAmbientAccess =
@@ -63,215 +72,7 @@ export interface HarnessAmbientAllowlistEntry {
 }
 
 /** Seeded category totals; the list may only go down from these. */
-export const HARNESS_AMBIENT_BASELINE_TO_MIGRATE = 32
-export const HARNESS_AMBIENT_BASELINE_OS_TOOL = 3
+export const HARNESS_AMBIENT_BASELINE_TO_MIGRATE = 0
+export const HARNESS_AMBIENT_BASELINE_OS_TOOL = 0
 
-const A = 'packages/harness/src/adapters'
-const F = 'packages/harness/src/driver/families'
-const D = 'apps/daemon/src'
-
-// Steps of POD-6520 (design §4).
-const ROOTS = 'POD-6532' // context and roots: the Codex folder derivations
-const ENGINE = 'POD-6546' // engine and attach binding: engine env, admission probes
-const ACCOUNT = 'POD-6534' // account-scoped operations: usage, credentials, transcript reads
-const CHILD_ENV = 'POD-6535' // single harness child environment
-
-export const HARNESS_AMBIENT_ALLOWLIST: readonly HarnessAmbientAllowlistEntry[] = [
-  // --- Scope B: harness state folders named in the daemon -------------------
-  {
-    file: `${D}/host-runtime.ts`,
-    access: 'state-folder',
-    count: 1,
-    category: 'to-migrate',
-    issue: CHILD_ENV,
-  },
-
-  // --- Scope A: claude-code -------------------------------------------------
-  {
-    file: `${A}/claude-code/index.ts`,
-    access: 'homedir',
-    count: 1,
-    category: 'to-migrate',
-    issue: ACCOUNT,
-  },
-  {
-    file: `${A}/claude-code/index.ts`,
-    access: 'process-env',
-    count: 1,
-    category: 'to-migrate',
-    issue: ACCOUNT,
-  },
-  {
-    file: `${A}/claude-code/keychain-security.ts`,
-    access: 'child-process',
-    count: 1,
-    category: 'os-tool',
-    reason:
-      'spawns /usr/bin/security (SECURITY_PATH) to read the macOS keychain; an absolute OS tool, not the harness binary',
-  },
-  {
-    file: `${A}/claude-code/state-locate.ts`,
-    access: 'homedir',
-    count: 1,
-    category: 'to-migrate',
-    issue: ACCOUNT,
-  },
-
-  // --- Scope A: codex -------------------------------------------------------
-  {
-    file: `${A}/codex/index.ts`,
-    access: 'homedir',
-    count: 1,
-    category: 'to-migrate',
-    issue: ROOTS,
-  },
-  {
-    file: `${A}/codex/index.ts`,
-    access: 'process-env',
-    count: 1,
-    category: 'to-migrate',
-    issue: ROOTS,
-  },
-  {
-    file: `${A}/codex/instrumentation.ts`,
-    access: 'homedir',
-    count: 1,
-    category: 'to-migrate',
-    issue: ROOTS,
-  },
-  {
-    file: `${A}/codex/owned-rollout.ts`,
-    access: 'child-process',
-    count: 1,
-    category: 'os-tool',
-    reason:
-      'execFile of pgrep/lsof/ps (C locale) to find which process owns a rollout file; OS process inspection, not the harness binary',
-  },
-  {
-    file: `${A}/codex/state-provider.ts`,
-    access: 'child-process',
-    count: 1,
-    category: 'os-tool',
-    reason:
-      'execFile of pgrep -x codex to list running Codex processes; OS process inspection, not the harness binary',
-  },
-  {
-    file: `${A}/codex/state-provider.ts`,
-    access: 'homedir',
-    count: 2,
-    category: 'to-migrate',
-    issue: ROOTS,
-  },
-
-  // --- Scope A: fixture harness ---------------------------------------------
-  {
-    file: `${A}/fixture/transcript.ts`,
-    access: 'homedir',
-    count: 1,
-    category: 'to-migrate',
-    issue: ACCOUNT,
-  },
-
-  // --- Scope A: grok --------------------------------------------------------
-  {
-    file: `${A}/grok/index.ts`,
-    access: 'process-env',
-    count: 1,
-    category: 'to-migrate',
-    issue: ACCOUNT,
-  },
-  {
-    file: `${A}/grok/instrumentation.ts`,
-    access: 'homedir',
-    count: 2,
-    category: 'to-migrate',
-    // POD-6533 moved the install onto the session context; what is left is
-    // grokRoot (hook-payload session paths, a transcript read) and the
-    // installer's no-home default.
-    issue: ACCOUNT,
-  },
-  {
-    file: `${A}/grok/instrumentation.ts`,
-    access: 'process-env',
-    count: 2,
-    category: 'to-migrate',
-    // POD-6533 moved the install onto the session context; what is left is
-    // grokRoot (hook-payload session paths, a transcript read) and the
-    // installer's no-home default.
-    issue: ACCOUNT,
-  },
-  {
-    file: `${A}/grok/state-locate.ts`,
-    access: 'homedir',
-    count: 1,
-    category: 'to-migrate',
-    issue: ACCOUNT,
-  },
-  {
-    file: `${A}/grok/state-locate.ts`,
-    access: 'process-env',
-    count: 1,
-    category: 'to-migrate',
-    issue: ACCOUNT,
-  },
-
-  // --- Scope A: opencode ----------------------------------------------------
-  {
-    file: `${A}/opencode/cli.ts`,
-    access: 'child-process',
-    count: 1,
-    category: 'to-migrate',
-    issue: ENGINE,
-  },
-  {
-    file: `${A}/opencode/cli.ts`,
-    access: 'homedir',
-    count: 4,
-    category: 'to-migrate',
-    issue: ENGINE,
-  },
-  {
-    file: `${A}/opencode/cli.ts`,
-    access: 'process-env',
-    count: 3,
-    category: 'to-migrate',
-    issue: CHILD_ENV,
-  },
-  {
-    file: `${A}/opencode/discovery.ts`,
-    access: 'homedir',
-    count: 1,
-    category: 'to-migrate',
-    issue: ACCOUNT,
-  },
-  {
-    file: `${A}/opencode/index.ts`,
-    access: 'process-env',
-    count: 1,
-    category: 'to-migrate',
-    issue: CHILD_ENV,
-  },
-  {
-    file: `${A}/opencode/paths.ts`,
-    access: 'homedir',
-    count: 2,
-    category: 'to-migrate',
-    issue: ACCOUNT,
-  },
-
-  // --- Scope A: driver families ---------------------------------------------
-  {
-    file: `${F}/grok-acp/engine-host.ts`,
-    access: 'process-env',
-    count: 1,
-    category: 'to-migrate',
-    issue: ENGINE,
-  },
-  {
-    file: `${F}/opencode/engine-host.ts`,
-    access: 'process-env',
-    count: 2,
-    category: 'to-migrate',
-    issue: ENGINE,
-  },
-]
+export const HARNESS_AMBIENT_ALLOWLIST: readonly HarnessAmbientAllowlistEntry[] = []

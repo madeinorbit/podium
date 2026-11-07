@@ -12,21 +12,17 @@
  */
 import { existsSync } from 'node:fs'
 import { mkdir, open, readFile, rename, writeFile } from 'node:fs/promises'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
-import {
-  type HarnessInstrumentation,
-  type InstalledInstrumentation,
-  type InstrumentationDestination,
-} from '../../manifest.js'
-import { withStateChannel } from '../../agent-state/types.js'
 import type { AgentStateEvent, ProviderAgentStateEvent } from '../../agent-state/types.js'
+import { withStateChannel } from '../../agent-state/types.js'
+import type {
+  HarnessAccountScope,
+  HarnessInstrumentation,
+  InstalledInstrumentation,
+  InstrumentationDestination,
+} from '../../manifest.js'
 import { withEventTime } from '../../observer.js'
-import {
-  type GrokPlanState,
-  classifyGrokIdleTranscript,
-  withGrokOpenTodos,
-} from './state.js'
+import { classifyGrokIdleTranscript, type GrokPlanState, withGrokOpenTodos } from './state.js'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -50,7 +46,6 @@ function normalizeName(value: string | undefined): string | undefined {
     .replace(/-/g, '_')
     .toLowerCase()
 }
-
 
 /**
  * Grok Build reads personal hooks from GROK_HOME/hooks without project trust.
@@ -160,15 +155,12 @@ async function writeAtomic(path: string, content: string): Promise<void> {
  * in that file are preserved, corrupt content is never overwritten, and a host
  * without a Grok home is a clean no-op.
  */
-export async function ensurePodiumGrokHooks(opts?: {
-  homeDir?: string
+export async function ensurePodiumGrokHooks(opts: {
+  /** The account home (required, POD-6536: never `homedir()`). */
+  homeDir: string
   grokHome?: string
 }): Promise<{ installed: boolean; changed: boolean; reason?: string }> {
-  const grokHome =
-    opts?.grokHome ??
-    (opts?.homeDir
-      ? join(opts.homeDir, '.grok')
-      : process.env.GROK_HOME?.trim() || join(homedir(), '.grok'))
+  const grokHome = opts.grokHome ?? join(opts.homeDir, '.grok')
   if (!existsSync(grokHome)) return { installed: false, changed: false, reason: 'no GROK_HOME' }
 
   const hooksDir = join(grokHome, 'hooks')
@@ -210,7 +202,7 @@ export function grokSessionPaths(opts: {
   cwd: string
   /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   sessionId: string
-  homeDir?: string
+  homeDir: string
 }): GrokSessionPaths {
   const sessionDir = join(
     grokRoot(opts.homeDir),
@@ -229,6 +221,9 @@ export function grokSessionPaths(opts: {
 
 interface GrokTranslationOptions {
   classifyIdleVerdict?: boolean
+  /** The session's account home, for a Stop payload that names its session
+   *  by id only. Absent: no derived path is read (never `homedir()`). */
+  homeDir?: string
   onVerdictRead?: () => void
   planState?: GrokPlanState
 }
@@ -286,7 +281,7 @@ export async function translateGrokUpdatePayload(
       const classified =
         options.classifyIdleVerdict === false
           ? undefined
-          : await classifyStopPayload(payload, options.onVerdictRead)
+          : await classifyStopPayload(payload, options.homeDir, options.onVerdictRead)
       const verdict = withGrokOpenTodos(classified, options.planState, stopReason === 'end_turn')
       return withEventTime([{ kind: 'turn_completed', ...(verdict ? { verdict } : {}) }], at)
     }
@@ -381,7 +376,7 @@ async function grokLifecycleEvents(
       const verdict =
         options.classifyIdleVerdict === false
           ? undefined
-          : await classifyStopPayload(payload, options.onVerdictRead)
+          : await classifyStopPayload(payload, options.homeDir, options.onVerdictRead)
       return [{ kind: 'turn_completed', ...(verdict ? { verdict } : {}) }]
     }
     case 'stop_cancelled':
@@ -424,12 +419,14 @@ function grokQuestionSummary(fields: Record<string, unknown>): string | undefine
 
 export async function classifyStopPayload(
   payload: Record<string, unknown>,
+  /** The session's account home; the payload's own path wins over it. */
+  homeDir: string | undefined,
   onVerdictRead?: () => void,
 ): Promise<{ kind: 'done' | 'question' | 'approval'; summary?: string } | undefined> {
   const path =
     stringField(payload, 'chat_history_path') ??
     stringField(payload, 'chatHistoryPath') ??
-    grokHookChatHistoryPath(payload)
+    (homeDir !== undefined ? grokHookChatHistoryPath(payload, homeDir) : undefined)
   if (!path) return undefined
   onVerdictRead?.()
   try {
@@ -439,14 +436,17 @@ export async function classifyStopPayload(
   }
 }
 
-function grokHookChatHistoryPath(payload: Record<string, unknown>): string | undefined {
+function grokHookChatHistoryPath(
+  payload: Record<string, unknown>,
+  homeDir: string,
+): string | undefined {
   const sessionId = stringField(payload, 'sessionId') ?? stringField(payload, 'session_id')
   const cwd =
     stringField(payload, 'cwd') ??
     stringField(payload, 'workspaceRoot') ??
     stringField(payload, 'workspace_root')
   if (!sessionId || !cwd) return undefined
-  return grokSessionPaths({ cwd, sessionId }).chatHistoryPath
+  return grokSessionPaths({ cwd, sessionId, homeDir }).chatHistoryPath
 }
 
 export async function readGrokChatHistoryTail(path: string): Promise<unknown[]> {
@@ -477,9 +477,8 @@ export async function readGrokChatHistoryTail(path: string): Promise<unknown[]> 
   }
 }
 
-export function grokRoot(homeDir: string | undefined): string {
-  if (homeDir) return join(homeDir, '.grok')
-  return process.env.GROK_HOME || join(homedir(), '.grok')
+export function grokRoot(homeDir: string): string {
+  return join(homeDir, '.grok')
 }
 
 /** Grok reports provider failures in retry_state and in the authoritative
@@ -567,7 +566,6 @@ export function classifyGrokProviderFailure(
   }
 }
 
-
 const RETRYABLE = new Set([
   'rate_limit',
   'overloaded',
@@ -579,8 +577,14 @@ const RETRYABLE = new Set([
 // Payload codec: camelCase shape readers + decode (POD-4472).
 // ---------------------------------------------------------------------------
 
-async function decodeGrokHookPayload(payload: unknown): Promise<ProviderAgentStateEvent[]> {
-  return withStateChannel(await translateGrokUpdatePayload(payload), 'poll')
+async function decodeGrokHookPayload(
+  payload: unknown,
+  account: HarnessAccountScope,
+): Promise<ProviderAgentStateEvent[]> {
+  return withStateChannel(
+    await translateGrokUpdatePayload(payload, { homeDir: account.home }),
+    'poll',
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -599,14 +603,21 @@ async function installGrokInstrumentation(
   // wiring above is still returned, so the session starts poll-only with the
   // reason reported instead of being refused.
   try {
-    const result = await ensurePodiumGrokHooks({ grokHome })
-    const degradedReason = !result.installed ? (result.reason ?? 'hook installation failed') : undefined
+    const result = await ensurePodiumGrokHooks({
+      homeDir: destination.harnessContext.home,
+      grokHome,
+    })
+    const degradedReason = !result.installed
+      ? (result.reason ?? 'hook installation failed')
+      : undefined
     return {
       ...wiring,
       ...(degradedReason
         ? {
             degradedReason,
-            degradedKind: installerDegradedKind(result.reason) as InstalledInstrumentation['degradedKind'],
+            degradedKind: installerDegradedKind(
+              result.reason,
+            ) as InstalledInstrumentation['degradedKind'],
           }
         : {}),
     }
@@ -619,7 +630,13 @@ async function installGrokInstrumentation(
 /** Classify installer refusals. Exceptions always use error, regardless of text. */
 function installerDegradedKind(
   reason: string | undefined,
-): 'no-home' | 'unreadable-hooks-json' | 'not-an-object' | 'unsupported-version' | 'untrusted' | 'error' {
+):
+  | 'no-home'
+  | 'unreadable-hooks-json'
+  | 'not-an-object'
+  | 'unsupported-version'
+  | 'untrusted'
+  | 'error' {
   switch (reason) {
     case 'no GROK_HOME':
       return 'no-home'
@@ -650,9 +667,11 @@ export const grokInstrumentation: HarnessInstrumentation = {
   scope: { kind: 'home', homeOf: grokHomeOf },
   install: installGrokInstrumentation,
   payloadCodec: {
-    eventName: (raw) => normalizeName(stringField(raw, 'hookEventName') ?? stringField(raw, 'hook_event_name')),
+    eventName: (raw) =>
+      normalizeName(stringField(raw, 'hookEventName') ?? stringField(raw, 'hook_event_name')),
     sessionId: (raw) => stringField(raw, 'sessionId') ?? stringField(raw, 'session_id'),
-    transcriptPath: (raw) => stringField(raw, 'transcriptPath') ?? stringField(raw, 'transcript_path'),
+    transcriptPath: (raw) =>
+      stringField(raw, 'transcriptPath') ?? stringField(raw, 'transcript_path'),
     decode: decodeGrokHookPayload,
   },
   hookTransport: 'loopback-http',

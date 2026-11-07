@@ -5,11 +5,18 @@
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@podium/model'
+import { describe, expect, it, vi } from 'vitest'
+import { manifestFor } from '../../../registry.js'
 import { wasNeverSent } from '../../errors.js'
-import type { AttachmentRef } from '../../turns.js'
+import {
+  createMemoryBindingRecords,
+  flattenEngineSpawn,
+  type MemoryBindingRecords,
+  type TestEngineSpawn,
+} from '../../testing/binding-records.js'
 import { testHarnessContext } from '../../testing/harness-context.js'
+import type { AttachmentRef } from '../../turns.js'
 import type {
   EngineAttachment,
   EngineProcessOwner,
@@ -17,19 +24,14 @@ import type {
   EngineSupervisor,
 } from '../engine-supervision.js'
 import { EngineBindUnrecoverable } from '../engine-supervision.js'
+import { claudeEngineFacts } from './engine-facts.js'
 import {
+  type ClaudeEngineHostDeps,
+  type ClaudeEngineJournalEntry,
   ClaudeEngineLeaseRefused,
   claudeUserContentFor,
   createClaudeEngineHost,
-  type ClaudeEngineHostDeps,
-  type ClaudeEngineJournalEntry,
 } from './engine-host.js'
-import {
-  createMemoryBindingRecords,
-  type MemoryBindingRecords,
-} from '../../testing/binding-records.js'
-import { claudeEngineFacts } from './engine-facts.js'
-import { manifestFor } from '../../../registry.js'
 import type { ClaudeSdkTurnHandle } from './runtime.js'
 
 const SESSION_ID = 'claude-engine-session' as SessionId
@@ -104,15 +106,15 @@ function fakePorts(hooks: {
 }): {
   supervision: Pick<EngineSupervisor, 'scopeUnitFor'>
   engines: EngineProcessOwner
-  spawned: EngineSpawnRequest[]
+  spawned: TestEngineSpawn[]
 } {
-  const spawned: EngineSpawnRequest[] = []
+  const spawned: TestEngineSpawn[] = []
   return {
     spawned,
     supervision: { scopeUnitFor: () => undefined },
     engines: {
       startEngine: async (req) => {
-        spawned.push(req)
+        spawned.push(flattenEngineSpawn(req))
         if (!hooks.spawn) throw new Error('unexpected startEngine')
         return { attachment: hooks.spawn }
       },
@@ -313,7 +315,9 @@ describe('the claude stream engine host', () => {
     })
     // One engine, two turns — and the second turn carried no resume dance.
     expect(spawned).toHaveLength(1)
-    const users = attachment.writes.map((line) => JSON.parse(line)).filter((msg) => msg.type === 'user')
+    const users = attachment.writes
+      .map((line) => JSON.parse(line))
+      .filter((msg) => msg.type === 'user')
     expect(users).toHaveLength(2)
   })
 
@@ -326,9 +330,9 @@ describe('the claude stream engine host', () => {
     const handle = host.startTurn(turnInput('survive this', 'resume-1', false))
     await vi.waitFor(() =>
       expect(
-        attachment.writes.map((line) => JSON.parse(line)).some(
-          (msg) => msg.type === 'control_request' && msg.request?.subtype === 'initialize',
-        ),
+        attachment.writes
+          .map((line) => JSON.parse(line))
+          .some((msg) => msg.type === 'control_request' && msg.request?.subtype === 'initialize'),
       ).toBe(true),
     )
     // Adopted, not spawned: the child predates this generation.
@@ -399,9 +403,9 @@ describe('the claude stream engine host', () => {
     const handle = host.startTurn(turnInput())
     await vi.waitFor(() =>
       expect(
-        attachment.writes.map((line) => JSON.parse(line)).some(
-          (msg) => msg.type === 'control_request' && msg.request?.subtype === 'initialize',
-        ),
+        attachment.writes
+          .map((line) => JSON.parse(line))
+          .some((msg) => msg.type === 'control_request' && msg.request?.subtype === 'initialize'),
       ).toBe(true),
     )
     // Initialize is answered with an error: the engine never binds.
@@ -441,13 +445,21 @@ describe('the claude stream engine host', () => {
 
     // Retire: the journal goes with the session.
     const attachment2 = fakeAttachment({ childPid: 5555 })
-    const { supervision: supervision2, engines: engines2, spawned: spawned2 } = fakePorts({ spawn: attachment2 })
-    const host2 = createClaudeEngineHost(hostDeps({ supervision: supervision2, engines: engines2 }, journal))
+    const {
+      supervision: supervision2,
+      engines: engines2,
+      spawned: spawned2,
+    } = fakePorts({ spawn: attachment2 })
+    const host2 = createClaudeEngineHost(
+      hostDeps({ supervision: supervision2, engines: engines2 }, journal),
+    )
     const handle2: ClaudeSdkTurnHandle = host2.startTurn(turnInput())
     void handle2
     await vi.waitFor(() => expect(spawned2).toHaveLength(1))
     answerHandshake(attachment2, 'claude-native-2')
-    await vi.waitFor(() => expect(journal.recorded(SESSION_ID)?.claudeSessionId).toBe('claude-native-2'))
+    await vi.waitFor(() =>
+      expect(journal.recorded(SESSION_ID)?.claudeSessionId).toBe('claude-native-2'),
+    )
     const retiring = host2.stopEngine(SESSION_ID, true)
     attachment2.exit(0, 0)
     await retiring
@@ -487,7 +499,9 @@ describe('the claude stream engine host', () => {
       await binding
       answerHandshake(attachment, 'claude-native-1')
       for (let i = 0; i < 50; i++) {
-        const users = attachment.writes.map((line) => JSON.parse(line)).filter((msg) => msg.type === 'user')
+        const users = attachment.writes
+          .map((line) => JSON.parse(line))
+          .filter((msg) => msg.type === 'user')
         if (users.length > 0) break
         await vi.advanceTimersByTimeAsync(10)
       }
@@ -576,12 +590,18 @@ describe('attachments on the user line (POD-6093)', () => {
   it('keeps a plain turn a plain string, and an image-only turn free of an empty text block', async () => {
     await expect(claudeUserContentFor({ text: 'hi' })).resolves.toBe('hi')
     const read = async () => PNG
-    await expect(claudeUserContentFor({ text: '', attachments: [ref({})] }, read)).resolves.toEqual([
-      {
-        type: 'image',
-        source: { type: 'base64', media_type: 'image/png', data: Buffer.from(PNG).toString('base64') },
-      },
-    ])
+    await expect(claudeUserContentFor({ text: '', attachments: [ref({})] }, read)).resolves.toEqual(
+      [
+        {
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: 'image/png',
+            data: Buffer.from(PNG).toString('base64'),
+          },
+        },
+      ],
+    )
   })
 
   it('sends an image the provider cannot show as pixels as a path instead', async () => {

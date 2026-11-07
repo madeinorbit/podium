@@ -15,14 +15,14 @@
  * real podium-host across a real daemon restart is the daemon's
  * `headless-turn-restart.integration.test.ts`.
  */
-import { spawn, type ChildProcess } from 'node:child_process'
+import { type ChildProcess, spawn } from 'node:child_process'
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { constants } from 'node:os'
-import { tmpdir } from 'node:os'
+import { constants, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asAccountId, asSessionId, type SessionId } from '@podium/model'
 import type { HeadlessTurnEvent } from '@podium/protocol'
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
+import { flattenEngineSpawn, type TestEngineSpawn } from '../../testing/binding-records.js'
 import type {
   EngineAttachment,
   EngineProcessOwner,
@@ -61,10 +61,14 @@ interface FakeHost {
 
 function createFakeHosts() {
   const hosts = new Map<string, FakeHost>()
-  const starts: EngineSpawnRequest[] = []
+  const starts: TestEngineSpawn[] = []
   const destroyed: string[] = []
 
-  const attach = (host: FakeHost, fromSeq: bigint | 'tail', lateJoin: boolean): EngineAttachment => {
+  const attach = (
+    host: FakeHost,
+    fromSeq: bigint | 'tail',
+    lateJoin: boolean,
+  ): EngineAttachment => {
     const conn: Conn = { data: new Set(), exit: new Set(), live: true }
     const lease = !host.writer
     if (lease) host.writer = conn
@@ -131,10 +135,10 @@ function createFakeHosts() {
       const existing = hosts.get(req.label)
       // A live OR lingering host under the label is adopted, never replaced.
       if (existing) return { attachment: attach(existing, 'tail', true) }
-      starts.push(req)
+      starts.push(flattenEngineSpawn(req))
       const env: Record<string, string> = { ...(process.env as Record<string, string>), ...req.env }
       for (const key of req.stripEnv) delete env[key]
-      const child = spawn(req.cmd, req.args, {
+      const child = spawn(req.command.cmd, req.command.args, {
         cwd: req.cwd,
         env,
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -165,7 +169,8 @@ function createFakeHosts() {
           code: code ?? 0,
           signal: signal ? (constants.signals[signal] ?? 0) : 0,
         }
-        for (const conn of host.conns) for (const cb of conn.exit) cb(host.exited.code, host.exited.signal)
+        for (const conn of host.conns)
+          for (const cb of conn.exit) cb(host.exited.code, host.exited.signal)
         resolveExited()
       })
       return { attachment: attach(host, 'tail', true) }
@@ -342,11 +347,19 @@ afterEach(async () => {
   await fakes?.killAll()
 })
 
-function identityFor(sessionId: SessionId, turnId = 'turn-1', digest = 'a'.repeat(64)): HostedTurnIdentity {
+function identityFor(
+  sessionId: SessionId,
+  turnId = 'turn-1',
+  digest = 'a'.repeat(64),
+): HostedTurnIdentity {
   return { sessionId, turnId, requestDigest: digest, accountId: ACCOUNT }
 }
 
-function deps(owner: EngineProcessOwner, extraEnv: Record<string, string> = {}, now?: () => number): HostedTurnDeps {
+function deps(
+  owner: EngineProcessOwner,
+  extraEnv: Record<string, string> = {},
+  now?: () => number,
+): HostedTurnDeps {
   return {
     owner,
     childEnv: ({ execEnv, envOverlay }) => ({
@@ -417,14 +430,18 @@ describe('a hosted one-shot turn', () => {
     // stdout only: the stderr line the stand-in wrote is not the answer.
     expect(outcome).toEqual({ harnessSessionId: 'pinned-1', output: 'answer for pinned-1: hi' })
     expect(fakes.starts).toHaveLength(1)
-    const start = fakes.starts[0] as EngineSpawnRequest
+    const start = fakes.starts[0] as TestEngineSpawn
     expect(start.label).toBe(`podium-${sessionId}`)
     expect(start.cmd).toBe('/bin/sh')
     expect(start.args[0]).toBe('-c')
     expect(start.args[3]?.startsWith(TURN_MARKER_PREFIX)).toBe(true)
     expect(start.retention).toEqual(HEADLESS_TURN_RETENTION)
     expect(events).toContainEqual({ kind: 'status', status: 'starting' })
-    expect(events).toContainEqual({ kind: 'status', status: 'running', harnessSessionId: 'pinned-1' })
+    expect(events).toContainEqual({
+      kind: 'status',
+      status: 'running',
+      harnessSessionId: 'pinned-1',
+    })
     expect(events.at(-1)).toEqual({ kind: 'partial-text', text: 'answer for pinned-1: hi' })
     // The host keeps the ring after the child exits: the result survives.
     expect(fakes.hosts.get(`podium-${sessionId}`)?.exited).toEqual({ code: 0, signal: 0 })
@@ -446,7 +463,9 @@ describe('a hosted one-shot turn', () => {
       (caught: unknown) => caught,
     )
     expect(error).toBeInstanceOf(HeadlessTurnError)
-    expect((error as HeadlessTurnError).message).toMatch(/^harness exited 3: .*simulated failure for pinned-2/s)
+    expect((error as HeadlessTurnError).message).toMatch(
+      /^harness exited 3: .*simulated failure for pinned-2/s,
+    )
     expect((error as HeadlessTurnError).harnessSessionId).toBe('pinned-2')
   })
 
@@ -463,7 +482,11 @@ describe('a hosted one-shot turn', () => {
     const outcome = await handle.done
     expect(outcome.harnessSessionId).toBe('thr-fake-1')
     expect(outcome.output).toBe('done:hello')
-    expect(events).toContainEqual({ kind: 'status', status: 'running', harnessSessionId: 'thr-fake-1' })
+    expect(events).toContainEqual({
+      kind: 'status',
+      status: 'running',
+      harnessSessionId: 'thr-fake-1',
+    })
     expect(events).toContainEqual({ kind: 'status', status: 'tool', label: 'todo' })
     expect(events).toContainEqual({ kind: 'partial-text', text: 'done:hello', itemHint: 'i2' })
   })
@@ -731,7 +754,12 @@ describe('interrupting and acknowledging a hosted turn', () => {
     const snapshot = testHarnessSnapshot({ grok: fakeGrok(dir) })
     const { handle, label } = runTurn({
       owner: fakes.owner,
-      spec: { agent: 'grok', cwd: dir, prompt: `WAIT:${join(dir, 'never')}`, sessionUuid: 'pinned-i' },
+      spec: {
+        agent: 'grok',
+        cwd: dir,
+        prompt: `WAIT:${join(dir, 'never')}`,
+        sessionUuid: 'pinned-i',
+      },
       sessionId: asSessionId('s-interrupt'),
       snapshot,
       env: { INCARNATIONS: count },

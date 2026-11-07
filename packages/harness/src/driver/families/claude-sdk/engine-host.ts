@@ -29,35 +29,35 @@
 
 import { readFile } from 'node:fs/promises'
 import { createLogger } from '@podium/logger'
-import { markNeverSent } from '../../errors.js'
-import type { HarnessContext } from '../../../harness-context-types.js'
-import { type BoundaryContextSource, createBoundaryContext } from '../../boundary-context.js'
-import { instructionsText } from '../../session-spec.js'
 import type { HarnessAgent, SessionId } from '@podium/model'
-import type { ScopeResources } from '../../capabilities.js'
+import type { HarnessContext } from '../../../harness-context-types.js'
 import type { ProcessIdentity } from '../../binding.js'
+import { type BoundaryContextSource, createBoundaryContext } from '../../boundary-context.js'
+import type { ScopeResources } from '../../capabilities.js'
+import { markNeverSent } from '../../errors.js'
+import { instructionsText } from '../../session-spec.js'
+import { splitAttachments, type TurnInput, textWithAttachmentPaths } from '../../turns.js'
 import {
   bindingRecordsOf,
-  EngineBindUnrecoverable,
   type EngineAttachment,
   type EngineBindingRecords,
+  EngineBindUnrecoverable,
   type EngineProcessOwner,
   type EngineSupervisor,
   type SessionEngineOwner,
 } from '../engine-supervision.js'
-import { claudeEngineProcessKey, type ClaudeEngineFacts } from './engine-facts.js'
+import { HeadlessTurnFailure } from '../turn-error.js'
+import { type ClaudeEngineFacts, claudeEngineProcessKey } from './engine-facts.js'
 import {
   buildClaudeStreamInvocation,
-  claudeStreamEnvOverlay,
-  createClaudeStreamClient,
   type ClaudeStreamClient,
   type ClaudeStreamTransport,
   type ClaudeStreamTurnSpec,
   type ClaudeUserContent,
   type ClaudeUserContentBlock,
+  claudeStreamEnvOverlay,
+  createClaudeStreamClient,
 } from './protocol.js'
-import { HeadlessTurnFailure } from '../turn-error.js'
-import { splitAttachments, textWithAttachmentPaths, type TurnInput } from '../../turns.js'
 import type {
   ClaudeSdkRuntimeHost,
   ClaudeSdkStreamPosition,
@@ -218,7 +218,10 @@ type StartTurnInput = Parameters<ClaudeSdkRuntimeHost['startTurn']>[0]
  * an owner cannot summon one at all. Loud, naming the session — a refused
  * launch beats a child no restart could re-adopt.
  */
-function engineOwner(engines: EngineProcessOwner | undefined, sessionId: SessionId): EngineProcessOwner {
+function engineOwner(
+  engines: EngineProcessOwner | undefined,
+  sessionId: SessionId,
+): EngineProcessOwner {
   if (!engines) {
     throw new Error(
       `claude engine for ${sessionId} requires the session engine owner: this family never spawns its own engine`,
@@ -447,7 +450,10 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
       await engineExited(held, deps.gracefulExitMs)
       held.attachment.dispose()
     }
-    await adapterFor(sessionId).destroyEngine(claudeEngineProcessKey(deps.facts, sessionId), sessionId)
+    await adapterFor(sessionId).destroyEngine(
+      claudeEngineProcessKey(deps.facts, sessionId),
+      sessionId,
+    )
     if (retire) records.released(sessionId)
   }
 
@@ -468,7 +474,9 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
     return {
       prompt: input.turn.text,
       cwd: input.spec.workdir,
-      ...(input.newConversation ? { sessionUuid: input.resumeValue } : { resumeValue: input.resumeValue }),
+      ...(input.newConversation
+        ? { sessionUuid: input.resumeValue }
+        : { resumeValue: input.resumeValue }),
       structuredPermissions: true,
       ...(model && model !== 'auto' ? { model } : {}),
       ...(effort && effort !== 'auto' ? { effort } : {}),
@@ -525,7 +533,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
     spec: ClaudeStreamTurnSpec,
     workdir: string,
     env: Record<string, string>,
-    executable: string,
+    context: HarnessContext,
   ): Promise<HeldEngine> {
     const held = engines.get(sessionId)
     if (held && held.exit === undefined) return held
@@ -578,7 +586,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
     // FRESH: the session owner starts the streaming child under the host and
     // this family binds the attachment it gets back; summoning the process
     // is the owner's job, never this family's.
-    const { cmd, args } = buildClaudeStreamInvocation(spec, executable)
+    const command = buildClaudeStreamInvocation(spec, context)
     const spawned = await claimEngine(
       sessionId,
       label,
@@ -586,8 +594,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
         await owner.startEngine({
           sessionId,
           label,
-          cmd,
-          args,
+          command,
           cwd: workdir,
           env,
           stripEnv: deps.facts.stripEnv,
@@ -714,12 +721,10 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
       itemId?: string
       observedModel?: string
       observedEffort?: string
-    }>(
-      (res, rej) => {
-        resolveDone = res
-        rejectDone = rej
-      },
-    )
+    }>((res, rej) => {
+      resolveDone = res
+      rejectDone = rej
+    })
     // The runtime always awaits `done`, but a turn that fails inside
     // `ensureEngine` before any owner attached must not become an unhandled
     // rejection when the owner only interrupts.
@@ -766,7 +771,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
           spec,
           input.spec.workdir,
           env,
-          input.spec.harnessContext.installation.executable,
+          input.spec.harnessContext,
         )
       } catch (error) {
         failBeforeLine(error instanceof Error ? error : new Error(String(error)))

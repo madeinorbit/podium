@@ -205,7 +205,7 @@ const SEP = String.fromCharCode(0)
 /** Static native login argv for one harness, or undefined when it declares none. Never needs a handle. */
 export function managementLoginCommandFor(
   loginHarness: string,
-): { cmd: string; args: readonly string[] } | undefined {
+): { args: readonly string[] } | undefined {
   return declaredValue(
     manifestFor(loginHarness)?.inventory.loginCommand ?? {
       supported: false,

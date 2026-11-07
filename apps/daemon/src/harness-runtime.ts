@@ -1,9 +1,8 @@
 import {
   agentLaunchCommand,
-  bindHarnessLaunch,
   buildResolvedInventory,
   type HarnessContext,
-  type HarnessLaunchOptions,
+  type LaunchOptions,
   type LaunchSpec,
   type LoginProbeExec,
   type ProbeExec,
@@ -94,7 +93,7 @@ export class DaemonHarnessRuntime {
    */
   async launch(
     target: HarnessContext | 'shell',
-    options: HarnessLaunchOptions,
+    options: Omit<LaunchOptions, 'harnessContext'>,
   ): Promise<LaunchSpec> {
     const build = this.options.launch ?? agentLaunchCommand
     if (target === 'shell') {
@@ -105,7 +104,7 @@ export class DaemonHarnessRuntime {
         env: { ...snapshot.commandEnvironment.env, ...invocation.env },
       }
     }
-    return bindHarnessLaunch(target, build(target.installation.kind, options))
+    return build(target.installation.kind, { ...options, harnessContext: target })
   }
 
   private install(

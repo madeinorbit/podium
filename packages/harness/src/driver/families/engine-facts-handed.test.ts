@@ -16,15 +16,16 @@ import { asSessionId, type SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { declaredValue, supported } from '../../manifest.js'
 import { manifestFor } from '../../registry.js'
-import { codexEngineFacts } from './codex/engine-facts.js'
+import type { TestEngineSpawn } from '../testing/binding-records.js'
+import { createTestEngineOwner } from '../testing/binding-records.js'
 import { testHarnessContext } from '../testing/harness-context.js'
+import { codexEngineFacts } from './codex/engine-facts.js'
 import { createCodexEngineHost } from './codex/engine-host.js'
+import type { EngineAttachment, SessionEngineOwner } from './engine-supervision.js'
 import { grokEngineFacts } from './grok-acp/engine-facts.js'
 import { createGrokEngineHost, grokAcpProcessKey } from './grok-acp/engine-host.js'
 import { opencode2Flavor, opencodeFlavor } from './opencode/engine-facts.js'
 import { createOpencodeEngineHost, opencodeScopeLabel } from './opencode/engine-host.js'
-import type { EngineAttachment, SessionEngineOwner } from './engine-supervision.js'
-import { createTestEngineOwner } from '../testing/binding-records.js'
 
 function requireManifest(kind: 'codex' | 'grok' | 'opencode') {
   const manifest = manifestFor(kind)
@@ -96,7 +97,14 @@ function opencodeFixture() {
       ...manifest.runtime,
       server: supported({
         ...server,
-        spawn: ['fixture-opencode', 'serve', '--port', '<daemon-picked>', '--hostname', '127.0.0.1'],
+        spawn: [
+          'fixture-opencode',
+          'serve',
+          '--port',
+          '<daemon-picked>',
+          '--hostname',
+          '127.0.0.1',
+        ],
         clientTerminal: supported({ ...clientTerminal, labelToken: 'fo' }),
       }),
     },
@@ -147,7 +155,7 @@ function fakeEngineSession(): EngineAttachment {
   }
 }
 
-type SpawnOpts = Parameters<SessionEngineOwner<{ sessionId: SessionId }>['startEngine']>[0]
+type SpawnOpts = TestEngineSpawn
 
 /** The session's pinned installation: argv[0] comes from here (POD-6546),
  *  the rest of the stem from the handed facts. */

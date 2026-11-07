@@ -28,7 +28,7 @@ async function fixture() {
     expect(limits.timeout).toBeGreaterThan(0)
     expect(limits.timeout).toBeLessThanOrEqual(1_000)
     expect(limits.maxBuffer).toBeLessThanOrEqual(512 * 1024)
-    if (command === '/bin/ps') {
+    if (command === 'ps') {
       return args[1]!
         .split(',')
         .map(Number)
@@ -38,13 +38,13 @@ async function fixture() {
         })
         .join('')
     }
-    if (command === '/usr/bin/pgrep') {
+    if (command === 'pgrep') {
       return [...processes]
         .filter(([, row]) => row.parent === Number(args[1]))
         .map(([pid]) => pid)
         .join('\n')
     }
-    if (command === '/usr/sbin/lsof') {
+    if (command === 'lsof') {
       expect(args).toEqual(['-nP', '-a', '-p', expect.any(String), '-F0pfn'])
       return args[3]!
         .split(',')
@@ -226,7 +226,7 @@ describe('macOS owned Codex rollout', () => {
     let changed = false
     f.inspect.mockImplementation(async (...args) => {
       const output = await original(...args)
-      if (args[0] === '/usr/sbin/lsof' && !changed) {
+      if (args[0] === 'lsof' && !changed) {
         changed = true
         if (change === 'reuse') f.processes.set(101, { parent: 1, started: f.now + 5_000 })
         if (change === 'rotation') f.files.set(101, [])

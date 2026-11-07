@@ -19,6 +19,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { TranscriptItem } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
+import { testAccount } from '../../driver/testing/harness-context.js'
 import { declaredValue } from '../../manifest.js'
 import { decodeCursor } from '../../store/cursor-codec.js'
 import { fileIdFor } from '../../store/file-chain.js'
@@ -248,7 +249,13 @@ describe('which Grok reply is the answer (POD-4936)', () => {
       ['Fixed: the guard was inverted.', true],
     ])
     // Re-marked in place: same row, same id and cursor, nothing added.
-    expect(items.map((item) => item.role)).toEqual(['user', 'assistant', 'tool', 'tool', 'assistant'])
+    expect(items.map((item) => item.role)).toEqual([
+      'user',
+      'assistant',
+      'tool',
+      'tool',
+      'assistant',
+    ])
   })
 
   it('a turn that ended any other way answered nothing', async () => {
@@ -303,9 +310,13 @@ describe('where the Grok terminal transcript lives', () => {
     await mkdir(dir, { recursive: true })
     await writeFile(join(dir, 'chat_history.jsonl'), '{"type":"user","content":"x"}\n')
     await writeFile(join(dir, 'updates.jsonl'), '')
-    expect(await grokChainPaths({ cwd: '/repo', resumeValue: SESSION, homeDir: home })).toEqual([
-      join(dir, 'updates.jsonl'),
-    ])
+    expect(
+      await grokChainPaths({
+        cwd: '/repo',
+        resumeValue: SESSION,
+        account: testAccount('grok', home),
+      }),
+    ).toEqual([join(dir, 'updates.jsonl')])
   })
 
   it('says updates.jsonl dates its entries to the millisecond', () => {

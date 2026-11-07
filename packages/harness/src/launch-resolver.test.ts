@@ -5,29 +5,23 @@ vi.mock('node:child_process', async (importOriginal) => ({
   ...(await importOriginal<typeof import('node:child_process')>()),
   spawnSync: childProcesses,
 }))
-vi.mock('node:fs', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('node:fs')>()),
-  existsSync: vi.fn(() => true),
-}))
 
-import { resetCursorCliCache } from './cursor/cli.js'
+import { testHarnessContext } from './driver/testing/harness-context.js'
 import { agentLaunchCommand } from './index.js'
-import { resetOpencodeCliCache } from './adapters/opencode/cli.js'
 
+/**
+ * A PTY LAUNCH NEVER PROBES OR LOOKS UP A BINARY (POD-6536). The executable is
+ * the session context's installation, which the inventory verified; building
+ * the launch starts no child and reads no candidate path.
+ */
 describe('PTY launch command resolution', () => {
   beforeEach(() => {
     childProcesses.mockClear()
-    resetCursorCliCache()
-    resetOpencodeCliCache()
   })
 
-  it('selects OpenCode without starting a version child', () => {
-    expect(agentLaunchCommand('opencode', { cwd: '/work' }).cmd).toContain('.opencode/bin/opencode')
-    expect(childProcesses).not.toHaveBeenCalled()
-  })
-
-  it('selects Cursor without starting a version child', () => {
-    expect(agentLaunchCommand('cursor', { cwd: '/work' }).cmd).toContain('.local/bin/agent')
+  it.each(['opencode', 'cursor'] as const)('binds %s to the context without a child', (kind) => {
+    const harnessContext = testHarnessContext({ kind, executable: `/opt/test/${kind}` })
+    expect(agentLaunchCommand(kind, { cwd: '/work', harnessContext }).cmd).toBe(`/opt/test/${kind}`)
     expect(childProcesses).not.toHaveBeenCalled()
   })
 })

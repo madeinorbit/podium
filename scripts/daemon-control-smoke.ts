@@ -6,14 +6,15 @@ import { writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { shellCommand } from '@podium/harness'
 import { WebSocketServer, type WebSocket as WS } from 'ws'
 import { startDaemon } from '../apps/daemon/src/daemon.js'
-import type { DaemonHandshakeReply } from '../packages/protocol/src/index.js'
 import {
   type DaemonMessage,
   encodeDaemonMessage as encode,
   parseDaemonMessage,
 } from '../packages/protocol/src/daemon.js'
+import type { DaemonHandshakeReply } from '../packages/protocol/src/index.js'
 
 const FIXTURE = fileURLToPath(
   new URL('../packages/pty/test/fixtures/fixture-tui.mjs', import.meta.url),
@@ -74,7 +75,8 @@ try {
     backend: 'none',
     discovery: { background: false, cachePath: ':memory:' },
     metrics: { background: false },
-    launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+    launch: (_kind, opts) =>
+      shellCommand({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
   })
   await connected
   const started = Date.now()

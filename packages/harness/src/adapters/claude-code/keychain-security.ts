@@ -1,4 +1,5 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import type { ChildProcessWithoutNullStreams } from 'node:child_process'
+import { hostTools } from '../../host-tools.js'
 
 export const SECURITY_PATH = '/usr/bin/security'
 export const SECURITY_TIMEOUT_MS = 12_000
@@ -50,8 +51,12 @@ function clearChunks(chunks: readonly Buffer[]): void {
   for (const chunk of chunks) chunk.fill(0)
 }
 
+/** `/usr/bin/security` through the OS-tool port (POD-6536): a fixed system
+ *  path, so the port needs no command environment to find it. */
+const defaultSecuritySpawn: SecuritySpawn = (_path, args) => hostTools({}).spawn('security', args)
+
 export function createSecurityRunner(
-  spawnProcess: SecuritySpawn = spawn as SecuritySpawn,
+  spawnProcess: SecuritySpawn = defaultSecuritySpawn,
 ): SecurityRunner {
   return {
     run(args, input) {

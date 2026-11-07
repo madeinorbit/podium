@@ -19,25 +19,37 @@ import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { claudeProjectSlug } from '../adapters/claude-code/state-locate.js'
 import { grokSessionPaths } from '../adapters/grok/instrumentation.js'
+import { testAccount } from '../driver/testing/harness-context.js'
 import { declaredValue, type TranscriptSourceInput } from '../manifest.js'
 import { manifestFor } from '../registry.js'
 import { decodeCursor } from './cursor-codec.js'
-import { fileIdFor, type ChainEntry } from './file-chain.js'
+import { type ChainEntry, fileIdFor } from './file-chain.js'
 import type { SliceResult } from './slice.js'
 import { transcriptSourceFromGrammar } from './store.js'
 
 /** Resolve the ordered oldest→newest chain for a harness through its adapter
  *  transcript section — the Store's layout lookup. Unknown kinds (including
  *  shells) and harnesses without a file chain resolve to []. */
-async function resolveChain(
-  agentKind: string,
-  input: TranscriptSourceInput,
-): Promise<ChainEntry[]> {
+/** A read as these cases state it: a home (and env) for the account. The
+ *  account is the adapter's roots rule over them (POD-6536); a case that names
+ *  no home reads an empty one. */
+type ReadInput = Omit<TranscriptSourceInput, 'account'> & {
+  homeDir?: string
+  env?: Readonly<Record<string, string | undefined>>
+}
+
+const withAccount = (agentKind: string, input: ReadInput): TranscriptSourceInput => {
+  const { homeDir, env, ...rest } = input
+  return { ...rest, account: testAccount(agentKind, homeDir ?? '/nonexistent-podium-home', env) }
+}
+
+async function resolveChain(agentKind: string, read: ReadInput): Promise<ChainEntry[]> {
   const transcript = manifestFor(agentKind)?.transcript
   const grammar = transcript ? declaredValue(transcript) : undefined
   if (!grammar) return []
   const chainPaths = declaredValue(grammar.chainPaths)
   if (!chainPaths) return []
+  const input = withAccount(agentKind, read)
   const sessionIdentity = input.resumeValue
   return (await chainPaths(input)).map((path) => ({
     path,
@@ -45,11 +57,11 @@ async function resolveChain(
   }))
 }
 
-async function readThroughGrammar(agentKind: string, input: TranscriptSourceInput): Promise<SliceResult> {
+async function readThroughGrammar(agentKind: string, read: ReadInput): Promise<SliceResult> {
   const transcript = manifestFor(agentKind)?.transcript
   const grammar = transcript ? declaredValue(transcript) : undefined
   if (!grammar) return { items: [] as TranscriptItem[], hasMore: false }
-  const source = await transcriptSourceFromGrammar(grammar, input)
+  const source = await transcriptSourceFromGrammar(grammar, withAccount(agentKind, read))
   return source.readSlice({ direction: 'before', limit: 50 })
 }
 
@@ -173,7 +185,11 @@ describe('resolveChain', () => {
   it('returns [] for grok/cursor when the file is missing on disk', async () => {
     const home = await mkdtemp(join(tmpdir(), 'home-'))
     expect(
-      await resolveChain('cursor', { cwd: '/work/repo', resumeValue: 'no-such-chat', homeDir: home }),
+      await resolveChain('cursor', {
+        cwd: '/work/repo',
+        resumeValue: 'no-such-chat',
+        homeDir: home,
+      }),
     ).toEqual([])
     expect(
       await resolveChain('grok', { cwd: '/work/repo', resumeValue: 'no-such-sess', homeDir: home }),
@@ -390,7 +406,10 @@ describe('Store routing by agentKind', () => {
     await mkdir(bucketDir, { recursive: true })
     const rec = (uuid: string, text: string) =>
       JSON.stringify({ uuid, type: 'user', message: { role: 'user', content: text } })
-    await writeFile(join(bucketDir, 'conv.jsonl'), `${[5, 6, 7, 8, 9].map((i) => rec(`u${i}`, String(i))).join('\n')}\n`)
+    await writeFile(
+      join(bucketDir, 'conv.jsonl'),
+      `${[5, 6, 7, 8, 9].map((i) => rec(`u${i}`, String(i))).join('\n')}\n`,
+    )
     const page = await readThroughGrammar('claude-code', {
       cwd: '/repo/x',
       resumeValue: 'conv', // resolves <bucket>/conv.jsonl (claude resolves by resume value, not bucket-glob)

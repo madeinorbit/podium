@@ -67,23 +67,18 @@ import type { HarnessAgent, SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import type { RuntimeHistoryPage, RuntimeHistoryRange } from '@podium/protocol/daemon'
 import { opencodeTranscript } from '../../../adapters/opencode/transcript.js'
+import { harnessCommand } from '../../../bound-command.js'
 import type { HarnessContext, HarnessInstallation } from '../../../harness-context-types.js'
-import { readEngineHistoryFromGrammar } from '../engine-history.js'
+import { opencodeDbPath } from '../../../opencode/db.js'
+import { readOpencodePromptHistory } from '../../../store/sources/sqlite.js'
 import {
   gateHarnessVersion,
   harnessVersionDiagnostic,
   OPENCODE_VERSION_POLICY,
 } from '../../../version-policy.js'
-import type { OpencodeVersionDiagnostic } from './version.js'
-import type { AttachmentStager } from '../../turns.js'
 import type { ScopeResources } from '../../capabilities.js'
-import type {
-  OpencodeJournalEntry,
-  OpencodeRuntimeHost,
-  OpencodeServerEndpoint,
-} from './runtime.js'
-import type { OpencodeClient, OpencodeClientConfig } from './client.js'
-import type { OpencodeEngineFlavor } from './engine-facts.js'
+import type { AttachmentStager } from '../../turns.js'
+import { readEngineHistoryFromGrammar } from '../engine-history.js'
 import type {
   EngineAttachment,
   EngineProcessOwner,
@@ -91,8 +86,14 @@ import type {
   SessionEngineOwner,
 } from '../engine-supervision.js'
 import { bindingRecordsOf, EngineBindUnrecoverable } from '../engine-supervision.js'
-import { opencodeDbPath } from '../../../opencode/db.js'
-import { readOpencodePromptHistory } from '../../../store/sources/sqlite.js'
+import type { OpencodeClient, OpencodeClientConfig } from './client.js'
+import type { OpencodeEngineFlavor } from './engine-facts.js'
+import type {
+  OpencodeJournalEntry,
+  OpencodeRuntimeHost,
+  OpencodeServerEndpoint,
+} from './runtime.js'
+import type { OpencodeVersionDiagnostic } from './version.js'
 
 const log = createLogger('harness:opencode-engine-host')
 
@@ -407,7 +408,10 @@ export class OpencodeEngineLeaseRefused extends Error {
  * an owner cannot summon one at all. Loud, naming the session — a refused
  * launch beats a child no restart could re-adopt.
  */
-function engineOwner(engines: EngineProcessOwner | undefined, sessionId: SessionId): EngineProcessOwner {
+function engineOwner(
+  engines: EngineProcessOwner | undefined,
+  sessionId: SessionId,
+): EngineProcessOwner {
   if (!engines) {
     throw new Error(
       `opencode engine for ${sessionId} requires the session engine owner: this family never spawns its own engine`,
@@ -449,10 +453,8 @@ interface HeldEngine {
  *  client-terminal label token read through the facts. It contains the
  *  session id, which is also what charges the host-held engine to the session
  *  in `/proc` attribution. */
-export const opencodeScopeLabel = (
-  flavor: OpencodeEngineFlavor,
-  sessionId: SessionId,
-): string => `podium-${flavor.scopeToken}-${sessionId}`
+export const opencodeScopeLabel = (flavor: OpencodeEngineFlavor, sessionId: SessionId): string =>
+  `podium-${flavor.scopeToken}-${sessionId}`
 
 export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): OpencodeRuntimeHost {
   const flavor = deps.flavor
@@ -757,11 +759,16 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
       // RULE 2: the secret is HERE. It appears in `serveArgv` nowhere, and this
       // is the assertion `opencode-server.test.ts` pins.
       env.OPENCODE_SERVER_PASSWORD = input.secret
-      const dataHome = env.XDG_DATA_HOME ?? process.env.XDG_DATA_HOME
+      // `env` is the child's whole environment (harnessChildEnv over the
+      // session's context), so the database the engine opens is the one these
+      // keys name: never the daemon's own XDG_DATA_HOME or OPENCODE_DB.
+      const dataHome = env.XDG_DATA_HOME
       const databasePath = resolve(
         input.workdir,
-        env.OPENCODE_DB ?? process.env.OPENCODE_DB ??
-          (dataHome ? join(dataHome, 'opencode', 'opencode.db') : opencodeDbPath(env.HOME ?? deps.homeDir)),
+        env.OPENCODE_DB ??
+          (dataHome
+            ? join(dataHome, 'opencode', 'opencode.db')
+            : opencodeDbPath(input.harnessContext.home)),
       )
       // opencode only publishes `question.asked` when its question tool is on,
       // and a driver that maps question interactions but never receives one is
@@ -779,6 +786,7 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
        * process is the owner's job, never this family's.
        */
       const [, ...args] = serveArgv
+      const command = harnessCommand(input.harnessContext, { args })
       let held: HeldEngine | undefined
       try {
         held = await claimEngine(
@@ -788,8 +796,7 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
             await owner.startEngine({
               sessionId: input.sessionId,
               label,
-              cmd: executable,
-              args,
+              command,
               cwd: input.workdir,
               env,
               stripEnv: flavor.stripEnv,
@@ -934,7 +941,12 @@ export function createOpencodeEngineHost(deps: OpencodeEngineHostDeps): Opencode
         direction?: RuntimeHistoryRange['direction']
       },
     ): Promise<RuntimeHistoryPage> {
-      return readEngineHistoryFromGrammar(opencodeTranscript, session, range, deps.homeDir)
+      return readEngineHistoryFromGrammar(
+        opencodeTranscript,
+        session,
+        range,
+        await deps.harnessContextFor(session.sessionId),
+      )
     },
 
     /**

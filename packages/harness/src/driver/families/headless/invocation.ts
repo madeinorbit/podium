@@ -14,15 +14,13 @@
 
 import { randomUUID } from 'node:crypto'
 import type { HarnessAgent } from '@podium/model'
-import { bindHarnessExec } from '../../../executable-runtime.js'
+import { type BoundCommand, harnessCommand } from '../../../bound-command.js'
+import { harnessInstallation } from '../../../harness-context.js'
+import type { HarnessInstallation } from '../../../harness-context-types.js'
 import type { ResolvedHarnessInventory } from '../../../inventory/build-inventory.js'
-import {
-  declaredValue,
-  type HarnessHeadless,
-  type HeadlessExecOptions,
-} from '../../../manifest.js'
+import { declaredValue, type HarnessHeadless, type HeadlessExecOptions } from '../../../manifest.js'
 import { cursorCreateChatInvocation, harnessAdapterFor } from '../../../registry.js'
-import { buildClaudeDurableTurn, claudeDurableExecutable } from '../claude-sdk/exec.js'
+import { buildClaudeDurableTurn } from '../claude-sdk/exec.js'
 import {
   buildClaudeStreamInvocation,
   claudeStreamEnvOverlay,
@@ -54,20 +52,33 @@ export function headlessFor(agent: HarnessAgent): HarnessHeadless {
 export function buildHeadlessExec(
   agent: HarnessAgent,
   opts: HeadlessExecOptions,
-  snapshot: ResolvedHarnessInventory,
-): { cmd: string; args: string[]; env?: Record<string, string>; stdin?: string } {
+  installation: HarnessInstallation,
+): BoundCommand<{ args: string[]; env?: Record<string, string>; stdin?: string }> {
   const manifest = harnessAdapterFor(agent)
   const headless = manifest && declaredValue(manifest.headless)
   const buildExec = headless && declaredValue(headless.buildExec)
   if (!buildExec) throw new Error(`agent kind ${String(agent)} has no headless exec builder`)
-  return bindHarnessExec(
-    snapshot,
-    agent,
-    buildExec({
-      ...opts,
-      env: opts.env ?? snapshot.commandEnvironment.env,
-    }),
-  )
+  return harnessCommand({ installation }, buildExec(opts))
+}
+
+/**
+ * The installation a headless turn runs: the one its session pinned
+ * (`executablePath`, sticky across turns) or else the snapshot's. Never a
+ * basename on the daemon's PATH.
+ */
+export function headlessInstallation(
+  spec: Pick<HeadlessTurnSpec, 'agent' | 'executablePath'>,
+  snapshot: ResolvedHarnessInventory,
+): HarnessInstallation {
+  if (spec.executablePath !== undefined) {
+    return Object.freeze({
+      kind: spec.agent,
+      executable: spec.executablePath,
+      version: snapshot.executables.get(spec.agent)?.version ?? '',
+      generation: snapshot.commandEnvironment.generation,
+    })
+  }
+  return harnessInstallation(snapshot, spec.agent)
 }
 
 /**
@@ -76,14 +87,11 @@ export function buildHeadlessExec(
  * write channel stays open for the whole turn (the stream-json claude turn
  * answers permission asks over it).
  */
-export type HeadlessStdin =
-  | { kind: 'none' }
-  | { kind: 'bytes'; data: string }
-  | { kind: 'live' }
+export type HeadlessStdin = { kind: 'none' } | { kind: 'bytes'; data: string } | { kind: 'live' }
 
 export interface HeadlessInvocation {
-  cmd: string
-  args: string[]
+  /** argv[0] is the turn's installation (see {@link headlessInstallation}). */
+  command: BoundCommand
   stdin: HeadlessStdin
   /** Adapter-bound env for THIS invocation (codex MCP bearer, POD-1021);
    *  merged under the instance-owned keys by the supervisor's composition. */
@@ -99,15 +107,19 @@ export interface HeadlessInvocation {
  *  before it can run (cursor's `create-chat`). */
 export function needsAllocation(spec: HeadlessTurnSpec): boolean {
   const headless = headlessFor(spec.agent)
-  return (
-    headless.resumeIdAllocation === 'create-chat' && !spec.resumeValue && !spec.sessionUuid
-  )
+  return headless.resumeIdAllocation === 'create-chat' && !spec.resumeValue && !spec.sessionUuid
 }
 
 /** The allocation command (`create-chat`), run to completion before the turn. */
-export function allocationInvocation(snapshot: ResolvedHarnessInventory): HeadlessInvocation {
-  const invocation = cursorCreateChatInvocation(snapshot)
-  return { cmd: invocation.cmd, args: [...invocation.args], stdin: { kind: 'none' } }
+export function allocationInvocation(
+  spec: Pick<HeadlessTurnSpec, 'agent' | 'executablePath'>,
+  snapshot: ResolvedHarnessInventory,
+): HeadlessInvocation {
+  const installation = headlessInstallation(spec, snapshot)
+  return {
+    command: harnessCommand({ installation }, cursorCreateChatInvocation()),
+    stdin: { kind: 'none' },
+  }
 }
 
 /**
@@ -135,17 +147,16 @@ export function composeHeadlessInvocation(
   assertHeadlessToolPolicy(spec)
   const headless = headlessFor(spec.agent)
   if (headless.driver === 'claude-sdk') {
-    const executable = spec.executablePath ?? claudeDurableExecutable(snapshot)
+    const installation = { installation: headlessInstallation(spec, snapshot) }
     const envOverlay = claudeStreamEnvOverlay({
       ...(spec.permissionMode ? { permissionMode: spec.permissionMode } : {}),
       isRoot: opts.isRoot,
     })
     if (spec.structuredPermissions) {
-      const { cmd, args } = buildClaudeStreamInvocation({ ...spec }, executable)
+      const command = buildClaudeStreamInvocation({ ...spec }, installation)
       const pinned = spec.resumeValue ?? spec.sessionUuid
       return {
-        cmd,
-        args,
+        command,
         stdin: { kind: 'live' },
         ...(Object.keys(envOverlay).length > 0 ? { envOverlay } : {}),
         ...(pinned ? { pinnedSessionId: pinned } : {}),
@@ -158,11 +169,10 @@ export function composeHeadlessInvocation(
       {
         mcp: spec.mcpConfig && spec.toolPolicy !== 'none' ? mcpConfigInline(spec.mcpConfig) : '',
       },
-      executable,
+      installation,
     )
     return {
-      cmd: turn.cmd,
-      args: turn.args,
+      command: turn.command,
       stdin: { kind: 'bytes', data: turn.stdin },
       ...(Object.keys(envOverlay).length > 0 ? { envOverlay } : {}),
       ...(turn.knownSessionId ? { pinnedSessionId: turn.knownSessionId } : {}),
@@ -182,10 +192,11 @@ export function composeHeadlessInvocation(
   if (headless.driver === 'codex-json') {
     const manifest = harnessAdapterFor(spec.agent)
     if (!manifest) throw new Error(`no harness adapter for '${spec.agent}'`)
-    const { cmd, args, env } = buildCodexExecTurn(common, snapshot, { headless: manifest.headless })
+    const { env, ...command } = buildCodexExecTurn(common, headlessInstallation(spec, snapshot), {
+      headless: manifest.headless,
+    })
     return {
-      cmd,
-      args,
+      command,
       stdin: { kind: 'none' },
       ...(env && Object.keys(env).length > 0 ? { execEnv: env } : {}),
       ...(spec.resumeValue ? { pinnedSessionId: spec.resumeValue } : {}),
@@ -200,10 +211,18 @@ export function composeHeadlessInvocation(
   if (!sessionId && headless.resumeIdAllocation === 'create-chat') {
     throw new Error('headless turn needs an allocated conversation id before it can run')
   }
-  const exec = buildHeadlessExec(spec.agent, { ...common, ...(sessionId ? { sessionId } : {}) }, snapshot)
+  const {
+    env: execEnv,
+    stdin,
+    ...command
+  } = buildHeadlessExec(
+    spec.agent,
+    { ...common, ...(sessionId ? { sessionId } : {}) },
+    headlessInstallation(spec, snapshot),
+  )
+  const exec = { env: execEnv, stdin }
   return {
-    cmd: exec.cmd,
-    args: exec.args,
+    command,
     stdin: exec.stdin !== undefined ? { kind: 'bytes', data: exec.stdin } : { kind: 'none' },
     ...(exec.env && Object.keys(exec.env).length > 0 ? { execEnv: exec.env } : {}),
     ...(sessionId ? { pinnedSessionId: sessionId } : {}),

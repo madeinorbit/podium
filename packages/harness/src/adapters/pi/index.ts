@@ -2,9 +2,7 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { transcriptEchoAcceptCorrelation } from '../../accept-correlation.js'
-import { observePiState, piStateProvider } from './state.js'
 import { withStateChannel } from '../../agent-state/types.js'
-import { createPiConversationProvider } from './discovery.js'
 import { composeAgentInstructions } from '../../instructions.js'
 import {
   type AgentManifest,
@@ -16,13 +14,15 @@ import {
   supported,
   unsupported,
 } from '../../manifest.js'
-import { piTranscript } from './transcript.js'
 import { locatePiSessionFile, piAgentDir } from '../../pi/paths.js'
-import { piCredentials } from './credentials.js'
-import { piInstall } from './install.js'
-import { piUsage } from './usage.js'
 import { piCatalog } from './catalog.js'
+import { piCredentials } from './credentials.js'
 import { piDescriptor } from './descriptor.js'
+import { createPiConversationProvider } from './discovery.js'
+import { piInstall } from './install.js'
+import { observePiState, piStateProvider } from './state.js'
+import { piTranscript } from './transcript.js'
+import { piUsage } from './usage.js'
 
 /** Pi's turn-output fold, surfaced on the adapter's own index for the supervisor's headless machinery (reached through the registry — POD-4530). */
 export {
@@ -205,7 +205,7 @@ export const piManifest: AgentManifest = {
       'MISTRAL_API_KEY',
       'DEEPSEEK_API_KEY',
     ],
-    detectLogin(homeDir, env?: HarnessEnvironment) {
+    detectLogin(homeDir, env: HarnessEnvironment) {
       const auth = readPiAuth(homeDir, env)
       // No file, or nothing in it: Pi may still authenticate from provider env
       // vars, which a file probe cannot see — so this is unknown, not out.
@@ -228,7 +228,6 @@ export const piManifest: AgentManifest = {
   launch(opts) {
     const instructions = composeAgentInstructions(opts.instructions)
     return {
-      cmd: 'pi',
       args: [
         ...(opts.resume
           ? ['--session', opts.resume.value]
@@ -249,7 +248,6 @@ export const piManifest: AgentManifest = {
   // prompt rides stdin (merged verbatim into the user message), so its length
   // is never an argv concern.
   exec: supported((opts) => ({
-    cmd: 'pi',
     args: [
       '-p',
       '--no-session',
@@ -271,7 +269,6 @@ export const piManifest: AgentManifest = {
       const sessionId = opts.resumeValue ?? opts.sessionId ?? ''
       const toolLess = opts.toolPolicy === 'none'
       return {
-        cmd: 'pi',
         args: [
           '-p',
           '--mode',
@@ -293,7 +290,9 @@ export const piManifest: AgentManifest = {
   }),
 
   state: supported(piStateProvider),
-  instrumentation: unsupported('pi posts no hook payloads; observation is poll-only over its stream'),
+  instrumentation: unsupported(
+    'pi posts no hook payloads; observation is poll-only over its stream',
+  ),
   stateChannels: [
     {
       source: 'poll',
@@ -310,7 +309,7 @@ export const piManifest: AgentManifest = {
       cwd: input.cwd,
       ...(input.statTick ? { statTick: input.statTick } : {}),
       ...(input.resumeValue ? { resumeValue: input.resumeValue } : {}),
-      ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+      homeDir: input.account.home,
       ...(input.pathHint ? { pathHint: input.pathHint } : {}),
       ...(input.startedAtMs !== undefined ? { startedAtMs: input.startedAtMs } : {}),
       onSession: (sessionId, path) => {

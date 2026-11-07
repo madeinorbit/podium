@@ -246,8 +246,8 @@ export async function piChainPaths(input: TranscriptSourceInput): Promise<string
     cwd: input.cwd,
     sessionId: input.resumeValue,
     ...(input.pathHint !== undefined ? { pathHint: input.pathHint } : {}),
-    ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
-    ...(input.env !== undefined ? { env: input.env } : {}),
+    homeDir: input.account.home,
+    env: input.account.env,
   })
   return path ? [path] : []
 }

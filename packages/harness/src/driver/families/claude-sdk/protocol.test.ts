@@ -2,17 +2,18 @@
 // interrupts and death — over a fake line transport, no CLI, no SDK.
 
 import { describe, expect, it, vi } from 'vitest'
+import { claudeRecordToItems } from '../../../adapters/claude-code/transcript.js'
+import { testHarnessContext } from '../../testing/harness-context.js'
+import ack from './__fixtures__/user-message-ack.json' with { type: 'json' }
 import {
   buildClaudeStreamInvocation,
+  type ClaudeStreamTransport,
   claudeStreamEnvOverlay,
   createClaudeStreamClient,
   initializePayload,
   mcpConfigInline,
   userMessageLine,
-  type ClaudeStreamTransport,
 } from './protocol.js'
-import { claudeRecordToItems } from '../../../adapters/claude-code/transcript.js'
-import ack from './__fixtures__/user-message-ack.json' with { type: 'json' }
 
 function fakeTransport(): {
   transport: ClaudeStreamTransport
@@ -58,12 +59,15 @@ function fakeTransport(): {
 const frame = (value: unknown): string => JSON.stringify(value)
 
 function answerInitialize(fake: ReturnType<typeof fakeTransport>, response: unknown = {}): void {
-  const init = fake.writes.map((line) => JSON.parse(line)).find(
-    (msg) => msg.type === 'control_request' && msg.request?.subtype === 'initialize',
-  )
+  const init = fake.writes
+    .map((line) => JSON.parse(line))
+    .find((msg) => msg.type === 'control_request' && msg.request?.subtype === 'initialize')
   expect(init).toBeDefined()
   fake.emitLine(
-    frame({ type: 'control_response', response: { subtype: 'success', request_id: init.request_id, response } }),
+    frame({
+      type: 'control_response',
+      response: { subtype: 'success', request_id: init.request_id, response },
+    }),
   )
 }
 
@@ -80,12 +84,14 @@ function completeTurn(
   answerInitSystem(fake, sessionId)
 }
 
+const CLAUDE = testHarnessContext({ kind: 'claude-code' })
+
 describe('the stream-json invocation', () => {
   const base = { prompt: 'hello', cwd: '/work' }
 
   it('speaks streaming stdio with partial messages', () => {
-    const { cmd, args } = buildClaudeStreamInvocation(base, 'claude')
-    expect(cmd).toBe('claude')
+    const { cmd, args } = buildClaudeStreamInvocation(base, CLAUDE)
+    expect(cmd).toBe('/opt/podium-test/bin/claude-code')
     expect(args.slice(0, 6)).toEqual([
       '--output-format',
       'stream-json',
@@ -99,42 +105,46 @@ describe('the stream-json invocation', () => {
   it('asks the CLI to echo each user line back (POD-4836)', () => {
     // The echo is how a line the CLI already holds is told apart from a new
     // one: without the flag a repeated uuid is skipped in silence.
-    const { args } = buildClaudeStreamInvocation(base, 'claude')
+    const { args } = buildClaudeStreamInvocation(base, CLAUDE)
     expect(args).toContain('--replay-user-messages')
   })
 
-  it.each([undefined, true] as const)(
-    'defaults the permission mode to auto with structuredPermissions=%s',
-    (structuredPermissions) => {
-      const { args } = buildClaudeStreamInvocation({ ...base, structuredPermissions }, 'claude')
-      expect(args[args.indexOf('--permission-mode') + 1]).toBe('auto')
-      if (structuredPermissions) {
-        expect(args[args.indexOf('--permission-prompt-tool') + 1]).toBe('stdio')
-      } else {
-        expect(args).not.toContain('--permission-prompt-tool')
-      }
-    },
-  )
-
-  it.each(['default', 'acceptEdits', 'auto', 'bypassPermissions', 'plan', 'dontAsk'])(
-    'honours explicit %s mode while routing permission asks through stdio',
-    (permissionMode) => {
-      const { args } = buildClaudeStreamInvocation(
-        { ...base, permissionMode, structuredPermissions: true },
-        'claude',
-      )
-      expect(args[args.indexOf('--permission-mode') + 1]).toBe(permissionMode)
+  it.each([
+    undefined,
+    true,
+  ] as const)('defaults the permission mode to auto with structuredPermissions=%s', (structuredPermissions) => {
+    const { args } = buildClaudeStreamInvocation({ ...base, structuredPermissions }, CLAUDE)
+    expect(args[args.indexOf('--permission-mode') + 1]).toBe('auto')
+    if (structuredPermissions) {
       expect(args[args.indexOf('--permission-prompt-tool') + 1]).toBe('stdio')
-      expect(args.includes('--allow-dangerously-skip-permissions')).toBe(
-        permissionMode === 'bypassPermissions',
-      )
-    },
-  )
+    } else {
+      expect(args).not.toContain('--permission-prompt-tool')
+    }
+  })
+
+  it.each([
+    'default',
+    'acceptEdits',
+    'auto',
+    'bypassPermissions',
+    'plan',
+    'dontAsk',
+  ])('honours explicit %s mode while routing permission asks through stdio', (permissionMode) => {
+    const { args } = buildClaudeStreamInvocation(
+      { ...base, permissionMode, structuredPermissions: true },
+      CLAUDE,
+    )
+    expect(args[args.indexOf('--permission-mode') + 1]).toBe(permissionMode)
+    expect(args[args.indexOf('--permission-prompt-tool') + 1]).toBe('stdio')
+    expect(args.includes('--allow-dangerously-skip-permissions')).toBe(
+      permissionMode === 'bypassPermissions',
+    )
+  })
 
   it('falls back to auto for an invalid mode with structured permissions', () => {
     const { args } = buildClaudeStreamInvocation(
       { ...base, permissionMode: 'invalid', structuredPermissions: true },
-      'claude',
+      CLAUDE,
     )
     expect(args[args.indexOf('--permission-mode') + 1]).toBe('auto')
     expect(args[args.indexOf('--permission-prompt-tool') + 1]).toBe('stdio')
@@ -142,21 +152,27 @@ describe('the stream-json invocation', () => {
 
   it('passes model, effort, resume and session minting through', () => {
     const { args } = buildClaudeStreamInvocation(
-      { ...base, model: 'claude-opus-5', effort: 'max', resumeValue: 'abc', allowedTools: ['Read', 'Bash'] },
-      'claude',
+      {
+        ...base,
+        model: 'claude-opus-5',
+        effort: 'max',
+        resumeValue: 'abc',
+        allowedTools: ['Read', 'Bash'],
+      },
+      CLAUDE,
     )
     expect(args).toContain('--model')
     expect(args).toContain('claude-opus-5')
     expect(args).toContain('--effort')
     expect(args).toContain('--resume')
     expect(args).toContain('--allowedTools')
-    const mint = buildClaudeStreamInvocation({ ...base, sessionUuid: 'uuid-1' }, 'claude')
+    const mint = buildClaudeStreamInvocation({ ...base, sessionUuid: 'uuid-1' }, CLAUDE)
     expect(mint.args).toContain('--session-id')
     expect(mint.args).not.toContain('--resume')
   })
 
   it('removes tools and setting sources fail-closed, and refuses malformed MCP', () => {
-    const { args } = buildClaudeStreamInvocation({ ...base, toolPolicy: 'none' }, 'claude')
+    const { args } = buildClaudeStreamInvocation({ ...base, toolPolicy: 'none' }, CLAUDE)
     expect(args).toContain('--tools')
     expect(args).toContain('--setting-sources')
     expect(() => mcpConfigInline('not json')).toThrow(/malformed MCP config/)
@@ -166,10 +182,12 @@ describe('the stream-json invocation', () => {
     const inline = mcpConfigInline(
       JSON.stringify({ mcpServers: { docs: { url: 'https://mcp/x' }, empty: {} } }),
     )
-    expect(JSON.parse(inline)).toEqual({ mcpServers: { docs: { type: 'http', url: 'https://mcp/x' } } })
+    expect(JSON.parse(inline)).toEqual({
+      mcpServers: { docs: { type: 'http', url: 'https://mcp/x' } },
+    })
     const { args } = buildClaudeStreamInvocation(
       { ...base, mcpConfig: JSON.stringify({ mcpServers: { docs: { url: 'https://mcp/x' } } }) },
-      'claude',
+      CLAUDE,
     )
     expect(args).toContain('--mcp-config')
   })
@@ -178,7 +196,9 @@ describe('the stream-json invocation', () => {
     expect(claudeStreamEnvOverlay({ permissionMode: 'bypassPermissions', isRoot: true })).toEqual({
       IS_SANDBOX: '1',
     })
-    expect(claudeStreamEnvOverlay({ permissionMode: 'bypassPermissions', isRoot: false })).toEqual({})
+    expect(claudeStreamEnvOverlay({ permissionMode: 'bypassPermissions', isRoot: false })).toEqual(
+      {},
+    )
     expect(claudeStreamEnvOverlay({ permissionMode: 'auto', isRoot: true })).toEqual({})
   })
 
@@ -195,7 +215,7 @@ describe('the stream-json invocation', () => {
       appendSystemPrompt: 'sys\n\nctx',
     })
     expect(initializePayload({})).toEqual({ subtype: 'initialize' })
-    const { args } = buildClaudeStreamInvocation({ ...base, systemPrompt: 'sys' }, 'claude')
+    const { args } = buildClaudeStreamInvocation({ ...base, systemPrompt: 'sys' }, CLAUDE)
     expect(args).not.toContain('--append-system-prompt')
     expect(args).not.toContain('--system-prompt')
   })
@@ -287,7 +307,12 @@ describe('the stream client', () => {
       }),
     )
     fake.emitLine(
-      frame({ type: 'tool_use_summary', uuid: 'sum-2', summary: 'Nothing', preceding_tool_use_ids: [] }),
+      frame({
+        type: 'tool_use_summary',
+        uuid: 'sum-2',
+        summary: 'Nothing',
+        preceding_tool_use_ids: [],
+      }),
     )
     fake.emitLine(frame({ type: 'result', subtype: 'success', result: 'the answer' }))
     await expect(turn.done).resolves.toEqual({
@@ -318,7 +343,9 @@ describe('the stream client', () => {
     answerInitialize(fake)
     await expect(client.ready).resolves.toBe('minted-1')
     await vi.waitFor(() =>
-      expect(fake.writes.map((line) => JSON.parse(line)).some((msg) => msg.type === 'user')).toBe(true),
+      expect(fake.writes.map((line) => JSON.parse(line)).some((msg) => msg.type === 'user')).toBe(
+        true,
+      ),
     )
     answerInitSystem(fake, 'minted-1')
     fake.emitLine(frame({ type: 'result', subtype: 'success', result: 'hi' }))
@@ -337,7 +364,9 @@ describe('the stream client', () => {
     })
     answerInitialize(fake)
     await vi.waitFor(() =>
-      expect(fake.writes.map((line) => JSON.parse(line)).some((msg) => msg.type === 'user')).toBe(true),
+      expect(fake.writes.map((line) => JSON.parse(line)).some((msg) => msg.type === 'user')).toBe(
+        true,
+      ),
     )
     // The id is the CLI's to report, and it reports it in reply to the line.
     answerInitSystem(fake, 'reported-1')
@@ -363,12 +392,19 @@ describe('the stream client', () => {
       frame({
         type: 'control_request',
         request_id: 'req-9',
-        request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { c: 'ls' }, tool_use_id: 'tu-9' },
+        request: {
+          subtype: 'can_use_tool',
+          tool_name: 'Bash',
+          input: { c: 'ls' },
+          tool_use_id: 'tu-9',
+        },
       }),
     )
     expect(asked).toHaveLength(1)
     turn.answerPermission(asked[0]!.id, { decision: 'allow-once' })
-    const answer = fake.writes.map((line) => JSON.parse(line)).find((msg) => msg.type === 'control_response')
+    const answer = fake.writes
+      .map((line) => JSON.parse(line))
+      .find((msg) => msg.type === 'control_response')
     expect(answer.response).toMatchObject({
       subtype: 'success',
       request_id: 'req-9',
@@ -390,9 +426,9 @@ describe('the stream client', () => {
     })
     completeTurn(fake, 'sess-3')
     const ack = turn.requestInterrupt()
-    const interrupt = fake.writes.map((line) => JSON.parse(line)).find(
-      (msg) => msg.type === 'control_request' && msg.request?.subtype === 'interrupt',
-    )
+    const interrupt = fake.writes
+      .map((line) => JSON.parse(line))
+      .find((msg) => msg.type === 'control_request' && msg.request?.subtype === 'interrupt')
     expect(interrupt.request_id).toBeTruthy()
     fake.emitLine(
       frame({
@@ -529,7 +565,11 @@ describe('the stream client', () => {
       frame({ type: 'control_request', request_id: 'h1', request: { subtype: 'hook_callback' } }),
     )
     fake.emitLine(
-      frame({ type: 'control_request', request_id: 'd1', request: { subtype: 'request_user_dialog' } }),
+      frame({
+        type: 'control_request',
+        request_id: 'd1',
+        request: { subtype: 'request_user_dialog' },
+      }),
     )
     const answers = new Map(
       fake.writes.map((line) => JSON.parse(line)).map((msg) => [msg.response.request_id, msg]),
@@ -545,14 +585,20 @@ describe('the stream client', () => {
       subtype: 'initialize',
       hooks: {
         SessionStart: [{ matcher: null, hookCallbackIds: ['podium_boundary_SessionStart'] }],
-        UserPromptSubmit: [{ matcher: null, hookCallbackIds: ['podium_boundary_UserPromptSubmit'] }],
+        UserPromptSubmit: [
+          { matcher: null, hookCallbackIds: ['podium_boundary_UserPromptSubmit'] },
+        ],
         PreCompact: [{ matcher: null, hookCallbackIds: ['podium_boundary_PreCompact'] }],
       },
     })
     const fake = fakeTransport()
     const client = createClaudeStreamClient(fake.transport, { boundaryContext: async () => null })
     const init = JSON.parse(fake.writes[0]!)
-    expect(Object.keys(init.request.hooks)).toEqual(['SessionStart', 'UserPromptSubmit', 'PreCompact'])
+    expect(Object.keys(init.request.hooks)).toEqual([
+      'SessionStart',
+      'UserPromptSubmit',
+      'PreCompact',
+    ])
     client.close()
   })
 
@@ -574,9 +620,9 @@ describe('the stream client', () => {
       )
     const answer = async (id: string) =>
       vi.waitFor(() => {
-        const msg = fake.writes.map((line) => JSON.parse(line)).find(
-          (m) => m.type === 'control_response' && m.response.request_id === id,
-        )
+        const msg = fake.writes
+          .map((line) => JSON.parse(line))
+          .find((m) => m.type === 'control_response' && m.response.request_id === id)
         expect(msg).toBeDefined()
         return msg.response
       })
@@ -586,13 +632,19 @@ describe('the stream client', () => {
       subtype: 'success',
       request_id: 'p1',
       response: {
-        hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: 'prime for prompt' },
+        hookSpecificOutput: {
+          hookEventName: 'UserPromptSubmit',
+          additionalContext: 'prime for prompt',
+        },
       },
     })
 
     hook('c1', 'podium_boundary_PreCompact', { hook_event_name: 'PreCompact' })
     expect((await answer('c1')).response).toEqual({})
-    hook('s1', 'podium_boundary_SessionStart', { hook_event_name: 'SessionStart', source: 'compact' })
+    hook('s1', 'podium_boundary_SessionStart', {
+      hook_event_name: 'SessionStart',
+      source: 'compact',
+    })
     expect((await answer('s1')).response).toEqual({
       hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: 'prime for start' },
     })
@@ -685,7 +737,9 @@ describe('the user line acknowledgement', () => {
     const fake = fakeTransport()
     const client = createClaudeStreamClient(fake.transport, { sessionId: 'sess-journal' })
     const fence = vi.fn(() => {
-      expect(fake.writes.map((line) => JSON.parse(line)).some((msg) => msg.type === 'user')).toBe(false)
+      expect(fake.writes.map((line) => JSON.parse(line)).some((msg) => msg.type === 'user')).toBe(
+        false,
+      )
     })
     const turn = client.turn('one', noCallbacks, { userMessageUuid: uuid, onTypingStarted: fence })
     expect(fence).not.toHaveBeenCalled()
@@ -702,11 +756,17 @@ describe('the user line acknowledgement', () => {
     const fake = fakeTransport()
     const client = createClaudeStreamClient(fake.transport, { sessionId: 'sess-journal-failure' })
     const failure = new Error('fsync refused')
-    const turn = client.turn('one', noCallbacks, { onTypingStarted: () => { throw failure } })
+    const turn = client.turn('one', noCallbacks, {
+      onTypingStarted: () => {
+        throw failure
+      },
+    })
     answerInitialize(fake)
     await expect(turn.accepted).rejects.toBe(failure)
     await expect(turn.done).rejects.toBe(failure)
-    expect(fake.writes.map((line) => JSON.parse(line)).some((msg) => msg.type === 'user')).toBe(false)
+    expect(fake.writes.map((line) => JSON.parse(line)).some((msg) => msg.type === 'user')).toBe(
+      false,
+    )
     client.close()
   })
 
