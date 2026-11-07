@@ -150,13 +150,37 @@ describe('the session writes have named origins (POD-6601)', () => {
     // The two command paths that cannot pass their writer yet are named, owned
     // and dated, not folded into one origin.
     expect(SYSTEM_WRITE_ORIGINS['sessions.inbox'].legacy?.owner).toBe('POD-6602')
-    expect(SYSTEM_WRITE_ORIGINS['superagent.headless'].legacy?.owner).toBe('POD-6606')
   })
 
   it("a daemon report or the server's lifecycle writing inside a client command is refused", async () => {
     const { ledger, writes } = await contexts()
     const start = await ledger.cursor()
     for (const origin of ['sessions.daemon', 'sessions.lifecycle'] as const) {
+      const writer = writes.system(origin)
+      await expect(
+        inCommand(`mut_${origin}`, async () => await writer.capture([spec(origin)])),
+      ).rejects.toBeInstanceOf(SystemWriteInsideCommand)
+    }
+    expect(await ledger.cursor()).toBe(start)
+  })
+})
+
+describe('the superagent writes per command (POD-6606)', () => {
+  it("there is no 'superagent.headless' exception: its paths are the command's or named server work", () => {
+    expect(Object.keys(SYSTEM_WRITE_ORIGINS)).not.toContain('superagent.headless')
+    expect(SYSTEM_WRITE_ORIGINS['superagent.turns'].kind).toBe('server')
+    expect(SYSTEM_WRITE_ORIGINS['superagent.bridge'].kind).toBe('server')
+    const typeOnly = (writes: WriteContexts) => {
+      // @ts-expect-error the client origin is gone: a superagent command passes its own writer
+      void writes.system('superagent.headless')
+    }
+    void typeOnly
+  })
+
+  it('the turn runner or the bridge writing inside a client command is refused', async () => {
+    const { ledger, writes } = await contexts()
+    const start = await ledger.cursor()
+    for (const origin of ['superagent.turns', 'superagent.bridge'] as const) {
       const writer = writes.system(origin)
       await expect(
         inCommand(`mut_${origin}`, async () => await writer.capture([spec(origin)])),

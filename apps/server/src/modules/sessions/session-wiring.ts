@@ -427,8 +427,9 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     toMachine: (machineId, message) => machines.toMachine(machineId, message),
     nextRequestId: (prefix) => bag.rpc.nextRequestId(prefix),
     defaultGeometry: () => ({ ...DEFAULT_GEOMETRY }),
-    persist: (session) => bag.persist(bag.deps.writers.headless, session),
-    write: (session, mutate) => bag.repository.write(bag.deps.writers.headless, session, mutate),
+    // The headless row commits through the writer of whoever asked (POD-6606).
+    persist: (writer, session) => bag.persist(writer, session),
+    write: (writer, session, mutate) => bag.repository.write(writer, session, mutate),
     broadcastSessions: () => bag.broadcastSessions(),
     clients: () => bag.clients.values(),
     // Fenced per frame like the headed paths, so every headless spawn and

@@ -912,7 +912,16 @@ export async function startServer(
       // POD-419: the bot token is server-only material; the chat id stays routing.
     },
     telegramBotToken: async () => await store.secrets.getOrEmpty('notifications.telegramBotToken'),
-    superagent,
+    // A chat message carries no client command: the bridge's sends write as the
+    // bridge (`superagent.bridge`, ADR 12 D9, POD-6606).
+    superagent: {
+      sendTurn: async (input) =>
+        await superagent.sendTurn(registry.modules.superagentBridgeWriter, input),
+      interruptTurn: (input) => superagent.interruptTurn(input),
+      restartThread: (input) => superagent.restartThread(input),
+      startBtwTurn: async (input) => await superagent.startBtwTurn(input),
+      ensureConciergeThread: async (input) => await superagent.ensureConciergeThread(input),
+    },
     issues: registry.modules.issues.reports,
     sessions: registry.modules.sessions,
     topics: store.messagingTopics,

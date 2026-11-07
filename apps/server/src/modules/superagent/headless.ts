@@ -32,6 +32,7 @@ import { harnessSupportsNoTools } from '../../harness-manifest'
 import type { ObservationLeaseRecord } from '../../store/types'
 import { authorReattachBinding, authorSpawnBinding } from '../sessions/binding-mint'
 import { Session, type SessionDurableState } from '../sessions/session'
+import type { SessionWriter } from '../sessions/session-lifecycle-types'
 import { afterCommitOrNow } from './after-commit'
 
 export interface HeadlessRuntimeRelay {
@@ -110,9 +111,14 @@ export interface HeadlessDeps {
   nextRequestId(prefix: string): string
   /** A fresh copy of the default PTY geometry (headless rows still carry one). */
   defaultGeometry(): Geometry
-  persist(session: Session): Promise<void>
-  /** Mutate the durable half as a DRAFT and persist it [POD-3330]. */
-  write(session: Session, mutate: (draft: SessionDurableState) => void): void
+  /** Persist the row through the writer of whoever asked (ADR 12 D9, POD-6606). */
+  persist(writer: SessionWriter, session: Session): Promise<void>
+  /** Mutate the durable half as a DRAFT and persist it through `writer` [POD-3330]. */
+  write(
+    writer: SessionWriter,
+    session: Session,
+    mutate: (draft: SessionDurableState) => void,
+  ): void
   broadcastSessions(): void
   clients(): Iterable<{ send(msg: ServerMessage): void }>
   /** Driver-contract relay. Late-bound: read through the closure at call time,
@@ -152,22 +158,29 @@ export class HeadlessService {
    * as the thread exists. Also establishes the daemon-side headless session
    * via `spawn` with `requestedDriverId: 'headless'` (fire-and-forget; the turn
    * path retries if the daemon has not bound it yet).
+   *
+   * THE ROW COMMITS THROUGH `writer` (ADR 12 D9, POD-6606): a superagent or ship
+   * command's own, or the named origin of the server work that asked (the turn
+   * runner, the bridge, the shipping lanes). This service has no writer of its own.
    */
-  async createHeadlessSession(input: {
-    sessionId?: SessionId
-    agentKind: AgentKind
-    cwd: string
-    title?: string
-    spawnedBy?: string
-    machineId?: MachineId
-    ownerUserId: UserId
-    createdBy?: Attribution
-    issueId?: IssueId
-    accountId?: AccountId
-    model?: string
-    effort?: string
-    requireNoTools?: boolean
-  }): Promise<{ sessionId: SessionId }> {
+  async createHeadlessSession(
+    writer: SessionWriter,
+    input: {
+      sessionId?: SessionId
+      agentKind: AgentKind
+      cwd: string
+      title?: string
+      spawnedBy?: string
+      machineId?: MachineId
+      ownerUserId: UserId
+      createdBy?: Attribution
+      issueId?: IssueId
+      accountId?: AccountId
+      model?: string
+      effort?: string
+      requireNoTools?: boolean
+    },
+  ): Promise<{ sessionId: SessionId }> {
     if (input.requireNoTools && !harnessSupportsNoTools(input.agentKind)) {
       throw new Error(`harness ${input.agentKind} cannot enforce a no-tools headless session`)
     }
@@ -231,7 +244,7 @@ export class HeadlessService {
       ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
     })
     this.deps.registerSession(session)
-    await this.deps.persist(session)
+    await this.deps.persist(writer, session)
     this.deps.broadcastSessions()
     // Establish the daemon-side headless session over the existing WS relay.
     // Fire-and-forget: a turn that lands before the bind reports `not_running`
@@ -343,16 +356,17 @@ export class HeadlessService {
    * Record the harness's own session id on a headless session once the first
    * turn reports it — the resume ref every later turn (and the "open in
    * terminal" escape hatch) reattaches to. Persisted + broadcast, mirroring how
-   * PTY sessions learn their resume refs from the daemon.
+   * PTY sessions learn their resume refs from the daemon. Through `writer`: the
+   * caller's (POD-6606).
    */
-  setHeadlessResume(sessionId: SessionId, resume: ResumeRef): void {
+  setHeadlessResume(writer: SessionWriter, sessionId: SessionId, resume: ResumeRef): void {
     const session = this.deps.getSession(sessionId)
     if (!session?.headless) return
     // Through `setResume` on the draft [POD-3330]: a bag has no setter, so a
     // bare assignment would skip the `conversationBinding` promotion — on the
     // very path whose comment at the mint site says this call is what promotes
     // a headless session off its `'never'` claim.
-    this.deps.write(session, (draft) => session.setResume(resume, draft))
+    this.deps.write(writer, session, (draft) => session.setResume(resume, draft))
     this.deps.broadcastSessions()
   }
 

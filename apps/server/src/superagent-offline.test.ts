@@ -164,7 +164,7 @@ async function offlineHarness() {
 describe('superagent offline machine (POD-4806)', () => {
   it('mints the server-minted binding on the headless spawn', async () => {
     const h = await offlineHarness()
-    await h.sa.sendTurn({
+    await h.sa.sendTurn(h.registry.modules.superagentBridgeWriter, {
       ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hello',
@@ -184,7 +184,7 @@ describe('superagent offline machine (POD-4806)', () => {
   it('refuses fast with "<machine> is offline" and keeps the message plus a visible failure', async () => {
     const h = await offlineHarness()
     // First turn online so the thread binds its headless session to the host.
-    const ack = await h.sa.sendTurn({
+    const ack = await h.sa.sendTurn(h.registry.modules.superagentBridgeWriter, {
       ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'first',
@@ -198,7 +198,7 @@ describe('superagent offline machine (POD-4806)', () => {
     expect(h.registry.modules.machines.hasDaemon(h.host)).toBe(false)
 
     const err = await h.sa
-      .sendTurn({
+      .sendTurn(h.registry.modules.superagentBridgeWriter, {
         ownerUserId: firstAdminMemberId(),
         threadId: asThreadId('global'),
         text: 'Reply with exactly the word PONG-SUPER.',
@@ -227,7 +227,7 @@ describe('superagent offline machine (POD-4806)', () => {
 
   it('a turn that fails after dispatch keeps a visible failure but no duplicate user row', async () => {
     const h = await offlineHarness()
-    await h.sa.sendTurn({
+    await h.sa.sendTurn(h.registry.modules.superagentBridgeWriter, {
       ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'run it',

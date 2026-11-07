@@ -45,7 +45,7 @@ async function fixture() {
   await attachHostDaemon(registry, (frame) => { controls.push(frame) })
   const clients: ServerMessage[] = []
   const clientId = attachTestClient(registry.clientGateway, (frame) => { clients.push(frame) })
-  const { sessionId } = await registry.modules.sessions.headless.createHeadlessSession({
+  const { sessionId } = await registry.modules.sessions.headless.createHeadlessSession(registry.modules.superagentTurnsWriter, {
     agentKind: 'claude-code', cwd: '/fixture', ownerUserId: firstAdminMemberId(),
   })
   const machineId = registry.sessionStore.hostMachineId

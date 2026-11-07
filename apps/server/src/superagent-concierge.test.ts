@@ -292,14 +292,14 @@ describe('buildConciergeDelta', () => {
 
 describe('concierge threads (issue #64)', () => {
   it('reuses one thread per repo across turns — never duplicates', async () => {
-    const { sa, settle } = await harness()
-    const a = await sa.conciergeTurn({
+    const { registry, sa, settle } = await harness()
+    const a = await sa.conciergeTurn(registry.modules.superagentBridgeWriter, {
       ownerUserId: firstAdminMemberId(),
       repoPath: '/r',
       text: 'hello',
     })
     await settle()
-    const b = await sa.conciergeTurn({
+    const b = await sa.conciergeTurn(registry.modules.superagentBridgeWriter, {
       ownerUserId: firstAdminMemberId(),
       repoPath: '/r',
       text: 'again',
@@ -336,7 +336,11 @@ describe('concierge threads (issue #64)', () => {
       cwd: '/r',
       spawnedBy: 'user',
     })
-    await sa.conciergeTurn({ ownerUserId: firstAdminMemberId(), repoPath: '/r', text: 'status?' })
+    await sa.conciergeTurn(registry.modules.superagentBridgeWriter, {
+      ownerUserId: firstAdminMemberId(),
+      repoPath: '/r',
+      text: 'status?',
+    })
     await vi.waitFor(() => expect(turnReqs).toHaveLength(1))
     const request = turnReqs[0]
     const context = request?.contextPrompt ?? ''
@@ -386,9 +390,13 @@ describe('concierge threads (issue #64)', () => {
   })
 
   it('rejects an unregistered repoPath without minting a thread', async () => {
-    const { sa } = await harness()
+    const { registry, sa } = await harness()
     await expect(
-      sa.conciergeTurn({ ownerUserId: firstAdminMemberId(), repoPath: '/typo', text: 'hi' }),
+      sa.conciergeTurn(registry.modules.superagentBridgeWriter, {
+        ownerUserId: firstAdminMemberId(),
+        repoPath: '/typo',
+        text: 'hi',
+      }),
     ).rejects.toThrow(/unknown repo/)
     expect(
       (await sa.listThreads(firstAdminMemberId())).filter((t) => t.kind === 'concierge'),
@@ -479,7 +487,7 @@ describe('concierge threads (issue #64)', () => {
     // harness clients strip args absent from tools/list, so a hidden param makes
     // the confirmed-gate unsatisfiable from a concierge thread.
     it('advertises `confirmed` on start-capable issue tools in tools/list', async () => {
-      const { sa, list } = await httpHarness()
+      const { registry, sa, list } = await httpHarness()
       const tok = sa.mcpThreadToken(conciergeThreadId('/r'))
       const props = (name: string, tools: Awaited<ReturnType<typeof list>>) =>
         Object.keys(
@@ -547,7 +555,11 @@ describe('concierge threads (issue #64)', () => {
 
   it('advances the watermark only to the last read event on delta overflow', async () => {
     const { registry, sa, turnReqs, settle } = await harness({ eventReadLimit: 2 })
-    await sa.conciergeTurn({ ownerUserId: firstAdminMemberId(), repoPath: '/r', text: 'hi' })
+    await sa.conciergeTurn(registry.modules.superagentBridgeWriter, {
+      ownerUserId: firstAdminMemberId(),
+      repoPath: '/r',
+      text: 'hi',
+    })
     await settle()
     // 3 issue.created events > limit 2: first re-entry digests 2, second the rest.
     await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
@@ -565,7 +577,11 @@ describe('concierge threads (issue #64)', () => {
       title: 'C',
       startNow: false,
     })
-    await sa.conciergeTurn({ ownerUserId: firstAdminMemberId(), repoPath: '/r', text: 'update?' })
+    await sa.conciergeTurn(registry.modules.superagentBridgeWriter, {
+      ownerUserId: firstAdminMemberId(),
+      repoPath: '/r',
+      text: 'update?',
+    })
     await settle()
     await vi.waitFor(() => expect(turnReqs).toHaveLength(2))
     const second = turnReqs[1]?.contextPrompt ?? ''
@@ -574,7 +590,11 @@ describe('concierge threads (issue #64)', () => {
     expect(second).toContain('created "B"')
     expect(second).not.toContain('created "C"')
     // The overflowed remainder arrives on the next turn — nothing silently lost.
-    await sa.conciergeTurn({ ownerUserId: firstAdminMemberId(), repoPath: '/r', text: 'more?' })
+    await sa.conciergeTurn(registry.modules.superagentBridgeWriter, {
+      ownerUserId: firstAdminMemberId(),
+      repoPath: '/r',
+      text: 'more?',
+    })
     await settle()
     await vi.waitFor(() => expect(turnReqs).toHaveLength(3))
     const third = turnReqs[2]?.contextPrompt ?? ''
@@ -782,7 +802,11 @@ it.each([
     sessionId: created.sessionId,
     name: 'path regression worker',
   })
-  await sa.conciergeTurn({ ownerUserId: firstAdminMemberId(), repoPath: cwd, text: 'status?' })
+  await sa.conciergeTurn(registry.modules.superagentBridgeWriter, {
+    ownerUserId: firstAdminMemberId(),
+    repoPath: cwd,
+    text: 'status?',
+  })
   await settle()
   expect(turnReqs.at(-1)?.contextPrompt).toContain('path regression worker · claude-code')
 })

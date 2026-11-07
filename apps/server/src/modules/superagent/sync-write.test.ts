@@ -123,6 +123,9 @@ describe('the superagent writes on the entry point', () => {
 
   it('ensureSession mints the headless session with provenance; the replay spawns nothing', async () => {
     const o = await makeOracle()
+    // The row is the command's own write (POD-6606): no named origin made it.
+    const turns = vi.spyOn(o.reg.modules.superagentTurnsWriter, 'commit')
+    const bridge = vi.spyOn(o.reg.modules.superagentBridgeWriter, 'commit')
     const { result, rows } = await expectAppliedOnPath(
       o,
       envelope('superagent.ensureSession', { threadId: 'global' }, 'mut_sa_ensure'),
@@ -130,6 +133,8 @@ describe('the superagent writes on the entry point', () => {
     )
     const { podiumSessionId } = result as { podiumSessionId: SessionId }
     expect(rows.some((row) => row.entityId === podiumSessionId)).toBe(true)
+    expect(turns).not.toHaveBeenCalled()
+    expect(bridge).not.toHaveBeenCalled()
     await settle()
     // One establish frame for the one session, after the commit; the replay
     // inside expectAppliedOnPath sent none.
@@ -150,6 +155,12 @@ describe('the superagent writes on the entry point', () => {
     )
     const reply = appliedReply(await submit(o, env))
     expect(reply.result).toMatchObject({ threadId: 'global', queued: false })
+    // The session the ack names is the send's own write, under its mutationId
+    // (POD-6606), not the turn runner's.
+    const { podiumSessionId } = reply.result as { podiumSessionId: SessionId }
+    expect((await rowsOf(o, 'mut_sa_turn')).some((row) => row.entityId === podiumSessionId)).toBe(
+      true,
+    )
     expect(reply.receipt.seq).toBeLessThanOrEqual(await o.reg.changeLedger.cursor())
     await vi.waitFor(() => expect(turn).toHaveBeenCalledTimes(1))
 
@@ -245,13 +256,24 @@ describe('the daemon calls run after the commit', () => {
     const sa = superagent(o)
     await rolledBack(
       o,
-      async () => await sa.ensureSession({ ownerUserId: ADMIN, threadId: GLOBAL }),
+      async () =>
+        await sa.ensureSession(o.reg.modules.superagentBridgeWriter, {
+          ownerUserId: ADMIN,
+          threadId: GLOBAL,
+        }),
     )
     await settle()
     expect(spawnFrames(o)).toEqual([])
     expect((await o.store.superagent.getSuperagentThread('global'))?.podiumSessionId).toBeFalsy()
 
-    await committed(o, async () => await sa.ensureSession({ ownerUserId: ADMIN, threadId: GLOBAL }))
+    await committed(
+      o,
+      async () =>
+        await sa.ensureSession(o.reg.modules.superagentBridgeWriter, {
+          ownerUserId: ADMIN,
+          threadId: GLOBAL,
+        }),
+    )
     await settle()
     expect(spawnFrames(o)).toHaveLength(1)
   })
@@ -263,7 +285,11 @@ describe('the daemon calls run after the commit', () => {
       .spyOn(o.reg.modules.headless, 'headlessTurn')
       .mockImplementation(() => new Promise(() => {}))
     await rolledBack(o, async () =>
-      sa.sendTurn({ ownerUserId: ADMIN, threadId: GLOBAL, text: 'rolled back' }),
+      sa.sendTurn(o.reg.modules.superagentBridgeWriter, {
+        ownerUserId: ADMIN,
+        threadId: GLOBAL,
+        text: 'rolled back',
+      }),
     )
     await settle()
     expect(turn).not.toHaveBeenCalled()
@@ -271,7 +297,11 @@ describe('the daemon calls run after the commit', () => {
     expect(await o.store.superagent.listQueuedInputs(GLOBAL)).toEqual([])
 
     await committed(o, async () =>
-      sa.sendTurn({ ownerUserId: ADMIN, threadId: GLOBAL, text: 'committed' }),
+      sa.sendTurn(o.reg.modules.superagentBridgeWriter, {
+        ownerUserId: ADMIN,
+        threadId: GLOBAL,
+        text: 'committed',
+      }),
     )
     await vi.waitFor(() => expect(turn).toHaveBeenCalledTimes(1))
     expect(spawnFrames(o)).toHaveLength(1)
@@ -280,7 +310,10 @@ describe('the daemon calls run after the commit', () => {
   it('interruptTurn: the interrupt', async () => {
     const o = await makeOracle()
     const sa = superagent(o)
-    await sa.ensureSession({ ownerUserId: ADMIN, threadId: GLOBAL })
+    await sa.ensureSession(o.reg.modules.superagentBridgeWriter, {
+      ownerUserId: ADMIN,
+      threadId: GLOBAL,
+    })
     const interrupt = vi.spyOn(o.reg.modules.headless, 'headlessInterrupt')
     await rolledBack(
       o,
@@ -296,7 +329,10 @@ describe('the daemon calls run after the commit', () => {
   it('restart: the interrupt of the abandoned turn', async () => {
     const o = await makeOracle()
     const sa = superagent(o)
-    await sa.ensureSession({ ownerUserId: ADMIN, threadId: GLOBAL })
+    await sa.ensureSession(o.reg.modules.superagentBridgeWriter, {
+      ownerUserId: ADMIN,
+      threadId: GLOBAL,
+    })
     const interrupt = vi.spyOn(o.reg.modules.headless, 'headlessInterrupt')
     await rolledBack(
       o,
@@ -313,7 +349,10 @@ describe('the daemon calls run after the commit', () => {
   it('clear: the kill and the interrupt', async () => {
     const o = await makeOracle()
     const sa = superagent(o)
-    await sa.ensureSession({ ownerUserId: ADMIN, threadId: GLOBAL })
+    await sa.ensureSession(o.reg.modules.superagentBridgeWriter, {
+      ownerUserId: ADMIN,
+      threadId: GLOBAL,
+    })
     const interrupt = vi.spyOn(o.reg.modules.headless, 'headlessInterrupt')
     const kill = vi.spyOn(o.reg.modules.sessions, 'killSession')
     await rolledBack(o, async () => await sa.clear(ADMIN, GLOBAL))
@@ -384,5 +423,32 @@ describe('the old superagent routes', () => {
     expect(viaRoute).toEqual(first.result)
     await settle()
     expect(spawnFrames(o)).toHaveLength(1)
+  })
+})
+
+describe('the superagent session writes take a writer (POD-6606)', () => {
+  it('a command handler hands the service its own writer; a call without one does not typecheck', () => {
+    const typeOnly = (sa: SuperagentService) => {
+      // @ts-expect-error the headless session a command creates commits through the command's writer
+      void sa.ensureSession({ ownerUserId: ADMIN, threadId: GLOBAL })
+      // @ts-expect-error nor may a send create one without a writer
+      void sa.sendTurn({ ownerUserId: ADMIN, threadId: GLOBAL, text: 'x' })
+    }
+    void typeOnly
+  })
+
+  it('the turn runner writing inside a client command is refused', async () => {
+    const o = await makeOracle()
+    const sa = superagent(o)
+    const env = envelope('superagent.ensureSession', { threadId: 'global' }, 'mut_sa_refused')
+    // A handler that wrongly reached for the turn runner's server origin instead
+    // of its command's writer: the write is refused, and the command with it.
+    const original = sa.ensureSession.bind(sa)
+    vi.spyOn(sa, 'ensureSession').mockImplementation(
+      async (_writer, input) => await original(o.reg.modules.superagentTurnsWriter, input),
+    )
+    await expect(submit(o, env)).rejects.toThrow(/'superagent\.turns' is the server's own account/)
+    expect(await rowsOf(o, 'mut_sa_refused')).toEqual([])
+    expect((await o.store.superagent.getSuperagentThread('global'))?.podiumSessionId).toBeFalsy()
   })
 })

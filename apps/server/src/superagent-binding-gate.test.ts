@@ -103,11 +103,14 @@ async function waitForGate(cond: () => Promise<boolean>, timeoutMs = 10_000): Pr
 describe('headless frames through the daemon binding gate (POD-4806 review)', () => {
   it('the actual headless spawn passes the real gate and records a binding', async () => {
     const h = await gateHarness()
-    const { sessionId } = await h.registry.modules.sessions.headless.createHeadlessSession({
-      agentKind: 'codex',
-      cwd: '/r',
-      ownerUserId: firstAdminMemberId(),
-    })
+    const { sessionId } = await h.registry.modules.sessions.headless.createHeadlessSession(
+      h.registry.modules.superagentTurnsWriter,
+      {
+        agentKind: 'codex',
+        cwd: '/r',
+        ownerUserId: firstAdminMemberId(),
+      },
+    )
     const spawn = h.frames.find((m) => m.type === 'spawn' && m.sessionId === sessionId)
     expect(spawn?.type).toBe('spawn')
     const g = await gateContext()
@@ -131,11 +134,14 @@ describe('headless frames through the daemon binding gate (POD-4806 review)', ()
 
   it('two actual headless reattaches each mint their own transition (no constant-id dedup)', async () => {
     const h = await gateHarness()
-    const { sessionId } = await h.registry.modules.sessions.headless.createHeadlessSession({
-      agentKind: 'codex',
-      cwd: '/r',
-      ownerUserId: firstAdminMemberId(),
-    })
+    const { sessionId } = await h.registry.modules.sessions.headless.createHeadlessSession(
+      h.registry.modules.superagentTurnsWriter,
+      {
+        agentKind: 'codex',
+        cwd: '/r',
+        ownerUserId: firstAdminMemberId(),
+      },
+    )
     const g = await gateContext()
     sessionHandlers.spawn(g.ctx, h.frames.find((m) => m.type === 'spawn') as never)
     await waitForGate(async () => (await g.store.read(sessionId)) !== null)
@@ -179,7 +185,7 @@ describe('headless frames through the daemon binding gate (POD-4806 review)', ()
 
   it('a superagent first turn establishes through the same mint (end to end)', async () => {
     const h = await gateHarness()
-    const ack = await h.sa.sendTurn({
+    const ack = await h.sa.sendTurn(h.registry.modules.superagentBridgeWriter, {
       ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hello',

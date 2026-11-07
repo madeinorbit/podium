@@ -67,8 +67,6 @@ export interface SessionWriters {
   readonly boot: SessionLedger
   /** A session's row as a message is delivered to it (`sessions.inbox`, POD-6602). */
   readonly inbox: SessionWriter
-  /** The superagent's headless session (`superagent.headless`). */
-  readonly headless: SessionWriter
 }
 
 export interface SessionLedger {

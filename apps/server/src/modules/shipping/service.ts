@@ -1803,7 +1803,8 @@ export class ShippingService {
       ) {
         throw new Error(`ship hold ${hold.id} repair context custody changed`)
       }
-      const decision = await repair.consider(context)
+      // The hold's own command asked: the repair writes as that command (POD-6606).
+      const decision = await repair.consider(context, writer)
       if (decision.kind !== 'patched') {
         throw new Error(`ship hold ${hold.id} did not produce an immutable repair candidate`)
       }
@@ -3049,7 +3050,8 @@ export class ShippingService {
     const context = await this.repairContext(order, attempt, issue, failure)
     let decision: ShippingRepairDecision
     try {
-      decision = await repair.consider(context)
+      // A lane job's failure: the lanes' own write (POD-6606).
+      decision = await repair.consider(context, this.deps.ledger)
     } catch (error) {
       this.audit('shipping.repair_consider_failed', order.issueId, {
         orderId: order.id,

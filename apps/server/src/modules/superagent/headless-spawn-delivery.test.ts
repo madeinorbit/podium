@@ -151,7 +151,7 @@ async function onlineHarness() {
 describe('superagent first turn past the binding gate (POD-4827)', () => {
   it('the actual spawn establishes a contract session and the actual turn delivers to the engine', async () => {
     const h = await onlineHarness()
-    const ack = await h.sa.sendTurn({
+    const ack = await h.sa.sendTurn(h.registry.modules.superagentBridgeWriter, {
       ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hello',
@@ -270,7 +270,7 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
     // Bind the thread's headless session to the host WITHOUT running a turn:
     // `ensureSession` mints the binding only, so no turn is ever in flight and
     // the offline send below cannot queue behind one.
-    const ensured = await h.sa.ensureSession({
+    const ensured = await h.sa.ensureSession(h.registry.modules.superagentBridgeWriter, {
       ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
     })
@@ -303,12 +303,15 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
     const h = await onlineHarness()
     // A real headless row with an explicit account (the account fix is test
     // 1's subject, not this one's — pin it so the mechanism turn verifies).
-    const created = await h.registry.modules.sessions.headless.createHeadlessSession({
-      agentKind: 'codex',
-      cwd: '/r',
-      ownerUserId: firstAdminMemberId(),
-      accountId: asAccountId('native:codex:fp-test'),
-    })
+    const created = await h.registry.modules.sessions.headless.createHeadlessSession(
+      h.registry.modules.superagentTurnsWriter,
+      {
+        agentKind: 'codex',
+        cwd: '/r',
+        ownerUserId: firstAdminMemberId(),
+        accountId: asAccountId('native:codex:fp-test'),
+      },
+    )
     const s1 = h.frames.find(
       (m) => m.type === 'spawn' && m.sessionId === created.sessionId,
     ) as Extract<ControlMessage, { type: 'spawn' }>
@@ -382,12 +385,15 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
     // plane + HeadlessService) the way a daemon attach does. The loop must
     // route the never-bound row to re-establish (not rebind), while a resumed
     // row still rebinds its tail.
-    const createdResumed = await h.registry.modules.sessions.headless.createHeadlessSession({
-      agentKind: 'codex',
-      cwd: '/r',
-      ownerUserId: firstAdminMemberId(),
-      accountId: asAccountId('native:codex:fp-test'),
-    })
+    const createdResumed = await h.registry.modules.sessions.headless.createHeadlessSession(
+      h.registry.modules.superagentTurnsWriter,
+      {
+        agentKind: 'codex',
+        cwd: '/r',
+        ownerUserId: firstAdminMemberId(),
+        accountId: asAccountId('native:codex:fp-test'),
+      },
+    )
     const row = h.registry.modules.sessions.headless.headlessSession(created.sessionId)
     const rowResumed = h.registry.modules.sessions.headless.headlessSession(
       createdResumed.sessionId,
@@ -534,7 +540,7 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
       agentKind: 'codex',
       cwd: '/r',
     })
-    const ack = await h.sa.sendTurn({
+    const ack = await h.sa.sendTurn(h.registry.modules.superagentBridgeWriter, {
       ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hi',
@@ -558,12 +564,18 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
     // turn with no accountId, which the daemon refuses every time ("headless
     // result identity mismatch" in the chat) — the thread could never recover.
     const h = await onlineHarness()
-    await h.sa.ensureSession({ ownerUserId: firstAdminMemberId(), threadId: asThreadId('global') })
-    const legacy = await h.registry.modules.sessions.headless.createHeadlessSession({
-      agentKind: 'codex',
-      cwd: '/r',
+    await h.sa.ensureSession(h.registry.modules.superagentBridgeWriter, {
       ownerUserId: firstAdminMemberId(),
+      threadId: asThreadId('global'),
     })
+    const legacy = await h.registry.modules.sessions.headless.createHeadlessSession(
+      h.registry.modules.superagentTurnsWriter,
+      {
+        agentKind: 'codex',
+        cwd: '/r',
+        ownerUserId: firstAdminMemberId(),
+      },
+    )
     expect(
       h.registry.modules.sessions.headless.headlessSession(legacy.sessionId)?.accountId,
     ).toBeUndefined()
@@ -573,7 +585,7 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
       harnessSessionId: 'harness-old',
     })
 
-    const ack = await h.sa.sendTurn({
+    const ack = await h.sa.sendTurn(h.registry.modules.superagentBridgeWriter, {
       ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hello again',

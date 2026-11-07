@@ -34,6 +34,7 @@ import {
   type TransportTag,
 } from '@podium/commands'
 import type { UserId } from '@podium/model'
+import type { SyncCommandWriter } from '../../write-contexts'
 import type { SuperagentService } from './service'
 
 /** The PARSED input of a contract — the handler's argument type, derived from
@@ -41,13 +42,16 @@ import type { SuperagentService } from './service'
 type In<N extends SuperagentContractName> = ContractInput<(typeof SUPERAGENT_CONTRACTS)[N]>
 
 /**
- * What a handler runs against: the service, and the human the command acts for
- * (the thread owner a new thread gets, and the one `ownedThread` reads as). Built
- * from the principal by the sync family (`sync-write.ts`), never from the input.
+ * What a handler runs against: the service, the human the command acts for
+ * (the thread owner a new thread gets, and the one `ownedThread` reads as), and
+ * the command's own writer, which the headless session a command creates commits
+ * through (ADR 12 D9, POD-6606). Built by the sync family (`sync-write.ts`) from
+ * the principal and the command's write context, never from the input.
  */
 export interface SuperagentScope {
   readonly service: SuperagentService
   readonly owner: UserId
+  readonly writer: SyncCommandWriter
 }
 
 /** One contract joined to the handler that implements it. */
@@ -74,8 +78,10 @@ export interface SuperagentCommand {
 export const SUPERAGENT_COMMANDS = {
   sendTurn: {
     contract: SUPERAGENT_CONTRACTS.sendTurn,
-    handler: async ({ service: s, owner: ownerUserId }: SuperagentScope, input: In<'sendTurn'>) =>
-      await s.sendTurn({ ...input, ownerUserId }),
+    handler: async (
+      { service: s, owner: ownerUserId, writer }: SuperagentScope,
+      input: In<'sendTurn'>,
+    ) => await s.sendTurn(writer, { ...input, ownerUserId }),
   },
   interruptTurn: {
     contract: SUPERAGENT_CONTRACTS.interruptTurn,
@@ -104,9 +110,9 @@ export const SUPERAGENT_COMMANDS = {
   ensureSession: {
     contract: SUPERAGENT_CONTRACTS.ensureSession,
     handler: async (
-      { service: s, owner: ownerUserId }: SuperagentScope,
+      { service: s, owner: ownerUserId, writer }: SuperagentScope,
       input: In<'ensureSession'>,
-    ) => await s.ensureSession({ ...input, ownerUserId }),
+    ) => await s.ensureSession(writer, { ...input, ownerUserId }),
   },
   startBtw: {
     contract: SUPERAGENT_CONTRACTS.startBtw,
@@ -115,8 +121,10 @@ export const SUPERAGENT_COMMANDS = {
   },
   concierge: {
     contract: SUPERAGENT_CONTRACTS.concierge,
-    handler: async ({ service: s, owner: ownerUserId }: SuperagentScope, input: In<'concierge'>) =>
-      await s.conciergeTurn({ ...input, ownerUserId }),
+    handler: async (
+      { service: s, owner: ownerUserId, writer }: SuperagentScope,
+      input: In<'concierge'>,
+    ) => await s.conciergeTurn(writer, { ...input, ownerUserId }),
   },
 } as const satisfies Record<SuperagentContractName, SuperagentCommand>
 

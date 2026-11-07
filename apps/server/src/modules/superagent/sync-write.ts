@@ -25,6 +25,11 @@
  * failure is the durable failure rows and the turn-end the client already reads
  * for a queued turn.
  *
+ * THE WRITER. The scope carries the command's own writer (`state.writer`), and
+ * the service commits the headless session a command creates or names through
+ * it (POD-6606). The turn that runs after the commit is the turn runner's own
+ * write (`superagent.turns`).
+ *
  * THE SERVICE. The superagent is built after the registry (`server.ts`), so the
  * family reads it per call from the modules' late-bound slot
  * (`RegistryModules.superagent`, set by `SuperagentService.create`).
@@ -83,7 +88,13 @@ async function threadOwner(
 
 export const SUPERAGENT_SYNC_FAMILY: SyncFamily<SuperagentScope, typeof SUPERAGENT_COMMANDS> = {
   family: 'superagent',
-  service: (state) => ({ service: superagentOf(state.modules), owner: state.caller.userId }),
+  // The command's own writer rides the scope: a headless session a command
+  // creates is that command's write (ADR 12 D9, POD-6606).
+  service: (state) => ({
+    service: superagentOf(state.modules),
+    owner: state.caller.userId,
+    writer: state.writer,
+  }),
   commands: SUPERAGENT_COMMANDS,
   target: async (contract, input, ctx: SyncFamilyTargetContext) => {
     const floor = await humanWithRoleFloor(contract, ctx)

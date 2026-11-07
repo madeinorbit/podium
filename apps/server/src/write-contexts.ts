@@ -124,6 +124,14 @@ export const SYSTEM_WRITE_ORIGINS = {
     what: 'the server acting on a session after a commit: the lifecycle controller, starts, teardown, revival, and the launch, interrupt, configure and handoff executors',
     kind: 'server',
   },
+  'superagent.turns': {
+    what: "the superagent's turn runner, after the send that queued a turn commits: the headless session a turn's preparation (re)creates (the queue pump, a harness switch) and the resume ref a turn's result binds",
+    kind: 'server',
+  },
+  'superagent.bridge': {
+    what: "the messaging bridge's superagent sends (a Telegram chat message becomes a turn), which no client command carries: the headless session the send creates",
+    kind: 'server',
+  },
   'superagent.tools': {
     what: "the superagent's own session writes: its tool calls on its human's sessions (a name, a snooze, a work state, a kill), made from its own turn, and the kill a reset makes after it commits",
     kind: 'server',
@@ -140,11 +148,6 @@ export const SYSTEM_WRITE_ORIGINS = {
     what: "a session's row written as a message is delivered to it (a send's offer and snooze clears, the queued input): the mail write that delivers it does not pass its writer through the messages service yet",
     kind: 'client',
     legacy: { removeAfter: '2027-03', owner: 'POD-6602' },
-  },
-  'superagent.headless': {
-    what: "the superagent's headless session, created and rebound from its own commands: the superagent service does not take its command's writer yet",
-    kind: 'client',
-    legacy: { removeAfter: '2027-03', owner: 'POD-6606' },
   },
 } as const satisfies Record<string, SystemWriteOriginSpec>
 

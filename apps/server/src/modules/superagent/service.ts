@@ -52,6 +52,7 @@ import type {
   SuperagentThreadRow,
 } from '../../store'
 import { selectHarnessAccountId } from '../sessions/harness-account'
+import type { SessionWriter } from '../sessions/session-lifecycle-types'
 import { afterCommitOrNow } from './after-commit'
 import { buildBtwDelta, buildBtwSeed, buildHandoffSeed, transcriptDelta } from './btw'
 import {
@@ -626,32 +627,40 @@ export class SuperagentService {
    * re-entry delta (issue events / origin transcript) — no history re-folding,
    * the harness owns history. A later pick from another connector switches
    * harness (#199).
+   *
+   * THE WRITER (ADR 12 D9, POD-6606): the headless session the ack names commits
+   * through `writer`, the superagent command's own (or, for an in-process caller
+   * with no command, its named origin). The turn that runs after the commit
+   * writes as the turn runner (`superagent.turns`), never as the command.
    */
-  async sendTurn({
-    ownerUserId,
-    threadId: requested,
-    text,
-    focus,
-    attachSessionId,
-    model,
-    effort,
-    agentKind,
-  }: {
-    ownerUserId: UserId
-    threadId: ThreadId
-    text: string
-    /** What the sending client has on screen (#225) — prepended to every turn. */
-    focus?: SuperagentUserFocus
-    /** "Ask superagent (BTW)" (POD-1069): one session digested onto THIS turn.
-     *  Rides the queued row, so a turn that waits behind another keeps it. */
-    attachSessionId?: SessionId
-    /** Per-thread backend choice from the prompt box (POD-782). Persisted onto
-     *  the thread, so it holds for every later turn until changed. */
-    model?: string
-    effort?: string
-    /** Prompt-box connector pick. When set, this turn runs that harness. */
-    agentKind?: HarnessAgentKind
-  }): Promise<{ threadId: ThreadId; podiumSessionId: SessionId; queued: boolean }> {
+  async sendTurn(
+    writer: SessionWriter,
+    {
+      ownerUserId,
+      threadId: requested,
+      text,
+      focus,
+      attachSessionId,
+      model,
+      effort,
+      agentKind,
+    }: {
+      ownerUserId: UserId
+      threadId: ThreadId
+      text: string
+      /** What the sending client has on screen (#225) — prepended to every turn. */
+      focus?: SuperagentUserFocus
+      /** "Ask superagent (BTW)" (POD-1069): one session digested onto THIS turn.
+       *  Rides the queued row, so a turn that waits behind another keeps it. */
+      attachSessionId?: SessionId
+      /** Per-thread backend choice from the prompt box (POD-782). Persisted onto
+       *  the thread, so it holds for every later turn until changed. */
+      model?: string
+      effort?: string
+      /** Prompt-box connector pick. When set, this turn runs that harness. */
+      agentKind?: HarnessAgentKind
+    },
+  ): Promise<{ threadId: ThreadId; podiumSessionId: SessionId; queued: boolean }> {
     let thread = await this.ownedThread(ownerUserId, requested)
     const threadId = asThreadId(thread.id)
     const lockError = await this.terminalLockError(thread)
@@ -679,7 +688,7 @@ export class SuperagentService {
     let podiumSessionId: SessionId
     let turnAgent = agentKind
     if (inFlight) {
-      podiumSessionId = await this.ensureHeadlessSession(thread)
+      podiumSessionId = await this.ensureHeadlessSession(writer, thread)
     } else {
       // The thread as the backend choice above left it (a model override keeps
       // its frozen harness).
@@ -691,7 +700,7 @@ export class SuperagentService {
       // thread's session is the outgoing one.
       podiumSessionId =
         thread.agentKind === turnAgent || !thread.podiumSessionId
-          ? await this.ensureHeadlessSession(thread)
+          ? await this.ensureHeadlessSession(writer, thread)
           : asSessionId(thread.podiumSessionId)
     }
     const queued = await this.store.superagent.putQueuedInput({
@@ -878,29 +887,37 @@ export class SuperagentService {
    * against, and without one it had to carry a second composer for the
    * not-yet-started case. Creates the global thread on demand for the same
    * reason `listThreads` does — a user who has never sent a message still has a
-   * global thread, they just have not used it.
+   * global thread, they just have not used it. The session commits through the
+   * command's `writer` (POD-6606).
    */
-  async ensureSession({
-    ownerUserId,
-    threadId: requested,
-  }: {
-    ownerUserId: UserId
-    threadId: ThreadId
-  }): Promise<{ threadId: ThreadId; podiumSessionId: SessionId }> {
+  async ensureSession(
+    writer: SessionWriter,
+    {
+      ownerUserId,
+      threadId: requested,
+    }: {
+      ownerUserId: UserId
+      threadId: ThreadId
+    },
+  ): Promise<{ threadId: ThreadId; podiumSessionId: SessionId }> {
     const thread =
       requested === 'global'
         ? await this.ownedThread(ownerUserId, await this.ensureGlobalThread(ownerUserId))
         : await this.ownedThread(ownerUserId, requested)
     return {
       threadId: asThreadId(thread.id),
-      podiumSessionId: await this.ensureHeadlessSession(thread),
+      podiumSessionId: await this.ensureHeadlessSession(writer, thread),
     }
   }
 
   /** The thread's headless Podium session, created if the row is missing. Split
    *  out of the turn path so a QUEUED send can still ack with a session id — the
-   *  client needs one to keep rendering the thread's transcript. */
-  private async ensureHeadlessSession(thread: SuperagentThreadRow): Promise<SessionId> {
+   *  client needs one to keep rendering the thread's transcript. The row commits
+   *  through `writer`: the command's, or the turn runner's (POD-6606). */
+  private async ensureHeadlessSession(
+    writer: SessionWriter,
+    thread: SuperagentThreadRow,
+  ): Promise<SessionId> {
     const bound = thread.podiumSessionId
     // A row minted before the account fence below has no account, and the
     // account is launch identity, so it cannot be set later. Reusing it sends
@@ -923,7 +940,7 @@ export class SuperagentService {
     // `requireOnlineSession`'s actionable refusal below, not die here.
     const probeMachine = await this.modules.machines.resolveMachine(undefined, cwd)
     const accountId = await this.headlessAccountFor(thread.ownerUserId, harness, probeMachine)
-    const { sessionId } = await this.modules.headless.createHeadlessSession({
+    const { sessionId } = await this.modules.headless.createHeadlessSession(writer, {
       ownerUserId: thread.ownerUserId,
       agentKind: harness,
       cwd,
@@ -1035,7 +1052,12 @@ export class SuperagentService {
     // queued send may already have minted it — `ensureHeadlessSession` is the one
     // place that decides, so the two paths cannot mint two sessions for one
     // thread. `agentKind` was frozen above, so the row it may create is right.
-    const sessionId = await this.ensureHeadlessSession({ ...thread, agentKind: agent })
+    // This runs after the send commits (or with no command at all): the turn
+    // runner's own write (`superagent.turns`, POD-6606).
+    const sessionId = await this.ensureHeadlessSession(this.modules.superagentTurnsWriter, {
+      ...thread,
+      agentKind: agent,
+    })
     // REFUSE FAST ON AN OFFLINE MACHINE (POD-4806, POD-4750 shape). Spawning
     // onto a machine with no daemon only queues a spawn the daemon later
     // refuses — and the turn then fails with an internal error while the
@@ -1292,10 +1314,15 @@ export class SuperagentService {
           await this.store.superagent.updateSuperagentThreadBinding(pending.threadId, {
             harnessSessionId,
           })
-          this.modules.headless.setHeadlessResume(pending.podiumSessionId, {
-            kind: harnessResumeKind(agent.data),
-            value: harnessSessionId,
-          })
+          // A turn's result, never a command: the turn runner's write (POD-6606).
+          this.modules.headless.setHeadlessResume(
+            this.modules.superagentTurnsWriter,
+            pending.podiumSessionId,
+            {
+              kind: harnessResumeKind(agent.data),
+              value: harnessSessionId,
+            },
+          )
         }
         if (result.ok) {
           this.modules.headless.broadcastHeadlessActivity(pending.podiumSessionId, {
@@ -1562,17 +1589,20 @@ export class SuperagentService {
   }
 
   /** Ensure the repo's concierge thread, then run the turn (see sendTurn). */
-  async conciergeTurn({
-    ownerUserId,
-    repoPath,
-    text,
-    focus,
-  }: {
-    ownerUserId: UserId
-    repoPath: string
-    text: string
-    focus?: SuperagentUserFocus
-  }): Promise<{ threadId: ThreadId; podiumSessionId: SessionId; isNew: boolean }> {
+  async conciergeTurn(
+    writer: SessionWriter,
+    {
+      ownerUserId,
+      repoPath,
+      text,
+      focus,
+    }: {
+      ownerUserId: UserId
+      repoPath: string
+      text: string
+      focus?: SuperagentUserFocus
+    },
+  ): Promise<{ threadId: ThreadId; podiumSessionId: SessionId; isNew: boolean }> {
     if (!(await this.repos.list()).some((path) => machinePathsEqual(path, repoPath))) {
       throw new SuperagentRefusal(
         'invalid',
@@ -1592,7 +1622,12 @@ export class SuperagentService {
         title: `concierge · ${machinePathBasename(repoPath) ?? repoPath}`,
       })
     }
-    const ack = await this.sendTurn({ ownerUserId, threadId, text, ...(focus ? { focus } : {}) })
+    const ack = await this.sendTurn(writer, {
+      ownerUserId,
+      threadId,
+      text,
+      ...(focus ? { focus } : {}),
+    })
     return { ...ack, isNew }
   }
 

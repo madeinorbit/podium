@@ -401,6 +401,10 @@ interface NewEffectInUnit {
 export interface RegistryModules {
   /** The superagent's own session writes (`superagent.tools`, POD-6601). */
   superagentToolsWriter: Pick<LedgerWriter, 'commit' | 'capture'>
+  /** The superagent's turn runner, after a send commits (`superagent.turns`, POD-6606). */
+  superagentTurnsWriter: Pick<LedgerWriter, 'commit' | 'capture'>
+  /** The messaging bridge's superagent sends, with no command (`superagent.bridge`, POD-6606). */
+  superagentBridgeWriter: Pick<LedgerWriter, 'commit' | 'capture'>
   bus: EventBus
   funnel: WriteFunnel
   sessions: SessionLifecycle
@@ -1824,7 +1828,6 @@ export class SessionRegistry {
         live: writes.system('sessions.live'),
         boot: { ...writes.system('boot.reconcile'), authority: ledger.authority },
         inbox: writes.system('sessions.inbox'),
-        headless: writes.system('superagent.headless'),
       },
       machines,
       rpc,
@@ -4107,6 +4110,8 @@ export class SessionRegistry {
     this.bus.on('session.exited', async (e) => await interactions.onSessionExited(e.sessionId))
     this.modules = {
       superagentToolsWriter: this.writes.system('superagent.tools'),
+      superagentTurnsWriter: this.writes.system('superagent.turns'),
+      superagentBridgeWriter: this.writes.system('superagent.bridge'),
       effects: {
         executors: effectExecutors,
         runner: this.effectsRunner,
