@@ -105,6 +105,8 @@ One rule shape everywhere: `env[selector]?.trim() || join(home, defaultDir)`, th
 
 Because `env` comes from `harnessLoginReadEnv`, which sets the instance selector from the home, an ambient `CODEX_HOME` in the daemon's own environment never redirects an account's folders. That matches what the session child already gets today.
 
+Claude Code and OpenCode have no instance selector, because setting theirs is not neutral: `CLAUDE_CONFIG_DIR` also moves `.claude.json` out of the home root and re-keys the macOS keychain item to a hash of the folder. They declare `environment.operatorSelectors` instead (`CLAUDE_CONFIG_DIR`, `CLAUDE_SECURESTORAGE_CONFIG_DIR`; `XDG_DATA_HOME`, `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `XDG_CACHE_HOME`). For a named account (home ≠ the command env's `HOME`), `harnessLoginReadEnv` drops them, so the context, every account read and the child use the defaults under the account home, and the Claude keychain item is the unscoped one, as with no selector set. The machine's own account keeps the operator's values. `harnessChildEnv` returns any the child does not carry in `strip`, so the daemon's own copy cannot return at the boundary. A value a session layer sets explicitly still wins (POD-6604).
+
 ### 3.3 Scopes
 
 - **Session scope.** A context is built once at spawn and carried on `SessionSpec.harnessContext`. It is required for every non-shell harness. Server families already receive `SessionSpec` through `ServerFamilyLaunch`, so engines read the same carrier. Everything session-related reads it: launch, hook install, observer, transcript tail, engine launch, admission, attach, resume.
