@@ -1,4 +1,4 @@
-import { join } from 'node:path'
+import { join, normalize } from 'node:path'
 import type { AgentKind, HarnessAgent } from '@podium/model'
 import {
   type BuiltinHarnessKind,
@@ -674,12 +674,30 @@ export function harnessLoginReadEnv<Value extends string | undefined>(
   const stripped = new Set([
     ...(manifest?.inventory.foreignCredentialEnv ?? []),
     ...(manifest?.environment.removeInherited ?? []),
+    // The operator's own folder selectors never follow a named account into
+    // its environment (POD-6604): the folders then derive from its HOME.
+    ...(isMachineHome(credentialHome, machineEnv.HOME)
+      ? []
+      : (manifest?.environment.operatorSelectors ?? [])),
   ])
   const env: Record<string, Value | string> = {}
   for (const [key, value] of Object.entries(machineEnv)) {
     if (!stripped.has(key)) env[key] = value
   }
   return { ...env, HOME: credentialHome, ...harnessInstanceHomeEnv(kind, credentialHome) }
+}
+
+/**
+ * Whether `home` is the machine's own home: the command environment's `HOME`
+ * (POD-6604), which the command environment always sets to the machine home.
+ * Path text only (a trailing separator aside), never the filesystem. An env
+ * without a `HOME` names no machine home, so `home` is a named account's.
+ */
+function isMachineHome(home: string, machineHome: string | undefined): boolean {
+  const trimmed = (path: string) => normalize(path).replace(/(.)[\\/]+$/, '$1')
+  return (
+    machineHome !== undefined && machineHome.trim() !== '' && trimmed(home) === trimmed(machineHome)
+  )
 }
 
 /**

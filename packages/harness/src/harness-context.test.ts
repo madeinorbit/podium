@@ -2,9 +2,14 @@ import { join } from 'node:path'
 import type { BuiltinHarnessKind } from '@podium/protocol'
 import type { CommandEnvironment } from '@podium/runtime/command-environment'
 import { describe, expect, it } from 'vitest'
+import {
+  CLAUDE_KEYCHAIN_BASE_SERVICE,
+  claudeKeychainService,
+  deriveClaudeKeychainCoordinate,
+} from './adapters/claude-code/keychain-coordinate.js'
 import { fixtureManifest } from './adapters/fixture/index.js'
 import type { HarnessExecutableSnapshot } from './executable-runtime.js'
-import { harnessContext, harnessRoots } from './harness-context.js'
+import { harnessChildEnv, harnessContext, harnessRoots } from './harness-context.js'
 import type { ResolvedHarnessExecutable } from './inventory/build-inventory.js'
 import type { HarnessRoots } from './manifest.js'
 import { harnessLoginReadEnv, manifestFor, registerTestManifest } from './registry.js'
@@ -243,5 +248,108 @@ describe('adapter roots', () => {
 
   it('an unknown harness has no roots rather than borrowing another layout', () => {
     expect(() => harnessRoots('not-a-harness', HOME, {})).toThrow(/no manifest/)
+  })
+})
+
+/**
+ * THE OPERATOR'S OWN SELECTORS AND A NAMED ACCOUNT (POD-6604).
+ *
+ * Claude Code (`CLAUDE_CONFIG_DIR`) and OpenCode (`XDG_*`) default their folders
+ * under HOME. An operator who sets one of these in their own shell chose it for
+ * THEIR account. A named account (home ≠ the command env's HOME) must not land
+ * there, and the child, the context's env and roots, and the keychain coordinate
+ * must agree. The machine's own account keeps the operator's choice.
+ */
+describe('operator selectors and a named account (POD-6604)', () => {
+  const OPERATOR = '/Users/operator'
+  const OPERATOR_ENV = {
+    PATH: '/usr/bin:/bin',
+    HOME: OPERATOR,
+    CLAUDE_CONFIG_DIR: '/Users/operator/claude-alt',
+    CLAUDE_SECURESTORAGE_CONFIG_DIR: '/Users/operator/claude-secure',
+    XDG_DATA_HOME: '/Users/operator/xdg-data',
+    XDG_CONFIG_HOME: '/Users/operator/xdg-config',
+    XDG_STATE_HOME: '/Users/operator/xdg-state',
+    XDG_CACHE_HOME: '/Users/operator/xdg-cache',
+    XDG_RUNTIME_DIR: '/run/user/501',
+  }
+  const CLAUDE: ResolvedHarnessExecutable = {
+    kind: 'claude-code',
+    path: '/opt/homebrew/bin/claude',
+    version: '2.1.234 (Claude Code)',
+    generation: 7,
+  }
+  const OPENCODE: ResolvedHarnessExecutable = {
+    kind: 'opencode',
+    path: '/opt/homebrew/bin/opencode',
+    version: '1.18.32',
+    generation: 7,
+  }
+  const inventory = snapshot([CLAUDE, OPENCODE], OPERATOR_ENV)
+  const CLAUDE_SELECTORS = ['CLAUDE_CONFIG_DIR', 'CLAUDE_SECURESTORAGE_CONFIG_DIR']
+  const XDG_SELECTORS = ['XDG_DATA_HOME', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME']
+
+  it('claude-code: a named account drops them from its env, roots and child', () => {
+    const context = harnessContext(inventory, 'claude-code', HOME)
+    for (const key of CLAUDE_SELECTORS) expect(context.env).not.toHaveProperty(key)
+    expect(context.roots.state).toBe(join(HOME, '.claude'))
+    expect(context.roots.transcripts).toBe(join(HOME, '.claude', 'projects'))
+    const child = harnessChildEnv(context, {})
+    for (const key of CLAUDE_SELECTORS) {
+      expect(child.env).not.toHaveProperty(key)
+      // The PTY and podium-host spawns spread the daemon's own env under the
+      // child's: the boundary must delete the daemon's copy too.
+      expect(child.strip).toContain(key)
+    }
+    expect(child.env.HOME).toBe(HOME)
+  })
+
+  it('opencode: a named account drops the XDG base dirs from its env, roots and child', () => {
+    const context = harnessContext(inventory, 'opencode', HOME)
+    for (const key of XDG_SELECTORS) expect(context.env).not.toHaveProperty(key)
+    expect(context.roots.state).toBe(join(HOME, '.local', 'share', 'opencode'))
+    expect(context.roots.config).toBe(join(HOME, '.config', 'opencode'))
+    const child = harnessChildEnv(context, {})
+    for (const key of XDG_SELECTORS) {
+      expect(child.env).not.toHaveProperty(key)
+      expect(child.strip).toContain(key)
+    }
+    // Not a folder selector: the session bus and runtime dir stay the machine's.
+    expect(child.env.XDG_RUNTIME_DIR).toBe('/run/user/501')
+  })
+
+  it('the keychain coordinate of a named Claude account is the unscoped one under its home', () => {
+    const context = harnessContext(inventory, 'claude-code', HOME)
+    expect(claudeKeychainService(context.env)).toEqual({
+      service: CLAUDE_KEYCHAIN_BASE_SERVICE,
+      scoped: false,
+    })
+    expect(deriveClaudeKeychainCoordinate({ env: context.env, home: HOME }).storageDirectory).toBe(
+      join(HOME, '.claude'),
+    )
+  })
+
+  it("the machine's own account keeps the operator's selectors (guard)", () => {
+    const claude = harnessContext(inventory, 'claude-code', OPERATOR)
+    expect(claude.env.CLAUDE_CONFIG_DIR).toBe(OPERATOR_ENV.CLAUDE_CONFIG_DIR)
+    expect(claude.roots.state).toBe(OPERATOR_ENV.CLAUDE_CONFIG_DIR)
+    expect(harnessChildEnv(claude, {}).env.CLAUDE_CONFIG_DIR).toBe(OPERATOR_ENV.CLAUDE_CONFIG_DIR)
+    // Its keychain item is the one the operator's own `claude` uses.
+    expect(claudeKeychainService(claude.env)).toEqual(
+      claudeKeychainService({
+        CLAUDE_SECURESTORAGE_CONFIG_DIR: OPERATOR_ENV.CLAUDE_SECURESTORAGE_CONFIG_DIR,
+      }),
+    )
+    const opencode = harnessContext(inventory, 'opencode', `${OPERATOR}/`)
+    expect(opencode.roots.state).toBe(join(OPERATOR_ENV.XDG_DATA_HOME, 'opencode'))
+    expect(harnessChildEnv(opencode, {}).env.XDG_CONFIG_HOME).toBe(OPERATOR_ENV.XDG_CONFIG_HOME)
+  })
+
+  it('a session-chosen CLAUDE_CONFIG_DIR still reaches a named child (guard)', () => {
+    const context = harnessContext(inventory, 'claude-code', HOME)
+    const pinned = join(HOME, '.claude')
+    const child = harnessChildEnv(context, { sessionEnv: { CLAUDE_CONFIG_DIR: pinned } })
+    expect(child.env.CLAUDE_CONFIG_DIR).toBe(pinned)
+    expect(child.strip).not.toContain('CLAUDE_CONFIG_DIR')
   })
 })

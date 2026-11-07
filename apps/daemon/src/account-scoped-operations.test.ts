@@ -14,10 +14,10 @@
  * CLAUDE_CONFIG_DIR and XDG_* point at sentinels in the daemon's process.env.
  * Every row must read A — never M, never a sentinel.
  *
- * A command-env CLAUDE_CONFIG_DIR / XDG_DATA_HOME is a different case: the
- * session child follows it today (harnessLoginReadEnv keeps it; stripping it
- * is POD-6535's question), so the account context must follow it too, and
- * every reader identically (on the base the Claude readers disagreed).
+ * A command-env CLAUDE_CONFIG_DIR / XDG_* is the operator's choice for THEIR
+ * account (POD-6604): a named account (A ≠ M) never follows it — the context,
+ * the child and every reader land in A — while the machine's own account
+ * (A = M) keeps following it, identically in the context and every reader.
  */
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -298,13 +298,17 @@ function decoyCommandEnv(w: World): Record<string, string> {
   }
 }
 
-function daemonCtx(w: World, snapshot: ResolvedHarnessInventory | undefined) {
+function daemonCtx(
+  w: World,
+  snapshot: ResolvedHarnessInventory | undefined,
+  home: string = w.accountHome,
+) {
   const sent: DaemonMessage[] = []
   const ctx = {
     send: (m: DaemonMessage) => sent.push(m),
     machineId: 'm-account',
-    homeDir: w.accountHome,
-    accountHome: { path: w.accountHome, source: 'configured' as const },
+    homeDir: home,
+    accountHome: { path: home, source: 'configured' as const },
     usageMemo: {},
     ...(snapshot
       ? {
@@ -373,13 +377,13 @@ async function block(
 }
 
 /** Every row of the matrix, each answered by the folder it touched. */
-async function matrix(w: World, snapshot: ResolvedHarnessInventory) {
+async function matrix(w: World, snapshot: ResolvedHarnessInventory, home: string = w.accountHome) {
   const rows: Record<string, Label> = {}
 
   // Model probe: each CLI child's HOME and own selector; Claude's OAuth token.
   await block(rows, 'probe', async () => {
     const seen = stubFetch()
-    const { ctx, sent } = daemonCtx(w, snapshot)
+    const { ctx, sent } = daemonCtx(w, snapshot, home)
     inventoryHandlers.modelProbeRequest(asAny(ctx), { type: 'modelProbeRequest', requestId: 'mp' })
     await waitFor(sent, 'modelProbeResult')
     const own: Record<(typeof PROBED)[number], string | undefined> = {
@@ -403,7 +407,7 @@ async function matrix(w: World, snapshot: ResolvedHarnessInventory) {
   // Codex Responses call (stubbed fetch): whose token goes out.
   await block(rows, 'codex responses', async () => {
     const seen = stubFetch()
-    const { ctx, sent } = daemonCtx(w, snapshot)
+    const { ctx, sent } = daemonCtx(w, snapshot, home)
     codexHandlers.codexCompleteRequest(asAny(ctx), {
       type: 'codexCompleteRequest',
       requestId: 'cx',
@@ -420,7 +424,7 @@ async function matrix(w: World, snapshot: ResolvedHarnessInventory) {
   // Quota (stubbed fetch), through the fetcher the daemon composes.
   await block(rows, 'quota', async () => {
     const seen = stubFetch()
-    const { ctx } = daemonCtx(w, snapshot)
+    const { ctx } = daemonCtx(w, snapshot, home)
     await managementQuotaFetcher(asAny(ctx)).getAgentQuota(true)
     const by = (host: string) => [...seen].find(([url]) => url.includes(host))?.[1]
     rows['quota claude'] = bearerLabel(by('api.anthropic.com/api/oauth/usage'))
@@ -431,7 +435,7 @@ async function matrix(w: World, snapshot: ResolvedHarnessInventory) {
 
   // Usage scan: which folders the harvested files came from, per harness.
   await block(rows, 'usage', async () => {
-    const { ctx, sent } = daemonCtx(w, snapshot)
+    const { ctx, sent } = daemonCtx(w, snapshot, home)
     execHandlers.usageRequest(asAny(ctx), {
       type: 'usageRequest',
       requestId: 'u',
@@ -453,7 +457,7 @@ async function matrix(w: World, snapshot: ResolvedHarnessInventory) {
 
   // Credential export (an account operation, not guarded propagation).
   await block(rows, 'credential export', async () => {
-    const { ctx, sent } = daemonCtx(w, snapshot)
+    const { ctx, sent } = daemonCtx(w, snapshot, home)
     CONTROL_HANDLERS.credentialExportRequest(asAny(ctx), {
       type: 'credentialExportRequest',
       requestId: 'ce',
@@ -477,7 +481,7 @@ async function matrix(w: World, snapshot: ResolvedHarnessInventory) {
       ['pi', 'pi', 'pi-session', SESSION.pi],
     ]
     for (const [name, agentKind, resumeKind, value] of reads) {
-      const { ctx } = daemonCtx(w, snapshot)
+      const { ctx } = daemonCtx(w, snapshot, home)
       await readTranscript(asAny(ctx), {
         type: 'transcriptRead',
         requestId: `t-${name}`,
@@ -530,11 +534,49 @@ describe('account-scoped operations read the account home, never a sentinel', ()
     ])
   }, 60_000)
 
-  it('a command-env CLAUDE_CONFIG_DIR / XDG_DATA_HOME is followed identically by the context and every reader', async () => {
+  it('a command-env CLAUDE_CONFIG_DIR / XDG_* never moves a named account: context, child and every reader read A', async () => {
     const w = await world()
     stubDaemonEnv(w)
-    // The selected folders: the session child follows these today, so the
-    // account context must, and no reader may disagree with it.
+    // The operator's own selectors, in the machine command env this time.
+    const snapshot = snapshotFor(w, {
+      ...decoyCommandEnv(w),
+      CLAUDE_CONFIG_DIR: w.sentinel.claude,
+      XDG_DATA_HOME: w.sentinel.xdgData,
+      XDG_CONFIG_HOME: w.sentinel.xdgConfig,
+    })
+
+    const { ctx } = daemonCtx(w, snapshot)
+    const account = await resolveManagementAccount(asAny(ctx))
+    if (!account) throw new Error('no management account')
+    const claude = managementAccountFor(account, 'claude-code')
+    const opencode = managementContextFor(account, 'opencode')
+    const rows = await matrix(w, snapshot)
+    expect(Object.keys(rows)).toHaveLength(23)
+    // The OpenCode probe CHILD: its HOME, and the operator's XDG folders.
+    const record = await recordOf(w, 'opencode')
+    const unsetOr = (value: string | undefined) =>
+      value === '<unset>' ? 'account' : folderOf(w, value)
+    const observed: Record<string, Label> = {
+      'context claude-code roots.state': folderOf(w, claude.roots.state),
+      'context claude-code env CLAUDE_CONFIG_DIR': unsetOr(
+        claude.env.CLAUDE_CONFIG_DIR ?? '<unset>',
+      ),
+      'context opencode roots.state': folderOf(w, opencode?.roots.state),
+      'context opencode roots.config': folderOf(w, opencode?.roots.config),
+      ...rows,
+      'probe opencode child XDG_DATA_HOME': unsetOr(record.XDG_DATA_HOME),
+      'probe opencode child XDG_CONFIG_HOME': unsetOr(record.XDG_CONFIG_HOME),
+    }
+    // Every observation reads A ("account" for an unset selector: the child
+    // then derives the folder from its HOME, which is A).
+    expect(observed).toEqual(
+      Object.fromEntries(Object.keys(observed).map((row) => [row, 'account'])),
+    )
+  }, 60_000)
+
+  it("the machine's own account keeps following a command-env CLAUDE_CONFIG_DIR / XDG_DATA_HOME, in the context and every reader (guard)", async () => {
+    const w = await world()
+    stubDaemonEnv(w)
     const claudeSelected = join(w.root, 'selected-claude')
     const xdgSelected = join(w.root, 'selected-xdg-data')
     w.folders.set(claudeSelected, 'selected')
@@ -547,13 +589,13 @@ describe('account-scoped operations read the account home, never a sentinel', ()
       XDG_DATA_HOME: xdgSelected,
     })
 
-    const { ctx } = daemonCtx(w, snapshot)
+    const { ctx } = daemonCtx(w, snapshot, w.machineHome)
     const account = await resolveManagementAccount(asAny(ctx))
     if (!account) throw new Error('no management account')
     expect(folderOf(w, managementAccountFor(account, 'claude-code').roots.state)).toBe('selected')
     expect(folderOf(w, managementContextFor(account, 'opencode')?.roots.state)).toBe('selected')
 
-    const rows = await matrix(w, snapshot)
+    const rows = await matrix(w, snapshot, w.machineHome)
     const claudeRows = [
       'probe claude OAuth token',
       'quota claude',
@@ -564,12 +606,11 @@ describe('account-scoped operations read the account home, never a sentinel', ()
     expect(Object.fromEntries(claudeRows.map((row) => [row, rows[row]]))).toEqual(
       Object.fromEntries(claudeRows.map((row) => [row, 'selected'])),
     )
-    // The OpenCode probe child is handed the same data root its context names.
     expect(folderOf(w, (await recordOf(w, 'opencode')).XDG_DATA_HOME)).toBe('selected')
-    // Everything else still reads the account.
+    // Everything else reads the machine home (its own selectors overridden).
     const others = Object.entries(rows).filter(([row]) => !claudeRows.includes(row))
     expect(Object.fromEntries(others)).toEqual(
-      Object.fromEntries(others.map(([row]) => [row, 'account'])),
+      Object.fromEntries(others.map(([row]) => [row, 'machine'])),
     )
   }, 60_000)
 })

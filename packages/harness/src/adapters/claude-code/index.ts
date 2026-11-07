@@ -99,6 +99,13 @@ export const claudeCodeManifest: AgentManifest = {
       'CLAUDE_CODE_ENTRYPOINT',
       'CLAUDE_CODE_EXECPATH',
     ],
+    // Not an `instanceHome`: SETTING `CLAUDE_CONFIG_DIR` moves `.claude.json`
+    // (identity, onboarding) out of the home root, where Podium's credential
+    // layout keeps it, and re-keys the macOS keychain item to a hash of the
+    // folder. So a named account drops the operator's values instead (POD-6604)
+    // and runs on the defaults under its HOME: `<home>/.claude` and the
+    // unscoped `Claude Code-credentials` item, as it does with no selector set.
+    operatorSelectors: ['CLAUDE_CONFIG_DIR', 'CLAUDE_SECURESTORAGE_CONFIG_DIR'],
   },
 
   inventory: {

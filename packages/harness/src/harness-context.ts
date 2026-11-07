@@ -226,6 +226,8 @@ export interface HarnessChildEnv {
  *  - `foreignCredentialEnv` keys are removed unless `sessionEnv` holds them.
  *  - `removeInherited` keys are removed whatever their source, `sessionEnv`
  *    included: a parent conversation's identity is never a session's choice.
+ *  - `operatorSelectors` the composed env does not hold are returned for the
+ *    boundary (a named account's context env never holds the operator's).
  *
  * Provenance is read from `sessionEnv` and nowhere else (F10). A path that
  * asked "is this key in the env I composed?" would find an inherited key there
@@ -258,9 +260,15 @@ export function harnessChildEnv(
     ...podiumVars,
     ...(podiumCliPath ? { PODIUM_CLI_PATH: podiumCliPath } : {}),
   }
+  // An operator folder selector the child does not carry (dropped for a named
+  // account, or never set) is deleted at the boundary too, so a process layer
+  // that spreads the daemon's own env underneath cannot bring the daemon's
+  // copy back (POD-6604). One a layer chose, or the machine's own account
+  // inherited, is in `env` and stays.
+  const unchosen = (manifest?.environment.operatorSelectors ?? []).filter((key) => !(key in env))
   for (const key of strip) delete env[key]
   env.PATH = childPath(env.PATH ?? '', context.home, podiumCliPath, podiumPath)
-  return { env, strip }
+  return { env, strip: [...new Set([...strip, ...unchosen])] }
 }
 
 /**

@@ -68,7 +68,13 @@ export const opencodeManifest: AgentManifest = {
       transcripts: state,
     }
   },
-  environment: { removeInherited: [] },
+  // The XDG base dirs OpenCode keeps its data, config, state and cache under.
+  // A named account drops the operator's values (POD-6604), so its folders
+  // derive from its HOME; XDG_RUNTIME_DIR and the system search paths stay.
+  environment: {
+    removeInherited: [],
+    operatorSelectors: ['XDG_DATA_HOME', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME'],
+  },
 
   inventory: {
     executable: {

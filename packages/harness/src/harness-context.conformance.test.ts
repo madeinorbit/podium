@@ -9,9 +9,10 @@
  *    exits 1 — in the machine command environment AND in `process.env`;
  *  - a decoy HOME and decoy harness selectors (`CODEX_HOME`,
  *    `CLAUDE_CONFIG_DIR`, `GROK_HOME`, `PI_CODING_AGENT_DIR`, `XDG_*`) whose
- *    folders hold sentinel files — in `process.env` always, and in the machine
- *    command environment wherever the contract already overrides that
- *    selector for an account (see MACHINE_SELECTOR_GAPS);
+ *    folders hold sentinel files — in the machine command environment AND in
+ *    `process.env`, for every harness. The decoy HOME is the machine's home, so
+ *    the account (elsewhere) is a named one: the contract pins an instance
+ *    selector and drops an operator selector (POD-6604) for it;
  *  - the selected installation is a RECORDING fake binary somewhere else,
  *    and the account home is somewhere else again.
  *
@@ -104,19 +105,6 @@ const SELECTORS = [
   'XDG_STATE_HOME',
   'XDG_CACHE_HOME',
 ] as const
-
-/**
- * Selectors the contract does NOT yet override for an account when the
- * operator's own command environment sets them: an ambient `CLAUDE_CONFIG_DIR`
- * still redirects Claude, and `XDG_*` still redirects OpenCode, in the child
- * and in every account read alike. That decision is POD-6604 (Ambient Claude
- * and XDG selectors). Until it lands these decoys sit in `process.env` only;
- * every other harness gets them in the machine env too.
- */
-const MACHINE_SELECTOR_GAPS: Partial<Record<Kind, readonly string[]>> = {
-  'claude-code': ['CLAUDE_CONFIG_DIR'],
-  opencode: ['XDG_DATA_HOME', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME'],
-}
 
 /** Every executable name a harness (or its server alternative) is run by. */
 const HARNESS_BINARIES = [
@@ -312,12 +300,7 @@ function harnessOn(world: World, kind: Kind): Harness {
   const machineEnv: Record<string, string> = {
     PATH: [world.decoyBin, '/usr/bin', '/bin'].join(delimiter),
     HOME: world.decoyHome,
-    ...Object.fromEntries(
-      SELECTORS.filter((name) => !MACHINE_SELECTOR_GAPS[kind]?.includes(name)).map((name) => [
-        name,
-        world.decoySelectors[name],
-      ]),
-    ),
+    ...Object.fromEntries(SELECTORS.map((name) => [name, world.decoySelectors[name]])),
   }
   const snapshot = {
     executables: new Map([

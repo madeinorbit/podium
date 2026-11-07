@@ -1696,6 +1696,16 @@ export interface AgentManifest {
    * it (terminal, engine, headless turn, buffered exec, attach client). It is
    * applied by `harnessChildEnv` after the session env and the wiring env, so
    * neither can switch it off.
+   *
+   * `operatorSelectors` (POD-6604) names variables that move this harness's
+   * folders away from their default under HOME, for a harness that is not
+   * pinned by an `instanceHome` because SETTING the selector is not neutral
+   * (Claude: `CLAUDE_CONFIG_DIR` also moves `.claude.json` and re-keys the
+   * macOS keychain item). An operator who sets one chose it for their own
+   * account, so a NAMED account (home ≠ the machine command env's HOME) drops
+   * them: its context env, roots, every account read and its child all derive
+   * the folders from the account HOME. The machine's own account keeps the
+   * operator's value. A value a session layer chooses explicitly still wins.
    */
   environment: {
     removeInherited: readonly string[]
@@ -1703,6 +1713,7 @@ export interface AgentManifest {
       variable: string
       relativeDir: string
     }
+    operatorSelectors?: readonly string[]
     set?: Readonly<Record<string, string>>
   }
   /**
