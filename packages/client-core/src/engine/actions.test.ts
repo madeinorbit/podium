@@ -760,7 +760,8 @@ describe('tucking the task on screen leaves it (POD-2293)', () => {
 
     await h.actions.setIssueTucked('root', true)
 
-    expect(h.queued.at(-1)).toMatchObject({ kind: 'issueSetTucked', input: { id: 'root', tucked: true } })
+    // The tuck is a record edit of my own row (POD-6404).
+    expect(h.queued.at(-1)).toMatchObject(myIssue('root', { tuckedAt: expect.any(String) }))
     expect(h.state().selectedIssueId).toBeNull()
     // The worktree stays: clearing it would hand over to the worktree fallback.
     expect(h.state().selectedWorktree).toBe('/wt')
