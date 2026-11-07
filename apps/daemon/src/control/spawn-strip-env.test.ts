@@ -120,7 +120,9 @@ beforeEach(() => {
   captured = undefined
 })
 
-/** The full resolved list for a claude spawn: credentials, then parent controls. */
+/** The full resolved list for a claude spawn: credentials, then parent
+ *  controls, then the operator folder selectors the child does not carry
+ *  (POD-6604: the PTY spreads the daemon's env, whose copy must not return). */
 const CLAUDE_STRIP = [
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_AUTH_TOKEN',
@@ -128,6 +130,8 @@ const CLAUDE_STRIP = [
   'CLAUDE_CODE_SESSION_ID',
   'CLAUDE_CODE_ENTRYPOINT',
   'CLAUDE_CODE_EXECPATH',
+  'CLAUDE_CONFIG_DIR',
+  'CLAUDE_SECURESTORAGE_CONFIG_DIR',
 ]
 
 it('deletes what would outrank a claude session’s own login, and what would make it another session’s child', async () => {

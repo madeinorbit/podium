@@ -285,6 +285,19 @@ function harness(opts: HarnessOptions = {}) {
   return { terminals, state, sessions }
 }
 
+/**
+ * What an attach client's boundary deletes: the harness's inherited
+ * credentials, then the operator folder selectors (POD-6604) the client's env
+ * does not carry, so the daemon's own copies cannot come back.
+ */
+function clientStrip(kind: 'opencode' | 'codex' | 'grok'): readonly string[] {
+  const manifest = AGENT_MANIFESTS[kind]
+  return [
+    ...manifest.inventory.foreignCredentialEnv,
+    ...(manifest.environment.operatorSelectors ?? []),
+  ]
+}
+
 describe('the client terminal a server-family attach produces', () => {
   it("runs opencode's OWN client against this session's server and conversation", async () => {
     const { terminals, state } = harness()
@@ -316,7 +329,7 @@ describe('the client terminal a server-family attach produces', () => {
     const spawn = state.spawns[0] as NonNullable<(typeof state.spawns)[number]>
     // REMOVED, not blanked: an empty ANTHROPIC_API_KEY is still a set one, and
     // the point is that the client resolves as if the daemon never carried it.
-    expect(spawn.stripEnv).toEqual(AGENT_MANIFESTS.opencode.inventory.foreignCredentialEnv)
+    expect(spawn.stripEnv).toEqual(clientStrip('opencode'))
     expect(spawn.env?.ANTHROPIC_API_KEY).toBeUndefined()
   })
 
@@ -842,9 +855,7 @@ describe('the client terminal a server-family attach produces', () => {
     ] as const) {
       const { terminals, state } = harness()
       await terminals.attach({ sessionId: SESSION, target: launchTarget })
-      expect(state.spawns[0]?.stripEnv, `${kind} client strip list`).toEqual(
-        AGENT_MANIFESTS[kind].inventory.foreignCredentialEnv,
-      )
+      expect(state.spawns[0]?.stripEnv, `${kind} client strip list`).toEqual(clientStrip(kind))
     }
     // And the codex list is the reconciled one, named so a silent narrowing back
     // to the three it used to carry fails here rather than in a billing report.

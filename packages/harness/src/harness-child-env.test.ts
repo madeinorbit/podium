@@ -127,7 +127,7 @@ describe('the two strip rules', () => {
     expect(child.env.CLAUDE_CODE_SESSION_ID).toBeUndefined()
   })
 
-  it('lists credentials first, then parent controls, as the PTY strip always has', () => {
+  it('lists credentials first, then parent controls, then the operator selectors the child lacks', () => {
     expect(harnessChildEnv(inherited, {}).strip).toEqual([
       'ANTHROPIC_API_KEY',
       'ANTHROPIC_AUTH_TOKEN',
@@ -135,6 +135,10 @@ describe('the two strip rules', () => {
       'CLAUDE_CODE_SESSION_ID',
       'CLAUDE_CODE_ENTRYPOINT',
       'CLAUDE_CODE_EXECPATH',
+      // POD-6604: neither is in the child's env, so the boundary deletes the
+      // daemon's own copy too.
+      'CLAUDE_CONFIG_DIR',
+      'CLAUDE_SECURESTORAGE_CONFIG_DIR',
     ])
   })
 })
