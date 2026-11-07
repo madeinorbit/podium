@@ -31,7 +31,13 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { sessionCommandPlaneInputs } from '@podium/commands'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import {
+  type DraftIssueArtifactInput,
+  draftIssueArtifactInput,
+  sessionCommandPlaneInputs,
+} from '@podium/commands'
 import {
   type AgentKind,
   asMutationId,
@@ -42,6 +48,7 @@ import {
   mintDeviceId,
   NewSessionId,
   type SessionId,
+  type UserId,
 } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
@@ -79,7 +86,8 @@ export const SESSION_LAUNCH_WAIT_MS = 5 * 60 * 1000
 /**
  * The launch input: `sessions.create`'s own schema, without the id (the
  * record's target), the route's dedup key, and the legacy browser bytes, which
- * never go into a stored record.
+ * never go into a stored record ({@link SessionLaunchInput}'s
+ * `draftArtifactUploads` holds them instead).
  */
 export const SessionLaunchInput = sessionCommandPlaneInputs.create
   .omit({
@@ -88,6 +96,26 @@ export const SessionLaunchInput = sessionCommandPlaneInputs.create
     draftArtifacts: true,
   })
   .extend({
+    /**
+     * LEGACY(remove-after: 2027-01): a pre-chat-upload web client's browser
+     * bytes for its new draft task (`draftArtifacts`, POD-2148). The old route
+     * holds each file in the pending-upload store and the record names only
+     * the held id beside the browser's own artifact id; the run attaches them to
+     * the draft (POD-6601). Removing it drops those clients' new-task files
+     * until they reload.
+     */
+    draftArtifactUploads: z
+      .array(
+        z
+          .object({
+            id: draftIssueArtifactInput.shape.id,
+            uploadId: z.string().uuid(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(20)
+      .optional(),
     /**
      * A RESUME (POD-6416): the durable conversation to reattach, as
      * `sessions.resume` names it. The run reuses the row that holds it
@@ -242,8 +270,22 @@ export function registerSessionLaunchEffect(deps: SessionLaunchEffectDeps): {
           result: await resumeSessionNow(ctx, resumed.data, sessionId, input.wake),
         }
       }
-      const parsed: CreateInput = sessionCommandPlaneInputs.create.parse({ ...input, sessionId })
+      const { draftArtifactUploads, ...create } = input
+      const draftArtifacts =
+        draftArtifactUploads === undefined
+          ? undefined
+          : await heldDraftArtifacts(deps.modules(), asUserId(writer.id), draftArtifactUploads)
+      if (draftArtifacts === null) return refused('a file for the new task is no longer held')
+      const parsed: CreateInput = sessionCommandPlaneInputs.create.parse({
+        ...create,
+        sessionId,
+        ...(draftArtifacts !== undefined ? { draftArtifacts } : {}),
+      })
       const result: SessionSpawnResult = await createSessionNow(ctx, parsed)
+      // Attached to the draft now: the held copies have done their job.
+      for (const held of draftArtifactUploads ?? []) {
+        await deps.modules().pendingUploads.discard(held.uploadId, asUserId(writer.id))
+      }
       return { status: 'succeeded', result }
     } catch (error) {
       remember(record.id, error)
@@ -413,6 +455,60 @@ export async function refuseUnplaceable(
   }
 }
 
+/** A launch's held draft file, as the record names it. */
+type HeldDraftArtifact = NonNullable<SessionLaunchInput['draftArtifactUploads']>[number]
+
+/**
+ * Hold a legacy create's browser bytes (`draftArtifacts`) in the pending-upload
+ * store, owned by the caller's human, so the launch record names only their ids.
+ */
+async function holdDraftArtifacts(
+  modules: RegistryModules,
+  principal: CommandPrincipal,
+  artifacts: readonly DraftIssueArtifactInput[],
+): Promise<HeldDraftArtifact[]> {
+  const ownerUserId = onBehalfOfUser(principal)
+  if (ownerUserId === null) throw new Error('session creation requires an accountable human owner')
+  const held: HeldDraftArtifact[] = []
+  for (const artifact of artifacts) {
+    const upload = await modules.pendingUploads.put({
+      ownerUserId,
+      filename: artifact.filename,
+      mediaType: artifact.mimeType,
+      bytes: new Uint8Array(Buffer.from(artifact.dataBase64, 'base64')),
+    })
+    held.push({ id: artifact.id, uploadId: upload.id })
+  }
+  return held
+}
+
+/**
+ * The browser files a launch's record names, read back from the pending-upload
+ * store for the draft task. Only the writer's own, unclaimed uploads; null when
+ * any is gone (the day-old sweep took it) or is not theirs.
+ */
+async function heldDraftArtifacts(
+  modules: RegistryModules,
+  ownerUserId: UserId,
+  held: readonly HeldDraftArtifact[],
+): Promise<DraftIssueArtifactInput[] | null> {
+  const store = modules.pendingUploads
+  const out: DraftIssueArtifactInput[] = []
+  for (const { id, uploadId } of held) {
+    const meta = await store.meta(uploadId)
+    if (!meta || meta.ownerUserId !== ownerUserId || meta.claimed) return null
+    const bytes = await readFile(join(store.fileDir(uploadId), meta.entry)).catch(() => undefined)
+    if (bytes === undefined) return null
+    out.push({
+      id,
+      filename: meta.filename,
+      mimeType: meta.mediaType,
+      dataBase64: bytes.toString('base64'),
+    })
+  }
+  return out
+}
+
 /**
  * `sessions.create` through the effect path, as its caller: create the record,
  * wait for it to settle, answer the old shape (or throw the launch's own
@@ -430,7 +526,12 @@ export async function createThroughLaunchEffect(
   if (effects === undefined) throw new Error('sessions.create: no effects module is composed')
   if (principal.kind === 'system') throw new Error('a system principal has no session create')
   await refuseUnplaceable(modules, principal, input)
-  const { mutationId: _mutationId, sessionId: given, draftArtifacts: _bytes, ...rest } = input
+  const { mutationId: _mutationId, sessionId: given, draftArtifacts, ...fields } = input
+  // LEGACY(remove-after: 2027-01): see `draftArtifactUploads`.
+  const draftArtifactUploads = draftArtifacts?.length
+    ? await holdDraftArtifacts(modules, principal, draftArtifacts)
+    : undefined
+  const rest = draftArtifactUploads ? { ...fields, draftArtifactUploads } : fields
   const sessionId = given ?? (randomUUID() as SessionId)
   const id = mintDeviceId('eff_')
   const { reply, cause } = await modules.syncWrite.submitDetailed(

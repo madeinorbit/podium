@@ -32,7 +32,7 @@ import { commandAccess } from './command-ctx'
  * duplicates, and these are not.
  */
 
-import { isExposedOn, sessionCommandPlane, sessionHandoffInput } from '@podium/commands'
+import { sessionHandoffInput } from '@podium/commands'
 import {
   asMachineId,
   asSessionId,
@@ -56,7 +56,6 @@ import {
   sessionCommandCtx,
   visibleMachinesFor,
 } from '../sessions/command-ctx'
-import { dispatchSessionCommand, isCommandPlaneProc } from '../sessions/command-plane'
 import type { SessionLifecycle } from '../sessions/lifecycle'
 import type { SessionReadToolkit } from '../sessions/read-toolkit'
 import { handoffThroughEffect } from '../sessions/session-handoff-effect'
@@ -432,24 +431,12 @@ export function makeAgentRelayDispatch(
           )
         })()
       }
-      // The agent names its OWN session (#490) — `podium session title "…"`.
-      // The target is the CALLING session, taken from the capability exactly as
-      // issues.attachSession takes it from the relay context: there is no
-      // sessionId in the input, so an agent CANNOT retitle anyone else's
-      // session, and no scope gate is needed (a session is always in its own
-      // scope). The user's own name is sovereign — the service refuses against
-      // it and hands back a reason instead of throwing.
+      // The agent names its OWN session (#490): `podium session title "…"`, a
+      // sync write on the calling session (`sessions/title-sync-write.ts`,
+      // POD-6601). The target is the caller's own session, from the capability;
+      // this arm is the relay adapter onto `submit`.
       if (proc === 'title') {
-        const actorSessionId = capability.actorSessionId
-        if (!actorSessionId) {
-          throw new Error('sessions.title is only callable by a session (no actor bound)')
-        }
-        const raw = (input ?? {}) as Record<string, unknown>
-        const name = raw.name ?? raw.title
-        if (typeof name !== 'string' || name.trim().length === 0) {
-          throw new Error('name is required')
-        }
-        return await Promise.resolve(sessionsSvc.setAgentName({ sessionId: actorSessionId, name }))
+        return await relaySyncWrite({ ...writeCall, input: input ?? {} }, await relayPrincipal())
       }
       // Clean end [spec:SP-9904]: stop process, free worktree, keep branch.
       // No id → self-stop (the calling session). Outside subtree needs
@@ -568,18 +555,6 @@ export function makeAgentRelayDispatch(
       if (proc === 'continue' || proc === 'sendText' || proc === 'resumeAndSend') {
         const ctx = await sessionCommandCtx(modules(), capability, overrideScope, 'relay')
         return await relaySyncWrite(writeCall, ctx.principal)
-      }
-      if (isCommandPlaneProc(proc) && isExposedOn(sessionCommandPlane.defs[proc], 'relay')) {
-        return await Promise.resolve(
-          dispatchSessionCommand(
-            // `modules` is a getter, not a value: the root fills the
-            // module set around this construction and the closure only
-            // runs per request, long after.
-            await sessionCommandCtx(modules(), capability, overrideScope, 'relay'),
-            proc,
-            input,
-          ),
-        )
       }
       return NO_SUCH_PROCEDURE
     }

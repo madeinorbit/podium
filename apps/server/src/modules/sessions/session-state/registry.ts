@@ -50,7 +50,6 @@ import {
   asMutationId,
   asSessionId,
   authorize,
-  type Capability,
   type IssueId,
   type SessionId,
 } from '@podium/model'
@@ -121,10 +120,7 @@ export interface SessionStateResult {
 }
 
 export interface SessionStateDeps {
-  sessions: Pick<
-    SessionLifecycle,
-    'renameSession' | 'setAgentName' | 'setSessionIssueId' | 'sessionOwner' | 'dismissOffer'
-  > &
+  sessions: Pick<SessionLifecycle, 'setSessionIssueId' | 'sessionOwner' | 'dismissOffer'> &
     Partial<Pick<SessionLifecycle, 'residency'>>
   state: SessionStateService
   /**
@@ -213,8 +209,9 @@ const ownPerUserTabOrder: TargetResolver = async (input, principal, deps) => {
   // promise is truthy but `!promise` is not — so this is spelled as an explicit
   // await of every verdict [POD-3507].
   const readable = await Promise.all(
-    input.sessionIds.map(async (id) =>
-      typeof id === 'string' && (await deps.state.canReadSession(principal, asSessionId(id))),
+    input.sessionIds.map(
+      async (id) =>
+        typeof id === 'string' && (await deps.state.canReadSession(principal, asSessionId(id))),
     ),
   )
   if (readable.some((ok) => ok !== true)) {
@@ -244,23 +241,6 @@ const sessionIdOf = (v: unknown): SessionId => asSessionId(str(v))
 const issueIdOrNull = (v: unknown): IssueId | null => (typeof v === 'string' ? asIssueId(v) : null)
 
 const REGISTRATIONS: Record<string, Registration> = {
-  'sessions.rename': {
-    target: ownedSession,
-    handler: (input, principal, deps) => {
-      const name = str(input.name)
-      // §3.1.3 A3: "a human set this name" is decided from the ON-BEHALF-OF human
-      // of the transport principal, not from which transport was used. An agent
-      // acting for a human still writes an agent-sourced name — [spec:SP-eb60]'s
-      // precedence rule protects the HUMAN's choice, and an agent's pick is not
-      // the human's just because it was delegated.
-      if (principal.humanDirect) {
-        return deps.sessions.renameSession({ sessionId: sessionIdOf(input.sessionId), name })
-      }
-      // Non-human actor: route through the agent-naming path, which enforces the
-      // precedence rule and REFUSES a user-set name instead of overwriting it.
-      return deps.sessions.setAgentName({ sessionId: sessionIdOf(input.sessionId), name })
-    },
-  },
   'sessions.setArchived': {
     target: ownedSession,
     handler: (input, _principal, deps) => {
@@ -270,13 +250,19 @@ const REGISTRATIONS: Record<string, Registration> = {
   'sessions.setWorkState': {
     target: ownedSession,
     handler: (input, _principal, deps) => {
-      return deps.state.setWorkState(sessionIdOf(input.sessionId), (input.workState ?? null) as never)
+      return deps.state.setWorkState(
+        sessionIdOf(input.sessionId),
+        (input.workState ?? null) as never,
+      )
     },
   },
   'sessions.setIssueId': {
     target: ownedSession,
     handler: (input, _principal, deps) => {
-      return deps.sessions.setSessionIssueId(sessionIdOf(input.sessionId), issueIdOrNull(input.issueId))
+      return deps.sessions.setSessionIssueId(
+        sessionIdOf(input.sessionId),
+        issueIdOrNull(input.issueId),
+      )
     },
   },
   'sessions.dismissOffer': {
@@ -330,7 +316,12 @@ const REGISTRATIONS: Record<string, Registration> = {
   'pins.set': {
     target: ownPerUserRow,
     handler: async (input, principal, deps) => {
-      return await deps.state.setPin(principal, input.kind as never, str(input.id), input.pinned === true)
+      return await deps.state.setPin(
+        principal,
+        input.kind as never,
+        str(input.id),
+        input.pinned === true,
+      )
     },
   },
   'tabs.setOrder': {
@@ -419,7 +410,9 @@ export class SessionStateRegistry {
     const mutationId =
       typeof input.mutationId === 'string' ? asMutationId(input.mutationId) : undefined
     const run = async () =>
-      await this.deps.mutations.apply(mutationId, name, () => registration.handler(input, principal, this.deps))
+      await this.deps.mutations.apply(mutationId, name, () =>
+        registration.handler(input, principal, this.deps),
+      )
     // The command's session is resident while it runs (POD-6160 D2f): a parked
     // one is restored from its row and may leave memory once the command settles.
     const residency = this.deps.sessions.residency

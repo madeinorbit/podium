@@ -43,8 +43,8 @@ import {
 } from '@podium/commands'
 import type { MachineId } from '@podium/model'
 import {
-  asMutationId,
   asMachineId,
+  asMutationId,
   asSessionId,
   asUserId,
   firstAdminMemberId,
@@ -53,10 +53,7 @@ import {
 import type { MachineGrant } from '@podium/protocol'
 
 import { afterEach, describe, expect, it } from 'vitest'
-import {
-  type AgentCommandPrincipal,
-  type CommandPrincipal,
-} from './command-principal'
+import type { AgentCommandPrincipal, CommandPrincipal } from './command-principal'
 
 import type { MachineOwnershipIndex, MachineOwnershipRow } from './machine-access'
 import { ownershipSnapshotFromMachines } from './machine-access'
@@ -73,10 +70,9 @@ import {
   messageOf,
   type Oracle,
 } from './modules/sessions/oracle-support'
+import { renameOnTargetPath } from './modules/sessions/rename-target-path'
 import { asyncSessionIssueAccess, type SessionVisibility } from './modules/sessions/session-access'
-import {
-  SessionStateRegistry,
-} from './modules/sessions/session-state/registry'
+import { SessionStateRegistry } from './modules/sessions/session-state/registry'
 import { sessionSurfaceManifest } from './modules/sessions/trpc'
 import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
@@ -146,7 +142,15 @@ function ownershipTable(
       return {
         machine: machineId as MachineId,
         owner: row.owner,
-        grants: [...(row.owner ? [{ subject: row.owner, verb: 'use' as const }, { subject: row.owner, verb: 'manage' as const, custody: true }] : []), ...row.grants],
+        grants: [
+          ...(row.owner
+            ? [
+                { subject: row.owner, verb: 'use' as const },
+                { subject: row.owner, verb: 'manage' as const, custody: true },
+              ]
+            : []),
+          ...row.grants,
+        ],
         ...(row.name === undefined ? {} : { name: row.name }),
       }
     },
@@ -188,9 +192,11 @@ async function ctxFor(
     createDraftIssue: async (repoPath, agentKind, issueId, ownership) =>
       await modules.issues.attention.createDraftFor(repoPath, agentKind, issueId, ownership),
     attachDraftArtifacts: async (issueId, artifacts) => {
-      for (const artifact of artifacts) await modules.issues.crud.panelArtifactUpload(issueId, artifact)
+      for (const artifact of artifacts)
+        await modules.issues.crud.panelArtifactUpload(issueId, artifact)
     },
-    discardUnlaunchedDraft: async (issueId) => await modules.issues.attention.discardUnlaunchedDraft(issueId),
+    discardUnlaunchedDraft: async (issueId) =>
+      await modules.issues.attention.discardUnlaunchedDraft(issueId),
     issueOwner: async () => undefined,
     access: {
       sessionById: async (sessionId) => await modules.sessions.sessionById(sessionId),
@@ -364,11 +370,8 @@ describe('AC2 · framework idempotency is the single implementation', () => {
       mutations: o.reg.modules.mutations,
     })
     const owner = soleHumanSessionStatePrincipal(OPERATOR)
-    const applied = await presence.execute(
-      'sessions.rename',
-      { sessionId, name: 'mine', mutationId: 'revoke-1' },
-      owner,
-    )
+    const write = { sessionId, archived: true, mutationId: 'revoke-1' }
+    const applied = await presence.execute('sessions.setArchived', write, owner)
     expect(applied.outcome).toBe('applied')
 
     // A DIFFERENT user (scope `owned` for themselves) replays the same id.
@@ -381,11 +384,7 @@ describe('AC2 · framework idempotency is the single implementation', () => {
       onBehalfOf: asUserId('user:stranger'),
       humanDirect: true,
     }
-    const replay = await presence.execute(
-      'sessions.rename',
-      { sessionId, name: 'mine', mutationId: 'revoke-1' },
-      stranger,
-    )
+    const replay = await presence.execute('sessions.setArchived', write, stranger)
 
     // Denied, NOT `replayed` — the cache did not launder it.
     expect(replay.outcome).toBe('denied')
@@ -601,51 +600,37 @@ describe('AC4 · the per-user split actually happened', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC5 · attribution is a pair and comes from the transport', () => {
-  it('PRESENCE: the pair decides nameSource, and a payload-supplied identity is ignored', async () => {
+  it('RENAME: the pair decides nameSource, and a payload-supplied identity is ignored', async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    const presence = new SessionStateRegistry({
-      sessions: o.reg.modules.sessions,
-      state: o.reg.modules.sessions.state,
-
-      mutations: o.reg.modules.mutations,
-    })
+    const deps = { sessions: o.reg.modules.sessions, mutations: o.reg.modules.mutations }
 
     // A HUMAN acting directly writes a user-sourced name…
-    await presence.execute(
-      'sessions.rename',
+    const named = await renameOnTargetPath(
+      deps,
       { sessionId, name: 'human choice' },
-      {
-        userId: asUserId('user:h'),
-        capability: OPERATOR,
-        onBehalfOf: asUserId('user:h'),
-        humanDirect: true,
-      },
+      human(firstAdminMemberId()),
     )
+    expect(named.outcome).toBe('applied')
     expect((await o.meta(sessionId)).name).toBe('human choice')
 
     // …and an AGENT acting for that human does NOT overwrite it, because the
     // agent-naming path enforces [spec:SP-eb60]'s precedence. The distinction is
     // read off the principal's pair, not off which transport was used — and the
     // payload's own `humanDirect` / `actor` claims are not even representable.
-    const result = await presence.execute(
-      'sessions.rename',
+    const result = await renameOnTargetPath(
+      deps,
       {
         sessionId,
         name: 'agent choice',
         humanDirect: true,
         actor: 'user:h',
-        onBehalfOf: asUserId('user:h'),
+        onBehalfOf: firstAdminMemberId(),
       },
-      {
-        userId: asUserId('user:h'),
-        capability: { ...OPERATOR, actorSessionId: asSessionId('agent-1') },
-        actorSessionId: asSessionId('agent-1'),
-        onBehalfOf: asUserId('user:h'),
-        humanDirect: false,
-      },
+      agentFor('agent-1', firstAdminMemberId()),
     )
     expect(result.outcome).toBe('applied')
+    expect(result.outcome === 'applied' && result.result.ok).toBe(false)
     expect((await o.meta(sessionId)).name).toBe('human choice')
   })
 
@@ -664,7 +649,10 @@ describe('AC5 · attribution is a pair and comes from the transport', () => {
 
     // And the value that IS written comes from the principal: an agent's create
     // stamps that agent, a human's stamps `user`.
-    const agentSession = await o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
+    const agentSession = await o.reg.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/p',
+    })
     const asAgent = await ctxFor(o, agentFor(agentSession.sessionId, firstAdminMemberId()))
     const created = await dispatchSessionCommand(asAgent, 'create', {
       agentKind: 'shell',
@@ -697,7 +685,11 @@ describe('AC5 · attribution is a pair and comes from the transport', () => {
       assignment: { server: false, agentExecution: true },
     })
     await o.store.repos.addRepo('/r', asMachineId('local'))
-    const issue = await o.reg.issues.crud.create({ repoPath: '/r', title: 'handoff', startNow: false })
+    const issue = await o.reg.issues.crud.create({
+      repoPath: '/r',
+      title: 'handoff',
+      startNow: false,
+    })
     await o.reg.issues.crud.update(issue.id, { worktreePath: '/r/.worktrees/h' })
     const { sessionId } = await o.call.sessions.create({
       agentKind: 'claude-code',
@@ -811,7 +803,9 @@ describe('AC6 · the machine `use` gate is on the only remaining path', () => {
       cwd: '/p',
     })
     expect(created.sessionId).toBeDefined()
-    expect(await dispatchSessionCommand(ctx, 'kill', { sessionId: created.sessionId })).toBeUndefined()
+    expect(
+      await dispatchSessionCommand(ctx, 'kill', { sessionId: created.sessionId }),
+    ).toBeUndefined()
   })
 
   it('THE ALL-IN-ONE CASE: a non-owner may not execute on the host daemon', async () => {
@@ -935,15 +929,11 @@ describe('AC7 · the command surface is not an existence oracle', () => {
       new Map([['box', { owner: COLLEAGUE, grants: [], name: 'The Box' }]]),
     )
     const invisibleMessage = await messageOf(async () =>
-      dispatchSessionCommand(
-        await ctxFor(o, stranger, { ownership: invisible }),
-        'create',
-        {
-          agentKind: 'shell',
-          cwd: '/p',
-          machineId: 'box',
-        },
-      ),
+      dispatchSessionCommand(await ctxFor(o, stranger, { ownership: invisible }), 'create', {
+        agentKind: 'shell',
+        cwd: '/p',
+        machineId: 'box',
+      }),
     )
     // Never paired: no row for this id anywhere.
     const neverPaired = await messageOf(async () =>

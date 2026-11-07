@@ -725,6 +725,8 @@ would leave the target path with zero production callers — with
 `PODIUM_SESSION_RENAME_PATH=legacy` as the rollback, matched exactly so a typo cannot
 silently disable a shipped command. `MIGRATED_COMMANDS` is asserted to be exactly
 `['sessions.rename']`, so a list that grew would fail a test rather than pass a review.
+(POD-6601 removed the adapter, the rollback flag and the shadow comparison: rename has
+one path, its sync registration, and the session-state envelope no longer serves it.)
 
 **The pairing, since the obvious one no longer exists.** POD-380 deleted the
 hand-written rename procedure. LEGACY is therefore `SessionStateRegistry` (POD-380's

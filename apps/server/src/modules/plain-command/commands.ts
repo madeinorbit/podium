@@ -30,6 +30,7 @@ import { LOGS_PLAIN_FAMILY } from '../logs/plain-family'
 import { MODEL_PLAIN_FAMILY } from '../models/plain-family'
 import { OPERATION_PLAIN_REGISTRATIONS } from '../operations/plain-family'
 import { PERF_PLAIN_FAMILY } from '../perf/plain-family'
+import { SESSION_PLAIN_REGISTRATIONS } from '../sessions/plain-family'
 import { SETTINGS_PLAIN_REGISTRATIONS } from '../settings/trpc'
 import { SPEC_PLAIN_FAMILY } from '../specs/plain-family'
 import { UPDATE_PLAIN_REGISTRATIONS } from '../updates/trpc'
@@ -48,6 +49,7 @@ const registrations = (): readonly PlainRegistration[] => [
   ...plainFamilyRegistrations(MODEL_PLAIN_FAMILY),
   ...OPERATION_PLAIN_REGISTRATIONS,
   ...plainFamilyRegistrations(PERF_PLAIN_FAMILY),
+  ...SESSION_PLAIN_REGISTRATIONS,
   ...plainFamilyRegistrations(SETUP_PLAIN_FAMILY),
   ...SETTINGS_PLAIN_REGISTRATIONS,
   ...plainFamilyRegistrations(SPEC_PLAIN_FAMILY),

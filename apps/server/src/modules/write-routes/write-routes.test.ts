@@ -106,6 +106,29 @@ describe('the served write routes', () => {
     expect(routed).toEqual(Object.keys(DIRECT_WRITES).sort())
   })
 
+  it('the old session plane routes name the registration they write (POD-6601)', () => {
+    const metaOf = (path: string) => mutations().find((p) => p.path === path)?.meta
+    const edit = { registration: 'records.session.edit', path: 'sync' }
+    expect(metaOf('sessions.stop')).toMatchObject(edit)
+    expect(metaOf('sessions.hibernate')).toMatchObject(edit)
+    expect(metaOf('sessions.resurrect')).toMatchObject(edit)
+    expect(metaOf('sessions.kill')).toMatchObject({
+      registration: 'records.session.remove',
+      path: 'sync',
+    })
+    for (const key of ['create', 'resume', 'interrupt', 'configure', 'answerAskUserQuestion']) {
+      expect(metaOf(`sessions.${key}`)).toMatchObject({
+        registration: 'effects.create',
+        path: 'sync',
+      })
+    }
+    expect(metaOf('sessions.uploadImage')).toMatchObject({
+      registration: 'sessions.uploadImage',
+      path: 'plain',
+    })
+    expect(Object.keys(DIRECT_WRITES).filter((name) => name.startsWith('sessions.'))).toEqual([])
+  })
+
   it('every direct write is owned by an issue that moves it onto a registration', () => {
     const owners: readonly string[] = DIRECT_WRITE_OWNERS
     const strays = Object.entries(DIRECT_WRITES)

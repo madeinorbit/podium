@@ -11,10 +11,7 @@
  *
  * So this table is to the routes what `SYSTEM_WRITE_ORIGINS` is to the writers:
  * the one place an exception is written down, visible in review, each with what
- * it writes and the issue that removes it. One exception is inside a sync
- * route rather than here: `sessions.rename`'s rollback branch
- * (`renamePath() === 'legacy'`) writes through the session-state envelope, and
- * is POD-6601's too. A route for a name not listed here
+ * it writes and the issue that removes it. A route for a name not listed here
  * fails at module load; `write-routes/write-routes.test.ts` holds every mutation
  * the server serves to the sync registry, the plain registry or this table.
  */
@@ -36,11 +33,10 @@ export interface DirectWriteSpec {
 }
 
 const ISSUE_DIRECT = 'POD-6603'
-const SESSION_DIRECT = 'POD-6601'
 
 /** The issues that move the census onto registrations; it reaches zero before
  *  the write audits are deleted (POD-6595). */
-export const DIRECT_WRITE_OWNERS = [ISSUE_DIRECT, SESSION_DIRECT] as const
+export const DIRECT_WRITE_OWNERS = [ISSUE_DIRECT] as const
 
 export const DIRECT_WRITES = {
   'issues.start': {
@@ -62,19 +58,6 @@ export const DIRECT_WRITES = {
     what: "answers an issue's pending agent question and clears its needs-human flag",
     owner: ISSUE_DIRECT,
   },
-  'sessions.answerAskUserQuestion': {
-    what: "answers a session's pending question through its daemon",
-    owner: SESSION_DIRECT,
-  },
-  'sessions.configure': { what: "changes a live session's model or effort", owner: SESSION_DIRECT },
-  'sessions.create': { what: 'creates a session on a machine', owner: SESSION_DIRECT },
-  'sessions.hibernate': { what: 'parks a session', owner: SESSION_DIRECT },
-  'sessions.interrupt': { what: "interrupts a session's turn", owner: SESSION_DIRECT },
-  'sessions.kill': { what: "ends a session's process", owner: SESSION_DIRECT },
-  'sessions.resume': { what: 'resumes a parked session', owner: SESSION_DIRECT },
-  'sessions.resurrect': { what: 'brings an exited session back', owner: SESSION_DIRECT },
-  'sessions.stop': { what: 'stops a session', owner: SESSION_DIRECT },
-  'sessions.uploadImage': { what: "stages an image on a session's machine", owner: SESSION_DIRECT },
 } as const satisfies Record<string, DirectWriteSpec>
 
 export type DirectWriteName = keyof typeof DIRECT_WRITES

@@ -78,9 +78,8 @@ import {
 import { TRPCError, type TRPCMutationProcedure } from '@trpc/server'
 import type { z } from 'zod'
 import type { PinState, SnoozeMap } from '../../store/types'
-import { type Context, mods, t } from '../../trpc'
 import { familyState } from '../derived-family'
-import { directRoute } from '../write-routes/direct'
+import { plainRoute } from '../write-routes/plain'
 import { syncRoute } from '../write-routes/sync'
 import { sessionCommandCtx } from './command-ctx'
 import {
@@ -89,9 +88,7 @@ import {
   type SessionCommandResult,
 } from './command-plane'
 import { handoffRefusalOf } from './handoff/refusal'
-import { dispatchRename, renamePath } from './rename-adapter'
 import { handoffThroughEffect } from './session-handoff-effect'
-import { SessionStateRegistry, sessionStatePrincipalFor } from './session-state/registry'
 import {
   IMMEDIATE_PLANE_COMMANDS,
   IMMEDIATE_SESSION_STATE_COMMANDS,
@@ -217,64 +214,24 @@ function sessionStateProcedure<N extends TrpcSessionStateName>(name: N): Session
   throw new Error(`sessionStateProcedure: ${name} is not a queued session-state command`)
 }
 
-/** The session-state envelope for one call. */
-function sessionStateRegistryFor(ctx: Context): SessionStateRegistry {
-  return new SessionStateRegistry({
-    sessions: familyState(ctx).modules.sessions,
-    state: familyState(ctx).modules.sessions.state,
-
-    // THE composition root's ledger — framework idempotency, one instance.
-    mutations: familyState(ctx).modules.mutations,
-  })
-}
-
-/** The transport principal for a tRPC call. One shared password ⇒ the sole human
- *  (§3.2); POD-1075 replaces this with a real per-user principal. */
-export function sessionStatePrincipal(ctx: Context) {
-  return sessionStatePrincipalFor(ctx.principal)
-}
-
 // ---------------------------------------------------------------------------
 // The walking skeleton (POD-351)
 // ---------------------------------------------------------------------------
 
 /**
- * `sessions.rename` ON THE TARGET PATH — POD-351's join, re-pointed into POD-382's
- * derived surface.
+ * `sessions.rename` — POD-351's walking skeleton, now a thin adapter onto its
+ * sync registration (`sync-write.ts`, POD-6350). The rollback flag that took the
+ * session-state envelope instead (`PODIUM_SESSION_RENAME_PATH=legacy`) is gone
+ * (POD-6601): the write has one path.
  *
- * ## Why this is a fourth source and not a session-state procedure
+ * It stays in `TRPC_SESSION_STATE_NAMES` and keeps its session-state contract,
+ * because that contract is still what declares its exposure, and the
+ * both-directions exposure cross-check in `sessionStateEntries()` must keep
+ * covering it.
  *
- * Every OTHER session-state contract is served by `sessionStateProcedure`, which runs the
- * `SessionStateRegistry` envelope. Rename is the one command the walking skeleton moved
- * to the TARGET path: the `@podium/commands` contract, the real `CommandPrincipal`
- * with its delegation chain resolved live, and the contract's accept/reject outcome
- * union. `dispatchRename` chooses between that and the legacy session-state envelope on
- * the flag, so BOTH paths stay reachable from one call site — which is what the
- * shadow comparison requires and what makes `PODIUM_SESSION_RENAME_PATH=legacy` a
- * real rollback rather than a dead branch.
- *
- * Declaring it as its own source rather than special-casing inside
- * `sessionStateProcedure` keeps that visible in the MANIFEST: the audit and any reader
- * can see exactly which commands are on which envelope, and a second command
- * migrating later is a row that changes rather than a condition someone has to find.
- *
- * ## What it still shares with the session-state class, and why that is not a compromise
- *
- * It stays in `TRPC_SESSION_STATE_NAMES` and keeps its session-state contract, because that
- * contract is still what declares its exposure and its policy — and the both-
- * directions exposure cross-check in `sessionStateEntries()` must keep covering it.
- * `@podium/commands`' `sessionRenameContract` COMPOSES that same input schema
- * instance (asserted with `toBe` in `packages/commands/src/sessions/rename.test.ts`),
- * so there is one schema object and the two envelopes cannot diverge on the wire.
- *
- * ## The public return type stays `void`, deliberately
- *
- * The session-state class's refusal shape is a silent no-op (§3.1.5, pinned by POD-379).
- * Surfacing the target path's richer outcome to THIS transport would make a denial
- * distinguishable from a not-found and turn the procedure into an existence oracle.
- * The outcome is not discarded — it is what the outbox drain reads to dead-letter a
- * rejected offline write (POD-316), where the caller is already authorized and the
- * reason leaks nothing.
+ * The public return type stays `void`, deliberately: a denial must not be
+ * distinguishable from a not-found here (§3.1.5). The richer outcome is what the
+ * outbox drain reads to dead-letter a rejected offline write (POD-316).
  */
 function renameProcedure(): SessionStateProcedure<'sessions.rename'> {
   const def = sessionStateCommand(RENAME_NAME)
@@ -282,42 +239,14 @@ function renameProcedure(): SessionStateProcedure<'sessions.rename'> {
   return syncRoute({
     command: { name: RENAME_NAME, def },
     input: sessionStateInputs['sessions.rename'],
-    run: async ({ ctx, input, submit }): Promise<void> => {
-      if (renamePath() !== 'legacy') {
-        // THE TARGET PATH IS NOW THE SYNC WRITE ENTRY POINT (POD-6350): this
-        // route is a thin adapter onto it until POD-6359 removes it. The
-        // rollback flag still takes the legacy envelope below.
-        const { reply, cause } = await submit()
-        if (reply.outcome === 'applied') return
-        if (cause !== undefined) throw cause
-        if (reply.refusal.kind === 'invalid') {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid command input' })
-        }
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'command refused' })
-      }
-      const modules = familyState(ctx).modules
-      const dispatch = await dispatchRename(
-        {
-          sessions: modules.sessions,
-          mutations: modules.mutations,
-          principal: (await sessionCommandCtx(modules, ctx.capability)).principal,
-          legacyPrincipal: sessionStatePrincipal(ctx),
-          // The rollback envelope, built lazily — the target path is the default.
-          legacyRegistry: () => sessionStateRegistryFor(ctx),
-        },
-        input,
-      )
-      if (dispatch === undefined) return
-      if (dispatch.outcome === 'denied' || dispatch.outcome === 'not-exposed') {
-        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'command refused' })
-      }
-      if (dispatch.outcome === 'invalid-input') {
+    run: async ({ submit }): Promise<void> => {
+      const { reply, cause } = await submit()
+      if (reply.outcome === 'applied') return
+      if (cause !== undefined) throw cause
+      if (reply.refusal.kind === 'invalid') {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'invalid command input' })
       }
-      if (dispatch.result == null) return
-      if (!dispatch.result.ok) {
-        throw new TRPCError({ code: 'CONFLICT', message: dispatch.result.reason })
-      }
+      throw new TRPCError({ code: 'UNAUTHORIZED', message: 'command refused' })
     },
   }) as unknown as SessionStateProcedure<'sessions.rename'>
 }
@@ -330,20 +259,43 @@ function renameProcedure(): SessionStateProcedure<'sessions.rename'> {
  * LEGACY(remove-after: 2027-03): the command plane's per-command routes, kept for
  * the shipped clients that still call them (POD-6416; checked at v0.1.3, v0.2.0
  * and v0.2.1-edge.3). Removing one breaks that client's control. Each is an
- * adapter onto the write path; none acts on a daemon from inside the request:
- *  - stop, hibernate, resurrect, kill: `records.session.edit` / `.remove`, which
- *    the lifecycle controller acts on after the commit (client-core's outbox
- *    kinds, an older CLI).
+ * adapter onto a registration, and its meta names that registration (POD-6601);
+ * none acts on a daemon from inside the request. The plane's gate and the
+ * route's old answer stay in the route:
+ *  - stop, hibernate, resurrect: `records.session.edit` (`desired`), which the
+ *    lifecycle controller acts on after the commit. kill:
+ *    `records.session.remove`. (client-core's outbox kinds, an older CLI.)
  *  - create, resume: a `session.launch` effect record (the mobile app, the
- *    desktop web; resume only the v0.1.3 desktop web). A create carrying the
- *    browser's `draftArtifacts` still starts in the request (see the handler).
+ *    desktop web; resume only the v0.1.3 desktop web).
  *  - interrupt: a `session.interrupt` effect record (the mobile app, the web).
  *  - configure: a `session.configure` effect record (the web's model chip).
- *  - continue: `sessions.continue` on `sync.submit` (client-core, an older CLI).
- * Not sync writes, so they stay as they are: answerAskUserQuestion (POD-6415
- * gives answers their effect kind), uploadImage (bytes to a held upload or a
- * machine; no synced row).
+ *  - answerAskUserQuestion: a `session.answer` effect record (app builds
+ *    before POD-6415).
+ *  - continue, and the chat sends: their own registrations on `sync.submit`.
+ *  - uploadImage: a plain registration (bytes to a held upload or a machine;
+ *    no synced row).
  */
+
+/**
+ * WHAT EACH OLD PLANE ROUTE WRITES (POD-6601): the registration its handler
+ * submits through `SessionCommandCtx`'s lifecycle edits. The route's meta names
+ * it. A plane command that is neither here, a send, `continue` nor the plain
+ * upload has no route and fails at module load.
+ */
+const PLANE_ROUTE_WRITES = {
+  stop: 'records.session.edit',
+  hibernate: 'records.session.edit',
+  resurrect: 'records.session.edit',
+  kill: 'records.session.remove',
+  create: 'effects.create',
+  resume: 'effects.create',
+  interrupt: 'effects.create',
+  configure: 'effects.create',
+  answerAskUserQuestion: 'effects.create',
+} as const satisfies Partial<Record<SessionCommandKey, string>>
+
+/** The plane's writes on the plain path (`plain-family.ts`). */
+const PLAIN_PLANE_COMMANDS: ReadonlySet<string> = new Set(['uploadImage'])
 
 /**
  * The precise procedure type one command-plane contract derives to — what keeps
@@ -380,8 +332,14 @@ function planeProcedure<K extends SessionCommandKey>(key: K): PlaneProcedure<K> 
       input: schema,
     }) as unknown as PlaneProcedure<K>
   }
-  // Off the entry point: in the direct-write census until POD-6601.
-  const built = directRoute(`sessions.${key}`, {
+  if (PLAIN_PLANE_COMMANDS.has(key)) return plainRoute(`sessions.${key}`) as PlaneProcedure<K>
+  const registration = (PLANE_ROUTE_WRITES as Partial<Record<SessionCommandKey, string>>)[key]
+  if (registration === undefined) {
+    throw new Error(`sessions.${key}: no registration serves this plane command's route`)
+  }
+  const built = syncRoute({
+    command: { name: `sessions.${key}`, def: sessionCommandPlane.defs[key] },
+    registration,
     input: schema,
     run: async ({ ctx, input }): Promise<unknown> =>
       await dispatchSessionCommand(

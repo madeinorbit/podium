@@ -8,8 +8,13 @@
  * the daemon was sent.
  */
 
-import { asUserId,
-  BUILTIN_HARNESS_KINDS, firstAdminMemberId, mintDeviceId, type SessionId } from '@podium/model'
+import {
+  asUserId,
+  BUILTIN_HARNESS_KINDS,
+  firstAdminMemberId,
+  mintDeviceId,
+  type SessionId,
+} from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
 import { confirmingRetirement } from '../../test-support/host-daemon'
@@ -242,6 +247,45 @@ describe('sessions.create is an adapter onto the effect', () => {
       (r) => r.entity === 'effect' && String(r.payload).includes(sessionId),
     )
     expect(launches.length).toBeGreaterThan(0)
+  })
+
+  it("a legacy create's browser files are held, named by id in the record, and land on the draft", async () => {
+    // LEGACY(remove-after: 2027-01): pre-chat-upload web clients (POD-6601).
+    const o = await makeOracle()
+    // The draft task is filed in a repo the host reports.
+    await o.store.repos.addRepo('/p', o.store.hostMachineId)
+    const sessionId = newSessionId()
+
+    await o.call.sessions.create({
+      agentKind: 'claude-code',
+      cwd: '/p',
+      sessionId,
+      draftIssue: { repoPath: '/p' },
+      draftArtifacts: [
+        { id: 'att-1', filename: 'mock.png', mimeType: 'image/png', dataBase64: 'UE5H' },
+      ],
+    })
+
+    expect(spawns(o, sessionId)).toHaveLength(1)
+    const launch = await o.store.effects.newestOnTarget(
+      SESSION_LAUNCH_KIND,
+      { kind: 'session', id: sessionId },
+      'succeeded',
+    )
+    expect(launch?.input).toMatchObject({
+      draftArtifactUploads: [{ id: 'att-1', uploadId: expect.any(String) }],
+    })
+    // The record, and every feed change, carry the held id, never the bytes.
+    expect(JSON.stringify(launch?.input)).not.toContain('UE5H')
+    expect((await changeRows(o)).some((r) => String(r.payload).includes('UE5H'))).toBe(false)
+    const draft = (await o.reg.issues.reports.list('/p')).find((issue) => issue.draft)
+    expect(draft?.panel?.artifacts).toEqual([
+      expect.objectContaining({ path: 'attachments/att-1/mock.png', title: 'mock.png' }),
+    ])
+    // The held copy has done its job.
+    const held = (launch?.input as { draftArtifactUploads: { uploadId: string }[] })
+      .draftArtifactUploads[0]?.uploadId as string
+    expect(await o.reg.modules.pendingUploads.meta(held)).toBeUndefined()
   })
 
   it('with no daemon attached it refuses at once as before, and creates no record', async () => {

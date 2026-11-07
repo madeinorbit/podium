@@ -43,7 +43,6 @@ import type {
   Attribution,
   IssueId,
   MachineId,
-  MutationId,
   SessionDesired,
   SessionId,
   UserId,
@@ -704,7 +703,8 @@ function sendHandler(lifecycle: 'wait' | 'wake', proc: string) {
         if (!checked.ok) return { ok: false, reason: checked.reason, disposition: 'dead_letter' }
         const row = await ctx.sessions.sessionById(target.sessionId)
         const resume = (row as { resume?: { kind: string; value: string } } | undefined)?.resume
-        if (!row || !resume) return { ok: false, reason: 'no resume ref', disposition: 'dead_letter' }
+        if (!row || !resume)
+          return { ok: false, reason: 'no resume ref', disposition: 'dead_letter' }
         await edits.wakeWith({
           session: {
             sessionId: target.sessionId,
@@ -878,12 +878,12 @@ export async function resumeSessionNow(
 
 export const SESSION_COMMAND_HANDLERS = {
   create: async (ctx: SessionCommandCtx, input: CreateInput) => {
+    // A `session.launch` effect record (POD-6398): the start happens in its
+    // run, after its commit; a legacy create's browser bytes are held and named
+    // by id (POD-6601). The direct call serves only the plane's hand-built test
+    // contexts, which compose no effects.
     const edits = ctx.deps.lifecycleEdits
-    // LEGACY(remove-after: 2027-03): the browser bytes of a v0.2.x desktop app's
-    // bundled web (`draftArtifacts`, POD-2148) never go into a stored launch
-    // spec, so that one shape still starts in the request. Removing this arm
-    // refuses that app's cold start with files attached.
-    if (edits && !input.draftArtifacts?.length) return await edits.create(input)
+    if (edits) return await edits.create(input)
     return await createSessionNow(ctx, input)
   },
 
@@ -1209,9 +1209,4 @@ export async function dispatchSessionCommand<K extends SessionCommandKey>(
   return typeof sessionId === 'string' && residency
     ? await residency.withSession(sessionId as SessionId, name, run)
     : await run()
-}
-
-/** Is this proc one of the migrated command-plane commands? */
-export function isCommandPlaneProc(proc: string): proc is SessionCommandKey {
-  return Object.hasOwn(SESSION_COMMAND_HANDLERS, proc)
 }

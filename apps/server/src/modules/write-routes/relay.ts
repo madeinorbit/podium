@@ -119,11 +119,7 @@ export const RELAY_ARMS: Readonly<Record<string, RelayArm>> = {
   'sessions.continue': SYNC_ADAPTER,
   'sessions.status': READ,
   'sessions.read': READ,
-  'sessions.title': {
-    kind: 'direct',
-    what: 'names the calling session (`setAgentName`), a write to its synced row',
-    owner: 'POD-6601',
-  },
+  'sessions.title': SYNC_ADAPTER,
   // Its scope gates are the arm's; the write is `desired: stopped` as the agent.
   'sessions.stop': entry('records.session.edit'),
   // A `session.handoff` effect record, created as the agent and awaited.

@@ -30,6 +30,8 @@ import {
 } from '../../command-principal'
 import type { MachineOwnershipIndex, MachineOwnershipRow } from '../../machine-access'
 import { ownershipSnapshotFromMachines } from '../../machine-access'
+import { DurableIssueAccessIndex } from '../issues/access-index'
+import { messageRecordOf } from '../message-feed/feed'
 import { machinesForPrincipal, sessionCommandServices, usableRepos } from './command-ctx'
 import {
   bindingPrincipalFor,
@@ -40,8 +42,6 @@ import {
   type SessionCommandDeps,
   spawnedByFor,
 } from './command-plane'
-import { DurableIssueAccessIndex } from '../issues/access-index'
-import { messageRecordOf } from '../message-feed/feed'
 import { disposeOracles, makeOracle, messageOf } from './oracle-support'
 import {
   ambiguousSessionPrefixMessage,
@@ -99,7 +99,15 @@ function ownershipTable(
         // owner included, and every positive control below fails closed.
         daemonAssigned: true,
         daemonAvailable: true,
-        grants: [...(row.owner ? [{ subject: row.owner, verb: 'use' as const }, { subject: row.owner, verb: 'manage' as const, custody: true }] : []), ...row.grants],
+        grants: [
+          ...(row.owner
+            ? [
+                { subject: row.owner, verb: 'use' as const },
+                { subject: row.owner, verb: 'manage' as const, custody: true },
+              ]
+            : []),
+          ...row.grants,
+        ],
         ...(row.name === undefined ? {} : { name: row.name }),
       }
     },
@@ -146,9 +154,11 @@ async function ctxFor(
     createDraftIssue: async (repoPath, agentKind, issueId, ownership) =>
       await modules.issues.attention.createDraftFor(repoPath, agentKind, issueId, ownership),
     attachDraftArtifacts: async (issueId, artifacts) => {
-      for (const artifact of artifacts) await modules.issues.crud.panelArtifactUpload(issueId, artifact)
+      for (const artifact of artifacts)
+        await modules.issues.crud.panelArtifactUpload(issueId, artifact)
     },
-    discardUnlaunchedDraft: async (issueId) => await modules.issues.attention.discardUnlaunchedDraft(issueId),
+    discardUnlaunchedDraft: async (issueId) =>
+      await modules.issues.attention.discardUnlaunchedDraft(issueId),
     issueOwner: async () => undefined,
     access: {
       sessionById: async (sessionId) => await modules.sessions.sessionById(sessionId),
@@ -222,8 +232,11 @@ describe('held chat uploads (POD-2148)', () => {
       initialPrompt: true,
       attachments: [{ id: ref.id, filename: 'shot.png', mediaType: 'image/png', kind: 'image' }],
     })
-    expect((await o.reg.modules.sessions.listSessions(undefined, 'rpc'))
-      .find(session => session.sessionId === created.sessionId)?.draftUpdatedAt).toBeUndefined()
+    expect(
+      (await o.reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+        (session) => session.sessionId === created.sessionId,
+      )?.draftUpdatedAt,
+    ).toBeUndefined()
     expect((await o.store.sessions.loadDrafts())[created.sessionId]).toBeUndefined()
   })
 
@@ -249,13 +262,20 @@ describe('held chat uploads (POD-2148)', () => {
       sessionId: asSessionId('5d0c7c1e-3f2a-4b8e-9c61-7a2d4e8f1b03'),
       agentKind: 'claude-code' as const,
       cwd: '/p',
-      draftIssue: { repoPath: '/p', issueId: asIssueId('iss_6f1e2d3c-4b5a-4c6d-8e7f-9a0b1c2d3e4f') },
+      draftIssue: {
+        repoPath: '/p',
+        issueId: asIssueId('iss_6f1e2d3c-4b5a-4c6d-8e7f-9a0b1c2d3e4f'),
+      },
       initialPrompt: 'what is in this picture?',
       attachments: [ref],
     }
 
     let settled = false
-    const failed = dispatchSessionCommand(await ctxFor(o, human(firstAdminMemberId())), 'create', create)
+    const failed = dispatchSessionCommand(
+      await ctxFor(o, human(firstAdminMemberId())),
+      'create',
+      create,
+    )
       .finally(() => {
         settled = true
       })
@@ -284,7 +304,10 @@ describe('held chat uploads (POD-2148)', () => {
       sessionId: asSessionId('8b2e4c1a-6d3f-4a7b-9e05-1c2d3e4f5a6b'),
       agentKind: 'claude-code' as const,
       cwd: '/p',
-      draftIssue: { repoPath: '/p', issueId: asIssueId('iss_2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d') },
+      draftIssue: {
+        repoPath: '/p',
+        issueId: asIssueId('iss_2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d'),
+      },
       initialPrompt: 'what is in this picture?',
       attachments: [ref],
     }
@@ -313,7 +336,9 @@ describe('held chat uploads (POD-2148)', () => {
     if (broken === 'relinquish') {
       vi.spyOn(o.reg.modules.issueArtifacts, 'relinquish').mockRejectedValueOnce(new Error('EBUSY'))
     } else {
-      vi.spyOn(o.reg.modules.pendingUploads, 'markUnclaimed').mockRejectedValueOnce(new Error('EIO'))
+      vi.spyOn(o.reg.modules.pendingUploads, 'markUnclaimed').mockRejectedValueOnce(
+        new Error('EIO'),
+      )
     }
     const create = {
       sessionId: asSessionId(
@@ -367,7 +392,10 @@ describe('held chat uploads (POD-2148)', () => {
       sessionId: asSessionId('2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6e'),
       agentKind: 'claude-code' as const,
       cwd: '/p',
-      draftIssue: { repoPath: '/p', issueId: asIssueId('iss_5d6e7f8a-9b0c-4d1e-8f2a-3b4c5d6e7f8a') },
+      draftIssue: {
+        repoPath: '/p',
+        issueId: asIssueId('iss_5d6e7f8a-9b0c-4d1e-8f2a-3b4c5d6e7f8a'),
+      },
       initialPrompt: 'what is in this picture?',
       attachments: [ref],
     }
@@ -531,19 +559,23 @@ describe('draft launch compensation', () => {
   it('stores browser attachments on the draft before starting its session', async () => {
     const o = await makeOracle()
     await provisionHost(o)
-    const created = await dispatchSessionCommand(await ctxFor(o, human(firstAdminMemberId())), 'create', {
-      agentKind: 'codex',
-      cwd: '/p',
-      draftIssue: { repoPath: '/p' },
-      draftArtifacts: [
-        {
-          id: 'att-1',
-          filename: 'mock.png',
-          mimeType: 'image/png',
-          dataBase64: 'UE5H',
-        },
-      ],
-    })
+    const created = await dispatchSessionCommand(
+      await ctxFor(o, human(firstAdminMemberId())),
+      'create',
+      {
+        agentKind: 'codex',
+        cwd: '/p',
+        draftIssue: { repoPath: '/p' },
+        draftArtifacts: [
+          {
+            id: 'att-1',
+            filename: 'mock.png',
+            mimeType: 'image/png',
+            dataBase64: 'UE5H',
+          },
+        ],
+      },
+    )
 
     const draft = (await o.reg.issues.reports.list('/p')).find((issue) => issue.draft)
     expect(draft?.panel?.artifacts).toEqual([
@@ -554,24 +586,34 @@ describe('draft launch compensation', () => {
       }),
     ])
     expect(await o.reg.modules.sessions.readSessionIssueId(created.sessionId)).toBe(draft?.id)
-    expect((await o.reg.issues.crud.panelArtifactRead(draft?.id ?? '', { index: 1 })).dataBase64).toBe(
-      'UE5H',
-    )
+    expect(
+      (await o.reg.issues.crud.panelArtifactRead(draft?.id ?? '', { index: 1 })).dataBase64,
+    ).toBe('UE5H')
   })
 
   it('does not create a draft when an existing issue takes precedence', async () => {
     const o = await makeOracle()
     await provisionHost(o)
-    const issue = await o.reg.issues.crud.create({ repoPath: '/p', title: 'Existing work', startNow: false })
-
-    const created = await dispatchSessionCommand(await ctxFor(o, human(firstAdminMemberId())), 'create', {
-      agentKind: 'codex',
-      cwd: '/p',
-      issueId: issue.id,
-      draftIssue: { repoPath: '/p' },
+    const issue = await o.reg.issues.crud.create({
+      repoPath: '/p',
+      title: 'Existing work',
+      startNow: false,
     })
 
-    expect((await o.reg.issues.reports.list('/p')).filter((candidate) => candidate.draft)).toEqual([])
+    const created = await dispatchSessionCommand(
+      await ctxFor(o, human(firstAdminMemberId())),
+      'create',
+      {
+        agentKind: 'codex',
+        cwd: '/p',
+        issueId: issue.id,
+        draftIssue: { repoPath: '/p' },
+      },
+    )
+
+    expect((await o.reg.issues.reports.list('/p')).filter((candidate) => candidate.draft)).toEqual(
+      [],
+    )
     expect(await o.reg.modules.sessions.readSessionIssueId(created.sessionId)).toBe(issue.id)
   })
 
@@ -599,10 +641,16 @@ describe('draft launch compensation', () => {
     const o = await makeOracle()
     await provisionHost(o)
     const host = o.store.hostMachineId
-    const task = await o.reg.issues.crud.create({ repoPath: '/p', title: 'Admin work', startNow: false })
+    const task = await o.reg.issues.crud.create({
+      repoPath: '/p',
+      title: 'Admin work',
+      startNow: false,
+    })
     await o.reg.issues.crud.update(task.id, { worktreePath: '/p/.worktrees/a' })
     const ownership = ownershipTable(
-      new Map([[host, { owner: firstAdminMemberId(), grants: [{ subject: COLLEAGUE, verb: 'use' }] }]]),
+      new Map([
+        [host, { owner: firstAdminMemberId(), grants: [{ subject: COLLEAGUE, verb: 'use' }] }],
+      ]),
     )
 
     const colleague = await dispatchSessionCommand(
@@ -625,7 +673,11 @@ describe('draft launch compensation', () => {
   it('finds the task that owns a cwd only among tasks homed on the starting machine', async () => {
     const o = await makeOracle()
     await provisionHost(o)
-    const task = await o.reg.issues.crud.create({ repoPath: '/p', title: 'Elsewhere', startNow: false })
+    const task = await o.reg.issues.crud.create({
+      repoPath: '/p',
+      title: 'Elsewhere',
+      startNow: false,
+    })
     await o.reg.issues.crud.update(task.id, { worktreePath: '/p/.worktrees/a' })
     const row = await o.store.issues.getIssue(task.id)
     await o.store.issues.upsertIssue({ ...row!, machineId: asMachineId('machine-a') })
@@ -635,14 +687,20 @@ describe('draft launch compensation', () => {
     expect(await access.soleOwnerForCwd('/p/.worktrees/a', asMachineId('machine-b'))).toBeNull()
   })
 
-  it('gives a non-admin fresh resume in someone else\'s task worktree a draft of its own', async () => {
+  it("gives a non-admin fresh resume in someone else's task worktree a draft of its own", async () => {
     const o = await makeOracle()
     await provisionHost(o)
     const host = o.store.hostMachineId
-    const task = await o.reg.issues.crud.create({ repoPath: '/p', title: 'Admin work', startNow: false })
+    const task = await o.reg.issues.crud.create({
+      repoPath: '/p',
+      title: 'Admin work',
+      startNow: false,
+    })
     await o.reg.issues.crud.update(task.id, { worktreePath: '/p/.worktrees/a' })
     const ownership = ownershipTable(
-      new Map([[host, { owner: firstAdminMemberId(), grants: [{ subject: COLLEAGUE, verb: 'use' }] }]]),
+      new Map([
+        [host, { owner: firstAdminMemberId(), grants: [{ subject: COLLEAGUE, verb: 'use' }] }],
+      ]),
     )
 
     const resumed = await dispatchSessionCommand(
@@ -665,7 +723,11 @@ describe('draft launch compensation', () => {
   it('starts a fresh resume with no authenticated owner task-less', async () => {
     const o = await makeOracle()
     await provisionHost(o)
-    const task = await o.reg.issues.crud.create({ repoPath: '/p', title: 'Admin work', startNow: false })
+    const task = await o.reg.issues.crud.create({
+      repoPath: '/p',
+      title: 'Admin work',
+      startNow: false,
+    })
     await o.reg.issues.crud.update(task.id, { worktreePath: '/p/.worktrees/a' })
 
     const { sessionId } = await o.reg.modules.sessions.resumeSession(
@@ -682,10 +744,14 @@ describe('draft launch compensation', () => {
     expect((await o.reg.issues.reports.list('/p')).filter((issue) => issue.draft)).toEqual([])
   })
 
-  it('never gives a homeless task whose worktree is some machine\'s main checkout a start elsewhere', async () => {
+  it("never gives a homeless task whose worktree is some machine's main checkout a start elsewhere", async () => {
     const o = await makeOracle()
     await provisionHost(o)
-    const task = await o.reg.issues.crud.create({ repoPath: '/p', title: 'Legacy', startNow: false })
+    const task = await o.reg.issues.crud.create({
+      repoPath: '/p',
+      title: 'Legacy',
+      startNow: false,
+    })
     // Written below the service, as a pre-guard row: a main checkout as its worktree, no home.
     const row = await o.store.issues.getIssue(task.id)
     await o.store.issues.upsertIssue({ ...row!, worktreePath: '/p', machineId: null })
@@ -804,11 +870,15 @@ describe('the machine `use` gate, on every command that starts or feeds work', (
 
     // The owner may spawn there: the fixture is not one that denies everybody.
     await expect(
-      dispatchSessionCommand(await ctxFor(o, human(firstAdminMemberId()), { ownership }), 'create', {
-        agentKind: 'shell',
-        cwd: '/p',
-        machineId: 'box',
-      }),
+      dispatchSessionCommand(
+        await ctxFor(o, human(firstAdminMemberId()), { ownership }),
+        'create',
+        {
+          agentKind: 'shell',
+          cwd: '/p',
+          machineId: 'box',
+        },
+      ),
     ).resolves.toMatchObject({ sessionId: expect.any(String) })
 
     // A second human cannot — and the machine is invisible to them, so the
@@ -835,13 +905,17 @@ describe('the machine `use` gate, on every command that starts or feeds work', (
 
     expect(
       await messageOf(async () =>
-        dispatchSessionCommand(await ctxFor(o, human(firstAdminMemberId()), { ownership }), 'resume', {
-          agentKind: 'claude-code',
-          cwd: '/p',
-          resume: { kind: 'claude-session', value: 'n1' },
-          conversationId: 'n1',
-          machineId: 'box',
-        }),
+        dispatchSessionCommand(
+          await ctxFor(o, human(firstAdminMemberId()), { ownership }),
+          'resume',
+          {
+            agentKind: 'claude-code',
+            cwd: '/p',
+            resume: { kind: 'claude-session', value: 'n1' },
+            conversationId: 'n1',
+            machineId: 'box',
+          },
+        ),
       ),
     ).toBe("you do not have access to run agents on machine 'The Box'")
     // Nothing was spawned, and nothing was persisted.
@@ -960,7 +1034,11 @@ describe('the spawn surface never OFFERS a machine the principal cannot use', ()
       ]),
     )
 
-    const offered = await machinesForPrincipal(o.reg.modules, human(firstAdminMemberId()), ownership)
+    const offered = await machinesForPrincipal(
+      o.reg.modules,
+      human(firstAdminMemberId()),
+      ownership,
+    )
 
     // `theirs` is absent, not denied: for this principal it does not exist.
     expect(offered.map((m) => m.id).sort()).toEqual(['mine', 'shared'])
@@ -1155,7 +1233,9 @@ describe('invisible fails exactly like nonexistent', () => {
       await dispatchSessionCommand(visible, 'kill', { sessionId: GHOST }),
     )
     // And the hidden session is still alive: the refusal refused, it did not act.
-    expect((await o.reg.modules.sessions.listSessions(undefined, 'rpc')).map((s) => s.sessionId)).toEqual([sessionId])
+    expect(
+      (await o.reg.modules.sessions.listSessions(undefined, 'rpc')).map((s) => s.sessionId),
+    ).toEqual([sessionId])
   })
 
   it('a relayed send to a hidden session throws the same message as one to a ghost', async () => {
@@ -1190,7 +1270,10 @@ describe('chat interrupt ordering', () => {
     })
 
     expect(
-      await dispatchSessionCommand(ctx, 'interrupt', { sessionId, messageId: 'msg_00000000-0000-4000-8000-00000000f001' }),
+      await dispatchSessionCommand(ctx, 'interrupt', {
+        sessionId,
+        messageId: 'msg_00000000-0000-4000-8000-00000000f001',
+      }),
     ).toEqual({ ok: true, requested: 'retraction' })
 
     expect(
@@ -1386,7 +1469,9 @@ describe('session id prefix (POD-4536)', () => {
   ): SessionAccessDeps {
     return {
       sessionById: async (id) => rows.get(id),
-      sessionIdsWithPrefix: opts?.listSpy ?? ((prefix: string) => [...rows.keys()].filter((id) => id.startsWith(prefix))),
+      sessionIdsWithPrefix:
+        opts?.listSpy ??
+        ((prefix: string) => [...rows.keys()].filter((id) => id.startsWith(prefix))),
       issues: { has: () => false, ancestorIds: () => [], issueForCwd: async () => null },
     }
   }
@@ -1419,7 +1504,9 @@ describe('session id prefix (POD-4536)', () => {
         access,
         rpc: () => ({}) as never,
         ownership: { rowFor: () => undefined, delegatedMachines: () => undefined },
-        mutations: { once: async (_id: never, _proc: never, fn: () => unknown) => await fn() } as never,
+        mutations: {
+          once: async (_id: never, _proc: never, fn: () => unknown) => await fn(),
+        } as never,
       },
       principal,
     )
@@ -1428,7 +1515,16 @@ describe('session id prefix (POD-4536)', () => {
   it('resolves an unambiguous 8-char prefix through the shared target path', async () => {
     const full = asSessionId('e10d1055-e770-44a6-bfd4-993c4867297d')
     const rows = new Map<SessionId, SessionTargetRow>([
-      [full, { sessionId: full, cwd: '/p', status: 'hibernated', archived: false, agentKind: 'shell' } as SessionTargetRow],
+      [
+        full,
+        {
+          sessionId: full,
+          cwd: '/p',
+          status: 'hibernated',
+          archived: false,
+          agentKind: 'shell',
+        } as SessionTargetRow,
+      ],
     ])
     const principal = human(firstAdminMemberId())
     const access = prefixAccess(rows)
@@ -1438,20 +1534,32 @@ describe('session id prefix (POD-4536)', () => {
 
     expect(byFull.kind).toBe('visible')
     expect(byPrefix.kind).toBe('visible')
-    if (byFull.kind !== 'visible' || byPrefix.kind !== 'visible') throw new Error('expected visible')
+    if (byFull.kind !== 'visible' || byPrefix.kind !== 'visible')
+      throw new Error('expected visible')
     expect(byPrefix.session.sessionId).toBe(full)
     expect(byPrefix.session.sessionId).toBe(byFull.session.sessionId)
 
     // And through the command-plane target every command rides.
     const ctx = targetCtx(access, principal)
     expect((await ctx.target(full, 'sessions.hibernate'))?.sessionId).toBe(full)
-    expect((await ctx.target(asSessionId(full.slice(0, 8)), 'sessions.hibernate'))?.sessionId).toBe(full)
+    expect((await ctx.target(asSessionId(full.slice(0, 8)), 'sessions.hibernate'))?.sessionId).toBe(
+      full,
+    )
   })
 
   it('keeps the exact-match fast path first — a full uuid never pays for a scan', async () => {
     const full = asSessionId('e10d1055-e770-44a6-bfd4-993c4867297d')
     const rows = new Map<SessionId, SessionTargetRow>([
-      [full, { sessionId: full, cwd: '/p', status: 'live', archived: false, agentKind: 'shell' } as SessionTargetRow],
+      [
+        full,
+        {
+          sessionId: full,
+          cwd: '/p',
+          status: 'live',
+          archived: false,
+          agentKind: 'shell',
+        } as SessionTargetRow,
+      ],
     ])
     const listSpy = vi.fn(() => [...rows.keys()]) as SessionAccessDeps['sessionIdsWithPrefix'] & {
       mock: unknown
@@ -1468,8 +1576,26 @@ describe('session id prefix (POD-4536)', () => {
     const a = asSessionId('aaaaaaaa-1111-4111-8111-111111111111')
     const b = asSessionId('aaaaaaaa-2222-4222-8222-222222222222')
     const rows = new Map<SessionId, SessionTargetRow>([
-      [a, { sessionId: a, cwd: '/p', status: 'live', archived: false, agentKind: 'shell' } as SessionTargetRow],
-      [b, { sessionId: b, cwd: '/p', status: 'live', archived: false, agentKind: 'shell' } as SessionTargetRow],
+      [
+        a,
+        {
+          sessionId: a,
+          cwd: '/p',
+          status: 'live',
+          archived: false,
+          agentKind: 'shell',
+        } as SessionTargetRow,
+      ],
+      [
+        b,
+        {
+          sessionId: b,
+          cwd: '/p',
+          status: 'live',
+          archived: false,
+          agentKind: 'shell',
+        } as SessionTargetRow,
+      ],
     ])
     const access = prefixAccess(rows)
     const principal = human(firstAdminMemberId())
@@ -1483,7 +1609,9 @@ describe('session id prefix (POD-4536)', () => {
 
     // Through the shared target path it throws with the same candidates listed.
     const ctx = targetCtx(access, principal)
-    await expect(ctx.target(asSessionId('aaaaaaaa'), 'sessions.hibernate')).rejects.toThrow(/ambiguous/)
+    await expect(ctx.target(asSessionId('aaaaaaaa'), 'sessions.hibernate')).rejects.toThrow(
+      /ambiguous/,
+    )
     await expect(ctx.target(asSessionId('aaaaaaaa'), 'sessions.hibernate')).rejects.toThrow(a)
     await expect(ctx.target(asSessionId('aaaaaaaa'), 'sessions.hibernate')).rejects.toThrow(b)
   })
