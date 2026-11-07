@@ -456,6 +456,10 @@ export function inputsForClosure(closure: Iterable<string>, shardId?: ShardId): 
   if (shardId === 'boundary') {
     globs.add('src/**')
     globs.add('test/**')
+    // The package's own scripts (the prepared-statement census and bench) are imported by
+    // no test. They were hashed only by a prose path literal naming `apps/server`, which
+    // went with the family audits (POD-6595); this keeps every server source in a key.
+    globs.add('scripts/**')
   }
   for (const file of closure) {
     if (file.startsWith(`${SERVER_PACKAGE}/`)) {

@@ -2702,6 +2702,7 @@
         "$TURBO_ROOT$/scripts/workspace-resolution-census.ts",
         "$TURBO_ROOT$/scripts/write-web-build-stamp.ts",
         "package.json",
+        "scripts/**",
         "src/**",
         "src/accounts.ts",
         "src/application/issue-attach-orchestrator.test.ts",
