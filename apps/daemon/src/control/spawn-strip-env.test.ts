@@ -132,6 +132,11 @@ const CLAUDE_STRIP = [
   'CLAUDE_CODE_EXECPATH',
   'CLAUDE_CONFIG_DIR',
   'CLAUDE_SECURESTORAGE_CONFIG_DIR',
+  // POD-6613: Claude's update, URL handler, locks and profile follow XDG too.
+  'XDG_DATA_HOME',
+  'XDG_CONFIG_HOME',
+  'XDG_STATE_HOME',
+  'XDG_CACHE_HOME',
 ]
 
 it('deletes what would outrank a claude session’s own login, and what would make it another session’s child', async () => {

@@ -14,7 +14,11 @@
  *    the account (elsewhere) is a named one: the contract pins an instance
  *    selector and drops an operator selector (POD-6604) for it;
  *  - the selected installation is a RECORDING fake binary somewhere else,
- *    and the account home is somewhere else again.
+ *    and the account home is somewhere else again. Like the real binary, it
+ *    reads the folders its selectors name (FOLDERS_READ), so a decoy selector
+ *    that reaches a child moves a sentinel (POD-6613);
+ *  - every child is spawned the way the PTY spawns it: the daemon's own
+ *    `process.env` underneath the child env, then `strip` deleted.
  *
  * Every supported section of the manifest that needs no model then runs
  * against the harness context for that account, and three things must hold:
@@ -117,6 +121,34 @@ const HARNESS_BINARIES = [
     ]),
   ),
 ]
+
+/**
+ * The folders each real binary reads at startup: a selector variable and the
+ * default it falls back to under HOME (unset or empty). The recording binary
+ * reads the same ones. Claude Code's are measured (2.1.319, POD-6613): an
+ * interactive start writes `$XDG_DATA_HOME/claude/versions` (and the URL
+ * handler under `$XDG_DATA_HOME/applications`), stages the update under
+ * `$XDG_CACHE_HOME/claude`, locks under `$XDG_STATE_HOME/claude` and reads
+ * `$XDG_CONFIG_HOME/anthropic`.
+ */
+const FOLDERS_READ: Partial<Record<Kind, readonly (readonly [string, string])[]>> = {
+  'claude-code': [
+    ['CLAUDE_CONFIG_DIR', '.claude'],
+    ['XDG_DATA_HOME', join('.local', 'share')],
+    ['XDG_CONFIG_HOME', '.config'],
+    ['XDG_STATE_HOME', join('.local', 'state')],
+    ['XDG_CACHE_HOME', '.cache'],
+  ],
+  opencode: [
+    ['XDG_DATA_HOME', join('.local', 'share')],
+    ['XDG_CONFIG_HOME', '.config'],
+    ['XDG_STATE_HOME', join('.local', 'state')],
+    ['XDG_CACHE_HOME', '.cache'],
+  ],
+  codex: [['CODEX_HOME', '.codex']],
+  grok: [['GROK_HOME', '.grok']],
+  pi: [['PI_CODING_AGENT_DIR', join('.pi', 'agent')]],
+}
 
 /** Harness folders under a home that a decoy home fills with sentinels. */
 const HOME_FOLDERS = [
@@ -248,8 +280,9 @@ function buildWorld(): World {
   }
 }
 
-/** The selected installation: records its argv[0] and arguments, then exits
- *  0 printing a version, whatever it is asked. */
+/** The selected installation: records its argv[0] and arguments, reads the
+ *  folders the real binary reads (FOLDERS_READ), then exits 0 printing a
+ *  version, whatever it is asked. */
 function recordingBinary(world: World, kind: Kind, name: string): string {
   const dir = join(world.installRoot, kind)
   mkdirSync(dir, { recursive: true })
@@ -261,6 +294,10 @@ function recordingBinary(world: World, kind: Kind, name: string): string {
       `f='${world.records}/'"$$"'-'"$(date +%s%N)"`,
       `printf 'ARGV0=%s\\n' "$0" > "$f"`,
       'for a in "$@"; do printf "ARG=%s\\n" "$a" >> "$f"; done',
+      ...(FOLDERS_READ[kind] ?? []).map(
+        ([variable, fallback]) =>
+          `d="\${${variable}:-$HOME/${fallback}}"; ls -a "$d" >/dev/null 2>&1; cat "$d"/* >/dev/null 2>&1`,
+      ),
       'echo "codex-cli 0.162.0"',
       'exit 0',
       '',
@@ -327,7 +364,10 @@ function harnessOn(world: World, kind: Kind): Harness {
     spawned: 0,
     spawn(command, opts = {}) {
       const own = (command as BoundCommand & { env?: Record<string, string> }).env
-      const { env } = harnessChildEnv(context, { wiringEnv: { ...own, ...opts.env } })
+      const child = harnessChildEnv(context, { wiringEnv: { ...own, ...opts.env } })
+      // As the PTY spawns it: the daemon's own env underneath, `strip` after.
+      const env: Record<string, string | undefined> = { ...process.env, ...child.env }
+      for (const key of child.strip) delete env[key]
       try {
         execFileSync(command.cmd, command.args, {
           env,

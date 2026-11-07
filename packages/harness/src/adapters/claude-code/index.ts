@@ -105,7 +105,19 @@ export const claudeCodeManifest: AgentManifest = {
     // folder. So a named account drops the operator's values instead (POD-6604)
     // and runs on the defaults under its HOME: `<home>/.claude` and the
     // unscoped `Claude Code-credentials` item, as it does with no selector set.
-    operatorSelectors: ['CLAUDE_CONFIG_DIR', 'CLAUDE_SECURESTORAGE_CONFIG_DIR'],
+    // The XDG base dirs move Claude too (measured on 2.1.319, POD-6613): an
+    // interactive start installs its own version under
+    // `$XDG_DATA_HOME/claude/versions` and its URL handler under
+    // `$XDG_DATA_HOME/applications`, stages updates in `$XDG_CACHE_HOME/claude`,
+    // locks in `$XDG_STATE_HOME/claude` and reads `$XDG_CONFIG_HOME/anthropic`.
+    operatorSelectors: [
+      'CLAUDE_CONFIG_DIR',
+      'CLAUDE_SECURESTORAGE_CONFIG_DIR',
+      'XDG_DATA_HOME',
+      'XDG_CONFIG_HOME',
+      'XDG_STATE_HOME',
+      'XDG_CACHE_HOME',
+    ],
   },
 
   inventory: {

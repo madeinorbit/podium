@@ -254,8 +254,8 @@ describe('adapter roots', () => {
 /**
  * THE OPERATOR'S OWN SELECTORS AND A NAMED ACCOUNT (POD-6604).
  *
- * Claude Code (`CLAUDE_CONFIG_DIR`) and OpenCode (`XDG_*`) default their folders
- * under HOME. An operator who sets one of these in their own shell chose it for
+ * Claude Code (`CLAUDE_CONFIG_DIR` and, measured on 2.1.319 in POD-6613, the
+ * `XDG_*` base dirs) and OpenCode (`XDG_*`) default their folders under HOME. An operator who sets one of these in their own shell chose it for
  * THEIR account. A named account (home ≠ the command env's HOME) must not land
  * there, and the child, the context's env and roots, and the keychain coordinate
  * must agree. The machine's own account keeps the operator's choice.
@@ -291,17 +291,22 @@ describe('operator selectors and a named account (POD-6604)', () => {
 
   it('claude-code: a named account drops them from its env, roots and child', () => {
     const context = harnessContext(inventory, 'claude-code', HOME)
-    for (const key of CLAUDE_SELECTORS) expect(context.env).not.toHaveProperty(key)
+    for (const key of [...CLAUDE_SELECTORS, ...XDG_SELECTORS]) {
+      expect(context.env).not.toHaveProperty(key)
+    }
     expect(context.roots.state).toBe(join(HOME, '.claude'))
     expect(context.roots.transcripts).toBe(join(HOME, '.claude', 'projects'))
     const child = harnessChildEnv(context, {})
-    for (const key of CLAUDE_SELECTORS) {
+    // XDG too (POD-6613): an interactive Claude installs its update and URL
+    // handler under `$XDG_DATA_HOME`, the operator's folder otherwise.
+    for (const key of [...CLAUDE_SELECTORS, ...XDG_SELECTORS]) {
       expect(child.env).not.toHaveProperty(key)
       // The PTY and podium-host spawns spread the daemon's own env under the
       // child's: the boundary must delete the daemon's copy too.
       expect(child.strip).toContain(key)
     }
     expect(child.env.HOME).toBe(HOME)
+    expect(child.env.XDG_RUNTIME_DIR).toBe('/run/user/501')
   })
 
   it('opencode: a named account drops the XDG base dirs from its env, roots and child', () => {
@@ -334,6 +339,11 @@ describe('operator selectors and a named account (POD-6604)', () => {
     expect(claude.env.CLAUDE_CONFIG_DIR).toBe(OPERATOR_ENV.CLAUDE_CONFIG_DIR)
     expect(claude.roots.state).toBe(OPERATOR_ENV.CLAUDE_CONFIG_DIR)
     expect(harnessChildEnv(claude, {}).env.CLAUDE_CONFIG_DIR).toBe(OPERATOR_ENV.CLAUDE_CONFIG_DIR)
+    for (const key of XDG_SELECTORS) {
+      expect(harnessChildEnv(claude, {}).env[key]).toBe(
+        OPERATOR_ENV[key as keyof typeof OPERATOR_ENV],
+      )
+    }
     // Its keychain item is the one the operator's own `claude` uses.
     expect(claudeKeychainService(claude.env)).toEqual(
       claudeKeychainService({
