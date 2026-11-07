@@ -11,7 +11,7 @@ const log = createLogger('server:issues')
  *  least-privilege list — a relay can never reach an ungated router. The sessions slice
  *  exposes only real-turn delivery (never spawn/kill/archive or raw PTY input). `null` =
  *  any proc on that router. */
-const RELAY_ALLOWED: Record<string, Set<string> | null> = {
+export const RELAY_ALLOWED: Readonly<Record<string, ReadonlySet<string> | null>> = {
   // The sync write entry point (ADR 12 D2, POD-6413): the relay is one of its
   // thin adapters. It grants no reach of its own: the envelope's command must be
   // one this list allows directly, and the entry point then checks its exposure

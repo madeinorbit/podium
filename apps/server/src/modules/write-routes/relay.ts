@@ -15,7 +15,8 @@
  * has no relay adapter, and the arm answers "no such procedure". The arms that
  * stay in the dispatch are the relay's reads, the family adapters that submit
  * their own registrations (issues, messages, workflows) and the relay writes
- * with gates of their own.
+ * with gates of their own. {@link RELAY_ARMS} lists every one, with how it
+ * writes; `relay-census.test.ts` fails on a relay proc it does not list.
  */
 
 import type { CommandPrincipal } from '../../command-principal'
@@ -75,4 +76,102 @@ export async function relaySyncWrite(
     input: call.input,
     ...(call.caller.overrideScope === true ? { confirmed: true } : {}),
   })
+}
+
+// ---------------------------------------------------------------------------
+// The relay census
+// ---------------------------------------------------------------------------
+
+/**
+ * How one relay proc reaches what it does. Every proc the relay serves is
+ * listed, reads included, so a new one is classified before it is served; the
+ * census test (`relay-census.test.ts`) fails on one that is not.
+ *
+ *  - `read`: writes nothing.
+ *  - `adapter`: generated here: a plain registration (`relayPlainWrite`) or a
+ *    sync registration by its own name (`relaySyncWrite`).
+ *  - `entry`: a hand-written arm whose write is a sync registration it submits
+ *    on the entry point (`registration`), with its own gates or answer shape.
+ *  - `not-synced`: its effect is on a machine, not in the database, so it has
+ *    no synced write to register (`reason`).
+ *  - `direct`: a synced write outside any registration, like the tRPC
+ *    direct-write census (`write-routes/direct.ts`), with its owner issue.
+ */
+export type RelayArm =
+  | { readonly kind: 'read' }
+  | { readonly kind: 'adapter'; readonly via: 'plain' | 'sync' }
+  | { readonly kind: 'entry'; readonly registration: string }
+  | { readonly kind: 'not-synced'; readonly reason: string }
+  | { readonly kind: 'direct'; readonly what: string; readonly owner: string }
+
+const READ: RelayArm = { kind: 'read' }
+const SYNC_ADAPTER: RelayArm = { kind: 'adapter', via: 'sync' }
+const entry = (registration: string): RelayArm => ({ kind: 'entry', registration })
+
+/** The procs of every relay router the allowlist names proc by proc. */
+export const RELAY_ARMS: Readonly<Record<string, RelayArm>> = {
+  'sync.submit': entry('*'),
+  'repos.inferFromPath': READ,
+  'features.state': READ,
+  'quota.summary': READ,
+  'sessions.sendText': SYNC_ADAPTER,
+  'sessions.resumeAndSend': SYNC_ADAPTER,
+  'sessions.continue': SYNC_ADAPTER,
+  'sessions.status': READ,
+  'sessions.read': READ,
+  'sessions.title': {
+    kind: 'direct',
+    what: 'names the calling session (`setAgentName`), a write to its synced row',
+    owner: 'POD-6601',
+  },
+  // Its scope gates are the arm's; the write is `desired: stopped` as the agent.
+  'sessions.stop': entry('records.session.edit'),
+  // A `session.handoff` effect record, created as the agent and awaited.
+  'sessions.handoff': entry('effects.create'),
+  'machines.list': READ,
+  'machines.listWithRepos': READ,
+  'machines.reprobe': {
+    kind: 'not-synced',
+    reason:
+      "asks a visible, usable, online machine's daemon to re-send its inventory; the report that follows is the daemon's write",
+  },
+  // The messages gate is the mail family's relay adapter onto the entry point.
+  'messages.send': entry('mail.send'),
+  'messages.inbox': entry('mail.inboxConsume'),
+  'messages.show': READ,
+  'messages.status': READ,
+  'messages.reply': entry('mail.reply'),
+  'messages.pendingReminders': entry('mail.pendingReminders'),
+  'messages.spawnAgent': entry('mail.spawnAgent'),
+  // A wait; its one write is the claim it retires.
+  'messages.awaitAgent': entry('mail.awaitObserved'),
+  'approvals.request': {
+    kind: 'direct',
+    what: 'files an approval request and appends its `issue.approval_requested` event',
+    owner: 'POD-6603',
+  },
+  'approvals.get': READ,
+  'workspace.fetch': {
+    kind: 'not-synced',
+    reason:
+      "materializes another session's working state on the caller's machine through its daemon",
+  },
+  'workspace.clean': {
+    kind: 'not-synced',
+    reason: 'removes what fetch materialized, on the caller’s machine, through its daemon',
+  },
+  'offer.set': SYNC_ADAPTER,
+  'offer.clear': SYNC_ADAPTER,
+}
+
+/**
+ * The routers the allowlist opens whole (`null`): each proc's write is read off
+ * its family's own table, which the census test checks against the registries.
+ */
+export const RELAY_FAMILY_ROUTERS: Readonly<Record<string, string>> = {
+  issues:
+    "the issue dispatcher: a synced command submits its `issues.<proc>` registration; the rest are the tRPC direct-write census's (POD-6603)",
+  specs: 'writes are plain registrations (`relayPlainWrite`); reads are the service’s own',
+  workflows: 'writes submit their `workflows.<proc>` registration on the entry point',
+  lock: 'writes are plain registrations (`relayPlainWrite`); `status` is a read',
 }
