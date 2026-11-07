@@ -110,11 +110,6 @@ export const SYSTEM_WRITE_ORIGINS = {
     kind: 'client',
     legacy: { removeAfter: '2027-03', owner: 'POD-6602' },
   },
-  'issues.artifacts': {
-    what: "a panelApply artifact op that made no effect record (an upload's byte packets, an add with no daemon to read from), on its old inline path",
-    kind: 'client',
-    legacy: { removeAfter: '2027-03', owner: 'POD-6605' },
-  },
   'issues.server': {
     what: "the issues service's own work: worktree moves, landing, cleanup, git state, auto-archive, integration runs, boot reconciles, and an issue effect record's run after its commit (start, sessions, stop, cleanup, ship, the assistant, an answer)",
     kind: 'server',

@@ -716,13 +716,35 @@ export class IssueCrudModule {
     }>
   }
 
-  /** Upload packets are issue-scoped by the command registry. Only a complete
-   * snapshot is published; replacement keeps the logical path and list position. */
+  /**
+   * An upload's byte packet (`begin`, `chunk`, `abort`) into the issue's private
+   * staging dir, and the issue as it is (POD-6605). Byte transport, not an issue
+   * write: nothing synced changes and nothing shows until a `commit` publishes
+   * the staged upload (an `issue.artifactPublish` record). Takes no writer.
+   */
+  async stageArtifactUpload(id: string, packet: ArtifactUploadPacket): Promise<IssueProjection> {
+    if (packet.action === 'commit') {
+      throw new IssueRefusal('an upload commit publishes through an issue.artifactPublish record')
+    }
+    const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
+    const artifacts = this.store.deps.artifacts
+    if (!artifacts?.transfer)
+      throw new IssueRefusal('direct artifact uploads are unavailable on this server')
+    await artifacts.transfer(row.id, packet)
+    return await this.store.projection(await this.store.rowOrThrow(row.id))
+  }
+
+  /** An upload's `commit` published inline, in a dispatcher a test builds by
+   * hand without artifact effect records (served, it is an
+   * `issue.artifactPublish` record). Byte packets go to {@link stageArtifactUpload}.
+   * Only a complete snapshot is published; replacement keeps the logical path
+   * and list position. */
   async panelArtifactTransfer(
     writer: IssueWriter,
     id: string,
     packet: ArtifactUploadPacket,
   ): Promise<IssueProjection> {
+    if (packet.action !== 'commit') return await this.stageArtifactUpload(id, packet)
     const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
     const artifacts = this.store.deps.artifacts
     if (!artifacts?.transfer)

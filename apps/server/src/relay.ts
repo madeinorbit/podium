@@ -3252,8 +3252,6 @@ export class SessionRegistry {
       // An effect record's run writes as the issue service's own work, after its
       // record committed (POD-6603); no served command runs without its own.
       effectRunWriter: writes.system('issues.server'),
-      // A panelApply artifact op's inline path, until it is a record too.
-      artifactInlineWriter: writes.system('issues.artifacts'),
       // Git actions as effect records (POD-6394), read per call: the modules
       // and the entry point are composed after this dispatcher.
       gitEffects: issueGitEffectPort({ modules: () => this.modules }),

@@ -34,8 +34,10 @@
  * THE OLD COMMANDS ARE ADAPTERS (`IssueCommandDispatcher`, every transport): the
  * panelApply handler creates the record through `effects.create` as its
  * caller, waits for it to settle and answers the issue as it always did, or
- * throws its old refusal. With no daemon to read the source it creates nothing
- * and the old inline path answers, as the other issue effects do.
+ * throws its old refusal. With no daemon to read the source an add creates
+ * nothing and writes nothing: it answers the command's own refusals, then the
+ * machine's, as the work commands do (`answerUnready`, POD-6603). Only an
+ * upload's byte packets run on the handler, and they write no issue (POD-6605).
  */
 
 import { randomUUID } from 'node:crypto'
@@ -45,6 +47,7 @@ import {
   type EffectTarget,
   type IssueId,
   type MachineId,
+  machineRejectionMessage,
   mintDeviceId,
 } from '@podium/model'
 import { TRPCError } from '@trpc/server'
@@ -55,7 +58,7 @@ import type { EffectRow } from '../../store/effects'
 import type { UsersRepository } from '../../store/users'
 import type { EffectExecutor, EffectOutcome, EffectRunContext } from '../effects/registry'
 import {
-  ARTIFACT_INLINE,
+  ARTIFACT_TRANSPORT,
   type ArtifactCall,
   artifactIdOfEffect,
   ISSUE_ARTIFACT_EFFECT_KIND,
@@ -319,18 +322,25 @@ export function issueArtifactEffectPort(deps: {
   return {
     record: deps.record,
     run: async (caller, call) => {
+      // An upload's byte packets are transport into private staging: no record,
+      // and the handler that stages them writes no issue.
+      if (call.op === 'artifact-upload' && call.upload?.action !== 'commit') {
+        if (!call.upload) throw new IssueRefusal('artifact-upload requires an upload packet')
+        return ARTIFACT_TRANSPORT
+      }
       const modules = deps.modules()
       const effects = modules.effects
       const principal = caller.principal
-      if (effects === undefined || principal === undefined) return ARTIFACT_INLINE
+      if (effects === undefined || principal === undefined) {
+        throw new Error('issues.panelApply: artifact effect records are not served here')
+      }
       const scope = caller.capability.scope
       const repoPath =
         scope.kind === 'subtree'
           ? ((await modules.issues.reports.getMeta(scope.rootId))?.repoPath ?? undefined)
           : undefined
       const issueId = await modules.issues.reports.resolveRef(call.id, repoPath)
-      const planned = await recordOf(modules, issueId, call)
-      if (planned === ARTIFACT_INLINE) return ARTIFACT_INLINE
+      const planned = await recordOf(modules, caller, issueId, call)
       // A retry of the same command (its mutationId) writes the same record.
       const id =
         call.mutationId !== undefined && UUID.test(call.mutationId)
@@ -362,32 +372,30 @@ export function issueArtifactEffectPort(deps: {
   }
 }
 
-/** The record one old call makes, or {@link ARTIFACT_INLINE} for the old path. */
+/** The record one old call makes; a call that may make none is refused. */
 async function recordOf(
   modules: RegistryModules,
+  caller: IssueCaller,
   issueId: IssueId,
   call: ArtifactCall,
-): Promise<{ kind: string; input: object } | typeof ARTIFACT_INLINE> {
+): Promise<{ kind: string; input: object }> {
   switch (call.op) {
     case 'artifact-add': {
       if (!call.path) throw new IssueRefusal('artifact-add requires a path')
-      // No daemon to read the source: the old path answers with its own error.
-      if (!(await machineReady(modules, issueId))) return ARTIFACT_INLINE
-      return {
-        kind: ISSUE_ARTIFACT_EFFECT_KIND.add,
-        input: {
-          path: call.path,
-          ...(call.title ? { title: call.title } : {}),
-          ...(call.extraPaths ? { extraPaths: call.extraPaths } : {}),
-          ...(call.terminalEvidence ? { terminalEvidence: true } : {}),
-          ...(call.sourceRoot ? { sourceRoot: call.sourceRoot } : {}),
-        },
+      const input = {
+        path: call.path,
+        ...(call.title ? { title: call.title } : {}),
+        ...(call.extraPaths ? { extraPaths: call.extraPaths } : {}),
+        ...(call.terminalEvidence ? { terminalEvidence: true } : {}),
+        ...(call.sourceRoot ? { sourceRoot: call.sourceRoot } : {}),
       }
+      if (!(await machineReady(modules, issueId))) {
+        return await refuseUnready(modules, caller, issueId, input)
+      }
+      return { kind: ISSUE_ARTIFACT_EFFECT_KIND.add, input }
     }
     case 'artifact-upload': {
       if (!call.upload) throw new IssueRefusal('artifact-upload requires an upload packet')
-      // begin/chunk/abort move bytes into private staging: transport, no record.
-      if (call.upload.action !== 'commit') return ARTIFACT_INLINE
       return {
         kind: ISSUE_ARTIFACT_EFFECT_KIND.publish,
         input: { uploadId: call.upload.uploadId },
@@ -408,6 +416,37 @@ async function recordOf(
       }
     }
   }
+}
+
+/**
+ * An add with no daemon to read its source NOW creates no record (it would sit
+ * pending while its caller waits) and writes nothing (POD-6605). It answers the
+ * command's own refusals first, as the executor would check them
+ * (`planArtifactAdd`: a path outside the worktree, no worktree, terminal
+ * evidence from the wrong session), then the machine's. The old command pulled
+ * inline here through a composition-time writer, the `issues.artifacts` origin.
+ */
+async function refuseUnready(
+  modules: RegistryModules,
+  caller: IssueCaller,
+  issueId: IssueId,
+  input: IssueArtifactAddInput,
+): Promise<never> {
+  const actorSessionId = caller.capability.actorSessionId
+  const plan = await modules.issues.crud.planArtifactAdd(
+    issueId,
+    input,
+    actorSessionId ? { actorSessionId } : undefined,
+  )
+  const action = "read this issue's artifact"
+  if (plan.machineId !== undefined) {
+    const machine = await modules.machines.machineName(plan.machineId)
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: machineRejectionMessage(machine, 'offline', action),
+    })
+  }
+  throw new TRPCError({ code: 'PRECONDITION_FAILED', message: `no machine is online to ${action}` })
 }
 
 /** A settled record's failure, as the old command threw it. */

@@ -100,8 +100,10 @@ export function artifactEffectCommitOf(
   return { op: 'artifact-add', entry: (staged as StagedEntry).entry }
 }
 
-/** The port's answer when no record was made: the handler runs the old path. */
-export const ARTIFACT_INLINE: unique symbol = Symbol('issue artifact: run inline')
+/** The port's answer for an upload's byte packet (`begin`, `chunk`, `abort`):
+ *  transport into private staging, no record; the handler stages it and writes
+ *  no issue (POD-6605). Every other artifact op is a record or a refusal. */
+export const ARTIFACT_TRANSPORT: unique symbol = Symbol('issue artifact: byte transport')
 
 /** One `panelApply` artifact call, as the handler parsed it. */
 export interface ArtifactCall {
@@ -119,8 +121,8 @@ export interface ArtifactCall {
 
 export interface IssueArtifactEffectPort {
   /** Run one artifact op as an effect record, as this caller; answer the issue as
-   *  the old command did, or {@link ARTIFACT_INLINE} when no record was made. */
-  run(caller: IssueCaller, call: ArtifactCall): Promise<IssueProjection | typeof ARTIFACT_INLINE>
+   *  the old command did, or {@link ARTIFACT_TRANSPORT} for an upload's byte packet. */
+  run(caller: IssueCaller, call: ArtifactCall): Promise<IssueProjection | typeof ARTIFACT_TRANSPORT>
   /** One effect record, for the entry point's commit check. */
   record(id: string): Promise<EffectRow | undefined>
 }

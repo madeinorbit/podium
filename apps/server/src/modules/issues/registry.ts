@@ -615,13 +615,20 @@ const defs = {
           )
         }
       }
-      // Inline: the old route of an artifact op when the dispatcher made no
-      // effect record for it (none wired, no daemon to read from, an upload's
-      // byte packets; POD-6420): the permanent-store paths ([spec:SP-0fc9]). Add pulls a
-      // snapshot from the owning daemon before the panel commit; remove also
-      // deletes the snapshot dir.
+      // An upload's byte packets (`begin`, `chunk`, `abort`) are transport into
+      // private staging: no issue write, so no writer (POD-6605). Served, every
+      // other artifact op is an effect record and never runs below.
       if (input.op === 'artifact-upload') {
         if (!input.upload) throw new IssueRefusal('artifact-upload requires an upload packet')
+        if (input.upload.action !== 'commit') {
+          return await ctx.crud.stageArtifactUpload(input.id, input.upload)
+        }
+      }
+      // Inline: an artifact op in a dispatcher a test builds by hand, with no
+      // effect records wired (POD-6420): the permanent-store paths
+      // ([spec:SP-0fc9]). Add pulls a snapshot from the owning daemon before the
+      // panel commit; remove also deletes the snapshot dir.
+      if (input.op === 'artifact-upload' && input.upload) {
         return await ctx.crud.panelArtifactTransfer(input.id, input.upload)
       }
       if (input.op === 'artifact-add') {

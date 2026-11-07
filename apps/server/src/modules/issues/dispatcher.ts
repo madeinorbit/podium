@@ -29,7 +29,7 @@ import { z } from 'zod'
 import { type CommandPrincipal, resolvePrincipalAsync } from '../../command-principal'
 import type { Capability } from '../../issue-authz'
 import type { SyncWriteEntry } from '../sync-write/entry'
-import { ARTIFACT_INLINE, type ArtifactCall } from './artifact-effect-record'
+import { ARTIFACT_TRANSPORT, type ArtifactCall } from './artifact-effect-record'
 import {
   commandAccess,
   type IssueCaller,
@@ -102,7 +102,7 @@ export class IssueCommandDispatcher {
   /** Execute one ALREADY-guarded, ALREADY-parsed command (the tRPC path: the
    *  derived middleware guarded, tRPC parsed `def.input`). */
   async run<D extends AnyIssueCommandDef>(
-    asked: IssueCaller,
+    caller: IssueCaller,
     name: string,
     def: D,
     input: z.infer<D['input']>,
@@ -111,7 +111,6 @@ export class IssueCommandDispatcher {
     // every transport its old answer comes from the record once it settles, and
     // it never runs here (POD-6603). Only the record's own executor, through
     // `forEffectRun`, runs the handler below.
-    let caller = asked
     const work = this.deps.workEffects
     if (work !== undefined && isIssueWorkCommand(name)) {
       return (await work.run(caller, name, input)) as Awaited<ReturnType<D['handler']>>
@@ -122,12 +121,9 @@ export class IssueCommandDispatcher {
     const artifacts = this.deps.artifactEffects
     if (artifacts !== undefined && runsAsArtifactEffect(name, input)) {
       const answer = await artifacts.run(caller, input as ArtifactCall)
-      if (answer !== ARTIFACT_INLINE) return answer as Awaited<ReturnType<D['handler']>>
-      // The op's old inline path (an upload's byte packets; an add with no
-      // daemon to read from) writes under its own named origin until it is a
-      // record too (`artifactInlineWriter`).
-      const inline = caller.writer ?? this.deps.artifactInlineWriter
-      if (inline !== undefined) caller = { ...caller, writer: inline }
+      if (answer !== ARTIFACT_TRANSPORT) return answer as Awaited<ReturnType<D['handler']>>
+      // An upload's byte packet: the handler stages it, writing no issue, so it
+      // runs without a writer (POD-6605).
     }
     const execute = async (): Promise<Awaited<ReturnType<D['handler']>>> =>
       (await def.handler(

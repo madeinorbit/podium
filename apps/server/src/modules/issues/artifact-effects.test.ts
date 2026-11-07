@@ -18,10 +18,12 @@ import {
   ARTIFACT_UPLOAD_CHUNK_BYTES,
   type ArtifactId,
   asIssueId,
+  asMachineId,
   type IssueId,
   mintDeviceId,
 } from '@podium/model'
 import { fixtureWriteScope } from '@podium/sync/testing'
+import { TRPCError } from '@trpc/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { OPERATOR } from '../../test-support/capabilities'
 import {
@@ -60,8 +62,10 @@ function fakeRpc(files: Record<string, Buffer>): ArtifactRpc & { reads: number }
   return rpc
 }
 
+const OFFLINE = asMachineId('mach_offline_6605')
+
 async function setup(files: Record<string, string> = {}) {
-  const o = await makeBareOracle()
+  const o = await makeBareOracle({ offlineMachines: [{ id: OFFLINE, name: 'Away' }] })
   await o.store.repos.addRepo('/r', o.store.hostMachineId)
   const rpc = fakeRpc(
     Object.fromEntries(
@@ -69,8 +73,15 @@ async function setup(files: Record<string, string> = {}) {
     ),
   )
   ;(o.reg.modules.issueArtifacts as unknown as { rpc: ArtifactRpc }).rpc = rpc
-  const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'art', startNow: false })
-  await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, issue.id, { worktreePath: WORKTREE, branch: 'issue/art' })
+  const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
+    repoPath: '/r',
+    title: 'art',
+    startNow: false,
+  })
+  await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, issue.id, {
+    worktreePath: WORKTREE,
+    branch: 'issue/art',
+  })
   return { o, rpc, issueId: issue.id as IssueId }
 }
 
@@ -133,7 +144,11 @@ describe('artifact-add as an issue.artifactAdd record', () => {
     ).rejects.toThrow(/is outside the owning issue worktree/)
     expect(await entries(o, issueId)).toEqual([])
 
-    const bare = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'none', startNow: false })
+    const bare = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'none',
+      startNow: false,
+    })
     await expect(
       o.call.issues.panelApply({ id: bare.id, op: 'artifact-add', path: 'x.png' }),
     ).rejects.toThrow(/has no owning worktree/)
@@ -170,6 +185,64 @@ describe('artifact-add as an issue.artifactAdd record', () => {
     expect(again?.status).toBe('succeeded')
     expect(rpc.reads).toBe(reads)
     expect(await entries(o, issueId)).toHaveLength(1)
+  })
+})
+
+describe('artifact-add with no daemon to read the source', () => {
+  /** The issue pinned to a machine whose daemon is offline; the record path watched. */
+  async function away(files: Record<string, string> = { 'a.png': 'PNG' }) {
+    const s = await setup(files)
+    await s.o.reg.issues.crud.update(s.o.reg.issues.reports.store.serverWriter, s.issueId, {
+      machineId: OFFLINE,
+    })
+    const entry = vi.spyOn(s.o.reg.modules.syncWrite, 'submitDetailed')
+    const pull = vi.spyOn(s.o.reg.issues.crud, 'panelArtifactAdd')
+    const nothingWritten = async () => {
+      expect(entry).not.toHaveBeenCalled()
+      expect(pull).not.toHaveBeenCalled()
+      expect(s.rpc.reads).toBe(0)
+      expect(
+        await s.o.store.effects.newestOnTarget(
+          ISSUE_ARTIFACT_EFFECT_KIND.add,
+          { kind: 'issue', id: s.issueId },
+          'active',
+        ),
+      ).toBeUndefined()
+      expect(await entries(s.o, s.issueId)).toEqual([])
+    }
+    return { ...s, nothingWritten }
+  }
+
+  it('is refused naming the machine; no record, no pull, no write (POD-6605)', async () => {
+    const { o, issueId, nothingWritten } = await away()
+
+    const error = await o.call.issues
+      .panelApply({ id: issueId, op: 'artifact-add', path: 'a.png' })
+      .catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(TRPCError)
+    expect((error as TRPCError).code).toBe('PRECONDITION_FAILED')
+    expect((error as TRPCError).message).toContain("machine 'Away' is offline")
+    await nothingWritten()
+  })
+
+  it("answers the command's own refusal before the machine's", async () => {
+    const { o, issueId, nothingWritten } = await away()
+
+    await expect(
+      o.call.issues.panelApply({ id: issueId, op: 'artifact-add', path: '/elsewhere/x.png' }),
+    ).rejects.toThrow(/is outside the owning issue worktree/)
+    await nothingWritten()
+  })
+
+  it('the in-process MCP surface is refused the same way', async () => {
+    const { o, issueId, nothingWritten } = await away()
+    const mcp = o.reg.issueCommands.asIssueTrpc(OPERATOR)
+
+    await expect(
+      mcp.issues.panelApply.mutate({ id: issueId, op: 'artifact-add', path: 'a.png' }),
+    ).rejects.toThrow(/machine 'Away' is offline/)
+    await nothingWritten()
   })
 })
 
@@ -246,6 +319,7 @@ describe('a CLI upload published by an issue.artifactPublish record', () => {
 
   it('the byte packets stage privately; the commit publishes through a record', async () => {
     const { o, issueId } = await setup()
+    const entry = vi.spyOn(o.reg.modules.syncWrite, 'submitDetailed')
     await send(o, issueId, {
       action: 'begin',
       uploadId,
@@ -260,7 +334,9 @@ describe('a CLI upload published by an issue.artifactPublish record', () => {
       offset: 0,
       dataBase64: bytes.toString('base64'),
     })
-    // No record for the transport, and nothing on the panel yet.
+    // No record for the transport, no write on the entry point (the handler that
+    // stages them runs without a writer, POD-6605), and nothing on the panel yet.
+    expect(entry).not.toHaveBeenCalled()
     expect(
       await o.store.effects.newestOnTarget(
         ISSUE_ARTIFACT_EFFECT_KIND.publish,
@@ -281,6 +357,25 @@ describe('a CLI upload published by an issue.artifactPublish record', () => {
     expect(await stored(o, issueId, artifactId, 'report.md')).toBe('report body')
     expect(JSON.stringify(record)).not.toContain(bytes.toString('base64'))
     expect(bytes.length).toBeLessThan(ARTIFACT_UPLOAD_CHUNK_BYTES)
+  })
+
+  it('an abort drops the staged upload without a write; its commit then finds nothing', async () => {
+    const { o, issueId } = await setup()
+    const entry = vi.spyOn(o.reg.modules.syncWrite, 'submitDetailed')
+    await send(o, issueId, {
+      action: 'begin',
+      uploadId,
+      path: 'report.md',
+      entry: 'report.md',
+      files: [{ path: 'report.md', size: bytes.length }],
+    })
+    await send(o, issueId, { action: 'abort', uploadId })
+    expect(entry).not.toHaveBeenCalled()
+
+    await expect(send(o, issueId, { action: 'commit', uploadId })).rejects.toThrow(
+      /nothing is staged/,
+    )
+    expect(await entries(o, issueId)).toEqual([])
   })
 
   it('a commit with nothing staged is refused and adds nothing', async () => {
@@ -325,7 +420,11 @@ describe("the entry point's artifact commit", () => {
     const { o, issueId } = await setup({ 'a.png': 'one' })
     await o.call.issues.panelApply({ id: issueId, op: 'artifact-add', path: 'a.png' })
     const done = await recordsOf(o, ISSUE_ARTIFACT_EFFECT_KIND.add, issueId)
-    const other = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'b', startNow: false })
+    const other = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'b',
+      startNow: false,
+    })
 
     for (const [mutation, input] of [
       // Settled: no longer running.

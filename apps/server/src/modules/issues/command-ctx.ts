@@ -94,13 +94,6 @@ export interface IssueCommandDeps {
    */
   effectRunWriter?: IssueWriter
   /**
-   * The writer of a `panelApply` artifact op that made no effect record (an
-   * upload's byte packets; an add with no daemon to read from; POD-6420): the
-   * `issues.artifacts` origin, the one issue write still outside a command's
-   * own writer, listed in `write-contexts.ts` with the issue that removes it.
-   */
-  artifactInlineWriter?: IssueWriter
-  /**
    * Merge, rebase, PR and integrate as effect records (POD-6394): the command
    * creates the record and answers once it settles. Absent only in a dispatcher
    * a test builds by hand, which then runs the git work inline as before.
