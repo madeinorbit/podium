@@ -98,10 +98,10 @@ const keystrokes = (daemon: ControlMessage[], sessionId: SessionId) =>
 /** Two issues, each with its own worktree under the reported repo `/r`. */
 async function twoIssues(o: Oracle) {
   await o.store.repos.addRepo('/r', o.store.hostMachineId)
-  const a = await o.reg.issues.crud.create({ repoPath: '/r', title: 'A', startNow: false })
-  await o.reg.issues.crud.update(a.id, { worktreePath: '/r/.worktrees/a' })
-  const b = await o.reg.issues.crud.create({ repoPath: '/r', title: 'B', startNow: false })
-  await o.reg.issues.crud.update(b.id, { worktreePath: '/r/.worktrees/b' })
+  const a = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'A', startNow: false })
+  await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, a.id, { worktreePath: '/r/.worktrees/a' })
+  const b = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'B', startNow: false })
+  await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, b.id, { worktreePath: '/r/.worktrees/b' })
   return { a, b }
 }
 
@@ -375,7 +375,7 @@ describe('sessions.setIssueId is on sync.submit only', () => {
   it('attaches with provenance and a receipt; a replay returns its result and changes nothing', async () => {
     const o = await makeOracle()
     await o.store.repos.addRepo('/p', o.store.hostMachineId)
-    const issue = await o.reg.issues.crud.create({ repoPath: '/p', title: 't', startNow: false })
+    const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/p', title: 't', startNow: false })
     const { sessionId } = await o.reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/scratch',

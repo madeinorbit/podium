@@ -125,7 +125,7 @@ describe('archive park runs its stop after the commit (POD-6349)', () => {
   it('an issue archive inside a unit of work stops its member sessions after the commit', async () => {
     const { reg, daemon } = await makeRegistry()
     await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId)
-    const issue = await reg.modules.issues.crud.create({
+    const issue = await reg.modules.issues.crud.create(reg.modules.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'archived',
       startNow: false,
@@ -135,7 +135,7 @@ describe('archive park runs its stop after the commit (POD-6349)', () => {
 
     let stopsInsideTheUnitOfWork = -1
     await reg.sessionStore.transact(async () => {
-      await reg.modules.issues.attention.archive(issue.id)
+      await reg.modules.issues.attention.archive(reg.modules.issues.reports.store.serverWriter, issue.id)
       stopsInsideTheUnitOfWork = stopsFor(daemon, sessionId).length
     })
 

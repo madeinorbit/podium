@@ -232,7 +232,7 @@ describe('multi-daemon routing', () => {
     const { reg } = await regWithTwoDaemons()
     try {
       await reg.sessionStore.repos.addRepo(root, asMachineId('m2'))
-      const issue = await reg.modules.issues.crud.create({
+      const issue = await reg.modules.issues.crud.create(reg.modules.issues.reports.store.serverWriter, {
         repoPath: root,
         title: 'Remote adoption',
         startNow: false,
@@ -664,10 +664,10 @@ async function handoffRegistry(
   })
   // An issue homed on the SOURCE machine, as `issue start` would leave it.
   const issue = opts.withIssue
-    ? await reg.modules.issues.crud.create({ repoPath: '/source/repo', title: 'handoff me', startNow: false })
+    ? await reg.modules.issues.crud.create(reg.modules.issues.reports.store.serverWriter, { repoPath: '/source/repo', title: 'handoff me', startNow: false })
     : undefined
   if (issue) {
-    await reg.modules.issues.crud.update(issue.id, {
+    await reg.modules.issues.crud.update(reg.modules.issues.reports.store.serverWriter, issue.id, {
       worktreePath: '/source/repo/.worktrees/x',
       branch: 'x',
       machineId: asMachineId('m1'),

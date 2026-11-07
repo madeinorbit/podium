@@ -2,12 +2,15 @@ import type { IssueProjection } from '@podium/model'
 import { type CommandPrincipal, onBehalfOfUser } from '../command-principal'
 import type { IssueCaller } from '../modules/issues/command-ctx'
 import type { IssueAttentionCapability } from '../modules/issues/service'
+import type { IssueWriter, WriterRest } from '../modules/issues/service/types'
 
-export type IssueAttachInput = Parameters<IssueAttentionCapability['attachSession']>[0]
+export type IssueAttachInput = WriterRest<IssueAttentionCapability['attachSession']>[0]
 
 export interface IssueAttachOrchestratorPorts {
   transact<T>(work: () => Promise<T>): Promise<T>
   attention: Pick<IssueAttentionCapability, 'attachSession'>
+  /** The writer of an attach that runs outside `sync.submit` (POD-6603). */
+  directWriter: IssueWriter
 }
 
 /**
@@ -25,7 +28,7 @@ export class IssueAttachOrchestrator {
     const principal = this.transportPrincipal(caller)
     return await this.ports.transact(
       async () =>
-        await this.ports.attention.attachSession({
+        await this.ports.attention.attachSession(caller.writer ?? this.ports.directWriter, {
           ...input,
           principal,
         }),

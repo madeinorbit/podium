@@ -1,3 +1,4 @@
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { SORT_KEY_MAX_LEN } from '@podium/model'
 import { afterAll, describe, expect, it } from 'vitest'
 import { resolvePrincipal } from './command-principal'
@@ -50,7 +51,7 @@ async function fixture() {
 describe('sibling-relative issue moves', () => {
   it('moves before/after at the ends and between siblings, preserving all other keys and activity', async () => {
     const { registry, op, a, b, c, d, siblings, order } = await fixture()
-    await registry.issues.crud.markIssueRead(a.id)
+    await registry.issues.crud.markIssueRead(registry.issues.reports.store.serverWriter, a.id)
     const before = await siblings()
     expect(await order()).toEqual(['d', 'c', 'b', 'a'])
     const moved = await op.issues.move({ id: a.id, before: d.id })
@@ -114,7 +115,7 @@ describe('sibling-relative issue moves', () => {
     const { registry, op, a, c, d, order } = await fixture()
     for (const row of [c, d]) {
       const stored = (await registry.sessionStore.issues.getIssue(row.id))!
-      await registry.sessionStore.issues.upsertIssue({ ...stored, sortKey: null })
+      await registry.sessionStore.issues.upsertIssue(fixtureWriteScope(), { ...stored, sortKey: null })
     }
     expect(await registry.issues.reports.getMeta(c.id)).toMatchObject({ sortKey: null })
     await op.issues.move({ id: a.id, after: d.id })

@@ -14,6 +14,7 @@
  * dependency and comment tables and one grant set per row from the issue map's
  * rows; `doctor` reads only its listing and the dependencies now.
  */
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { asIssueId, asUserId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { IssueRow, SessionStore } from '../../store'
@@ -103,7 +104,7 @@ async function fixture(size: number): Promise<Fixture> {
     ),
   ]
   await store.transact(async () => {
-    for (const issue of rows) await store.issues.upsertIssue(issue)
+    for (const issue of rows) await store.issues.upsertIssue(fixtureWriteScope(), issue)
     // Open children are the even seqs; each depends on the next open one.
     for (let seq = 2; seq + 2 <= size + 1; seq += 2) {
       await store.issues.addIssueDep(asIssueId(`iss_${seq}`), asIssueId(`iss_${seq + 2}`))

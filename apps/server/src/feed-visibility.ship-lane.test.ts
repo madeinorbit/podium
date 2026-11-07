@@ -5,6 +5,7 @@
  * holding a lane that stopped updating; a grant must re-admit the lane.
  */
 
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { createHash } from 'node:crypto'
 import {
   asIssueId,
@@ -146,8 +147,8 @@ const principal = (user: string): Principal => ({
 async function fixture() {
   const store = await openTestStore(':memory:')
   stores.push(store)
-  await store.issues.upsertIssue(issueRow('iss_shared', 1))
-  await store.issues.upsertIssue(issueRow('iss_private', 2))
+  await store.issues.upsertIssue(fixtureWriteScope(), issueRow('iss_shared', 1))
+  await store.issues.upsertIssue(fixtureWriteScope(), issueRow('iss_private', 2))
   await store.shipping.createOrder(order('order-shared', 'iss_shared', 1))
   await store.shipping.createOrder(order('order-private', 'iss_private', 2))
   const grant = async (issueId: string, grantee: string) =>

@@ -38,7 +38,7 @@ async function makeOracle() {
 }
 
 async function newIssue(o: Awaited<ReturnType<typeof makeOracle>>, title: string) {
-  return await o.reg.issues.crud.create({ repoPath: '/r', title, startNow: false })
+  return await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title, startNow: false })
 }
 
 describe('the issue work effects', () => {
@@ -151,7 +151,7 @@ describe('the issue work effects', () => {
 async function startedIssue(o: Oracle, title: string) {
   const issue = await newIssue(o, title)
   const slug = title.replace(/\W+/g, '-')
-  await o.reg.issues.crud.update(issue.id, {
+  await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, issue.id, {
     worktreePath: `/r/.worktrees/${slug}`,
     branch: `issue/${slug}`,
   })

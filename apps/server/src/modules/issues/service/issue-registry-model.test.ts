@@ -124,14 +124,14 @@ describe('draft-then-install: two updates to the same issue', () => {
     // told they succeeded.
     harness = await open()
     const { svc } = harness
-    const id = (await svc.crud.create({ repoPath: '/repo', title: 'one', startNow: false })).id
+    const id = (await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/repo', title: 'one', startNow: false })).id
 
     // The second update runs INSIDE the first one's write span, so it reads the
     // row at the revision the first update was cut from and commits first.
     harness.duringNextWrite(async () => {
-      await svc.crud.update(id, { title: 'from the inner write' })
+      await svc.crud.update(svc.reports.store.serverWriter, id, { title: 'from the inner write' })
     })
-    await expect(svc.crud.update(id, { title: 'from the outer write' })).rejects.toThrow(
+    await expect(svc.crud.update(svc.reports.store.serverWriter, id, { title: 'from the outer write' })).rejects.toThrow(
       StaleIssueRevisionError,
     )
 
@@ -150,7 +150,7 @@ describe('draft-then-install: two updates to the same issue', () => {
     // answered only after the rollback, with the settled row.
     harness = await open()
     const { svc } = harness
-    const id = (await svc.crud.create({ repoPath: '/repo', title: 'settled', startNow: false })).id
+    const id = (await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/repo', title: 'settled', startNow: false })).id
     const before = await svc.reports.get(id)
 
     let answeredWhileOpen = true
@@ -166,7 +166,7 @@ describe('draft-then-install: two updates to the same issue', () => {
       answeredWhileOpen = answered
     }, 'after')
     harness.failNextWrite()
-    await expect(svc.crud.update(id, { title: 'never committed' })).rejects.toThrow('commit failed')
+    await expect(svc.crud.update(svc.reports.store.serverWriter, id, { title: 'never committed' })).rejects.toThrow('commit failed')
 
     expect(answeredWhileOpen, 'the outside reader waits for the save').toBe(false)
     expect(await outside, 'no reader sees the uncommitted title').toBe('settled')
@@ -181,12 +181,12 @@ describe('draft-then-install: a rollback racing a successful update', () => {
     // to put the pre-write field set back over the winner's committed row.
     harness = await open()
     const { svc } = harness
-    const id = (await svc.crud.create({ repoPath: '/repo', title: 'base', startNow: false })).id
+    const id = (await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/repo', title: 'base', startNow: false })).id
 
     harness.duringNextWrite(async () => {
-      await svc.crud.update(id, { title: 'winner' })
+      await svc.crud.update(svc.reports.store.serverWriter, id, { title: 'winner' })
     })
-    await expect(svc.crud.update(id, { title: 'loser' })).rejects.toThrow(StaleIssueRevisionError)
+    await expect(svc.crud.update(svc.reports.store.serverWriter, id, { title: 'loser' })).rejects.toThrow(StaleIssueRevisionError)
 
     expect((await svc.reports.get(id))?.title).toBe('winner')
     // The map serves what the store committed, not merely something plausible.
@@ -203,7 +203,7 @@ describe('draft-then-install: a read while a write is open', () => {
     // write, with no special case (design §2, one way to read a fact).
     harness = await open()
     const { svc } = harness
-    const id = (await svc.crud.create({ repoPath: '/repo', title: 'committed', startNow: false })).id
+    const id = (await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/repo', title: 'committed', startNow: false })).id
 
     let answeredWhileOpen = true
     const inside: (string | undefined)[] = []
@@ -222,7 +222,7 @@ describe('draft-then-install: a read while a write is open', () => {
       await new Promise((resolve) => setTimeout(resolve, 20))
       answeredWhileOpen = answered
     }, 'after')
-    await svc.crud.update(id, { title: 'in flight' })
+    await svc.crud.update(svc.reports.store.serverWriter, id, { title: 'in flight' })
 
     expect(inside, 'the save reads its own write').toEqual(['in flight'])
     expect(answeredWhileOpen, 'the outside reader waits for the save').toBe(false)

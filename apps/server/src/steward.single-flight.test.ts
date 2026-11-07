@@ -34,7 +34,10 @@ describe('StewardService.tick single-flight (POD-3258)', () => {
       store,
       ...sessionReadPorts(() => sessions),
       getSettings: async () => settings,
-      spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
+      spawnSession: vi.fn(async () => ({
+        sessionId: asSessionId('s1'),
+        machine: 'machine-under-test',
+      })),
       repoOp: vi.fn(async () => ({ ok: true, output: '' })),
       ...issueTestPlumbing(),
       now,
@@ -57,12 +60,14 @@ describe('StewardService.tick single-flight (POD-3258)', () => {
     })
 
     const deps: StewardDeps = {
+      writer: issues.reports.store.serverWriter,
       store: events,
       facts: store.notificationFacts,
       messages: store.messages,
       issues,
       runningSessionFacts: () => sessionReadPorts(() => sessions).runningSessionFacts(),
-      readSessionFactsByIds: async (ids) => await sessionReadPorts(() => sessions).readSessionFactsByIds(ids),
+      readSessionFactsByIds: async (ids) =>
+        await sessionReadPorts(() => sessions).readSessionFactsByIds(ids),
       sessionById: async (sessionId) => sessions.find((x) => x.sessionId === sessionId),
       sendNotice: vi.fn(),
       notify: vi.fn(),

@@ -14,7 +14,7 @@ async function harness() {
   await store.repos.addRepo('/r/podium', store.hostMachineId) // prefix POD
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   await attachHostDaemon(reg, () => {})
-  const issue = await reg.modules.issues.crud.create({
+  const issue = await reg.modules.issues.crud.create(reg.modules.issues.reports.store.serverWriter, {
     repoPath: '/r/podium',
     title: 'T',
     startNow: false,
@@ -139,7 +139,7 @@ describe('session birth naming (#474)', () => {
 
   it('re-attach keeps the permanent birth name', async () => {
     const { reg, issue, meta } = await harness()
-    const other = await reg.modules.issues.crud.create({
+    const other = await reg.modules.issues.crud.create(reg.modules.issues.reports.store.serverWriter, {
       repoPath: '/r/podium',
       title: 'U',
       startNow: false,

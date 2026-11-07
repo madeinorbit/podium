@@ -27,6 +27,7 @@ import {
   type AcceptedReviewEvidence,
   canonicalShippingDestination,
   type ResourceLease,
+  type ShippingIssuePort,
   ShippingOrderAccessError,
   ShippingService,
   shippingResourceHolderId,
@@ -102,8 +103,8 @@ async function harness(
     ledger: testLedgerWriter(ledger),
   })
   const createIssue = issues.crud.create.bind(issues.crud)
-  issues.crud.create = (async (input) =>
-    await createIssue({
+  issues.crud.create = (async (writer, input) =>
+    await createIssue(writer, {
       ...input,
       machineId: input.machineId ?? asMachineId('machine-1'),
     })) as typeof issues.crud.create
@@ -153,12 +154,20 @@ async function harness(
         ...issue,
         branch: issue.branch ?? `issue/${issue.seq}-shipping-test`,
       })),
-    shippingCommit: checked(
-      issues.crud.shippingCommit.bind(issues.crud),
-    ) as typeof issues.crud.shippingCommit,
-    shippingCommitMany: checked(
-      issues.crud.shippingCommitMany.bind(issues.crud),
-    ) as typeof issues.crud.shippingCommitMany,
+    // The issue writes a ship order makes, under the issue service's own writer.
+    shippingCommit: checked(((id, mutation, write) =>
+      issues.crud.shippingCommit(
+        issues.reports.store.serverWriter,
+        id,
+        mutation,
+        write,
+      )) as ShippingIssuePort['shippingCommit']),
+    shippingCommitMany: checked(((entries, write) =>
+      issues.crud.shippingCommitMany(
+        issues.reports.store.serverWriter,
+        entries,
+        write,
+      )) as ShippingIssuePort['shippingCommitMany']),
     ...(options.takeBranchCustody ? { takeBranchCustody: options.takeBranchCustody } : {}),
   }
   const deps: ConstructorParameters<typeof ShippingService>[0] = {
@@ -280,12 +289,12 @@ describe('ShippingService enqueue transaction', () => {
 
   it('O1 commits and reads queue ranks without scanning attempt history', async () => {
     const { store, ledger, issues, service } = await harness()
-    const issue = await issues.crud.create({
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'compact order',
       startNow: false,
     })
-    await issues.crud.update(issue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
     const attempts = vi.spyOn(store.shipping, 'attemptsForOrder')
     try {
       const cursor = await ledger.cursor()
@@ -323,12 +332,12 @@ describe('ShippingService enqueue transaction', () => {
 
   it('O1 publishes live order rows without train or waitEstimate', async () => {
     const { store, ledger, issues, service } = await harness()
-    const issue = await issues.crud.create({
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'compact wire',
       startNow: false,
     })
-    await issues.crud.update(issue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
     try {
       const cursor = await ledger.cursor()
       const admitted = await service.enqueue({ issueId: issue.id, ...approval })
@@ -362,8 +371,15 @@ describe('ShippingService enqueue transaction', () => {
       for (const [index, repoPath] of ['/repo', '/repo', '/other'].entries()) {
         now = `2026-08-13T10:00:0${index}.000Z`
         const title = ['lower', 'upper', 'other'][index]!
-        const issue = await issues.crud.create({ repoPath, title, startNow: false })
-        await issues.crud.update(issue.id, { stage: 'review', branch: `issue/${title}` })
+        const issue = await issues.crud.create(issues.reports.store.serverWriter, {
+          repoPath,
+          title,
+          startNow: false,
+        })
+        await issues.crud.update(issues.reports.store.serverWriter, issue.id, {
+          stage: 'review',
+          branch: `issue/${title}`,
+        })
         await service.enqueue({
           issueId: issue.id,
           ...approval,
@@ -416,12 +432,12 @@ describe('ShippingService enqueue transaction', () => {
 
   it('atomically freezes the order, moves review to shipping, and publishes compact rows', async () => {
     const { store, ledger, issues, service } = await harness()
-    const issue = await issues.crud.create({
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'approved',
       startNow: false,
     })
-    await issues.crud.update(issue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
     const cursor = await ledger.cursor()
 
     const receipt = await service.enqueue({ issueId: issue.id, ...approval })
@@ -461,12 +477,12 @@ describe('ShippingService enqueue transaction', () => {
 
   it('rejects a replay when any frozen admission fact differs', async () => {
     const { issues, service } = await harness()
-    const issue = await issues.crud.create({
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'frozen replay',
       startNow: false,
     })
-    await issues.crud.update(issue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
     await service.enqueue({
       issueId: issue.id,
       ...approval,
@@ -493,19 +509,19 @@ describe('ShippingService enqueue transaction', () => {
       isAncestor: async (_issue, ancestor, descendant) =>
         ancestor === 'lower-head' && descendant === 'upper-head',
     })
-    const lower = await issues.crud.create({
+    const lower = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'lower layer',
       startNow: false,
     })
     lowerIssueId = lower.id
-    const upper = await issues.crud.create({
+    const upper = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'upper layer',
       startNow: false,
     })
-    await issues.crud.update(lower.id, { stage: 'review' })
-    await issues.crud.update(upper.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, lower.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, upper.id, { stage: 'review' })
     const lowerOrder = await service.enqueue({
       issueId: lower.id,
       ...approval,
@@ -526,12 +542,12 @@ describe('ShippingService enqueue transaction', () => {
     const { issues, service } = await harness(undefined, {
       resolveBranchTip: async () => liveHead,
     })
-    const issue = await issues.crud.create({
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'live replay fence',
       startNow: false,
     })
-    await issues.crud.update(issue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
     await service.enqueue({ issueId: issue.id, ...approval })
 
     liveHead = 'advanced-head-sha'
@@ -546,12 +562,12 @@ describe('ShippingService enqueue transaction', () => {
     const { store, issues, service } = await harness(undefined, {
       resolveBranchTip: async () => (++sourceReads === 1 ? 'head-sha' : 'advanced-head-sha'),
     })
-    const issue = await issues.crud.create({
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'admission ref race',
       startNow: false,
     })
-    await issues.crud.update(issue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
 
     await expect(service.enqueue({ issueId: issue.id, ...approval })).rejects.toMatchObject({
       code: 'source-stale',
@@ -563,12 +579,12 @@ describe('ShippingService enqueue transaction', () => {
 
   it('rolls back issue custody and the order when the ledger append fails', async () => {
     const { store, issues, service } = await harness()
-    const issue = await issues.crud.create({
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'rollback',
       startNow: false,
     })
-    await issues.crud.update(issue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
     const append = vi.spyOn(store.sync, 'appendChanges').mockImplementationOnce(() => {
       throw new Error('append failed')
     })
@@ -584,12 +600,12 @@ describe('ShippingService enqueue transaction', () => {
 
   it('atomically creates or returns one order when identical admissions race', async () => {
     const { store, issues, service } = await harness()
-    const issue = await issues.crud.create({
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'concurrent',
       startNow: false,
     })
-    await issues.crud.update(issue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
 
     const receipts = await Promise.all([
       service.enqueue({ issueId: issue.id, ...approval }),
@@ -604,18 +620,18 @@ describe('ShippingService enqueue transaction', () => {
 
   it('rejects a nested issue with the highest root and exact safe retry command', async () => {
     const { issues, service } = await harness()
-    const root = await issues.crud.create({
+    const root = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'root',
       startNow: false,
     })
-    const middle = await issues.crud.create({
+    const middle = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'middle',
       parentId: root.id,
       startNow: false,
     })
-    const leaf = await issues.crud.create({
+    const leaf = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'leaf',
       parentId: middle.id,
@@ -638,19 +654,19 @@ describe('ShippingService enqueue transaction', () => {
     const { store, issues, service } = await harness(undefined, {
       useStoredReceipts: true,
     })
-    const root = await issues.crud.create({
+    const root = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'root',
       startNow: false,
     })
-    const child = await issues.crud.create({
+    const child = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'child',
       startNow: false,
       parentId: root.id,
     })
-    await issues.crud.update(child.id, { stage: 'done' })
-    await issues.crud.update(root.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, child.id, { stage: 'done' })
+    await issues.crud.update(issues.reports.store.serverWriter, root.id, { stage: 'review' })
 
     await expect(service.enqueue({ issueId: root.id, ...approval })).rejects.toMatchObject({
       code: 'evidence',
@@ -679,19 +695,19 @@ describe('ShippingService enqueue transaction', () => {
     const { store, issues, service } = await harness(undefined, {
       useStoredReceipts: true,
     })
-    const root = await issues.crud.create({
+    const root = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'root refusal',
       startNow: false,
     })
-    const child = await issues.crud.create({
+    const child = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'child refusal',
       startNow: false,
       parentId: root.id,
     })
-    await issues.crud.update(child.id, { stage: 'done' })
-    await issues.crud.update(root.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, child.id, { stage: 'done' })
+    await issues.crud.update(issues.reports.store.serverWriter, root.id, { stage: 'review' })
     await store.shipping.recordRootIntegrationReceipt({
       rootIssueId: root.id,
       approvedHeadSha: 'head-sha',
@@ -717,12 +733,12 @@ describe('ShippingService enqueue transaction', () => {
     const { store, issues, service } = await harness(undefined, {
       rootIntegrationReceipt: async () => null,
     })
-    const issue = await issues.crud.create({
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'top-level leaf',
       startNow: false,
     })
-    await issues.crud.update(issue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
 
     const accepted = await service.enqueue({ issueId: issue.id, ...approval })
     expect(accepted.descendantManifest).toEqual([])
@@ -751,12 +767,12 @@ describe('ShippingService enqueue transaction', () => {
       policy,
       acceptedReviewEvidence,
     })
-    const issue = await issues.crud.create({
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'evidence required',
       startNow: false,
     })
-    await issues.crud.update(issue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
 
     const accepted = await service.enqueueCurrent({
       issueId: issue.id,
@@ -776,12 +792,19 @@ describe('ShippingService enqueue transaction', () => {
   it('allows compatibility null evidence and rejects strict null or mismatched evidence unchanged', async () => {
     const compatibility = new CompatibilityShippingPolicyResolver(() => 'main')
     const compatible = await harness()
-    const compatibleIssue = await compatible.issues.crud.create({
-      repoPath: '/repo',
-      title: 'compatibility evidence',
-      startNow: false,
-    })
-    await compatible.issues.crud.update(compatibleIssue.id, { stage: 'review' })
+    const compatibleIssue = await compatible.issues.crud.create(
+      compatible.issues.reports.store.serverWriter,
+      {
+        repoPath: '/repo',
+        title: 'compatibility evidence',
+        startNow: false,
+      },
+    )
+    await compatible.issues.crud.update(
+      compatible.issues.reports.store.serverWriter,
+      compatibleIssue.id,
+      { stage: 'review' },
+    )
     const accepted = await compatible.service.enqueueCurrent({
       issueId: compatibleIssue.id,
       principal: approval.principal,
@@ -809,12 +832,14 @@ describe('ShippingService enqueue transaction', () => {
         policy: strictPolicy,
         acceptedReviewEvidence,
       })
-      const issue = await strict.issues.crud.create({
+      const issue = await strict.issues.crud.create(strict.issues.reports.store.serverWriter, {
         repoPath: '/repo',
         title: 'strict evidence',
         startNow: false,
       })
-      await strict.issues.crud.update(issue.id, { stage: 'review' })
+      await strict.issues.crud.update(strict.issues.reports.store.serverWriter, issue.id, {
+        stage: 'review',
+      })
       await expect(
         strict.service.enqueueCurrent({
           issueId: issue.id,
@@ -835,12 +860,12 @@ describe('ShippingService enqueue transaction', () => {
         if (hidden) throw Object.assign(new Error('hidden root'), { code: 'NOT_FOUND' })
       },
     })
-    const issue = await issues.crud.create({
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'opaque order',
       startNow: false,
     })
-    await issues.crud.update(issue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
     hidden = true
 
@@ -893,12 +918,12 @@ describe('ShippingService enqueue transaction', () => {
       heartbeatedAt: '2026-08-13T10:00:00.000Z',
       finishedAt: '2026-08-13T10:00:00.000Z',
     }))
-    const issue = await issues.crud.create({
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'held',
       startNow: false,
     })
-    await issues.crud.update(issue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
 
     await service.runOrder(order.id)
@@ -966,12 +991,12 @@ describe('ShippingService enqueue transaction', () => {
       }),
       { authorize, reauthorize },
     )
-    const issue = await issues.crud.create({
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'auth',
       startNow: false,
     })
-    await issues.crud.update(issue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
     await service.runOrder(order.id)
     expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ action: 'enqueue' }))
@@ -995,12 +1020,12 @@ describe('ShippingService enqueue transaction', () => {
     const { store, issues, service } = await harness(shippingJob, {
       takeBranchCustody,
     })
-    const issue = await issues.crud.create({
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'custody',
       startNow: false,
     })
-    await issues.crud.update(issue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
 
     await service.runOrder(order.id)
@@ -1023,12 +1048,12 @@ describe('ShippingService enqueue transaction', () => {
           artifactRefs: ['/native/daemon/validation.log'],
         }),
     )
-    const issue = await issues.crud.create({
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'opaque evidence',
       startNow: false,
     })
-    await issues.crud.update(issue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
 
     await expect(service.runOrder(order.id)).rejects.toThrow(
@@ -1072,12 +1097,12 @@ describe('ShippingService enqueue transaction', () => {
     const { store, issues, service } = await harness(provedShippingJob, {
       resourceAdmission,
     })
-    const issue = await issues.crud.create({
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'resource locks',
       startNow: false,
     })
-    await issues.crud.update(issue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
 
     await service.runOrder(order.id)
@@ -1144,12 +1169,12 @@ describe('ShippingService enqueue transaction', () => {
     const release = vi.fn()
     const resourceAdmission = { acquire: vi.fn(() => true), renew, release }
     const { store, issues, service } = await harness(daemon, { resourceAdmission })
-    const issue = await issues.crud.create({
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'renew lease',
       startNow: false,
     })
-    await issues.crud.update(issue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
 
     const running = service.runOrder(order.id)
@@ -1200,12 +1225,12 @@ describe('ShippingService enqueue transaction', () => {
     const release = vi.fn()
     const resourceAdmission = { acquire: vi.fn(() => true), renew, release }
     const { store, issues, service } = await harness(daemon, { resourceAdmission })
-    const issue = await issues.crud.create({
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'lost lease',
       startNow: false,
     })
-    await issues.crud.update(issue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
 
     const running = service.runOrder(order.id)
@@ -1234,12 +1259,12 @@ describe('ShippingService enqueue transaction', () => {
     const { store, issues, service } = await harness(provedShippingJob, {
       resourceAdmission: { acquire: vi.fn(() => true), renew, release },
     })
-    const issue = await issues.crud.create({
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'post effect fence',
       startNow: false,
     })
-    await issues.crud.update(issue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
 
     await service.runOrder(order.id)
@@ -1267,12 +1292,12 @@ describe('ShippingService enqueue transaction', () => {
     const { store, issues, service } = await harness(daemon, {
       resourceAdmission: { acquire: vi.fn(() => true), renew, release },
     })
-    const issue = await issues.crud.create({
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'dispatch lease',
       startNow: false,
     })
-    await issues.crud.update(issue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
 
     await service.runOrder(order.id)
@@ -1312,12 +1337,12 @@ describe('ShippingService enqueue transaction', () => {
     const { store, issues, service } = await harness(daemon, {
       resourceAdmission: { acquire: vi.fn(() => true), renew, release },
     })
-    const issue = await issues.crud.create({
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'dispose lease',
       startNow: false,
     })
-    await issues.crud.update(issue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
 
     const running = service.runOrder(order.id)
@@ -1381,12 +1406,14 @@ describe('ShippingService enqueue transaction', () => {
     }
     const setup = await harness(daemon, { resourceAdmission })
     service = setup.service
-    const issue = await setup.issues.crud.create({
+    const issue = await setup.issues.crud.create(setup.issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'cancel fence',
       startNow: false,
     })
-    await setup.issues.crud.update(issue.id, { stage: 'review' })
+    await setup.issues.crud.update(setup.issues.reports.store.serverWriter, issue.id, {
+      stage: 'review',
+    })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
 
     await service.runOrder(order.id)
@@ -1440,12 +1467,12 @@ describe('ShippingService enqueue transaction', () => {
         if (crash) throw new Error('simulated server crash before completion commit')
       },
     })
-    const issue = await issues.crud.create({
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'recover',
       startNow: false,
     })
-    await issues.crud.update(issue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
 
     await expect(service.runOrder(order.id)).rejects.toThrow(/simulated server crash/)
@@ -1525,20 +1552,24 @@ describe('ShippingService enqueue transaction', () => {
       checkOrderPlane: false,
       isAncestor: async () => true,
     })
-    const issueA = await issues.crud.create({
+    const issueA = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'covered a',
       startNow: false,
     })
-    const issueB = await issues.crud.create({
+    const issueB = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'covered b',
       startNow: false,
     })
-    await issues.crud.update(issueA.id, { branch: 'issue/covered-a' })
-    await issues.crud.update(issueB.id, { branch: 'issue/covered-b' })
-    await issues.crud.update(issueA.id, { stage: 'review' })
-    await issues.crud.update(issueB.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issueA.id, {
+      branch: 'issue/covered-a',
+    })
+    await issues.crud.update(issues.reports.store.serverWriter, issueB.id, {
+      branch: 'issue/covered-b',
+    })
+    await issues.crud.update(issues.reports.store.serverWriter, issueA.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issueB.id, { stage: 'review' })
     // B is stacked on A, so A is the covered prefix and B leads.
     const admitted = [
       { issue: issueA, receipt: await service.enqueue({ issueId: issueA.id, ...approval }) },
@@ -1621,12 +1652,12 @@ describe('ShippingService enqueue transaction', () => {
       }),
       { authorize },
     )
-    const issue = await issues.crud.create({
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'cancel',
       startNow: false,
     })
-    await issues.crud.update(issue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
     await service.runOrder(order.id)
     expect((await store.shipping.getOrder(order.id))?.state).toBe('preflight')
@@ -1646,12 +1677,12 @@ describe('ShippingService enqueue transaction', () => {
 
   it('rolls back cancellation state when its durable issue event cannot commit', async () => {
     const { store, issues, service } = await harness(provedShippingJob)
-    const issue = await issues.crud.create({
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'atomic cancel',
       startNow: false,
     })
-    await issues.crud.update(issue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
     const db = (store as unknown as { db: { exec(sql: string): void } }).db
     db.exec(`CREATE TRIGGER refuse_shipping_event BEFORE INSERT ON podium_events
@@ -1694,12 +1725,12 @@ describe('ShippingService enqueue transaction', () => {
         heartbeatedAt: '2026-08-13T10:00:00.000Z',
       }
     })
-    const issue = await issues.crud.create({
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'supersede',
       startNow: false,
     })
-    await issues.crud.update(issue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
     await service.runOrder(order.id)
     const first = await store.shipping.latestAttemptForOrder(order.id)
@@ -1733,12 +1764,12 @@ describe('ShippingService enqueue transaction', () => {
       artifactRefs: [],
       heartbeatedAt: '2026-08-13T10:00:00.000Z',
     }))
-    const issue = await issues.crud.create({
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'claim cas',
       startNow: false,
     })
-    await issues.crud.update(issue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
     await service.runOrder(order.id)
     const first = (await store.shipping.latestAttemptForOrder(order.id))!
@@ -1801,12 +1832,12 @@ describe('ShippingService enqueue transaction', () => {
         ...(input.action === 'cancel' ? { finishedAt: '2026-08-13T10:00:00.000Z' } : {}),
       }
     })
-    const issue = await issues.crud.create({
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'cancel recovery',
       startNow: false,
     })
-    await issues.crud.update(issue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
     await service.runOrder(order.id)
     const first = (await store.shipping.latestAttemptForOrder(order.id))!
@@ -1900,12 +1931,12 @@ describe('ShippingService enqueue transaction', () => {
         },
       },
     )
-    const issue = await issues.crud.create({
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'cancel refusal',
       startNow: false,
     })
-    await issues.crud.update(issue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
     await service.runOrder(order.id)
     const attempt = (await store.shipping.latestAttemptForOrder(order.id))!
@@ -1952,12 +1983,12 @@ describe('ShippingService enqueue transaction', () => {
         heartbeatedAt: '2026-08-13T10:00:00.000Z',
       }
     })
-    const issue = await issues.crud.create({
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'cancel rpc refusal',
       startNow: false,
     })
-    await issues.crud.update(issue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
     await service.runOrder(order.id)
     const attempt = (await store.shipping.latestAttemptForOrder(order.id))!
@@ -2023,12 +2054,12 @@ describe('ShippingService enqueue transaction', () => {
         resolveStart = resolve
       })
     })
-    const issue = await issues.crud.create({
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'late result',
       startNow: false,
     })
-    await issues.crud.update(issue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
     const execution = service.runOrder(order.id)
     await started
@@ -2118,12 +2149,12 @@ describe('ShippingService enqueue transaction', () => {
         if (crashBeforeAcknowledgement) throw new Error('crash before repair ack')
       },
     })
-    const issue = await issues.crud.create({
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'repair ack',
       startNow: false,
     })
-    await issues.crud.update(issue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
 
     await expect(service.runOrder(order.id)).rejects.toThrow(/crash before repair ack/)
@@ -2136,6 +2167,7 @@ describe('ShippingService enqueue transaction', () => {
 
     crashBeforeAcknowledgement = false
     await issues.crud.shippingCommit(
+      issues.reports.store.serverWriter,
       issue.id,
       {
         expectedStage: 'shipping',
@@ -2145,7 +2177,9 @@ describe('ShippingService enqueue transaction', () => {
       },
       () => {},
     )
-    await issues.crud.update(issue.id, { branch: 'issue/drifted-after-repair-decision' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, {
+      branch: 'issue/drifted-after-repair-decision',
+    })
     const restarted = new ShippingService(deps)
     await restarted.reconcile()
     expect(consider).toHaveBeenCalledTimes(1)
@@ -2241,26 +2275,26 @@ describe('ShippingService enqueue transaction', () => {
       checkOrderPlane: false,
     })
     evidenceRegistry = new ShippingEvidenceRegistry(store.shipping)
-    const issueA = await issues.crud.create({
+    const issueA = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'repair train a',
       startNow: false,
     })
-    const issueB = await issues.crud.create({
+    const issueB = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'repair train b',
       startNow: false,
     })
-    await issues.crud.update(issueA.id, {
+    await issues.crud.update(issues.reports.store.serverWriter, issueA.id, {
       branch: 'issue/repair-train-a',
       machineId: asMachineId('machine-1'),
     })
-    await issues.crud.update(issueB.id, {
+    await issues.crud.update(issues.reports.store.serverWriter, issueB.id, {
       branch: 'issue/repair-train-b',
       machineId: asMachineId('machine-1'),
     })
-    await issues.crud.update(issueA.id, { stage: 'review' })
-    await issues.crud.update(issueB.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issueA.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issueB.id, { stage: 'review' })
     const admitted = [
       { issue: issueA, receipt: await service.enqueue({ issueId: issueA.id, ...approval }) },
       { issue: issueB, receipt: await service.enqueue({ issueId: issueB.id, ...approval }) },
@@ -2289,6 +2323,7 @@ describe('ShippingService enqueue transaction', () => {
     service.dispose()
 
     await issues.crud.shippingCommit(
+      issues.reports.store.serverWriter,
       leader.issue.id,
       {
         expectedStage: 'shipping',
@@ -2298,8 +2333,11 @@ describe('ShippingService enqueue transaction', () => {
       },
       () => {},
     )
-    await issues.crud.update(leader.issue.id, { branch: 'issue/drifted-after-train-release' })
+    await issues.crud.update(issues.reports.store.serverWriter, leader.issue.id, {
+      branch: 'issue/drifted-after-train-release',
+    })
     await issues.crud.shippingCommit(
+      issues.reports.store.serverWriter,
       leader.issue.id,
       {
         expectedStage: 'review',
@@ -2361,12 +2399,12 @@ describe('ShippingService enqueue transaction', () => {
       isAncestor: async (_issue, ancestor, descendant) =>
         ancestor === 'lower-head' && descendant === 'upper-head',
     })
-    const lowerIssue = await issues.crud.create({
+    const lowerIssue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'landed predecessor',
       startNow: false,
     })
-    await issues.crud.update(lowerIssue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, lowerIssue.id, { stage: 'review' })
     const lower = await service.enqueue({
       issueId: lowerIssue.id,
       ...approval,
@@ -2375,12 +2413,12 @@ describe('ShippingService enqueue transaction', () => {
     await service.runOrder(lower.order.id)
     expect((await store.shipping.getOrder(lower.order.id))?.state).toBe('shipped')
 
-    const upperIssue = await issues.crud.create({
+    const upperIssue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'stale descendant',
       startNow: false,
     })
-    await issues.crud.update(upperIssue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, upperIssue.id, { stage: 'review' })
     const upper = await service.enqueue({
       issueId: upperIssue.id,
       ...approval,
@@ -2413,12 +2451,12 @@ describe('ShippingService enqueue transaction', () => {
         (ancestor === 'landing-d1' && descendant === 'destination-d2') ||
         (ancestor === 'blocker-head' && descendant === 'descendant-head'),
     })
-    const landedIssue = await issues.crud.create({
+    const landedIssue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'historical D1',
       startNow: false,
     })
-    await issues.crud.update(landedIssue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, landedIssue.id, { stage: 'review' })
     const landed = await service.enqueue({
       issueId: landedIssue.id,
       ...approval,
@@ -2431,12 +2469,14 @@ describe('ShippingService enqueue transaction', () => {
     await service.runOrder(landed.order.id)
     expect((await store.shipping.getOrder(landed.order.id))?.state).toBe('shipped')
 
-    const blockerIssue = await issues.crud.create({
+    const blockerIssue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'D2 blocker',
       startNow: false,
     })
-    await issues.crud.update(blockerIssue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, blockerIssue.id, {
+      stage: 'review',
+    })
     await service.enqueue({
       issueId: blockerIssue.id,
       ...approval,
@@ -2446,12 +2486,14 @@ describe('ShippingService enqueue transaction', () => {
         sourceHeadSha: 'blocker-head',
       },
     })
-    const descendantIssue = await issues.crud.create({
+    const descendantIssue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'D2 descendant',
       startNow: false,
     })
-    await issues.crud.update(descendantIssue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, descendantIssue.id, {
+      stage: 'review',
+    })
     const descendant = await service.enqueue({
       issueId: descendantIssue.id,
       ...approval,
@@ -2493,26 +2535,26 @@ describe('ShippingService enqueue transaction', () => {
       finishedAt: '2026-08-13T10:00:00.000Z',
     })
     const { store, issues, service } = await harness(heldDaemon)
-    const issueA = await issues.crud.create({
+    const issueA = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'train a',
       startNow: false,
     })
-    const issueB = await issues.crud.create({
+    const issueB = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'train b',
       startNow: false,
     })
-    await issues.crud.update(issueA.id, {
+    await issues.crud.update(issues.reports.store.serverWriter, issueA.id, {
       branch: 'issue/train-a',
       machineId: asMachineId('machine-1'),
     })
-    await issues.crud.update(issueB.id, {
+    await issues.crud.update(issues.reports.store.serverWriter, issueB.id, {
       branch: 'issue/train-b',
       machineId: asMachineId('machine-1'),
     })
-    await issues.crud.update(issueA.id, { stage: 'review' })
-    await issues.crud.update(issueB.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issueA.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issueB.id, { stage: 'review' })
     const admitted = [
       { issue: issueA, receipt: await service.enqueue({ issueId: issueA.id, ...approval }) },
       { issue: issueB, receipt: await service.enqueue({ issueId: issueB.id, ...approval }) },
@@ -2951,12 +2993,12 @@ describe('ShippingService under the async store (POD-3820)', () => {
         })
       },
     })
-    const issue = await issues.crud.create({
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'approved',
       startNow: false,
     })
-    await issues.crud.update(issue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
 
     await store.transact(async () => {
       const receipt = await service.enqueue({ issueId: issue.id, ...approval })
@@ -2981,12 +3023,12 @@ describe('ShippingService under the async store (POD-3820)', () => {
         })
       },
     })
-    const issue = await issues.crud.create({
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'approved',
       startNow: false,
     })
-    await issues.crud.update(issue.id, { stage: 'review' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
 
     await expect(
       store.transact(async () => {
@@ -3024,8 +3066,15 @@ describe('POD-4974 O2 ship lanes', () => {
     },
   ): Promise<ShipOrder> => {
     const repoPath = input.repoPath ?? '/repo'
-    const created = await issues.crud.create({ repoPath, title: input.title, startNow: false })
-    await issues.crud.update(created.id, { stage: 'review', branch: `issue/${input.title}` })
+    const created = await issues.crud.create(issues.reports.store.serverWriter, {
+      repoPath,
+      title: input.title,
+      startNow: false,
+    })
+    await issues.crud.update(issues.reports.store.serverWriter, created.id, {
+      stage: 'review',
+      branch: `issue/${input.title}`,
+    })
     const issue = (await issues.reports.get(created.id))!
     const at = `2026-08-13T10:${String(input.minute).padStart(2, '0')}:00.000Z`
     return await store.shipping.createOrder({
@@ -3274,12 +3323,12 @@ describe('POD-4974 O2 ship lanes', () => {
   it('O2 a dependency that ships unblocks its dependent in another lane', async () => {
     const { store, ledger, issues, service } = await harness(provedShippingJob)
     try {
-      const issue = await issues.crud.create({
+      const issue = await issues.crud.create(issues.reports.store.serverWriter, {
         repoPath: '/repo',
         title: 'dependency',
         startNow: false,
       })
-      await issues.crud.update(issue.id, { stage: 'review' })
+      await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
       const dependency = (await service.enqueue({ issueId: issue.id, ...approval })).order
       const dependent = await seedOrder(issues, store, {
         title: 'dependent',

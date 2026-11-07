@@ -174,7 +174,11 @@ async function ctxFor(
     stageAttachment: async (input) => await modules.sessions.runtimeGateway.stageAttachment(input),
     holdUpload: async (input) => await modules.pendingUploads.put(input),
     claimUpload: async (issueId, input) =>
-      await modules.issues.crud.panelChatUploadClaim(issueId, input),
+      await modules.issues.crud.panelChatUploadClaim(
+        modules.issues.reports.store.serverWriter,
+        issueId,
+        input,
+      ),
     isAgentDriven: async (sessionId) => modules.sessions.receiptSender.onContract(sessionId),
     // POD-729: the chat paths send through the `mail.send` CONTRACT, not through
     // the delivery service — the capability is closed over here, at the composition
@@ -190,10 +194,20 @@ async function ctxFor(
     rpc: () => modules.rpc,
 
     createDraftIssue: async (repoPath, agentKind, issueId, ownership) =>
-      await modules.issues.attention.createDraftFor(repoPath, agentKind, issueId, ownership),
+      await modules.issues.attention.createDraftFor(
+        modules.issues.reports.store.serverWriter,
+        repoPath,
+        agentKind,
+        issueId,
+        ownership,
+      ),
     attachDraftArtifacts: async (issueId, artifacts) => {
       for (const artifact of artifacts)
-        await modules.issues.crud.panelArtifactUpload(issueId, artifact)
+        await modules.issues.crud.panelArtifactUpload(
+          modules.issues.reports.store.serverWriter,
+          issueId,
+          artifact,
+        )
     },
     discardUnlaunchedDraft: async (issueId) =>
       await modules.issues.attention.discardUnlaunchedDraft(issueId),
@@ -685,12 +699,14 @@ describe('AC5 · attribution is a pair and comes from the transport', () => {
       assignment: { server: false, agentExecution: true },
     })
     await o.store.repos.addRepo('/r', asMachineId('local'))
-    const issue = await o.reg.issues.crud.create({
+    const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'handoff',
       startNow: false,
     })
-    await o.reg.issues.crud.update(issue.id, { worktreePath: '/r/.worktrees/h' })
+    await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, issue.id, {
+      worktreePath: '/r/.worktrees/h',
+    })
     const { sessionId } = await o.call.sessions.create({
       agentKind: 'claude-code',
       cwd: '/r/.worktrees/h',

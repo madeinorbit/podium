@@ -56,7 +56,7 @@ async function scenario(evict: boolean) {
   const sessions = reg.modules.sessions
   const machine = store.hostMachineId
   const admin = firstAdminMemberId()
-  const issue = await reg.modules.issues.crud.create({ repoPath: '/r', title: 'T', startNow: false })
+  const issue = await reg.modules.issues.crud.create(reg.modules.issues.reports.store.serverWriter, { repoPath: '/r', title: 'T', startNow: false })
 
   const ids: SessionId[] = []
   for (let i = 0; i < 9; i++) {

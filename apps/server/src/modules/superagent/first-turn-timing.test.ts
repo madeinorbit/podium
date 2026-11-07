@@ -3,17 +3,13 @@
 // in-flight turn — Clear resets the thread, so a fresh send measures the
 // dispatch path the phone's "sending…" waits on.
 import type { SessionId } from '@podium/model'
-import {
-  asThreadId,
-  BUILTIN_HARNESS_KINDS,
-  firstAdminMemberId,
-} from '@podium/model'
+import { asThreadId, BUILTIN_HARNESS_KINDS, firstAdminMemberId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
-import { SuperagentService } from './service'
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
 import { assignHostMachine } from '../../test-support/host-daemon'
+import { SuperagentService } from './service'
 
 const registries: SessionRegistry[] = []
 afterEach(async () => {
@@ -104,7 +100,7 @@ async function onlineHarness() {
     },
   })
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  await repos.add('/r', host)
+  await repos.add(repos.serverWriter, '/r', host)
   const sa = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   return { registry, repos, sa, frames, host, peer }
 }
@@ -170,11 +166,14 @@ describe('POD-4872: first turn on an online machine', () => {
     const h = await onlineHarness()
     // One issue, three live headed sessions bound to it: the seed must resolve
     // all three from the single repo fetch, not one fetch per session.
-    const issue = await h.registry.issues.crud.create({
-      repoPath: '/r',
-      title: 'Fix the thing',
-      startNow: false,
-    })
+    const issue = await h.registry.issues.crud.create(
+      h.registry.issues.reports.store.serverWriter,
+      {
+        repoPath: '/r',
+        title: 'Fix the thing',
+        startNow: false,
+      },
+    )
     for (let i = 0; i < 3; i++) {
       await h.registry.modules.sessions.createSession({
         agentKind: 'claude-code',

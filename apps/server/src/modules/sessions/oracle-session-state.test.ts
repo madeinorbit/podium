@@ -377,7 +377,7 @@ describe('oracle: setIssueId', () => {
     const o = await makeOracle()
     // Issues are placed on a machine that reported their repo (2b803efb5).
     await o.store.repos.addRepo('/p', o.store.hostMachineId)
-    const issue = await o.reg.issues.crud.create({
+    const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
       repoPath: '/p',
       title: 'target',
       startNow: false,
@@ -407,7 +407,7 @@ describe('oracle: setIssueId', () => {
   it(`${MUST_NOT_CHANGE}: a session born in a reported repo is named at birth with a draft ordinal, and attaching an issue does not rename it`, async () => {
     const o = await makeOracle()
     await o.store.repos.addRepo('/p', o.store.hostMachineId)
-    const issue = await o.reg.issues.crud.create({
+    const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
       repoPath: '/p',
       title: 'target',
       startNow: false,

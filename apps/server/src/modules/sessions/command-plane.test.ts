@@ -22,6 +22,7 @@ import {
   type UserId,
 } from '@podium/model'
 import type { MachineGrant } from '@podium/protocol'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   type AgentCommandPrincipal,
@@ -132,7 +133,11 @@ async function ctxFor(
     stageAttachment: (input) => modules.sessions.runtimeGateway.stageAttachment(input),
     holdUpload: async (input) => await modules.pendingUploads.put(input),
     claimUpload: async (issueId, input) =>
-      await modules.issues.crud.panelChatUploadClaim(issueId, input),
+      await modules.issues.crud.panelChatUploadClaim(
+        modules.issues.reports.store.serverWriter,
+        issueId,
+        input,
+      ),
     isAgentDriven: async (sessionId) => modules.sessions.receiptSender.onContract(sessionId),
     // The chat path's send dispatches the `mail.send` CONTRACT (POD-729), so the
     // fixture binds the port the same way the composition root does — from the
@@ -152,10 +157,20 @@ async function ctxFor(
       )!,
 
     createDraftIssue: async (repoPath, agentKind, issueId, ownership) =>
-      await modules.issues.attention.createDraftFor(repoPath, agentKind, issueId, ownership),
+      await modules.issues.attention.createDraftFor(
+        modules.issues.reports.store.serverWriter,
+        repoPath,
+        agentKind,
+        issueId,
+        ownership,
+      ),
     attachDraftArtifacts: async (issueId, artifacts) => {
       for (const artifact of artifacts)
-        await modules.issues.crud.panelArtifactUpload(issueId, artifact)
+        await modules.issues.crud.panelArtifactUpload(
+          modules.issues.reports.store.serverWriter,
+          issueId,
+          artifact,
+        )
     },
     discardUnlaunchedDraft: async (issueId) =>
       await modules.issues.attention.discardUnlaunchedDraft(issueId),
@@ -467,7 +482,11 @@ describe('held chat uploads (POD-2148)', () => {
   it('a send claims its uploads into the session’s issue, once, and queues the ref without a path', async () => {
     const o = await makeOracle()
     await provisionHost(o)
-    const issue = await o.reg.issues.crud.create({ repoPath: '/p', title: 'Work', startNow: false })
+    const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
+      repoPath: '/p',
+      title: 'Work',
+      startNow: false,
+    })
     const { sessionId } = await dispatchSessionCommand(
       await ctxFor(o, human(firstAdminMemberId())),
       'create',
@@ -594,7 +613,7 @@ describe('draft launch compensation', () => {
   it('does not create a draft when an existing issue takes precedence', async () => {
     const o = await makeOracle()
     await provisionHost(o)
-    const issue = await o.reg.issues.crud.create({
+    const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
       repoPath: '/p',
       title: 'Existing work',
       startNow: false,
@@ -641,12 +660,14 @@ describe('draft launch compensation', () => {
     const o = await makeOracle()
     await provisionHost(o)
     const host = o.store.hostMachineId
-    const task = await o.reg.issues.crud.create({
+    const task = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
       repoPath: '/p',
       title: 'Admin work',
       startNow: false,
     })
-    await o.reg.issues.crud.update(task.id, { worktreePath: '/p/.worktrees/a' })
+    await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, task.id, {
+      worktreePath: '/p/.worktrees/a',
+    })
     const ownership = ownershipTable(
       new Map([
         [host, { owner: firstAdminMemberId(), grants: [{ subject: COLLEAGUE, verb: 'use' }] }],
@@ -673,14 +694,19 @@ describe('draft launch compensation', () => {
   it('finds the task that owns a cwd only among tasks homed on the starting machine', async () => {
     const o = await makeOracle()
     await provisionHost(o)
-    const task = await o.reg.issues.crud.create({
+    const task = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
       repoPath: '/p',
       title: 'Elsewhere',
       startNow: false,
     })
-    await o.reg.issues.crud.update(task.id, { worktreePath: '/p/.worktrees/a' })
+    await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, task.id, {
+      worktreePath: '/p/.worktrees/a',
+    })
     const row = await o.store.issues.getIssue(task.id)
-    await o.store.issues.upsertIssue({ ...row!, machineId: asMachineId('machine-a') })
+    await o.store.issues.upsertIssue(fixtureWriteScope(), {
+      ...row!,
+      machineId: asMachineId('machine-a'),
+    })
     const access = new DurableIssueAccessIndex(o.store.issues, o.store.grants, o.store.repos)
 
     expect(await access.soleOwnerForCwd('/p/.worktrees/a', asMachineId('machine-a'))).toBe(task.id)
@@ -691,12 +717,14 @@ describe('draft launch compensation', () => {
     const o = await makeOracle()
     await provisionHost(o)
     const host = o.store.hostMachineId
-    const task = await o.reg.issues.crud.create({
+    const task = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
       repoPath: '/p',
       title: 'Admin work',
       startNow: false,
     })
-    await o.reg.issues.crud.update(task.id, { worktreePath: '/p/.worktrees/a' })
+    await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, task.id, {
+      worktreePath: '/p/.worktrees/a',
+    })
     const ownership = ownershipTable(
       new Map([
         [host, { owner: firstAdminMemberId(), grants: [{ subject: COLLEAGUE, verb: 'use' }] }],
@@ -723,12 +751,14 @@ describe('draft launch compensation', () => {
   it('starts a fresh resume with no authenticated owner task-less', async () => {
     const o = await makeOracle()
     await provisionHost(o)
-    const task = await o.reg.issues.crud.create({
+    const task = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
       repoPath: '/p',
       title: 'Admin work',
       startNow: false,
     })
-    await o.reg.issues.crud.update(task.id, { worktreePath: '/p/.worktrees/a' })
+    await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, task.id, {
+      worktreePath: '/p/.worktrees/a',
+    })
 
     const { sessionId } = await o.reg.modules.sessions.resumeSession(
       {
@@ -737,7 +767,17 @@ describe('draft launch compensation', () => {
         resume: { kind: 'codex-thread', value: 'thread-ownerless' },
         conversationId: 'thread-ownerless',
       },
-      o.reg.issues.gitWorkflow,
+      {
+        ensureWorktree: async (...args) => await o.reg.issues.gitWorkflow.ensureWorktree(...args),
+        freeWorktreeKeepBranch: async (...args) =>
+          await o.reg.issues.gitWorkflow.freeWorktreeKeepBranch(...args),
+        rehome: async (issueId, where) =>
+          await o.reg.issues.gitWorkflow.rehome(
+            o.reg.issues.reports.store.serverWriter,
+            issueId,
+            where,
+          ),
+      },
     )
 
     expect(await o.reg.modules.sessions.readSessionIssueId(sessionId)).toBeNull()
@@ -747,14 +787,18 @@ describe('draft launch compensation', () => {
   it("never gives a homeless task whose worktree is some machine's main checkout a start elsewhere", async () => {
     const o = await makeOracle()
     await provisionHost(o)
-    const task = await o.reg.issues.crud.create({
+    const task = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
       repoPath: '/p',
       title: 'Legacy',
       startNow: false,
     })
     // Written below the service, as a pre-guard row: a main checkout as its worktree, no home.
     const row = await o.store.issues.getIssue(task.id)
-    await o.store.issues.upsertIssue({ ...row!, worktreePath: '/p', machineId: null })
+    await o.store.issues.upsertIssue(fixtureWriteScope(), {
+      ...row!,
+      worktreePath: '/p',
+      machineId: null,
+    })
     const access = new DurableIssueAccessIndex(o.store.issues, o.store.grants, o.store.repos)
 
     expect(await access.soleOwnerForCwd('/p/nested/src', asMachineId('machine-b'))).toBeNull()

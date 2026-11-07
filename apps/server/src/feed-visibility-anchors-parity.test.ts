@@ -13,6 +13,7 @@
  * missing and corrupt installed rows, and orders in and out of their queue.
  */
 
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { createHash } from 'node:crypto'
 import {
   asIssueId,
@@ -138,7 +139,7 @@ async function build(world: World) {
   for (let start = 0; start < world.issues.length; start += 500) {
     await store.transact(async () => {
       for (const [index, issue] of world.issues.slice(start, start + 500).entries()) {
-        await store.issues.upsertIssue({
+        await store.issues.upsertIssue(fixtureWriteScope(), {
           ...issueRowFixture({ id: issue.id, repoPath: issue.repoPath, seq: start + index + 1, ownerUserId: issue.owner }),
           repoId: undefined,
           machineId: store.hostMachineId,

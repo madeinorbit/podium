@@ -197,8 +197,8 @@ describe('S4 server consumers', () => {
     const machineId = o.store.hostMachineId
     const repos = new RepoRegistry(o.reg, o.store)
     await o.store.repos.addRepo('/source', machineId)
-    await repos.setPrefix('/source', 'SRC', machineId)
-    const issue = await o.reg.issues.crud.create({
+    await repos.setPrefix(repos.serverWriter, '/source', 'SRC', machineId)
+    const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
       repoPath: '/source',
       title: 'Source refs',
       startNow: false,
@@ -235,7 +235,7 @@ describe('S4 server consumers', () => {
     ])
     const before = await o.reg.changeLedger.authority.snapshot('session')
     const cursor = await o.reg.changeLedger.cursor()
-    await repos.setPrefix('/source', 'NEW', machineId)
+    await repos.setPrefix(repos.serverWriter, '/source', 'NEW', machineId)
     const nextRef = `NEW-${issue.seq}-B`
     expect(await toolkit.resolveIdentifier(sourceRef)).toEqual({ kind: 'absent' })
     expect(await toolkit.resolveIdentifier(nextRef)).toEqual({

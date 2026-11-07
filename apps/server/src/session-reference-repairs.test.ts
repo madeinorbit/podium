@@ -1,3 +1,4 @@
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -34,12 +35,12 @@ async function fixture() {
   registries.push(registry)
   await attachHostDaemon(registry, () => {}, { repos: ['/heal/a', '/heal/b'] })
   const sessions = registry.modules.sessions
-  const a = await registry.issues.crud.create({ repoPath: '/heal/a', title: 'A', startNow: false })
-  const b = await registry.issues.crud.create({ repoPath: '/heal/b', title: 'B', startNow: false })
+  const a = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, { repoPath: '/heal/a', title: 'A', startNow: false })
+  const b = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, { repoPath: '/heal/b', title: 'B', startNow: false })
   const repoId = asRepoId('repo:common')
   for (const issue of [a, b]) {
     const row = await store.issues.getIssue(issue.id)
-    await store.issues.upsertIssue({ ...row!, seq: 1, repoId })
+    await store.issues.upsertIssue(fixtureWriteScope(), { ...row!, seq: 1, repoId })
   }
   const { sessionId } = await sessions.createSession({ agentKind: 'shell', cwd: '/unmapped' })
   await sessions.setSessionIssueId(sessionId, b.id)

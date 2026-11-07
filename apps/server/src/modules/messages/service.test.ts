@@ -1,3 +1,4 @@
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { queryAttributionEnabled } from '@podium/runtime/query-attribution'
 import { statementBudget } from '../../test-support/statement-budget'
 // Unified agent messaging (#237) [spec:SP-34d7] — store CRUD, server-stamped
@@ -240,10 +241,10 @@ async function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
   // implicit placement), so the fixture's repo is reported by the host machine.
   await store.repos.addRepo('/r', store.hostMachineId)
   // Real rows so the legacy issue_messages mirror's FK holds.
-  await store.issues.upsertIssue(
+  await store.issues.upsertIssue(fixtureWriteScope(), 
     issueRow({ id: ISSUE.id, seq: ISSUE.seq, worktreePath: ISSUE.worktreePath }),
   )
-  await store.issues.upsertIssue(
+  await store.issues.upsertIssue(fixtureWriteScope(), 
     issueRow({
       id: asIssueId(SENDER_ISSUE.id),
       seq: SENDER_ISSUE.seq,

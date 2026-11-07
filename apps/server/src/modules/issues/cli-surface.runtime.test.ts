@@ -107,12 +107,12 @@ describe('the podium issue CLI table renders over the real surface', () => {
   it('publishes, replaces and reads direct content on a first task without a worktree, with scope checks', async () => {
     const reg = await fresh()
     const operator = reg.issueCommands.asIssueTrpc(OPERATOR)
-    const issue = await reg.issues.crud.create({
+    const issue = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'First task',
       startNow: false,
     })
-    const other = await reg.issues.crud.create({
+    const other = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Other task',
       startNow: false,
@@ -174,7 +174,7 @@ describe('the podium issue CLI table renders over the real surface', () => {
   it('READ verbs execute end to end against the real registry and return real data', async () => {
     const reg = await fresh()
     const client = reg.issueCommands.asIssueTrpc(OPERATOR)
-    const made = await reg.issues.crud.create({ repoPath: '/r', title: 'Runtime probe', startNow: false })
+    const made = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'Runtime probe', startNow: false })
 
     // Pure reads only. `doctor`, `preflight` and `orphans` shell out to git
     // and the filesystem; running them from a unit lane would be measuring this
@@ -255,7 +255,7 @@ describe('the podium issue CLI table renders over the real surface', () => {
     const reg = await fresh()
     const client = reg.issueCommands.asIssueTrpc(OPERATOR)
     const create = async (title: string, parentId?: IssueId) =>
-      await reg.issues.crud.create({ repoPath: '/r', title, parentId, startNow: false })
+      await reg.issues.crud.create(reg.issues.reports.store.serverWriter, { repoPath: '/r', title, parentId, startNow: false })
     const parent = await create('parent')
     const a = await create('a', parent.id)
     const b = await create('b', parent.id)

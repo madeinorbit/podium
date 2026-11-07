@@ -75,13 +75,15 @@ export function registerIssueUserStateRecord(
         const readAt = patch.readAt as string | null
         await family(async () =>
           readAt === null
-            ? await attention().markIssueUnread(issueId, userId)
-            : await attention().markIssueRead(issueId, readAt, userId),
+            ? await attention().markIssueUnread(ctx.ledger, issueId, userId)
+            : await attention().markIssueRead(ctx.ledger, issueId, readAt, userId),
         )
       }
       if (patch.tuckedAt !== undefined) {
         const tucked = patch.tuckedAt !== null
-        await family(async () => await attention().setIssueTucked(issueId, tucked, userId))
+        await family(
+          async () => await attention().setIssueTucked(ctx.ledger, issueId, tucked, userId),
+        )
       }
       return { ok: true }
     },

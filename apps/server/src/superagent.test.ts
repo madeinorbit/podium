@@ -210,8 +210,8 @@ describe('start_agent tool wiring (issue #60)', () => {
   it("opens a non-admin's thread in a terminal as that owner, never joining a task they cannot write", async () => {
     const { registry, sa } = await harness()
     const colleague = asUserId('colleague')
-    const task = await registry.issues.crud.create({ repoPath: '/r', title: 'Admin work', startNow: false })
-    await registry.issues.crud.update(task.id, { worktreePath: '/r/.worktrees/a' })
+    const task = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, { repoPath: '/r', title: 'Admin work', startNow: false })
+    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, task.id, { worktreePath: '/r/.worktrees/a' })
     const threadId = 'concierge_colleague'
     await registry.sessionStore.superagent.upsertSuperagentThread({
       id: threadId,
@@ -249,8 +249,8 @@ describe('start_agent tool wiring (issue #60)', () => {
 
   it("issueId on a started issue spawns in the issue's worktree", async () => {
     const { registry, sa } = await harness()
-    const issue = await registry.issues.crud.create({ repoPath: '/r', title: 'X', startNow: false })
-    await registry.issues.crud.update(issue.id, { worktreePath: '/r/.worktrees/issue-1-x', stage: 'planning' })
+    const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, { repoPath: '/r', title: 'X', startNow: false })
+    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, issue.id, { worktreePath: '/r/.worktrees/issue-1-x', stage: 'planning' })
     const out = JSON.parse(
       await sa.callMcpTool(
         'start_agent',
@@ -271,7 +271,7 @@ describe('start_agent tool wiring (issue #60)', () => {
 
   it('unstarted issue spawn preserves the exact initiating superagent thread', async () => {
     const { registry, sa } = await harness()
-    const issue = await registry.issues.crud.create({ repoPath: '/r', title: 'Fix login', startNow: false })
+    const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, { repoPath: '/r', title: 'Fix login', startNow: false })
     const out = JSON.parse(
       await sa.callMcpTool(
         'start_agent',
@@ -294,8 +294,8 @@ describe('start_agent tool wiring (issue #60)', () => {
 
   it('works with issueId alone — cwd is optional when the issue provides it', async () => {
     const { registry, sa } = await harness()
-    const issue = await registry.issues.crud.create({ repoPath: '/r', title: 'X', startNow: false })
-    await registry.issues.crud.update(issue.id, { worktreePath: '/r/.worktrees/issue-1-x', stage: 'planning' })
+    const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, { repoPath: '/r', title: 'X', startNow: false })
+    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, issue.id, { worktreePath: '/r/.worktrees/issue-1-x', stage: 'planning' })
     const out = JSON.parse(
       await sa.callMcpTool(
         'start_agent',

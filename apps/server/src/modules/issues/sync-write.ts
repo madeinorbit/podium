@@ -141,6 +141,8 @@ export function registerIssueCommands(registry: SyncWriteRegistry, deps: IssueSy
         const caller: IssueCaller = {
           capability: principal.capability,
           principal,
+          // The command's own writer (ADR 12 D9): every issue write it makes.
+          writer: ctx.ledger,
           ...(ctx.confirmed ? { overrideScope: true } : {}),
         }
         const refused = unwritable(key, input)

@@ -1,4 +1,4 @@
-import { firstAdminMemberId, asUserId, asMachineId } from '@podium/model'
+import { asMachineId, asUserId, firstAdminMemberId } from '@podium/model'
 /**
  * Task 9: per-machine repo registration + machine-tagged repo scans.
  *
@@ -42,8 +42,8 @@ async function regWithTwoDaemons() {
 describe('RepoRegistry.list(machineId)', () => {
   it('filters repos by machine', async () => {
     const { repos } = await regWithTwoDaemons()
-    await repos.add('/a', asMachineId('m1'))
-    await repos.add('/b', asMachineId('m2'))
+    await repos.add(repos.serverWriter, '/a', asMachineId('m1'))
+    await repos.add(repos.serverWriter, '/b', asMachineId('m2'))
     const m1Repos = await repos.list(asMachineId('m1'))
     const m2Repos = await repos.list(asMachineId('m2'))
     expect(m1Repos).toContain('/a')
@@ -54,8 +54,8 @@ describe('RepoRegistry.list(machineId)', () => {
 
   it('list() with no machineId returns all repos', async () => {
     const { repos } = await regWithTwoDaemons()
-    await repos.add('/a', asMachineId('m1'))
-    await repos.add('/b', asMachineId('m2'))
+    await repos.add(repos.serverWriter, '/a', asMachineId('m1'))
+    await repos.add(repos.serverWriter, '/b', asMachineId('m2'))
     const all = await repos.list()
     expect(all).toContain('/a')
     expect(all).toContain('/b')
@@ -63,9 +63,9 @@ describe('RepoRegistry.list(machineId)', () => {
 
   it('remove(path, machineId) removes the right machine repo', async () => {
     const { repos } = await regWithTwoDaemons()
-    await repos.add('/a', asMachineId('m1'))
-    await repos.add('/a', asMachineId('m2')) // same path, different machine
-    await repos.remove('/a', asMachineId('m1'))
+    await repos.add(repos.serverWriter, '/a', asMachineId('m1'))
+    await repos.add(repos.serverWriter, '/a', asMachineId('m2')) // same path, different machine
+    await repos.remove(repos.serverWriter, '/a', asMachineId('m1'))
     expect(await repos.list(asMachineId('m1'))).not.toContain('/a')
     expect(await repos.list(asMachineId('m2'))).toContain('/a')
   })
@@ -95,8 +95,8 @@ const settleMicrotasks = async (turns = 50): Promise<void> => {
 describe('RepoRegistry.scanReposAll()', () => {
   it('stamps each repo with its originating machineId', async () => {
     const { reg, repos, m1Out, m2Out } = await regWithTwoDaemons()
-    await repos.add('/a', asMachineId('m1'))
-    await repos.add('/b', asMachineId('m2'))
+    await repos.add(repos.serverWriter, '/a', asMachineId('m1'))
+    await repos.add(repos.serverWriter, '/b', asMachineId('m2'))
 
     // Fire the scan
     const scanPromise = repos.scanReposAll()
@@ -260,7 +260,7 @@ describe('RepoRegistry.scanReposAll()', () => {
     const repos = new RepoRegistry(reg, store)
     const m1Out: ControlMessage[] = []
     await reg.gateway.attachDaemon('m1', (msg) => m1Out.push(msg))
-    await repos.add('/repo', asMachineId('m1'))
+    await repos.add(repos.serverWriter, '/repo', asMachineId('m1'))
 
     const scanPromise = repos.scanReposAll()
     await settleMicrotasks()

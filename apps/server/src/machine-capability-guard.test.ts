@@ -18,7 +18,7 @@
  * of "no daemon answered" 35 seconds later, which is precisely the confusing
  * failure this work replaces.
  */
-import { firstAdminMemberId, asMachineId, asUserId } from '@podium/model'
+import { asMachineId, asUserId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { resolvePrincipal } from './command-principal'
 import { SuperagentService } from './modules/superagent'
@@ -92,11 +92,15 @@ describe('the component fact', () => {
   it('is additive: a coordinator that also runs a daemon keeps both', async () => {
     const { registry, coordinator } = await fleet()
     await registry.gateway.attachDaemon(coordinator, () => {})
-    const machine = (await registry.modules.machines.listMachines()).find((m) => m.id === coordinator)
+    const machine = (await registry.modules.machines.listMachines()).find(
+      (m) => m.id === coordinator,
+    )
     expect(machine?.components).toEqual(['server', 'daemon'])
     // And it is then perfectly able to host a repo — the fact is about the box,
     // not about being the coordinator.
-    await expect(registry.modules.machines.requireRepoHostStructure(coordinator)).resolves.toBeUndefined()
+    await expect(
+      registry.modules.machines.requireRepoHostStructure(coordinator),
+    ).resolves.toBeUndefined()
   })
 })
 
@@ -107,7 +111,10 @@ describe('repo actions refuse a machine that runs no daemon', () => {
       call.repos.add({ path: '/home/mgw/src/thing', machineId: coordinator }),
     ).rejects.toThrow(/runs no Podium daemon/)
     try {
-      await call.repos.add({ path: '/home/mgw/src/thing', machineId: coordinator })
+      await call.repos.add({
+        path: '/home/mgw/src/thing',
+        machineId: coordinator,
+      })
       expect.unreachable('repos.add accepted the server-only coordinator')
     } catch (error) {
       expectNoDaemonRefusal(error, 'source')
@@ -147,9 +154,9 @@ describe('repo actions refuse a machine that runs no daemon', () => {
 describe('issue homing refuses a machine that can never hold the worktree', () => {
   it('issues.create refuses to home an issue on the coordinator', async () => {
     const { registry, coordinator, repos } = await fleet()
-    await repos.add('/home/mgw/src/thing', asMachineId('laptop'))
+    await repos.add(repos.serverWriter, '/home/mgw/src/thing', asMachineId('laptop'))
     await expect(
-      registry.modules.issues.crud.create({
+      registry.modules.issues.crud.create(registry.modules.issues.reports.store.serverWriter, {
         title: 'homed wrongly',
         repoPath: '/home/mgw/src/thing',
         machineId: coordinator,

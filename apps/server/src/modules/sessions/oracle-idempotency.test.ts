@@ -181,7 +181,7 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
     const o = await makeOracle()
     // Issues are placed on a machine that reported their repo (2b803efb5).
     await o.store.repos.addRepo('/p', o.store.hostMachineId)
-    const issue = await o.reg.issues.crud.create({
+    const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
       repoPath: '/p',
       title: 'target',
       startNow: false,

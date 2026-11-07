@@ -619,6 +619,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: "A scoped reconcile [POD-6592]: `Ledger.reconcile` bound to one write scope, contained for the reason `LedgerWriter.capture` gives. The message feed's boot reconcile and the issue git-state and projection reconciles run it inside a span on purpose, so the read and the diff are one unit.",
   },
+  'apps/server/src/modules/issues/service/types.ts#IssueDeps.arbitrate': {
+    kind: 'contained',
+    why: 'Wraps a writer in the issue revision arbitration (IssueAuthorityArbitration.wrap, POD-6594): it returns a writer and does no I/O itself; the commit it later makes is analysed at its own call.',
+  },
   'apps/server/src/modules/issues/service/types.ts#IssueLedger.reconcile': {
     kind: 'contained',
     why: "The issues service's narrow face on its scoped writer's reconcile [POD-6592]; contained for the reason `LedgerWriter.reconcile` gives.",

@@ -88,7 +88,10 @@ async function setup(size: number): Promise<Fixture> {
     store,
     ...sessionReadPorts(() => sessions),
     getSettings: async () => settings,
-    spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
+    spawnSession: vi.fn(async () => ({
+      sessionId: asSessionId('s1'),
+      machine: 'machine-under-test',
+    })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     ...issueTestPlumbing(),
     now,
@@ -96,6 +99,7 @@ async function setup(size: number): Promise<Fixture> {
   const issues = await IssueService.create(issueDeps)
   const sendNotice = vi.fn()
   const deps: StewardDeps = {
+    writer: issues.reports.store.serverWriter,
     store: store.events,
     facts: store.notificationFacts,
     messages: store.messages,
@@ -108,9 +112,15 @@ async function setup(size: number): Promise<Fixture> {
     getSettings: async () => settings,
     now,
   }
-  const epic = await issues.crud.create({ repoPath: '/r', title: 'Epic', startNow: false })
-  await issues.crud.update(epic.id, { worktreePath: '/r/.worktrees/epic' })
-  const child = await issues.crud.create({
+  const epic = await issues.crud.create(issues.reports.store.serverWriter, {
+    repoPath: '/r',
+    title: 'Epic',
+    startNow: false,
+  })
+  await issues.crud.update(issues.reports.store.serverWriter, epic.id, {
+    worktreePath: '/r/.worktrees/epic',
+  })
+  const child = await issues.crud.create(issues.reports.store.serverWriter, {
     repoPath: '/r',
     title: 'Child',
     parentId: epic.id,
@@ -129,7 +139,7 @@ async function setup(size: number): Promise<Fixture> {
   const steward = new StewardService(deps)
   // Consume the set-up events, so the measured poll holds only the close.
   await steward.tick()
-  await issues.crud.close(child.id)
+  await issues.crud.close(issues.reports.store.serverWriter, child.id)
   sendNotice.mockClear()
   return { store, steward, sendNotice }
 }

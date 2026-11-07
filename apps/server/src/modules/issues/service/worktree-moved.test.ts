@@ -10,9 +10,9 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
-import type { EventMap } from '../../bus'
 import { SessionRegistry } from '../../../relay'
 import { openTestStore } from '../../../test-support/open-test-store'
+import type { EventMap } from '../../bus'
 
 describe('issue.worktreeMoved (POD-6158)', () => {
   const registries: SessionRegistry[] = []
@@ -29,12 +29,16 @@ describe('issue.worktreeMoved (POD-6158)', () => {
     registry.bus.on('issue.worktreeMoved', (event) => {
       moves.push(event)
     })
-    const issue = await registry.issues.crud.create({ repoPath: '/repo', title: 'Moves', startNow: false })
+    const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/repo',
+      title: 'Moves',
+      startNow: false,
+    })
     const issues = registry.issues.reports.store
     const write = async (patch: { worktreePath?: string | null; title?: string }) => {
       const draft = (await issues.draft(issue.id))!
       Object.assign(draft, patch)
-      await issues.persist(draft)
+      await issues.persist(issues.serverWriter, draft)
     }
     return { store, registry, issue, moves, write }
   }
@@ -47,7 +51,11 @@ describe('issue.worktreeMoved (POD-6158)', () => {
     await write({ worktreePath: null })
     expect(moves).toEqual([
       { issueId: issue.id, previousWorktreePath: null, worktreePath: '/repo/.worktrees/a' },
-      { issueId: issue.id, previousWorktreePath: '/repo/.worktrees/a', worktreePath: '/repo/.worktrees/b' },
+      {
+        issueId: issue.id,
+        previousWorktreePath: '/repo/.worktrees/a',
+        worktreePath: '/repo/.worktrees/b',
+      },
       { issueId: issue.id, previousWorktreePath: '/repo/.worktrees/b', worktreePath: null },
     ])
   })
@@ -59,10 +67,12 @@ describe('issue.worktreeMoved (POD-6158)', () => {
       expect(moves).toEqual([])
     })
     expect(moves).toHaveLength(1)
-    await expect(store.transact(async () => {
-      await write({ worktreePath: '/repo/.worktrees/b' })
-      throw new Error('enclosing span failed')
-    })).rejects.toThrow('enclosing span failed')
+    await expect(
+      store.transact(async () => {
+        await write({ worktreePath: '/repo/.worktrees/b' })
+        throw new Error('enclosing span failed')
+      }),
+    ).rejects.toThrow('enclosing span failed')
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(moves).toEqual([
       { issueId: issue.id, previousWorktreePath: null, worktreePath: '/repo/.worktrees/a' },
@@ -73,8 +83,14 @@ describe('issue.worktreeMoved (POD-6158)', () => {
     const { registry, issue, moves, write } = await build()
     await write({ worktreePath: '/repo/.worktrees/a' })
     moves.length = 0
-    await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
-    await registry.modules.issueSessionLifecycle.restoreIssue(issue.id)
+    await registry.modules.issueSessionLifecycle.deleteIssue(
+      registry.issues.reports.store.serverWriter,
+      issue.id,
+    )
+    await registry.modules.issueSessionLifecycle.restoreIssue(
+      registry.issues.reports.store.serverWriter,
+      issue.id,
+    )
     expect(moves).toEqual([
       { issueId: issue.id, previousWorktreePath: '/repo/.worktrees/a', worktreePath: null },
       { issueId: issue.id, previousWorktreePath: null, worktreePath: '/repo/.worktrees/a' },

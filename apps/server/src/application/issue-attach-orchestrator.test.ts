@@ -1,4 +1,5 @@
 import { asIssueId, asSessionId, asUserId, type IssueProjection } from '@podium/model'
+import { fixtureCommitWriter } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../command-principal'
 import { OPERATOR } from '../test-support/capabilities'
@@ -11,7 +12,7 @@ const RESULT = {
 describe('IssueAttachOrchestrator', () => {
   it('carries one transport principal through one transaction', async () => {
     const principal = userCommandPrincipal(asUserId('user:alice'), 'admin')
-    const attachSession = vi.fn(async (_input: IssueAttachInput) => RESULT)
+    const attachSession = vi.fn(async (_writer: unknown, _input: IssueAttachInput) => RESULT)
     const transactionCall = vi.fn()
     const transact = <T>(work: () => T): T => {
       transactionCall()
@@ -20,6 +21,7 @@ describe('IssueAttachOrchestrator', () => {
     const orchestrator = new IssueAttachOrchestrator({
       transact,
       attention: { attachSession },
+      directWriter: { ...fixtureCommitWriter(), capture: async () => [] },
     })
 
     expect(
@@ -29,12 +31,14 @@ describe('IssueAttachOrchestrator', () => {
       ),
     ).toBe(RESULT)
     expect(transactionCall).toHaveBeenCalledOnce()
-    expect(attachSession).toHaveBeenCalledWith({
+    // A caller with no command writer (a direct write, POD-6603) attaches under
+    // the orchestrator's direct writer.
+    expect(attachSession).toHaveBeenCalledWith(expect.anything(), {
       sessionId: asSessionId('session-1'),
       targetId: 'iss_target',
       principal,
     })
-    expect(attachSession.mock.calls[0]?.[0].principal).toBe(principal)
+    expect(attachSession.mock.calls[0]?.[1].principal).toBe(principal)
   })
 
   it('fails closed before opening a transaction when transport identity is absent', async () => {
@@ -46,6 +50,7 @@ describe('IssueAttachOrchestrator', () => {
     const orchestrator = new IssueAttachOrchestrator({
       transact,
       attention: { attachSession: vi.fn(async () => RESULT) },
+      directWriter: { ...fixtureCommitWriter(), capture: async () => [] },
     })
 
     await expect(

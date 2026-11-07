@@ -17,7 +17,7 @@ import type { IssueStore } from './core'
 import type { IssueCrudModule } from './crud'
 import type { IssueReportsModule } from './reads'
 import { IssueRefusal } from './refusal'
-import { AUTO_ARCHIVE_READ_WINDOW_MS } from './types'
+import { AUTO_ARCHIVE_READ_WINDOW_MS, type IssueWriter, type WriterRest } from './types'
 
 const log = createLogger('server:issues')
 
@@ -54,52 +54,64 @@ export class IssueAttentionModule {
       | 'setIssueTucked'
     >,
     private readonly hierarchy: () => {
-      addDep(fromRef: string, toRef: string, type?: string): Promise<IssueProjection>
+      addDep(
+        writer: IssueWriter,
+        fromRef: string,
+        toRef: string,
+        type?: string,
+      ): Promise<IssueProjection>
     },
     private readonly reports: () => Pick<IssueReportsModule, 'niceRef'>,
     private readonly gitWorkflow: () => IssueAttentionWorktreePort,
   ) {}
 
   async defer(
-    ...args: Parameters<IssueCrudModule['defer']>
+    writer: IssueWriter,
+    ...args: WriterRest<IssueCrudModule['defer']>
   ): Promise<Awaited<ReturnType<IssueCrudModule['defer']>>> {
-    return await this.crud().defer(...args)
+    return await this.crud().defer(writer, ...args)
   }
 
   async undefer(
-    ...args: Parameters<IssueCrudModule['undefer']>
+    writer: IssueWriter,
+    ...args: WriterRest<IssueCrudModule['undefer']>
   ): Promise<Awaited<ReturnType<IssueCrudModule['undefer']>>> {
-    return await this.crud().undefer(...args)
+    return await this.crud().undefer(writer, ...args)
   }
 
   async setNeedsHuman(
-    ...args: Parameters<IssueCrudModule['setNeedsHuman']>
+    writer: IssueWriter,
+    ...args: WriterRest<IssueCrudModule['setNeedsHuman']>
   ): Promise<Awaited<ReturnType<IssueCrudModule['setNeedsHuman']>>> {
-    return await this.crud().setNeedsHuman(...args)
+    return await this.crud().setNeedsHuman(writer, ...args)
   }
 
   async clearNeedsHuman(
-    ...args: Parameters<IssueCrudModule['clearNeedsHuman']>
+    writer: IssueWriter,
+    ...args: WriterRest<IssueCrudModule['clearNeedsHuman']>
   ): Promise<Awaited<ReturnType<IssueCrudModule['clearNeedsHuman']>>> {
-    return await this.crud().clearNeedsHuman(...args)
+    return await this.crud().clearNeedsHuman(writer, ...args)
   }
 
   async markIssueRead(
-    ...args: Parameters<IssueCrudModule['markIssueRead']>
+    writer: IssueWriter,
+    ...args: WriterRest<IssueCrudModule['markIssueRead']>
   ): Promise<Awaited<ReturnType<IssueCrudModule['markIssueRead']>>> {
-    return await this.crud().markIssueRead(...args)
+    return await this.crud().markIssueRead(writer, ...args)
   }
 
   async markIssueUnread(
-    ...args: Parameters<IssueCrudModule['markIssueUnread']>
+    writer: IssueWriter,
+    ...args: WriterRest<IssueCrudModule['markIssueUnread']>
   ): Promise<Awaited<ReturnType<IssueCrudModule['markIssueUnread']>>> {
-    return await this.crud().markIssueUnread(...args)
+    return await this.crud().markIssueUnread(writer, ...args)
   }
 
   async setIssueTucked(
-    ...args: Parameters<IssueCrudModule['setIssueTucked']>
+    writer: IssueWriter,
+    ...args: WriterRest<IssueCrudModule['setIssueTucked']>
   ): Promise<Awaited<ReturnType<IssueCrudModule['setIssueTucked']>>> {
-    return await this.crud().setIssueTucked(...args)
+    return await this.crud().setIssueTucked(writer, ...args)
   }
   /** Re-home a session onto another issue (agent self-organization).
    *  - `newSubissue`: create a child issue first (parent = the session's current
@@ -111,14 +123,17 @@ export class IssueAttentionModule {
    *  - else attach to `targetId` (self-attach is a no-op).
    *  After the move, an abandoned EMPTY draft (no attached sessions, no worktree,
    *  no children) is deleted. */
-  async attachSession(opts: {
-    sessionId: SessionId
-    targetId?: string
-    newSubissue?: { title: string; origin: 'human' | 'agent' }
-    newSpinoff?: { title: string; origin: 'human' | 'agent' }
-    confirmRehome?: boolean
-    principal?: Exclude<CommandPrincipal, { kind: 'system' }>
-  }): Promise<IssueProjection> {
+  async attachSession(
+    writer: IssueWriter,
+    opts: {
+      sessionId: SessionId
+      targetId?: string
+      newSubissue?: { title: string; origin: 'human' | 'agent' }
+      newSpinoff?: { title: string; origin: 'human' | 'agent' }
+      confirmRehome?: boolean
+      principal?: Exclude<CommandPrincipal, { kind: 'system' }>
+    },
+  ): Promise<IssueProjection> {
     const { readSessionIssueId, setSessionIssueId } = this.store.deps
     if (!readSessionIssueId || !setSessionIssueId) {
       throw new Error('attachSession unavailable: session registry hooks not injected')
@@ -185,7 +200,7 @@ export class IssueAttentionModule {
         const inheritsBase = [repo, instance, 'main', 'master']
           .filter(Boolean)
           .includes(anchor.parentBranch)
-        const wire = await this.crud().create({
+        const wire = await this.crud().create(writer, {
           repoPath: anchor.repoPath,
           title,
           startNow: false,
@@ -208,7 +223,7 @@ export class IssueAttentionModule {
             : {}),
         })
         if (opts.newSpinoff) {
-          await this.hierarchy().addDep(wire.id, anchorId, 'discovered-from')
+          await this.hierarchy().addDep(writer, wire.id, anchorId, 'discovered-from')
         }
         target = await this.store.rowOrThrow(wire.id)
       }
@@ -318,7 +333,15 @@ export class IssueAttentionModule {
     const candidates = (
       anchor.repoId
         ? await this.store.deps.store.issues.listIssueRowsWhere(
-            { repo: true, readable: false, live: true, unarchived: true, state: 'open', topLevel: true, order: 'seq' },
+            {
+              repo: true,
+              readable: false,
+              live: true,
+              unarchived: true,
+              state: 'open',
+              topLevel: true,
+              order: 'seq',
+            },
             { repoId: anchor.repoId },
           )
         : []
@@ -326,11 +349,14 @@ export class IssueAttentionModule {
     // Provenance can be removed, so retaining a positive across attaches would
     // permit unrelated reuse. Resolve anew for this attach; missing evidence denies.
     // One read of every candidate's dependencies.
-    const dependencies = await this.store.deps.store.issues.depsFromIssues(candidates.map((row) => row.id))
+    const dependencies = await this.store.deps.store.issues.depsFromIssues(
+      candidates.map((row) => row.id),
+    )
     return candidates
       .filter((row) =>
         dependencies.some(
-          (dep) => dep.fromId === row.id && dep.toId === anchor.id && dep.type === 'discovered-from',
+          (dep) =>
+            dep.fromId === row.id && dep.toId === anchor.id && dep.type === 'discovered-from',
         ),
       )
       .sort((a, b) => a.seq - b.seq)[0]
@@ -389,8 +415,8 @@ export class IssueAttentionModule {
     target.machineId = worktreeMachineId
     origin.worktreePath = null
     origin.branch = null
-    await this.store.persistRow(origin)
-    await this.store.persistRow(target)
+    await this.store.persistRow(this.store.serverWriter, origin)
+    await this.store.persistRow(this.store.serverWriter, target)
 
     if (origin.repoPath)
       this.store.d.onWorktreesChanged?.(origin.repoPath, target.machineId ?? undefined)
@@ -461,13 +487,14 @@ export class IssueAttentionModule {
    *  backlog issue with a placeholder title. The spawn flow stamps its id onto the
    *  new session. */
   async createDraftFor(
+    writer: IssueWriter,
     repoPath: string,
     agentKind?: string,
     id?: IssueId,
     ownership?: { ownerUserId: UserId; createdByActor: string; createdByOnBehalfOf: UserId },
     machineId?: MachineId,
   ): Promise<IssueProjection> {
-    return await this.crud().create({
+    return await this.crud().create(writer, {
       repoPath,
       ...(machineId ? { machineId } : {}),
       title: DRAFT_ISSUE_TITLE,
@@ -555,8 +582,8 @@ export class IssueAttentionModule {
     return await this.store.deps.store.events.getSubscription(id)
   }
 
-  async archive(id: string): Promise<IssueProjection> {
-    return await this.crud().update(id, { archived: true })
+  async archive(writer: IssueWriter, id: string): Promise<IssueProjection> {
+    return await this.crud().update(writer, id, { archived: true })
   }
 
   /**
@@ -587,7 +614,13 @@ export class IssueAttentionModule {
     // viewer's markers for them in one read (POD-6193); they used to be found by
     // scanning the issue map with one marker read per closed issue.
     const closed = await this.store.deps.store.issues.listIssueRowsWhere({
-      repo: false, readable: false, live: true, unarchived: true, state: 'closed', topLevel: true, order: 'path-seq',
+      repo: false,
+      readable: false,
+      live: true,
+      unarchived: true,
+      state: 'closed',
+      topLevel: true,
+      order: 'path-seq',
     })
     const markers = await this.store.issueUserStates(closed.map((row) => row.id))
     for (const row of closed) {
@@ -679,7 +712,7 @@ export class IssueAttentionModule {
     // archives, so the row it hands over is the map's own object [POD-3259].
     const draft = this.store.draftOf(row)
     draft.archived = true
-    const wire = await this.store.persist(draft)
+    const wire = await this.store.persist(this.store.serverWriter, draft)
     await this.store.emitEvent('issue.auto_archived', draft.id, {
       seq: draft.seq,
       readAt: (await this.store.issueOverlay(draft.id)).readAt,

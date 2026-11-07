@@ -9,6 +9,7 @@
  * number of statements AND rows, and check that the refs, and the order they
  * are handed out in, are what the old read-everything backfill gives.
  */
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { asIssueId, asMachineId, asSessionId, firstAdminMemberId, type SessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
@@ -60,7 +61,7 @@ async function world(size: number, extra: (store: SessionStore) => Promise<void>
   await extra(store)
   const owner = await firstAdminMemberId(store)
   const repoId = (await store.repos.listRepos(host)).find((r) => r.path === ROOT)!.repoId
-  await store.issues.upsertIssue(issueRowFixture({
+  await store.issues.upsertIssue(fixtureWriteScope(), issueRowFixture({
     id: ISSUE,
     ownerUserId: owner,
     createdByActor: owner,

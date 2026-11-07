@@ -56,8 +56,8 @@ describe('IssueService boot quarantine', () => {
   it('a structurally corrupt row (NULL id) is skipped; the other rows are read', async () => {
     const store = await reportingStore()
     const svc = await IssueService.create(deps(store))
-    const good1 = await svc.crud.create({ repoPath: '/r', title: 'healthy one', startNow: false })
-    const good2 = await svc.crud.create({ repoPath: '/r', title: 'healthy two', startNow: false })
+    const good1 = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'healthy one', startNow: false })
+    const good2 = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'healthy two', startNow: false })
     // SQLite permits NULL in a TEXT PRIMARY KEY — a genuinely corrupt row.
     rawDb(store)
       .prepare(
@@ -81,7 +81,7 @@ describe('IssueService boot quarantine', () => {
   it('bad JSON in a column quarantines the VALUE but keeps the row', async () => {
     const store = await reportingStore()
     const svc = await IssueService.create(deps(store))
-    const w = await svc.crud.create({ repoPath: '/r', title: 'keep me', startNow: false })
+    const w = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'keep me', startNow: false })
     rawDb(store).prepare('UPDATE issues SET blocked_by = ? WHERE id = ?').run('{not json', w.id)
 
     const rebooted = await IssueService.create(deps(store))

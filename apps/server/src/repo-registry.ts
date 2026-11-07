@@ -4,6 +4,7 @@ import { dirname, isAbsolute, join } from 'node:path'
 import { createLogger, describeError } from '@podium/logger'
 import type { GitRepositoryWire, MachineId } from '@podium/model'
 import { isAbsoluteMachinePath, isMachinePathWithinRoot, machinePathKey } from '@podium/model'
+import type { IssueWriter } from './modules/issues/service/types'
 import { asSystemWrite } from './plain-command-scope'
 import type { ScanReposResult, SessionRegistry } from './relay'
 import { readLocalOriginUrl } from './repo-id'
@@ -105,6 +106,9 @@ export function isBranchName(name: string): boolean {
  *  install attributes the repo to its one machine. `scanReposAll()` fans out one
  *  `scanReposRequest` per online machine and stamps each returned `GitRepositoryWire`
  *  with the responding machine's id. */
+/** What a repo write commits on (ADR 12 D9). */
+export type RepoWriter = IssueWriter
+
 export class RepoRegistry {
   constructor(
     private readonly sessionReg: SessionRegistry,
@@ -122,11 +126,16 @@ export class RepoRegistry {
     return inferRepoFromRoots(await this.list(machineId), path)
   }
 
-  async add(path: string, machineId?: MachineId, prefix?: string): Promise<void> {
+  async add(
+    writer: RepoWriter,
+    path: string,
+    machineId?: MachineId,
+    prefix?: string,
+  ): Promise<void> {
     const p = normalizeRepoPath(path)
     if (!p) throw new Error('repo path is empty')
     if (!isAbsoluteMachinePath(p)) throw new Error(`repo path must be absolute: ${p}`)
-    const mid = machineId ?? await this.sessionReg.modules.machines.defaultMachine()
+    const mid = machineId ?? (await this.sessionReg.modules.machines.defaultMachine())
     // THE GUARD THE REPO SCREEN NEEDED (POD-2700 §2.5). Every path that registers
     // a repository — `repos.add`, `repos.addMany`, `repos.createRepo`, and
     // whatever is written next — funnels through here, which is why the check
@@ -140,6 +149,7 @@ export class RepoRegistry {
     // A new repo mints a prefix (addRepo → ensurePrefixForRepoId), so it is a
     // new 'repo' entity on the feed [POD-822].
     await this.commitRepoWrite(
+      writer,
       async () =>
         await this.store.repos.addRepo(
           p,
@@ -158,14 +168,23 @@ export class RepoRegistry {
     // Same gate as `add` — a clone lands a repo on a machine just as much as a
     // registration does, and this is the second write path (POD-2700).
     await this.sessionReg.modules.machines.requireRepoHostStructure(machineId)
-    await this.commitRepoWrite(async () => await this.store.repos.addRepo(p, machineId, originUrl))
+    await this.commitRepoWrite(
+      this.serverWriter,
+      async () => await this.store.repos.addRepo(p, machineId, originUrl),
+    )
   }
 
   /** Change a repo's human-facing prefix (#474). Validated ^[A-Z]{2,5}$ + unique
    *  server-wide; previously written refs stop resolving (the caller warns). */
-  async setPrefix(path: string, prefix: string, machineId?: MachineId): Promise<void> {
-    const mid = machineId ?? await this.sessionReg.modules.machines.defaultMachine()
+  async setPrefix(
+    writer: RepoWriter,
+    path: string,
+    prefix: string,
+    machineId?: MachineId,
+  ): Promise<void> {
+    const mid = machineId ?? (await this.sessionReg.modules.machines.defaultMachine())
     await this.commitRepoWrite(
+      writer,
       async () =>
         await this.store.repos.setRepoPrefix(mid, normalizeRepoPath(path), prefix.toUpperCase()),
     )
@@ -178,12 +197,13 @@ export class RepoRegistry {
    * issues keep their parent; only issues created afterwards pick this up.
    */
   async setDefaultParentBranch(
+    writer: RepoWriter,
     path: string,
     branch: string | null,
     machineId?: MachineId,
   ): Promise<void> {
     await this.verifyDefaultParentBranch(path, branch, machineId)
-    await this.storeDefaultParentBranch(path, branch, machineId)
+    await this.storeDefaultParentBranch(writer, path, branch, machineId)
   }
 
   /**
@@ -219,12 +239,14 @@ export class RepoRegistry {
 
   /** The write half of {@link setDefaultParentBranch}, database only. */
   async storeDefaultParentBranch(
+    writer: RepoWriter,
     path: string,
     branch: string | null,
     machineId?: MachineId,
   ): Promise<void> {
     const mid = machineId ?? (await this.sessionReg.modules.machines.defaultMachine())
     await this.commitRepoWrite(
+      writer,
       async () =>
         await this.store.repos.setRepoDefaultParentBranch(
           mid,
@@ -254,8 +276,19 @@ export class RepoRegistry {
    * its own entity buys (the D7.2 decision POD-822 recorded, see model's
    * `repo/fields.ts`).
    */
-  private async commitRepoWrite<T>(write: () => Promise<T>): Promise<T> {
-    return await this.sessionReg.modules.issues.reports.store.commitRepoWrite(write)
+  /**
+   * One repo write, on `writer` (ADR 12 D9): a fleet command's own writer, or the
+   * issues service's server writer for the server's own repo facts (a clone's
+   * origin, a scan).
+   */
+  private async commitRepoWrite<T>(writer: RepoWriter, write: () => Promise<T>): Promise<T> {
+    return await this.sessionReg.modules.issues.reports.store.commitRepoWrite(writer, write)
+  }
+
+  /** The server's own repo writer: the issues service's (`issues.server`), for
+   *  the repo facts the server records on its own account (a clone's register). */
+  get serverWriter(): RepoWriter {
+    return this.sessionReg.modules.issues.reports.store.serverWriter
   }
 
   /**
@@ -272,11 +305,12 @@ export class RepoRegistry {
     }
   }
 
-  async remove(path: string, machineId?: MachineId): Promise<void> {
-    const mid = machineId ?? await this.sessionReg.modules.machines.defaultMachine()
+  async remove(writer: RepoWriter, path: string, machineId?: MachineId): Promise<void> {
+    const mid = machineId ?? (await this.sessionReg.modules.machines.defaultMachine())
     // The removed checkout may have been the repo's chosen root or the source
     // of its name (POD-6246): the logical repo row is a function of the rest.
     await this.commitRepoWrite(
+      writer,
       async () => await this.store.repos.removeRepo(normalizeRepoPath(path), mid),
     )
   }
@@ -307,9 +341,9 @@ export class RepoRegistry {
     // roots are machine facts and require only `see`. Keeping those predicates
     // separate is what lets a reload restore a visible surviving session even
     // while its daemon is reconnecting or its execution grant is unavailable.
-    const registeredRows = (await this.store.repos
-      .listRepos())
-      .filter((row) => maySee(row.machineId))
+    const registeredRows = (await this.store.repos.listRepos()).filter((row) =>
+      maySee(row.machineId),
+    )
     const fallbackFor = (rows: typeof registeredRows) =>
       rows.map((row) => ({
         path: normalizeRepoPath(row.path),
@@ -359,7 +393,9 @@ export class RepoRegistry {
         const repoIdByPath = new Map(
           storedRows.map((row) => [machinePathKey(normalizeRepoPath(row.path)), row.repoId]),
         )
-        const seenPaths = new Set(result.repositories.map((r) => machinePathKey(normalizeRepoPath(r.path))))
+        const seenPaths = new Set(
+          result.repositories.map((r) => machinePathKey(normalizeRepoPath(r.path))),
+        )
         // Stamp each repo with the machine that returned it (+ its stable repoId).
         const scanned = result.repositories.map((r) => {
           const repoId = repoIdByPath.get(machinePathKey(normalizeRepoPath(r.path)))

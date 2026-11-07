@@ -77,8 +77,8 @@ async function fixture(size: number, issueMail = true): Promise<Fixture> {
     { repos: ['/repo'] },
   )
   await quietShipping(reg)
-  const issue = await reg.issues.crud.create({ repoPath: '/repo', title: 'Mail', startNow: false })
-  await reg.issues.crud.update(issue.id, { worktreePath: '/repo/.worktrees/mail' })
+  const issue = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, { repoPath: '/repo', title: 'Mail', startNow: false })
+  await reg.issues.crud.update(reg.issues.reports.store.serverWriter, issue.id, { worktreePath: '/repo/.worktrees/mail' })
   const start = async (cwd: string, issueId?: IssueId): Promise<SessionId> => {
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'shell',

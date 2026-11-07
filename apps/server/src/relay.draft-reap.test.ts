@@ -68,7 +68,7 @@ async function draftWithSession(reg: SessionRegistry, repo = '/repo') {
   // Issues are placed on a machine that reported their repo (2b803efb5 refuses
   // implicit placement), so the host machine reports it first.
   await reg.sessionStore.repos.addRepo(repo, reg.sessionStore.hostMachineId)
-  const draft = await reg.issues.attention.createDraftFor(repo, 'codex')
+  const draft = await reg.issues.attention.createDraftFor(reg.issues.reports.store.serverWriter, repo, 'codex')
   const { sessionId } = await reg.modules.sessions.createSession({
     agentKind: 'codex',
     cwd: repo,
@@ -163,7 +163,7 @@ describe('draft retention on session death', () => {
 
   it('non-draft issue is never reaped', async () => {
     const reg = await regWithDaemon()
-    const issue = await reg.issues.crud.create({ repoPath: '/repo', title: 'Real work', startNow: false })
+    const issue = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, { repoPath: '/repo', title: 'Real work', startNow: false })
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/repo',
@@ -176,7 +176,7 @@ describe('draft retention on session death', () => {
   it('draft with a worktree is kept', async () => {
     const reg = await regWithDaemon()
     const { draft, sessionId } = await draftWithSession(reg)
-    await reg.issues.crud.update(draft.id, { worktreePath: '/repo/.claude/worktrees/wt' })
+    await reg.issues.crud.update(reg.issues.reports.store.serverWriter, draft.id, { worktreePath: '/repo/.claude/worktrees/wt' })
     expect((await reg.issues.reports.get(draft.id))?.draft).toBe(true) // worktree does not clear draft
     await reg.modules.sessions.killSession({ sessionId })
     expect(await reg.issues.reports.get(draft.id)).not.toBeNull()
@@ -187,9 +187,9 @@ describe('explicit rehome draft cleanup', () => {
   it('purges a draft after its sole visible session is rehomed', async () => {
     const reg = await regWithDaemon()
     const { draft, sessionId } = await draftWithSession(reg)
-    const target = await reg.issues.crud.create({ repoPath: '/repo', title: 'Real work', startNow: false })
+    const target = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, { repoPath: '/repo', title: 'Real work', startNow: false })
 
-    await reg.issues.attention.attachSession({ sessionId, targetId: target.id })
+    await reg.issues.attention.attachSession(reg.issues.reports.store.serverWriter, { sessionId, targetId: target.id })
 
     expect(await reg.issues.reports.get(draft.id)).toBeNull()
     expect(await reg.modules.sessions.readSessionIssueId(sessionId)).toBe(target.id)
@@ -209,9 +209,9 @@ describe('explicit rehome draft cleanup', () => {
       cwd: '/repo',
       issueId: exited.draft.id,
     })).sessionId
-    const target = await reg.issues.crud.create({ repoPath: '/repo', title: 'Real work', startNow: false })
+    const target = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, { repoPath: '/repo', title: 'Real work', startNow: false })
 
-    await reg.issues.attention.attachSession({ sessionId: liveSessionId, targetId: target.id })
+    await reg.issues.attention.attachSession(reg.issues.reports.store.serverWriter, { sessionId: liveSessionId, targetId: target.id })
 
     expect(await reg.issues.reports.get(exited.draft.id)).not.toBeNull()
     expect(await reg.modules.sessions.readSessionIssueId(exited.sessionId)).toBe(exited.draft.id)
@@ -335,8 +335,8 @@ describe('purge of an empty draft detaches tombstoned sessions (POD-1926)', () =
 
     // Rehoming the remaining live session is the explicit cleanup point.
     const reg2 = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
-    const target = await reg2.issues.crud.create({ repoPath: '/repo', title: 'Real work', startNow: false })
-    await reg2.issues.attention.attachSession({ sessionId: activeSessionId, targetId: target.id })
+    const target = await reg2.issues.crud.create(reg2.issues.reports.store.serverWriter, { repoPath: '/repo', title: 'Real work', startNow: false })
+    await reg2.issues.attention.attachSession(reg2.issues.reports.store.serverWriter, { sessionId: activeSessionId, targetId: target.id })
     expect(await reg2.issues.reports.get(draft.id)).toBeNull()
 
     const after = await (await openTestStore(file)).sessions.getSession(sessionId)

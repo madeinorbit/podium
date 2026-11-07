@@ -9,6 +9,7 @@
  * level, so 200 issues in the repository cost what 5 do.
  */
 
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { asIssueId, asSessionId, firstAdminMemberId, spreadSortKeys } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
@@ -45,10 +46,10 @@ async function fixture(size: number): Promise<Fixture> {
       ...patch,
     }) as IssueRow
   await store.transact(async () => {
-    for (let seq = 1; seq <= size; seq++) await store.issues.upsertIssue(row(seq, { sortKey: keys[seq - 1]! }))
-    await store.issues.upsertIssue(row(size + 1, { parentId: asIssueId('iss_1') }))
-    await store.issues.upsertIssue(row(size + 2, { parentId: asIssueId(`iss_${size + 1}`) }))
-    await store.issues.upsertIssue(row(size + 3, { parentId: asIssueId(`iss_${size + 2}`) }))
+    for (let seq = 1; seq <= size; seq++) await store.issues.upsertIssue(fixtureWriteScope(), row(seq, { sortKey: keys[seq - 1]! }))
+    await store.issues.upsertIssue(fixtureWriteScope(), row(size + 1, { parentId: asIssueId('iss_1') }))
+    await store.issues.upsertIssue(fixtureWriteScope(), row(size + 2, { parentId: asIssueId(`iss_${size + 1}`) }))
+    await store.issues.upsertIssue(fixtureWriteScope(), row(size + 3, { parentId: asIssueId(`iss_${size + 2}`) }))
   })
   const deps: IssueDeps = {
     store,
@@ -78,7 +79,7 @@ const pin = (name: string, run: (f: Fixture, size: number) => Promise<unknown>, 
 describe('issue writes that read other issues: pinned statement counts at 5 and 200 issues', () => {
   it('create at the top of a repository: one read of its key space', async () => {
     await expectConstantStatements(
-      pin('crud.create', async (f) => await f.svc.crud.create({ repoPath: '/repo', title: 'New work', startNow: false }),
+      pin('crud.create', async (f) => await f.svc.crud.create(f.svc.reports.store.serverWriter, { repoPath: '/repo', title: 'New work', startNow: false }),
         (wire) => expect(wire).toMatchObject({ title: 'New work' })),
       // POD-6218: two earliest-admin lookups, one statement each (the row), not two: 13 -> 11.
       11,
@@ -87,7 +88,7 @@ describe('issue writes that read other issues: pinned statement counts at 5 and 
 
   it('move among siblings: one read of the key space', async () => {
     await expectConstantStatements(
-      pin('crud.move', async (f) => await f.svc.crud.move('iss_3', { before: 'iss_2' }),
+      pin('crud.move', async (f) => await f.svc.crud.move(f.svc.reports.store.serverWriter, 'iss_3', { before: 'iss_2' }),
         (wire) => expect(wire).toMatchObject({ id: 'iss_3' })),
       8,
     )

@@ -1,3 +1,4 @@
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { createHash } from 'node:crypto'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -77,7 +78,7 @@ const base = () => ({
 describe('store issues', () => {
   it('round-trips an issue', async () => {
     const s = await openTestStore(':memory:')
-    await s.issues.upsertIssue(base())
+    await s.issues.upsertIssue(fixtureWriteScope(), base())
     const got = await s.issues.getIssue('iss_1')
     expect(got?.title).toBe('Fix login')
     expect(got?.worktreePath).toBeNull()
@@ -87,8 +88,8 @@ describe('store issues', () => {
 
   it('updates on conflict and preserves JSON blockedBy', async () => {
     const s = await openTestStore(':memory:')
-    await s.issues.upsertIssue(base())
-    await s.issues.upsertIssue({
+    await s.issues.upsertIssue(fixtureWriteScope(), base())
+    await s.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       stage: 'planning',
       worktreePath: '/r/wt',
@@ -108,19 +109,19 @@ describe('store issues', () => {
     for (const repo of ['/r', '/other']) await s.repos.addRepo(repo, asMachineId('machine-1'))
     const rid = async (p: string) => await s.repos.resolveRepoIdForPath(p)
     expect(await s.issues.nextIssueSeq(await rid('/r'))).toBe(1)
-    await s.issues.upsertIssue({
+    await s.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       id: asIssueId('a'),
       repoPath: '/r',
       seq: 1,
     })
-    await s.issues.upsertIssue({
+    await s.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       id: asIssueId('b'),
       repoPath: '/r',
       seq: 2,
     })
-    await s.issues.upsertIssue({
+    await s.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       id: asIssueId('c'),
       repoPath: '/other',
@@ -141,14 +142,14 @@ describe('store issues', () => {
     const s = await openTestStore(':memory:')
     const repoId = asRepoId('repo_shared_origin')
     // Two checkouts of the SAME repo at DIFFERENT paths (e.g. two machines).
-    await s.issues.upsertIssue({
+    await s.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       id: asIssueId('a'),
       repoPath: '/home/alice/proj',
       repoId,
       seq: 1,
     })
-    await s.issues.upsertIssue({
+    await s.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       id: asIssueId('b'),
       repoPath: '/home/bob/proj',
@@ -165,14 +166,14 @@ describe('store issues', () => {
     // heal has nothing to do on a live DB.
     const s = await openTestStore(':memory:')
     const repoId = asRepoId('repo_dup')
-    await s.issues.upsertIssue({
+    await s.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       id: asIssueId('m4'),
       repoPath: '/home/user/p',
       repoId,
       seq: 4,
     })
-    await expect(s.issues.upsertIssue({
+    await expect(s.issues.upsertIssue(fixtureWriteScope(), {
         ...base(),
         id: asIssueId('t4'),
         repoPath: '/home/till/p',
@@ -192,35 +193,35 @@ describe('store issues', () => {
     const s1 = await openTestStore(file)
     // Same origin, two paths; canonical (majority) path /home/user + a loser path
     // /home/till that minted colliding #4 (and a non-colliding #1).
-    await s1.issues.upsertIssue({
+    await s1.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       id: asIssueId('m3'),
       repoPath: '/home/user/p',
       repoId,
       seq: 3,
     })
-    await s1.issues.upsertIssue({
+    await s1.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       id: asIssueId('m4'),
       repoPath: '/home/user/p',
       repoId,
       seq: 4,
     })
-    await s1.issues.upsertIssue({
+    await s1.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       id: asIssueId('m5'),
       repoPath: '/home/user/p',
       repoId,
       seq: 5,
     })
-    await s1.issues.upsertIssue({
+    await s1.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       id: asIssueId('t4'),
       repoPath: '/home/till/p',
       repoId,
       seq: 99,
     })
-    await s1.issues.upsertIssue({
+    await s1.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       id: asIssueId('t1'),
       repoPath: '/home/till/p',
@@ -244,22 +245,22 @@ describe('store issues', () => {
 
   it('deletes', async () => {
     const s = await openTestStore(':memory:')
-    await s.issues.upsertIssue(base())
+    await s.issues.upsertIssue(fixtureWriteScope(), base())
     await s.issues.deleteIssue('iss_1')
     expect(await s.issues.getIssue('iss_1')).toBeNull()
   })
 
   it('rejects an invalid stage on write but allows the auto defaultAgent sentinel', async () => {
     const s = await openTestStore(':memory:')
-    await expect(s.issues.upsertIssue({ ...base(), stage: 'bogus' })).rejects.toThrow(/stage/i)
+    await expect(s.issues.upsertIssue(fixtureWriteScope(), { ...base(), stage: 'bogus' })).rejects.toThrow(/stage/i)
     // 'auto' is a legal defaultAgent (AgentChoice sentinel) — it must NOT be rejected;
     // it is resolved to a concrete kind only at spawn time.
-    await s.issues.upsertIssue({ ...base(), defaultAgent: 'auto' })
+    await s.issues.upsertIssue(fixtureWriteScope(), { ...base(), defaultAgent: 'auto' })
   })
 
   it('normalizes a non-array blockedBy to [] on write', async () => {
     const s = await openTestStore(':memory:')
-    await s.issues.upsertIssue({
+    await s.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       blockedBy: 'nope' as unknown as string[],
     })
@@ -272,7 +273,7 @@ describe('store issues', () => {
     // IssueService's constructor at boot, crash-looping the server. Quarantine the
     // bad field (blockedBy -> []) and keep the row.
     const s = await openTestStore(':memory:')
-    await s.issues.upsertIssue(base())
+    await s.issues.upsertIssue(fixtureWriteScope(), base())
     rawDb(s).prepare('UPDATE issues SET blocked_by = ? WHERE id = ?').run('{not json', 'iss_1')
 
     await s.issues.listIssueRows()
@@ -282,7 +283,7 @@ describe('store issues', () => {
 
   it('quarantines a non-array blocked_by JSON value', async () => {
     const s = await openTestStore(':memory:')
-    await s.issues.upsertIssue(base())
+    await s.issues.upsertIssue(fixtureWriteScope(), base())
     // Valid JSON, wrong shape (an object, not a string[]).
     rawDb(s).prepare('UPDATE issues SET blocked_by = ? WHERE id = ?').run('{"a":1}', 'iss_1')
     expect((await s.issues.getIssue('iss_1'))?.blockedBy).toEqual([])
@@ -291,33 +292,33 @@ describe('store issues', () => {
   // POD-568 — the finished-work projection the auto-hibernate sweep orders by.
   it('names closed issues by stage, close reason and tombstone', async () => {
     const s = await openTestStore(':memory:')
-    await s.issues.upsertIssue({
+    await s.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       id: asIssueId('open'),
       seq: 1,
       stage: 'in_progress',
     })
-    await s.issues.upsertIssue({
+    await s.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       id: asIssueId('review'),
       seq: 2,
       stage: 'review',
     })
-    await s.issues.upsertIssue({
+    await s.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       id: asIssueId('done'),
       seq: 3,
       stage: 'done',
     })
     // Closed for a reason WITHOUT reaching done — the half isIssueClosed exists for.
-    await s.issues.upsertIssue({
+    await s.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       id: asIssueId('duped'),
       seq: 4,
       stage: 'backlog',
       closedReason: 'duplicate',
     })
-    await s.issues.upsertIssue({
+    await s.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       id: asIssueId('gone'),
       seq: 5,
@@ -419,7 +420,7 @@ describe('shipping durable store', () => {
   it('fences active orders, attempts, idempotent steps, holds, and immutable receipts', async () => {
     const file = join(mkdtempSync(join(tmpdir(), 'podium-shipping-store-')), 'shipping.db')
     const s = await openTestStore(file)
-    await s.issues.upsertIssue(base())
+    await s.issues.upsertIssue(fixtureWriteScope(), base())
     const order = shipOrder()
     expect(await s.shipping.createOrder(order)).toEqual(order)
     await expect(s.shipping.createOrder(
@@ -702,14 +703,14 @@ describe('shipping durable store', () => {
     const s = await openTestStore(':memory:')
     const lowerIssue = asIssueId('iss_lower')
     const coveringIssue = asIssueId('iss_covering')
-    await s.issues.upsertIssue({
+    await s.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       id: lowerIssue,
       seq: 40,
       branch: 'issue/lower',
       machineId: asMachineId('machine-1'),
     })
-    await s.issues.upsertIssue({
+    await s.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       id: coveringIssue,
       seq: 41,
@@ -926,7 +927,7 @@ describe('shipping durable store', () => {
   it('exposes a CAS-only issue custody seam for atomic admission and settlement', async () => {
     const s = await openTestStore(':memory:')
     const issue = { ...base(), stage: 'review' as const }
-    await s.issues.upsertIssue(issue)
+    await s.issues.upsertIssue(fixtureWriteScope(), issue)
     await s.transact(async () => {
       await s.issues.transitionShippingStage(issue.id, 'review', 'shipping', 't1')
       await s.shipping.createOrder(shipOrder())
@@ -956,7 +957,7 @@ describe('shipping durable store', () => {
     }
     const canonical = { ...receipt, descendants: [childA, childB] }
     const s = await openTestStore(file)
-    await s.issues.upsertIssue(base())
+    await s.issues.upsertIssue(fixtureWriteScope(), base())
 
     expect(await s.shipping.recordRootIntegrationReceipt(receipt)).toEqual(canonical)
     expect(await s.shipping.recordRootIntegrationReceipt(canonical)).toEqual(canonical)
@@ -992,7 +993,7 @@ describe('shipping durable store', () => {
     const s = await openTestStore(':memory:', asMachineId('machine-1'))
     const issueIds = ['a', 'b', 'c'].map((suffix) => asIssueId(`iss_train_${suffix}`))
     for (const [index, id] of issueIds.entries()) {
-      await s.issues.upsertIssue({
+      await s.issues.upsertIssue(fixtureWriteScope(), {
         ...base(),
         id,
         seq: 70 + index,
@@ -1049,7 +1050,7 @@ describe('shipping durable store', () => {
     const upperIssue = asIssueId('iss_cycle_upper')
     const lowerIssue = asIssueId('iss_cycle_lower')
     for (const [index, id] of [upperIssue, lowerIssue].entries()) {
-      await cyclic.issues.upsertIssue({
+      await cyclic.issues.upsertIssue(fixtureWriteScope(), {
         ...base(),
         id,
         seq: 80 + index,
@@ -1086,7 +1087,7 @@ describe('shipping durable store', () => {
       issueId: asIssueId('iss_child_b'),
       approvedHeadSha: 'sha-b',
     }
-    await s.issues.upsertIssue(base())
+    await s.issues.upsertIssue(fixtureWriteScope(), base())
     await s.shipping.recordRootIntegrationReceipt({
       rootIssueId,
       approvedHeadSha: 'integrated-root-head',
@@ -1133,7 +1134,7 @@ describe('shipping durable store', () => {
       },
     })
     const s = await openTestStore(file)
-    await s.issues.upsertIssue(base())
+    await s.issues.upsertIssue(fixtureWriteScope(), base())
     expect(await s.shipping.createOrder(evidenced)).toEqual(evidenced)
     expect(await s.shipping.createOrder(evidenced)).toEqual(evidenced)
     await expect(s.shipping.createOrder({

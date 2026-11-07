@@ -36,8 +36,8 @@ import {
 import type { TurnReceipt } from '@podium/protocol/daemon'
 import { normalizeSettings } from '@podium/runtime'
 import type { Capability } from '../../issue-authz'
-import type { SessionStore } from '../../store'
 import { isMemberCwd, sessionsForIssue } from '../../issue-util'
+import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
 import { metaAsFacts, sessionReadPorts } from '../../test-support/session-facts'
 import { type IssueDeps, IssueService } from '../issues/service'
@@ -299,8 +299,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
   const issues = await IssueService.create(issueDeps)
 
   const record =
-    (fn: Push['fn']) =>
-    async (i: { sessionId: SessionId; text: string; inputOrigin?: string }) => {
+    (fn: Push['fn']) => async (i: { sessionId: SessionId; text: string; inputOrigin?: string }) => {
       pushes.push({ fn, ...i })
       const fails =
         transport.ok === false &&
@@ -355,7 +354,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
   }
 
   const svc = new MessageDeliveryService({
-      firstAdminMemberId: () => firstAdminMemberId(store),
+    firstAdminMemberId: () => firstAdminMemberId(store),
     messages: store.messages,
     notificationFacts: store.notificationFacts,
     events: store.events,
@@ -364,7 +363,9 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       readSessionFactsByIssue: async (worktreePath, issueId) =>
         sessionsForIssue(worktreePath, sessions.map(metaAsFacts), issueId),
       readSessionFactsByWorktree: async (worktreePath) =>
-        worktreePath ? sessions.map(metaAsFacts).filter((s) => isMemberCwd(worktreePath, s.cwd)) : [],
+        worktreePath
+          ? sessions.map(metaAsFacts).filter((s) => isMemberCwd(worktreePath, s.cwd))
+          : [],
       sessionById: async (sessionId) => sessions.find((s) => s.sessionId === sessionId),
       listSessionsForIssue: async (worktreePath, issueId) =>
         sessionsForIssue(worktreePath, sessions, issueId),
@@ -450,7 +451,8 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
         ? { resolveWorkflowStepLaunch: opts.resolveWorkflowStepLaunch }
         : {}),
       ...(opts?.sessionOwner ? { sessionOwner: opts.sessionOwner } : {}),
-      createIssue: async (input) => await issues.crud.create({ ...input, startNow: false }),
+      createIssue: async (input) =>
+        await issues.crud.create(issues.reports.store.serverWriter, { ...input, startNow: false }),
       appendEvent: async (e) => {
         await store.events.appendEvent(e)
       },
@@ -514,7 +516,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       nowMs = Date.parse(iso)
     },
     createIssue: async (input) => {
-      const wire = await issues.crud.create({
+      const wire = await issues.crud.create(issues.reports.store.serverWriter, {
         repoPath: input.repoPath ?? '/repo',
         title: input.title,
         ...(input.parentId ? { parentId: input.parentId } : {}),
@@ -523,10 +525,10 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       return { id: wire.id, seq: wire.seq }
     },
     setWorktree: async (issueId, worktreePath) => {
-      await issues.crud.update(issueId, { worktreePath })
+      await issues.crud.update(issues.reports.store.serverWriter, issueId, { worktreePath })
     },
     archive: async (issueId) => {
-      await issues.crud.update(issueId, { archived: true })
+      await issues.crud.update(issues.reports.store.serverWriter, issueId, { archived: true })
     },
     put: (...fixtures) => {
       const created = fixtures.map(session)
@@ -540,8 +542,8 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       onBehalfOf: firstAdminMemberId(),
     }),
     events: async (kinds) =>
-      (await store.events
-        .listEventsSince(0, kinds ? { kinds, limit: 5000 } : { limit: 5000 }))
-        .map((e) => ({ kind: e.kind, subject: e.subject, payload: e.payload })),
+      (await store.events.listEventsSince(0, kinds ? { kinds, limit: 5000 } : { limit: 5000 })).map(
+        (e) => ({ kind: e.kind, subject: e.subject, payload: e.payload }),
+      ),
   }
 }

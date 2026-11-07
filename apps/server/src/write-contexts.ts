@@ -81,6 +81,10 @@ export const SYSTEM_WRITE_ORIGINS = {
     what: 'an effect record the server itself asks for, with no caller (the janitor connect scan)',
     kind: 'server',
   },
+  steward: {
+    what: "the steward's issue notices: an unblocked dependent, a parent's nudge",
+    kind: 'server',
+  },
   'machines.projection': {
     what: "a machine's display projection, republished whenever its row changes",
     kind: 'mirror',
@@ -102,9 +106,13 @@ export const SYSTEM_WRITE_ORIGINS = {
     kind: 'mirror',
   },
   issues: {
-    what: 'issue writes: sync commands, daemon-reported git state, session lifecycle',
+    what: 'issue commands still run outside sync.submit (POD-6593 DIRECT_WRITES: start, action, cleanup, stop, integrate, ship, addSession, addShell, refreshAssistant, answerQuestion)',
     kind: 'client',
-    legacy: UNTIL_CONTEXT_PER_CALL,
+    legacy: { removeAfter: '2027-03', owner: 'POD-6603' },
+  },
+  'issues.server': {
+    what: "the issues service's own work: worktree moves, landing, cleanup, git state, auto-archive, integration runs, boot reconciles",
+    kind: 'server',
   },
   sessions: {
     what: 'session writes: sync commands and daemon reports at persist, and the session.launch records a send or a spawn creates',

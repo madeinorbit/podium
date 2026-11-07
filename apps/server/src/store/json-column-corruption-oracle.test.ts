@@ -92,6 +92,7 @@
  * "this is what was on disk when we opened it".
  */
 
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -331,7 +332,7 @@ async function seed(): Promise<Fixture> {
   const store = await openTestStore(':memory:')
 
   // --- issues ---------------------------------------------------------------
-  await store.issues.upsertIssue(issueRow())
+  await store.issues.upsertIssue(fixtureWriteScope(), issueRow())
   // `upsertIssue` has no field for it; the oracle only needs a readable value
   // in the column, which is what a live "needs human" issue holds.
   rawDb(store)
@@ -416,7 +417,7 @@ async function seed(): Promise<Fixture> {
 
   // --- shipping: orders, a claimed train (manifest + members + attempts +
   //     steps), a root integration receipt and an open hold -------------------
-  await store.issues.upsertIssue(
+  await store.issues.upsertIssue(fixtureWriteScope(), 
     issueRow({ id: asIssueId('iss_2'), seq: 2, branch: 'issue/2', title: 'Second' }),
   )
   const lower = shipOrderInput()
@@ -443,7 +444,7 @@ async function seed(): Promise<Fixture> {
   // receipt that binds it. Kept out of the train on purpose: the same two columns
   // behave differently on an order with descendants and one without, and the
   // oracle records both.
-  await store.issues.upsertIssue(
+  await store.issues.upsertIssue(fixtureWriteScope(), 
     issueRow({ id: asIssueId('iss_3'), seq: 3, branch: 'issue/3', title: 'Third' }),
   )
   const stackedDescendants = [{ issueId: asIssueId('iss_2'), approvedHeadSha: 'covering-head' }]

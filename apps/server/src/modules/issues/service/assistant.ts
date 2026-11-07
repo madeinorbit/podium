@@ -169,6 +169,6 @@ export class IssueAssistantDigestModule {
     const digestStage = result.suggestedStage
     row.suggestedStage = digestStage && digestStage !== row.stage ? digestStage : null
     row.suggestedReason = row.suggestedStage ? result.suggestedReason : null
-    return await this.store.persistRow(row)
+    return await this.store.persistRow(this.store.serverWriter, row)
   }
 }

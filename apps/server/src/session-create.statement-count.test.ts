@@ -73,7 +73,7 @@ async function fixture(size: number): Promise<Fixture> {
   for (let i = 0; i < size; i++) {
     // An explicit parent: create would otherwise probe the repo for its base
     // branch (POD-2065), which the test daemon never answers (3 s per issue).
-    const issue = await reg.issues.crud.create({
+    const issue = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: `Issue ${i}`,
       startNow: false,
@@ -96,7 +96,7 @@ async function fixture(size: number): Promise<Fixture> {
   // the first issue, one feed event each: it starts in backlog, so each step
   // alternates planning and backlog and always changes the stage.
   for (let n = 0; n < FEED_WINDOW - size; n++) {
-    await reg.issues.crud.update(issueId!, { stage: n % 2 === 0 ? 'planning' : 'backlog' })
+    await reg.issues.crud.update(reg.issues.reports.store.serverWriter, issueId!, { stage: n % 2 === 0 ? 'planning' : 'backlog' })
   }
   const repos = new RepoRegistry(reg, reg.sessionStore)
   const superagent = await SuperagentService.create(reg.modules, repos, reg.sessionStore)

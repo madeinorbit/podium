@@ -405,6 +405,12 @@ interface NewEffectInUnit {
 }
 
 export interface RegistryModules {
+  /**
+   * The `sessions` origin's writer (ADR 12 D9): the issue writes a session
+   * command makes (a chat upload claim, a start's draft) until POD-6601 passes
+   * that command's own writer. Census-owned; no new caller.
+   */
+  sessionsWriter: Pick<LedgerWriter, 'commit' | 'capture'>
   bus: EventBus
   funnel: WriteFunnel
   sessions: SessionLifecycle
@@ -1198,7 +1204,7 @@ export class SessionRegistry {
     })
     this.messageFeed = messageFeed
     this.store.messages.setFeedCapture(messageFeed.capture)
-    const issueArbitration = new IssueAuthorityArbitration(writes.system('issues'))
+    const issueArbitration = new IssueAuthorityArbitration(writes.system('issues.server'))
     // THE write funnel (modules/funnel): authorize → repo write → change append →
     // broadcast. Bridges ledger appends onto the bus and runs THE ordered
     // metadataDelta pipe (#256) — sendDelta is the one seam deltas reach
@@ -1843,6 +1849,9 @@ export class SessionRegistry {
         (await this.store.repos.machineHasRootContaining(cwd, machineId))
           ? (
               await this.issues.attention.createDraftFor(
+                // A session start's draft: the sessions origin until POD-6601
+                // passes the start command's writer.
+                writes.system('sessions'),
                 cwd,
                 agentKind,
                 undefined,
@@ -2318,6 +2327,8 @@ export class SessionRegistry {
       // the appended rows ARE what a client is served.
       funnel,
       ledger: issueArbitration.ledger,
+      // A command's own writer gets the same revision arbitration (POD-6594).
+      arbitrate: (writer) => issueArbitration.wrap(writer),
       onIssueCreated: (event) => this.bus.emit('issue.created', event),
       onIssueWorktreeMoved: (event) => this.bus.emit('issue.worktreeMoved', event),
       onIssueClosed: async (input) => await stopClosedIssue?.(input),
@@ -2358,7 +2369,8 @@ export class SessionRegistry {
           )
             break
           if (await issueAccess.isIssueWorktree(message.cwd)) break
-          await issues.crud.update(issue.id, {
+          // A daemon's worktree report: the server's own issue write.
+          await issues.crud.update(writes.system('issues.server'), issue.id, {
             worktreePath: message.cwd,
             machineId: event.machineId,
             ...(message.branch ? { branch: message.branch } : {}),
@@ -2392,6 +2404,8 @@ export class SessionRegistry {
       issues,
       sessions: sessionsSvc,
       ledger: issueArbitration.ledger,
+      sessionsWriter: writes.system('sessions'),
+      arbitrate: (writer) => issueArbitration.wrap(writer),
     })
     stopClosedIssue = async (input) =>
       await issueSessionLifecycle.stopClosedIssue({ ...input, reason: 'close' })
@@ -2970,7 +2984,10 @@ export class SessionRegistry {
             machineId: launch.machineId,
           }
         },
-        createIssue: async (o) => await issues.crud.create({ ...o, startNow: false }),
+        // mail.spawnAgent --new: inside the mail command, under the issues
+        // origin until POD-6602 passes the command's writer.
+        createIssue: async (o) =>
+          await issues.crud.create(writes.system('issues'), { ...o, startNow: false }),
         appendEvent: async (e) => {
           await this.store.events.appendEvent(e)
         },
@@ -3045,6 +3062,7 @@ export class SessionRegistry {
     const issueAttach = new IssueAttachOrchestrator({
       transact: async (work) => await this.store.transact(work),
       attention: issues.attention,
+      directWriter: writes.system('issues'),
     })
 
     // Scheduled automations (#470) [spec:SP-17db]. The spawn goes straight to
@@ -3065,13 +3083,15 @@ export class SessionRegistry {
         sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
       }),
       createIssue: async (o) => {
-        const issue = await issues.crud.create({
+        const issue = await issues.crud.create(writes.system('automations.schedule'), {
           ...o,
           startNow: false,
           origin: 'agent',
           audience: 'human',
         })
-        await issues.crud.update(issue.id, { stage: 'in_progress' })
+        await issues.crud.update(writes.system('automations.schedule'), issue.id, {
+          stage: 'in_progress',
+        })
         return { id: issue.id }
       },
       liveSessionIds: async () =>
@@ -3230,6 +3250,8 @@ export class SessionRegistry {
       return service
     }
     const issueCommands = new IssueCommandDispatcher({
+      // The writer of an issue command not yet on sync.submit (POD-6603).
+      directWriter: writes.system('issues'),
       // Git actions as effect records (POD-6394), read per call: the modules
       // and the entry point are composed after this dispatcher.
       gitEffects: issueGitEffectPort({ modules: () => this.modules }),
@@ -3251,8 +3273,8 @@ export class SessionRegistry {
         cancel: async (input) => await shippingPort().cancel(input),
         deliveryReceipt: async (input) => await shippingPort().deliveryReceipt(input),
       },
-      deleteIssue: async (id) => await issueSessionLifecycle.deleteIssue(id),
-      restoreIssue: async (id) => await issueSessionLifecycle.restoreIssue(id),
+      deleteIssue: async (writer, id) => await issueSessionLifecycle.deleteIssue(writer, id),
+      restoreIssue: async (writer, id) => await issueSessionLifecycle.restoreIssue(writer, id),
       mutations,
       // The by-id read [POD-1646]: one session, not the full pass.
       sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
@@ -3311,7 +3333,8 @@ export class SessionRegistry {
           (await this.store.repos.listRepoPaths(machineId))[0] ??
           (await this.store.repos.listRepoPaths())[0],
         issueExists: async (id) => (await readIssue(this.store.issues, id)) !== null,
-        createIssue: async (input) => await issues.crud.create(input),
+        createIssue: async (input) =>
+          await issues.crud.create(writes.system('issues.server'), input),
         sendMail: async (issueId, body) =>
           await systemIssueNotice(messagesSvc, 'machine-diagnostic')(issueId, body),
         notify: (ownerUserId, notice) => notify.notifyExternal(notice, ownerUserId),
@@ -3422,9 +3445,9 @@ export class SessionRegistry {
         },
         children: async (id, recursive) => await issues.reports.children(id, recursive),
         shippingCommit: async (id, mutation, write) =>
-          await issues.crud.shippingCommit(id, mutation, write),
+          await issues.crud.shippingCommit(writes.system('shipping'), id, mutation, write),
         shippingCommitMany: async (entries, write) =>
-          await issues.crud.shippingCommitMany(entries, write),
+          await issues.crud.shippingCommitMany(writes.system('shipping'), entries, write),
         takeBranchCustody: async (issue) => {
           const stopped = await issueSessionLifecycle.stopIssue({
             issueId: issue.id,
@@ -4072,6 +4095,7 @@ export class SessionRegistry {
     })
     this.bus.on('session.exited', async (e) => await interactions.onSessionExited(e.sessionId))
     this.modules = {
+      sessionsWriter: this.writes.system('sessions'),
       effects: {
         executors: effectExecutors,
         runner: this.effectsRunner,
@@ -4261,7 +4285,8 @@ export class SessionRegistry {
     // The folder picker's writes and a machine's update (POD-6417).
     registerFolderEffects({
       modules: () => this.modules,
-      register: async (path, machineId) => await cloneRegistry.add(path, machineId),
+      register: async (path, machineId) =>
+        await cloneRegistry.add(cloneRegistry.serverWriter, path, machineId),
       registeredPaths: async (machineId) => await cloneRegistry.list(machineId),
     })
     registerMachineUpdateEffect({
@@ -4332,6 +4357,7 @@ export class SessionRegistry {
     // was never awaited, so it raced the rest of boot AND the catch below it was
     // dead -- an unawaited rejection cannot be caught by the try that started it.
     this.steward = new StewardService({
+      writer: this.writes.system('steward'),
       principal: systemPrincipal('steward'),
       store: this.store.events,
       facts: this.store.notificationFacts,

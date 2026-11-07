@@ -1,11 +1,16 @@
 import { randomUUID } from 'node:crypto'
 import type { IssueId, IssueProjection, SessionId } from '@podium/model'
-import { attributionOf, type CommandAttribution, type CommandPrincipal } from '../../../command-principal'
+import {
+  attributionOf,
+  type CommandAttribution,
+  type CommandPrincipal,
+} from '../../../command-principal'
 import type { IssueMessageRow } from '../../../store'
 import type { IssueStore } from './core'
 import { countContextAwarePendingMail } from './mail-pending'
 import type { IssueReportsModule } from './reads'
 import { IssueRefusal } from './refusal'
+import type { IssueWriter } from './types'
 
 /**
  * Comments and tracker-mail capability: an issue's comments, and the read side
@@ -38,6 +43,7 @@ export class IssueCommentsMailModule {
    * the BUILD (not just the run) if a default comes back.
    */
   async addComment(
+    writer: IssueWriter,
     id: string,
     author: string,
     body: string,
@@ -48,6 +54,7 @@ export class IssueCommentsMailModule {
     // An effect's executor (POD-6394) has the stored attribution, not a live principal.
     const attribution = 'kind' in principal ? attributionOf(principal) : principal
     return await this.store.persistWith(
+      writer,
       row,
       async () =>
         await this.store.deps.store.issues.addIssueComment({
@@ -71,11 +78,12 @@ export class IssueCommentsMailModule {
    * author could also suppress their notes.
    */
   async addCallerComment(
+    writer: IssueWriter,
     id: string,
     body: string,
     principal: CommandPrincipal,
   ): Promise<IssueProjection> {
-    return await this.addComment(id, await this.authorOf(principal), body, principal)
+    return await this.addComment(writer, id, await this.authorOf(principal), body, principal)
   }
 
   /** The display name a principal comments under: a human's own profile name,

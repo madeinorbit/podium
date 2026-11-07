@@ -189,7 +189,7 @@ describe('SessionRegistry', () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       await attachHostDaemon(reg, () => {}, { repos: ['/proj'] })
-      const issue = await reg.modules.issues.crud.create({
+      const issue = await reg.modules.issues.crud.create(reg.modules.issues.reports.store.serverWriter, {
         repoPath: '/proj',
         title: 'Coordinator default',
         startNow: false,
@@ -201,10 +201,10 @@ describe('SessionRegistry', () => {
           issueId: issue.id,
         })
       ).sessionId
-      await reg.modules.issues.crud.claim(issue.id, asUserId('agent:codex'), { actorSessionId: first })
+      await reg.modules.issues.crud.claim(reg.modules.issues.reports.store.serverWriter, issue.id, asUserId('agent:codex'), { actorSessionId: first })
       expect((await reg.modules.issues.reports.get(issue.id))?.coordinatorSessionId).toBeUndefined()
 
-      await reg.modules.issues.crud.create({
+      await reg.modules.issues.crud.create(reg.modules.issues.reports.store.serverWriter, {
         repoPath: '/proj',
         title: 'First split',
         startNow: false,
@@ -276,12 +276,12 @@ describe('SessionRegistry', () => {
         answerRepoOps(store.hostMachineId, host),
         inventory,
       )
-      const hostIssue = await reg.modules.issues.crud.create({
+      const hostIssue = await reg.modules.issues.crud.create(reg.modules.issues.reports.store.serverWriter, {
         repoPath: '/host/project',
         title: 'Host routed',
         startNow: false,
       })
-      const remoteIssue = await reg.modules.issues.crud.create({
+      const remoteIssue = await reg.modules.issues.crud.create(reg.modules.issues.reports.store.serverWriter, {
         repoPath: '/remote/project',
         title: 'Remote routed',
         startNow: false,
@@ -490,7 +490,7 @@ describe('SessionRegistry', () => {
   const adopting = async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await attachHostDaemon(reg, () => {}, { repos: ['/repo'] })
-    const issue = await reg.modules.issues.crud.create({
+    const issue = await reg.modules.issues.crud.create(reg.modules.issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'Adopt me',
       startNow: false,
@@ -541,12 +541,12 @@ describe('SessionRegistry', () => {
   it('never steals a worktree another issue already owns', async () => {
     // A `cd` into a sibling's workspace to read something must not hand it over.
     const { reg, cwdMsg, read } = await adopting()
-    const sibling = await reg.modules.issues.crud.create({
+    const sibling = await reg.modules.issues.crud.create(reg.modules.issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'Sibling',
       startNow: false,
     })
-    await reg.modules.issues.crud.update(sibling.id, { worktreePath: '/repo/.worktrees/sibling' })
+    await reg.modules.issues.crud.update(reg.modules.issues.reports.store.serverWriter, sibling.id, { worktreePath: '/repo/.worktrees/sibling' })
     await cwdMsg({ cwd: '/repo/.worktrees/sibling', branch: 'issue/sibling' })
     await expect.poll(read).toMatchObject({ worktreePath: null })
   })
@@ -559,7 +559,7 @@ describe('SessionRegistry', () => {
 
   it('leaves an issue that already has a worktree alone', async () => {
     const { reg, issue, cwdMsg, read } = await adopting()
-    await reg.modules.issues.crud.update(issue.id, {
+    await reg.modules.issues.crud.update(reg.modules.issues.reports.store.serverWriter, issue.id, {
       worktreePath: '/repo/.worktrees/mine',
       branch: 'mine',
     })
@@ -600,7 +600,7 @@ describe('SessionRegistry', () => {
     // real git: `git -C /link/repo rev-parse --show-toplevel` prints /real/repo.
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await attachHostDaemon(reg, () => {}, { repos: ['/link/repo'] })
-    const issue = await reg.modules.issues.crud.create({
+    const issue = await reg.modules.issues.crud.create(reg.modules.issues.reports.store.serverWriter, {
       repoPath: '/link/repo', // registered through a symlink…
       title: 'Symlinked',
       startNow: false,
@@ -7578,7 +7578,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
     try {
       const daemon: ControlMessage[] = []
       await attachHostDaemon(registry, (message) => daemon.push(message), { repos: ['/repo'] })
-      const issue = await registry.issues.crud.create({
+      const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
         repoPath: '/repo',
         title: 'Mail target',
         startNow: false,
@@ -7710,12 +7710,12 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
     try {
       const daemon: ControlMessage[] = []
       await attachHostDaemon(registry, (message) => daemon.push(message), { repos: ['/repo'] })
-      const parent = await registry.modules.issues.crud.create({
+      const parent = await registry.modules.issues.crud.create(registry.modules.issues.reports.store.serverWriter, {
         repoPath: '/repo',
         title: 'Epic',
         startNow: false,
       })
-      const child = await registry.modules.issues.crud.create({
+      const child = await registry.modules.issues.crud.create(registry.modules.issues.reports.store.serverWriter, {
         repoPath: '/repo',
         title: 'Child',
         startNow: false,

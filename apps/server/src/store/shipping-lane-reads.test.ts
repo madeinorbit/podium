@@ -3,6 +3,7 @@
  * must answer for one lane, or one set of orders, and never read history.
  */
 
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { createHash } from 'node:crypto'
 import {
   asIssueId,
@@ -113,7 +114,7 @@ async function seeded(orders: readonly ShipOrder[]): Promise<SessionStore> {
   const s = await openTestStore(':memory:')
   stores.push(s)
   for (const [index, order] of orders.entries()) {
-    await s.issues.upsertIssue(issue(order.issueId, index + 1))
+    await s.issues.upsertIssue(fixtureWriteScope(), issue(order.issueId, index + 1))
     await s.shipping.createOrder(order)
   }
   return s

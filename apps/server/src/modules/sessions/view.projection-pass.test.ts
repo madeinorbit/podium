@@ -1,3 +1,4 @@
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { asIssueId, asMachineId, asSessionId, asUserId } from '@podium/model'
 import { formatSessionRef } from '@podium/protocol'
 import { afterAll, describe, expect, it, vi } from 'vitest'
@@ -38,7 +39,7 @@ const machineId = asMachineId('projection-machine')
 async function fixture(count: number) {
   const store = await openTestStore(':memory:')
   await store.repos.addRepo('/projection', machineId, undefined, 'PASS')
-  await store.issues.upsertIssue({
+  await store.issues.upsertIssue(fixtureWriteScope(), {
     id: asIssueId('projection-issue'),
     ownerUserId: reader,
     visibility: 'personal',

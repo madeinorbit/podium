@@ -113,7 +113,8 @@ export async function sessionCommandCtx(
     sessions: () => commandSessions,
     stageAttachment: async (input) => await sessions.runtimeGateway.stageAttachment(input),
     holdUpload: async (input) => await modules.pendingUploads.put(input),
-    claimUpload: async (issueId, input) => await issues.crud.panelChatUploadClaim(issueId, input),
+    claimUpload: async (issueId, input) =>
+      await issues.crud.panelChatUploadClaim(modules.sessionsWriter, issueId, input),
     isAgentDriven: async (sessionId) => await sessions.receiptSender.onContract(sessionId),
     // THE CHAT PATHS' SEND, as a dispatch of the `mail.send` contract (POD-729).
     //
@@ -129,9 +130,17 @@ export async function sessionCommandCtx(
     mailSend: async (input) =>
       (await modules.messageGate.dispatch(capability, overrideScope, 'send', input, transport))!,
     createDraftIssue: async (repoPath, agentKind, issueId, ownership) =>
-      await issues.attention.createDraftFor(repoPath, agentKind, issueId, ownership),
+      await issues.attention.createDraftFor(
+        modules.sessionsWriter,
+        repoPath,
+        agentKind,
+        issueId,
+        ownership,
+      ),
     attachDraftArtifacts: async (issueId, artifacts) => {
-      for (const artifact of artifacts) await issues.crud.panelArtifactUpload(issueId, artifact)
+      for (const artifact of artifacts) {
+        await issues.crud.panelArtifactUpload(modules.sessionsWriter, issueId, artifact)
+      }
     },
     discardUnlaunchedDraft: async (issueId) =>
       await issues.attention.discardUnlaunchedDraft(issueId),

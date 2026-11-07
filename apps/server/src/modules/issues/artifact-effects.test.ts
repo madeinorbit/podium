@@ -69,8 +69,8 @@ async function setup(files: Record<string, string> = {}) {
     ),
   )
   ;(o.reg.modules.issueArtifacts as unknown as { rpc: ArtifactRpc }).rpc = rpc
-  const issue = await o.reg.issues.crud.create({ repoPath: '/r', title: 'art', startNow: false })
-  await o.reg.issues.crud.update(issue.id, { worktreePath: WORKTREE, branch: 'issue/art' })
+  const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'art', startNow: false })
+  await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, issue.id, { worktreePath: WORKTREE, branch: 'issue/art' })
   return { o, rpc, issueId: issue.id as IssueId }
 }
 
@@ -133,7 +133,7 @@ describe('artifact-add as an issue.artifactAdd record', () => {
     ).rejects.toThrow(/is outside the owning issue worktree/)
     expect(await entries(o, issueId)).toEqual([])
 
-    const bare = await o.reg.issues.crud.create({ repoPath: '/r', title: 'none', startNow: false })
+    const bare = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'none', startNow: false })
     await expect(
       o.call.issues.panelApply({ id: bare.id, op: 'artifact-add', path: 'x.png' }),
     ).rejects.toThrow(/has no owning worktree/)
@@ -325,7 +325,7 @@ describe("the entry point's artifact commit", () => {
     const { o, issueId } = await setup({ 'a.png': 'one' })
     await o.call.issues.panelApply({ id: issueId, op: 'artifact-add', path: 'a.png' })
     const done = await recordsOf(o, ISSUE_ARTIFACT_EFFECT_KIND.add, issueId)
-    const other = await o.reg.issues.crud.create({ repoPath: '/r', title: 'b', startNow: false })
+    const other = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'b', startNow: false })
 
     for (const [mutation, input] of [
       // Settled: no longer running.

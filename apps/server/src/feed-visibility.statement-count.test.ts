@@ -129,9 +129,9 @@ interface Fixture {
 async function fixture(size: number): Promise<Fixture> {
   const store = await openTestStore(':memory:')
   for (let i = 0; i < size; i++) {
-    await store.issues.upsertIssue(issueRow(`iss_${i}`, i + 1))
+    await store.issues.upsertIssue(fixtureWriteScope(), issueRow(`iss_${i}`, i + 1))
     await store.shipping.createOrder(order(`order-${i}`, `iss_${i}`, `repo-${i}`))
-    await store.issues.upsertIssue(issueRow(`shared_${i}`, size + i + 1))
+    await store.issues.upsertIssue(fixtureWriteScope(), issueRow(`shared_${i}`, size + i + 1))
     await store.shipping.createOrder(order(`shared-order-${i}`, `shared_${i}`, 'repo-shared'))
   }
   await store.grants.upsert({

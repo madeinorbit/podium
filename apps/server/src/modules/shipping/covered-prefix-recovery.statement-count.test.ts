@@ -64,8 +64,10 @@ async function world(shipped: number): Promise<{ store: SessionStore; service: S
     issues: {
       get: async (id) => (await issues.reports.get(id))!,
       children: async (id, recursive) => await issues.reports.children(id, recursive),
-      shippingCommit: issues.crud.shippingCommit.bind(issues.crud),
-      shippingCommitMany: issues.crud.shippingCommitMany.bind(issues.crud),
+      shippingCommit: async (id, mutation, write) =>
+        await issues.crud.shippingCommit(issues.reports.store.serverWriter, id, mutation, write),
+      shippingCommitMany: async (entries, write) =>
+        await issues.crud.shippingCommitMany(issues.reports.store.serverWriter, entries, write),
     },
     ledger: testLedgerWriter(ledger),
     daemon: {
@@ -86,7 +88,7 @@ async function world(shipped: number): Promise<{ store: SessionStore; service: S
     now: () => '2026-08-13T10:00:00.000Z',
     background: false,
   })
-  const created = await issues.crud.create({
+  const created = await issues.crud.create(issues.reports.store.serverWriter, {
     repoPath: '/history',
     title: 'history',
     startNow: false,

@@ -65,7 +65,7 @@ describe('SessionStart: issue owner precedence', () => {
     expect(issueOwner).not.toBe(firstAdminMemberId())
 
     const { reg, daemon } = await makeRegistry()
-    const issue = await reg.issues.crud.create({
+    const issue = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Owned issue',
       startNow: false,
@@ -465,7 +465,7 @@ describe('non-picker driver requests', () => {
         { harness: 'codex', id: 'codex-pty', family: 'terminal' },
       ],
     })
-    const issue = await reg.issues.crud.create({
+    const issue = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
       repoPath: '/proj', title: 'CLI contract request', startNow: false,
       defaultAgent: 'codex', machineId,
     })
@@ -650,13 +650,13 @@ describe('SessionStart: the task an agent start joins', () => {
 
   it('an explicit issue wins over the task that owns the cwd', async () => {
     const { reg } = await makeRegistry()
-    const owning = await reg.issues.crud.create({
+    const owning = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Owns cwd',
       startNow: false,
     })
-    await reg.issues.crud.update(owning.id, { worktreePath: '/r/.worktrees/a' })
-    const chosen = await reg.issues.crud.create({
+    await reg.issues.crud.update(reg.issues.reports.store.serverWriter, owning.id, { worktreePath: '/r/.worktrees/a' })
+    const chosen = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Chosen',
       startNow: false,
@@ -672,12 +672,12 @@ describe('SessionStart: the task an agent start joins', () => {
 
   it('an agent started in a task worktree joins that task and makes no draft', async () => {
     const { reg } = await makeRegistry()
-    const owning = await reg.issues.crud.create({
+    const owning = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Owns cwd',
       startNow: false,
     })
-    await reg.issues.crud.update(owning.id, { worktreePath: '/r/.worktrees/a' })
+    await reg.issues.crud.update(reg.issues.reports.store.serverWriter, owning.id, { worktreePath: '/r/.worktrees/a' })
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/r/.worktrees/a/src',

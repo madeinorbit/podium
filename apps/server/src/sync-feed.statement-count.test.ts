@@ -86,7 +86,7 @@ async function world(size: number, delta = false): Promise<World> {
   for (let i = 0; i < size; i++) {
     // An explicit parent: create would otherwise probe the repo for its base
     // branch (POD-2065), which the test daemon never answers (3 s per issue).
-    const created = await reg.issues.crud.create({
+    const created = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: `Issue ${i}`,
       startNow: false,
@@ -98,7 +98,7 @@ async function world(size: number, delta = false): Promise<World> {
   await settle(reg)
   const from = await store.sync.maxChangeSeq()
   if (delta) {
-    for (const id of issues) await reg.issues.crud.update(id, { title: `Renamed ${id}` })
+    for (const id of issues) await reg.issues.crud.update(reg.issues.reports.store.serverWriter, id, { title: `Renamed ${id}` })
     await settle(reg)
   }
   // The feed identity is minted on first use and cached; mint it here.

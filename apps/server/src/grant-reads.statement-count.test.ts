@@ -68,7 +68,7 @@ async function fixture(size: number): Promise<Fixture> {
   await attachHostDaemon(reg, () => {}, { repos: ['/repo'] })
   await quietShipping(reg)
   const owner = firstAdminMemberId()
-  const issue = await reg.issues.crud.create({ repoPath: '/repo', title: 'Shared issue', startNow: false })
+  const issue = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, { repoPath: '/repo', title: 'Shared issue', startNow: false })
   const start = async (cwd: string, issueId?: IssueId): Promise<SessionId> => {
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'codex',

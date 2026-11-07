@@ -19,6 +19,7 @@
  * direction is visible from a test that only writes rows.
  */
 
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { asIssueId, asMachineId, asUserId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { IssueRow, SessionStore } from '../store'
@@ -86,7 +87,7 @@ function issueRow(over: Partial<IssueRow> = {}): IssueRow {
 
 async function seed(store: SessionStore, over: Partial<IssueRow> = {}): Promise<IssueRow> {
   const row = issueRow(over)
-  await store.issues.upsertIssue(row)
+  await store.issues.upsertIssue(fixtureWriteScope(), row)
   return row
 }
 
@@ -109,7 +110,7 @@ describe('IssuesRepository: the revision precondition (POD-3373)', () => {
     // The bump is structural — it happens in the writer, with no cooperation
     // from the caller — and it stamps the caller's row in place.
     expect(row.revision).toBe(1)
-    await store.issues.upsertIssue(row)
+    await store.issues.upsertIssue(fixtureWriteScope(), row)
     expect(row.revision).toBe(2)
     expect((await store.issues.getIssue('iss_1'))?.revision).toBe(2)
     await store.close()
@@ -118,7 +119,7 @@ describe('IssuesRepository: the revision precondition (POD-3373)', () => {
   it('accepts a write whose expectedRevision matches the stored one', async () => {
     const store = await openIssueStore()
     const row = await seed(store, { id: asIssueId('iss_1') })
-    await store.issues.upsertIssue({ ...row, title: 'second' }, { expectedRevision: 1 })
+    await store.issues.upsertIssue(fixtureWriteScope(), { ...row, title: 'second' }, { expectedRevision: 1 })
     expect((await store.issues.getIssue('iss_1'))?.title).toBe('second')
     await store.close()
   })
@@ -129,11 +130,11 @@ describe('IssuesRepository: the revision precondition (POD-3373)', () => {
     // Somebody else committed in the gap: the row is now at revision 2 while
     // this caller's draft was cut from 1. Persisting it would write the draft's
     // whole field set back over the winner's columns.
-    await store.issues.upsertIssue({ ...row, title: 'winner' })
+    await store.issues.upsertIssue(fixtureWriteScope(), { ...row, title: 'winner' })
 
     await expect(
       (async () =>
-        await store.issues.upsertIssue({ ...row, title: 'loser' }, { expectedRevision: 1 }))(),
+        await store.issues.upsertIssue(fixtureWriteScope(), { ...row, title: 'loser' }, { expectedRevision: 1 }))(),
     ).rejects.toThrow(StaleIssueRevisionError)
 
     expect((await store.issues.getIssue('iss_1'))?.title).toBe('winner')
@@ -145,12 +146,12 @@ describe('IssuesRepository: the revision precondition (POD-3373)', () => {
     // The spelling matters: null is not "no precondition", it is the
     // precondition for a first write. A conversion that folded null into
     // "unchecked" would let a create silently overwrite a live row.
-    await store.issues.upsertIssue(issueRow({ id: asIssueId('iss_1') }), {
+    await store.issues.upsertIssue(fixtureWriteScope(), issueRow({ id: asIssueId('iss_1') }), {
       expectedRevision: null,
     })
     await expect(
       (async () =>
-        await store.issues.upsertIssue(issueRow({ id: asIssueId('iss_1'), title: 'again' }), {
+        await store.issues.upsertIssue(fixtureWriteScope(), issueRow({ id: asIssueId('iss_1'), title: 'again' }), {
           expectedRevision: null,
         }))(),
     ).rejects.toThrow(StaleIssueRevisionError)
@@ -161,7 +162,7 @@ describe('IssuesRepository: the revision precondition (POD-3373)', () => {
   it('omitting the option checks nothing — the precondition is opt-in', async () => {
     const store = await openIssueStore()
     const row = await seed(store, { id: asIssueId('iss_1') })
-    await store.issues.upsertIssue({ ...row, revision: 99, title: 'stale-copy' })
+    await store.issues.upsertIssue(fixtureWriteScope(), { ...row, revision: 99, title: 'stale-copy' })
     // The stored revision, not the caller's copy, is what the bump is computed
     // from — so a hand-built or stale `revision` field cannot jump the counter.
     expect((await store.issues.getIssue('iss_1'))?.revision).toBe(2)
@@ -173,7 +174,7 @@ describe('IssuesRepository: the revision precondition (POD-3373)', () => {
     const row = await seed(store, { id: asIssueId('iss_1') })
     await expect(
       (async () =>
-        await store.issues.upsertIssue({ ...row, revision: 5 }, { expectedRevision: 5 }))(),
+        await store.issues.upsertIssue(fixtureWriteScope(), { ...row, revision: 5 }, { expectedRevision: 5 }))(),
     ).rejects.toThrow(StaleIssueRevisionError)
     await store.close()
   })
@@ -233,7 +234,7 @@ describe('IssuesRepository: the mode: boolean columns (spec rule 28)', () => {
     })
     const read = await store.issues.getIssue('iss_1')
     if (!read) throw new Error('seeded row missing')
-    await store.issues.upsertIssue({ ...read, title: 'second' })
+    await store.issues.upsertIssue(fixtureWriteScope(), { ...read, title: 'second' })
     const again = await store.issues.getIssue('iss_1')
     expect({
       archived: again?.archived,
@@ -249,9 +250,9 @@ describe('IssuesRepository: purgeIssueUserState (no test executes this today)', 
   it('drops the rows of every user for one issue and leaves other issues alone', async () => {
     const store = await openIssueStore()
     const other = asUserId('usr_other')
-    await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId('iss_1'), { readAt: 't' })
-    await store.issues.setIssueUserState(other, asIssueId('iss_1'), { pinnedAt: 't' })
-    await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId('iss_2'), { readAt: 't' })
+    await store.issues.setIssueUserState(fixtureWriteScope(), firstAdminMemberId(), asIssueId('iss_1'), { readAt: 't' })
+    await store.issues.setIssueUserState(fixtureWriteScope(), other, asIssueId('iss_1'), { pinnedAt: 't' })
+    await store.issues.setIssueUserState(fixtureWriteScope(), firstAdminMemberId(), asIssueId('iss_2'), { readAt: 't' })
 
     await store.issues.purgeIssueUserState(asIssueId('iss_1'))
 
@@ -271,7 +272,7 @@ describe('IssuesRepository: purgeIssueUserState (no test executes this today)', 
 
   it('is a no-op for an issue nobody has touched', async () => {
     const store = await openIssueStore()
-    await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId('iss_1'), { readAt: 't' })
+    await store.issues.setIssueUserState(fixtureWriteScope(), firstAdminMemberId(), asIssueId('iss_1'), { readAt: 't' })
     await store.issues.purgeIssueUserState(asIssueId('iss_untouched'))
     expect(await store.issues.getIssueUserState(firstAdminMemberId(), asIssueId('iss_1'))).toEqual(
       expect.objectContaining({ readAt: 't' }),

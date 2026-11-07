@@ -217,9 +217,9 @@ describe("an agent's relay through the entry point", () => {
         if (msg.type === 'agentRelayResult') replies.push(msg)
       }),
     )
-    root = await registry.issues.crud.create({ repoPath: '/r', title: 'root', startNow: false })
-    await registry.issues.crud.update(root.id, { worktreePath: '/r/.worktrees/issue-1-root' })
-    outside = await registry.issues.crud.create({ repoPath: '/r', title: 'other', startNow: false })
+    root = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, { repoPath: '/r', title: 'root', startNow: false })
+    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, root.id, { worktreePath: '/r/.worktrees/issue-1-root' })
+    outside = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, { repoPath: '/r', title: 'other', startNow: false })
     agent = asSessionId(
       (
         await registry.modules.sessions.createSession({

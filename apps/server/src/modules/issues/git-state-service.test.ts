@@ -1,6 +1,7 @@
 import type { SessionMeta } from '@podium/model'
 import { asIssueId, asSessionId, type SessionId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
 import { openTestStore } from '../../test-support/open-test-store'
 import { sessionReadPorts } from '../../test-support/session-facts'
@@ -94,7 +95,11 @@ describe('POD-98 git-state service wiring', () => {
       logIssueCommits: 'sha-bound',
     })
     const id = (
-      await svc.crud.create({ repoPath: '/repo', title: 'bound receiver', startNow: false })
+      await svc.crud.create(svc.reports.store.serverWriter, {
+        repoPath: '/repo',
+        title: 'bound receiver',
+        startNow: false,
+      })
     ).id
     sessions.push(member(asSessionId('sess-bound'), id))
 
@@ -116,7 +121,13 @@ describe('POD-98 git-state service wiring', () => {
       statusProbe: '## main\n M apps/a.ts\n M apps/b.ts',
       logHead: 'abc\t2026-07-20T11:00:00Z',
     })
-    const id = (await svc.crud.create({ repoPath: '/repo', title: 'one', startNow: false })).id
+    const id = (
+      await svc.crud.create(svc.reports.store.serverWriter, {
+        repoPath: '/repo',
+        title: 'one',
+        startNow: false,
+      })
+    ).id
     sessions.push(member(asSessionId('sess-1'), id))
 
     // Daemon-captured attribution: one touched file. Registration also fires
@@ -151,7 +162,13 @@ describe('POD-98 git-state service wiring', () => {
       logHead: 'sha9\t2026-07-20T11:30:00Z',
       logIssueCommits: 'sha9',
     })
-    const id = (await svc.crud.create({ repoPath: '/repo', title: 'one', startNow: false })).id
+    const id = (
+      await svc.crud.create(svc.reports.store.serverWriter, {
+        repoPath: '/repo',
+        title: 'one',
+        startNow: false,
+      })
+    ).id
     sessions.push(member(asSessionId('sess-1'), id))
 
     await svc.gitWorkflow.recordSessionGitActivity(asSessionId('sess-1'), { commits: ['sha9'] })
@@ -172,7 +189,13 @@ describe('POD-98 git-state service wiring', () => {
       logHead: 'sha-foreign\t2026-07-20T11:30:00Z',
       logIssueCommits: 'sha-owned',
     })
-    const id = (await svc.crud.create({ repoPath: '/repo', title: 'one', startNow: false })).id
+    const id = (
+      await svc.crud.create(svc.reports.store.serverWriter, {
+        repoPath: '/repo',
+        title: 'one',
+        startNow: false,
+      })
+    ).id
     sessions.push(member(asSessionId('sess-1'), id))
 
     // Both SHAs crossed this session's shell-call bracket, but only the marker
@@ -190,7 +213,13 @@ describe('POD-98 git-state service wiring', () => {
     const { svc } = await harness(sessions, {
       statusProbe: '## main\n M x.ts',
     })
-    const id = (await svc.crud.create({ repoPath: '/repo', title: 'one', startNow: false })).id
+    const id = (
+      await svc.crud.create(svc.reports.store.serverWriter, {
+        repoPath: '/repo',
+        title: 'one',
+        startNow: false,
+      })
+    ).id
     sessions.push(member(asSessionId('sess-1'), id))
 
     await svc.gitWorkflow.refreshGitState(id, '/repo')
@@ -205,7 +234,13 @@ describe('POD-98 git-state service wiring', () => {
       statusProbe: '## main',
       logHead: 'abc\t2026-07-20T11:00:00Z',
     })
-    const id = (await svc.crud.create({ repoPath: '/repo', title: 'one', startNow: false })).id
+    const id = (
+      await svc.crud.create(svc.reports.store.serverWriter, {
+        repoPath: '/repo',
+        title: 'one',
+        startNow: false,
+      })
+    ).id
     sessions.push(member(asSessionId('sess-1'), id))
 
     // The daemon's empty baseline registration (SessionStart) is enough.
@@ -225,7 +260,13 @@ describe('POD-98 git-state service wiring', () => {
       statusProbe: '## main',
       logHead: 'abc\t2026-07-20T11:00:00Z',
     })
-    const id = (await svc.crud.create({ repoPath: '/repo', title: 'one', startNow: false })).id
+    const id = (
+      await svc.crud.create(svc.reports.store.serverWriter, {
+        repoPath: '/repo',
+        title: 'one',
+        startNow: false,
+      })
+    ).id
     sessions.push(member(asSessionId('sess-1'), id))
     repoOp.mockClear()
     broadcast.mockClear()
@@ -250,9 +291,23 @@ describe('POD-98 git-state service wiring', () => {
       statusProbe: '## main',
       logHead: 'abc\t2026-07-20T11:00:00Z',
     })
-    const probed = (await svc.crud.create({ repoPath: '/repo', title: 'one', startNow: false })).id
-    await svc.crud.create({ repoPath: '/repo', title: 'two', startNow: false })
-    await svc.crud.create({ repoPath: '/repo', title: 'three', startNow: false })
+    const probed = (
+      await svc.crud.create(svc.reports.store.serverWriter, {
+        repoPath: '/repo',
+        title: 'one',
+        startNow: false,
+      })
+    ).id
+    await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/repo',
+      title: 'two',
+      startNow: false,
+    })
+    await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/repo',
+      title: 'three',
+      startNow: false,
+    })
     sessions.push(member(asSessionId('sess-1'), probed))
 
     const cursor = await ledger.cursor()
@@ -272,7 +327,13 @@ describe('POD-98 git-state service wiring', () => {
   it('runs one trailing probe for attribution recorded during an active refresh', async () => {
     const sessions: SessionMeta[] = []
     const { svc, repoOp, broadcast } = await harness(sessions, {})
-    const id = (await svc.crud.create({ repoPath: '/repo', title: 'one', startNow: false })).id
+    const id = (
+      await svc.crud.create(svc.reports.store.serverWriter, {
+        repoPath: '/repo',
+        title: 'one',
+        startNow: false,
+      })
+    ).id
     sessions.push(member(asSessionId('sess-1'), id))
     let releaseStatus!: () => void
     const statusGate = new Promise<void>((resolve) => {
@@ -323,7 +384,13 @@ describe('POD-98 git-state service wiring', () => {
       statusProbe: '## main\n M apps/a.ts\n M apps/b.ts',
       logIssueCommits: 'sha-1\nsha-2',
     })
-    const id = (await svc.crud.create({ repoPath: '/repo', title: 'one', startNow: false })).id
+    const id = (
+      await svc.crud.create(svc.reports.store.serverWriter, {
+        repoPath: '/repo',
+        title: 'one',
+        startNow: false,
+      })
+    ).id
     sessions.push(member(asSessionId('sess-1'), id), member(asSessionId('sess-2'), id))
     await svc.gitWorkflow.recordSessionGitActivity(asSessionId('sess-1'), {
       commits: ['sha-1'],
@@ -383,7 +450,7 @@ describe('POD-384 parent-branch movement watch', () => {
     row.branch = `issue/${row.seq}`
     row.parentBranch = parentBranch
     if (patch.branch !== undefined) row.branch = patch.branch
-    await issues.upsertIssue(row)
+    await issues.upsertIssue(fixtureWriteScope(), row)
   }
 
   /** A branch one commit ahead of `main`, whose reflog proves the tip has moved
@@ -406,7 +473,13 @@ describe('POD-384 parent-branch movement watch', () => {
   it('records a parent tip on first sight instead of fanning out at boot', async () => {
     const script = unlandedScript()
     const { svc, repoOp } = await harness([], script)
-    const id = (await svc.crud.create({ repoPath: '/repo', title: 'one', startNow: false })).id
+    const id = (
+      await svc.crud.create(svc.reports.store.serverWriter, {
+        repoPath: '/repo',
+        title: 'one',
+        startNow: false,
+      })
+    ).id
     await giveWorktree(svc, id)
 
     await svc.gitWorkflow.sweepParentBranchMovement()
@@ -418,7 +491,13 @@ describe('POD-384 parent-branch movement watch', () => {
   it('re-probes a branch merged from another checkout when the parent tip moves', async () => {
     const script = unlandedScript()
     const { svc } = await harness([], script)
-    const id = (await svc.crud.create({ repoPath: '/repo', title: 'one', startNow: false })).id
+    const id = (
+      await svc.crud.create(svc.reports.store.serverWriter, {
+        repoPath: '/repo',
+        title: 'one',
+        startNow: false,
+      })
+    ).id
     await giveWorktree(svc, id)
     await svc.gitWorkflow.sweepParentBranchMovement()
 
@@ -440,8 +519,20 @@ describe('POD-384 parent-branch movement watch', () => {
   it('answers a whole repo group with one rev-parse and refreshes all of it', async () => {
     const script = unlandedScript()
     const { svc, repoOp } = await harness([], script)
-    const a = (await svc.crud.create({ repoPath: '/repo', title: 'a', startNow: false })).id
-    const b = (await svc.crud.create({ repoPath: '/repo', title: 'b', startNow: false })).id
+    const a = (
+      await svc.crud.create(svc.reports.store.serverWriter, {
+        repoPath: '/repo',
+        title: 'a',
+        startNow: false,
+      })
+    ).id
+    const b = (
+      await svc.crud.create(svc.reports.store.serverWriter, {
+        repoPath: '/repo',
+        title: 'b',
+        startNow: false,
+      })
+    ).id
     await giveWorktree(svc, a)
     await giveWorktree(svc, b)
     await svc.gitWorkflow.sweepParentBranchMovement()
@@ -459,7 +550,13 @@ describe('POD-384 parent-branch movement watch', () => {
   it('costs one rev-parse and nothing else while the parent tip holds still', async () => {
     const script = unlandedScript()
     const { svc, repoOp } = await harness([], script)
-    const id = (await svc.crud.create({ repoPath: '/repo', title: 'one', startNow: false })).id
+    const id = (
+      await svc.crud.create(svc.reports.store.serverWriter, {
+        repoPath: '/repo',
+        title: 'one',
+        startNow: false,
+      })
+    ).id
     await giveWorktree(svc, id)
     await svc.gitWorkflow.sweepParentBranchMovement()
     repoOp.mockClear()
@@ -472,7 +569,13 @@ describe('POD-384 parent-branch movement watch', () => {
   it('keeps the last known tip when the parent branch is unreadable', async () => {
     const script = unlandedScript()
     const { svc, repoOp } = await harness([], script)
-    const id = (await svc.crud.create({ repoPath: '/repo', title: 'one', startNow: false })).id
+    const id = (
+      await svc.crud.create(svc.reports.store.serverWriter, {
+        repoPath: '/repo',
+        title: 'one',
+        startNow: false,
+      })
+    ).id
     await giveWorktree(svc, id)
     await svc.gitWorkflow.sweepParentBranchMovement()
 
@@ -491,9 +594,17 @@ describe('POD-384 parent-branch movement watch', () => {
     const script = unlandedScript()
     const { svc, repoOp } = await harness([], script)
     // Shared: no worktree of its own, so no merge axis to keep fresh.
-    await svc.crud.create({ repoPath: '/repo', title: 'shared', startNow: false })
+    await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/repo',
+      title: 'shared',
+      startNow: false,
+    })
     const branchless = (
-      await svc.crud.create({ repoPath: '/repo', title: 'branchless', startNow: false })
+      await svc.crud.create(svc.reports.store.serverWriter, {
+        repoPath: '/repo',
+        title: 'branchless',
+        startNow: false,
+      })
     ).id
     await giveWorktree(svc, branchless, 'main', { branch: null })
 
@@ -519,7 +630,13 @@ describe('POD-384 parent-branch movement watch', () => {
       branchReflog: 'sha-tip\nsha-created',
     }
     const { svc, repoOp } = await harness([], script)
-    const id = (await svc.crud.create({ repoPath: '/repo', title: 'stacked', startNow: false })).id
+    const id = (
+      await svc.crud.create(svc.reports.store.serverWriter, {
+        repoPath: '/repo',
+        title: 'stacked',
+        startNow: false,
+      })
+    ).id
     await giveWorktree(svc, id, 'issue/520-parent')
 
     // First sight of both watched refs: record, do not probe.
@@ -569,7 +686,13 @@ describe('POD-384 parent-branch movement watch', () => {
     // Drop main's rev-list so the first probe only has the cut-parent count.
     delete script['revListCount:main..HEAD']
     const { svc } = await harness([], script)
-    const id = (await svc.crud.create({ repoPath: '/repo', title: 'stacked', startNow: false })).id
+    const id = (
+      await svc.crud.create(svc.reports.store.serverWriter, {
+        repoPath: '/repo',
+        title: 'stacked',
+        startNow: false,
+      })
+    ).id
     await giveWorktree(svc, id, 'issue/520-parent')
 
     await svc.gitWorkflow.refreshGitState(id)
@@ -580,7 +703,7 @@ describe('POD-384 parent-branch movement watch', () => {
     script['revListCount:main..HEAD'] = '0'
     markLanded(script)
 
-    await svc.crud.update(id, { parentBranch: 'main' })
+    await svc.crud.update(svc.reports.store.serverWriter, id, { parentBranch: 'main' })
     // refreshGitState is fire-and-forget from update — wait for the coalesced probe.
     for (let i = 0; i < 50; i++) {
       const gs = (await svc.reports.get(id))?.gitState
@@ -610,7 +733,13 @@ describe('POD-384 parent-branch movement watch', () => {
     script['revListCount:issue/520-parent..HEAD'] = '9'
     delete script['revListCount:main..HEAD']
     const { svc, store } = await harness([], script, { storeBackedSettings: true })
-    const id = (await svc.crud.create({ repoPath: '/repo', title: 'stacked', startNow: false })).id
+    const id = (
+      await svc.crud.create(svc.reports.store.serverWriter, {
+        repoPath: '/repo',
+        title: 'stacked',
+        startNow: false,
+      })
+    ).id
     await giveWorktree(svc, id, 'issue/520-parent')
 
     await svc.gitWorkflow.refreshGitState(id)
@@ -620,7 +749,7 @@ describe('POD-384 parent-branch movement watch', () => {
     markLanded(script)
 
     await store.transact(async () => {
-      await svc.crud.update(id, { parentBranch: 'main' })
+      await svc.crud.update(svc.reports.store.serverWriter, id, { parentBranch: 'main' })
       // The statement the lock bug died on: same span, after the refresh call.
       await store.issues.getIssue(asIssueId('iss_after'))
     })

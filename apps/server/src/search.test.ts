@@ -108,19 +108,19 @@ describe('MemoryService omni-search', () => {
     })
 
     // Issue with the phrase in the title; a second issue matching only via comment.
-    const issue = await registry.issues.crud.create({
+    const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'replace the flux capacitor',
       description: 'it drifts',
       startNow: false,
     })
-    const commentIssue = await registry.issues.crud.create({
+    const commentIssue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'unrelated title',
       description: 'nothing relevant',
       startNow: false,
     })
-    await registry.issues.commentsMail.addComment(
+    await registry.issues.commentsMail.addComment(registry.issues.reports.store.serverWriter, 
       commentIssue.id,
       'operator',
       'the capacitor comment trail',
@@ -313,7 +313,7 @@ describe('MemoryService omni-search', () => {
     const conversationIds: string[] = []
     const issueOwner = asUserId('usr_issue_owner')
     for (let i = 0; i < 4; i++) {
-      const issue = await registry.issues.crud.create({
+      const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
         repoPath: '/repo',
         title: `conversation issue ${i}`,
         startNow: false,
@@ -451,7 +451,7 @@ describe('search.query tRPC', () => {
       ],
       100,
     )
-    const issue = await registry.issues.crud.create({
+    const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
       repoPath: '/private',
       title: 'fixture template',
       description: 'private issue body',
@@ -459,7 +459,7 @@ describe('search.query tRPC', () => {
     })
     const issueRow = await store.issues.getIssue(issue.id)
     if (!issueRow) throw new Error('issue seed missing')
-    await store.issues.upsertIssue({
+    await store.issues.upsertIssue(fixtureWriteScope(), {
       ...issueRow,
       id: asIssueId('iss_bob_private'),
       seq: issueRow.seq + 1,

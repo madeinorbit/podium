@@ -22,7 +22,7 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
   async function setup() {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await attachHostDaemon(reg, () => {}, { repos: ['/repo'] })
-    await reg.issues.crud.create({ repoPath: '/repo', title: 'an issue', startNow: false })
+    await reg.issues.crud.create(reg.issues.reports.store.serverWriter, { repoPath: '/repo', title: 'an issue', startNow: false })
     const s1 = (
       await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
@@ -118,7 +118,7 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
     inbox.length = 0
     const issue = (await reg.issues.reports.list('/repo'))[0]
     expect(issue).toBeDefined()
-    await reg.issues.crud.update(issue!.id, { title: 'renamed' })
+    await reg.issues.crud.update(reg.issues.reports.store.serverWriter, issue!.id, { title: 'renamed' })
     await reg.modules.sessions.flushBroadcasts()
     await vi.waitFor(() =>
       expect(

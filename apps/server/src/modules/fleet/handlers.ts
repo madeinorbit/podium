@@ -1,4 +1,5 @@
 import { settingsAuditAttribution } from '../../store/settings-audit'
+import type { SyncWriteContext } from '../sync-write/registry'
 /**
  * THE TEN FLEET HANDLERS (POD-384) — L3, joined to their L1 contracts in
  * `registry.ts`.
@@ -21,31 +22,21 @@ import { describeError } from '@podium/logger'
 import type { MachineId, UpdateChannel, UserId } from '@podium/model'
 import { asMachineId, HOST_REPOS, mintDeviceId, resolveMachineChannel } from '@podium/model'
 import { TRPCError } from '@trpc/server'
-import { attributionOf, onBehalfOfUser } from '../../command-principal'
 import type { CommandPrincipal } from '../../command-principal'
+import { attributionOf, onBehalfOfUser } from '../../command-principal'
 import type { RegistryModules } from '../../relay'
+import type { MachineDiscoveryResult } from '../../repo-discovery'
 import type { RepoRegistry } from '../../repo-registry'
 import type { SessionStore } from '../../store'
 import { afterCommit } from '../../store/executor/executor'
 import type { Context } from '../../trpc'
 import { mods } from '../../trpc'
 import { awaitEffect } from '../effects/await'
+import type { ScanReposResult } from '../machines/rpc'
 import { linkedOperationId, operationIdForEffect } from '../operations/effects'
 import { normalizedPublicUrl, resolvedTransferPort } from '../server-transfer/service'
-import { refusalAsTrpcError, submitFromRoute } from '../sync-write/route-adapter'
-import { SERVER_MOVE_EFFECT_KIND } from './server-move-effect'
-import {
-  DIR_OP_FAILED,
-  FOLDER_CREATE_KIND,
-  FOLDER_EFFECT_WAIT_MS,
-  FOLDER_RENAME_KIND,
-  type FolderEffectResult,
-  REPO_CREATE_KIND,
-} from './folder-effects'
-import { MACHINE_UPDATE_KIND, MACHINE_UPDATE_WAIT_MS } from './update-effect'
 import { machinesForPrincipal, visibleMachinesFor } from '../sessions/command-ctx'
-import type { MachineDiscoveryResult } from '../../repo-discovery'
-import type { ScanReposResult } from '../machines/rpc'
+import { refusalAsTrpcError, submitFromRoute } from '../sync-write/route-adapter'
 import type { MachineApplyOutcome } from '../updates/service'
 import { type FleetAuthzDeps, fleetAuthzDeps, fleetAuthzFailure, fleetUsePredicate } from './authz'
 import {
@@ -60,6 +51,16 @@ import {
   runMachineEffect,
   sameScan,
 } from './discovery-effects'
+import {
+  DIR_OP_FAILED,
+  FOLDER_CREATE_KIND,
+  FOLDER_EFFECT_WAIT_MS,
+  FOLDER_RENAME_KIND,
+  type FolderEffectResult,
+  REPO_CREATE_KIND,
+} from './folder-effects'
+import { SERVER_MOVE_EFFECT_KIND } from './server-move-effect'
+import { MACHINE_UPDATE_KIND, MACHINE_UPDATE_WAIT_MS } from './update-effect'
 
 /** What the composition root supplies that core may not import for itself. */
 export interface FleetPorts {
@@ -68,7 +69,12 @@ export interface FleetPorts {
    * this instance has no public URL to join to. Built from `hub/machines-join`
    * at the composition root.
    */
-  joinCommand: (pairCode: string, podiumManaged?: boolean, workspaceId?: string, channel?: import('@podium/model').UpdateChannel) => string | null
+  joinCommand: (
+    pairCode: string,
+    podiumManaged?: boolean,
+    workspaceId?: string,
+    channel?: import('@podium/model').UpdateChannel,
+  ) => string | null
 }
 
 /**
@@ -104,6 +110,8 @@ export interface FleetWriteEnv {
   readonly authz: FleetAuthzDeps
   readonly repos: RepoRegistry
   readonly store: SessionStore
+  /** The command's own writer (ADR 12 D9): its repo writes commit on it. */
+  readonly writer: SyncWriteContext['ledger']
 }
 
 export interface FleetSyncArgs<In> {
@@ -132,14 +140,26 @@ const badRequest = (e: unknown): never => {
 // machines.* — hub role
 // ---------------------------------------------------------------------------
 
-export const machineSetAssignmentHandler = async ({ env, input }: FleetSyncArgs<{
-  id: string; assignment: import('@podium/model').MachineServiceAssignment; requestId: string
+export const machineSetAssignmentHandler = async ({
+  env,
+  input,
+}: FleetSyncArgs<{
+  id: string
+  assignment: import('@podium/model').MachineServiceAssignment
+  requestId: string
 }>) => {
-  await env.modules.machines.changeAssignment(asMachineId(input.id), input.assignment, input.requestId)
+  await env.modules.machines.changeAssignment(
+    asMachineId(input.id),
+    input.assignment,
+    input.requestId,
+  )
   return await machinesFor(env)
 }
 
-export const machineRenameHandler = async ({ env, input }: FleetSyncArgs<{ id: string; name: string }>) => {
+export const machineRenameHandler = async ({
+  env,
+  input,
+}: FleetSyncArgs<{ id: string; name: string }>) => {
   await env.modules.machines.renameMachine(asMachineId(input.id), input.name)
   return await machinesFor(env)
 }
@@ -217,7 +237,13 @@ export const machineUnshareHandler = async ({
   if (owner === null) {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'machine sharing requires a human owner' })
   }
-  await env.modules.machines.unshareMachine(asMachineId(input.id), input.grantee, input.verb, owner, { manage: fleetUsePredicate(authz, 'manage') })
+  await env.modules.machines.unshareMachine(
+    asMachineId(input.id),
+    input.grantee,
+    input.verb,
+    owner,
+    { manage: fleetUsePredicate(authz, 'manage') },
+  )
   return await machinesFor(env)
 }
 
@@ -244,7 +270,15 @@ export const machineTransferOwnershipHandler = async ({
     })
   }
   try {
-    await env.modules.machines.transferMachineOwnership(asMachineId(input.id), input.newOwnerUserId, owner, { manage: fleetUsePredicate(authz, 'manage'), attribution: settingsAuditAttribution(authz.principal) })
+    await env.modules.machines.transferMachineOwnership(
+      asMachineId(input.id),
+      input.newOwnerUserId,
+      owner,
+      {
+        manage: fleetUsePredicate(authz, 'manage'),
+        attribution: settingsAuditAttribution(authz.principal),
+      },
+    )
   } catch (e) {
     return badRequest(e)
   }
@@ -263,20 +297,31 @@ export const machineAdoptHandler = async ({
     throw new TRPCError({ code: 'FORBIDDEN', message: 'adoption requires a human recipient' })
   }
   try {
-    await env.modules.machines.adoptMachine(asMachineId(input.id), recipient, actor, { manage: fleetUsePredicate(authz, 'manage'), attribution: settingsAuditAttribution(authz.principal) })
+    await env.modules.machines.adoptMachine(asMachineId(input.id), recipient, actor, {
+      manage: fleetUsePredicate(authz, 'manage'),
+      attribution: settingsAuditAttribution(authz.principal),
+    })
   } catch (e) {
     return badRequest(e)
   }
   return await machinesFor(env)
 }
 
-export const machineSupersedeHandler = async ({ env, input }: FleetSyncArgs<{ id: MachineId; replacementId: MachineId }>) => {
+export const machineSupersedeHandler = async ({
+  env,
+  input,
+}: FleetSyncArgs<{ id: MachineId; replacementId: MachineId }>) => {
   const authz = env.authz
   const actor = onBehalfOfUser(authz.principal)
-  if (actor === null) throw new TRPCError({ code: 'FORBIDDEN', message: 'supersession requires a human administrator' })
+  if (actor === null)
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: 'supersession requires a human administrator',
+    })
   try {
     await env.modules.machines.supersedeMachine(input.id, input.replacementId, actor, {
-      manage: fleetUsePredicate(authz, 'manage'), attribution: settingsAuditAttribution(authz.principal),
+      manage: fleetUsePredicate(authz, 'manage'),
+      attribution: settingsAuditAttribution(authz.principal),
     })
   } catch (error) {
     return badRequest(error)
@@ -285,7 +330,9 @@ export const machineSupersedeHandler = async ({ env, input }: FleetSyncArgs<{ id
 }
 
 export const machineRevokeHandler = async ({ env, input }: FleetSyncArgs<{ id: string }>) => {
-  await env.modules.machines.revokeMachine(asMachineId(input.id), { attribution: settingsAuditAttribution(env.principal) })
+  await env.modules.machines.revokeMachine(asMachineId(input.id), {
+    attribution: settingsAuditAttribution(env.principal),
+  })
   return await machinesFor(env)
 }
 
@@ -348,7 +395,9 @@ export const machinePairingCodeHandler = async ({
   ctx,
   input,
   ports,
-}: FleetArgs<{ copyAgentCredentials?: boolean; podiumManaged?: boolean; replaceMachineId?: string } | undefined>): Promise<{
+}: FleetArgs<
+  { copyAgentCredentials?: boolean; podiumManaged?: boolean; replaceMachineId?: string } | undefined
+>): Promise<{
   code: string
   joinCommand: string | null
 }> => {
@@ -364,10 +413,25 @@ export const machinePairingCodeHandler = async ({
   const pairer = onBehalfOfUser((await fleetAuthzDeps(ctx)).principal)
   const principal = (await fleetAuthzDeps(ctx)).principal
   if (input?.replaceMachineId) {
-    const row = (await mods(ctx).machines.ownershipRows()).find((m) => m.id === input.replaceMachineId)
-    const authorized = principal.kind !== 'system' && (principal.capability.role === 'admin' || (pairer !== null && await mods(ctx).machines.effectiveOwner(asMachineId(input.replaceMachineId)) === pairer))
-    if (!authorized) throw new TRPCError({ code: 'FORBIDDEN', message: 'replacement requires an administrator or the machine grantee' })
-    if (!row?.revokedAt) throw new TRPCError({ code: 'BAD_REQUEST', message: 'replacement requires a revoked machine' })
+    const row = (await mods(ctx).machines.ownershipRows()).find(
+      (m) => m.id === input.replaceMachineId,
+    )
+    const authorized =
+      principal.kind !== 'system' &&
+      (principal.capability.role === 'admin' ||
+        (pairer !== null &&
+          (await mods(ctx).machines.effectiveOwner(asMachineId(input.replaceMachineId))) ===
+            pairer))
+    if (!authorized)
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'replacement requires an administrator or the machine grantee',
+      })
+    if (!row?.revokedAt)
+      throw new TRPCError({
+        code: 'BAD_REQUEST',
+        message: 'replacement requires a revoked machine',
+      })
   } else if (principal.kind === 'system' || principal.capability.role !== 'admin') {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'new enrollment requires an administrator' })
   }
@@ -377,7 +441,11 @@ export const machinePairingCodeHandler = async ({
     podiumManaged: input?.podiumManaged ?? true,
   }
   const code = input?.replaceMachineId
-    ? await mods(ctx).machines.mintReplacementPairingCode(asMachineId(input.replaceMachineId), grant, principal.capability.role === 'admin')
+    ? await mods(ctx).machines.mintReplacementPairingCode(
+        asMachineId(input.replaceMachineId),
+        grant,
+        principal.capability.role === 'admin',
+      )
     : mods(ctx).machines.mintPairingCode(grant)
 
   return { code, joinCommand: pairingJoinCommand({ ctx, input, ports }, code) }
@@ -409,7 +477,11 @@ export function pairingJoinCommand(
  * gate, so this adds the structural and liveness ones — the two that were
  * missing.
  */
-const requireRepoHost = async (ctx: Context, machineId: MachineId, action: string): Promise<void> => {
+const requireRepoHost = async (
+  ctx: Context,
+  machineId: MachineId,
+  action: string,
+): Promise<void> => {
   try {
     await mods(ctx).machines.requireCapability(machineId, HOST_REPOS, action)
   } catch (e) {
@@ -429,7 +501,7 @@ export const repoAddHandler = async ({
   input,
 }: FleetSyncArgs<{ path: string; machineId?: MachineId; prefix?: string }>) => {
   try {
-    await env.repos.add(input.path, input.machineId, input.prefix)
+    await env.repos.add(env.writer, input.path, input.machineId, input.prefix)
   } catch (e) {
     badRequest(e)
   }
@@ -451,7 +523,7 @@ export const repoAddManyHandler = async ({
     try {
       // A refused path is refused before it writes (`RepoRegistry.add` checks
       // first), so the rest still register in the same unit of work.
-      await env.repos.add(path, input.machineId)
+      await env.repos.add(env.writer, path, input.machineId)
     } catch (e) {
       failed.push({ path, message: describeError(e) })
     }
@@ -463,7 +535,7 @@ export const repoRemoveHandler = async ({
   env,
   input,
 }: FleetSyncArgs<{ path: string; machineId?: MachineId }>) => {
-  await env.repos.remove(input.path, input.machineId)
+  await env.repos.remove(env.writer, input.path, input.machineId)
   return await env.repos.list()
 }
 
@@ -472,7 +544,7 @@ export const repoSetPrefixHandler = async ({
   input,
 }: FleetSyncArgs<{ path: string; prefix: string; machineId?: MachineId }>) => {
   try {
-    await env.repos.setPrefix(input.path, input.prefix, input.machineId)
+    await env.repos.setPrefix(env.writer, input.path, input.prefix, input.machineId)
   } catch (e) {
     badRequest(e)
   }
@@ -488,7 +560,7 @@ export const repoSetDefaultParentBranchHandler = async ({
   input,
 }: FleetSyncArgs<{ path: string; branch: string | null; machineId?: MachineId }>) => {
   try {
-    await env.repos.storeDefaultParentBranch(input.path, input.branch, input.machineId)
+    await env.repos.storeDefaultParentBranch(env.writer, input.path, input.branch, input.machineId)
   } catch (e) {
     badRequest(e)
   }

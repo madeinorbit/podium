@@ -7,6 +7,7 @@
  * figure IS its children.
  */
 
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -75,7 +76,7 @@ async function issue(over: Partial<IssueRow> = {}): Promise<IssueRow> {
     updatedAt: '2026-08-01T00:00:00.000Z',
     ...over,
   } as IssueRow
-  await store.issues.upsertIssue(row)
+  await store.issues.upsertIssue(fixtureWriteScope(), row)
   return row
 }
 

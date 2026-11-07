@@ -95,7 +95,7 @@ describe('durable session records: the database answers as the session does', ()
     await attachHostDaemon(reg)
     const sessions = reg.modules.sessions
     const machine = store.hostMachineId
-    const issue = await reg.modules.issues.crud.create({ repoPath: '/r/podium', title: 'T', startNow: false })
+    const issue = await reg.modules.issues.crud.create(reg.modules.issues.reports.store.serverWriter, { repoPath: '/r/podium', title: 'T', startNow: false })
     const spawn = async (cwd: string, agentKind: 'shell' | 'codex' | 'claude-code' = 'claude-code') => {
       const { sessionId } = await sessions.createSession({ agentKind, cwd })
       await reg.gateway.routeDaemonFrame(machine, {

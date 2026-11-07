@@ -166,8 +166,8 @@ describe('oracle: sessions.ask (the seance)', () => {
     const o = await makeOracle()
     // Issues are placed on a machine that reported their repo (2b803efb5).
     await o.store.repos.addRepo('/r', o.store.hostMachineId)
-    const issue = await o.reg.issues.crud.create({ repoPath: '/r', title: 'issue A', startNow: false })
-    await o.reg.issues.crud.update(issue.id, { worktreePath: '/r/.worktrees/a' })
+    const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'issue A', startNow: false })
+    await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, issue.id, { worktreePath: '/r/.worktrees/a' })
     const target = await o.reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/r/.worktrees/a',
@@ -258,8 +258,8 @@ describe('oracle: sessions.ask (the seance)', () => {
     const o = await makeOracle()
     // Issues are placed on a machine that reported their repo (2b803efb5).
     await o.store.repos.addRepo('/r', o.store.hostMachineId)
-    const a = await o.reg.issues.crud.create({ repoPath: '/r', title: 'issue A', startNow: false })
-    await o.reg.issues.crud.update(a.id, { worktreePath: '/r/.worktrees/a' })
+    const a = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'issue A', startNow: false })
+    await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, a.id, { worktreePath: '/r/.worktrees/a' })
     const agent = await o.reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r/.worktrees/a',

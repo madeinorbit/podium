@@ -25,6 +25,7 @@
  * registered, so a query cannot be missed by not being reached.
  */
 
+import { fixtureWriteScope } from '@podium/sync/testing'
 import {
   type PreparedDefinition,
   preparedDefinitions,
@@ -908,7 +909,7 @@ async function reachMethodDefinitions(target: SessionStore): Promise<void> {
     repoPath: '/audit/repo',
     repoId: 'repo_audit',
   })
-  await attempt(() => target.issues.upsertIssue(issue))
+  await attempt(() => target.issues.upsertIssue(fixtureWriteScope(), issue))
   await attempt(() =>
     target.issues.transitionShippingStage(
       asIssueId('iss_audit'),

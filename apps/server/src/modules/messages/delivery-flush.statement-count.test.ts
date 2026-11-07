@@ -239,8 +239,8 @@ async function heldIssueMail(size: number): Promise<HeldIssueMail> {
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   await attachHostDaemon(reg, () => {}, { repos: ['/repo'] })
   await quietShipping(reg)
-  const issue = await reg.issues.crud.create({ repoPath: '/repo', title: 'Mail', startNow: false })
-  await reg.issues.crud.update(issue.id, { worktreePath: '/repo/.worktrees/mail' })
+  const issue = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, { repoPath: '/repo', title: 'Mail', startNow: false })
+  await reg.issues.crud.update(reg.issues.reports.store.serverWriter, issue.id, { worktreePath: '/repo/.worktrees/mail' })
   const cwd = '/repo/.worktrees/mail'
   const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd, issueId: issue.id })
   await reg.gateway.routeDaemonFrame(store.hostMachineId, {

@@ -69,7 +69,14 @@ async function harness() {
   const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(registry)
   const host = registry.sessionStore.hostMachineId
-  await (registry.sessionStore as unknown as { machines: { upsertMachine(i: unknown): Promise<void>; setServiceAssignment(id: unknown, a: unknown): Promise<void> } }).machines.upsertMachine({
+  await (
+    registry.sessionStore as unknown as {
+      machines: {
+        upsertMachine(i: unknown): Promise<void>
+        setServiceAssignment(id: unknown, a: unknown): Promise<void>
+      }
+    }
+  ).machines.upsertMachine({
     id: host,
     name: 'host',
     hostname: 'host',
@@ -77,7 +84,11 @@ async function harness() {
     ownerUserId: firstAdminMemberId(),
     assignment: { server: true, agentExecution: true },
   })
-  await (registry.sessionStore as unknown as { machines: { setServiceAssignment(id: unknown, a: unknown): Promise<void> } }).machines.setServiceAssignment(host, { server: true, agentExecution: true })
+  await (
+    registry.sessionStore as unknown as {
+      machines: { setServiceAssignment(id: unknown, a: unknown): Promise<void> }
+    }
+  ).machines.setServiceAssignment(host, { server: true, agentExecution: true })
   const turnReqs: TurnReq[] = []
   const bindReqs: BindReq[] = []
   const turnAcks: TurnAck[] = []
@@ -168,7 +179,9 @@ async function harness() {
                 family: 'server',
                 harness: 'claude-code',
                 workdir: '/r',
-                resume: pending?.harnessSessionId ? { kind: 'headless-session', value: pending.harnessSessionId } : null,
+                resume: pending?.harnessSessionId
+                  ? { kind: 'headless-session', value: pending.harnessSessionId }
+                  : null,
                 process: { key: 'test' },
                 bindingVersion: 1,
               },
@@ -204,7 +217,9 @@ async function harness() {
           type: 'transcriptReadResult',
           requestId: m.requestId,
           sessionId: m.sessionId,
-          items: output ? [{ id: 'item-1', role: 'assistant', text: output, ts: new Date().toISOString() }] : [],
+          items: output
+            ? [{ id: 'item-1', role: 'assistant', text: output, ts: new Date().toISOString() }]
+            : [],
           hasMore: false,
         }),
       )
@@ -227,7 +242,7 @@ async function harness() {
     },
   })
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  await repos.add('/r', registry.sessionStore.hostMachineId)
+  await repos.add(repos.serverWriter, '/r', registry.sessionStore.hostMachineId)
   const sa = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   // A connected web client, to observe headlessActivity broadcasts.
   const clientMsgs: ServerMessage[] = []
@@ -249,7 +264,13 @@ async function harness() {
       type: 'runtimeSendResult',
       requestId: req.requestId,
       sessionId: req.sessionId as never,
-      receipt: { outcome: 'accepted', turnEpoch: epoch, deliveredAs: 'when-ready', provenBy: 'protocol-ack', at: new Date().toISOString() },
+      receipt: {
+        outcome: 'accepted',
+        turnEpoch: epoch,
+        deliveredAs: 'when-ready',
+        provenBy: 'protocol-ack',
+        at: new Date().toISOString(),
+      },
     })
     const at = new Date().toISOString()
     const gateway = registry.modules.sessions.runtimeGateway
@@ -271,8 +292,30 @@ async function harness() {
       await gateway.record(host, {
         sessionId: req.sessionId as never,
         event: ok
-          ? { t: 'turn', ev: { ev: 'completed', turnEpoch: epoch, verdict: 'done' }, cursor: { segmentId: 's', components: { seq: epoch * 2 } }, observerGeneration: 1, turnEpoch: epoch, provenance: 'live', at } as never
-          : { t: 'turn', ev: { ev: 'failed', turnEpoch: epoch, reason: 'provider-error', disposition: 'fatal', detail: result?.error ?? 'error' }, cursor: { segmentId: 's', components: { seq: epoch * 2 } }, observerGeneration: 1, turnEpoch: epoch, provenance: 'live', at } as never,
+          ? ({
+              t: 'turn',
+              ev: { ev: 'completed', turnEpoch: epoch, verdict: 'done' },
+              cursor: { segmentId: 's', components: { seq: epoch * 2 } },
+              observerGeneration: 1,
+              turnEpoch: epoch,
+              provenance: 'live',
+              at,
+            } as never)
+          : ({
+              t: 'turn',
+              ev: {
+                ev: 'failed',
+                turnEpoch: epoch,
+                reason: 'provider-error',
+                disposition: 'fatal',
+                detail: result?.error ?? 'error',
+              },
+              cursor: { segmentId: 's', components: { seq: epoch * 2 } },
+              observerGeneration: 1,
+              turnEpoch: epoch,
+              provenance: 'live',
+              at,
+            } as never),
       })
     })()
   }
@@ -357,10 +400,16 @@ describe('bounded headless session identity', () => {
       requireNoTools: true,
     }
 
-    expect(await h.registry.modules.sessions.headless.createHeadlessSession(input)).toEqual({ sessionId })
-    expect(await h.registry.modules.sessions.headless.createHeadlessSession(input)).toEqual({ sessionId })
+    expect(await h.registry.modules.sessions.headless.createHeadlessSession(input)).toEqual({
+      sessionId,
+    })
+    expect(await h.registry.modules.sessions.headless.createHeadlessSession(input)).toEqual({
+      sessionId,
+    })
     expect(
-      (await h.registry.modules.sessions.listSessions(undefined, 'rpc')).find((row) => row.sessionId === sessionId),
+      (await h.registry.modules.sessions.listSessions(undefined, 'rpc')).find(
+        (row) => row.sessionId === sessionId,
+      ),
     ).toMatchObject({
       createdBy,
       issueId,
@@ -619,8 +668,9 @@ describe('headless turn refusal surfacing (POD-4409)', () => {
       agentKind: 'claude-code',
       cwd: '/r',
     })
-    vi.spyOn(h.registry.modules.sessions.runtimeGateway, 'send')
-      .mockRejectedValueOnce(new Error('connection dropped after dispatch'))
+    vi.spyOn(h.registry.modules.sessions.runtimeGateway, 'send').mockRejectedValueOnce(
+      new Error('connection dropped after dispatch'),
+    )
     const result = await h.registry.modules.sessions.headless.headlessTurn({
       turnId: 'turn:dropped-probe',
       sessionId,
@@ -666,7 +716,9 @@ describe('headless turn refusal surfacing (POD-4409)', () => {
   it('sendTurn ends an unverified message as unknown and does not dispatch it again', async () => {
     const h = await harness()
     const ended: EventMap['superagent.turnEnded'][] = []
-    h.registry.modules.bus.on('superagent.turnEnded', (event) => { ended.push(event) })
+    h.registry.modules.bus.on('superagent.turnEnded', (event) => {
+      ended.push(event)
+    })
     await h.sa.sendTurn({
       ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
@@ -724,7 +776,9 @@ describe('headless turn refusal surfacing (POD-4409)', () => {
   it('sendTurn keeps a genuine pre-write refusal failed', async () => {
     const h = await harness()
     const ended: EventMap['superagent.turnEnded'][] = []
-    h.registry.modules.bus.on('superagent.turnEnded', (event) => { ended.push(event) })
+    h.registry.modules.bus.on('superagent.turnEnded', (event) => {
+      ended.push(event)
+    })
     await h.sa.sendTurn({
       ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
@@ -773,15 +827,24 @@ describe('superagent turn reaper uncertainty', () => {
       },
     })
     const ended: EventMap['superagent.turnEnded'][] = []
-    h.registry.modules.bus.on('superagent.turnEnded', (event) => { ended.push(event) })
-    vi.useFakeTimers()
-    const sa = await SuperagentService.create(h.registry.modules, h.repos, h.registry.sessionStore, {
-      reapIntervalMs: REAP_MS,
+    h.registry.modules.bus.on('superagent.turnEnded', (event) => {
+      ended.push(event)
     })
+    vi.useFakeTimers()
+    const sa = await SuperagentService.create(
+      h.registry.modules,
+      h.repos,
+      h.registry.sessionStore,
+      {
+        reapIntervalMs: REAP_MS,
+      },
+    )
     h.registry.adoptSuperagent(sa)
     try {
-      const expiry = Date.parse(pending.createdAt) +
-        (timeoutMs ?? SUPERAGENT_HARNESS_TIMEOUT_MS) + TURN_REAP_GRACE_MS
+      const expiry =
+        Date.parse(pending.createdAt) +
+        (timeoutMs ?? SUPERAGENT_HARNESS_TIMEOUT_MS) +
+        TURN_REAP_GRACE_MS
       vi.setSystemTime(expiry - REAP_MS - 1)
       await vi.advanceTimersByTimeAsync(REAP_MS)
       expect(await h.registry.sessionStore.superagent.listPendingTurns()).toEqual([pending])
@@ -790,12 +853,14 @@ describe('superagent turn reaper uncertainty', () => {
 
       vi.setSystemTime(expiry - REAP_MS)
       await vi.advanceTimersByTimeAsync(REAP_MS)
-      expect(ended).toEqual([expect.objectContaining({
-        threadId: pending.threadId,
-        podiumSessionId: pending.podiumSessionId,
-        ok: false,
-        deliveryStatus: 'unknown',
-      })])
+      expect(ended).toEqual([
+        expect.objectContaining({
+          threadId: pending.threadId,
+          podiumSessionId: pending.podiumSessionId,
+          ok: false,
+          deliveryStatus: 'unknown',
+        }),
+      ])
       expect(ended[0]?.harnessErrorKind).toBeUndefined()
       const notice = ended[0]?.error
       expect(notice).toMatch(/outcome is unknown/i)
@@ -824,11 +889,18 @@ describe('superagent turn reaper uncertainty', () => {
     const h = await harness()
     h.sa.dispose()
     const ended: EventMap['superagent.turnEnded'][] = []
-    h.registry.modules.bus.on('superagent.turnEnded', (event) => { ended.push(event) })
-    vi.useFakeTimers()
-    const sa = await SuperagentService.create(h.registry.modules, h.repos, h.registry.sessionStore, {
-      reapIntervalMs: REAP_MS,
+    h.registry.modules.bus.on('superagent.turnEnded', (event) => {
+      ended.push(event)
     })
+    vi.useFakeTimers()
+    const sa = await SuperagentService.create(
+      h.registry.modules,
+      h.repos,
+      h.registry.sessionStore,
+      {
+        reapIntervalMs: REAP_MS,
+      },
+    )
     h.registry.adoptSuperagent(sa)
     try {
       await sa.sendTurn({
@@ -837,8 +909,9 @@ describe('superagent turn reaper uncertainty', () => {
         text: 'still waiting on the harness',
       })
       const pending = (await h.registry.sessionStore.superagent.listPendingTurns())[0]!
-      vi.setSystemTime(Date.parse(pending.createdAt) +
-        SUPERAGENT_HARNESS_TIMEOUT_MS + TURN_REAP_GRACE_MS)
+      vi.setSystemTime(
+        Date.parse(pending.createdAt) + SUPERAGENT_HARNESS_TIMEOUT_MS + TURN_REAP_GRACE_MS,
+      )
       await vi.advanceTimersByTimeAsync(REAP_MS)
 
       expect(await h.registry.sessionStore.superagent.listPendingTurns()).toEqual([pending])
@@ -874,7 +947,9 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
     expect(cleared?.harnessSessionId).toBeUndefined()
     expect(cleared?.podiumSessionId).toBeUndefined()
     expect(
-      (await h.registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === oldSessionId),
+      (await h.registry.modules.sessions.listSessions(undefined, 'rpc')).find(
+        (s) => s.sessionId === oldSessionId,
+      ),
     ).toBeUndefined()
 
     // The next turn is a FIRST turn again: new session, no resume, re-primed.
@@ -909,10 +984,13 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
     const thread = await h.registry.sessionStore.superagent.getSuperagentThread('global')
     expect(thread?.harnessSessionId).toBe('h1')
     // The headless session carries the resume ref, so its transcript binds...
-    const meta = (await h.registry.modules.sessions
-      .listSessions(undefined, 'rpc'))
-      .find((s) => s.sessionId === podiumSessionId)
-    expect(meta?.resume).toMatchObject({ kind: harnessResumeKind(meta?.agentKind ?? 'codex'), value: 'h1' })
+    const meta = (await h.registry.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (s) => s.sessionId === podiumSessionId,
+    )
+    expect(meta?.resume).toMatchObject({
+      kind: harnessResumeKind(meta?.agentKind ?? 'codex'),
+      value: 'h1',
+    })
     // ...and the NEXT turn RESUMES rather than silently starting a new conversation.
     await h.sa.sendTurn({
       ownerUserId: firstAdminMemberId(),
@@ -981,7 +1059,9 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
     expect(thread?.terminalSessionId).toBeUndefined()
     // The PTY session the user opened keeps running — only the binding was dropped.
     expect(
-      (await h.registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId),
+      (await h.registry.modules.sessions.listSessions(undefined, 'rpc')).find(
+        (s) => s.sessionId === sessionId,
+      ),
     ).toBeTruthy()
     // And chatting works again, from a freshly primed session.
     const ack = await h.sa.sendTurn({
@@ -997,11 +1077,14 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
   it('prepends what the user is looking at to EVERY turn, resolving ids server-side', async () => {
     const h = await harness()
     // A real session to focus, and the issue it belongs to.
-    const issue = await h.registry.issues.crud.create({
-      repoPath: '/r',
-      title: 'Fix the thing',
-      startNow: false,
-    })
+    const issue = await h.registry.issues.crud.create(
+      h.registry.issues.reports.store.serverWriter,
+      {
+        repoPath: '/r',
+        title: 'Fix the thing',
+        startNow: false,
+      },
+    )
     const { sessionId } = await h.registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/r',
@@ -1111,19 +1194,24 @@ describe('sendTurn (headless harness turns)', () => {
     // not); the contract carries it when the caller mints one.
     // The headless Podium session exists: live, PTY-less, flagged, established
     // via spawn with requestedDriverId headless (settings default frozen on).
-    const meta = (await h.registry.modules.sessions
-      .listSessions(undefined, 'rpc'))
-      .find((s) => s.sessionId === ack.podiumSessionId)
+    const meta = (await h.registry.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (s) => s.sessionId === ack.podiumSessionId,
+    )
     expect(meta).toMatchObject({ status: 'live', headless: true, spawnedBy: 'superagent:global' })
     expect(meta?.agentKind).toBeTruthy()
     expect(h.spawns).toHaveLength(1)
-    expect(h.spawns[0]).toMatchObject({ sessionId: ack.podiumSessionId, agentKind: meta?.agentKind, requestedDriverId: 'headless' })
+    expect(h.spawns[0]).toMatchObject({
+      sessionId: ack.podiumSessionId,
+      agentKind: meta?.agentKind,
+      requestedDriverId: 'headless',
+    })
     // The agent is frozen onto the thread row.
-    expect((await h.registry.sessionStore.superagent.getSuperagentThread('global'))?.agentKind).toBe(
-      meta?.agentKind,
-    )
     expect(
-      (await h.sa.listThreads(firstAdminMemberId())).find((thread) => thread.id === 'global')?.turnRunning,
+      (await h.registry.sessionStore.superagent.getSuperagentThread('global'))?.agentKind,
+    ).toBe(meta?.agentKind)
+    expect(
+      (await h.sa.listThreads(firstAdminMemberId())).find((thread) => thread.id === 'global')
+        ?.turnRunning,
     ).toBe(true)
     // The API ack reserves the thread, but this fake daemon has not reported
     // any activity yet. Only the driver's causal state stream owns the phase.
@@ -1135,7 +1223,8 @@ describe('sendTurn (headless harness turns)', () => {
     h.resolveTurn(req, { harnessSessionId: 'h1' })
     await h.settle()
     expect(
-      (await h.sa.listThreads(firstAdminMemberId())).find((thread) => thread.id === 'global')?.turnRunning,
+      (await h.sa.listThreads(firstAdminMemberId())).find((thread) => thread.id === 'global')
+        ?.turnRunning,
     ).toBe(false)
     await expect(
       h.registry.modules.readToolkit.status(ack.podiumSessionId, 'operator'),
@@ -1156,7 +1245,15 @@ describe('sendTurn (headless harness turns)', () => {
       sessionId: podiumSessionId as never,
       event: {
         t: 'item',
-        item: { kind: 'partial', item: { id: `headless:${req.turnId}:text`, role: 'assistant', text: 'thinking…', ts: new Date().toISOString() } },
+        item: {
+          kind: 'partial',
+          item: {
+            id: `headless:${req.turnId}:text`,
+            role: 'assistant',
+            text: 'thinking…',
+            ts: new Date().toISOString(),
+          },
+        },
         cursor: { segmentId: 's', components: { seq: 99 } },
         observerGeneration: 1,
         turnEpoch: 1,
@@ -1183,19 +1280,19 @@ describe('sendTurn (headless harness turns)', () => {
     h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'harness-1' })
     await h.settle()
     // Thread row carries the harness session id…
-    expect((await h.registry.sessionStore.superagent.getSuperagentThread('global'))?.harnessSessionId).toBe(
-      'harness-1',
-    )
+    expect(
+      (await h.registry.sessionStore.superagent.getSuperagentThread('global'))?.harnessSessionId,
+    ).toBe('harness-1')
     // …and the session's resume ref uses the same per-kind convention PTY rows use.
-    const meta = (await h.registry.modules.sessions
-      .listSessions(undefined, 'rpc'))
-      .find((s) => s.sessionId === podiumSessionId)
+    const meta = (await h.registry.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (s) => s.sessionId === podiumSessionId,
+    )
     const kind = harnessResumeKind(meta?.agentKind ?? 'codex')
     expect(meta?.resume).toEqual({ kind, value: 'harness-1' })
     // Persisted (survives a reload).
-    const row = (await h.registry.sessionStore.sessions
-      .loadSessions())
-      .find((r) => r.id === podiumSessionId)
+    const row = (await h.registry.sessionStore.sessions.loadSessions()).find(
+      (r) => r.id === podiumSessionId,
+    )
     expect(row).toMatchObject({ resumeKind: kind, resumeValue: 'harness-1' })
     // The second turn resumes — same session, resumeValue set, no new uuid.
     await h.sa.sendTurn({
@@ -1294,9 +1391,9 @@ describe('sendTurn (headless harness turns)', () => {
     // Honest, persisted failure — no silent fallback to the buffered path. The
     // raw harness stderr is interpreted into a user-facing message (POD-1021):
     // "command not found" → a "CLI couldn't be launched" notice.
-    const notice = (await h.sa
-      .history(firstAdminMemberId(), asThreadId('global')))
-      .find((m) => m.content.startsWith(TURN_FAILED_MARKER))
+    const notice = (await h.sa.history(firstAdminMemberId(), asThreadId('global'))).find((m) =>
+      m.content.startsWith(TURN_FAILED_MARKER),
+    )
     expect(notice?.content).toMatch(/CLI couldn't be launched/)
     const last = h
       .activity()
@@ -1336,10 +1433,9 @@ describe('sendTurn (headless harness turns)', () => {
     h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'h1', output: 'new answer' })
     await h.settle()
     // The transcript is the truth for new turns — superagent_messages is frozen.
-    expect((await h.sa.history(firstAdminMemberId(), asThreadId('global'))).map((m) => m.content)).toEqual([
-      'old question',
-      'old answer',
-    ])
+    expect(
+      (await h.sa.history(firstAdminMemberId(), asThreadId('global'))).map((m) => m.content),
+    ).toEqual(['old question', 'old answer'])
   })
 
   it('rejects an unknown thread', async () => {
@@ -1355,7 +1451,10 @@ describe('sendTurn (headless harness turns)', () => {
 
   it('mounts MCP config + allowedTools for MCP-capable agents when the endpoint is up', async () => {
     const h = await harness()
-    await h.sa.setMcpEndpoint('http://127.0.0.1:1878/mcp', 'route-tok', ['list_sessions', 'issue_list'])
+    await h.sa.setMcpEndpoint('http://127.0.0.1:1878/mcp', 'route-tok', [
+      'list_sessions',
+      'issue_list',
+    ])
     await h.sa.sendTurn({
       ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
@@ -1377,7 +1476,11 @@ describe('sendTurn (headless harness turns)', () => {
 describe('conciergeTurn / startBtwTurn (thread creation on the headless path)', () => {
   it('first concierge turn prepends the tracker seed; re-entry prepends the event delta', async () => {
     const h = await harness()
-    await h.registry.issues.crud.create({ repoPath: '/r', title: 'Fix login', startNow: false })
+    await h.registry.issues.crud.create(h.registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Fix login',
+      startNow: false,
+    })
     const a = await h.sa.conciergeTurn({
       ownerUserId: firstAdminMemberId(),
       repoPath: '/r',
@@ -1393,7 +1496,11 @@ describe('conciergeTurn / startBtwTurn (thread creation on the headless path)', 
     h.resolveTurn(first, { harnessSessionId: 'hc1' })
     await h.settle()
     // New tracker activity → the next turn carries a delta, not a re-seed.
-    await h.registry.issues.crud.create({ repoPath: '/r', title: 'New work', startNow: false })
+    await h.registry.issues.crud.create(h.registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'New work',
+      startNow: false,
+    })
     const b = await h.sa.conciergeTurn({
       ownerUserId: firstAdminMemberId(),
       repoPath: '/r',
@@ -1410,7 +1517,11 @@ describe('conciergeTurn / startBtwTurn (thread creation on the headless path)', 
     // No gap → no delta block on the third turn.
     h.resolveTurn(second)
     await h.settle()
-    await h.sa.conciergeTurn({ ownerUserId: firstAdminMemberId(), repoPath: '/r', text: 'and now?' })
+    await h.sa.conciergeTurn({
+      ownerUserId: firstAdminMemberId(),
+      repoPath: '/r',
+      text: 'and now?',
+    })
     expect(h.turnReqs[2]?.prompt).toBe('and now?')
     expect(h.turnReqs[2]?.contextPrompt).toBeUndefined()
   })
@@ -1475,7 +1586,9 @@ describe('conciergeTurn / startBtwTurn (thread creation on the headless path)', 
     expect(req.contextPrompt).toContain(sessionId)
     // NO SECOND THREAD. The old action minted one per session; a thread nothing
     // renders is the whole defect, so this path must not create one.
-    expect((await h.sa.listThreads(firstAdminMemberId())).filter((t) => t.kind === 'btw')).toHaveLength(0)
+    expect(
+      (await h.sa.listThreads(firstAdminMemberId())).filter((t) => t.kind === 'btw'),
+    ).toHaveLength(0)
     // The turn still runs where the GLOBAL thread runs — an attachment is
     // context, not a change of machine or checkout.
     const spawn = h.spawns.find((s) => s.sessionId === req.sessionId)
@@ -1506,9 +1619,9 @@ describe('conciergeTurn / startBtwTurn (thread creation on the headless path)', 
     })
     expect(second.queued).toBe(true)
 
-    const queued = (await h.registry.sessionStore.superagent
-      .listQueuedInputs(asThreadId('global')))
-      .find((row) => row.text === 'and about this one?')
+    const queued = (
+      await h.registry.sessionStore.superagent.listQueuedInputs(asThreadId('global'))
+    ).find((row) => row.text === 'and about this one?')
     expect(queued?.attachSessionId).toBe(sessionId)
   })
 })
@@ -1540,7 +1653,9 @@ describe('openInTerminal + one-writer lock', () => {
       sessionId,
       resume: { kind: harnessResumeKind(pty?.agentKind ?? 'codex'), value: 'h1' },
     })
-    const meta = (await h.registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
+    const meta = (await h.registry.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (s) => s.sessionId === sessionId,
+    )
     expect(meta?.headless).toBeUndefined() // a normal PTY session
     expect(
       (await h.registry.sessionStore.superagent.getSuperagentThread('global'))?.terminalSessionId,
@@ -1604,7 +1719,9 @@ describe('boot reconciliation for headless sessions', () => {
       composeContext: () => Promise<undefined>
     }
     let preparationStarted!: () => void
-    const preparing = new Promise<void>((resolve) => { preparationStarted = resolve })
+    const preparing = new Promise<void>((resolve) => {
+      preparationStarted = resolve
+    })
     stalled.composeContext = () => {
       preparationStarted()
       return new Promise(() => {})
@@ -1669,7 +1786,9 @@ describe('boot reconciliation for headless sessions', () => {
       composeContext: () => Promise<undefined>
     }
     let preparationStarted!: () => void
-    const preparing = new Promise<void>((resolve) => { preparationStarted = resolve })
+    const preparing = new Promise<void>((resolve) => {
+      preparationStarted = resolve
+    })
     stalled.composeContext = () => {
       preparationStarted()
       return new Promise(() => {})
@@ -1778,7 +1897,16 @@ describe('boot reconciliation for headless sessions', () => {
             type: 'transcriptReadResult',
             requestId: message.requestId,
             sessionId: message.sessionId,
-            items: pending?.output ? [{ id: 'item-1', role: 'assistant', text: pending.output, ts: new Date().toISOString() }] : [],
+            items: pending?.output
+              ? [
+                  {
+                    id: 'item-1',
+                    role: 'assistant',
+                    text: pending.output,
+                    ts: new Date().toISOString(),
+                  },
+                ]
+              : [],
             hasMore: false,
           }),
         )
@@ -1799,7 +1927,9 @@ describe('boot reconciliation for headless sessions', () => {
                   family: 'server',
                   harness: 'codex',
                   workdir: '/r',
-                  resume: pending?.harnessSessionId ? { kind: 'headless-session', value: pending.harnessSessionId } : null,
+                  resume: pending?.harnessSessionId
+                    ? { kind: 'headless-session', value: pending.harnessSessionId }
+                    : null,
                   process: { key: 'test' },
                   bindingVersion: 1,
                 },
@@ -1838,18 +1968,40 @@ describe('boot reconciliation for headless sessions', () => {
       type: 'runtimeSendResult',
       requestId: replay.requestId,
       sessionId: replay.sessionId as never,
-      receipt: { outcome: 'accepted', turnEpoch: epoch, deliveredAs: 'when-ready', provenBy: 'protocol-ack', at: new Date().toISOString() },
+      receipt: {
+        outcome: 'accepted',
+        turnEpoch: epoch,
+        deliveredAs: 'when-ready',
+        provenBy: 'protocol-ack',
+        at: new Date().toISOString(),
+      },
     })
     const at = new Date().toISOString()
     const gateway = reborn.modules.sessions.runtimeGateway
     const host = reborn.sessionStore.hostMachineId
     await gateway.record(host, {
       sessionId: replay.sessionId as never,
-      event: { t: 'turn', ev: { ev: 'started', turnEpoch: epoch, origin: 'system' }, cursor: { segmentId: 's', components: { seq: 1 } }, observerGeneration: 1, turnEpoch: epoch, provenance: 'live', at } as never,
+      event: {
+        t: 'turn',
+        ev: { ev: 'started', turnEpoch: epoch, origin: 'system' },
+        cursor: { segmentId: 's', components: { seq: 1 } },
+        observerGeneration: 1,
+        turnEpoch: epoch,
+        provenance: 'live',
+        at,
+      } as never,
     })
     await gateway.record(host, {
       sessionId: replay.sessionId as never,
-      event: { t: 'turn', ev: { ev: 'completed', turnEpoch: epoch, verdict: 'done' }, cursor: { segmentId: 's', components: { seq: 2 } }, observerGeneration: 1, turnEpoch: epoch, provenance: 'live', at } as never,
+      event: {
+        t: 'turn',
+        ev: { ev: 'completed', turnEpoch: epoch, verdict: 'done' },
+        cursor: { segmentId: 's', components: { seq: 2 } },
+        observerGeneration: 1,
+        turnEpoch: epoch,
+        provenance: 'live',
+        at,
+      } as never,
     })
     await new Promise((resolve) => setTimeout(resolve))
 
@@ -1879,8 +2031,8 @@ describe('boot reconciliation for headless sessions', () => {
     })
     h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'h1' })
     await h.settle()
-    const sessionId =
-      (await h.registry.sessionStore.superagent.getSuperagentThread('global'))?.podiumSessionId
+    const sessionId = (await h.registry.sessionStore.superagent.getSuperagentThread('global'))
+      ?.podiumSessionId
     // "Restart": a fresh registry over the same store.
     const store = h.registry.sessionStore
     const reborn = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
@@ -1895,7 +2047,9 @@ describe('boot reconciliation for headless sessions', () => {
       if (m.type === 'reattach') reattaches.push(m.sessionId)
     })
     await new Promise((r) => setTimeout(r))
-    const meta = (await reborn.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId)
+    const meta = (await reborn.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (s) => s.sessionId === sessionId,
+    )
     // Not demoted to reconnecting/exited — headless sessions have no PTY to probe.
     expect(meta?.status).toBe('live')
     expect(meta?.headless).toBe(true)
@@ -1957,9 +2111,9 @@ describe('harness switch + effort (#199)', () => {
     expect(req.resumeValue).toBeUndefined() // fresh session, not resuming claude-1
     expect(second.podiumSessionId).not.toBe(first.podiumSessionId) // new headless row
     // The thread is re-bound to the new harness.
-    expect((await h.registry.sessionStore.superagent.getSuperagentThread('global'))?.agentKind).toBe(
-      'codex',
-    )
+    expect(
+      (await h.registry.sessionStore.superagent.getSuperagentThread('global'))?.agentKind,
+    ).toBe('codex')
     expect(
       (await h.registry.sessionStore.superagent.getSuperagentThread('global'))?.harnessSessionId,
     ).toBeFalsy()
@@ -2064,7 +2218,9 @@ describe('harness switch + effort (#199)', () => {
     expect(req.agent).toBe('grok')
     expect(req.model).toBe('grok-4.5')
     expect(req.resumeValue).toBeUndefined()
-    expect((await h.registry.sessionStore.superagent.getSuperagentThread('global'))?.agentKind).toBe('grok')
+    expect(
+      (await h.registry.sessionStore.superagent.getSuperagentThread('global'))?.agentKind,
+    ).toBe('grok')
   })
 
   it('Auto after an explicit pick returns the thread to the settings harness', async () => {
@@ -2109,7 +2265,8 @@ describe('harness switch + effort (#199)', () => {
       }),
     ).resolves.toMatchObject({ queued: true })
     expect(
-      (await h.registry.sessionStore.superagent.listQueuedInputs(asThreadId('global')))[0]?.agentKind,
+      (await h.registry.sessionStore.superagent.listQueuedInputs(asThreadId('global')))[0]
+        ?.agentKind,
     ).toBe('grok')
     h.resolveTurn(h.turnReqs[0]!, { harnessSessionId: 'claude-1' })
     await h.settle()
@@ -2199,11 +2356,29 @@ describe('buildHandoffSeed (#199)', () => {
   })
 })
 
-it.each(['/src/podium', 'C:\\src\\podium'])('machine paths: headless session titles and reuse from %s', async cwd => {
+it.each([
+  '/src/podium',
+  'C:\\src\\podium',
+])('machine paths: headless session titles and reuse from %s', async (cwd) => {
   const h = await harness()
   const sessionId = asSessionId('machine-paths-headless')
-  const input = { sessionId, agentKind: 'claude-code' as const, cwd, machineId: h.registry.sessionStore.hostMachineId, ownerUserId: firstAdminMemberId() }
+  const input = {
+    sessionId,
+    agentKind: 'claude-code' as const,
+    cwd,
+    machineId: h.registry.sessionStore.hostMachineId,
+    ownerUserId: firstAdminMemberId(),
+  }
   await h.registry.modules.sessions.headless.createHeadlessSession(input)
-  expect((await h.registry.modules.sessions.listSessions(undefined, 'rpc')).find(row => row.sessionId === sessionId)?.title).toBe('podium')
-  await expect(h.registry.modules.sessions.headless.createHeadlessSession({ ...input, cwd: cwd.replaceAll('\\', '/') })).resolves.toEqual({ sessionId })
+  expect(
+    (await h.registry.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (row) => row.sessionId === sessionId,
+    )?.title,
+  ).toBe('podium')
+  await expect(
+    h.registry.modules.sessions.headless.createHeadlessSession({
+      ...input,
+      cwd: cwd.replaceAll('\\', '/'),
+    }),
+  ).resolves.toEqual({ sessionId })
 })

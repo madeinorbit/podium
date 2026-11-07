@@ -462,7 +462,7 @@ describe('launch selection travels in the spawn call — no machine round trip',
       ...issueTestPlumbing(() => {}),
     }
     const issues = await IssueService.create(deps)
-    const issue = await issues.crud.create({ repoPath: '/r', title: 'Live defaults', startNow: false })
+    const issue = await issues.crud.create(issues.reports.store.serverWriter, { repoPath: '/r', title: 'Live defaults', startNow: false })
     expect(issue.defaultModel).toBe('auto')
     expect(issue.defaultEffort).toBe('auto')
     await store.settings.setSettings(normalizeSettings({
@@ -475,7 +475,7 @@ describe('launch selection travels in the spawn call — no machine round trip',
     expect((await issues.reports.get(issue.id))?.defaultModel).toBe('auto')
     expect((await issues.reports.get(issue.id))?.defaultEffort).toBe('auto')
     // A resolved drop must not go back through Settings downstream.
-    await issues.crud.update(issue.id, { defaultModel: 'retired-issue-model' })
+    await issues.crud.update(issues.reports.store.serverWriter, issue.id, { defaultModel: 'retired-issue-model' })
     machineMessaging.mockClear()
     await issues.gitWorkflow.addSession(issue.id)
     expect(machineMessaging).toHaveBeenCalledTimes(1)

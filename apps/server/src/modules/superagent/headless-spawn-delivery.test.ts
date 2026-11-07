@@ -13,6 +13,8 @@
 // The daemon half is completed too: the daemon's result/event frames are
 // routed back into the server gateway, so a green run means the whole first
 // turn — spawn, dispatch, harness run, resume bind — lands end to end.
+
+import { createHash } from 'node:crypto'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -26,7 +28,6 @@ import {
   firstAdminMemberId,
 } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import { createHash } from 'node:crypto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { BindingStore } from '../../../../daemon/src/binding-store'
 import { sessionHandlers } from '../../../../daemon/src/control/session'
@@ -34,15 +35,15 @@ import { runtimeHandlers, sessionIsBehindContract } from '../../../../daemon/src
 import { composeHeadlessDeliveryDaemon } from '../../../../daemon/src/test-support/headless-delivery-daemon'
 import { userCommandPrincipal } from '../../command-principal'
 import { harnessResumeKind } from '../../harness-manifest'
-import { SessionClientPlane, type SessionClientPlanePorts } from '../sessions/session-client-plane'
-import { SessionMachineReconciler } from '../sessions/machine-reconciler'
-import { selectHarnessAccountId } from '../sessions/harness-account'
-import { SuperagentService } from './service'
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
 import { OPERATOR } from '../../test-support/capabilities'
 import { assignHostMachine } from '../../test-support/host-daemon'
+import { selectHarnessAccountId } from '../sessions/harness-account'
+import { SessionMachineReconciler } from '../sessions/machine-reconciler'
+import { SessionClientPlane, type SessionClientPlanePorts } from '../sessions/session-client-plane'
+import { SuperagentService } from './service'
 
 const registries: SessionRegistry[] = []
 afterEach(async () => {
@@ -142,7 +143,7 @@ async function onlineHarness() {
     },
   })
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  await repos.add('/r', host)
+  await repos.add(repos.serverWriter, '/r', host)
   const sa = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   return { registry, repos, sa, frames, host, peer }
 }
@@ -225,7 +226,8 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
     )
     const receipt = sent.find(
       (m) =>
-        m.type === 'runtimeSendResult' && (m as { requestId?: string }).requestId === turn.requestId,
+        m.type === 'runtimeSendResult' &&
+        (m as { requestId?: string }).requestId === turn.requestId,
     ) as
       | { receipt?: { outcome?: string; refusal?: { reason?: string; detail?: string } } }
       | undefined
@@ -247,7 +249,8 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
     for (;;) {
       const pending = await h.registry.sessionStore.superagent.listPendingTurns()
       if (pending.length === 0) break
-      if (Date.now() - start > 10_000) throw new Error('timed out waiting for the superagent turn to finish')
+      if (Date.now() - start > 10_000)
+        throw new Error('timed out waiting for the superagent turn to finish')
       await new Promise((r) => setTimeout(r, 10))
     }
     expect(
@@ -360,12 +363,15 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
     await waitFor(
       () =>
         gen2.sent.some(
-          (m) => m.type === 'runtimeSendResult' && (m as { requestId?: string }).requestId === 'req-restart',
+          (m) =>
+            m.type === 'runtimeSendResult' &&
+            (m as { requestId?: string }).requestId === 'req-restart',
         ),
       'generation 2 refusing the turn',
     )
     const firstReceipt = gen2.sent.find(
-      (m) => m.type === 'runtimeSendResult' && (m as { requestId?: string }).requestId === 'req-restart',
+      (m) =>
+        m.type === 'runtimeSendResult' && (m as { requestId?: string }).requestId === 'req-restart',
     ) as { receipt?: { outcome?: string; refusal?: { reason?: string; detail?: string } } }
     expect(firstReceipt.receipt).toMatchObject({
       outcome: 'refused',
@@ -383,7 +389,9 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
       accountId: asAccountId('native:codex:fp-test'),
     })
     const row = h.registry.modules.sessions.headless.headlessSession(created.sessionId)
-    const rowResumed = h.registry.modules.sessions.headless.headlessSession(createdResumed.sessionId)
+    const rowResumed = h.registry.modules.sessions.headless.headlessSession(
+      createdResumed.sessionId,
+    )
     if (!row || !rowResumed) throw new Error('headless rows missing')
     // A resumed live row, assigned the way production's bind does (the
     // persisted setter lands on the draft/store, not the live object).
@@ -435,7 +443,8 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
     // the frames rather than awaiting a promise that resolves before they land.
     await waitFor(
       () =>
-        h.frames.filter((m) => m.type === 'spawn' && m.sessionId === created.sessionId).length === 2,
+        h.frames.filter((m) => m.type === 'spawn' && m.sessionId === created.sessionId).length ===
+        2,
       'the attach re-sending the establish frame',
     )
     await waitFor(
@@ -481,12 +490,16 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
     await waitFor(
       () =>
         gen2.sent.some(
-          (m) => m.type === 'runtimeSendResult' && (m as { requestId?: string }).requestId === 'req-restart-2',
+          (m) =>
+            m.type === 'runtimeSendResult' &&
+            (m as { requestId?: string }).requestId === 'req-restart-2',
         ),
       'generation 2 accepting the retried turn',
     )
     const secondReceipt = gen2.sent.find(
-      (m) => m.type === 'runtimeSendResult' && (m as { requestId?: string }).requestId === 'req-restart-2',
+      (m) =>
+        m.type === 'runtimeSendResult' &&
+        (m as { requestId?: string }).requestId === 'req-restart-2',
     ) as { receipt?: { outcome?: string; refusal?: unknown } }
     expect(secondReceipt.receipt?.outcome).toBe('accepted')
     expect(gen2.turns.map((t) => t.turnId)).toContain('turn-restart')
@@ -551,7 +564,9 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
       cwd: '/r',
       ownerUserId: firstAdminMemberId(),
     })
-    expect(h.registry.modules.sessions.headless.headlessSession(legacy.sessionId)?.accountId).toBeUndefined()
+    expect(
+      h.registry.modules.sessions.headless.headlessSession(legacy.sessionId)?.accountId,
+    ).toBeUndefined()
     await h.registry.sessionStore.superagent.updateSuperagentThreadBinding('global', {
       agentKind: 'codex',
       podiumSessionId: legacy.sessionId,
@@ -588,7 +603,9 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
     // The selection table both paths call (selectHarnessAccountId): a native
     // id for another harness must never be spent silently, while matching,
     // explicit-shaped and non-native ids ride unchanged.
-    expect(selectHarnessAccountId('codex', asAccountId('native:codex:fp-a'))).toBe('native:codex:fp-a')
+    expect(selectHarnessAccountId('codex', asAccountId('native:codex:fp-a'))).toBe(
+      'native:codex:fp-a',
+    )
     expect(selectHarnessAccountId('codex', asAccountId('native:codex'))).toBe('native:codex')
     expect(selectHarnessAccountId('codex', asAccountId('native:claude-code:fp-b'))).toBe(
       'native:codex',

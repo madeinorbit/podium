@@ -85,10 +85,10 @@ async function openAsk(o: Oracle, sessionId: SessionId, id = `ask:${sessionId}`)
 /** Two issues, each with its own worktree under the reported repo `/r`. */
 async function twoIssues(o: Oracle) {
   await o.store.repos.addRepo('/r', o.store.hostMachineId)
-  const a = await o.reg.issues.crud.create({ repoPath: '/r', title: 'A', startNow: false })
-  await o.reg.issues.crud.update(a.id, { worktreePath: '/r/.worktrees/a' })
-  const b = await o.reg.issues.crud.create({ repoPath: '/r', title: 'B', startNow: false })
-  await o.reg.issues.crud.update(b.id, { worktreePath: '/r/.worktrees/b' })
+  const a = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'A', startNow: false })
+  await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, a.id, { worktreePath: '/r/.worktrees/a' })
+  const b = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'B', startNow: false })
+  await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, b.id, { worktreePath: '/r/.worktrees/b' })
   return { a, b }
 }
 

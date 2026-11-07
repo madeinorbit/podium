@@ -56,9 +56,9 @@ interface Fixture {
 async function makeFixture(): Promise<Fixture> {
   const o = await makeBareOracle()
   await o.store.repos.addRepo('/r', o.store.hostMachineId)
-  const issue = await o.reg.issues.crud.create({ repoPath: '/r', title: 'Mail', startNow: false })
+  const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'Mail', startNow: false })
   const worktree = '/r/.worktrees/issue-1-mail'
-  await o.reg.issues.crud.update(issue.id, { worktreePath: worktree })
+  await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, issue.id, { worktreePath: worktree })
   const { sessionId } = await o.reg.modules.sessions.createSession({
     agentKind: 'shell',
     cwd: worktree,
@@ -135,7 +135,7 @@ describe('the mail writes are on the sync write entry point', () => {
   it('the tRPC route is an adapter: the messageId is the mutation id, and a repeat is a replay', async () => {
     const f = await makeFixture()
     // No session works it: a message to it is held.
-    const lonely = await f.o.reg.issues.crud.create({
+    const lonely = await f.o.reg.issues.crud.create(f.o.reg.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Nobody here',
       startNow: false,
@@ -268,7 +268,7 @@ describe('the mail writes are on the sync write entry point', () => {
 describe("an issue's agent mail is on the sync write entry point", () => {
   it('mailSend, mailInbox and mailClaim reach it from their routes and the relay', async () => {
     const f = await makeFixture()
-    const lonely = await f.o.reg.issues.crud.create({
+    const lonely = await f.o.reg.issues.crud.create(f.o.reg.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Nobody here',
       startNow: false,
@@ -395,7 +395,7 @@ describe("an agent's spawn is a session.launch record", () => {
 
   it("an agent's spawn onto another issue is refused at the target, in the old words", async () => {
     const f = await makeFixture()
-    const other = await f.o.reg.issues.crud.create({
+    const other = await f.o.reg.issues.crud.create(f.o.reg.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Other',
       startNow: false,

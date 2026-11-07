@@ -1,3 +1,4 @@
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -86,8 +87,8 @@ describe('snapshot bootstrap producer', () => {
     const path = join(dir, 'test.db')
     const store = await openTestStore(path)
     try {
-      await store.issues.upsertIssue(issue('shared'))
-      await store.issues.upsertIssue({ ...issue('private'), seq: 2 })
+      await store.issues.upsertIssue(fixtureWriteScope(), issue('shared'))
+      await store.issues.upsertIssue(fixtureWriteScope(), { ...issue('private'), seq: 2 })
       await store.grants.upsert({
         resourceKind: 'issue',
         resourceId: 'shared',

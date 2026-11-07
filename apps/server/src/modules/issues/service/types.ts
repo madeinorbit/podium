@@ -39,6 +39,16 @@ export interface IssueFunnel {
  *  diffs the full wire truth (including removes) for the derived-ripple and
  *  boot paths. Structurally satisfied by {@link @podium/sync.Ledger}; narrow
  *  so tests can fake it. */
+/**
+ * What an issue write commits on (ADR 12 D9, POD-6594): the writer of the command
+ * that asked, or a named server origin's for the server's own issue writes. The
+ * service's write methods take it per call; it never lives in the service.
+ */
+export type IssueWriter = Pick<IssueLedger, 'commit' | 'capture'>
+
+/** The parameters of a writer-first method, after its writer. */
+export type WriterRest<F> = F extends (writer: IssueWriter, ...rest: infer A) => unknown ? A : never
+
 export interface IssueLedger {
   commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>>
   /** Reconcile normalized issues, their companions and repository facts. */
@@ -285,7 +295,14 @@ export interface IssueDeps {
   funnel: IssueFunnel
   /** The write-seam change log ([spec:SP-3fe2] #255): issue writes commit their
    *  change rows atomically with the row write; derived ripples reconcile. */
+  /**
+   * The issues service's OWN writer, a `server` origin (`issues.server`): the
+   * boot reconciles and the server's own issue writes. A command's write never
+   * uses it; it passes its writer per call.
+   */
   ledger: IssueLedger
+  /** Wrap a writer in the issue revision arbitration (`IssueAuthorityArbitration.wrap`). */
+  arbitrate?: (writer: IssueWriter) => IssueWriter
   /** Publish-spec factory (modules/issues/publish) for the funnel's tail. */
   now?(): string
   /** The session's explicit issue attachment (issue-as-workspace), read from

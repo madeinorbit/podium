@@ -45,11 +45,19 @@ import type {
   IssueTrackerCapabilities,
 } from './service'
 import type { IssueReader } from './service/reads'
+import type { IssueWriter, WriterRest } from './service/types'
 import type { IssueWorkEffectPort } from './work-effects'
 
 /** Who is calling (authz identity) — the same pair the router Context carries. */
 export interface IssueCaller {
   capability: Capability
+  /**
+   * The writer of the command this call is (ADR 12 D9, POD-6594): the sync write
+   * entry point's `SyncWriteContext.ledger`. Absent for an issue command that
+   * still runs outside `sync.submit` (POD-6593's DIRECT_WRITES); those write
+   * under the `issues` origin until POD-6603 moves them onto the entry point.
+   */
+  writer?: IssueWriter
   /** Authenticated transport principal; production dispatchers always provide it. */
   principal?: CommandPrincipal
   /** The agent passed --outside-scope: a knowing write outside its subtree. */
@@ -71,6 +79,12 @@ export type MailHandOn = Pick<
 >
 
 export interface IssueCommandDeps {
+  /**
+   * The writer of an issue command that still runs outside `sync.submit`
+   * (POD-6593's DIRECT_WRITES): the `issues` origin, owned by POD-6603, which
+   * moves each onto the entry point. A command on the entry point never uses it.
+   */
+  directWriter?: IssueWriter
   /**
    * Merge, rebase, PR and integrate as effect records (POD-6394): the command
    * creates the record and answers once it settles. Absent only in a dispatcher
@@ -112,12 +126,12 @@ export interface IssueCommandDeps {
    */
   attachSession(
     caller: IssueCaller,
-    input: Parameters<IssueAttentionCapability['attachSession']>[0],
+    input: WriterRest<IssueAttentionCapability['attachSession']>[0],
   ): ReturnType<IssueAttentionCapability['attachSession']>
   /** Cross-aggregate issue tombstone + member-session deletion coordinator. */
-  deleteIssue(id: string): unknown
+  deleteIssue(writer: IssueWriter, id: string): unknown
   /** Cross-aggregate issue + member-session tombstone restoration coordinator. */
-  restoreIssue(id: string): unknown
+  restoreIssue(writer: IssueWriter, id: string): unknown
   /**
    * FRAMEWORK IDEMPOTENCY (POD-382): `@podium/sync`'s `MutationLedger`, injected.
    *
@@ -193,6 +207,82 @@ export function commandAccess(tracker: IssueTrackerCapabilities): IssueCommandAc
   }
 }
 
+/** A function whose first parameter is the writer, without it. */
+type DropWriter<F> = F extends (writer: IssueWriter, ...rest: infer A) => infer R
+  ? (...rest: A) => R
+  : never
+
+/**
+ * A capability with its write methods `K` bound to one writer (ADR 12 D9). The
+ * keys are listed per capability below; a write method left off its list keeps
+ * its writer parameter, so a handler that calls it without one does not compile.
+ */
+export type Bound<T, K extends keyof T> = Omit<T, K> & { readonly [P in K]: DropWriter<T[P]> }
+
+function bindWriter<T extends object, K extends keyof T>(
+  target: T,
+  writer: IssueWriter,
+  keys: readonly K[],
+): Bound<T, K> {
+  const view = Object.create(target) as Record<PropertyKey, unknown>
+  for (const key of keys) {
+    const method = target[key] as unknown as (...args: unknown[]) => unknown
+    view[key as PropertyKey] = (...args: unknown[]) => method.call(target, writer, ...args)
+  }
+  return view as unknown as Bound<T, K>
+}
+
+const CRUD_WRITES = [
+  'setState',
+  'panelApply',
+  'panelArtifactAdd',
+  'panelArtifactUpload',
+  'panelArtifactTransfer',
+  'panelArtifactRemove',
+  'panelChatUploadClaim',
+  'create',
+  'update',
+  'move',
+  'markIssueRead',
+  'markIssueUnread',
+  'setIssueTucked',
+  'setLabels',
+  'share',
+  'unshare',
+  'claim',
+  'setCoordinator',
+  'close',
+  'applySuggestion',
+  'dismissSuggestion',
+] as const satisfies readonly (keyof IssueCrudCapability)[]
+const HIERARCHY_WRITES = [
+  'addDep',
+  'removeDep',
+  'reparent',
+  'supersede',
+  'duplicate',
+] as const satisfies readonly (keyof IssueHierarchyCapability)[]
+const MAIL_WRITES = [
+  'addComment',
+  'addCallerComment',
+] as const satisfies readonly (keyof IssueCommentsMailCapability)[]
+const ATTENTION_WRITES = [
+  'attachSession',
+  'createDraftFor',
+  'archive',
+  'defer',
+  'undefer',
+  'setNeedsHuman',
+  'clearNeedsHuman',
+  'markIssueRead',
+  'markIssueUnread',
+  'setIssueTucked',
+] as const satisfies readonly (keyof IssueAttentionCapability)[]
+const WORKFLOW_WRITES = [
+  'rehome',
+  'createAndMaybeStart',
+] as const satisfies readonly (keyof IssueGitWorkflowCapability)[]
+
 /**
  * Per-call execution context handed to every command handler: the caller's
  * authz identity, narrowed tracker capabilities, and the cross-cutting helpers
@@ -207,20 +297,36 @@ export class IssueCommandCtx {
     _targetOf?: (input: Record<string, unknown>) => string | undefined,
   ) {}
 
-  get crud(): IssueCrudCapability {
-    return this.deps.issues.crud
+  /**
+   * The writer this command's writes commit on: its own, or the `issues` origin
+   * for a command not yet on the entry point (see {@link IssueCaller.writer}).
+   */
+  get writer(): IssueWriter {
+    const own = this.caller.writer
+    if (own !== undefined) return own
+    const direct = this.deps.directWriter
+    if (direct === undefined) {
+      throw new Error(`issues.${this.name} has no writer: it runs outside sync.submit`)
+    }
+    return direct
   }
-  get hierarchy(): IssueHierarchyCapability {
-    return this.deps.issues.hierarchy
+
+  /** The capabilities, with their write methods bound to {@link writer}: a
+   *  handler calls `ctx.crud.update(id, patch)` and the write is the command's. */
+  get crud(): Bound<IssueCrudCapability, (typeof CRUD_WRITES)[number]> {
+    return bindWriter(this.deps.issues.crud, this.writer, CRUD_WRITES)
   }
-  get commentsMail(): IssueCommentsMailCapability {
-    return this.deps.issues.commentsMail
+  get hierarchy(): Bound<IssueHierarchyCapability, (typeof HIERARCHY_WRITES)[number]> {
+    return bindWriter(this.deps.issues.hierarchy, this.writer, HIERARCHY_WRITES)
   }
-  get attention(): IssueAttentionCapability {
-    return this.deps.issues.attention
+  get commentsMail(): Bound<IssueCommentsMailCapability, (typeof MAIL_WRITES)[number]> {
+    return bindWriter(this.deps.issues.commentsMail, this.writer, MAIL_WRITES)
   }
-  get gitWorkflow(): IssueGitWorkflowCapability {
-    return this.deps.issues.gitWorkflow
+  get attention(): Bound<IssueAttentionCapability, (typeof ATTENTION_WRITES)[number]> {
+    return bindWriter(this.deps.issues.attention, this.writer, ATTENTION_WRITES)
+  }
+  get gitWorkflow(): Bound<IssueGitWorkflowCapability, (typeof WORKFLOW_WRITES)[number]> {
+    return bindWriter(this.deps.issues.gitWorkflow, this.writer, WORKFLOW_WRITES)
   }
   get reports(): IssueReportsCapability {
     return this.deps.issues.reports
@@ -302,10 +408,10 @@ export class IssueCommandCtx {
     return { nodes, edges: graph.edges.filter((edge) => ids.has(edge.from) && ids.has(edge.to)) }
   }
   deleteIssue(id: string): unknown {
-    return this.deps.deleteIssue(id)
+    return this.deps.deleteIssue(this.writer, id)
   }
   restoreIssue(id: string): unknown {
-    return this.deps.restoreIssue(id)
+    return this.deps.restoreIssue(this.writer, id)
   }
 
   /** Framework idempotency, bound to this command's wire name (issues.<name>). */

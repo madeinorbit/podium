@@ -94,7 +94,7 @@ describe('issues with agent profiles', () => {
   it('create --profile stores the profile and leaves the agent pick to it', async () => {
     const { svc, agentProfiles } = await harness()
     const build = await agentProfiles.show('build')
-    const issue = await svc.crud.create({
+    const issue = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Built',
       startNow: false,
@@ -107,7 +107,7 @@ describe('issues with agent profiles', () => {
     })
     // Without a profile the harness stays `auto` too (POD-6133): the issue stores
     // picks only, and Settings apply when each session starts.
-    const plain = await svc.crud.create({ repoPath: '/r', title: 'Plain', startNow: false })
+    const plain = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'Plain', startNow: false })
     expect(plain).toMatchObject({
       defaultAgent: 'auto',
       defaultModel: 'auto',
@@ -119,7 +119,7 @@ describe('issues with agent profiles', () => {
   it('refuses an unknown profile before creating anything', async () => {
     const { svc } = await harness()
     await expect(
-      svc.crud.create({ repoPath: '/r', title: 'Nope', startNow: false, agentProfile: 'nope' }),
+      svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'Nope', startNow: false, agentProfile: 'nope' }),
     ).rejects.toThrow(/no agent profile 'nope'/)
     expect(await svc.reports.list('/r')).toHaveLength(0)
   })
@@ -127,14 +127,14 @@ describe('issues with agent profiles', () => {
   it('update --profile hands the agent fields to the profile; null clears it', async () => {
     const { svc, agentProfiles } = await harness()
     const review = await agentProfiles.show('review')
-    const issue = await svc.crud.create({
+    const issue = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Picked',
       startNow: false,
       defaultAgent: 'codex',
       defaultEffort: 'low',
     })
-    const updated = await svc.crud.update(issue.id, { agentProfile: 'review' })
+    const updated = await svc.crud.update(svc.reports.store.serverWriter, issue.id, { agentProfile: 'review' })
     expect(updated).toMatchObject({
       agentProfileId: review.id,
       defaultAgent: 'auto',
@@ -142,16 +142,16 @@ describe('issues with agent profiles', () => {
       defaultEffort: 'auto',
     })
     // A field named in the same patch still wins.
-    const kept = await svc.crud.update(issue.id, { agentProfile: 'build', defaultEffort: 'max' })
+    const kept = await svc.crud.update(svc.reports.store.serverWriter, issue.id, { agentProfile: 'build', defaultEffort: 'max' })
     expect(kept).toMatchObject({ defaultEffort: 'max' })
-    const cleared = await svc.crud.update(issue.id, { agentProfile: null })
+    const cleared = await svc.crud.update(svc.reports.store.serverWriter, issue.id, { agentProfile: null })
     expect(cleared).not.toHaveProperty('agentProfileId')
   })
 
   it('start spawns the first runnable candidate and records the profile on the session', async () => {
     const { svc, spawnSession, agentProfiles } = await harness()
     const review = await agentProfiles.show('review')
-    const issue = await svc.crud.create({ repoPath: '/r', title: 'Reviewed', startNow: false })
+    const issue = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'Reviewed', startNow: false })
     const started = await svc.gitWorkflow.start(issue.id, undefined, { agentProfile: 'review' })
     // `review` prefers codex, which is not installed here.
     expect(spawnSession).toHaveBeenCalledWith(
@@ -174,13 +174,13 @@ describe('agent profile inheritance on start', () => {
   async function mission() {
     const h = await harness()
     const p = await withProfiles(h.agentProfiles)
-    const root = await h.svc.crud.create({
+    const root = await h.svc.crud.create(h.svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Mission',
       startNow: false,
       agentProfile: 'p-mission',
     })
-    const task = await h.svc.crud.create({
+    const task = await h.svc.crud.create(h.svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Task',
       startNow: false,
@@ -191,8 +191,8 @@ describe('agent profile inheritance on start', () => {
 
   it("the issue's own profile beats its parent's and the mission's", async () => {
     const { svc, spawnSession, p, task } = await mission()
-    await svc.crud.update(task.id, { agentProfile: 'p-parent' })
-    const proposal = await svc.crud.create({
+    await svc.crud.update(svc.reports.store.serverWriter, task.id, { agentProfile: 'p-parent' })
+    const proposal = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Own',
       startNow: false,
@@ -209,8 +209,8 @@ describe('agent profile inheritance on start', () => {
 
   it("falls back to the parent's profile", async () => {
     const { svc, spawnSession, p, task } = await mission()
-    await svc.crud.update(task.id, { agentProfile: 'p-parent' })
-    const proposal = await svc.crud.create({
+    await svc.crud.update(svc.reports.store.serverWriter, task.id, { agentProfile: 'p-parent' })
+    const proposal = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Here',
       startNow: false,
@@ -230,7 +230,7 @@ describe('agent profile inheritance on start', () => {
 
   it("falls back to the mission's profile through a parent without one", async () => {
     const { svc, spawnSession, p, task } = await mission()
-    const proposal = await svc.crud.create({
+    const proposal = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Here',
       startNow: false,
@@ -247,14 +247,14 @@ describe('agent profile inheritance on start', () => {
 
   it('an own-issue proposal uses the mission it was discovered from, not the origin task', async () => {
     const { svc, spawnSession, p, task } = await mission()
-    await svc.crud.update(task.id, { agentProfile: 'p-parent' })
-    const proposal = await svc.crud.create({
+    await svc.crud.update(svc.reports.store.serverWriter, task.id, { agentProfile: 'p-parent' })
+    const proposal = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Own issue',
       startNow: false,
       stage: 'proposed',
     })
-    await svc.hierarchy.addDep(proposal.id, task.id, 'discovered-from')
+    await svc.hierarchy.addDep(svc.reports.store.serverWriter, proposal.id, task.id, 'discovered-from')
     const started = await svc.gitWorkflow.start(proposal.id)
     expect(spawnedWith(spawnSession)).toMatchObject({ agentProfileId: p.mission.id })
     // Starting keeps the placement: still top level, still discovered from the task.
@@ -266,8 +266,8 @@ describe('agent profile inheritance on start', () => {
 
   it('with no profile anywhere the launch is the issue fields and Settings, as before', async () => {
     const { svc, spawnSession } = await harness()
-    const root = await svc.crud.create({ repoPath: '/r', title: 'Bare', startNow: false })
-    const proposal = await svc.crud.create({
+    const root = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'Bare', startNow: false })
+    const proposal = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Bare child',
       startNow: false,
@@ -284,7 +284,7 @@ describe('agent profile inheritance on start', () => {
 
   it('a harness pick equal to the Settings default is still a pick (POD-6133)', async () => {
     const { svc, spawnSession, p, task } = await mission()
-    const proposal = await svc.crud.create({
+    const proposal = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Picked default',
       startNow: false,
@@ -302,7 +302,7 @@ describe('agent profile inheritance on start', () => {
 
   it("the issue's own picks ride on top of an inherited profile", async () => {
     const { svc, spawnSession, p, task } = await mission()
-    const proposal = await svc.crud.create({
+    const proposal = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Picked',
       startNow: false,
@@ -321,7 +321,7 @@ describe('agent profile inheritance on start', () => {
 
   it('a per-launch harness or --profile beats the inherited profile', async () => {
     const { svc, spawnSession, p, task } = await mission()
-    const named = await svc.crud.create({
+    const named = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Named harness',
       startNow: false,
@@ -333,7 +333,7 @@ describe('agent profile inheritance on start', () => {
       agentKind: 'claude-code',
       agentProfileId: p.mission.id,
     })
-    const profiled = await svc.crud.create({
+    const profiled = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Named profile',
       startNow: false,
@@ -346,21 +346,21 @@ describe('agent profile inheritance on start', () => {
 
   it('naming the Settings harness on an `auto` issue keeps its model; another harness resets it', async () => {
     const { svc, spawnSession } = await harness()
-    const issue = await svc.crud.create({
+    const issue = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Model picked',
       startNow: false,
       defaultModel: 'opus',
     })
-    expect(await svc.crud.update(issue.id, { defaultAgent: 'claude-code' })).toMatchObject({
+    expect(await svc.crud.update(svc.reports.store.serverWriter, issue.id, { defaultAgent: 'claude-code' })).toMatchObject({
       defaultAgent: 'claude-code',
       defaultModel: 'opus',
     })
-    expect(await svc.crud.update(issue.id, { defaultAgent: 'codex' })).toMatchObject({
+    expect(await svc.crud.update(svc.reports.store.serverWriter, issue.id, { defaultAgent: 'codex' })).toMatchObject({
       defaultAgent: 'codex',
       defaultModel: 'auto',
     })
-    const atStart = await svc.crud.create({
+    const atStart = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Start names default',
       startNow: false,
@@ -373,7 +373,7 @@ describe('agent profile inheritance on start', () => {
 
   it('add-session on a started issue inherits the same way', async () => {
     const { svc, spawnSession, p, task, sessions } = await mission()
-    const child = await svc.crud.create({
+    const child = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Child',
       startNow: false,
@@ -395,7 +395,7 @@ describe('agent profile inheritance on start', () => {
 describe('start failures and retries', () => {
   it('a proposal whose spawn fails goes back to proposed; the retry spawns from the same worktree', async () => {
     const { svc, spawnSession, repoOp } = await harness()
-    const proposal = await svc.crud.create({
+    const proposal = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Flaky',
       startNow: false,
@@ -417,7 +417,7 @@ describe('start failures and retries', () => {
 
   it('a non-proposal keeps its started stage after a failed spawn, and a retry still spawns', async () => {
     const { svc, spawnSession } = await harness()
-    const issue = await svc.crud.create({ repoPath: '/r', title: 'Backlog', startNow: false })
+    const issue = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'Backlog', startNow: false })
     spawnSession.mockRejectedValueOnce(new Error('machine offline'))
     await expect(svc.gitWorkflow.start(issue.id)).rejects.toThrow(/offline/)
     expect(await svc.reports.get(issue.id)).toMatchObject({ stage: 'in_progress' })
@@ -428,7 +428,7 @@ describe('start failures and retries', () => {
 
   it('starting an issue that already has a session is still a no-op', async () => {
     const { svc, spawnSession, sessions } = await harness()
-    const issue = await svc.crud.create({ repoPath: '/r', title: 'Once', startNow: false })
+    const issue = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'Once', startNow: false })
     const started = await svc.gitWorkflow.start(issue.id)
     sessions.push(sessionOn(issue.id, started.worktreePath as string))
     const again = await svc.gitWorkflow.start(issue.id)
@@ -438,7 +438,7 @@ describe('start failures and retries', () => {
 
   it('two starts of the same issue at once launch one session', async () => {
     const { svc, spawnSession, repoOp } = await harness()
-    const proposal = await svc.crud.create({
+    const proposal = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Double click',
       startNow: false,

@@ -126,6 +126,7 @@ export function registerFleetCommands(registry: SyncWriteRegistry, deps: FleetSy
           authz: await authzFor(deps, ctx.principal),
           repos: deps.repos(),
           store: deps.store(),
+          writer: ctx.ledger,
         }
         try {
           return await run({ env, input })

@@ -1,3 +1,4 @@
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { asIssueId, asSessionId, asUserId, firstAdminMemberId,  } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { IssueRow, SessionStore } from './store'
@@ -114,7 +115,7 @@ function baseRow(over: Partial<IssueRow> = {}): IssueRow {
 describe('needs-human question metadata round-trip (issue #53)', () => {
   it('persists options/askedBy/askedAt; corrupt options quarantine to null', async () => {
     const store = await openIssueStore()
-    await store.issues.upsertIssue(
+    await store.issues.upsertIssue(fixtureWriteScope(), 
       baseRow({
         needsHuman: true,
         humanQuestion: 'merge?',
@@ -128,7 +129,7 @@ describe('needs-human question metadata round-trip (issue #53)', () => {
     expect(back.humanQuestionAskedBy).toBe('sess_1')
     expect(back.humanQuestionAskedAt).toBe('2026-07-14T00:00:00.000Z')
     // A row literal without the optional fields (legacy shape) reads back null.
-    await store.issues.upsertIssue(
+    await store.issues.upsertIssue(fixtureWriteScope(), 
       baseRow({ id: asIssueId('iss_plain'), seq: 2, needsHuman: true }),
     )
     const plain = (await store.issues.getIssue('iss_plain'))!
@@ -147,7 +148,7 @@ describe('needs-human question metadata round-trip (issue #53)', () => {
 /** Seed bare parent issues — FKs (migration 006) require referenced rows to exist. */
 async function seedIssues(store: SessionStore, ...ids: string[]): Promise<void> {
   for (const [i, id] of ids.entries()) {
-    await store.issues.upsertIssue(baseRow({ id: asIssueId(id), seq: 100 + i }))
+    await store.issues.upsertIssue(fixtureWriteScope(), baseRow({ id: asIssueId(id), seq: 100 + i }))
   }
 }
 
@@ -155,7 +156,7 @@ describe('IssueRow rich fields round-trip (P1)', () => {
   it('persists and reads back new fields', async () => {
     const store = await openIssueStore()
     await seedIssues(store, 'iss_epic', 'iss_new', 'iss_canon')
-    await store.issues.upsertIssue(
+    await store.issues.upsertIssue(fixtureWriteScope(), 
       baseRow({
         priority: 0,
         type: 'decision',
@@ -182,7 +183,7 @@ describe('IssueRow rich fields round-trip (P1)', () => {
 
   it('defaults are applied for a minimal legacy-style insert', async () => {
     const store = await openIssueStore()
-    await store.issues.upsertIssue(baseRow())
+    await store.issues.upsertIssue(fixtureWriteScope(), baseRow())
     const r = (await store.issues.getIssue('iss_x'))!
     expect(r.priority).toBe(2)
     expect(r.type).toBe('task')
@@ -206,11 +207,11 @@ describe('per-user issue state (POD-1076)', () => {
 
   it('persists all three markers on ONE (userId, issueId) row, per user', async () => {
     const store = await openIssueStore()
-    await store.issues.upsertIssue(baseRow({ id: asIssueId('iss_read') }))
+    await store.issues.upsertIssue(fixtureWriteScope(), baseRow({ id: asIssueId('iss_read') }))
     // Distinct seq — UNIQUE(repo_path, seq) is enforced since migration 004.
-    await store.issues.upsertIssue(baseRow({ id: asIssueId('iss_untouched'), seq: 2 }))
+    await store.issues.upsertIssue(fixtureWriteScope(), baseRow({ id: asIssueId('iss_untouched'), seq: 2 }))
 
-    await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId('iss_read'), {
+    await store.issues.setIssueUserState(fixtureWriteScope(), firstAdminMemberId(), asIssueId('iss_read'), {
       readAt: '2026-07-07T00:00:00.000Z',
       pinnedAt: '2026-07-08T00:00:00.000Z',
     })
@@ -229,7 +230,7 @@ describe('per-user issue state (POD-1076)', () => {
     // The PARTIAL patch: writing readAt must not disturb pinnedAt. This is the
     // whole reason the method takes a patch rather than a row — a whole-row
     // upsert makes "marking it read un-pinned it" a one-line mistake.
-    await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId('iss_read'), {
+    await store.issues.setIssueUserState(fixtureWriteScope(), firstAdminMemberId(), asIssueId('iss_read'), {
       readAt: '2026-07-09T00:00:00.000Z',
     })
     expect(
@@ -246,7 +247,7 @@ describe('per-user issue state (POD-1076)', () => {
     ).toBeUndefined()
 
     // Clearing every marker DELETES the row rather than leaving three nulls.
-    await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId('iss_read'), {
+    await store.issues.setIssueUserState(fixtureWriteScope(), firstAdminMemberId(), asIssueId('iss_read'), {
       readAt: null,
       pinnedAt: null,
     })
@@ -255,7 +256,7 @@ describe('per-user issue state (POD-1076)', () => {
     ).toBeUndefined()
 
     // A write with no identity fails CLOSED; it never falls back to an operator.
-    await expect(store.issues.setIssueUserState(asUserId(''), asIssueId('iss_read'), { readAt: 't' }),
+    await expect(store.issues.setIssueUserState(fixtureWriteScope(), asUserId(''), asIssueId('iss_read'), { readAt: 't' }),
     ).rejects.toThrow(/no user id/)
     await store.close()
   })
@@ -266,9 +267,9 @@ describe('issue soft-delete persistence', () => {
     const store = await openIssueStore()
     expect(issueColumns(store).has('deleted_at')).toBe(true)
     const deletedAt = '2026-07-13T10:00:00.000Z'
-    await store.issues.upsertIssue(baseRow({ deletedAt }))
+    await store.issues.upsertIssue(fixtureWriteScope(), baseRow({ deletedAt }))
     expect((await store.issues.getIssue('iss_x'))?.deletedAt).toBe(deletedAt)
-    await store.issues.upsertIssue(baseRow())
+    await store.issues.upsertIssue(fixtureWriteScope(), baseRow())
     expect((await store.issues.getIssue('iss_x'))?.deletedAt).toBeNull()
   })
 })
@@ -282,7 +283,7 @@ describe('needs_human data layer (P4)', () => {
 
   it('persists needsHuman + humanQuestion round-trip', async () => {
     const store = await openIssueStore()
-    await store.issues.upsertIssue(
+    await store.issues.upsertIssue(fixtureWriteScope(), 
       baseRow({ id: asIssueId('iss_x'), needsHuman: true, humanQuestion: 'which API key?' }),
     )
     const got = (await store.issues.getIssue('iss_x'))!
@@ -292,7 +293,7 @@ describe('needs_human data layer (P4)', () => {
 
   it('defaults needsHuman=false / humanQuestion=null when unset', async () => {
     const store = await openIssueStore()
-    await store.issues.upsertIssue(
+    await store.issues.upsertIssue(fixtureWriteScope(), 
       baseRow({ id: asIssueId('iss_y'), needsHuman: false, humanQuestion: null }),
     )
     const y = (await store.issues.getIssue('iss_y'))!

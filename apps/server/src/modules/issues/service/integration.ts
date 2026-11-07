@@ -298,9 +298,16 @@ export class IssueEpicIntegrationModule {
       .filter((c) => c.author === 'system:integrate')
       .at(-1)
     if (prior?.body !== summary)
-      await this.commentsMail().addComment(row.id, 'system:integrate', summary, principal)
+      await this.commentsMail().addComment(
+        this.store.serverWriter,
+        row.id,
+        'system:integrate',
+        summary,
+        principal,
+      )
     if (blockedAt != null) {
       await this.attention().setNeedsHuman(
+        this.store.serverWriter,
         row.id,
         `integration blocked at #${blockedAt}: ${blockedWhy}`,
       )

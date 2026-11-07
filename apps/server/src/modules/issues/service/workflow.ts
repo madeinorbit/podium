@@ -43,7 +43,7 @@ import { IssueEpicIntegrationModule } from './integration'
 import type { IssueCommentsMailModule } from './mail'
 import { missingParentBranchRefusal } from './parent-branch'
 import { IssueRefusal } from './refusal'
-import type { CreateIssueInput } from './types'
+import type { CreateIssueInput, IssueWriter } from './types'
 import { IssueWorktreeGcModule } from './worktree-gc'
 import { parseGitWorktreeList, sameWorktreePath } from './worktree-safety'
 
@@ -211,7 +211,11 @@ export class IssueGitWorkflowModule {
    * POD-779. Refuses a target repo whose identity differs, which would silently
    * renumber the issue into another repo.
    */
-  async rehome(id: string, to: IssueRehomeTarget): Promise<IssueProjection | null> {
+  async rehome(
+    writer: IssueWriter,
+    id: string,
+    to: IssueRehomeTarget,
+  ): Promise<IssueProjection | null> {
     const row = await this.store.row(await this.store.resolveRef(id))
     if (!row) return null
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
@@ -222,6 +226,7 @@ export class IssueGitWorkflowModule {
     // assigned onto the map's row here, which left the new repoPath standing on
     // the shared object whether or not the update below committed.
     return await this.crud().update(
+      writer,
       id,
       {
         machineId: asMachineId(to.machineId),
@@ -624,7 +629,7 @@ export class IssueGitWorkflowModule {
       // work picked back up must not carry a stale fold into its next close.
       // PER-USER (POD-1076): clears the broadcast viewer's fold, which is what
       // this cleared when the stamp was a column.
-      await this.store.writeIssueUserState(row.id, { tuckedAt: null })
+      await this.store.writeIssueUserState(this.store.serverWriter, row.id, { tuckedAt: null })
     }
     /** What a failed spawn puts back (POD-6119), read off the draft this start writes. */
     const before = { stage: row.stage, assignee: row.assignee ?? null }
@@ -634,7 +639,7 @@ export class IssueGitWorkflowModule {
     // named rather than hidden: adjudicating whether the column holds a UserId or
     // an actor TAG is POD-1075's (accounts) call, not this sweep's.
     row.assignee = asUserId(`agent:${launch.agent}`)
-    const wire = await this.store.persistRow(row)
+    const wire = await this.store.persistRow(this.store.serverWriter, row)
     if (wasClosed) {
       await this.store.emitEvent('issue.reopened', row.id, {
         seq: row.seq,
@@ -738,7 +743,7 @@ export class IssueGitWorkflowModule {
       if (row.stage !== 'in_progress' || (await this.store.factsFor(row)).length > 0) return
       row.stage = 'proposed'
       row.assignee = assignee
-      await this.store.persistRow(row)
+      await this.store.persistRow(this.store.serverWriter, row)
     } catch (err) {
       log.warn('could not return a proposal to proposed after its start failed', {
         err,
@@ -748,10 +753,11 @@ export class IssueGitWorkflowModule {
   }
 
   async createAndMaybeStart(
+    writer: IssueWriter,
     input: CreateIssueInput,
     opts?: { spawnedBy?: string },
   ): Promise<IssueProjection> {
-    const created = await this.crud().create(input)
+    const created = await this.crud().create(writer, input)
     return input.startNow
       ? await this.start(created.id, undefined, {
           ...opts,
@@ -819,7 +825,7 @@ export class IssueGitWorkflowModule {
         const url = r.output.match(/https?:\/\/\S+/)?.[0]
         if (url) row.prUrl = url
       }
-      return { ...r, issue: await this.store.persistRow(row) }
+      return { ...r, issue: await this.store.persistRow(this.store.serverWriter, row) }
     }
     // merge
     if (gw.autoRebaseBeforeMerge) {
@@ -879,7 +885,7 @@ export class IssueGitWorkflowModule {
       const row = await this.store.draftOrThrow(id)
       row.landedAt = new Date().toISOString()
       if (sha !== undefined) row.landedSha = sha
-      await this.store.persistRow(row)
+      await this.store.persistRow(this.store.serverWriter, row)
     }
     // The merge axis is a fact we just produced [POD-2151], not one to infer:
     // write it before close() frees the worktree, so the close broadcast
@@ -897,7 +903,7 @@ export class IssueGitWorkflowModule {
       merged: true,
       ahead: 0,
     })
-    const issue = await this.crud().close(id, 'done')
+    const issue = await this.crud().close(this.store.serverWriter, id, 'done')
     // This branch just landed [POD-384]: settle its merge axis now, so the
     // operator who pressed merge sees the "ready to merge" chip go rather than
     // watching it outlive the merge until the next watch tick. Siblings whose
@@ -1028,7 +1034,7 @@ export class IssueGitWorkflowModule {
     if (!recorded && registered.branch) {
       const row = await this.store.draftOrThrow(id)
       row.branch = registered.branch
-      await this.store.persistRow(row)
+      await this.store.persistRow(this.store.serverWriter, row)
       return { ok: true, branch: registered.branch, head: registered.head }
     }
     if (recorded) return { ok: true, branch: recorded, head: registered.head }
@@ -1128,7 +1134,7 @@ export class IssueGitWorkflowModule {
     if (!st.ok && /cannot change to .*: no such file or directory/i.test(st.output)) {
       const row = await this.store.draftOrThrow(id)
       row.worktreePath = null
-      await this.store.persistRow(row)
+      await this.store.persistRow(this.store.serverWriter, row)
       this.store.d.onWorktreesChanged?.(row.repoPath, machineId)
       await this.releaseDockShells(worktreePath)
       return {
@@ -1168,9 +1174,10 @@ export class IssueGitWorkflowModule {
     if (!wr.ok) return await refuse(`worktree remove failed: ${wr.output}`)
     const row = await this.store.draftOrThrow(id)
     row.worktreePath = null
-    await this.store.persistRow(row)
+    await this.store.persistRow(this.store.serverWriter, row)
     this.store.d.onWorktreesChanged?.(row.repoPath, machineId)
     const issue = await this.commentsMail().addComment(
+      this.store.serverWriter,
       row.id,
       `system:${job}`,
       `${job}: freed worktree ${worktreePath}; ${kept}`,
@@ -1396,7 +1403,7 @@ export class IssueGitWorkflowModule {
         const confirmed = await this.store.draftOrThrow(id)
         if (confirmed.machineId === null) {
           confirmed.machineId = statusMachineId
-          await this.store.persistRow(confirmed)
+          await this.store.persistRow(this.store.serverWriter, confirmed)
         }
         return {
           ok: true,
@@ -1459,7 +1466,7 @@ export class IssueGitWorkflowModule {
     row.repoPath = repoPath
     row.machineId = asMachineId(worktreeMachineId)
     row.worktreePath = path
-    await this.store.persistRow(row)
+    await this.store.persistRow(this.store.serverWriter, row)
     this.store.d.onWorktreesChanged?.(row.repoPath, row.machineId ?? undefined)
     return {
       ok: true,
@@ -1568,8 +1575,9 @@ export class IssueGitWorkflowModule {
       if (!bd.ok) return await refuse(this.branchDeleteRefusal(branch, parentBranch, bd.output))
       const row = await this.store.draftOrThrow(id)
       row.branch = null
-      await this.store.persistRow(row)
+      await this.store.persistRow(this.store.serverWriter, row)
       const issue = await this.commentsMail().addComment(
+        this.store.serverWriter,
         rowId,
         'system:cleanup',
         `cleanup: deleted merged branch '${branch}' (worktree was already removed)`,
@@ -1593,9 +1601,10 @@ export class IssueGitWorkflowModule {
       const row = await this.store.draftOrThrow(id)
       row.worktreePath = null
       row.branch = null
-      await this.store.persistRow(row)
+      await this.store.persistRow(this.store.serverWriter, row)
       this.store.d.onWorktreesChanged?.(repoPath, machineId)
       const issue = await this.commentsMail().addComment(
+        this.store.serverWriter,
         rowId,
         'system:cleanup',
         `cleanup: worktree ${worktreePath} already gone; cleared recorded worktree/branch (${recordedBranch ?? 'none'})`,
@@ -1652,10 +1661,11 @@ export class IssueGitWorkflowModule {
     if (!wr.ok) return await refuse(`worktree remove failed: ${wr.output}`)
     const removed = await this.store.draftOrThrow(id)
     removed.worktreePath = null
-    await this.store.persistRow(removed) // columns reflect reality even if branch delete refuses below
+    await this.store.persistRow(this.store.serverWriter, removed) // columns reflect reality even if branch delete refuses below
     this.store.d.onWorktreesChanged?.(repoPath, machineId)
     if (!branch) {
       const issue = await this.commentsMail().addComment(
+        this.store.serverWriter,
         rowId,
         'system:cleanup',
         `cleanup: removed detached worktree ${worktreePath}; HEAD ${authority.head} remains reachable from another ref`,
@@ -1678,6 +1688,7 @@ export class IssueGitWorkflowModule {
     if (!bd.ok) {
       const why = this.branchDeleteRefusal(branch, parentBranch, bd.output)
       const issue = await this.commentsMail().addComment(
+        this.store.serverWriter,
         rowId,
         'system:cleanup',
         `cleanup: removed worktree ${worktreePath}; branch '${branch}' NOT deleted: ${why}`,
@@ -1694,8 +1705,9 @@ export class IssueGitWorkflowModule {
     // window this issue is about [POD-3375].
     const deleted = await this.store.draftOrThrow(id)
     deleted.branch = null
-    await this.store.persistRow(deleted)
+    await this.store.persistRow(this.store.serverWriter, deleted)
     const issue = await this.commentsMail().addComment(
+      this.store.serverWriter,
       rowId,
       'system:cleanup',
       `cleanup: removed worktree ${worktreePath} and deleted merged branch '${branch}'`,
@@ -1877,7 +1889,7 @@ export class IssueGitWorkflowModule {
     for (const row of deferred) {
       if (row.deferUntil !== DEFER_NEXT_MESSAGE || row.deletedAt) continue
       if (sessionsForIssue(row.worktreePath, [sess], row.id).length > 0)
-        await this.crud().defer(row.id, null)
+        await this.crud().defer(this.store.serverWriter, row.id, null)
     }
   }
 
@@ -2064,7 +2076,8 @@ export class IssueGitWorkflowModule {
       } while (refresh.rerun)
       if (changed) {
         const current = await this.store.row(id)
-        if (current && !current.deletedAt) await this.store.broadcastIssue(current)
+        if (current && !current.deletedAt)
+          await this.store.broadcastIssue(this.store.serverWriter, current)
       }
     })().finally(() => {
       if (this.gitRefreshes.get(id) === refresh) this.gitRefreshes.delete(id)

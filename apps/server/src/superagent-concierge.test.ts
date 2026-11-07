@@ -186,7 +186,7 @@ async function harness(opts?: { eventReadLimit?: number }) {
     }),
   )
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  await repos.add('/r') // conciergeTurn rejects unregistered repos
+  await repos.add(repos.serverWriter, '/r') // conciergeTurn rejects unregistered repos
   const sa = await SuperagentService.create(registry.modules, repos, registry.sessionStore, opts)
   await sa.history(firstAdminMemberId())
   await sa.startBtwTurn({ ownerUserId: firstAdminMemberId(), sessionId: asSessionId('s1') })
@@ -316,17 +316,21 @@ describe('concierge threads (issue #64)', () => {
 
   it('seeds a new thread with ready/needs-human/session lines from the tracker', async () => {
     const { registry, sa, turnReqs } = await harness()
-    const ready = await registry.issues.crud.create({
+    const ready = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Fix login',
       startNow: false,
     })
-    const asking = await registry.issues.crud.create({
+    const asking = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Deploy',
       startNow: false,
     })
-    await registry.issues.crud.setNeedsHuman(asking.id, 'Which region?')
+    await registry.issues.crud.setNeedsHuman(
+      registry.issues.reports.store.serverWriter,
+      asking.id,
+      'Which region?',
+    )
     await registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/r',
@@ -345,7 +349,11 @@ describe('concierge threads (issue #64)', () => {
 
   it('gates start-capable tools behind confirmed:true on concierge threads', async () => {
     const { registry, sa } = await harness()
-    const issue = await registry.issues.crud.create({ repoPath: '/r', title: 'X', startNow: false })
+    const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'X',
+      startNow: false,
+    })
     const tid = conciergeThreadId('/r')
     // Unconfirmed → refused, nothing spawned, issue untouched.
     expect(await sa.callMcpTool('issue_start', { id: issue.id }, tid)).toBe(NOT_CONFIRMED_MSG)
@@ -495,7 +503,7 @@ describe('concierge threads (issue #64)', () => {
 
     it('attaches the confirmed-gate for a concierge thread token', async () => {
       const { registry, sa, call } = await httpHarness()
-      const issue = await registry.issues.crud.create({
+      const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
         repoPath: '/r',
         title: 'X',
         startNow: false,
@@ -542,9 +550,21 @@ describe('concierge threads (issue #64)', () => {
     await sa.conciergeTurn({ ownerUserId: firstAdminMemberId(), repoPath: '/r', text: 'hi' })
     await settle()
     // 3 issue.created events > limit 2: first re-entry digests 2, second the rest.
-    await registry.issues.crud.create({ repoPath: '/r', title: 'A', startNow: false })
-    await registry.issues.crud.create({ repoPath: '/r', title: 'B', startNow: false })
-    await registry.issues.crud.create({ repoPath: '/r', title: 'C', startNow: false })
+    await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
+    await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'B',
+      startNow: false,
+    })
+    await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'C',
+      startNow: false,
+    })
     await sa.conciergeTurn({ ownerUserId: firstAdminMemberId(), repoPath: '/r', text: 'update?' })
     await settle()
     await vi.waitFor(() => expect(turnReqs).toHaveLength(2))
@@ -575,7 +595,7 @@ describe('search_all tool', () => {
   it('wraps the real searchAll: renders one line per typed hit plus the data payload', async () => {
     const { registry, sa } = await harness()
     registry.gateway.attachDaemon('m1', () => {})
-    const issue = await registry.issues.crud.create({
+    const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'replace the flux capacitor',
       description: 'it drifts',
@@ -618,7 +638,11 @@ describe('search_all tool', () => {
 
   it('filters by kinds and caps the limit', async () => {
     const { registry, sa } = await harness()
-    await registry.issues.crud.create({ repoPath: '/r', title: 'capacitor issue', startNow: false })
+    await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'capacitor issue',
+      startNow: false,
+    })
     const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',

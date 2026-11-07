@@ -22,6 +22,7 @@
  * train carries one of each.
  */
 
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { createHash } from 'node:crypto'
 import {
   asIssueId,
@@ -125,7 +126,7 @@ const shipOrder = (overrides: Partial<ShipOrder> = {}): ShipOrder =>
 describe('shipping: the order-to-issue lookups', () => {
   it('answers null for an order it does not hold, and the issue id for one it does', async () => {
     const s = await openTestStore(':memory:')
-    await s.issues.upsertIssue(baseIssue())
+    await s.issues.upsertIssue(fixtureWriteScope(), baseIssue())
     const order = shipOrder()
     await s.shipping.createOrder(order)
 
@@ -141,7 +142,7 @@ describe('shipping: the order-to-issue lookups', () => {
     const known: string[] = []
     for (let index = 0; index < 3; index += 1) {
       const issueId = asIssueId(`iss_many_${index}`)
-      await s.issues.upsertIssue({
+      await s.issues.upsertIssue(fixtureWriteScope(), {
         ...baseIssue(),
         id: issueId,
         seq: 10 + index,
@@ -183,7 +184,7 @@ describe('shipping: the order-to-issue lookups', () => {
     const ids: string[] = []
     for (let index = 0; index < total; index += 1) {
       const issueId = asIssueId(`iss_chunk_${index}`)
-      await s.issues.upsertIssue({
+      await s.issues.upsertIssue(fixtureWriteScope(), {
         ...baseIssue(),
         id: issueId,
         seq: 1000 + index,
@@ -215,7 +216,7 @@ async function claimedTrain(s: SessionStore) {
   const orders: ShipOrder[] = []
   for (const [index, suffix] of suffixes.entries()) {
     const issueId = asIssueId(`iss_train_${suffix}`)
-    await s.issues.upsertIssue({
+    await s.issues.upsertIssue(fixtureWriteScope(), {
       ...baseIssue(),
       id: issueId,
       seq: 70 + index,
