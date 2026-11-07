@@ -8,6 +8,7 @@
  */
 
 import { AGENT_PROFILE_SYNC_FAMILY } from '../agent-profiles/sync-write'
+import { APPROVAL_REQUEST_COMMAND, registerApprovalRequest } from '../approvals/request-sync-write'
 import { APPROVAL_SYNC_FAMILY } from '../approvals/sync-write'
 import { AUTOMATION_SYNC_FAMILY } from '../automations/sync-write'
 import { CONVERSATION_SYNC_FAMILY } from '../conversations/sync-write'
@@ -73,6 +74,8 @@ export const FAMILY_COMMAND_NAMES = [
   ...OFFER_SYNC_COMMANDS,
   // An agent's name for its own session (POD-6601).
   SESSION_TITLE_COMMAND,
+  // An agent's approval request, on its own session (POD-6603).
+  APPROVAL_REQUEST_COMMAND,
   // The dock shell for a worktree; its start is an effect record (POD-6419).
   ...SHELL_SYNC_COMMANDS,
   // Agent mail, and the claim an agent's await retires (POD-6525).
@@ -104,6 +107,7 @@ export function registerFamilyCommands(registry: SyncWriteRegistry, deps: Family
   registerSessionFamilyCommands(registry, deps)
   registerOfferCommands(registry, deps)
   registerSessionTitle(registry, deps)
+  registerApprovalRequest(registry, deps)
   registerShellCommands(registry, deps)
   registerFleetCommands(registry, { ...deps.fleet, modules: deps.modules, roleOf: deps.roleOf })
 }

@@ -141,11 +141,7 @@ export const RELAY_ARMS: Readonly<Record<string, RelayArm>> = {
   'messages.spawnAgent': entry('mail.spawnAgent'),
   // A wait; its one write is the claim it retires.
   'messages.awaitAgent': entry('mail.awaitObserved'),
-  'approvals.request': {
-    kind: 'direct',
-    what: 'files an approval request and appends its `issue.approval_requested` event',
-    owner: 'POD-6603',
-  },
+  'approvals.request': SYNC_ADAPTER,
   'approvals.get': READ,
   'workspace.fetch': {
     kind: 'not-synced',

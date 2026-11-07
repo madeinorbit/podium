@@ -559,7 +559,12 @@ export function makeAgentRelayDispatch(
       return NO_SUCH_PROCEDURE
     }
     if (router === 'approvals') {
-      if (proc === 'request') return await Promise.resolve(await approvals.request(input))
+      // An agent's approval request is a sync write on the calling session
+      // (`approvals/request-sync-write.ts`, POD-6603); this arm is the relay
+      // adapter onto `submit`. The gate bound the session and machine on.
+      if (proc === 'request') {
+        return await relaySyncWrite({ ...writeCall, input: input ?? {} }, await relayPrincipal())
+      }
       if (proc === 'get') return await Promise.resolve(await approvals.getFromAgent(input))
       return NO_SUCH_PROCEDURE
     }

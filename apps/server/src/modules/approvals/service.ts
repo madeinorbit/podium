@@ -229,8 +229,14 @@ export class ApprovalService {
 
   /** Relay entry (agent): file a request. Idempotent-ish — an identical op
    *  already pending for the same machine is returned instead of duplicated,
-   *  so an agent retrying doesn't stack popups. */
-  async request(input: unknown): Promise<{ id: string; status: string; message: string }> {
+   *  so an agent retrying doesn't stack popups. The row and its activity event
+   *  are written in `unit` (the `approvals.request` sync command, POD-6603);
+   *  the broadcast follows its commit. Without one (the service's own tests),
+   *  the broadcast runs at once. */
+  async request(
+    input: unknown,
+    unit?: Pick<ApprovalDecisionUnit, 'afterCommit'>,
+  ): Promise<{ id: string; status: string; message: string }> {
     const raw = (input ?? {}) as Record<string, unknown>
     const op = ApprovalOp.parse(raw.op)
     // DECODE EDGE: `input` is the untyped relay payload. The guard below refuses
@@ -261,7 +267,8 @@ export class ApprovalService {
     }
     await this.deps.store.insert(row)
     await this.log(row, 'issue.approval_requested')
-    await this.broadcast()
+    if (unit === undefined) await this.broadcast()
+    else unit.afterCommit(async () => await this.broadcast(), 'approvals.requested')
     return {
       id: row.id,
       status: 'pending',
