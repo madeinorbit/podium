@@ -60,11 +60,11 @@ import { dispatchSessionCommand, isCommandPlaneProc } from '../sessions/command-
 import type { SessionLifecycle } from '../sessions/lifecycle'
 import type { SessionReadToolkit } from '../sessions/read-toolkit'
 import { handoffThroughEffect } from '../sessions/session-handoff-effect'
-import { submitPlaneCommand } from '../sessions/sync-write'
 import { dispatchSpecRelay, NO_SUCH_SPEC_PROC } from '../specs/relay'
 import type { SpecsService } from '../specs/service'
 import { dispatchWorkflowRpc, workflowRelayWrite } from '../workflows/rpc'
 import type { WorkflowCaller, WorkflowService } from '../workflows/service'
+import { NOT_A_RELAY_WRITE, relayPlainWrite, relaySyncWrite } from '../write-routes/relay'
 import type { IssueCommandDispatcher } from './dispatcher'
 import type { AgentRelayGateDeps } from './relay-gate'
 import { NO_SUCH_PROCEDURE } from './relay-gate'
@@ -185,6 +185,16 @@ export function makeAgentRelayDispatch(
         parentSessionOf: async (sessionId) =>
           spawnedByParentSessionId((await sessionsSvc.sessionById(sessionId))?.spawnedBy),
       })
+    // The relay write adapter (`write-routes/relay.ts`, POD-6593): a write whose
+    // registration the relay reaches by name.
+    const writeCall = {
+      router,
+      proc,
+      input,
+      caller: { capability, ...(overrideScope ? { overrideScope } : {}) },
+      modules: modules(),
+      principal: relayPrincipal,
+    }
     // The sync write entry point's relay adapter (ADR 12 D2, POD-6413). The gate
     // has bound the relay context onto the envelope's input and checked its
     // command against the allowlist; the entry point does the rest. The agent's
@@ -259,13 +269,18 @@ export function makeAgentRelayDispatch(
       return await Promise.resolve({ machineId: machine.id, requested: true })
     }
     if (router === 'specs') {
-      // Writes on the plain command path, reads the service's own (POD-6418).
-      const answer = await dispatchSpecRelay(specs, relayPrincipal, proc, input)
+      // Writes are plain registrations (POD-6418, POD-6593); reads the service's own.
+      const written = await relayPlainWrite(writeCall)
+      if (written !== NOT_A_RELAY_WRITE) return written
+      const answer = await dispatchSpecRelay(specs, proc, input)
       return answer === NO_SUCH_SPEC_PROC ? NO_SUCH_PROCEDURE : answer
     }
     // Advisory lease locks [spec:SP-85d1]: the caller's session identity is
     // stamped server-side via the capability (actorSessionId), never from input.
+    // Writes are plain registrations (POD-6593); `status` is the dispatcher's read.
     if (router === 'lock') {
+      const written = await relayPlainWrite(writeCall)
+      if (written !== NOT_A_RELAY_WRITE) return written
       return await lockCommands.dispatch(
         { capability, ...(overrideScope ? { overrideScope } : {}) },
         proc,
@@ -345,11 +360,7 @@ export function makeAgentRelayDispatch(
     // Removing it breaks that CLI's offers against this server.
     if (router === 'offer') {
       if (proc !== 'set' && proc !== 'clear') return NO_SUCH_PROCEDURE
-      return await submitPlaneCommand(modules(), await relayPrincipal(), 'relay', {
-        command: `offer.${proc}`,
-        input: input ?? {},
-        confirmed: overrideScope === true,
-      })
+      return await relaySyncWrite({ ...writeCall, input: input ?? {} }, await relayPrincipal())
     }
     if (router === 'sessions') {
       // Read toolkit tiers 1–2 (#237) [spec:SP-34d7 read-toolkit]: status is
@@ -556,11 +567,7 @@ export function makeAgentRelayDispatch(
       // older CLI's `podium session continue`) call it; removing it breaks them.
       if (proc === 'continue' || proc === 'sendText' || proc === 'resumeAndSend') {
         const ctx = await sessionCommandCtx(modules(), capability, overrideScope, 'relay')
-        return await submitPlaneCommand(modules(), ctx.principal, 'relay', {
-          command: `sessions.${proc}`,
-          input,
-          ...(overrideScope ? { confirmed: true } : {}),
-        })
+        return await relaySyncWrite(writeCall, ctx.principal)
       }
       if (isCommandPlaneProc(proc) && isExposedOn(sessionCommandPlane.defs[proc], 'relay')) {
         return await Promise.resolve(

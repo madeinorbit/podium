@@ -1001,9 +1001,9 @@ export const UPDATE_PLAIN_REGISTRATIONS: readonly PlainDefRegistration[] = (
 ).map((name) => ({
   name: `updates.${name}`,
   def: updateCommands.defs[name],
-  handle: async (ctx, input) =>
+  handle: async (ctx, input, source) =>
     await (UPDATE_PLAIN_HANDLERS[name] as UpdateHandler<UpdateCommandName>)(
-      trpcRequest(ctx),
+      trpcRequest(ctx, source),
       input as never,
     ),
 }))

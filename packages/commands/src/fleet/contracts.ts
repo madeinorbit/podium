@@ -841,7 +841,10 @@ export const machinePairingCodeContract = {
   visibility: 'secret',
   input: machinePairingCodeInput,
   policy: {
-    action: 'manage',
+    // `write`, not `manage`: the coarse check reads `manage` as admin-only, and a
+    // retained machine's member grantee may mint its replacement code. Who may
+    // mint which code is the fleet gate's (POD-6593), as the rationale says.
+    action: 'write',
     roleFloor: 'member',
     resource: 'secret',
     confirmation: 'confirm',

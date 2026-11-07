@@ -380,10 +380,19 @@ export const machinePairingCodeHandler = async ({
     ? await mods(ctx).machines.mintReplacementPairingCode(asMachineId(input.replaceMachineId), grant, principal.capability.role === 'admin')
     : mods(ctx).machines.mintPairingCode(grant)
 
-  return {
-    code,
-    joinCommand: ports.joinCommand(code, input?.podiumManaged ?? true, ctx.workspaceId, mods(ctx).updates.fleetDefaultChannel()),
-  }
+  return { code, joinCommand: pairingJoinCommand({ ctx, input, ports }, code) }
+}
+
+/**
+ * The `podium join …` line for a minted code, from the composition's port. Apart
+ * from the mint because the port is the router's (`router.ts`): the plain
+ * registration mints, and its route adds the line (POD-6593).
+ */
+export function pairingJoinCommand(
+  { ctx, input, ports }: FleetArgs<{ podiumManaged?: boolean } | undefined>,
+  code: string,
+): string | null {
+  return ports.joinCommand(code, input?.podiumManaged ?? true, ctx.workspaceId, mods(ctx).updates.fleetDefaultChannel())
 }
 
 /**

@@ -5,6 +5,7 @@
  * the caller over the composed lock service. Served on tRPC and the relay alike.
  */
 
+import { TRPCError } from '@trpc/server'
 import type { PlainDefRegistration } from '../plain-command/registry'
 import { type AnyLockCommandDef, lockRegistry } from './registry'
 
@@ -14,6 +15,6 @@ export const LOCK_PLAIN_REGISTRATIONS: readonly PlainDefRegistration[] =
     .map(([proc, def]) => ({
       name: `lock.${proc}`,
       def,
-      handle: async (ctx, input) =>
-        await ctx.modules.lockCommands.run(ctx.caller, proc, def, input),
+      handle: async (_ctx, input, { caller, modules }) =>
+        await modules.lockCommands.run(caller, proc, def, input),
     }))

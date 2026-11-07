@@ -36,38 +36,44 @@ import {
 } from './entry'
 
 /**
- * What a plain handler gets: who is asking, the command, the caller as issue
- * authorization reads it, and the composed modules. No writer: a plain command
- * cannot write synced data.
+ * What a plain handler gets (ADR 12 D9): its {@link PlainContext} (who is asking
+ * and which command; no writer, so a plain command cannot write synced data),
+ * the parsed input, and where the call came from: the caller as issue
+ * authorization reads it, and the composed modules its service is selected from.
  *
  * `request` is the tRPC context, on a tRPC call only: a family whose service
  * reads more than the modules (the instance's config, the accounts repository,
  * the request's repos) selects it from there ({@link trpcRequest}), and such a
  * command is served on tRPC alone.
  */
-export interface PlainHandlerContext extends PlainContext {
+export interface PlainCallSource {
   readonly caller: IssueCaller
   readonly modules: RegistryModules
   readonly request?: Context | undefined
 }
 
 /** The tRPC request a tRPC-only plain handler selects its service from. */
-export function trpcRequest(ctx: PlainHandlerContext): Context {
-  if (ctx.request === undefined) {
+export function trpcRequest(ctx: PlainContext, source: PlainCallSource): Context {
+  if (source.request === undefined) {
     throw new Error(
       `plain command: ${ctx.command} is served on tRPC only, and this call has no tRPC request`,
     )
   }
-  return ctx.request
+  return source.request
 }
 
-type PlainHandle = (ctx: PlainHandlerContext, input: unknown) => unknown
+type PlainHandle = (ctx: PlainContext, input: unknown, source: PlainCallSource) => unknown
+
+/** What the relay adapter throws for a coarse or target refusal, when the
+ *  command's own words are not `<name> is not permitted for this caller`. */
+type RelayRefusal = () => Error
 
 /** A registration over an ADR 3 `CommandContract`. */
 export interface PlainContractRegistration {
   readonly contract: AnyCommandContract
   readonly targetPermitted?: PlainTargetCheck | undefined
   readonly handle: PlainHandle
+  readonly refusedOnRelay?: RelayRefusal | undefined
 }
 
 /** A registration over a `defineCommands` entry, which carries no name of its own. */
@@ -77,6 +83,7 @@ export interface PlainDefRegistration {
   readonly def: CommandDef
   readonly targetPermitted?: PlainTargetCheck | undefined
   readonly handle: PlainHandle
+  readonly refusedOnRelay?: RelayRefusal | undefined
 }
 
 export type PlainRegistration = PlainContractRegistration | PlainDefRegistration
@@ -124,10 +131,11 @@ export class PlainCommandRegistry {
     if (command === undefined) throw new Error(`plain command: no registration named ${name}`)
     const { registration } = command
     const run = async (input: unknown, ctx: PlainContext) =>
-      await registration.handle(
-        { ...ctx, caller: call.caller, modules: call.modules, request: call.request },
-        input,
-      )
+      await registration.handle(ctx, input, {
+        caller: call.caller,
+        modules: call.modules,
+        request: call.request,
+      })
     const common = {
       principal: call.principal,
       transport: call.transport,

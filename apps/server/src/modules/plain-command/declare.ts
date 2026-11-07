@@ -7,6 +7,7 @@
  */
 
 import type { CommandPrincipal } from '../../command-principal'
+import type { RegistryModules } from '../../relay'
 import { type AnyDerivedCommand, type FamilyState, familyState } from '../derived-family'
 import type { PlainTargetCheck } from './entry'
 import { type PlainContractRegistration, trpcRequest } from './registry'
@@ -23,6 +24,12 @@ export interface PlainFamily<Svc, C extends Record<string, AnyDerivedCommand>> {
   /** The router key, for messages. */
   readonly family: string
   readonly service: (state: FamilyState, principal?: CommandPrincipal) => Svc
+  /**
+   * The service from the composed modules alone, for a family whose commands are
+   * also served on the relay, which has no tRPC request to build `FamilyState`
+   * from. When present, every transport's call selects through it.
+   */
+  readonly fromModules?: (modules: RegistryModules) => Svc
   readonly commands: C
 }
 
@@ -38,7 +45,12 @@ export function plainFamilyRegistrations<Svc, C extends Record<string, AnyDerive
   return (Object.values(family.commands) as PlainCommandEntry[]).map((command) => ({
     contract: command.contract,
     targetPermitted: command.targetPermitted,
-    handle: (ctx, input) =>
-      command.handler(family.service(familyState(trpcRequest(ctx)), ctx.principal), input),
+    handle: (ctx, input, source) =>
+      command.handler(
+        family.fromModules !== undefined
+          ? family.fromModules(source.modules)
+          : family.service(familyState(trpcRequest(ctx, source)), ctx.principal),
+        input,
+      ),
   }))
 }

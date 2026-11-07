@@ -24,7 +24,7 @@ import type { RouteMeta } from '../../trpc'
 import { plainCommands } from '../plain-command/commands'
 import { PlainCommandRegistry } from '../plain-command/registry'
 import { disposeOracles, makeOracle } from '../sessions/oracle-support'
-import { DIRECT_WRITES, directRoute, isDirectWrite } from './direct'
+import { DIRECT_WRITE_OWNERS, DIRECT_WRITES, directRoute, isDirectWrite } from './direct'
 import { plainRoute } from './plain'
 import { syncRoute } from './sync'
 
@@ -104,6 +104,14 @@ describe('the served write routes', () => {
       .map((p) => p.meta?.registration)
       .sort()
     expect(routed).toEqual(Object.keys(DIRECT_WRITES).sort())
+  })
+
+  it('every direct write is owned by an issue that moves it onto a registration', () => {
+    const owners: readonly string[] = DIRECT_WRITE_OWNERS
+    const strays = Object.entries(DIRECT_WRITES)
+      .filter(([, spec]) => !owners.includes(spec.owner))
+      .map(([name]) => name)
+    expect(strays).toEqual([])
   })
 })
 

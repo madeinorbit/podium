@@ -5,5 +5,7 @@ import { SPEC_COMMANDS_TRPC } from './registry'
 export const SPEC_PLAIN_FAMILY = definePlainFamily({
   family: 'specs',
   service: (state) => state.modules.specs,
+  // `podium spec` writes come over the relay too (`write-routes/relay.ts`).
+  fromModules: (modules) => modules.specs,
   commands: SPEC_COMMANDS_TRPC,
 })

@@ -347,8 +347,8 @@ export const SETTINGS_PLAIN_REGISTRATIONS: readonly PlainContractRegistration[] 
   .filter(isPlainSettingsWrite)
   .map((name) => ({
     contract: SETTINGS_COMMANDS_TRPC[name].contract,
-    handle: async (ctx, input) => {
-      const { deps, service } = await settingsDepsOf(trpcRequest(ctx))()
+    handle: async (ctx, input, source) => {
+      const { deps, service } = await settingsDepsOf(trpcRequest(ctx, source))()
       return await settingsCommandWith(name, deps, service, input)
     },
   }))

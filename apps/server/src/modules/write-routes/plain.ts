@@ -27,6 +27,12 @@ export interface PlainRouteSpec {
   readonly refused?: PlainRefused
   /** A handler error as the route answers it (a redaction, a status code). */
   readonly failed?: (error: unknown, call: { readonly input: unknown }) => unknown
+  /** The applied result as this transport answers it, when the route adds what
+   *  only it has (a port of the router's). */
+  readonly answer?: (
+    result: unknown,
+    call: { readonly ctx: Context; readonly input: unknown },
+  ) => unknown
 }
 
 /** A route onto the plain entry for the registration named `name`. */
@@ -63,7 +69,9 @@ export function plainRoute<In = unknown, Out = unknown>(
         if (spec.failed === undefined) throw error
         throw spec.failed(error, call)
       }
-      if (reply.outcome === 'applied') return reply.result
+      if (reply.outcome === 'applied') {
+        return spec.answer === undefined ? reply.result : spec.answer(reply.result, call)
+      }
       if (spec.refused !== undefined) return await spec.refused(reply.refusal, call)
       throw plainRefusalAsTrpcError(name, reply.refusal)
     },

@@ -47,12 +47,11 @@ import { mods, t } from '../../trpc'
 import type { DetailedSubmit } from '../sync-write/entry'
 import { refusalAsTrpcError } from '../sync-write/route-adapter'
 import type { RouteMiddleware } from '../write-routes/builder'
-import { directRoute } from '../write-routes/direct'
 import { plainRoute } from '../write-routes/plain'
 import { syncRoute } from '../write-routes/sync'
 import { fleetAuthzDeps, fleetAuthzFailure } from './authz'
 import { MACHINE_SCAN_KIND } from './discovery-effects'
-import type { FleetHandler, FleetPorts } from './handlers'
+import { type FleetHandler, type FleetPorts, pairingJoinCommand } from './handlers'
 import { FLEET_PLAIN_COMMANDS } from './plain-family'
 import {
   FLEET_COMMANDS,
@@ -170,8 +169,7 @@ function syncAdapter(name: FleetSyncCommandName, use: readonly RouteMiddleware[]
  * The fleet writes that are effect records (POD-6396, POD-6358): each old route
  * keeps its schema, the derived gate and its handler, which creates the record
  * through `sync.submit` as this caller and answers once it settles. They reach
- * `effects.create`. `machines.pairingCode` is not one of them, and not yet a
- * registration: see {@link pairingCodeProcedure}.
+ * `effects.create`.
  */
 const FLEET_EFFECT_COMMANDS = [
   'machines.applyUpdate',
@@ -194,6 +192,7 @@ function buildProcedure(name: FleetCommandName, ports: FleetPorts): unknown {
   const { contract, handler } = FLEET_COMMANDS[name]
   const use: readonly RouteMiddleware[] = contract.serverRole === 'hub' ? [hubRoleGuard] : []
   if (isFleetSyncCommand(name)) return syncAdapter(name, use)
+  if (name === 'machines.pairingCode') return pairingCodeProcedure(ports, use)
   if (isPlain(name)) return plainRoute(name, { use })
   // The table is heterogeneous, so at THIS point the handler's input type is the
   // union of all ten and the parsed input is the union of all ten schemas —
@@ -203,7 +202,7 @@ function buildProcedure(name: FleetCommandName, ports: FleetPorts): unknown {
   // input it accepts), and `FleetProcedures` re-derives the per-command types
   // for the client. This erasure is the one place the two meet.
   const run = handler as FleetHandler<unknown, unknown>
-  if (!isEffect(name)) return pairingCodeProcedure(name, run, ports, use)
+  if (!isEffect(name)) throw new Error(`fleet: ${name} is on no write path`)
   return syncRoute({
     command: contract,
     registration: 'effects.create',
@@ -226,26 +225,22 @@ function buildProcedure(name: FleetCommandName, ports: FleetPorts): unknown {
 }
 
 /**
- * `machines.pairingCode`: an in-memory mint, so a plain command, but not yet a
- * registration: it is in the direct-write census (`write-routes/direct.ts`)
- * until its policy is settled. The plain front door's coarse check reads its
- * contract's `manage` action as admin-only, while the derived gate lets a
- * retained machine's grantee mint a replacement code.
+ * `machines.pairingCode` (a plain registration, `plain-family.ts`): the route
+ * adds the `podium join …` line from the router's port to the code the
+ * registration minted.
  */
-function pairingCodeProcedure(
-  name: FleetCommandName,
-  run: FleetHandler<unknown, unknown>,
-  ports: FleetPorts,
-  use: readonly RouteMiddleware[],
-): unknown {
-  const { contract } = FLEET_COMMANDS[name]
-  return directRoute(contract.name, {
-    input: contract.input,
+function pairingCodeProcedure(ports: FleetPorts, use: readonly RouteMiddleware[]): unknown {
+  return plainRoute('machines.pairingCode', {
     use,
-    run: async ({ ctx, input }) => {
-      const refusal = await fleetAuthzFailure(name, input, await fleetAuthzDeps(ctx))
-      if (refusal) throw refusal
-      return await run({ ctx, input, ports })
+    answer: (result, { ctx, input }) => {
+      const { code } = result as { code: string }
+      return {
+        code,
+        joinCommand: pairingJoinCommand(
+          { ctx, input: input as { podiumManaged?: boolean } | undefined, ports },
+          code,
+        ),
+      }
     },
   })
 }

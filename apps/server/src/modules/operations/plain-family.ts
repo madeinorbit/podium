@@ -94,10 +94,10 @@ type OperationActionInput = z.infer<typeof operationAction>
 
 const dispatchAs =
   (settleAsk: boolean): PlainDefRegistration['handle'] =>
-  async (ctx, input) => {
+  async (ctx, input, { modules }) => {
     const { id, actionId } = input as OperationActionInput
-    await assertActionAuthorized(ctx.modules, ctx.principal, id)
-    const { engine } = ctx.modules.operations
+    await assertActionAuthorized(modules, ctx.principal, id)
+    const { engine } = modules.operations
     return await asSystemWrite(
       async () => await engine.dispatchAction(id, actionId, ctx.principal, { settleAsk }),
     )
@@ -107,8 +107,8 @@ export const OPERATION_PLAIN_REGISTRATIONS: readonly PlainDefRegistration[] = [
   {
     name: 'operations.cancel',
     def: operationCommands.defs.cancel,
-    handle: async (ctx, input) => {
-      const { engine } = ctx.modules.operations
+    handle: async (_ctx, input, { modules }) => {
+      const { engine } = modules.operations
       const { id } = input as z.infer<typeof operationRef>
       return await asSystemWrite(async () => await engine.cancel(id))
     },
