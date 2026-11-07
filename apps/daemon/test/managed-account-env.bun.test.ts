@@ -25,10 +25,10 @@ import { afterEach, beforeEach, expect, it } from 'bun:test'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { agentLaunchCommand } from '@podium/harness'
+import { agentLaunchCommand, shellCommand } from '@podium/harness'
 import type { HarnessAgent } from '@podium/model'
-import { SpawnMessage } from '@podium/protocol'
 import { hasBunTerminal } from '@podium/process/pty'
+import { SpawnMessage } from '@podium/protocol'
 import { credentialEnv } from '@podium/runtime'
 import type { DaemonContext } from '../src/control/context'
 import { launchTerminalSpawn } from '../src/control/session'
@@ -131,7 +131,7 @@ async function dumpEnvOfSpawnedProcess(
     launch: (kind: string, opts: { cwd: string }) =>
       kind === 'shell'
         ? agentLaunchCommand(kind, opts as Parameters<typeof agentLaunchCommand>[1])
-        : { cmd: '/bin/bash', args: ['-c', 'exec /bin/bash -i'], cwd: opts.cwd },
+        : shellCommand({ cmd: '/bin/bash', args: ['-c', 'exec /bin/bash -i'], cwd: opts.cwd }),
     settingsDir,
     bridges,
     durableLabels: new Map(),
