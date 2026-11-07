@@ -1,9 +1,9 @@
 // Generated from apps/server/src/router.ts. Run bun run api:types. Do not edit.
 import * as _podium_model from '@podium/model';
-import { MachineId, UserId, SessionId, IssueId, ArtifactId, UpdateChannel, MachinePresenceSource, GitRepositoryWire, GitDiscoveryDiagnosticWire, TranscriptItem, AgentKind, AccountId, AgentPhase } from '@podium/model';
+import { MachineId, UserId, SessionId, IssueId, ArtifactId, UpdateChannel, MachinePresenceSource, GitRepositoryWire, GitDiscoveryDiagnosticWire, TranscriptItem, AgentPhase, AgentKind, AccountId } from '@podium/model';
 import { z } from 'zod';
 import * as Protocol from '@podium/protocol';
-import { ModelChoiceWire, ConvergenceState, MobileWebIdentity, FeatureState, FeatureVisibility } from '@podium/protocol';
+import { ConvergenceState, ModelChoiceWire, MobileWebIdentity, FeatureState, FeatureVisibility } from '@podium/protocol';
 import * as TRPC from '@trpc/server';
 
 /**
@@ -907,32 +907,6 @@ interface SeatCoordinator {
  *   - `dead_letter` the target was gone; NOT delivered. */
 type SendDisposition = 'delivered' | 'queued' | 'held' | 'spawning' | 'dead_letter';
 
-/**
- * Live per-agent model lists for ONE machine.
- *
- * KEYED BY `machineId`, deliberately: which models a harness offers is a fact
- * about a specific machine (ADR 1 Amendment 1 D13.5 — visibility class
- * `owned-compute`, owner inherits Machine). An instance-global singleton cannot
- * express that — with two machines whose installed harnesses differ, an unkeyed
- * cache reports whichever host probed last to every user. Carrying the id on the
- * value makes "which machine is this about?" unanswerable-by-accident, matching
- * `MachineHarnessInventory` in `@podium/harness`.
- *
- * This type carries no principal: no owner, no user id, no grant. Authorization
- * is applied at the server projection boundary (POD-1079).
- */
-interface ModelCatalogSnapshot {
-    /** The machine this fact is ABOUT — the scoping key, not decoration. */
-    machineId: MachineId;
-    /** Live models keyed by agent kind. Omitted probe keys keep their last reported
-     *  list; a reported empty list replaces it. */
-    byAgent: Record<string, ModelChoiceWire[]>;
-    /** Epoch ms of the last successful probe; 0 = never fetched yet. */
-    fetchedAt: number;
-    /** Shape version — a persisted snapshot with a different version is discarded. */
-    version?: number;
-}
-
 interface WaveMachine {
     id: string;
     name?: string;
@@ -1090,19 +1064,30 @@ interface TranscriptSlice {
     };
 }
 
-interface SessionSpawnResult {
-    sessionId: SessionId;
-    agentId: string;
-    harness: AgentKind;
-    model: string | null;
-    effort: string | null;
-    machine: string;
+/**
+ * Live per-agent model lists for ONE machine.
+ *
+ * KEYED BY `machineId`, deliberately: which models a harness offers is a fact
+ * about a specific machine (ADR 1 Amendment 1 D13.5 — visibility class
+ * `owned-compute`, owner inherits Machine). An instance-global singleton cannot
+ * express that — with two machines whose installed harnesses differ, an unkeyed
+ * cache reports whichever host probed last to every user. Carrying the id on the
+ * value makes "which machine is this about?" unanswerable-by-accident, matching
+ * `MachineHarnessInventory` in `@podium/harness`.
+ *
+ * This type carries no principal: no owner, no user id, no grant. Authorization
+ * is applied at the server projection boundary (POD-1079).
+ */
+interface ModelCatalogSnapshot {
+    /** The machine this fact is ABOUT — the scoping key, not decoration. */
     machineId: MachineId;
-    accountId: AccountId | null;
-    /** The task prompt as its spawner's message, when a session spawned this one
-     *  and the prompt is queued rather than launched with the process (POD-4778):
-     *  the id the spawner checks with `podium mail status`. */
-    promptMessageId?: string;
+    /** Live models keyed by agent kind. Omitted probe keys keep their last reported
+     *  list; a reported empty list replaces it. */
+    byAgent: Record<string, ModelChoiceWire[]>;
+    /** Epoch ms of the last successful probe; 0 = never fetched yet. */
+    fetchedAt: number;
+    /** Shape version — a persisted snapshot with a different version is discarded. */
+    version?: number;
 }
 
 /**
@@ -1144,6 +1129,21 @@ interface AgentConcurrencyHistoryResult {
     bucketMs: number;
     peak: number;
     buckets: AgentConcurrencyBucket[];
+}
+
+interface SessionSpawnResult {
+    sessionId: SessionId;
+    agentId: string;
+    harness: AgentKind;
+    model: string | null;
+    effort: string | null;
+    machine: string;
+    machineId: MachineId;
+    accountId: AccountId | null;
+    /** The task prompt as its spawner's message, when a session spawned this one
+     *  and the prompt is queued rather than launched with the process (POD-4778):
+     *  the id the spawner checks with `podium mail status`. */
+    promptMessageId?: string;
 }
 
 type NativeLoginAttemptStatus = 'running' | 'refreshing' | 'succeeded' | 'failed';
@@ -1356,35 +1356,6 @@ interface CrashResult {
 
 type OperationActionResult = Record<string, unknown>;
 
-interface TelegramSetupStartResult {
-    setupId: string;
-    code: string;
-    botUsername: string;
-    telegramUrl: string;
-    expiresAt: string;
-}
-
-interface SpecComponentMeta {
-    id: string;
-    title: string;
-    /** Parent component id; empty for the root. */
-    parent: string;
-    /** Sort position among siblings. */
-    order: number;
-    status: 'active' | 'superseded' | 'draft';
-    updatedAt: number;
-}
-interface SpecComponent extends SpecComponentMeta {
-    /** Inner HTML of the component's <section> — the editable body. */
-    body: string;
-}
-interface SpecSearchHit {
-    id: string;
-    title: string;
-    /** Plain-text snippet around the first match. */
-    snippet: string;
-}
-
 /** Transient reports from the local tunnel supervisor; no credentials or persisted state. */
 
 declare const TunnelHealthReport: z.ZodObject<{
@@ -1456,6 +1427,35 @@ type DirectoryBrowserEntry = {
     name: string;
     path: string;
 };
+
+interface TelegramSetupStartResult {
+    setupId: string;
+    code: string;
+    botUsername: string;
+    telegramUrl: string;
+    expiresAt: string;
+}
+
+interface SpecComponentMeta {
+    id: string;
+    title: string;
+    /** Parent component id; empty for the root. */
+    parent: string;
+    /** Sort position among siblings. */
+    order: number;
+    status: 'active' | 'superseded' | 'draft';
+    updatedAt: number;
+}
+interface SpecComponent extends SpecComponentMeta {
+    /** Inner HTML of the component's <section> — the editable body. */
+    body: string;
+}
+interface SpecSearchHit {
+    id: string;
+    title: string;
+    /** Plain-text snippet around the first match. */
+    snippet: string;
+}
 
 interface UpdateFleetMachine {
     id: MachineId;
