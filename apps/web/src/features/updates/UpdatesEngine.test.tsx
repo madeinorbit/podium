@@ -18,12 +18,14 @@ const mocks = vi.hoisted(() => ({
   checkNow: vi.fn(async () => {}),
   acknowledge: vi.fn(),
   approveProposal: vi.fn(async () => {}),
+  checkSpace: vi.fn(async () => ({ machines: [] })),
 }))
 
 vi.mock('@/app/pwa-register', () => ({ useRegisterSW: mocks.useRegisterSW }))
 vi.mock('./use-update-state', () => ({ useUpdateState: mocks.useUpdateState }))
 vi.mock('@/app/trpc', () => ({
   serverConfig: () => ({ httpOrigin: 'http://podium.test' }),
+  makeTrpc: () => ({ updates: { checkSpace: { query: mocks.checkSpace } } }),
 }))
 
 import { openUpdatePanel } from './open-panel'
@@ -66,7 +68,15 @@ function Strip(): JSX.Element {
 
 function mount(view: UpdatePanelView = OFFER) {
   mocks.useUpdateState.mockReturnValue({
-    view,
+    view: {
+      ...view,
+      dismiss:
+        view.state === 'done'
+          ? { label: 'Got it', primary: true }
+          : {
+              label: view.state === 'offer' ? 'Later' : view.state === 'failed' ? 'Close' : 'Hide',
+            },
+    },
     operation: null,
     server: {},
     fleet: { total: 0, behind: 0, converging: 0, failed: 0 },
@@ -142,7 +152,7 @@ describe('UpdatesEngine', () => {
     const build = screen.getByRole('button', { name: 'Build and publish' })
     fireEvent.click(build)
     expect(mocks.approveProposal).toHaveBeenCalledOnce()
-    fireEvent.click(screen.getByRole('button', { name: 'Hide' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Later' }))
     expect(screen.queryByTestId('release-proposal-card')).toBeNull()
     expect(screen.getByTestId('update-indicator')).toBeTruthy()
   })
@@ -198,7 +208,7 @@ describe('UpdatesEngine', () => {
     'none',
   ] as const)('keeps Hide closed when the same operation becomes %s', (state) => {
     const { rerender } = mount({ ...OFFER, state: 'waiting-you', operationId: 'op_same' })
-    fireEvent.click(screen.getByRole('button', { name: 'Later' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Hide' }))
     mocks.useUpdateState.mockReturnValue({
       ...mocks.useUpdateState.mock.results.at(-1)?.value,
       view: { ...OFFER, state, operationId: 'op_same' },
@@ -209,7 +219,7 @@ describe('UpdatesEngine', () => {
 
   it('reopens a hidden running operation when it fails', () => {
     const { rerender } = mount({ ...OFFER, state: 'running', operationId: 'op_same' })
-    fireEvent.click(screen.getByRole('button', { name: 'Later' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Hide' }))
     mocks.useUpdateState.mockReturnValue({
       ...mocks.useUpdateState.mock.results.at(-1)?.value,
       view: { ...OFFER, state: 'failed', operationId: 'op_same' },
@@ -232,6 +242,7 @@ describe('UpdatesEngine', () => {
     })
     rerender(<UpdatesEngine httpOrigin="http://podium.test" />)
     expect(screen.getByTestId('release-proposal-card')).toBeTruthy()
+    expect(screen.getByTestId('approve-release-proposal')).toHaveProperty('disabled', true)
   })
 
   it('acknowledges a failure when the user hides it, keeping the warning indicator', () => {
@@ -285,6 +296,77 @@ describe('UpdatesEngine', () => {
       expect(screen.queryByTestId('update-panel')).toBeNull()
       // §6.2.4: a finished update is not a standing fact about the toolbar.
       expect(mocks.acknowledge).toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('preserves reading when a hovered running panel finishes', () => {
+    vi.useFakeTimers()
+    try {
+      const { rerender } = mount({ ...OFFER, state: 'running', operationId: 'op_same' })
+      fireEvent.mouseEnter(screen.getByTestId('update-panel'))
+      mocks.useUpdateState.mockReturnValue({
+        ...mocks.useUpdateState.mock.results.at(-1)?.value,
+        view: {
+          ...OFFER,
+          state: 'done',
+          operationId: 'op_same',
+          primary: undefined,
+          dismiss: { label: 'Got it', primary: true },
+        },
+      })
+      rerender(
+        <>
+          <UpdatesEngine httpOrigin="http://podium.test" />
+          <Strip />
+        </>,
+      )
+      act(() => vi.advanceTimersByTime(10_000))
+      expect(screen.getByTestId('update-panel')).toBeTruthy()
+      expect(mocks.acknowledge).not.toHaveBeenCalled()
+      fireEvent.mouseLeave(screen.getByTestId('update-panel'))
+      act(() => vi.advanceTimersByTime(6_001))
+      expect(screen.queryByTestId('update-panel')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it.each([
+    'hover',
+    'focus',
+    'scroll',
+  ] as const)('keeps completed notes open while reading by %s', (mode) => {
+    vi.useFakeTimers()
+    try {
+      mount({
+        ...OFFER,
+        state: 'done',
+        primary: undefined,
+        notes: { summary: '**Ready.**\n\n- **Changes.** Read the release.' },
+        dismiss: { label: 'Got it', primary: true },
+      })
+      const panel = screen.getByTestId('update-panel')
+      if (mode === 'hover') fireEvent.mouseEnter(panel)
+      if (mode === 'focus') fireEvent.focus(screen.getByRole('button', { name: 'Got it' }))
+      if (mode === 'scroll') {
+        const box = panel.querySelector('.update-card-scroll') as HTMLElement
+        fireEvent.scroll(box, { target: { scrollTop: 20 } })
+        fireEvent.mouseLeave(panel)
+      }
+      act(() => vi.advanceTimersByTime(10_000))
+      expect(screen.getByTestId('update-panel')).toBeTruthy()
+      expect(mocks.acknowledge).not.toHaveBeenCalled()
+      if (mode !== 'scroll') {
+        if (mode === 'hover') fireEvent.mouseLeave(panel)
+        else fireEvent.blur(screen.getByRole('button', { name: 'Got it' }), { relatedTarget: null })
+        act(() => vi.advanceTimersByTime(6_001))
+        expect(screen.queryByTestId('update-panel')).toBeNull()
+      } else {
+        fireEvent.click(screen.getByRole('button', { name: 'Got it' }))
+        expect(screen.queryByTestId('update-panel')).toBeNull()
+      }
     } finally {
       vi.useRealTimers()
     }

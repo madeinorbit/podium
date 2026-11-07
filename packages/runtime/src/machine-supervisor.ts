@@ -19,6 +19,10 @@ import {
   type PeerBuild,
   type PeerCredential,
   type PeerHello,
+  UPDATE_SPACE_CAPABILITY,
+  type UpdateSpaceCheckMessage,
+  type UpdateSpaceEstimate,
+  unknownUpdateSpace,
 } from '@podium/protocol'
 import { type PodiumConfig, PodiumMode, stateDir } from './config'
 import { writeConnectivity } from './connectivity'
@@ -60,6 +64,15 @@ export interface SupervisorState {
    * so the counter survives a reboot; see {@link claimSupervisorGeneration}.
    */
   generation?: number
+  /** Public enrollment progress, owned by the credential selector, bound to its server. */
+  registration?: {
+    serverUrl: string
+    state: 'unregistered' | 'pairing' | 'enrolled' | 'rejected'
+    /** Runtime-validated enrollment request; no authorization until the admin RPC. */
+    recovery?: { publicKey?: string; pairCode?: string }
+    /** Written before sending pair, retained across a lost acknowledgement. */
+    pendingPairCode?: string
+  }
 }
 
 /**
@@ -87,7 +100,38 @@ function parseState(raw: unknown): SupervisorState | null {
   if (!raw || typeof raw !== 'object') return null
   const value = raw as Record<string, unknown>
   if (typeof value.machineId !== 'string') return null
+  // Corrupt/incomplete enrollment is never a fresh identity. Refuse before a
+  // later generation/role write can erase the evidence and attest it as unused.
+  for (const field of ['token', 'enrolledPublicKey'] as const) {
+    if (field in value && (typeof value[field] !== 'string' || !value[field]))
+      throw new Error(`invalid supervisor ${field}`)
+  }
+  if ('setupEnrollment' in value && !validSetupRequest(value.setupEnrollment, value.machineId))
+    throw new Error('invalid supervisor setup enrollment')
+  if (value.registration !== undefined) {
+    const registration = value.registration as Partial<
+      NonNullable<SupervisorState['registration']>
+    > | null
+    if (
+      !registration ||
+      typeof registration.serverUrl !== 'string' ||
+      !registration.serverUrl ||
+      !['unregistered', 'pairing', 'enrolled', 'rejected'].includes(registration.state ?? '') ||
+      (registration.pendingPairCode !== undefined &&
+        (typeof registration.pendingPairCode !== 'string' || !registration.pendingPairCode)) ||
+      (registration.recovery !== undefined &&
+        (!registration.recovery ||
+          typeof registration.recovery !== 'object' ||
+          (registration.recovery.publicKey !== undefined &&
+            typeof registration.recovery.publicKey !== 'string') ||
+          (registration.recovery.pairCode !== undefined &&
+            typeof registration.recovery.pairCode !== 'string')))
+    )
+      throw new Error('invalid supervisor registration')
+  }
   const assignment = MachineServiceAssignment.safeParse(value.assignment)
+  if (value.assignment !== undefined && !assignment.success)
+    throw new Error('invalid supervisor assignment')
   return {
     machineId: asMachineId(value.machineId),
     ...(validSetupRequest(value.setupEnrollment, value.machineId)
@@ -102,6 +146,9 @@ function parseState(raw: unknown): SupervisorState | null {
     ...(assignment.success ? { assignment: assignment.data } : {}),
     ...(typeof value.generation === 'number' && Number.isSafeInteger(value.generation)
       ? { generation: value.generation }
+      : {}),
+    ...(value.registration
+      ? { registration: value.registration as SupervisorState['registration'] }
       : {}),
   }
 }
@@ -132,8 +179,12 @@ export function loadSupervisorState(dir: string): SupervisorState {
   // daemon's credential. A 0.1.0 all-in-one left a token-less daemon.json naming an id
   // nothing authenticated as (POD-5931); adopting it clashed with the root identity and
   // the parent died at every start.
-  const daemon = machine.daemon && typeof machine.daemon.token === 'string' ? machine.daemon : undefined
-  return parseState(machine.supervisor ?? daemon) ?? { machineId: machine.machineId }
+  const daemon =
+    machine.daemon && typeof machine.daemon.token === 'string' ? machine.daemon : undefined
+  const state = parseState(machine.supervisor ?? daemon)
+  if (machine.supervisor !== undefined && (!state || state.machineId !== machine.machineId))
+    throw new Error('invalid supervisor identity')
+  return state ?? { machineId: machine.machineId }
 }
 
 /**
@@ -339,10 +390,27 @@ function adoptConfiguredRole(state: SupervisorState, config: PodiumConfig, dir: 
   }
   state.assignment = fallbackAssignment(configured.mode)
   if (!sameServer) {
+    if (configured.mode === 'client') {
+      const retained = readMachineCredential(dir)
+      if (retained?.pendingRotation)
+        throw new Error('machine credential rotation is awaiting confirmation')
+      if (
+        state.enrolledPublicKey &&
+        (!retained || machinePublicKeyWire(retained) !== state.enrolledPublicKey)
+      )
+        throw new Error('enrolled machine key unavailable')
+    }
     delete state.token
     delete state.enrolledPublicKey
     delete state.setupEnrollment
     delete state.updatePubkey
+    // A local bootstrap's key and import receipts belong to its old coordinator.
+    // The new client target is unused, but retains this machine's ID and key.
+    // Never make this declaration for a refusal on the same coordinator.
+    delete state.registration
+    if (configured.mode === 'client' && config.serverUrl) {
+      state.registration = { serverUrl: config.serverUrl, state: 'unregistered' }
+    }
     if (config.workspaceId) state.workspaceId = config.workspaceId
     else delete state.workspaceId
   }
@@ -417,6 +485,8 @@ export interface MachineSupervisorConnectionDeps {
   name?: string
   build: PeerBuild
   deliveryCaps: readonly string[]
+  /** Optional, read-only information channel; never part of grant admission. */
+  onSpaceCheck?(message: UpdateSpaceCheckMessage): Promise<UpdateSpaceEstimate>
   report(): MachineServiceReport
   acceptAssignment?(assignment: MachineServiceAssignment): boolean
   onAssignment?(assignment: MachineServiceAssignment): void
@@ -448,6 +518,7 @@ export function createMachineSupervisorConnection(
   let reconnectTimer: ReturnType<typeof setTimeout> | undefined
   let backoffMs = RECONNECT_MIN_MS
   let connected = false
+  let spaceCheckInFlight = false
   const resolveServerUrl = (): string =>
     typeof deps.serverUrl === 'function' ? deps.serverUrl() : deps.serverUrl
   let activeServerUrl = resolveServerUrl()
@@ -483,6 +554,71 @@ export function createMachineSupervisorConnection(
     }
   }
 
+  let usePairCode = false
+  const missingRegistrationReceipt = deps.state.registration === undefined
+  const failedRecoveryAttempt =
+    deps.state.registration?.state === 'rejected' &&
+    !!deps.pairCode &&
+    deps.state.registration.pendingPairCode === deps.pairCode
+  const recoveryRequest = (): NonNullable<
+    NonNullable<SupervisorState['registration']>['recovery']
+  > => {
+    const key = readMachineCredential(deps.stateDir)
+    if (key?.pendingRotation || deps.state.setupEnrollment)
+      throw new Error('machine enrollment or rotation is awaiting confirmation')
+    if (
+      deps.state.enrolledPublicKey &&
+      (!key || machinePublicKeyWire(key) !== deps.state.enrolledPublicKey)
+    )
+      throw new Error('enrolled machine key unavailable')
+    const machine = readMachineState(deps.stateDir)
+    if (
+      !key &&
+      (deps.state.token ||
+        deps.state.enrolledPublicKey ||
+        machine?.daemon ||
+        machine?.legacy ||
+        Object.keys(machine?.importedFiles ?? {}).length ||
+        deps.state.registration?.state === 'enrolled' ||
+        deps.state.registration?.state === 'rejected' ||
+        deps.state.registration?.pendingPairCode)
+    )
+      throw new Error('existing machine key unavailable')
+    return {
+      ...(key ? { publicKey: machinePublicKeyWire(key) } : {}),
+      ...(deps.pairCode ? { pairCode: deps.pairCode } : {}),
+    }
+  }
+  const registration = (
+    state: NonNullable<SupervisorState['registration']>['state'],
+    recovery?: NonNullable<SupervisorState['registration']>['recovery'],
+  ): void => {
+    const next = {
+      serverUrl: resolveServerUrl(),
+      state,
+      ...(recovery ? { recovery } : {}),
+      ...(state === 'pairing' && deps.pairCode
+        ? { pendingPairCode: deps.pairCode }
+        : deps.state.registration?.pendingPairCode
+          ? { pendingPairCode: deps.state.registration.pendingPairCode }
+          : {}),
+    }
+    if (isDeepStrictEqual(deps.state.registration, next)) return
+    updateMachineState(
+      deps.stateDir,
+      (machine) => {
+        if (machine.supervisor && machine.supervisor.machineId !== deps.state.machineId)
+          throw new Error('supervisor registration identity conflict')
+        machine.supervisor ??= { ...deps.state }
+        machine.supervisor.registration = next
+      },
+      deps.state.machineId,
+    )
+    deps.state.registration = next
+    syncFile(join(deps.stateDir, STATE_FILE))
+    syncFile(deps.stateDir)
+  }
+
   const credential = (): PeerCredential => {
     // The parent can confirm setup while this connection is already waiting to dial.
     const persisted = loadSupervisorState(deps.stateDir)
@@ -492,22 +628,39 @@ export function createMachineSupervisorConnection(
     }
     if (persisted.setupEnrollment && !persisted.enrolledPublicKey)
       throw new Error('setup enrollment is awaiting confirmation')
+    if (usePairCode && deps.pairCode) {
+      recoveryRequest()
+      const enrollmentKey = createMachineCredential(deps.stateDir)
+      registration('pairing')
+      return {
+        kind: 'pairCode',
+        code: deps.pairCode,
+        publicKey: machinePublicKeyWire(enrollmentKey),
+      }
+    }
     if (deps.state.enrolledPublicKey) {
       const key = readMachineCredential(deps.stateDir)
       if (!key || machinePublicKeyWire(key) !== deps.state.enrolledPublicKey)
         throw new Error('enrolled machine key unavailable')
       return { kind: 'machineKey', machineHint: deps.state.machineId }
     }
-    if (deps.state.token)
+    if (deps.state.token) {
       return { kind: 'machineToken', token: deps.state.token, machineHint: deps.state.machineId }
-    if (deps.pairCode)
+    }
+    const key = readMachineCredential(deps.stateDir)
+    if (!usePairCode && key && deps.state.registration?.state !== 'unregistered')
+      return { kind: 'machineKey', machineHint: deps.state.machineId }
+    if (deps.pairCode) {
+      recoveryRequest() // Missing/corrupt existing keys are never silently replaced.
+      const enrollmentKey = createMachineCredential(deps.stateDir)
+      registration('pairing')
       return {
         kind: 'pairCode',
         code: deps.pairCode,
-        publicKey: machinePublicKeyWire(createMachineCredential(deps.stateDir)),
+        publicKey: machinePublicKeyWire(enrollmentKey),
       }
-    if (readMachineCredential(deps.stateDir))
-      return { kind: 'machineKey', machineHint: deps.state.machineId }
+    }
+    registration('unregistered', recoveryRequest())
     throw new Error('machine supervisor has no credential; pair it first')
   }
 
@@ -516,6 +669,7 @@ export function createMachineSupervisorConnection(
     updatePubkey?: string,
     rotations: readonly UpdateKeyRotation[] = [],
     enrolledPublicKey?: string,
+    acknowledgePairing = false,
   ): boolean => {
     if (enrolledPublicKey) {
       const key = readMachineCredential(deps.stateDir)
@@ -534,10 +688,17 @@ export function createMachineSupervisorConnection(
       }
       deps.state.updatePubkey = updatePubkey
     }
+    deps.state.registration = {
+      state: 'enrolled',
+      serverUrl: activeServerUrl,
+      ...(acknowledgePairing && deps.pairCode ? { pendingPairCode: deps.pairCode } : {}),
+    }
     const persistedState = loadSupervisorState(deps.stateDir)
     deps.state.assignment = persistedState.assignment
     deps.state.setupEnrollment = persistedState.setupEnrollment
     saveSupervisorState(deps.stateDir, deps.state)
+    syncFile(join(deps.stateDir, STATE_FILE))
+    syncFile(deps.stateDir)
     if (enrolledPublicKey && readMachineCredential(deps.stateDir)?.pendingRotation) {
       // Make the new-key reference durable before dropping the only old private key.
       // A crash before promotion leaves a pending proposal that the next hello retries.
@@ -545,7 +706,19 @@ export function createMachineSupervisorConnection(
       syncFile(deps.stateDir)
       acknowledgeMachineCredentialRotation(deps.stateDir, enrolledPublicKey)
     }
-    if (issuedToken || enrolledPublicKey) deps.onPaired?.()
+    if (acknowledgePairing && deps.onPaired) {
+      try {
+        deps.onPaired()
+      } catch (error) {
+        // The durable ACK retains the exact code until its owner consumes it.
+        log.error('machine pairing receipt could not be consumed', { err: error })
+        return false
+      }
+      delete deps.state.registration.pendingPairCode
+      saveSupervisorState(deps.stateDir, deps.state)
+      syncFile(join(deps.stateDir, STATE_FILE))
+      syncFile(deps.stateDir)
+    }
     return true
   }
 
@@ -571,15 +744,16 @@ export function createMachineSupervisorConnection(
   }
 
   const connect = (): void => {
-    if (closed) return
+    if (closed || socket) return
     let dialer: ReturnType<typeof createHandshakeDialer>
     let hello: PeerHello | undefined
     let challengeAnswered = false
+    let proofPublicKey: string | undefined
     try {
       dialer = createHandshakeDialer({
         peerRole: 'machine',
         credential: credential(),
-        caps: [...deps.deliveryCaps],
+        caps: [...deps.deliveryCaps, ...(deps.onSpaceCheck ? [UPDATE_SPACE_CAPABILITY] : [])],
         build: deps.build,
         claims: {
           machineId: deps.state.machineId,
@@ -592,6 +766,15 @@ export function createMachineSupervisorConnection(
         },
       })
     } catch (error) {
+      if (
+        deps.state.registration?.state === 'pairing' ||
+        (deps.state.registration?.recovery &&
+          !(
+            error instanceof Error &&
+            error.message === 'machine supervisor has no credential; pair it first'
+          ))
+      )
+        registration('rejected')
       log.error('machine supervisor cannot connect', { err: error })
       reportConnectivity({ state: 'blocked', blockedReason: String(error) })
       settleFirst(false)
@@ -638,6 +821,7 @@ export function createMachineSupervisorConnection(
         const { nonce, installationId, connectionId } = challenge.data
         const signingKey = key.pendingRotation ?? key
         const newPublicKey = machinePublicKeyWire(signingKey)
+        proofPublicKey = newPublicKey
         const transcript = machineRotationTranscript(challenge.data, newPublicKey, newPublicKey)
         const rotation = key.pendingRotation
           ? {
@@ -672,6 +856,23 @@ export function createMachineSupervisorConnection(
       }
       const step = dialer.receive(String(event.data))
       if (step.action === 'established') {
+        // A legacy server may omit the receipt on signed hello. Its accepted
+        // challenge attests exactly the key we signed with, never an arbitrary
+        // disk key and never a token hello. Rotation still needs its explicit ACK.
+        const acceptedPublicKey =
+          hello?.credential.kind === 'machineKey' && challengeAnswered
+            ? (step.enrolledPublicKey ?? proofPublicKey)
+            : hello?.credential.kind === 'pairCode'
+              ? step.enrolledPublicKey
+              : undefined
+        if (
+          hello?.credential.kind === 'machineKey' &&
+          step.enrolledPublicKey !== undefined &&
+          step.enrolledPublicKey !== proofPublicKey
+        ) {
+          active.close()
+          return
+        }
         const pending = readMachineCredential(deps.stateDir)?.pendingRotation
         if (pending && step.enrolledPublicKey !== machinePublicKeyWire(pending)) {
           active.close()
@@ -682,12 +883,19 @@ export function createMachineSupervisorConnection(
             step.issuedToken,
             step.updatePubkey,
             step.updateKeyRotations,
-            step.enrolledPublicKey,
+            acceptedPublicKey,
+            hello?.credential.kind === 'pairCode' ||
+              (!!acceptedPublicKey &&
+                !!deps.pairCode &&
+                (!deps.state.enrolledPublicKey ||
+                  missingRegistrationReceipt ||
+                  deps.state.registration?.pendingPairCode === deps.pairCode)),
           )
         ) {
           active.close()
           return
         }
+        usePairCode = false
         connected = true
         reportConnectivity({ state: 'connected', lastHelloOkAt: new Date().toISOString() })
         settleFirst(true)
@@ -699,7 +907,34 @@ export function createMachineSupervisorConnection(
       if (step.action === 'deliver') {
         try {
           const message = MachineSupervisorControlMessage.parse(JSON.parse(step.raw))
-          if (message.type === 'serviceAssignment') {
+          if (message.type === 'updateSpaceCheck') {
+            // Do not await a preview on the machine control dispatch. A grant
+            // arriving next must retain its existing execution path and timing.
+            if (resolveServerUrl() !== grantServerUrl) return
+            const reply = (estimate: UpdateSpaceEstimate): void => {
+              try {
+                if (socket !== active || !connected || resolveServerUrl() !== grantServerUrl) return
+                active.send(JSON.stringify({
+                  ...estimate,
+                  type: 'updateSpaceResult',
+                  requestId: message.requestId,
+                  targetFingerprint: message.targetFingerprint,
+                }))
+              } catch {
+                // A preview disappearing with its socket needs no recovery.
+              }
+            }
+            const checkSpace = deps.onSpaceCheck
+            if (!checkSpace || spaceCheckInFlight) {
+              reply(unknownUpdateSpace('Space preview is unavailable or busy.'))
+            } else {
+              spaceCheckInFlight = true
+              void Promise.resolve()
+                .then(() => checkSpace(message))
+                .then(reply, () => reply(unknownUpdateSpace('Space could not be verified.')))
+                .finally(() => { spaceCheckInFlight = false })
+            }
+          } else if (message.type === 'serviceAssignment') {
             if (deps.acceptAssignment?.(message.assignment) === false) return
             deps.state.assignment = message.assignment
             saveSupervisorState(deps.stateDir, deps.state)
@@ -717,6 +952,34 @@ export function createMachineSupervisorConnection(
         return
       }
       if (step.action === 'rejected' || step.action === 'protocol-error') {
+        const authFailed = step.action === 'rejected' && step.reply.reason === 'auth-failed'
+        if (
+          authFailed &&
+          hello?.credential.kind !== 'pairCode' &&
+          deps.pairCode &&
+          !usePairCode &&
+          !failedRecoveryAttempt
+        ) {
+          // Existing credentials get the first attempt, including lost-ACK keys.
+          // Only the captured one-use authority may follow their refusal.
+          usePairCode = true
+          socket = undefined
+          active.close()
+          connect()
+          return
+        }
+        let recovery: NonNullable<SupervisorState['registration']>['recovery']
+        if (authFailed) {
+          try {
+            // This is only a validated request to the authenticated page. The
+            // failed pending code remains fenced above, while a new verified
+            // administrator sign-in can ask the server for fresh authority.
+            recovery = recoveryRequest()
+          } catch {
+            /* bounded local identity error */
+          }
+        }
+        registration('rejected', recovery)
         log.error('machine supervisor handshake refused', { step })
         closed = true
         settleFirst(false)

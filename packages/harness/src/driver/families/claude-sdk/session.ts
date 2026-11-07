@@ -21,6 +21,8 @@ import type {
 } from '../server-family.js'
 import type { SessionDriverSlots } from '../session-slots.js'
 import type { TranscriptAnnotation, TranscriptAnnotationStore } from '../../../store/annotations.js'
+import { tailTranscript } from '../../../store/tailer.js'
+import { claudeRecordToItems } from '../../../adapters/claude-code/transcript.js'
 import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, ResumeRef, SessionId } from '@podium/model'
 import {
@@ -158,6 +160,9 @@ export interface ClaudeSdkSessionDeps extends ServerSessionFramePorts {
   }
 }
 
+/** How often a watch looks for a session file the first turn has not written yet. */
+const WATCH_LOCATE_MS = 250
+
 export function createClaudeSdkSessionRuntime(
   deps: ClaudeSdkSessionDeps,
 ): DaemonClaudeSdkRuntime {
@@ -212,6 +217,50 @@ export function createClaudeSdkSessionRuntime(
     stopEngine: (sessionId, retire) => deps.engine.stopEngine(sessionId, retire),
     releaseEngines: () => deps.engine.releaseEngines(),
     ...(engineProcessFor ? { processFor: engineProcessFor } : {}),
+    // THE SESSION FILE IS THE CONVERSATION (POD-6280): the Store's tail of it,
+    // through the mapper reads use, so live items and read items are one item.
+    // The tail itself waits out a file that does not exist yet.
+    watchTranscript({ workdir, resumeValue, from }, onItems) {
+      let stopped = false
+      let tail: { stop(): void } | undefined
+      void (async () => {
+        while (!stopped) {
+          try {
+            const located = await deps.transcript.archiveTranscript({
+              agentKind: claudeSdkHarnessKind,
+              cwd: workdir,
+              resumeValue,
+            })
+            if (stopped) return
+            tail = tailTranscript(located.path, (items) => onItems(items), {
+              resumeValue,
+              recordToItems: claudeRecordToItems,
+              initialWindowBytes: from === 'end' ? 0 : Number.MAX_SAFE_INTEGER,
+            })
+            return
+          } catch {
+            // Not located yet: the first turn has not written it.
+            await new Promise((resolve) => setTimeout(resolve, WATCH_LOCATE_MS))
+          }
+        }
+      })()
+      return () => {
+        stopped = true
+        tail?.stop()
+      }
+    },
+    // The journal carries the stream position across a daemon restart
+    // (POD-6280). Written only once the engine has named its session: before
+    // that there is no entry to adopt from, so nothing to continue.
+    streamPosition: {
+      recorded: (sessionId) => deps.engine.bindings.recorded(sessionId)?.stream,
+      record(sessionId, stream) {
+        const entry = deps.engine.bindings.recorded(sessionId)
+        if (!entry) return
+        const { address: _address, ...facts } = entry
+        deps.engine.bindings.bound({ ...facts, bindingVersion: stream.bindingVersion, stream })
+      },
+    },
   }
 
   const contractRuntime = createClaudeSdkRuntime(host, deps.driverSlots)

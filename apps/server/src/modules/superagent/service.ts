@@ -18,7 +18,7 @@ import {
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import type { SuperagentUserFocus } from '@podium/commands'
-import { describeError } from '@podium/logger'
+import { createLogger, describeError } from '@podium/logger'
 import {
   type AccountId,
   asIssueId,
@@ -206,6 +206,8 @@ Ground rules:
 
 export const NORMAL_RESPONSE_WORD_LIMIT = 80
 
+const log = createLogger('server:superagent')
+
 /** Expansion is deliberately lexical and turn-local. A prior long-form request in a
  * resumed harness thread must not loosen a later diagnostic answer. */
 export function explicitlyRequestsExpandedResponse(text: string): boolean {
@@ -264,6 +266,8 @@ export class SuperagentService {
   private readonly reaper: ReturnType<typeof setInterval> | undefined
   /** True while a turn reap is running — see {@link reapStaleTurns}. */
   private reaping = false
+  private turnReap: Promise<void> | undefined
+  private disposed = false
   private readonly preparingInputs = new Map<
     string,
     Promise<{ threadId: ThreadId; podiumSessionId: SessionId }>
@@ -306,7 +310,7 @@ export class SuperagentService {
     this.eventReadLimit = opts?.eventReadLimit ?? 500
     const reapEvery = opts?.reapIntervalMs ?? TURN_REAP_INTERVAL_MS
     if (reapEvery > 0 && process.env.PODIUM_REHEARSAL !== '1') {
-      this.reaper = setInterval(async () => await this.reapStaleTurns(), reapEvery)
+      this.reaper = setInterval(() => this.reapStaleTurns(), reapEvery)
       this.reaper.unref?.()
     }
   }
@@ -351,11 +355,13 @@ export class SuperagentService {
     }
   }
 
-  /** Stop the reaper (test teardown / server shutdown). */
-  dispose(): void {
+  /** Stop future ticks and settle the current pass before database drain. */
+  async dispose(): Promise<void> {
+    this.disposed = true
     if (this.reaper) clearInterval(this.reaper)
     for (const timer of this.interruptFallbacks.values()) clearTimeout(timer)
     this.interruptFallbacks.clear()
+    await this.turnReap
   }
 
   private async personalThreadId(ownerUserId: UserId, base: ThreadId): Promise<ThreadId> {
@@ -1240,7 +1246,7 @@ export class SuperagentService {
    * will not answer later. Rows this process is actively driving are skipped —
    * their promise is still live.
    */
-  private async reapStaleTurns(): Promise<void> {
+  private reapStaleTurns(): Promise<void> {
     // SINGLE-FLIGHT (POD-3258). The reaper reads the pending turns and finishes
     // the ones past their budget, and `dispatchedTurnIds` plus the finish itself
     // are what stop a turn being reaped twice — both of which are only written
@@ -1249,13 +1255,18 @@ export class SuperagentService {
     // undispatched, and would emit a second outcome notice to a caller who has
     // already been told. Skipped, not queued: staleness is measured against
     // wall-clock age, so a dropped tick reaps the same turns one interval later.
-    if (this.reaping) return
+    // clearInterval cannot recall a callback already queued on the event loop.
+    if (this.disposed || this.reaping) return Promise.resolve()
     this.reaping = true
-    try {
-      await this.runTurnReap()
-    } finally {
-      this.reaping = false
-    }
+    // Own the timer's promise: report failures here, and let disposal join the
+    // whole pass (including its writes) while the scheduler still accepts it.
+    this.turnReap = this.runTurnReap()
+      .catch((error: unknown) => log.error('turn reaper failed', { err: error }))
+      .finally(() => {
+        this.reaping = false
+        this.turnReap = undefined
+      })
+    return this.turnReap
   }
 
   private async runTurnReap(): Promise<void> {
@@ -1390,7 +1401,9 @@ export class SuperagentService {
       // rows; the thread is free now, so the next one starts immediately and in
       // arrival order. Runs whether the turn succeeded or failed — a failed turn
       // must not strand everything typed behind it.
-      await this.pump(pending.threadId)
+      // Shutdown may be waiting for this reap. Leave queued inputs durable for
+      // the next server instead of starting detached preparation behind it.
+      if (!this.disposed) await this.pump(pending.threadId)
       // After turnInFlight is released so a subscriber can immediately dispatch
       // the thread's next turn [spec:SP-5d81].
       this.modules.bus.emit('superagent.turnEnded', {

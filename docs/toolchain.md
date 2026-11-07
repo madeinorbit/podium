@@ -60,6 +60,14 @@ CI uses `jdx/mise-action` to install Bun from the same `mise.toml`; subsequent c
 plain `bun`. Release jobs also install the other declared build tools. The platform experiment
 workflow can explicitly override Bun to investigate compatibility with a different version.
 
+The `release-toolchain` workflow installs the Apple signing tool from scratch on Linux
+(x64 and arm64), macOS (Intel and Apple Silicon), and Windows x64, then checks it against
+the release pin. It runs when its configuration changes on a pull request or main, and
+can be dispatched before cutting an edge candidate. Check every matrix leg before the cut;
+this check installs tools only and does not publish a release. The GitHub release archives
+already contain `rcodesign`, so its mise entry needs only the release tag, without an
+executable rename option. See [mise's GitHub backend](https://mise.jdx.dev/dev-tools/backends/github.html).
+
 The root preinstall hook and validation admission reject an off-pin runtime with setup guidance.
 `--ignore-scripts` deliberately skips preinstall; CI selects the pinned runtime before installing.
 A guard reports a bypass; mise provides the correct executable.

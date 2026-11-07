@@ -149,21 +149,24 @@
  * NO WATCHER AND NO TIMER back any of this. A live field is fresh because the
  * reader asked, and the loader's stat saw a different file.
  */
+import { randomUUID } from 'node:crypto'
 import {
-  copyFileSync,
   constants,
-  readdirSync,
+  copyFileSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
+  renameSync,
   statSync,
+  unlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import { z } from 'zod'
-import { liveRecord } from './run-registry'
-import { desiredParentUnit, legacyUnitNames, userUnitDir } from './topology-migration'
+import { withConfigWriteLock } from './config-write-lock'
+import { fsyncPath } from './fsync'
 import {
   assertInstanceStateIdentity,
   defaultInstancePorts,
@@ -171,7 +174,10 @@ import {
   instanceStateDir,
   resolveInstanceId,
 } from './instance'
+import { liveRecord } from './run-registry'
+import { desiredParentUnit, legacyUnitNames, userUnitDir } from './topology-migration'
 
+export { withConfigWriteLock } from './config-write-lock'
 export { resolveInstanceId, selectInstance } from './instance'
 
 const log = createLogger('runtime:config')
@@ -984,6 +990,52 @@ function notifyConfigChanged(change: ConfigChange): void {
   }
 }
 
+/** Consume one acknowledged code from fresh bytes, never the live-read cache.
+ * Native can replace a code inside the cache freshness window. Keep all other
+ * raw fields, and publish durably before the supervisor retires its receipt. */
+export function consumeConfigPairCode(code: string, path = configPath()): void {
+  assertInstanceStateIdentity(resolveInstanceId(), dirname(path))
+  withConfigWriteLock(path, () => {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const bytes = readFileSync(path, 'utf8')
+      const raw: unknown = JSON.parse(bytes)
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw))
+        throw new Error('invalid pairing config')
+      const config = raw as Record<string, unknown>
+      if (config.pairCode !== code) {
+        forgetConfig(path)
+        return
+      }
+      const previous = PodiumConfig.parse(migrateConfig(config).config)
+      delete config.pairCode
+      const next = PodiumConfig.parse(migrateConfig(config).config)
+      const temporary = `${path}.consume-${randomUUID()}`
+      try {
+        writeFileSync(temporary, `${JSON.stringify(config, null, 2)}\n`, {
+          mode: 0o600,
+          flag: 'wx',
+        })
+        fsyncPath(temporary)
+        // Do not overwrite a replacement or another config edit observed during IO.
+        if (readFileSync(path, 'utf8') !== bytes) continue
+        renameSync(temporary, path)
+        fsyncPath(dirname(path))
+        forgetConfig(path)
+        notifyConfigChanged({ path, previous, next })
+        return
+      } finally {
+        try {
+          unlinkSync(temporary)
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+            log.warn('could not remove transient pairing config', { err: error })
+        }
+      }
+    }
+    throw new Error('config changed while consuming acknowledged pairing code')
+  })
+}
+
 /** Validate + write the config (pretty JSON). Throws on an invalid config — including a
  *  daemon/client mode without a serverUrl, which would exit-2 crash-loop at boot under
  *  Restart=always; catch it at SAVE time instead (#21). */
@@ -1002,36 +1054,40 @@ export function saveConfig(config: PodiumConfig, path = configPath()): void {
         'would crash-loop at boot. Provide a server URL (join code) first.',
     )
   }
-  // BEFORE the write, and through the cache, so the pair this announces is the
-  // real one. On the hot path this is the one `statSync` a cached load costs.
-  const previous = loadConfig(path)
-  mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, `${JSON.stringify(parsed, null, 2)}\n`)
-  // PRIME, so a process reads its own write without going back to disk. The
-  // entry is a `write` entry: it is believed for exactly as long as the file's
-  // signature cannot yet have been re-stamped by anyone else — see
-  // {@link isTrustworthy}. A stat that fails here leaves the cache alone rather
-  // than storing bytes under a signature nothing can invalidate.
-  const stat = configSignature(path)
-  if (stat && stat.signature !== ABSENT_SIGNATURE) {
-    rememberConfig(path, {
-      signature: stat.signature,
-      config: parsed,
-      source: 'write',
-      statAt: stat.at,
-      // A write entry is trusted by the mirrored rule below and never by this
-      // flag; it is stated so the field is never absent on an entry.
-      settledAtRead: stat.settled,
-    })
-  } else {
-    configCache.delete(path)
-  }
-  // Only on a real difference, for the reason `settings.changed` gives: several
-  // boot paths persist the config they just loaded, and an identical write must
-  // not make every subscriber re-run.
-  if (JSON.stringify(previous) !== JSON.stringify(parsed)) {
-    notifyConfigChanged({ path, previous, next: parsed })
-  }
+  withConfigWriteLock(path, () => {
+    // Another owner may have published while this writer waited for the lock.
+    forgetConfig(path)
+    // BEFORE the write, and through the cache, so the pair this announces is the
+    // real one. On the hot path this is the one `statSync` a cached load costs.
+    const previous = loadConfig(path)
+    mkdirSync(dirname(path), { recursive: true })
+    writeFileSync(path, `${JSON.stringify(parsed, null, 2)}\n`)
+    // PRIME, so a process reads its own write without going back to disk. The
+    // entry is a `write` entry: it is believed for exactly as long as the file's
+    // signature cannot yet have been re-stamped by anyone else — see
+    // {@link isTrustworthy}. A stat that fails here leaves the cache alone rather
+    // than storing bytes under a signature nothing can invalidate.
+    const stat = configSignature(path)
+    if (stat && stat.signature !== ABSENT_SIGNATURE) {
+      rememberConfig(path, {
+        signature: stat.signature,
+        config: parsed,
+        source: 'write',
+        statAt: stat.at,
+        // A write entry is trusted by the mirrored rule below and never by this
+        // flag; it is stated so the field is never absent on an entry.
+        settledAtRead: stat.settled,
+      })
+    } else {
+      configCache.delete(path)
+    }
+    // Only on a real difference, for the reason `settings.changed` gives: several
+    // boot paths persist the config they just loaded, and an identical write must
+    // not make every subscriber re-run.
+    if (JSON.stringify(previous) !== JSON.stringify(parsed)) {
+      notifyConfigChanged({ path, previous, next: parsed })
+    }
+  })
 }
 
 /**
@@ -1047,16 +1103,22 @@ export function saveConfig(config: PodiumConfig, path = configPath()): void {
  * would destroy whatever the operator had).
  */
 export function migrateConfigFile(path = configPath()): string[] {
-  const res = inspectConfig(path)
-  if (res.state !== 'ok' || res.migrated.length === 0) return []
-  // Keep the pre-upgrade bytes beside the config, without replacing an earlier backup.
-  try {
-    copyFileSync(path, `${path}.v${CURRENT_CONFIG_VERSION}-backup`, constants.COPYFILE_EXCL)
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-  }
-  saveConfig(res.config, path)
-  return res.migrated
+  // Diagnostics and already-current configs remain read-only. Recheck under
+  // ownership only when an actual migration needs to publish.
+  const initial = inspectConfig(path)
+  if (initial.state !== 'ok' || initial.migrated.length === 0) return []
+  return withConfigWriteLock(path, () => {
+    const res = inspectConfig(path)
+    if (res.state !== 'ok' || res.migrated.length === 0) return []
+    // Keep the pre-upgrade bytes beside the config, without replacing an earlier backup.
+    try {
+      copyFileSync(path, `${path}.v${CURRENT_CONFIG_VERSION}-backup`, constants.COPYFILE_EXCL)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+    }
+    saveConfig(res.config, path)
+    return res.migrated
+  })
 }
 
 /** True until a deployment mode has been chosen. */

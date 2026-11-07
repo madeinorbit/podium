@@ -1,14 +1,77 @@
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { discoveryRoots } from '@podium/harness'
+import type { SessionSpec } from '@podium/harness/driver/host'
 import { asSessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { DaemonContext } from '../control/context'
+import * as processControl from '../control/session'
+import { DaemonHarnessRuntime } from '../harness-runtime'
+import { testHarnessSnapshot } from '../test-support/harness-snapshot'
 import { daemonRuntimeHost } from './host'
 
 describe('daemonRuntimeHost', () => {
+  it('shares the selected installation between hook setup and launch across inventory refresh', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'podium-selected-hooks-'))
+    const launch = vi
+      .spyOn(processControl, 'launchTerminalProcess')
+      .mockResolvedValue({ announce() {} })
+    try {
+      await mkdir(join(homeDir, '.codex'))
+      const selectedBase = testHarnessSnapshot({ codex: '/opt/homebrew/bin/codex' }, 0)
+      const executable = {
+        kind: 'codex' as const,
+        path: '/opt/homebrew/bin/codex',
+        version: 'codex-cli 0.162.0',
+        generation: 0,
+      }
+      const selected = { ...selectedBase, executables: new Map([['codex' as const, executable]]) }
+      const replacement = testHarnessSnapshot({ codex: '/different/codex' }, 1)
+      const harnessRuntime = new DaemonHarnessRuntime({
+        buildSnapshot: async (generation) => (generation === 0 ? selected : replacement),
+      })
+      const ctx = {
+        harnessRuntime,
+        homeDir,
+        settingsDir: join(homeDir, 'settings'),
+      } as DaemonContext
+      const host = daemonRuntimeHost(ctx, () => {})
+      const spec: SessionSpec = {
+        harness: 'codex',
+        workdir: '/repo',
+        model: {},
+        selection: { auth: 'unknown', platform: 'darwin', available: [] },
+        instructions: { supported: false, reason: 'fixture' },
+        mcpServers: { supported: false, reason: 'fixture' },
+        instrumentation: { endpointUrl: 'http://localhost/hooks/selected' },
+      }
+      const sessionId = asSessionId('selected-install')
+      const instrumentation = await host.installInstrumentation(sessionId, spec)
+      expect(instrumentation.degradedKind).toBe('untrusted')
+      await harnessRuntime.refresh()
+      // Reusing the same spec for another session must not overwrite the
+      // first installation's retained selection.
+      const secondWiring = await host.installInstrumentation(asSessionId('second-install'), spec)
+      await host.launch({ sessionId, spec, instrumentation })
+      await host.launch({
+        sessionId: asSessionId('second-install'),
+        spec,
+        instrumentation: secondWiring,
+      })
+      expect(launch).toHaveBeenCalledWith(
+        ctx,
+        expect.objectContaining({ harnessSnapshot: selected }),
+      )
+      expect(launch.mock.calls[0]?.[1].harnessSnapshot).toBe(selected)
+      expect(launch.mock.calls[1]?.[1].harnessSnapshot).toBe(replacement)
+    } finally {
+      launch.mockRestore()
+      await rm(homeDir, { recursive: true, force: true })
+    }
+  })
+
   it.each([
     'never-live',
     'teardown',
@@ -17,7 +80,9 @@ describe('daemonRuntimeHost', () => {
     // send (ctx.send), never cast through the driver's narrowed port.
     const daemonSent: DaemonMessage[] = []
     const driverSent: unknown[] = []
-    const ctx = { send: (message: DaemonMessage) => daemonSent.push(message) } as unknown as DaemonContext
+    const ctx = {
+      send: (message: DaemonMessage) => daemonSent.push(message),
+    } as unknown as DaemonContext
     const host = daemonRuntimeHost(ctx, (message) => driverSent.push(message))
     const sessionId = asSessionId('session-1')
 

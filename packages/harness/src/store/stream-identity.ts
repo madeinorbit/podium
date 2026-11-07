@@ -61,6 +61,9 @@ import { decodeCursor, encodeCursor } from './cursor-codec'
  * refuses a driver whose fragments join to nothing.
  */
 export function streamItemIdOf(item: TranscriptItem): string {
+  // A grammar that knows the provider's message id names the stream by it
+  // (Claude: the API message id, streamed before the record exists).
+  if (item.streamId) return item.streamId
   return item.cursor ? (streamIdOfCursor(item.cursor) ?? item.id) : item.id
 }
 

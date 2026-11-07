@@ -19,6 +19,7 @@ import {
   harnessTranscriptStorage,
   type LaunchFile,
   parseHarnessVersion,
+  type ResolvedHarnessInventory,
   serverDriverExecutable,
 } from '@podium/harness'
 import { managementLoginCommandFor } from '../harness-management.js'
@@ -678,7 +679,10 @@ const NOMINAL_TERMINAL_GEOMETRY = { cols: 120, rows: 40 } as const
  */
 export async function launchTerminalProcess(
   ctx: DaemonContext,
-  input: TerminalLaunch & { loginHarness?: SpawnControl['loginHarness'] },
+  input: TerminalLaunch & {
+    loginHarness?: SpawnControl['loginHarness']
+    harnessSnapshot?: ResolvedHarnessInventory
+  },
 ): Promise<TerminalLaunched> {
   const { sessionId, spec, instrumentation, resume, loginHarness } = input
   const agentKind = spec.harness as AgentKind
@@ -766,7 +770,7 @@ export async function launchTerminalProcess(
           })
         : { cmd: loginCommand.cmd, args: [...loginCommand.args], cwd: spec.workdir }
       : ctx.harnessRuntime
-        ? await ctx.harnessRuntime.launch(agentKind, launchOptions)
+        ? await ctx.harnessRuntime.launch(agentKind, launchOptions, input.harnessSnapshot)
         : ctx.launch(agentKind, launchOptions)
     materializeLaunchFiles(cmd.files)
     // SQLite-backed harnesses create their store parent lazily. Create the
@@ -779,6 +783,26 @@ export async function launchTerminalProcess(
     if (!loginHarness && harnessTranscriptStorage(agentKind) === 'sqlite' && cmd.env?.OPENCODE_DB) {
       mkdirSync(dirname(cmd.env.OPENCODE_DB), { recursive: true })
     }
+    const childEnv = spawnEnv({
+      // Server-resolved managed credential / environment (SP-6454, #216).
+      sessionEnv: spec.env,
+      harnessEnv: cmd.env,
+      podiumEnv: {
+        // The relay pair and browser shim every session process gets. The
+        // agent-IDENTITY half rides along only for harness kinds — a shell is
+        // the operator [POD-1375].
+        ...sessionProcessEnv(ctx, sessionId, agentKind),
+        ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}),
+        ...harnessInstanceEnv(loginHarness ?? agentKind, ctx.homeDir),
+        // Subagent model rides as env — Claude Code reads it; harmless elsewhere.
+        ...(subagentModel ? { CLAUDE_CODE_SUBAGENT_MODEL: subagentModel } : {}),
+        // Globally-installed hooks are env-gated per session by their adapter.
+        // Commands exit immediately when absent, so non-Podium runs are untouched.
+        ...instrumentation.env,
+        // Terminal-protocol compatibility for this harness (see above).
+        ...harnessCompatEnv(agentKind),
+      },
+    })
     const session = await durable.spawn({
       // DEMAND THE WRITER LEASE (POD-4434). A spawn that adopts a live master
       // while another writer holds it is the update-overlap symptom: two
@@ -790,26 +814,7 @@ export async function launchTerminalProcess(
       cwd: cmd.cwd,
       cols: orderFrame.geometry.cols,
       rows: orderFrame.geometry.rows,
-      env: spawnEnv({
-        // Server-resolved managed credential / environment (SP-6454, #216).
-        sessionEnv: spec.env,
-        harnessEnv: cmd.env,
-        podiumEnv: {
-          // The relay pair and browser shim every session process gets. The
-          // agent-IDENTITY half rides along only for harness kinds — a shell is
-          // the operator [POD-1375].
-          ...sessionProcessEnv(ctx, sessionId, agentKind),
-          ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}),
-          ...harnessInstanceEnv(loginHarness ?? agentKind, ctx.homeDir),
-          // Subagent model rides as env — Claude Code reads it; harmless elsewhere.
-          ...(subagentModel ? { CLAUDE_CODE_SUBAGENT_MODEL: subagentModel } : {}),
-          // Globally-installed hooks are env-gated per session by their adapter.
-          // Commands exit immediately when absent, so non-Podium runs are untouched.
-          ...instrumentation.env,
-          // Terminal-protocol compatibility for this harness (see above).
-          ...harnessCompatEnv(agentKind),
-        },
-      }),
+      env: childEnv,
       // The session's account is the one its HOME is logged into — which is only
       // true if this harness's own credential vars cannot reach it by inheritance
       // from the daemon (POD-2296). `env` above cannot express that: unsetting a
@@ -839,6 +844,7 @@ export async function launchTerminalProcess(
       seedOnFrame: true,
       startedAtMs: spawnStartedAt,
       ...(newSessionId ? { newSessionId } : {}),
+      env: childEnv,
     })
     // The size event above ran before these observers existed: tell them now.
     ctx.observers.onResize?.(sessionId, geometry.cols, geometry.rows)
@@ -1569,12 +1575,12 @@ async function adoptHeadlessSession(
     return true
   } catch (adoptionError) {
     if (!requested) {
-      return fail(adoptionError instanceof Error ? adoptionError.message : String(adoptionError))
-    }
-    if (!msg.resume) {
       return fail(
         adoptionError instanceof Error ? adoptionError.message : String(adoptionError),
       )
+    }
+    if (!msg.resume) {
+      return fail(adoptionError instanceof Error ? adoptionError.message : String(adoptionError))
     }
     try {
       const spec: SessionSpec = {
@@ -2848,9 +2854,7 @@ async function reapDurableHost(
       log.warn('the durable host is STILL running after a kill', { sessionId, durableLabel })
     }
     ctx.send({
-      type: 'sessionKillResult',
-      sessionId,
-      durableLabel,
+      type: 'sessionKillResult', sessionId, durableLabel,
       killed: !alive,
       ...(alive ? { reason: 'the durable host is still running' } : {}),
     })
@@ -2861,7 +2865,9 @@ async function reapDurableHost(
     log.warn('could not reap the durable host', { err, sessionId, durableLabel })
     const alive = await stillRunning().catch(() => undefined)
     ctx.send({
-      type: 'sessionKillResult', sessionId, durableLabel,
+      type: 'sessionKillResult',
+      sessionId,
+      durableLabel,
       killed: alive === false,
       reason: err instanceof Error ? err.message : String(err),
     })

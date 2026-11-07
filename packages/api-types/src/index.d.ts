@@ -2081,6 +2081,10 @@ type Input_machines_moveServer = {
     targetMachineId: string;
 };
 type Input_machines_pairingCode = (undefined) | ({
+    clientRegistration?: undefined | {
+        machineId: string;
+        publicKey?: string | undefined;
+    };
     copyAgentCredentials?: boolean | undefined;
     podiumManaged?: boolean | undefined;
     replaceMachineId?: string | undefined;
@@ -8842,6 +8846,14 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         "checkNow": TRPC.TRPCMutationProcedure<{
             input: undefined;
             output: Array<ChannelCheckRecord>;
+            meta: unknown;
+        }>;
+        "checkSpace": TRPC.TRPCQueryProcedure<{
+            input: (undefined) | ({
+                expectedVersion?: string | undefined;
+                scope?: "all" | "operation" | undefined;
+            });
+            output: Protocol.UpdateSpacePreview;
             meta: unknown;
         }>;
         "converge": TRPC.TRPCMutationProcedure<{

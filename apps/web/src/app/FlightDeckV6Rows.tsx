@@ -43,7 +43,7 @@ export const V6_DEPTH_STEP = 22
 
 export type FlightDeckV6Actions = {
   activeSessionId: string | null
-  /** Open details for a task with no subtasks or crew. */
+  /** Open task details whenever its row or disclosure is activated. */
   onOpenTask: (task: FullDeckTask) => void
   onSelectSession: (task: FullDeckTask, session: SessionView, permanent: boolean) => void
   onMenu: (task: FullDeckTask, event: MouseEvent) => void
@@ -230,13 +230,13 @@ export const FlightDeckV6Task = observer(function FlightDeckV6Task({
             data-edge-gutter="6"
             onClick={(event) => {
               if (event.target !== event.currentTarget) return
+              actions.onOpenTask(task)
               if (task.foldable) task.deck.toggleFold(task.id)
-              else actions.onOpenTask(task)
             }}
             onContextMenu={(event) => actions.onMenu(task, event)}
             ref={window?.enabled ? window.measure(stripKey) : undefined}
           >
-            <TaskFold task={task} contentId={controlledIds} />
+            <TaskFold task={task} contentId={controlledIds} onOpenTask={actions.onOpenTask} />
             <span className="flight-v6-ring-control">
               <IssueStatusPicker
                 issue={task.row.status}
@@ -310,9 +310,11 @@ const FlightDeckV6TaskTitle = observer(function FlightDeckV6TaskTitle({
 const TaskFold = observer(function TaskFold({
   task,
   contentId,
+  onOpenTask,
 }: {
   task: FullDeckTask
   contentId: string
+  onOpenTask: FlightDeckV6Actions['onOpenTask']
 }) {
   if (!task.foldable) return <span className="flight-v6-fold" aria-hidden="true" />
   return (
@@ -323,7 +325,10 @@ const TaskFold = observer(function TaskFold({
       aria-label={`${task.open ? 'Collapse' : 'Expand'} ${task.row.title}`}
       aria-expanded={task.open}
       aria-controls={contentId}
-      onClick={() => task.deck.toggleFold(task.id)}
+      onClick={() => {
+        onOpenTask(task)
+        task.deck.toggleFold(task.id)
+      }}
     >
       {task.open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
     </button>
@@ -349,8 +354,8 @@ const TaskBody = observer(function TaskBody({
       aria-expanded={task.foldable ? task.open : undefined}
       aria-controls={task.foldable ? contentId : undefined}
       onClick={() => {
+        onOpenTask(task)
         if (task.foldable) task.deck.toggleFold(task.id)
-        else onOpenTask(task)
       }}
     >
       {children}

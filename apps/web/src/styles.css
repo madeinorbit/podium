@@ -11768,6 +11768,567 @@ button.waterfall-fold:hover {
   border-radius: 2px;
 }
 /* RefMiniview: the task card's description and latest update, clamped until unfolded. */
+/* Update cards: one reading surface for releases, operations and build approval. */
+.update-card {
+  position: fixed;
+  right: 16px;
+  bottom: 36px;
+  z-index: 50;
+  width: min(448px, calc(100vw - 32px));
+  max-height: min(620px, calc(100dvh - 64px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--popover);
+  color: var(--foreground);
+  box-shadow: var(--shadow-popover);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.update-card-head {
+  flex: none;
+  padding: 16px 18px 0;
+}
+.update-card-head:has(+ .update-card-foot) {
+  padding-bottom: 16px;
+}
+.update-card-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.update-card-title-row h2 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+.update-card-channel {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 0 8px;
+  height: 20px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--muted-foreground);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+.update-card-channel[data-dev="true"] {
+  color: var(--live);
+  border-color: color-mix(in srgb, var(--live) 35%, var(--border));
+}
+.update-card-channel code {
+  color: var(--text-dim);
+  font-size: 10px;
+}
+.update-card-from {
+  margin-top: 3px;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+.update-card-lede {
+  margin: 14px 0 0;
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.45;
+  text-wrap: pretty;
+}
+.update-card-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 18px 0;
+  border-bottom: 1px solid var(--border);
+}
+.update-card-section-label {
+  padding: 7px 0 8px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.update-card-bar a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  color: var(--muted-foreground);
+  font-size: 11.5px;
+}
+.update-card-bar a:hover {
+  color: var(--text-strong);
+}
+.update-card-bar [role="tab"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px 8px;
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim);
+  font-weight: 500;
+  cursor: pointer;
+}
+.update-card-bar [role="tab"]:first-child {
+  padding-left: 0;
+}
+.update-card-bar [aria-selected="true"] {
+  color: var(--text-strong);
+  border-bottom-color: var(--primary);
+}
+.update-card-count {
+  color: var(--text-dim);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+.update-card-scroll {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 80px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px 18px 14px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+  --update-fade-top: 0px;
+  --update-fade-bottom: 0px;
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--update-fade-top),
+    #000 calc(100% - var(--update-fade-bottom)),
+    transparent
+  );
+}
+.update-card-scroll[data-at-top="false"] {
+  --update-fade-top: 20px;
+}
+.update-card-scroll[data-at-end="false"] {
+  --update-fade-bottom: 28px;
+}
+.update-card-scroll .update-card-lede:first-child {
+  margin-top: 0;
+  margin-bottom: 12px;
+}
+.update-card-tab-content,
+.update-card-notes,
+.update-card-notes-disclosure {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.update-card-notes-disclosure {
+  max-height: 280px;
+}
+.update-card-release-link {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 11.5px;
+  color: var(--muted-foreground);
+}
+.update-notes {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted-foreground);
+}
+.update-notes > :first-child {
+  margin-top: 0;
+}
+.update-notes > :last-child {
+  margin-bottom: 0;
+}
+.update-notes p {
+  margin: 0 0 0.6em;
+}
+.update-notes strong {
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.update-notes :is(h1, h2, h3, h4, h5, h6) {
+  margin: 18px 0 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.update-notes dl {
+  display: grid;
+  gap: 11px;
+  margin: 0;
+}
+.update-notes dl > div {
+  display: grid;
+  gap: 2px;
+}
+.update-notes dt {
+  color: var(--text-strong);
+  font-weight: 600;
+}
+.update-notes dd {
+  margin: 0;
+  text-wrap: pretty;
+}
+.update-notes dd p:last-child {
+  margin-bottom: 0;
+}
+.update-notes :is(ul, ol) {
+  margin: 8px 0;
+  padding-left: 14px;
+}
+.update-notes ul {
+  list-style: disc;
+}
+.update-notes ol {
+  list-style: decimal;
+}
+.update-notes li + li {
+  margin-top: 5px;
+}
+.update-notes li::marker {
+  color: var(--text-faint);
+}
+.update-notes code {
+  font-size: 0.92em;
+}
+.update-notes pre {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.update-notes .code-copy {
+  display: none;
+}
+.update-card-commits {
+  list-style: none;
+  margin: 0 -8px;
+  padding: 0;
+}
+.update-card-commits li {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+.update-card-commits li:hover {
+  background: var(--rail);
+}
+.update-card-commits code {
+  color: var(--text-dim);
+  font-size: 10.5px;
+}
+.update-card-commits li > span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.update-card-more,
+.update-card-empty {
+  color: var(--text-dim);
+  font-size: 11.5px;
+}
+.update-card-more {
+  margin-top: 8px;
+}
+.update-card-impact {
+  flex: none;
+  padding: 10px 18px;
+  border-top: 1px solid var(--border);
+}
+.update-card-impact-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: var(--muted-foreground);
+  font-size: 11.5px;
+}
+.update-card-impact-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.update-card-dot {
+  display: inline-block;
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+.update-card-dot[data-kind="interrupts"] {
+  background: var(--warning);
+}
+.update-card-dot[data-kind="data"] {
+  background: transparent;
+  border: 1.5px solid var(--live);
+}
+.update-card-dot[data-kind="needs-you"] {
+  background: transparent;
+  border: 1.5px solid var(--warning);
+}
+.update-card-impact-row button {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.update-card-impact-row button:hover {
+  color: var(--text-strong);
+}
+.update-card-impact-row button[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+.update-card-places {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 2px;
+  padding: 0;
+  list-style: none;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+.update-card-places li {
+  display: grid;
+  grid-template-columns: 7px 1fr;
+  align-items: baseline;
+  gap: 9px;
+}
+.update-card-places b {
+  color: var(--foreground);
+  font-weight: 500;
+}
+.update-card-place-detail {
+  margin-left: 6px;
+}
+.update-space-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted-foreground);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+.update-card > .update-space-notice {
+  flex: none;
+  padding: 10px 18px;
+  border-top: 1px solid var(--border);
+}
+.update-space-warnings {
+  display: grid;
+  gap: 6px;
+  max-height: 90px;
+  overflow-y: auto;
+}
+.update-space-warnings p {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  color: var(--foreground);
+  overflow-wrap: anywhere;
+}
+.update-space-warnings svg {
+  flex: none;
+  align-self: flex-start;
+  margin-top: 2px;
+  color: var(--warning);
+}
+.update-space-stale {
+  color: var(--text-dim);
+  font-size: 10.5px;
+}
+.update-card-status {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px 14px;
+}
+.update-card-status > * {
+  flex-shrink: 0;
+}
+.update-card-steps {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.update-card-steps li {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 10px;
+  padding-bottom: 14px;
+  position: relative;
+}
+.update-card-steps li:last-child {
+  padding-bottom: 0;
+}
+.update-card-steps li:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  left: 7.5px;
+  top: 17px;
+  bottom: 1px;
+  width: 1px;
+  background: var(--border);
+}
+.update-card-glyph {
+  width: 16px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  color: var(--success);
+}
+.update-card-glyph i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1.5px solid var(--text-faint);
+}
+.update-card-steps [data-state="current"] .update-card-glyph i {
+  background: var(--live);
+  border-color: var(--live);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--live) 18%, transparent);
+}
+.update-card-steps [data-state="stalled"] .update-card-glyph i {
+  border-color: var(--warning);
+}
+.update-card-steps [data-state="failed"] .update-card-glyph {
+  color: var(--destructive);
+}
+.update-card-step-title {
+  color: var(--muted-foreground);
+}
+.update-card-steps :is([data-state="current"], [data-state="stalled"]) .update-card-step-title {
+  color: var(--text-strong);
+  font-weight: 500;
+}
+.update-card-steps [data-state="pending"] .update-card-step-title {
+  color: var(--text-dim);
+}
+.update-card-substatus {
+  color: var(--text-dim);
+  font-size: 11.5px;
+  margin-top: 1px;
+  font-variant-numeric: tabular-nums;
+}
+.update-card-meter {
+  margin-top: 6px;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--border);
+  overflow: hidden;
+  width: min(180px, 100%);
+}
+.update-card-meter i {
+  display: block;
+  height: 100%;
+  background: var(--live);
+  border-radius: 3px;
+}
+.update-card-peek {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 18px 14px;
+  padding: 9px 12px;
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--rail);
+  color: var(--muted-foreground);
+  text-align: left;
+  cursor: pointer;
+}
+.update-card-head + .update-card-peek {
+  margin-top: 14px;
+}
+.update-card-peek b {
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.update-card-peek svg {
+  margin-left: auto;
+  color: var(--text-dim);
+}
+.update-card-peek[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+.update-card-foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 12px 18px;
+  border-top: 1px solid var(--border);
+}
+.update-card-foot [data-slot="button"] {
+  height: 30px;
+  padding: 0 12px;
+  font-size: 12px;
+  border-radius: 6px;
+}
+.update-card-foot .btn-primary-rim {
+  font-weight: 600;
+}
+.update-card-dismiss {
+  color: var(--muted-foreground);
+}
+.update-card-spacer {
+  flex: 1;
+}
+.update-card-hint {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.update-card-live {
+  color: var(--text-dim);
+  font-size: 10.5px;
+}
+.update-card-done {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 18%, transparent);
+}
+.update-card[data-state="done"] .update-card-scroll {
+  max-height: 236px;
+}
+.update-card :is(button, a, [tabindex]):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+@media (max-width: 460px) {
+  .update-card-impact-row {
+    flex-wrap: wrap;
+    gap: 6px 12px;
+  }
+  .update-card-foot {
+    flex-wrap: wrap;
+  }
+  .update-card-hint {
+    max-width: 65%;
+  }
+}
 .ref-miniview-text {
   overflow-wrap: anywhere;
 }
@@ -13669,9 +14230,11 @@ button.waterfall-fold:hover {
   padding: 3px 6px;
   text-align: left;
 }
-.flight-full-phase-toggle > svg {
+.flight-full-phase-identity > svg {
   flex: none;
   color: var(--text-faint);
+  align-self: start;
+  margin-top: 3px;
 }
 .flight-full-phase-index {
   letter-spacing: 0.08em;
@@ -14090,25 +14653,19 @@ button.waterfall-fold:hover {
   display: none;
 }
 
-/* The blocker-line gutter opens without motion when motion is reduced. Kept
-   above the Full section, which takes no media queries. */
-@media (prefers-reduced-motion: reduce) {
-  .flight-full-panel .flight-full-groups {
-    transition: none;
-  }
-}
-/* Full alone sheds by the entire panel, never the viewport or an indented
-   strip. Expanded uses this same tree. POD-6000 approved wrapping mandatory
-   identity/state and bounded indentation when their intrinsic widths collide. */
+/* Full alone sheds optional slots by panel width. Every nesting level retains its
+   full step; deep trees scroll horizontally while row contents keep wrapping. */
 .flight-full-panel {
   container: flight-full / inline-size;
   width: 100%;
   min-width: 0;
-  overflow-x: hidden;
+  overflow-x: auto;
   --v6-state-width: 76px;
   --v6-gap: 8px;
   --v6-title-min: 60px;
-  --v6-indent-limit: clamp(0px, calc(100cqi - 440px), 66px);
+}
+.flight-full-panel > .deck-chrome {
+  left: 0;
 }
 .flight-v6-rows,
 .flight-full-coordinator,
@@ -14120,13 +14677,24 @@ button.waterfall-fold:hover {
   min-width: 0;
 }
 .flight-v6-card,
-.flight-full-phase-header {
-  margin-left: min(var(--v6-indent, 0px), var(--v6-indent-limit, 66px));
+.flight-full-phase-header,
+.flight-full-phase-section > [data-deck-placeholder] {
+  margin-left: var(--v6-indent, 0px);
+  /* deck-rows is the inline-size container; its tree has 12px/4px gutters.
+     Minimum row width keeps deep controls usable without flattening ancestry. */
+  width: calc(100cqi - 16px - var(--v6-indent, 0px));
+  min-width: 240px;
 }
 /* A phase's own agents sit inside its rail, in line with its tasks: one depth
    step (V6_DEPTH_STEP) in from the header, where the child cards start. */
 .flight-full-phase-lead {
-  margin-left: min(calc(var(--v6-indent, 0px) + 22px), var(--v6-indent-limit, 66px));
+  margin-left: calc(var(--v6-indent, 0px) + 22px);
+  width: calc(100cqi - 38px - var(--v6-indent, 0px));
+  min-width: 240px;
+}
+.flight-full-done-line,
+.flight-full-helpers {
+  width: calc(100cqi - 16px);
 }
 /* Phase wrappers retain semantic nesting/disclosure IDs without accumulating
    horizontal padding. The rail is decoration, independent of content width. */
@@ -14145,7 +14713,7 @@ button.waterfall-fold:hover {
   pointer-events: none;
   top: 0;
   bottom: 0;
-  left: min(calc(var(--v6-indent, 0px) + 11px), var(--v6-indent-limit, 66px));
+  left: calc(var(--v6-indent, 0px) + 11px);
   border-left: 2px solid var(--border);
 }
 .flight-full-phase-content[data-has-lead="true"]::before {
@@ -14185,7 +14753,7 @@ button.waterfall-fold:hover {
   height: 13px;
 }
 .flight-v6-guide {
-  left: min(var(--v6-guide-left), var(--v6-indent-limit, 66px));
+  left: var(--v6-guide-left);
 }
 .flight-v6-strip {
   container-type: normal;
@@ -14246,16 +14814,16 @@ button.waterfall-fold:hover {
 }
 .flight-full-groups {
   position: relative;
+  min-width: min-content;
 }
-/* The blocker lines' own strip (FULL_EDGE_GUTTER, 28px from the row's right
-   edge: this 24px plus the rows' 4px padding). It opens only while lines show:
-   always in an expanded deck with links, on hover in a narrower one, so the
-   rows shorten to make room and take the width back afterwards. */
-.flight-full-groups {
-  transition: padding-right 160ms ease;
+/* Blocker lines run over the right end of the rows (FULL_EDGE_INSET). While
+   they show, the state words and phase meters they cross fade out, and come
+   back when the lines go. */
+.flight-full-groups :is(.flight-v6-state, .flight-full-phase-meter, .flight-full-phase-counter) {
+  transition: opacity 120ms ease;
 }
-.flight-full-groups[data-edge-gutter="true"] {
-  padding-right: 24px;
+.flight-full-groups [data-under-lines="true"] {
+  opacity: 0;
 }
 .flight-full-dependency-edges {
   position: absolute;
@@ -14347,10 +14915,26 @@ button.waterfall-fold:hover {
 }
 .flight-full-phase-toggle {
   flex-wrap: wrap;
+  row-gap: 4px;
+}
+.flight-full-phase-identity {
+  display: grid;
+  grid-template-columns: 12px max-content minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
 }
 .flight-full-phase-name {
   min-width: 0;
-  flex: 0 1 auto;
+}
+.flight-full-phase-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  margin-left: auto;
 }
 .flight-full-phase-hairline {
   min-width: 0;

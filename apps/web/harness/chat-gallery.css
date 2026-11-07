@@ -1,0 +1,114 @@
+body {
+  margin: 0;
+  min-height: 100vh;
+  padding: 30px;
+  background: var(--background);
+  font-family: var(--font-sans);
+  color: var(--foreground);
+}
+.gallery-harness {
+  max-width: 100%;
+  min-height: 580px;
+  margin: 0 auto;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--card);
+}
+.gallery-harness-header {
+  height: 49px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--tabstrip);
+  font-size: 12px;
+}
+.gallery-harness-header strong {
+  font-weight: 550;
+}
+.gallery-harness-feed {
+  max-width: 718px;
+  margin: auto;
+  padding: 26px 24px 20px;
+}
+.gallery-harness-date {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 22px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+.gallery-harness-date::before,
+.gallery-harness-date::after {
+  content: "";
+  width: 36px;
+  height: 1px;
+  background: var(--border);
+}
+.gallery-harness-meta {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  margin-top: 7px;
+  color: var(--text-dim);
+  font-size: 10.5px;
+}
+.gallery-harness-answer {
+  margin-top: 24px;
+  font-size: 14.5px;
+  line-height: 23px;
+}
+.gallery-harness-answer > span {
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+.gallery-harness-answer > p {
+  margin: 6px 0 0;
+}
+.gallery-harness-composer {
+  margin: 0 24px 22px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 13px 15px;
+  background: var(--tabstrip);
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.gallery-harness-composer > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 20px;
+  color: var(--muted-foreground);
+  font-size: 10.5px;
+}
+.gallery-harness-composer > div > div {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+@media (max-width: 520px) {
+  body {
+    padding: 0;
+  }
+  .gallery-harness {
+    border: 0;
+    border-radius: 0;
+    min-height: 100vh;
+  }
+  .gallery-harness-feed {
+    padding: 22px 16px;
+  }
+  .gallery-harness-composer {
+    margin: 0 16px 20px;
+  }
+  .gallery-harness-answer {
+    font-size: 14px;
+  }
+}

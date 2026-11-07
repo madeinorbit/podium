@@ -248,9 +248,11 @@ describe('the stream client', () => {
     })
     fake.emitLine(
       frame({
+        // Measured shape (2.1.317): the stream line's own uuid is not the
+        // message's; the API message id is, and the file record carries it.
         type: 'stream_event',
-        uuid: 'msg-1',
-        event: { type: 'message_start' },
+        uuid: 'stream-line-1',
+        event: { type: 'message_start', message: { id: 'msg-1' } },
       }),
     )
     fake.emitLine(

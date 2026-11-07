@@ -1,108 +1,125 @@
-import type { MessageRecordAttachment } from '@podium/model'
+import { isImagePath, stagedAttachmentId } from '@podium/client-core/values'
+import {
+  type MessageRecordAttachment,
+  machinePathBasename,
+  resolveMachinePath,
+} from '@podium/model'
 import type { SessionId, TranscriptTag } from '@podium/model/browser'
 import { FileText, Image as ImageIcon } from 'lucide-react'
+import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
-import { SentImageThumb } from './SendUserFileBlock'
-import { useChatUploadSrc } from './use-chat-context'
+import { useWorklistPool } from '@/app/store-worklist-pool'
+import { assetUrl } from '@/lib/asset-url'
+import { type ChatGalleryImage, ChatImageGallery } from './ChatImageGallery'
+import { chatUploadSrc } from './chat-upload-src'
+import type { OpenChatImage } from './ImageLightbox'
 
-// Shared with the phone app (POD-2148).
 export { stagedAttachmentId } from '@podium/client-core/values'
-
-/** A chat message's attached image. The issue's stored copy wins (POD-2148):
- *  the daemon's staged file is swept after 24h, the copy is not. Without a copy
- *  (no issue, copy not landed or failed) it shows `fallbackUrl` as before. */
-export function ChatUploadThumb({
-  sessionId,
-  attachmentId,
-  fallbackUrl,
-  name,
-  httpOrigin,
-  onOpenImage,
-  fallback,
-}: {
-  sessionId: SessionId
-  attachmentId: string | undefined
-  /** Where the image is read when the issue holds no copy (the daemon file). */
-  fallbackUrl: string | null
-  name: string
-  httpOrigin: string
-  onOpenImage: (src: string) => void
-  fallback: JSX.Element
-}): JSX.Element {
-  const stored = useChatUploadSrc(sessionId, attachmentId, httpOrigin)
-  const url = stored ?? fallbackUrl
-  if (!url) return fallback
-  return (
-    // Keyed by the URL: a copy landing after a failed daemon load gets a fresh
-    // thumbnail rather than the failed one's fallback.
-    <SentImageThumb
-      key={url}
-      url={url}
-      name={name}
-      onOpen={() => onOpenImage(url)}
-      fallback={fallback}
-    />
-  )
-}
 
 function TagChip({ kind, label }: { kind: string; label: string }): JSX.Element {
   return (
-    <span className="inline-flex items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground">
+    <span className="chat-attachment-file">
       {kind === 'image' ? (
-        <ImageIcon size={12} aria-hidden="true" />
+        <ImageIcon size={13} aria-hidden="true" />
       ) : (
-        <FileText size={12} aria-hidden="true" />
+        <FileText size={13} aria-hidden="true" />
       )}
-      {label}
+      <span>{label}</span>
     </span>
   )
 }
 
-/** Saved message attachments render even when the provider records only text.
- * Unresolved provider tags retain their labelled chips. */
-export function ItemAttachments({
+/** One gallery for all image sources in a message. Saved copies win over
+ * staged paths, including after a history remount. Unresolved tags and files
+ * keep their labels and file-opening behavior outside the image row. */
+export const ItemAttachments = observer(function ItemAttachments({
   sessionId,
   attachments,
   tags,
+  paths = [],
+  cwd = '',
   httpOrigin,
   onOpenImage,
+  openFile,
 }: {
   sessionId: SessionId
-  attachments: readonly MessageRecordAttachment[]
+  attachments: readonly Pick<MessageRecordAttachment, 'id' | 'filename' | 'kind'>[]
   tags: readonly TranscriptTag[]
+  paths?: readonly string[]
+  cwd?: string
   httpOrigin: string
-  onOpenImage: (src: string) => void
-}): JSX.Element {
-  const images = attachments.filter((a) => a.kind === 'image' && a.id)
+  onOpenImage: OpenChatImage
+  openFile?: (sessionId: SessionId, path: string) => void
+}): JSX.Element | null {
+  const pool = useWorklistPool()
+  const images: ChatGalleryImage[] = []
+  const chips: JSX.Element[] = []
+  const pathIds = new Set<string>()
+  for (const path of paths) {
+    const absolute = resolveMachinePath(cwd, path)
+    const id = stagedAttachmentId(absolute)
+    if (id) pathIds.add(id)
+    const name =
+      attachments.find((a) => id && a.id === id)?.filename ?? machinePathBasename(path, cwd)
+    const src = isImagePath(path)
+      ? (chatUploadSrc(pool, sessionId, id, httpOrigin) ??
+        assetUrl({ httpOrigin, sessionId, fileDir: cwd, src: absolute }))
+      : null
+    if (src) images.push({ kind: 'image', src, label: name, path: absolute })
+    else
+      chips.push(
+        <button
+          data-pressable
+          key={`path:${path}`}
+          type="button"
+          className="chat-attachment-file"
+          title={`Open ${path}`}
+          onClick={(e) => {
+            e.stopPropagation()
+            openFile?.(sessionId, absolute)
+          }}
+        >
+          <FileText size={13} aria-hidden="true" />
+          <span>{name}</span>
+        </button>,
+      )
+  }
   const remaining = { image: 0, file: 0 }
-  for (const attachment of attachments) remaining[attachment.kind]++
-  const rest = tags.filter((tag) => {
-    if (remaining[tag.kind] === 0) return true
-    remaining[tag.kind]--
-    return false
-  })
+  for (const [attachmentIndex, attachment] of attachments.entries()) {
+    remaining[attachment.kind]++
+    if (attachment.id && pathIds.has(attachment.id)) continue
+    const src =
+      attachment.kind === 'image' ? chatUploadSrc(pool, sessionId, attachment.id, httpOrigin) : null
+    if (src) images.push({ kind: 'image', src, label: attachment.filename })
+    else
+      chips.push(
+        <TagChip
+          key={`attachment:${attachment.id ?? ''}:${attachmentIndex}`}
+          kind={attachment.kind}
+          label={attachment.filename}
+        />,
+      )
+  }
+  // Providers may repeat saved attachments as anonymous tags. Consume those
+  // occurrences once, but retain additional unresolved references.
+  for (const [i, tag] of tags.entries()) {
+    if (remaining[tag.kind] > 0) {
+      remaining[tag.kind]--
+      continue
+    }
+    chips.push(<TagChip key={`tag:${i}`} kind={tag.kind} label={tag.label ?? tag.kind} />)
+  }
+  if (!images.length && !chips.length) return null
   return (
-    <>
-      {images.map((a) => (
-        <ChatUploadThumb
-          key={a.id}
-          sessionId={sessionId}
-          attachmentId={a.id}
-          fallbackUrl={null}
-          name={a.filename}
-          httpOrigin={httpOrigin}
+    <div className="chat-message-attachments">
+      {images.length > 0 && (
+        <ChatImageGallery
+          items={images}
           onOpenImage={onOpenImage}
-          fallback={<TagChip kind="image" label={a.filename} />}
+          onOpenFile={openFile ? (path) => openFile(sessionId, path) : undefined}
         />
-      ))}
-      {attachments
-        .filter((a) => a.kind !== 'image' || !a.id)
-        .map((a, i) => (
-          <TagChip key={a.id ?? `${a.filename}-${i}`} kind={a.kind} label={a.filename} />
-        ))}
-      {rest.map((tag, i) => (
-        <TagChip key={`${tag.kind}-${i}`} kind={tag.kind} label={tag.label ?? tag.kind} />
-      ))}
-    </>
+      )}
+      {chips.length > 0 && <div className="chat-attachment-files">{chips}</div>}
+    </div>
   )
-}
+})

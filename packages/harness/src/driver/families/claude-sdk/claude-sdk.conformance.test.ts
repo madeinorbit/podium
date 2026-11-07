@@ -39,6 +39,8 @@ function makeWorld(): {
   let failNextStart = false
   const pending = new Map<SessionId, PendingTurn>()
   const conversations = new Map<string, TranscriptItem[]>()
+  /** Followers of each conversation's file (POD-6280): what a tail delivers. */
+  const fileFeeds = new Map<string, Set<(items: readonly TranscriptItem[]) => void>>()
   const children: PendingTurn[] = []
   const starts: boolean[] = []
   const abandonments: { sessionId: SessionId; turnIds: (string | undefined)[]; reason: string }[] =
@@ -104,6 +106,12 @@ function makeWorld(): {
         },
       }
     },
+    watchTranscript({ resumeValue }, onItems) {
+      const feeds = fileFeeds.get(resumeValue) ?? new Set()
+      feeds.add(onItems)
+      fileFeeds.set(resumeValue, feeds)
+      return () => feeds.delete(onItems)
+    },
     async readTranscript({ resumeValue, range }) {
       return pageHistory(conversations.get(resumeValue) ?? [], resumeValue, range)
     },
@@ -153,6 +161,8 @@ function makeWorld(): {
       const stored = conversations.get(turn.resumeValue) ?? []
       stored.push(item)
       conversations.set(turn.resumeValue, stored)
+      // The CLI writes the record to its session file, which the tail follows.
+      for (const feed of [...(fileFeeds.get(turn.resumeValue) ?? [])]) feed([item])
       pending.delete(sessionId)
       turn.resolve({ resumeValue: turn.resumeValue, output: text, itemId: turn.itemId })
       await Promise.resolve()
@@ -215,6 +225,7 @@ function makeWorld(): {
       for (const turn of pending.values()) turn.reject(new Error('fixture reset'))
       pending.clear()
       conversations.clear()
+      fileFeeds.clear()
       children.length = 0
       starts.length = 0
       abandonments.length = 0

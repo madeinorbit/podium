@@ -57,7 +57,11 @@ import {
 } from './protocol.js'
 import { HeadlessTurnFailure } from '../turn-error.js'
 import { splitAttachments, textWithAttachmentPaths, type TurnInput } from '../../turns.js'
-import type { ClaudeSdkRuntimeHost, ClaudeSdkTurnHandle } from './runtime.js'
+import type {
+  ClaudeSdkRuntimeHost,
+  ClaudeSdkStreamPosition,
+  ClaudeSdkTurnHandle,
+} from './runtime.js'
 
 const log = createLogger('harness:claude-engine-host')
 
@@ -118,6 +122,8 @@ export interface ClaudeEngineJournalEntry {
   instructions?: string
   mcpConfig?: string
   bindingVersion: number
+  /** Where the runtime event stream stood, so a restart continues it (POD-6280). */
+  stream?: ClaudeSdkStreamPosition
 }
 
 /**
@@ -680,9 +686,21 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
     env: Record<string, string>,
     sessionEnv: Record<string, string>,
   ): ClaudeSdkTurnHandle {
-    let resolveDone!: (value: { resumeValue: string; output: string; observedModel?: string; observedEffort?: string }) => void
+    let resolveDone!: (value: {
+      resumeValue: string
+      output: string
+      itemId?: string
+      observedModel?: string
+      observedEffort?: string
+    }) => void
     let rejectDone!: (error: Error) => void
-    const done = new Promise<{ resumeValue: string; output: string; observedModel?: string; observedEffort?: string }>(
+    const done = new Promise<{
+      resumeValue: string
+      output: string
+      itemId?: string
+      observedModel?: string
+      observedEffort?: string
+    }>(
       (res, rej) => {
         resolveDone = res
         rejectDone = rej
@@ -745,8 +763,6 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
           {
             onPartialText: input.onPartialText,
             onPermission: input.onPermission,
-            onToolCall: input.onToolCall,
-            onToolResult: input.onToolResult,
             ...(input.onToolSummary ? { onToolSummary: input.onToolSummary } : {}),
             // Status badges (`starting`/`running`/`tool`) were already dropped
             // at the session layer before this change — only partial text
@@ -784,6 +800,9 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
           const scopeUnit = scopeFor(sessionId).scopeUnitFor(
             claudeEngineProcessKey(deps.facts, sessionId),
           )
+          // The stream position is the runtime's to write: carry it across
+          // this per-turn rewrite of the engine facts.
+          const stream = records.recorded(sessionId)?.stream
           records.bound({
             sessionId,
             claudeSessionId,
@@ -798,7 +817,8 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
             ...(Object.keys(sessionEnv).length > 0 ? { env: sessionEnv } : {}),
             ...(spec.systemPrompt ? { instructions: spec.systemPrompt } : {}),
             ...(spec.mcpConfig ? { mcpConfig: spec.mcpConfig } : {}),
-            bindingVersion: 1,
+            bindingVersion: stream?.bindingVersion ?? 1,
+            ...(stream ? { stream } : {}),
           })
         })
         .catch(() => {
@@ -810,6 +830,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
           resolveDone({
             resumeValue: outcome.harnessSessionId,
             output: outcome.output,
+            ...(outcome.textRecordUuid ? { itemId: outcome.textRecordUuid } : {}),
             ...(outcome.observedModel ? { observedModel: outcome.observedModel } : {}),
             ...(outcome.observedEffort ? { observedEffort: outcome.observedEffort } : {}),
           })

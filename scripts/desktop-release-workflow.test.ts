@@ -63,8 +63,10 @@ function runResolve(env: {
   GITHUB_EVENT_NAME: string
   INPUT_CHANNEL?: string
   INPUT_RELEASE_TAG?: string
+  INPUT_PUBLISH_RELEASE?: string
   GITHUB_REF?: string
   GITHUB_REF_NAME?: string
+  GITHUB_SHA?: string
 }): { outputs: Record<string, string>; stdout: string } {
   const dir = mkdtempSync(join(tmpdir(), 'desktop-resolve-'))
   scratch.push(dir)
@@ -79,8 +81,10 @@ function runResolve(env: {
       GITHUB_OUTPUT: output,
       INPUT_CHANNEL: '',
       INPUT_RELEASE_TAG: '',
+      INPUT_PUBLISH_RELEASE: '',
       GITHUB_REF: '',
       GITHUB_REF_NAME: '',
+      GITHUB_SHA: '',
       ...env,
     },
   })

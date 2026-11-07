@@ -1,8 +1,7 @@
 import type { MobxPool } from '@podium/client-graph'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
-import { useMemo } from 'react'
-import { useSyncExternalStore } from 'react'
+import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createChatContextFixture } from '../../../test/chat/chat-context-test-fixture'
 import '@/test-support/model-catalog-mock'
@@ -21,7 +20,9 @@ vi.mock('@/app/store-worklist-pool', () => ({
     )
   },
 }))
+
 import { ChatBlockView } from './ChatBlockView'
+import { ItemAttachments } from './ChatUploadThumb'
 
 beforeEach(async () => {
   f.fixture = await createChatContextFixture()
@@ -138,7 +139,11 @@ it.each([
   expect(view.container.querySelector('.chat-md')?.textContent?.trimEnd()).toBe(body)
   expect(view.container.querySelectorAll('img')).toHaveLength(1)
   fireEvent.click(view.container.querySelector('img')!)
-  expect(openImage).toHaveBeenCalledWith(url)
+  expect(openImage).toHaveBeenCalledWith(
+    url,
+    [expect.objectContaining({ src: url, label: 'image.png' })],
+    0,
+  )
   if (body) {
     fireEvent.click(view.getByRole('button', { name: 'Add to chat' }))
     expect(quoted).toHaveBeenCalledWith(expect.objectContaining({ text: body }))
@@ -232,4 +237,78 @@ it.each([
   } finally {
     conversation.dispose()
   }
+})
+
+it('groups mixed image sources once, prefers durable copies, and retains file dispatch', async () => {
+  const corpus = f.fixture
+  if (!corpus) throw new Error('Missing attachment fixture')
+  await corpus.load()
+  const session = corpus.sessions[0],
+    issue = corpus.issues[0]
+  if (!session || !issue) throw new Error('Missing session or issue')
+  const id = '758cc885-68cc-44ec-83c3-531f071689a4'
+  const staged = `/home/podium/.podium/uploads/${session.sessionId}/${id}.png`
+  const openFile = vi.fn(),
+    openImage = vi.fn()
+  const view = render(
+    <ItemAttachments
+      sessionId={session.sessionId}
+      cwd="/repo"
+      httpOrigin="http://synthetic.invalid"
+      paths={[staged, '/repo/second.png', '/repo/spec.md']}
+      attachments={[{ id, filename: 'original-name.png', kind: 'image' }]}
+      tags={[]}
+      openFile={openFile}
+      onOpenImage={openImage}
+    />,
+  )
+  expect(view.container.querySelectorAll('.chat-image-gallery')).toHaveLength(1)
+  expect(view.getAllByRole('img')).toHaveLength(2)
+  const oldImage = view.getByRole('img', { name: 'original-name.png' })
+  const thumbnailButton = view.getByRole('button', { name: 'Open original-name.png, image 1 of 2' })
+  expect(oldImage.getAttribute('src')).toContain('/files/asset?')
+  fireEvent.error(oldImage)
+  fireEvent.click(view.getByRole('button', { name: 'Open original-name.png, image 1 of 2' }))
+  expect(openFile).toHaveBeenLastCalledWith(session.sessionId, staged)
+  act(() => {
+    corpus.pool.apply({
+      type: 'update',
+      rows: [
+        {
+          kind: 'issue',
+          id: issue.id,
+          value: {
+            ...issue,
+            panel: {
+              ...issue.panel,
+              artifacts: [
+                {
+                  path: `chat-uploads/${id}/original-name.png`,
+                  artifactId: 'durable-copy',
+                  entry: 'original-name.png',
+                  chatUploadId: id,
+                  addedAt: '2026-11-05T12:00:00Z',
+                },
+              ],
+            },
+          } as never,
+        },
+      ],
+    })
+  })
+  const saved = `http://synthetic.invalid/files/artifact/${issue.id}/durable-copy/original-name.png`
+  await waitFor(() =>
+    expect(view.getByRole('img', { name: 'original-name.png' }).getAttribute('src')).toBe(saved),
+  )
+  expect(view.getByRole('button', { name: 'Open original-name.png, image 1 of 2' })).toBe(
+    thumbnailButton,
+  )
+  fireEvent.click(view.getByRole('button', { name: 'Open original-name.png, image 1 of 2' }))
+  expect(openImage).toHaveBeenLastCalledWith(
+    saved,
+    [expect.objectContaining({ src: saved }), expect.objectContaining({ label: 'second.png' })],
+    0,
+  )
+  fireEvent.click(view.getByRole('button', { name: 'spec.md' }))
+  expect(openFile).toHaveBeenLastCalledWith(session.sessionId, '/repo/spec.md')
 })

@@ -167,8 +167,6 @@ function turnInput(text = 'hello', resumeValue = 'resume-1', fresh = true) {
     userMessageUuid: USER_UUID,
     onPartialText: () => {},
     onPermission: () => {},
-    onToolCall: () => {},
-    onToolResult: () => {},
   } as unknown as Parameters<ReturnType<typeof createClaudeEngineHost>['startTurn']>[0]
 }
 

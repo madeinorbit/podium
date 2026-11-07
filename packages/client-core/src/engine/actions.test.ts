@@ -739,6 +739,57 @@ describe('pane scalars follow the layout', () => {
   })
 })
 
+describe('tucking the task on screen leaves it (POD-2293)', () => {
+  const issue = (id: string, parentId?: string) =>
+    ({ id: asIssueId(id), ...(parentId ? { parentId: asIssueId(parentId) } : {}) }) as unknown as IssueProjection
+  const seeded = (selected = 'root') => {
+    const h = harness()
+    h.seed({
+      issueProjections: [issue('root'), issue('child', 'root'), issue('other')],
+      selectedIssueId: asIssueId(selected),
+      selectedWorktree: '/wt',
+      workspaces: {
+        'mission:root': openTab(emptyWorkspace('mission:root'), 's-a', { permanent: true }),
+      },
+    })
+    return { h, workspaces: h.state().workspaces }
+  }
+
+  it('enqueues the tuck, then clears only the task and keeps the view, worktree and tabs', async () => {
+    const { h, workspaces } = seeded()
+
+    await h.actions.setIssueTucked('root', true)
+
+    expect(h.queued.at(-1)).toMatchObject({ kind: 'issueSetTucked', input: { id: 'root', tucked: true } })
+    expect(h.state().selectedIssueId).toBeNull()
+    // The worktree stays: clearing it would hand over to the worktree fallback.
+    expect(h.state().selectedWorktree).toBe('/wt')
+    expect(h.navigated.at(-1)).toMatchObject({ view: 'tasks' })
+    expect(h.state().workspaces).toBe(workspaces)
+  })
+
+  it('leaves a sub-task on screen when its mission root is tucked', async () => {
+    const { h } = seeded('child')
+
+    await h.actions.setIssueTucked('root', true)
+
+    expect(h.state().selectedIssueId).toBeNull()
+  })
+
+  it.each([
+    ['a sub-task of the mission on screen', 'child', true],
+    ['another task', 'other', true],
+    ['the task on screen being brought back', 'root', false],
+  ])('stays put when tucking %s', async (_case, id, tucked) => {
+    const { h } = seeded()
+
+    await h.actions.setIssueTucked(id, tucked)
+
+    expect(h.state().selectedIssueId).toBe('root')
+    expect(h.navigated).toEqual([])
+  })
+})
+
 describe('ask superagent (BTW) attaches a session to the next turn (POD-1069)', () => {
   it('opens the dock and attaches the session, WITHOUT moving the rendered thread', async () => {
     // THE REGRESSION THIS PINS. The action used to point `superThreadId` at

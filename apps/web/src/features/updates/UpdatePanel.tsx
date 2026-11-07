@@ -3,7 +3,7 @@
  *
  * One non-modal `aside` in the bottom-right corner — the position the old dialog
  * already had right — into which every state renders. It never becomes a toast,
- * a banner, or a second dialog, and it has exactly one dismiss verb: **Hide**,
+ * a banner, or a second dialog, and it has exactly one dismiss action,
  * which collapses it to the toolbar indicator and discards nothing (the update
  * lives on the server now, so there is nothing here to lose).
  *
@@ -13,12 +13,17 @@
  * had its own reason to exist and nobody owned the question "which one should
  * this person press?" — the view model owns it now.
  */
-import type { JSX } from 'react'
+import { Check, ChevronDown, ChevronRight, X } from 'lucide-react'
+import { type JSX, type ReactNode, useEffect, useId, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import type { UpdatePanelView } from './operation-view'
+import { ReleaseNotes, ReleaseNotesLede, releaseNotesContent } from './ReleaseNotes'
 import type { ReloadHandshakeStatus } from './reload-handshake'
+import { UpdateCardHeader, UpdateCommitList, UpdateScrollArea } from './UpdateCardParts'
 import type { Place, PlaceImpact } from './update-view'
 import type { PanelActionKind } from './use-update-state'
+
+export { ReleaseNotes } from './ReleaseNotes'
 
 export interface UpdatePanelProps {
   view: UpdatePanelView
@@ -27,9 +32,12 @@ export interface UpdatePanelProps {
   onHide: () => void
   reloadStatus?: ReloadHandshakeStatus
   onResetCachedInterface?: () => void
+  /** Pause the parent's done timer while the panel is being read. */
+  onReadingChange?: (reading: boolean) => void
+  /** Independent informational preview; never participates in update actions. */
+  spacePreview?: ReactNode
 }
 
-/** `0.2.1-dev.76+bcca0ff` reads as `0.2.1-dev.76 · bcca0ff`: the build hash is metadata. */
 export function versionLine(version: string): string {
   const plus = version.indexOf('+')
   return plus === -1 ? version : `${version.slice(0, plus)} · ${version.slice(plus + 1)}`
@@ -41,119 +49,183 @@ const IMPACT_LABEL: Record<PlaceImpact, string> = {
   background: 'Background only',
 }
 
-function ImpactDot({ impact }: { impact: PlaceImpact }): JSX.Element {
+function PlaceList({ places }: { places: Place[] }): JSX.Element {
   return (
-    <span
-      aria-hidden="true"
-      className={
-        impact === 'interrupts'
-          ? 'mt-[6px] size-[7px] shrink-0 rounded-full bg-warning'
-          : impact === 'needs-you'
-            ? 'mt-[6px] size-[7px] shrink-0 rounded-full border-[1.5px] border-warning'
-            : 'mt-[6px] size-[7px] shrink-0 rounded-full bg-muted-foreground/50'
-      }
-    />
+    <ul className="update-card-places" aria-label="Places affected by this update">
+      {places.map((place) => {
+        const impact = place.impact ?? 'background'
+        return (
+          <li key={place.kind + place.label} data-impact={impact}>
+            <i
+              className="update-card-dot"
+              data-kind={place.kind === 'database' ? 'data' : impact}
+              aria-hidden="true"
+            />
+            <div>
+              <b>{place.label}</b>
+              {place.detail && <span className="update-card-place-detail">{place.detail}</span>}
+              <span className="sr-only">{IMPACT_LABEL[impact]}: </span>
+              <span> {place.effect}</span>
+            </div>
+          </li>
+        )
+      })}
+    </ul>
   )
 }
 
-function PlaceList({ places }: { places: Place[] }): JSX.Element {
-  const impacts = new Set(places.map((place) => place.impact ?? 'background'))
+function ImpactDetails({ view }: { view: UpdatePanelView }): JSX.Element | null {
+  const [open, setOpen] = useState(false)
+  const id = useId()
+  if (!view.places?.length) return null
   return (
-    <div className="flex flex-col gap-1.5">
-      <ul
-        className="flex flex-col divide-y divide-border/70 rounded-md border border-border/70 bg-muted/25"
-        aria-label="Places affected by this update"
-      >
-        {places.map((place) => {
-          const impact = place.impact ?? 'background'
-          return (
-            <li
-              key={place.kind + place.label}
-              data-impact={impact}
-              className="flex items-start gap-2 px-3 py-2"
-            >
-              <ImpactDot impact={impact} />
-              <span className="flex min-w-0 flex-col gap-0.5">
-                <span className="text-[13px] font-medium break-words text-foreground">
-                  {place.label}
-                  {place.detail && (
-                    <span className="ml-1.5 text-[11px] font-normal text-muted-foreground">
-                      {place.detail}
-                    </span>
-                  )}
-                </span>
-                <span className="text-[11px] leading-[1.45] text-muted-foreground">
-                  <span className="sr-only">{IMPACT_LABEL[impact]}: </span>
-                  {place.effect}
-                </span>
-              </span>
-            </li>
-          )
-        })}
-      </ul>
-      {impacts.size > 1 && (
-        <p
-          aria-hidden="true"
-          className="flex flex-wrap gap-x-3.5 gap-y-1 text-[10px] text-muted-foreground"
+    <div className="update-card-impact">
+      <div className="update-card-impact-row">
+        {(view.impactSummary ?? []).map((item) => (
+          <span key={item.label} className="update-card-impact-item">
+            <i className="update-card-dot" data-kind={item.kind} aria-hidden="true" />
+            {item.label}
+          </span>
+        ))}
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={id}
+          onClick={() => setOpen(!open)}
         >
-          {(['interrupts', 'needs-you', 'background'] as const)
-            .filter((impact) => impacts.has(impact))
-            .map((impact) => (
-              <span key={impact} className="inline-flex items-center gap-1.5">
-                <ImpactDot impact={impact} />
-                <span>{IMPACT_LABEL[impact]}</span>
-              </span>
-            ))}
-        </p>
-      )}
+          Details <ChevronDown size={10} aria-hidden="true" />
+        </button>
+      </div>
+      <div id={id} hidden={!open}>
+        <PlaceList places={view.places} />
+      </div>
     </div>
   )
 }
 
 function StepList({ view }: { view: UpdatePanelView }): JSX.Element | null {
-  if (view.steps.length === 0) return null
+  if (!view.steps.length) return null
   return (
-    <ol className="flex flex-col gap-1.5" aria-label="Update steps">
+    <ol className="update-card-steps" aria-label="Update steps">
       {view.steps.map((step) => (
-        <li
-          key={step.id}
-          data-step={step.id}
-          data-state={step.state}
-          className="flex items-start gap-2 text-[11px] leading-[1.5]"
-        >
-          <span
-            aria-hidden="true"
-            className={
-              step.state === 'done'
-                ? 'mt-[3px] text-primary'
-                : step.state === 'failed'
-                  ? 'mt-[3px] text-destructive'
-                  : step.state === 'current' || step.state === 'stalled'
-                    ? 'mt-[3px] text-foreground'
-                    : 'mt-[3px] text-muted-foreground/60'
-            }
-          >
-            {step.state === 'done' ? '✓' : step.state === 'failed' ? '✕' : '•'}
-          </span>
-          <span className="flex flex-col gap-0.5">
-            <span
-              className={
-                step.state === 'pending'
-                  ? 'text-muted-foreground/70'
-                  : step.state === 'current' || step.state === 'stalled'
-                    ? 'font-medium text-foreground'
-                    : 'text-muted-foreground'
-              }
-            >
-              {step.title}
-            </span>
-            {step.substatus && (
-              <span className="text-[10px] text-muted-foreground">{step.substatus}</span>
+        <li key={step.id} data-step={step.id} data-state={step.state}>
+          <span className="update-card-glyph" aria-hidden="true">
+            {step.state === 'done' ? (
+              <Check size={12} />
+            ) : step.state === 'failed' ? (
+              <X size={12} />
+            ) : (
+              <i />
             )}
           </span>
+          <div>
+            <div className="update-card-step-title">{step.title}</div>
+            {step.substatus && <div className="update-card-substatus">{step.substatus}</div>}
+            {step.percent !== undefined && (
+              <div
+                className="update-card-meter"
+                role="progressbar"
+                aria-label={step.title}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={step.percent}
+              >
+                <i style={{ width: `${step.percent}%` }} />
+              </div>
+            )}
+          </div>
         </li>
       ))}
     </ol>
+  )
+}
+
+function DevOfferContent({
+  view,
+  onRead,
+}: {
+  view: UpdatePanelView
+  onRead: () => void
+}): JSX.Element {
+  const [tab, setTab] = useState<'commits' | 'notes'>('commits')
+  const id = useId()
+  const count = view.commitCount ?? view.commits?.length
+  return (
+    <>
+      <div
+        className="update-card-bar"
+        role="tablist"
+        aria-label="Development release details"
+        onKeyDown={(event) => {
+          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+          event.preventDefault()
+          const next =
+            event.key === 'Home'
+              ? 'commits'
+              : event.key === 'End'
+                ? 'notes'
+                : tab === 'commits'
+                  ? 'notes'
+                  : 'commits'
+          setTab(next)
+          document.getElementById(`${id}-${next}`)?.focus()
+        }}
+      >
+        {(['commits', 'notes'] as const).map((name) => (
+          <button
+            type="button"
+            role="tab"
+            aria-label={
+              name === 'commits'
+                ? count !== undefined
+                  ? `Commits (${count})`
+                  : 'Commits'
+                : 'Notes'
+            }
+            key={name}
+            id={`${id}-${name}`}
+            aria-selected={tab === name}
+            tabIndex={tab === name ? 0 : -1}
+            aria-controls={`${id}-content`}
+            onClick={() => setTab(name)}
+          >
+            {name === 'commits' ? (
+              <>
+                Commits{count !== undefined && <span className="update-card-count">({count})</span>}
+              </>
+            ) : (
+              <>
+                Notes <span className="update-card-count">Unreleased</span>
+              </>
+            )}
+          </button>
+        ))}
+      </div>
+      <div
+        className="update-card-tab-content"
+        id={`${id}-content`}
+        role="tabpanel"
+        aria-labelledby={`${id}-${tab}`}
+      >
+        {tab === 'commits' ? (
+          <UpdateScrollArea labelledBy={`${id}-commits`} onRead={onRead}>
+            {view.commits ? (
+              <UpdateCommitList commits={view.commits} total={view.commitCount} />
+            ) : (
+              <p className="update-card-empty">Commit history isn't available for this build.</p>
+            )}
+          </UpdateScrollArea>
+        ) : (
+          <ReleaseNotes
+            summary={view.notes?.summary}
+            url={view.notes?.url}
+            showLede
+            labelledBy={`${id}-notes`}
+            onRead={onRead}
+          />
+        )}
+      </div>
+    </>
   )
 }
 
@@ -164,9 +236,45 @@ export function UpdatePanel({
   onHide,
   reloadStatus,
   onResetCachedInterface,
+  onReadingChange,
+  spacePreview,
 }: UpdatePanelProps): JSX.Element | null {
+  const [notesOpen, setNotesOpen] = useState(false)
+  const [hovered, setHovered] = useState(false)
+  const [focused, setFocused] = useState(false)
+  const [scrolled, setScrolled] = useState(false)
+  const notesId = useId()
+  const content = useMemo(() => releaseNotesContent(view.notes?.summary), [view.notes?.summary])
+  const reading = hovered || focused || scrolled
+  useEffect(() => {
+    onReadingChange?.(reading)
+  }, [reading, onReadingChange])
+  useEffect(() => () => onReadingChange?.(false), [onReadingChange])
   if (view.state === 'none') return null
-
+  const devOffer = view.state === 'offer' && view.channel === 'dev'
+  const notesUpFront = view.state === 'offer' || view.state === 'done'
+  const hasNotes = !!(view.notes?.summary || view.notes?.url)
+  const hasStatus =
+    (view.steps.length > 0 && view.state !== 'done') ||
+    view.reason ||
+    view.error ||
+    view.awaitingElsewhere.length > 0 ||
+    (view.deferredNote && view.state !== 'done') ||
+    view.primary?.consequence ||
+    view.note ||
+    reloadStatus ||
+    (view.liveness && view.state !== 'running')
+  const badge =
+    view.state === 'running' && view.stepPosition ? (
+      `Step ${view.stepPosition.current} of ${view.stepPosition.total}`
+    ) : view.channel ? (
+      <>
+        {view.channel === 'dev' ? 'dev' : view.channel === 'edge' ? 'Edge' : 'Stable'}
+        {view.channel === 'dev' && view.version?.includes('+') && (
+          <code>{view.version.split('+')[1]}</code>
+        )}
+      </>
+    ) : undefined
   return (
     <aside
       data-testid="update-panel"
@@ -174,176 +282,202 @@ export function UpdatePanel({
       role="dialog"
       aria-modal="false"
       aria-label="Podium update"
-      className="fixed right-4 bottom-9 z-50 w-[min(28rem,calc(100vw-2rem))] max-h-[min(42rem,calc(100vh-4rem))] overflow-y-auto rounded-xl border border-border bg-popover text-popover-foreground shadow-[0_14px_34px_rgb(0_0_0_/_0.65),0_2px_8px_rgb(0_0_0_/_0.5)]"
+      className="update-card"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocusCapture={() => setFocused(true)}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false)
+      }}
     >
-      <div className="flex flex-col gap-0.5 border-b border-border px-4 pt-4 pb-3">
-        <h2 className="text-[14px] font-semibold tracking-[-0.01em] break-words">{view.title}</h2>
-        {view.version && (
-          <p
-            data-testid="update-version"
-            className="font-mono text-[10.5px] break-all text-muted-foreground/80"
-          >
-            {versionLine(view.version)}
-          </p>
-        )}
-        {view.subtitle && (
-          <p className="text-[11px] leading-[1.5] text-muted-foreground">{view.subtitle}</p>
-        )}
-      </div>
+      <UpdateCardHeader
+        title={view.title}
+        subtitle={view.subtitle}
+        badge={badge}
+        dev={view.channel === 'dev'}
+        done={view.state === 'done'}
+      >
+        {notesUpFront && !devOffer && <ReleaseNotesLede html={content.lede} />}
+      </UpdateCardHeader>
 
-      <div className="flex flex-col gap-3 px-4 py-4">
-        {/* The offer's place rows: what this update touches, ordered by how much you'll notice. */}
-        {view.places && view.places.length > 0 && <PlaceList places={view.places} />}
-
-        <StepList view={view} />
-
-        {/* LIVENESS IS NEVER OPTIONAL while something is running (P4). */}
-        {view.liveness && (
-          <p
-            data-testid="update-liveness"
-            className="font-mono text-[10px] tracking-[0.06em] text-muted-foreground uppercase"
-          >
-            {view.stepPosition
-              ? `Step ${view.stepPosition.current} of ${view.stepPosition.total} · ${view.liveness}`
-              : view.liveness}
-          </p>
-        )}
-
-        {view.reason && (
-          <p className="rounded-md border border-destructive/35 bg-destructive/10 px-3 py-2 text-[11px] leading-[1.5] text-destructive">
-            {view.reason}
-          </p>
-        )}
-
-        {/* §7's three layers: what happened, the one next action, folded detail. */}
-        {view.error && (
-          <div className="flex flex-col gap-2">
-            <p className="text-[11px] leading-[1.5] text-muted-foreground">{view.error.message}</p>
-            <p className="text-[11px] leading-[1.5] text-foreground">{view.error.nextAction}</p>
-            {view.error.detail && (
-              <details className="rounded-md border border-border/70 bg-muted/25 px-3 py-2 text-[11px]">
-                <summary className="cursor-pointer font-medium text-muted-foreground">
-                  Technical details
-                </summary>
-                <pre className="mt-2 font-mono text-[10px] leading-[1.5] whitespace-pre-wrap text-muted-foreground">
-                  {view.error.detail}
-                </pre>
-              </details>
-            )}
-          </div>
-        )}
-
-        {view.awaitingElsewhere.map((ask) => (
-          <p key={ask} className="text-[11px] leading-[1.5] text-muted-foreground">
-            {ask}
-          </p>
-        ))}
-
-        {view.deferredNote && view.state !== 'done' && (
-          <p className="text-[11px] leading-[1.5] text-muted-foreground">{view.deferredNote}</p>
-        )}
-
-        {view.primary?.consequence && (
-          <p className="text-[11px] leading-[1.5] text-muted-foreground">
-            {view.primary.consequence}
-          </p>
-        )}
-
-        {view.note && (
-          <p className="rounded-md border border-border/70 bg-muted/25 px-3 py-2 text-[11px] leading-[1.5] text-muted-foreground">
-            {view.note}
-          </p>
-        )}
-
-        {reloadStatus && (
-          <div
-            data-testid="service-worker-status"
-            role="status"
-            className="rounded-md border border-border/70 bg-muted/25 px-3 py-2 text-[11px] leading-[1.5]"
-          >
-            <p className="font-medium text-foreground">{reloadStatus.message}</p>
-            {reloadStatus.detail && (
-              <p className="mt-1 text-muted-foreground">{reloadStatus.detail}</p>
-            )}
-            <details className="mt-2">
-              <summary className="cursor-pointer text-muted-foreground">
-                Service-worker state
-              </summary>
-              <p className="mt-1 font-mono text-[10px] text-muted-foreground">
-                controller={reloadStatus.snapshot.controller ?? 'none'} · active=
-                {reloadStatus.snapshot.active ?? 'none'} · installing=
-                {reloadStatus.snapshot.installing ?? 'none'} · waiting=
-                {reloadStatus.snapshot.waiting ?? 'none'}
-              </p>
-            </details>
-            {reloadStatus.canReset && onResetCachedInterface && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                data-testid="reset-cached-interface"
-                className="mt-2"
-                onClick={onResetCachedInterface}
-              >
-                Reset cached interface
-              </Button>
-            )}
-          </div>
-        )}
-
-        {view.notes?.summary && (
-          <p className="text-[11px] leading-[1.5] text-muted-foreground">{view.notes.summary}</p>
-        )}
-        {view.notes?.url && (
-          <a
-            className="w-fit text-[11px] font-medium text-primary underline-offset-3 hover:underline"
-            href={view.notes.url}
-            target="_blank"
-            rel="noreferrer"
-          >
-            What's new
-          </a>
-        )}
-      </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/30 px-4 py-3">
-        {/*
-          ONE DISMISS BUTTON (§6.1). It collapses to the indicator and discards
-          nothing. Later while the update can still come back for the user;
-          Close once it is over, since hiding a failure acknowledges it.
-        */}
-        <Button type="button" variant="ghost" size="sm" onClick={onHide}>
-          {view.state === 'done' || view.state === 'failed' ? 'Close' : 'Later'}
-        </Button>
-        <div className="flex flex-wrap justify-end gap-2">
-          {view.cancel && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              pending={pending === 'cancel'}
-              pendingLabel="Canceling…"
-              onClick={() => onAction('cancel')}
-            >
-              {view.cancel.label}
-            </Button>
+      {hasStatus && (
+        <div className="update-card-status">
+          {view.state !== 'done' && <StepList view={view} />}
+          {view.liveness && view.state !== 'running' && (
+            <p data-testid="update-liveness">{view.liveness}</p>
           )}
-          {view.primary && (
-            <Button
-              type="button"
-              size="sm"
-              data-testid="update-primary"
-              pending={pending === view.primary.kind}
-              pendingLabel={view.primary.pendingLabel}
-              onClick={() => {
-                if (view.primary) onAction(view.primary.kind)
-              }}
+          {view.reason && (
+            <p className="rounded-md border border-destructive/35 bg-destructive/10 px-3 py-2 text-[11px] leading-[1.5] text-destructive">
+              {view.reason}
+            </p>
+          )}
+
+          {/* §7's three layers: what happened, the one next action, folded detail. */}
+          {view.error && (
+            <div className="flex flex-col gap-2">
+              <p className="text-[11px] leading-[1.5] text-muted-foreground">
+                {view.error.message}
+              </p>
+              <p className="text-[11px] leading-[1.5] text-foreground">{view.error.nextAction}</p>
+              {view.error.detail && (
+                <details className="rounded-md border border-border/70 bg-muted/25 px-3 py-2 text-[11px]">
+                  <summary className="cursor-pointer font-medium text-muted-foreground">
+                    Technical details
+                  </summary>
+                  <pre className="mt-2 font-mono text-[10px] leading-[1.5] whitespace-pre-wrap text-muted-foreground">
+                    {view.error.detail}
+                  </pre>
+                </details>
+              )}
+            </div>
+          )}
+
+          {view.awaitingElsewhere.map((ask) => (
+            <p key={ask} className="text-[11px] leading-[1.5] text-muted-foreground">
+              {ask}
+            </p>
+          ))}
+
+          {view.deferredNote && view.state !== 'done' && (
+            <p className="text-[11px] leading-[1.5] text-muted-foreground">{view.deferredNote}</p>
+          )}
+
+          {view.primary?.consequence && (
+            <p className="text-[11px] leading-[1.5] text-muted-foreground">
+              {view.primary.consequence}
+            </p>
+          )}
+
+          {view.note && (
+            <p className="rounded-md border border-border/70 bg-muted/25 px-3 py-2 text-[11px] leading-[1.5] text-muted-foreground">
+              {view.note}
+            </p>
+          )}
+
+          {reloadStatus && (
+            <div
+              data-testid="service-worker-status"
+              role="status"
+              className="rounded-md border border-border/70 bg-muted/25 px-3 py-2 text-[11px] leading-[1.5]"
             >
-              {view.primary.label}
-            </Button>
+              <p className="font-medium text-foreground">{reloadStatus.message}</p>
+              {reloadStatus.detail && (
+                <p className="mt-1 text-muted-foreground">{reloadStatus.detail}</p>
+              )}
+              <details className="mt-2">
+                <summary className="cursor-pointer text-muted-foreground">
+                  Service-worker state
+                </summary>
+                <p className="mt-1 font-mono text-[10px] text-muted-foreground">
+                  controller={reloadStatus.snapshot.controller ?? 'none'} · active=
+                  {reloadStatus.snapshot.active ?? 'none'} · installing=
+                  {reloadStatus.snapshot.installing ?? 'none'} · waiting=
+                  {reloadStatus.snapshot.waiting ?? 'none'}
+                </p>
+              </details>
+              {reloadStatus.canReset && onResetCachedInterface && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  data-testid="reset-cached-interface"
+                  className="mt-2"
+                  onClick={onResetCachedInterface}
+                >
+                  Reset cached interface
+                </Button>
+              )}
+            </div>
           )}
         </div>
-      </div>
+      )}
+
+      {devOffer ? (
+        <DevOfferContent view={view} onRead={() => setScrolled(true)} />
+      ) : hasNotes && notesUpFront ? (
+        <ReleaseNotes
+          summary={view.notes?.summary}
+          url={view.notes?.url}
+          onRead={() => setScrolled(true)}
+        />
+      ) : null}
+      {hasNotes && !notesUpFront && (
+        <>
+          <button
+            type="button"
+            className="update-card-peek"
+            aria-expanded={notesOpen}
+            aria-controls={notesId}
+            onClick={() => setNotesOpen(!notesOpen)}
+          >
+            <b>What's new{view.version ? ` in ${view.version.split('+')[0]}` : ''}</b>
+            <ChevronRight size={13} aria-hidden="true" />
+          </button>
+          {notesOpen && (
+            <div className="update-card-notes-disclosure" id={notesId}>
+              <ReleaseNotes
+                summary={view.notes?.summary}
+                url={view.notes?.url}
+                showLede
+                onRead={() => setScrolled(true)}
+              />
+            </div>
+          )}
+        </>
+      )}
+      {view.state === 'offer' && <ImpactDetails view={view} />}
+      {view.state === 'offer' && spacePreview}
+      <footer className="update-card-foot">
+        {view.dismiss?.hint && <span className="update-card-hint">{view.dismiss.hint}</span>}
+        {!view.dismiss?.primary && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="update-card-dismiss"
+            onClick={onHide}
+          >
+            {view.dismiss?.label ?? 'Hide'}
+          </Button>
+        )}
+        <span className="update-card-spacer" />
+        {view.freshness && (
+          <span data-testid="update-liveness" className="update-card-live">
+            {view.freshness}
+          </span>
+        )}
+        {view.cancel && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            pending={pending === 'cancel'}
+            pendingLabel="Canceling…"
+            onClick={() => onAction('cancel')}
+          >
+            {view.cancel.label}
+          </Button>
+        )}
+        {view.primary && (
+          <Button
+            type="button"
+            size="sm"
+            data-testid="update-primary"
+            pending={pending === view.primary.kind}
+            pendingLabel={view.primary.pendingLabel}
+            onClick={() => {
+              if (view.primary) onAction(view.primary.kind)
+            }}
+          >
+            {view.primary.label}
+          </Button>
+        )}
+        {view.dismiss?.primary && (
+          <Button type="button" size="sm" onClick={onHide}>
+            {view.dismiss.label}
+          </Button>
+        )}
+      </footer>
     </aside>
   )
 }

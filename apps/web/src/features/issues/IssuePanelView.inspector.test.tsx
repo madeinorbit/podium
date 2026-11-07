@@ -350,8 +350,7 @@ describe('IssuePanelView inspector', () => {
     expect(eventsQuery).not.toHaveBeenCalled()
   })
 
-  it('puts Open in Work in the dock title bar, and nowhere else', () => {
-    // THE ISOLATION RULE (POD-1457): the one crossing goes to WORK.
+  it('opens the displayed task full screen from the dock title bar', () => {
     const host = document.createElement('div')
     document.body.appendChild(host)
     render(
@@ -362,11 +361,11 @@ describe('IssuePanelView inspector', () => {
       </DockHeaderSlotProvider>,
     )
 
-    const open = within(host).getByTestId('task-open-in-work')
-    expect(open.getAttribute('aria-label')).toBe('Open in Work')
+    const open = within(host).getByRole('button', { name: 'Open full screen' })
     fireEvent.click(open)
-    expect(setView).toHaveBeenCalledWith('workspace')
-    expect(setView).not.toHaveBeenCalledWith('issues')
+    expect(setOpenIssueId).toHaveBeenCalledWith('root')
+    expect(setView).toHaveBeenCalledWith('issues')
+    expect(setPane).not.toHaveBeenCalled()
     host.remove()
   })
 

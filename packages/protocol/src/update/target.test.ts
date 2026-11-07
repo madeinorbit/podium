@@ -192,8 +192,26 @@ describe('UpdateTarget schema declaration', () => {
   })
 })
 
-
 it('preserves daemon wire ranges and refuses malformed windows', () => {
-  expect(UpdateTarget.parse({ ...feedTarget, daemonWire: { min: 2, max: 4 } }).daemonWire).toEqual({ min: 2, max: 4 })
+  expect(UpdateTarget.parse({ ...feedTarget, daemonWire: { min: 2, max: 4 } }).daemonWire).toEqual({
+    min: 2,
+    max: 4,
+  })
   expect(() => UpdateTarget.parse({ ...feedTarget, daemonWire: { min: 4, max: 2 } })).toThrow()
+})
+
+it('keeps release context optional for old targets and carries bounded dev commit metadata', () => {
+  const old = UpdateTarget.parse(feedTarget)
+  expect(old.commits).toBeUndefined()
+  expect(old.commitCount).toBeUndefined()
+  expect(old.branch).toBeUndefined()
+  expect(old.addedMigrations).toBeUndefined()
+  const context = {
+    commits: [{ sha: 'abcdef1', summary: 'New change' }],
+    commitCount: 203,
+    branch: 'dev/mw',
+    addedMigrations: ['20261104_update'],
+    releasedAt: '2026-11-04',
+  }
+  expect(UpdateTarget.parse({ ...feedTarget, ...context })).toMatchObject(context)
 })

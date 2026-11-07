@@ -4678,7 +4678,7 @@ export class SessionRegistry {
     this.modules.memory.dispose()
     // Same hazard, same window: the superagent's turn reaper is a periodic
     // write against the store this shutdown is about to close (POD-2772).
-    this.adoptedSuperagent?.dispose()
+    await this.adoptedSuperagent?.dispose()
     // Effect runs write their outcome to the store this shutdown closes.
     await this.effectsRunner.stop()
     this.eventRetention.dispose()

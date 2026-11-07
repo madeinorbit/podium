@@ -366,6 +366,13 @@ export interface ClaudeStreamTurnOutcome {
   /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   harnessSessionId: string
   output: string
+  /**
+   * The uuid of the turn's last assistant text record (POD-6280). The stream's
+   * `assistant` line carries the uuid the CLI records the message under in its
+   * session file (measured on 2.1.317), so this names the file record that
+   * ends the turn: the driver waits for it before closing the turn.
+   */
+  textRecordUuid?: string
   observedModel?: string
   observedEffort?: string
 }
@@ -386,8 +393,8 @@ export type ClaudeStreamInterruptAck =
 export interface ClaudeStreamTurnCallbacks {
   onPartialText(text: string, itemHint?: string): void
   onPermission(request: ClaudeStreamPermissionRequest): void
-  onToolCall(call: ClaudeStreamToolCall): void
-  onToolResult(result: ClaudeStreamToolResult): void
+  onToolCall?(call: ClaudeStreamToolCall): void
+  onToolResult?(result: ClaudeStreamToolResult): void
   onToolSummary?(summary: ClaudeStreamToolSummary): void
   emit(event: HeadlessTurnEvent): void
 }
@@ -529,7 +536,9 @@ export function createClaudeStreamClient(
         lineWritten: boolean
         output: string
         partial: string
-        partialUuid: string
+        partialMessageId: string
+        /** See {@link ClaudeStreamTurnOutcome.textRecordUuid}. */
+        textRecordUuid: string
         observedModel?: string
         observedEffort?: string
         timedOut: boolean
@@ -591,6 +600,7 @@ export function createClaudeStreamClient(
     turn.resolve({
       harnessSessionId,
       output: turn.output,
+      ...(turn.textRecordUuid ? { textRecordUuid: turn.textRecordUuid } : {}),
       ...(turn.observedModel ? { observedModel: turn.observedModel } : {}),
       ...(turn.observedEffort ? { observedEffort: turn.observedEffort } : {}),
     })
@@ -824,16 +834,20 @@ export function createClaudeStreamClient(
         if (ev?.type === 'message_start') {
           if (turn) {
             turn.partial = ''
-            turn.partialUuid = (msg as { uuid?: string }).uuid ?? ''
+            // The API message id, not this stream line's own uuid: the file
+            // record of the message carries it too (measured on 2.1.317), so
+            // the preview built from these deltas joins the record (POD-6280).
+            const messageId = (ev as { message?: { id?: unknown } }).message?.id
+            turn.partialMessageId = typeof messageId === 'string' ? messageId : ''
           }
         } else if (ev?.type === 'content_block_delta' && ev.delta?.type === 'text_delta') {
           if (turn) {
             turn.partial += ev.delta.text ?? ''
-            turn.callbacks.onPartialText(turn.partial, turn.partialUuid || undefined)
+            turn.callbacks.onPartialText(turn.partial, turn.partialMessageId || undefined)
             turn.callbacks.emit({
               kind: 'partial-text',
               text: turn.partial,
-              ...(turn.partialUuid ? { itemHint: turn.partialUuid } : {}),
+              ...(turn.partialMessageId ? { itemHint: turn.partialMessageId } : {}),
             })
           }
         }
@@ -843,12 +857,24 @@ export function createClaudeStreamClient(
         const message = (msg as { message?: { content?: unknown[]; model?: unknown; effort?: unknown } }).message
         if (typeof message?.model === 'string' && turn) turn.observedModel = message.model
         if (typeof message?.effort === 'string' && turn) turn.observedEffort = message.effort
+        const recordUuid = (msg as { uuid?: unknown }).uuid
+        if (
+          turn &&
+          typeof recordUuid === 'string' &&
+          (message?.content ?? []).some(
+            (block) => (block as { type?: string; text?: unknown }).type === 'text' &&
+              typeof (block as { text?: unknown }).text === 'string' &&
+              ((block as { text: string }).text.trim() !== ''),
+          )
+        ) {
+          turn.textRecordUuid = recordUuid
+        }
         for (const block of message?.content ?? []) {
           const use = block as { type?: string; id?: unknown; name?: string; input?: unknown }
           if (use.type !== 'tool_use') continue
           turn?.callbacks.emit({ kind: 'status', status: 'tool', label: use.name ?? 'tool' })
           if (typeof use.id === 'string' && use.id && turn) {
-            turn.callbacks.onToolCall({
+            turn.callbacks.onToolCall?.({
               toolUseId: use.id,
               toolName: use.name ?? 'unknown',
               ...(use.input !== undefined ? { input: use.input } : {}),
@@ -878,7 +904,7 @@ export function createClaudeStreamClient(
           if (block.type !== 'tool_result') continue
           const toolUseId = block.tool_use_id
           if (typeof toolUseId !== 'string' || !toolUseId || !turn) continue
-          turn.callbacks.onToolResult({
+          turn.callbacks.onToolResult?.({
             toolUseId,
             output: toolResultText(block.content),
             ...(block.is_error === true ? { isError: true } : {}),
@@ -1084,7 +1110,8 @@ export function createClaudeStreamClient(
         lineWritten: false,
         output: '',
         partial: '',
-        partialUuid: '',
+        partialMessageId: '',
+        textRecordUuid: '',
         timedOut: false,
         settled: false,
         resolve,

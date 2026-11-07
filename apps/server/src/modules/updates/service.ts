@@ -138,9 +138,8 @@ export interface UpdatesDeps {
    * because a `void` slot ACCEPTS a promise-returning function — which is why
    * all three of this port's call sites were floating at the merge-base and
    * nothing in the type said so. A strict `Promise<void>` refuses the
-   * synchronous spelling, so the compiler enumerates the callers: each one now
-   * either awaits, or defers explicitly through
-   * {@link UpdatesService.notifyTargetChangedDeferred} and handles rejection.
+   * synchronous spelling, so the compiler enumerates the callers. They defer through
+   * {@link UpdatesService.notifyTargetChangedDeferred}, which handles rejection.
    */
   onTargetChanged?(channel: UpdateChannel): Promise<void>
   /**
@@ -632,7 +631,7 @@ export class UpdatesService {
       })
     }
     this.persistRecovery()
-    await this.deps.onTargetChanged?.(channel)
+    this.notifyTargetChangedDeferred(channel)
   }
 
   /** Failed versions stay withdrawn until replaced or explicitly reapproved. */
@@ -661,7 +660,7 @@ export class UpdatesService {
     this.unavailableReasons.delete(channel)
     this.rollouts.set(channel, freshRollout())
     this.persistRecovery()
-    await this.deps.onTargetChanged?.(channel)
+    this.notifyTargetChangedDeferred(channel)
   }
 
   /** Observation must never continue an authorized wave through fleet(). */
@@ -690,18 +689,14 @@ export class UpdatesService {
   /**
    * DELIBERATELY DEFERRED, AND THE REJECTION IS HANDLED (rule 51b).
    *
-   * Its two callers are synchronous and must stay that way. {@link setTarget}
-   * is the compatibility shim the fixtures and the development publisher call,
-   * and {@link publishNextTargets} answers with the channels it published;
-   * making either async would break those callers. Neither needs to await,
-   * either: they SCHEDULE the notification rather than answer with it, which
-   * is the shape rule 51b permits deferring. Every OTHER caller awaits.
+   * The fleet bridge restates deferred promises through operation serial queues.
+   * A failed operation withdraws its target while holding its own queue, so
+   * awaiting the bridge there waits for itself. Later feed refreshes then block
+   * on that same queue, leaving an already-published build pending forever.
    *
-   * What deferring does not excuse, and what the accidental float never did,
-   * is the rejection. The listener re-reads the store, so it can reject; until
-   * this the failure took the process's unhandled-rejection path and the
-   * operator was told nothing at all. Deferring without handling a rejection
-   * is the same defect wearing a different spelling.
+   * Producers persist the target before scheduling this observation. Every
+   * producer defers it, including async producers; failures remain visible in
+   * the log. The bridge's writes still run through the engine's serial queues.
    */
   private notifyTargetChangedDeferred(channel: UpdateChannel): void {
     void this.deps.onTargetChanged?.(channel)?.catch((error) => {
@@ -729,7 +724,7 @@ export class UpdatesService {
       this.deps.exclusiveOperationVersion?.(channel) ?? Promise.resolve(undefined),
     ])
     if (this.setTargetResolved(channel, target, { active, version })) {
-      await this.deps.onTargetChanged?.(channel)
+      this.notifyTargetChangedDeferred(channel)
     }
   }
 
@@ -789,12 +784,8 @@ export class UpdatesService {
     }
     this.replayTerminalStatuses(channel, target.version)
     this.persistRecovery()
-    // NO NOTIFICATION HERE. Every one of this method's three callers notifies for
-    // itself -- two through notifyTargetChangedDeferred and one with an awaited
-    // call -- so firing again here delivers the change TWICE. dev/mw notified
-    // from inside this method and did not notify at the callers; this epic does
-    // the opposite, and the merge kept both halves. Deferral and rejection
-    // handling live at the callers, which is why they own it.
+    // Each caller schedules its own notification with rejection handling.
+    // Firing here as well would deliver every target change twice.
     return true
   }
 
@@ -1191,9 +1182,17 @@ export class UpdatesService {
     const daemonRefused = message.state === 'current' && message.reasonCode === 'daemon-refused'
     const grantMismatch = message.grantId !== undefined && message.grantId !== pendingGrant?.grantId
     const previousReport = this.machineStates.get(machineId)
+    // A CANCELED PREDECESSOR IS NOT ITS SUCCESSOR'S VERDICT (POD-6529). The
+    // executor cancels an unfinished grant before it accepts the replacement,
+    // so that cancellation always lands while the replacement is pending here.
+    // A crash is `rejected`/`stuck` with another phase; only an executor cancel
+    // carries `canceled`, whatever cause it was given.
+    const supersededCancel =
+      grantMismatch && pendingGrant !== undefined && message.phaseDetail === 'canceled'
     const recoveredTerminal =
       grantMismatch &&
       terminal &&
+      !supersededCancel &&
       (message.targetVersion === target.version ||
         (previousReport?.channel === channel &&
           previousReport.grantId === message.grantId &&
@@ -1213,7 +1212,7 @@ export class UpdatesService {
       log.warn('update status dropped', {
         machineId,
         machine: machine.name,
-        because: 'grant-mismatch',
+        because: supersededCancel ? 'superseded-cancel' : 'grant-mismatch',
         channel,
         knownGrantId: pendingGrant?.grantId,
         ...reported,

@@ -787,3 +787,40 @@ describe('describeUpdate, continued', () => {
     })
   })
 })
+
+it('carries published dev commits and only confirmed database changes into the offer', () => {
+  const commits = [{ sha: 'abcdef1', summary: 'New release' }]
+  const result = describeUpdate({
+    ...base,
+    touched: { ...base.touched, phone: false },
+    server: {
+      appVersion: '0.4.1',
+      target: {
+        version: '0.4.3-dev.2+abcdef1',
+        critical: false,
+        artifacts: {},
+        branch: 'dev/mw',
+        commits,
+        commitCount: 201,
+        addedMigrations: ['20261104_update'],
+      },
+    },
+  })
+  expect(result).toMatchObject({
+    runningVersion: '0.4.1',
+    branch: 'dev/mw',
+    commits,
+    commitCount: 201,
+    machineCount: 3,
+  })
+  if (result.state !== 'available') throw new Error('expected an offer')
+  expect(result.places.find((place) => place.kind === 'database')?.effect).toBe(
+    '1 schema change, backed up first',
+  )
+  const withoutMigrationFacts = describeUpdate({
+    ...base,
+    touched: { ...base.touched, phone: false },
+  })
+  if (withoutMigrationFacts.state !== 'available') throw new Error('expected an offer')
+  expect(withoutMigrationFacts.places.some((place) => place.kind === 'database')).toBe(false)
+})

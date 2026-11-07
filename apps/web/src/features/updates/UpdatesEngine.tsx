@@ -29,7 +29,7 @@
 import type { JSX } from 'react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useRegisterSW } from '@/app/pwa-register'
-import { serverConfig } from '@/app/trpc'
+import { makeTrpc, serverConfig } from '@/app/trpc'
 import { forceReload } from '@/lib/force-reload'
 import { swLog, updatesLog } from '@/lib/logging/update-logs'
 import { navigateReload } from '@/lib/navigate'
@@ -40,6 +40,7 @@ import { DONE_COLLAPSE_MS } from './operation-view'
 import { ReleaseProposalCard } from './ReleaseProposalCard'
 import { type ReloadHandshakeStatus, startReloadHandshake } from './reload-handshake'
 import { UpdatePanel } from './UpdatePanel'
+import { UpdateSpaceNotice } from './UpdateSpaceNotice'
 import { publishUpdates, resetUpdates, type UpdatesContextValue } from './updates-panel-context'
 import { type PanelActionKind, useUpdateState } from './use-update-state'
 
@@ -144,6 +145,7 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
   }, [registration])
 
   const resolvedOrigin = httpOrigin ?? serverConfig(window.location).httpOrigin
+  const spaceClient = useMemo(() => makeTrpc(resolvedOrigin), [resolvedOrigin])
   const {
     view,
     pending,
@@ -217,12 +219,24 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
     })
   }, [collapsed, situation])
 
-  // "Auto-collapses after a few seconds" (§6.2.4). The success announcement is
-  // worth a moment and nothing more; the operation is in history either way.
+  // "Auto-collapses after a few seconds" (§6.2.4). The success announcement
+  // stays open while the pointer, focus or scrolled notes show it is being read.
   // Keyed on the situation so a SECOND finished update re-arms the timer.
   const doneKey = view.state === 'done' ? situation : null
+  const [reading, setReading] = useState<{ key: string; active: boolean }>()
+  const onReadingChange = useCallback(
+    (active: boolean) => {
+      setReading((current) =>
+        current?.key === situation && current.active === active
+          ? current
+          : { key: situation, active },
+      )
+    },
+    [situation],
+  )
+  const readingDone = reading?.key === doneKey && reading.active
   useEffect(() => {
-    if (doneKey === null) return
+    if (doneKey === null || readingDone) return
     const timer = window.setTimeout(() => {
       setCollapsed(true)
       // "the indicator clears" (§6.2.4) — a finished update is not a standing
@@ -230,7 +244,7 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
       acknowledge()
     }, DONE_COLLAPSE_MS)
     return () => window.clearTimeout(timer)
-  }, [acknowledge, doneKey])
+  }, [acknowledge, doneKey, readingDone])
 
   const hasPanelContent = view.state !== 'none' || showingProposal
   const open = hasPanelContent && !collapsed
@@ -372,12 +386,17 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
   }
   return (
     <UpdatePanel
+      key={view.operationId ?? view.version ?? situation}
       view={view}
+      onReadingChange={onReadingChange}
       pending={pending}
       onAction={onAction}
       onHide={hide}
       {...(reloadStatus ? { reloadStatus } : {})}
       onResetCachedInterface={resetCachedInterface}
+      {...(view.state === 'offer' && view.primary?.kind === 'start'
+        ? { spacePreview: <UpdateSpaceNotice client={spaceClient} expectedVersion={view.version} /> }
+        : {})}
     />
   )
 }

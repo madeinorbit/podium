@@ -25,7 +25,7 @@ export type ReleaseManifest = {
     web?: { digest: string }
     [name: string]: unknown
   }
-  notes?: { summary: string }
+  notes?: { summary: string; url?: string }
   critical?: true
   minRequired?: MinRequired
   web?: { digest: string }
@@ -53,7 +53,7 @@ export function sha256Digest(bytes: Uint8Array): string {
 export function buildManifest(input: {
   version: string
   platforms: PreparedManifestPlatform[]
-  notes: { summary: string } | null
+  notes: { summary: string; url?: string } | null
   critical: boolean
   minRequired?: MinRequired
   webDigest?: string

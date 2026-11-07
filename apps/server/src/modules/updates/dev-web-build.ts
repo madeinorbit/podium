@@ -58,6 +58,7 @@ import { createLogger, describeError } from '@podium/logger'
 import { instanceBuildSliceName } from '@podium/runtime/instance'
 import { type ServedWebIdentity, servedWebIdentity } from '../../web-bundle-stamp'
 import { devBuildCommand, devBuildScopeUnit, runLowTierBuild } from './build-scope'
+import { buildTask, throwIfBuildAborted, withBuildAttempt } from './build-attempt'
 
 const log = createLogger('server:updates')
 
@@ -242,8 +243,9 @@ export function createDevWebBuilder(deps: DevWebBuilderDeps): DevWebBuilder {
     log.info('building the development web bundles', { headSha, units })
     const failures: string[] = []
     for (const step of DEV_WEB_BUILD_STEPS) {
+      throwIfBuildAborted()
       try {
-        await runStep(step, appVersion)
+        await buildTask(() => runStep(step, appVersion))
       } catch (error) {
         failures.push(`${step.label}: ${describeError(error)}`)
       }
@@ -287,7 +289,7 @@ export function createDevWebBuilder(deps: DevWebBuilderDeps): DevWebBuilder {
     const identity = `${headSha}\0${appVersion ?? ''}`
     if (inFlight && inFlight.identity === identity) return inFlight.promise
     state = { state: 'building', headSha, units }
-    const promise = build(headSha, appVersion).then(
+    const promise = withBuildAttempt(() => build(headSha, appVersion)).then(
       () => {
         inFlight = null
         state = { state: 'ready', headSha }
@@ -319,7 +321,7 @@ export function createDevWebBuilder(deps: DevWebBuilderDeps): DevWebBuilder {
         }
         await ensure(headSha)
       }
-      void start().catch(() => {})
+      void withBuildAttempt(start).catch(() => {})
     },
     state: () => state,
   }

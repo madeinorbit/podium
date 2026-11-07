@@ -18,30 +18,35 @@ import { DriverRefusalError } from '@podium/harness/driver/host'
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { discoveryRoots, resolveWithinRoots } from '@podium/harness'
+import type { AcceptedDriverId } from '@podium/harness'
+import { discoveryRoots, type ResolvedHarnessInventory, resolveWithinRoots } from '@podium/harness'
 import type {
   AttachmentStager,
   CodexRawSocket,
   OpencodeEngineClientTerminals,
+  InstalledTerminalInstrumentation,
+  TerminalHostPorts,
 } from '@podium/harness/driver/host'
-import { scopeUnitName } from '@podium/process/durable'
-import { instanceRuntimeSocketRoot } from '@podium/runtime/unix-socket'
-import { resolveInstanceId } from '@podium/runtime/instance'
-import WebSocket from 'ws'
+import { installTerminalInstrumentation } from '@podium/harness/driver/host'
 import type { AgentKind, SessionId } from '@podium/model'
-import { serverChildEnv } from '../control/session-env'
-import type { ClientTerminalKind, OpencodeClientTerminals } from './opencode-attach'
-import type { AcceptedDriverId } from '@podium/harness'
+import { scopeUnitName } from '@podium/process/durable'
+import { resolveInstanceId } from '@podium/runtime/instance'
+import { instanceRuntimeSocketRoot } from '@podium/runtime/unix-socket'
+import WebSocket from 'ws'
 import type { DaemonContext } from '../control/context'
-import { launchTerminalProcess, recoverTerminalProcess, stopSessionProcess } from '../control/session'
+import {
+  launchTerminalProcess,
+  recoverTerminalProcess,
+  stopSessionProcess,
+} from '../control/session'
+import { serverChildEnv } from '../control/session-env'
 import { sourceForRead } from '../control/transcripts'
 import { transcriptForExport } from '../handoff-package'
-import { stageRuntimeAttachment } from './attachment-staging'
 import { reportHarnessProbe } from '../harness-version-reporting'
-import type { TerminalHostPorts } from '@podium/harness/driver/host'
-import { installTerminalInstrumentation } from '@podium/harness/driver/host'
-import { terminalInstrumentationSectionsFor } from './registry'
+import { stageRuntimeAttachment } from './attachment-staging'
 import { driverTiming } from './driver-timing'
+import type { ClientTerminalKind, OpencodeClientTerminals } from './opencode-attach'
+import { terminalInstrumentationSectionsFor } from './registry'
 
 /**
  * Adapt one daemon context into the driver's host port.
@@ -56,6 +61,9 @@ export function daemonRuntimeHost(
   send: TerminalHostPorts['send'],
   stageAttachment: AttachmentStager = stageRuntimeAttachment,
 ): TerminalHostPorts {
+  // Instrumentation and launch are separate driver calls. Retain their single
+  // immutable selection across an inventory refresh, without a second lookup.
+  const launchSnapshots = new WeakMap<InstalledTerminalInstrumentation, ResolvedHarnessInventory>()
   return {
     send,
     stageAttachment,
@@ -64,8 +72,10 @@ export function daemonRuntimeHost(
     foreignWrites: {
       count: (sessionId) => ctx.sessions.foreignWrites(sessionId),
       orderTrustworthy: (sessionId) => ctx.sessions.orderTrustworthy(sessionId),
-      markTyping: (sessionId, turnId) => ctx.sessions.get(sessionId)?.foreignWrites.markTyping(turnId),
-      typingMark: (sessionId, turnId) => ctx.sessions.get(sessionId)?.foreignWrites.typingMark(turnId),
+      markTyping: (sessionId, turnId) =>
+        ctx.sessions.get(sessionId)?.foreignWrites.markTyping(turnId),
+      typingMark: (sessionId, turnId) =>
+        ctx.sessions.get(sessionId)?.foreignWrites.typingMark(turnId),
     },
     proofWatches: {
       load: (sessionId) => ctx.bindingStore.terminalProofWatches(sessionId),
@@ -93,8 +103,12 @@ export function daemonRuntimeHost(
       const label = ctx.sessions.get(sessionId)?.label ?? ctx.durableLabelFor(sessionId)
       return stopSessionProcess(ctx, { sessionId, durableLabel: label })
     },
-    installInstrumentation: (sessionId, spec) =>
-      installTerminalInstrumentation({
+    installInstrumentation: async (sessionId, spec) => {
+      const snapshot = await ctx.harnessRuntime?.current()
+      const version = snapshot?.executables.get(
+        spec.harness as Exclude<AgentKind, 'shell'>,
+      )?.version
+      const wiring = await installTerminalInstrumentation({
         sessionId,
         harness: spec.harness,
         spec,
@@ -102,12 +116,26 @@ export function daemonRuntimeHost(
         settingsDir: ctx.settingsDir,
         ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
         reportVersionProbe: (harness, output) => reportHarnessProbe(harness, output),
-      }),
-    launch: (input) => launchTerminalProcess(ctx, input),
+        ...(version ? { verifiedVersion: version } : {}),
+      })
+      if (snapshot) launchSnapshots.set(wiring, snapshot)
+      return wiring
+    },
+    launch: (input) => {
+      const harnessSnapshot = launchSnapshots.get(input.instrumentation)
+      launchSnapshots.delete(input.instrumentation)
+      return launchTerminalProcess(ctx, {
+        ...input,
+        ...(harnessSnapshot ? { harnessSnapshot } : {}),
+      })
+    },
     readHistory: async (session, range) => {
       const segmentId = `history:${session.sessionId}:${session.resume?.value ?? ''}`
       if (range.from && (range.from.segmentId !== segmentId || !range.from.pathHint)) {
-        throw new DriverRefusalError({ reason: 'invalid_value', detail: 'foreign history cursor' }, 'transcript.history')
+        throw new DriverRefusalError(
+          { reason: 'invalid_value', detail: 'foreign history cursor' },
+          'transcript.history',
+        )
       }
       const source = await sourceForRead(ctx, session)
       const slice = await source.readSlice({
@@ -310,12 +338,9 @@ export function engineClientTerminals(
           driverId: input.target.driverId as AcceptedDriverId,
         },
       }),
-    adopt: (sessionId, kind) =>
-      terminals.adopt(sessionId, kind as ClientTerminalKind | undefined),
-    close: (sessionId, kind) =>
-      terminals.close(sessionId, kind as ClientTerminalKind | undefined),
-    relaunch: (sessionId, kind) =>
-      terminals.relaunch(sessionId, kind as ClientTerminalKind),
+    adopt: (sessionId, kind) => terminals.adopt(sessionId, kind as ClientTerminalKind | undefined),
+    close: (sessionId, kind) => terminals.close(sessionId, kind as ClientTerminalKind | undefined),
+    relaunch: (sessionId, kind) => terminals.relaunch(sessionId, kind as ClientTerminalKind),
   }
 }
 

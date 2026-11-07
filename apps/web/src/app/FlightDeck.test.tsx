@@ -316,7 +316,7 @@ it('offers collapse and no width-mode toggle; the column edge resizes it', async
   expect(screen.queryByRole('group', { name: 'Deck view' })).toBeNull()
 })
 
-describe('task detail picks (POD-1639)', () => {
+describe('task detail picks', () => {
   const title = (): HTMLElement => screen.getByTitle(/^Focus POD-/)
   /** Every `podium:open-right-panel` detail the deck asked for, in order. */
   const panelRequests = (): string[] => {
@@ -329,14 +329,14 @@ describe('task detail picks (POD-1639)', () => {
     return details
   }
 
-  it('closes the dock when it already shows the mission', async () => {
+  it('keeps the dock open when it already shows the mission', async () => {
     // The task panel follows the selected mission, so its root is on screen.
     harness.ui.set(RIGHT_PANEL_KEY, 'issue')
     const details = panelRequests()
     await deck()
     fireEvent.click(title())
     await settle()
-    expect(details).toEqual(['close'])
+    expect(details).toEqual(['issue'])
   })
 
   it('opens the dock when it is closed', async () => {
@@ -359,6 +359,29 @@ describe('task detail picks (POD-1639)', () => {
     expect(details).toEqual(['issue'])
     expect(harness.openSessionTab).not.toHaveBeenCalled()
     expect(readFolds(harness.ui.get('podium.flightDeck.folds') ?? null).has('t4')).toBe(false)
+  })
+
+  it('opens the issue dock on every session disclosure, including repeated clicks and the caret', async () => {
+    harness.ui.set(RIGHT_PANEL_KEY, 'issue')
+    const details = panelRequests()
+    await deck()
+    const strip = document.querySelector('[data-flight-issue="t1"]')!
+    const body = strip.querySelector('.flight-v6-task-body')!
+    const caret = strip.querySelector('.flight-v6-fold')!
+    expect(document.querySelector('[data-flight-session="s1"]')).toBeNull()
+    await act(async () => {
+      fireEvent.click(body)
+    })
+    expect(document.querySelector('[data-flight-session="s1"]')).not.toBeNull()
+    await act(async () => {
+      fireEvent.click(body)
+    })
+    expect(document.querySelector('[data-flight-session="s1"]')).toBeNull()
+    await act(async () => {
+      fireEvent.click(caret)
+    })
+    expect(document.querySelector('[data-flight-session="s1"]')).not.toBeNull()
+    expect(details).toEqual(['issue', 'issue', 'issue'])
   })
 })
 

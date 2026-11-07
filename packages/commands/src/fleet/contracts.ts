@@ -219,7 +219,18 @@ export const machineSupersedeInput = z.object({
 })
 
 export const machinePairingCodeInput = z
-  .object({ copyAgentCredentials: z.boolean().optional(), podiumManaged: z.boolean().optional(), replaceMachineId: z.string().optional() })
+  .object({
+    copyAgentCredentials: z.boolean().optional(),
+    podiumManaged: z.boolean().optional(),
+    replaceMachineId: z.string().optional(),
+    clientRegistration: z
+      .object({ machineId: MachineIdField, publicKey: z.string().optional() })
+      .optional(),
+  })
+  .refine(
+    (input) => !input.clientRegistration || !input.replaceMachineId,
+    'choose client registration or explicit replacement',
+  )
   .optional()
 
 export const repoAddInput = z.object({
@@ -469,16 +480,24 @@ export const machineRenameContract = {
 } as const satisfies FleetCommandContract<typeof machineRenameInput>
 
 const machineSetAssignmentInput = z.object({
-  id: MachineIdField, assignment: MachineServiceAssignment, requestId: z.string().min(1),
+  id: MachineIdField,
+  assignment: MachineServiceAssignment,
+  requestId: z.string().min(1),
 })
 export const machineSetAssignmentContract = {
   ...machineRenameContract,
-  name: 'machines.setAssignment', input: machineSetAssignmentInput,
-  policy: { ...machineRenameContract.policy, roleFloor: 'admin',
-    rationale: 'Only an administrator changes desired services; availability is observed independently.' },
+  name: 'machines.setAssignment',
+  input: machineSetAssignmentInput,
+  policy: {
+    ...machineRenameContract.policy,
+    roleFloor: 'admin',
+    rationale:
+      'Only an administrator changes desired services; availability is observed independently.',
+  },
   cli: { summary: 'Assign or remove agent execution on a machine' },
   ownership: { creates: [], note: 'Replaces desired assignment on an enrolled machine.' },
-  conflictRule: 'Idempotent replacement; moving the server uses the generation-fenced transfer transition.',
+  conflictRule:
+    'Idempotent replacement; moving the server uses the generation-fenced transfer transition.',
 } as const satisfies FleetCommandContract<typeof machineSetAssignmentInput>
 
 /** Select the centrally controlled update authority for one managed machine. */
@@ -720,9 +739,13 @@ export const machineSupersedeContract = {
   name: 'machines.supersede',
   input: machineSupersedeInput,
   policy: {
-    action: 'manage', roleFloor: 'admin', resource: 'machine', machineVerb: 'manage',
+    action: 'manage',
+    roleFloor: 'admin',
+    resource: 'machine',
+    machineVerb: 'manage',
     confirmation: 'none',
-    rationale: 'An admin explicitly identifies both machines and must manage both. Supersession cancels the old grants and queued work; replacement authority is unchanged.',
+    rationale:
+      'An admin explicitly identifies both machines and must manage both. Supersession cancels the old grants and queued work; replacement authority is unchanged.',
   },
   ownership: {
     ...machineAdoptContract.ownership,
@@ -734,7 +757,8 @@ export const machineSupersedeContract = {
     note: 'Admin and manage gates apply to both supplied ids. Unknown or invisible targets share a refusal; self replacement and retired replacements are rejected.',
   },
   cli: { summary: 'Supersede an old machine identity with an explicitly named replacement' },
-  conflictRule: 'Serialize both machine transitions; retire the old credential, cancel grants and append the audit in one database transaction',
+  conflictRule:
+    'Serialize both machine transitions; retire the old credential, cancel grants and append the audit in one database transaction',
 } as const satisfies FleetCommandContract<typeof machineSupersedeInput>
 
 /**
@@ -851,7 +875,8 @@ export const machinePairingCodeContract = {
     rationale:
       'New enrollment requires an administrator at the fleet gate and handler. An explicit ' +
       'replacement may also be authorized by the retained machine personal grantee; the code ' +
-      'is scoped to that machine id, and active-id collisions are refused before redemption.',
+      'is scoped to that machine id, and active-id collisions are refused before redemption. ' +
+      'Client recovery requires a current administrator login and binds authority to the retained public identity.',
   },
   exposure: SERVED_ON,
   delivery: PAIRING_DELIVERY,
@@ -863,8 +888,8 @@ export const machinePairingCodeContract = {
       'THE OUTPUT IS THE SECRET. `code` is the bearer credential and `joinCommand` embeds it verbatim ' +
       '(`buildJoinCommand`), so redacting one and not the other would be theatre. They are returned to ' +
       'the minting principal — that is the command’s only purpose — and must not be logged, echoed ' +
-      'into an event, persisted client-side, or included in any error. `copyAgentCredentials` is a ' +
-      'boolean intent flag and carries no material.',
+      'into an event or included in any error. Native enrollment keeps the code only in the selected private ' +
+      'config until supervisor acknowledgement. The input flags and retained public identity carry no secret material.',
   },
   ownership: {
     creates: [],
@@ -878,8 +903,10 @@ export const machinePairingCodeContract = {
   },
   attribution: FLEET_ATTRIBUTION,
   errorConsistency: {
-    callerSuppliedTargetId: false,
-    note: 'Takes no target id: the mint is addressed to this server, and its only input is a boolean intent flag. There is nothing an error could disclose the existence of.',
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note: 'Optional registration and replacement requests name a machine. Current administrators may see its recovery decision; unauthenticated machine handshakes retain the uniform denial.',
   },
   serverRole: 'hub',
   cli: { summary: 'Mint a pairing code for a new machine' },

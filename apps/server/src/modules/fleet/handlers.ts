@@ -396,7 +396,13 @@ export const machinePairingCodeHandler = async ({
   input,
   ports,
 }: FleetArgs<
-  { copyAgentCredentials?: boolean; podiumManaged?: boolean; replaceMachineId?: string } | undefined
+  | {
+      copyAgentCredentials?: boolean
+      podiumManaged?: boolean
+      replaceMachineId?: string
+      clientRegistration?: { machineId: string; publicKey?: string }
+    }
+  | undefined
 >): Promise<{
   code: string
   joinCommand: string | null
@@ -412,6 +418,13 @@ export const machinePairingCodeHandler = async ({
   // and usable by nobody, which is the fail-closed arm rather than a crash.
   const pairer = onBehalfOfUser((await fleetAuthzDeps(ctx)).principal)
   const principal = (await fleetAuthzDeps(ctx)).principal
+  if (input?.clientRegistration) {
+    if (principal.kind !== 'user' || principal.capability.role !== 'admin' || pairer === null)
+      throw new TRPCError({ code: 'FORBIDDEN', message: 'client registration requires an authenticated administrator login' })
+    const code = await mods(ctx).machines.mintClientRegistrationCode(
+      { ...input.clientRegistration, machineId: asMachineId(input.clientRegistration.machineId) }, pairer)
+    return { code, joinCommand: null }
+  }
   if (input?.replaceMachineId) {
     const row = (await mods(ctx).machines.ownershipRows()).find(
       (m) => m.id === input.replaceMachineId,

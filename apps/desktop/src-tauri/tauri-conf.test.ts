@@ -262,7 +262,7 @@ describe('tauri desktop config', () => {
     expect(windowRouting).toContain('(bootstrap::local_window_target(port, ready), injection)')
     expect(windowRouting).toContain('(webview_url, remote_init_injection)')
     expect(mainSource).toContain('window.__PODIUM_PAYLOAD_ERROR__ = {error_literal}')
-    expect(mainSource).toContain('app.restart();')
+    expect(mainSource).toContain('app.request_restart();')
     expect(webMainSource).toContain('<PayloadUnavailablePage reason={payloadStartupError} />')
     expect(webMainSource).toContain("label: 'Startup failure'")
   })

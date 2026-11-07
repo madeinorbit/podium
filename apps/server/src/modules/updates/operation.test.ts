@@ -5,7 +5,6 @@ import { createServer } from 'node:http'
 import { MachineUpdateExecutor, updateFingerprint } from '@podium/runtime/machine-update'
 import { requestMachineUpdate, startMachineUpdateControl } from '@podium/runtime/machine-update-control'
 import { createInstalledCoordinatorUpdate } from './installed-restart'
-import { UpdateRecoveryStore } from './recovery-store'
 import { asMachineId, type UpdateChannel } from '@podium/model'
 import type { Operation, UpdateGrantMessage, UpdateStatusMessage, UpdateTarget } from '@podium/protocol'
 import {
@@ -61,10 +60,12 @@ import {
   updateOperationDetails,
   updateOperationKind,
 } from './operation'
-import { UpdatesService, type UpdatesDeps } from './service'
-import { updateStartability } from './trpc'
-import { refreshTargetsOnBoot } from './target-refresh'
+import { updateOperationObserver } from './operation-observer'
 import { UpdateReconciler } from './reconciler'
+import { UpdateRecoveryStore } from './recovery-store'
+import { type UpdatesDeps, UpdatesService } from './service'
+import { refreshTargetsOnBoot } from './target-refresh'
+import { updateStartability } from './trpc'
 import { offeredDeliveries, type WaveMachine, type WaveRound } from './wave'
 
 /**
@@ -1341,6 +1342,7 @@ function fakeClock() {
 }
 
 interface HarnessOptions {
+  observeOperationChanges?: boolean
   recordGrant?: UpdatesDeps['recordGrant']
   resolveTarget?: (channel: UpdateChannel) => Promise<UpdateTarget>
   approvedTarget?: () => Promise<UpdateTarget | undefined>
@@ -1385,14 +1387,10 @@ async function harness(options: HarnessOptions = {}) {
   /**
    * WHAT A FIRE-AND-FORGET NOTIFICATION LEFT BEHIND.
    *
-   * `UpdatesService.onTargetChanged` is a `Promise<void>` port, and this
-   * harness's implementation of it resolves without waiting for the listener —
-   * the composition root hands the real port the fleet bridge, so the service
-   * announces the change and carries straight on while the bridge is still
-   * reading history and restating promises. That is the production ordering and
-   * this harness keeps it. What a test cannot do is assert on work that has not
-   * happened yet, so the promise is kept here and `settleTargetChanges()` is how
-   * a test says "and then the listener finished".
+   * The composition root awaits the fleet bridge from this port; the service
+   * owns deferring it. The harness must return that same promise, or it hides
+   * circular waits between target withdrawal and an operation's serial queue.
+   * Keep the promise here as well so tests can await the resulting observation.
    */
   const targetNotifications: Promise<void>[] = []
   const requireEngine = (): OperationEngine => {
@@ -1429,14 +1427,11 @@ async function harness(options: HarnessOptions = {}) {
         (await driver()?.active(LIFECYCLE_EXCLUSION_GROUP)) !== undefined,
       exclusiveOperationVersion: async (channel) =>
         exclusiveUpdateVersion(await driver()?.active(LIFECYCLE_EXCLUSION_GROUP), channel),
-      // Resolves IMMEDIATELY and keeps the listener's promise aside, which is
-      // the production ordering this harness exists to reproduce: the service
-      // announces the change and carries on while the bridge is still reading.
-      // Awaiting the listener here instead would make every drill in this file
-      // observe an ordering production never has.
+      // Match relay.ts: return the bridge's promise, leaving deferral to the service.
       onTargetChanged: async (channel) => {
         const settled = targetChanged?.(channel)
         if (settled !== undefined) targetNotifications.push(settled)
+        await settled
       },
     })
     if (initialTarget) await service.setTarget('dev', initialTarget)
@@ -1499,6 +1494,9 @@ async function harness(options: HarnessOptions = {}) {
     registry,
     clock: clock.clock,
     newId: () => `op_${++minted}`,
+    ...(options.observeOperationChanges
+      ? { onChanged: updateOperationObserver(updates, () => undefined) }
+      : {}),
   })
 
   return {
@@ -3378,6 +3376,41 @@ describe('the fleet bridge', () => {
    * nothing is driving any more is exactly the thing that cannot correct it on
    * its own. The target change is what corrects it.
    */
+  it('settles a failed update without deadlocking its target notification', async () => {
+    const h = await harness({
+      machines: [machine({ id: 'online' }), machine({ id: 'laptop', online: false })],
+      target: packedTarget(),
+      servedWebDigest: () => WEB_DIGEST,
+      observeOperationChanges: true,
+    })
+    const bridge = createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: () => h.clock.clock.now(),
+    })
+    h.setTargetChanged(() => bridge.onTargetChanged())
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    // Failure withdraws the target while holding this operation's serial queue.
+    // Restating its offline promise must queue behind it without being awaited.
+    await h.engine.recordProgress('op_1', UPDATE_STEP_MACHINES, {
+      state: 'failed',
+      error: { code: 'download-failed', message: 'artifact download timed out' },
+    })
+    await h.settleTargetChanges()
+    await h.engine.whenSettled('op_1')
+    expect((await h.read()).state).toBe('failed')
+    expect((await h.read()).deferred).toEqual([
+      { id: 'laptop', name: 'laptop', reason: 'target-unavailable' },
+    ])
+
+    // The next build's feed refresh must not inherit the blocked old queue.
+    await h.updates.setTargetFromProducer('dev', { ...packedTarget(), version: 'dev+def5678' })
+    await h.settleTargetChanges()
+    expect(h.updates.target('dev')?.version).toBe('dev+def5678')
+  }, 2_000)
+
   it('restates an all-offline update promise once a newer target supersedes it', async () => {
     const fleet = [machine({ id: 'laptop', online: false })]
     const h = await harness({

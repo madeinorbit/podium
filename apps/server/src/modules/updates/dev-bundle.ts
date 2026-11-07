@@ -1,23 +1,24 @@
-import { targetDaemonWireRefusal } from './wave'
-import { DAEMON_WIRE_VERSION, MIN_DAEMON_WIRE_VERSION, WireVersionRange } from '@podium/protocol'
-import { execFile } from 'node:child_process'
 import { createHash, createPrivateKey, createPublicKey } from 'node:crypto'
 import { createReadStream, type Dirent, existsSync, readFileSync, renameSync } from 'node:fs'
 import { mkdir, readdir, readFile as readFileAsync, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { promisify } from 'node:util'
 import { createLogger, describeError } from '@podium/logger'
 import {
   commitShaFromDevVersion,
+  DAEMON_WIRE_VERSION,
   isFlatPublisherDevVersion,
   isHeadlessPlatform,
   isPublisherDevVersion,
+  MIN_DAEMON_WIRE_VERSION,
   mintDevVersion,
   parsePublisherDevVersion,
   platformTargetFor,
   type ReleaseProposal,
+  releaseNotesFor,
+  type UpdateNotes,
   UpdateTarget,
+  WireVersionRange,
 } from '@podium/protocol'
 import { resolveInstanceId, stateDir } from '@podium/runtime/config'
 import { instanceBuildSliceName } from '@podium/runtime/instance'
@@ -27,6 +28,8 @@ import {
   releaseBuildTimingFileName,
   timeReleaseBuildTask,
 } from '@podium/runtime/release-build-timing'
+import { buildSignal, buildTask, throwIfBuildAborted } from './build-attempt'
+import { runBuildCommand } from './build-process'
 import {
   advanceOutcome,
   type BuildOutcome,
@@ -58,10 +61,9 @@ import {
   desktopReleaseManifestUrl,
   validateDesktopFeedManifest,
 } from './release-target'
+import { targetDaemonWireRefusal } from './wave'
 
 const log = createLogger('server:updates')
-
-const execFileAsync = promisify(execFile)
 
 /**
  * EVERY GIT CALL HERE IS ASYNCHRONOUS, and that is a load-bearing property.
@@ -93,10 +95,11 @@ function gitEnv(): NodeJS.ProcessEnv {
 const MIGRATIONS_TREE = 'apps/server/src/migrations/drizzle'
 
 async function git(root: string, args: readonly string[]): Promise<string> {
-  const { stdout } = await execFileAsync('git', [...args], {
+  const { stdout } = await runBuildCommand('git', args, {
     cwd: root,
-    encoding: 'utf8',
     env: gitEnv(),
+    stdio: 'pipe',
+    label: `Development build git ${args[0] ?? ''}`,
   })
   return stdout
 }
@@ -104,8 +107,31 @@ async function git(root: string, args: readonly string[]): Promise<string> {
 /** Read the advertised range from the artifact's commit, never the publisher binary. */
 export async function readDaemonWireAt(root: string, sha: string): Promise<WireVersionRange> {
   const source = await git(root, ['show', `${sha}:packages/protocol/src/version.ts`])
-  const read = (name: string): number => Number(source.match(new RegExp(`export const ${name}\\s*=\\s*(\\d+)`))?.[1])
-  return WireVersionRange.parse({ min: read('MIN_DAEMON_WIRE_VERSION'), max: read('DAEMON_WIRE_VERSION') })
+  const read = (name: string): number =>
+    Number(source.match(new RegExp(`export const ${name}\\s*=\\s*(\\d+)`))?.[1])
+  return WireVersionRange.parse({
+    min: read('MIN_DAEMON_WIRE_VERSION'),
+    max: read('DAEMON_WIRE_VERSION'),
+  })
+}
+
+/**
+ * The release notes a dev build of `version` carries, read from the build's own commit: the
+ * `## [Unreleased]` section of its CHANGELOG.md, which is what a dev build previews. Notes are
+ * a courtesy, never a gate: a commit without a changelog, or one whose Unreleased section is
+ * empty, publishes without notes.
+ */
+export async function readReleaseNotesAt(
+  root: string,
+  sha: string,
+  version: string,
+): Promise<UpdateNotes | undefined> {
+  try {
+    const markdown = await git(root, ['show', `${sha}:CHANGELOG.md`])
+    return releaseNotesFor(markdown, version) ?? undefined
+  } catch {
+    return undefined
+  }
 }
 
 /**
@@ -1387,7 +1413,7 @@ export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDev
   const sha = shortSha(deps.headSha ?? (await developmentHeadSha(root)))
   const publisherStateDir = deps.publisherStateDir ?? stateDir()
   const lock = deps.lock
-  const acquired = await lock.acquire()
+  const acquired = await buildTask(() => lock.acquire())
   if (acquired === false) throw new Error('could not acquire the development bundle lock')
 
   let renewal = Promise.resolve()
@@ -1502,15 +1528,17 @@ export async function buildDevBundle(deps: DevBundleBuildDeps): Promise<BuiltDev
     // and every platform is packaged from that single output.
     let result: DevBuildSpawnResult
     try {
-      result = await spawnBuild({
-        root,
-        version,
-        artifacts: requests,
-        recordDir,
-        ...(Object.keys(timingEnv).length > 0 ? { timingEnv } : {}),
-        ...(deps.signingKey ? { signingKey: deps.signingKey } : {}),
-        ...(deps.instanceId ? { instanceId: deps.instanceId } : {}),
-      })
+      result = await buildTask(() =>
+        spawnBuild({
+          root,
+          version,
+          artifacts: requests,
+          recordDir,
+          ...(Object.keys(timingEnv).length > 0 ? { timingEnv } : {}),
+          ...(deps.signingKey ? { signingKey: deps.signingKey } : {}),
+          ...(deps.instanceId ? { instanceId: deps.instanceId } : {}),
+        }),
+      )
     } catch (error) {
       // WHICH STEP REFUSED, from what the child left behind. A `client.json` means the
       // clients verified and the failure is downstream of them; its absence means the
@@ -1753,6 +1781,9 @@ export function devTarget(
     webDigest?: string
     daemonWire?: WireVersionRange
     schemaMigrations?: string[]
+    /** What this build previews: the Unreleased section at its commit. Absent means none. */
+    notes?: UpdateNotes
+    changes?: Pick<UpdateTarget, 'commits' | 'commitCount' | 'branch' | 'addedMigrations'>
   } = {},
 ): UpdateTarget {
   const hostPlatform = opts.platform ?? developmentPlatformTarget()
@@ -1781,6 +1812,8 @@ export function devTarget(
   return {
     version: built.version,
     daemonWire: opts.daemonWire ?? { min: MIN_DAEMON_WIRE_VERSION, max: DAEMON_WIRE_VERSION },
+    ...(opts.notes ? { notes: opts.notes } : {}),
+    ...opts.changes,
     critical: false,
     minRequired: { desktopBridge: 1 },
     schema: { migrations },
@@ -1897,7 +1930,10 @@ async function fetchStandingDesktopManifest(
 ): Promise<StandingDesktopManifest> {
   const url = desktopReleaseManifestUrl(channel)
   try {
-    const response = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(5_000) })
+    const response = await fetch(url, {
+      cache: 'no-store',
+      signal: buildSignal() ?? AbortSignal.timeout(5_000),
+    })
     if (!response.ok) {
       return { missing: `${channel} desktop manifest returned HTTP ${response.status}` }
     }
@@ -1983,6 +2019,8 @@ export interface DevBundlePublisherDeps extends Omit<DevBundleBuildDeps, 'headSh
    */
   daemonWireAt?: (sha: string) => Promise<WireVersionRange>
   migrationsAt?: (sha: string) => Promise<string[] | undefined>
+  /** The notes a build of `version` at `sha` carries. Seam for tests; defaults to the commit's CHANGELOG.md. */
+  notesAt?: (sha: string, version: string) => Promise<UpdateNotes | undefined>
   /**
    * Fetches one channel's standing shell manifest. Seam for tests; production reads GitHub.
    *
@@ -2135,6 +2173,33 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
     }
   }
 
+  const readNotesAt = (sha: string, version: string): Promise<UpdateNotes | undefined> =>
+    deps.notesAt
+      ? deps.notesAt(sha, version).catch(() => undefined)
+      : readReleaseNotesAt(deps.root ?? SOURCE_ROOT, sha, version)
+
+  // Read at the built commit, relative to the booted server (the same baseline
+  // as the approval). Never read HEAD's log as a substitute for the built bytes.
+  const readChangesAt = async (headSha: string): Promise<ReleaseProposalFacts | undefined> => {
+    const root = deps.root ?? SOURCE_ROOT
+    const input = {
+      headSha,
+      ...(deps.proposalRunningSha
+        ? { runningSha: deps.proposalRunningSha }
+        : {
+            runningVersion: deps.proposalRunningVersion ?? resolveCheckoutReleaseBase(deps, root),
+          }),
+    }
+    try {
+      return deps.proposalFacts
+        ? await deps.proposalFacts(input)
+        : await releaseProposalFacts({ root, ...input })
+    } catch {
+      // Like notes, unavailable history must not prevent delivery of valid bytes.
+      return undefined
+    }
+  }
+
   const recordFailure = (error: unknown, sha: string | null) => {
     const reason = describeError(error)
     unavailable = reason
@@ -2219,8 +2284,10 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
       // Read fresh, per build: a Mac that enrolled since the last one must be served by
       // the NEXT build, not by the next restart.
       const platforms = devBuildPlatforms(await deps.fleetPlatforms?.())
+      throwIfBuildAborted()
       const liveRoot = deps.root ?? SOURCE_ROOT
       const buildFrom = async (buildRoot: string): Promise<BuiltDevBundle> => {
+        throwIfBuildAborted()
         // The clients are no longer built here. The release child owns them: it builds
         // or RESTORES web and mobile through the Turbo lane inside the snapshot, once
         // for the whole publish, and packages every platform from that one output.
@@ -2337,6 +2404,7 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
         })
       const requested = (approved ? buildApproved() : buildFrom(liveRoot)).then(
         (built) => {
+          throwIfBuildAborted()
           current = built
           builtSha = headSha
           unavailable = undefined
@@ -2438,6 +2506,8 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
       sourceRoot: deps.root,
       schemaMigrations: settled.migrations,
       daemonWire: await deps.daemonWireAt?.(settled.headSha),
+      notes: await readNotesAt(settled.headSha, built.version),
+      changes: await readChangesAt(settled.headSha),
     })
   }
 
@@ -2474,6 +2544,7 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
         branch: facts.branch,
         runningVersion,
         commits: facts.commits,
+        ...(facts.commitCount !== undefined ? { commitCount: facts.commitCount } : {}),
         addedMigrations: facts.addedMigrations,
         state: 'pending',
       }
@@ -2512,6 +2583,8 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
       sourceRoot: deps.root,
       schemaMigrations: migrations,
       daemonWire: await deps.daemonWireAt?.(builtSha),
+      notes: await readNotesAt(builtSha, built.version),
+      changes: await readChangesAt(builtSha),
     })
   }
 
@@ -2616,7 +2689,7 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
 
   return {
     requestBuild(explicit = false, approved) {
-      const admitted = admissions.then(() => admit(explicit, approved))
+      const admitted = admissions.then(() => buildTask(() => admit(explicit, approved)))
       admissions = admitted.catch(() => undefined)
       return admitted.then((admission) =>
         'error' in admission ? Promise.reject(admission.error) : admission.result,
@@ -2679,7 +2752,9 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
     desktopManifestPath: () => devDesktopManifestPath(deps.root ?? SOURCE_ROOT),
     desktopManifestSource: () => desktopManifestSource,
     publishFeed: async () => {
+      throwIfBuildAborted()
       const manifest = await builtManifest()
+      throwIfBuildAborted()
       if (!manifest) return false
       try {
         if (!builtSha) throw new Error('cannot publish a development release without its commit')
@@ -2711,8 +2786,11 @@ export function createDevBundlePublisher(deps: DevBundlePublisherDeps): {
             sourceSha: publishedSha,
           },
           async () => {
+            throwIfBuildAborted()
             const desktopPath = await writeDevDesktopManifest(fs, root, source.channel, desktopRaw)
+            throwIfBuildAborted()
             const path = await writeDevFeedManifest(fs, root, manifest)
+            throwIfBuildAborted()
             const statePath = deps.publisherStateDir ?? stateDir()
             const publisherState = readDevPublisherState(statePath)
             if (!publisherState) {

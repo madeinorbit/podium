@@ -39,8 +39,11 @@ import type { BindingConfirmations,
   MachineVerb,
   PeerBuild,
   ServerMessage,
-  UpdateKeyRotation} from '@podium/protocol'
-import { SERVER_MOVE_CAPABILITY, supervisorGenerationOf, wireSchemaDigest } from '@podium/protocol'
+  UpdateKeyRotation,
+  UpdateSpaceEstimate,
+  UpdateSpaceResultMessage,
+  UpdateTarget} from '@podium/protocol'
+import { SERVER_MOVE_CAPABILITY, supervisorGenerationOf, unknownUpdateSpace, UPDATE_SPACE_CAPABILITY, wireSchemaDigest } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
 import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
@@ -58,6 +61,7 @@ import { broadcastAfterWrite, type EnrollmentHost, type MachineManagementContext
 import * as credentials from './enrollment'
 import { sha256 } from './enrollment'
 import { supersedeMachine } from './supersession'
+import { UpdateSpaceRequests } from './update-space-requests'
 
 /** The credential lifecycle lives in `./enrollment.ts`; re-exported for the
  *  fixtures and durability tests that hash a token the way the store does. */
@@ -176,6 +180,7 @@ export interface PairingGrant {
   /** Explicit replacement authority, scoped to this retained identity at mint. */
   replaceMachineId?: MachineId
   replaceIncarnation?: string
+  clientRegistration?: { machineId: MachineId; publicKey?: string }
   /**
    * WHO THE MACHINE WILL BELONG TO (POD-1079, ADR 9 D6 M3: "a newly paired
    * machine is private to its pairer").
@@ -287,6 +292,27 @@ export interface MachinesDeps {
 const log = createLogger('server:machines')
 
 export class MachinesService {
+  private readonly spaceRequests = new UpdateSpaceRequests()
+
+  /** Informational inlet only: never route through the offline update/control queue. */
+  checkUpdateSpace(
+    machineId: MachineId,
+    target: UpdateTarget,
+    fingerprint: string,
+  ): Promise<UpdateSpaceEstimate> {
+    const supervisor = this.supervisors.get(machineId)
+    if (!supervisor || this.revokedMachines.has(machineId))
+      return Promise.resolve(unknownUpdateSpace('The machine is offline.'))
+    if (!supervisor.caps.includes(UPDATE_SPACE_CAPABILITY))
+      return Promise.resolve(unknownUpdateSpace('This machine does not support space previews yet.'))
+    return this.spaceRequests.request(machineId, supervisor.send, target, fingerprint)
+  }
+
+  recordUpdateSpaceResult(machineId: MachineId, message: UpdateSpaceResultMessage): void {
+    const supervisor = this.supervisors.get(machineId)
+    if (supervisor) this.spaceRequests.receive(machineId, supervisor.send, message)
+  }
+
   private readonly availabilityEpoch = randomUUID()
   private availabilityWrites: Promise<void> = Promise.resolve()
 
@@ -899,6 +925,10 @@ export class MachinesService {
     return this.deps.pairing.mint(grant)
   }
 
+  async mintClientRegistrationCode(request: { machineId: MachineId; publicKey?: string }, actor: UserId): Promise<string> {
+    return credentials.mintClientRegistrationCode(this.enrollmentHost, request, actor)
+  }
+
   /** Bind replacement authority to the revoked credential, never merely its id. */
   async mintReplacementPairingCode(id: MachineId, grant: PairingGrant, byAdmin = false): Promise<string> {
     return credentials.withMachineTransition(this.enrollmentHost, id, async () => {
@@ -994,7 +1024,10 @@ export class MachinesService {
     return await this.deps.store.machines.listMachines()
   }
 
-  dispose(): void { this.unsubscribeMachineWrites() }
+  dispose(): void {
+    this.spaceRequests.close()
+    this.unsubscribeMachineWrites()
+  }
 
   /** Resolve the native login identity available on the machine that will run a session. */
   async nativeAccountIdForMachine(

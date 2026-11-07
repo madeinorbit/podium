@@ -249,6 +249,8 @@ it('collapses a phase by pointer, Enter and Space without selecting a session or
   expect(f.task('parent')).not.toBeNull()
   await keyboard.keyboard(' ')
   expect(f.task('parent')).toBeNull()
+  expect(f.actions.onOpenTask).toHaveBeenCalledTimes(3)
+  expect(f.actions.onOpenTask).toHaveBeenLastCalledWith(f.full.task('build'))
   expect(f.actions.onSelectSession).not.toHaveBeenCalled()
   expect(f.actions.onStatusPick).not.toHaveBeenCalled()
   capture('Build collapsed · counts retained', f.ui.container)
@@ -280,7 +282,8 @@ it('folds a task branch from its row and chevron while preserving nested folds',
   await act(async () => fireEvent.click(chevron('parent')))
   expect(f.task('child')).not.toBeNull()
   expect(f.screen.folds.get('child')).toBe('closed')
-  expect(f.actions.onOpenTask).not.toHaveBeenCalled()
+  expect(f.actions.onOpenTask).toHaveBeenCalledTimes(5)
+  expect(f.actions.onOpenTask).toHaveBeenLastCalledWith(f.full.task('parent'))
   expect(f.actions.onSelectSession).not.toHaveBeenCalled()
 })
 
@@ -442,13 +445,17 @@ it('keeps long identity, shared state, dependency locks and position hooks at ar
   )
   const surfaces = render(
     <div className="flight-full-panel">
-      <div className="flight-full-gauge-row">
-        <MissionGauge full={f.full} live={3} working={0} />
+      <div className="deck-chrome">
+        <div className="flight-full-gauge-row">
+          <MissionGauge full={f.full} live={3} working={0} />
+        </div>
+        <FlightDeckFullCoordinator full={f.full} {...f.actions} />
+        <FlightDeckFullControls full={f.full} />
       </div>
-      <FlightDeckFullCoordinator full={f.full} {...f.actions} />
-      <FlightDeckFullControls full={f.full} />
-      <FlightDeckFullGroups {...f.props} />
-      <FlightDeckProposals full={f.full} onMenu={vi.fn()} />
+      <div className="deck-rows">
+        <FlightDeckFullGroups {...f.props} />
+        <FlightDeckProposals full={f.full} onMenu={vi.fn()} />
+      </div>
     </div>,
   )
   for (const name of ['Backlog', 'Start'])
@@ -465,7 +472,8 @@ it('keeps long identity, shared state, dependency locks and position hooks at ar
       `<!doctype html><html lang="en"><meta charset="utf-8"><title>Full deck responsive ladder</title><style>
     :root{${tokens} --font-mono:ui-monospace,monospace}*{box-sizing:border-box}body{margin:0;padding:24px;background:#16171a;color:#d7dae0;font:13px system-ui}h1{font-size:20px}p{max-width:850px;color:#949aa4;line-height:1.6}button{font:inherit;color:inherit;background:none;border:0;padding:0}svg{flex:none}.samples{display:flex;align-items:start;flex-wrap:wrap;gap:24px}.sample{flex:none}.flight-full-panel{background:#1d1f23;outline:1px solid #373a42}.size-4{width:16px;height:16px}.size-5{width:20px;height:20px}.flex{display:flex}.flex-none{flex:none}.items-center{align-items:center}.justify-center{justify-content:center}.border{border:1px solid #3a3f48}.rounded{border-radius:4px}.flight-full-gauge-row{display:flex;flex-wrap:wrap;padding:12px}.mission-gauge-full{display:flex;align-items:center}.mission-gauge-full [data-testid="mission-gauge-track"]{display:flex;height:26px;gap:2px;padding:2px;background:#16171a}.mission-gauge-full [data-testid="mission-live-chip"]{display:flex;align-items:center;flex:none;gap:6px;padding:6px}
     /* Full mission header (v6).${header}
-    </style><h1>Full deck · 300px to expanded</h1><p>Actual rendered acceptance fixture with 18 nested levels, long refs, Not started, Needs you, multiple blockers, session seats, controls and proposals. POD-6000 approved wrapping required slots and capping indentation at three steps. Only titles truncate. Each sample is its own panel container; the browser viewport does not select a rung. Buttons are static layout evidence.</p><div class="samples">${[300, 320, 359, 360, 439, 440, 480, 559, 560, 859, 860, 900, 1120].map((width) => `<article class="sample" style="width:${width}px"><h2>${width}px</h2>${surfaces.container.innerHTML}</article>`).join('')}</div></html>`,
+    .flight-full-panel{display:flex;flex-direction:column;max-height:780px;overflow-y:auto}.deck-chrome{position:sticky;top:0;z-index:10;flex:none;background:var(--background)}.deck-rows{flex:none;padding-right:8px;container:deck-rows / inline-size}
+    </style><h1>Full deck · 300px to expanded</h1><p>Actual rendered acceptance fixture with 18 nested levels, long refs, Not started, Needs you, multiple blockers, session seats, controls and proposals. Every nesting level retains its full 22px step. Deep trees scroll horizontally, while the mission chrome stays in view and row contents keep wrapping. Each sample is its own panel container; the browser viewport does not select a rung. Buttons are static layout evidence.</p><div class="samples">${[300, 320, 359, 360, 439, 440, 480, 559, 560, 859, 860, 900, 1120].map((width) => `<article class="sample" style="width:${width}px"><h2>${width}px</h2>${surfaces.container.innerHTML}</article>`).join('')}</div></html>`,
     )
   }
 })

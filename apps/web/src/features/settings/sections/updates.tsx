@@ -5,6 +5,7 @@ import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { type FailureReason, MachineFailureReason } from '@/features/updates/MachineFailureReason'
+import { UpdateSpaceNotice } from '@/features/updates/UpdateSpaceNotice'
 import { copyToClipboard } from '@/lib/clipboard'
 import { pageBuildDigest, pageBuildVersion } from '@/lib/logging/build-version'
 import {
@@ -451,6 +452,7 @@ export function UpdatesSection(): JSX.Element {
       title="Updates"
       hint="Which builds the self-updater (podium update) pulls, for this server and every machine that has not pinned a source of its own. stable = released builds · edge = latest from main."
     >
+      <Row label="Update disk space"><UpdateSpaceNotice client={trpc} scope="all" /></Row>
       <Row label="Running version">
         {showComponentVersions ? (
           <dl className="flex w-full flex-col gap-2" data-testid="component-version-breakdown">

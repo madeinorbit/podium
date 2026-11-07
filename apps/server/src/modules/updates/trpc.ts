@@ -41,6 +41,7 @@ import {
 } from './operation'
 import { ReleaseApprovalRefusal } from './release-approval'
 import type { ServerPlacement } from './service'
+import { readUpdateSpacePreview } from './space-preview'
 import { type ChannelCheckRecord, legacyInstanceTrustMessage, type UpdatesService } from './service'
 import { UPDATE_EFFECT_KIND, updateEffectTarget } from './update-effect'
 import {
@@ -1046,6 +1047,22 @@ const effectRoute = (name: keyof typeof updateEffectRoutes.defs) => ({
 
 export function updateProcedures() {
   return {
+    /** Separate informational request. Never called by start/retry/converge. */
+    checkSpace: t.procedure
+      .input(z.object({
+        scope: z.enum(['operation', 'all']).optional(),
+        expectedVersion: z.string().optional(),
+      }).optional())
+      .query(async ({ ctx, input }) => {
+        const state = familyState(ctx)
+        return readUpdateSpacePreview({
+          machines: () => state.store.machines.listMachines(),
+          target: (channel) => state.modules.updates.target(channel),
+          fleetChannel: state.modules.updates.fleetDefaultChannel(),
+          placement: serverPlacementOf(ctx),
+          check: (machineId, target, fingerprint) => state.modules.machines.checkUpdateSpace(machineId, target, fingerprint),
+        }, input)
+      }),
     proposal: t.procedure.query(async ({ ctx }) => await releaseProposalFor(ctx)),
     approveProposal: plainUpdate('approveProposal'),
     fleet: t.procedure.query(async ({ ctx }) => await updateFleet(ctx)),

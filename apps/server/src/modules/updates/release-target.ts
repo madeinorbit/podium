@@ -16,6 +16,7 @@
  * development use becomes the continuous test of the release mechanism.
  */
 import { describeError } from '@podium/logger'
+import { buildSignal } from './build-attempt'
 import type { UpdateChannel } from '@podium/model'
 import {
   compareVersions,
@@ -229,7 +230,7 @@ async function fetchFeedJson(
       // window survive in an HTTP cache after the matching build has landed.
       cache: 'no-store',
       ...(feed.headers ? { headers: { ...feed.headers } } : {}),
-      signal: AbortSignal.timeout(5_000),
+      signal: buildSignal() ?? AbortSignal.timeout(5_000),
     })
   } catch (error) {
     const detail = describeError(error)
@@ -476,7 +477,7 @@ async function assertArtifactsFetchable(
             redirect: 'manual',
             cache: 'no-store',
             ...(feed.headers ? { headers: { ...feed.headers } } : {}),
-            signal: AbortSignal.timeout(5_000),
+            signal: buildSignal() ?? AbortSignal.timeout(5_000),
           })
         } catch (error) {
           const detail = describeError(error)

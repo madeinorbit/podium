@@ -50,6 +50,7 @@ import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { AppErrorPage } from './AppErrorPage'
 import { AppSheet } from './AppSheet'
 import { BrowserOpenOverlay } from './BrowserOpenOverlay'
+import { ClientRegistrationNotice } from './ClientRegistrationNotice'
 import { CommandPaletteBoundary } from './CommandPaletteBoundary'
 import { DesktopMenuHost } from './DesktopMenuHost'
 import { DensityProvider } from './density'
@@ -395,7 +396,12 @@ export function AppShell({
   // other. Mount the setup gate beside the replica effect and keep the shell
   // itself behind the setup decision. An unreachable auth bootstrap is also
   // recovered inside the replica effect, so that check stays parallel too.
-  return <SetupGate>{shell}</SetupGate>
+  return (
+    <>
+      <ClientRegistrationNotice auth={auth} trpc={gateTrpc} />
+      <SetupGate>{shell}</SetupGate>
+    </>
+  )
 }
 
 function RoutedDensityProvider({ children }: { children: ReactNode }): JSX.Element {

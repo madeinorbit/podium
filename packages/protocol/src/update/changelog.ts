@@ -31,7 +31,7 @@ export function extractRelease(markdown: string, version: string): ReleaseNotes 
 }
 
 /** The `## [Unreleased]` section, or null when it is missing or empty. */
-function extractUnreleased(markdown: string): ReleaseNotes | null {
+export function extractUnreleased(markdown: string): ReleaseNotes | null {
   const headings = [...markdown.matchAll(VERSION_HEADING)]
   for (let index = 0; index < headings.length; index += 1) {
     const heading = headings[index]
@@ -45,15 +45,21 @@ function extractUnreleased(markdown: string): ReleaseNotes | null {
 }
 
 /**
- * The notes a release of `version` ships with: its own section, or — for an edge build, which
- * is a preview of what is not released yet — the `## [Unreleased]` section (POD-5969). Edge cuts
- * do not promote Unreleased (that is the stable cut's job), so without this every edge build
- * shipped with no notes at all. A stable version never falls back: shipping Unreleased as the
- * notes of what someone just installed would misdescribe it.
+ * A preview build: an edge cut (`0.3.0-edge.2`), a publisher dev mint (`0.2.0-dev.76+bcca0ff`)
+ * or a legacy dev identity (`dev+bcca0ff`). Each is a preview of what is not released yet.
+ */
+const PREVIEW_VERSION = /(?:-(?:edge|dev)\.\d+(?:\+[0-9A-Za-z.-]+)?|^dev\+[0-9A-Za-z.-]+)$/
+
+/**
+ * The notes a release of `version` ships with: its own section, or — for a preview build — the
+ * `## [Unreleased]` section (POD-5969 for edge, this issue's dev builds). Edge cuts do not promote
+ * Unreleased (that is the stable cut's job), and a dev build is cut from whatever has landed, so
+ * without this every preview shipped with no notes at all. A stable version never falls back:
+ * shipping Unreleased as the notes of what someone just installed would misdescribe it.
  */
 export function releaseNotesFor(markdown: string, version: string): ReleaseNotes | null {
   return (
     extractRelease(markdown, version) ??
-    (/-edge\.\d+$/.test(version) ? extractUnreleased(markdown) : null)
+    (PREVIEW_VERSION.test(version) ? extractUnreleased(markdown) : null)
   )
 }

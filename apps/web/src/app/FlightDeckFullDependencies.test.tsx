@@ -101,11 +101,19 @@ beforeEach(() => {
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
     this: HTMLElement,
   ) {
-    const id = this.dataset.flightTaskRow
+    // A state word or phase meter sits at its row's height.
+    const id =
+      this.dataset.flightTaskRow ??
+      (this.matches('.flight-v6-state, .flight-full-phase-meter, .flight-full-phase-counter')
+        ? this.closest<HTMLElement>('[data-flight-task-row]')?.dataset.flightTaskRow
+        : undefined)
     const rows = [
       ...(this.closest('.flight-full-groups')?.querySelectorAll('[data-flight-task-row]') ?? []),
     ]
-    const y = id ? (positions.get(id) ?? 40 + rows.indexOf(this) * 40) : 0
+    const row = id
+      ? (this.closest<HTMLElement>('[data-flight-task-row]') ?? (this as HTMLElement))
+      : this
+    const y = id ? (positions.get(id) ?? 40 + rows.indexOf(row) * 40) : 0
     return rect(100, 50 + y * zoom, width * zoom, (id ? 32 : 700) * zoom)
   })
   vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(() => width)
@@ -192,16 +200,25 @@ async function open(rows = fixture(), sessions: Row[] = []) {
   return { screen, pool, full: screen.full, ui, row, card, edges, actions, scrollRef, resize }
 }
 
-it('continuously draws only scheduling links in expanded Full and limits dimming to the hovered phase', async () => {
+it('draws scheduling links only for the hovered row and limits dimming to the hovered phase', async () => {
   const f = await open()
+  const under = (id: string) =>
+    f.row(id).querySelector<HTMLElement>('.flight-v6-state, .flight-full-phase-meter')?.dataset
+      .underLines
+  // Lines run over the rows' right end, so at rest none are drawn (POD-6245).
+  await waitFor(() => expect(f.ui.container.querySelector('[data-flight-task-row]')).not.toBeNull())
+  expect(f.edges()).toHaveLength(0)
+  fireEvent.pointerOver(f.row('source'))
   await waitFor(() => expect(f.edges()).toHaveLength(2))
-  // Lines live in their own strip right of the rows, never over text.
-  expect(f.ui.getByTestId('flight-deck-full-groups').dataset.edgeGutter).toBe('true')
   expect(f.edges().map((e) => [e.dataset.dependencySource, e.dataset.dependencyTarget])).toEqual([
     ['source', 'dependent'],
     ['source', 'cross'],
   ])
-  fireEvent.pointerOver(f.row('source'))
+  // The words the lines cross fade; rows outside the lines' span keep theirs.
+  expect(under('source')).toBe('true')
+  expect(under('dependent')).toBe('true')
+  expect(under('cross')).toBe('true')
+  expect(under('loose')).toBeUndefined()
   expect(f.card('dependent').dataset.dependencyHighlight).toBe('true')
   expect(f.card('cross').dataset.dependencyHighlight).toBe('true')
   expect(f.card('unrelated').dataset.dependencyDim).toBe('true')
@@ -230,11 +247,12 @@ it('continuously draws only scheduling links in expanded Full and limits dimming
     relatedTarget: document.body,
   })
   expect(f.ui.container.querySelector('[data-dependency-dim]')).toBeNull()
-  expect(f.edges()).toHaveLength(2)
-  // The hovered row's link paints last, above the link it would otherwise sit under.
+  // The lines go, and every word comes back.
+  expect(f.edges()).toHaveLength(0)
+  expect(f.ui.container.querySelector('[data-under-lines]')).toBeNull()
+  // A row draws its own links only.
   fireEvent.pointerOver(f.row('dependent'))
   expect(f.edges().map((e) => [e.dataset.dependencyTarget, e.dataset.highlighted])).toEqual([
-    ['cross', 'false'],
     ['dependent', 'true'],
   ])
 })
@@ -247,20 +265,20 @@ it('draws one shared arrowhead where three lines arrive, lit with any of them', 
     issue('three', 'root', 'c'),
     issue('cleanup', 'root', 'd', { deps: [waits('one'), waits('two'), waits('three')] }),
   ])
-  await waitFor(() => expect(f.edges()).toHaveLength(3))
+  await waitFor(() => expect(f.ui.container.querySelector('[data-flight-task-row]')).not.toBeNull())
   const heads = () => [...f.ui.container.querySelectorAll<SVGGElement>('[data-dependency-head]')]
+  // Hovering the row the three arrive at draws all three, ending in one head.
+  fireEvent.pointerOver(f.row('cleanup'))
+  await waitFor(() => expect(f.edges()).toHaveLength(3))
   expect(heads().map((h) => h.dataset.dependencyHead)).toEqual(['cleanup'])
+  expect(heads()[0]!.dataset.highlighted).toBe('true')
   // The lines carry no heads of their own.
   for (const edge of f.edges()) expect(edge.querySelectorAll('path')).toHaveLength(1)
+  // Hovering one of them draws only its line, with its own head.
   fireEvent.pointerOver(f.row('two'))
-  expect(heads()[0]!.dataset.highlighted).toBe('true')
-  // Lit lines and the lit head paint after every unlit one.
-  const order = [
-    ...f.ui.container.querySelectorAll<SVGGElement>(
-      '[data-dependency-source], [data-dependency-head]',
-    ),
-  ].map((g) => g.dataset.highlighted)
-  expect(order).toEqual(['false', 'false', 'true', 'true'])
+  expect(f.edges()).toHaveLength(1)
+  expect(f.edges()[0]!.querySelectorAll('path')).toHaveLength(2)
+  expect(heads()).toHaveLength(0)
 })
 
 it('cross-phase hover dims only its own group, and loose work does not dim phases', async () => {
@@ -273,18 +291,13 @@ it('cross-phase hover dims only its own group, and loose work does not dim phase
   expect(f.ui.container.querySelector('[data-dependency-dim]')).toBeNull()
 })
 
-it('below 860 focus is equivalent to hover, clears across controls and never selects a session', async () => {
+it('focus is equivalent to hover, clears across controls and never selects a session', async () => {
   width = 859
   const f = await open()
-  const gutter = () => f.ui.getByTestId('flight-deck-full-groups').dataset.edgeGutter
   await waitFor(() => expect(f.edges()).toHaveLength(0))
-  // No lines at rest, so the rows keep their full width (POD-6245).
-  expect(gutter()).toBeUndefined()
   const buttons = within(f.row('source')).getAllByRole('button')
   act(() => buttons[0]!.focus())
   await waitFor(() => expect(f.edges()).toHaveLength(2))
-  // Lines show for the focused row, so the rows shorten to make room.
-  expect(gutter()).toBe('true')
   expect(f.card('dependent').dataset.dependencyHighlight).toBe('true')
   act(() => buttons.at(-1)!.focus())
   expect(f.card('dependent').dataset.dependencyHighlight).toBe('true')
@@ -296,22 +309,26 @@ it('below 860 focus is equivalent to hover, clears across controls and never sel
   expect(f.card('unrelated').dataset.dependencyDim).toBe('true') // retained keyboard focus
   act(() => f.ui.getByRole('button', { name: 'Proposals' }).focus())
   expect(f.edges()).toHaveLength(0)
-  expect(gutter()).toBeUndefined()
   expect(f.ui.container.querySelector('[data-dependency-highlight]')).toBeNull()
   expect(f.actions.onSelectSession).not.toHaveBeenCalled()
 })
 
 it('drops folded, filtered and searched endpoints and retains external refs only in pills', async () => {
   const f = await open()
+  fireEvent.pointerOver(f.row('source'))
   await waitFor(() => expect(f.edges()).toHaveLength(2))
   const pill = f.row('dependent').querySelector<HTMLElement>('[data-dependency-slot]')!
   expect(pill.dataset.kind).toBe('blocked')
   expect(pill.textContent).toContain('2 tasks')
   expect(pill.title).toContain('POD-777')
   fireEvent.pointerOver(f.row('dependent'))
+  expect(f.edges()).toHaveLength(1)
+  // Folding the hovered row away drops its line and its hover.
   act(() => f.full.toggleFold('parent'))
-  await waitFor(() => expect(f.edges()).toHaveLength(1))
+  await waitFor(() => expect(f.edges()).toHaveLength(0))
   expect(f.ui.container.querySelector('[data-dependency-dim]')).toBeNull()
+  fireEvent.pointerOver(f.row('source'))
+  await waitFor(() => expect(f.edges()).toHaveLength(1))
   act(() => f.full.setFilter('active'))
   await waitFor(() => expect(f.edges()).toHaveLength(0))
   act(() => {
@@ -321,17 +338,18 @@ it('drops folded, filtered and searched endpoints and retains external refs only
   })
   await waitFor(() => expect(f.row('dependent')).not.toBeNull())
   expect(f.row('source')).toBeNull()
+  fireEvent.pointerOver(f.row('dependent'))
   await waitFor(() => expect(f.edges()).toHaveLength(0))
-  // With no link left to draw, the rows take the gutter back.
-  expect(f.ui.getByTestId('flight-deck-full-groups').dataset.edgeGutter).toBeUndefined()
 })
 
 it('remeasures scroll, resize and zoom and omits offscreen mounted endpoints', async () => {
   zoom = 1.25
   const f = await open()
+  // Focus, unlike hover, survives a scroll.
+  act(() => within(f.row('source')).getAllByRole('button')[0]!.focus())
   await waitFor(() => expect(f.edges()).toHaveLength(2))
   const circle = f.edges()[0]!.querySelector('circle')!
-  expect(circle.getAttribute('cx')).toBe('903')
+  expect(circle.getAttribute('cx')).toBe('875')
   positions.set('source', 1000)
   fireEvent.scroll(f.scrollRef.current!)
   await waitFor(() => expect(f.edges()).toHaveLength(0))
@@ -341,9 +359,7 @@ it('remeasures scroll, resize and zoom and omits offscreen mounted endpoints', a
   expect(f.edges()[0]!.querySelector('circle')?.getAttribute('cy')).toBe('196')
   width = 859
   f.resize()
-  await waitFor(() => expect(f.edges()).toHaveLength(0))
-  fireEvent.pointerOver(f.row('source'))
-  expect(f.edges()).toHaveLength(2)
+  await waitFor(() => expect(f.edges()).toHaveLength(2))
 })
 
 it('ignores virtual placeholders and disconnects observers, listeners and queued frames on unmount', async () => {

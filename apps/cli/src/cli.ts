@@ -1511,6 +1511,28 @@ export async function main(
     return
   }
 
+  // The immutable shell calls its bundled CLI once, before launching an installed
+  // supervisor. This must precede state claiming, config migrations and all identity
+  // initialization: payload delivery has no authority to change those records.
+  if (argv[0] === '--desktop-payload-startup') {
+    const { DesktopPayloadStartupRequest, prepareDesktopPayloadStartup } = await import(
+      '@podium/runtime/desktop-payload-startup'
+    )
+    const { canonicalInstallationPath } = await import('@podium/runtime/installation-lease')
+    const request = DesktopPayloadStartupRequest.parse(
+      JSON.parse(process.env.PODIUM_DESKTOP_PAYLOAD_STARTUP ?? 'null'),
+    )
+    if (argv.length !== 1) throw new Error('invalid desktop payload startup invocation')
+    const installDir = canonicalInstallationPath(request.installDir)
+    const result = await prepareDesktopPayloadStartup(request, {
+      installDir,
+      metadataDir: `${installDir}.lifecycle`,
+      exclusive: request.exclusive,
+    })
+    console.log(JSON.stringify(result))
+    return
+  }
+
   // Claim the selected state root before ANY shared CLI bootstrap can populate it.
   // In particular, a packaged `podium-<instance> channel ...` invocation configures
   // detached file logging before dispatch; if logging creates logs/ first, the channel
@@ -1609,6 +1631,29 @@ export async function main(
       includeDaemon: true,
       includeServer: false,
       takeover: plan.takeover,
+    }
+  }
+
+  // The shell's lease spans its launch/respawn boundary. Runtime leases additionally
+  // cover headless parents, replacement parents, children and direct updaters.
+  // These are shared leases: explicit takeover and the existing updater still own
+  // their normal lifecycle. Only the lower-priority startup fallback needs exclusive.
+  if (process.env.PODIUM_HOME && ['parent', 'in-process', 'update'].includes(plan.kind)) {
+    const { acquireRuntimeInstallationLease, registerInstallationStateRoot } = await import(
+      '@podium/runtime/installation-lease'
+    )
+    const usage = acquireRuntimeInstallationLease(process.env.PODIUM_HOME)
+    if (usage) {
+      try {
+        registerInstallationStateRoot(usage, stateDir())
+      } catch {
+        // Registry damage disables the lower-priority startup source. Keep the
+        // usage lease and let this instance's existing lifecycle/update owner boot.
+        console.error(
+          'installation state-root registry unavailable; bundled startup replacement will defer',
+        )
+      }
+      process.once('exit', () => usage.release())
     }
   }
 
@@ -2045,6 +2090,17 @@ export async function main(
           supervisorGeneration,
         },
         deliveryCaps,
+        // This callback is reached only by an explicit informational request.
+        // Do not call it from onGrant, reconnect/replay, or the update executor.
+        onSpaceCheck: async ({ target }) => {
+          const { previewUpdateSpace } = await import('@podium/runtime/update-space')
+          return previewUpdateSpace(target, {
+            installDir,
+            stateDir: stateDir(),
+            hostsServer: runningAssignment.server,
+            source: !installedPayload,
+          })
+        },
         report: () =>
           machineServiceReport({
             snap: parent.snapshot(),

@@ -192,7 +192,7 @@ const LinkRow = observer(function LinkRow({
 
 /**
  * The task head: the name (renameable in place, POD-1618), then the status
- * pill with the subtask count beside it. "Open in Work" is the external-link
+ * pill with the subtask count beside it. "Open full screen" is the external-link
  * mark in the dock's title bar, beside the dock's own close, so the head holds
  * only what this task IS.
  */
@@ -200,7 +200,7 @@ const InspectHead = observer(function InspectHead({
   issue,
   title,
   onRename,
-  onOpenInWork,
+  onOpenFullScreen,
   subtasks,
 }: {
   issue: IssueViewModel
@@ -209,9 +209,8 @@ const InspectHead = observer(function InspectHead({
    *  placeholder there. */
   title: string
   onRename: (next: string) => void
-  /** Point the rest of the shell at this task. The panel syncs INWARD, so
-   *  looking at a task must never drag the deck along; this is the one way to. */
-  onOpenInWork?: () => void
+  /** Expand the displayed task into its full issue page. */
+  onOpenFullScreen?: () => void
   subtasks?: ReactNode
 }): JSX.Element {
   const rename = useInlineRename(title, onRename)
@@ -225,16 +224,16 @@ const InspectHead = observer(function InspectHead({
   ))
   return (
     <header className="flex flex-col gap-2.5" data-testid="dock-inspect-head">
-      {onOpenInWork && (
+      {onOpenFullScreen && (
         <DockHeaderActions>
           <Button
             variant="ghost"
             size="icon-sm"
             className="size-7 flex-none text-text-dim"
-            data-testid="task-open-in-work"
-            title="Open this task in the Work view"
-            aria-label="Open in Work"
-            onClick={onOpenInWork}
+            data-testid="task-open-fullscreen"
+            title="Open this task full screen"
+            aria-label="Open full screen"
+            onClick={onOpenFullScreen}
           >
             <ExternalLink size={14} aria-hidden="true" />
           </Button>
@@ -811,18 +810,26 @@ export const IssuePanelBody = observer(function IssuePanelBody({
 }): JSX.Element {
   const page = useIssuePageContext()!
   const detail = page.views.row(page.issue.id)
-  const { updateIssue, setPane, setView, setSelectedIssueId, markIssueRead, markSessionRead } =
-    useRuntimeSelector(
-      (s) => ({
-        updateIssue: s.updateIssue,
-        setPane: s.setPane,
-        setView: s.setView,
-        setSelectedIssueId: s.setSelectedIssueId,
-        markIssueRead: s.markIssueRead,
-        markSessionRead: s.markSessionRead,
-      }),
-      shallowEqual,
-    )
+  const {
+    updateIssue,
+    setPane,
+    setView,
+    setSelectedIssueId,
+    setOpenIssueId,
+    markIssueRead,
+    markSessionRead,
+  } = useRuntimeSelector(
+    (s) => ({
+      updateIssue: s.updateIssue,
+      setPane: s.setPane,
+      setView: s.setView,
+      setSelectedIssueId: s.setSelectedIssueId,
+      setOpenIssueId: s.setOpenIssueId,
+      markIssueRead: s.markIssueRead,
+      markSessionRead: s.markSessionRead,
+    }),
+    shallowEqual,
+  )
   const resolve = useIssueEdgeResolver()
   const openArtifactsTab = useOpenArtifactsTab()
   // Every task row in this column carries its own status door (POD-1271); the
@@ -895,7 +902,6 @@ export const IssuePanelBody = observer(function IssuePanelBody({
   const openChildren = children.filter((c) => !isFinished(c))
   const doneChildren = children.filter((c) => isFinished(c))
   const notesAt = issue.notesUpdatedAt ?? issue.updatedAt
-  const workable = !isFinished(issue) && !issue.archived
   const title = detail.title
   // UNCAUGHT, like every other outboxed curation write: the queue keeps a
   // rejected write and surfaces it in the recovery surface with its own toast.
@@ -918,16 +924,19 @@ export const IssuePanelBody = observer(function IssuePanelBody({
         data-testid="dock-scroll"
         data-dock-scroll=""
       >
-        {/* Offered only where it can arrive: in the dock, for a task the deck
-            can put on screen and there is still work to do on (POD-1151,
-            POD-1269). */}
+        {/* Expand the task being inspected, including a closed task or one
+            outside the current mission. */}
         <InspectHead
           issue={issue}
           title={title}
           onRename={renameIssue}
-          onOpenInWork={
-            onNavigate && workable && typeof page.views.destination(issue.id) === 'object'
-              ? () => showInDeck(issue)
+          onOpenFullScreen={
+            onNavigate
+              ? () => {
+                  void markIssueRead(issue.id)
+                  setOpenIssueId(issue.id)
+                  setView('issues')
+                }
               : undefined
           }
           subtasks={

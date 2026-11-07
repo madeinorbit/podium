@@ -10,6 +10,7 @@ import {
   parseArtifactOverrides,
   parseReleaseArgs,
   readDefinedMigrations,
+  releaseNotesWithPage,
   stableReleasePageNotesArgs,
   writeClientBuildRecord,
 } from './release'
@@ -328,5 +329,25 @@ describe('stableReleasePageNotesArgs', () => {
 
   it("falls back to GitHub's generated list only when the version has no notes", () => {
     expect(stableReleasePageNotesArgs(undefined)).toEqual(['--generate-notes'])
+  })
+})
+
+describe('releaseNotesWithPage', () => {
+  it("links a stable release's notes to its GitHub page, which carries the same text", () => {
+    expect(releaseNotesWithPage({ summary: 'Faster.' }, 'stable', 'v0.3.0')).toEqual({
+      summary: 'Faster.',
+      url: 'https://github.com/madeinorbit/podium/releases/tag/v0.3.0',
+    })
+  })
+
+  it('gives edge and dev notes no link, since their pages do not carry the changelog', () => {
+    expect(releaseNotesWithPage({ summary: 'Soon.' }, 'edge', 'v0.3.0-edge.1')).toEqual({
+      summary: 'Soon.',
+    })
+    expect(releaseNotesWithPage({ summary: 'Soon.' }, 'dev', '')).toEqual({ summary: 'Soon.' })
+  })
+
+  it('has no notes to link when the version has none', () => {
+    expect(releaseNotesWithPage(null, 'stable', 'v0.3.0')).toBeNull()
   })
 })

@@ -1,6 +1,6 @@
 import type { FullDeck, FullDeckFilter } from '@podium/client-graph/mission-full-deck'
 import { observer } from '@podium/client-graph/react'
-import { Eye, EyeOff, Search, X } from 'lucide-react'
+import { ChevronsDownUp, ChevronsUpDown, Eye, EyeOff, Search, X } from 'lucide-react'
 import { useId } from 'react'
 
 const FILTERS: readonly { id: FullDeckFilter; label: string }[] = [
@@ -21,6 +21,7 @@ export const FlightDeckFullControls = observer(function FlightDeckFullControls({
   const ready = full.ready
   const screen = full.screen
   const counts = ready ? full.counts : null
+  const folded = ready && full.allFolded
   if (ready && !full.filterable) return null
   return (
     <div className="flight-full-controls">
@@ -71,6 +72,22 @@ export const FlightDeckFullControls = observer(function FlightDeckFullControls({
             onClick={() => screen.toggleSearch()}
           >
             <Search size={13} aria-hidden />
+          </button>
+          {/* Fold or open every branch at once (restored, POD-6245). */}
+          <button
+            type="button"
+            data-pressable
+            className="flight-full-tool"
+            aria-label={folded ? 'Expand every branch' : 'Fold every branch'}
+            title={folded ? 'Expand every branch' : 'Fold every branch'}
+            disabled={!ready || full.foldableIds.length === 0}
+            onClick={() => full.foldAll()}
+          >
+            {folded ? (
+              <ChevronsUpDown size={13} aria-hidden />
+            ) : (
+              <ChevronsDownUp size={13} aria-hidden />
+            )}
           </button>
         </div>
       </div>

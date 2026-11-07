@@ -14,7 +14,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { basename, join } from 'node:path'
-import { releaseNotesFor } from './changelog'
+import { releaseNotesFor } from '../packages/protocol/src/update/changelog'
 import { optionalDesktopTargets } from './desktop-build-legs'
 
 export const NATIVE_DESKTOP_BRIDGE_VERSION = 1
