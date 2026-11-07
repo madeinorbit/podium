@@ -11,7 +11,13 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import type { AnyCommandContract, ContractConflictClass } from '../contract'
 import { classificationErrors, registryClassificationErrors } from '../contract'
-import { PER_USER_VISIBILITY, SERVED_EVERYWHERE, SERVED_ON_WIRE, SHIPPING_DELIVERY } from './cells'
+import {
+  MACHINE_WORK_DELIVERY,
+  PER_USER_VISIBILITY,
+  SERVED_EVERYWHERE,
+  SERVED_ON_WIRE,
+  SHIPPING_DELIVERY,
+} from './cells'
 import type { IssueContractName } from './contracts'
 import { eventsInput, ISSUE_COMMAND_NAMES, ISSUE_CONTRACT_LIST, ISSUE_CONTRACTS } from './contracts'
 
@@ -154,6 +160,26 @@ describe('transport exposure', () => {
       expect(ISSUE_CONTRACTS[key].exposure, key).toContain('relay')
     }
     expect(ISSUE_COMMAND_NAMES.filter((n) => !onCli.includes(n)).sort()).toEqual(NOT_ON_CLI_OR_MCP)
+  })
+
+  it('the commands that act on machines or git are never queued under their own name', () => {
+    // Their offline form is the effect record (POD-6603); the command is its
+    // online adapter, so a client outbox may not hold it.
+    const work = [
+      'start',
+      'addSession',
+      'addShell',
+      'stop',
+      'cleanup',
+      'action',
+      'integrate',
+      'refreshAssistant',
+      'answerQuestion',
+    ] as const satisfies readonly IssueContractName[]
+    for (const name of work) {
+      expect(ISSUE_CONTRACTS[name].delivery, name).toBe(MACHINE_WORK_DELIVERY)
+      expect(ISSUE_CONTRACTS[name].exposure, name).not.toContain('outbox')
+    }
   })
 
   it('Shipping commands are live-only, typed, and share the command handler surfaces', () => {

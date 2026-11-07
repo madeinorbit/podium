@@ -165,6 +165,26 @@ export const WRITE_DELIVERY: DeliveryPolicy = {
   applyTimeReauthorization: REAUTHORIZATION,
 }
 
+/**
+ * THE COMMANDS THAT ACT ON MACHINES OR GIT ARE NEVER QUEUED BY THE OLD NAME
+ * (POD-6603). Start, add a session or a shell, stop, cleanup, the git actions,
+ * integrate, the assistant and the Tray's answer each run as an effect record
+ * (`effects.create`, POD-6394/6414/6415): THAT record is what survives being
+ * offline (it shows pending on every device until a daemon takes it). The
+ * command under its own name is an online adapter that creates the record and
+ * waits for it; a client outbox that replayed it later would start an agent, or
+ * merge a branch, long after the person asked.
+ */
+export const MACHINE_WORK_DELIVERY: DeliveryPolicy = {
+  class: 'online-sensitive',
+  outboxReconciliation:
+    'Never queued in the client Outbox under this name. The work is an effect record, which a ' +
+    'client may create (and queue) through `effects.create`; the record is idempotent by its id, ' +
+    'shows pending while no daemon can take it, and expires past its deadline. This command is the ' +
+    'online adapter onto that record: a delayed replay would do the work long after it was asked for.',
+  applyTimeReauthorization: REAUTHORIZATION,
+}
+
 /** Shipping handoff and hold decisions must reach the live authority. A handoff
  * freezes repository refs and transfers custody, while a hold decision is fenced
  * by its current generation; neither is honest as a delayed client-outbox replay. */
