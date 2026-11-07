@@ -274,16 +274,21 @@ describe('harness-ambient-access (POD-6545)', () => {
     expect(sum('os-tool')).toBe(HARNESS_AMBIENT_BASELINE_OS_TOOL)
   })
 
-  it('os-tool covers exactly the OS utilities the design names', () => {
-    expect(
-      HARNESS_AMBIENT_ALLOWLIST.filter((e) => e.category === 'os-tool')
-        .map((e) => `${e.file} ${e.access}`)
-        .sort(),
-    ).toEqual([
-      'packages/harness/src/adapters/claude-code/keychain-security.ts child-process',
-      'packages/harness/src/adapters/codex/owned-rollout.ts child-process',
-      'packages/harness/src/adapters/codex/state-provider.ts child-process',
-    ])
+  // POD-6536: the OS utilities the design names (ps/pgrep/lsof,
+  // /usr/bin/security) no longer need an os-tool entry. They run through the
+  // HostTools port, so the files that held them import the port and no
+  // child_process at all.
+  it('os-tool is empty: every OS utility the design names goes through HostTools', () => {
+    expect(HARNESS_AMBIENT_ALLOWLIST.filter((e) => e.category === 'os-tool')).toEqual([])
+    for (const file of [
+      'packages/harness/src/adapters/claude-code/keychain-security.ts',
+      'packages/harness/src/adapters/codex/owned-rollout.ts',
+      'packages/harness/src/adapters/codex/state-provider.ts',
+    ]) {
+      const source = readFileSync(join(repoRoot, file), 'utf8')
+      expect(source, file).toMatch(/from '\.\.\/\.\.\/host-tools\.js'/)
+      expect(checkHarnessAmbientAccess(file, source), file).toEqual([])
+    }
   })
 
   it('is green on the real tree — seeded counts equal actual counts', () => {
