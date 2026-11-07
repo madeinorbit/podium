@@ -13,7 +13,7 @@ import {
 import { type ShippingJobResult, shippingEvidenceFingerprint } from '@podium/protocol/daemon'
 import { normalizeSettings } from '@podium/runtime'
 import { Ledger } from '@podium/sync'
-import { testLedgerWriter } from '@podium/sync/testing'
+import { fixtureWriteScope, testLedgerWriter } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -30,6 +30,7 @@ import {
   type ShippingIssuePort,
   ShippingOrderAccessError,
   ShippingService,
+  type ShippingWriter,
   shippingResourceHolderId,
 } from './service'
 import { ShippingEvidenceRegistry } from './shipwright'
@@ -155,16 +156,16 @@ async function harness(
         branch: issue.branch ?? `issue/${issue.seq}-shipping-test`,
       })),
     // The issue writes a ship order makes, under the issue service's own writer.
-    shippingCommit: checked(((id, mutation, write) =>
+    shippingCommit: checked(((writer, id, mutation, write) =>
       issues.crud.shippingCommit(
-        issues.reports.store.serverWriter,
+        writer,
         id,
         mutation,
         write,
       )) as ShippingIssuePort['shippingCommit']),
-    shippingCommitMany: checked(((entries, write) =>
+    shippingCommitMany: checked(((writer, entries, write) =>
       issues.crud.shippingCommitMany(
-        issues.reports.store.serverWriter,
+        writer,
         entries,
         write,
       )) as ShippingIssuePort['shippingCommitMany']),
@@ -177,6 +178,7 @@ async function harness(
       commit: checked(async (op) => await testLedgerWriter(ledger).commit(op)) as ReturnType<
         typeof testLedgerWriter
       >['commit'],
+      capture: async (specs) => await testLedgerWriter(ledger).capture(specs),
       reconcile: async (entity, rows) => await testLedgerWriter(ledger).reconcile(entity, rows),
     },
     daemon: { shippingJob },
@@ -274,6 +276,11 @@ const provedShippingJob = async (
   finishedAt: '2026-08-13T10:00:00.000Z',
 })
 
+/** The service's own lane writer: these tests drive the ship commands outside a
+ *  sync command, so they write as the lanes do (ADR 12 D9). */
+const laneWriter = (service: ShippingService): ShippingWriter =>
+  (service as unknown as { deps: { ledger: ShippingWriter } }).deps.ledger
+
 describe('ShippingService enqueue transaction', () => {
   it('O1 scheduler tick does not scan attempt history', async () => {
     const { store, service } = await harness()
@@ -298,7 +305,10 @@ describe('ShippingService enqueue transaction', () => {
     const attempts = vi.spyOn(store.shipping, 'attemptsForOrder')
     try {
       const cursor = await ledger.cursor()
-      const admitted = await service.enqueue({ issueId: issue.id, ...approval })
+      const admitted = await service.enqueue(laneWriter(service), {
+        issueId: issue.id,
+        ...approval,
+      })
       const changes = (await ledger.changesSince(cursor)) ?? []
       expect(
         changes.some((change) => change.entity === 'shipOrder' && change.op === 'upsert'),
@@ -315,7 +325,7 @@ describe('ShippingService enqueue transaction', () => {
       expect(attempts).not.toHaveBeenCalled()
 
       const cancelCursor = await ledger.cursor()
-      await service.cancel({
+      await service.cancel(laneWriter(service), {
         orderId: admitted.order.id,
         principal: approval.principal,
         overrideScope: false,
@@ -340,7 +350,10 @@ describe('ShippingService enqueue transaction', () => {
     await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
     try {
       const cursor = await ledger.cursor()
-      const admitted = await service.enqueue({ issueId: issue.id, ...approval })
+      const admitted = await service.enqueue(laneWriter(service), {
+        issueId: issue.id,
+        ...approval,
+      })
       const rows = ((await ledger.changesSince(cursor)) ?? []).filter(
         (change) => change.entity === 'shipOrder' && change.op === 'upsert',
       )
@@ -380,7 +393,7 @@ describe('ShippingService enqueue transaction', () => {
           stage: 'review',
           branch: `issue/${title}`,
         })
-        await service.enqueue({
+        await service.enqueue(laneWriter(service), {
           issueId: issue.id,
           ...approval,
           approved: {
@@ -404,7 +417,7 @@ describe('ShippingService enqueue transaction', () => {
       const run = vi.spyOn(service, 'runOrder').mockResolvedValue()
       try {
         await service.tick()
-        expect(claims).toHaveBeenCalledExactlyOnceWith({
+        expect(claims).toHaveBeenCalledExactlyOnceWith(expect.anything(), {
           leaderOrderId: members[1]!.id,
           startedAt: '2026-08-13T10:00:00.000Z',
           members: members.map((order) => ({ orderId: order.id })),
@@ -440,7 +453,7 @@ describe('ShippingService enqueue transaction', () => {
     await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
     const cursor = await ledger.cursor()
 
-    const receipt = await service.enqueue({ issueId: issue.id, ...approval })
+    const receipt = await service.enqueue(laneWriter(service), { issueId: issue.id, ...approval })
     expect(receipt.created).toBe(true)
     expect((await store.issues.getIssue(issue.id))?.stage).toBe('shipping')
     expect(await store.shipping.getOrder(receipt.order.id)).toEqual(receipt.order)
@@ -464,7 +477,9 @@ describe('ShippingService enqueue transaction', () => {
         ?.value,
     ).not.toHaveProperty('queueRank')
 
-    await expect(service.enqueue({ issueId: issue.id, ...approval })).resolves.toMatchObject({
+    await expect(
+      service.enqueue(laneWriter(service), { issueId: issue.id, ...approval }),
+    ).resolves.toMatchObject({
       created: false,
       order: { id: receipt.order.id },
     })
@@ -483,14 +498,14 @@ describe('ShippingService enqueue transaction', () => {
       startNow: false,
     })
     await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
-    await service.enqueue({
+    await service.enqueue(laneWriter(service), {
       issueId: issue.id,
       ...approval,
       approved: { ...approval.approved, evidenceManifestRef: 'evidence:first' },
     })
 
     await expect(
-      service.enqueue({
+      service.enqueue(laneWriter(service), {
         issueId: issue.id,
         ...approval,
         approved: {
@@ -522,12 +537,12 @@ describe('ShippingService enqueue transaction', () => {
     })
     await issues.crud.update(issues.reports.store.serverWriter, lower.id, { stage: 'review' })
     await issues.crud.update(issues.reports.store.serverWriter, upper.id, { stage: 'review' })
-    const lowerOrder = await service.enqueue({
+    const lowerOrder = await service.enqueue(laneWriter(service), {
       issueId: lower.id,
       ...approval,
       approved: { ...approval.approved, sourceHeadSha: 'lower-head' },
     })
-    const upperOrder = await service.enqueue({
+    const upperOrder = await service.enqueue(laneWriter(service), {
       issueId: upper.id,
       ...approval,
       approved: { ...approval.approved, sourceHeadSha: 'upper-head' },
@@ -548,10 +563,12 @@ describe('ShippingService enqueue transaction', () => {
       startNow: false,
     })
     await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
-    await service.enqueue({ issueId: issue.id, ...approval })
+    await service.enqueue(laneWriter(service), { issueId: issue.id, ...approval })
 
     liveHead = 'advanced-head-sha'
-    await expect(service.enqueue({ issueId: issue.id, ...approval })).rejects.toMatchObject({
+    await expect(
+      service.enqueue(laneWriter(service), { issueId: issue.id, ...approval }),
+    ).rejects.toMatchObject({
       code: 'source-stale',
     })
     service.dispose()
@@ -569,7 +586,9 @@ describe('ShippingService enqueue transaction', () => {
     })
     await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
 
-    await expect(service.enqueue({ issueId: issue.id, ...approval })).rejects.toMatchObject({
+    await expect(
+      service.enqueue(laneWriter(service), { issueId: issue.id, ...approval }),
+    ).rejects.toMatchObject({
       code: 'source-stale',
     })
     expect(await store.shipping.activeOrderForIssue(issue.id)).toBeNull()
@@ -589,9 +608,9 @@ describe('ShippingService enqueue transaction', () => {
       throw new Error('append failed')
     })
 
-    await expect(service.enqueue({ issueId: issue.id, ...approval })).rejects.toThrow(
-      'append failed',
-    )
+    await expect(
+      service.enqueue(laneWriter(service), { issueId: issue.id, ...approval }),
+    ).rejects.toThrow('append failed')
     append.mockRestore()
     expect((await store.issues.getIssue(issue.id))?.stage).toBe('review')
     expect(await store.shipping.activeOrderForIssue(issue.id)).toBeNull()
@@ -608,8 +627,8 @@ describe('ShippingService enqueue transaction', () => {
     await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
 
     const receipts = await Promise.all([
-      service.enqueue({ issueId: issue.id, ...approval }),
-      service.enqueue({ issueId: issue.id, ...approval }),
+      service.enqueue(laneWriter(service), { issueId: issue.id, ...approval }),
+      service.enqueue(laneWriter(service), { issueId: issue.id, ...approval }),
     ])
     expect(receipts.map((receipt) => receipt.created).sort()).toEqual([false, true])
     expect(new Set(receipts.map((receipt) => receipt.order.id)).size).toBe(1)
@@ -640,7 +659,9 @@ describe('ShippingService enqueue transaction', () => {
     const rootRef = (await issues.reports.get(root.id))?.displayRef ?? root.id
     const leafRef = (await issues.reports.get(leaf.id))?.displayRef ?? leaf.id
 
-    await expect(service.enqueue({ issueId: leaf.id, ...approval })).rejects.toMatchObject({
+    await expect(
+      service.enqueue(laneWriter(service), { issueId: leaf.id, ...approval }),
+    ).rejects.toMatchObject({
       code: 'nested-root',
       rootIssueId: root.id,
       message:
@@ -668,7 +689,9 @@ describe('ShippingService enqueue transaction', () => {
     await issues.crud.update(issues.reports.store.serverWriter, child.id, { stage: 'done' })
     await issues.crud.update(issues.reports.store.serverWriter, root.id, { stage: 'review' })
 
-    await expect(service.enqueue({ issueId: root.id, ...approval })).rejects.toMatchObject({
+    await expect(
+      service.enqueue(laneWriter(service), { issueId: root.id, ...approval }),
+    ).rejects.toMatchObject({
       code: 'evidence',
     })
     const immutableReceipt = await store.shipping.recordRootIntegrationReceipt({
@@ -676,7 +699,7 @@ describe('ShippingService enqueue transaction', () => {
       approvedHeadSha: 'head-sha',
       descendants: [{ issueId: child.id, approvedHeadSha: 'head-sha' }],
     })
-    const accepted = await service.enqueue({
+    const accepted = await service.enqueue(laneWriter(service), {
       issueId: root.id,
       ...approval,
       approved: { ...approval.approved, evidenceManifestRef: 'evidence:root' },
@@ -715,7 +738,7 @@ describe('ShippingService enqueue transaction', () => {
     })
 
     await expect(
-      service.enqueue({
+      service.enqueue(laneWriter(service), {
         issueId: root.id,
         ...approval,
         approved: {
@@ -740,7 +763,7 @@ describe('ShippingService enqueue transaction', () => {
     })
     await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
 
-    const accepted = await service.enqueue({ issueId: issue.id, ...approval })
+    const accepted = await service.enqueue(laneWriter(service), { issueId: issue.id, ...approval })
     expect(accepted.descendantManifest).toEqual([])
     expect(accepted.order.currentIntegrationReceipt).toBeUndefined()
     expect((await store.shipping.activeOrderForIssue(issue.id))?.id).toBe(accepted.order.id)
@@ -774,7 +797,7 @@ describe('ShippingService enqueue transaction', () => {
     })
     await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
 
-    const accepted = await service.enqueueCurrent({
+    const accepted = await service.enqueueCurrent(laneWriter(service), {
       issueId: issue.id,
       principal: approval.principal,
       overrideScope: false,
@@ -805,7 +828,7 @@ describe('ShippingService enqueue transaction', () => {
       compatibleIssue.id,
       { stage: 'review' },
     )
-    const accepted = await compatible.service.enqueueCurrent({
+    const accepted = await compatible.service.enqueueCurrent(laneWriter(compatible.service), {
       issueId: compatibleIssue.id,
       principal: approval.principal,
       overrideScope: false,
@@ -841,7 +864,7 @@ describe('ShippingService enqueue transaction', () => {
         stage: 'review',
       })
       await expect(
-        strict.service.enqueueCurrent({
+        strict.service.enqueueCurrent(laneWriter(strict.service), {
           issueId: issue.id,
           principal: approval.principal,
           overrideScope: false,
@@ -866,7 +889,7 @@ describe('ShippingService enqueue transaction', () => {
       startNow: false,
     })
     await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
-    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+    const { order } = await service.enqueue(laneWriter(service), { issueId: issue.id, ...approval })
     hidden = true
 
     for (const orderId of [order.id, asShipOrderId('ship_absent')]) {
@@ -877,7 +900,7 @@ describe('ShippingService enqueue transaction', () => {
         }),
       ).rejects.toThrow(ShippingOrderAccessError)
       await expect(
-        service.resolveHold({
+        service.resolveHold(laneWriter(service), {
           orderId,
           action: 'retry',
           expectedGeneration: 1,
@@ -885,7 +908,7 @@ describe('ShippingService enqueue transaction', () => {
         }),
       ).rejects.toThrow('shipping order not found or inaccessible')
       await expect(
-        service.cancel({
+        service.cancel(laneWriter(service), {
           orderId,
           principal: approval.principal,
           overrideScope: false,
@@ -924,7 +947,7 @@ describe('ShippingService enqueue transaction', () => {
       startNow: false,
     })
     await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
-    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+    const { order } = await service.enqueue(laneWriter(service), { issueId: issue.id, ...approval })
 
     await service.runOrder(order.id)
     expect((await store.shipping.getOrder(order.id))?.state).toBe('held')
@@ -935,7 +958,7 @@ describe('ShippingService enqueue transaction', () => {
       actions: ['retry', 'return-to-issue'],
     })
     await expect(
-      service.resolveHold({
+      service.resolveHold(laneWriter(service), {
         orderId: order.id,
         action: 'retry',
         expectedGeneration: 2,
@@ -945,7 +968,7 @@ describe('ShippingService enqueue transaction', () => {
     ).rejects.toThrow(/generation fence/)
     expect((await store.issues.getIssue(issue.id))?.needsHuman).toBe(true)
 
-    await service.resolveHold({
+    await service.resolveHold(laneWriter(service), {
       orderId: order.id,
       action: 'retry',
       expectedGeneration: 1,
@@ -997,7 +1020,7 @@ describe('ShippingService enqueue transaction', () => {
       startNow: false,
     })
     await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
-    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+    const { order } = await service.enqueue(laneWriter(service), { issueId: issue.id, ...approval })
     await service.runOrder(order.id)
     expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ action: 'enqueue' }))
     expect(reauthorize).toHaveBeenCalledWith(
@@ -1026,7 +1049,7 @@ describe('ShippingService enqueue transaction', () => {
       startNow: false,
     })
     await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
-    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+    const { order } = await service.enqueue(laneWriter(service), { issueId: issue.id, ...approval })
 
     await service.runOrder(order.id)
     expect(takeBranchCustody).toHaveBeenCalledOnce()
@@ -1054,7 +1077,7 @@ describe('ShippingService enqueue transaction', () => {
       startNow: false,
     })
     await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
-    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+    const { order } = await service.enqueue(laneWriter(service), { issueId: issue.id, ...approval })
 
     await expect(service.runOrder(order.id)).rejects.toThrow(
       `shipping daemon result fence failed for attempt:${order.id}:1:preflight`,
@@ -1103,7 +1126,7 @@ describe('ShippingService enqueue transaction', () => {
       startNow: false,
     })
     await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
-    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+    const { order } = await service.enqueue(laneWriter(service), { issueId: issue.id, ...approval })
 
     await service.runOrder(order.id)
     expect((await store.shipping.getOrder(order.id))?.state).toBe('shipped')
@@ -1175,7 +1198,7 @@ describe('ShippingService enqueue transaction', () => {
       startNow: false,
     })
     await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
-    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+    const { order } = await service.enqueue(laneWriter(service), { issueId: issue.id, ...approval })
 
     const running = service.runOrder(order.id)
     await commitStarted
@@ -1231,7 +1254,7 @@ describe('ShippingService enqueue transaction', () => {
       startNow: false,
     })
     await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
-    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+    const { order } = await service.enqueue(laneWriter(service), { issueId: issue.id, ...approval })
 
     const running = service.runOrder(order.id)
     await commitStarted
@@ -1265,7 +1288,7 @@ describe('ShippingService enqueue transaction', () => {
       startNow: false,
     })
     await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
-    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+    const { order } = await service.enqueue(laneWriter(service), { issueId: issue.id, ...approval })
 
     await service.runOrder(order.id)
 
@@ -1298,7 +1321,7 @@ describe('ShippingService enqueue transaction', () => {
       startNow: false,
     })
     await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
-    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+    const { order } = await service.enqueue(laneWriter(service), { issueId: issue.id, ...approval })
 
     await service.runOrder(order.id)
 
@@ -1343,7 +1366,7 @@ describe('ShippingService enqueue transaction', () => {
       startNow: false,
     })
     await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
-    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+    const { order } = await service.enqueue(laneWriter(service), { issueId: issue.id, ...approval })
 
     const running = service.runOrder(order.id)
     await commitStarted
@@ -1387,7 +1410,7 @@ describe('ShippingService enqueue transaction', () => {
           >[0],
         ) => {
           if (input.names.includes('validation:agent')) {
-            cancellation = service.cancel({
+            cancellation = service.cancel(laneWriter(service), {
               orderId: input.order.id,
               principal: approval.principal,
               requestedBy: approval.requestedBy,
@@ -1414,7 +1437,7 @@ describe('ShippingService enqueue transaction', () => {
     await setup.issues.crud.update(setup.issues.reports.store.serverWriter, issue.id, {
       stage: 'review',
     })
-    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+    const { order } = await service.enqueue(laneWriter(service), { issueId: issue.id, ...approval })
 
     await service.runOrder(order.id)
     await cancellation
@@ -1473,7 +1496,7 @@ describe('ShippingService enqueue transaction', () => {
       startNow: false,
     })
     await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
-    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+    const { order } = await service.enqueue(laneWriter(service), { issueId: issue.id, ...approval })
 
     await expect(service.runOrder(order.id)).rejects.toThrow(/simulated server crash/)
     expect((await store.shipping.getOrder(order.id))?.state).toBe('verifying')
@@ -1572,13 +1595,19 @@ describe('ShippingService enqueue transaction', () => {
     await issues.crud.update(issues.reports.store.serverWriter, issueB.id, { stage: 'review' })
     // B is stacked on A, so A is the covered prefix and B leads.
     const admitted = [
-      { issue: issueA, receipt: await service.enqueue({ issueId: issueA.id, ...approval }) },
-      { issue: issueB, receipt: await service.enqueue({ issueId: issueB.id, ...approval }) },
+      {
+        issue: issueA,
+        receipt: await service.enqueue(laneWriter(service), { issueId: issueA.id, ...approval }),
+      },
+      {
+        issue: issueB,
+        receipt: await service.enqueue(laneWriter(service), { issueId: issueB.id, ...approval }),
+      },
     ]
     const covered = admitted[0]!
     const leader = admitted[1]!
     expect(leader.receipt.order.deliveryDependsOn).toEqual([covered.receipt.order.id])
-    await store.shipping.claimTrain({
+    await store.shipping.claimTrain(fixtureWriteScope(), {
       leaderOrderId: leader.receipt.order.id,
       startedAt: '2026-08-13T10:00:00.000Z',
       members: admitted.map(({ receipt }) => ({ orderId: receipt.order.id })),
@@ -1589,10 +1618,13 @@ describe('ShippingService enqueue transaction', () => {
     // ships alone and the train stays open.
     const completeTrain = vi
       .spyOn(store.shipping, 'completeVerifiedTrain')
-      .mockImplementation(async (input) => await store.shipping.commitEffectResult(input.leader))
+      .mockImplementation(
+        async (scope, input) => await store.shipping.commitEffectResult(scope, input.leader),
+      )
     const commitMany = deps.issues.shippingCommitMany
-    deps.issues.shippingCommitMany = async (entries, write) =>
+    deps.issues.shippingCommitMany = async (writer, entries, write) =>
       await commitMany(
+        writer,
         entries.filter(
           ({ mutation: { event } }) => typeof event === 'function' || !event?.payload.coveredBy,
         ),
@@ -1658,11 +1690,11 @@ describe('ShippingService enqueue transaction', () => {
       startNow: false,
     })
     await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
-    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+    const { order } = await service.enqueue(laneWriter(service), { issueId: issue.id, ...approval })
     await service.runOrder(order.id)
     expect((await store.shipping.getOrder(order.id))?.state).toBe('preflight')
 
-    await service.cancel({
+    await service.cancel(laneWriter(service), {
       orderId: order.id,
       principal: approval.principal,
       requestedBy: approval.requestedBy,
@@ -1683,13 +1715,13 @@ describe('ShippingService enqueue transaction', () => {
       startNow: false,
     })
     await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
-    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+    const { order } = await service.enqueue(laneWriter(service), { issueId: issue.id, ...approval })
     const db = (store as unknown as { db: { exec(sql: string): void } }).db
     db.exec(`CREATE TRIGGER refuse_shipping_event BEFORE INSERT ON podium_events
       BEGIN SELECT RAISE(ABORT, 'event refused'); END`)
 
     await expect(
-      service.cancel({
+      service.cancel(laneWriter(service), {
         orderId: order.id,
         principal: approval.principal,
         requestedBy: approval.requestedBy,
@@ -1731,7 +1763,7 @@ describe('ShippingService enqueue transaction', () => {
       startNow: false,
     })
     await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
-    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+    const { order } = await service.enqueue(laneWriter(service), { issueId: issue.id, ...approval })
     await service.runOrder(order.id)
     const first = await store.shipping.latestAttemptForOrder(order.id)
     expect(first?.leaseGeneration).toBe(1)
@@ -1770,10 +1802,10 @@ describe('ShippingService enqueue transaction', () => {
       startNow: false,
     })
     await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
-    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+    const { order } = await service.enqueue(laneWriter(service), { issueId: issue.id, ...approval })
     await service.runOrder(order.id)
     const first = (await store.shipping.latestAttemptForOrder(order.id))!
-    const claimed = await store.shipping.claimAttempt({
+    const claimed = await store.shipping.claimAttempt(fixtureWriteScope(), {
       orderId: order.id,
       expectedState: 'preflight',
       expectedAttemptId: first.id,
@@ -1783,7 +1815,7 @@ describe('ShippingService enqueue transaction', () => {
     })
     expect(claimed.attempt.leaseGeneration).toBe(2)
     await expect(
-      store.shipping.claimAttempt({
+      store.shipping.claimAttempt(fixtureWriteScope(), {
         orderId: order.id,
         expectedState: 'preflight',
         expectedAttemptId: first.id,
@@ -1792,18 +1824,18 @@ describe('ShippingService enqueue transaction', () => {
         startedAt: '2026-08-13T10:00:01.000Z',
       }),
     ).rejects.toThrow(/superseded/)
-    await store.shipping.finishAttempt(claimed.attempt.id, 2, {
+    await store.shipping.finishAttempt(fixtureWriteScope(), claimed.attempt.id, 2, {
       finishedAt: '2026-08-13T10:00:02.000Z',
       outcome: 'failed',
     })
     await expect(
-      store.shipping.finishAttempt(claimed.attempt.id, 2, {
+      store.shipping.finishAttempt(fixtureWriteScope(), claimed.attempt.id, 2, {
         finishedAt: '2026-08-13T10:00:03.000Z',
         outcome: 'failed',
       }),
     ).rejects.toThrow(/immutable/)
     await expect(
-      store.shipping.finishAttempt(claimed.attempt.id, 1, {
+      store.shipping.finishAttempt(fixtureWriteScope(), claimed.attempt.id, 1, {
         finishedAt: '2026-08-13T10:00:02.000Z',
         outcome: 'failed',
       }),
@@ -1838,7 +1870,7 @@ describe('ShippingService enqueue transaction', () => {
       startNow: false,
     })
     await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
-    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+    const { order } = await service.enqueue(laneWriter(service), { issueId: issue.id, ...approval })
     await service.runOrder(order.id)
     const first = (await store.shipping.latestAttemptForOrder(order.id))!
     const effectKey = `cancel:${first.leaseGeneration}`
@@ -1848,7 +1880,7 @@ describe('ShippingService enqueue transaction', () => {
       targetSha: first.expectedTargetSha,
     }
     const recordedAt = '2026-08-13T10:00:00.000Z'
-    await store.shipping.requestCancellation({
+    await store.shipping.requestCancellation(fixtureWriteScope(), {
       orderId: order.id,
       expectedState: 'preflight',
       attemptId: first.id,
@@ -1885,7 +1917,7 @@ describe('ShippingService enqueue transaction', () => {
       state: 'running',
     })
     await expect(
-      store.shipping.claimAttempt({
+      store.shipping.claimAttempt(fixtureWriteScope(), {
         orderId: order.id,
         expectedState: 'preflight',
         expectedAttemptId: first.id,
@@ -1937,11 +1969,11 @@ describe('ShippingService enqueue transaction', () => {
       startNow: false,
     })
     await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
-    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+    const { order } = await service.enqueue(laneWriter(service), { issueId: issue.id, ...approval })
     await service.runOrder(order.id)
     const attempt = (await store.shipping.latestAttemptForOrder(order.id))!
 
-    const held = await service.cancel({
+    const held = await service.cancel(laneWriter(service), {
       orderId: order.id,
       principal: approval.principal,
       requestedBy: approval.requestedBy,
@@ -1989,11 +2021,11 @@ describe('ShippingService enqueue transaction', () => {
       startNow: false,
     })
     await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
-    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+    const { order } = await service.enqueue(laneWriter(service), { issueId: issue.id, ...approval })
     await service.runOrder(order.id)
     const attempt = (await store.shipping.latestAttemptForOrder(order.id))!
 
-    const held = await service.cancel({
+    const held = await service.cancel(laneWriter(service), {
       orderId: order.id,
       principal: approval.principal,
       requestedBy: approval.requestedBy,
@@ -2060,10 +2092,10 @@ describe('ShippingService enqueue transaction', () => {
       startNow: false,
     })
     await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
-    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+    const { order } = await service.enqueue(laneWriter(service), { issueId: issue.id, ...approval })
     const execution = service.runOrder(order.id)
     await started
-    const cancellation = service.cancel({
+    const cancellation = service.cancel(laneWriter(service), {
       orderId: order.id,
       principal: approval.principal,
       requestedBy: approval.requestedBy,
@@ -2155,7 +2187,7 @@ describe('ShippingService enqueue transaction', () => {
       startNow: false,
     })
     await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
-    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+    const { order } = await service.enqueue(laneWriter(service), { issueId: issue.id, ...approval })
 
     await expect(service.runOrder(order.id)).rejects.toThrow(/crash before repair ack/)
     expect(await store.shipping.getOrder(order.id)).toMatchObject({
@@ -2296,8 +2328,14 @@ describe('ShippingService enqueue transaction', () => {
     await issues.crud.update(issues.reports.store.serverWriter, issueA.id, { stage: 'review' })
     await issues.crud.update(issues.reports.store.serverWriter, issueB.id, { stage: 'review' })
     const admitted = [
-      { issue: issueA, receipt: await service.enqueue({ issueId: issueA.id, ...approval }) },
-      { issue: issueB, receipt: await service.enqueue({ issueId: issueB.id, ...approval }) },
+      {
+        issue: issueA,
+        receipt: await service.enqueue(laneWriter(service), { issueId: issueA.id, ...approval }),
+      },
+      {
+        issue: issueB,
+        receipt: await service.enqueue(laneWriter(service), { issueId: issueB.id, ...approval }),
+      },
     ].sort(
       (left, right) =>
         left.receipt.order.requestedAt.localeCompare(right.receipt.order.requestedAt) ||
@@ -2305,7 +2343,7 @@ describe('ShippingService enqueue transaction', () => {
     )
     const sibling = admitted[0]!
     const leader = admitted[1]!
-    await store.shipping.claimTrain({
+    await store.shipping.claimTrain(fixtureWriteScope(), {
       leaderOrderId: leader.receipt.order.id,
       startedAt: '2026-08-13T10:00:00.000Z',
       members: admitted.map(({ receipt }) => ({ orderId: receipt.order.id })),
@@ -2352,7 +2390,7 @@ describe('ShippingService enqueue transaction', () => {
     })
     deps.daemon.shippingJob = unavailableDaemon
     const restarted = new ShippingService(deps)
-    const resolved = await restarted.resolveHold({
+    const resolved = await restarted.resolveHold(laneWriter(restarted), {
       orderId: leader.receipt.order.id,
       action: 'open-repair',
       expectedGeneration: hold.generation,
@@ -2405,7 +2443,7 @@ describe('ShippingService enqueue transaction', () => {
       startNow: false,
     })
     await issues.crud.update(issues.reports.store.serverWriter, lowerIssue.id, { stage: 'review' })
-    const lower = await service.enqueue({
+    const lower = await service.enqueue(laneWriter(service), {
       issueId: lowerIssue.id,
       ...approval,
       approved: { ...approval.approved, sourceHeadSha: 'lower-head' },
@@ -2419,7 +2457,7 @@ describe('ShippingService enqueue transaction', () => {
       startNow: false,
     })
     await issues.crud.update(issues.reports.store.serverWriter, upperIssue.id, { stage: 'review' })
-    const upper = await service.enqueue({
+    const upper = await service.enqueue(laneWriter(service), {
       issueId: upperIssue.id,
       ...approval,
       approved: { ...approval.approved, sourceHeadSha: 'upper-head' },
@@ -2457,7 +2495,7 @@ describe('ShippingService enqueue transaction', () => {
       startNow: false,
     })
     await issues.crud.update(issues.reports.store.serverWriter, landedIssue.id, { stage: 'review' })
-    const landed = await service.enqueue({
+    const landed = await service.enqueue(laneWriter(service), {
       issueId: landedIssue.id,
       ...approval,
       approved: {
@@ -2477,7 +2515,7 @@ describe('ShippingService enqueue transaction', () => {
     await issues.crud.update(issues.reports.store.serverWriter, blockerIssue.id, {
       stage: 'review',
     })
-    await service.enqueue({
+    await service.enqueue(laneWriter(service), {
       issueId: blockerIssue.id,
       ...approval,
       approved: {
@@ -2494,7 +2532,7 @@ describe('ShippingService enqueue transaction', () => {
     await issues.crud.update(issues.reports.store.serverWriter, descendantIssue.id, {
       stage: 'review',
     })
-    const descendant = await service.enqueue({
+    const descendant = await service.enqueue(laneWriter(service), {
       issueId: descendantIssue.id,
       ...approval,
       approved: {
@@ -2556,8 +2594,14 @@ describe('ShippingService enqueue transaction', () => {
     await issues.crud.update(issues.reports.store.serverWriter, issueA.id, { stage: 'review' })
     await issues.crud.update(issues.reports.store.serverWriter, issueB.id, { stage: 'review' })
     const admitted = [
-      { issue: issueA, receipt: await service.enqueue({ issueId: issueA.id, ...approval }) },
-      { issue: issueB, receipt: await service.enqueue({ issueId: issueB.id, ...approval }) },
+      {
+        issue: issueA,
+        receipt: await service.enqueue(laneWriter(service), { issueId: issueA.id, ...approval }),
+      },
+      {
+        issue: issueB,
+        receipt: await service.enqueue(laneWriter(service), { issueId: issueB.id, ...approval }),
+      },
     ].sort(
       (left, right) =>
         left.receipt.order.requestedAt.localeCompare(right.receipt.order.requestedAt) ||
@@ -2565,13 +2609,13 @@ describe('ShippingService enqueue transaction', () => {
     )
     const sibling = admitted[0]!
     const leader = admitted[1]!
-    await store.shipping.claimTrain({
+    await store.shipping.claimTrain(fixtureWriteScope(), {
       leaderOrderId: leader.receipt.order.id,
       startedAt: '2026-08-13T10:00:00.000Z',
       members: admitted.map(({ receipt }) => ({ orderId: receipt.order.id })),
     })
     await expect(
-      service.enqueue({ issueId: sibling.issue.id, ...approval }),
+      service.enqueue(laneWriter(service), { issueId: sibling.issue.id, ...approval }),
     ).resolves.toMatchObject({
       created: false,
       order: { id: sibling.receipt.order.id },
@@ -3001,7 +3045,7 @@ describe('ShippingService under the async store (POD-3820)', () => {
     await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
 
     await store.transact(async () => {
-      const receipt = await service.enqueue({ issueId: issue.id, ...approval })
+      const receipt = await service.enqueue(laneWriter(service), { issueId: issue.id, ...approval })
       expect(receipt.created).toBe(true)
       // The statement the lock bug died on: the same span, one line after the
       // audit fired. A dropped promise makes this a refusal, and the enqueue's
@@ -3032,7 +3076,7 @@ describe('ShippingService under the async store (POD-3820)', () => {
 
     await expect(
       store.transact(async () => {
-        await service.enqueue({ issueId: issue.id, ...approval })
+        await service.enqueue(laneWriter(service), { issueId: issue.id, ...approval })
         throw new Error('caller rolled back after the enqueue')
       }),
     ).rejects.toThrow('caller rolled back after the enqueue')
@@ -3077,7 +3121,7 @@ describe('POD-4974 O2 ship lanes', () => {
     })
     const issue = (await issues.reports.get(created.id))!
     const at = `2026-08-13T10:${String(input.minute).padStart(2, '0')}:00.000Z`
-    return await store.shipping.createOrder({
+    return await store.shipping.createOrder(fixtureWriteScope(), {
       id: asShipOrderId(`order-${input.title}`),
       issueId: issue.id,
       descendantManifest: [],
@@ -3329,7 +3373,9 @@ describe('POD-4974 O2 ship lanes', () => {
         startNow: false,
       })
       await issues.crud.update(issues.reports.store.serverWriter, issue.id, { stage: 'review' })
-      const dependency = (await service.enqueue({ issueId: issue.id, ...approval })).order
+      const dependency = (
+        await service.enqueue(laneWriter(service), { issueId: issue.id, ...approval })
+      ).order
       const dependent = await seedOrder(issues, store, {
         title: 'dependent',
         minute: 30,
@@ -3376,6 +3422,7 @@ describe('POD-4974 O2 ship lanes', () => {
       )
       const many = vi.spyOn(deps.issues, 'shippingCommitMany')
       await service['commitMany'](
+        laneWriter(service),
         orders.map((order) => ({
           order,
           mutation: { expectedStage: ['review', 'shipping'] as const },
@@ -3384,7 +3431,7 @@ describe('POD-4974 O2 ship lanes', () => {
       )
       expect(projection).toHaveBeenCalledTimes(1)
       expect(projection).toHaveBeenCalledWith(orders.map((order) => order.id))
-      const entries = many.mock.calls[0]![0]
+      const entries = many.mock.calls[0]![1]
       expect(entries.map((entry) => typeof entry.mutation.shipOrderChanges)).toEqual([
         'function',
         'object',
@@ -3393,5 +3440,19 @@ describe('POD-4974 O2 ship lanes', () => {
     } finally {
       service.dispose()
     }
+  })
+})
+
+describe('ship rows are written only inside their commit (ADR 12 D9)', () => {
+  it('a ship repository writer without the commit scope, or a ship command without a writer, does not typecheck', () => {
+    const typeOnly = async (store: SessionStore, service: ShippingService) => {
+      // @ts-expect-error a ship row is written with its commit's scope
+      await store.shipping.appendStep({} as never)
+      // @ts-expect-error an order transition too
+      await store.shipping.transitionOrder('order', 'queued', 'composing', 'now')
+      // @ts-expect-error a ship command writes through the writer it is given
+      await service.cancel({} as never)
+    }
+    void typeOnly
   })
 })

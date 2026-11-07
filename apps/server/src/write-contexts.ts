@@ -54,8 +54,6 @@ export interface SystemWriteOriginSpec {
   readonly legacy?: { readonly removeAfter: string; readonly owner: string }
 }
 
-const UNTIL_CONTEXT_PER_CALL = { removeAfter: '2027-03', owner: 'POD-6594' } as const
-
 export const SYSTEM_WRITE_ORIGINS = {
   'boot.reconcile': {
     what: 'boot truth for kinds whose rows can change while the server is down (machines, the order plane, layout)',
@@ -79,6 +77,10 @@ export const SYSTEM_WRITE_ORIGINS = {
   },
   'effects.system': {
     what: 'an effect record the server itself asks for, with no caller (the janitor connect scan)',
+    kind: 'server',
+  },
+  'shipping.lanes': {
+    what: "the order plane's lane machine: train claims, attempts, transitions, effects, holds, repairs and the boot reconcile",
     kind: 'server',
   },
   steward: {
@@ -118,11 +120,6 @@ export const SYSTEM_WRITE_ORIGINS = {
     what: 'session writes: sync commands and daemon reports at persist, and the session.launch records a send or a spawn creates',
     kind: 'client',
     legacy: { removeAfter: '2027-03', owner: 'POD-6601' },
-  },
-  shipping: {
-    what: 'the order plane: ship commands and the lanes that drive them',
-    kind: 'client',
-    legacy: UNTIL_CONTEXT_PER_CALL,
   },
 } as const satisfies Record<string, SystemWriteOriginSpec>
 

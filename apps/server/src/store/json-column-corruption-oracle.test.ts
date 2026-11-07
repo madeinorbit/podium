@@ -92,7 +92,6 @@
  * "this is what was on disk when we opened it".
  */
 
-import { fixtureWriteScope } from '@podium/sync/testing'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -108,6 +107,7 @@ import {
   type ShipAttempt,
   type ShipOrder,
 } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { is } from 'drizzle-orm'
 import { getTableConfig, SQLiteTable } from 'drizzle-orm/sqlite-core'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -417,7 +417,8 @@ async function seed(): Promise<Fixture> {
 
   // --- shipping: orders, a claimed train (manifest + members + attempts +
   //     steps), a root integration receipt and an open hold -------------------
-  await store.issues.upsertIssue(fixtureWriteScope(), 
+  await store.issues.upsertIssue(
+    fixtureWriteScope(),
     issueRow({ id: asIssueId('iss_2'), seq: 2, branch: 'issue/2', title: 'Second' }),
   )
   const lower = shipOrderInput()
@@ -427,9 +428,9 @@ async function seed(): Promise<Fixture> {
     approvedHeadSha: 'covering-head',
     deliveryDependsOn: [asShipOrderId('order-1')],
   })
-  await store.shipping.createOrder(lower)
-  await store.shipping.createOrder(covering)
-  const train = await store.shipping.claimTrain({
+  await store.shipping.createOrder(fixtureWriteScope(), lower)
+  await store.shipping.createOrder(fixtureWriteScope(), covering)
+  const train = await store.shipping.claimTrain(fixtureWriteScope(), {
     leaderOrderId: covering.id,
     startedAt: AT,
     members: [{ orderId: lower.id }, { orderId: covering.id }],
@@ -444,7 +445,8 @@ async function seed(): Promise<Fixture> {
   // receipt that binds it. Kept out of the train on purpose: the same two columns
   // behave differently on an order with descendants and one without, and the
   // oracle records both.
-  await store.issues.upsertIssue(fixtureWriteScope(), 
+  await store.issues.upsertIssue(
+    fixtureWriteScope(),
     issueRow({ id: asIssueId('iss_3'), seq: 3, branch: 'issue/3', title: 'Third' }),
   )
   const stackedDescendants = [{ issueId: asIssueId('iss_2'), approvedHeadSha: 'covering-head' }]
@@ -460,7 +462,7 @@ async function seed(): Promise<Fixture> {
     },
     providerRef: { provider: 'github', id: '42' },
   })
-  await store.shipping.createOrder(stacked)
+  await store.shipping.createOrder(fixtureWriteScope(), stacked)
 
   await store.shipping.recordRootIntegrationReceipt({
     rootIssueId: asIssueId('iss_1'),
@@ -468,7 +470,7 @@ async function seed(): Promise<Fixture> {
     descendants: [{ issueId: asIssueId('iss_2'), approvedHeadSha: 'covering-head' }],
   })
 
-  await store.shipping.raiseHold({
+  await store.shipping.raiseHold(fixtureWriteScope(), {
     id: asShipHoldId('hold-1'),
     orderId: lower.id,
     generation: 1,
@@ -623,7 +625,8 @@ const JSON_COLUMNS: readonly OracleEntry[] = [
     where: 'root_issue_id = ?',
     params: () => ['iss_1'],
     read: async (f) =>
-      (await f.store.shipping.rootIntegrationReceipt(asIssueId('iss_1'), 'approved-head'))?.descendants,
+      (await f.store.shipping.rootIntegrationReceipt(asIssueId('iss_1'), 'approved-head'))
+        ?.descendants,
     wrongShapeValue: '{"a":1}',
     onInvalidJson: { kind: 'quarantine', value: [] },
     onWrongShape: { kind: 'quarantine', value: [] },

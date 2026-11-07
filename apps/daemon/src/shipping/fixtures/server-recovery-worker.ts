@@ -85,16 +85,11 @@ const issuePort = {
     return issue
   },
   children: (id: string, recursive?: boolean) => issues.reports.children(id, recursive),
-  shippingCommit: ((id, mutation, write) =>
-    issues.crud.shippingCommit(
-      issues.reports.store.serverWriter,
-      id,
-      mutation,
-      write,
-    )) as ShippingIssuePort['shippingCommit'],
-  shippingCommitMany: ((entries, write) =>
+  shippingCommit: ((writer, id, mutation, write) =>
+    issues.crud.shippingCommit(writer, id, mutation, write)) as ShippingIssuePort['shippingCommit'],
+  shippingCommitMany: ((writer, entries, write) =>
     issues.crud.shippingCommitMany(
-      issues.reports.store.serverWriter,
+      writer,
       entries,
       write,
     )) as ShippingIssuePort['shippingCommitMany'],
@@ -183,7 +178,7 @@ if (phase === 'crash') {
     approvedHeadSha: head,
     descendants: [],
   })
-  const { order } = await service.enqueueCurrent({
+  const { order } = await service.enqueueCurrent(testLedgerWriter(ledger), {
     issueId: created.id,
     principal: {
       kind: 'user',

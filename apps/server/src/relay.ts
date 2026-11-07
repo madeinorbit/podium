@@ -3268,9 +3268,9 @@ export class SessionRegistry {
       attachSession: async (caller, input) => await issueAttach.execute(caller, input),
       issues,
       shipping: {
-        enqueueCurrent: async (input) => await shippingPort().enqueueCurrent(input),
-        resolveHold: async (input) => await shippingPort().resolveHold(input),
-        cancel: async (input) => await shippingPort().cancel(input),
+        enqueueCurrent: async (writer, input) => await shippingPort().enqueueCurrent(writer, input),
+        resolveHold: async (writer, input) => await shippingPort().resolveHold(writer, input),
+        cancel: async (writer, input) => await shippingPort().cancel(writer, input),
         deliveryReceipt: async (input) => await shippingPort().deliveryReceipt(input),
       },
       deleteIssue: async (writer, id) => await issueSessionLifecycle.deleteIssue(writer, id),
@@ -3444,10 +3444,10 @@ export class SessionRegistry {
           return issue
         },
         children: async (id, recursive) => await issues.reports.children(id, recursive),
-        shippingCommit: async (id, mutation, write) =>
-          await issues.crud.shippingCommit(writes.system('shipping'), id, mutation, write),
-        shippingCommitMany: async (entries, write) =>
-          await issues.crud.shippingCommitMany(writes.system('shipping'), entries, write),
+        shippingCommit: async (writer, id, mutation, write) =>
+          await issues.crud.shippingCommit(writer, id, mutation, write),
+        shippingCommitMany: async (writer, entries, write) =>
+          await issues.crud.shippingCommitMany(writer, entries, write),
         takeBranchCustody: async (issue) => {
           const stopped = await issueSessionLifecycle.stopIssue({
             issueId: issue.id,
@@ -3465,7 +3465,7 @@ export class SessionRegistry {
           }
         },
       },
-      ledger: writes.system('shipping'),
+      ledger: writes.system('shipping.lanes'),
       daemon: rpc,
       authorization: {
         attribution: (principal) => {

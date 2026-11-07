@@ -291,6 +291,11 @@ const ATTENTION_WRITES = [
   'markIssueUnread',
   'setIssueTucked',
 ] as const satisfies readonly (keyof IssueAttentionCapability)[]
+const SHIPPING_WRITES = [
+  'enqueueCurrent',
+  'resolveHold',
+  'cancel',
+] as const satisfies readonly (keyof IssueCommandDeps['shipping'])[]
 const WORKFLOW_WRITES = [
   'rehome',
   'createAndMaybeStart',
@@ -344,8 +349,9 @@ export class IssueCommandCtx {
   get reports(): IssueReportsCapability {
     return this.deps.issues.reports
   }
-  get shipping(): IssueCommandDeps['shipping'] {
-    return this.deps.shipping
+  /** The ship commands, bound to this command's writer like the capabilities. */
+  get shipping(): Bound<IssueCommandDeps['shipping'], (typeof SHIPPING_WRITES)[number]> {
+    return bindWriter(this.deps.shipping, () => this.writer, SHIPPING_WRITES)
   }
   get access(): IssueCommandAccess {
     return commandAccess(this.deps.issues)

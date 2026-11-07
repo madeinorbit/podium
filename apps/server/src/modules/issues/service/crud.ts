@@ -238,7 +238,7 @@ export class IssueCrudModule {
     writer: IssueWriter,
     id: IssueId,
     mutation: ShippingIssueMutation,
-    write: () => T | Promise<T>,
+    write: (scope: WriteScope) => T | Promise<T>,
   ): Promise<{ issue: IssueProjection; result: T }> {
     const row = await this.store.draftOrThrow(await this.store.resolveRef(id))
     const expectedStages = Array.isArray(mutation.expectedStage)
@@ -249,13 +249,13 @@ export class IssueCrudModule {
     const issue = await this.store.persistWith(
       writer,
       row,
-      async () => {
+      async (scope) => {
         if (!(expectedStages as readonly string[]).includes(row.stage)) {
           throw new IssueRefusal(
             `issue ${row.id} shipping stage fence failed: expected ${expectedStages.join(' or ')}`,
           )
         }
-        result = await write()
+        result = await write(scope)
         const nextStage = mutation.nextStageForResult?.(result as T) ?? mutation.nextStage
         if (nextStage) {
           const legal =
@@ -301,7 +301,7 @@ export class IssueCrudModule {
   async shippingCommitMany<T>(
     writer: IssueWriter,
     entries: readonly { id: IssueId; mutation: ShippingIssueMutation }[],
-    write: () => T | Promise<T>,
+    write: (scope: WriteScope) => T | Promise<T>,
   ): Promise<{ issues: IssueProjection[]; result: T }> {
     if (entries.length === 0) throw new Error('shipping batch requires an affected issue')
     const rows = await Promise.all(

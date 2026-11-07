@@ -13,7 +13,7 @@ import { createHash } from 'node:crypto'
 import { asMachineId, asShipOrderId, firstAdminMemberId, type ShipOrder } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { Ledger } from '@podium/sync'
-import { testLedgerWriter } from '@podium/sync/testing'
+import { fixtureWriteScope, testLedgerWriter } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -69,10 +69,10 @@ async function world(outside: number, laneSize: number, outsideQueued = true) {
     issues: {
       get: async (id) => (await issues.reports.get(id))!,
       children: async (id, recursive) => await issues.reports.children(id, recursive),
-      shippingCommit: async (id, mutation, write) =>
-        await issues.crud.shippingCommit(issues.reports.store.serverWriter, id, mutation, write),
-      shippingCommitMany: async (entries, write) =>
-        await issues.crud.shippingCommitMany(issues.reports.store.serverWriter, entries, write),
+      shippingCommit: async (writer, id, mutation, write) =>
+        await issues.crud.shippingCommit(writer, id, mutation, write),
+      shippingCommitMany: async (writer, entries, write) =>
+        await issues.crud.shippingCommitMany(writer, entries, write),
     },
     ledger: testLedgerWriter(ledger),
     daemon: {
@@ -101,7 +101,7 @@ async function world(outside: number, laneSize: number, outsideQueued = true) {
     id: string,
   ) => {
     const at = new Date(Date.UTC(2026, 7, 13, 0, minute++)).toISOString()
-    return await store.shipping.createOrder({
+    return await store.shipping.createOrder(fixtureWriteScope(), {
       id: asShipOrderId(id),
       issueId,
       descendantManifest: [],
@@ -143,6 +143,7 @@ async function world(outside: number, laneSize: number, outsideQueued = true) {
     } else {
       const old = await order(history.id, history.repoId!, '/history', `outside-${index}`)
       await store.shipping.transitionOrder(
+        fixtureWriteScope(),
         old.id,
         'queued',
         'cancelled',

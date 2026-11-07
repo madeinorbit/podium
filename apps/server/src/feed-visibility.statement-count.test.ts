@@ -130,9 +130,15 @@ async function fixture(size: number): Promise<Fixture> {
   const store = await openTestStore(':memory:')
   for (let i = 0; i < size; i++) {
     await store.issues.upsertIssue(fixtureWriteScope(), issueRow(`iss_${i}`, i + 1))
-    await store.shipping.createOrder(order(`order-${i}`, `iss_${i}`, `repo-${i}`))
+    await store.shipping.createOrder(
+      fixtureWriteScope(),
+      order(`order-${i}`, `iss_${i}`, `repo-${i}`),
+    )
     await store.issues.upsertIssue(fixtureWriteScope(), issueRow(`shared_${i}`, size + i + 1))
-    await store.shipping.createOrder(order(`shared-order-${i}`, `shared_${i}`, 'repo-shared'))
+    await store.shipping.createOrder(
+      fixtureWriteScope(),
+      order(`shared-order-${i}`, `shared_${i}`, 'repo-shared'),
+    )
   }
   await store.grants.upsert({
     resourceKind: 'issue',
@@ -270,6 +276,7 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
             onBehalfOf: owner,
           })
           await f.store.shipping.transitionOrder(
+            fixtureWriteScope(),
             'shared-order-0',
             'queued',
             'cancelled',
@@ -363,6 +370,7 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
         setup: async (size) => {
           const f = await fixture(size)
           await f.store.shipping.transitionOrder(
+            fixtureWriteScope(),
             'shared-order-0',
             'queued',
             'cancelled',

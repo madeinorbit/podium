@@ -595,6 +595,7 @@ describe('Shipping command boundary', () => {
 
     expect(enqueueCurrent).toHaveBeenCalledTimes(1)
     expect(enqueueCurrent).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
         issueId: root.id,
         overrideScope: false,
@@ -657,6 +658,7 @@ describe('Shipping command boundary', () => {
     await dispatcher.dispatch(agentCaller(own.id, true), 'issues', 'ship', { id: outside.id })
     expect(enqueueCurrent).toHaveBeenCalledTimes(1)
     expect(enqueueCurrent).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({ issueId: outside.id, overrideScope: true }),
     )
 
@@ -689,6 +691,7 @@ describe('Shipping command boundary', () => {
     })
     expect(resolveHold).toHaveBeenCalledTimes(1)
     expect(resolveHold).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
         orderId: 'ship_order',
         action: 'retry',
@@ -713,6 +716,7 @@ describe('Shipping command boundary', () => {
 
     expect(cancel).toHaveBeenCalledTimes(1)
     expect(cancel).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
         orderId: 'ship_order',
         principal: expect.objectContaining({ kind: 'agent' }),

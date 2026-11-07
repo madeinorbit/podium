@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto'
 import { asDeliveryReceiptId, asMachineId, asShipOrderId, firstAdminMemberId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { Ledger } from '@podium/sync'
-import { testLedgerWriter } from '@podium/sync/testing'
+import { fixtureWriteScope, testLedgerWriter } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -64,10 +64,10 @@ async function world(shipped: number): Promise<{ store: SessionStore; service: S
     issues: {
       get: async (id) => (await issues.reports.get(id))!,
       children: async (id, recursive) => await issues.reports.children(id, recursive),
-      shippingCommit: async (id, mutation, write) =>
-        await issues.crud.shippingCommit(issues.reports.store.serverWriter, id, mutation, write),
-      shippingCommitMany: async (entries, write) =>
-        await issues.crud.shippingCommitMany(issues.reports.store.serverWriter, entries, write),
+      shippingCommit: async (writer, id, mutation, write) =>
+        await issues.crud.shippingCommit(writer, id, mutation, write),
+      shippingCommitMany: async (writer, entries, write) =>
+        await issues.crud.shippingCommitMany(writer, entries, write),
     },
     ledger: testLedgerWriter(ledger),
     daemon: {
@@ -97,7 +97,7 @@ async function world(shipped: number): Promise<{ store: SessionStore; service: S
   const history = (await issues.reports.get(created.id))!
   for (let index = 0; index < shipped; index += 1) {
     const at = new Date(Date.UTC(2026, 7, 13, 0, index)).toISOString()
-    const order = await store.shipping.createOrder({
+    const order = await store.shipping.createOrder(fixtureWriteScope(), {
       id: asShipOrderId(`shipped-${index}`),
       issueId: history.id,
       descendantManifest: [],
@@ -118,7 +118,7 @@ async function world(shipped: number): Promise<{ store: SessionStore; service: S
       state: 'queued',
       stateChangedAt: at,
     })
-    const { attempt } = await store.shipping.claimAttempt({
+    const { attempt } = await store.shipping.claimAttempt(fixtureWriteScope(), {
       orderId: order.id,
       expectedState: 'queued',
       expectedAttemptId: null,
@@ -132,9 +132,9 @@ async function world(shipped: number): Promise<{ store: SessionStore; service: S
       ['validating', 'landing'],
       ['landing', 'verifying'],
     ] as const) {
-      await store.shipping.transitionOrder(order.id, from, to, at)
+      await store.shipping.transitionOrder(fixtureWriteScope(), order.id, from, to, at)
     }
-    await store.shipping.finishAttempt(attempt.id, attempt.leaseGeneration, {
+    await store.shipping.finishAttempt(fixtureWriteScope(), attempt.id, attempt.leaseGeneration, {
       finishedAt: at,
       outcome: 'succeeded',
       testedIntegrationSha: `head-${index}`,
@@ -143,7 +143,7 @@ async function world(shipped: number): Promise<{ store: SessionStore; service: S
       validationProfileId: 'default',
       validationResult: 'passed',
     })
-    await store.shipping.completeVerifiedOrder({
+    await store.shipping.completeVerifiedOrder(fixtureWriteScope(), {
       id: asDeliveryReceiptId(`receipt-${index}`),
       orderId: order.id,
       approvedBaseSha: order.approvedBaseSha,
