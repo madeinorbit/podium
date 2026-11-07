@@ -2,29 +2,12 @@
  * THE RUNTIME HALF of the 3.10 workflow cutover gate (POD-732; POD-424's
  * criterion for this router).
  *
- * `scripts/audit-workflow-commands.ts` is the other half, and the two are
- * instruments of DIFFERENT KINDS rather than two of the same kind agreeing:
- *
- *  - THE SCRIPT reads source TEXT and resolves no modules. It runs in a fresh
- *    checkout before anything is built, and it catches the textual regressions a
- *    runtime check cannot see — a `.mutation(` written back into the router
- *    literal, `workflowInputs` regrowing, a transport reaching
- *    `dispatchWorkflowCommand` directly and so gaining a second ledger.
- *  - THIS FILE reads the RUNNING router. It is the only thing that can prove the
- *    derived surface actually EXISTS with the right verbs — a script that saw an
- *    empty router literal would report a serene zero hand-written mutations.
- *
- * THE SCRIPT HALF MOVED TO `scripts` (POD-521). It used to run from here as a
- * `spawnSync` of the real binary, twice per run. That was the right call when the
- * alternative was `apps/server` (L4) importing UP into `scripts` (L5), which
- * `check-boundaries` refuses — but it put a scanner whose source and whose
- * repository-wide inputs both belong to `scripts` inside the SERVER's cache key,
- * so every server edit replayed it and paid two Bun process starts for it. It now
- * lives at `scripts/audit-workflow-commands.test.ts`, in the package that owns it,
- * with no layer inversion and no subprocess. Nothing about the gate weakened: the
- * scanner still runs in `bun run test`, and its own `probe()` — every check
- * against a planted fixture — is asserted there as a whole rather than through an
- * exit code.
+ * This file reads the RUNNING router. It is the only thing that can prove the
+ * derived surface actually EXISTS with the right verbs. The source-text half it
+ * used to pair with is deleted (POD-6595): a module cannot build a write route by
+ * type (`modules/write-routes/write-routes.typecheck.ts`), every served mutation
+ * names its registration (`write-routes.test.ts`), and a synced write needs a scope
+ * only the entry point mints (`write-contexts.test.ts`).
  */
 
 import { WORKFLOW_CONTRACTS } from '@podium/commands'

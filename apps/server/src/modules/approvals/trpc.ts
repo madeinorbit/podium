@@ -11,8 +11,9 @@
  * joined handler so `AppRouter` inference survives — applies here and is not
  * restated.
  *
- * `scripts/audit-router-mutations.ts` fails the build if a hand-written
- * `.mutation(` reappears in the `approvals` router.
+ * A hand-written `.mutation(` cannot reappear in the `approvals` router: the
+ * builder modules get has none (`write-routes/write-routes.typecheck.ts`), and
+ * `write-routes.test.ts` requires every served mutation to name its registration.
  */
 
 import { derivedFamilyProcedures, type FamilyProcedures } from '../derived-family'

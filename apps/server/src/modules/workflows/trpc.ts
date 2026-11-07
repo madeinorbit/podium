@@ -19,9 +19,8 @@ import { familyState } from '../derived-family'
  * `WORKFLOW_CONTRACTS`, and a hand-written procedure beside a contract is a
  * second answer to "how is this authorized".
  *
- * `scripts/audit-workflow-commands.ts` fails the build if a `.mutation(`
- * reappears inside the `workflows:` router literal — the same gate POD-382 put
- * on the session family, for the same reason.
+ * A `.mutation(` cannot reappear inside the `workflows:` router literal: the
+ * builder modules get has none (`write-routes/write-routes.typecheck.ts`).
  *
  * ---------------------------------------------------------------------------
  * EXPOSURE DRIVES THE WIRE (ADR 3 D3, default-closed)

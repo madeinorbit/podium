@@ -1,8 +1,8 @@
 /**
  * THE ISSUE CLI / MCP SURFACE, DRIVEN AGAINST A RUNNING SERVER OBJECT.
  *
- * The runtime half of the pair whose source half is `scripts/audit-issue-commands.ts`.
- * Its whole reason for existing is the failure class that dominated this run: POD-732
+ * The CLI table's declared exposure against its source reach is pinned in
+ * `packages/issue-client/src/commands.drift.test.ts`. This file's whole reason for existing is the failure class that dominated this run: POD-732
  * found the workflow CLI suite driving a `Proxy` that answers every procedure, so it
  * "would stay green against a server serving nothing". THERE IS NO PROXY AND NO MOCK
  * HERE. `SessionRegistry.create()` builds the real `IssueCommandDispatcher` over the real

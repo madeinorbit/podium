@@ -2054,9 +2054,7 @@ export const issueLinearSearchContract = {
  * The seam biconditional (`resource: 'issue'` iff a `target` extractor exists) still
  * holds — the extractor exists, and returning `undefined` is a value it returns, not
  * an extractor it lacks. That distinction is exactly why the biconditional is written
- * over the PRESENCE of the extractor and not over the value it happens to produce,
- * and `audit-issue-commands.ts` plants a fixture that removes the extractor entirely
- * to prove the check can say NO.
+ * over the PRESENCE of the extractor and not over the value it happens to produce.
  *
  * A message the caller may not reach fails NOT_FOUND, identically to an unknown
  * message id — D20.2, and the shipped handler already throws exactly that.

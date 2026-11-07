@@ -38,7 +38,7 @@ export async function sessionWritesNeedAWriter(
  * signatures: each pin, snooze and tab-order accessor takes the user whose
  * state it is. A signature that dropped the parameter would make every caller
  * pass one instance-wide account and re-create the singleton. Moved here from
- * `scripts/audit-session-commands.ts` (`per-user-keying`, POD-6595).
+ * the deleted session-family audit (`per-user-keying`, POD-6595).
  */
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
 type Holds<T extends true> = T

@@ -149,8 +149,8 @@ describe('the sole-human identity fork this skeleton surfaced, now reconciled', 
 
 /**
  * After POD-382's 3.2 cutover there is no hand-written session procedure to be —
- * `scripts/audit-session-commands.ts` fails the build if a `.mutation(` for a
- * session appears in `router.ts` at all. These pin that rename arrives through the
+ * the server typecheck refuses a module-built `.mutation(` anywhere
+ * (`write-routes/write-routes.typecheck.ts`). These pin that rename arrives through the
  * derived surface AND that it is the walking skeleton's envelope rather than the
  * presence one, which is the whole point of the issue and the single fact most
  * likely to be silently undone by a later edit to the manifest walk.

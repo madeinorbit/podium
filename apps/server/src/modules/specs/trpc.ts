@@ -19,9 +19,9 @@
  * QUERIES — `list`, `get`, `search` — which are NOT derived: they carry no
  * contract, because a `visibility` class describes what a command WRITES and a
  * read writes nothing. That is the same line `modules/workflows/queries.ts` and
- * `modules/fleet/trpc.ts` draw, and `scripts/audit-spec-commands.ts` checks
- * procedure TYPE rather than name, so a write cannot hide among them by being
- * spelled as a query.
+ * `modules/fleet/trpc.ts` draw, and a write cannot hide among them by being
+ * spelled as a query: `write-routes.test.ts` refuses a query that carries a
+ * registration, and modules cannot build a mutation at all.
  *
  * ---------------------------------------------------------------------------
  * MEMBERSHIP IS READ OFF THE TABLE, IN BOTH DIRECTIONS

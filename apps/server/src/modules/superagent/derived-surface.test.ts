@@ -1,14 +1,11 @@
 /**
- * THE RUNTIME ARM of the superagent-surface audit (POD-383).
+ * THE SUPERAGENT SURFACE, AGAINST THE RUNNING SYSTEM (POD-383).
  *
- * `scripts/audit-superagent-commands.ts` reads source TEXT and resolves no
- * modules. This reads the RUNNING system: the real `appRouter` object, actually
- * assembled at import time, and its actual procedure map. Neither instrument is
- * sufficient alone, and the pairing is the point — POD-732's standard is that
- * "an empty router satisfies every absence claim perfectly", so:
- *
- *  · the source arm can be fooled by a file nothing imports;
- *  · this arm can be fooled by a router that was never assembled.
+ * This reads the real `appRouter` object, actually assembled at import time,
+ * and its actual procedure map. That modules cannot hand-write a write route is
+ * a type (`write-routes.typecheck.ts`); POD-732's standard is that "an empty
+ * router satisfies every absence claim perfectly", and this file can be fooled
+ * by a router that was never assembled.
  *
  * So this file asserts the POSITIVE first, on the same object: `sendTurn` IS
  * served, as a MUTATION, and there are exactly eight superagent writes. An

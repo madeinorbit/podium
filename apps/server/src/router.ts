@@ -114,8 +114,8 @@ import type { AnyCommandContract } from '@podium/commands'
  * Every session-family MUTATION — session-state class, command plane and handoff — is
  * produced from the contract tables by `modules/sessions/trpc.ts` and spread into
  * the four routers below. There is deliberately no `.mutation(` for a session
- * anywhere in this file, and `scripts/audit-session-commands.ts` fails the build if
- * one appears: a hand-written procedure beside a derived one is a second answer to
+ * anywhere in this file, and the server typecheck refuses one
+ * (`modules/write-routes/write-routes.typecheck.ts`): a hand-written procedure beside a derived one is a second answer to
  * "how is this authorized", which is what the 3.2 split set out to end.
  *
  * `sessions.ask` is the one session write NOT built there: POD-729 owns its
@@ -310,8 +310,8 @@ export const appRouter = t.router({
     ...sessionFamily.sessions,
     // READS — the query table (POD-314). Declared in modules/sessions/queries.ts;
     // they carry no contract because a visibility class describes what a command
-    // WRITES, and audit-session-commands.ts checks procedure TYPE so a write
-    // cannot hide among them.
+    // WRITES, and write-routes.test.ts refuses a query carrying a registration,
+    // so a write cannot hide among them.
     ...queryProcedures('sessions', SESSION_QUERIES),
     // THE ONE SESSION WRITE NOT BUILT BY `sessionFamilyProcedures()`, and the
     // merge is why. POD-382 had given `ask` a command-plane contract to delete
@@ -381,9 +381,8 @@ export const appRouter = t.router({
      * hand-written: a `visibility` class names the state a command WRITES, and
      * this describes the CALLER rather than any settings state. Giving it one
      * would be a well-typed lie of the kind POD-1075 refused. It is named as
-     * an exception in `router.settings-guard.test.ts` and counted by
-     * `scripts/audit-settings-commands.ts`, so the exception is visible rather
-     * than assumed.
+     * an exception in `router.settings-guard.test.ts`, so the exception is
+     * visible rather than assumed.
      */
     viewer: t.procedure.query(async ({ ctx }) => ({
       permitted: settingsCommandsPermitted(await settingsAuthzDeps(ctx)),
@@ -425,8 +424,8 @@ export const appRouter = t.router({
    * PODIUM CONNECT (PDM-51). `check` asks connect.podium.do to probe a
    * public URL from the outside and say precisely why it does not work. The
    * result is the cloud's answer verbatim; nothing here is stored — it is a
-   * READ of the world, which is why it is a query and this router is in the
-   * census as reads-only (scripts/router-mutation-census.json).
+   * READ of the world, which is why it is a query and this router carries no
+   * registration.
    */
   connect: t.router({
     check: t.procedure
@@ -579,8 +578,7 @@ export const appRouter = t.router({
    * Eighteen hand-written procedures — eleven of them `.mutation(` — are gone.
    * `workflowFamilyProcedures()` builds all of them from `WORKFLOW_CONTRACTS`
    * and `WORKFLOW_QUERIES`, so there is deliberately no procedure written out
-   * here, and `scripts/audit-workflow-commands.ts` fails the build if one
-   * appears.
+   * here, and the server typecheck refuses one (`write-routes.typecheck.ts`).
    */
   workflows: t.router(workflowFamilyProcedures()),
   /**
@@ -589,8 +587,8 @@ export const appRouter = t.router({
    *
    * The four writes — create · update · setEnabled · remove — are built from
    * `AUTOMATION_CONTRACTS` by `modules/automations/trpc.ts`, so there is
-   * deliberately no mutation written out here and
-   * `scripts/audit-automation-commands.ts` fails the build if one appears. The two
+   * deliberately no mutation written out here and the server typecheck refuses
+   * one (`write-routes.typecheck.ts`). The two
    * READS stay hand-written: a contract's `visibility` classifies what a command
    * WRITES, and a read writes nothing.
    *

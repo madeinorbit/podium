@@ -23,8 +23,8 @@
  * state they write are all facts of `AUTOMATION_CONTRACTS`. A hand-written
  * procedure beside a contract is a second answer to "how is this authorized".
  *
- * `scripts/audit-automation-commands.ts` fails the build if a `.mutation(`
- * reappears inside the `automations:` router literal, and
+ * The server typecheck refuses a module-built `.mutation(`
+ * (`write-routes/write-routes.typecheck.ts`), and
  * `automation-cutover.audit.test.ts` checks the RUNNING object — the pairing
  * POD-732 paid for, because an empty router satisfies every absence claim
  * perfectly.

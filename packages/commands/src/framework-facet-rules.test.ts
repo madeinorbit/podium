@@ -173,7 +173,7 @@ describe('the facets that are meaningless when absent', () => {
  * exposure to served nowhere (ADR 3 D3). So every def in every table must WRITE
  * all three. Read off the running objects, so a spread from a sibling def
  * counts and a cast cannot hide an omission. Moved here from
- * `scripts/audit-session-commands.ts` (`visibility-totality`,
+ * the deleted session-family audit (`visibility-totality`,
  * `exposure-totality`, `policy-totality`; POD-6595).
  */
 describe('every def declares the facets an omission would answer silently', () => {
@@ -185,5 +185,14 @@ describe('every def declares the facets an omission would answer silently', () =
     )
     // The population is the scan's, which the first describe pins as non-empty.
     expect(missing).toEqual([])
+  })
+
+  it('the visibility class agrees with the policy resource: per-user state both ways', () => {
+    const disagree = ALL_CONTRACTS.filter(
+      ({ def }) =>
+        (def.policy?.resource === 'per-user-state') !== (def.visibility === 'per-user-state'),
+    ).map(({ name }) => name)
+    expect(disagree).toEqual([])
+    expect(ALL_CONTRACTS.some(({ def }) => def.visibility === 'per-user-state')).toBe(true)
   })
 })

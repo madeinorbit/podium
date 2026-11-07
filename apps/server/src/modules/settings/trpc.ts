@@ -17,9 +17,7 @@ import { familyState } from '../derived-family'
  *    client scrub that stops the blob carrying secrets at all.
  *  - `telegramSetupStart` / `telegramSetupPoll` — a stateful pairing ceremony
  *    over a third-party API, not a settings write with a payload. Named in the
- *    contract table's own note and counted by `scripts/audit-settings-commands.ts`
- *    as the two hand-written writes this family still allows, so the exception
- *    is visible rather than assumed.
+ *    contract table's own note, so the exception is visible rather than assumed.
  *
  * ---------------------------------------------------------------------------
  * MEMBERSHIP IS READ OFF THE TABLE, IN BOTH DIRECTIONS

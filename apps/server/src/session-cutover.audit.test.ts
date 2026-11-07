@@ -8,14 +8,11 @@ import { soleHumanSessionStatePrincipal } from './test-support/session-state-pri
  * WHY THIS IS A TEST AND NOT ONLY A SCRIPT
  * ---------------------------------------------------------------------------
  *
- * `scripts/audit-session-commands.ts` is the other half of this gate, and the two
- * are deliberately instruments of DIFFERENT KINDS rather than two of the same kind
- * corroborating each other:
+ * The source-text half it used to pair with is deleted (POD-6595): a hand-written
+ * `.mutation(` cannot be built (`modules/write-routes/write-routes.typecheck.ts`), and
+ * every session def's facets are checked on the running tables
+ * (`packages/commands/src/framework-facet-rules.test.ts`).
  *
- *  - the SCRIPT reads source text. It needs no module resolution, so it runs in a
- *    fresh checkout and in CI before anything is built, and it catches textual
- *    regressions — a hand-written `.mutation(` reappearing in a session router, a
- *    contract with no `visibility:` line.
  *  - THIS FILE reads the running system: the real `appRouter`, the real contract
  *    objects, the real services. It catches what no source scan can — a mutation
  *    that actually exists on the router, an attribution pair actually recorded, a

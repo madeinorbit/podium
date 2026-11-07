@@ -2,31 +2,14 @@
  * THE RUNTIME HALF of the 3.11 automation cutover gate (POD-735; POD-424's
  * criterion for this router).
  *
- * `scripts/audit-automation-commands.ts` is the other half, and the two are
- * instruments of DIFFERENT KINDS rather than two of the same kind agreeing:
- *
- *  - THE SCRIPT reads source TEXT and resolves no modules. It runs in a fresh
- *    checkout before anything is built, and it catches the textual regressions a
- *    runtime check cannot see — a `.mutation(` written back into the router
- *    literal, `automationInput`/`automationPatch` regrowing, a second cron parser
- *    appearing in `apps/server`, a contract added without its `visibility` line.
- *  - THIS FILE reads the RUNNING objects: the real `appRouter`, the real contract
- *    schemas, and the real `AgentRelayGate`. It is the only thing that can prove
- *    the derived surface EXISTS with the right verbs, and the only thing that can
- *    prove a gate actually REFUSES.
- *
- * THE SCRIPT HALF MOVED TO `scripts` (POD-521). It used to run from here as a
- * `spawnSync` of the real binary, twice per run — once for `--probe`, once for
- * `--json`. Spawning was the right call when the alternative was `apps/server`
- * (L4) importing UP into `scripts` (L5), which `check-boundaries` refuses. But it
- * put a scanner whose source and whose repository-wide inputs both belong to
- * `scripts` inside the SERVER's cache key, so every server edit replayed it and
- * paid two Bun process starts for it. It now lives at
- * `scripts/audit-automation-commands.test.ts`, in the package that owns it, with
- * no layer inversion and no subprocess. The gate did not weaken: the scanner still
- * runs in `bun run test`, and its own `probe()` — every check against a planted
- * fixture, in both directions — is asserted there directly rather than through an
- * exit code.
+ * This file reads the RUNNING objects: the real `appRouter`, the real contract
+ * schemas, and the real `AgentRelayGate`. It is the only thing that can prove the
+ * derived surface EXISTS with the right verbs, and the only thing that can prove a
+ * gate actually REFUSES. The source-text half it used to pair with is deleted
+ * (POD-6595): a module cannot build a write route by type
+ * (`modules/write-routes/write-routes.typecheck.ts`), every contract's class is
+ * checked on the running objects (`packages/commands/src/classification-totality.test.ts`),
+ * and the one cron parser is the contracts' own (`packages/commands/src/automations/cron.test.ts`).
  */
 
 import { AUTOMATION_CONTRACTS, AUTOMATION_QUERY_NAMES } from '@podium/commands'

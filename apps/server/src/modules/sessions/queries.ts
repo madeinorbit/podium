@@ -8,8 +8,9 @@
  *
  * NOT CONTRACTS. A `visibility` class describes what a command WRITES and these
  * write nothing — the same line POD-382 drew when it left them hand-written, and
- * `scripts/audit-session-commands.ts` checks procedure TYPE so a write cannot
- * rejoin them by being spelled as a query. What changes here is only WHERE they
+ * a write cannot rejoin them by being spelled as a query: a write route is
+ * generated from a registration, and `write-routes.test.ts` refuses a query that
+ * carries one. What changes here is only WHERE they
  * are declared.
  *
  * THE THREE PER-USER LISTS READ `state.caller.userId`, which POD-380 established

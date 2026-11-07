@@ -163,10 +163,12 @@ describe('POD-424 gate: the messages router is DERIVED, not hand-written', () =>
 // ---------------------------------------------------------------------------
 
 /**
- * THE RUNNING-OBJECT HALF of `scripts/audit-mail-commands.ts`'s `wake-needs-use`
- * check, and the pairing is the point: that script reads source TEXT and resolves
- * no modules, so it would be satisfied by a contract table that no longer loads.
- * This reads the CONTRACT OBJECTS the server actually dispatches through.
+ * Read off the CONTRACT OBJECTS the server actually dispatches through
+ * (`apps/server/src/modules/messages/registry.ts`), so a contract table that no
+ * longer loads cannot satisfy it (the source-text half of this check was deleted
+ * with the mail audit, POD-6595). That path literal also keeps this file in the
+ * broad `boundary` shard: the delivery-caller walk below reads the whole server
+ * tree, which the import graph cannot see (`scripts/server-test-shards.ts`).
  *
  * The claim: a mail command that can deliver at `lifecycle: 'wake'` reaches
  * `MessageDeliveryService.trySpawn` — it resumes or spawns a session, which is

@@ -861,8 +861,8 @@ export const mailAskContract: CommandContract<typeof mailAskInput> = {
     //
     // WHAT THIS DOES AND DOES NOT BUY, stated plainly so nobody reads more into it:
     // the declaration makes the fact AUDITABLE and is enforced table-wide by
-    // `scripts/audit-mail-commands.ts` (every wake-capable mail command must carry
-    // it). Runtime refusal is POD-1193: `MessageDeliveryService` calls
+    // `apps/server/src/modules/messages/cutover.test.ts` (every wake-capable mail
+    // command must carry it). Runtime refusal is POD-1193: `MessageDeliveryService` calls
     // `placementDecision` for the TARGET SESSION's machine on the wake path
     // (resume or trySpawn) and dead-letters under D20.2 when the sender lacks
     // `use` — unauthorized and unreachable collapse, because the caller never

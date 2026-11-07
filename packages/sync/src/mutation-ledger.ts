@@ -58,9 +58,9 @@ import type { MutationId } from '@podium/model'
  * principal may no longer make). This class therefore takes no principal and makes
  * no authorization decision; it is called by an envelope that has already
  * authorized. The two session envelopes (`PresenceRegistry.execute`,
- * `dispatchSessionCommand`) both do so in that order, and the audit
- * (`scripts/audit-session-commands.ts`) asserts it structurally rather than
- * trusting each caller.
+ * `dispatchSessionCommand`) both do so in that order; a write route reaches a
+ * handler only through its registration's entry point (ADR 12 D9,
+ * `apps/server/src/modules/write-routes/write-routes.test.ts`).
  */
 
 /**

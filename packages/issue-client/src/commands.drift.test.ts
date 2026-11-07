@@ -1,4 +1,3 @@
-
 import { readFileSync } from 'node:fs'
 import { ISSUE_COMMAND_NAMES, ISSUE_CONTRACTS, type IssueContractName } from '@podium/commands'
 import { describe, expect, expectTypeOf, it, vi } from 'vitest'
@@ -133,10 +132,10 @@ describe('CLI table ↔ protocol command-name drift', () => {
  * in both directions: a proc the table calls without the declaration is a
  * surface served undeclared, and a declaration no verb reaches opens nothing.
  * The reach is read from this table's SOURCE, so a branch no run happens to take
- * still counts. Moved here from `scripts/audit-issue-commands.ts`
+ * still counts. Moved here from the deleted issue audit
  * (`exposure-matches-reach`, POD-6595).
  */
-describe('declared CLI/MCP exposure equals the table\'s reach', () => {
+describe("declared CLI/MCP exposure equals the table's reach", () => {
   const source = readFileSync(new URL('./commands.ts', import.meta.url), 'utf8')
   const reached = new Set([...source.matchAll(/\.issues\.(\w+)\b/g)].map((m) => m[1] as string))
   const declared = new Set<string>(

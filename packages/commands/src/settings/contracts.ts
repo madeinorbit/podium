@@ -705,7 +705,7 @@ export const settingsClearSecretContract = {
  * the whole point of this contract: what makes this read dangerous is not what
  * it writes but WHO MAY ISSUE IT, and `roleFloor` is the field that says so.
  * Leaving it uncontracted would leave the answer in a handler, where it is
- * invisible to `classificationErrors`, to `audit:settings`, and to the next
+ * invisible to `classificationErrors`, to the contract tests, and to the next
  * person adding a caller.
  *
  * `visibility: 'secret'` is therefore read as the class of the state the command
@@ -755,7 +755,7 @@ export const settingsSecretPresenceContract = {
     rationale:
       'A READ, contracted for the field the others are contracted for: `roleFloor`. What makes this ' +
       'surface dangerous is who may ISSUE it, not what it writes, and leaving that in a handler puts ' +
-      'it beyond `classificationErrors` and `audit:settings`. The floor is `admin` because ADR 9 D3 ' +
+      'it beyond `classificationErrors` and the contract tests. The floor is `admin` because ADR 9 D3 ' +
       'rule 5 makes secret management admin-grade and `docs/multi-user-readiness.md` §3.1.2 leaves ' +
       'the EXISTENCE-leak question — may a member see presence and fingerprint? — explicitly open. ' +
       'Failing closed is the placeholder, not the answer: it is recorded as still-open on POD-352, ' +
@@ -818,11 +818,10 @@ export const settingsSecretPresenceContract = {
  *
  * They are the wire keys `router.ts` already serves and the web client already
  * calls. A `telegram.claimCode` family beside them would be a THIRD spelling of
- * one ceremony (after the procedure keys and the service methods), and the
- * exception list in `scripts/audit-settings-commands.ts` would then have to name
- * the old pair forever while a new pair sat next to it. Contracting the existing
- * names instead makes that exception list SHRINK, which is the direction a
- * ratchet is supposed to move.
+ * one ceremony (after the procedure keys and the service methods), and an
+ * exception list would then have to name the old pair forever while a new pair
+ * sat next to it. Contracting the existing names instead let that list SHRINK,
+ * which is the direction a ratchet is supposed to move.
  *
  * ---------------------------------------------------------------------------
  * WHY START IS `secret` AND POLL IS `per-user-state`

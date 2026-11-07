@@ -347,11 +347,10 @@ export function scansRepositorySource(root: string, relativePath: string): boole
  * Repo paths a test names as a STRING and that exist on disk.
  *
  * These are the inputs no import graph can see, and they are not hypothetical: the old
- * single server key had to list `packages/client-core/src/engine/outbox-coverage.oracle.test.ts`,
- * `scripts/audit-automation-commands.ts` and `scripts/audit-workflow-commands.ts` by hand
- * for exactly this reason — `oracle-tags.test.ts` READS the first with `readFileSync`, and
- * the two cutover audits SPAWN the other two as subprocesses. Deriving inputs from imports
- * alone would have silently dropped all three, which is a false green, not a smaller key.
+ * single server key had to list `packages/client-core/src/engine/outbox-coverage.oracle.test.ts`
+ * (and two since-deleted family audit scripts) by hand for exactly this reason —
+ * `oracle-tags.test.ts` READS it with `readFileSync`. Deriving inputs from imports alone
+ * would have silently dropped it, which is a false green, not a smaller key.
  *
  * Gated on the file ALSO reaching the filesystem. Without that gate the rule fires on
  * prose and fixtures — a docstring naming a sibling audit, a fake path like 'apps/web/a.ts'

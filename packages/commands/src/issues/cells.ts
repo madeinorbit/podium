@@ -47,8 +47,8 @@ import type {
  * `linearSearch` and `subscriptionSetEnabled`. Declaring `cli`/`mcp` on those would
  * not open them — nothing dispatches them there — but it would make the field a
  * decoration, and ADR 3 D3's whole content is that a transport is served because a
- * contract NAMES it. So the field says what ships, and `audit-issue-commands.ts`
- * checks the declaration against the CLI table's actual reach in BOTH directions:
+ * contract NAMES it. So the field says what ships, and
+ * `packages/issue-client/src/commands.drift.test.ts` checks the declaration against the CLI table's actual reach in BOTH directions:
  * a proc the table reaches without the tag, and a tag without a reaching proc, are
  * both findings.
  */
@@ -134,8 +134,8 @@ export const REAUTHORIZATION =
  * dispatch a command (`trpc`, `relay`, `cli`, `mcp`); the client queue reaches the
  * authority THROUGH `trpc`, which is already declared. The queued per-user issue
  * commands (`markRead`/`markUnread`/`setTucked`) have been outboxed since POD-1076
- * without the tag, and `audit-issue-commands.ts` checks declarations against what each
- * arm actually reaches — a tag with no dispatching arm behind it is the decoration D3
+ * without the tag, and `packages/issue-client/src/commands.drift.test.ts` checks the
+ * `cli` declarations against what the CLI table actually reaches — a tag with no dispatching arm behind it is the decoration D3
  * exists to forbid.
  *
  * THE DURABILITY THAT USED TO EXIST WAS A DIFFERENT OBJECT, and confusing the two is

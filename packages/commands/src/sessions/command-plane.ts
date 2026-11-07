@@ -540,7 +540,7 @@ const stop: CommandDef = {
   redaction: { fields: [], note: 'a session id and a force flag are not secrets' },
   conflict: 'cmd',
   decision:
-    'Adopts the OPERATOR path (router.ts): `force` discards a dirty tree and a refusal comes back as `{ok:false, reason}` rather than as a throw — both POD-379-pinned for tRPC. The agent/relay arm keeps its self-stop target resolution and its throwing refusal and is left in place, counted as a named residue by scripts/audit-session-commands.ts; it is the remainder of POD-381’s cutover. The `use` gate is NEW on this path: stopping a process is execution on the machine it runs on, and the tRPC route had no machine check at all.',
+    'Adopts the OPERATOR path (router.ts): `force` discards a dirty tree and a refusal comes back as `{ok:false, reason}` rather than as a throw — both POD-379-pinned for tRPC. The agent/relay arm keeps its self-stop target resolution and its throwing refusal and is left in place as a named residue; it is the remainder of POD-381’s cutover. The `use` gate is NEW on this path: stopping a process is execution on the machine it runs on, and the tRPC route had no machine check at all.',
 }
 
 /**

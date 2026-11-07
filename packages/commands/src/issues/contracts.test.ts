@@ -44,7 +44,7 @@ describe('the issue contract table', () => {
     expect(ISSUE_COMMAND_NAMES).toHaveLength(81)
     expect([...ISSUE_COMMAND_NAMES]).toEqual([...ISSUE_COMMAND_NAMES].sort())
     // The name list IS the table's keys: a restated list is a second place a command
-    // name can live (moved from `scripts/audit-issue-commands.ts`'s
+    // name can live (moved from the deleted issue audit's
     // `derived-name-list`, POD-6595).
     expect([...ISSUE_COMMAND_NAMES]).toEqual(Object.keys(ISSUE_CONTRACTS).sort())
     for (const key of ISSUE_COMMAND_NAMES) {
@@ -134,8 +134,8 @@ describe('sibling move input', () => {
 
 /**
  * EXPOSURE IS DEFAULT-CLOSED AND MATCHES WHAT SHIPS. The declaration↔reality check
- * against the CLI table's actual reach lives in `scripts/audit-issue-commands.ts`,
- * which can read that table; here the shape and the partition are pinned.
+ * against the CLI table's actual reach lives beside that table, in
+ * `packages/issue-client/src/commands.drift.test.ts`; here the shape and the partition are pinned.
  */
 describe('transport exposure', () => {
   const NOT_ON_CLI_OR_MCP = [
