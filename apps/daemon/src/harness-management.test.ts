@@ -104,13 +104,15 @@ describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
   })
 
   describe('managementLoginCommandFor resolves before any handle exists', () => {
+    // Argv only (POD-6536, contract §3.4): the declaration names no command;
+    // control/session.ts binds it to the login harness context's executable.
     it.each([
-      { harness: 'claude-code', cmd: 'claude', args: ['auth', 'login'] },
-      { harness: 'codex', cmd: 'codex', args: ['login'] },
-      { harness: 'grok', cmd: 'grok', args: ['login'] },
-      { harness: 'opencode', cmd: 'opencode', args: ['auth', 'login'] },
-    ])('returns the static $harness argv with no runtime', ({ harness, cmd, args }) => {
-      expect(managementLoginCommandFor(harness)).toEqual({ cmd, args })
+      { harness: 'claude-code', args: ['auth', 'login'] },
+      { harness: 'codex', args: ['login'] },
+      { harness: 'grok', args: ['login'] },
+      { harness: 'opencode', args: ['auth', 'login'] },
+    ])('returns the static $harness argv with no runtime', ({ harness, args }) => {
+      expect(managementLoginCommandFor(harness)).toEqual({ args })
     })
 
     it.each(['cursor', 'shell', 'unknown-harness-xyz'])(

@@ -152,6 +152,19 @@ it('deletes them for a NATIVE LOGIN pane, which is filed as a shell', async () =
   expect(opts.stripEnv).toEqual(CLAUDE_STRIP)
 })
 
+it('runs a NATIVE LOGIN pane on the login harness context’s executable', async () => {
+  // The manifest declares the login argv only (POD-6536); argv[0] is bound here,
+  // at the spawn site, to the context built for the login harness, never a
+  // basename looked up on the daemon's PATH.
+  const opts = await spawnOptionsFor({
+    sessionId: 'strip-login-cmd',
+    agentKind: 'shell',
+    loginHarness: 'claude-code',
+  })
+  expect(opts.cmd).toBe('launch-seam:claude-code')
+  expect(opts.args).toEqual(['auth', 'login'])
+})
+
 it('leaves a plain operator shell alone', async () => {
   const opts = await spawnOptionsFor({ sessionId: 'strip-shell', agentKind: 'shell' })
   expect(opts.stripEnv).toEqual([])

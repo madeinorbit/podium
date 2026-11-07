@@ -2,13 +2,17 @@ import { describe, expect, it } from 'vitest'
 import { buildHarnessExec } from './harness-exec.js'
 
 
+// Adapters declare argv only (POD-6536, contract §3.4): `buildHarnessExec`
+// names no command. buffered-harness.ts binds argv[0] to the turn's harness
+// context; buffered-harness.test.ts pins that executable.
 describe('buildHarnessExec', () => {
   it('injects the system prompt via --append-system-prompt for Claude (prompt on stdin)', () => {
-    const { cmd, args, stdin } = buildHarnessExec(
+    const exec = buildHarnessExec(
       'claude-code',
       { prompt: 'list my sessions', systemPrompt: 'You are Podium.' },
     )
-    expect(cmd).toBe('claude')
+    const { args, stdin } = exec
+    expect(exec).not.toHaveProperty('cmd')
     const i = args.indexOf('--append-system-prompt')
     expect(i).toBeGreaterThanOrEqual(0)
     expect(args[i + 1]).toBe('You are Podium.')
@@ -19,11 +23,12 @@ describe('buildHarnessExec', () => {
   })
 
   it('prepends the system prompt for agents without a native flag (grok)', () => {
-    const { cmd, args } = buildHarnessExec(
+    const exec = buildHarnessExec(
       'grok',
       { prompt: 'do the thing', systemPrompt: 'SYS' },
     )
-    expect(cmd).toBe('grok')
+    const { args } = exec
+    expect(exec).not.toHaveProperty('cmd')
     expect(args).not.toContain('--append-system-prompt')
     expect(args.at(-1)).toBe('SYS\n\n---\n\ndo the thing')
     expect(args.at(-2)).toBe('--single')
@@ -70,7 +75,7 @@ describe('buildHarnessExec', () => {
   })
 
   it('translates the MCP config into codex -c overrides (url + bearer env + identity http_headers)', () => {
-    const { cmd, args, env } = buildHarnessExec(
+    const exec = buildHarnessExec(
       'codex',
       {
         prompt: 'go',
@@ -86,7 +91,8 @@ describe('buildHarnessExec', () => {
         allowedTools: ['Read'],
       },
     )
-    expect(cmd).toBe('codex')
+    const { args, env } = exec
+    expect(exec).not.toHaveProperty('cmd')
     expect(args[0]).toBe('exec')
     expect(args).toContain('mcp_servers."podium".url="http://127.0.0.1:1878/mcp"')
     // Auth token is declared as a first-class bearer_token_env_var (POD-1021),
@@ -115,13 +121,11 @@ describe('buildHarnessExec', () => {
     )
   })
 
-  it('resolves opencode/cursor bins and uses their run flags', () => {
+  it('declares the opencode/cursor run flags', () => {
     expect(buildHarnessExec('opencode', { prompt: 'p' })).toEqual({
-      cmd: 'opencode',
       args: ['run', 'p'],
     })
     expect(buildHarnessExec('cursor', { prompt: 'p' })).toEqual({
-      cmd: 'agent',
       args: ['-p', '--model', 'auto', 'p'],
     })
   })
@@ -137,7 +141,6 @@ describe('buildHarnessExec', () => {
         },
       ),
     ).toEqual({
-      cmd: 'opencode',
       args: ['run', '-m', 'opencode/deepseek-v4-flash-free', '--variant', 'high', 'p'],
     })
   })
