@@ -20,7 +20,7 @@ import { TRPCError } from '@trpc/server'
 import type { Context } from '../../trpc'
 import { t } from '../../trpc'
 import { familyState } from '../derived-family'
-import { routeThroughEntry } from '../sync-write/route-adapter'
+import { answerAsRoute, syncRoute } from '../write-routes/sync'
 import { layoutActor, layoutAuthzDeps, layoutAuthzFailure } from './authz'
 
 async function authorizeWrite(
@@ -53,20 +53,22 @@ export function layoutFamilyProcedures() {
     // the gate runs first here only so a refused caller keeps the message it
     // always got; the entry point runs it again, live, in its fixed order, and
     // the write itself (one unit of work, deduplicated) is the entry point's.
-    set: t.procedure.input(layoutSetInput).mutation(async ({ ctx, input }) => {
-      await authorizeWrite(ctx, layoutSetContract.name)
-      return (await routeThroughEntry(ctx, {
-        command: layoutSetContract.name,
-        input,
-      })) as LayoutSnapshot
+    set: syncRoute({
+      command: layoutSetContract,
+      input: layoutSetInput,
+      run: async ({ ctx, submit }) => {
+        await authorizeWrite(ctx, layoutSetContract.name)
+        return answerAsRoute(layoutSetContract.name, await submit()) as LayoutSnapshot
+      },
     }),
 
-    clear: t.procedure.input(layoutClearInput).mutation(async ({ ctx, input }) => {
-      await authorizeWrite(ctx, layoutClearContract.name)
-      return (await routeThroughEntry(ctx, {
-        command: layoutClearContract.name,
-        input,
-      })) as LayoutSnapshot
+    clear: syncRoute({
+      command: layoutClearContract,
+      input: layoutClearInput,
+      run: async ({ ctx, submit }) => {
+        await authorizeWrite(ctx, layoutClearContract.name)
+        return answerAsRoute(layoutClearContract.name, await submit()) as LayoutSnapshot
+      },
     }),
   }
 }

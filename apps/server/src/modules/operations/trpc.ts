@@ -1,9 +1,12 @@
-import { asMachineId } from '@podium/model'
-import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
-import { checkMachineVerb, ownershipSnapshotFromMachines } from '../../machine-access'
 import { type Context, t } from '../../trpc'
 import { familyState } from '../derived-family'
+import { plainRoute } from '../write-routes/plain'
+import type { ActionDispatchResult, CancelResult } from './engine'
+import type { operationCommands } from './plain-family'
+
+type OperationRefInput = z.input<typeof operationCommands.defs.cancel.input>
+type OperationActionInput = z.input<typeof operationCommands.defs.action.input>
 
 /**
  * The operation surface (POD-2097, spec §3.0/§3.7). Three procedures, and the
@@ -19,39 +22,6 @@ import { familyState } from '../derived-family'
  */
 
 const operationsModule = (ctx: Context) => familyState(ctx).modules.operations
-
-async function assertActionAuthorized(ctx: Context, operationId: string): Promise<void> {
-  const principal = ctx.principal
-  if (principal.kind !== 'system' && principal.capability.role !== 'admin') {
-    throw new TRPCError({
-      code: 'FORBIDDEN',
-      message: 'operation recovery requires an admin account',
-    })
-  }
-
-  const operation = (await operationsModule(ctx).engine.get(operationId))?.operation
-  const details: Record<string, unknown> =
-    operation?.details && typeof operation.details === 'object'
-      ? (operation.details as Record<string, unknown>)
-      : {}
-  const targetMachineId = details.targetMachineId
-  if (typeof targetMachineId !== 'string') return
-
-  const failure = checkMachineVerb(
-    principal,
-    asMachineId(targetMachineId),
-    await ownershipSnapshotFromMachines(familyState(ctx).modules.machines),
-    'manage',
-  )
-  if (!failure) return
-  throw new TRPCError({
-    code: failure === 'absent' ? 'NOT_FOUND' : 'FORBIDDEN',
-    message:
-      failure === 'absent'
-        ? `unknown machine '${targetMachineId}'`
-        : `you cannot manage machine '${targetMachineId}'`,
-  })
-}
 
 export function operationProcedures() {
   return {
@@ -75,9 +45,9 @@ export function operationProcedures() {
           .optional(),
       )
       .query(async ({ ctx, input }) =>
-        (await operationsModule(ctx)
-          .engine.history(input?.kind, input?.limit))
-          .map((row) => JSON.parse(row.payload) as unknown),
+        (await operationsModule(ctx).engine.history(input?.kind, input?.limit)).map(
+          (row) => JSON.parse(row.payload) as unknown,
+        ),
       ),
 
     /**
@@ -86,32 +56,10 @@ export function operationProcedures() {
      * finish or fail" is a sentence the panel renders, not an exception it
      * catches.
      */
-    cancel: t.procedure
-      .input(z.object({ id: z.string() }))
-      .mutation(async ({ ctx, input }) => operationsModule(ctx).engine.cancel(input.id)),
+    cancel: plainRoute<OperationRefInput, CancelResult>('operations.cancel'),
 
-    settleAsk: t.procedure
-      .input(z.object({ id: z.string(), actionId: z.string() }))
-      .mutation(async ({ ctx, input }) => {
-        await assertActionAuthorized(ctx, input.id)
-        return operationsModule(ctx).engine.dispatchAction(
-          input.id,
-          input.actionId,
-          ctx.principal,
-          { settleAsk: true },
-        )
-      }),
+    settleAsk: plainRoute<OperationActionInput, ActionDispatchResult>('operations.settleAsk'),
 
-    action: t.procedure
-      .input(z.object({ id: z.string(), actionId: z.string() }))
-      .mutation(async ({ ctx, input }) => {
-        await assertActionAuthorized(ctx, input.id)
-        return operationsModule(ctx).engine.dispatchAction(
-          input.id,
-          input.actionId,
-          ctx.principal,
-          { settleAsk: false },
-        )
-      }),
+    action: plainRoute<OperationActionInput, ActionDispatchResult>('operations.action'),
   }
 }

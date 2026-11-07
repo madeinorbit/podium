@@ -132,6 +132,7 @@ import { MAIL_COMMANDS, type MailProcName } from './modules/messages/registry'
 import { visibleMachinesFor } from './modules/sessions/command-ctx'
 import { sessionFamilyProcedures } from './modules/sessions/trpc'
 import { workflowFamilyProcedures } from './modules/workflows/trpc'
+import { syncRoute } from './modules/write-routes/sync'
 import { type Context, mods, t } from './trpc'
 
 /**
@@ -202,9 +203,20 @@ function mailRun<Out>(name: MailProcName) {
     ))! as Promise<Out>
 }
 
-/** A mail contract whose policy action is `write`, served as a tRPC mutation. */
+/**
+ * A mail contract whose policy action is `write`, served as a tRPC mutation,
+ * generated from its sync registration (POD-6525, POD-6593): the messages gate
+ * submits it on the entry point as this transport's adapter. `awaitAgent` is a
+ * wait whose one write is the claim it retires, `mail.awaitObserved`.
+ */
 function mailMutation<Out = unknown>(name: MailProcName) {
-  return t.procedure.input(mailContractFor(name, 'write').input).mutation(mailRun<Out>(name))
+  const contract = mailContractFor(name, 'write')
+  return syncRoute({
+    command: contract,
+    ...(name === 'awaitAgent' ? { registration: 'mail.awaitObserved' } : {}),
+    input: contract.input,
+    run: mailRun<Out>(name),
+  })
 }
 
 /** A mail contract whose policy action is `read`, served as a tRPC query. */

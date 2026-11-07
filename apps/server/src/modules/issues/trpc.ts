@@ -1,9 +1,16 @@
-import { writesThroughEntry } from '@podium/commands'
+import {
+  ISSUE_CONTRACTS,
+  type IssueContractName,
+  isSyncedIssueCommand,
+  writesThroughEntry,
+} from '@podium/commands'
 import { TRPCError, type TRPCMutationProcedure, type TRPCQueryProcedure } from '@trpc/server'
 import type { z } from 'zod'
 import { type Context, issueCaller, t } from '../../trpc'
 import { familyState } from '../derived-family'
 import { refusalAsTrpcError } from '../sync-write/route-adapter'
+import { directRoute } from '../write-routes/direct'
+import { syncRoute } from '../write-routes/sync'
 import { commandAccess } from './command-ctx'
 import { type AnyIssueCommandDef, guardIssueCommand } from './registry'
 import { isIssueNotFound } from './service/not-found'
@@ -129,7 +136,7 @@ export function routerFromCommands<T extends Record<string, AnyIssueCommandDef>>
 }) {
   const record: Record<string, unknown> = {}
   for (const [name, def] of Object.entries<AnyIssueCommandDef>(registry.defs)) {
-    const proc = t.procedure.use(guardFor(name, def)).input(def.input)
+    const guard = guardFor(name, def)
     // Check-run-record can yield even for a synchronous handler. MutationLedger
     // reserves the mutation id before its durable lookup yields and keeps that
     // join point through receipt recording, so same-batch replays join the owner.
@@ -148,7 +155,17 @@ export function routerFromCommands<T extends Record<string, AnyIssueCommandDef>>
         return rethrowAsTrpc(err)
       }
     }
-    record[name] = def.kind === 'mutation' ? proc.mutation(resolve) : proc.query(resolve)
+    if (def.kind !== 'mutation') {
+      record[name] = t.procedure.use(guard).input(def.input).query(resolve)
+      continue
+    }
+    const contract = ISSUE_CONTRACTS[name as IssueContractName]
+    // A synced command's route is its sync registration's (a `panelApply` that
+    // adds an artifact reaches it as an effect record); any other write is in
+    // the direct-write census until POD-6603 moves it onto the entry point.
+    record[name] = isSyncedIssueCommand(name)
+      ? syncRoute({ command: contract, input: def.input, use: [guard], run: resolve })
+      : directRoute(contract.name, { input: def.input, use: [guard], run: resolve })
   }
   return t.router(record as ProceduresFor<T>)
 }

@@ -44,9 +44,16 @@ import { TRPCError, type TRPCMutationProcedure, type TRPCQueryProcedure } from '
 import type { z } from 'zod'
 import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import { type Context, type mods, t } from '../../trpc'
-import { assertPlainContract, runPlainCommand } from '../plain-command/entry'
+import {
+  assertPlainContract,
+  type PlainCommandRefusal,
+  runPlainCommand,
+} from '../plain-command/entry'
 import { plainRefusalError } from '../plain-command/family'
-import { submitFromRoute } from '../sync-write/route-adapter'
+import { type PlainContractRegistration, trpcRequest } from '../plain-command/registry'
+import type { DetailedSubmit } from '../sync-write/entry'
+import { plainRoute } from '../write-routes/plain'
+import { syncRoute } from '../write-routes/sync'
 import { redactErrorMessage } from './audit'
 import {
   SECRET_SURFACE_ABSENT,
@@ -291,23 +298,60 @@ export async function plainSettingsCommandWith(
     },
   })
   if (reply.outcome === 'applied') return reply.result
-  if (reply.refusal.kind === 'invalid') throw plainRefusalError(contract, reply.refusal)
+  return await settingsRefused(name, principal, resolve, reply.refusal)
+}
+
+/** A front-door refusal of a plain settings command, recorded on the trail (see
+ *  {@link plainSettingsCommandWith}). */
+async function settingsRefused(
+  name: SettingsCommandName,
+  principal: CommandPrincipal,
+  resolve: () => Promise<{ deps: SettingsAuthzDeps; service: SettingsCommandService }>,
+  refusal: PlainCommandRefusal,
+): Promise<never> {
+  const { contract } = SETTINGS_COMMANDS_TRPC[name]
+  if (refusal.kind === 'invalid') throw plainRefusalError(contract, refusal)
   if (principal.kind === 'system') {
     // No human, so no trail principal and no role: the family's own refusal shape,
     // read off the contract alone.
     throw settingsFrontDoorRefusal(name, undefined)
   }
   const { deps, service } = await resolve()
-  const refusal = settingsFrontDoorRefusal(name, deps)
+  const error = settingsFrontDoorRefusal(name, deps)
   await service.recordCommand({
     command: name,
     outcome: 'refused',
     principal: deps.principal,
     input: {},
-    error: refusal.message,
+    error: error.message,
   })
-  throw refusal
+  throw error
 }
+
+const settingsDepsOf = (ctx: Context) => async () => ({
+  deps: await settingsAuthzDeps(ctx),
+  service: familyState(ctx).modules.settings,
+})
+
+const isPlainSettingsWrite = (name: SettingsCommandName): boolean =>
+  isPlainSettingsCommand(name) && SETTINGS_COMMANDS_TRPC[name].contract.policy.action !== 'read'
+
+/**
+ * The plain settings WRITES, registered in `plain-command/commands.ts`. The
+ * presence read is served as a query on the same front door
+ * ({@link plainSettingsCommandWith}); a read has no registration.
+ */
+export const SETTINGS_PLAIN_REGISTRATIONS: readonly PlainContractRegistration[] = (
+  Object.keys(SETTINGS_COMMANDS_TRPC) as SettingsCommandName[]
+)
+  .filter(isPlainSettingsWrite)
+  .map((name) => ({
+    contract: SETTINGS_COMMANDS_TRPC[name].contract,
+    handle: async (ctx, input) => {
+      const { deps, service } = await settingsDepsOf(trpcRequest(ctx))()
+      return await settingsCommandWith(name, deps, service, input)
+    },
+  }))
 
 /** The input is parsed by the plain entry, after the coarse check. */
 const unparsed = (raw: unknown): unknown => raw
@@ -336,10 +380,11 @@ async function settingsWriteThroughEntry(
   name: SyncedSettingsWrite,
   ctx: Context,
   input: unknown,
+  submit: () => Promise<DetailedSubmit>,
 ): Promise<unknown> {
-  let detailed: Awaited<ReturnType<typeof submitFromRoute>>
+  let detailed: DetailedSubmit
   try {
-    detailed = await submitFromRoute(ctx, { command: name, input })
+    detailed = await submit()
   } catch (e) {
     throw asSettingsTrpcError(name, input, e)
   }
@@ -360,28 +405,36 @@ const isSyncedSettingsWrite = (name: SettingsCommandName): name is SyncedSetting
 
 function buildProcedure(name: SettingsCommandName): unknown {
   const { contract } = SETTINGS_COMMANDS_TRPC[name]
+  if (isPlainSettingsWrite(name)) {
+    return plainRoute(contract.name, {
+      refused: async (refusal, { ctx }) =>
+        await settingsRefused(name, ctx.principal, settingsDepsOf(ctx), refusal),
+    })
+  }
+  if (isSyncedSettingsWrite(name)) {
+    return syncRoute({
+      command: contract,
+      input: contract.input,
+      run: async ({ ctx, input, submit }) =>
+        await settingsWriteThroughEntry(name, ctx, input, submit),
+    })
+  }
+  if (contract.policy.action !== 'read') {
+    throw new Error(`settings: ${name} is a write on neither the plain nor the sync path`)
+  }
+  // A read: the plain presence read on the front door, or the family's own.
   if (isPlainSettingsCommand(name)) {
     assertPlainContract(contract)
-    const proc = t.procedure.input(unparsed)
-    const call = async ({ ctx, input }: { ctx: Context; input: unknown }): Promise<unknown> =>
-      await plainSettingsCommandWith(
-        name,
-        ctx.principal,
-        async () => ({
-          deps: await settingsAuthzDeps(ctx),
-          service: familyState(ctx).modules.settings,
-        }),
-        input,
+    return t.procedure
+      .input(unparsed)
+      .query(
+        async ({ ctx, input }): Promise<unknown> =>
+          await plainSettingsCommandWith(name, ctx.principal, settingsDepsOf(ctx), input),
       )
-    return contract.policy.action === 'read' ? proc.query(call) : proc.mutation(call)
   }
-  const proc = t.procedure.input(contract.input)
-  const call = async ({ ctx, input }: { ctx: Context; input: unknown }): Promise<unknown> =>
-    isSyncedSettingsWrite(name)
-      ? await settingsWriteThroughEntry(name, ctx, input)
-      : await runSettingsCommand(name, ctx, input)
-  // Derived from the contract, never chosen here — see `IsRead` above.
-  return contract.policy.action === 'read' ? proc.query(call) : proc.mutation(call)
+  return t.procedure
+    .input(contract.input)
+    .query(async ({ ctx, input }): Promise<unknown> => await runSettingsCommand(name, ctx, input))
 }
 
 /** The both-directions exposure check, against the object that will be served. */

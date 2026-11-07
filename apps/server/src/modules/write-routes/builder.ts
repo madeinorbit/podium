@@ -9,7 +9,7 @@
  * `plain-command/registry.ts`) and asks `sync.ts` or `plain.ts` for their routes.
  *
  * Every route built here carries `meta: { registration, path }`: the command the
- * route reaches and which entry runs it. `sync-write/write-routes.test.ts` walks
+ * route reaches and which entry runs it. `write-routes/write-routes.test.ts` walks
  * the served router and holds every mutation to a registration that exists.
  */
 

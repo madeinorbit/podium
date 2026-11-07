@@ -12,18 +12,14 @@
  */
 
 import type { TRPCMutationProcedure } from '@trpc/server'
-import { t } from '../../trpc'
-import { routeThroughEntry } from '../sync-write/route-adapter'
-import type { ForWorktreeInput, ForWorktreeOutput } from './sync-write'
+import { syncRoute } from '../write-routes/sync'
+import { type ForWorktreeInput, type ForWorktreeOutput, shellCommands } from './sync-write'
 
 type ForWorktreeProcedure = TRPCMutationProcedure<{
   meta: unknown
   input: ForWorktreeInput
   output: ForWorktreeOutput
 }>
-
-/** The input is parsed by the entry point, after the coarse check. */
-const unparsed = (raw: unknown): unknown => raw
 
 /** Shell procedures for the root router under the `shells` namespace. */
 export function shellFamilyProcedures(): { forWorktree: ForWorktreeProcedure } {
@@ -33,12 +29,8 @@ export function shellFamilyProcedures(): { forWorktree: ForWorktreeProcedure } {
      * desktop app's bundled web, which calls this route. Removing it breaks that
      * app's dock shell against this server.
      */
-    forWorktree: t.procedure.input(unparsed).mutation(
-      async ({ ctx, input }) =>
-        (await routeThroughEntry(ctx, {
-          command: 'shells.forWorktree',
-          input,
-        })) as ForWorktreeOutput,
-    ) as unknown as ForWorktreeProcedure,
+    forWorktree: syncRoute({
+      command: { name: 'shells.forWorktree', def: shellCommands.defs.forWorktree },
+    }) as unknown as ForWorktreeProcedure,
   }
 }

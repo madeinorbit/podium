@@ -22,9 +22,11 @@
 
 import type { AnyCommandContract, CommandDef } from '@podium/commands'
 import type { CommandPrincipal } from '../../command-principal'
+import type { RegistryModules } from '../../relay'
 import type { Context } from '../../trpc'
 import type { PlainContext } from '../../write-contexts'
 import { contractFrontDoor, defFrontDoor, type FrontDoorCommand } from '../front-door'
+import type { IssueCaller } from '../issues/command-ctx'
 import {
   assertPlainContract,
   type PlainCommandReply,
@@ -34,13 +36,29 @@ import {
 } from './entry'
 
 /**
- * What a plain handler gets: who is asking, the command, and the transport's
- * REQUEST context, which its service is selected from (the instance's config,
- * the accounts repository, the updater's hooks). No writer: a plain command
+ * What a plain handler gets: who is asking, the command, the caller as issue
+ * authorization reads it, and the composed modules. No writer: a plain command
  * cannot write synced data.
+ *
+ * `request` is the tRPC context, on a tRPC call only: a family whose service
+ * reads more than the modules (the instance's config, the accounts repository,
+ * the request's repos) selects it from there ({@link trpcRequest}), and such a
+ * command is served on tRPC alone.
  */
 export interface PlainHandlerContext extends PlainContext {
-  readonly request: Context
+  readonly caller: IssueCaller
+  readonly modules: RegistryModules
+  readonly request?: Context | undefined
+}
+
+/** The tRPC request a tRPC-only plain handler selects its service from. */
+export function trpcRequest(ctx: PlainHandlerContext): Context {
+  if (ctx.request === undefined) {
+    throw new Error(
+      `plain command: ${ctx.command} is served on tRPC only, and this call has no tRPC request`,
+    )
+  }
+  return ctx.request
 }
 
 type PlainHandle = (ctx: PlainHandlerContext, input: unknown) => unknown
@@ -75,7 +93,10 @@ export interface PlainCall {
   readonly principal: CommandPrincipal
   readonly transport: 'trpc' | 'cli' | 'mcp' | 'relay'
   readonly input: unknown
-  readonly request: Context
+  readonly caller: IssueCaller
+  readonly modules: RegistryModules
+  /** The tRPC context, on a tRPC call. */
+  readonly request?: Context | undefined
 }
 
 export class PlainCommandRegistry {
@@ -103,7 +124,10 @@ export class PlainCommandRegistry {
     if (command === undefined) throw new Error(`plain command: no registration named ${name}`)
     const { registration } = command
     const run = async (input: unknown, ctx: PlainContext) =>
-      await registration.handle({ ...ctx, request: call.request }, input)
+      await registration.handle(
+        { ...ctx, caller: call.caller, modules: call.modules, request: call.request },
+        input,
+      )
     const common = {
       principal: call.principal,
       transport: call.transport,

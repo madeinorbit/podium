@@ -1,7 +1,8 @@
-import { familyState } from '../derived-family'
 import { TRPCError, type TRPCMutationProcedure, type TRPCQueryProcedure } from '@trpc/server'
 import { ZodError, type z } from 'zod'
 import { type Context, issueCaller, t } from '../../trpc'
+import { familyState } from '../derived-family'
+import { plainRoute } from '../write-routes/plain'
 import { type AnyLockCommandDef, guardLockCommand } from './registry'
 
 /**
@@ -36,9 +37,6 @@ function guardFor(def: AnyLockCommandDef) {
   })
 }
 
-/** A write's input is parsed by the plain entry, after the coarse check. */
-const unparsed = (raw: unknown): unknown => raw
-
 /**
  * The WRITES take the plain command path (POD-6419): the front door, then the
  * handler inside the plain scope, the same door as the relay's
@@ -51,22 +49,17 @@ export function lockRouterFromCommands<T extends Record<string, AnyLockCommandDe
   const record: Record<string, unknown> = {}
   for (const [name, def] of Object.entries<AnyLockCommandDef>(registry.defs)) {
     if (def.kind === 'mutation') {
-      record[name] = t.procedure.input(unparsed).mutation(async ({ ctx, input }) => {
-        try {
-          return await familyState(ctx).modules.lockCommands.runPlain(
-            issueCaller(ctx),
-            ctx.principal,
-            'trpc',
-            name,
-            input,
-          )
-        } catch (error) {
-          // Bad input answers as tRPC's own validation always did.
-          if (error instanceof ZodError) {
-            throw new TRPCError({ code: 'BAD_REQUEST', cause: error })
+      // A write is a plain registration (`plain-family.ts`). A refused caller
+      // gets the guard's answer it always got; bad input, the schema's error.
+      record[name] = plainRoute(`lock.${name}`, {
+        refused: (refusal) => {
+          if (refusal.kind === 'invalid') {
+            throw new TRPCError({ code: 'BAD_REQUEST', cause: refusal.error })
           }
-          throw error
-        }
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'not allowed to use locks' })
+        },
+        failed: (error) =>
+          error instanceof ZodError ? new TRPCError({ code: 'BAD_REQUEST', cause: error }) : error,
       })
       continue
     }

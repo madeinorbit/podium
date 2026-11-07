@@ -69,6 +69,7 @@ import {
   type SessionHandoffOutput,
   sessionCommandPlane,
   sessionCommandPlaneInputs,
+  sessionHandoffContract,
   sessionHandoffInput,
   sessionStateCommand,
   sessionStateInputs,
@@ -79,7 +80,8 @@ import type { z } from 'zod'
 import type { PinState, SnoozeMap } from '../../store/types'
 import { type Context, mods, t } from '../../trpc'
 import { familyState } from '../derived-family'
-import { routeThroughEntry, submitFromRoute } from '../sync-write/route-adapter'
+import { directRoute } from '../write-routes/direct'
+import { syncRoute } from '../write-routes/sync'
 import { sessionCommandCtx } from './command-ctx'
 import {
   dispatchSessionCommand,
@@ -196,27 +198,23 @@ function sessionStateProcedure<N extends TrpcSessionStateName>(name: N): Session
   // the "green gate that stopped looking" failure. Fail at module load instead.
   if (!contract) throw new Error(`sessionStateProcedure: no contract named ${name}`)
   const queued = (QUEUED_SESSION_STATE_COMMANDS as readonly string[]).includes(name)
-  return t.procedure
-    .input(sessionStateInputs[name])
-    .mutation(async ({ ctx, input }): Promise<SessionStateOutputs[N]> => {
-      if (queued) {
-        // A THIN ADAPTER ONTO `sync.submit` (POD-6350) until POD-6359 removes
-        // it. The class's refusal shape is kept: every refusal is the silent
-        // no-op (§3.1.5), except invalid input, unreachable here and loud.
-        const { reply } = await submitFromRoute(ctx, { command: name, input })
+  if (queued) {
+    // LEGACY(remove-after: 2027-03): an older app queues these on their own
+    // routes; the route is a thin adapter onto `sync.submit` (POD-6350).
+    return syncRoute({
+      command: { name, def: contract },
+      input: sessionStateInputs[name],
+      run: async ({ submit }): Promise<SessionStateOutputs[N]> => {
+        const { reply } = await submit()
         if (reply.outcome === 'applied') return reply.result as SessionStateOutputs[N]
         if (reply.refusal.kind === 'invalid') throw new Error(`invalid input for ${name}`)
         return undefined as SessionStateOutputs[N]
-      }
-      const result = await sessionStateRegistryFor(ctx).execute(
-        name,
-        input,
-        sessionStatePrincipal(ctx),
-        'trpc',
-      )
-      if (result.outcome === 'invalid-input') throw new Error(`invalid input for ${name}`)
-      return result.value as SessionStateOutputs[N]
-    }) as SessionStateProcedure<N>
+      },
+    }) as unknown as SessionStateProcedure<N>
+  }
+  // Every session-state route but rename's (`renameProcedure`) is a queued
+  // command's: a new one is a registration first, then a route.
+  throw new Error(`sessionStateProcedure: ${name} is not a queued session-state command`)
 }
 
 /** The session-state envelope for one call. */
@@ -279,17 +277,17 @@ export function sessionStatePrincipal(ctx: Context) {
  * reason leaks nothing.
  */
 function renameProcedure(): SessionStateProcedure<'sessions.rename'> {
-  return t.procedure
-    .input(sessionStateInputs['sessions.rename'])
-    .mutation(async ({ ctx, input }): Promise<void> => {
+  const def = sessionStateCommand(RENAME_NAME)
+  if (!def) throw new Error(`renameProcedure: no contract named ${RENAME_NAME}`)
+  return syncRoute({
+    command: { name: RENAME_NAME, def },
+    input: sessionStateInputs['sessions.rename'],
+    run: async ({ ctx, input, submit }): Promise<void> => {
       if (renamePath() !== 'legacy') {
         // THE TARGET PATH IS NOW THE SYNC WRITE ENTRY POINT (POD-6350): this
         // route is a thin adapter onto it until POD-6359 removes it. The
         // rollback flag still takes the legacy envelope below.
-        const { reply, cause } = await submitFromRoute(ctx, {
-          command: RENAME_NAME,
-          input,
-        })
+        const { reply, cause } = await submit()
         if (reply.outcome === 'applied') return
         if (cause !== undefined) throw cause
         if (reply.refusal.kind === 'invalid') {
@@ -320,7 +318,8 @@ function renameProcedure(): SessionStateProcedure<'sessions.rename'> {
       if (!dispatch.result.ok) {
         throw new TRPCError({ code: 'CONFLICT', message: dispatch.result.reason })
       }
-    }) as SessionStateProcedure<'sessions.rename'>
+    },
+  }) as unknown as SessionStateProcedure<'sessions.rename'>
 }
 
 // ---------------------------------------------------------------------------
@@ -372,18 +371,24 @@ function planeProcedure<K extends SessionCommandKey>(key: K): PlaneProcedure<K> 
   const schema = sessionCommandPlaneInputs[key] as z.ZodTypeAny
   const queuedSend = (QUEUED_SEND_COMMANDS as readonly string[]).includes(key)
   const onEntry = (IMMEDIATE_PLANE_COMMANDS as readonly string[]).includes(key)
-  const built = t.procedure.input(schema).mutation(async ({ ctx, input }): Promise<unknown> => {
-    // THE CHAT SENDS ARE THIN ADAPTERS ONTO `sync.submit` (POD-6350), a send
-    // carrying a wake choice (--model/--effort) included since POD-6415. So is
-    // `continue` (POD-6416).
-    if (queuedSend || onEntry) {
-      return await routeThroughEntry(ctx, { command: `sessions.${key}`, input })
-    }
-    return await dispatchSessionCommand(
-      await sessionCommandCtx(familyState(ctx).modules, ctx.capability, ctx.overrideScope),
-      key,
-      input,
-    )
+  // THE CHAT SENDS ARE THIN ADAPTERS ONTO `sync.submit` (POD-6350), a send
+  // carrying a wake choice (--model/--effort) included since POD-6415. So is
+  // `continue` (POD-6416).
+  if (queuedSend || onEntry) {
+    return syncRoute({
+      command: { name: `sessions.${key}`, def: sessionCommandPlane.defs[key] },
+      input: schema,
+    }) as unknown as PlaneProcedure<K>
+  }
+  // Off the entry point: in the direct-write census until POD-6601.
+  const built = directRoute(`sessions.${key}`, {
+    input: schema,
+    run: async ({ ctx, input }): Promise<unknown> =>
+      await dispatchSessionCommand(
+        await sessionCommandCtx(familyState(ctx).modules, ctx.capability, ctx.overrideScope),
+        key,
+        input,
+      ),
   })
   // The precise type is asserted ONCE, here, from the same tables the runtime uses:
   // `PlaneProcedure<K>` reads its input off `sessionCommandPlaneInputs[K]` and its
@@ -417,9 +422,11 @@ type HandoffProcedure = TRPCMutationProcedure<{
  * apps now create the record themselves.
  */
 function handoffProcedure(): HandoffProcedure {
-  return t.procedure
-    .input(sessionHandoffInput)
-    .mutation(async ({ ctx, input }): Promise<SessionHandoffOutput> => {
+  return syncRoute({
+    command: sessionHandoffContract,
+    registration: 'effects.create',
+    input: sessionHandoffInput,
+    run: async ({ ctx, input }): Promise<SessionHandoffOutput> => {
       try {
         return await handoffThroughEffect(familyState(ctx).modules, ctx.principal, input)
       } catch (error) {
@@ -431,7 +438,8 @@ function handoffProcedure(): HandoffProcedure {
           cause: error,
         })
       }
-    }) as HandoffProcedure
+    },
+  }) as unknown as HandoffProcedure
 }
 
 // ---------------------------------------------------------------------------

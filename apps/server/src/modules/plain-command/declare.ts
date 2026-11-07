@@ -9,7 +9,7 @@
 import type { CommandPrincipal } from '../../command-principal'
 import { type AnyDerivedCommand, type FamilyState, familyState } from '../derived-family'
 import type { PlainTargetCheck } from './entry'
-import type { PlainContractRegistration } from './registry'
+import { type PlainContractRegistration, trpcRequest } from './registry'
 
 /** A plain command's table entry may carry its target check (`entry.ts`, step 4). */
 export type PlainCommandEntry = AnyDerivedCommand & { readonly targetPermitted?: PlainTargetCheck }
@@ -39,6 +39,6 @@ export function plainFamilyRegistrations<Svc, C extends Record<string, AnyDerive
     contract: command.contract,
     targetPermitted: command.targetPermitted,
     handle: (ctx, input) =>
-      command.handler(family.service(familyState(ctx.request), ctx.principal), input),
+      command.handler(family.service(familyState(trpcRequest(ctx)), ctx.principal), input),
   }))
 }

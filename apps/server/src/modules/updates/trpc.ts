@@ -1,31 +1,32 @@
-import type { ServerPlacement } from './service'
-import type { PrepareCoordinatorUpdate } from './installed-restart'
+import { type CommandDef, defineCommands } from '@podium/commands'
 import { createLogger } from '@podium/logger'
 import { asMachineId, type MachineId, mintDeviceId, type UpdateChannel } from '@podium/model'
-import { stateDir } from '@podium/runtime/config'
 import type { ConvergenceState, MobileWebIdentity, Operation, UpdateTarget } from '@podium/protocol'
 import { buildsDiffer, targetPlatforms } from '@podium/protocol'
-import { type CommandDef, defineCommands } from '@podium/commands'
-import { TRPCError, type TRPCMutationProcedure } from '@trpc/server'
+import { stateDir } from '@podium/runtime/config'
+import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { serverBuildSourceDigest, serverBuildVersion } from '../../build-version'
 import { attributionOf } from '../../command-principal'
-import { type Context, t } from '../../trpc'
-import { familyState } from '../derived-family'
-import { runPlainDef } from '../plain-command/entry'
-import { legacyTransferInProgress } from '../server-transfer/journal'
 import type { SessionStore } from '../../store'
 import type { EffectRow } from '../../store/effects'
+import { type Context, t } from '../../trpc'
+import { familyState } from '../derived-family'
 import { awaitEffect } from '../effects/await'
+import type { OperationsModule } from '../operations'
 import {
   linkedOperationId,
   type OperationStartPlan,
   operationIdForEffect,
 } from '../operations/effects'
-import { refusalAsTrpcError, submitFromRoute } from '../sync-write/route-adapter'
-import { UPDATE_EFFECT_KIND, updateEffectTarget } from './update-effect'
-import type { OperationsModule } from '../operations'
 import { LIFECYCLE_EXCLUSION_GROUP } from '../operations/lifecycle'
+import { type PlainDefRegistration, trpcRequest } from '../plain-command/registry'
+import { legacyTransferInProgress } from '../server-transfer/journal'
+import { refusalAsTrpcError, submitFromRoute } from '../sync-write/route-adapter'
+import type { WriteRoute } from '../write-routes/builder'
+import { plainRoute } from '../write-routes/plain'
+import { syncRoute } from '../write-routes/sync'
+import type { PrepareCoordinatorUpdate } from './installed-restart'
 import {
   fleetCanTakeTargetNow,
   planInputFrom,
@@ -39,7 +40,9 @@ import {
   updateOperationDetails,
 } from './operation'
 import { ReleaseApprovalRefusal } from './release-approval'
+import type { ServerPlacement } from './service'
 import { type ChannelCheckRecord, legacyInstanceTrustMessage, type UpdatesService } from './service'
+import { UPDATE_EFFECT_KIND, updateEffectTarget } from './update-effect'
 import {
   isPackagedRolloutTarget,
   machineCanTakeTargetPlatform,
@@ -766,10 +769,7 @@ async function describeWaveDecision(
 export async function updateFleet(ctx: Context): Promise<UpdateFleetSnapshot> {
   const state = familyState(ctx)
   const updates = state.modules.updates
-  const fleet = await fleetSnapshot(
-    updates,
-    serverPlacementOf(ctx),
-  )
+  const fleet = await fleetSnapshot(updates, serverPlacementOf(ctx))
   const preparation = ctx.updatePreparation?.()
   const active = await state.modules.operations.engine.active(LIFECYCLE_EXCLUSION_GROUP)
   // The queued version belongs to the same authority as the counts above: a dev
@@ -781,7 +781,9 @@ export async function updateFleet(ctx: Context): Promise<UpdateFleetSnapshot> {
     ? updateStartability(await planInputFrom(await contextFor(ctx)))
     : {
         startable: false as const,
-        reason: updates.targetUnavailableReasonForChannel(hostChannel) ?? missingTargetReason(hostChannel, preparation?.failureDetail),
+        reason:
+          updates.targetUnavailableReasonForChannel(hostChannel) ??
+          missingTargetReason(hostChannel, preparation?.failureDetail),
       }
   let servedWebDigest: string | undefined
   let servedMobileWeb: MobileWebIdentity | undefined
@@ -935,103 +937,130 @@ const updateCommands = defineCommands('updates', {
 
 type UpdateCommandName = keyof typeof updateCommands.defs
 
-type PlainUpdateProcedure<N extends UpdateCommandName, Out> = TRPCMutationProcedure<{
-  meta: unknown
-  input: z.input<(typeof updateCommands.defs)[N]['input']>
-  output: Awaited<Out>
-}>
+type PlainUpdateProcedure<N extends UpdateCommandName, Out> = WriteRoute<
+  z.input<(typeof updateCommands.defs)[N]['input']>,
+  Awaited<Out>
+>
 
-/** The input is parsed by the plain entry, after the coarse check. */
-const unparsed = (raw: unknown): unknown => raw
+type UpdateHandler<N extends UpdateCommandName> = (
+  ctx: Context,
+  input: z.output<(typeof updateCommands.defs)[N]['input']>,
+) => unknown
 
-/** One update command on the plain path, as a route that answers as it did. */
-function plainUpdate<N extends UpdateCommandName, Out>(
-  name: N,
-  handle: (ctx: Context, input: z.output<(typeof updateCommands.defs)[N]['input']>) => Out,
-): PlainUpdateProcedure<N, Out> {
-  const def = updateCommands.defs[name]
-  return t.procedure.input(unparsed).mutation(async ({ ctx, input }) => {
-    const reply = await runPlainDef({
-      name: `updates.${name}`,
-      def,
-      principal: ctx.principal,
-      transport: 'trpc',
-      input,
-      run: async (parsed) => await handle(ctx, parsed as never),
+/** The plain update handlers, each over the tRPC request it is served on. */
+const UPDATE_PLAIN_HANDLERS = {
+  approveProposal: async (ctx, input) => await approveReleaseProposal(ctx, input),
+  /**
+   * "Check for updates now" (spec §9.2). The daily timer answers "is anything
+   * new"; this answers it for a human who is looking at the panel and does not
+   * want to wait a day. Rate-limited per channel inside the service, so a
+   * held-down button is one feed request, not a loop.
+   */
+  checkNow: async (ctx) => await familyState(ctx).modules.updates.checkNow(),
+  /** Explicit byte repair: same target and same grant machinery, equality notwithstanding. */
+  repairPayload: async (ctx, input) => {
+    assertMayUpdate(ctx)
+    const state = familyState(ctx)
+    const machineId = input?.id ? asMachineId(input.id) : state.store.hostMachineId
+    const outcome = await state.modules.updates.repairMachine(machineId, {
+      initiator: { kind: 'operator-repair' },
+      eligibility: "a person asked for this machine's payload to be re-delivered",
     })
-    if (reply.outcome === 'applied') return reply.result
-    if (reply.refusal.kind === 'invalid') {
-      throw new TRPCError({ code: 'BAD_REQUEST', cause: reply.refusal.error })
+    const machineName =
+      (await state.modules.updates.fleet()).find((machine) => machine.id === machineId)?.name ??
+      machineId
+    if (outcome.result !== 'granted' && outcome.result !== 'in-flight') {
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message:
+          outcome.result === 'no-target'
+            ? outcome.reason
+            : outcome.result === 'legacy-instance-trust'
+              ? legacyInstanceTrustMessage(machineName)
+              : `Payload repair is ${outcome.result}.`,
+      })
     }
-    throw new TRPCError({
-      code: 'FORBIDDEN',
-      message: `updates.${name} is not permitted for this caller`,
-    })
-  }) as unknown as PlainUpdateProcedure<N, Out>
+    return { outcome, fleet: await updateFleet(ctx) }
+  },
+  repairCompatibility: async (ctx) => {
+    assertMayUpdate(ctx)
+    if (!ctx.requestCoordinatorRestart) {
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'This Podium installation cannot rebuild its web app automatically.',
+      })
+    }
+    await ctx.requestCoordinatorRestart()
+    return { state: 'in-progress' as const, version: serverBuildVersion() }
+  },
+} satisfies { [N in UpdateCommandName]: UpdateHandler<N> }
+
+/** The plain update commands, registered in `plain-command/commands.ts`. */
+export const UPDATE_PLAIN_REGISTRATIONS: readonly PlainDefRegistration[] = (
+  Object.keys(updateCommands.defs) as UpdateCommandName[]
+).map((name) => ({
+  name: `updates.${name}`,
+  def: updateCommands.defs[name],
+  handle: async (ctx, input) =>
+    await (UPDATE_PLAIN_HANDLERS[name] as UpdateHandler<UpdateCommandName>)(
+      trpcRequest(ctx),
+      input as never,
+    ),
+}))
+
+/** One update command's route, answering a refusal as it always did. */
+function plainUpdate<N extends UpdateCommandName>(
+  name: N,
+): PlainUpdateProcedure<N, ReturnType<(typeof UPDATE_PLAIN_HANDLERS)[N]>> {
+  return plainRoute(`updates.${name}`, {
+    refused: (refusal) => {
+      if (refusal.kind === 'invalid') {
+        throw new TRPCError({ code: 'BAD_REQUEST', cause: refusal.error })
+      }
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: `updates.${name} is not permitted for this caller`,
+      })
+    },
+  })
 }
+
+/**
+ * The update writes that are effect records (POD-6358): the declarations their
+ * old routes are served under. Each reaches `effects.create`.
+ */
+const updateEffectRoutes = defineCommands('updates', {
+  start: {
+    input: z.object({ surface: z.string().optional() }).optional(),
+    action: 'write',
+    exposure: ['trpc'],
+  },
+  retry: { input: z.object({ id: z.string() }), action: 'write', exposure: ['trpc'] },
+  converge: { input: z.undefined().optional(), action: 'write', exposure: ['trpc'] },
+} satisfies Record<'start' | 'retry' | 'converge', CommandDef>)
+
+const effectRoute = (name: keyof typeof updateEffectRoutes.defs) => ({
+  command: { name: `updates.${name}`, def: updateEffectRoutes.defs[name] },
+  registration: 'effects.create',
+})
 
 export function updateProcedures() {
   return {
     proposal: t.procedure.query(async ({ ctx }) => await releaseProposalFor(ctx)),
-    approveProposal: plainUpdate(
-      'approveProposal',
-      async (ctx, input) => await approveReleaseProposal(ctx, input),
-    ),
+    approveProposal: plainUpdate('approveProposal'),
     fleet: t.procedure.query(async ({ ctx }) => await updateFleet(ctx)),
-    /**
-     * "Check for updates now" (spec §9.2). The daily timer answers "is anything
-     * new"; this answers it for a human who is looking at the panel and does not
-     * want to wait a day. Rate-limited per channel inside the service, so a
-     * held-down button is one feed request, not a loop.
-     */
-    checkNow: plainUpdate(
-      'checkNow',
-      async (ctx) => await familyState(ctx).modules.updates.checkNow(),
-    ),
-    /** Explicit byte repair: same target and same grant machinery, equality notwithstanding. */
-    repairPayload: plainUpdate('repairPayload', async (ctx, input) => {
-      assertMayUpdate(ctx)
-      const state = familyState(ctx)
-      const machineId = input?.id ? asMachineId(input.id) : state.store.hostMachineId
-      const outcome = await state.modules.updates.repairMachine(machineId, {
-        initiator: { kind: 'operator-repair' },
-        eligibility: "a person asked for this machine's payload to be re-delivered",
-      })
-      const machineName =
-        (await state.modules.updates.fleet()).find((machine) => machine.id === machineId)?.name ??
-        machineId
-      if (outcome.result !== 'granted' && outcome.result !== 'in-flight') {
-        throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message:
-            outcome.result === 'no-target'
-              ? outcome.reason
-              : outcome.result === 'legacy-instance-trust'
-                ? legacyInstanceTrustMessage(machineName)
-                : `Payload repair is ${outcome.result}.`,
-        })
-      }
-      return { outcome, fleet: await updateFleet(ctx) }
-    }),
-    repairCompatibility: plainUpdate('repairCompatibility', async (ctx) => {
-      assertMayUpdate(ctx)
-      if (!ctx.requestCoordinatorRestart) {
-        throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message: 'This Podium installation cannot rebuild its web app automatically.',
-        })
-      }
-      await ctx.requestCoordinatorRestart()
-      return { state: 'in-progress' as const, version: serverBuildVersion() }
-    }),
+    checkNow: plainUpdate('checkNow'),
+    repairPayload: plainUpdate('repairPayload'),
+    repairCompatibility: plainUpdate('repairCompatibility'),
     /**
      * The one human click, as a durable operation (§3.2). Answers the operation
      * itself so the caller can render it immediately and then follow
      * `operations.active` — there is no second endpoint to learn.
      */
-    start: t.procedure
-      .input(z.object({ surface: z.string().optional() }).optional())
-      .mutation(async ({ ctx, input }) => {
+    start: syncRoute({
+      ...effectRoute('start'),
+      input: updateEffectRoutes.defs.start.input,
+      run: async ({ ctx, input }) => {
         const started = await startUpdateOperation(ctx, {
           ...(input?.surface ? { surface: input.surface as UpdateSurface } : {}),
         })
@@ -1040,40 +1069,49 @@ export function updateProcedures() {
           alreadyRunning: started.alreadyRunning,
           operation: started.operation,
         }
-      }),
+      },
+    }),
 
     /**
      * RETRY (§3.2): a NEW operation whose plan is the remainder — the machines
      * that are still not at the target — linked to the one it retries. History
      * stays honest: the failure is not overwritten by its own second attempt.
      */
-    retry: t.procedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
-      assertMayUpdate(ctx)
-      const engine = familyState(ctx).modules.operations.engine
-      const row = (await engine.history(UPDATE_OPERATION_KIND, 100)).find((r) => r.id === input.id)
-      if (!row) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'That update is no longer on record.',
+    retry: syncRoute({
+      ...effectRoute('retry'),
+      input: updateEffectRoutes.defs.retry.input,
+      run: async ({ ctx, input }) => {
+        assertMayUpdate(ctx)
+        const engine = familyState(ctx).modules.operations.engine
+        const row = (await engine.history(UPDATE_OPERATION_KIND, 100)).find(
+          (r) => r.id === input.id,
+        )
+        if (!row) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'That update is no longer on record.',
+          })
+        }
+        const previous = row.operation
+        const machinesStep = (previous?.steps ?? []).find(
+          (step) => step.id === UPDATE_STEP_MACHINES,
+        )
+        // The REMAINDER, from the failed operation's own record of where each
+        // place got to. A place that reached the target is not retried — that is
+        // what makes "Try again" cheap after a half-applied update (§8).
+        const remainder = (machinesStep?.places ?? [])
+          .filter((place) => place.state !== 'current')
+          .map((place) => place.id)
+        const started = await startUpdateOperation(ctx, {
+          retryOf: input.id,
+          ...(remainder.length > 0 ? { onlyMachines: remainder } : {}),
         })
-      }
-      const previous = row.operation
-      const machinesStep = (previous?.steps ?? []).find((step) => step.id === UPDATE_STEP_MACHINES)
-      // The REMAINDER, from the failed operation's own record of where each
-      // place got to. A place that reached the target is not retried — that is
-      // what makes "Try again" cheap after a half-applied update (§8).
-      const remainder = (machinesStep?.places ?? [])
-        .filter((place) => place.state !== 'current')
-        .map((place) => place.id)
-      const started = await startUpdateOperation(ctx, {
-        retryOf: input.id,
-        ...(remainder.length > 0 ? { onlyMachines: remainder } : {}),
-      })
-      return {
-        operationId: started.operationId,
-        alreadyRunning: started.alreadyRunning,
-        operation: started.operation,
-      }
+        return {
+          operationId: started.operationId,
+          alreadyRunning: started.alreadyRunning,
+          operation: started.operation,
+        }
+      },
     }),
 
     /**
@@ -1082,38 +1120,41 @@ export function updateProcedures() {
      * UI while the operation panel is built in its own issue; the moment that
      * lands, this and its shape go.
      */
-    converge: t.procedure.mutation(async ({ ctx }) => {
-      const state = familyState(ctx)
-      const engine = state.modules.operations.engine
-      const started = await startUpdateOperation(ctx)
-      /**
-       * THE ONE PLACE THAT WAITS, and only because the OLD contract does.
-       *
-       * `engine.start` deliberately no longer awaits the drive: a click must not
-       * be held for the length of the first runner. But this endpoint's shipped
-       * caller reads `done`, `total` and `grantedMachineIds` out of the
-       * response, and it has no way to hear about a failure except a rejection
-       * — so it needs the answer the old `startUpdate` gave, which was "the
-       * plan has run until something is genuinely in flight".
-       *
-       * `whenSettled` is EXACTLY that and no more: every runner here hands its
-       * work out and answers `running`, so the queue empties as soon as the plan
-       * blocks. It is not a poll, it has no sleep, and it goes away with this
-       * endpoint when the panel lands.
-       */
-      await engine.whenSettled(started.operationId)
-      const operation =
-        (await engine.active(LIFECYCLE_EXCLUSION_GROUP))?.operation ??
-        (await engine.history(UPDATE_OPERATION_KIND, 1))[0]?.operation ??
-        started.operation
-      throwIfFailedOnStart(operation)
-      return legacyConvergeResult(
-        state.modules.updates,
-        operation,
-        serverBuildVersion(),
-        serverPlacementOf(ctx),
-      )
-    }),
+    converge: syncRoute({
+      ...effectRoute('converge'),
+      run: async ({ ctx }) => {
+        const state = familyState(ctx)
+        const engine = state.modules.operations.engine
+        const started = await startUpdateOperation(ctx)
+        /**
+         * THE ONE PLACE THAT WAITS, and only because the OLD contract does.
+         *
+         * `engine.start` deliberately no longer awaits the drive: a click must not
+         * be held for the length of the first runner. But this endpoint's shipped
+         * caller reads `done`, `total` and `grantedMachineIds` out of the
+         * response, and it has no way to hear about a failure except a rejection
+         * — so it needs the answer the old `startUpdate` gave, which was "the
+         * plan has run until something is genuinely in flight".
+         *
+         * `whenSettled` is EXACTLY that and no more: every runner here hands its
+         * work out and answers `running`, so the queue empties as soon as the plan
+         * blocks. It is not a poll, it has no sleep, and it goes away with this
+         * endpoint when the panel lands.
+         */
+        await engine.whenSettled(started.operationId)
+        const operation =
+          (await engine.active(LIFECYCLE_EXCLUSION_GROUP))?.operation ??
+          (await engine.history(UPDATE_OPERATION_KIND, 1))[0]?.operation ??
+          started.operation
+        throwIfFailedOnStart(operation)
+        return legacyConvergeResult(
+          state.modules.updates,
+          operation,
+          serverBuildVersion(),
+          serverPlacementOf(ctx),
+        )
+      },
+    }) as unknown as WriteRoute<void, Awaited<ReturnType<typeof legacyConvergeResult>>>,
   }
 }
 
