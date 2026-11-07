@@ -123,7 +123,7 @@ describe('a headless follow-up sent through the web route (POD-4647)', () => {
 
     const text = 'Reply with exactly the word: second'
     const sent = await s.registry.modules.messages.send(
-      messageTestWriter(),
+      s.registry.modules.sessions.serverWriter,
       { kind: 'operator' },
       {
         to: { kind: 'session', id: s.sessionId },
@@ -145,7 +145,7 @@ describe('a headless follow-up sent through the web route (POD-4647)', () => {
 
     const text = 'wait for the boundary'
     const sent = await s.registry.modules.messages.send(
-      messageTestWriter(),
+      s.registry.modules.sessions.serverWriter,
       { kind: 'operator' },
       {
         to: { kind: 'session', id: s.sessionId },

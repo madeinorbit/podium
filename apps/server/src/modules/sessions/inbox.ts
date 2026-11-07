@@ -36,6 +36,7 @@ import {
   type NotInConversationCause,
 } from '@podium/model'
 import type { AgentObservation, ObservationInputOrigin } from '@podium/protocol'
+import { asDelegationRef, type DelegationRef } from '@podium/protocol'
 import type {
   DeliveryCancelResult,
   MessageFailedCause,
@@ -44,7 +45,7 @@ import type {
   StagedAttachmentRef,
   TurnReceipt,
 } from '@podium/protocol/daemon'
-import { asDelegationRef, type DelegationRef } from '@podium/protocol'
+import type { LedgerWriter } from '@podium/sync'
 import type { CommandPrincipal } from '../../command-principal'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
@@ -55,6 +56,10 @@ import { injectionPayload } from './paste'
 import type { ConfigureOutcome } from './runtime-gateway'
 import type { Session, SessionDurableState } from './session'
 import type { ViewportRequest } from './terminal'
+
+/** A session write's writer (the same shape as `SessionWriter`), named here
+ *  without importing the lifecycle's types (POD-6602). */
+type SessionWriter = Pick<LedgerWriter, 'commit' | 'capture'>
 
 /**
  * What `sessions.interrupt` answers, and what each half of it means (POD-2792).
@@ -136,7 +141,11 @@ export interface DeliveryOutcomeEvent {
 }
 
 const EXACT_HISTORY_IDS: ReadonlySet<string> = new Set([
-  'claude-uuid', 'codex-client-message', 'grok-prompt', 'opencode-message', 'opencode-part',
+  'claude-uuid',
+  'codex-client-message',
+  'grok-prompt',
+  'opencode-message',
+  'opencode-part',
 ])
 
 /**
@@ -376,7 +385,12 @@ export interface InboxAuthorizationPort {
    * may still be handed on. `false` = it ended meanwhile — a retract won the
    * move — so no row is written and nothing is ever typed. Absent = no ledger.
    */
-  handingOn?(input: { sourceMessageId: string; sessionId: SessionId }): Promise<boolean>
+  handingOn?(input: {
+    sourceMessageId: string
+    sessionId: SessionId
+    /** The send's own writer (POD-6602): the hand-off is part of its write. */
+    writer: SessionWriter
+  }): Promise<boolean>
   /** The queued row has now crossed the real PTY boundary — and, where the
    *  transcript can witness it, has been seen to become a turn (POD-1100). */
   applied(input: { sourceMessageId: string; sessionId: SessionId }): Promise<void>
@@ -476,24 +490,28 @@ export interface SessionInboxDeps {
   authorization: InboxAuthorizationPort
   attention: InboxAttentionPort
   now(): number
-  persist(session: Session, options?: { cancelTerminalCandidate?: boolean }): Promise<void>
-  /** Mutate the durable half as a DRAFT and persist it [POD-3330]. */
-  write(
+  /**
+   * The inbox's session writes take the writer of whoever asked, per call
+   * (ADR 12 D9, POD-6602): a delivery's (the delivery service's own, or the
+   * command that sent inline), a command's, or the server's for its own runs.
+   */
+  persist(
+    writer: SessionWriter,
     session: Session,
-    mutate: (draft: SessionDurableState) => void,
     options?: { cancelTerminalCandidate?: boolean },
   ): Promise<void>
   /** A draft, for the site that must ask whether anything changed at all before
    *  deciding to write [POD-3330]. */
   draft(session: Session): SessionDurableState
-  persistDraft(session: Session, draft: SessionDurableState): Promise<void>
+  persistDraft(writer: SessionWriter, session: Session, draft: SessionDurableState): Promise<void>
   broadcast(): void
   /** Which key aborts this harness's running turn, and whether it is safe to
-  *  press outside one — see {@link SessionInbox.abortKeyFor}. */
+   *  press outside one — see {@link SessionInbox.abortKeyFor}. */
   harnessInterrupt(agentKind: AgentKind): HarnessInterrupt
   /** The harness's human-facing name, for a refusal an operator will read. */
   harnessName(agentKind: AgentKind): string
   prepareSend(
+    writer: SessionWriter,
     sessionId: SessionId,
     attribution: Attribution,
     kind: 'text' | 'answer',
@@ -527,10 +545,13 @@ export interface SessionInboxDeps {
   authorizeDrive?(principal: ClientPrincipal, sessionId: SessionId): Promise<boolean>
 
   /** Bind-reported contract delivery: true means the daemon built a driver handle
-  * for this session and the contract is its only delivery. Shells and unbound
-  * sessions keep the server path. Optional only as a fixture affordance. */
+   * for this session and the contract is its only delivery. Shells and unbound
+   * sessions keep the server path. Optional only as a fixture affordance. */
   contractAnswer?(input: {
-    sessionId: SessionId; interactionId?: string; choices?: AnswerChoice[]; skip?: boolean
+    sessionId: SessionId
+    interactionId?: string
+    choices?: AnswerChoice[]
+    skip?: boolean
     principal: InboxPrincipalReference
   }): Promise<{ ok: boolean; reason?: string }>
 
@@ -606,6 +627,9 @@ export type AnswerChoice = { multiSelect?: boolean; previewLayout?: boolean } & 
 )
 
 export interface InboxSendInput {
+  /** Whose write this send is (POD-6602): its admission and its row's session
+   *  write are written with it, and so is the message's hand-off. */
+  writer: SessionWriter
   sessionId: SessionId
   text: string
   inputOrigin?: ObservationInputOrigin
@@ -662,18 +686,18 @@ export class SessionInbox {
   }
 
   /**
-  * A SHELL DRAIN OUTLIVES THE REGISTRY THAT STARTED IT (POD-2842).
-  *
-  * `forwardShellRows` awaits the store between rows, and `forwardContractRows`
-  * awaits the daemon — either can be in flight when `server.ts` closes the
-  * SQLite handle one step after `registry.dispose()` ("a late write against a
-  * closed DB would throw"). Both check `disposed` at every re-entry, so a
-  * shutdown taken while a row is in flight stands down instead of waking into
-  * a closed store.
-  *
-  * A stopped drain loses nothing: the row is durable, and the next bind,
-  * reconnect or enqueue re-arms a fresh pass over it.
-  */
+   * A SHELL DRAIN OUTLIVES THE REGISTRY THAT STARTED IT (POD-2842).
+   *
+   * `forwardShellRows` awaits the store between rows, and `forwardContractRows`
+   * awaits the daemon — either can be in flight when `server.ts` closes the
+   * SQLite handle one step after `registry.dispose()` ("a late write against a
+   * closed DB would throw"). Both check `disposed` at every re-entry, so a
+   * shutdown taken while a row is in flight stands down instead of waking into
+   * a closed store.
+   *
+   * A stopped drain loses nothing: the row is durable, and the next bind,
+   * reconnect or enqueue re-arms a fresh pass over it.
+   */
   dispose(): void {
     this.disposed = true
     this.activeDrains.clear()
@@ -733,7 +757,7 @@ export class SessionInbox {
   }
 
   /** A new bind fence off any shell drain the previous bind armed, and drops
-  *  daemon custody claimed under the old machine binding. */
+   *  daemon custody claimed under the old machine binding. */
   markSessionBound(sessionId: SessionId): void {
     this.forwardedRows.delete(sessionId)
     this.forwarding.delete(sessionId)
@@ -790,6 +814,7 @@ export class SessionInbox {
     }
     // Complete metadata admission before entering the synchronous byte path.
     await this.deps.prepareSend(
+      input.writer,
       input.sessionId,
       (input.principal ?? SYSTEM_INBOX_PRINCIPAL).attribution,
       'text',
@@ -845,6 +870,7 @@ export class SessionInbox {
     // Skipping matters for a harness whose key exits when idle: an
     // interrupt-urgency message must never be the thing that kills the session.
     await this.deps.prepareSend(
+      input.writer,
       input.sessionId,
       principal.attribution,
       'text',
@@ -890,7 +916,8 @@ export class SessionInbox {
    * implements `interrupt()` and none of them was ever called.
    */
   async interruptTurn(
-    input: Omit<InboxSendInput, 'text'> & {
+    // A stop writes no session row of its own: it takes no writer.
+    input: Omit<InboxSendInput, 'text' | 'writer'> & {
       /** The turn the stop is for (POD-6397): the daemon stops only that turn. */
       turn?: string
     },
@@ -965,7 +992,10 @@ export class SessionInbox {
    * composer prints this string, and 'not_running' with the driver's own detail
    * tells an operator more than a sentence this layer invented would.
    */
-  private interruptRefusalReason(session: Session, refusal: Refusal | { reason: 'unwired' }): string {
+  private interruptRefusalReason(
+    session: Session,
+    refusal: Refusal | { reason: 'unwired' },
+  ): string {
     if (refusal.reason === 'unwired') {
       return `${this.deps.harnessName(session.agentKind)} is running headless and this server has no runtime connection to it, so the stop could not be delivered`
     }
@@ -993,6 +1023,8 @@ export class SessionInbox {
    * which is the one failure this whole verb exists to avoid.
    */
   async configureSession(input: {
+    /** Whose write the stored configure is (POD-6602). */
+    writer: SessionWriter
     sessionId: SessionId
     model?: string
     effort?: string
@@ -1008,7 +1040,8 @@ export class SessionInbox {
         detail: `${this.deps.harnessName(session.agentKind)} is running with no runtime connection to this server, so the change could not be delivered`,
       }
     }
-    const result = await request(input)
+    const { writer, ...configure } = input
+    const result = await request(configure)
     if ('ok' in result) {
       /**
        * WRITE IT, STORE IT, THEN SAY SO — all three, and the pair after the
@@ -1040,7 +1073,7 @@ export class SessionInbox {
         draft,
       )
       if (changed) {
-        const persistence: Promise<void> = this.deps.persistDraft(session, draft)
+        const persistence: Promise<void> = this.deps.persistDraft(writer, session, draft)
         await persistence
         this.deps.broadcast()
       }
@@ -1188,7 +1221,11 @@ export class SessionInbox {
   private async mayHandOn(input: InboxSendInput): Promise<boolean> {
     const handingOn = this.deps.authorization.handingOn
     if (!input.sourceMessageId || !handingOn) return true
-    return await handingOn({ sourceMessageId: input.sourceMessageId, sessionId: input.sessionId })
+    return await handingOn({
+      sourceMessageId: input.sourceMessageId,
+      sessionId: input.sessionId,
+      writer: input.writer,
+    })
   }
 
   async queueText(
@@ -1229,6 +1266,7 @@ export class SessionInbox {
     }
     // Persist admission before a row can be drained or reported as queued.
     await this.deps.prepareSend(
+      input.writer,
       input.sessionId,
       principal.attribution,
       'text',
@@ -1258,7 +1296,9 @@ export class SessionInbox {
     })
     const inserted = await insertion
     if (inserted) {
-      const persistence: Promise<void> = this.deps.persist(session, { cancelTerminalCandidate: true })
+      const persistence: Promise<void> = this.deps.persist(input.writer, session, {
+        cancelTerminalCandidate: true,
+      })
       await persistence
       this.deps.broadcast()
     }
@@ -1276,9 +1316,7 @@ export class SessionInbox {
     sourceMessageId: string,
   ): Promise<number | undefined> {
     const queuedRows: Promise<QueuedInboxMessage[]> = this.deps.queue.list(sessionId)
-    const position = (await queuedRows).findIndex(
-      (row) => row.sourceMessageId === sourceMessageId,
-    )
+    const position = (await queuedRows).findIndex((row) => row.sourceMessageId === sourceMessageId)
     return position >= 0 ? position + 1 : undefined
   }
 
@@ -1299,9 +1337,7 @@ export class SessionInbox {
 
   async hasQueuedMessage(sessionId: SessionId, sourceMessageId: string): Promise<boolean> {
     const queuedRows: Promise<QueuedInboxMessage[]> = this.deps.queue.list(sessionId)
-    return (await queuedRows).some(
-      (row) => row.sourceMessageId === sourceMessageId,
-    )
+    return (await queuedRows).some((row) => row.sourceMessageId === sourceMessageId)
   }
 
   /**
@@ -1343,17 +1379,20 @@ export class SessionInbox {
   }
 
   /**
-  * Deliver this session's queued rows, oldest first, through the runtime
-  * contract (POD-4427).
-  *
-  * THE ONLY DELIVERY AN AGENT HAS. A row leaves the queue only when the driver
-  * settles it: `deliveryOutcome` folds the driver's `delivery` events into
-  * settle-or-keep decisions, and a row the daemon never acknowledged stays
-  * durable and queued with a visible failure. The server never types at, polls
-  * or retries a harness — readiness and retry are the driver's own
-  * delivery-queue, one hop down.
-  */
-  private readonly forwardedRows = new Map<SessionId, { session: Session; machineId: string; ids: Set<string> }>()
+   * Deliver this session's queued rows, oldest first, through the runtime
+   * contract (POD-4427).
+   *
+   * THE ONLY DELIVERY AN AGENT HAS. A row leaves the queue only when the driver
+   * settles it: `deliveryOutcome` folds the driver's `delivery` events into
+   * settle-or-keep decisions, and a row the daemon never acknowledged stays
+   * durable and queued with a visible failure. The server never types at, polls
+   * or retries a harness — readiness and retry are the driver's own
+   * delivery-queue, one hop down.
+   */
+  private readonly forwardedRows = new Map<
+    SessionId,
+    { session: Session; machineId: string; ids: Set<string> }
+  >()
   private readonly forwarding = new Map<SessionId, Promise<void>>()
 
   /** A drain or a contract forward is running for this session (POD-6160 D2f:
@@ -1370,16 +1409,26 @@ export class SessionInbox {
       this.forwarding.delete(sessionId)
     }
     const pending = this.forwarding.get(sessionId)
-    if (pending) { await pending; return this.forwardContractRows(session, false) }
+    if (pending) {
+      await pending
+      return this.forwardContractRows(session, false)
+    }
     const run = async () => {
       let forwarded = this.forwardedRows.get(sessionId)
-      if (!forwarded || forwarded.session !== session || forwarded.machineId !== session.machineId) {
+      if (
+        !forwarded ||
+        forwarded.session !== session ||
+        forwarded.machineId !== session.machineId
+      ) {
         forwarded = { session, machineId: session.machineId, ids: new Set() }
         this.forwardedRows.set(sessionId, forwarded)
       }
       const binding = forwarded
-      const current = () => !this.disposed && this.deps.getSession(sessionId) === session &&
-        session.machineId === binding.machineId && this.forwardedRows.get(sessionId) === binding &&
+      const current = () =>
+        !this.disposed &&
+        this.deps.getSession(sessionId) === session &&
+        session.machineId === binding.machineId &&
+        this.forwardedRows.get(sessionId) === binding &&
         // A starting session WITH transcript history is rebinding after a
         // restart (POD-4360): its driver may not be hydrated yet, and a forward
         // now would meet an unready daemon and burn the row into a spurious
@@ -1387,7 +1436,8 @@ export class SessionInbox {
         // re-admits. New sessions (no transcript) still forward from admission.
         // Duplicate custody itself is the daemon's to absorb by row id
         // (POD-4687), never this gate's.
-        (session.status === 'live' || (session.status === 'starting' && !session.transcriptAvailable)) &&
+        (session.status === 'live' ||
+          (session.status === 'starting' && !session.transcriptAvailable)) &&
         // The server's own lifecycle fact only. Whether the agent can take
         // input now (errored, a native view holding the lease, busy) is the
         // driver's to answer when it types (POD-4775).
@@ -1405,7 +1455,11 @@ export class SessionInbox {
         }
         if (binding.ids.has(row.id)) continue
         if (!this.deps.contractDeliver || !this.deps.queue.reserveDelivery) return
-        const allowed = await this.deps.authorization.authorizeAtDrain({ sessionId, principal: row.principal, sourceMessageId: row.sourceMessageId })
+        const allowed = await this.deps.authorization.authorizeAtDrain({
+          sessionId,
+          principal: row.principal,
+          sourceMessageId: row.sourceMessageId,
+        })
         if (!current()) return
         // A cancel can race asynchronous admission. The durable row remains the authority.
         if (!(await this.deps.queue.list(sessionId)).some((entry) => entry.id === row.id)) continue
@@ -1416,10 +1470,16 @@ export class SessionInbox {
             if (!this.deps.contractCancel) return
             const cancelled = await this.deps.contractCancel(sessionId, row.id)
             if (!current() || !('ok' in cancelled && cancelled.ok)) return
-            if (!(await this.deps.queue.list(sessionId)).some((entry) => entry.id === row.id)) continue
+            if (!(await this.deps.queue.list(sessionId)).some((entry) => entry.id === row.id))
+              continue
             if (!current()) return
           }
-          await this.deps.authorization.rejected({ queueId: row.id, sourceMessageId: row.sourceMessageId, principal: row.principal, reason: allowed.reason })
+          await this.deps.authorization.rejected({
+            queueId: row.id,
+            sourceMessageId: row.sourceMessageId,
+            principal: row.principal,
+            reason: allowed.reason,
+          })
           await this.deps.queue.delete(row.id)
           continue
         }
@@ -1479,7 +1539,8 @@ export class SessionInbox {
         const heldDurably =
           recovery &&
           row.sourceMessageId !== null &&
-          (await this.deps.authorization.held?.({ sourceMessageId: row.sourceMessageId })) === 'durable'
+          (await this.deps.authorization.held?.({ sourceMessageId: row.sourceMessageId })) ===
+            'durable'
         if (!current()) return
         // The durable reservation precedes every possible external write. On a
         // replacement owner it means confirm-or-fail, never replay the prompt.
@@ -1494,8 +1555,12 @@ export class SessionInbox {
           // Await custody in FIFO order. A queued receipt is NOT acceptance;
           // only the fenced delivery event can settle the durable row.
           const receipt = await this.deps.contractDeliver({
-            sessionId, turnId: row.id, text: row.text, origin: row.inputOrigin,
-            principal: row.principal, deliveryRecovery: recovery,
+            sessionId,
+            turnId: row.id,
+            text: row.text,
+            origin: row.inputOrigin,
+            principal: row.principal,
+            deliveryRecovery: recovery,
             ...(heldDurably ? { held: 'durable' as const } : {}),
             initialPrompt: isInitialPromptRow(sessionId, row),
             delivery: row.delivery,
@@ -1558,7 +1623,11 @@ export class SessionInbox {
     }
     const operation = run()
     this.forwarding.set(sessionId, operation)
-    try { await operation } finally { if (this.forwarding.get(sessionId) === operation) this.forwarding.delete(sessionId) }
+    try {
+      await operation
+    } finally {
+      if (this.forwarding.get(sessionId) === operation) this.forwarding.delete(sessionId)
+    }
   }
 
   /** Every ref of a row as the daemon is handed it: staged ones as they are,
@@ -1586,8 +1655,10 @@ export class SessionInbox {
   private async settleDelivered(session: Session, row: QueuedInboxMessage): Promise<void> {
     const sessionId = session.sessionId
     this.reportedPromptFailures.delete(row.id)
-    if (row.sourceMessageId) await this.deps.authorization.applied({ sessionId, sourceMessageId: row.sourceMessageId })
-    if ((await this.deps.draftText?.(sessionId)) === row.text) await this.deps.setSessionDraft?.({ sessionId, text: '' })
+    if (row.sourceMessageId)
+      await this.deps.authorization.applied({ sessionId, sourceMessageId: row.sourceMessageId })
+    if ((await this.deps.draftText?.(sessionId)) === row.text)
+      await this.deps.setSessionDraft?.({ sessionId, text: '' })
     await this.deps.queue.delete(row.id)
     this.forwardedRows.get(sessionId)?.ids.delete(row.id)
   }
@@ -1606,7 +1677,11 @@ export class SessionInbox {
    * anyone to "send it again": with the original possibly on its way, that
    * invitation is how one message became two.
    */
-  private async reportContractUnconfirmed(sessionId: SessionId, row: QueuedInboxMessage, reason: string): Promise<void> {
+  private async reportContractUnconfirmed(
+    sessionId: SessionId,
+    row: QueuedInboxMessage,
+    reason: string,
+  ): Promise<void> {
     if (this.reportedPromptFailures.has(row.id)) return
     if (!(await this.deps.queue.list(sessionId)).some((entry) => entry.id === row.id)) return
     this.reportedPromptFailures.add(row.id)
@@ -1693,12 +1768,18 @@ export class SessionInbox {
     // attach ids to text matches, so their bindings do not qualify as proof.
     // Reuse the existing delivery frame; no new wire field is needed.
     const session = this.deps.getSession(sessionId)
-    if (event.outcome === 'delivered' && event.transcriptItem && event.harnessRef &&
-        event.harnessRef.some((ref) => EXACT_HISTORY_IDS.has(ref.kind)) &&
-        driverIdIsServerFamily(session?.driverId ?? '')) {
+    if (
+      event.outcome === 'delivered' &&
+      event.transcriptItem &&
+      event.harnessRef &&
+      event.harnessRef.some((ref) => EXACT_HISTORY_IDS.has(ref.kind)) &&
+      driverIdIsServerFamily(session?.driverId ?? '')
+    ) {
       await this.deps.authorization.idMatched?.({
-        messageId: event.rowId, sessionId,
-        transcriptItem: event.transcriptItem, harnessRef: event.harnessRef,
+        messageId: event.rowId,
+        sessionId,
+        transcriptItem: event.transcriptItem,
+        harnessRef: event.harnessRef,
       })
     }
   }
@@ -1763,7 +1844,10 @@ export class SessionInbox {
     if (event.outcome === 'delivered') {
       await this.settleDelivered(session, row)
     } else if (event.outcome === 'dropped') {
-      await this.deps.authorization.interrupted?.({ sessionId, sourceMessageId: row.sourceMessageId })
+      await this.deps.authorization.interrupted?.({
+        sessionId,
+        sourceMessageId: row.sourceMessageId,
+      })
     } else if (event.cause === 'unconfirmed' || !failureCauseKnown(event.cause)) {
       // The daemon may have typed it and could not prove it landed: `unknown`,
       // never failed, and never written back into the draft (POD-4775). Keyed
@@ -1846,11 +1930,19 @@ export class SessionInbox {
    * delivered message as failed. `dropped` is an explicit retraction its
    * holder ordered and already knows about: nothing to settle.
    */
-  private async settleDirectDeliveryOutcome(sessionId: SessionId, event: DeliveryOutcomeEvent): Promise<void> {
+  private async settleDirectDeliveryOutcome(
+    sessionId: SessionId,
+    event: DeliveryOutcomeEvent,
+  ): Promise<void> {
     // `delivered` with no row here only names the entry (POD-4774, in
     // `deliveryOutcome`): a direct send settles on its own receipt.
     // An unknown cause is no proof of a "no" either (POD-4887): left alone.
-    if (event.outcome !== 'failed' || event.cause === 'unconfirmed' || !failureCauseKnown(event.cause)) return
+    if (
+      event.outcome !== 'failed' ||
+      event.cause === 'unconfirmed' ||
+      !failureCauseKnown(event.cause)
+    )
+      return
     await this.deps.authorization.rejected({
       queueId: event.rowId,
       sourceMessageId: event.rowId,
@@ -1875,14 +1967,14 @@ export class SessionInbox {
   }
 
   /**
-  * The shell's drain: FIFO rows onto the raw transport, settled on send.
-  *
-  * Shells have no driver and no transcript witness — bytes onto the PTY the
-  * operator is watching ARE the delivery, exactly as a controller keystroke.
-  * No readiness wait, no confirmation poll, no retry: a row its owner may no
-  * longer accept is removed with a refusal, everything else is sent once and
-  * settled. Single-flight per session so concurrent re-arms cannot double-send.
-  */
+   * The shell's drain: FIFO rows onto the raw transport, settled on send.
+   *
+   * Shells have no driver and no transcript witness — bytes onto the PTY the
+   * operator is watching ARE the delivery, exactly as a controller keystroke.
+   * No readiness wait, no confirmation poll, no retry: a row its owner may no
+   * longer accept is removed with a refusal, everything else is sent once and
+   * settled. Single-flight per session so concurrent re-arms cannot double-send.
+   */
   private async forwardShellRows(session: Session): Promise<void> {
     const sessionId = session.sessionId
     if (this.activeDrains.has(sessionId)) return
@@ -1956,7 +2048,7 @@ export class SessionInbox {
   }
 
   /** A shell row that met a session it must not be typed into. The row stays
-  *  durable and visible; the failure is reported once per row. */
+   *  durable and visible; the failure is reported once per row. */
   private async reportShellBlocked(
     session: Session,
     head: QueuedInboxMessage,
@@ -1981,16 +2073,16 @@ export class SessionInbox {
   }
 
   /**
-  * Answer an interaction through the caller's delivery — in production the
-  * runtime gateway's `answer`, which reaches the driver that owns the menu
-  * (POD-4427). The keystroke script this method used to type lives in the
-  * terminal driver now (`menuScriptFor`); the server never types menu keys.
-  *
-  * Admission (owner resolution, liveness, prepareSend) stays here: it is the
-  * transport's gate, not the driver's.
-  */
+   * Answer an interaction through the caller's delivery — in production the
+   * runtime gateway's `answer`, which reaches the driver that owns the menu
+   * (POD-4427). The keystroke script this method used to type lives in the
+   * terminal driver now (`menuScriptFor`); the server never types menu keys.
+   *
+   * Admission (owner resolution, liveness, prepareSend) stays here: it is the
+   * transport's gate, not the driver's.
+   */
   async deliverInteractionAnswer(
-    input: { sessionId: SessionId; principal: InboxPrincipalReference },
+    input: { sessionId: SessionId; principal: InboxPrincipalReference; writer: SessionWriter },
     deliver: () => Promise<import('@podium/protocol').InteractionAnswerOutcome>,
   ): Promise<import('@podium/protocol').InteractionAnswerOutcome> {
     const session = this.deps.getSession(input.sessionId)
@@ -1998,18 +2090,38 @@ export class SessionInbox {
     if (!session || !ownerUserId || (session.status !== 'live' && session.status !== 'starting')) {
       return { ok: false, reason: 'expired' }
     }
-    const origin = input.principal.kind === 'user' ? 'human' : input.principal.kind === 'agent' ? 'steward' : 'system'
-    await this.deps.prepareSend(input.sessionId, input.principal.attribution, 'answer', origin)
-    if (this.deps.getSession(input.sessionId) !== session ||
-        await this.deps.ownerOf(input.sessionId) !== ownerUserId ||
-        (session.status !== 'live' && session.status !== 'starting')) return { ok: false, reason: 'expired' }
+    const origin =
+      input.principal.kind === 'user'
+        ? 'human'
+        : input.principal.kind === 'agent'
+          ? 'steward'
+          : 'system'
+    await this.deps.prepareSend(
+      input.writer,
+      input.sessionId,
+      input.principal.attribution,
+      'answer',
+      origin,
+    )
+    if (
+      this.deps.getSession(input.sessionId) !== session ||
+      (await this.deps.ownerOf(input.sessionId)) !== ownerUserId ||
+      (session.status !== 'live' && session.status !== 'starting')
+    )
+      return { ok: false, reason: 'expired' }
     const result = await deliver()
-    if (result.ok) await this.deps.attention.answered({ ownerUserId, sessionId: input.sessionId,
-      attribution: input.principal.attribution })
+    if (result.ok)
+      await this.deps.attention.answered({
+        ownerUserId,
+        sessionId: input.sessionId,
+        attribution: input.principal.attribution,
+      })
     return result
   }
 
   async answerAskUserQuestion(input: {
+    /** Whose write the answer's admission is (POD-6602). */
+    writer: SessionWriter
     interactionId?: string
     sessionId: SessionId
     choices?: AnswerChoice[]
@@ -2033,7 +2145,7 @@ export class SessionInbox {
     // admission, exactly as it did for typed answers.
     const attribution = input.principal.attribution
     const answerState = session.agentState
-    await this.deps.prepareSend(input.sessionId, attribution, 'answer', 'human')
+    await this.deps.prepareSend(input.writer, input.sessionId, attribution, 'answer', 'human')
     if (
       this.deps.getSession(input.sessionId) !== session ||
       session.agentState !== answerState ||
@@ -2041,8 +2153,11 @@ export class SessionInbox {
       (session.status !== 'live' && session.status !== 'starting')
     )
       return { ok: false, reason: 'session changed during answer admission' }
-    if (!input.interactionId || !this.deps.contractAnswer) return { ok: false, reason: 'unknown-interaction' }
-    return await this.deps.contractAnswer(input)
+    if (!input.interactionId || !this.deps.contractAnswer)
+      return { ok: false, reason: 'unknown-interaction' }
+    // The writer stays here: the driver's answer is not a write of ours.
+    const { writer: _writer, ...answer } = input
+    return await this.deps.contractAnswer({ ...answer, interactionId: input.interactionId })
   }
 
   async stateChanged(input: {
@@ -2158,7 +2273,8 @@ export class SessionInbox {
     if (this.deps.authorizeDrive && !(await this.deps.authorizeDrive(sole.principal, sessionId)))
       return false
     const [currentSole, currentSecond] = session.terminal.activeNativeRenderers()
-    if (currentSole !== sole || currentSecond || this.deps.getSession(sessionId) !== session) return false
+    if (currentSole !== sole || currentSecond || this.deps.getSession(sessionId) !== session)
+      return false
     const previous = session.terminal.controllerId
     // Never auto-transfer on a stale/unknown grid. A newly active renderer
     // states its current viewport immediately; the statement path calls back
@@ -2208,25 +2324,25 @@ export class SessionInbox {
   }
 
   /**
-  * Raw bytes for a shell turn: the bracketed paste plus its submit, with no
-  * timers behind them (POD-4427).
-  *
-  * This is transport, not delivery: the same bytes a controller keystroke
-  * would put on the wire, and the reason shells are exempt from the
-  * never-types rule — there is no harness here to type AT, only a PTY the
-  * operator is watching. One submit, sent with the paste: the delayed-CR
-  * verify loop that used to follow is gone with the agent typing path whose
-  * doubled characters it produced.
-  *
-  * THE TRUST BOUNDARY, AND IT IS CROSSED EXACTLY HERE (POD-2708).
-  *
-  * `injectionPayload` is the only thing on this side that puts caller text
-  * inside a bracketed paste, and it cannot do so without first removing every
-  * byte a shell's line discipline would read as control — so no text arriving
-  * at this line can close the envelope it is about to be wrapped in, whoever
-  * sent it.
-  */
-  private sendShellText(session: Session, input: InboxSendInput): void {
+   * Raw bytes for a shell turn: the bracketed paste plus its submit, with no
+   * timers behind them (POD-4427).
+   *
+   * This is transport, not delivery: the same bytes a controller keystroke
+   * would put on the wire, and the reason shells are exempt from the
+   * never-types rule — there is no harness here to type AT, only a PTY the
+   * operator is watching. One submit, sent with the paste: the delayed-CR
+   * verify loop that used to follow is gone with the agent typing path whose
+   * doubled characters it produced.
+   *
+   * THE TRUST BOUNDARY, AND IT IS CROSSED EXACTLY HERE (POD-2708).
+   *
+   * `injectionPayload` is the only thing on this side that puts caller text
+   * inside a bracketed paste, and it cannot do so without first removing every
+   * byte a shell's line discipline would read as control — so no text arriving
+   * at this line can close the envelope it is about to be wrapped in, whoever
+   * sent it.
+   */
+  private sendShellText(session: Session, input: Omit<InboxSendInput, 'writer'>): void {
     const principal = input.principal ?? SYSTEM_INBOX_PRINCIPAL
     this.sendInput(
       session,

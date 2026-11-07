@@ -192,6 +192,8 @@ export interface SessionStartPorts {
   }>
   sessionOwner(sessionId: SessionId): Promise<{ owner: UserId; grants: string[] } | undefined>
   queueInitialPrompt(input: {
+    /** The start's own writer: the queued prompt's session write is its. */
+    writer: SessionWriter
     sessionId: SessionId
     text: string
     sourceMessageId?: string
@@ -520,6 +522,7 @@ export class SessionStart {
             ...(initialAttachments ? { attachments: initialAttachments } : {}),
           })
       const queued = await this.ports.queueInitialPrompt({
+        writer: this.ports.writer,
         sessionId: spawned.sessionId,
         text: taskPrompt,
         ...(promptMessageId ? { sourceMessageId: promptMessageId } : {}),

@@ -20,16 +20,11 @@
  * path (shown red before the deletion; see VERIFY-4427.md).
  */
 
-import {
-  actorAgent,
-  asAgentIdentityId,
-  asSessionId,
-  asUserId,
-  type SessionId,
-} from '@podium/model'
+import { actorAgent, asAgentIdentityId, asSessionId, asUserId, type SessionId } from '@podium/model'
 import { asDelegationRef } from '@podium/protocol'
 import type { TurnReceipt } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
+import type { ClientConn } from '../../gateway/client-registry'
 import {
   harnessComposerReadiness,
   harnessDisplayName,
@@ -38,12 +33,8 @@ import {
   harnessUsesRawFirstTurn,
 } from '../../harness-manifest'
 import { testClientPrincipal } from '../../test-support/client-principal'
-import type { ClientConn } from '../../gateway/client-registry'
-import {
-  type InboxPrincipalReference,
-  type QueuedInboxMessage,
-  SessionInbox,
-} from './inbox'
+import { messageTestWriter } from '../../test-support/message-writer'
+import { type InboxPrincipalReference, type QueuedInboxMessage, SessionInbox } from './inbox'
 import type { Session } from './session'
 
 const SID = asSessionId('session-target')
@@ -241,14 +232,22 @@ function harness(
   }
 }
 
-const flush = () => new Promise<void>((resolve) => { setTimeout(resolve, 0) })
+const flush = () =>
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, 0)
+  })
 
 describe('the server never types at a harness (POD-4427)', () => {
   it('sendText queues through the gateway without touching PTY bytes', async () => {
     const h = harness()
 
     expect(
-      await h.inbox.sendText({ sessionId: SID, text: 'hello agent', principal: agentPrincipal() }),
+      await h.inbox.sendText({
+        writer: messageTestWriter(),
+        sessionId: SID,
+        text: 'hello agent',
+        principal: agentPrincipal(),
+      }),
     ).toEqual({ ok: true, queued: true })
 
     await flush()
@@ -265,6 +264,7 @@ describe('the server never types at a harness (POD-4427)', () => {
 
     expect(
       await h.inbox.answerAskUserQuestion({
+        writer: messageTestWriter(),
         sessionId: SID,
         interactionId: 'ixn_menu',
         choices: [{ optionIndices: [2] }],
@@ -280,7 +280,12 @@ describe('the server never types at a harness (POD-4427)', () => {
   it('interruptTurn interrupts through the gateway without touching PTY bytes', async () => {
     const h = harness({ phase: 'working' })
 
-    expect(await h.inbox.interruptTurn({ sessionId: SID, principal: agentPrincipal() })).toEqual({
+    expect(
+      await h.inbox.interruptTurn({
+        sessionId: SID,
+        principal: agentPrincipal(),
+      }),
+    ).toEqual({
       ok: true,
       requested: 'protocol',
     })
@@ -297,12 +302,7 @@ describe('the server never types at a harness (POD-4427)', () => {
     ;(h.session.terminal as unknown as { handleInputBytes: unknown }).handleInputBytes =
       handleInputBytes
 
-    await h.inbox.handleControllerInput(
-      principal,
-      client,
-      SID,
-      Buffer.from('x').toString('base64'),
-    )
+    await h.inbox.handleControllerInput(principal, client, SID, Buffer.from('x').toString('base64'))
 
     expect(handleInputBytes).toHaveBeenCalledOnce()
     expect(h.contractSends).toEqual([])
@@ -357,6 +357,7 @@ describe('previous-release rows drain once through the gateway (POD-4427 migrati
 
     expect(
       await h.inbox.queueText({
+        writer: messageTestWriter(),
         sessionId: SID,
         text: 'typed once, never confirmed',
         sourceMessageId: 'msg_unverified',
@@ -368,7 +369,9 @@ describe('previous-release rows drain once through the gateway (POD-4427 migrati
     expect(h.contractSends).toEqual([
       expect.objectContaining({ turnId: 'msg_unverified', deliveryRecovery: false }),
     ])
-    expect(h.rows).toEqual([expect.objectContaining({ id: 'msg_unverified', deliveryOwner: 'daemon' })])
+    expect(h.rows).toEqual([
+      expect.objectContaining({ id: 'msg_unverified', deliveryOwner: 'daemon' }),
+    ])
     expect(h.promptFailed).toHaveLength(1)
 
     // The sweep tick (relay.ts, QUEUED_INPUT_SWEEP_MS). Whatever the daemon
@@ -387,6 +390,7 @@ describe('previous-release rows drain once through the gateway (POD-4427 migrati
 
     expect(
       await h.inbox.answerAskUserQuestion({
+        writer: messageTestWriter(),
         sessionId: SID,
         interactionId: 'ixn_native_menu',
         choices: [
@@ -414,7 +418,8 @@ describe('previous-release rows drain once through the gateway (POD-4427 migrati
       // `failed`; only a fresh forward is typed. A fake that accepted
       // regardless of the flag is what hid POD-4622.
       deliver: (input) => {
-        if (!bound) return { outcome: 'refused', refusal: { reason: 'not_running', detail: 'no machine' } }
+        if (!bound)
+          return { outcome: 'refused', refusal: { reason: 'not_running', detail: 'no machine' } }
         if (input.deliveryRecovery) recoveryFailures.push(input.turnId)
         return acceptedReceipt()
       },
@@ -422,6 +427,7 @@ describe('previous-release rows drain once through the gateway (POD-4427 migrati
 
     expect(
       await h.inbox.queueText({
+        writer: messageTestWriter(),
         sessionId: SID,
         text: 'waiting for a driver',
         sourceMessageId: 'msg_unbound',
@@ -465,9 +471,16 @@ describe('previous-release rows drain once through the gateway (POD-4427 migrati
     // nothing — it says nothing about the first, so the row stays recovery.
     let bound = false
     const h = harness({
-      deliver: () => bound
-        ? acceptedReceipt()
-        : { outcome: 'refused', refusal: { reason: 'not_running', detail: 'session is not behind the runtime contract' } },
+      deliver: () =>
+        bound
+          ? acceptedReceipt()
+          : {
+              outcome: 'refused',
+              refusal: {
+                reason: 'not_running',
+                detail: 'session is not behind the runtime contract',
+              },
+            },
     })
     h.rows.push({
       delivery: 'when-ready',
@@ -484,7 +497,9 @@ describe('previous-release rows drain once through the gateway (POD-4427 migrati
 
     await h.inbox.drain(SID)
     await flush()
-    expect(h.contractSends).toEqual([expect.objectContaining({ turnId: 'held-row', deliveryRecovery: true })])
+    expect(h.contractSends).toEqual([
+      expect.objectContaining({ turnId: 'held-row', deliveryRecovery: true }),
+    ])
     expect(h.rows[0]).toMatchObject({ attempts: 1, deliveryOwner: 'daemon' })
 
     bound = true
@@ -501,10 +516,12 @@ describe('previous-release rows drain once through the gateway (POD-4427 migrati
     // visible and retryable, a duplicate turn is not undoable.
     let bound = false
     const h = harness({
-      deliver: () => bound ? acceptedReceipt() : { outcome: 'refused', refusal: { reason: 'busy' } },
+      deliver: () =>
+        bound ? acceptedReceipt() : { outcome: 'refused', refusal: { reason: 'busy' } },
     })
     expect(
       await h.inbox.queueText({
+        writer: messageTestWriter(),
         sessionId: SID,
         text: 'refused busy',
         sourceMessageId: 'msg_busy',
@@ -525,10 +542,20 @@ describe('previous-release rows drain once through the gateway (POD-4427 migrati
     const shell = harness({ agentKind: 'shell' })
 
     expect(
-      await shell.inbox.sendText({ sessionId: SID, text: 'first', principal: agentPrincipal() }),
+      await shell.inbox.sendText({
+        writer: messageTestWriter(),
+        sessionId: SID,
+        text: 'first',
+        principal: agentPrincipal(),
+      }),
     ).toEqual({ ok: true })
     expect(
-      await shell.inbox.sendText({ sessionId: SID, text: 'second', principal: agentPrincipal() }),
+      await shell.inbox.sendText({
+        writer: messageTestWriter(),
+        sessionId: SID,
+        text: 'second',
+        principal: agentPrincipal(),
+      }),
     ).toEqual({ ok: true })
 
     const texts = shell.sent.map((entry) =>
@@ -546,7 +573,12 @@ describe('previous-release rows drain once through the gateway (POD-4427 migrati
     const shell = harness({ agentKind: 'shell', phase: 'working' })
 
     expect(
-      await shell.inbox.sendText({ sessionId: SID, text: 'busy shell', principal: agentPrincipal() }),
+      await shell.inbox.sendText({
+        writer: messageTestWriter(),
+        sessionId: SID,
+        text: 'busy shell',
+        principal: agentPrincipal(),
+      }),
     ).toEqual({ ok: true })
 
     expect(shell.sent).toHaveLength(2)
@@ -560,6 +592,7 @@ describe('previous-release rows drain once through the gateway (POD-4427 migrati
 
     expect(
       await shell.inbox.queueText({
+        writer: messageTestWriter(),
         sessionId: SID,
         text: 'shell row',
         sourceMessageId: 'msg_shell_settle',

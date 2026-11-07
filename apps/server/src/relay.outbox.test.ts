@@ -293,6 +293,7 @@ describe('queueText (durable outbox sends)', () => {
       }
       expect(
         await reg.modules.sessions.queueText({
+          writer: reg.modules.sessions.serverWriter,
           sessionId: target,
           text: 'must not cross revocation',
           mutationId: asMutationId('revoke-before-drain'),
@@ -356,6 +357,7 @@ describe('queueText (durable outbox sends)', () => {
 
       expect(
         await reg.modules.sessions.queueText({
+          writer: reg.modules.sessions.serverWriter,
           sessionId: asSessionId(sessionId),
           text: 'wake-up-msg',
         }),
@@ -436,6 +438,7 @@ describe('queueText (durable outbox sends)', () => {
       })
       expect(
         await regA.modules.sessions.queueText({
+          writer: regA.modules.sessions.serverWriter,
           sessionId: asSessionId(sessionId),
           text: 'wake',
           mutationId: asMutationId('restart-wake'),
@@ -580,7 +583,13 @@ describe('queueText (durable outbox sends)', () => {
     })
     daemon.length = 0
 
-    expect(await reg.modules.sessions.queueText({ sessionId, text: 'into-the-void' })).toEqual({
+    expect(
+      await reg.modules.sessions.queueText({
+        writer: reg.modules.sessions.serverWriter,
+        sessionId,
+        text: 'into-the-void',
+      }),
+    ).toEqual({
       ok: false,
       reason: 'no resume ref',
     })
@@ -603,6 +612,7 @@ describe('queueText (durable outbox sends)', () => {
       const sessionId = await hibernatedSession(regA)
       expect(
         await regA.modules.sessions.queueText({
+          writer: regA.modules.sessions.serverWriter,
           sessionId: asSessionId(sessionId),
           text: 'survive-restart',
         }),
@@ -674,8 +684,16 @@ describe('queueText (durable outbox sends)', () => {
       })
       await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
 
-      await reg.modules.sessions.queueText({ sessionId, text: 'first-msg' })
-      await reg.modules.sessions.queueText({ sessionId, text: 'second-msg' })
+      await reg.modules.sessions.queueText({
+        writer: reg.modules.sessions.serverWriter,
+        sessionId,
+        text: 'first-msg',
+      })
+      await reg.modules.sessions.queueText({
+        writer: reg.modules.sessions.serverWriter,
+        sessionId,
+        text: 'second-msg',
+      })
       expect(
         (await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.queuedMessageCount,
       ).toBe(2)
@@ -727,7 +745,11 @@ describe('queueText (durable outbox sends)', () => {
         agentKind: 'claude-code',
         cwd: '/w',
       })
-      await reg.modules.sessions.queueText({ sessionId, text: 'patient-msg' })
+      await reg.modules.sessions.queueText({
+        writer: reg.modules.sessions.serverWriter,
+        sessionId,
+        text: 'patient-msg',
+      })
       // A new session's row is handed on from admission (4bd403fed).
       await vi.waitFor(() => expect(freshSends(daemon, sessionId)).toHaveLength(1))
       const [write] = freshSends(daemon, sessionId)
@@ -784,6 +806,7 @@ describe('queueText (durable outbox sends)', () => {
     const before = inbox.length
 
     await reg.modules.sessions.queueText({
+      writer: reg.modules.sessions.serverWriter,
       sessionId: asSessionId(sessionId),
       text: 'queued-while-parked',
     })
@@ -822,7 +845,11 @@ describe('queueText (durable outbox sends)', () => {
     })
     expect((await clientSessionViews(reg))[0]?.snoozedUntil).toBeNull()
 
-    await reg.modules.sessions.queueText({ sessionId: asSessionId(sessionId), text: 'un-snooze' })
+    await reg.modules.sessions.queueText({
+      writer: reg.modules.sessions.serverWriter,
+      sessionId: asSessionId(sessionId),
+      text: 'un-snooze',
+    })
     expect((await clientSessionViews(reg))[0]?.snoozedUntil).toBeUndefined()
     expect(await reg.sessionStore.sessions.listSnoozes(firstAdminMemberId())).toEqual({})
   })
@@ -923,7 +950,12 @@ describe('framework idempotency (modules.mutations)', () => {
         await reg.modules.mutations.once(
           asMutationId(id),
           'sessions.sendText',
-          async () => await reg.modules.sessions.sendText({ sessionId: target, text: 'only-once' }),
+          async () =>
+            await reg.modules.sessions.sendText({
+              writer: reg.modules.sessions.serverWriter,
+              sessionId: target,
+              text: 'only-once',
+            }),
         )
       expect(await send('send-1', sessionId)).toEqual({ ok: true, queued: true })
       expect(await send('send-1', sessionId)).toEqual({ ok: true, queued: true }) // recorded result, fn not re-run

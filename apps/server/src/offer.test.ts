@@ -542,7 +542,11 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       cwd: '/p',
     })
     await reg.modules.sessions.setOffer(reg.modules.sessions.serverWriter, { sessionId, ...OFFER })
-    await reg.modules.sessions.queueText({ sessionId, text: 'do the thing' })
+    await reg.modules.sessions.queueText({
+      writer: reg.modules.sessions.serverWriter,
+      sessionId,
+      text: 'do the thing',
+    })
     expect(await metaOffer(reg, sessionId)).toBeUndefined()
   })
 
@@ -800,6 +804,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     it('a mail delivery neither clears the offer nor counts as input evidence', async () => {
       const { reg, sessionId, observe, turnOpened } = await seed('codex')
       await reg.modules.sessions.sendText({
+        writer: reg.modules.sessions.serverWriter,
         sessionId: asSessionId(sessionId),
         text: 'a message from another agent',
         inputOrigin: 'mail',
@@ -812,6 +817,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     it('a chat send still clears it on the way in', async () => {
       const { reg, sessionId } = await seed('codex')
       await reg.modules.sessions.sendText({
+        writer: reg.modules.sessions.serverWriter,
         sessionId: asSessionId(sessionId),
         text: 'carry on',
       })

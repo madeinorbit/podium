@@ -151,11 +151,6 @@ export const SYSTEM_WRITE_ORIGINS = {
     what: "a session's live fields (activity, terminal state, the composer's draft tag) captured to the feed, inside whichever unit flushes them",
     kind: 'mirror',
   },
-  'sessions.inbox': {
-    what: "a session's row written as a message is delivered to it (a send's offer and snooze clears, the queued input): the delivery service holds the delivering write's writer (POD-6602), but the session inbox's send ports take none yet",
-    kind: 'client',
-    legacy: { removeAfter: '2027-03', owner: 'POD-6602' },
-  },
 } as const satisfies Record<string, SystemWriteOriginSpec>
 
 export type SystemWriteOrigin = keyof typeof SYSTEM_WRITE_ORIGINS

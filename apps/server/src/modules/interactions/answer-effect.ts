@@ -234,6 +234,8 @@ export function registerSessionAnswerEffect(deps: SessionAnswerEffectDeps): void
     switch (input.via) {
       case 'menu': {
         const outcome = await modules.sessions.answerAskUserQuestion({
+          // The record's run, after its commit: the server's own.
+          writer: modules.sessions.serverWriter,
           sessionId,
           ...(input.interactionId !== undefined ? { interactionId: input.interactionId } : {}),
           ...(input.choices !== undefined ? { choices: input.choices as AnswerChoice[] } : {}),

@@ -1,12 +1,12 @@
-import { asSessionId, firstAdminMemberId, type SessionId } from "@podium/model"
-import type { ControlMessage, RuntimeEvent } from "@podium/protocol/daemon"
-import { describe, expect, it, vi } from "vitest"
+import { asSessionId, firstAdminMemberId, type SessionId } from '@podium/model'
+import type { ControlMessage, RuntimeEvent } from '@podium/protocol/daemon'
+import { describe, expect, it, vi } from 'vitest'
 import {
   RuntimeEventGate,
   type RuntimeEventGatePorts,
   type RuntimeEventGateResult,
-} from "../modules/sessions/runtime-event-gate"
-import { mergeLatestTranscriptPage, mergeTranscriptItems } from "../modules/sessions/terminal"
+} from '../modules/sessions/runtime-event-gate'
+import { mergeLatestTranscriptPage, mergeTranscriptItems } from '../modules/sessions/terminal'
 import { SessionRegistry } from '../relay'
 import type { SessionStore } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
@@ -90,10 +90,19 @@ function terminalItemEvent(input: {
 
 // `null` binds without a driver (a legacy-only daemon). Not `undefined`: an
 // explicit `undefined` argument takes the default and binds the driver.
-async function bindContract(registry: SessionRegistry, store: SessionStore, onCommand: (message: ControlMessage) => void = () => {}, driverId: string | null = 'codex-app-server') {
+async function bindContract(
+  registry: SessionRegistry,
+  store: SessionStore,
+  onCommand: (message: ControlMessage) => void = () => {},
+  driverId: string | null = 'codex-app-server',
+) {
   await store.machines.upsertMachine({
-    id: store.hostMachineId, name: 'Host', hostname: 'test', tokenHash: 'test',
-    ownerUserId: firstAdminMemberId(), assignment: { server: true, agentExecution: true },
+    id: store.hostMachineId,
+    name: 'Host',
+    hostname: 'test',
+    tokenHash: 'test',
+    ownerUserId: firstAdminMemberId(),
+    assignment: { server: true, agentExecution: true },
   })
   await registry.gateway.attachDaemon(store.hostMachineId, onCommand)
   const { sessionId } = await registry.modules.sessions.createSession({
@@ -173,10 +182,21 @@ describe('durable runtime observation gate', () => {
           next,
         )
       }
-      const providerPosition = stateEvent({ at, seq: 6, observerGeneration: 2, change: { kind: 'state_snapshot', state } })
+      const providerPosition = stateEvent({
+        at,
+        seq: 6,
+        observerGeneration: 2,
+        change: { kind: 'state_snapshot', state },
+      })
       providerPosition.cursor.components.transcript = 50
       await send(providerPosition)
-      const regressed = stateEvent({ at, seq: 1, observerGeneration: 3, provenance: 'bootstrap', change: { kind: 'state_snapshot', state: { ...state, phase: 'working' } } })
+      const regressed = stateEvent({
+        at,
+        seq: 1,
+        observerGeneration: 3,
+        provenance: 'bootstrap',
+        change: { kind: 'state_snapshot', state: { ...state, phase: 'working' } },
+      })
       regressed.cursor.components.transcript = 49
       await send(regressed)
       expect((await store.events.runtimeEventCheckpoint(sessionId))?.observerGeneration).toBe(2)
@@ -221,7 +241,8 @@ describe('durable runtime observation gate', () => {
       registry.bus.on('issue.sessionDerived', (event) => effects.push(event.kind))
       for (const phase of ['working', 'needs_user'] as const) {
         await registry.gateway.routeDaemonFrame(store.hostMachineId, {
-          type: 'agentState', sessionId,
+          type: 'agentState',
+          sessionId,
           state: { phase, since: at, nativeSubagentCount: 0 },
         })
       }
@@ -242,19 +263,28 @@ describe('durable runtime observation gate', () => {
       const sessionId = await bindContract(registry, store)
       const initial = await registry.modules.sessions.sessionById(sessionId)
       const start = Date.parse(initial?.lastActiveAt ?? '') + 1_000
-      for (const [index, kind] of ['prompt_submitted', 'turn_completed', 'prompt_submitted', 'turn_completed'].entries()) {
+      for (const [index, kind] of [
+        'prompt_submitted',
+        'turn_completed',
+        'prompt_submitted',
+        'turn_completed',
+      ].entries()) {
         const at = new Date(start + index * 1_000).toISOString()
         await registry.gateway.routeDaemonFrame(store.hostMachineId, {
-          type: 'agentState', sessionId,
+          type: 'agentState',
+          sessionId,
           state: { phase: 'working', since: at, nativeSubagentCount: 0, workingMsTotal: 999_999 },
         })
         await registry.gateway.routeDaemonFrame(store.hostMachineId, {
-          type: 'runtimeEvent', sessionId, deliveryId: `counter-${index}`,
+          type: 'runtimeEvent',
+          sessionId,
+          deliveryId: `counter-${index}`,
           event: stateEvent({ at, seq: index + 1, observerGeneration: 1, change: { kind } }),
         })
       }
       expect((await registry.modules.sessions.sessionById(sessionId))?.agentState).toMatchObject({
-        phase: 'idle', workingMsTotal: 2_000,
+        phase: 'idle',
+        workingMsTotal: 2_000,
       })
     } finally {
       await registry.dispose()
@@ -267,17 +297,20 @@ describe('durable runtime observation gate', () => {
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionId = await bindContract(registry, store)
 
-    const firstLiveAfterEmptyBootstrapCompletion: Promise<void> = registry.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'runtimeEvent',
-      deliveryId: 'first-live-after-empty-bootstrap',
-      sessionId,
-      event: stateEvent({
-        at: '2026-08-30T00:00:00.000Z',
-        seq: 1,
-        observerGeneration: 1,
-        change: { kind: 'session_started' },
-      }),
-    })
+    const firstLiveAfterEmptyBootstrapCompletion: Promise<void> = registry.gateway.routeDaemonFrame(
+      store.hostMachineId,
+      {
+        type: 'runtimeEvent',
+        deliveryId: 'first-live-after-empty-bootstrap',
+        sessionId,
+        event: stateEvent({
+          at: '2026-08-30T00:00:00.000Z',
+          seq: 1,
+          observerGeneration: 1,
+          change: { kind: 'session_started' },
+        }),
+      },
+    )
     await firstLiveAfterEmptyBootstrapCompletion
 
     expect(await store.events.listRuntimeEvents(sessionId)).toHaveLength(1)
@@ -287,16 +320,17 @@ describe('durable runtime observation gate', () => {
     })
 
     const replacementSessionId = await bindContract(registry, store)
-    const replacementLiveWithoutBootstrapCompletion: Promise<void> = registry.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'runtimeEvent',
-      deliveryId: 'replacement-live-without-bootstrap',
-      sessionId: replacementSessionId,
-      event: stateEvent({
-        at: '2026-08-30T00:00:01.000Z',
-        seq: 1,
-        observerGeneration: 2,
-      }),
-    })
+    const replacementLiveWithoutBootstrapCompletion: Promise<void> =
+      registry.gateway.routeDaemonFrame(store.hostMachineId, {
+        type: 'runtimeEvent',
+        deliveryId: 'replacement-live-without-bootstrap',
+        sessionId: replacementSessionId,
+        event: stateEvent({
+          at: '2026-08-30T00:00:01.000Z',
+          seq: 1,
+          observerGeneration: 2,
+        }),
+      })
     await replacementLiveWithoutBootstrapCompletion
     expect(await store.events.listRuntimeEvents(replacementSessionId)).toHaveLength(0)
     expect(await store.events.runtimeEventCheckpoint(replacementSessionId)).toBeNull()
@@ -310,18 +344,21 @@ describe('durable runtime observation gate', () => {
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionId = await bindContract(registry, store)
 
-    const bootstrapTerminalTranscriptCompletion: Promise<void> = registry.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'runtimeEvent',
-      deliveryId: 'bootstrap-terminal-transcript',
-      sessionId,
-      event: stateEvent({
-        at: '2026-08-23T00:00:00.000Z',
-        seq: 1,
-        observerGeneration: 1,
-        provenance: 'bootstrap',
-        change: { kind: 'session_started' },
-      }),
-    })
+    const bootstrapTerminalTranscriptCompletion: Promise<void> = registry.gateway.routeDaemonFrame(
+      store.hostMachineId,
+      {
+        type: 'runtimeEvent',
+        deliveryId: 'bootstrap-terminal-transcript',
+        sessionId,
+        event: stateEvent({
+          at: '2026-08-23T00:00:00.000Z',
+          seq: 1,
+          observerGeneration: 1,
+          provenance: 'bootstrap',
+          change: { kind: 'session_started' },
+        }),
+      },
+    )
     await bootstrapTerminalTranscriptCompletion
     // Shape emitted by TerminalRuntime for a native Grok transcript tail: the
     // provider item identity rides inside a complete runtime item event.
@@ -427,29 +464,38 @@ describe('durable runtime observation gate', () => {
     expect(mergeTranscriptItems(bridged, [replay], 50)).toEqual([replay])
     // The real headed sequence: the tail seeds the user first; completion
     // reconciliation then overlaps that user while adding the assistant.
-    const transcriptDeltaCompletion: Promise<void> = registry.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'transcriptDelta',
-      sessionId,
-      items: [userItem],
-      reset: true,
-    })
+    const transcriptDeltaCompletion: Promise<void> = registry.gateway.routeDaemonFrame(
+      store.hostMachineId,
+      {
+        type: 'transcriptDelta',
+        sessionId,
+        items: [userItem],
+        reset: true,
+      },
+    )
     await transcriptDeltaCompletion
     for (const [index, item] of items.entries()) {
       const event = terminalItemEvent({ at: item.ts, seq: index + 2, item })
-      const terminalItemIndexCompletion: Promise<void> = registry.gateway.routeDaemonFrame(store.hostMachineId, {
-        type: 'runtimeEvent',
-        deliveryId: `terminal-item-${index}`,
-        sessionId,
-        event,
-      })
+      const terminalItemIndexCompletion: Promise<void> = registry.gateway.routeDaemonFrame(
+        store.hostMachineId,
+        {
+          type: 'runtimeEvent',
+          deliveryId: `terminal-item-${index}`,
+          sessionId,
+          event,
+        },
+      )
       await terminalItemIndexCompletion
       // An outbox replay of the same causal event is a duplicate, not a row.
-      const terminalItemReplayIndexCompletion: Promise<void> = registry.gateway.routeDaemonFrame(store.hostMachineId, {
-        type: 'runtimeEvent',
-        deliveryId: `terminal-item-replay-${index}`,
-        sessionId,
-        event,
-      })
+      const terminalItemReplayIndexCompletion: Promise<void> = registry.gateway.routeDaemonFrame(
+        store.hostMachineId,
+        {
+          type: 'runtimeEvent',
+          deliveryId: `terminal-item-replay-${index}`,
+          sessionId,
+          event,
+        },
+      )
       await terminalItemReplayIndexCompletion
     }
 
@@ -461,7 +507,9 @@ describe('durable runtime observation gate', () => {
     )
     expect(liveTranscript.items).toEqual(items)
     expect(
-      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find((s) => s.sessionId === sessionId),
+      (await registry.modules.sessions.listSessions(undefined, 'rpc')).find(
+        (s) => s.sessionId === sessionId,
+      ),
     ).toMatchObject({ transcriptAvailable: true })
     expect(await store.events.runtimeTranscriptSessionIds()).toContain(sessionId)
     expect(await store.events.listRuntimeTranscriptEvents(sessionId)).toHaveLength(2)
@@ -498,31 +546,37 @@ describe('durable runtime observation gate', () => {
       text: 'must never appear',
       ts: '2026-08-23T01:00:00.000Z',
     }
-    const rejectedCompleteItemCompletion: Promise<void> = registry.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'runtimeEvent',
-      deliveryId: 'rejected-complete-item',
-      sessionId,
-      event: {
-        ...terminalItemEvent({ at: rejectedItem.ts, seq: 1, item: rejectedItem }),
-        observerGeneration: 2,
+    const rejectedCompleteItemCompletion: Promise<void> = registry.gateway.routeDaemonFrame(
+      store.hostMachineId,
+      {
+        type: 'runtimeEvent',
+        deliveryId: 'rejected-complete-item',
+        sessionId,
+        event: {
+          ...terminalItemEvent({ at: rejectedItem.ts, seq: 1, item: rejectedItem }),
+          observerGeneration: 2,
+        },
       },
-    })
+    )
     await rejectedCompleteItemCompletion
     expect(await store.events.listRuntimeTranscriptEvents(sessionId)).toEqual([])
     expect(registry.modules.sessions.transcriptFor(sessionId)).toEqual([])
 
-    const bootstrapBeforeInterruptCompletion: Promise<void> = registry.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'runtimeEvent',
-      deliveryId: 'bootstrap-before-interrupt',
-      sessionId,
-      event: stateEvent({
-        at: '2026-08-23T01:00:01.000Z',
-        seq: 1,
-        observerGeneration: 1,
-        provenance: 'bootstrap',
-        change: { kind: 'session_started' },
-      }),
-    })
+    const bootstrapBeforeInterruptCompletion: Promise<void> = registry.gateway.routeDaemonFrame(
+      store.hostMachineId,
+      {
+        type: 'runtimeEvent',
+        deliveryId: 'bootstrap-before-interrupt',
+        sessionId,
+        event: stateEvent({
+          at: '2026-08-23T01:00:01.000Z',
+          seq: 1,
+          observerGeneration: 1,
+          provenance: 'bootstrap',
+          change: { kind: 'session_started' },
+        }),
+      },
+    )
     await bootstrapBeforeInterruptCompletion
     const interruptItem = {
       id: 'terminal-interrupt-1',
@@ -534,12 +588,15 @@ describe('durable runtime observation gate', () => {
     }
     const interruptEvent = terminalItemEvent({ at: interruptItem.ts, seq: 2, item: interruptItem })
     for (const deliveryId of ['interrupt-once', 'interrupt-replay']) {
-      const runtimeEventCompletion: Promise<void> = registry.gateway.routeDaemonFrame(store.hostMachineId, {
-        type: 'runtimeEvent',
-        deliveryId,
-        sessionId,
-        event: interruptEvent,
-      })
+      const runtimeEventCompletion: Promise<void> = registry.gateway.routeDaemonFrame(
+        store.hostMachineId,
+        {
+          type: 'runtimeEvent',
+          deliveryId,
+          sessionId,
+          event: interruptEvent,
+        },
+      )
       await runtimeEventCompletion
     }
     const live = registry.modules.sessions.transcriptFor(sessionId)
@@ -562,56 +619,65 @@ describe('durable runtime observation gate', () => {
     const sessionId = await bindContract(registry, store)
     const detail = 'API error (status 402 Payment Required): Grok Build usage balance exhausted'
 
-    const bootstrapStateCompletion: Promise<void> = registry.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'runtimeEvent',
-      deliveryId: 'bootstrap-state',
-      sessionId,
-      event: stateEvent({
-        at: '2026-08-23T00:00:00.000Z',
-        seq: 1,
-        observerGeneration: 1,
-        provenance: 'bootstrap',
-        change: { kind: 'session_started' },
-      }),
-    })
-    await bootstrapStateCompletion
-    const failureStateCompletion: Promise<void> = registry.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'runtimeEvent',
-      deliveryId: 'failure-state',
-      sessionId,
-      event: stateEvent({
-        at: '2026-08-23T00:00:01.000Z',
-        seq: 2,
-        observerGeneration: 1,
-        change: {
-          kind: 'turn_failed',
-          errorClass: 'usage_limit',
-          retryable: false,
-          detail,
-        },
-      }),
-    })
-    await failureStateCompletion
-    const failureTurnCompletion: Promise<void> = registry.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'runtimeEvent',
-      deliveryId: 'failure-turn',
-      sessionId,
-      event: {
-        t: 'turn',
-        ev: {
-          ev: 'failed',
-          turnEpoch: 1,
-          reason: 'provider-error',
-          disposition: 'needs-human',
-          detail,
-        },
-        at: '2026-08-23T00:00:01.000Z',
-        provenance: 'live',
-        cursor: { segmentId: 'runtime-segment', components: { seq: 3 } },
-        observerGeneration: 1,
-        turnEpoch: 1,
+    const bootstrapStateCompletion: Promise<void> = registry.gateway.routeDaemonFrame(
+      store.hostMachineId,
+      {
+        type: 'runtimeEvent',
+        deliveryId: 'bootstrap-state',
+        sessionId,
+        event: stateEvent({
+          at: '2026-08-23T00:00:00.000Z',
+          seq: 1,
+          observerGeneration: 1,
+          provenance: 'bootstrap',
+          change: { kind: 'session_started' },
+        }),
       },
-    })
+    )
+    await bootstrapStateCompletion
+    const failureStateCompletion: Promise<void> = registry.gateway.routeDaemonFrame(
+      store.hostMachineId,
+      {
+        type: 'runtimeEvent',
+        deliveryId: 'failure-state',
+        sessionId,
+        event: stateEvent({
+          at: '2026-08-23T00:00:01.000Z',
+          seq: 2,
+          observerGeneration: 1,
+          change: {
+            kind: 'turn_failed',
+            errorClass: 'usage_limit',
+            retryable: false,
+            detail,
+          },
+        }),
+      },
+    )
+    await failureStateCompletion
+    const failureTurnCompletion: Promise<void> = registry.gateway.routeDaemonFrame(
+      store.hostMachineId,
+      {
+        type: 'runtimeEvent',
+        deliveryId: 'failure-turn',
+        sessionId,
+        event: {
+          t: 'turn',
+          ev: {
+            ev: 'failed',
+            turnEpoch: 1,
+            reason: 'provider-error',
+            disposition: 'needs-human',
+            detail,
+          },
+          at: '2026-08-23T00:00:01.000Z',
+          provenance: 'live',
+          cursor: { segmentId: 'runtime-segment', components: { seq: 3 } },
+          observerGeneration: 1,
+          turnEpoch: 1,
+        },
+      },
+    )
     await failureTurnCompletion
 
     expect((await registry.modules.sessions.sessionById(sessionId))?.agentState).toMatchObject({
@@ -643,17 +709,22 @@ describe('durable runtime observation gate', () => {
 
     // Contract negotiation owns the cutover even before a durable restart head.
     // Checkpoint readiness remains false until a coarse event commits.
-    const agentStateCompletion: Promise<void> = registry.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'agentState',
-      sessionId,
-      state: {
-        phase: 'working',
-        since: legacyAt,
-        nativeSubagentCount: 0,
+    const agentStateCompletion: Promise<void> = registry.gateway.routeDaemonFrame(
+      store.hostMachineId,
+      {
+        type: 'agentState',
+        sessionId,
+        state: {
+          phase: 'working',
+          since: legacyAt,
+          nativeSubagentCount: 0,
+        },
       },
-    })
+    )
     await agentStateCompletion
-    expect((await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt).toBe(initial?.lastActiveAt)
+    expect((await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt).toBe(
+      initial?.lastActiveAt,
+    )
     expect(legacyBoard).toEqual([])
 
     expect(registry.modules.sessions.runtimeGateway.ready(sessionId)).toBe(false)
@@ -669,21 +740,26 @@ describe('durable runtime observation gate', () => {
       },
     })
     expect(legacyBoard).toEqual([])
-    expect((await registry.modules.sessions.sessionById(sessionId))?.agentState).toEqual(initial?.agentState)
+    expect((await registry.modules.sessions.sessionById(sessionId))?.agentState).toEqual(
+      initial?.agentState,
+    )
     // This second compatibility frame also arrived before any durable runtime head.
     expect(await store.events.runtimeEventCheckpoint(sessionId)).toBeNull()
 
-    const bootstrap1Completion: Promise<void> = registry.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'runtimeEvent',
-      deliveryId: 'bootstrap-1',
-      sessionId,
-      event: stateEvent({
-        at: legacyAt,
-        seq: 1,
-        observerGeneration: 1,
-        provenance: 'bootstrap',
-      }),
-    })
+    const bootstrap1Completion: Promise<void> = registry.gateway.routeDaemonFrame(
+      store.hostMachineId,
+      {
+        type: 'runtimeEvent',
+        deliveryId: 'bootstrap-1',
+        sessionId,
+        event: stateEvent({
+          at: legacyAt,
+          seq: 1,
+          observerGeneration: 1,
+          provenance: 'bootstrap',
+        }),
+      },
+    )
     await bootstrap1Completion
     expect(runtimeBoard).toEqual([])
 
@@ -707,16 +783,19 @@ describe('durable runtime observation gate', () => {
     // After readiness, compatibility state remains ignored; the contract
     // projection alone feeds state consumers, board and recency.
     const ignoredLegacyAt = new Date(Date.parse(firstAt) + 1_000).toISOString()
-    const agentStateCompletion2: Promise<void> = registry.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'agentState',
-      sessionId,
-      state: {
-        phase: 'idle',
-        since: ignoredLegacyAt,
-        nativeSubagentCount: 0,
-        idle: { kind: 'done' },
+    const agentStateCompletion2: Promise<void> = registry.gateway.routeDaemonFrame(
+      store.hostMachineId,
+      {
+        type: 'agentState',
+        sessionId,
+        state: {
+          phase: 'idle',
+          since: ignoredLegacyAt,
+          nativeSubagentCount: 0,
+          idle: { kind: 'done' },
+        },
       },
-    })
+    )
     await agentStateCompletion2
     expect((await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt).toBe(firstAt)
     expect(legacyBoard).toEqual(['activity'])
@@ -728,17 +807,20 @@ describe('durable runtime observation gate', () => {
     const restartedBoard: string[] = []
     restarted.bus.on('issue.runtimeDerived', (event) => restartedBoard.push(event.kind))
 
-    const event1ReplayCompletion: Promise<void> = restarted.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'runtimeEvent',
-      deliveryId: 'event-1-replay',
-      sessionId,
-      event: stateEvent({
-        at: firstAt,
-        seq: 2,
-        observerGeneration: 2,
-        provenance: 'bootstrap',
-      }),
-    })
+    const event1ReplayCompletion: Promise<void> = restarted.gateway.routeDaemonFrame(
+      store.hostMachineId,
+      {
+        type: 'runtimeEvent',
+        deliveryId: 'event-1-replay',
+        sessionId,
+        event: stateEvent({
+          at: firstAt,
+          seq: 2,
+          observerGeneration: 2,
+          provenance: 'bootstrap',
+        }),
+      },
+    )
     await event1ReplayCompletion
     expect(await store.events.listRuntimeEvents(sessionId)).toHaveLength(2)
     expect(await store.events.runtimeEventCheckpoint(sessionId)).toMatchObject({
@@ -750,12 +832,15 @@ describe('durable runtime observation gate', () => {
       Math.ceil((Date.parse(ignoredLegacyAt) + 1) / 1_000) * 1_000,
     ).toISOString()
     const secondAtWire = secondAt.replace('.000Z', 'Z')
-    const event2Completion: Promise<void> = restarted.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'runtimeEvent',
-      deliveryId: 'event-2',
-      sessionId,
-      event: stateEvent({ at: secondAtWire, seq: 3, observerGeneration: 2 }),
-    })
+    const event2Completion: Promise<void> = restarted.gateway.routeDaemonFrame(
+      store.hostMachineId,
+      {
+        type: 'runtimeEvent',
+        deliveryId: 'event-2',
+        sessionId,
+        event: stateEvent({ at: secondAtWire, seq: 3, observerGeneration: 2 }),
+      },
+    )
     await event2Completion
     expect((await restarted.modules.sessions.sessionById(sessionId))?.lastActiveAt).toBe(secondAt)
     expect(restartedBoard).toEqual([])
@@ -764,19 +849,22 @@ describe('durable runtime observation gate', () => {
     const stopFine = restarted.modules.sessions.runtimeGateway.onEvent(async (_id, event) => {
       fineSeen.push(event.t)
     })
-    const runtimeFineEventCompletion: Promise<void> = restarted.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'runtimeFineEvent',
-      sessionId,
-      event: {
-        t: 'item',
-        item: { kind: 'delta', itemId: 'item-1', textDelta: 'token' },
-        at: new Date(Date.parse(secondAt) + 1_000).toISOString(),
-        provenance: 'live',
-        cursor: { segmentId: 'runtime-segment', components: { seq: 4 } },
-        observerGeneration: 2,
-        turnEpoch: 1,
+    const runtimeFineEventCompletion: Promise<void> = restarted.gateway.routeDaemonFrame(
+      store.hostMachineId,
+      {
+        type: 'runtimeFineEvent',
+        sessionId,
+        event: {
+          t: 'item',
+          item: { kind: 'delta', itemId: 'item-1', textDelta: 'token' },
+          at: new Date(Date.parse(secondAt) + 1_000).toISOString(),
+          provenance: 'live',
+          cursor: { segmentId: 'runtime-segment', components: { seq: 4 } },
+          observerGeneration: 2,
+          turnEpoch: 1,
+        },
       },
-    })
+    )
     await runtimeFineEventCompletion
     stopFine()
     expect(fineSeen).toEqual(['item'])
@@ -784,164 +872,194 @@ describe('durable runtime observation gate', () => {
     expect(restartedBoard).toEqual([])
 
     const completedAt = new Date(Date.parse(secondAt) + 2_000).toISOString()
-    const event3Completion: Promise<void> = restarted.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'runtimeEvent',
-      deliveryId: 'event-3',
-      sessionId,
-      event: {
-        t: 'turn',
-        ev: { ev: 'completed', turnEpoch: 1, verdict: 'done' },
-        at: completedAt,
-        provenance: 'live',
-        cursor: { segmentId: 'runtime-segment', components: { seq: 4 } },
-        observerGeneration: 2,
-        turnEpoch: 1,
+    const event3Completion: Promise<void> = restarted.gateway.routeDaemonFrame(
+      store.hostMachineId,
+      {
+        type: 'runtimeEvent',
+        deliveryId: 'event-3',
+        sessionId,
+        event: {
+          t: 'turn',
+          ev: { ev: 'completed', turnEpoch: 1, verdict: 'done' },
+          at: completedAt,
+          provenance: 'live',
+          cursor: { segmentId: 'runtime-segment', components: { seq: 4 } },
+          observerGeneration: 2,
+          turnEpoch: 1,
+        },
       },
-    })
+    )
     await event3Completion
     await restarted.modules.sessions.runtimeGateway.replayBoardProjection()
     expect(restartedBoard).toEqual(['turnEnd'])
 
     // The terminal fence absorbs every later arm in the closed epoch, not just
     // a duplicate turn.started edge.
-    const eventAfterTerminalCompletion: Promise<void> = restarted.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'runtimeEvent',
-      deliveryId: 'event-after-terminal',
-      sessionId,
-      event: stateEvent({
-        at: new Date(Date.parse(completedAt) + 1_000).toISOString(),
-        seq: 5,
-        observerGeneration: 2,
-      }),
-    })
+    const eventAfterTerminalCompletion: Promise<void> = restarted.gateway.routeDaemonFrame(
+      store.hostMachineId,
+      {
+        type: 'runtimeEvent',
+        deliveryId: 'event-after-terminal',
+        sessionId,
+        event: stateEvent({
+          at: new Date(Date.parse(completedAt) + 1_000).toISOString(),
+          seq: 5,
+          observerGeneration: 2,
+        }),
+      },
+    )
     await eventAfterTerminalCompletion
     // Nor may a sender skip an epoch without its immediate turn.started edge.
-    const eventEpochJumpCompletion: Promise<void> = restarted.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'runtimeEvent',
-      deliveryId: 'event-epoch-jump',
-      sessionId,
-      event: {
-        t: 'turn',
-        ev: { ev: 'started', turnEpoch: 3, origin: 'human' },
-        at: new Date(Date.parse(completedAt) + 2_000).toISOString(),
-        provenance: 'live',
-        cursor: { segmentId: 'runtime-segment', components: { seq: 6 } },
-        observerGeneration: 2,
-        turnEpoch: 3,
+    const eventEpochJumpCompletion: Promise<void> = restarted.gateway.routeDaemonFrame(
+      store.hostMachineId,
+      {
+        type: 'runtimeEvent',
+        deliveryId: 'event-epoch-jump',
+        sessionId,
+        event: {
+          t: 'turn',
+          ev: { ev: 'started', turnEpoch: 3, origin: 'human' },
+          at: new Date(Date.parse(completedAt) + 2_000).toISOString(),
+          provenance: 'live',
+          cursor: { segmentId: 'runtime-segment', components: { seq: 6 } },
+          observerGeneration: 2,
+          turnEpoch: 3,
+        },
       },
-    })
+    )
     await eventEpochJumpCompletion
     expect(await store.events.listRuntimeEvents(sessionId)).toHaveLength(4)
 
-    const eventTurn2Completion: Promise<void> = restarted.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'runtimeEvent',
-      deliveryId: 'event-turn-2',
-      sessionId,
-      event: {
-        t: 'turn',
-        ev: { ev: 'started', turnEpoch: 2, origin: 'human' },
-        at: new Date(Date.parse(completedAt) + 3_000).toISOString(),
-        provenance: 'live',
-        cursor: { segmentId: 'runtime-segment', components: { seq: 6 } },
-        observerGeneration: 2,
-        turnEpoch: 2,
+    const eventTurn2Completion: Promise<void> = restarted.gateway.routeDaemonFrame(
+      store.hostMachineId,
+      {
+        type: 'runtimeEvent',
+        deliveryId: 'event-turn-2',
+        sessionId,
+        event: {
+          t: 'turn',
+          ev: { ev: 'started', turnEpoch: 2, origin: 'human' },
+          at: new Date(Date.parse(completedAt) + 3_000).toISOString(),
+          provenance: 'live',
+          cursor: { segmentId: 'runtime-segment', components: { seq: 6 } },
+          observerGeneration: 2,
+          turnEpoch: 2,
+        },
       },
-    })
+    )
     await eventTurn2Completion
     expect(await store.events.listRuntimeEvents(sessionId)).toHaveLength(5)
 
     // Envelope/body epoch disagreement is rejected before it can fence a turn.
-    const eventEpochMismatchCompletion: Promise<void> = restarted.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'runtimeEvent',
-      deliveryId: 'event-epoch-mismatch',
-      sessionId,
-      event: {
-        t: 'turn',
-        ev: { ev: 'completed', turnEpoch: 3, verdict: 'done' },
-        at: new Date(Date.parse(completedAt) + 4_000).toISOString(),
-        provenance: 'live',
-        cursor: { segmentId: 'runtime-segment', components: { seq: 7 } },
-        observerGeneration: 2,
-        turnEpoch: 2,
+    const eventEpochMismatchCompletion: Promise<void> = restarted.gateway.routeDaemonFrame(
+      store.hostMachineId,
+      {
+        type: 'runtimeEvent',
+        deliveryId: 'event-epoch-mismatch',
+        sessionId,
+        event: {
+          t: 'turn',
+          ev: { ev: 'completed', turnEpoch: 3, verdict: 'done' },
+          at: new Date(Date.parse(completedAt) + 4_000).toISOString(),
+          provenance: 'live',
+          cursor: { segmentId: 'runtime-segment', components: { seq: 7 } },
+          observerGeneration: 2,
+          turnEpoch: 2,
+        },
       },
-    })
+    )
     await eventEpochMismatchCompletion
 
     // A replacement observer must begin with the immediate next generation's
     // bootstrap and an ordered cursor succession.
-    const eventLiveResetCompletion: Promise<void> = restarted.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'runtimeEvent',
-      deliveryId: 'event-live-reset',
-      sessionId,
-      event: stateEvent({
-        at: new Date(Date.parse(completedAt) + 5_000).toISOString(),
-        seq: 8,
-        observerGeneration: 3,
-        turnEpoch: 2,
-      }),
-    })
+    const eventLiveResetCompletion: Promise<void> = restarted.gateway.routeDaemonFrame(
+      store.hostMachineId,
+      {
+        type: 'runtimeEvent',
+        deliveryId: 'event-live-reset',
+        sessionId,
+        event: stateEvent({
+          at: new Date(Date.parse(completedAt) + 5_000).toISOString(),
+          seq: 8,
+          observerGeneration: 3,
+          turnEpoch: 2,
+        }),
+      },
+    )
     await eventLiveResetCompletion
-    const eventUnrelatedResetCompletion: Promise<void> = restarted.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'runtimeEvent',
-      deliveryId: 'event-unrelated-reset',
-      sessionId,
-      event: stateEvent({
-        at: new Date(Date.parse(completedAt) + 6_000).toISOString(),
-        seq: 1,
-        observerGeneration: 3,
-        turnEpoch: 2,
-        provenance: 'bootstrap',
-        segmentId: 'unrelated',
-      }),
-    })
+    const eventUnrelatedResetCompletion: Promise<void> = restarted.gateway.routeDaemonFrame(
+      store.hostMachineId,
+      {
+        type: 'runtimeEvent',
+        deliveryId: 'event-unrelated-reset',
+        sessionId,
+        event: stateEvent({
+          at: new Date(Date.parse(completedAt) + 6_000).toISOString(),
+          seq: 1,
+          observerGeneration: 3,
+          turnEpoch: 2,
+          provenance: 'bootstrap',
+          segmentId: 'unrelated',
+        }),
+      },
+    )
     await eventUnrelatedResetCompletion
-    const eventGenerationJumpCompletion: Promise<void> = restarted.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'runtimeEvent',
-      deliveryId: 'event-generation-jump',
-      sessionId,
-      event: stateEvent({
-        at: new Date(Date.parse(completedAt) + 7_000).toISOString(),
-        seq: 1,
-        observerGeneration: 5,
-        turnEpoch: 2,
-        provenance: 'bootstrap',
-        segmentId: 'future',
-        predecessorSegmentId: 'runtime-segment',
-      }),
-    })
+    const eventGenerationJumpCompletion: Promise<void> = restarted.gateway.routeDaemonFrame(
+      store.hostMachineId,
+      {
+        type: 'runtimeEvent',
+        deliveryId: 'event-generation-jump',
+        sessionId,
+        event: stateEvent({
+          at: new Date(Date.parse(completedAt) + 7_000).toISOString(),
+          seq: 1,
+          observerGeneration: 5,
+          turnEpoch: 2,
+          provenance: 'bootstrap',
+          segmentId: 'future',
+          predecessorSegmentId: 'runtime-segment',
+        }),
+      },
+    )
     await eventGenerationJumpCompletion
     expect((await store.events.runtimeEventCheckpoint(sessionId))?.observerGeneration).toBe(2)
 
-    const eventProvenResetCompletion: Promise<void> = restarted.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'runtimeEvent',
-      deliveryId: 'event-proven-reset',
-      sessionId,
-      event: stateEvent({
-        at: new Date(Date.parse(completedAt) + 8_000).toISOString(),
-        seq: 1,
-        observerGeneration: 3,
-        turnEpoch: 2,
-        provenance: 'bootstrap',
-        segmentId: 'successor',
-        predecessorSegmentId: 'runtime-segment',
-      }),
-    })
+    const eventProvenResetCompletion: Promise<void> = restarted.gateway.routeDaemonFrame(
+      store.hostMachineId,
+      {
+        type: 'runtimeEvent',
+        deliveryId: 'event-proven-reset',
+        sessionId,
+        event: stateEvent({
+          at: new Date(Date.parse(completedAt) + 8_000).toISOString(),
+          seq: 1,
+          observerGeneration: 3,
+          turnEpoch: 2,
+          provenance: 'bootstrap',
+          segmentId: 'successor',
+          predecessorSegmentId: 'runtime-segment',
+        }),
+      },
+    )
     await eventProvenResetCompletion
     expect(await store.events.runtimeEventCheckpoint(sessionId)).toMatchObject({
       observerGeneration: 3,
       cursor: { segmentId: 'successor', predecessorSegmentId: 'runtime-segment' },
     })
-    const eventStaleGenerationCompletion: Promise<void> = restarted.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'runtimeEvent',
-      deliveryId: 'event-stale-generation',
-      sessionId,
-      event: stateEvent({
-        at: new Date(Date.parse(completedAt) + 9_000).toISOString(),
-        seq: 8,
-        observerGeneration: 2,
-        turnEpoch: 2,
-      }),
-    })
+    const eventStaleGenerationCompletion: Promise<void> = restarted.gateway.routeDaemonFrame(
+      store.hostMachineId,
+      {
+        type: 'runtimeEvent',
+        deliveryId: 'event-stale-generation',
+        sessionId,
+        event: stateEvent({
+          at: new Date(Date.parse(completedAt) + 9_000).toISOString(),
+          seq: 8,
+          observerGeneration: 2,
+          turnEpoch: 2,
+        }),
+      },
+    )
     await eventStaleGenerationCompletion
     expect(await store.events.listRuntimeEvents(sessionId)).toHaveLength(6)
 
@@ -955,17 +1073,20 @@ describe('durable runtime observation gate', () => {
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionId = await bindContract(registry, store)
     const before = (await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt ?? ''
-    const rollbackBootstrapCompletion: Promise<void> = registry.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'runtimeEvent',
-      deliveryId: 'rollback-bootstrap',
-      sessionId,
-      event: stateEvent({
-        at: before,
-        seq: 1,
-        observerGeneration: 1,
-        provenance: 'bootstrap',
-      }),
-    })
+    const rollbackBootstrapCompletion: Promise<void> = registry.gateway.routeDaemonFrame(
+      store.hostMachineId,
+      {
+        type: 'runtimeEvent',
+        deliveryId: 'rollback-bootstrap',
+        sessionId,
+        event: stateEvent({
+          at: before,
+          seq: 1,
+          observerGeneration: 1,
+          provenance: 'bootstrap',
+        }),
+      },
+    )
     await rollbackBootstrapCompletion
     const originalSave = store.events.saveRuntimeEventCheckpoint
     store.events.saveRuntimeEventCheckpoint = () => {
@@ -999,17 +1120,20 @@ describe('durable runtime observation gate', () => {
     const sessionId = await bindContract(registry, store)
     const initial = await registry.modules.sessions.sessionById(sessionId)
     const at = new Date(Date.parse(initial?.lastActiveAt ?? '') + 1_000).toISOString()
-    const crashBootstrapCompletion: Promise<void> = registry.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'runtimeEvent',
-      deliveryId: 'crash-bootstrap',
-      sessionId,
-      event: stateEvent({
-        at: (await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt ?? at,
-        seq: 1,
-        observerGeneration: 1,
-        provenance: 'bootstrap',
-      }),
-    })
+    const crashBootstrapCompletion: Promise<void> = registry.gateway.routeDaemonFrame(
+      store.hostMachineId,
+      {
+        type: 'runtimeEvent',
+        deliveryId: 'crash-bootstrap',
+        sessionId,
+        event: stateEvent({
+          at: (await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt ?? at,
+          seq: 1,
+          observerGeneration: 1,
+          provenance: 'bootstrap',
+        }),
+      },
+    )
     await crashBootstrapCompletion
     await registry.modules.sessions.runtimeGateway.replayBoardProjection()
     const baselineCursor = await store.events.runtimeEventProjectionCursor('runtime.board.v1')
@@ -1024,20 +1148,23 @@ describe('durable runtime observation gate', () => {
       return neverCompletes
     })
 
-    const crashEventCompletion: Promise<void> = registry.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'runtimeEvent',
-      deliveryId: 'crash-event',
-      sessionId,
-      event: {
-        t: 'turn',
-        ev: { ev: 'completed', turnEpoch: 1, verdict: 'done' },
-        at,
-        provenance: 'live',
-        cursor: { segmentId: 'runtime-segment', components: { seq: 2 } },
-        observerGeneration: 1,
-        turnEpoch: 1,
+    const crashEventCompletion: Promise<void> = registry.gateway.routeDaemonFrame(
+      store.hostMachineId,
+      {
+        type: 'runtimeEvent',
+        deliveryId: 'crash-event',
+        sessionId,
+        event: {
+          t: 'turn',
+          ev: { ev: 'completed', turnEpoch: 1, verdict: 'done' },
+          at,
+          provenance: 'live',
+          cursor: { segmentId: 'runtime-segment', components: { seq: 2 } },
+          observerGeneration: 1,
+          turnEpoch: 1,
+        },
       },
-    })
+    )
     await crashEventCompletion
     await effectStarted
     expect(await store.events.listRuntimeEvents(sessionId)).toHaveLength(2)
@@ -1047,7 +1174,9 @@ describe('durable runtime observation gate', () => {
     // The pending effect's row survives retention. The bootstrap row before it
     // called no port, so the cursor may not be written past it yet (POD-6216:
     // such rows lag the fence by less than one batch) and it may survive too.
-    expect((await store.events.listRuntimeEvents(sessionId)).map((event) => event.t)).toContain('turn')
+    expect((await store.events.listRuntimeEvents(sessionId)).map((event) => event.t)).toContain(
+      'turn',
+    )
 
     // Dispose without resolving the listener: this is the server-kill window.
     await registry.dispose()
@@ -1069,57 +1198,72 @@ describe('durable runtime observation gate', () => {
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionId = await bindContract(registry, store)
 
-    const exitBootstrapCompletion: Promise<void> = registry.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'runtimeEvent',
-      deliveryId: 'exit-bootstrap',
-      sessionId,
-      event: stateEvent({
-        at: '2026-08-23T00:00:00.000Z',
-        seq: 1,
-        observerGeneration: 1,
-        provenance: 'bootstrap',
-      }),
-    })
+    const exitBootstrapCompletion: Promise<void> = registry.gateway.routeDaemonFrame(
+      store.hostMachineId,
+      {
+        type: 'runtimeEvent',
+        deliveryId: 'exit-bootstrap',
+        sessionId,
+        event: stateEvent({
+          at: '2026-08-23T00:00:00.000Z',
+          seq: 1,
+          observerGeneration: 1,
+          provenance: 'bootstrap',
+        }),
+      },
+    )
     await exitBootstrapCompletion
-    const exitTurnCompleteCompletion: Promise<void> = registry.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'runtimeEvent',
-      deliveryId: 'exit-turn-complete',
-      sessionId,
-      event: turnEvent({
-        at: '2026-08-23T00:00:01.000Z',
-        seq: 2,
-        turnEpoch: 1,
-        ev: 'completed',
-      }),
-    })
+    const exitTurnCompleteCompletion: Promise<void> = registry.gateway.routeDaemonFrame(
+      store.hostMachineId,
+      {
+        type: 'runtimeEvent',
+        deliveryId: 'exit-turn-complete',
+        sessionId,
+        event: turnEvent({
+          at: '2026-08-23T00:00:01.000Z',
+          seq: 2,
+          turnEpoch: 1,
+          ev: 'completed',
+        }),
+      },
+    )
     await exitTurnCompleteCompletion
     expect((await store.events.runtimeEventCheckpoint(sessionId))?.closedTurnEpoch).toBe(1)
 
     await registry.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'runtimeEvent', deliveryId: 'delivery-after-turn', sessionId,
-      event: {
-        t: 'delivery', rowId: 'already-cancelled-row', outcome: 'dropped',
-        at: '2026-08-23T00:00:01.500Z', provenance: 'live',
-        cursor: { segmentId: 'runtime-segment', components: { seq: 3 } },
-        observerGeneration: 1, turnEpoch: 1,
-      },
-    })
-    expect(await store.events.listRuntimeEvents(sessionId)).toHaveLength(2)
-
-    const exitAfterTurnCompletion: Promise<void> = registry.gateway.routeDaemonFrame(store.hostMachineId, {
       type: 'runtimeEvent',
-      deliveryId: 'exit-after-turn',
+      deliveryId: 'delivery-after-turn',
       sessionId,
       event: {
-        t: 'process',
-        ev: { ev: 'exited', code: null, signal: null, classification: 'crashed' },
-        at: '2026-08-23T00:00:02.000Z',
+        t: 'delivery',
+        rowId: 'already-cancelled-row',
+        outcome: 'dropped',
+        at: '2026-08-23T00:00:01.500Z',
         provenance: 'live',
-        cursor: { segmentId: 'runtime-segment', components: { seq: 4 } },
+        cursor: { segmentId: 'runtime-segment', components: { seq: 3 } },
         observerGeneration: 1,
         turnEpoch: 1,
       },
     })
+    expect(await store.events.listRuntimeEvents(sessionId)).toHaveLength(2)
+
+    const exitAfterTurnCompletion: Promise<void> = registry.gateway.routeDaemonFrame(
+      store.hostMachineId,
+      {
+        type: 'runtimeEvent',
+        deliveryId: 'exit-after-turn',
+        sessionId,
+        event: {
+          t: 'process',
+          ev: { ev: 'exited', code: null, signal: null, classification: 'crashed' },
+          at: '2026-08-23T00:00:02.000Z',
+          provenance: 'live',
+          cursor: { segmentId: 'runtime-segment', components: { seq: 4 } },
+          observerGeneration: 1,
+          turnEpoch: 1,
+        },
+      },
+    )
     await exitAfterTurnCompletion
 
     expect(await store.events.listRuntimeEvents(sessionId)).toHaveLength(3)
@@ -1135,7 +1279,12 @@ describe('durable runtime observation gate', () => {
   it('starts a new drain for a request arriving during prior drain teardown', async () => {
     const sessionId = asSessionId('teardown-session')
     // A closing turn calls the board, so the cursor is written through it.
-    const event = turnEvent({ at: '2026-08-20T00:00:00.000Z', seq: 1, turnEpoch: 1, ev: 'completed' })
+    const event = turnEvent({
+      at: '2026-08-20T00:00:00.000Z',
+      seq: 1,
+      turnEpoch: 1,
+      ev: 'completed',
+    })
     let cursor = 0
     let records: RuntimeEventLogRecord[] = []
     let armed = true
@@ -1202,10 +1351,16 @@ describe('durable runtime observation gate', () => {
         event,
       })
 
-    await route('bootstrap', stateEvent({ at: at(0), seq: 1, observerGeneration: 1, provenance: 'bootstrap' }))
+    await route(
+      'bootstrap',
+      stateEvent({ at: at(0), seq: 1, observerGeneration: 1, provenance: 'bootstrap' }),
+    )
     await route('started-1', turnEvent({ at: at(1_000), seq: 2, turnEpoch: 1, ev: 'started' }))
     await route('completed-1', turnEvent({ at: at(2_000), seq: 3, turnEpoch: 1, ev: 'completed' }))
-    expect(await store.events.runtimeEventCheckpoint(sessionId)).toMatchObject({ turnEpoch: 1, closedTurnEpoch: 1 })
+    expect(await store.events.runtimeEventCheckpoint(sessionId)).toMatchObject({
+      turnEpoch: 1,
+      closedTurnEpoch: 1,
+    })
 
     // NEGATIVE CONTROL, unchanged rule: an ordinary event that skips epochs is
     // still a lost edge, not a re-seed.
@@ -1225,16 +1380,25 @@ describe('durable runtime observation gate', () => {
     }
     await route('adopted', adopted)
     expect(await store.events.listRuntimeEvents(sessionId)).toHaveLength(4)
-    expect(await store.events.runtimeEventCheckpoint(sessionId)).toMatchObject({ turnEpoch: 7, closedTurnEpoch: 1 })
+    expect(await store.events.runtimeEventCheckpoint(sessionId)).toMatchObject({
+      turnEpoch: 7,
+      closedTurnEpoch: 1,
+    })
 
     // And the stream is alive again: activity at the re-seeded epoch is
     // committed rather than fenced.
-    await route('activity', stateEvent({ at: at(5_000), seq: 6, observerGeneration: 1, turnEpoch: 7 }))
+    await route(
+      'activity',
+      stateEvent({ at: at(5_000), seq: 6, observerGeneration: 1, turnEpoch: 7 }),
+    )
     expect(await store.events.listRuntimeEvents(sessionId)).toHaveLength(5)
 
     // A stale replay of an older adoption is still ordered out, never a re-seed
     // backwards.
-    await route('adopted-replay', { ...adopted, cursor: { segmentId: 'runtime-segment', components: { seq: 5 } } })
+    await route('adopted-replay', {
+      ...adopted,
+      cursor: { segmentId: 'runtime-segment', components: { seq: 5 } },
+    })
     expect(await store.events.listRuntimeEvents(sessionId)).toHaveLength(5)
     expect(await store.events.runtimeEventCheckpoint(sessionId)).toMatchObject({ turnEpoch: 7 })
   })
@@ -1415,7 +1579,9 @@ describe('durable delivery outcome projection', () => {
     const sessionId = asSessionId('delivery-replay')
     const event = {
       ...stateEvent({ at: '2026-09-09T00:00:00.000Z', seq: 1, observerGeneration: 1 }),
-      t: 'delivery' as const, rowId: 'row-one', outcome: 'delivered' as const,
+      t: 'delivery' as const,
+      rowId: 'row-one',
+      outcome: 'delivered' as const,
     }
     let cursor = 0
     let fail = true
@@ -1423,16 +1589,28 @@ describe('durable delivery outcome projection', () => {
     const ports = {
       events: {
         runtimeEventProjectionCursor: async () => cursor,
-        saveRuntimeEventProjectionCursor: async (_projector: string, id: number) => { cursor = id },
-        listRuntimeEventsAfter: async (after: number) => after < 1 ? [{ id: 1, sessionId, event }] : [],
+        saveRuntimeEventProjectionCursor: async (_projector: string, id: number) => {
+          cursor = id
+        },
+        listRuntimeEventsAfter: async (after: number) =>
+          after < 1 ? [{ id: 1, sessionId, event }] : [],
       } as unknown as RuntimeEventGatePorts['events'],
-      session: () => undefined, persist: async () => {}, write: async () => {}, board: async () => {}, now: () => 0,
-      delivery: async (_sessionId: SessionId, outcome: Extract<RuntimeEvent, { t: 'delivery' }>) => {
+      session: () => undefined,
+      persist: async () => {},
+      write: async () => {},
+      board: async () => {},
+      now: () => 0,
+      delivery: async (
+        _sessionId: SessionId,
+        outcome: Extract<RuntimeEvent, { t: 'delivery' }>,
+      ) => {
         if (fail) throw new Error('settlement unavailable')
         settled.push(outcome.rowId)
       },
     }
-    await expect(new RuntimeEventGate(ports).replayBoardProjection()).rejects.toThrow('settlement unavailable')
+    await expect(new RuntimeEventGate(ports).replayBoardProjection()).rejects.toThrow(
+      'settlement unavailable',
+    )
     expect(cursor).toBe(0)
     fail = false
     await new RuntimeEventGate(ports).replayBoardProjection()
@@ -1446,16 +1624,23 @@ describe('board projection cursor writes (POD-6216)', () => {
   const at = '2026-10-17T00:00:00.000Z'
   /** A record that calls no port. */
   const quiet = (id: number): RuntimeEventLogRecord => ({
-    id, sessionId, event: stateEvent({ at, seq: id, observerGeneration: 1 }),
+    id,
+    sessionId,
+    event: stateEvent({ at, seq: id, observerGeneration: 1 }),
   })
   /** A record whose projection calls the board. */
   const closing = (id: number): RuntimeEventLogRecord => ({
-    id, sessionId, event: turnEvent({ at, seq: id, turnEpoch: 1, ev: 'completed' }),
+    id,
+    sessionId,
+    event: turnEvent({ at, seq: id, turnEpoch: 1, ev: 'completed' }),
   })
-  const gateOver = (log: RuntimeEventLogRecord[], options: {
-    onSave?: (id: number) => void
-    board?: RuntimeEventGatePorts['board']
-  } = {}) => {
+  const gateOver = (
+    log: RuntimeEventLogRecord[],
+    options: {
+      onSave?: (id: number) => void
+      board?: RuntimeEventGatePorts['board']
+    } = {},
+  ) => {
     const saves: number[] = []
     const lists: number[] = []
     let cursor = 0
@@ -1472,8 +1657,12 @@ describe('board projection cursor writes (POD-6216)', () => {
           return log.filter((each) => each.id > after).slice(0, limit)
         },
       } as unknown as RuntimeEventGatePorts['events'],
-      session: () => undefined, persist: async () => {}, write: async () => {},
-      board: options.board ?? (async () => {}), now: () => 0, delivery: async () => {},
+      session: () => undefined,
+      persist: async () => {},
+      write: async () => {},
+      board: options.board ?? (async () => {}),
+      now: () => 0,
+      delivery: async () => {},
     })
     return { gate, saves, lists, cursor: () => cursor }
   }
@@ -1534,19 +1723,27 @@ describe('board projection cursor writes (POD-6216)', () => {
   it('applies each effect exactly once across restarts that replay unwritten records', async () => {
     const store = await openTestStore(':memory:')
     const effects: number[] = []
-    const boot = () => new RuntimeEventGate({
-      events: store.events,
-      session: () => undefined, persist: async () => {}, write: async () => {},
-      board: async (effect) => {
-        effects.push(effect.eventId)
-      },
-      now: () => 0, delivery: async () => {},
-    })
+    const boot = () =>
+      new RuntimeEventGate({
+        events: store.events,
+        session: () => undefined,
+        persist: async () => {},
+        write: async () => {},
+        board: async (effect) => {
+          effects.push(effect.eventId)
+        },
+        now: () => 0,
+        delivery: async () => {},
+      })
     const append = async (event: RuntimeEvent): Promise<number> =>
-      await store.events.appendEvent({ ts: at, kind: RUNTIME_EVENT_LOG_KIND, subject: sessionId, payload: event }, { announce: false })
+      await store.events.appendEvent(
+        { ts: at, kind: RUNTIME_EVENT_LOG_KIND, subject: sessionId, payload: event },
+        { announce: false },
+      )
     try {
       // Records without an effect are projected and the cursor is not written.
-      for (let seq = 1; seq <= 3; seq++) await append(stateEvent({ at, seq, observerGeneration: 1 }))
+      for (let seq = 1; seq <= 3; seq++)
+        await append(stateEvent({ at, seq, observerGeneration: 1 }))
       await boot().replayBoardProjection()
       expect(await store.events.runtimeEventProjectionCursor('runtime.board.v1')).toBe(0)
       // Restart: the replay projects them again, then the effect, once.
@@ -1594,9 +1791,12 @@ describe('a delivery report is a fact about one message (POD-4796)', () => {
     const sessionId = asSessionId('delivery-fences')
     // Generation 2, cursor 50, turn 5 open and turn 4 closed.
     const checkpoint = {
-      sessionId, observerGeneration: 2,
+      sessionId,
+      observerGeneration: 2,
       cursor: { segmentId: 'runtime-segment', components: { seq: 50 } },
-      turnEpoch: 5, closedTurnEpoch: 4, updatedAt: '2026-09-28T09:00:00.000Z',
+      turnEpoch: 5,
+      closedTurnEpoch: 4,
+      updatedAt: '2026-09-28T09:00:00.000Z',
     }
     const applied: Array<Extract<RuntimeEvent, { t: 'delivery' }>> = []
     const appendEvent = vi.fn(async () => 1)
@@ -1606,26 +1806,80 @@ describe('a delivery report is a fact about one message (POD-4796)', () => {
     const gate = new RuntimeEventGate({
       events: {
         runtimeEventCheckpoint: async () => checkpoint,
-        appendEvent, saveRuntimeEventCheckpoint,
+        appendEvent,
+        saveRuntimeEventCheckpoint,
       } as unknown as RuntimeEventGatePorts['events'],
-      session: () => ({ sessionId, status: 'hibernated', recordRuntimeActivity, recordOomKill: () => {} }),
-      persist: async () => {}, write, board: async () => {}, now: () => 0,
-      delivery: async (_sessionId, event) => { applied.push(event) },
+      session: () => ({
+        sessionId,
+        status: 'hibernated',
+        recordRuntimeActivity,
+        recordOomKill: () => {},
+      }),
+      persist: async () => {},
+      write,
+      board: async () => {},
+      now: () => 0,
+      delivery: async (_sessionId, event) => {
+        applied.push(event)
+      },
     })
     const cases = {
-      'an older observer generation': report({ rowId: 'stale-generation', observerGeneration: 1, seq: 60, turnEpoch: 5 }),
-      'a generation jump': report({ rowId: 'generation-jump', observerGeneration: 4, seq: 60, turnEpoch: 5 }),
-      'an older cursor': report({ rowId: 'older-cursor', observerGeneration: 2, seq: 3, turnEpoch: 5 }),
-      'the same cursor again': report({ rowId: 'same-cursor', observerGeneration: 2, seq: 50, turnEpoch: 5 }),
-      'a closed turn': report({ rowId: 'closed-turn', observerGeneration: 2, seq: 60, turnEpoch: 4 }),
-      'an older turn': report({ rowId: 'older-turn', observerGeneration: 2, seq: 60, turnEpoch: 1 }),
-      'a turn not yet started here': report({ rowId: 'epoch-jump', observerGeneration: 2, seq: 60, turnEpoch: 9 }),
-      'a bootstrap replay': report({ rowId: 'bootstrap', observerGeneration: 2, seq: 60, turnEpoch: 5, provenance: 'bootstrap' }),
+      'an older observer generation': report({
+        rowId: 'stale-generation',
+        observerGeneration: 1,
+        seq: 60,
+        turnEpoch: 5,
+      }),
+      'a generation jump': report({
+        rowId: 'generation-jump',
+        observerGeneration: 4,
+        seq: 60,
+        turnEpoch: 5,
+      }),
+      'an older cursor': report({
+        rowId: 'older-cursor',
+        observerGeneration: 2,
+        seq: 3,
+        turnEpoch: 5,
+      }),
+      'the same cursor again': report({
+        rowId: 'same-cursor',
+        observerGeneration: 2,
+        seq: 50,
+        turnEpoch: 5,
+      }),
+      'a closed turn': report({
+        rowId: 'closed-turn',
+        observerGeneration: 2,
+        seq: 60,
+        turnEpoch: 4,
+      }),
+      'an older turn': report({
+        rowId: 'older-turn',
+        observerGeneration: 2,
+        seq: 60,
+        turnEpoch: 1,
+      }),
+      'a turn not yet started here': report({
+        rowId: 'epoch-jump',
+        observerGeneration: 2,
+        seq: 60,
+        turnEpoch: 9,
+      }),
+      'a bootstrap replay': report({
+        rowId: 'bootstrap',
+        observerGeneration: 2,
+        seq: 60,
+        turnEpoch: 5,
+        provenance: 'bootstrap',
+      }),
     }
     for (const [name, event] of Object.entries(cases)) {
       expect(await gate.record(sessionId, event), name).toEqual({ kind: 'delivery-applied' })
     }
-    expect(applied.map((event) => event.rowId)).toEqual(Object.values(cases).map((event) => event.rowId))
+    expect(applied.map((event) => event.rowId)).toEqual(
+      Object.values(cases).map((event) => event.rowId),
+    )
     // Not activity: no event row, no checkpoint move, no recency.
     expect(appendEvent).not.toHaveBeenCalled()
     expect(saveRuntimeEventCheckpoint).not.toHaveBeenCalled()
@@ -1636,22 +1890,49 @@ describe('a delivery report is a fact about one message (POD-4796)', () => {
   it('rejects a report for a session this server does not hold, and leaves a failed apply unacknowledged', async () => {
     const sessionId = asSessionId('delivery-owner')
     const gate = new RuntimeEventGate({
-      events: { runtimeEventCheckpoint: async () => null } as unknown as RuntimeEventGatePorts['events'],
+      events: {
+        runtimeEventCheckpoint: async () => null,
+      } as unknown as RuntimeEventGatePorts['events'],
       session: () => undefined,
-      persist: async () => {}, write: async () => {}, board: async () => {}, now: () => 0,
-      delivery: async () => { throw new Error('must not apply') },
+      persist: async () => {},
+      write: async () => {},
+      board: async () => {},
+      now: () => 0,
+      delivery: async () => {
+        throw new Error('must not apply')
+      },
     })
-    expect(await gate.record(sessionId, report({ rowId: 'x', observerGeneration: 1, seq: 1, turnEpoch: 0 })))
-      .toEqual({ kind: 'rejected', reason: 'unknown-session' })
+    expect(
+      await gate.record(
+        sessionId,
+        report({ rowId: 'x', observerGeneration: 1, seq: 1, turnEpoch: 0 }),
+      ),
+    ).toEqual({ kind: 'rejected', reason: 'unknown-session' })
     const failing = new RuntimeEventGate({
-      events: { runtimeEventCheckpoint: async () => null } as unknown as RuntimeEventGatePorts['events'],
-      session: () => ({ sessionId, status: 'live', recordRuntimeActivity: () => true, recordOomKill: () => {} }),
-      persist: async () => {}, write: async () => {}, board: async () => {}, now: () => 0,
-      delivery: async () => { throw new Error('store unavailable') },
+      events: {
+        runtimeEventCheckpoint: async () => null,
+      } as unknown as RuntimeEventGatePorts['events'],
+      session: () => ({
+        sessionId,
+        status: 'live',
+        recordRuntimeActivity: () => true,
+        recordOomKill: () => {},
+      }),
+      persist: async () => {},
+      write: async () => {},
+      board: async () => {},
+      now: () => 0,
+      delivery: async () => {
+        throw new Error('store unavailable')
+      },
     })
     // Thrown, not acknowledged: the daemon's outbox resends it.
-    await expect(failing.record(sessionId, report({ rowId: 'x', observerGeneration: 1, seq: 1, turnEpoch: 0 })))
-      .rejects.toThrow('store unavailable')
+    await expect(
+      failing.record(
+        sessionId,
+        report({ rowId: 'x', observerGeneration: 1, seq: 1, turnEpoch: 0 }),
+      ),
+    ).rejects.toThrow('store unavailable')
   })
 
   it('settles a typed message from a report replayed after a reconnect, once, and acks every copy', async () => {
@@ -1662,27 +1943,64 @@ describe('a delivery report is a fact about one message (POD-4796)', () => {
       const sessionId = await bindContract(registry, store, (message) => commands.push(message))
       registry.modules.sessions.state.setDraftSyncEnabled(true)
       const route = (deliveryId: string, event: RuntimeEvent): Promise<void> =>
-        registry.gateway.routeDaemonFrame(store.hostMachineId, { type: 'runtimeEvent', deliveryId, sessionId, event })
-      const acks = (deliveryId: string) => commands.filter((message) =>
-        message.type === 'runtimeEventAck' && message.deliveryId === deliveryId)
+        registry.gateway.routeDaemonFrame(store.hostMachineId, {
+          type: 'runtimeEvent',
+          deliveryId,
+          sessionId,
+          event,
+        })
+      const acks = (deliveryId: string) =>
+        commands.filter(
+          (message) => message.type === 'runtimeEventAck' && message.deliveryId === deliveryId,
+        )
       const at = '2026-09-28T10:00:00.000Z'
       // Generation 1 runs and closes turn 1; a reconnect replaces it with
       // generation 2, whose bootstrap restores state.
-      await route('g1-start', stateEvent({ at, seq: 1, observerGeneration: 1, turnEpoch: 0, provenance: 'bootstrap', change: { kind: 'session_started' } }))
+      await route(
+        'g1-start',
+        stateEvent({
+          at,
+          seq: 1,
+          observerGeneration: 1,
+          turnEpoch: 0,
+          provenance: 'bootstrap',
+          change: { kind: 'session_started' },
+        }),
+      )
       await route('g1-turn', turnEvent({ at, seq: 2, turnEpoch: 1, ev: 'started' }))
       await route('g1-done', turnEvent({ at, seq: 3, turnEpoch: 1, ev: 'completed' }))
-      await route('g2-bootstrap', stateEvent({
-        at, seq: 4, observerGeneration: 2, turnEpoch: 1, provenance: 'bootstrap',
-        change: { kind: 'state_snapshot', state: { phase: 'idle', since: at, nativeSubagentCount: 0 } },
-      }))
-      expect(await store.events.runtimeEventCheckpoint(sessionId)).toMatchObject({ observerGeneration: 2, closedTurnEpoch: 1 })
+      await route(
+        'g2-bootstrap',
+        stateEvent({
+          at,
+          seq: 4,
+          observerGeneration: 2,
+          turnEpoch: 1,
+          provenance: 'bootstrap',
+          change: {
+            kind: 'state_snapshot',
+            state: { phase: 'idle', since: at, nativeSubagentCount: 0 },
+          },
+        }),
+      )
+      expect(await store.events.runtimeEventCheckpoint(sessionId)).toMatchObject({
+        observerGeneration: 2,
+        closedTurnEpoch: 1,
+      })
       const checkpoint = await store.events.runtimeEventCheckpoint(sessionId)
       const logged = (await store.events.listRuntimeEvents(sessionId)).length
 
-      await registry.modules.sessions.queueText({ sessionId, text: 'typed before the cut' })
+      await registry.modules.sessions.queueText({
+        writer: registry.modules.sessions.serverWriter,
+        sessionId,
+        text: 'typed before the cut',
+      })
       const forwarded = await vi.waitFor(() => {
-        const request = commands.find((message): message is Extract<ControlMessage, { type: 'runtimeDurableSendRequest' }> =>
-          message.type === 'runtimeDurableSendRequest' && message.text.includes('typed before the cut'))
+        const request = commands.find(
+          (message): message is Extract<ControlMessage, { type: 'runtimeDurableSendRequest' }> =>
+            message.type === 'runtimeDurableSendRequest' &&
+            message.text.includes('typed before the cut'),
+        )
         if (!request) throw new Error('the message has not reached the driver yet')
         return request
       })
@@ -1690,7 +2008,12 @@ describe('a delivery report is a fact about one message (POD-4796)', () => {
 
       // The report the daemon minted under generation 1, in the closed turn,
       // at a cursor the checkpoint has passed.
-      const replayed = report({ rowId: forwarded.rowId, observerGeneration: 1, seq: 2, turnEpoch: 1 })
+      const replayed = report({
+        rowId: forwarded.rowId,
+        observerGeneration: 1,
+        seq: 2,
+        turnEpoch: 1,
+      })
       await route('replay-1', replayed)
       expect(acks('replay-1')).toEqual([expect.objectContaining({ outcome: 'committed' })])
       expect(await store.sync.listQueuedMessages(sessionId)).toEqual([])
@@ -1722,23 +2045,38 @@ it('projects draft changes after a completed turn without recording agent activi
     registry.modules.sessions.state.setDraftSyncEnabled(true)
     const at = '2026-09-15T00:00:00.000Z'
     await registry.modules.sessions.runtimeGateway.record(store.hostMachineId, {
-      sessionId, event: turnEvent({ at, seq: 1, turnEpoch: 1, ev: 'started', provenance: 'bootstrap' }),
+      sessionId,
+      event: turnEvent({ at, seq: 1, turnEpoch: 1, ev: 'started', provenance: 'bootstrap' }),
     })
     await registry.modules.sessions.runtimeGateway.record(store.hostMachineId, {
-      sessionId, event: turnEvent({ at, seq: 2, turnEpoch: 1, ev: 'completed' }),
+      sessionId,
+      event: turnEvent({ at, seq: 2, turnEpoch: 1, ev: 'completed' }),
     })
     const before = (await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt
-    const event = { ...turnEvent({ at: '2026-09-16T00:00:00.000Z', seq: 3, turnEpoch: 1, ev: 'completed' }), t: 'draft' as const, text: 'next prompt' }
-    expect(await registry.modules.sessions.runtimeGateway.record(store.hostMachineId, { sessionId, event })).toMatchObject({ kind: 'accepted' })
+    const event = {
+      ...turnEvent({ at: '2026-09-16T00:00:00.000Z', seq: 3, turnEpoch: 1, ev: 'completed' }),
+      t: 'draft' as const,
+      text: 'next prompt',
+    }
+    expect(
+      await registry.modules.sessions.runtimeGateway.record(store.hostMachineId, {
+        sessionId,
+        event,
+      }),
+    ).toMatchObject({ kind: 'accepted' })
     expect(await registry.modules.sessions.state.draftText(sessionId)).toBe('next prompt')
     expect((await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt).toBe(before)
-    expect(await registry.modules.sessions.runtimeGateway.record(store.hostMachineId, { sessionId, event })).toMatchObject({ kind: 'duplicate' })
+    expect(
+      await registry.modules.sessions.runtimeGateway.record(store.hostMachineId, {
+        sessionId,
+        event,
+      }),
+    ).toMatchObject({ kind: 'duplicate' })
   } finally {
     await registry.dispose()
     await store.close()
   }
 })
-
 
 it('projects metadata after a closed turn, preserves recency, and deduplicates durable replay', async () => {
   const store = await openTestStore(':memory:')
@@ -1747,28 +2085,45 @@ it('projects metadata after a closed turn, preserves recency, and deduplicates d
     const sessionId = await bindContract(registry, store)
     const gateway = registry.modules.sessions.runtimeGateway
     const at = '2026-09-15T00:00:00.000Z'
-    await gateway.record(store.hostMachineId, { sessionId,
-      event: turnEvent({ at, seq: 1, turnEpoch: 1, ev: 'started', provenance: 'bootstrap' }) })
-    await gateway.record(store.hostMachineId, { sessionId,
-      event: turnEvent({ at, seq: 2, turnEpoch: 1, ev: 'completed' }) })
+    await gateway.record(store.hostMachineId, {
+      sessionId,
+      event: turnEvent({ at, seq: 1, turnEpoch: 1, ev: 'started', provenance: 'bootstrap' }),
+    })
+    await gateway.record(store.hostMachineId, {
+      sessionId,
+      event: turnEvent({ at, seq: 2, turnEpoch: 1, ev: 'completed' }),
+    })
     const before = (await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt
     const event: RuntimeEvent = {
-      t: 'metadata', change: { kind: 'context', source: 'transcript', percent: 42 },
-      at: '2099-09-16T00:00:00.000Z', provenance: 'live',
-      cursor: { segmentId: 'runtime-segment', components: { seq: 3 } }, observerGeneration: 1, turnEpoch: 1,
+      t: 'metadata',
+      change: { kind: 'context', source: 'transcript', percent: 42 },
+      at: '2099-09-16T00:00:00.000Z',
+      provenance: 'live',
+      cursor: { segmentId: 'runtime-segment', components: { seq: 3 } },
+      observerGeneration: 1,
+      turnEpoch: 1,
     }
-    expect(await gateway.record(store.hostMachineId, { sessionId, event })).toMatchObject({ kind: 'accepted' })
+    expect(await gateway.record(store.hostMachineId, { sessionId, event })).toMatchObject({
+      kind: 'accepted',
+    })
     await gateway.replayBoardProjection()
-    expect(await registry.modules.sessions.sessionById(sessionId)).toMatchObject({ contextUsagePercent: 42, lastActiveAt: before })
-    expect(await gateway.record(store.hostMachineId, { sessionId, event })).toMatchObject({ kind: 'duplicate' })
+    expect(await registry.modules.sessions.sessionById(sessionId)).toMatchObject({
+      contextUsagePercent: 42,
+      lastActiveAt: before,
+    })
+    expect(await gateway.record(store.hostMachineId, { sessionId, event })).toMatchObject({
+      kind: 'duplicate',
+    })
     await gateway.replayBoardProjection()
-    expect(await registry.modules.sessions.sessionById(sessionId)).toMatchObject({ contextUsagePercent: 42, lastActiveAt: before })
+    expect(await registry.modules.sessions.sessionById(sessionId)).toMatchObject({
+      contextUsagePercent: 42,
+      lastActiveAt: before,
+    })
   } finally {
     await registry.dispose()
     await store.close()
   }
 })
-
 
 it('admits native bootstrap after the same session early metadata prefix', async () => {
   const store = await openTestStore(':memory:')
@@ -1777,23 +2132,58 @@ it('admits native bootstrap after the same session early metadata prefix', async
     const sessionId = await bindContract(registry, store)
     const gateway = registry.modules.sessions.runtimeGateway
     const at = '2026-09-15T00:00:00.000Z'
-    const metadata: RuntimeEvent = { t: 'metadata', change: { kind: 'title', source: 'native', title: 'Early title' },
-      at, provenance: 'live', observerGeneration: 1, turnEpoch: 0,
-      cursor: { segmentId: 'driver:process', components: { seq: 1 } } }
-    expect(await gateway.record(store.hostMachineId, { sessionId, event: metadata })).toMatchObject({ kind: 'accepted' })
-    const seed: RuntimeEvent = { t: 'item', item: { kind: 'complete', item: {
-      id: 'first-user', role: 'user', text: 'First real prompt', ts: at,
-    } }, at, provenance: 'bootstrap', observerGeneration: 1, turnEpoch: 0,
-      cursor: { segmentId: 'driver:process', components: { seq: 2 } } }
-    expect(await gateway.record(store.hostMachineId, { sessionId, event: seed })).toMatchObject({ kind: 'accepted' })
-    expect(await gateway.record(store.hostMachineId, { sessionId, event: seed })).toMatchObject({ kind: 'duplicate' })
-    const native: RuntimeEvent = { ...stateEvent({ at, seq: 3, observerGeneration: 1, turnEpoch: 0, provenance: 'bootstrap' }),
-      cursor: { segmentId: 'native', predecessorSegmentId: 'driver:process', components: { seq: 3 } } }
-    expect(await gateway.record(store.hostMachineId, { sessionId, event: native })).toMatchObject({ kind: 'accepted' })
+    const metadata: RuntimeEvent = {
+      t: 'metadata',
+      change: { kind: 'title', source: 'native', title: 'Early title' },
+      at,
+      provenance: 'live',
+      observerGeneration: 1,
+      turnEpoch: 0,
+      cursor: { segmentId: 'driver:process', components: { seq: 1 } },
+    }
+    expect(await gateway.record(store.hostMachineId, { sessionId, event: metadata })).toMatchObject(
+      { kind: 'accepted' },
+    )
+    const seed: RuntimeEvent = {
+      t: 'item',
+      item: {
+        kind: 'complete',
+        item: {
+          id: 'first-user',
+          role: 'user',
+          text: 'First real prompt',
+          ts: at,
+        },
+      },
+      at,
+      provenance: 'bootstrap',
+      observerGeneration: 1,
+      turnEpoch: 0,
+      cursor: { segmentId: 'driver:process', components: { seq: 2 } },
+    }
+    expect(await gateway.record(store.hostMachineId, { sessionId, event: seed })).toMatchObject({
+      kind: 'accepted',
+    })
+    expect(await gateway.record(store.hostMachineId, { sessionId, event: seed })).toMatchObject({
+      kind: 'duplicate',
+    })
+    const native: RuntimeEvent = {
+      ...stateEvent({ at, seq: 3, observerGeneration: 1, turnEpoch: 0, provenance: 'bootstrap' }),
+      cursor: {
+        segmentId: 'native',
+        predecessorSegmentId: 'driver:process',
+        components: { seq: 3 },
+      },
+    }
+    expect(await gateway.record(store.hostMachineId, { sessionId, event: native })).toMatchObject({
+      kind: 'accepted',
+    })
     await gateway.replayBoardProjection()
-  } finally { await registry.dispose(); await store.close() }
+  } finally {
+    await registry.dispose()
+    await store.close()
+  }
 })
-
 
 it('restores metadata through the actual bind snapshot RPC on reconnect without compatibility frames', async () => {
   const store = await openTestStore(':memory:')
@@ -1805,68 +2195,134 @@ it('restores metadata through the actual bind snapshot RPC on reconnect without 
   try {
     const sessionId = await bindContract(registry, store, (message) => {
       if (message.type !== 'runtimeSnapshotRequest') return
-      const event = { t: 'metadata' as const, change: { kind: 'context' as const, source: 'transcript' as const, percent },
-        at, provenance: 'live' as const, observerGeneration: 1, turnEpoch: 0,
-        cursor: { segmentId: 'native', components: { seq } } }
-      replies.push(registry.gateway.routeDaemonFrame(store.hostMachineId, {
-        type: 'runtimeSnapshotResult', requestId: message.requestId, sessionId: message.sessionId,
-        result: { snapshot: {
-          binding: { sessionId: message.sessionId, driver: 'generic-pty', family: 'terminal', harness: 'codex',
-            workdir: '/project', resume: null, process: { key: 'process' }, bindingVersion: 1 },
-          state: {}, cursor: event.cursor, observerGeneration: 1, turnEpoch: 0,
-          interactions: [], metadata: [event], draft: '', at,
-        } },
-      }))
+      const event = {
+        t: 'metadata' as const,
+        change: { kind: 'context' as const, source: 'transcript' as const, percent },
+        at,
+        provenance: 'live' as const,
+        observerGeneration: 1,
+        turnEpoch: 0,
+        cursor: { segmentId: 'native', components: { seq } },
+      }
+      replies.push(
+        registry.gateway.routeDaemonFrame(store.hostMachineId, {
+          type: 'runtimeSnapshotResult',
+          requestId: message.requestId,
+          sessionId: message.sessionId,
+          result: {
+            snapshot: {
+              binding: {
+                sessionId: message.sessionId,
+                driver: 'generic-pty',
+                family: 'terminal',
+                harness: 'codex',
+                workdir: '/project',
+                resume: null,
+                process: { key: 'process' },
+                bindingVersion: 1,
+              },
+              state: {},
+              cursor: event.cursor,
+              observerGeneration: 1,
+              turnEpoch: 0,
+              interactions: [],
+              metadata: [event],
+              draft: '',
+              at,
+            },
+          },
+        }),
+      )
     })
-    await vi.waitFor(async () => expect(await registry.modules.sessions.sessionById(sessionId)).toMatchObject({ contextUsagePercent: 33 }))
+    await vi.waitFor(async () =>
+      expect(await registry.modules.sessions.sessionById(sessionId)).toMatchObject({
+        contextUsagePercent: 33,
+      }),
+    )
     const before = (await registry.modules.sessions.sessionById(sessionId))?.lastActiveAt
     percent = 0
     seq = 2
     await registry.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'bind', sessionId, cmd: 'codex', cwd: '/project', agentKind: 'codex',
-      geometry: { cols: 80, rows: 24 }, driverId: 'generic-pty',
+      type: 'bind',
+      sessionId,
+      cmd: 'codex',
+      cwd: '/project',
+      agentKind: 'codex',
+      geometry: { cols: 80, rows: 24 },
+      driverId: 'generic-pty',
     })
-    await vi.waitFor(async () => expect(await registry.modules.sessions.sessionById(sessionId)).toMatchObject({ contextUsagePercent: 0, lastActiveAt: before }))
+    await vi.waitFor(async () =>
+      expect(await registry.modules.sessions.sessionById(sessionId)).toMatchObject({
+        contextUsagePercent: 0,
+        lastActiveAt: before,
+      }),
+    )
   } finally {
     await Promise.all(replies)
     await registry.dispose()
     await store.close()
-}
+  }
 })
 describe('durable transcript replacement windows', () => {
-  it.each([false, true])('removes stale overlays across reset, mixed carriage and restart (empty=%s)', async (empty) => {
+  it.each([
+    false,
+    true,
+  ])('removes stale overlays across reset, mixed carriage and restart (empty=%s)', async (empty) => {
     const store = await openTestStore(':memory:')
     let registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     try {
       const sessionId = await bindContract(registry, store, () => {}, null)
       const at = '2026-08-23T00:00:00.000Z'
-      const old = { id: 'old', cursor: 'old-native', role: 'assistant' as const, text: 'removed', ts: at }
-      const kept = { id: 'kept', cursor: 'rotated-native', role: 'assistant' as const, text: 'kept', ts: at }
+      const old = {
+        id: 'old',
+        cursor: 'old-native',
+        role: 'assistant' as const,
+        text: 'removed',
+        ts: at,
+      }
+      const kept = {
+        id: 'kept',
+        cursor: 'rotated-native',
+        role: 'assistant' as const,
+        text: 'kept',
+        ts: at,
+      }
       const replacement = empty ? [] : [kept]
-      const send = async (event: RuntimeEvent) => registry.gateway.routeDaemonFrame(store.hostMachineId, {
-        type: 'runtimeEvent', sessionId, deliveryId: 'reset-' + event.cursor.components.seq, event,
-      })
+      const send = async (event: RuntimeEvent) =>
+        registry.gateway.routeDaemonFrame(store.hostMachineId, {
+          type: 'runtimeEvent',
+          sessionId,
+          deliveryId: 'reset-' + event.cursor.components.seq,
+          event,
+        })
       await send(stateEvent({ at, seq: 1, observerGeneration: 1, provenance: 'bootstrap' }))
       await send(terminalItemEvent({ at, seq: 2, item: old }))
       await send(turnEvent({ at, seq: 3, turnEpoch: 1, ev: 'completed' }))
       const reset: RuntimeEvent = {
         ...stateEvent({ at, seq: 4, observerGeneration: 1, provenance: 'bootstrap' }),
-        t: 'transcript-reset', items: replacement, ...(empty ? {} : { tail: kept.cursor }),
+        t: 'transcript-reset',
+        items: replacement,
+        ...(empty ? {} : { tail: kept.cursor }),
       }
       await send(reset)
       await send(reset) // durable outbox replay is harmless
       expect(registry.modules.sessions.transcriptFor(sessionId)).toEqual(replacement)
       await registry.gateway.routeDaemonFrame(store.hostMachineId, {
-        type: 'transcriptDelta', sessionId, items: replacement, reset: true,
+        type: 'transcriptDelta',
+        sessionId,
+        items: replacement,
+        reset: true,
       })
       expect(registry.modules.sessions.transcriptFor(sessionId)).toEqual(replacement)
-      expect((await store.events.listRuntimeTranscriptEvents(sessionId)).map((event) => event.t))
-        .toEqual(['item', 'transcript-reset'])
+      expect(
+        (await store.events.listRuntimeTranscriptEvents(sessionId)).map((event) => event.t),
+      ).toEqual(['item', 'transcript-reset'])
       await registry.dispose()
       registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
       expect(registry.modules.sessions.transcriptFor(sessionId)).toEqual(replacement)
       const page = await registry.modules.rpc.readTranscript(
-        { sessionId, direction: 'before', limit: 50 }, { kind: 'user', id: firstAdminMemberId() },
+        { sessionId, direction: 'before', limit: 50 },
+        { kind: 'user', id: firstAdminMemberId() },
       )
       expect(page.items).toEqual(replacement)
     } finally {
@@ -1882,22 +2338,39 @@ it('projects native binding receipts after a closed turn and restores the projec
   try {
     const sessionId = await bindContract(registry, store)
     const at = '2026-09-18T00:00:00.000Z'
-    const send = (event: RuntimeEvent) => registry.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'runtimeEvent', sessionId, deliveryId: `native-${event.cursor.components.seq}`, event,
-    })
+    const send = (event: RuntimeEvent) =>
+      registry.gateway.routeDaemonFrame(store.hostMachineId, {
+        type: 'runtimeEvent',
+        sessionId,
+        deliveryId: `native-${event.cursor.components.seq}`,
+        event,
+      })
     await send(turnEvent({ at, seq: 1, turnEpoch: 1, ev: 'started' }))
     await send(turnEvent({ at, seq: 2, turnEpoch: 1, ev: 'completed' }))
-    const event: RuntimeEvent = { t: 'binding', resume: { kind: 'codex-thread', value: 'native-thread' },
-      confidence: 'exact', ackRequested: true, bindingVersion: 1, at, provenance: 'live',
-      observerGeneration: 1, turnEpoch: 1, cursor: { segmentId: 'runtime-segment', components: { seq: 3 } } }
+    const event: RuntimeEvent = {
+      t: 'binding',
+      resume: { kind: 'codex-thread', value: 'native-thread' },
+      confidence: 'exact',
+      ackRequested: true,
+      bindingVersion: 1,
+      at,
+      provenance: 'live',
+      observerGeneration: 1,
+      turnEpoch: 1,
+      cursor: { segmentId: 'runtime-segment', components: { seq: 3 } },
+    }
     await send(event)
     await registry.modules.sessions.runtimeGateway.replayBoardProjection()
     expect((await registry.modules.sessions.sessionById(sessionId))?.resume).toEqual(event.resume)
     await send(event)
     await registry.modules.sessions.runtimeGateway.replayBoardProjection()
     expect((await registry.modules.sessions.sessionById(sessionId))?.resume).toEqual(event.resume)
-    await send({ ...event, resume: { kind: 'codex-thread', value: 'wrong-generation' },
-      observerGeneration: 0, cursor: { segmentId: 'runtime-segment', components: { seq: 4 } } })
+    await send({
+      ...event,
+      resume: { kind: 'codex-thread', value: 'wrong-generation' },
+      observerGeneration: 0,
+      cursor: { segmentId: 'runtime-segment', components: { seq: 4 } },
+    })
     await registry.modules.sessions.runtimeGateway.replayBoardProjection()
     expect((await registry.modules.sessions.sessionById(sessionId))?.resume).toEqual(event.resume)
   } finally {
@@ -1910,25 +2383,42 @@ it('retains the binding projection cursor when receipt persistence fails', async
   let cursor = 0
   let fail = true
   const sessionId = asSessionId('binding-retry')
-  const event: RuntimeEvent = { t: 'binding', resume: { kind: 'codex-thread', value: 'native' },
-    confidence: 'exact', bindingVersion: 1, ackRequested: true, at: '2026-09-18T00:00:00.000Z',
-    provenance: 'live', observerGeneration: 1, turnEpoch: 0,
-    cursor: { segmentId: 'native', components: { seq: 1 } } }
+  const event: RuntimeEvent = {
+    t: 'binding',
+    resume: { kind: 'codex-thread', value: 'native' },
+    confidence: 'exact',
+    bindingVersion: 1,
+    ackRequested: true,
+    at: '2026-09-18T00:00:00.000Z',
+    provenance: 'live',
+    observerGeneration: 1,
+    turnEpoch: 0,
+    cursor: { segmentId: 'native', components: { seq: 1 } },
+  }
   const projected: string[] = []
   const ports: RuntimeEventGatePorts = {
     events: {
       runtimeEventProjectionCursor: async () => cursor,
-      saveRuntimeEventProjectionCursor: async (_name: string, next: number) => { cursor = next },
-      listRuntimeEventsAfter: async (after: number) => after < 1 ? [{ id: 1, sessionId, event }] : [],
+      saveRuntimeEventProjectionCursor: async (_name: string, next: number) => {
+        cursor = next
+      },
+      listRuntimeEventsAfter: async (after: number) =>
+        after < 1 ? [{ id: 1, sessionId, event }] : [],
     } as unknown as RuntimeEventGatePorts['events'],
-    session: () => undefined, persist: async () => {}, write: async () => {}, board: async () => {}, now: () => 0,
+    session: () => undefined,
+    persist: async () => {},
+    write: async () => {},
+    board: async () => {},
+    now: () => 0,
     delivery: async () => {},
     binding: async (_id, receipt) => {
       if (fail) throw new Error('binding persistence unavailable')
       projected.push(receipt.resume.value)
     },
   }
-  await expect(new RuntimeEventGate(ports).replayBoardProjection()).rejects.toThrow('binding persistence unavailable')
+  await expect(new RuntimeEventGate(ports).replayBoardProjection()).rejects.toThrow(
+    'binding persistence unavailable',
+  )
   expect(cursor).toBe(0)
   fail = false
   await new RuntimeEventGate(ports).replayBoardProjection()
@@ -1944,7 +2434,7 @@ it('retains the binding projection cursor when receipt persistence fails', async
  * The session must read idle once the turn's own end arrives, and the follow-up
  * must be handed to the daemon.
  */
-describe('a finished turn ends the session\'s working state (POD-4641)', () => {
+describe("a finished turn ends the session's working state (POD-4641)", () => {
   const at = (second: number) => new Date(Date.UTC(2026, 8, 23, 7, 31, second)).toISOString()
 
   async function bindDriver(agentKind: 'opencode' | 'grok' | 'claude-code', driverId: string) {
@@ -1952,19 +2442,36 @@ describe('a finished turn ends the session\'s working state (POD-4641)', () => {
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const commands: ControlMessage[] = []
     await store.machines.upsertMachine({
-      id: store.hostMachineId, name: 'Host', hostname: 'test', tokenHash: 'test',
-      ownerUserId: firstAdminMemberId(), assignment: { server: true, agentExecution: true },
+      id: store.hostMachineId,
+      name: 'Host',
+      hostname: 'test',
+      tokenHash: 'test',
+      ownerUserId: firstAdminMemberId(),
+      assignment: { server: true, agentExecution: true },
     })
     await registry.gateway.attachDaemon(store.hostMachineId, (message) => commands.push(message))
-    const { sessionId } = await registry.modules.sessions.createSession({ agentKind, cwd: '/project' })
+    const { sessionId } = await registry.modules.sessions.createSession({
+      agentKind,
+      cwd: '/project',
+    })
     await registry.gateway.routeDaemonFrame(store.hostMachineId, {
-      type: 'bind', sessionId, cmd: agentKind, cwd: '/project', agentKind,
-      geometry: { cols: 80, rows: 24 }, driverId,
+      type: 'bind',
+      sessionId,
+      cmd: agentKind,
+      cwd: '/project',
+      agentKind,
+      geometry: { cols: 80, rows: 24 },
+      driverId,
     })
     let seq = 0
     const send = async (
       body: Record<string, unknown>,
-      input: { turnEpoch: number; second: number; provenance?: RuntimeEvent['provenance']; observerGeneration?: number },
+      input: {
+        turnEpoch: number
+        second: number
+        provenance?: RuntimeEvent['provenance']
+        observerGeneration?: number
+      },
     ) => {
       seq += 1
       const event = {
@@ -1976,33 +2483,56 @@ describe('a finished turn ends the session\'s working state (POD-4641)', () => {
         turnEpoch: input.turnEpoch,
       } as unknown as RuntimeEvent
       await registry.gateway.routeDaemonFrame(store.hostMachineId, {
-        type: 'runtimeEvent', sessionId, deliveryId: `${driverId}-${seq}`, event,
+        type: 'runtimeEvent',
+        sessionId,
+        deliveryId: `${driverId}-${seq}`,
+        event,
       })
     }
-    const phase = async () => (await registry.modules.sessions.sessionById(sessionId))?.agentState?.phase
+    const phase = async () =>
+      (await registry.modules.sessions.sessionById(sessionId))?.agentState?.phase
     const forwarded = (text: string) =>
       // Either custody frame hands the row to the daemon's driver.
-      commands.filter((message) =>
-        (message.type === 'runtimeSendRequest' || message.type === 'runtimeDurableSendRequest') &&
-        message.sessionId === sessionId && JSON.stringify(message).includes(JSON.stringify(text)))
+      commands.filter(
+        (message) =>
+          (message.type === 'runtimeSendRequest' || message.type === 'runtimeDurableSendRequest') &&
+          message.sessionId === sessionId &&
+          JSON.stringify(message).includes(JSON.stringify(text)),
+      )
     return { store, registry, sessionId, send, phase, forwarded }
   }
 
   async function expectFollowUpForwarded(driver: Awaited<ReturnType<typeof bindDriver>>) {
-    await driver.registry.modules.sessions.queueText({ sessionId: driver.sessionId, text: 'the follow-up' })
+    await driver.registry.modules.sessions.queueText({
+      writer: driver.registry.modules.sessions.serverWriter,
+      sessionId: driver.sessionId,
+      text: 'the follow-up',
+    })
     await vi.waitFor(() => expect(driver.forwarded('the follow-up')).toHaveLength(1))
   }
 
   it('server family (opencode-server, headless): the idle state after turn/completed is accepted', async () => {
     const driver = await bindDriver('opencode', 'opencode-server')
     try {
-      await driver.send({ t: 'state', change: { kind: 'session_started' } }, { turnEpoch: 0, second: 12, provenance: 'bootstrap' })
-      await driver.send({ t: 'turn', ev: { ev: 'started', turnEpoch: 1, origin: 'human' } }, { turnEpoch: 1, second: 13 })
+      await driver.send(
+        { t: 'state', change: { kind: 'session_started' } },
+        { turnEpoch: 0, second: 12, provenance: 'bootstrap' },
+      )
+      await driver.send(
+        { t: 'turn', ev: { ev: 'started', turnEpoch: 1, origin: 'human' } },
+        { turnEpoch: 1, second: 13 },
+      )
       await driver.send({ t: 'state', change: { kind: 'activity' } }, { turnEpoch: 1, second: 14 })
       expect(await driver.phase()).toBe('working')
       // opencode's closeTurn: the turn verdict FIRST, then the state it folds.
-      await driver.send({ t: 'turn', ev: { ev: 'completed', turnEpoch: 1, verdict: 'done' } }, { turnEpoch: 1, second: 18 })
-      await driver.send({ t: 'state', change: { kind: 'turn_completed', verdict: { kind: 'done' } } }, { turnEpoch: 1, second: 18 })
+      await driver.send(
+        { t: 'turn', ev: { ev: 'completed', turnEpoch: 1, verdict: 'done' } },
+        { turnEpoch: 1, second: 18 },
+      )
+      await driver.send(
+        { t: 'state', change: { kind: 'turn_completed', verdict: { kind: 'done' } } },
+        { turnEpoch: 1, second: 18 },
+      )
       expect(await driver.phase()).toBe('idle')
       await expectFollowUpForwarded(driver)
     } finally {
@@ -2013,16 +2543,40 @@ describe('a finished turn ends the session\'s working state (POD-4641)', () => {
   it('server family: an interrupted turn and a failed turn also land their final state', async () => {
     const driver = await bindDriver('opencode', 'opencode-server')
     try {
-      await driver.send({ t: 'turn', ev: { ev: 'started', turnEpoch: 1, origin: 'human' } }, { turnEpoch: 1, second: 1 })
+      await driver.send(
+        { t: 'turn', ev: { ev: 'started', turnEpoch: 1, origin: 'human' } },
+        { turnEpoch: 1, second: 1 },
+      )
       await driver.send({ t: 'state', change: { kind: 'activity' } }, { turnEpoch: 1, second: 2 })
-      await driver.send({ t: 'turn', ev: { ev: 'completed', turnEpoch: 1, verdict: 'interrupted' } }, { turnEpoch: 1, second: 3 })
-      await driver.send({ t: 'state', change: { kind: 'turn_completed', verdict: { kind: 'interrupted' } } }, { turnEpoch: 1, second: 3 })
+      await driver.send(
+        { t: 'turn', ev: { ev: 'completed', turnEpoch: 1, verdict: 'interrupted' } },
+        { turnEpoch: 1, second: 3 },
+      )
+      await driver.send(
+        { t: 'state', change: { kind: 'turn_completed', verdict: { kind: 'interrupted' } } },
+        { turnEpoch: 1, second: 3 },
+      )
       expect(await driver.phase()).toBe('idle')
-      await driver.send({ t: 'turn', ev: { ev: 'started', turnEpoch: 2, origin: 'human' } }, { turnEpoch: 2, second: 4 })
+      await driver.send(
+        { t: 'turn', ev: { ev: 'started', turnEpoch: 2, origin: 'human' } },
+        { turnEpoch: 2, second: 4 },
+      )
       await driver.send({ t: 'state', change: { kind: 'activity' } }, { turnEpoch: 2, second: 5 })
       expect(await driver.phase()).toBe('working')
-      await driver.send({ t: 'turn', ev: { ev: 'failed', turnEpoch: 2, reason: 'provider-error', disposition: 'retryable' } }, { turnEpoch: 2, second: 6 })
-      await driver.send({ t: 'state', change: { kind: 'turn_failed', errorClass: 'provider-error', retryable: true } }, { turnEpoch: 2, second: 6 })
+      await driver.send(
+        {
+          t: 'turn',
+          ev: { ev: 'failed', turnEpoch: 2, reason: 'provider-error', disposition: 'retryable' },
+        },
+        { turnEpoch: 2, second: 6 },
+      )
+      await driver.send(
+        {
+          t: 'state',
+          change: { kind: 'turn_failed', errorClass: 'provider-error', retryable: true },
+        },
+        { turnEpoch: 2, second: 6 },
+      )
       expect(await driver.phase()).toBe('errored')
     } finally {
       await driver.registry.dispose()
@@ -2035,15 +2589,27 @@ describe('a finished turn ends the session\'s working state (POD-4641)', () => {
       t: 'state',
       change: {
         kind: 'state_snapshot',
-        state: { phase, since: at(second), nativeSubagentCount: 0, stateSource: 'poll', ...(phase === 'idle' ? { idle: { kind: 'done' } } : {}) },
+        state: {
+          phase,
+          since: at(second),
+          nativeSubagentCount: 0,
+          stateSource: 'poll',
+          ...(phase === 'idle' ? { idle: { kind: 'done' } } : {}),
+        },
         at: at(second),
       },
     })
     try {
       await driver.send(snapshot('idle', 1), { turnEpoch: 0, second: 1, provenance: 'bootstrap' })
-      await driver.send({ t: 'turn', ev: { ev: 'started', turnEpoch: 1, origin: 'human' } }, { turnEpoch: 1, second: 2 })
+      await driver.send(
+        { t: 'turn', ev: { ev: 'started', turnEpoch: 1, origin: 'human' } },
+        { turnEpoch: 1, second: 2 },
+      )
       await driver.send(snapshot('working', 2), { turnEpoch: 1, second: 2 })
-      await driver.send({ t: 'turn', ev: { ev: 'completed', turnEpoch: 1, verdict: 'done' } }, { turnEpoch: 1, second: 4 })
+      await driver.send(
+        { t: 'turn', ev: { ev: 'completed', turnEpoch: 1, verdict: 'done' } },
+        { turnEpoch: 1, second: 4 },
+      )
       await driver.send(snapshot('idle', 4), { turnEpoch: 1, second: 4 })
       expect(await driver.phase()).toBe('idle')
       // The acceptance run's event 603848: a live poll snapshot a minute after
@@ -2052,7 +2618,10 @@ describe('a finished turn ends the session\'s working state (POD-4641)', () => {
       expect(await driver.phase()).toBe('idle')
       await expectFollowUpForwarded(driver)
       // A real next turn still opens with its own edge and reads working.
-      await driver.send({ t: 'turn', ev: { ev: 'started', turnEpoch: 2, origin: 'human' } }, { turnEpoch: 2, second: 61 })
+      await driver.send(
+        { t: 'turn', ev: { ev: 'started', turnEpoch: 2, origin: 'human' } },
+        { turnEpoch: 2, second: 61 },
+      )
       await driver.send(snapshot('working', 61), { turnEpoch: 2, second: 61 })
       expect(await driver.phase()).toBe('working')
     } finally {
@@ -2066,24 +2635,56 @@ describe('a finished turn ends the session\'s working state (POD-4641)', () => {
       t: 'state',
       change: {
         kind: 'state_snapshot',
-        state: { phase, since: at(second), nativeSubagentCount: 0, stateSource: 'hook', ...(idle ? { idle: { kind: idle } } : {}) },
+        state: {
+          phase,
+          since: at(second),
+          nativeSubagentCount: 0,
+          stateSource: 'hook',
+          ...(idle ? { idle: { kind: idle } } : {}),
+        },
         at: at(second),
       },
     })
     try {
-      await driver.send(snapshot('idle', 1, 'done'), { turnEpoch: 0, second: 1, provenance: 'bootstrap' })
-      await driver.send({ t: 'turn', ev: { ev: 'started', turnEpoch: 1, origin: 'human' } }, { turnEpoch: 1, second: 2 })
+      await driver.send(snapshot('idle', 1, 'done'), {
+        turnEpoch: 0,
+        second: 1,
+        provenance: 'bootstrap',
+      })
+      await driver.send(
+        { t: 'turn', ev: { ev: 'started', turnEpoch: 1, origin: 'human' } },
+        { turnEpoch: 1, second: 2 },
+      )
       await driver.send(snapshot('working', 2), { turnEpoch: 1, second: 2 })
-      await driver.send({ t: 'turn', ev: { ev: 'completed', turnEpoch: 1, verdict: 'interrupted' } }, { turnEpoch: 1, second: 5 })
+      await driver.send(
+        { t: 'turn', ev: { ev: 'completed', turnEpoch: 1, verdict: 'interrupted' } },
+        { turnEpoch: 1, second: 5 },
+      )
       await driver.send(snapshot('idle', 5, 'interrupted'), { turnEpoch: 1, second: 5 })
       expect(await driver.phase()).toBe('idle')
       // The driver reconciles the turn's transcript only after it has seen the
       // turn end, so the turn's last item arrives in its closed epoch.
       await driver.send(
-        { t: 'item', item: { kind: 'complete', item: { id: 'answer', cursor: 'answer', role: 'assistant', text: 'the answer', ts: at(5) } } },
+        {
+          t: 'item',
+          item: {
+            kind: 'complete',
+            item: {
+              id: 'answer',
+              cursor: 'answer',
+              role: 'assistant',
+              text: 'the answer',
+              ts: at(5),
+            },
+          },
+        },
         { turnEpoch: 1, second: 5 },
       )
-      expect((await driver.store.events.listRuntimeEvents(driver.sessionId)).some((event) => event.t === 'item')).toBe(true)
+      expect(
+        (await driver.store.events.listRuntimeEvents(driver.sessionId)).some(
+          (event) => event.t === 'item',
+        ),
+      ).toBe(true)
       expect(await driver.phase()).toBe('idle')
       await expectFollowUpForwarded(driver)
     } finally {
@@ -2094,21 +2695,45 @@ describe('a finished turn ends the session\'s working state (POD-4641)', () => {
   it('control arm: state from a really closed OLDER turn is still rejected', async () => {
     const driver = await bindDriver('opencode', 'opencode-server')
     try {
-      await driver.send({ t: 'turn', ev: { ev: 'started', turnEpoch: 1, origin: 'human' } }, { turnEpoch: 1, second: 1 })
-      await driver.send({ t: 'turn', ev: { ev: 'completed', turnEpoch: 1, verdict: 'done' } }, { turnEpoch: 1, second: 2 })
-      await driver.send({ t: 'state', change: { kind: 'turn_completed', verdict: { kind: 'done' } } }, { turnEpoch: 1, second: 2 })
-      await driver.send({ t: 'turn', ev: { ev: 'started', turnEpoch: 2, origin: 'human' } }, { turnEpoch: 2, second: 3 })
+      await driver.send(
+        { t: 'turn', ev: { ev: 'started', turnEpoch: 1, origin: 'human' } },
+        { turnEpoch: 1, second: 1 },
+      )
+      await driver.send(
+        { t: 'turn', ev: { ev: 'completed', turnEpoch: 1, verdict: 'done' } },
+        { turnEpoch: 1, second: 2 },
+      )
+      await driver.send(
+        { t: 'state', change: { kind: 'turn_completed', verdict: { kind: 'done' } } },
+        { turnEpoch: 1, second: 2 },
+      )
+      await driver.send(
+        { t: 'turn', ev: { ev: 'started', turnEpoch: 2, origin: 'human' } },
+        { turnEpoch: 2, second: 3 },
+      )
       await driver.send({ t: 'state', change: { kind: 'activity' } }, { turnEpoch: 2, second: 3 })
       expect(await driver.phase()).toBe('working')
       // Epoch 1's terminal state, replayed late while turn 2 runs.
-      await driver.send({ t: 'state', change: { kind: 'turn_completed', verdict: { kind: 'done' } } }, { turnEpoch: 1, second: 4 })
+      await driver.send(
+        { t: 'state', change: { kind: 'turn_completed', verdict: { kind: 'done' } } },
+        { turnEpoch: 1, second: 4 },
+      )
       expect(await driver.phase()).toBe('working')
       // And in the closed epoch, an arm that would reopen the turn stays out.
-      await driver.send({ t: 'turn', ev: { ev: 'completed', turnEpoch: 2, verdict: 'done' } }, { turnEpoch: 2, second: 5 })
-      await driver.send({ t: 'state', change: { kind: 'turn_completed', verdict: { kind: 'done' } } }, { turnEpoch: 2, second: 5 })
+      await driver.send(
+        { t: 'turn', ev: { ev: 'completed', turnEpoch: 2, verdict: 'done' } },
+        { turnEpoch: 2, second: 5 },
+      )
+      await driver.send(
+        { t: 'state', change: { kind: 'turn_completed', verdict: { kind: 'done' } } },
+        { turnEpoch: 2, second: 5 },
+      )
       expect(await driver.phase()).toBe('idle')
       await driver.send({ t: 'state', change: { kind: 'activity' } }, { turnEpoch: 2, second: 6 })
-      await driver.send({ t: 'state', change: { kind: 'prompt_submitted' } }, { turnEpoch: 2, second: 7 })
+      await driver.send(
+        { t: 'state', change: { kind: 'prompt_submitted' } },
+        { turnEpoch: 2, second: 7 },
+      )
       expect(await driver.phase()).toBe('idle')
     } finally {
       await driver.registry.dispose()

@@ -519,8 +519,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     },
     authorization: {
       authorizeAtDrain: (input) => life.authorizeQueuedInputAtApply(input),
-      handingOn: async ({ sourceMessageId, sessionId }) =>
-        (await deps.handOffQueuedMessage?.(sourceMessageId, sessionId)) ?? true,
+      handingOn: async ({ sourceMessageId, sessionId, writer }) =>
+        (await deps.handOffQueuedMessage?.(writer, sourceMessageId, sessionId)) ?? true,
       applied: async ({ sourceMessageId, sessionId }) => {
         const completion: Promise<void> | undefined = deps.confirmQueuedMessageApplied?.(
           sourceMessageId,
@@ -674,31 +674,22 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       },
     },
     now: () => bag.now(),
-    persist: (session, options) =>
+    // The writer of whoever asked, per call (POD-6602).
+    persist: (writer, session, options) =>
       life.repository.persist(
-        bag.deps.writers.inbox,
+        writer,
         session,
-        options?.cancelTerminalCandidate
-          ? () => store.observationCheckpoints.cancelTerminalCandidate(session.sessionId)
-          : undefined,
-      ),
-    write: (session, mutate, options) =>
-      life.repository.write(
-        bag.deps.writers.inbox,
-        session,
-        mutate,
         options?.cancelTerminalCandidate
           ? () => store.observationCheckpoints.cancelTerminalCandidate(session.sessionId)
           : undefined,
       ),
     draft: (session) => life.repository.draft(session),
-    persistDraft: (session, draft) =>
-      life.repository.persistDraft(bag.deps.writers.inbox, session, draft),
+    persistDraft: (writer, session, draft) => life.repository.persistDraft(writer, session, draft),
     broadcast: () => bag.broadcastSessions(),
     harnessInterrupt,
     harnessName: harnessDisplayName,
-    prepareSend: (sessionId, attribution, kind, origin) =>
-      life.prepareInboxSend(bag.deps.writers.inbox, sessionId, attribution, kind, origin),
+    prepareSend: (writer, sessionId, attribution, kind, origin) =>
+      life.prepareInboxSend(writer, sessionId, attribution, kind, origin),
     ownerOf: async (sessionId) => (await ownership.sessionOwner(sessionId))?.owner,
     setSessionDraft: (input) => life.state.setDraft(input),
     draftText: (sessionId) => bag.state.draftText(sessionId),
@@ -864,6 +855,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     enqueue: async (input) => {
       const inbox: SessionInbox = bag.inbox
       const queued = await inbox.queueText({
+        writer: input.writer,
         sessionId: input.sessionId,
         text: input.text,
         inputOrigin: input.origin,

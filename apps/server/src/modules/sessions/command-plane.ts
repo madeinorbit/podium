@@ -107,8 +107,6 @@ export type SessionCommandServices = Pick<
   | 'workspace'
   | 'hibernateSession'
   | 'interruptTurn'
-  | 'configureSession'
-  | 'answerAskUserQuestion'
   | 'continueSession'
   // POD-6415: a send's explicit wake choice, checked before anything is queued.
   | 'explicitWakeSelection'
@@ -119,6 +117,14 @@ export type SessionCommandServices = Pick<
 > & {
   /** The direct kill of a hand-built context, written as the composition gives it. */
   killSession(input: { sessionId: SessionId }): Promise<void>
+  /** The context binds the writer (POD-6602): the command's own, or for a
+   *  hand-built context the composition's. */
+  configureSession(
+    input: Omit<Parameters<SessionLifecycle['configureSession']>[0], 'writer'>,
+  ): ReturnType<SessionLifecycle['configureSession']>
+  answerAskUserQuestion(
+    input: Omit<Parameters<SessionLifecycle['answerAskUserQuestion']>[0], 'writer'>,
+  ): ReturnType<SessionLifecycle['answerAskUserQuestion']>
 } & Pick<IssueSessionLifecycle, 'resumeSession' | 'resurrectSession' | 'stopSession'> &
   // POD-6160 D2f: the command's session stays resident while it runs.
   Partial<Pick<SessionLifecycle, 'residency'>>

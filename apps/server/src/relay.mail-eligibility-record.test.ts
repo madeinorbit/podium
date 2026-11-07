@@ -50,7 +50,7 @@ async function heldIssueMail(dropped?: MetadataChange['entity']) {
     geometry: { cols: 80, rows: 24 },
   })
   const sent = await reg.modules.messages.send(
-    messageTestWriter(),
+    reg.modules.sessions.serverWriter,
     { kind: 'operator' },
     { to: { kind: 'issue', id: issue.id }, body: 'held until the issue owns the worktree' },
   )

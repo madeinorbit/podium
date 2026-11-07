@@ -20,8 +20,9 @@
 
 import type { LedgerWriter, WriteScope } from '@podium/sync'
 
-/** A writer a messages write can commit on. */
-export type MessageWriter = Pick<LedgerWriter, 'commit'>
+/** A writer a messages write can commit on. Commit and capture: the session
+ *  inbox a delivery hands it to writes the session's row with it too. */
+export type MessageWriter = Pick<LedgerWriter, 'commit' | 'capture'>
 
 /** One messages write, as a commit on `writer`. */
 export async function commitMessages<T>(

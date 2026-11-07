@@ -221,6 +221,9 @@ export interface SpawnOnWake {
 }
 
 interface InboxDeliveryInput {
+  /** The delivering write's writer (POD-6602): the session inbox writes the
+   *  session's row with it, and hands the message on under it. */
+  writer: MessageWriter
   sessionId: SessionId
   text: string
   /** The three origins message delivery can produce — NOT the full
@@ -1789,6 +1792,7 @@ export class MessageDeliveryService {
     // delivers (an automation's prompt, POD-4846) are `system`: nobody is at the
     // keyboard acting on the offer, and the words are not agent mail either.
     const input = {
+      writer,
       sessionId,
       text,
       ...(message.attachments?.length ? { attachments: message.attachments } : {}),
@@ -1976,12 +1980,15 @@ export class MessageDeliveryService {
    * being written. A message already handed to this session (a repeat push of
    * the same row) may go on; one that ended, or was handed elsewhere, may not.
    */
-  async onQueuedInputHandingOn(messageId: string, sessionId: SessionId): Promise<boolean> {
+  async onQueuedInputHandingOn(
+    /** The send's writer: the hand-off is part of the write that delivers it. */
+    writer: MessageWriter,
+    messageId: string,
+    sessionId: SessionId,
+  ): Promise<boolean> {
     const message = await this.deps.messages.getMessage(messageId)
     if (!message) return false
-    if (message.deliveryStatus === 'stored') {
-      await this.markDispatched(this.deps.writers.delivery, message, sessionId)
-    }
+    if (message.deliveryStatus === 'stored') await this.markDispatched(writer, message, sessionId)
     const now = await this.deps.messages.getMessage(messageId)
     return now !== null && isMessageHandedOn(now.deliveryStatus) && now.deliveredTo === sessionId
   }

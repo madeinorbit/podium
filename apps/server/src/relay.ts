@@ -1635,7 +1635,7 @@ export class SessionRegistry {
     // are lazy closures — issues/conversations are assigned below, and are only
     // ever invoked after construction completes.
     const queuedApplyHooks: {
-      handingOn?: (messageId: string, sessionId: SessionId) => Promise<boolean>
+      handingOn?: (writer: MessageWriter, messageId: string, sessionId: SessionId) => Promise<boolean>
       spawnPrompt?: (
         writer: MessageWriter,
         input: {
@@ -1737,8 +1737,8 @@ export class SessionRegistry {
       now: () => this.now(),
       bus: this.bus,
       authorizeQueuedMessage: (messageId) => queuedMessageApply.authorize(messageId),
-      handOffQueuedMessage: async (messageId, sessionId) =>
-        (await queuedApplyHooks.handingOn?.(messageId, sessionId)) ?? true,
+      handOffQueuedMessage: async (writer, messageId, sessionId) =>
+        (await queuedApplyHooks.handingOn?.(writer, messageId, sessionId)) ?? true,
       recordSpawnPrompt: async (writer, input) => {
         if (!queuedApplyHooks.spawnPrompt) throw new Error('the message ledger is not wired yet')
         return await queuedApplyHooks.spawnPrompt(writer, input)
@@ -1839,7 +1839,6 @@ export class SessionRegistry {
         lifecycle: writes.system('sessions.lifecycle'),
         live: writes.system('sessions.live'),
         boot: { ...writes.system('boot.reconcile'), authority: ledger.authority },
-        inbox: writes.system('sessions.inbox'),
       },
       machines,
       rpc,
@@ -2676,8 +2675,8 @@ export class SessionRegistry {
       await messagesSvc.recordOwnerPrompt(writer, input)
     queuedApplyHooks.sessionsRemoved = async (scope, sessionIds, opts) =>
       await messagesSvc.failMessagesToRemovedSessions(scope, sessionIds, opts)
-    queuedApplyHooks.handingOn = async (messageId, sessionId) =>
-      await messagesSvc.onQueuedInputHandingOn(messageId, sessionId)
+    queuedApplyHooks.handingOn = async (writer, messageId, sessionId) =>
+      await messagesSvc.onQueuedInputHandingOn(writer, messageId, sessionId)
     queuedApplyHooks.applied = async (messageId, sessionId) =>
       await messagesSvc.onQueuedInputApplied(messageId, sessionId)
     queuedApplyHooks.provenLate = async (messageId, sessionId) =>
@@ -4040,7 +4039,9 @@ export class SessionRegistry {
         return deliverToNativeMenu(
           {
             getState: () => state,
-            answer: (answerInput) => sessionsSvc.answerAskUserQuestion(answerInput),
+            // An answer run after its record committed: the server's own.
+            answer: (answerInput) =>
+              sessionsSvc.answerAskUserQuestion({ ...answerInput, writer: sessionsSvc.serverWriter }),
           },
           input,
         )
@@ -4075,7 +4076,7 @@ export class SessionRegistry {
         return session?.hasBoundDriver === true
       },
       deliverStructured: async (input) =>
-        await sessionsSvc.inbox.deliverInteractionAnswer(input, () =>
+        await sessionsSvc.inbox.deliverInteractionAnswer({ ...input, writer: sessionsSvc.serverWriter }, () =>
           sessionsSvc.runtimeGateway.answer({
             sessionId: input.sessionId,
             interactionId: input.interactionId,

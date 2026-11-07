@@ -127,12 +127,16 @@ describe('POD-5284: stopping an unresumable session settles its dispatched mail'
     })
     await bindLiveNoResume(reg, sessionId)
 
-    const sent = await reg.modules.messages.send(messageTestWriter(), AGENT_SENDER as never, {
-      to: { kind: 'session', id: sessionId },
-      body: 'Start now: read your newest message from the coordinator',
-      urgency: 'next-turn',
-      lifecycle: 'wake',
-    })
+    const sent = await reg.modules.messages.send(
+      reg.modules.sessions.serverWriter,
+      AGENT_SENDER as never,
+      {
+        to: { kind: 'session', id: sessionId },
+        body: 'Start now: read your newest message from the coordinator',
+        urgency: 'next-turn',
+        lifecycle: 'wake',
+      },
+    )
     expect(sent.ok).toBe(true)
     const before = await store.messages.getMessage(sent.message.id)
     expect(before?.deliveryStatus).toBe('dispatched')
@@ -161,11 +165,15 @@ describe('POD-5284: stopping an unresumable session settles its dispatched mail'
     })
     await bindLiveResumable(reg, sessionId)
 
-    const sent = await reg.modules.messages.send(messageTestWriter(), AGENT_SENDER as never, {
-      to: { kind: 'session', id: sessionId },
-      body: 'hibernated mail waits for resume',
-      urgency: 'fyi',
-    })
+    const sent = await reg.modules.messages.send(
+      reg.modules.sessions.serverWriter,
+      AGENT_SENDER as never,
+      {
+        to: { kind: 'session', id: sessionId },
+        body: 'hibernated mail waits for resume',
+        urgency: 'fyi',
+      },
+    )
     expect(sent.ok).toBe(true)
     await vi.waitFor(() => expect(durableSends(toDaemon, sessionId)).toHaveLength(1))
     expect(durableSends(toDaemon, sessionId)[0]).toMatchObject({

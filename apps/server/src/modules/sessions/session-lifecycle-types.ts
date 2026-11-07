@@ -66,8 +66,6 @@ export interface SessionWriters {
   /** The boot reconcile and restores (`boot.reconcile`), with the installed
    *  snapshot the repository reads its prior rows from. */
   readonly boot: SessionLedger
-  /** A session's row as a message is delivered to it (`sessions.inbox`, POD-6602). */
-  readonly inbox: SessionWriter
 }
 
 export interface SessionLedger {
@@ -175,7 +173,12 @@ export interface SessionLifecycleDeps {
   ): Promise<{ ok: boolean; reason?: string }>
   /** The message is about to become this session's input: record the hand-off
    *  and answer whether it may still be handed on (POD-4776). */
-  handOffQueuedMessage?(messageId: string, sessionId: SessionId): Promise<boolean>
+  handOffQueuedMessage?(
+    /** The send's own writer (POD-6602): the hand-off is part of its write. */
+    writer: SessionWriter,
+    messageId: string,
+    sessionId: SessionId,
+  ): Promise<boolean>
   /** Advance the source intent only after queued input crosses into the PTY. */
   confirmQueuedMessageApplied?(messageId: string, sessionId: SessionId): Promise<void>
   /** The daemon proved late that a message it had reported unconfirmed

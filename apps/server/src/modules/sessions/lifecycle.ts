@@ -193,6 +193,8 @@ export class SessionLifecycle {
   readonly queuedMessagePosition!: SessionInbox['queuedMessagePosition']
   readonly resumeAndSend!: SessionInbox['resumeAndSend']
   readonly answerAskUserQuestion!: (input: {
+    /** Whose write the answer's admission is (POD-6602). */
+    writer: SessionWriter
     interactionId?: string
     sessionId: SessionId
     choices?: AnswerChoice[]

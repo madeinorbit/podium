@@ -91,6 +91,7 @@ describe('deliverAnswerToSession (issue #53)', () => {
     })
     expect(r).toEqual({ ok: true, via: 'menu', choices: [{ optionIndices: [2] }] })
     expect(h.answerAskUserQuestion).toHaveBeenCalledWith({
+      writer: expect.anything(),
       sessionId: asSessionId('sess_1'),
       choices: [{ optionIndices: [2] }],
       principal,

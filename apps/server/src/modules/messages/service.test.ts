@@ -1796,7 +1796,7 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     const { svc, store } = await harness([session({ sessionId: asSessionId('s1') })], {
       queueText: async (i) => {
         await svcRef!.cancel(w, i.sourceMessageId)
-        if (!(await svcRef!.onQueuedInputHandingOn(i.sourceMessageId, i.sessionId))) {
+        if (!(await svcRef!.onQueuedInputHandingOn(w, i.sourceMessageId, i.sessionId))) {
           return { ok: false, reason: 'message is no longer pending' }
         }
         written.push(i.sourceMessageId)
@@ -1826,14 +1826,15 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     )
     expect((await store.messages.getMessage(sent.message.id))?.deliveryStatus).toBe('stored')
 
-    expect(await svc.onQueuedInputHandingOn(sent.message.id, asSessionId('s1'))).toBe(true)
+    expect(await svc.onQueuedInputHandingOn(w, sent.message.id, asSessionId('s1'))).toBe(true)
     const handed = await store.messages.getMessage(sent.message.id)
     expect(handed).toMatchObject({ deliveryStatus: 'dispatched', deliveredTo: 's1' })
     // The same row pushed again to the same session may go on; to another may not.
-    expect(await svc.onQueuedInputHandingOn(sent.message.id, asSessionId('s1'))).toBe(true)
-    expect(await svc.onQueuedInputHandingOn(sent.message.id, asSessionId('s2'))).toBe(false)
+    expect(await svc.onQueuedInputHandingOn(w, sent.message.id, asSessionId('s1'))).toBe(true)
+    expect(await svc.onQueuedInputHandingOn(w, sent.message.id, asSessionId('s2'))).toBe(false)
     expect(
       await svc.onQueuedInputHandingOn(
+        w,
         'msg_00000000-0000-4000-8000-000000000000',
         asSessionId('s1'),
       ),

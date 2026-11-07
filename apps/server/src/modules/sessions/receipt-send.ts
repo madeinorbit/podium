@@ -39,8 +39,13 @@ import { createLogger } from '@podium/logger'
 import type { MutationId, SessionId, UserId } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
 import type { RuntimeAttachmentRef, TurnReceipt } from '@podium/protocol/daemon'
+import type { LedgerWriter } from '@podium/sync'
 import type { InboxPrincipalReference } from './inbox'
 import type { RuntimeDurableQueuePort } from './runtime-gateway'
+
+/** A session write's writer (the same shape as `SessionWriter`), named here
+ *  without importing the lifecycle's types (POD-6602). */
+type SessionWriter = Pick<LedgerWriter, 'commit' | 'capture'>
 
 /**
  * HOW A MIGRATED CALLER NAMES ITS INTENT.
@@ -55,6 +60,9 @@ import type { RuntimeDurableQueuePort } from './runtime-gateway'
 export type ReceiptSendVia = 'now' | 'queue' | 'interrupt' | 'wake'
 
 export interface ReceiptSendInput {
+  /** Whose write the send is (POD-6602): the queued row's session write and
+   *  the message's hand-off are written with it. */
+  writer: SessionWriter
   sessionId: SessionId
   text: string
   attachments?: readonly RuntimeAttachmentRef[]
@@ -212,7 +220,10 @@ export class ReceiptSender {
         continue
       }
       const path = attachment.path
-      if (path === undefined || !attachmentMatchesSession(input.sessionId, { ...attachment, path })) {
+      if (
+        path === undefined ||
+        !attachmentMatchesSession(input.sessionId, { ...attachment, path })
+      ) {
         return undefined
       }
       out.push(attachment)
@@ -245,7 +256,8 @@ export class ReceiptSender {
         via,
         outcome: receipt.outcome,
         error,
-        recovery: 'Inspect the message ledger before retrying reconciliation; delivery may already have occurred.',
+        recovery:
+          'Inspect the message ledger before retrying reconciliation; delivery may already have occurred.',
       })
     })
   }
@@ -267,6 +279,7 @@ export class ReceiptSender {
     onReceipt?: ReceiptReconciler,
   ): Promise<ReceiptSendResult> {
     const queued = await this.ports.queue.enqueue({
+      writer: input.writer,
       sessionId: input.sessionId,
       text: input.text,
       origin: input.inputOrigin ?? 'controller',
@@ -313,10 +326,7 @@ export class ReceiptSender {
     return { ok: true, queued: true, position: queued.position }
   }
 
-  private async legacy(
-    via: ReceiptSendVia,
-    input: ReceiptSendInput,
-  ): Promise<ReceiptSendResult> {
+  private async legacy(via: ReceiptSendVia, input: ReceiptSendInput): Promise<ReceiptSendResult> {
     switch (via) {
       case 'now':
         return await this.ports.legacy.sendText(input)

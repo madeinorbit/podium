@@ -35,6 +35,7 @@ export interface AnswerDeliveryDeps {
       sessionId: SessionId,
     ): Promise<import('@podium/protocol').PendingInteractionWire | null>
     answerAskUserQuestion(input: {
+      writer: MessageWriter
       interactionId?: string
       sessionId: SessionId
       choices?: AnswerChoice[]
@@ -179,6 +180,7 @@ export async function deliverAnswerToSession(
     })
   }
   const r = await deps.sessions.answerAskUserQuestion({
+    writer: deps.writer,
     sessionId,
     interactionId: pending?.id,
     choices,

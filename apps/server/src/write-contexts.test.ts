@@ -19,6 +19,7 @@ import {
   SYSTEM_WRITE_ORIGINS,
   SystemWriteInsideCommand,
   type SystemWriteOrigin,
+  type SystemWriteOriginSpec,
   WriteContexts,
 } from './write-contexts'
 import { withWriteProvenance } from './write-provenance'
@@ -60,9 +61,11 @@ const inCommand = async <T>(id: string, fn: () => Promise<T>) =>
   await withWriteProvenance({ mutationId: asMutationId(id), causationId: asMutationId(id) }, fn)
 
 describe('the origin census', () => {
+  // Widened to the spec type: the census may hold no origin of some kind (no
+  // client origin since POD-6602), and the rules below still hold for one.
   const origins = Object.entries(SYSTEM_WRITE_ORIGINS) as [
     SystemWriteOrigin,
-    (typeof SYSTEM_WRITE_ORIGINS)[SystemWriteOrigin],
+    SystemWriteOriginSpec,
   ][]
   const today = new Date().toISOString().slice(0, 7)
 
@@ -72,7 +75,7 @@ describe('the origin census', () => {
 
   it('every client origin carries a removal date and the issue that removes it', () => {
     for (const [name, spec] of origins) {
-      const legacy = 'legacy' in spec ? spec.legacy : undefined
+      const legacy = spec.legacy
       if (spec.kind !== 'client') {
         expect(legacy, name).toBeUndefined()
         continue
@@ -147,9 +150,6 @@ describe('the session writes have named origins (POD-6601)', () => {
     expect(SYSTEM_WRITE_ORIGINS['superagent.tools'].kind).toBe('server')
     expect(SYSTEM_WRITE_ORIGINS['sessions.live'].kind).toBe('mirror')
     expect(SYSTEM_WRITE_ORIGINS['sessions.refs'].kind).toBe('mirror')
-    // The two command paths that cannot pass their writer yet are named, owned
-    // and dated, not folded into one origin.
-    expect(SYSTEM_WRITE_ORIGINS['sessions.inbox'].legacy?.owner).toBe('POD-6602')
   })
 
   it("a daemon report or the server's lifecycle writing inside a client command is refused", async () => {
@@ -193,6 +193,8 @@ describe('the superagent writes per command (POD-6606)', () => {
 describe('the message writes have named origins (POD-6602)', () => {
   it('the mail family passes its writer: its client origins are gone', () => {
     expect(Object.keys(SYSTEM_WRITE_ORIGINS)).not.toContain('issues')
+    // The session inbox writes with the delivering write's writer (slice 2).
+    expect(Object.keys(SYSTEM_WRITE_ORIGINS)).not.toContain('sessions.inbox')
     for (const origin of ['messages.daemon', 'messages.delivery', 'messages.server'] as const) {
       expect(SYSTEM_WRITE_ORIGINS[origin].kind).toBe('server')
     }

@@ -977,7 +977,7 @@ describe('AC7 · the command surface is not an existence oracle', () => {
     // silently diverging.
     const o = await makeOracle()
     const direct = await o.reg.modules.messages.send(
-      messageTestWriter(),
+      o.reg.modules.sessions.serverWriter,
       { kind: 'operator' },
       {
         to: { kind: 'session', id: GHOST },

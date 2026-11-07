@@ -42,8 +42,13 @@ import type {
   TurnDelivery,
   TurnReceipt,
 } from '@podium/protocol/daemon'
+import type { LedgerWriter } from '@podium/sync'
 import type { InboxPrincipalReference, QueuedDelivery } from './inbox'
 import type { RuntimeEventGate, RuntimeEventGateResult } from './runtime-event-gate'
+
+/** A session write's writer (the same shape as `SessionWriter`), named here
+ *  without importing the lifecycle's types (POD-6602). */
+type SessionWriter = Pick<LedgerWriter, 'commit' | 'capture'>
 
 /**
  * The durable FIFO, as this gateway needs it.
@@ -55,6 +60,8 @@ import type { RuntimeEventGate, RuntimeEventGateResult } from './runtime-event-g
  */
 export interface RuntimeDurableQueuePort {
   enqueue(input: {
+    /** Whose write the queued turn is (POD-6602). */
+    writer: SessionWriter
     sessionId: SessionId
     text: string
     origin: ObservationInputOrigin
@@ -161,7 +168,12 @@ export interface RuntimeDaemonRpcPort {
     turn?: string,
   ): Promise<{ result: { ok: true } | Refusal }>
   runtimeAnswer(
-    input: { sessionId: SessionId; interactionId: string; principal?: { kind: 'user' | 'agent' | 'system'; ref: string }; answer: Record<string, unknown> },
+    input: {
+      sessionId: SessionId
+      interactionId: string
+      principal?: { kind: 'user' | 'agent' | 'system'; ref: string }
+      answer: Record<string, unknown>
+    },
     machineId: MachineId,
   ): Promise<InteractionAnswerOutcome>
   runtimeLifecycle(
@@ -268,13 +280,21 @@ export class SessionRuntimeGateway {
      * default and is the weakness this field exists to close.
      */
     principal?: InboxPrincipalReference
+    /** The sender's writer, for a turn queued here (see the queue branch). */
+    writer?: SessionWriter
   }): Promise<TurnReceipt> {
     // A TURN THAT IS NOT A ROW YET becomes one here. A row the durable queue
     // is forwarding already is one (it carries its `rowId`), whatever its mode:
     // it goes to its machine, or a `steer` row would be queued again as a new
     // row and forwarded back here without end (POD-5855).
     if (input.rowId === undefined && (input.delivery === 'queue' || input.delivery === 'steer')) {
+      // A turn that is not a row yet is its sender's write (POD-6602). The
+      // durable queue's own forwards always carry their row, so none reach here.
+      if (input.writer === undefined) {
+        throw new Error("runtime gateway: a turn queued here needs its sender's writer")
+      }
       const queued = await this.ports.queue.enqueue({
+        writer: input.writer,
         sessionId: input.sessionId,
         text: input.text,
         origin: input.origin,

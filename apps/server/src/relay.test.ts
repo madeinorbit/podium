@@ -2751,14 +2751,22 @@ describe('agent state', () => {
         cwd: '/proj',
       })
       // not errored yet → refused, and nothing is sent
-      expect(await reg.modules.sessions.continueSession({ sessionId })).toEqual({ ok: false })
+      expect(
+        await reg.modules.sessions.continueSession(reg.modules.sessions.serverWriter, {
+          sessionId,
+        }),
+      ).toEqual({ ok: false })
       expect(runtimeSends(sessionId)).toEqual([])
       await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentState',
         sessionId,
         state: STATE,
       })
-      expect(await reg.modules.sessions.continueSession({ sessionId })).toEqual({ ok: true })
+      expect(
+        await reg.modules.sessions.continueSession(reg.modules.sessions.serverWriter, {
+          sessionId,
+        }),
+      ).toEqual({ ok: true })
       // One durable row, like every agent send (POD-4795).
       await vi.waitFor(() => expect(durableSends(daemon, sessionId)).toHaveLength(1))
       expect(durableSends(daemon, sessionId)).toEqual([
@@ -2778,7 +2786,11 @@ describe('agent state', () => {
         cmd: 'bash',
         agentKind: 'shell',
       })
-      expect(await reg.modules.sessions.continueSession({ sessionId: shell })).toEqual({
+      expect(
+        await reg.modules.sessions.continueSession(reg.modules.sessions.serverWriter, {
+          sessionId: shell,
+        }),
+      ).toEqual({
         ok: false,
       })
       await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -2786,12 +2798,18 @@ describe('agent state', () => {
         sessionId: shell,
         state: STATE,
       })
-      expect(await reg.modules.sessions.continueSession({ sessionId: shell })).toEqual({ ok: true })
+      expect(
+        await reg.modules.sessions.continueSession(reg.modules.sessions.serverWriter, {
+          sessionId: shell,
+        }),
+      ).toEqual({ ok: true })
       expect(ptyInputs(shell)).toEqual([{ inputOrigin: 'auto_continue', data: 'continue\r' }])
       expect(runtimeSends(shell)).toEqual([])
 
       expect(
-        await reg.modules.sessions.continueSession({ sessionId: asSessionId('ghost') }),
+        await reg.modules.sessions.continueSession(reg.modules.sessions.serverWriter, {
+          sessionId: asSessionId('ghost'),
+        }),
       ).toEqual({
         ok: false,
       })
@@ -3575,7 +3593,13 @@ describe('sendText (chat send path)', () => {
         cmd: 'grok',
         agentKind: 'grok',
       })
-      expect(await reg.modules.sessions.sendText({ sessionId, text: 'start this chat' })).toEqual({
+      expect(
+        await reg.modules.sessions.sendText({
+          writer: reg.modules.sessions.serverWriter,
+          sessionId,
+          text: 'start this chat',
+        }),
+      ).toEqual({
         ok: true,
         queued: true,
       })
@@ -3604,7 +3628,11 @@ describe('sendText (chat send path)', () => {
       const shell = await liveShell(reg)
 
       expect(
-        await reg.modules.sessions.sendText({ sessionId: agent, text: 'run the tests' }),
+        await reg.modules.sessions.sendText({
+          writer: reg.modules.sessions.serverWriter,
+          sessionId: agent,
+          text: 'run the tests',
+        }),
       ).toEqual({
         ok: true,
         queued: true,
@@ -3627,7 +3655,11 @@ describe('sendText (chat send path)', () => {
 
       // The shell's answer is a plain ok: the bytes are on the wire already.
       expect(
-        await reg.modules.sessions.sendText({ sessionId: shell, text: 'run the tests' }),
+        await reg.modules.sessions.sendText({
+          writer: reg.modules.sessions.serverWriter,
+          sessionId: shell,
+          text: 'run the tests',
+        }),
       ).toEqual({
         ok: true,
       })
@@ -3652,7 +3684,13 @@ describe('sendText (chat send path)', () => {
       const agent = await liveAgent(reg)
       const shell = await liveShell(reg)
 
-      expect(await reg.modules.sessions.sendText({ sessionId: agent, text: 'a\nb' })).toEqual({
+      expect(
+        await reg.modules.sessions.sendText({
+          writer: reg.modules.sessions.serverWriter,
+          sessionId: agent,
+          text: 'a\nb',
+        }),
+      ).toEqual({
         ok: true,
         queued: true,
       })
@@ -3662,7 +3700,13 @@ describe('sendText (chat send path)', () => {
       // The embedded newline must never be the thing that submits a
       // half-written message: it stays inside the envelope, and the one CR
       // after it is the submit.
-      expect(await reg.modules.sessions.sendText({ sessionId: shell, text: 'a\nb' })).toEqual({
+      expect(
+        await reg.modules.sessions.sendText({
+          writer: reg.modules.sessions.serverWriter,
+          sessionId: shell,
+          text: 'a\nb',
+        }),
+      ).toEqual({
         ok: true,
       })
       expect(readInputs(daemon)).toEqual(['\x1b[200~a\nb\x1b[201~', '\r'])
@@ -3689,6 +3733,7 @@ describe('sendText (chat send path)', () => {
       // nothing at all reaches the PTY, and the caller hears "no", not "later".
       expect(
         await reg.modules.sessions.sendText({
+          writer: reg.modules.sessions.serverWriter,
           sessionId: shell,
           text: 'this must NOT submit the menu',
         }),
@@ -3700,7 +3745,11 @@ describe('sendText (chat send path)', () => {
       // does not hold the send on it (cfb9924a7). The row goes to the driver,
       // which owns the menu guard.
       expect(
-        await reg.modules.sessions.sendText({ sessionId: agent, text: 'for the driver' }),
+        await reg.modules.sessions.sendText({
+          writer: reg.modules.sessions.serverWriter,
+          sessionId: agent,
+          text: 'for the driver',
+        }),
       ).toEqual({
         ok: true,
         queued: true,
@@ -3736,7 +3785,11 @@ describe('sendText (chat send path)', () => {
       )
 
       expect(
-        await reg.modules.sessions.queueText({ sessionId: shell, text: 'queued before the menu' }),
+        await reg.modules.sessions.queueText({
+          writer: reg.modules.sessions.serverWriter,
+          sessionId: shell,
+          text: 'queued before the menu',
+        }),
       ).toEqual({
         ok: true,
         queued: true,
@@ -3771,9 +3824,15 @@ describe('sendText (chat send path)', () => {
         reg.sessionStore.hostMachineId,
         agentStateMsg(shell, 'needs_user', { need: { kind: 'question' } }),
       )
-      expect((await reg.modules.sessions.sendText({ sessionId: shell, text: 'held' })).ok).toBe(
-        false,
-      )
+      expect(
+        (
+          await reg.modules.sessions.sendText({
+            writer: reg.modules.sessions.serverWriter,
+            sessionId: shell,
+            text: 'held',
+          })
+        ).ok,
+      ).toBe(false)
       // Human answers the menu → phase → idle.
       await reg.gateway.routeDaemonFrame(
         reg.sessionStore.hostMachineId,
@@ -3781,7 +3840,13 @@ describe('sendText (chat send path)', () => {
       )
       // ACCEPTED now, because the menu is gone — and the refusal above is the
       // proof nothing was swallowed on the way: only this send is typed.
-      expect(await reg.modules.sessions.sendText({ sessionId: shell, text: 'now ok' })).toEqual({
+      expect(
+        await reg.modules.sessions.sendText({
+          writer: reg.modules.sessions.serverWriter,
+          sessionId: shell,
+          text: 'now ok',
+        }),
+      ).toEqual({
         ok: true,
       })
       expect(readInputs(daemon)).toEqual(['\x1b[200~now ok\x1b[201~', '\r'])
@@ -3803,7 +3868,11 @@ describe('sendText (chat send path)', () => {
       daemon.length = 0
 
       expect(
-        await reg.modules.sessions.interruptText({ sessionId, text: 'stop and read this' }),
+        await reg.modules.sessions.interruptText({
+          writer: reg.modules.sessions.serverWriter,
+          sessionId,
+          text: 'stop and read this',
+        }),
       ).toEqual({ ok: true, queued: true })
       await vi.waitFor(() => expect(durableSends(daemon, sessionId)).toHaveLength(1))
       // The row carries the mode; the daemon's queue decides whether there is
@@ -3832,7 +3901,13 @@ describe('sendText (chat send path)', () => {
       sessionId,
       code: 0,
     })
-    expect(await reg.modules.sessions.sendText({ sessionId, text: 'hello?' })).toEqual({
+    expect(
+      await reg.modules.sessions.sendText({
+        writer: reg.modules.sessions.serverWriter,
+        sessionId,
+        text: 'hello?',
+      }),
+    ).toEqual({
       ok: false,
     })
   })
@@ -3877,7 +3952,11 @@ describe('queueText drain (the server hands rows on at once — no readiness win
           data: 'eA==',
         })
       }
-      await reg.modules.sessions.queueText({ sessionId, text: 'deferred-msg' })
+      await reg.modules.sessions.queueText({
+        writer: reg.modules.sessions.serverWriter,
+        sessionId,
+        text: 'deferred-msg',
+      })
       await vi.advanceTimersByTimeAsync(NO_WINDOW_MS)
       expect(durableSends(daemon, sessionId).map((send) => send.text)).toEqual(['deferred-msg'])
       expect(ptyInputsWith(daemon, 'deferred-msg')).toEqual([])
@@ -3897,7 +3976,11 @@ describe('queueText drain (the server hands rows on at once — no readiness win
         agentKind: 'codex',
         cwd: '/w',
       }) // 'starting'
-      await reg.modules.sessions.queueText({ sessionId, text: 'too-early' })
+      await reg.modules.sessions.queueText({
+        writer: reg.modules.sessions.serverWriter,
+        sessionId,
+        text: 'too-early',
+      })
       await vi.advanceTimersByTimeAsync(NO_WINDOW_MS)
       // 4bd403fed: a new session (no transcript yet) forwards from admission;
       // the daemon's delivery queue holds it until the CLI is up.
@@ -3923,7 +4006,11 @@ describe('queueText drain (the server hands rows on at once — no readiness win
         cwd: '/w',
       })
       await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, codexBind(sessionId)) // live, never emits output
-      await reg.modules.sessions.queueText({ sessionId, text: 'silent-msg' })
+      await reg.modules.sessions.queueText({
+        writer: reg.modules.sessions.serverWriter,
+        sessionId,
+        text: 'silent-msg',
+      })
       await vi.advanceTimersByTimeAsync(NO_WINDOW_MS)
       expect(durableSends(daemon, sessionId).map((send) => send.text)).toEqual(['silent-msg'])
       expect(ptyInputsWith(daemon, 'silent-msg')).toEqual([])
@@ -4936,7 +5023,11 @@ describe('hibernation', () => {
     })
 
     expect(
-      await reg.modules.sessions.queueText({ sessionId, text: 'accepted before exit projection' }),
+      await reg.modules.sessions.queueText({
+        writer: reg.modules.sessions.serverWriter,
+        sessionId,
+        text: 'accepted before exit projection',
+      }),
     ).toEqual({ ok: true, queued: true })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentExit',
@@ -5135,7 +5226,11 @@ describe('hibernation', () => {
       },
     })
     expect(
-      await reg.modules.sessions.queueText({ sessionId, text: 'durable process event recovery' }),
+      await reg.modules.sessions.queueText({
+        writer: reg.modules.sessions.serverWriter,
+        sessionId,
+        text: 'durable process event recovery',
+      }),
     ).toEqual({ ok: true, queued: true })
     // The ordinary agentExit frame is intentionally absent: it is the frame
     // that the daemon/server disconnect can drop after the child closes.
@@ -5212,7 +5307,11 @@ describe('hibernation', () => {
     })
     daemon.length = 0
     expect(
-      await reg.modules.sessions.queueText({ sessionId, text: 'legacy exit compatibility' }),
+      await reg.modules.sessions.queueText({
+        writer: reg.modules.sessions.serverWriter,
+        sessionId,
+        text: 'legacy exit compatibility',
+      }),
     ).toEqual({ ok: true, queued: true })
 
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -5291,6 +5390,7 @@ describe('hibernation', () => {
     }
     expect(
       await reg.modules.sessions.queueText({
+        writer: reg.modules.sessions.serverWriter,
         sessionId,
         text: 'delegation revoked before process exit',
         principal,
@@ -6593,7 +6693,11 @@ describe('SessionRegistry snooze', () => {
       until: null,
     })
 
-    await reg.modules.sessions.sendText({ sessionId, text: 'hi' })
+    await reg.modules.sessions.sendText({
+      writer: reg.modules.sessions.serverWriter,
+      sessionId,
+      text: 'hi',
+    })
     expect(await reg.sessionStore.sessions.listSnoozes(firstAdminMemberId())).toEqual({})
   })
 
@@ -7096,7 +7200,7 @@ describe('runtime queue abandonment composition [POD-2202]', () => {
       })
 
       const sent = await registry.modules.messages.send(
-        messageTestWriter(),
+        registry.modules.sessions.serverWriter,
         {
           kind: 'superagent',
           attribution: {
@@ -7174,7 +7278,7 @@ describe('codex app-server first-prompt delivery [POD-2291]', () => {
 
   const sendFirstPrompt = async (registry: SessionRegistry, sessionId: SessionId) =>
     await registry.modules.messages.send(
-      messageTestWriter(),
+      registry.modules.sessions.serverWriter,
       { kind: 'operator' },
       { to: { kind: 'session', id: sessionId }, body: 'first prompt', urgency: 'next-turn' },
     )
@@ -7336,7 +7440,9 @@ describe('the stop button on a session with no terminal [POD-2792]', () => {
         workingState(sessionId),
       )
 
-      const answer = registry.modules.sessions.interruptTurn({ sessionId })
+      const answer = registry.modules.sessions.interruptTurn({
+        sessionId,
+      })
 
       await expect
         .poll(() =>
@@ -7387,7 +7493,9 @@ describe('the stop button on a session with no terminal [POD-2792]', () => {
         workingState(sessionId),
       )
 
-      const answer = registry.modules.sessions.interruptTurn({ sessionId })
+      const answer = registry.modules.sessions.interruptTurn({
+        sessionId,
+      })
       await expect
         .poll(() =>
           daemon.some(
@@ -7444,7 +7552,9 @@ describe('the stop button on a session with no terminal [POD-2792]', () => {
         codexBind(sessionId),
       )
 
-      const answer = registry.modules.sessions.interruptTurn({ sessionId })
+      const answer = registry.modules.sessions.interruptTurn({
+        sessionId,
+      })
 
       await expect
         .poll(() =>
@@ -7503,7 +7613,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
 
   const sendPrompt = async (registry: SessionRegistry, sessionId: SessionId) =>
     await registry.modules.messages.send(
-      messageTestWriter(),
+      registry.modules.sessions.serverWriter,
       { kind: 'operator' },
       { to: { kind: 'session', id: sessionId }, body: 'skewed prompt', urgency: 'next-turn' },
     )
@@ -7639,7 +7749,11 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
       )
 
       expect(
-        await reg.modules.sessions.sendText({ sessionId, text: 'typed at a server session' }),
+        await reg.modules.sessions.sendText({
+          writer: reg.modules.sessions.serverWriter,
+          sessionId,
+          text: 'typed at a server session',
+        }),
       ).toEqual({ ok: true, queued: true })
       await vi.waitFor(() =>
         expect(durableSendsWith(daemon, 'typed at a server session')).toHaveLength(1),
@@ -7665,7 +7779,11 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
       )
 
       expect(
-        await reg.modules.sessions.sendText({ sessionId, text: 'typed at a skewed session' }),
+        await reg.modules.sessions.sendText({
+          writer: reg.modules.sessions.serverWriter,
+          sessionId,
+          text: 'typed at a skewed session',
+        }),
       ).toEqual({ ok: true, queued: true })
       await vi.waitFor(() =>
         expect(durableSendsWith(daemon, 'typed at a skewed session')).toHaveLength(1),
@@ -7712,7 +7830,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
         issueId: issue.id,
       })
       const sent = await registry.modules.messages.send(
-        messageTestWriter(),
+        registry.modules.sessions.serverWriter,
         {
           kind: 'superagent',
           attribution: {
@@ -7779,6 +7897,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
 
       const ghost = 'sess_no_such_session'
       await registry.modules.sessions.queueText({
+        writer: registry.modules.sessions.serverWriter,
         sessionId,
         text: 'from a session that is gone',
         principal: {
@@ -7792,6 +7911,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
         },
       })
       await registry.modules.sessions.queueText({
+        writer: registry.modules.sessions.serverWriter,
         sessionId,
         text: 'the row behind it',
         principal: {
@@ -7872,6 +7992,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
       )
 
       await registry.modules.sessions.queueText({
+        writer: registry.modules.sessions.serverWriter,
         sessionId: coordinator,
         text: 'reply from the child worker',
         principal: {
@@ -7951,7 +8072,7 @@ describe('pending interrupt retraction wiring', () => {
           },
         }),
       ).rejects.toThrow('wired pending cancellation write failed')
-      expect(cancel).toHaveBeenCalledWith(sessionId, undefined)
+      expect(cancel).toHaveBeenCalledWith(expect.anything(), sessionId, undefined)
     } finally {
       await registry.dispose()
     }

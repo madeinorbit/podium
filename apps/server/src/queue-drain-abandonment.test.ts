@@ -157,11 +157,15 @@ describe('a queue-drain abandonment crosses the wire and leaves durable work que
    */
   async function heldInterrupt(body: string): Promise<{ sessionId: SessionId; messageId: string }> {
     const sessionId = await liveAgent()
-    const sent = await registry.modules.messages.send(messageTestWriter(), SUPERAGENT, {
-      to: { kind: 'session', id: sessionId },
-      body,
-      urgency: 'interrupt',
-    })
+    const sent = await registry.modules.messages.send(
+      registry.modules.sessions.serverWriter,
+      SUPERAGENT,
+      {
+        to: { kind: 'session', id: sessionId },
+        body,
+        urgency: 'interrupt',
+      },
+    )
     await vi.waitFor(() => expect(durableSends(sessionId)).toHaveLength(1))
     const [request] = durableSends(sessionId)
     expect(request).toMatchObject({

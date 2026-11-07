@@ -66,8 +66,12 @@ export function sessionCommandServices(modules: RegistryModules): SessionCommand
     killSession: (input) => sessions.killSession(sessions.serverWriter, input),
     hibernateSession: sessions.hibernateSession.bind(sessions),
     interruptTurn: sessions.interruptTurn,
-    configureSession: sessions.configureSession,
-    answerAskUserQuestion: sessions.answerAskUserQuestion,
+    // A hand-built context's writes are the composition's; a command's context
+    // binds its own writer (sessionCommandCtx), POD-6602.
+    configureSession: (input) =>
+      sessions.configureSession({ ...input, writer: sessions.serverWriter }),
+    answerAskUserQuestion: (input) =>
+      sessions.answerAskUserQuestion({ ...input, writer: sessions.serverWriter }),
     // A hand-built context's continue is written as the composition gives it;
     // a command's context binds its own writer (sessionCommandCtx).
     continueSession: (input: { sessionId: SessionId }) =>
@@ -122,6 +126,10 @@ export async function sessionCommandCtx(
     // own, as its kill does.
     continueSession: (input: { sessionId: SessionId }) =>
       sessions.continueSession(writer ?? sessions.serverWriter, input),
+    configureSession: (input) =>
+      sessions.configureSession({ ...input, writer: writer ?? sessions.serverWriter }),
+    answerAskUserQuestion: (input) =>
+      sessions.answerAskUserQuestion({ ...input, writer: writer ?? sessions.serverWriter }),
   }
   const principal = await resolvePrincipalAsync(capability, {
     // The ONE reader of the `session:<id>` tag, in `@podium/model` alongside
@@ -160,7 +168,9 @@ export async function sessionCommandCtx(
         'send',
         input,
         transport,
-        writerFor('mailSend'),
+        // Inside the command's write the send is written with its writer; a
+        // context with none (outside every write) sends through the entry point.
+        writer,
       ))!,
     createDraftIssue: async (repoPath, agentKind, issueId, ownership) =>
       await issues.attention.createDraftFor(

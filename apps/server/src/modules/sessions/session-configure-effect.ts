@@ -81,7 +81,10 @@ export function registerSessionConfigureEffect(deps: SessionConfigureEffectDeps)
 
   const run = async (ctx: EffectRunContext<SessionConfigureInput>): Promise<EffectOutcome> => {
     const sessionId = ctx.record.target.id as SessionId
-    const outcome: ConfigureOutcome = await deps.modules().sessions.configureSession({
+    const sessions = deps.modules().sessions
+    // The record's run, after its commit: the server's own (`sessions.lifecycle`).
+    const outcome: ConfigureOutcome = await sessions.configureSession({
+      writer: sessions.serverWriter,
       sessionId,
       ...(ctx.input.model !== undefined ? { model: ctx.input.model } : {}),
       ...(ctx.input.effort !== undefined ? { effort: ctx.input.effort } : {}),

@@ -300,8 +300,12 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
   const issues = await IssueService.create(issueDeps)
 
   const record =
-    (fn: Push['fn']) => async (i: { sessionId: SessionId; text: string; inputOrigin?: string }) => {
-      pushes.push({ fn, ...i })
+    (fn: Push['fn']) =>
+    async (i: { sessionId: SessionId; text: string; inputOrigin?: string; writer?: unknown }) => {
+      // What was pushed, not whose write it was (POD-6602: every push carries
+      // its delivering write's writer).
+      const { writer: _writer, ...pushed } = i
+      pushes.push({ fn, ...pushed })
       const fails =
         transport.ok === false &&
         (transport.failSessions === undefined || transport.failSessions.includes(i.sessionId))
