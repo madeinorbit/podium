@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '@podium/harness'
+import { AGENT_VERSION_PROBE_TIMEOUT_MS, harnessContext } from '@podium/harness'
 import {
   type HeadlessEmit,
   type HeadlessTurnSpec,
@@ -12,7 +12,7 @@ import {
 import type { ResolvedHarnessInventory } from '@podium/harness'
 import { asAccountId, asSessionId, type HarnessAgent } from '@podium/model'
 import { createDurableProcess } from '@podium/process/durable'
-import type { HeadlessTurnEvent } from '@podium/protocol'
+import type { BuiltinHarnessKind, HeadlessTurnEvent } from '@podium/protocol'
 import { afterAll, describe, expect, it } from 'vitest'
 import {
   isCursorCliAvailable,
@@ -23,7 +23,7 @@ import {
   isOpencodeCliAvailable,
   resolveOpencodeBin,
 } from '../../../packages/harness/src/adapters/opencode/cli.js'
-import { headlessTurnEnv } from './control/session-env.js'
+import { headlessTurnChildEnv } from './control/session-env.js'
 import { createSessionEngineScope } from './session/engines.js'
 import { testHarnessSnapshot } from './test-support/harness-snapshot.js'
 import { SessionRegistry } from './session/registry.js'
@@ -53,13 +53,19 @@ function runHeadlessTurn(
   return runHostedHeadlessTurn(
     {
       owner: engines,
-      childEnv: (invocation) =>
-        headlessTurnEnv({
-          agent: spec.agent,
-          ...(spec.env ? { specEnv: spec.env } : {}),
+      childEnv: (invocation) => {
+        const { env, strip } = headlessTurnChildEnv({
+          // The real CLI's own login: the machine home's account.
+          context: harnessContext(
+            harnessSnapshot,
+            spec.agent as BuiltinHarnessKind,
+            harnessSnapshot.commandEnvironment.machineHome,
+          ),
+          ...(spec.env ? { instanceEnv: spec.env } : {}),
           ...invocation,
-          commandEnv: harnessSnapshot.commandEnvironment.env,
-        }),
+        })
+        return { env, stripEnv: strip }
+      },
     },
     {
       spec: { ...spec, durableLabel: `podium-smoke-${sessionId.slice(0, 8)}` },

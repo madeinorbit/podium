@@ -107,7 +107,7 @@ import {
   sessionProcessEnv,
   stopSessionProcess,
 } from './control/session'
-import { headlessTurnEnv, spawnEnv } from './control/session-env'
+import { headlessTurnChildEnv } from './control/session-env'
 import { sourceForRead, transcriptAnnotations } from './control/transcripts'
 import { managementQuotaFetcher } from './harness-management.js'
 import {
@@ -163,7 +163,7 @@ import {
   opencode2VersionProbe,
   opencodeVersionProbe,
 } from './runtime/version-probe'
-import { engineSessionHarnessContext } from './session-harness-context'
+import { driverHarnessContextFrom, engineSessionHarnessContext } from './session-harness-context'
 import { createDaemonMachineRuntime, type DaemonMachineRuntime } from './runtime/machine-runtime'
 import { createClientTerminalsFor } from './runtime/opencode-attach'
 import { createSessionClientScope } from './session/clients.js'
@@ -1501,14 +1501,17 @@ export async function createDaemonHostRuntime(args: {
             ...(ctx.accountHome ? { credentialHome: ctx.accountHome.path } : {}),
           }),
     engines: () => sessionEngines,
-    turnChildEnv: ({ agent, specEnv, snapshot, execEnv, envOverlay }) =>
-      headlessTurnEnv({
-        agent,
-        ...(specEnv ? { specEnv } : {}),
+    // ONE RECIPE (POD-6535): the turn's account context over this snapshot,
+    // the same credential home every other session child runs under.
+    turnChildEnv: ({ agent, specEnv, snapshot, execEnv, envOverlay }) => {
+      const { env, strip } = headlessTurnChildEnv({
+        context: driverHarnessContextFrom(ctx, snapshot, agent as BuiltinHarnessKind, undefined),
+        ...(specEnv ? { instanceEnv: specEnv } : {}),
         ...(execEnv ? { execEnv } : {}),
         ...(envOverlay ? { envOverlay } : {}),
-        commandEnv: snapshot.commandEnvironment.env,
-      }),
+      })
+      return { env, stripEnv: strip }
+    },
     assertNativeAccount: (agent, accountId, inventory) =>
       assertNativeHeadlessAccount({
         agent,
@@ -1516,20 +1519,16 @@ export async function createDaemonHostRuntime(args: {
         accountHome: ctx.accountHome,
         inventory,
       }),
-    sessionEnv: ({ sessionId, agent, toolPolicyNone, snapshot }) =>
-      spawnEnv({
-        sessionEnv: snapshot.commandEnvironment.env,
-        podiumEnv: {
-          ...sessionProcessEnv(ctx, sessionId, agent),
-          ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}),
-          ...(toolPolicyNone && ctx.accountHome
-            ? {
-                HOME: ctx.accountHome.path,
-                CLAUDE_CONFIG_DIR: join(ctx.accountHome.path, '.claude'),
-              }
-            : {}),
-        },
-      }),
+    // What the instance decides for one turn: the relay pair and, for a
+    // tool-less turn, the account home's own Claude config folder. HOME and
+    // the command env are the context's (turnChildEnv above), never copied
+    // in here, so nothing here can make an inherited key look chosen (F10).
+    sessionEnv: ({ sessionId, agent, toolPolicyNone }) => ({
+      ...sessionProcessEnv(ctx, sessionId, agent),
+      ...(toolPolicyNone && ctx.accountHome
+        ? { CLAUDE_CONFIG_DIR: join(ctx.accountHome.path, '.claude') }
+        : {}),
+    }),
     durableLabel: (sessionId) => ctx.durableLabelFor(sessionId),
     bindHeadlessSession: (sessionId, agentKind, cwd, resumeValue) =>
       ctx.observers.bindHeadlessSession(sessionId, agentKind, cwd, resumeValue),

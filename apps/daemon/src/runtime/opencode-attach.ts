@@ -21,7 +21,7 @@
  *     credential the session never chose        → `inventory.foreignCredentialEnv`
  *
  * The last one was already declared, per harness, and already applied by
- * `harnessChildStripEnv` — the branch had been redundant since POD-2296, and
+ * the shared child-env strip — the branch had been redundant since POD-2296, and
  * the union it was folded into had been hiding a real drift in codex's two
  * copies of the list. That is the shape of this defect: not a decision made in
  * the wrong place, but a decision made TWICE, in a place where nobody would
@@ -113,6 +113,7 @@ import {
   type ClientTerminalEndpoint,
   type HarnessContext,
   clientTerminalFor,
+  harnessChildEnv,
 } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import type { Geometry, SessionId } from '@podium/model'
@@ -123,12 +124,6 @@ import type { ClientProcessOwner } from '../session/clients.js'
 import type { SessionRegistry } from '../session/registry.js'
 import type { ClientTerminalPolicy } from '../session/daemon-session.js'
 import { Terminal } from '../terminal/terminal.js'
-import {
-  harnessChildStripEnv,
-  harnessCompatEnv,
-  harnessInstanceEnv,
-  spawnEnv,
-} from '../control/session-env'
 import { driverTiming } from './driver-timing'
 
 const log = createLogger('daemon:opencode-attach')
@@ -476,18 +471,24 @@ export function createOpencodeClientTerminals(
     // which binary is the session's pinned executable, never `codex`/`grok`
     // looked up on a GUI-launched daemon's PATH.
     const launch = { ...declared, cmd: harnessContext.installation.executable }
-    const podiumEnv = {
-      // Whatever the harness's own declaration put there — for opencode that is
-      // the per-session server credentials, which stay in the ENV and out of
-      // argv exactly as its server half requires.
-      ...(launch.env ?? {}),
-      ...(target.env ?? {}),
-      ...(ports.instanceUuid ? { PODIUM_INSTANCE_UUID: ports.instanceUuid } : {}),
-      PODIUM_SESSION_ID: sessionId,
-      ...harnessCompatEnv(kind),
-      ...(ports.homeDir ? { HOME: ports.homeDir } : {}),
-      ...harnessInstanceEnv(kind, ports.homeDir),
-    }
+    // THE ONE RECIPE (POD-6535), over the session's context (POD-6546): the
+    // recovered command env for this account, so the client gets the same
+    // PATH, HOME and instance selector as its engine rather than the daemon's
+    // own. An attach client carries no spawn-frame env, so every credential
+    // the command env holds is inherited and stripped.
+    const child = harnessChildEnv(harnessContext, {
+      wiringEnv: {
+        // Whatever the harness's own declaration put there — for opencode that
+        // is the per-session server credentials, which stay in the ENV and out
+        // of argv exactly as its server half requires.
+        ...(launch.env ?? {}),
+        ...(target.env ?? {}),
+      },
+      podiumEnv: {
+        ...(ports.instanceUuid ? { PODIUM_INSTANCE_UUID: ports.instanceUuid } : {}),
+        PODIUM_SESSION_ID: sessionId,
+      },
+    })
     driverTiming.nativeCliStage(sessionId, kind, 'native_cli_spawn_requested', {
       command: launch.cmd,
     })
@@ -528,21 +529,17 @@ export function createOpencodeClientTerminals(
        *
        * THE BRANCH THAT WAS HERE WAS ALREADY REDUNDANT (POD-2823). It picked
        * between three constants by harness name and then UNIONED the result with
-       * `harnessChildStripEnv(kind)` — which reads exactly the same fact off the
-       * manifest. For opencode and grok the two sides were the identical array;
-       * for codex they were not, and the difference was a real drift the union
-       * had been quietly papering over (see the codex manifest). The property
-       * this branch wanted has been declared per harness since POD-2296; the
-       * helper is how you ask for it.
+       * the manifest's own strip declaration — exactly the same fact. For
+       * opencode and grok the two sides were the identical array; for codex
+       * they were not, and the difference was a real drift the union had been
+       * quietly papering over (see the codex manifest). The property this
+       * branch wanted has been declared per harness since POD-2296;
+       * `harnessChildEnv` is how you ask for it.
        */
-      stripEnv: harnessChildStripEnv(kind),
-      // The overlay the host layers over the daemon env — composed through the
-      // same `spawnEnv` the PTY path uses, so an instance home overrides HOME
-      // (and prepends its bin roots to PATH) here exactly as it does for the
-      // serve half (POD-2247). Its BASE is the session's environment
-      // (POD-6546): the recovered command env for this account, so the client
-      // gets the same PATH as its engine rather than the daemon's own.
-      env: { ...harnessContext.env, ...spawnEnv({ podiumEnv }, harnessContext.env) },
+      stripEnv: child.strip,
+      // The host layers this over the daemon env; `stripEnv` removes what the
+      // daemon's copy would bring back.
+      env: child.env,
     })
     driverTiming.nativeCliStage(sessionId, kind, 'native_cli_process_started', {
       adopted: session.adopted,

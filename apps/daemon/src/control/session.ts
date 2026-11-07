@@ -18,6 +18,7 @@ import {
   type HarnessInstallation,
   type HarnessVersionDiagnostic,
   harnessCapabilitiesFor,
+  harnessChildEnv,
   harnessTranscriptStorage,
   type LaunchFile,
   parseHarnessVersion,
@@ -84,9 +85,7 @@ import type { DaemonSession } from '../session/daemon-session.js'
 import { removeSessionUploads } from '../session-uploads'
 import { type BindFacts, bindFrame, reportSize } from './applied-geometry'
 import type { ControlHandlers, DaemonContext } from './context'
-import { harnessChildStripEnv, harnessCompatEnv, harnessInstanceEnv, spawnEnv } from './session-env'
-
-export { harnessCompatEnv } from './session-env'
+import { shellChildEnv } from './session-env'
 
 import { decideReopenScreen } from '../reopen-policy'
 import {
@@ -428,7 +427,11 @@ export function sessionProcessEnv(
       agentKind,
       ctx.instanceUuid,
     ),
-    ...browserOpenEnv(ctx.settingsDir),
+    // PATH here is the shim folder ALONE: a prefix the child-env recipe puts
+    // ahead of the composed PATH (POD-6535). Spelling the daemon's own PATH
+    // after it would replace the recovered command env's PATH with a
+    // GUI-launched daemon's bare one.
+    ...browserOpenEnv(ctx.settingsDir, ''),
   }
 }
 
@@ -774,11 +777,16 @@ export async function launchTerminalProcess(
     if (!loginHarness && agentKind !== 'shell' && !harnessContext) {
       throw new Error(`a ${agentKind} launch needs the session's harness context`)
     }
+    // A login pane has no session context: it runs under the login harness's
+    // account context, built now, for this one launch. Its env and its strip
+    // list follow that harness, never the 'shell' kind the pane is filed as.
+    const loginContext = loginHarness
+      ? await buildSessionHarnessContext(ctx, loginHarness)
+      : undefined
+    const childContext = loginContext ?? harnessContext
     const cmd = loginCommand
-      ? ctx.harnessRuntime
-        ? // A login pane has no session context: it binds the login harness's
-          // account context, built now, for this one launch.
-          bindHarnessLaunch(await buildSessionHarnessContext(ctx, loginHarness!), {
+      ? ctx.harnessRuntime && loginContext
+        ? bindHarnessLaunch(loginContext, {
             args: [...loginCommand.args],
             cwd: spec.workdir,
           })
@@ -797,26 +805,35 @@ export async function launchTerminalProcess(
     if (!loginHarness && harnessTranscriptStorage(agentKind) === 'sqlite' && cmd.env?.OPENCODE_DB) {
       mkdirSync(dirname(cmd.env.OPENCODE_DB), { recursive: true })
     }
-    const childEnv = spawnEnv({
-      // Server-resolved managed credential / environment (SP-6454, #216).
-      sessionEnv: spec.env,
-      harnessEnv: cmd.env,
-      podiumEnv: {
-        // The relay pair and browser shim every session process gets. The
-        // agent-IDENTITY half rides along only for harness kinds — a shell is
-        // the operator [POD-1375].
-        ...sessionProcessEnv(ctx, sessionId, agentKind),
-        ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}),
-        ...harnessInstanceEnv(loginHarness ?? agentKind, ctx.homeDir),
-        // Subagent model rides as env — Claude Code reads it; harmless elsewhere.
-        ...(subagentModel ? { CLAUDE_CODE_SUBAGENT_MODEL: subagentModel } : {}),
-        // Globally-installed hooks are env-gated per session by their adapter.
-        // Commands exit immediately when absent, so non-Podium runs are untouched.
-        ...instrumentation.env,
-        // Terminal-protocol compatibility for this harness (see above).
-        ...harnessCompatEnv(agentKind),
-      },
-    })
+    // The relay pair and browser shim every session process gets. The
+    // agent-IDENTITY half rides along only for harness kinds — a shell is the
+    // operator [POD-1375].
+    const podiumEnv = sessionProcessEnv(ctx, sessionId, agentKind)
+    const child = childContext
+      ? harnessChildEnv(childContext, {
+          // Server-resolved managed credential (SP-6454, #216): the only
+          // credential this session chose.
+          sessionEnv: spec.env,
+          wiringEnv: {
+            // The adapter's own launch env.
+            ...cmd.env,
+            // Subagent model rides as env — Claude Code reads it; harmless elsewhere.
+            ...(subagentModel ? { CLAUDE_CODE_SUBAGENT_MODEL: subagentModel } : {}),
+            // Globally-installed hooks are env-gated per session by their adapter.
+            // Commands exit immediately when absent, so non-Podium runs are untouched.
+            ...instrumentation.env,
+          },
+          podiumEnv,
+        })
+      : // The operator's own shell keeps its own path: no harness, no strip.
+        {
+          env: shellChildEnv({
+            ...(spec.env ? { sessionEnv: spec.env } : {}),
+            ...(cmd.env ? { launchEnv: cmd.env } : {}),
+            podiumEnv: { ...podiumEnv, ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}) },
+          }),
+          strip: [],
+        }
     const session = await durable.spawn({
       // DEMAND THE WRITER LEASE (POD-4434). A spawn that adopts a live master
       // while another writer holds it is the update-overlap symptom: two
@@ -828,7 +845,7 @@ export async function launchTerminalProcess(
       cwd: cmd.cwd,
       cols: orderFrame.geometry.cols,
       rows: orderFrame.geometry.rows,
-      env: childEnv,
+      env: child.env,
       // The session's account is the one its HOME is logged into — which is only
       // true if this harness's own credential vars cannot reach it by inheritance
       // from the daemon (POD-2296). `env` above cannot express that: unsetting a
@@ -841,7 +858,7 @@ export async function launchTerminalProcess(
       // let an inherited key outrank it — `claude login` under a stray
       // ANTHROPIC_API_KEY greets you with "Detected a custom API key in your
       // environment" instead.
-      stripEnv: harnessChildStripEnv(loginHarness ?? agentKind, spec.env),
+      stripEnv: child.strip,
     })
     driverTiming.headedCliStage(sessionId, agentKind, 'native_cli_process_started', {
       adopted: session.adopted,

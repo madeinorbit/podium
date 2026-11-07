@@ -7,13 +7,15 @@ import { promisify } from 'node:util'
 import {
   bindHarnessExec,
   buildResolvedInventory,
+  harnessChildEnv,
+  harnessContext,
   harnessMcpConfigTransport,
   type ResolvedHarnessInventory,
 } from '@podium/harness'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { buildHarnessExec } from './harness-exec.js'
 import type { DaemonHarnessRuntime } from './harness-runtime.js'
-import { harnessChildStripEnv, harnessInstanceEnv } from './control/session-env.js'
+import type { BuiltinHarnessKind } from '@podium/protocol'
 
 const execFileAsync = promisify(execFile)
 
@@ -51,8 +53,9 @@ const execFileAsync = promisify(execFile)
  * - success: `{ok:true, output: stdout.trim()}` with a 240s default kill
  *   budget (`timeoutMs` override), 4MiB stdout cap, prompt on stdin (then EOF),
  *   MCP config via temp file (`path` transport) or inline `-c` overrides,
- *   child env = process.env + manifest env + HOME + instance env minus
- *   inherited harness controls, temp file removed in `finally`.
+ *   child env = `harnessChildEnv` over the account context (command env,
+ *   manifest env as wiring, HOME + instance env, inherited credentials and
+ *   harness controls removed), temp file removed in `finally`.
  * - failure: `{ok:false, output: err.message}` for malformed MCP, unsupported
  *   or unknown harness, temp-write failure, timeout, output cap, missing
  *   executable and child non-zero exit. A temp-write failure refuses rather
@@ -185,14 +188,18 @@ export async function executeBufferedHarnessTurn(
         ...(msg.allowedTools ? { allowedTools: msg.allowedTools } : {}),
       }),
     )
-    // codex's MCP bearer token rides `execEnv` (POD-1021), merged over process.env.
-    const childEnv: NodeJS.ProcessEnv = {
-      ...process.env,
-      ...execEnv,
-      ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}),
-      ...harnessInstanceEnv(msg.agent, ctx.homeDir),
-    }
-    for (const key of harnessChildStripEnv(msg.agent, execEnv)) delete childEnv[key]
+    // ONE RECIPE (POD-6535). The frame carries no session env, so nothing on
+    // it was chosen: every credential the command env carries is inherited
+    // and stripped (F10). codex's MCP bearer token rides `execEnv` (POD-1021)
+    // as wiring. `execFile` replaces the child env outright, so this is all of it.
+    const { env: childEnv } = harnessChildEnv(
+      harnessContext(
+        snapshot,
+        msg.agent as BuiltinHarnessKind,
+        ctx.homeDir ?? snapshot.commandEnvironment.machineHome,
+      ),
+      { ...(execEnv ? { wiringEnv: execEnv } : {}) },
+    )
     const { stdout } = await runChild(
       cmd,
       args,

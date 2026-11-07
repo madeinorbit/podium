@@ -26,17 +26,14 @@ function executablePath(snapshot: HarnessExecutableSnapshot, kind: BuiltinHarnes
   return executable.path
 }
 
-function effectiveEnv(
-  snapshot: ResolvedHarnessInventory,
-  overlay: Record<string, string> | undefined,
-): Record<string, string> {
-  return { ...snapshot.commandEnvironment.env, ...overlay }
-}
-
 /**
  * Bind an adapter's launch argv to ONE harness context (POD-6533): the
- * executable is the installation the context pinned, and the environment is
- * the context's account environment with the invocation's own env on top.
+ * executable is the installation the context pinned.
+ *
+ * `env` stays the adapter's OWN env for this invocation. The child's whole
+ * environment is `harnessChildEnv`'s to build (POD-6535), with this env as its
+ * wiring layer; folding the command env in here would put the machine env
+ * above the session env and blur which credentials the session chose (F10).
  *
  * Nothing here asks the inventory again. A session whose context was built
  * before an inventory refresh launches the installation it was built from.
@@ -50,19 +47,19 @@ export function bindHarnessLaunch(
     // Do not resolve again. If the verified file disappeared, spawn fails
     // against this exact path instead of silently selecting another one.
     cmd: context.installation.executable,
-    env: { ...context.env, ...invocation.env },
   }
 }
 
+/** The exec twin of {@link bindHarnessLaunch}: the verified executable, and
+ *  the adapter's own env only (`harnessChildEnv` composes the rest). */
 export function bindHarnessExec(
-  snapshot: ResolvedHarnessInventory,
+  snapshot: HarnessExecutableSnapshot,
   kind: BuiltinHarnessKind,
   invocation: HarnessExecInvocationSpec,
 ): HarnessExecSpec {
   return {
     ...invocation,
     cmd: executablePath(snapshot, kind),
-    env: effectiveEnv(snapshot, invocation.env),
   }
 }
 

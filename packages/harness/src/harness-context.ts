@@ -11,11 +11,17 @@
  * pass it around and tests can build one by hand. Behaviour lives in functions
  * that take a context.
  */
+import { delimiter, dirname, join } from 'node:path'
 import type { BuiltinHarnessKind } from '@podium/protocol'
 import type { HarnessExecutableSnapshot } from './executable-runtime.js'
 import type { HarnessContext } from './harness-context-types.js'
 import type { HarnessAccountScope, HarnessEnvironment, HarnessRoots } from './manifest.js'
-import { harnessLoginReadEnv, manifestFor, serverDriverExecutable } from './registry.js'
+import {
+  harnessInstanceHomeEnv,
+  harnessLoginReadEnv,
+  manifestFor,
+  serverDriverExecutable,
+} from './registry.js'
 
 export type { HarnessContext, HarnessInstallation } from './harness-context-types.js'
 
@@ -149,4 +155,121 @@ export function harnessRoots(
   const manifest = manifestFor(kind)
   if (!manifest) throw new Error(`no manifest for harness ${kind}`)
   return manifest.roots(home, env)
+}
+
+/** The three env inputs a spawn path brings to {@link harnessChildEnv}. */
+export interface HarnessChildEnvLayers {
+  /**
+   * `spec.env`: what the server put on the spawn frame for this session (the
+   * managed account's credential, SP-6454 #216). The ONLY source of
+   * "explicitly selected": a credential key found here survives the strip, the
+   * same key from anywhere else does not.
+   */
+  readonly sessionEnv?: Readonly<Record<string, string>> | undefined
+  /**
+   * Harness wiring for this one launch: the adapter's own invocation env
+   * (codex's MCP bearer, opencode's server credentials), instrumentation
+   * output, a family's overlay. Never the command env.
+   */
+  readonly wiringEnv?: Readonly<Record<string, string>> | undefined
+  /** Podium's per-session vars (relay pair, browser shim, session id,
+   *  instance uuid). They beat everything above them. A `PATH` here is a
+   *  PREFIX of Podium-owned folders (the browser shim's), placed after the
+   *  Podium CLI's folder and ahead of the composed PATH; it never replaces it. */
+  readonly podiumEnv?: Readonly<Record<string, string>> | undefined
+}
+
+/** A harness child's environment and the keys the process boundary deletes. */
+export interface HarnessChildEnv {
+  /** The whole child environment. The strip keys are already absent. */
+  readonly env: Record<string, string>
+  /**
+   * The keys to delete AFTER any outer merge. A process layer that spreads its
+   * own environment under `env` (the PTY and podium-host spawns spread the
+   * daemon's) must delete these, or the daemon's copy comes back.
+   */
+  readonly strip: readonly string[]
+}
+
+/**
+ * THE ONE ENVIRONMENT A HARNESS CHILD GETS (POD-6535, design §3.5).
+ *
+ * Every spawn path (terminal, engine, headless turn, buffered exec, attach
+ * client) builds its child env here. Later layers win:
+ *
+ *  1. The context's env: the machine command env for this account
+ *     ({@link harnessLoginReadEnv}).
+ *  2. Inherited foreign credentials removed (see `strip`).
+ *  3. `sessionEnv` (`spec.env`).
+ *  4. `wiringEnv`, then the adapter's declared `environment.set`.
+ *  5. The account `HOME` and the harness's instance selector, from
+ *     `context.home`.
+ *  6. `podiumEnv`, the desktop-owned `PODIUM_CLI_PATH`, and the PATH prefix:
+ *     the Podium CLI's folder, then the account home's bin roots that PATH
+ *     does not already hold.
+ *
+ * Strip rules (applied to the final env, and returned for the boundary):
+ *  - `foreignCredentialEnv` keys are removed unless `sessionEnv` holds them.
+ *  - `removeInherited` keys are removed whatever their source, `sessionEnv`
+ *    included: a parent conversation's identity is never a session's choice.
+ *
+ * Provenance is read from `sessionEnv` and nowhere else (F10). A path that
+ * asked "is this key in the env I composed?" would find an inherited key there
+ * and keep it.
+ */
+export function harnessChildEnv(
+  context: HarnessContext,
+  layers: HarnessChildEnvLayers,
+): HarnessChildEnv {
+  const kind = context.installation.kind
+  const manifest = manifestFor(kind)
+  const sessionEnv = layers.sessionEnv ?? {}
+  const strip = [
+    ...new Set([
+      ...(manifest?.inventory.foreignCredentialEnv ?? []).filter((key) => !(key in sessionEnv)),
+      ...(manifest?.environment.removeInherited ?? []),
+    ]),
+  ]
+  // Desktop-owned (SP-d6e8): the machine's binding, never one a credential or
+  // an adapter supplies.
+  const podiumCliPath = context.env.PODIUM_CLI_PATH?.trim()
+  const { PATH: podiumPath, ...podiumVars } = layers.podiumEnv ?? {}
+  const env: Record<string, string> = {
+    ...context.env,
+    ...sessionEnv,
+    ...layers.wiringEnv,
+    ...manifest?.environment.set,
+    HOME: context.home,
+    ...harnessInstanceHomeEnv(kind, context.home),
+    ...podiumVars,
+    ...(podiumCliPath ? { PODIUM_CLI_PATH: podiumCliPath } : {}),
+  }
+  for (const key of strip) delete env[key]
+  env.PATH = childPath(env.PATH ?? '', context.home, podiumCliPath, podiumPath)
+  return { env, strip }
+}
+
+/**
+ * The Podium CLI's folder first, then Podium's own folders (the browser shim),
+ * then the account home's install roots the PATH lacks, then PATH as it was. A
+ * root PATH already holds keeps its place: the machine's own order is not
+ * reshuffled, and a named instance's home, whose roots the machine PATH never
+ * holds, still resolves first.
+ */
+function childPath(
+  path: string,
+  home: string,
+  podiumCliPath: string | undefined,
+  podiumPath: string | undefined,
+): string {
+  const entries = path.split(delimiter).filter(Boolean)
+  const roots = [join(home, '.local', 'bin'), join(home, '.bun', 'bin'), join(home, '.opencode', 'bin')]
+  return [
+    ...(podiumCliPath ? [dirname(podiumCliPath)] : []),
+    ...(podiumPath ?? '').split(delimiter),
+    ...roots.filter((root) => !entries.includes(root)),
+    ...entries,
+  ]
+    .filter((entry, index, all) => entry && all.indexOf(entry) === index)
+    .join(delimiter)
 }

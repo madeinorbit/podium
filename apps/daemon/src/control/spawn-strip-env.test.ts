@@ -1,7 +1,7 @@
 // WHICH VARIABLES A SPAWN DELETES, decided at the frame (POD-2296, widened by
 // POD-2117).
 //
-// WHY THE LIST IS SIX AND NOT TWO. `harnessChildStripEnv` unions TWO manifest
+// WHY THE LIST IS SIX AND NOT TWO. `harnessChildEnv`'s strip unions TWO manifest
 // declarations, and they answer different questions:
 //
 //   inventory.foreignCredentialEnv  — credentials for this CLI that, if
@@ -187,7 +187,7 @@ it('still deletes a parent CONTROL on the frame — the exemption is credential-
   // never resolves one for a child — nothing in the daemon writes a
   // `CLAUDE_CODE_*` control onto a spawn frame, and if something ever starts,
   // the value it would be passing on is the parent conversation's identity,
-  // which is the exact leak POD-2117 closed. So `harnessChildStripEnv` filters
+  // which is the exact leak POD-2117 closed. So `harnessChildEnv` filters
   // `sessionEnv` out of the credential half only.
   const opts = await spawnOptionsFor({
     sessionId: 'strip-control-on-frame',

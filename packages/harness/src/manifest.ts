@@ -1670,6 +1670,11 @@ export interface AgentManifest {
    *
    * Required (empty is a decision) so a newly added harness cannot silently
    * inherit its parent's identity.
+   *
+   * `set` names variables every child of this harness gets, whatever spawns
+   * it (terminal, engine, headless turn, buffered exec, attach client). It is
+   * applied by `harnessChildEnv` after the session env and the wiring env, so
+   * neither can switch it off.
    */
   environment: {
     removeInherited: readonly string[]
@@ -1677,6 +1682,7 @@ export interface AgentManifest {
       variable: string
       relativeDir: string
     }
+    set?: Readonly<Record<string, string>>
   }
   /**
    * Where this harness keeps its state for one (home, env) pair (POD-6532).

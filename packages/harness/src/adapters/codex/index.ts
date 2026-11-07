@@ -220,6 +220,9 @@ export const codexManifest: AgentManifest = {
   environment: {
     removeInherited: [],
     instanceHome: { variable: 'CODEX_HOME', relativeDir: '.codex' },
+    // Terminal-protocol compatibility for codex's TUI, in the primary pane and
+    // in an attach client alike. Inert for app-server and exec children.
+    set: { CODEX_TUI_DISABLE_KEYBOARD_ENHANCEMENT: '1' },
   },
 
   inventory: {

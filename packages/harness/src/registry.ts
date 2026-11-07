@@ -659,8 +659,8 @@ export function harnessInstanceHomeEnv(
  * key selects, while the child, which strips that key, runs as the login on disk.
  *
  * NOT FOR VERSION PROBES. `<binary> --version` answers "what can this MACHINE
- * run" and reads no per-user auth; `serverChildEnv` in apps/daemon already draws
- * that line and it stays drawn. This composition is only for reads that name an
+ * run" and reads no per-user auth; they run under the machine command env
+ * (design §3.3 machine scope), and that line stays drawn. This composition is only for reads that name an
  * account.
  */
 export function harnessLoginReadEnv<Value extends string | undefined>(

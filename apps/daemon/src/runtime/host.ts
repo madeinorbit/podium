@@ -19,7 +19,7 @@ import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import type { AcceptedDriverId, HarnessContext } from '@podium/harness'
-import { discoveryRoots, resolveWithinRoots } from '@podium/harness'
+import { discoveryRoots, harnessChildEnv, resolveWithinRoots } from '@podium/harness'
 import type {
   AttachmentStager,
   CodexRawSocket,
@@ -38,7 +38,6 @@ import {
   recoverTerminalProcess,
   stopSessionProcess,
 } from '../control/session'
-import { serverChildEnv } from '../control/session-env'
 import { sourceForRead } from '../control/transcripts'
 import { transcriptForExport } from '../handoff-package'
 import { reportHarnessProbe } from '../harness-version-reporting'
@@ -270,13 +269,16 @@ export type SessionProcessEnv = (
 ) => Readonly<Record<string, string>>
 
 /**
- * The engine families' `buildEnv`: an engine child's whole environment. The
- * same stored-login precedence merge every other child gets (instance overlay,
- * managed credentials, inherited overrides stripped) PLUS the session's
- * Podium env — owned here so no family re-derives either, and built from a
- * {@link SessionProcessEnv} so no wiring can hand a family a builder that
- * leaves the relay out. The harness identity arrives as a value the families
- * read off their own adapter sections; no literal here.
+ * The engine families' `buildEnv`: an engine child's whole environment, from
+ * the one recipe every harness child gets (`harnessChildEnv`, POD-6535) PLUS
+ * the session's Podium env — owned here so no family re-derives either, and
+ * built from a {@link SessionProcessEnv} so no wiring can hand a family a
+ * builder that leaves the relay out. The harness identity arrives as a value
+ * the families read off their own adapter sections; no literal here.
+ *
+ * The base is the session's pinned context (POD-6546): the recovered command
+ * environment for this account, never a GUI-launched daemon's own
+ * `process.env`. HOME is the context's account home.
  */
 export function engineEnvBuilder(podium: SessionProcessEnv) {
   return (input: {
@@ -284,32 +286,23 @@ export function engineEnvBuilder(podium: SessionProcessEnv) {
     agentKind: AgentKind
     /** The session's pinned harness context (POD-6546). */
     harnessContext: HarnessContext
-    homeDir?: string
+    /** The spawn frame's env (`spec.env`): the only explicitly chosen keys. */
     sessionEnv?: Readonly<Record<string, string>>
+    /** Driver-composed config env (e.g. codex MCP config): wiring. */
     harnessEnv?: Readonly<Record<string, string>>
     instanceUuid?: string
-  }): Record<string, string> => {
-    // THE BASE IS THE SESSION'S ENVIRONMENT, not the daemon's own (POD-6546).
-    // A GUI-launched daemon's `process.env` carries the app's bare PATH; the
-    // context's env is the recovered command environment for this account
-    // (harnessLoginReadEnv), the same one the terminal launch starts from.
-    // The full one-recipe child env is POD-6535.
-    const env = serverChildEnv(
-      {
-        ...(input.instanceUuid ? { instanceUuid: input.instanceUuid } : {}),
-        sessionId: input.sessionId,
-        agentKind: input.agentKind,
-        podiumEnv: podium(input.sessionId, input.agentKind),
-        ...(input.homeDir ? { homeDir: input.homeDir } : {}),
-        ...(input.sessionEnv ? { sessionEnv: input.sessionEnv } : {}),
-        ...(input.harnessEnv ? { harnessEnv: input.harnessEnv } : {}),
+  }): Record<string, string> =>
+    harnessChildEnv(input.harnessContext, {
+      ...(input.sessionEnv ? { sessionEnv: input.sessionEnv } : {}),
+      ...(input.harnessEnv ? { wiringEnv: input.harnessEnv } : {}),
+      podiumEnv: {
+        ...podium(input.sessionId, input.agentKind),
+        // Immutable daemon ownership stamp for orphan attribution, and the
+        // exact Podium session this child serves.
+        ...(input.instanceUuid ? { PODIUM_INSTANCE_UUID: input.instanceUuid } : {}),
+        PODIUM_SESSION_ID: input.sessionId,
       },
-      input.harnessContext.env,
-    )
-    const out: Record<string, string> = {}
-    for (const [key, value] of Object.entries(env)) if (value !== undefined) out[key] = value
-    return out
-  }
+    }).env
 }
 
 /**

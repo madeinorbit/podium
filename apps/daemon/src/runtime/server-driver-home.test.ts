@@ -5,12 +5,12 @@
  * `{ ...process.env, ...input.env }`, so a named instance's opencode/codex/grok
  * children inherited the daemon's REAL `HOME` — found live when an isolated
  * grok session refreshed the operator's real `~/.grok` credentials within
- * seconds of spawn. The PTY path never had the bug (`ctx.homeDir` rides
- * `spawnEnv`'s overlay).
+ * seconds of spawn. The PTY path never had the bug (`ctx.homeDir` rode its
+ * spawn overlay; both now come from `harnessChildEnv`, POD-6535).
  *
  * These tests assert the fix END TO END, per the issue's acceptance: the child
  * itself reports its env — a fake harness binary installed under the INSTANCE
- * home's `.local/bin` (which `serverChildEnv`'s PATH derivation makes
+ * home's `.local/bin` (which `harnessChildEnv`'s PATH derivation makes
  * authoritative, the same derivation that makes the fake resolvable at all)
  * writes its own `HOME` to a landing file, and the assertion reads the child's
  * write, not the composition function.
