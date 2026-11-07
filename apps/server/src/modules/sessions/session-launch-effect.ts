@@ -548,7 +548,7 @@ export async function createSpawnLaunchInUnit(
   const effects = modules.effects
   if (effects === undefined) throw new Error('agent spawn: no effects module is composed')
   const effectId = mintDeviceId('eff_')
-  await effects.createInUnit({
+  await effects.createForSession({
     id: effectId,
     kind: SESSION_LAUNCH_KIND,
     target: { kind: 'session', id: launch.sessionId },

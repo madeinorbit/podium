@@ -10,6 +10,7 @@
  */
 
 import { type IssueId, mintDeviceId } from '@podium/model'
+import { fixtureCommitWriter, fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { EffectsRunner } from '../effects/runner'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
@@ -120,6 +121,7 @@ describe('a merge left running by a stopped server', () => {
     await effects.runner.stop()
     const record = mintDeviceId('eff_')
     await o.store.effects.insert(
+      fixtureWriteScope(),
       {
         id: record,
         kind: ISSUE_GIT_EFFECT_KIND.merge,
@@ -130,8 +132,9 @@ describe('a merge left running by a stopped server', () => {
       },
       Date.now(),
     )
-    await o.store.effects.claim(record, Date.now())
+    await o.store.effects.claim(fixtureWriteScope(), record, Date.now())
     const runner = new EffectsRunner({
+      writer: fixtureCommitWriter(),
       repo: o.store.effects,
       registry: effects.executors,
       now: Date.now,

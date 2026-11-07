@@ -16,8 +16,9 @@
  * after the answer. A shell whose start is still under way is live.
  */
 
-import { asMachineId, type SessionId, firstAdminMemberId } from '@podium/model'
 import { randomUUID } from 'node:crypto'
+import { asMachineId, firstAdminMemberId, type SessionId } from '@podium/model'
+import { fixtureCommitWriter } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { disposeOracles, makeOracle } from '../sessions/oracle-support'
 import { SESSION_LAUNCH_KIND } from '../sessions/session-launch-effect'
@@ -160,7 +161,11 @@ describe('shells.forWorktree on the sync write entry point (POD-6419)', () => {
     await expect(
       o.store.transact(async () => {
         claimed = (
-          await o.reg.modules.dockShells.forWorktree(firstAdminMemberId(), '/r/.worktrees/rb')
+          await o.reg.modules.dockShells.forWorktree(
+            fixtureCommitWriter(),
+            firstAdminMemberId(),
+            '/r/.worktrees/rb',
+          )
         ).sessionId
         throw rollback
       }),
@@ -172,7 +177,11 @@ describe('shells.forWorktree on the sync write entry point (POD-6419)', () => {
 
     const { sessionId } = await o.store.transact(
       async () =>
-        await o.reg.modules.dockShells.forWorktree(firstAdminMemberId(), '/r/.worktrees/rb'),
+        await o.reg.modules.dockShells.forWorktree(
+          fixtureCommitWriter(),
+          firstAdminMemberId(),
+          '/r/.worktrees/rb',
+        ),
     )
     await started(o, '/r/.worktrees/rb')
     expect(spawns()).toBe(before + 1)
@@ -204,7 +213,10 @@ describe('shells.forWorktree on the sync write entry point (POD-6419)', () => {
     const answer = await o.call.shells.forWorktree({ worktreePath: '/r/.worktrees/route' })
     expect(entry.mock.calls.map(([env]) => env.command)).toEqual(['shells.forWorktree'])
     const viaSubmit = appliedReply(
-      await submit(o, envelope('shells.forWorktree', { worktreePath: '/r/.worktrees/route' }, 'mut_shell_again')),
+      await submit(
+        o,
+        envelope('shells.forWorktree', { worktreePath: '/r/.worktrees/route' }, 'mut_shell_again'),
+      ),
     )
     expect(viaSubmit.result).toEqual({ sessionId: answer.sessionId, created: false })
   })

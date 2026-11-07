@@ -333,7 +333,7 @@ export function lifecycleEditsFor(
     wakeWith: async ({ session, wake }) => {
       const effects = modules.effects
       if (effects === undefined) throw new Error('no effects module is composed')
-      await effects.createInUnit({
+      await effects.createForSession({
         id: mintDeviceId('eff_'),
         kind: SESSION_LAUNCH_KIND,
         target: { kind: 'session', id: randomUUID() },

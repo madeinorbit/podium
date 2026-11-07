@@ -13,6 +13,7 @@
  */
 
 import { mintDeviceId } from '@podium/model'
+import { fixtureCommitWriter, fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import type { EffectsModule } from '../../relay'
@@ -266,6 +267,7 @@ describe('a server restart', () => {
     const executors = new EffectExecutorRegistry()
     executors.register(executorOver(engine, h))
     const runner = new EffectsRunner({
+      writer: fixtureCommitWriter(),
       repo: h.o.store.effects,
       registry: executors,
       now: () => Date.now(),
@@ -304,7 +306,7 @@ describe('a server restart', () => {
     const id = newId()
     appliedReply(await submit(h.o, create(id)))
     // Claimed, then the process stopped before the operation was created.
-    await h.o.store.effects.claim(id, Date.now())
+    await h.o.store.effects.claim(fixtureWriteScope(), id, Date.now())
     await next.runner.sweep()
     await next.runner.idle()
     const row = await record(h, id)

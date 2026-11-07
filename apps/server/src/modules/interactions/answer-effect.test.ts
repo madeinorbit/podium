@@ -18,6 +18,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { asUserId, type SessionId } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
 import { appRouter } from '../../router'
@@ -248,6 +249,7 @@ describe('sessions.answerAskUserQuestion is a session.answer record', () => {
     await expect(
       o.store.transact(async () => {
         await o.store.effects.insert(
+          fixtureWriteScope(),
           {
             id: 'eff_answer-rolled-back',
             kind: SESSION_ANSWER_KIND,

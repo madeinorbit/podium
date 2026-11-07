@@ -109,7 +109,7 @@ describe('approvals.approve is on the sync write entry point', () => {
     const reply = await submit(o, envelope('approvals.approve', { id }, 'm-approve-server'))
     expect(reply).toMatchObject({ outcome: 'applied' })
     const [created] = insert.mock.calls
-      .map(([row]) => row)
+      .map(([, row]) => row)
       .filter((row) => row.kind === APPROVAL_EXECUTE_KIND)
     expect(created).toMatchObject({ input: { approvalId: id }, target: { kind: 'session' } })
 

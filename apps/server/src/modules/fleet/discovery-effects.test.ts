@@ -10,6 +10,7 @@
 
 import type { GitRepositoryWire } from '@podium/model'
 import { asMachineId, mintDeviceId } from '@podium/model'
+import { fixtureCommitWriter, fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { EffectsRunner } from '../effects/runner'
 import type { ScanReposResult } from '../machines/rpc'
@@ -62,6 +63,7 @@ async function stoppedRunner(o: Oracle) {
     effects,
     sweep: async () => {
       const runner = new EffectsRunner({
+        writer: fixtureCommitWriter(),
         repo: o.store.effects,
         registry: effects.executors,
         now: Date.now,
@@ -76,6 +78,7 @@ async function stoppedRunner(o: Oracle) {
 async function leftRunning(o: Oracle, kind: string, input: unknown): Promise<string> {
   const id = mintDeviceId('eff_')
   await o.store.effects.insert(
+    fixtureWriteScope(),
     {
       id,
       kind,
@@ -86,7 +89,7 @@ async function leftRunning(o: Oracle, kind: string, input: unknown): Promise<str
     },
     Date.now(),
   )
-  await o.store.effects.claim(id, Date.now())
+  await o.store.effects.claim(fixtureWriteScope(), id, Date.now())
   return id
 }
 

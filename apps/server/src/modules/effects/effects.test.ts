@@ -10,9 +10,11 @@
 
 import { type EffectStatus, mintDeviceId } from '@podium/model'
 import type { SyncSubmitReply } from '@podium/protocol'
+import { fixtureCommitWriter, fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import type { EffectsModule } from '../../relay'
+import type { SessionStore } from '../../store'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 import { appliedReply, changeRows, envelope, submit } from '../sync-write/outbox-test-support'
 import { NO_TARGET } from '../sync-write/registry'
@@ -71,6 +73,7 @@ async function harness(): Promise<Harness> {
 async function manualRunner(h: Harness): Promise<EffectsRunner> {
   await h.effects.runner.stop()
   return new EffectsRunner({
+    writer: fixtureCommitWriter(),
     repo: h.o.store.effects,
     registry: h.effects.executors,
     now: () => h.clock,
@@ -168,6 +171,7 @@ describe('creating an effect record', () => {
     await expect(
       h.o.store.transact(async () => {
         await h.o.store.effects.insert(
+          fixtureWriteScope(),
           {
             id,
             kind: KIND,
@@ -199,6 +203,7 @@ describe('the trigger runs a record exactly once', () => {
     const h = await harness()
     const a = await manualRunner(h)
     const b = new EffectsRunner({
+      writer: fixtureCommitWriter(),
       repo: h.o.store.effects,
       registry: h.effects.executors,
       now: () => h.clock,
@@ -232,7 +237,9 @@ describe('the recovery sweep', () => {
     const id = newId()
     appliedReply(await submit(h.o, createEnv(id)))
     // The server claimed it and stopped before it could say how it ended.
-    expect((await h.o.store.effects.claim(id, h.clock))?.status).toBe('running')
+    expect((await h.o.store.effects.claim(fixtureWriteScope(), id, h.clock))?.status).toBe(
+      'running',
+    )
     h.recover = async () => ({ status: 'succeeded', result: { found: true } })
     await runner.sweep()
     await runner.idle()
@@ -247,7 +254,7 @@ describe('the recovery sweep', () => {
     const runner = await manualRunner(h)
     const id = newId()
     appliedReply(await submit(h.o, createEnv(id)))
-    await h.o.store.effects.claim(id, h.clock)
+    await h.o.store.effects.claim(fixtureWriteScope(), id, h.clock)
     await runner.sweep()
     await runner.idle()
     expect(h.runs).toEqual([])
@@ -485,6 +492,7 @@ describe('an executor whose work outlives its run (POD-6358)', () => {
       result: { ...(ctx.record.result as object), found: true },
     })
     const successor = new EffectsRunner({
+      writer: fixtureCommitWriter(),
       repo: h.o.store.effects,
       registry: h.effects.executors,
       now: () => h.clock,
@@ -497,5 +505,19 @@ describe('an executor whose work outlives its run (POD-6358)', () => {
     const row = await h.o.store.effects.get(id)
     expect(row?.status).toBe('succeeded')
     expect(row?.result).toEqual({ operationId: 'op_9', found: true })
+  })
+})
+
+describe('effect records are written only inside their commit (ADR 12 D9)', () => {
+  it('a store writer without the commit scope does not typecheck', () => {
+    const typeOnly = async (store: SessionStore) => {
+      // @ts-expect-error an effect record is written with its commit's scope
+      await store.effects.claim('eff_x', 0)
+      // @ts-expect-error a settlement too
+      await store.effects.settle('eff_x', 'succeeded', {}, 0)
+      // @ts-expect-error a sweep too
+      await store.effects.expireDue(0, 10)
+    }
+    void typeOnly
   })
 })

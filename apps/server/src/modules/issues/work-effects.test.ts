@@ -15,6 +15,7 @@ import {
   mintDeviceId,
   type SessionId,
 } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { TRPCError } from '@trpc/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
@@ -219,7 +220,7 @@ describe('issue.addSession and issue.begin spawn once per session id', () => {
     })
     await expect(
       o.store.transact(async () => {
-        await o.store.effects.insert(record(mintDeviceId('eff_')), Date.now())
+        await o.store.effects.insert(fixtureWriteScope(), record(mintDeviceId('eff_')), Date.now())
         throw new Error('roll back')
       }),
     ).rejects.toThrow('roll back')
@@ -227,7 +228,7 @@ describe('issue.addSession and issue.begin spawn once per session id', () => {
     expect(spawns(o, sessionId)).toHaveLength(0)
 
     const committed = mintDeviceId('eff_')
-    await o.store.effects.insert(record(committed), Date.now())
+    await o.store.effects.insert(fixtureWriteScope(), record(committed), Date.now())
     await o.reg.modules.effects?.runner.poke('issue.addSession')
     expect(await settled(o, committed)).toMatchObject({ status: 'succeeded' })
     expect(spawns(o, sessionId)).toHaveLength(1)
@@ -248,6 +249,7 @@ describe('issue.addSession and issue.begin spawn once per session id', () => {
     const sessionId = newSessionId()
     const id = mintDeviceId('eff_')
     await o.store.effects.insert(
+      fixtureWriteScope(),
       {
         id,
         kind: 'issue.begin',

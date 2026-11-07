@@ -73,6 +73,14 @@ export const SYSTEM_WRITE_ORIGINS = {
     what: "a daemon's conversation discovery report and the list reconcile that follows (the memory service)",
     kind: 'server',
   },
+  'effects.runner': {
+    what: "the effect runner: claiming a record, its stage and settlement, the deadline and retention sweeps, under the record's own causation",
+    kind: 'server',
+  },
+  'effects.system': {
+    what: 'an effect record the server itself asks for, with no caller (the janitor connect scan)',
+    kind: 'server',
+  },
   'machines.projection': {
     what: "a machine's display projection, republished whenever its row changes",
     kind: 'mirror',
@@ -99,9 +107,9 @@ export const SYSTEM_WRITE_ORIGINS = {
     legacy: UNTIL_CONTEXT_PER_CALL,
   },
   sessions: {
-    what: 'session writes: sync commands and daemon reports, at persist',
+    what: 'session writes: sync commands and daemon reports at persist, and the session.launch records a send or a spawn creates',
     kind: 'client',
-    legacy: UNTIL_CONTEXT_PER_CALL,
+    legacy: { removeAfter: '2027-03', owner: 'POD-6601' },
   },
   shipping: {
     what: 'the order plane: ship commands and the lanes that drive them',
@@ -156,9 +164,11 @@ export class WriteContexts {
   system(origin: SystemWriteOrigin): SystemWriteContext {
     const writer = this.ledger.writer(this.mint.system(origin))
     const guard = (): void => {
+      // A client command's scope names its mutationId; a server job's own
+      // provenance (an effect run's causationId) names none.
       if (
         SYSTEM_WRITE_ORIGINS[origin].kind === 'server' &&
-        currentWriteProvenance() !== undefined
+        currentWriteProvenance()?.mutationId !== undefined
       ) {
         throw new SystemWriteInsideCommand(origin)
       }

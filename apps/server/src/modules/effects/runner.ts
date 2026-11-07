@@ -34,6 +34,7 @@
 
 import { createLogger, describeError } from '@podium/logger'
 import type { EffectStatus } from '@podium/model'
+import type { LedgerWriter, WriteScope } from '@podium/sync'
 import type { EffectRow, EffectsRepository } from '../../store/effects'
 import { withWriteProvenance } from '../../write-provenance'
 import type {
@@ -67,6 +68,8 @@ export type EffectsRunnerRepository = Pick<
 
 export interface EffectsRunnerDeps {
   readonly repo: EffectsRunnerRepository
+  /** The runner's own writer, a `server` origin (`effects.runner`). */
+  readonly writer: Pick<LedgerWriter, 'commit'>
   readonly registry: EffectExecutorRegistry
   readonly now: () => number
   /** Schedule the slow sweep; returns a cancel. Injected so tests drive time. */
@@ -185,15 +188,21 @@ export class EffectsRunner {
   private async sweepOnce(): Promise<void> {
     const { repo, now } = this.deps
     // Expiry first, so a record past its deadline is never dispatched below.
-    await repo.expireDue(now(), EFFECT_SWEEP_BATCH)
+    await this.sweepWrite(async (scope) => await repo.expireDue(scope, now(), EFFECT_SWEEP_BATCH))
     for (const row of await repo.listInStatus('pending', EFFECT_SWEEP_BATCH)) {
       if (!this.live.has(row.id)) this.track(this.dispatch(row.id))
     }
     for (const row of await repo.listInStatus('running', EFFECT_SWEEP_BATCH)) {
       if (!this.live.has(row.id)) this.track(this.recover(row))
     }
-    await repo.pruneFinished(now() - EFFECT_RETENTION_MS, now(), EFFECT_SWEEP_BATCH)
-    await repo.purgeTombstones(now() - EFFECT_RETENTION_MS, EFFECT_SWEEP_BATCH)
+    await this.sweepWrite(
+      async (scope) =>
+        await repo.pruneFinished(scope, now() - EFFECT_RETENTION_MS, now(), EFFECT_SWEEP_BATCH),
+    )
+    await this.sweepWrite(
+      async (scope) =>
+        await repo.purgeTombstones(scope, now() - EFFECT_RETENTION_MS, EFFECT_SWEEP_BATCH),
+    )
   }
 
   /** Claim one record and run it. Safe to call any number of times for one id. */
@@ -208,25 +217,27 @@ export class EffectsRunner {
       if (row === undefined || row.status !== 'pending' || row.deletedAt !== undefined) return
       const executor = registry.get(row.kind)
       if (executor === undefined) {
-        await this.write(id, async () =>
-          repo.settle(id, 'failed', { error: noExecutor(row.kind) }, now()),
+        await this.write(id, async (scope) =>
+          repo.settle(scope, id, 'failed', { error: noExecutor(row.kind) }, now()),
         )
         return
       }
       if (row.deadlineAt !== undefined && row.deadlineAt <= now()) {
-        await this.write(id, async () => repo.settle(id, 'expired', { error: DEADLINE }, now()))
+        await this.write(id, async (scope) =>
+          repo.settle(scope, id, 'expired', { error: DEADLINE }, now()),
+        )
         return
       }
       const parsed = executor.input.safeParse(row.input)
       if (!parsed.success) {
-        await this.write(id, async () =>
-          repo.settle(id, 'failed', { error: badInput(parsed.error.message) }, now()),
+        await this.write(id, async (scope) =>
+          repo.settle(scope, id, 'failed', { error: badInput(parsed.error.message) }, now()),
         )
         return
       }
       // Not ready (POD-6398): stays pending, untouched, for the sweep or a poke.
       if (executor.ready !== undefined && !(await executor.ready(row, parsed.data))) return
-      const claimed = await this.write(id, async () => await repo.claim(id, now()))
+      const claimed = await this.write(id, async (scope) => await repo.claim(scope, id, now()))
       if (claimed === undefined) return
       const outcome = await this.runExecutor(executor, claimed, parsed.data, live, 'run')
       await this.settle(claimed, outcome)
@@ -273,7 +284,7 @@ export class EffectsRunner {
       stage: async (stage, result) => {
         await this.write(
           record.id,
-          async () => await repo.setStage(record.id, stage, now(), result),
+          async (scope) => await repo.setStage(scope, record.id, stage, now(), result),
         )
       },
       cancelRequested: async () => (await repo.get(record.id))?.cancelRequested === true,
@@ -312,8 +323,8 @@ export class EffectsRunner {
           : outcome.status === 'unknown'
             ? { error: outcome.error ?? LOST_TRACK }
             : {}
-    const settled = await this.write(record.id, async () =>
-      repo.settle(record.id, to, settlement, now()),
+    const settled = await this.write(record.id, async (scope) =>
+      repo.settle(scope, record.id, to, settlement, now()),
     )
     if (settled === undefined) {
       log.info('effects: outcome not applied; the record moved on', {
@@ -324,8 +335,22 @@ export class EffectsRunner {
   }
 
   /** One status write as the system, caused by the record. */
-  private async write<T>(recordId: string, fn: () => Promise<T>): Promise<T> {
-    return await withWriteProvenance({ causationId: recordId }, fn)
+  /**
+   * One write of the runner's, under the record's causation, as a commit on the
+   * runner's own writer (`effects.runner`, ADR 12 D9): the row change gets its
+   * scope there, and the effects table's capture appends its feed change in the
+   * same unit.
+   */
+  private async write<T>(recordId: string, fn: (scope: WriteScope) => Promise<T>): Promise<T> {
+    return await withWriteProvenance(
+      { causationId: recordId },
+      async () => (await this.deps.writer.commit({ write: fn, changes: () => [] })).result,
+    )
+  }
+
+  /** A sweep's write, on the runner's own writer. */
+  private async sweepWrite<T>(fn: (scope: WriteScope) => Promise<T>): Promise<T> {
+    return (await this.deps.writer.commit({ write: fn, changes: () => [] })).result
   }
 }
 

@@ -31,7 +31,7 @@ function decisionUnit(state: SyncFamilyState): ApprovalDecisionUnit {
     executeOnServer: async (row) => {
       const effects = state.modules.effects
       if (effects === undefined) throw new Error('approvals: no effects module is composed')
-      await effects.createInUnit({
+      await effects.createInUnit(state.writer, {
         id: mintDeviceId('eff_'),
         kind: APPROVAL_EXECUTE_KIND,
         target: { kind: 'session', id: row.sessionId },

@@ -62,8 +62,10 @@ import {
   GrantEdgeVisibilityPolicy,
   kernelVisibilityResolver,
   Ledger,
+  type LedgerWriter,
   MutationLedger,
   NoDelegationsGranted,
+  type WriteScope,
 } from '@podium/sync'
 import { IssueAttachOrchestrator } from './application/issue-attach-orchestrator'
 import { hashToken } from './auth-route'
@@ -384,14 +386,22 @@ export interface EffectsModule {
    * write names (an approval's `approval.execute`, POD-6415). Only inside a
    * unit: the record commits or rolls back with the write.
    */
-  createInUnit(effect: {
-    readonly id: string
-    readonly kind: string
-    readonly target: EffectTarget
-    readonly input: unknown
-    readonly createdBy: UserId | null
-    readonly actor: string
-  }): Promise<EffectRow>
+  createInUnit(writer: Pick<LedgerWriter, 'commit'>, effect: NewEffectInUnit): Promise<EffectRow>
+  /**
+   * {@link createInUnit} for the session paths that cannot yet reach the writer
+   * of the command they run in (a chat send's wake, an agent spawn's launch):
+   * written under the `sessions` origin until POD-6601 passes it through.
+   */
+  createForSession(effect: NewEffectInUnit): Promise<EffectRow>
+}
+
+interface NewEffectInUnit {
+  readonly id: string
+  readonly kind: string
+  readonly target: EffectTarget
+  readonly input: unknown
+  readonly createdBy: UserId | null
+  readonly actor: string
 }
 
 export interface RegistryModules {
@@ -3712,6 +3722,7 @@ export class SessionRegistry {
     )
     this.effectsRunner = new EffectsRunner({
       repo: this.store.effects,
+      writer: writes.system('effects.runner'),
       registry: effectExecutors,
       now: this.now,
     })
@@ -3720,31 +3731,38 @@ export class SessionRegistry {
      * the kind's schema and deadline apply, and the trigger runs it after the
      * commit (never for a rollback). For the server's own records and for a sync
      * command whose handler asks for an effect as part of its write (a dock
-     * shell's start, POD-6419), attributed to whoever the caller names.
+     * shell's start, POD-6419), attributed to whoever the caller names. Written
+     * through `writer` (ADR 12 D9): the command's own, or a declared origin's.
      */
-    const createEffectInUnit = async (effect: {
-      readonly id: string
-      readonly kind: string
-      readonly target: EffectTarget
-      readonly input: unknown
-      readonly createdBy: UserId | null
-      readonly actor: string
-    }) => {
+    const createEffectInUnit = async (
+      writer: Pick<LedgerWriter, 'commit'>,
+      effect: {
+        readonly id: string
+        readonly kind: string
+        readonly target: EffectTarget
+        readonly input: unknown
+        readonly createdBy: UserId | null
+        readonly actor: string
+      },
+    ) => {
       const executor = effectExecutors.get(effect.kind)
       if (executor === undefined) throw new Error(`effects: no executor for ${effect.kind}`)
       const now = this.now()
-      return await this.store.effects.insert(
-        {
-          id: effect.id,
-          kind: effect.kind,
-          target: effect.target,
-          input: executor.input.parse(effect.input),
-          deadlineAt: now + executor.deadlineMs,
-          createdBy: effect.createdBy,
-          actor: effect.actor,
-        },
-        now,
-      )
+      const insert = async (scope: WriteScope) =>
+        await this.store.effects.insert(
+          scope,
+          {
+            id: effect.id,
+            kind: effect.kind,
+            target: effect.target,
+            input: executor.input.parse(effect.input),
+            deadlineAt: now + executor.deadlineMs,
+            createdBy: effect.createdBy,
+            actor: effect.actor,
+          },
+          now,
+        )
+      return (await writer.commit({ write: insert, changes: () => [] })).result
     }
     const syncWrite = new SyncWriteEntry({
       registry: new SyncWriteRegistry(),
@@ -3780,8 +3798,8 @@ export class SessionRegistry {
             ? undefined
             : { sessionId, agentKind: 'shell', archived: false, status: 'starting' }
         },
-        createShell: async ({ sessionId, cwd, ownerUserId, machineId, actor }) => {
-          await createEffectInUnit({
+        createShell: async ({ writer, sessionId, cwd, ownerUserId, machineId, actor }) => {
+          await createEffectInUnit(writer, {
             id: mintDeviceId('eff_'),
             kind: SESSION_LAUNCH_KIND,
             target: { kind: 'session', id: sessionId },
@@ -4062,12 +4080,14 @@ export class SessionRegistry {
         newestOnTarget: async (kind, target, phase) =>
           await this.store.effects.newestOnTarget(kind, target, phase),
         createAsSystem: async (effect) =>
-          await createEffectInUnit({
+          await createEffectInUnit(writes.system('effects.system'), {
             ...effect,
             createdBy: null,
             actor: attributionOf(systemPrincipal(effect.job)).actor,
           }),
-        createInUnit: async (effect) => await createEffectInUnit(effect),
+        createInUnit: async (writer, effect) => await createEffectInUnit(writer, effect),
+        createForSession: async (effect) =>
+          await createEffectInUnit(writes.system('sessions'), effect),
       },
       bus: this.bus,
       funnel,

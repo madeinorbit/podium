@@ -15,6 +15,7 @@
 
 import { asMutationId, asSessionId, type SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { appRouter } from '../../router'
 import { OPERATOR } from '../../test-support/capabilities'
@@ -517,6 +518,7 @@ describe('configure and resume act through effect records', () => {
     await expect(
       o.store.transact(async () => {
         await o.store.effects.insert(
+          fixtureWriteScope(),
           {
             id: 'eff_configure-rolled-back',
             kind: 'session.configure',
@@ -604,6 +606,7 @@ describe('configure and resume act through effect records', () => {
     await expect(
       o.store.transact(async () => {
         await o.store.effects.insert(
+          fixtureWriteScope(),
           {
             id: 'eff_resume-rolled-back',
             kind: 'session.launch',

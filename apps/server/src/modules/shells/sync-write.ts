@@ -87,10 +87,12 @@ export function registerShellCommands(registry: SyncWriteRegistry, deps: ShellSy
     handle: async (ctx, input): Promise<ForWorktreeOutput> => {
       const human = onBehalfOfUser(ctx.principal)
       if (human === null) throw new Error('shells.forWorktree reached its handler without a human')
-      const result = await deps.modules().dockShells.forWorktree(human, input.worktreePath, {
-        ...(input.machineId ? { machineId: input.machineId } : {}),
-        actor: attributionOf(ctx.principal).actor,
-      })
+      const result = await deps
+        .modules()
+        .dockShells.forWorktree(ctx.ledger, human, input.worktreePath, {
+          ...(input.machineId ? { machineId: input.machineId } : {}),
+          actor: attributionOf(ctx.principal).actor,
+        })
       return { sessionId: result.sessionId, created: result.created }
     },
   })

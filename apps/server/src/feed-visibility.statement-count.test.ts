@@ -19,6 +19,7 @@ import {
   shipLaneId,
 } from '@podium/model'
 import type { EntityRef, VisibilityAnchorPort } from '@podium/sync'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import { makeFeedVisibility } from './feed-visibility'
 import type { SessionStore } from './store'
@@ -243,7 +244,9 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
             expect(edges[1]).toBeNull()
             expect(edges[3]).toEqual({
               audience: [reader],
-              subjects: [{ entity: 'shipLane', entityId: shipLaneId(asRepoId('repo-shared'), 'local:main') }],
+              subjects: [
+                { entity: 'shipLane', entityId: shipLaneId(asRepoId('repo-shared'), 'local:main') },
+              ],
             })
             expect(edges[4]).toBeNull()
             // Installed subjects come back parsed; issueGitState was never installed.
@@ -275,6 +278,7 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
           // An effect record on every issue: the edge reads only the batch's (POD-6401).
           for (let i = 0; i < f.size; i++) {
             await f.store.effects.insert(
+              fixtureWriteScope(),
               {
                 id: `eff-${i}`,
                 kind: 'issue.merge',
@@ -291,22 +295,43 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
             const dep = issueDepId(`iss_${i}`, `shared_${i}`, 'blocked-by')
             return [
               { entity: 'issueProjection', entityId: `iss_${i}`, payload: { id: `iss_${i}` } },
-              { entity: 'issueProjection', entityId: `shared_${i}`, payload: { id: `shared_${i}` } },
+              {
+                entity: 'issueProjection',
+                entityId: `shared_${i}`,
+                payload: { id: `shared_${i}` },
+              },
               { entity: 'issueDep', entityId: dep, payload: { id: dep } },
               {
                 entity: 'shipOrder',
                 entityId: `order-${i}`,
-                payload: { issueId: `iss_${i}`, repoId: `repo-${i}`, destination: 'local:main', targetBranch: 'main', state: 'queued' },
+                payload: {
+                  issueId: `iss_${i}`,
+                  repoId: `repo-${i}`,
+                  destination: 'local:main',
+                  targetBranch: 'main',
+                  state: 'queued',
+                },
               },
               {
                 entity: 'shipOrder',
                 entityId: `shared-order-${i}`,
-                payload: { issueId: `shared_${i}`, repoId: 'repo-shared', destination: 'local:main', targetBranch: 'main', state: i === 0 ? 'cancelled' : 'queued' },
+                payload: {
+                  issueId: `shared_${i}`,
+                  repoId: 'repo-shared',
+                  destination: 'local:main',
+                  targetBranch: 'main',
+                  state: i === 0 ? 'cancelled' : 'queued',
+                },
               },
             ]
           })
             .flat()
-            .map((row) => ({ entity: row.entity, entityId: row.entityId, op: 'upsert' as const, payload: JSON.stringify(row.payload) }))
+            .map((row) => ({
+              entity: row.entity,
+              entityId: row.entityId,
+              op: 'upsert' as const,
+              payload: JSON.stringify(row.payload),
+            }))
           // The kinds are real wire kinds; the literal union is not worth spelling per row.
           await f.store.sync.appendChanges(rows as never, 1_000)
           return f
@@ -324,12 +349,15 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
       {
         ...pin(
           'laneDepartureEdge',
-          async (f) => await edgeOf(f.policy.anchors, { entity: 'shipOrder', entityId: 'shared-order-0' }),
+          async (f) =>
+            await edgeOf(f.policy.anchors, { entity: 'shipOrder', entityId: 'shared-order-0' }),
           // The reader could read only the departed order's issue.
           (edge) =>
             expect(edge).toEqual({
               audience: [reader],
-              subjects: [{ entity: 'shipLane', entityId: shipLaneId(asRepoId('repo-shared'), 'local:main') }],
+              subjects: [
+                { entity: 'shipLane', entityId: shipLaneId(asRepoId('repo-shared'), 'local:main') },
+              ],
             }),
         ),
         setup: async (size) => {

@@ -21,6 +21,7 @@ import {
   type IssueId,
   mintDeviceId,
 } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { OPERATOR } from '../../test-support/capabilities'
 import {
@@ -202,7 +203,7 @@ describe('recovering an artifact record the server lost mid-run', () => {
     // What a run had done when the server stopped: the bytes copied, the entry staged.
     const plan = await o.reg.issues.crud.planArtifactAdd(issueId, { path: 'a.png' })
     const staged = await o.reg.issues.crud.snapshotArtifact(plan, artifactIdOfEffect(id))
-    await o.store.effects.setStage(id, 'committing', Date.now(), staged)
+    await o.store.effects.setStage(fixtureWriteScope(), id, 'committing', Date.now(), staged)
     const record = await o.store.effects.get(id)
 
     const outcome = await executor?.recover?.({ record, input: { path: 'a.png' } } as never)

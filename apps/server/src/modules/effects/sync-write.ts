@@ -25,6 +25,7 @@ import {
   effectsCreateContract,
   effectsDismissContract,
 } from '@podium/commands'
+import type { WriteScope } from '@podium/sync'
 import { attributionOf, onBehalfOfUser } from '../../command-principal'
 import type { EffectRow, EffectsRepository } from '../../store/effects'
 import { SyncWriteRefused } from '../sync-write/entry'
@@ -96,18 +97,23 @@ export function registerEffectCommands(registry: SyncWriteRegistry, deps: Effect
         throw new SyncWriteRefused({ kind: 'conflict' })
       }
       const now = deps.now()
-      const row = await deps.repo.insert(
-        {
-          id: input.id,
-          kind: input.kind,
-          target: input.target,
-          input: parsed.data,
-          deadlineAt: now + (input.deadlineMs ?? executor.deadlineMs),
-          createdBy: onBehalfOfUser(ctx.principal),
-          actor: attributionOf(ctx.principal).actor,
-        },
-        now,
-      )
+      const insert = async (scope: WriteScope) =>
+        await deps.repo.insert(
+          scope,
+          {
+            id: input.id,
+            kind: input.kind,
+            target: input.target,
+            input: parsed.data,
+            deadlineAt: now + (input.deadlineMs ?? executor.deadlineMs),
+            createdBy: onBehalfOfUser(ctx.principal),
+            actor: attributionOf(ctx.principal).actor,
+          },
+          now,
+        )
+      // One commit on the command's writer; the effects table's capture appends
+      // the record's feed change in it (ADR 12 D9).
+      const row = (await ctx.ledger.commit({ write: insert, changes: () => [] })).result
       return resultOf(row)
     },
   })
@@ -115,10 +121,13 @@ export function registerEffectCommands(registry: SyncWriteRegistry, deps: Effect
   registry.register({
     contract: effectsCancelContract,
     target: async (input: EffectsCancelInput, ctx) => await recordTarget(deps, input.id, ctx),
-    handle: async (_ctx, input: EffectsCancelInput): Promise<EffectCommandResult> => {
+    handle: async (ctx, input: EffectsCancelInput): Promise<EffectCommandResult> => {
       // Already ended, or already asked: nothing to change, and that is not a refusal.
-      const row =
-        (await deps.repo.requestCancel(input.id, deps.now())) ?? (await deps.repo.get(input.id))
+      const asked = await ctx.ledger.commit({
+        write: async (scope) => await deps.repo.requestCancel(scope, input.id, deps.now()),
+        changes: () => [],
+      })
+      const row = asked.result ?? (await deps.repo.get(input.id))
       if (row === undefined) throw new SyncWriteRefused({ kind: 'target-not-found' })
       return resultOf(row)
     },
@@ -127,8 +136,12 @@ export function registerEffectCommands(registry: SyncWriteRegistry, deps: Effect
   registry.register({
     contract: effectsDismissContract,
     target: async (input: EffectsDismissInput, ctx) => await recordTarget(deps, input.id, ctx),
-    handle: async (_ctx, input: EffectsDismissInput): Promise<{ dismissed: true }> => {
-      if ((await deps.repo.tombstone(input.id, deps.now())) === undefined) {
+    handle: async (ctx, input: EffectsDismissInput): Promise<{ dismissed: true }> => {
+      const dismissed = await ctx.ledger.commit({
+        write: async (scope) => await deps.repo.tombstone(scope, input.id, deps.now()),
+        changes: () => [],
+      })
+      if (dismissed.result === undefined) {
         // Still pending or running: it has to end (or be cancelled) first.
         throw new SyncWriteRefused({ kind: 'conflict' })
       }

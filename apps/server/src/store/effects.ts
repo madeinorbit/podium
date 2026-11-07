@@ -23,6 +23,7 @@ import {
   type EffectTargetKind,
   type UserId,
 } from '@podium/model'
+import type { WriteScope } from '@podium/sync'
 import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm'
 import { effects } from '../migrations/schema'
 import { afterCommit } from './executor/executor'
@@ -472,7 +473,12 @@ export class EffectsRepository {
     }
   }
 
-  /** The one write funnel. */
+  /**
+   * The one write funnel. `effects` is a synced table: every public writer takes
+   * the commit's write scope (ADR 12 D9, POD-6594), so it runs inside a
+   * `Ledger.commit` made by a sync command or a declared server origin. The
+   * capture installed here appends the rows' feed changes in that same unit.
+   */
   private async write(query: () => Promise<EffectSelect[]>): Promise<EffectRow[]> {
     return await this.transact(async () => {
       const written = (await query()).map(rowToEffect)
@@ -490,7 +496,7 @@ export class EffectsRepository {
     return (await this.write(query))[0]
   }
 
-  async insert(effect: NewEffect, now: number): Promise<EffectRow> {
+  async insert(_scope: WriteScope, effect: NewEffect, now: number): Promise<EffectRow> {
     const row = await this.one(
       async () =>
         await insertEffect(this.db).all({
@@ -581,12 +587,13 @@ export class EffectsRepository {
   }
 
   /** `pending` → `running`. `undefined`: someone else claimed it, or it ended. */
-  async claim(id: string, now: number): Promise<EffectRow | undefined> {
+  async claim(_scope: WriteScope, id: string, now: number): Promise<EffectRow | undefined> {
     return await this.one(async () => await claimEffect(this.db).all({ id, now }))
   }
 
   /** A guarded move into `to`. `undefined`: the record is not where `to` may come from. */
   async settle(
+    _scope: WriteScope,
     id: string,
     to: EffectStatus,
     settlement: EffectSettlement,
@@ -611,6 +618,7 @@ export class EffectsRepository {
    * the result stays as it was.
    */
   async setStage(
+    _scope: WriteScope,
     id: string,
     stage: string,
     now: number,
@@ -623,7 +631,7 @@ export class EffectsRepository {
   }
 
   /** Cancel: a pending record ends `cancelled`; a running one is flagged for its executor. */
-  async requestCancel(id: string, now: number): Promise<EffectRow | undefined> {
+  async requestCancel(_scope: WriteScope, id: string, now: number): Promise<EffectRow | undefined> {
     return (
       (await this.one(async () => await cancelPendingEffect(this.db).all({ id, now }))) ??
       (await this.one(async () => await flagCancelEffect(this.db).all({ id, now })))
@@ -631,11 +639,11 @@ export class EffectsRepository {
   }
 
   /** Dismiss: off the feed. `undefined` for a record that has not ended. */
-  async tombstone(id: string, now: number): Promise<EffectRow | undefined> {
+  async tombstone(_scope: WriteScope, id: string, now: number): Promise<EffectRow | undefined> {
     return await this.one(async () => await tombstoneEffect(this.db).all({ id, now }))
   }
 
-  async expireDue(now: number, limit: number): Promise<EffectRow[]> {
+  async expireDue(_scope: WriteScope, now: number, limit: number): Promise<EffectRow[]> {
     return await this.write(async () => await expireDueEffects(this.db).all({ now, limit }))
   }
 
@@ -643,14 +651,19 @@ export class EffectsRepository {
     return (await effectsInStatus(this.db, status).all({ limit })).map(rowToEffect)
   }
 
-  async pruneFinished(cutoff: number, now: number, limit: number): Promise<EffectRow[]> {
+  async pruneFinished(
+    _scope: WriteScope,
+    cutoff: number,
+    now: number,
+    limit: number,
+  ): Promise<EffectRow[]> {
     return await this.write(
       async () => await pruneFinishedEffects(this.db).all({ cutoff, now, limit }),
     )
   }
 
   /** Hard-delete tombstones; the feed removed them when they were tombstoned. */
-  async purgeTombstones(cutoff: number, limit: number): Promise<number> {
+  async purgeTombstones(_scope: WriteScope, cutoff: number, limit: number): Promise<number> {
     return (await purgeTombstones(this.db).all({ cutoff, limit })).length
   }
 }

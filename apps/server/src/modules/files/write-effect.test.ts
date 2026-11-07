@@ -7,6 +7,7 @@
  */
 
 import { mintDeviceId } from '@podium/model'
+import { fixtureCommitWriter, fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { EffectsRunner } from '../effects/runner'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
@@ -164,6 +165,7 @@ describe('a save left running by a stopped server', () => {
     await effects.runner.stop()
     const id = mintDeviceId('eff_')
     await o.store.effects.insert(
+      fixtureWriteScope(),
       {
         id,
         kind: FILE_WRITE_EFFECT_KIND,
@@ -174,7 +176,7 @@ describe('a save left running by a stopped server', () => {
       },
       Date.now(),
     )
-    await o.store.effects.claim(id, Date.now())
+    await o.store.effects.claim(fixtureWriteScope(), id, Date.now())
     const write = vi.spyOn(rpc(o), 'writeFile')
     vi.spyOn(rpc(o), 'readFile').mockResolvedValue({
       ok: true,
@@ -183,6 +185,7 @@ describe('a save left running by a stopped server', () => {
       baseHash: '9:5',
     })
     const runner = new EffectsRunner({
+      writer: fixtureCommitWriter(),
       repo: o.store.effects,
       registry: effects.executors,
       now: Date.now,

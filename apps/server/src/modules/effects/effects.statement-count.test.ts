@@ -8,6 +8,7 @@
  */
 
 import { mintDeviceId } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import {
@@ -45,6 +46,7 @@ async function fixture(size: number): Promise<Fixture> {
   for (let i = 0; i < size; i++) {
     const id = mintDeviceId('eff_')
     await o.store.effects.insert(
+      fixtureWriteScope(),
       {
         id,
         kind: KIND,
@@ -55,8 +57,8 @@ async function fixture(size: number): Promise<Fixture> {
       },
       clock,
     )
-    await o.store.effects.claim(id, clock)
-    await o.store.effects.settle(id, 'succeeded', {}, clock)
+    await o.store.effects.claim(fixtureWriteScope(), id, clock)
+    await o.store.effects.settle(fixtureWriteScope(), id, 'succeeded', {}, clock)
   }
   await effects.runner.idle()
   return { o, runner: effects.runner }
