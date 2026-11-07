@@ -177,7 +177,7 @@ async function piBootEvents(opts: {
 /** The newest session file in a cwd's bucket, optionally not older than `sinceMs`. */
 export async function findLatestPiSessionFile(opts: {
   cwd: string
-  homeDir?: string
+  homeDir: string
   sinceMs?: number
 }): Promise<string | undefined> {
   const dir = piSessionDir(opts.cwd, opts.homeDir)
@@ -214,7 +214,7 @@ export async function findLatestPiSessionFile(opts: {
 export function observePiState(opts: {
   cwd: string
   resumeValue?: string
-  homeDir?: string
+  homeDir: string
   pathHint?: string
   startedAtMs?: number
   pollMs?: number
@@ -245,7 +245,7 @@ export function observePiState(opts: {
         const path = await locatePiSessionFile({
           cwd: opts.cwd,
           sessionId: opts.resumeValue,
-          ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
+          homeDir: opts.homeDir,
           ...(opts.pathHint ? { pathHint: opts.pathHint } : {}),
         })
         if (path) attach(opts.resumeValue, path)
@@ -253,7 +253,7 @@ export function observePiState(opts: {
       }
       const path = await findLatestPiSessionFile({
         cwd: opts.cwd,
-        ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
+        homeDir: opts.homeDir,
         sinceMs: startedAtMs,
       })
       const sessionId = path ? piSessionIdFromPath(path) : undefined

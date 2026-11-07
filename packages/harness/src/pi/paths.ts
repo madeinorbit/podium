@@ -1,5 +1,4 @@
 import { readdir } from 'node:fs/promises'
-import { homedir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 
 /**
@@ -21,13 +20,13 @@ export type PiEnvironment = Readonly<Record<string, string | undefined>>
 // The selectors come from the ACCOUNT env a caller passes (POD-6534), never
 // the daemon's own `process.env`: the Pi child gets PI_CODING_AGENT_DIR from
 // its instance home, so an ambient selector here would read another folder.
-export function piAgentDir(homeDir?: string, env: PiEnvironment = {}): string {
+export function piAgentDir(homeDir: string, env: PiEnvironment = {}): string {
   const override = env.PI_CODING_AGENT_DIR?.trim()
   if (override) return override
-  return join(homeDir ?? homedir(), '.pi', 'agent')
+  return join(homeDir, '.pi', 'agent')
 }
 
-export function piSessionsRoot(homeDir?: string, env: PiEnvironment = {}): string {
+export function piSessionsRoot(homeDir: string, env: PiEnvironment = {}): string {
   const override = env.PI_CODING_AGENT_SESSION_DIR?.trim()
   if (override) return override
   return join(piAgentDir(homeDir, env), 'sessions')
@@ -49,7 +48,7 @@ export function piCwdFromSlug(slug: string): string | undefined {
   return `/${match[1].replace(/-/g, '/')}`
 }
 
-export function piSessionDir(cwd: string, homeDir?: string, env: PiEnvironment = {}): string {
+export function piSessionDir(cwd: string, homeDir: string, env: PiEnvironment = {}): string {
   return join(piSessionsRoot(homeDir, env), piCwdSlug(cwd))
 }
 
@@ -87,7 +86,7 @@ async function sessionFileIn(dir: string, sessionId: string): Promise<string | u
 export async function locatePiSessionFile(opts: {
   cwd: string
   sessionId: string
-  homeDir?: string
+  homeDir: string
   /** The account env (POD-6534): its Pi selectors relocate the sessions root. */
   env?: PiEnvironment
   pathHint?: string
