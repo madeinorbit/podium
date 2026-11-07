@@ -16,6 +16,7 @@ import { SessionRegistry } from '../../relay'
 import type { SessionStore } from '../../store'
 import { attachHostDaemon } from '../../test-support/host-daemon'
 import { openTestStore } from '../../test-support/open-test-store'
+import { repositoryWriter } from '../../test-support/session-repository-writer'
 
 const registries: SessionRegistry[] = []
 afterEach(async () => {
@@ -29,7 +30,7 @@ async function fixture() {
   await attachHostDaemon(reg)
   const sessions = reg.modules.sessions
   const { sessionId } = await sessions.createSession({ agentKind: 'shell', cwd: '/x' })
-  await sessions.renameSession({ sessionId, name: 'committed' })
+  await sessions.renameSession(sessions.serverWriter, { sessionId, name: 'committed' })
   await sessions.flushActivity()
   return { store, reg, sessions, sessionId }
 }
@@ -38,10 +39,13 @@ async function rowName(store: SessionStore, sessionId: SessionId) {
   return (await store.sessions.getSession(sessionId))?.name
 }
 
-async function renameInRolledBackSpan(f: Awaited<ReturnType<typeof fixture>>, name = 'rolled back') {
+async function renameInRolledBackSpan(
+  f: Awaited<ReturnType<typeof fixture>>,
+  name = 'rolled back',
+) {
   await expect(
     f.store.transact(async () => {
-      await f.sessions.renameSession({ sessionId: f.sessionId, name })
+      await f.sessions.renameSession(f.sessions.serverWriter, { sessionId: f.sessionId, name })
       // Inside the span the write is visible to the span's own code.
       expect(f.sessions.sessions.get(f.sessionId)?.name).toBe(name)
       throw new Error('enclosing span failed')
@@ -54,7 +58,10 @@ describe('a rolled-back span on a live session (POD-6160 D2f)', () => {
     const f = await fixture()
     await renameInRolledBackSpan(f)
     expect(await rowName(f.store, f.sessionId)).toBe('committed')
-    await f.sessions.setWorkState({ sessionId: f.sessionId, workState: 'done' } as never)
+    await f.sessions.setWorkState(f.sessions.serverWriter, {
+      sessionId: f.sessionId,
+      workState: 'done',
+    } as never)
     await f.sessions.flushActivity()
     const row = await f.store.sessions.getSession(f.sessionId)
     expect(row?.workState).toBe('done')
@@ -67,11 +74,16 @@ describe('a rolled-back span on a live session (POD-6160 D2f)', () => {
     f.sessions.onSessionProjection((event) => published.push(JSON.stringify(event.changes)))
     await renameInRolledBackSpan(f)
     expect((await f.sessions.sessionById(f.sessionId))?.name).toBe('committed')
-    expect((await f.sessions.records.resolve([f.sessionId])).get(f.sessionId)?.name).toBe('committed')
+    expect((await f.sessions.records.resolve([f.sessionId])).get(f.sessionId)?.name).toBe(
+      'committed',
+    )
     expect((await f.sessions.readSessionFactsById(f.sessionId))?.name).toBe('committed')
     // The next publication of this session restates the committed name.
     published.length = 0
-    await f.sessions.setWorkState({ sessionId: f.sessionId, workState: 'done' } as never)
+    await f.sessions.setWorkState(f.sessions.serverWriter, {
+      sessionId: f.sessionId,
+      workState: 'done',
+    } as never)
     expect(published.join('\n')).toContain('"committed"')
     expect(published.join('\n')).not.toContain('rolled back')
     expect(f.sessions.sessions.get(f.sessionId)?.name).toBe('committed')
@@ -84,10 +96,14 @@ describe('a rolled-back span on a live session (POD-6160 D2f)', () => {
     const moved = 'machine-moved' as typeof machine
     await expect(
       f.store.transact(async () => {
-        await f.sessions.repository.write(session, (draft) => {
-          draft.name = 'rolled back'
-          draft.machineId = 'machine-in-span' as typeof machine
-        })
+        await f.sessions.repository.write(
+          repositoryWriter(f.sessions.repository),
+          session,
+          (draft) => {
+            draft.name = 'rolled back'
+            draft.machineId = 'machine-in-span' as typeof machine
+          },
+        )
         // A volatile change lands after the install, inside the window.
         session.machineId = moved
         f.sessions.repository.markVolatileSessionDirty(f.sessionId, ['machineId'])
@@ -101,7 +117,10 @@ describe('a rolled-back span on a live session (POD-6160 D2f)', () => {
   it('keeps what an enclosing span that commits installed', async () => {
     const f = await fixture()
     await f.store.transact(async () => {
-      await f.sessions.renameSession({ sessionId: f.sessionId, name: 'kept' })
+      await f.sessions.renameSession(f.sessions.serverWriter, {
+        sessionId: f.sessionId,
+        name: 'kept',
+      })
     })
     expect((await f.sessions.sessionById(f.sessionId))?.name).toBe('kept')
     expect(await rowName(f.store, f.sessionId)).toBe('kept')

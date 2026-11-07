@@ -30,6 +30,7 @@ import {
   asUserId,
 } from '@podium/model'
 import type { openDatabase } from '@podium/runtime/sqlite'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { createBunStoreExecutor } from './executor'
@@ -94,7 +95,7 @@ const reread = async (id: string) => await sessions.getSession(asSessionId(id))
 
 describe('session attribution pair — durable round trip', () => {
   it('round-trips a DELEGATED pair with both halves distinguishable', async () => {
-    await sessions.upsertSession(row('sess-1', DELEGATED))
+    await sessions.upsertSession(fixtureWriteScope(), row('sess-1', DELEGATED))
     const back = (await reread('sess-1'))?.createdBy
 
     // WHO ACTED: an agent, and the agent's own id — not the human's.
@@ -113,14 +114,20 @@ describe('session attribution pair — durable round trip', () => {
     // The admission that pairs with the denial above: a direct human act really
     // does put the same person in both halves, so the previous test is asserting
     // a property of DELEGATION and not an artefact of how rows are written.
-    await sessions.upsertSession(row('sess-2', { actor: actorUser(ALICE), onBehalfOf: ALICE }))
+    await sessions.upsertSession(
+      fixtureWriteScope(),
+      row('sess-2', { actor: actorUser(ALICE), onBehalfOf: ALICE }),
+    )
     const back = (await reread('sess-2'))?.createdBy
     expect(back?.actor).toEqual({ kind: 'user', id: ALICE })
     expect(back?.onBehalfOf).toBe(ALICE)
   })
 
   it('stores a SYSTEM actor with an explicit null human, never the owner', async () => {
-    await sessions.upsertSession(row('sess-3', { actor: actorSystem('steward'), onBehalfOf: null }))
+    await sessions.upsertSession(
+      fixtureWriteScope(),
+      row('sess-3', { actor: actorSystem('steward'), onBehalfOf: null }),
+    )
     const back = (await reread('sess-3'))?.createdBy
 
     // ADR 9 D8 S5: the job is named, and it has NO human by construction.
@@ -134,7 +141,7 @@ describe('session attribution pair — durable round trip', () => {
     // The CHECK is the enforcement, so it is asserted against the real schema:
     // a system principal that acquired a delegating human is a corrupt row, not
     // a merely unusual one.
-    await sessions.upsertSession(row('sess-1', DELEGATED))
+    await sessions.upsertSession(fixtureWriteScope(), row('sess-1', DELEGATED))
     const setActor = (kind: string, human: UserId | null, id: SessionId) =>
       db
         .prepare(
@@ -160,7 +167,10 @@ describe('session attribution pair — durable round trip', () => {
     // A row from before the columns existed. `owner_user_id` and `spawned_by`
     // are both populated and both LOOK like an answer — the point is that
     // neither is used to manufacture one.
-    await sessions.upsertSession({ ...row('sess-4', undefined), spawnedBy: 'user' })
+    await sessions.upsertSession(fixtureWriteScope(), {
+      ...row('sess-4', undefined),
+      spawnedBy: 'user',
+    })
     const back = await reread('sess-4')
 
     expect(back?.createdBy).toBeUndefined()
@@ -174,8 +184,8 @@ describe('session attribution pair — durable round trip', () => {
     // `createdBy` is in SESSION_IMMUTABLE_AFTER_CREATE. A status change or a
     // rename must not restamp the pair with whoever triggered it — the COALESCE
     // in the upsert is what makes that structural rather than a convention.
-    await sessions.upsertSession(row('sess-5', DELEGATED))
-    await sessions.upsertSession({
+    await sessions.upsertSession(fixtureWriteScope(), row('sess-5', DELEGATED))
+    await sessions.upsertSession(fixtureWriteScope(), {
       ...row('sess-5', {
         actor: actorUser(asUserId('user:mallory')),
         onBehalfOf: asUserId('user:mallory'),
@@ -194,9 +204,9 @@ describe('session attribution pair — durable round trip', () => {
   it('fills a pair that was never recorded, without overwriting one that was', async () => {
     // The other half of COALESCE: a legacy row CAN acquire a pair later. Without
     // this, "immutable" would be indistinguishable from "unwritable".
-    await sessions.upsertSession(row('sess-6', undefined))
+    await sessions.upsertSession(fixtureWriteScope(), row('sess-6', undefined))
     expect((await reread('sess-6'))?.createdBy).toBeUndefined()
-    await sessions.upsertSession(row('sess-6', DELEGATED))
+    await sessions.upsertSession(fixtureWriteScope(), row('sess-6', DELEGATED))
     expect((await reread('sess-6'))?.createdBy?.actor).toEqual({ kind: 'agent', id: AGENT })
   })
 })

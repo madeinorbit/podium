@@ -18,12 +18,13 @@
  * are the ones that fail if anybody re-reads it as "read by ANY user" — which is
  * the cheaper query, and the reason it is written down here.
  */
-import { fixtureWriteScope } from '@podium/sync/testing'
+
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asIssueId, asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { IssueRow, SessionRow, SessionStore } from '../apps/server/src/store'
 import { openTestStore } from '../apps/server/src/test-support/open-test-store'
@@ -92,7 +93,7 @@ async function seedSession(
   id: string,
   over: Partial<SessionRow> = {},
 ): Promise<void> {
-  await store.sessions.upsertSession({
+  await store.sessions.upsertSession(fixtureWriteScope(), {
     id: asSessionId(id),
     ownerUserId: firstAdminMemberId(),
     agentKind: 'shell',
@@ -165,7 +166,12 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
       asIssueId('iss_changed_owner'),
       { readAt: READ_OLD },
     )
-    await store.sessions.markSessionRead(replacement, asSessionId('ses_changed_owner'), READ_OLD)
+    await store.sessions.markSessionRead(
+      fixtureWriteScope(),
+      replacement,
+      asSessionId('ses_changed_owner'),
+      READ_OLD,
+    )
     const issues = new IssueAutoArchiveReader(db)
     const sessions = new SessionAutoArchiveReader(db)
     const input = { cutoffReadAt: CUTOFF, limit: 100 }
@@ -320,8 +326,18 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
   it('proposes a stopped session the broadcast viewer read, and not another user’s', async () => {
     await seedSession(store, 'ses_mine')
     await seedSession(store, 'ses_theirs')
-    await store.sessions.markSessionRead(firstAdminMemberId(), asSessionId('ses_mine'), READ_OLD)
-    await store.sessions.markSessionRead(OTHER_USER, asSessionId('ses_theirs'), READ_OLD)
+    await store.sessions.markSessionRead(
+      fixtureWriteScope(),
+      firstAdminMemberId(),
+      asSessionId('ses_mine'),
+      READ_OLD,
+    )
+    await store.sessions.markSessionRead(
+      fixtureWriteScope(),
+      OTHER_USER,
+      asSessionId('ses_theirs'),
+      READ_OLD,
+    )
 
     const candidates = await new SessionAutoArchiveReader(db).read({
       cutoffReadAt: CUTOFF,

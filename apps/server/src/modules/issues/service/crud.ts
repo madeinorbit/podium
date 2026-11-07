@@ -216,8 +216,8 @@ interface IssueCrudHierarchyPort {
 }
 
 interface IssueCrudAttentionPort {
-  onIssueArchived(row: IssueRow): void | Promise<void>
-  retireIssueOffers(row: IssueRow): void | Promise<void>
+  onIssueArchived(writer: IssueWriter, row: IssueRow): void | Promise<void>
+  retireIssueOffers(writer: IssueWriter, row: IssueRow): void | Promise<void>
 }
 
 /** Narrow git-workflow face for inputs that invalidate derived gitState [POD-576]. */
@@ -1884,7 +1884,7 @@ export class IssueCrudModule {
       // Closing completes the work: retire standing agent offers so a
       // delegate's "Merge / Send back" cannot demand a decision forever after
       // the coordinator finished through another session (POD-290).
-      await this.attention().retireIssueOffers(row)
+      await this.attention().retireIssueOffers(writer, row)
       // AWAITED [POD-3820]. The hook opens its own store work; dropping the
       // promise inside this span is the shape that wedged the lock queue
       // (POD-3802). Awaiting is cheap: the cleanup registers its own tail with
@@ -1918,7 +1918,7 @@ export class IssueCrudModule {
       await this.store.emitEvent('issue.archived', row.id, { seq: row.seq })
       // Stops the member sessions AND gives the checkout back (POD-567); the
       // sweep's own archive path calls the same seam.
-      await this.attention().onIssueArchived(row)
+      await this.attention().onIssueArchived(writer, row)
       // Explicit archive dismisses the whole subtree so children do not
       // promote into the live list as orphans of a hidden parent.
       if (opts?.cascadeArchive !== false) await this.archiveLivingDescendants(writer, row.id)
@@ -2123,14 +2123,14 @@ export class IssueCrudModule {
     const id = await this.store.resolveRef(ref)
     const purged = await this.store.rowOrThrow(id)
     await this.store.deps.ledger.commit({
-      write: async () => {
+      write: async (scope) => {
         // Explicit draft rehome detaches every session it can SEE before calling
         // this, but it sees them through `loadSessions()`
         // — `deleted_at IS NULL` — so a TOMBSTONED session keeps pointing at the
         // row we are about to delete, and `sessions.issue_id` has no foreign key
         // to catch it (POD-1926). Same transaction as the delete: a reference to
         // a half-deleted issue must never be observable.
-        await this.store.deps.store.sessions.detachTombstonesFromIssue(id)
+        await this.store.deps.store.sessions.detachTombstonesFromIssue(scope, id)
         await this.store.deps.store.issues.deleteIssue(id)
         this.store.announceWorktreeMove(purged.id, worktreeOf(purged), null)
       },

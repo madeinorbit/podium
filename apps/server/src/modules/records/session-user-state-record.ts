@@ -66,19 +66,23 @@ export function registerSessionUserStateRecord(
       const { caller, sessionId } = rowFor(id, ctx.principal)
       if (patch.readAt !== undefined) {
         const readAt = patch.readAt as string | null
-        if (!(await state().setReadAt(caller, sessionId, readAt))) gone()
+        if (!(await state().setReadAt(ctx.ledger, caller, sessionId, readAt))) gone()
       }
       // `null` snoozes until the next message; a cleared cell ends the snooze.
       if (patch.snoozedUntil !== undefined) {
         const until = patch.snoozedUntil as string | null
-        if (!(await state().setSnooze(caller, sessionId, until))) gone()
+        if (!(await state().setSnooze(ctx.ledger, caller, sessionId, until))) gone()
       }
-      if (unset.includes('snoozedUntil') && !(await state().clearSnooze(caller, sessionId))) gone()
+      if (
+        unset.includes('snoozedUntil') &&
+        !(await state().clearSnooze(ctx.ledger, caller, sessionId))
+      )
+        gone()
       return { ok: true }
     },
     remove: async (ctx, id) => {
       const { caller, sessionId } = rowFor(id, ctx.principal)
-      if (!(await state().clearUserState(caller, sessionId))) gone()
+      if (!(await state().clearUserState(ctx.ledger, caller, sessionId))) gone()
       return { ok: true }
     },
   })

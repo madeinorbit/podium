@@ -93,7 +93,10 @@ describe('archive park runs its stop after the commit (POD-6349)', () => {
 
     await expect(
       reg.sessionStore.transact(async () => {
-        await reg.modules.sessions.setArchived({ sessionId, archived: true })
+        await reg.modules.sessions.setArchived(reg.modules.sessions.serverWriter, {
+          sessionId,
+          archived: true,
+        })
         throw new Error('forced rollback')
       }),
     ).rejects.toThrow('forced rollback')
@@ -111,7 +114,10 @@ describe('archive park runs its stop after the commit (POD-6349)', () => {
 
     let stopsInsideTheUnitOfWork = -1
     await reg.sessionStore.transact(async () => {
-      await reg.modules.sessions.setArchived({ sessionId, archived: true })
+      await reg.modules.sessions.setArchived(reg.modules.sessions.serverWriter, {
+        sessionId,
+        archived: true,
+      })
       stopsInsideTheUnitOfWork = stopsFor(daemon, sessionId).length
     })
 
@@ -125,17 +131,27 @@ describe('archive park runs its stop after the commit (POD-6349)', () => {
   it('an issue archive inside a unit of work stops its member sessions after the commit', async () => {
     const { reg, daemon } = await makeRegistry()
     await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId)
-    const issue = await reg.modules.issues.crud.create(reg.modules.issues.reports.store.serverWriter, {
-      repoPath: '/r',
-      title: 'archived',
-      startNow: false,
-    })
+    const issue = await reg.modules.issues.crud.create(
+      reg.modules.issues.reports.store.serverWriter,
+      {
+        repoPath: '/r',
+        title: 'archived',
+        startNow: false,
+      },
+    )
     const sessionId = await liveResumable(reg)
-    await reg.modules.sessions.setSessionIssueId(sessionId, issue.id)
+    await reg.modules.sessions.setSessionIssueId(
+      reg.modules.sessions.serverWriter,
+      sessionId,
+      issue.id,
+    )
 
     let stopsInsideTheUnitOfWork = -1
     await reg.sessionStore.transact(async () => {
-      await reg.modules.issues.attention.archive(reg.modules.issues.reports.store.serverWriter, issue.id)
+      await reg.modules.issues.attention.archive(
+        reg.modules.issues.reports.store.serverWriter,
+        issue.id,
+      )
       stopsInsideTheUnitOfWork = stopsFor(daemon, sessionId).length
     })
 
@@ -150,7 +166,10 @@ describe('archive park runs its stop after the commit (POD-6349)', () => {
     // The state a crash between the park commit and its stop leaves behind:
     // the row reads parked and archived, the machine still runs the agent.
     expect(await reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
-    await reg.modules.sessions.setArchived({ sessionId, archived: true })
+    await reg.modules.sessions.setArchived(reg.modules.sessions.serverWriter, {
+      sessionId,
+      archived: true,
+    })
     daemon.length = 0
 
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -168,7 +187,10 @@ describe('archive park runs its stop after the commit (POD-6349)', () => {
     const { reg, daemon } = await makeRegistry()
     const sessionId = await liveResumable(reg)
     expect(await reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
-    await reg.modules.sessions.setArchived({ sessionId, archived: true })
+    await reg.modules.sessions.setArchived(reg.modules.sessions.serverWriter, {
+      sessionId,
+      archived: true,
+    })
     daemon.length = 0
 
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {

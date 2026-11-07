@@ -104,6 +104,7 @@ describe('the sole-human identity fork this skeleton surfaced, now reconciled', 
 
     const dispatch = await renameOnTargetPath(
       { sessions: sessions as RenameServices, mutations },
+      sessions.serverWriter,
       { sessionId: created.sessionId, name: 'mine to rename' },
       ownAgent,
       'trpc',
@@ -129,6 +130,7 @@ describe('the sole-human identity fork this skeleton surfaced, now reconciled', 
 
     const dispatch = await renameOnTargetPath(
       { sessions: sessions as RenameServices, mutations },
+      sessions.serverWriter,
       { sessionId: created.sessionId, name: 'not yours' },
       strangersAgent,
       'trpc',

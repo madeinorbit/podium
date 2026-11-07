@@ -72,13 +72,18 @@ describe('S1 session companion records', () => {
     'clear',
   ] as const)('publishes the %s mutation as an explicit acting-user row', async (verb) => {
     const f = await fixture()
-    if (verb === 'unread') await f.sessions.state.markRead(f.b, f.sessionId)
-    if (verb === 'clear') await f.sessions.state.setSnooze(f.b, f.sessionId, null)
+    if (verb === 'unread')
+      await f.sessions.state.markRead(f.sessions.serverWriter, f.b, f.sessionId)
+    if (verb === 'clear')
+      await f.sessions.state.setSnooze(f.sessions.serverWriter, f.b, f.sessionId, null)
     const cursor = await f.reg.changeLedger.cursor()
-    if (verb === 'read') await f.sessions.state.markRead(f.b, f.sessionId)
-    if (verb === 'unread') await f.sessions.state.markUnread(f.b, f.sessionId)
-    if (verb === 'snooze') await f.sessions.state.setSnooze(f.b, f.sessionId, null)
-    if (verb === 'clear') await f.sessions.state.clearSnooze(f.b, f.sessionId)
+    if (verb === 'read') await f.sessions.state.markRead(f.sessions.serverWriter, f.b, f.sessionId)
+    if (verb === 'unread')
+      await f.sessions.state.markUnread(f.sessions.serverWriter, f.b, f.sessionId)
+    if (verb === 'snooze')
+      await f.sessions.state.setSnooze(f.sessions.serverWriter, f.b, f.sessionId, null)
+    if (verb === 'clear')
+      await f.sessions.state.clearSnooze(f.sessions.serverWriter, f.b, f.sessionId)
     const result = await f.sessions.syncChangesSince(cursor, wirePrincipal(B))
     if (result.kind !== 'delta') throw new Error('expected delta')
     expect(result.changes.filter((change) => change.entity === 'sessionUserState')).toEqual([
@@ -99,9 +104,9 @@ describe('S1 session companion records', () => {
     const f = await fixture()
     const { sessions, sessionId, A, a, b } = f
     const cursor = await f.reg.changeLedger.cursor()
-    await sessions.state.markRead(a, sessionId)
-    await sessions.state.setSnooze(a, sessionId, null)
-    await sessions.state.setSnooze(b, sessionId, '2026-10-03T00:00:00.000Z')
+    await sessions.state.markRead(sessions.serverWriter, a, sessionId)
+    await sessions.state.setSnooze(sessions.serverWriter, a, sessionId, null)
+    await sessions.state.setSnooze(sessions.serverWriter, b, sessionId, '2026-10-03T00:00:00.000Z')
     const rows = await f.stateRows(A)
     expect(rows).toEqual([
       { userId: A, sessionId, readAt: new Date(NOW).toISOString(), snoozedUntil: null },
@@ -134,10 +139,10 @@ describe('S1 session companion records', () => {
       'handoffTarget',
     ])
       expect(row).not.toHaveProperty(key)
-    await sessions.state.markRead(b, sessionId)
+    await sessions.state.markRead(sessions.serverWriter, b, sessionId)
     expect((await f.stateRows(B))[0]?.readAt).toBe(new Date(NOW).toISOString())
-    await sessions.state.markUnread(b, sessionId)
-    await sessions.state.clearSnooze(b, sessionId)
+    await sessions.state.markUnread(sessions.serverWriter, b, sessionId)
+    await sessions.state.clearSnooze(sessions.serverWriter, b, sessionId)
     expect(await f.stateRows(B)).toEqual([{ userId: B, sessionId, readAt: null }])
     expect(await f.stateRows(A)).toEqual(rows)
   })
@@ -147,11 +152,11 @@ describe('S1 session companion records', () => {
     const { sessions, sessionId, A, a, b } = f
     const { sessionId: other } = await sessions.createSession({ agentKind: 'shell', cwd: '/other' })
     for (const principal of [a, b]) {
-      await sessions.state.markRead(principal, sessionId)
-      await sessions.state.setSnooze(principal, sessionId, null)
+      await sessions.state.markRead(sessions.serverWriter, principal, sessionId)
+      await sessions.state.setSnooze(sessions.serverWriter, principal, sessionId, null)
     }
-    await sessions.state.setSnooze(a, other, null)
-    await sessions.state.clearAllSnoozes(sessionId)
+    await sessions.state.setSnooze(sessions.serverWriter, a, other, null)
+    await sessions.state.clearAllSnoozes(sessions.serverWriter, sessionId)
     for (const user of [A, B]) {
       expect((await f.stateRows(user)).find((row) => row.sessionId === sessionId)).toEqual({
         userId: user,
@@ -160,7 +165,7 @@ describe('S1 session companion records', () => {
       })
     }
     expect(await sessions.state.isSnoozed(A, other)).toBe(true)
-    await sessions.state.rearmUnreadForAll(sessionId)
+    await sessions.state.rearmUnreadForAll(sessions.serverWriter, sessionId)
     for (const user of [A, B])
       expect((await f.stateRows(user)).find((row) => row.sessionId === sessionId)).toEqual({
         userId: user,
@@ -172,15 +177,15 @@ describe('S1 session companion records', () => {
 
   it('a failed append rolls back the sources and personal authority row', async () => {
     const f = await fixture()
-    await f.sessions.state.markRead(f.b, f.sessionId)
+    await f.sessions.state.markRead(f.sessions.serverWriter, f.b, f.sessionId)
     const before = await f.stateRows(B)
     const cursor = await f.reg.changeLedger.cursor()
     const append = vi
       .spyOn(f.store.sync, 'appendChanges')
       .mockRejectedValueOnce(new Error('planted append failure'))
-    await expect(f.sessions.state.setSnooze(f.b, f.sessionId, null)).rejects.toThrow(
-      'planted append failure',
-    )
+    await expect(
+      f.sessions.state.setSnooze(f.sessions.serverWriter, f.b, f.sessionId, null),
+    ).rejects.toThrow('planted append failure')
     append.mockRestore()
     expect(await f.stateRows(B)).toEqual(before)
     expect(await f.store.sessions.sessionUserStateFor(B, f.sessionId, NOW)).toEqual(before[0])
@@ -189,9 +194,9 @@ describe('S1 session companion records', () => {
 
   it('boot reconciliation recovers source markers and retains an explicit cleared row', async () => {
     const f = await fixture()
-    await f.sessions.state.markRead(f.b, f.sessionId)
-    await f.sessions.state.markUnread(f.b, f.sessionId)
-    await f.sessions.state.setSnooze(f.a, f.sessionId, null)
+    await f.sessions.state.markRead(f.sessions.serverWriter, f.b, f.sessionId)
+    await f.sessions.state.markUnread(f.sessions.serverWriter, f.b, f.sessionId)
+    await f.sessions.state.setSnooze(f.sessions.serverWriter, f.a, f.sessionId, null)
     await f.sessions.loadFromStore()
     expect(await f.stateRows(B)).toEqual([{ userId: B, sessionId: f.sessionId, readAt: null }])
     expect(await f.stateRows(f.A)).toEqual([
@@ -201,8 +206,8 @@ describe('S1 session companion records', () => {
 
   it('sessions.list checks caller visibility and superagent snoozes use the caller source', async () => {
     const f = await fixture()
-    await f.sessions.state.markRead(f.a, f.sessionId)
-    await f.sessions.state.setSnooze(f.a, f.sessionId, null)
+    await f.sessions.state.markRead(f.sessions.serverWriter, f.a, f.sessionId)
+    await f.sessions.state.setSnooze(f.sessions.serverWriter, f.a, f.sessionId, null)
     const family = {
       caller: { userId: B, sessionState: f.b },
       modules: f.reg.modules,
@@ -228,7 +233,12 @@ describe('S1 session companion records', () => {
       snoozedUntil?: string | null
     }[]
     expect(listed.find((row) => row.sessionId === f.sessionId)).not.toHaveProperty('snoozedUntil')
-    await f.sessions.state.setSnooze(f.b, f.sessionId, '2026-10-03T00:00:00.000Z')
+    await f.sessions.state.setSnooze(
+      f.sessions.serverWriter,
+      f.b,
+      f.sessionId,
+      '2026-10-03T00:00:00.000Z',
+    )
     expect(
       (JSON.parse(await tool.run({})) as typeof listed).find((row) => row.sessionId === f.sessionId)
         ?.snoozedUntil,
@@ -361,7 +371,7 @@ describe('S1 session companion records', () => {
       title: 'Birth',
       startNow: false,
     })
-    await f.sessions.setSessionIssueId(f.sessionId, birth.id)
+    await f.sessions.setSessionIssueId(f.sessions.serverWriter, f.sessionId, birth.id)
     const before = await f.sessions.sessionById(f.sessionId)
     expect(before).toMatchObject({ refRepoId: repoId, refSeq: birth.seq, refLetter: 'A' })
     const next = await f.reg.issues.crud.create(f.reg.issues.reports.store.serverWriter, {
@@ -369,7 +379,7 @@ describe('S1 session companion records', () => {
       title: 'Next',
       startNow: false,
     })
-    await f.sessions.setSessionIssueId(f.sessionId, next.id)
+    await f.sessions.setSessionIssueId(f.sessions.serverWriter, f.sessionId, next.id)
     expect(await f.sessions.sessionById(f.sessionId)).toMatchObject({
       refRepoId: repoId,
       refSeq: birth.seq,

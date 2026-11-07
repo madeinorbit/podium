@@ -100,7 +100,10 @@ describe('MemoryService omni-search', () => {
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    await registry.modules.sessions.renameSession({ sessionId, name: 'capacitor refactor' })
+    await registry.modules.sessions.renameSession(registry.modules.sessions.serverWriter, {
+      sessionId,
+      name: 'capacitor refactor',
+    })
     await registry.gateway.routeDaemonFrame('m1', {
       type: 'sessionResumeRef',
       sessionId,
@@ -114,13 +117,17 @@ describe('MemoryService omni-search', () => {
       description: 'it drifts',
       startNow: false,
     })
-    const commentIssue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
-      repoPath: '/repo',
-      title: 'unrelated title',
-      description: 'nothing relevant',
-      startNow: false,
-    })
-    await registry.issues.commentsMail.addComment(registry.issues.reports.store.serverWriter, 
+    const commentIssue = await registry.issues.crud.create(
+      registry.issues.reports.store.serverWriter,
+      {
+        repoPath: '/repo',
+        title: 'unrelated title',
+        description: 'nothing relevant',
+        startNow: false,
+      },
+    )
+    await registry.issues.commentsMail.addComment(
+      registry.issues.reports.store.serverWriter,
       commentIssue.id,
       'operator',
       'the capacitor comment trail',
@@ -425,7 +432,10 @@ describe('search.query tRPC', () => {
       agentKind: 'claude-code',
       cwd: '/classifiedneedle',
     })
-    await registry.modules.sessions.renameSession({ sessionId, name: 'classifiedneedle session' })
+    await registry.modules.sessions.renameSession(registry.modules.sessions.serverWriter, {
+      sessionId,
+      name: 'classifiedneedle session',
+    })
     registry.gateway.routeDaemonFrame('m1', {
       type: 'sessionResumeRef',
       sessionId,
@@ -584,7 +594,10 @@ describe('search.query tRPC', () => {
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    await registry.modules.sessions.renameSession({ sessionId, name: 'quantum toaster' })
+    await registry.modules.sessions.renameSession(registry.modules.sessions.serverWriter, {
+      sessionId,
+      name: 'quantum toaster',
+    })
     const results = await trpc.search.query({ text: 'quantum' })
     expect(results.map((r) => SearchResultWire.parse(r))).toHaveLength(1)
     expect(results[0]?.sessionId).toBe(sessionId)

@@ -66,7 +66,10 @@ export interface DockShellSessionPort {
     machineId?: MachineId
     actor?: string
   }): Promise<{ sessionId: SessionId }>
-  archiveSession?(sessionId: SessionId): Promise<void>
+  archiveSession?(
+    writer: Pick<LedgerWriter, 'commit' | 'capture'>,
+    sessionId: SessionId,
+  ): Promise<void>
 }
 
 export interface DockShellSessionView {
@@ -100,7 +103,7 @@ export class DockShellService {
    * normal shell spawn (agentKind 'shell'); only the mapping is new.
    */
   async forWorktree(
-    writer: Pick<LedgerWriter, 'commit'>,
+    writer: Pick<LedgerWriter, 'commit' | 'capture'>,
     userId: UserId,
     worktreePath: string,
     opts: { machineId?: MachineId; actor?: string } = {},
@@ -119,7 +122,7 @@ export class DockShellService {
           }
           // Dead, missing, or non-shell: archive best-effort, then replace.
           if (view && !view.archived) {
-            await this.deps.sessions.archiveSession?.(existing).catch(() => {})
+            await this.deps.sessions.archiveSession?.(writer, existing).catch(() => {})
           }
           const replacement = asSessionId(randomUUID())
           await this.deps.sessions.createShell({

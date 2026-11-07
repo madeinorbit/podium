@@ -96,7 +96,9 @@ describe('a removed session takes its waiting messages with it (POD-4816)', () =
       handedTo: target,
     })
 
-    await registry.modules.sessions.killSession({ sessionId: target })
+    await registry.modules.sessions.killSession(registry.modules.sessions.serverWriter, {
+      sessionId: target,
+    })
 
     for (const id of [stored, handed, typed]) {
       expect(await store.messages.getMessage(id)).toMatchObject({
@@ -120,7 +122,9 @@ describe('a removed session takes its waiting messages with it (POD-4816)', () =
 
     // A repeated delete finds nothing open and tells nobody twice.
     const before = await store.messages.listLedger({ limit: 100 })
-    await registry.modules.sessions.killSession({ sessionId: target })
+    await registry.modules.sessions.killSession(registry.modules.sessions.serverWriter, {
+      sessionId: target,
+    })
     expect(await store.messages.listLedger({ limit: 100 })).toHaveLength(before.length)
   })
 
@@ -141,9 +145,11 @@ describe('a removed session takes its waiting messages with it (POD-4816)', () =
       throw new Error('tombstone failed')
     })
 
-    await expect(registry.modules.sessions.killSession({ sessionId: target })).rejects.toThrow(
-      'tombstone failed',
-    )
+    await expect(
+      registry.modules.sessions.killSession(registry.modules.sessions.serverWriter, {
+        sessionId: target,
+      }),
+    ).rejects.toThrow('tombstone failed')
 
     expect(await statusOf(store, handed)).toBe('dispatched')
     expect(await noticeOf(store, handed)).toBeNull()
@@ -231,7 +237,9 @@ describe('a removed session takes its waiting messages with it (POD-4816)', () =
       handedTo: member,
     })
 
-    await registry.modules.sessions.killSession({ sessionId: member })
+    await registry.modules.sessions.killSession(registry.modules.sessions.serverWriter, {
+      sessionId: member,
+    })
 
     // Handed to the killed session: stranded with it, so it ends, pointing the
     // sender back at the issue, which is still open.

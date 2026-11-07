@@ -27,7 +27,12 @@ import {
   sessionStatePrincipalFor,
 } from '../sessions/session-state/registry'
 import { SyncWriteRefused } from '../sync-write/entry'
-import { NO_TARGET, type SyncWriteRegistry, type SyncWriteTarget } from '../sync-write/registry'
+import {
+  NO_TARGET,
+  type SyncWriteContext,
+  type SyncWriteRegistry,
+  type SyncWriteTarget,
+} from '../sync-write/registry'
 import { registerRecordKind } from './generic'
 
 export interface SessionLifecycleRecordDeps {
@@ -100,14 +105,16 @@ async function labelTarget(
 
 async function editLabels(
   modules: RegistryModules,
+  ctx: SyncWriteContext,
   sessionId: SessionId,
-  principal: CommandPrincipal,
   patch: Readonly<Record<string, unknown>>,
   unset: readonly string[],
 ): Promise<void> {
+  const principal = ctx.principal
   if (typeof patch.name === 'string') {
     const outcome = await applyRename(
       { sessions: modules.sessions },
+      ctx.ledger,
       { sessionId, name: patch.name },
       principal,
     )
@@ -119,6 +126,7 @@ async function editLabels(
       { sessionId, archived: patch.archived },
       caller,
       stateDeps(modules),
+      ctx.ledger,
     )
   }
   if (patch.workState !== undefined || unset.includes('workState')) {
@@ -126,6 +134,7 @@ async function editLabels(
       { sessionId, workState: patch.workState ?? null },
       caller,
       stateDeps(modules),
+      ctx.ledger,
     )
   }
 }
@@ -186,7 +195,7 @@ export function registerSessionLifecycleRecord(
     },
     edit: async (ctx, id, patch, _expected, unset) => {
       if (labelFields({ patch, unset }).length > 0) {
-        await editLabels(deps.modules(), id as SessionId, ctx.principal, patch, unset)
+        await editLabels(deps.modules(), ctx, id as SessionId, patch, unset)
         return { ok: true }
       }
       const desired = patch.desired as SessionDesired | undefined
@@ -196,10 +205,16 @@ export function registerSessionLifecycleRecord(
       }
       const sessionId = id as SessionId
       const principal = ctx.principal
-      const revision = await sessions().editDesiredState(sessionId, desired, patch.force === true, {
-        user: onBehalfOfUser(principal),
-        agent: principal.kind === 'agent' ? principal.agentSessionId : null,
-      })
+      const revision = await sessions().editDesiredState(
+        ctx.ledger,
+        sessionId,
+        desired,
+        patch.force === true,
+        {
+          user: onBehalfOfUser(principal),
+          agent: principal.kind === 'agent' ? principal.agentSessionId : null,
+        },
+      )
       if (revision === undefined) gone()
       const controller = deps.modules().sessionLifecycleController
       ctx.afterCommit(() => {
@@ -209,8 +224,8 @@ export function registerSessionLifecycleRecord(
       }, 'session-lifecycle')
       return { revision }
     },
-    remove: async (_ctx, id) => {
-      await sessions().killSession({ sessionId: id as SessionId })
+    remove: async (ctx, id) => {
+      await sessions().killSession(ctx.ledger, { sessionId: id as SessionId })
       return { ok: true }
     },
   })

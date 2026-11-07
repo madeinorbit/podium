@@ -144,7 +144,12 @@ export const MAIL_SYNC_FAMILY: SyncFamily<MailWriteService, typeof MAIL_WRITE_CO
   family: 'messages',
   service: (state) => ({
     context: async () =>
-      await state.modules.messageGate.handlerContext(state.principal, state.confirmed, true),
+      await state.modules.messageGate.handlerContext(
+        state.principal,
+        state.confirmed,
+        true,
+        state.writer,
+      ),
   }),
   commands: MAIL_WRITE_COMMANDS,
   target: async (contract, input, ctx) =>

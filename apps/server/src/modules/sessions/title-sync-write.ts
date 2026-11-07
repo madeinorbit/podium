@@ -72,7 +72,7 @@ export function registerSessionTitle(registry: SyncWriteRegistry, deps: SessionT
       if (typeof name !== 'string' || name.trim().length === 0) {
         throw new SyncWriteRefused({ kind: 'invalid', message: 'name is required' })
       }
-      return await deps.modules().sessions.setAgentName({ sessionId: actor, name })
+      return await deps.modules().sessions.setAgentName(ctx.ledger, { sessionId: actor, name })
     },
   })
 }

@@ -310,19 +310,27 @@ export interface IssueDeps {
    *  deps literals stay valid. */
   readSessionIssueId?(sessionId: SessionId): Promise<IssueId | null>
   /** Move a session's explicit issue attachment (persist + sessions broadcast). */
-  setSessionIssueId?(sessionId: SessionId, issueId: IssueId | null): void | Promise<void>
+  setSessionIssueId?(
+    writer: IssueWriter,
+    sessionId: SessionId,
+    issueId: IssueId | null,
+  ): void | Promise<void>
   /** Restamp a session cwd (hopscotch start onto a freshly minted worktree). */
-  setSessionCwd?(sessionId: SessionId, cwd: string): void | Promise<void>
+  setSessionCwd?(writer: IssueWriter, sessionId: SessionId, cwd: string): void | Promise<void>
   /** Archive/unarchive a session (persist + sessions broadcast). Injected by the
    *  relay; optional so existing test deps literals stay valid. Used to cascade an
    *  issue archive onto its member sessions (issue #133) so archiving an issue never
    *  leaves a bare, session-less worktree row in the sidebar. */
-  setSessionArchived?(sessionId: SessionId, archived: boolean): void | Promise<void>
+  setSessionArchived?(
+    writer: IssueWriter,
+    sessionId: SessionId,
+    archived: boolean,
+  ): void | Promise<void>
   /** Clear a session's agent action offer [spec:SP-c7f1]. Injected by the relay;
    *  optional so existing test deps literals stay valid. Used to retire pending
    *  decisions when an issue closes (POD-290) so a delegate offer cannot keep
    *  demanding attention after the work is finished elsewhere. */
-  clearSessionOffer?(sessionId: SessionId): Promise<void>
+  clearSessionOffer?(writer: IssueWriter, sessionId: SessionId): Promise<void>
   /** Fired after a worktree is successfully created (POD-665) so connected clients
    *  can re-fetch repos — otherwise a freshly-started issue's worktree is invisible
    *  in every menu until reload. [spec:SP-4ef9] worktree is a per-(branch,machine)

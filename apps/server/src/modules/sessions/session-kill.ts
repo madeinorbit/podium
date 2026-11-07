@@ -19,10 +19,10 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type { IssueId, SessionId, MachineId } from '@podium/model'
+import type { IssueId, MachineId, SessionId } from '@podium/model'
 import type { MetadataChange } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import type { EntityChangeSpec, LedgerCommitOp, LedgerCommitResult } from '@podium/sync'
+import type { EntityChangeSpec } from '@podium/sync'
 import type { AutoContinueController } from '../../auto-continue'
 import type { ClientRegistry } from '../../gateway/client-registry'
 import type { SessionStore } from '../../store'
@@ -30,15 +30,12 @@ import { afterCommit, followUpAfterCommit } from '../../store/executor/executor'
 import type { EventBus } from '../bus'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService } from '../machines/service'
+import type { SessionWriter } from './lifecycle'
 import type { SessionRepository } from './repository'
 import type { Session } from './session'
 import type { SessionStateService } from './session-state/service'
 
 const log = createLogger('server:sessions')
-
-export type KillLedger = {
-  commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>>
-}
 
 export interface SessionKillPorts {
   store: SessionStore
@@ -53,7 +50,6 @@ export interface SessionKillPorts {
   toMachine(machineId: MachineId, message: ControlMessage): void
   broadcastSessions(): void
   rpc: Pick<DaemonRpcService, 'runtimeLifecycle'>
-  ledger: KillLedger
   /** Fail every message still waiting for the removed sessions, with each
    *  sender's notice, inside the removal's transaction (POD-4816). */
   failMessagesToRemovedSessions(
@@ -75,34 +71,47 @@ export class SessionKill {
   /** Runtime half of a durable session removal. Issue-owned tombstones can be
    * restored and therefore use generic process kill; standalone deletion is
    * terminal and emits the distinct binding-retirement instruction. */
-  async removeSessionRuntime(sessionId: SessionId, terminalRetirement?: { retiredAt: string }): Promise<void> {
+  async removeSessionRuntime(
+    sessionId: SessionId,
+    terminalRetirement?: { retiredAt: string },
+  ): Promise<void> {
     const session = this.ports.sessions.get(sessionId)
-    const machineId = session?.machineId ??
+    const machineId =
+      session?.machineId ??
       (await this.ports.store.sessions.getSession(sessionId))?.machineId ??
-      await this.ports.machines.defaultMachine()
+      (await this.ports.machines.defaultMachine())
     const remove = await this.prepareSessionRuntimeRemoval(sessionId, terminalRetirement)
     remove()
-    if (terminalRetirement) await this.retireSessionProcess({
-      sessionId, machineId, retiredAt: terminalRetirement.retiredAt,
-      ...(session ? { durableLabel: session.durableLabel } : {}),
-    })
+    if (terminalRetirement)
+      await this.retireSessionProcess({
+        sessionId,
+        machineId,
+        retiredAt: terminalRetirement.retiredAt,
+        ...(session ? { durableLabel: session.durableLabel } : {}),
+      })
   }
 
   private async retireSessionProcess(input: {
-    sessionId: SessionId; machineId: MachineId; retiredAt: string; durableLabel?: string
+    sessionId: SessionId
+    machineId: MachineId
+    retiredAt: string
+    durableLabel?: string
   }): Promise<void> {
     let confirmed = false
     try {
       const response = await this.ports.rpc.runtimeLifecycle(
-        { sessionId: input.sessionId, verb: 'kill' }, input.machineId,
+        { sessionId: input.sessionId, verb: 'kill' },
+        input.machineId,
       )
       confirmed = 'ok' in response.result && response.result.retirement === 'confirmed'
     } finally {
       // Binding retirement is a separate durable transition, and its queued
       // frame keeps orphan recovery reachable when the lifecycle RPC fails.
       this.ports.toMachine(input.machineId, {
-        type: 'sessionBindingRetire', sessionId: input.sessionId,
-        transitionId: `retire:${input.sessionId}`, retiredAt: input.retiredAt,
+        type: 'sessionBindingRetire',
+        sessionId: input.sessionId,
+        transitionId: `retire:${input.sessionId}`,
+        retiredAt: input.retiredAt,
         ...(input.durableLabel ? { durableLabel: input.durableLabel } : {}),
       })
     }
@@ -116,7 +125,8 @@ export class SessionKill {
   ): Promise<() => void> {
     const session = this.ports.sessions.get(sessionId)
     const row = session ? undefined : await this.ports.store.sessions.getSession(sessionId)
-    const machineId = session?.machineId ?? row?.machineId ?? await this.ports.machines.defaultMachine()
+    const machineId =
+      session?.machineId ?? row?.machineId ?? (await this.ports.machines.defaultMachine())
     // What delivery routing resolved this session to, for the requeue of that
     // issue once it is gone (POD-6160: no routing copy remembers it).
     const routed = session ?? row
@@ -130,10 +140,12 @@ export class SessionKill {
         })
       }
 
-      if (!terminalRetirement) this.ports.toMachine(machineId, {
-        type: 'kill', sessionId,
-        ...(session ? { durableLabel: session.durableLabel } : {}),
-      })
+      if (!terminalRetirement)
+        this.ports.toMachine(machineId, {
+          type: 'kill',
+          sessionId,
+          ...(session ? { durableLabel: session.durableLabel } : {}),
+        })
       this.ports.autoContinue.onSessionGone(sessionId)
       session?.terminal.detachAll()
       this.ports.sessions.delete(sessionId)
@@ -143,14 +155,17 @@ export class SessionKill {
     }
   }
 
-  async killSession(input: { sessionId: SessionId }): Promise<void> {
+  /** Kill a session, written with the writer of whoever asked (POD-6601). */
+  async killSession(writer: SessionWriter, input: { sessionId: SessionId }): Promise<void> {
     const session = this.ports.sessions.get(input.sessionId)
     const row = session ? undefined : await this.ports.store.sessions.getSession(input.sessionId)
     if (!session && !row) return
-    const machineId = session?.machineId ?? row?.machineId ??
-      await this.ports.machines.defaultMachine()
+    const machineId =
+      session?.machineId ?? row?.machineId ?? (await this.ports.machines.defaultMachine())
     const deletedAt = new Date(this.ports.now()).toISOString()
-    const removeRuntime = await this.prepareSessionRuntimeRemoval(input.sessionId, { retiredAt: deletedAt })
+    const removeRuntime = await this.prepareSessionRuntimeRemoval(input.sessionId, {
+      retiredAt: deletedAt,
+    })
     // The remove change commits in the SAME transaction as the tombstone (and
     // the queued-send cleanup — a killed session can never deliver, so its rows
     // would only orphan until the next boot's sweep) [spec:SP-3fe2] #256: the
@@ -161,12 +176,17 @@ export class SessionKill {
     // the session fully alive — still in the map, clients attached, PTY not
     // signalled — and propagates to the caller, instead of tearing down live
     // state for a row the rolled-back transaction still holds.
-    await this.ports.ledger.commit({
-      write: async () => {
+    await writer.commit({
+      write: async (scope) => {
         // Before the tombstone: each sender's notice names the session's issue
         // as the way on, read from the session while it still stands.
         await this.ports.failMessagesToRemovedSessions([input.sessionId])
-        await this.ports.store.sessions.softDeleteSessions([input.sessionId], deletedAt, 'standalone')
+        await this.ports.store.sessions.softDeleteSessions(
+          scope,
+          [input.sessionId],
+          deletedAt,
+          'standalone',
+        )
         await this.ports.store.sync.deleteQueuedMessagesForSession(input.sessionId)
       },
       changes: () => this.sessionRemovalSpecs(input.sessionId),
@@ -185,7 +205,10 @@ export class SessionKill {
     })
     let retirementConfirmed = false
     await followUpAfterCommit(async () => {
-      await this.retireSessionProcess({ sessionId: input.sessionId, machineId, retiredAt: deletedAt,
+      await this.retireSessionProcess({
+        sessionId: input.sessionId,
+        machineId,
+        retiredAt: deletedAt,
         ...(session ? { durableLabel: session.durableLabel } : {}),
       })
       retirementConfirmed = true
@@ -203,7 +226,12 @@ export class SessionKill {
       // killSession is never the hibernate path (hibernateSession only flips
       // status).
       if (retirementConfirmed)
-        await this.emitSessionExited(input.sessionId, session?.exitCode ?? -1, session?.spawnedBy, session)
+        await this.emitSessionExited(
+          input.sessionId,
+          session?.exitCode ?? -1,
+          session?.spawnedBy,
+          session,
+        )
     }, 'session-kill-broadcast')
   }
 

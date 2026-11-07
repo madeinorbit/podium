@@ -21,10 +21,15 @@ describe('draft replay ordering', () => {
     })
     const state = new SessionStateService({
       store: {
-        sessions: { setDraftDoc: vi.fn(), draftDocOf: async () => undefined, loadDraftDocs: async () => ({}) },
+        sessions: {
+          setDraftDoc: vi.fn(),
+          draftDocOf: async () => undefined,
+          loadDraftDocs: async () => ({}),
+        },
       } as unknown as SessionStatePorts['store'],
       now: Date.now,
       getSession: () => undefined,
+      liveWriter: undefined as never,
       sessionIds: () => [],
       clients: () => [],
       sessionOwner,
@@ -87,7 +92,9 @@ function runtimeDraftWorld() {
     setDraftDoc = vi.fn()
   const state = new SessionStateService({
     // No stored draft: documents start in this process (POD-6160 reads on use).
-    store: { sessions: { setDraftDoc, draftDocOf: async () => undefined, loadDraftDocs: async () => ({}) } },
+    store: {
+      sessions: { setDraftDoc, draftDocOf: async () => undefined, loadDraftDocs: async () => ({}) },
+    },
     now: Date.now,
     getSession: () => session,
     sessionIds: () => [sessionId],

@@ -72,7 +72,7 @@ import type {
 import type { ControlMessage, RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import { resolveRole } from '@podium/runtime'
 import { harnessSupportsEffort, harnessSupportsInitialPrompt } from '../../harness-manifest'
-import { resolveLaunchSelection, type ResolvedLaunchSelection } from '../../model-validation'
+import { type ResolvedLaunchSelection, resolveLaunchSelection } from '../../model-validation'
 import type { SessionStore } from '../../store'
 import type { MachineUseResolver } from '../machines/service'
 import { authorSpawnBinding } from './binding-mint'
@@ -82,6 +82,7 @@ import type { SessionLaunchConfig } from './launch-config'
 import { normalizeAgentName } from './naming'
 import type { SessionRepository } from './repository'
 import { Session } from './session'
+import type { SessionWriter } from './session-lifecycle-types'
 import { DEFAULT_GEOMETRY } from './session-shared'
 import type { SessionStateService } from './session-state/service'
 import type { SessionTerminalProof } from './terminal-proof'
@@ -121,6 +122,8 @@ export interface SessionStartPorts {
   store: SessionStore
   view: SessionView
   repository: SessionRepository
+  /** Its writes are the server's, after a commit (`sessions.lifecycle`, POD-6601). */
+  writer: SessionWriter
   state: SessionStateService
   launchConfig: SessionLaunchConfig
   terminalProof: SessionTerminalProof
@@ -179,11 +182,7 @@ export interface SessionStartPorts {
     agentProfileId?: string
   }): Promise<{ instructions: AgentInstruction[]; commit(): Promise<void> }>
   /** The agent-profile launch resolver (POD-6107). Absent = profiles ignored. */
-  agentLaunch?(input: {
-    profileId: string
-    fields: AgentSetupFields
-    cwd: string
-  }): Promise<{
+  agentLaunch?(input: { profileId: string; fields: AgentSetupFields; cwd: string }): Promise<{
     profile: { id: string; name: string } | null
     agentKind: string
     model: string
@@ -317,7 +316,8 @@ export class SessionStart {
     input: SessionStartInput,
     onDraft: (issueId: IssueId) => void,
   ): Promise<SessionSpawnResult> {
-    if (process.env.PODIUM_REHEARSAL === '1') throw new Error('Session spawn disabled during upgrade rehearsal')
+    if (process.env.PODIUM_REHEARSAL === '1')
+      throw new Error('Session spawn disabled during upgrade rehearsal')
     // THE PROFILE, RESOLVED ONCE (POD-6107): profile candidates with the
     // caller's fields on top, first usable one wins. A caller that already
     // vetted a launchSelection (issue start / add-session) resolved it itself;
@@ -339,10 +339,15 @@ export class SessionStart {
       })
       if (!launch.profile) agentProfileId = undefined
       requestedAgentKind = launch.agentKind
-      inheritedSelection = { agentKind: launch.agentKind, model: launch.model, effort: launch.effort }
+      inheritedSelection = {
+        agentKind: launch.agentKind,
+        model: launch.model,
+        effort: launch.effort,
+      }
       // A profile machine places only a session that is not bound to an issue:
       // an issue session runs where the issue's worktree is (its start homed it).
-      if (launch.machineId && !input.machineId && !input.issueId) profileMachineId = launch.machineId
+      if (launch.machineId && !input.machineId && !input.issueId)
+        profileMachineId = launch.machineId
     }
     // Resolve the agent down to a concrete AgentKind. `agentKind` may be absent,
     // or carry a non-AgentKind sentinel like 'auto'. 'auto' is NOT a valid
@@ -370,21 +375,25 @@ export class SessionStart {
       const machine = await this.ports.store.machines.getMachine(machineId)
       requestedDriverId = terminalRuntimeDriver(machine, agentKind)?.id
       if (!requestedDriverId) {
-        throw new Error(`machine ${machineId} has no advertised terminal runtime driver for ${agentKind}`)
+        throw new Error(
+          `machine ${machineId} has no advertised terminal runtime driver for ${agentKind}`,
+        )
       }
     }
     // Reject an explicit model/effort the live catalog doesn't list BEFORE any
     // spawn side effect [spec:SP-cc60].
-    const selection = input.launchSelection ?? resolveLaunchSelection({
-      agentKind,
-      explicit: { model: input.model ?? 'auto', effort: input.effort ?? 'auto' },
-      // The profile's values are INHERITED, like an issue's stored picks: one the
-      // catalog does not know falls back to `auto` instead of refusing the start.
-      ...(inheritedSelection ? { issueProfile: inheritedSelection } : {}),
-      settings: await this.ports.store.settings.getSettingsFor(await this.ports.settingsViewer()),
-      catalog: await this.ports.store.settings.getModelCatalog(machineId),
-      force: input.forceUnknownModel,
-    })
+    const selection =
+      input.launchSelection ??
+      resolveLaunchSelection({
+        agentKind,
+        explicit: { model: input.model ?? 'auto', effort: input.effort ?? 'auto' },
+        // The profile's values are INHERITED, like an issue's stored picks: one the
+        // catalog does not know falls back to `auto` instead of refusing the start.
+        ...(inheritedSelection ? { issueProfile: inheritedSelection } : {}),
+        settings: await this.ports.store.settings.getSettingsFor(await this.ports.settingsViewer()),
+        catalog: await this.ports.store.settings.getModelCatalog(machineId),
+        force: input.forceUnknownModel,
+      })
     const { forced } = selection
     // Spawner name is validated before any side effect so a bad title never
     // leaves a half-spawned session.
@@ -396,7 +405,12 @@ export class SessionStart {
     }
     const task = input.issueId
       ? undefined
-      : await this.startTask({ cwd: input.cwd, agentKind, ownerUserId: input.ownerUserId, machineId })
+      : await this.startTask({
+          cwd: input.cwd,
+          agentKind,
+          ownerUserId: input.ownerUserId,
+          machineId,
+        })
     if (task?.draft) onDraft(task.issueId)
     const issueId = input.issueId ?? task?.issueId
     const sessionId = input.sessionId ?? asSessionId(randomUUID())
@@ -572,7 +586,8 @@ export class SessionStart {
      *  same name. Carried straight onto the spawn frame; absent changes nothing. */
     requestedDriverId?: string
   }): Promise<SessionSpawnResult> {
-    if (process.env.PODIUM_REHEARSAL === '1') throw new Error('Session spawn disabled during upgrade rehearsal')
+    if (process.env.PODIUM_REHEARSAL === '1')
+      throw new Error('Session spawn disabled during upgrade rehearsal')
     // A server-minted uuid was unique by construction; a client-supplied id is
     // not. Reject a collision rather than let the registry overwrite the live
     // Session (orphaning its PTY/daemon binding) or re-fire a spawn.
@@ -589,15 +604,19 @@ export class SessionStart {
       agentKind: input.agentKind,
       ownerUserId,
     })
-    const selection = input.launchSelection ?? resolveLaunchSelection({
-      agentKind: input.agentKind,
-      explicit: { model: input.model ?? 'auto', effort: input.effort ?? 'auto' },
-      settings: await this.ports.store.settings.getSettingsFor(await this.ports.settingsViewer()),
-      catalog: await this.ports.store.settings.getModelCatalog(machineId),
-    })
+    const selection =
+      input.launchSelection ??
+      resolveLaunchSelection({
+        agentKind: input.agentKind,
+        explicit: { model: input.model ?? 'auto', effort: input.effort ?? 'auto' },
+        settings: await this.ports.store.settings.getSettingsFor(await this.ports.settingsViewer()),
+        catalog: await this.ports.store.settings.getModelCatalog(machineId),
+      })
     const launch = {
-      ...await this.ports.launchConfig.modelDefaults(input.agentKind),
-      ...(selection.model !== 'auto' && input.agentKind !== 'shell' ? { model: selection.model } : {}),
+      ...(await this.ports.launchConfig.modelDefaults(input.agentKind)),
+      ...(selection.model !== 'auto' && input.agentKind !== 'shell'
+        ? { model: selection.model }
+        : {}),
       ...(selection.effort !== 'auto' && harnessSupportsEffort(input.agentKind)
         ? { effort: selection.effort }
         : {}),
@@ -720,7 +739,7 @@ export class SessionStart {
     // is built from rather than onto the live object beside it.
     const draft = this.ports.repository.draft(session)
     const additionalWrite = await this.ports.view.prepareRefAllocation(draft)
-    await this.ports.repository.persistDraft(session, draft, additionalWrite)
+    await this.ports.repository.persistDraft(this.ports.writer, session, draft, additionalWrite)
     // FENCE BEFORE SEND. The frame below carries the generation this allocates;
     // sending first would tell the daemon to observe under one that does not
     // exist yet.
@@ -751,7 +770,9 @@ export class SessionStart {
       // The suffix is durable session attribution only; launch with the selected account unchanged.
       ...accountEnv,
       ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
-      ...(input.requestedDriverId !== undefined ? { requestedDriverId: input.requestedDriverId } : {}),
+      ...(input.requestedDriverId !== undefined
+        ? { requestedDriverId: input.requestedDriverId }
+        : {}),
     })
     this.ports.broadcastSessions()
     return {

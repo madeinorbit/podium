@@ -246,7 +246,7 @@ export class IssueAttentionModule {
       }
     }
     if (prevId === target.id) return await this.store.projection(target) // self-attach: no-op
-    await setSessionIssueId(opts.sessionId, target.id)
+    await setSessionIssueId(writer, opts.sessionId, target.id)
     await this.store.emitEvent('issue.session_attached', target.id, {
       seq: target.seq,
       sessionId: opts.sessionId,
@@ -720,7 +720,7 @@ export class IssueAttentionModule {
     })
     // Same teardown as the manual archive path — the sweep must not leave a
     // session-less worktree row (issue #133) or a checkout (POD-567) behind.
-    await this.onIssueArchived(draft)
+    await this.onIssueArchived(this.store.serverWriter, draft)
     return wire
   }
 
@@ -748,8 +748,8 @@ export class IssueAttentionModule {
    * the worktree simply stays, exactly as it did before this existed, and the GC
    * sweep (POD-564) will offer it again.
    */
-  public async onIssueArchived(row: IssueRow): Promise<void> {
-    await this.cascadeArchiveSessions(row)
+  public async onIssueArchived(writer: IssueWriter, row: IssueRow): Promise<void> {
+    await this.cascadeArchiveSessions(writer, row)
     // THE FREE IS AN EXTERNAL EFFECT and waits for the commit [POD-3260, spec
     // §3.3 mechanism 3]. The auto-archive sweep reaches this from inside
     // `MaintenanceService`'s span (its `write()` wraps every pure job in
@@ -781,12 +781,12 @@ export class IssueAttentionModule {
    *  relay.setArchived) so each archived session persists + broadcasts. Skips
    *  already-archived sessions so a re-archive is a no-op with no redundant
    *  broadcast. */
-  public async cascadeArchiveSessions(row: IssueRow): Promise<void> {
+  public async cascadeArchiveSessions(writer: IssueWriter, row: IssueRow): Promise<void> {
     const setArchived = this.store.deps.setSessionArchived
     if (!setArchived) return
     for (const s of await this.store.sessionsFor(row)) {
       if (s.archived) continue
-      await setArchived(s.sessionId, true)
+      await setArchived(writer, s.sessionId, true)
     }
   }
 
@@ -797,12 +797,12 @@ export class IssueAttentionModule {
    *  the explicit "work is finished" flip — clear standing offers so finished
    *  work cannot keep demanding attention. No-ops when the clear hook is absent
    *  (test deps) or a session has no offer. */
-  public async retireIssueOffers(row: IssueRow): Promise<void> {
+  public async retireIssueOffers(writer: IssueWriter, row: IssueRow): Promise<void> {
     const clearOffer = this.store.deps.clearSessionOffer
     if (!clearOffer) return
     for (const s of await this.store.sessionsFor(row)) {
       if (!s.offer) continue
-      await clearOffer(s.sessionId)
+      await clearOffer(writer, s.sessionId)
     }
   }
 }

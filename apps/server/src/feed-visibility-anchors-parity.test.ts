@@ -156,7 +156,7 @@ async function build(world: World) {
   }
   await store.transact(async () => {
     for (const session of world.sessions) {
-      await store.sessions.upsertSession({
+      await store.sessions.upsertSession(fixtureWriteScope(), {
         id: session.id,
         ownerUserId: OWNER,
         agentKind: 'claude-code',
@@ -186,7 +186,12 @@ async function build(world: World) {
   })
   const deleted = world.sessions.filter((session) => session.deleted).map((session) => session.id)
   if (deleted.length > 0)
-    await store.sessions.softDeleteSessions(deleted, '2026-08-02T00:00:00.000Z', 'user' as never)
+    await store.sessions.softDeleteSessions(
+      fixtureWriteScope(),
+      deleted,
+      '2026-08-02T00:00:00.000Z',
+      'user' as never,
+    )
   for (const grant of world.grants) {
     await store.grants.upsert({
       resourceKind: 'issue',

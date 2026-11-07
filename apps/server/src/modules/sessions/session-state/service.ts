@@ -59,6 +59,9 @@ import type { Session, SessionDurableState } from '../session'
 
 const log = createLogger('server:sessions')
 
+import type { WriteScope } from '@podium/sync'
+import type { SessionWriter } from '../session-lifecycle-types'
+
 export interface SessionStatePrincipal {
   /** The human row owner. For an agent this is its on-behalf-of human. */
   readonly userId: UserId
@@ -169,23 +172,28 @@ export interface SessionStatePorts {
    *  session's own durable fields are UNCHANGED by this write — one that changes
    *  them goes through {@link writeSession} or {@link mutateSession}. */
   readonly persistSession: (
+    writer: SessionWriter,
     sessionId: SessionId,
-    additionalWrite?: () => void | Promise<void>,
+    additionalWrite?: (scope: WriteScope) => void | Promise<void>,
     additionalChanges?: () => Promise<EntityChangeSpec[]>,
   ) => Promise<void>
   /** {@link persistSession} with a durable-field write applied to the draft the
    *  commit persists [POD-3330]. Persist-only, like the method it sits beside:
    *  no funnel span and no broadcast of its own. */
   readonly writeSession: (
+    writer: SessionWriter,
     sessionId: SessionId,
     mutate: (draft: SessionStateDraft) => void,
   ) => Promise<void>
   /** Shared session-field mutation through the host's canonical metadata seam
    *  — the funnel span and the broadcast that makes it visible. */
   readonly mutateSession: (
+    writer: SessionWriter,
     sessionId: SessionId,
     mutate: (draft: SessionStateDraft) => void,
   ) => Promise<void>
+  /** The draft tag a composer's live edits write (`sessions.live`, POD-6601). */
+  readonly liveWriter: SessionWriter
   readonly broadcastSessions: () => void
   readonly broadcastToClients: (
     message: LiveServerMessage,
@@ -205,7 +213,7 @@ export interface SessionStatePorts {
   readonly onNativeViewReleased?: (sessionId: SessionId) => Promise<void>
 
   /** Lifecycle owns process parking and issue cleanup after archive. */
-  readonly onArchived: (sessionId: SessionId) => Promise<void>
+  readonly onArchived: (writer: SessionWriter, sessionId: SessionId) => Promise<void>
 }
 
 export type SessionStateReadResult<T> =
@@ -478,15 +486,17 @@ export class SessionStateService {
   }
 
   private async persistPerUser(
+    writer: SessionWriter,
     userId: UserId,
     sessionId: SessionId,
-    write: () => void | Promise<void>,
+    write: (scope: WriteScope) => void | Promise<void>,
   ): Promise<boolean> {
     if (!this.ports.getSession(sessionId)) return false
     await this.ports.persistSession(
+      writer,
       sessionId,
-      async () => {
-        await write()
+      async (scope) => {
+        await write(scope)
       },
       () => this.userStateChanges(sessionId, [userId]),
     )
@@ -513,6 +523,7 @@ export class SessionStateService {
   }
 
   async markRead(
+    writer: SessionWriter,
     principal: SessionStatePrincipal,
     sessionId: SessionId,
     observedAt?: string,
@@ -527,19 +538,26 @@ export class SessionStateService {
       !observedAt || (activity && activity <= observedAt && now > observedAt) ? now : observedAt
     if (previous && previous >= readAt) return true
     return this.persistPerUser(
+      writer,
       principal.userId,
       sessionId,
-      async () =>
-        await this.ports.store.sessions.markSessionRead(principal.userId, sessionId, readAt),
+      async (scope) =>
+        await this.ports.store.sessions.markSessionRead(scope, principal.userId, sessionId, readAt),
     )
   }
 
-  async markUnread(principal: SessionStatePrincipal, sessionId: SessionId): Promise<boolean> {
+  async markUnread(
+    writer: SessionWriter,
+    principal: SessionStatePrincipal,
+    sessionId: SessionId,
+  ): Promise<boolean> {
     if (!(await this.canReadSession(principal, sessionId))) return false
     return this.persistPerUser(
+      writer,
       principal.userId,
       sessionId,
-      async () => await this.ports.store.sessions.markSessionUnread(principal.userId, sessionId),
+      async (scope) =>
+        await this.ports.store.sessions.markSessionUnread(scope, principal.userId, sessionId),
     )
   }
 
@@ -551,37 +569,43 @@ export class SessionStateService {
    * plain edit. False when the session is gone or not the caller's to read.
    */
   async setReadAt(
+    writer: SessionWriter,
     principal: SessionStatePrincipal,
     sessionId: SessionId,
     readAt: string | null,
   ): Promise<boolean> {
     if (!(await this.canReadSession(principal, sessionId))) return false
     const store = this.ports.store.sessions
-    return this.persistPerUser(principal.userId, sessionId, async () =>
+    return this.persistPerUser(writer, principal.userId, sessionId, async (scope) =>
       readAt === null
-        ? await store.markSessionUnread(principal.userId, sessionId)
-        : await store.markSessionRead(principal.userId, sessionId, readAt),
+        ? await store.markSessionUnread(scope, principal.userId, sessionId)
+        : await store.markSessionRead(scope, principal.userId, sessionId, readAt),
     )
   }
 
   /** Forget the caller's own state on this session (read mark and snooze) in one
    *  write: the generic record remove. */
-  async clearUserState(principal: SessionStatePrincipal, sessionId: SessionId): Promise<boolean> {
+  async clearUserState(
+    writer: SessionWriter,
+    principal: SessionStatePrincipal,
+    sessionId: SessionId,
+  ): Promise<boolean> {
     if (!(await this.canReadSession(principal, sessionId))) return false
     const store = this.ports.store.sessions
-    return this.persistPerUser(principal.userId, sessionId, async () => {
-      await store.markSessionUnread(principal.userId, sessionId)
-      await store.clearSnooze(principal.userId, sessionId)
+    return this.persistPerUser(writer, principal.userId, sessionId, async (scope) => {
+      await store.markSessionUnread(scope, principal.userId, sessionId)
+      await store.clearSnooze(scope, principal.userId, sessionId)
     })
   }
 
-  async rearmUnreadForAll(sessionId: SessionId): Promise<void> {
+  async rearmUnreadForAll(writer: SessionWriter, sessionId: SessionId): Promise<void> {
     if (!this.ports.getSession(sessionId)) return
     let users: UserId[] = []
     await this.ports.persistSession(
+      writer,
       sessionId,
-      async () => {
-        users = await this.ports.store.sessions.clearAllReadAt(sessionId)
+      async (scope) => {
+        users = await this.ports.store.sessions.clearAllReadAt(scope, sessionId)
       },
       () => this.userStateChanges(sessionId, users),
     )
@@ -589,36 +613,46 @@ export class SessionStateService {
   }
 
   async setSnooze(
+    writer: SessionWriter,
     principal: SessionStatePrincipal,
     sessionId: SessionId,
     until: string | null,
   ): Promise<boolean> {
     if (!(await this.canReadSession(principal, sessionId))) return false
     return this.persistPerUser(
+      writer,
       principal.userId,
       sessionId,
-      async () => await this.ports.store.sessions.setSnooze(principal.userId, sessionId, until),
+      async (scope) =>
+        await this.ports.store.sessions.setSnooze(scope, principal.userId, sessionId, until),
     )
   }
 
-  async clearSnooze(principal: SessionStatePrincipal, sessionId: SessionId): Promise<boolean> {
+  async clearSnooze(
+    writer: SessionWriter,
+    principal: SessionStatePrincipal,
+    sessionId: SessionId,
+  ): Promise<boolean> {
     if (!(await this.canReadSession(principal, sessionId))) return false
     return this.persistPerUser(
+      writer,
       principal.userId,
       sessionId,
-      async () => await this.ports.store.sessions.clearSnooze(principal.userId, sessionId),
+      async (scope) =>
+        await this.ports.store.sessions.clearSnooze(scope, principal.userId, sessionId),
     )
   }
 
   /** Shared session activity invalidates every viewer's snooze independently. */
-  async clearAllSnoozes(sessionId: SessionId): Promise<void> {
+  async clearAllSnoozes(writer: SessionWriter, sessionId: SessionId): Promise<void> {
     if (!this.ports.getSession(sessionId)) return
     if (!(await this.ports.store.sessions.hasAnySnooze(sessionId))) return
     let users: UserId[] = []
     await this.ports.persistSession(
+      writer,
       sessionId,
-      async () => {
-        users = await this.ports.store.sessions.clearAllSnoozes(sessionId)
+      async (scope) => {
+        users = await this.ports.store.sessions.clearAllSnoozes(scope, sessionId)
       },
       () => this.userStateChanges(sessionId, users),
     )
@@ -698,15 +732,19 @@ export class SessionStateService {
   // Shared session facts
   // -------------------------------------------------------------------------
 
-  async setArchived(sessionId: SessionId, archived: boolean): Promise<void> {
-    await this.ports.mutateSession(sessionId, (draft) => {
+  async setArchived(writer: SessionWriter, sessionId: SessionId, archived: boolean): Promise<void> {
+    await this.ports.mutateSession(writer, sessionId, (draft) => {
       draft.archived = archived
     })
-    if (archived) await this.ports.onArchived(sessionId)
+    if (archived) await this.ports.onArchived(writer, sessionId)
   }
 
-  async setWorkState(sessionId: SessionId, workState: WorkState | null): Promise<void> {
-    await this.ports.mutateSession(sessionId, (draft) => {
+  async setWorkState(
+    writer: SessionWriter,
+    sessionId: SessionId,
+    workState: WorkState | null,
+  ): Promise<void> {
+    await this.ports.mutateSession(writer, sessionId, (draft) => {
       draft.workState = workState ?? undefined
     })
   }
@@ -994,7 +1032,7 @@ export class SessionStateService {
     // live assignment with no window to be captured in.
     if (draftNonemptyChanged) {
       try {
-        await this.ports.writeSession(sessionId, (draft) => {
+        await this.ports.writeSession(this.ports.liveWriter, sessionId, (draft) => {
           draft.draftUpdatedAt = editedAt
         })
       } catch (error) {

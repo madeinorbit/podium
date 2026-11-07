@@ -3,13 +3,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { firstAdminMemberId } from '@podium/model'
-import { afterAll, describe, expect, it } from 'vitest'
-import { type DaemonOptions, startDaemon } from '../../apps/daemon/src/daemon'
 import {
   readOrCreateDaemonSecret,
   readOrCreateLocalMachineId,
   stateDir,
 } from '@podium/runtime/local-machine'
+import { fixtureWriteScope } from '@podium/sync/testing'
+import { afterAll, describe, expect, it } from 'vitest'
+import { type DaemonOptions, startDaemon } from '../../apps/daemon/src/daemon'
 import { startServer } from '../../apps/server/src/server'
 import { SessionStore } from '../../apps/server/src/store'
 import { applyHarnessEnv, reapHarnessSessions } from './harness-env'
@@ -60,7 +61,7 @@ describe('e2e: split server/daemon local transition', () => {
 
     // An UPGRADED single-machine DB: a session + repo stranded at machine_id='__local__'.
     const seed = new SessionStore() // PODIUM_STATE_DIR/podium.db (harness-isolated)
-    seed.sessions.upsertSession({
+    seed.sessions.upsertSession(fixtureWriteScope(), {
       id: 'leg-1',
       ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',

@@ -93,10 +93,20 @@ describe('server agent relay handler (P1b)', () => {
     await attachRelayDaemon(registry, machineId, () => {})
     // A is a subtree root with a worktree; a session runs INSIDE it → subtree cap rooted at A.
     // B is unrelated. (create + set worktreePath directly, as capabilityForSession's test does.)
-    A = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, { repoPath, title: 'epic root', startNow: false })
-    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, A.id, { worktreePath: '/r/.worktrees/issue-1-a' })
+    A = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath,
+      title: 'epic root',
+      startNow: false,
+    })
+    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, A.id, {
+      worktreePath: '/r/.worktrees/issue-1-a',
+    })
     const wtA = (await registry.issues.reports.get(A.id))?.worktreePath as string
-    B = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, { repoPath, title: 'unrelated', startNow: false })
+    B = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath,
+      title: 'unrelated',
+      startNow: false,
+    })
     sA = (await registry.modules.sessions.createSession({ cwd: wtA, agentKind: 'shell' })).sessionId
   })
 
@@ -207,14 +217,20 @@ describe('server agent relay handler (P1b)', () => {
       startNow: false,
       parentId: asIssueId(A.id),
     })
-    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, child.id, { worktreePath: '/r/.worktrees/issue-2-child' })
+    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, child.id, {
+      worktreePath: '/r/.worktrees/issue-2-child',
+    })
     const sChild = (
       await registry.modules.sessions.createSession({
         cwd: '/r/.worktrees/issue-2-child',
         agentKind: 'shell',
       })
     ).sessionId
-    await registry.issues.crud.setCoordinator(registry.issues.reports.store.serverWriter, A.id, asSessionId(sA))
+    await registry.issues.crud.setCoordinator(
+      registry.issues.reports.store.serverWriter,
+      A.id,
+      asSessionId(sA),
+    )
     const ref = await registry.issues.reports.niceRef(
       (await registry.issues.reports.get(A.id)) as { repoPath: string; seq: number },
     )
@@ -659,11 +675,23 @@ describe('sessions.stop relay authz [spec:SP-9904]', () => {
     registries.push(registry)
     // The host runs the sessions and reports the repo their issues sit under.
     await attachHostDaemon(registry, () => {}, { repos: ['/r'] })
-    A = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, { repoPath, title: 'stop root', startNow: false })
-    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, A.id, { worktreePath: '/r/.worktrees/issue-stop-a' })
+    A = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath,
+      title: 'stop root',
+      startNow: false,
+    })
+    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, A.id, {
+      worktreePath: '/r/.worktrees/issue-stop-a',
+    })
     wtA = (await registry.issues.reports.get(A.id))?.worktreePath as string
-    B = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, { repoPath, title: 'unrelated stop', startNow: false })
-    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, B.id, { worktreePath: '/r/.worktrees/issue-stop-b' })
+    B = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath,
+      title: 'unrelated stop',
+      startNow: false,
+    })
+    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, B.id, {
+      worktreePath: '/r/.worktrees/issue-stop-b',
+    })
     sA = (
       await registry.modules.sessions.createSession({
         cwd: wtA,
@@ -1056,7 +1084,9 @@ describe('sessions.title — an agent names its own session (#490)', () => {
       title: 'Agent relay epic',
       startNow: false,
     })) as typeof A
-    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, A.id, { worktreePath: '/r/.worktrees/issue-1-a' })
+    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, A.id, {
+      worktreePath: '/r/.worktrees/issue-1-a',
+    })
     const wtA = (await registry.issues.reports.get(A.id))?.worktreePath as string
     // Two sessions on the SAME issue — siblings in the sidebar, which is exactly the
     // situation a session title has to disambiguate.
@@ -1087,7 +1117,7 @@ describe('sessions.title — an agent names its own session (#490)', () => {
   })
 
   it('REFUSES to overwrite a name the user set — with a reason, not a throw', async () => {
-    await registry.modules.sessions.renameSession({
+    await registry.modules.sessions.renameSession(registry.modules.sessions.serverWriter, {
       sessionId: asSessionId(sA),
       name: 'Mike’s pet session',
     })
@@ -1117,7 +1147,7 @@ describe('sessions.title — an agent names its own session (#490)', () => {
   })
 
   it('primes an UNNAMED session to title itself, listing its siblings', async () => {
-    await registry.modules.sessions.renameSession({
+    await registry.modules.sessions.renameSession(registry.modules.sessions.serverWriter, {
       sessionId: asSessionId(sB),
       name: 'Merge lock lease expiry',
     })
@@ -1142,7 +1172,7 @@ describe('sessions.title — an agent names its own session (#490)', () => {
   })
 
   it('says nothing about titles once the session HAS a name', async () => {
-    await registry.modules.sessions.renameSession({
+    await registry.modules.sessions.renameSession(registry.modules.sessions.serverWriter, {
       sessionId: asSessionId(sA),
       name: 'Already named',
     })

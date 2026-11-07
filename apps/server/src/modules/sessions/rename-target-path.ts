@@ -63,11 +63,17 @@ import {
   type SessionRenameOutcome,
   sessionRenameContract,
 } from '@podium/commands'
-import { authorize, type AuthTarget, type SessionId, type UserId, type MutationId } from '@podium/model'
+import {
+  type AuthTarget,
+  authorize,
+  type MutationId,
+  type SessionId,
+  type UserId,
+} from '@podium/model'
+import type { MutationLedgerPort } from '@podium/sync'
 import type { CommandPrincipal } from '../../command-principal'
 import { onBehalfOfUser } from '../../command-principal'
-import type { MutationLedgerPort } from '@podium/sync'
-import type { SessionLifecycle } from './lifecycle'
+import type { SessionLifecycle, SessionWriter } from './lifecycle'
 
 /** The transports this command may arrive on. Checked against the CONTRACT's
  *  declared exposure, never against a local allowlist that could drift from it. */
@@ -220,6 +226,7 @@ function holdsTarget(human: UserId, target: AuthTarget): boolean {
  */
 export async function renameOnTargetPath(
   deps: RenameTargetDeps,
+  writer: SessionWriter,
   rawInput: unknown,
   principal: CommandPrincipal,
   transport: RenameTransport = 'trpc',
@@ -246,7 +253,7 @@ export async function renameOnTargetPath(
   //    (ADR 3 D8). That ordering is the property `rename-offline.test.ts` pins and
   //    a mutant reversing it kills.
   const applied = await deps.mutations.apply(input.mutationId, sessionRenameContract.name, () =>
-    applyRename(deps, input, principal),
+    applyRename(deps, writer, input, principal),
   )
   return applied.outcome === 'replayed'
     ? { outcome: 'replayed', result: applied.value }
@@ -270,17 +277,22 @@ export async function renameOnTargetPath(
  */
 export async function applyRename(
   deps: Pick<RenameTargetDeps, 'sessions'>,
+  /** The writer of the command that asked (ADR 12 D9, POD-6601). */
+  writer: SessionWriter,
   input: SessionRenameInput,
   principal: CommandPrincipal,
 ): Promise<SessionRenameOutcome> {
   if (principal.kind === 'user') {
-    await deps.sessions.renameSession({ sessionId: input.sessionId, name: input.name })
+    await deps.sessions.renameSession(writer, { sessionId: input.sessionId, name: input.name })
     return { ok: true, name: input.name.trim(), nameSource: 'user' }
   }
 
   // Non-human actor: the agent-naming path, which enforces the precedence rule and
   // REFUSES a user-set name instead of overwriting it.
-  const result = await deps.sessions.setAgentName({ sessionId: input.sessionId, name: input.name })
+  const result = await deps.sessions.setAgentName(writer, {
+    sessionId: input.sessionId,
+    name: input.name,
+  })
   if (result.ok && result.name !== undefined) {
     return { ok: true, name: result.name, nameSource: 'agent' }
   }

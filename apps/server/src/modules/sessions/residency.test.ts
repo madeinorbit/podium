@@ -15,13 +15,20 @@
  */
 import { asSessionId, firstAdminMemberId, type SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import type { SessionStore } from '../../store'
 import { attachHostDaemon } from '../../test-support/host-daemon'
 import { openTestStore } from '../../test-support/open-test-store'
 import { seedCorpusSessions } from '../../test-support/session-corpus'
-import { durableView, isRunningStatus, type SessionSubject, subjectFacts, subjectMeta } from './records'
+import {
+  durableView,
+  isRunningStatus,
+  type SessionSubject,
+  subjectFacts,
+  subjectMeta,
+} from './records'
 import { SessionResidency, type SessionResidencyPorts } from './residency'
 import type { Session } from './session'
 
@@ -57,9 +64,14 @@ describe('session residency (POD-6160 D2f)', () => {
     await seedCorpusSessions(store)
     const rows = await store.sessions.loadSessions()
     // Running sessions, and headless ones (resident while their row exists).
-    const running = rows.filter((row) => isRunningStatus(row.status) || row.headless).map((row) => row.id)
+    const running = rows
+      .filter((row) => isRunningStatus(row.status) || row.headless)
+      .map((row) => row.id)
     const ended = rows.filter((row) => !running.includes(row.id)).map((row) => row.id)
-    const draftReads = [vi.spyOn(store.sessions, 'loadDrafts'), vi.spyOn(store.sessions, 'loadDraftDocs')]
+    const draftReads = [
+      vi.spyOn(store.sessions, 'loadDrafts'),
+      vi.spyOn(store.sessions, 'loadDraftDocs'),
+    ]
     const reg = await boot(store)
     const sessions = reg.modules.sessions
     // SESSIONS IN MEMORY = RUNNING SESSIONS, over thousands of ended ones.
@@ -77,7 +89,10 @@ describe('session residency (POD-6160 D2f)', () => {
       expect({ id, view }).toEqual({ id, view: fullView(records.get(id)!) })
       expect(sessions.sessions.has(id)).toBe(false)
     }
-    console.log('session residency over the corpus', JSON.stringify({ sessions: rows.length, running: running.length }))
+    console.log(
+      'session residency over the corpus',
+      JSON.stringify({ sessions: rows.length, running: running.length }),
+    )
     expect(ended.length).toBeGreaterThan(1000)
     expect(sessions.sessions.size).toBe(running.length)
   }, 120_000)
@@ -92,7 +107,10 @@ describe('session residency (POD-6160 D2f)', () => {
     expect(sessions.sessions.has(id)).toBe(false)
 
     const reads = vi.spyOn(sessions.repository, 'materializeStoredSession')
-    const [a, b] = await Promise.all([sessions.residency.acquire(id, 'a'), sessions.residency.acquire(id, 'b')])
+    const [a, b] = await Promise.all([
+      sessions.residency.acquire(id, 'a'),
+      sessions.residency.acquire(id, 'b'),
+    ])
     expect(a).toBeDefined()
     expect(b).toBe(a)
     expect(reads).toHaveBeenCalledTimes(1)
@@ -110,7 +128,12 @@ describe('session residency (POD-6160 D2f)', () => {
     const sessions = reg.modules.sessions
     const id = await parkedSession(reg, store)
     sessions.residency.sweep()
-    await store.sessions.softDeleteSessions([id], '2026-10-01T00:00:00.000Z', 'standalone')
+    await store.sessions.softDeleteSessions(
+      fixtureWriteScope(),
+      [id],
+      '2026-10-01T00:00:00.000Z',
+      'standalone',
+    )
     expect(await sessions.residency.acquire(id, 'test')).toBeUndefined()
     expect(await sessions.residency.acquire(asSessionId('nope'), 'test')).toBeUndefined()
     expect(sessions.residency.leased(id)).toBe(false)
@@ -122,7 +145,7 @@ describe('session residency (POD-6160 D2f)', () => {
     const owner = await firstAdminMemberId(store)
     const sessionId = asSessionId('headless-establish-failed')
     // What a failed establish leaves: a headless row marked exited, never bound.
-    await store.sessions.upsertSession({
+    await store.sessions.upsertSession(fixtureWriteScope(), {
       id: sessionId,
       ownerUserId: owner,
       agentKind: 'claude-code',
@@ -156,7 +179,9 @@ describe('session residency (POD-6160 D2f)', () => {
     // A machine attach re-sends its establish frame, as before the map shrank.
     const daemon: ControlMessage[] = []
     await attachHostDaemon(reg, (m) => daemon.push(m))
-    await vi.waitFor(() => expect(daemon.some((m) => m.type === 'spawn' && m.sessionId === sessionId)).toBe(true))
+    await vi.waitFor(() =>
+      expect(daemon.some((m) => m.type === 'spawn' && m.sessionId === sessionId)).toBe(true),
+    )
   })
 
   it('the resident session equals its row after a rolled-back span and after a commit', async () => {
@@ -175,12 +200,15 @@ describe('session residency (POD-6160 D2f)', () => {
       await equalsRow(session!)
       await expect(
         store.transact(async () => {
-          await sessions.renameSession({ sessionId: id, name: 'rolled back' })
+          await sessions.renameSession(sessions.serverWriter, {
+            sessionId: id,
+            name: 'rolled back',
+          })
           throw new Error('enclosing span failed')
         }),
       ).rejects.toThrow('enclosing span failed')
       await equalsRow(session!)
-      await sessions.renameSession({ sessionId: id, name: 'kept' })
+      await sessions.renameSession(sessions.serverWriter, { sessionId: id, name: 'kept' })
       expect(session!.name).toBe('kept')
       await equalsRow(session!)
     })

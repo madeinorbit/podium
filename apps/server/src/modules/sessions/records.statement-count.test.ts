@@ -10,6 +10,7 @@
  * sessions only.
  */
 import { asIssueId, asSessionId, firstAdminMemberId, type SessionId } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import type { SessionStore } from '../../store'
 import { RUNTIME_EVENT_LOG_KIND } from '../../store/events'
@@ -36,7 +37,7 @@ async function fixture(size: number): Promise<Fixture> {
     for (let i = 0; i < size; i++) {
       const id = asSessionId(i === 0 ? PARENT : `rec-${String(i).padStart(4, '0')}`)
       ids.push(id)
-      await store.sessions.upsertSession({
+      await store.sessions.upsertSession(fixtureWriteScope(), {
         id,
         ownerUserId: owner,
         agentKind: 'claude-code',
@@ -68,7 +69,7 @@ async function fixture(size: number): Promise<Fixture> {
   })
   for (const [index, id] of ids.entries()) {
     if (index % 3 === 0) {
-      await store.sessions.setOffer(id, {
+      await store.sessions.setOffer(fixtureWriteScope(), id, {
         message: 'next',
         actions: [{ label: 'Go', prompt: 'go' }],
         createdAt: '2026-10-01T00:00:00.000Z',
@@ -82,7 +83,15 @@ async function fixture(size: number): Promise<Fixture> {
         subject: id,
         payload: {
           t: 'item',
-          item: { kind: 'complete', item: { id: `item-${index}`, role: 'assistant', text: 'hi', ts: '2026-09-01T00:00:00.000Z' } },
+          item: {
+            kind: 'complete',
+            item: {
+              id: `item-${index}`,
+              role: 'assistant',
+              text: 'hi',
+              ts: '2026-09-01T00:00:00.000Z',
+            },
+          },
           at: '2026-09-01T00:00:00.000Z',
           provenance: 'live',
           observerGeneration: 1,
@@ -119,45 +128,72 @@ function pin(
 
 describe('durable session records: constant statements', () => {
   it('reads every live session in a fixed number of statements', async () => {
-    await expectConstantStatements(pin('records.all', (f) => f.records.all('pin'), (size) => size), 7)
+    await expectConstantStatements(
+      pin(
+        'records.all',
+        (f) => f.records.all('pin'),
+        (size) => size,
+      ),
+      7,
+    )
   })
 
   it('reads a set of sessions by id in a fixed number of statements', async () => {
     await expectConstantStatements(
-      pin('records.resolve', (f) => f.records.resolve(f.ids, 'pin'), (size) => size),
+      pin(
+        'records.resolve',
+        (f) => f.records.resolve(f.ids, 'pin'),
+        (size) => size,
+      ),
       7,
     )
   })
 
   it("reads one issue's member sessions in a fixed number of statements", async () => {
     await expectConstantStatements(
-      pin('records.issueMembers', (f) => f.records.issueMembers(WORKTREE, ISSUE, 'pin'), () => 2),
+      pin(
+        'records.issueMembers',
+        (f) => f.records.issueMembers(WORKTREE, ISSUE, 'pin'),
+        () => 2,
+      ),
       8,
     )
   })
 
   it('reads the sessions under a path in a fixed number of statements', async () => {
     await expectConstantStatements(
-      pin('records.underPath', (f) => f.records.underPath(WORKTREE, 'pin'), () => 2),
+      pin(
+        'records.underPath',
+        (f) => f.records.underPath(WORKTREE, 'pin'),
+        () => 2,
+      ),
       7,
     )
   })
 
   it("reads a machine's sessions in a fixed number of statements", async () => {
     await expectConstantStatements(
-      pin('records.onMachine', (f) => f.records.onMachine(f.store.hostMachineId, 'pin'), (size) => size),
+      pin(
+        'records.onMachine',
+        (f) => f.records.onMachine(f.store.hostMachineId, 'pin'),
+        (size) => size,
+      ),
       7,
     )
   })
 
   it("reads a session's children in a fixed number of statements", async () => {
     await expectConstantStatements(
-      pin('records.childrenOf', (f) => f.records.childrenOf([PARENT], 'pin'), () => 2),
+      pin(
+        'records.childrenOf',
+        (f) => f.records.childrenOf([PARENT], 'pin'),
+        () => 2,
+      ),
       7,
     )
   })
 
-  it("reads who a session acts for in one statement (D2c)", async () => {
+  it('reads who a session acts for in one statement (D2c)', async () => {
     await expectConstantStatements(
       {
         name: 'records.ownershipOf',
@@ -173,28 +209,44 @@ describe('durable session records: constant statements', () => {
 
   it("reads a conversation's sessions in a fixed number of statements (D2g)", async () => {
     await expectConstantStatements(
-      pin('records.withResume', (f) => f.records.withResume({ kind: 'claude', value: 'conv-1' }, 'pin'), () => 1),
+      pin(
+        'records.withResume',
+        (f) => f.records.withResume({ kind: 'claude', value: 'conv-1' }, 'pin'),
+        () => 1,
+      ),
       7,
     )
   })
 
   it('reads the sessions whose birth ref names an issue in a fixed number of statements (D2g)', async () => {
     await expectConstantStatements(
-      pin('records.referencingIssues', (f) => f.records.referencingIssues([ISSUE], 'pin'), () => 1),
+      pin(
+        'records.referencingIssues',
+        (f) => f.records.referencingIssues([ISSUE], 'pin'),
+        () => 1,
+      ),
       7,
     )
   })
 
   it('reads a page of the live sessions in a fixed number of statements (D2g)', async () => {
     await expectConstantStatements(
-      pin('records.page', async (f) => (await f.records.page('', 100)).subjects, (size) => Math.min(size, 100)),
+      pin(
+        'records.page',
+        async (f) => (await f.records.page('', 100)).subjects,
+        (size) => Math.min(size, 100),
+      ),
       7,
     )
   })
 
   it('reads the sessions of an id prefix in a fixed number of statements', async () => {
     await expectConstantStatements(
-      pin('records.withIdPrefix', (f) => f.records.withIdPrefix('rec-', 'pin'), (size) => size - 1),
+      pin(
+        'records.withIdPrefix',
+        (f) => f.records.withIdPrefix('rec-', 'pin'),
+        (size) => size - 1,
+      ),
       7,
     )
   })

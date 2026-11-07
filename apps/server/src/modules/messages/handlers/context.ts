@@ -39,6 +39,7 @@ import {
   type SessionId,
   type UserId,
 } from '@podium/model'
+import type { LedgerWriter } from '@podium/sync'
 import { type CommandPrincipal, onBehalfOfUser } from '../../../command-principal'
 import { type Capability, checkIssueAccess, mayReadOwned } from '../../../issue-authz'
 import { failureNoticeId } from '../../../message-ids'
@@ -243,6 +244,12 @@ export interface MailHandlerContext {
    * someone else's write).
    */
   inEntry?: boolean
+  /**
+   * The write's own writer, when it runs on the entry point (ADR 12 D9,
+   * POD-6601): what the write creates in its unit (an agent spawn's launch
+   * record) is written with it.
+   */
+  writer?: Pick<LedgerWriter, 'commit' | 'capture'>
   /**
    * An await saw the child settle (POD-6525): the gate retires the parent's
    * wake claim as its own write once the wait is over. Absent = the await

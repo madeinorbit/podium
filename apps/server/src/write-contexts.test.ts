@@ -138,3 +138,30 @@ describe('write contexts', () => {
     void typeOnly
   })
 })
+
+describe('the session writes have named origins (POD-6601)', () => {
+  it("there is no blanket 'sessions' origin: each session writer names what it is", () => {
+    expect(Object.keys(SYSTEM_WRITE_ORIGINS)).not.toContain('sessions')
+    expect(SYSTEM_WRITE_ORIGINS['sessions.daemon'].kind).toBe('server')
+    expect(SYSTEM_WRITE_ORIGINS['sessions.lifecycle'].kind).toBe('server')
+    expect(SYSTEM_WRITE_ORIGINS['superagent.tools'].kind).toBe('server')
+    expect(SYSTEM_WRITE_ORIGINS['sessions.live'].kind).toBe('mirror')
+    expect(SYSTEM_WRITE_ORIGINS['sessions.refs'].kind).toBe('mirror')
+    // The two command paths that cannot pass their writer yet are named, owned
+    // and dated, not folded into one origin.
+    expect(SYSTEM_WRITE_ORIGINS['sessions.inbox'].legacy?.owner).toBe('POD-6602')
+    expect(SYSTEM_WRITE_ORIGINS['superagent.headless'].legacy?.owner).toBe('POD-6606')
+  })
+
+  it("a daemon report or the server's lifecycle writing inside a client command is refused", async () => {
+    const { ledger, writes } = await contexts()
+    const start = await ledger.cursor()
+    for (const origin of ['sessions.daemon', 'sessions.lifecycle'] as const) {
+      const writer = writes.system(origin)
+      await expect(
+        inCommand(`mut_${origin}`, async () => await writer.capture([spec(origin)])),
+      ).rejects.toBeInstanceOf(SystemWriteInsideCommand)
+    }
+    expect(await ledger.cursor()).toBe(start)
+  })
+})

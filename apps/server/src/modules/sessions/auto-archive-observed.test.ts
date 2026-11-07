@@ -64,7 +64,11 @@ async function stoppedAndRead(bindTo?: (reg: SessionRegistry) => Promise<IssueId
   await reg.modules.issueSessionLifecycle.stopSession({ sessionId })
   // Read AFTER the stop: `readAt >= stoppedAt` is one of the preconditions, so a
   // fixture read before stopping would fail for a reason these tests do not name.
-  await reg.modules.sessions.markSessionRead(firstAdminMemberId(), sessionId)
+  await reg.modules.sessions.markSessionRead(
+    reg.modules.sessions.serverWriter,
+    firstAdminMemberId(),
+    sessionId,
+  )
   const meta = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
     (s) => s.sessionId === sessionId,
   )
@@ -152,7 +156,11 @@ describe('SessionService.tryAutoArchiveStoppedObserved — whose read (POD-1229)
     const meta = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
       (s) => s.sessionId === sessionId,
     )
-    await reg.modules.sessions.markSessionRead(firstAdminMemberId(), sessionId) // re-read, "now"
+    await reg.modules.sessions.markSessionRead(
+      reg.modules.sessions.serverWriter,
+      firstAdminMemberId(),
+      sessionId,
+    ) // re-read, "now"
     expect(
       await reg.modules.sessions.tryAutoArchiveStoppedObserved(
         { ...observation(sessionId, firstAdminMemberId()), stoppedAt: meta?.stoppedAt ?? '' },
@@ -171,7 +179,11 @@ describe('SessionService.tryAutoArchiveStoppedObserved — whose read (POD-1229)
     const meta = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
       (s) => s.sessionId === sessionId,
     )
-    await reg.modules.sessions.markSessionUnread(firstAdminMemberId(), sessionId) // deletes the marker
+    await reg.modules.sessions.markSessionUnread(
+      reg.modules.sessions.serverWriter,
+      firstAdminMemberId(),
+      sessionId,
+    ) // deletes the marker
     expect(
       await reg.modules.sessions.tryAutoArchiveStoppedObserved(
         { ...observation(sessionId, firstAdminMemberId()), stoppedAt: meta?.stoppedAt ?? '' },
@@ -215,13 +227,22 @@ describe('SessionService.tryAutoArchiveStoppedObserved — whose read (POD-1229)
  */
 describe('SessionService.tryAutoArchiveStoppedObserved — the issue record it reads (POD-4971)', () => {
   const topLevel = async (reg: SessionRegistry) =>
-    (await reg.modules.issues.crud.create(reg.modules.issues.reports.store.serverWriter, { repoPath: '/r', title: 'Top level', startNow: false })).id
+    (
+      await reg.modules.issues.crud.create(reg.modules.issues.reports.store.serverWriter, {
+        repoPath: '/r',
+        title: 'Top level',
+        startNow: false,
+      })
+    ).id
   const child = async (reg: SessionRegistry) => {
-    const parent = await reg.modules.issues.crud.create(reg.modules.issues.reports.store.serverWriter, {
-      repoPath: '/r',
-      title: 'Parent',
-      startNow: false,
-    })
+    const parent = await reg.modules.issues.crud.create(
+      reg.modules.issues.reports.store.serverWriter,
+      {
+        repoPath: '/r',
+        title: 'Parent',
+        startNow: false,
+      },
+    )
     return (
       await reg.modules.issues.crud.create(reg.modules.issues.reports.store.serverWriter, {
         repoPath: '/r',

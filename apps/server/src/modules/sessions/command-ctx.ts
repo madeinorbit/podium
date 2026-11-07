@@ -43,6 +43,7 @@ import {
   type SessionCommandDeps,
   type SessionCommandServices,
 } from './command-plane'
+import type { SessionWriter } from './lifecycle'
 import type { LifecycleOutcome, ReconcileResult } from './lifecycle-controller'
 import { asyncSessionIssueAccess } from './session-access'
 import { configureThroughEffect } from './session-configure-effect'
@@ -60,7 +61,9 @@ export function sessionCommandServices(modules: RegistryModules): SessionCommand
   return {
     createSession: sessions.createSession.bind(sessions),
     workspace: sessions.workspace,
-    killSession: sessions.killSession.bind(sessions),
+    // The direct kill of the plane's hand-built contexts (`command-plane.ts`);
+    // the routes kill through `records.session.remove`.
+    killSession: (input) => sessions.killSession(sessions.serverWriter, input),
     hibernateSession: sessions.hibernateSession.bind(sessions),
     interruptTurn: sessions.interruptTurn,
     configureSession: sessions.configureSession,
@@ -93,7 +96,20 @@ export async function sessionCommandCtx(
    * forgets to say gets the stricter answer rather than the looser one.
    */
   transport: TransportTag = 'relay',
+  /**
+   * THE WRITER OF THE COMMAND THIS CONTEXT SERVES (ADR 12 D9, POD-6601): the
+   * sync handler's own, or the named origin of the run that acts for it (a
+   * launch). The issue rows a session command writes (a claimed upload, a
+   * start's draft) and a send's wake record are written with it. A context
+   * built for reads, or for a route that writes through `submit`, has none,
+   * and refuses such a write.
+   */
+  writer?: SessionWriter,
 ): Promise<SessionCommandCtx> {
+  const writerFor = (what: string): SessionWriter => {
+    if (writer === undefined) throw new Error(`${what}: this command context has no writer`)
+    return writer
+  }
   const sessions = modules.sessions
   const issues = modules.issues
   const commandSessions = sessionCommandServices(modules)
@@ -114,7 +130,7 @@ export async function sessionCommandCtx(
     stageAttachment: async (input) => await sessions.runtimeGateway.stageAttachment(input),
     holdUpload: async (input) => await modules.pendingUploads.put(input),
     claimUpload: async (issueId, input) =>
-      await issues.crud.panelChatUploadClaim(modules.sessionsWriter, issueId, input),
+      await issues.crud.panelChatUploadClaim(writerFor('claimUpload'), issueId, input),
     isAgentDriven: async (sessionId) => await sessions.receiptSender.onContract(sessionId),
     // THE CHAT PATHS' SEND, as a dispatch of the `mail.send` contract (POD-729).
     //
@@ -131,7 +147,7 @@ export async function sessionCommandCtx(
       (await modules.messageGate.dispatch(capability, overrideScope, 'send', input, transport))!,
     createDraftIssue: async (repoPath, agentKind, issueId, ownership) =>
       await issues.attention.createDraftFor(
-        modules.sessionsWriter,
+        writerFor('createDraftIssue'),
         repoPath,
         agentKind,
         issueId,
@@ -139,7 +155,7 @@ export async function sessionCommandCtx(
       ),
     attachDraftArtifacts: async (issueId, artifacts) => {
       for (const artifact of artifacts) {
-        await issues.crud.panelArtifactUpload(modules.sessionsWriter, issueId, artifact)
+        await issues.crud.panelArtifactUpload(writerFor('attachDraftArtifacts'), issueId, artifact)
       }
     },
     discardUnlaunchedDraft: async (issueId) =>
@@ -166,7 +182,7 @@ export async function sessionCommandCtx(
     // relay), and `records.session.*` is served over tRPC, so the envelope is
     // submitted as a tRPC call. Absent in a hand-built module set.
     ...(modules.sessionLifecycleController
-      ? { lifecycleEdits: lifecycleEditsFor(modules, principal, overrideScope) }
+      ? { lifecycleEdits: lifecycleEditsFor(modules, principal, overrideScope, writer) }
       : {}),
   }
   return new SessionCommandCtx(deps, principal, overrideScope)
@@ -236,6 +252,8 @@ export function lifecycleEditsFor(
   modules: RegistryModules,
   principal: CommandPrincipal,
   overrideScope: boolean | undefined,
+  /** The send's own writer, for the wake record it creates in its unit. */
+  writer?: SessionWriter,
 ): LifecycleEditsPort {
   const controller = modules.sessionLifecycleController
   const submit = async (command: string, input: unknown) =>
@@ -342,7 +360,8 @@ export function lifecycleEditsFor(
     wakeWith: async ({ session, wake }) => {
       const effects = modules.effects
       if (effects === undefined) throw new Error('no effects module is composed')
-      await effects.createForSession({
+      if (writer === undefined) throw new Error('a wake is created in its send: no writer')
+      await effects.createInUnit(writer, {
         id: mintDeviceId('eff_'),
         kind: SESSION_LAUNCH_KIND,
         target: { kind: 'session', id: randomUUID() },

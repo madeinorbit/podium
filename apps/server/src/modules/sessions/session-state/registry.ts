@@ -57,6 +57,7 @@ import {
 import type { MutationLedgerPort } from '@podium/sync'
 import type { CommandPrincipal } from '../../../command-principal'
 import type { SessionLifecycle } from '../lifecycle'
+import type { SessionWriter } from '../session-lifecycle-types'
 import type { SessionStatePrincipal, SessionStateService } from './service'
 
 export type { SessionStatePrincipal } from './service'
@@ -144,6 +145,8 @@ type SessionStateHandler = (
   input: Record<string, unknown>,
   principal: SessionStatePrincipal,
   deps: SessionStateDeps,
+  /** The writer of the command that asked (ADR 12 D9, POD-6601). */
+  writer: SessionWriter,
 ) => unknown
 
 /**
@@ -243,14 +246,15 @@ const issueIdOrNull = (v: unknown): IssueId | null => (typeof v === 'string' ? a
 const REGISTRATIONS: Record<string, Registration> = {
   'sessions.setArchived': {
     target: ownedSession,
-    handler: (input, _principal, deps) => {
-      return deps.state.setArchived(sessionIdOf(input.sessionId), input.archived === true)
+    handler: (input, _principal, deps, writer) => {
+      return deps.state.setArchived(writer, sessionIdOf(input.sessionId), input.archived === true)
     },
   },
   'sessions.setWorkState': {
     target: ownedSession,
-    handler: (input, _principal, deps) => {
+    handler: (input, _principal, deps, writer) => {
       return deps.state.setWorkState(
+        writer,
         sessionIdOf(input.sessionId),
         (input.workState ?? null) as never,
       )
@@ -258,8 +262,9 @@ const REGISTRATIONS: Record<string, Registration> = {
   },
   'sessions.setIssueId': {
     target: ownedSession,
-    handler: (input, _principal, deps) => {
+    handler: (input, _principal, deps, writer) => {
       return deps.sessions.setSessionIssueId(
+        writer,
         sessionIdOf(input.sessionId),
         issueIdOrNull(input.issueId),
       )
@@ -267,11 +272,15 @@ const REGISTRATIONS: Record<string, Registration> = {
   },
   'sessions.dismissOffer': {
     target: ownedSession,
-    handler: async (input, _principal, deps) => {
+    handler: async (input, _principal, deps, writer) => {
       // The stale-stamp case returns false and writes nothing — see the contract:
       // a dismissal names ONE offer, so a click aimed at a replaced offer must not
       // clear the one that replaced it.
-      await deps.sessions.dismissOffer(sessionIdOf(input.sessionId), str(input.offerCreatedAt))
+      await deps.sessions.dismissOffer(
+        writer,
+        sessionIdOf(input.sessionId),
+        str(input.offerCreatedAt),
+      )
     },
   },
   'sessions.markRead': {
@@ -281,8 +290,9 @@ const REGISTRATIONS: Record<string, Registration> = {
     // POD-1077's scoped feed) — but the POLICY is already self-scoped, so the
     // move is storage-only and needs no contract or wire change.
     target: ownPerUserSessionRow,
-    handler: async (input, principal, deps) => {
+    handler: async (input, principal, deps, writer) => {
       await deps.state.markRead(
+        writer,
         principal,
         sessionIdOf(input.sessionId),
         input.readAt as string | undefined,
@@ -291,14 +301,15 @@ const REGISTRATIONS: Record<string, Registration> = {
   },
   'sessions.markUnread': {
     target: ownPerUserSessionRow,
-    handler: async (input, principal, deps) => {
-      await deps.state.markUnread(principal, sessionIdOf(input.sessionId))
+    handler: async (input, principal, deps, writer) => {
+      await deps.state.markUnread(writer, principal, sessionIdOf(input.sessionId))
     },
   },
   'snoozes.set': {
     target: ownPerUserSessionRow,
-    handler: async (input, principal, deps) => {
+    handler: async (input, principal, deps, writer) => {
       await deps.state.setSnooze(
+        writer,
         principal,
         sessionIdOf(input.sessionId),
         typeof input.until === 'string' ? input.until : null,
@@ -308,8 +319,8 @@ const REGISTRATIONS: Record<string, Registration> = {
   },
   'snoozes.clear': {
     target: ownPerUserSessionRow,
-    handler: async (input, principal, deps) => {
-      await deps.state.clearSnooze(principal, sessionIdOf(input.sessionId))
+    handler: async (input, principal, deps, writer) => {
+      await deps.state.clearSnooze(writer, principal, sessionIdOf(input.sessionId))
       return await deps.state.listSnoozes(principal)
     },
   },
@@ -364,7 +375,15 @@ const REGISTRATIONS: Record<string, Registration> = {
 // ---------------------------------------------------------------------------
 
 export class SessionStateRegistry {
-  constructor(private readonly deps: SessionStateDeps) {}
+  /**
+   * `writer` is what the envelope's handlers write with: it serves the
+   * composer's draft over the live stream (POD-6601), so it is the session
+   * service's live writer.
+   */
+  constructor(
+    private readonly deps: SessionStateDeps,
+    private readonly writer: SessionWriter,
+  ) {}
 
   /** Every migrated command name — what a cutover audit reads. */
   static names(): string[] {
@@ -411,7 +430,7 @@ export class SessionStateRegistry {
       typeof input.mutationId === 'string' ? asMutationId(input.mutationId) : undefined
     const run = async () =>
       await this.deps.mutations.apply(mutationId, name, () =>
-        registration.handler(input, principal, this.deps),
+        registration.handler(input, principal, this.deps, this.writer),
       )
     // The command's session is resident while it runs (POD-6160 D2f): a parked
     // one is restored from its row and may leave memory once the command settles.
@@ -494,6 +513,7 @@ export function sessionStateCommandForSync(name: string):
         input: Record<string, unknown>,
         principal: SessionStatePrincipal,
         deps: SessionStateDeps,
+        writer: SessionWriter,
       ): Promise<unknown>
     }
   | undefined {
@@ -504,8 +524,8 @@ export function sessionStateCommandForSync(name: string):
     def,
     target: async (input, principal, deps) =>
       await targetFor(def, registration, input, principal, deps),
-    handle: async (input, principal, deps) => {
-      const run = async () => await registration.handler(input, principal, deps)
+    handle: async (input, principal, deps, writer) => {
+      const run = async () => await registration.handler(input, principal, deps, writer)
       const residency = deps.sessions.residency
       return typeof input.sessionId === 'string' && residency
         ? await residency.withSession(asSessionId(input.sessionId), name, run)

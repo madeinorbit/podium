@@ -105,6 +105,8 @@ export async function buildSuperagentTools(
 ): Promise<SuperagentTool[]> {
   const { modules, repos, store, waitPollMs } = deps
   const sessions = modules.sessions
+  // Its writes are its own account's (`superagent.tools`, POD-6601).
+  const writer = modules.superagentToolsWriter
   const issues = modules.issues
   const rpc = modules.rpc
   // Session provenance (issue #60): thread-scoped when the executing thread is known.
@@ -267,7 +269,8 @@ export async function buildSuperagentTools(
           spawnedBy,
           ownerUserId,
         })
-        if (str(args.name)) await sessions.renameSession({ sessionId, name: str(args.name) ?? '' })
+        if (str(args.name))
+          await sessions.renameSession(writer, { sessionId, name: str(args.name) ?? '' })
         const first = str(args.firstMessage)
         if (first) {
           // The superagent's message (POD-4846): stored, enveloped, durable across
@@ -458,7 +461,7 @@ export async function buildSuperagentTools(
         // is its human's row, not an instance-wide one. SOLE_USER_ID until POD-1075
         // gives the superagent thread a real owner to read the identity from.
         if (!ownerUserId) return 'unknown superagent thread'
-        await sessions.setSnooze({ userId: ownerUserId, sessionId, until: value })
+        await sessions.setSnooze(writer, { userId: ownerUserId, sessionId, until: value })
         return JSON.stringify({ snoozedUntil: value })
       },
     },
@@ -476,7 +479,7 @@ export async function buildSuperagentTools(
         const sessionId = sessionIdArg(args.sessionId)
         if (!(await getSession(sessionId))) return 'unknown session'
         if (!ownerUserId) return 'unknown superagent thread'
-        await sessions.clearSnooze(ownerUserId, sessionId)
+        await sessions.clearSnooze(writer, ownerUserId, sessionId)
         return 'snooze cleared'
       },
     },
@@ -493,7 +496,7 @@ export async function buildSuperagentTools(
       run: async (args) => {
         const sessionId = sessionIdArg(args.sessionId)
         if (!(await getSession(sessionId))) return 'unknown session'
-        await sessions.renameSession({
+        await sessions.renameSession(writer, {
           sessionId,
           name: typeof args.name === 'string' ? args.name : '',
         })
@@ -521,7 +524,7 @@ export async function buildSuperagentTools(
           return `invalid workState: expected one of ${WorkState.options.join(' | ')}`
         }
         if (!(await getSession(sessionId))) return 'unknown session'
-        await sessions.setWorkState({ sessionId, workState: parsed.data })
+        await sessions.setWorkState(writer, { sessionId, workState: parsed.data })
         return JSON.stringify({ workState: parsed.data })
       },
     },
@@ -600,7 +603,7 @@ export async function buildSuperagentTools(
         },
       },
       run: async (args) => {
-        await sessions.killSession({ sessionId: sessionIdArg(args.sessionId) })
+        await sessions.killSession(writer, { sessionId: sessionIdArg(args.sessionId) })
         return 'killed'
       },
     },

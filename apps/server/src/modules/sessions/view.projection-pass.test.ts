@@ -1,6 +1,6 @@
-import { fixtureWriteScope } from '@podium/sync/testing'
 import { asIssueId, asMachineId, asSessionId, asUserId } from '@podium/model'
 import { formatSessionRef } from '@podium/protocol'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 
 // Resolve profiling before importing the store/driver instrumentation.
@@ -133,8 +133,13 @@ async function fixture(count: number) {
       queuedAt: 1,
     })
   }
-  await store.sessions.markSessionRead(reader, rows[0]!.sessionId, '2026-09-11T00:00:00.000Z')
-  await store.sessions.setSnooze(reader, rows[1]!.sessionId, null)
+  await store.sessions.markSessionRead(
+    fixtureWriteScope(),
+    reader,
+    rows[0]!.sessionId,
+    '2026-09-11T00:00:00.000Z',
+  )
+  await store.sessions.setSnooze(fixtureWriteScope(), reader, rows[1]!.sessionId, null)
   const sessions = new Map(rows.map((s) => [s.sessionId, s]))
   const authz = new SessionAuthz({ sessions, store } as never)
   const state = new SessionStateService({
@@ -158,7 +163,12 @@ async function fixture(count: number) {
     machineName: async () => 'Build box',
     agentLoginCondition: async () => 'logged-out' as const,
   }
-  const view = new SessionView({ records: residentRecords(sessions), store, state, sessionOccupancyCount: () => 3 })
+  const view = new SessionView({
+    records: residentRecords(sessions),
+    store,
+    state,
+    sessionOccupancyCount: () => 3,
+  })
   // Reader-scoped calls still use their admitted principal; feed projection needs none.
   vi.spyOn(view, 'defaultPrincipal').mockResolvedValue(principal)
   return { store, rows, sessions, authz, state, machines, view }
@@ -407,10 +417,10 @@ describe('one projection pass', () => {
         view: f.view,
         now: () => Date.now(),
         runScheduledBroadcast: async () => {},
-        ledger: {
+        writers: ((ledger) => ({ live: ledger, boot: ledger }))({
           capture: async (specs: { entity: string; id: string; op: string; value: unknown }[]) =>
             specs.map((s, i) => ({ ...s, entityId: s.id, seq: i + 1 })),
-        },
+        }),
       } as never)
       try {
         for (const s of f.rows) repo.markVolatileSessionDirty(s.sessionId)
@@ -484,8 +494,10 @@ describe('one projection pass', () => {
 
     it('list: issues, both grant kinds in one read, and queue counts', async () => {
       await expectConstantStatements(
-        pin('SessionView.list', (f) => f.view.list(principal, 'rpc'), (rows, size) =>
-          expect(rows).toHaveLength((size * 4) / 5),
+        pin(
+          'SessionView.list',
+          (f) => f.view.list(principal, 'rpc'),
+          (rows, size) => expect(rows).toHaveLength((size * 4) / 5),
         ),
         3,
       )
@@ -495,7 +507,11 @@ describe('one projection pass', () => {
       await expectConstantStatements(
         pin(
           'SessionView.byIds',
-          (f) => f.view.byIds(f.rows.map((s) => s.sessionId), principal),
+          (f) =>
+            f.view.byIds(
+              f.rows.map((s) => s.sessionId),
+              principal,
+            ),
           (rows, size) => expect(rows).toHaveLength((size * 4) / 5),
         ),
         3,

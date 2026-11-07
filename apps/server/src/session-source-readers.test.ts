@@ -158,7 +158,7 @@ describe('S4 server consumers', () => {
     })
     const a = await sessions.view.principalForTrustedUser(A)
     const b = await sessions.view.principalForTrustedUser(B)
-    await sessions.state.setSnooze(a, sessionId, null)
+    await sessions.state.setSnooze(sessions.serverWriter, a, sessionId, null)
     await o.store.superagent.upsertSuperagentThread({
       id: 'thread:b',
       ownerUserId: B,
@@ -178,10 +178,10 @@ describe('S4 server consumers', () => {
       JSON.parse(await tool.run({})) as (SessionMeta & { snoozedUntil?: string | null })[]
     expect((await rows()).map((s) => s.sessionId)).not.toContain(privateId)
     expect((await rows()).find((s) => s.sessionId === sessionId)).not.toHaveProperty('snoozedUntil')
-    await sessions.state.setSnooze(b, sessionId, null)
+    await sessions.state.setSnooze(sessions.serverWriter, b, sessionId, null)
     expect((await rows()).find((s) => s.sessionId === sessionId)?.snoozedUntil).toBeNull()
     const until = '2026-10-03T00:00:00.000Z'
-    await sessions.state.setSnooze(b, sessionId, until)
+    await sessions.state.setSnooze(sessions.serverWriter, b, sessionId, until)
     expect((await rows()).find((s) => s.sessionId === sessionId)?.snoozedUntil).toBe(until)
     now = Date.parse(until) + 1
     expect((await rows()).find((s) => s.sessionId === sessionId)).not.toHaveProperty('snoozedUntil')

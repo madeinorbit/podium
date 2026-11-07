@@ -116,10 +116,35 @@ export const SYSTEM_WRITE_ORIGINS = {
     what: "the issues service's own work: worktree moves, landing, cleanup, git state, auto-archive, integration runs, boot reconciles, and an issue effect record's run after its commit (start, sessions, stop, cleanup, ship, the assistant, an answer)",
     kind: 'server',
   },
-  sessions: {
-    what: 'session writes: sync commands and daemon reports at persist, and the session.launch records a send or a spawn creates',
+  'sessions.daemon': {
+    what: "a daemon's reports about its sessions: state and exits, titles, cwd moves, git activity, runtime events, binding receipts, the machine reconcile on attach",
+    kind: 'server',
+  },
+  'sessions.lifecycle': {
+    what: 'the server acting on a session after a commit: the lifecycle controller, starts, teardown, revival, and the launch, interrupt, configure and handoff executors',
+    kind: 'server',
+  },
+  'superagent.tools': {
+    what: "the superagent's own session writes: its tool calls on its human's sessions (a name, a snooze, a work state, a kill), made from its own turn, and the kill a reset makes after it commits",
+    kind: 'server',
+  },
+  'sessions.refs': {
+    what: "session rows whose birth ref changed because an issue repair renumbered or re-keyed their issue, captured inside that repair's write",
+    kind: 'mirror',
+  },
+  'sessions.live': {
+    what: "a session's live fields (activity, terminal state, the composer's draft tag) captured to the feed, inside whichever unit flushes them",
+    kind: 'mirror',
+  },
+  'sessions.inbox': {
+    what: "a session's row written as a message is delivered to it (a send's offer and snooze clears, the queued input): the mail write that delivers it does not pass its writer through the messages service yet",
     kind: 'client',
-    legacy: { removeAfter: '2027-03', owner: 'POD-6601' },
+    legacy: { removeAfter: '2027-03', owner: 'POD-6602' },
+  },
+  'superagent.headless': {
+    what: "the superagent's headless session, created and rebound from its own commands: the superagent service does not take its command's writer yet",
+    kind: 'client',
+    legacy: { removeAfter: '2027-03', owner: 'POD-6606' },
   },
 } as const satisfies Record<string, SystemWriteOriginSpec>
 

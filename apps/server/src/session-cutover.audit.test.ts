@@ -51,10 +51,9 @@ import {
   type UserId,
 } from '@podium/model'
 import type { MachineGrant } from '@podium/protocol'
-
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { AgentCommandPrincipal, CommandPrincipal } from './command-principal'
-
 import type { MachineOwnershipIndex, MachineOwnershipRow } from './machine-access'
 import { ownershipSnapshotFromMachines } from './machine-access'
 import { sessionCommandCtx, sessionCommandServices } from './modules/sessions/command-ctx'
@@ -377,12 +376,15 @@ describe('AC2 · framework idempotency is the single implementation', () => {
     // principal replaying a recorded id gets nothing — not the cached result.
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    const presence = new SessionStateRegistry({
-      sessions: o.reg.modules.sessions,
-      state: o.reg.modules.sessions.state,
+    const presence = new SessionStateRegistry(
+      {
+        sessions: o.reg.modules.sessions,
+        state: o.reg.modules.sessions.state,
 
-      mutations: o.reg.modules.mutations,
-    })
+        mutations: o.reg.modules.mutations,
+      },
+      o.reg.modules.sessions.serverWriter,
+    )
     const owner = soleHumanSessionStatePrincipal(OPERATOR)
     const write = { sessionId, archived: true, mutationId: 'revoke-1' }
     const applied = await presence.execute('sessions.setArchived', write, owner)
@@ -540,7 +542,7 @@ describe('AC4 · the per-user split actually happened', () => {
     const o = await makeOracle()
     const store = o.store.sessions
     await store.setPin(asUserId('user:alice'), 'panel', 's-1', true)
-    await store.setSnooze(asUserId('user:alice'), asSessionId('s-1'), null)
+    await store.setSnooze(fixtureWriteScope(), asUserId('user:alice'), asSessionId('s-1'), null)
     await store.setTabOrder(asUserId('user:alice'), '/w', ['s-1'])
 
     // Alice's rows exist; Bob's are EMPTY — asserted on the values, because a
@@ -622,6 +624,7 @@ describe('AC5 · attribution is a pair and comes from the transport', () => {
     // A HUMAN acting directly writes a user-sourced name…
     const named = await renameOnTargetPath(
       deps,
+      o.reg.modules.sessions.serverWriter,
       { sessionId, name: 'human choice' },
       human(firstAdminMemberId()),
     )
@@ -634,6 +637,7 @@ describe('AC5 · attribution is a pair and comes from the transport', () => {
     // payload's own `humanDirect` / `actor` claims are not even representable.
     const result = await renameOnTargetPath(
       deps,
+      o.reg.modules.sessions.serverWriter,
       {
         sessionId,
         name: 'agent choice',
@@ -1002,12 +1006,15 @@ describe('AC7 · the command surface is not an existence oracle', () => {
     // indistinguishable from a write to a session that does not exist — for this
     // class that means no throw, no reason, no row.
     const o = await makeOracle()
-    const presence = new SessionStateRegistry({
-      sessions: o.reg.modules.sessions,
-      state: o.reg.modules.sessions.state,
+    const presence = new SessionStateRegistry(
+      {
+        sessions: o.reg.modules.sessions,
+        state: o.reg.modules.sessions.state,
 
-      mutations: o.reg.modules.mutations,
-    })
+        mutations: o.reg.modules.mutations,
+      },
+      o.reg.modules.sessions.serverWriter,
+    )
     const ghost = await presence.execute(
       'sessions.rename',
       { sessionId: GHOST, name: 'x' },

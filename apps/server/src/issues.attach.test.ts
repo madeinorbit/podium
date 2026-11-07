@@ -11,6 +11,7 @@ import {
 } from '@podium/model'
 import { formatIssueRef, SELF_REF_RULE, selfRefRule } from '@podium/protocol'
 import { normalizeSettings } from '@podium/runtime'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { seatText } from './modules/issues/service/seat'
@@ -60,7 +61,7 @@ async function harness(
     ...issueTestPlumbing((msg) => broadcast(msg)),
     now: () => '2026-07-06T00:00:00.000Z',
     readSessionIssueId: async (sessionId) => issueBySession.get(sessionId) ?? null,
-    setSessionIssueId: (sessionId, issueId) => {
+    setSessionIssueId: (_writer, sessionId, issueId) => {
       issueBySession.set(sessionId, issueId)
     },
   }
@@ -87,7 +88,11 @@ const sess = (sessionId: SessionId, cwd = '/x'): SessionMeta =>
 describe('origin/draft on create + wire', () => {
   it('defaults origin=human draft=false; honors explicit values', async () => {
     const { svc } = await harness()
-    const a = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
     expect(a.intentOrigin).toBe('human')
     expect(a.isDraftVessel).toBe(false)
     const b = await svc.crud.create(svc.reports.store.serverWriter, {
@@ -125,8 +130,13 @@ describe('origin/draft on create + wire', () => {
     const d = await svc.attention.createDraftFor(svc.reports.store.serverWriter, '/r')
     expect(d.isDraftVessel).toBe(true)
     expect(d.stage).toBe('backlog')
-    expect((await svc.crud.update(svc.reports.store.serverWriter, d.id, { priority: 1 })).isDraftVessel).toBe(true)
-    expect((await svc.crud.update(svc.reports.store.serverWriter, d.id, { title: 'Real work' })).isDraftVessel).toBe(false)
+    expect(
+      (await svc.crud.update(svc.reports.store.serverWriter, d.id, { priority: 1 })).isDraftVessel,
+    ).toBe(true)
+    expect(
+      (await svc.crud.update(svc.reports.store.serverWriter, d.id, { title: 'Real work' }))
+        .isDraftVessel,
+    ).toBe(false)
   })
 })
 
@@ -135,8 +145,15 @@ describe('attachSession', () => {
     const { svc, issueBySession } = await harness([sess(asSessionId('s1'))])
     const draft = await svc.attention.createDraftFor(svc.reports.store.serverWriter, '/r')
     issueBySession.set(asSessionId('s1'), draft.id)
-    const target = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'Real', startNow: false })
-    const w = await svc.attention.attachSession(svc.reports.store.serverWriter, { sessionId: asSessionId('s1'), targetId: target.id })
+    const target = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Real',
+      startNow: false,
+    })
+    const w = await svc.attention.attachSession(svc.reports.store.serverWriter, {
+      sessionId: asSessionId('s1'),
+      targetId: target.id,
+    })
     expect(w.id).toBe(target.id)
     expect(issueBySession.get(asSessionId('s1'))).toBe(target.id)
     expect(await svc.reports.get(draft.id)).toBeNull() // empty draft deleted
@@ -146,9 +163,16 @@ describe('attachSession', () => {
 
   it('self-attach is a no-op', async () => {
     const { svc, issueBySession } = await harness([sess(asSessionId('s1'))])
-    const a = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
     issueBySession.set(asSessionId('s1'), a.id)
-    const w = await svc.attention.attachSession(svc.reports.store.serverWriter, { sessionId: asSessionId('s1'), targetId: a.id })
+    const w = await svc.attention.attachSession(svc.reports.store.serverWriter, {
+      sessionId: asSessionId('s1'),
+      targetId: a.id,
+    })
     expect(w.id).toBe(a.id)
     expect(await svc.reports.get(a.id)).not.toBeNull()
   })
@@ -161,8 +185,15 @@ describe('attachSession', () => {
     const draft = await svc.attention.createDraftFor(svc.reports.store.serverWriter, '/r')
     issueBySession.set(asSessionId('s1'), draft.id)
     issueBySession.set(asSessionId('s2'), draft.id) // second session keeps the draft alive
-    const target = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'T', startNow: false })
-    await svc.attention.attachSession(svc.reports.store.serverWriter, { sessionId: asSessionId('s1'), targetId: target.id })
+    const target = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'T',
+      startNow: false,
+    })
+    await svc.attention.attachSession(svc.reports.store.serverWriter, {
+      sessionId: asSessionId('s1'),
+      targetId: target.id,
+    })
     expect(await svc.reports.get(draft.id)).not.toBeNull()
   })
 
@@ -173,21 +204,39 @@ describe('attachSession', () => {
       sess(asSessionId('s1'), '/r/.worktrees/real'),
       sess(asSessionId('s2'), '/r/.worktrees/real'),
     ])
-    const real = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'R', startNow: false })
-    await svc.crud.update(svc.reports.store.serverWriter, real.id, { worktreePath: '/r/.worktrees/real' })
+    const real = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'R',
+      startNow: false,
+    })
+    await svc.crud.update(svc.reports.store.serverWriter, real.id, {
+      worktreePath: '/r/.worktrees/real',
+    })
     issueBySession.set(asSessionId('s1'), real.id)
     issueBySession.set(asSessionId('s2'), real.id)
-    const other = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'O', startNow: false })
+    const other = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'O',
+      startNow: false,
+    })
 
     await expect(
-      svc.attention.attachSession(svc.reports.store.serverWriter, { sessionId: asSessionId('s1'), targetId: other.id }),
+      svc.attention.attachSession(svc.reports.store.serverWriter, {
+        sessionId: asSessionId('s1'),
+        targetId: other.id,
+      }),
     ).rejects.toThrow(/attach blocked/)
     expect(issueBySession.get(asSessionId('s1'))).toBe(real.id) // unmoved
 
     // Self-attach stays a no-op without confirmation.
-    expect((await svc.attention.attachSession(svc.reports.store.serverWriter, { sessionId: asSessionId('s1'), targetId: real.id })).id).toBe(
-      real.id,
-    )
+    expect(
+      (
+        await svc.attention.attachSession(svc.reports.store.serverWriter, {
+          sessionId: asSessionId('s1'),
+          targetId: real.id,
+        })
+      ).id,
+    ).toBe(real.id)
 
     const unconfirmed = async () =>
       await svc.attention.attachSession(svc.reports.store.serverWriter, {
@@ -198,7 +247,9 @@ describe('attachSession', () => {
     await expect(unconfirmed()).rejects.toThrow(/parent must attach it/)
     await expect(unconfirmed()).rejects.toThrow(/--confirm-rehome/)
     expect(issueBySession.get(asSessionId('s1'))).toBe(real.id)
-    expect((await svc.reports.list('/r')).filter((issue) => issue.parentId === real.id)).toHaveLength(0)
+    expect(
+      (await svc.reports.list('/r')).filter((issue) => issue.parentId === real.id),
+    ).toHaveLength(0)
 
     await svc.crud.setCoordinator(svc.reports.store.serverWriter, real.id, asSessionId('s2'))
     const child = await svc.attention.attachSession(svc.reports.store.serverWriter, {
@@ -213,10 +264,19 @@ describe('attachSession', () => {
   it('keeps a draft that owns a worktree or has children', async () => {
     const { svc, issueBySession } = await harness([sess(asSessionId('s1'))])
     const draft = await svc.attention.createDraftFor(svc.reports.store.serverWriter, '/r')
-    await svc.crud.update(svc.reports.store.serverWriter, draft.id, { worktreePath: '/r/.worktrees/x' })
+    await svc.crud.update(svc.reports.store.serverWriter, draft.id, {
+      worktreePath: '/r/.worktrees/x',
+    })
     issueBySession.set(asSessionId('s1'), draft.id)
-    const target = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'T', startNow: false })
-    await svc.attention.attachSession(svc.reports.store.serverWriter, { sessionId: asSessionId('s1'), targetId: target.id })
+    const target = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'T',
+      startNow: false,
+    })
+    await svc.attention.attachSession(svc.reports.store.serverWriter, {
+      sessionId: asSessionId('s1'),
+      targetId: target.id,
+    })
     expect(await svc.reports.get(draft.id)).not.toBeNull()
   })
 
@@ -225,8 +285,14 @@ describe('attachSession', () => {
       sess(asSessionId('s1'), '/r/.worktrees/epic'),
       sess(asSessionId('s2'), '/r/.worktrees/epic'),
     ])
-    const parent = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'Epic', startNow: false })
-    await svc.crud.update(svc.reports.store.serverWriter, parent.id, { worktreePath: '/r/.worktrees/epic' })
+    const parent = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Epic',
+      startNow: false,
+    })
+    await svc.crud.update(svc.reports.store.serverWriter, parent.id, {
+      worktreePath: '/r/.worktrees/epic',
+    })
     issueBySession.set(asSessionId('s1'), parent.id)
     issueBySession.set(asSessionId('s2'), parent.id)
     await svc.crud.setCoordinator(svc.reports.store.serverWriter, parent.id, asSessionId('s2'))
@@ -258,7 +324,9 @@ describe('attachSession', () => {
         parentBranch: anchorParent,
         startNow: false,
       })
-      await svc.crud.update(svc.reports.store.serverWriter, parent.id, { worktreePath: '/r/.worktrees/epic' })
+      await svc.crud.update(svc.reports.store.serverWriter, parent.id, {
+        worktreePath: '/r/.worktrees/epic',
+      })
       issueBySession.set(asSessionId('s1'), parent.id)
       issueBySession.set(asSessionId('s2'), parent.id)
       await svc.crud.setCoordinator(svc.reports.store.serverWriter, parent.id, asSessionId('s2'))
@@ -277,9 +345,15 @@ describe('attachSession', () => {
       sess(asSessionId('s2'), '/r/.worktrees/epic'),
     ])
     await store.repos.setRepoDefaultParentBranch(store.hostMachineId, '/r', 'release')
-    const parent = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'Epic', startNow: false })
+    const parent = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Epic',
+      startNow: false,
+    })
     expect(parent.parentBranch).toBe('release')
-    await svc.crud.update(svc.reports.store.serverWriter, parent.id, { worktreePath: '/r/.worktrees/epic' })
+    await svc.crud.update(svc.reports.store.serverWriter, parent.id, {
+      worktreePath: '/r/.worktrees/epic',
+    })
     issueBySession.set(asSessionId('s1'), parent.id)
     issueBySession.set(asSessionId('s2'), parent.id)
     await svc.crud.setCoordinator(svc.reports.store.serverWriter, parent.id, asSessionId('s2'))
@@ -299,7 +373,11 @@ describe('attachSession', () => {
         newSubissue: { title: 'x', origin: 'human' },
       }),
     ).rejects.toThrow(/no parent/)
-    const parent = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'P', startNow: false })
+    const parent = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'P',
+      startNow: false,
+    })
     const w = await svc.attention.attachSession(svc.reports.store.serverWriter, {
       sessionId: asSessionId('s1'),
       targetId: parent.id,
@@ -314,8 +392,14 @@ describe('attachSession', () => {
       sess(asSessionId('s1'), '/r/.worktrees/origin'),
       sess(asSessionId('s2'), '/r/.worktrees/origin'),
     ])
-    const origin = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'Origin work', startNow: false })
-    await svc.crud.update(svc.reports.store.serverWriter, origin.id, { worktreePath: '/r/.worktrees/origin' })
+    const origin = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Origin work',
+      startNow: false,
+    })
+    await svc.crud.update(svc.reports.store.serverWriter, origin.id, {
+      worktreePath: '/r/.worktrees/origin',
+    })
     issueBySession.set(asSessionId('s1'), origin.id)
     issueBySession.set(asSessionId('s2'), origin.id)
     await svc.crud.setCoordinator(svc.reports.store.serverWriter, origin.id, asSessionId('s2'))
@@ -350,7 +434,9 @@ describe('attachSession', () => {
       title: 'Integration parent',
       startNow: false,
     })
-    await svc.crud.update(svc.reports.store.serverWriter, parent.id, { worktreePath: '/r/.worktrees/parent' })
+    await svc.crud.update(svc.reports.store.serverWriter, parent.id, {
+      worktreePath: '/r/.worktrees/parent',
+    })
     for (const id of ['s1', 's2', 's3']) issueBySession.set(asSessionId(id), parent.id)
 
     const move = async () =>
@@ -376,7 +462,11 @@ describe('attachSession', () => {
       title: 'Unrelated',
       startNow: false,
     })
-    const origin = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'Origin', startNow: false })
+    const origin = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Origin',
+      startNow: false,
+    })
     issueBySession.set(asSessionId('s1'), origin.id)
     const attached = await svc.attention.attachSession(svc.reports.store.serverWriter, {
       sessionId: asSessionId('s1'),
@@ -397,8 +487,14 @@ describe('attachSession', () => {
       sess(asSessionId('s1'), '/r/.worktrees/origin'),
       sess(asSessionId('s2'), '/r/.worktrees/origin'),
     ])
-    const origin = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'Origin', startNow: false })
-    await svc.crud.update(svc.reports.store.serverWriter, origin.id, { worktreePath: '/r/.worktrees/origin' })
+    const origin = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Origin',
+      startNow: false,
+    })
+    await svc.crud.update(svc.reports.store.serverWriter, origin.id, {
+      worktreePath: '/r/.worktrees/origin',
+    })
     issueBySession.set(asSessionId('s1'), origin.id)
     issueBySession.set(asSessionId('s2'), origin.id)
     await svc.crud.setCoordinator(svc.reports.store.serverWriter, origin.id, asSessionId('s2'))
@@ -407,7 +503,12 @@ describe('attachSession', () => {
       title: 'Accepted successor',
       startNow: false,
     })
-    await svc.hierarchy.addDep(svc.reports.store.serverWriter, accepted.id, origin.id, 'discovered-from')
+    await svc.hierarchy.addDep(
+      svc.reports.store.serverWriter,
+      accepted.id,
+      origin.id,
+      'discovered-from',
+    )
 
     const attached = await svc.attention.attachSession(svc.reports.store.serverWriter, {
       sessionId: asSessionId('s1'),
@@ -422,7 +523,11 @@ describe('attachSession', () => {
 
   it('newSpinoff demands the same rehome confirmation and rejects --subissue combos', async () => {
     const { svc, issueBySession } = await harness([sess(asSessionId('s1'))])
-    const origin = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'Origin', startNow: false })
+    const origin = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Origin',
+      startNow: false,
+    })
     issueBySession.set(asSessionId('s1'), origin.id)
     await expect(
       svc.attention.attachSession(svc.reports.store.serverWriter, {
@@ -458,8 +563,15 @@ describe('attachSession', () => {
       sess(asSessionId('s1'), '/r/.worktrees/o'),
     ])
     deps.repoOp = repoOp
-    const origin = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'Origin work', startNow: false })
-    await svc.crud.update(svc.reports.store.serverWriter, origin.id, { worktreePath: '/r/.worktrees/o', branch: 'issue/1-origin' })
+    const origin = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Origin work',
+      startNow: false,
+    })
+    await svc.crud.update(svc.reports.store.serverWriter, origin.id, {
+      worktreePath: '/r/.worktrees/o',
+      branch: 'issue/1-origin',
+    })
     issueBySession.set(asSessionId('s1'), origin.id)
     const spun = await svc.attention.attachSession(svc.reports.store.serverWriter, {
       sessionId: asSessionId('s1'),
@@ -467,7 +579,9 @@ describe('attachSession', () => {
       confirmRehome: true,
     })
     // Worktree adoption is a detached follow-up; observe its persisted outcome.
-    await expect.poll(async () => (await svc.reports.get(spun.id))?.worktreePath).toBe('/r/.worktrees/o')
+    await expect
+      .poll(async () => (await svc.reports.get(spun.id))?.worktreePath)
+      .toBe('/r/.worktrees/o')
     expect((await svc.reports.get(spun.id))?.branch).toBe('issue/1-origin')
     expect((await svc.reports.get(spun.id))?.machineId).toBe(deps.store.hostMachineId)
     expect((await svc.reports.get(origin.id))?.worktreePath).toBeNull()
@@ -484,8 +598,15 @@ describe('attachSession', () => {
       sess(asSessionId('s1'), '/r/.worktrees/o'),
     ])
     deps.repoOp = repoOp
-    const origin = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'Origin work', startNow: false })
-    await svc.crud.update(svc.reports.store.serverWriter, origin.id, { worktreePath: '/r/.worktrees/o', branch: 'issue/1-origin' })
+    const origin = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Origin work',
+      startNow: false,
+    })
+    await svc.crud.update(svc.reports.store.serverWriter, origin.id, {
+      worktreePath: '/r/.worktrees/o',
+      branch: 'issue/1-origin',
+    })
     issueBySession.set(asSessionId('s1'), origin.id)
     const spun = await svc.attention.attachSession(svc.reports.store.serverWriter, {
       sessionId: asSessionId('s1'),
@@ -508,8 +629,15 @@ describe('attachSession', () => {
       sess(asSessionId('s2'), '/r/.worktrees/o'),
     ])
     deps.repoOp = repoOp
-    const origin = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'Origin work', startNow: false })
-    await svc.crud.update(svc.reports.store.serverWriter, origin.id, { worktreePath: '/r/.worktrees/o', branch: 'issue/1-origin' })
+    const origin = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Origin work',
+      startNow: false,
+    })
+    await svc.crud.update(svc.reports.store.serverWriter, origin.id, {
+      worktreePath: '/r/.worktrees/o',
+      branch: 'issue/1-origin',
+    })
     issueBySession.set(asSessionId('s1'), origin.id)
     issueBySession.set(asSessionId('s2'), origin.id)
     // s2 stays behind and coordinates, so POD-878's replacement rule is met and
@@ -528,11 +656,14 @@ describe('attachSession', () => {
 
   it('throws without --id/--subissue and on unknown target', async () => {
     const { svc } = await harness([sess(asSessionId('s1'))])
-    await expect(svc.attention.attachSession(svc.reports.store.serverWriter, { sessionId: asSessionId('s1') })).rejects.toThrow(
-      /attach needs/,
-    )
     await expect(
-      svc.attention.attachSession(svc.reports.store.serverWriter, { sessionId: asSessionId('s1'), targetId: 'iss_nope' }),
+      svc.attention.attachSession(svc.reports.store.serverWriter, { sessionId: asSessionId('s1') }),
+    ).rejects.toThrow(/attach needs/)
+    await expect(
+      svc.attention.attachSession(svc.reports.store.serverWriter, {
+        sessionId: asSessionId('s1'),
+        targetId: 'iss_nope',
+      }),
     ).rejects.toThrow()
   })
 })
@@ -540,16 +671,32 @@ describe('attachSession', () => {
 describe('soleOwnerForCwd', () => {
   it('resolves only when exactly one non-archived issue owns the cwd', async () => {
     const { svc } = await harness()
-    const a = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
     await svc.crud.update(svc.reports.store.serverWriter, a.id, { worktreePath: '/r/.worktrees/a' })
     expect(await svc.reports.soleOwnerForCwd('/r/.worktrees/a/sub')).toBe(a.id)
     expect(await svc.reports.soleOwnerForCwd('/elsewhere')).toBeNull()
-    const broad = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'Broad', startNow: false })
-    await svc.crud.update(svc.reports.store.serverWriter, broad.id, { worktreePath: '/r/.worktrees' })
+    const broad = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Broad',
+      startNow: false,
+    })
+    await svc.crud.update(svc.reports.store.serverWriter, broad.id, {
+      worktreePath: '/r/.worktrees',
+    })
     expect(await svc.reports.soleOwnerForCwd('/r/.worktrees/a/sub')).toBe(a.id)
 
-    const twin = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'Twin', startNow: false })
-    await svc.crud.update(svc.reports.store.serverWriter, twin.id, { worktreePath: '/r/.worktrees/a' })
+    const twin = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Twin',
+      startNow: false,
+    })
+    await svc.crud.update(svc.reports.store.serverWriter, twin.id, {
+      worktreePath: '/r/.worktrees/a',
+    })
     expect(await svc.reports.soleOwnerForCwd('/r/.worktrees/a/sub')).toBeNull()
     await svc.crud.update(svc.reports.store.serverWriter, twin.id, { archived: true })
     expect(await svc.reports.soleOwnerForCwd('/r/.worktrees/a/sub')).toBe(a.id)
@@ -563,18 +710,28 @@ describe('soleOwnerForCwd', () => {
   it('a registered repo main checkout never owns spawns ([spec:SP-595b] #582)', async () => {
     // `/r` is registered only AFTER the pre-existing claim below is modelled.
     const { svc, store } = await harness([], { repos: ['/other'] })
-    const squatter = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/other', title: 'Squatter', startNow: false })
+    const squatter = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/other',
+      title: 'Squatter',
+      startNow: false,
+    })
     // Model a pre-existing claim: new claims on a registered root are refused.
     await svc.crud.update(svc.reports.store.serverWriter, squatter.id, { worktreePath: '/r' })
     await store.repos.addRepo('/r', store.hostMachineId)
-    await expect(svc.crud.update(svc.reports.store.serverWriter, squatter.id, { worktreePath: '/r' })).rejects.toThrow(
-      'a repository root cannot be recorded as an issue worktree',
-    )
+    await expect(
+      svc.crud.update(svc.reports.store.serverWriter, squatter.id, { worktreePath: '/r' }),
+    ).rejects.toThrow('a repository root cannot be recorded as an issue worktree')
     expect(await svc.reports.soleOwnerForCwd('/r')).toBeNull()
     expect(await svc.reports.soleOwnerForCwd('/r/sub')).toBeNull()
     // Dedicated worktrees under the root still attach.
-    const wt = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'Wt', startNow: false })
-    await svc.crud.update(svc.reports.store.serverWriter, wt.id, { worktreePath: '/r/.worktrees/wt' })
+    const wt = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Wt',
+      startNow: false,
+    })
+    await svc.crud.update(svc.reports.store.serverWriter, wt.id, {
+      worktreePath: '/r/.worktrees/wt',
+    })
     expect(await svc.reports.soleOwnerForCwd('/r/.worktrees/wt')).toBe(wt.id)
   })
 })
@@ -607,7 +764,11 @@ describe('prime draft/attach variants', () => {
 
   it('bound real issue gets the spinoff-vs-subissue litmus re-home line (POD-85)', async () => {
     const { svc, store } = await harness()
-    const a = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
     const text = await svc.reports.prime({ boundIssueId: a.id })
     // The issue's repo was reported by a machine (2b803efb5), so it has a
     // prefix and the self-reference is `PREFIX-seq`, not the prefixless `#seq`.
@@ -697,7 +858,11 @@ describe('prime draft/attach variants', () => {
 
   it('bound issue still in backlog is told to advance the stage', async () => {
     const { svc } = await harness()
-    const a = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
     expect((await svc.reports.get(a.id))?.stage).toBe('backlog')
     expect(await svc.reports.prime({ boundIssueId: a.id })).toContain(
       'still in `backlog` but you are working it',
@@ -706,7 +871,11 @@ describe('prime draft/attach variants', () => {
 
   it('bound issue past backlog is not nagged about its stage', async () => {
     const { svc } = await harness()
-    const a = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'A', startNow: false })
+    const a = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
     await svc.crud.claim(svc.reports.store.serverWriter, a.id, asUserId('agent'))
     expect(await svc.reports.prime({ boundIssueId: a.id })).not.toContain('still in `backlog`')
   })
@@ -715,7 +884,7 @@ describe('prime draft/attach variants', () => {
 describe('store: sessions.issue_id round-trip', () => {
   it('persists and reloads issueId on session rows', async () => {
     const store = await openTestStore(':memory:')
-    await store.sessions.upsertSession({
+    await store.sessions.upsertSession(fixtureWriteScope(), {
       id: asSessionId('sx'),
       ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',
@@ -742,7 +911,10 @@ describe('store: sessions.issue_id round-trip', () => {
     const rows = await store.sessions.loadSessions()
     expect(rows.find((r) => r.id === 'sx')?.issueId).toBe('iss_1')
     // clearing round-trips too
-    await store.sessions.upsertSession({ ...rows.find((r) => r.id === 'sx')!, issueId: null })
+    await store.sessions.upsertSession(fixtureWriteScope(), {
+      ...rows.find((r) => r.id === 'sx')!,
+      issueId: null,
+    })
     expect((await store.sessions.loadSessions()).find((r) => r.id === 'sx')?.issueId).toBeNull()
   })
 })
@@ -754,7 +926,11 @@ describe('coordinator seat', () => {
   async function tree() {
     const sessions = [sess(S('root')), sess(S('helper')), sess(S('lead')), sess(S('worker'))]
     const h = await harness(sessions)
-    const root = await h.svc.crud.create(h.svc.reports.store.serverWriter, { repoPath: '/r', title: 'Root', startNow: false })
+    const root = await h.svc.crud.create(h.svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Root',
+      startNow: false,
+    })
     h.issueBySession.set(S('root'), root.id)
     h.issueBySession.set(S('helper'), root.id)
     return { ...h, sessions, root }
@@ -764,7 +940,9 @@ describe('coordinator seat', () => {
 
   it('the first child a session creates under its own issue makes it coordinator, once', async () => {
     const { svc, store, root } = await tree()
-    await svc.crud.claim(svc.reports.store.serverWriter, root.id, asUserId('agent:claude-code'), { actorSessionId: S('helper') })
+    await svc.crud.claim(svc.reports.store.serverWriter, root.id, asUserId('agent:claude-code'), {
+      actorSessionId: S('helper'),
+    })
     expect(await coordinatorOf(svc, root.id)).toBeUndefined() // claim no longer seats
 
     await svc.crud.create(svc.reports.store.serverWriter, {
@@ -793,11 +971,19 @@ describe('coordinator seat', () => {
     expect(events[0]?.payload).toMatchObject({ sessionId: 'root', cause: 'first-child' })
   })
 
-  it('a child created under someone else\'s issue does not seat its creator', async () => {
+  it("a child created under someone else's issue does not seat its creator", async () => {
     const { svc, issueBySession } = await tree()
-    const other = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'Other', startNow: false })
+    const other = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Other',
+      startNow: false,
+    })
     issueBySession.set(S('worker'), other.id)
-    const elsewhere = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/r', title: 'Elsewhere', startNow: false })
+    const elsewhere = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Elsewhere',
+      startNow: false,
+    })
     await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Not mine',
@@ -881,7 +1067,9 @@ describe('coordinator seat', () => {
     const ref = await svc.reports.niceRef((await svc.reports.get(root.id))!)
     const helper = await svc.reports.prime({ boundIssueId: root.id, sessionId: S('helper') })
     expect(helper).toContain(`you work under the coordinator of ${ref}`)
-    expect(helper).toContain(`podium mail send --to ${ref} --body "…" --expect-response --outside-scope`)
+    expect(helper).toContain(
+      `podium mail send --to ${ref} --body "…" --expect-response --outside-scope`,
+    )
     const top = await svc.reports.prime({ boundIssueId: root.id, sessionId: S('root') })
     expect(top).toContain('you talk to the user directly')
     expect(top).toContain('You coordinate this issue')

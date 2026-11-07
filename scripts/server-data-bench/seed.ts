@@ -14,6 +14,7 @@ import { Database } from 'bun:sqlite'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import type { BenchCorpus } from './corpus-export'
 
 /** Deterministic UUID-shaped id, so the same corpus always seeds the same ids. */
@@ -25,8 +26,12 @@ import type { BenchCorpus } from './corpus-export'
  * them as the migration rewrites them, so both arms get the same edges.
  */
 const FOLDED_DEP_TYPES: Readonly<Record<string, string>> = {
-  blocks: 'blocked-by', 'waits-on': 'blocked-by', duplicate: 'duplicates',
-  tracks: 'related', 'caused-by': 'related', validates: 'related',
+  blocks: 'blocked-by',
+  'waits-on': 'blocked-by',
+  duplicate: 'duplicates',
+  tracks: 'related',
+  'caused-by': 'related',
+  validates: 'related',
 }
 const DEP_TYPES = new Set(['blocked-by', 'related', 'discovered-from', 'supersedes', 'duplicates'])
 
@@ -43,14 +48,29 @@ export function bucketOf(id: string, n: number): number {
 export interface BenchFixture {
   cell: string
   seed: number
-  machines: Array<{ id: string; name: string; token: string; liveSessionIds: string[]; sessionIds: string[] }>
+  machines: Array<{
+    id: string
+    name: string
+    token: string
+    liveSessionIds: string[]
+    sessionIds: string[]
+  }>
   issueIds: string[]
   sessionIds: string[]
-  counts: { issues: number; sessions: number; liveSessions: number; repos: number; deps: number; machines: number }
+  counts: {
+    issues: number
+    sessions: number
+    liveSessions: number
+    repos: number
+    deps: number
+    machines: number
+  }
 }
 
 /** Every parent before its children (the parent column is a foreign key); seq order otherwise. */
-export function parentsFirst<T extends { id: string; seq: number; parentId: string | null }>(issues: readonly T[]): T[] {
+export function parentsFirst<T extends { id: string; seq: number; parentId: string | null }>(
+  issues: readonly T[],
+): T[] {
   const byId = new Map(issues.map((issue) => [issue.id, issue]))
   const out: T[] = []
   const placed = new Set<string>()
@@ -82,7 +102,7 @@ function analyseSeeded(path: string): void {
   }
 }
 
-const CLOSED_REASONS =new Set(['done', 'wontfix', 'duplicate', 'superseded', 'obsolete'])
+const CLOSED_REASONS = new Set(['done', 'wontfix', 'duplicate', 'superseded', 'obsolete'])
 
 async function seed(args: Record<string, string>): Promise<BenchFixture> {
   const checkout = args.checkout!
@@ -95,7 +115,8 @@ async function seed(args: Record<string, string>): Promise<BenchFixture> {
   // A fresh install mints its update signing key at first boot, before any machine
   // enrolls; a server that finds enrolled machines and no key refuses to start.
   const signingKey = join(checkout, 'packages/runtime/src/update-signing-key.ts')
-  if (existsSync(signingKey)) (await import(signingKey)).readOrCreateUpdateSigningKey(dirname(args.db!))
+  if (existsSync(signingKey))
+    (await import(signingKey)).readOrCreateUpdateSigningKey(dirname(args.db!))
   const issueId = (id: string) => `iss_${benchUuid(corpus.seed, 'issue', id)}`
   const machines = corpus.machines.map((machine, index) => ({
     id: benchUuid(corpus.seed, 'machine', machine.id),
@@ -146,9 +167,16 @@ async function seed(args: Record<string, string>): Promise<BenchFixture> {
           defaultAgent: 'claude-code',
           defaultModel: 'auto',
           defaultEffort: 'auto',
-          linearId: null, linearIdentifier: null, linearUrl: null,
-          activityNotes: null, notesUpdatedAt: null, suggestedStage: null, suggestedReason: null,
-          blockedBy: [], dependencyNote: null, prUrl: null,
+          linearId: null,
+          linearIdentifier: null,
+          linearUrl: null,
+          activityNotes: null,
+          notesUpdatedAt: null,
+          suggestedStage: null,
+          suggestedReason: null,
+          blockedBy: [],
+          dependencyNote: null,
+          prUrl: null,
           createdAt: issue.createdAt,
           updatedAt: issue.updatedAt,
           archived: issue.archived,
@@ -156,11 +184,20 @@ async function seed(args: Record<string, string>): Promise<BenchFixture> {
           type: issue.type,
           assignee: null,
           parentId: issue.parentId && known.has(issue.parentId) ? issueId(issue.parentId) : null,
-          design: null, acceptance: null, notes: null, dueAt: null,
+          design: null,
+          acceptance: null,
+          notes: null,
+          dueAt: null,
           deferUntil: issue.deferUntil,
-          closedReason: closed ? (CLOSED_REASONS.has(issue.closedReason ?? '') ? issue.closedReason : 'done') : null,
+          closedReason: closed
+            ? CLOSED_REASONS.has(issue.closedReason ?? '')
+              ? issue.closedReason
+              : 'done'
+            : null,
           closedAt: closed ? (issue.closedAt ?? issue.updatedAt) : null,
-          supersededBy: null, duplicateOf: null, estimateMin: null,
+          supersededBy: null,
+          duplicateOf: null,
+          estimateMin: null,
           needsHuman: issue.needsHuman,
           humanQuestion: null,
         })
@@ -187,7 +224,7 @@ async function seed(args: Record<string, string>): Promise<BenchFixture> {
         machine.sessionIds.push(id)
         if (session.status === 'live') machine.liveSessionIds.push(id)
         sessionIds.push(id)
-        await store.sessions.upsertSession({
+        await store.sessions.upsertSession(fixtureWriteScope(), {
           id,
           ownerUserId: owner,
           agentKind: session.agentKind,
@@ -221,7 +258,13 @@ async function seed(args: Record<string, string>): Promise<BenchFixture> {
   return {
     cell: corpus.cell,
     seed: corpus.seed,
-    machines: machines.map(({ id, name, token, liveSessionIds, sessionIds }) => ({ id, name, token, liveSessionIds, sessionIds })),
+    machines: machines.map(({ id, name, token, liveSessionIds, sessionIds }) => ({
+      id,
+      name,
+      token,
+      liveSessionIds,
+      sessionIds,
+    })),
     issueIds: issues.map((issue) => issueId(issue.id)),
     sessionIds,
     counts: {
@@ -236,15 +279,20 @@ async function seed(args: Record<string, string>): Promise<BenchFixture> {
 }
 
 export function parseArgs(argv: readonly string[]): Record<string, string> {
-  return Object.fromEntries(argv.filter((arg) => arg.startsWith('--')).map((arg) => {
-    const at = arg.indexOf('=')
-    return at < 0 ? [arg.slice(2), 'true'] : [arg.slice(2, at), arg.slice(at + 1)]
-  }))
+  return Object.fromEntries(
+    argv
+      .filter((arg) => arg.startsWith('--'))
+      .map((arg) => {
+        const at = arg.indexOf('=')
+        return at < 0 ? [arg.slice(2), 'true'] : [arg.slice(2, at), arg.slice(at + 1)]
+      }),
+  )
 }
 
 if (import.meta.main) {
   const args = parseArgs(process.argv.slice(2))
-  for (const name of ['checkout', 'corpus', 'db', 'out']) if (!args[name]) throw new Error(`seed.ts: --${name} is required`)
+  for (const name of ['checkout', 'corpus', 'db', 'out'])
+    if (!args[name]) throw new Error(`seed.ts: --${name} is required`)
   const fixture = await seed(args)
   writeFileSync(args.out!, JSON.stringify(fixture, null, 2))
   console.log(JSON.stringify(fixture.counts))

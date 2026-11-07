@@ -5,12 +5,13 @@
  * seen by the reads after it.
  */
 import { asMachineId, asSessionId, asUserId, type UserId } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import type { SessionStore } from '../store'
-import { withOperation } from './executor/operation-scope'
-import { withReadScope } from './executor/read-scope'
 import { openTestStore } from '../test-support/open-test-store'
 import { countStatements } from '../test-support/statement-count'
+import { withOperation } from './executor/operation-scope'
+import { withReadScope } from './executor/read-scope'
 import type { StoreQueries } from './executor/sync-drizzle'
 import { type GrantRow, GrantsRepository } from './grants'
 import type { SessionRow } from './types'
@@ -73,15 +74,23 @@ describe('GrantsRepository.loadForResource', () => {
       await store.grants.upsert(grant('iss_a', 'alice'))
       await store.grants.upsert(grant('iss_b', 'bob'))
       const loads = () =>
-        Promise.all(['iss_a', 'iss_b', 'iss_none'].map((id) => store.grants.loadForResource('issue', id)))
+        Promise.all(
+          ['iss_a', 'iss_b', 'iss_none'].map((id) => store.grants.loadForResource('issue', id)),
+        )
       await withReadScope(async () => {
         const first = await countStatements(store, loads)
         expect(first.statements).toBe(1)
-        expect(first.result.map((rows) => rows.map((row) => row.grantee))).toEqual([['alice'], ['bob'], []])
+        expect(first.result.map((rows) => rows.map((row) => row.grantee))).toEqual([
+          ['alice'],
+          ['bob'],
+          [],
+        ])
         // "No grants" is remembered too.
         expect((await countStatements(store, loads)).statements).toBe(0)
       })
-      await withReadScope(async () => expect((await countStatements(store, loads)).statements).toBe(1))
+      await withReadScope(async () =>
+        expect((await countStatements(store, loads)).statements).toBe(1),
+      )
       // Outside an explicit scope every load is its own live read.
       expect((await countStatements(store, loads)).statements).toBe(3)
     })
@@ -92,7 +101,9 @@ describe('GrantsRepository.loadForResource', () => {
       await withReadScope(async () => {
         expect(await store.grants.loadForResource('issue', 'iss_a')).toEqual([])
         await store.grants.upsert(grant('iss_a', 'alice'))
-        expect((await store.grants.loadForResource('issue', 'iss_a')).map((row) => row.grantee)).toEqual(['alice'])
+        expect(
+          (await store.grants.loadForResource('issue', 'iss_a')).map((row) => row.grantee),
+        ).toEqual(['alice'])
         await store.grants.remove('issue', 'iss_a', 'alice', 'read')
         expect(await store.grants.loadForResource('issue', 'iss_a')).toEqual([])
       })
@@ -110,11 +121,15 @@ describe('GrantsRepository.loadForResource inside a write span', () => {
       await store.grants.upsert(grant('iss_b', 'bob'))
       await store.transact(async () => {
         const check = () =>
-          Promise.all(['iss_a', 'iss_b', 'iss_a'].map((id) => store.grants.loadForResource('issue', id)))
+          Promise.all(
+            ['iss_a', 'iss_b', 'iss_a'].map((id) => store.grants.loadForResource('issue', id)),
+          )
         expect((await countStatements(store, check)).statements).toBe(1)
         expect((await countStatements(store, check)).statements).toBe(0)
         // A savepoint of a span that has not written grants shares its memo.
-        await store.transact(async () => expect((await countStatements(store, check)).statements).toBe(0))
+        await store.transact(async () =>
+          expect((await countStatements(store, check)).statements).toBe(0),
+        )
         await store.grants.upsert(grant('iss_a', 'alice'))
         expect(grantees(await store.grants.loadForResource('issue', 'iss_a'))).toEqual(['alice'])
         await store.grants.remove('issue', 'iss_a', 'alice', 'read')
@@ -127,26 +142,37 @@ describe('GrantsRepository.loadForResource inside a write span', () => {
   it('reuses nothing across operations; inside one operation, an answer from before its span', async () => {
     await withStore(async (store) => {
       const once = () => store.grants.loadForResource('issue', 'iss_a')
-      await store.transact(async () => expect((await countStatements(store, once)).statements).toBe(1))
-      await store.transact(async () => expect((await countStatements(store, once)).statements).toBe(1))
+      await store.transact(async () =>
+        expect((await countStatements(store, once)).statements).toBe(1),
+      )
+      await store.transact(async () =>
+        expect((await countStatements(store, once)).statements).toBe(1),
+      )
       await withReadScope(async () => {
         expect((await countStatements(store, once)).statements).toBe(1)
-        await store.transact(async () => expect((await countStatements(store, once)).statements).toBe(0))
+        await store.transact(async () =>
+          expect((await countStatements(store, once)).statements).toBe(0),
+        )
         expect((await countStatements(store, once)).statements).toBe(0)
       })
-      await withReadScope(async () => expect((await countStatements(store, once)).statements).toBe(1))
+      await withReadScope(async () =>
+        expect((await countStatements(store, once)).statements).toBe(1),
+      )
     })
   })
 
   it('a second operation sees a grant the first one memoised the absence of', async () => {
     await withStore(async (store) => {
       await withReadScope(async () => {
-        await store.transact(async () => expect(await store.grants.loadForResource('issue', 'iss_a')).toEqual([]))
+        await store.transact(async () =>
+          expect(await store.grants.loadForResource('issue', 'iss_a')).toEqual([]),
+        )
       })
       await store.grants.upsert(grant('iss_a', 'alice'))
       await withReadScope(async () => {
         await store.transact(async () =>
-          expect(grantees(await store.grants.loadForResource('issue', 'iss_a'))).toEqual(['alice']))
+          expect(grantees(await store.grants.loadForResource('issue', 'iss_a'))).toEqual(['alice']),
+        )
       })
     })
   })
@@ -156,11 +182,15 @@ describe('GrantsRepository.loadForResource inside a write span', () => {
       await withReadScope(async () => {
         await store.transact(async () => {
           expect(await store.grants.loadForResource('issue', 'iss_a')).toEqual([])
-          await expect(store.transact(async () => {
-            await store.grants.upsert(grant('iss_a', 'alice'))
-            expect(grantees(await store.grants.loadForResource('issue', 'iss_a'))).toEqual(['alice'])
-            throw new Error('roll the savepoint back')
-          })).rejects.toThrow('roll the savepoint back')
+          await expect(
+            store.transact(async () => {
+              await store.grants.upsert(grant('iss_a', 'alice'))
+              expect(grantees(await store.grants.loadForResource('issue', 'iss_a'))).toEqual([
+                'alice',
+              ])
+              throw new Error('roll the savepoint back')
+            }),
+          ).rejects.toThrow('roll the savepoint back')
           expect(await store.grants.loadForResource('issue', 'iss_a')).toEqual([])
         })
         // The operation's memo after the span holds nothing the rollback undid.
@@ -173,11 +203,15 @@ describe('GrantsRepository.loadForResource inside a write span', () => {
   it('forgets what a span read after its own grant write when the span rolls back', async () => {
     await withStore(async (store) => {
       await withReadScope(async () => {
-        await expect(store.transact(async () => {
-          await store.grants.upsert(grant('iss_a', 'alice'))
-          expect(grantees(await store.grants.loadForResource('issue', 'iss_a'))).toEqual(['alice'])
-          throw new Error('roll the span back')
-        })).rejects.toThrow('roll the span back')
+        await expect(
+          store.transact(async () => {
+            await store.grants.upsert(grant('iss_a', 'alice'))
+            expect(grantees(await store.grants.loadForResource('issue', 'iss_a'))).toEqual([
+              'alice',
+            ])
+            throw new Error('roll the span back')
+          }),
+        ).rejects.toThrow('roll the span back')
         expect(await store.grants.loadForResource('issue', 'iss_a')).toEqual([])
       })
     })
@@ -223,13 +257,24 @@ describe('GrantsRepository.loadForResource for a whole operation', () => {
       }
       await withOperation(async () => {
         const first = await countStatements(store, () =>
-          store.grants.loadForResourcesOfKinds({ issue: ['iss_a', 'iss_none'], session: ['s1'] }))
+          store.grants.loadForResourcesOfKinds({ issue: ['iss_a', 'iss_none'], session: ['s1'] }),
+        )
         expect(first.statements).toBe(1)
-        expect([...first.result].map(([kind, rows]) => [kind, [...rows].map(([id, edges]) => [id, grantees(edges)])]))
-          .toEqual([
-            ['issue', [['iss_a', ['alice']], ['iss_none', []]]],
-            ['session', [['s1', ['bob']]]],
-          ])
+        expect(
+          [...first.result].map(([kind, rows]) => [
+            kind,
+            [...rows].map(([id, edges]) => [id, grantees(edges)]),
+          ]),
+        ).toEqual([
+          [
+            'issue',
+            [
+              ['iss_a', ['alice']],
+              ['iss_none', []],
+            ],
+          ],
+          ['session', [['s1', ['bob']]]],
+        ])
         const later = await countStatements(store, async () => [
           grantees(await store.grants.loadForResource('session', 's1')),
           grantees((await store.grants.loadForResources('issue', ['iss_a'])).get('iss_a') ?? []),
@@ -261,11 +306,15 @@ describe('GrantsRepository.loadForResource for a whole operation', () => {
       await withOperation(async () => {
         await store.transact(async () => {
           expect(await store.grants.loadForResource('issue', 'iss_a')).toEqual([])
-          await expect(store.transact(async () => {
-            await store.grants.upsert(grant('iss_a', 'alice'))
-            expect(grantees(await store.grants.loadForResource('issue', 'iss_a'))).toEqual(['alice'])
-            throw new Error('roll the savepoint back')
-          })).rejects.toThrow('roll the savepoint back')
+          await expect(
+            store.transact(async () => {
+              await store.grants.upsert(grant('iss_a', 'alice'))
+              expect(grantees(await store.grants.loadForResource('issue', 'iss_a'))).toEqual([
+                'alice',
+              ])
+              throw new Error('roll the savepoint back')
+            }),
+          ).rejects.toThrow('roll the savepoint back')
           expect(await store.grants.loadForResource('issue', 'iss_a')).toEqual([])
         })
         expect(await store.grants.loadForResource('issue', 'iss_a')).toEqual([])
@@ -273,16 +322,19 @@ describe('GrantsRepository.loadForResource for a whole operation', () => {
     })
   })
 
-  it('a second operation does not see the first one\'s answer', async () => {
+  it("a second operation does not see the first one's answer", async () => {
     await withStore(async (store) => {
-      await withOperation(async () => expect(await store.grants.loadForResource('issue', 'iss_a')).toEqual([]))
+      await withOperation(async () =>
+        expect(await store.grants.loadForResource('issue', 'iss_a')).toEqual([]),
+      )
       // Written through a SECOND repository over the same database, whose
       // invalidation does not reach the store's loader: a reused answer would
       // still say "no grants".
       const queries = (store as unknown as { queries: StoreQueries }).queries
       await new GrantsRepository(queries).upsert(grant('iss_a', 'mallory'))
       await withOperation(async () =>
-        expect(grantees(await store.grants.loadForResource('issue', 'iss_a'))).toEqual(['mallory']))
+        expect(grantees(await store.grants.loadForResource('issue', 'iss_a'))).toEqual(['mallory']),
+      )
     })
   })
 })
@@ -290,8 +342,8 @@ describe('GrantsRepository.loadForResource for a whole operation', () => {
 describe('SessionsRepository.loadSession', () => {
   it('one query for a tick of loads, reuse within the operation, none across operations', async () => {
     await withStore(async (store) => {
-      await store.sessions.upsertSession(session('s1'))
-      await store.sessions.upsertSession(session('s2'))
+      await store.sessions.upsertSession(fixtureWriteScope(), session('s1'))
+      await store.sessions.upsertSession(fixtureWriteScope(), session('s2'))
       const loads = () =>
         Promise.all(['s1', 's2', 'absent'].map((id) => store.sessions.loadSession(asSessionId(id))))
       await withReadScope(async () => {
@@ -303,7 +355,9 @@ describe('SessionsRepository.loadSession', () => {
         first.result[0]!.title = 'changed by one caller'
         expect((await store.sessions.loadSession(asSessionId('s1')))?.title).toBe('s1')
       })
-      await withReadScope(async () => expect((await countStatements(store, loads)).statements).toBe(1))
+      await withReadScope(async () =>
+        expect((await countStatements(store, loads)).statements).toBe(1),
+      )
       expect((await countStatements(store, loads)).statements).toBe(3)
     })
   })
@@ -312,11 +366,13 @@ describe('SessionsRepository.loadSession', () => {
     await withStore(async (store) => {
       await withReadScope(async () => {
         expect(await store.sessions.loadSession(asSessionId('s1'))).toBeUndefined()
-        await store.sessions.upsertSession(session('s1'))
+        await store.sessions.upsertSession(fixtureWriteScope(), session('s1'))
         expect((await store.sessions.loadSession(asSessionId('s1')))?.spawnedBy ?? null).toBeNull()
-        await store.sessions.upsertSession(session('s1', 'session:parent'))
-        expect((await store.sessions.loadSession(asSessionId('s1')))?.spawnedBy).toBe('session:parent')
-        await store.sessions.purgeSession(asSessionId('s1'))
+        await store.sessions.upsertSession(fixtureWriteScope(), session('s1', 'session:parent'))
+        expect((await store.sessions.loadSession(asSessionId('s1')))?.spawnedBy).toBe(
+          'session:parent',
+        )
+        await store.sessions.purgeSession(fixtureWriteScope(), asSessionId('s1'))
         expect(await store.sessions.loadSession(asSessionId('s1'))).toBeUndefined()
       })
     })
@@ -328,14 +384,16 @@ describe('SessionsRepository.loadSession', () => {
   // hung until the store closed ("scheduler is draining").
   it('a root load and a span load of the same tick neither share a batch nor deadlock', async () => {
     await withStore(async (store) => {
-      await store.sessions.upsertSession(session('s1'))
-      await store.sessions.upsertSession(session('s2'))
-      const loads = withReadScope(async () =>
-        await Promise.all([
-          store.sessions.loadSession(asSessionId('s1')).then((row) => row?.id),
-          store.transact(async () => (await store.sessions.loadSession(asSessionId('s2')))?.id),
-          store.transact(async () => (await store.sessions.loadSession(asSessionId('s1')))?.id),
-        ]))
+      await store.sessions.upsertSession(fixtureWriteScope(), session('s1'))
+      await store.sessions.upsertSession(fixtureWriteScope(), session('s2'))
+      const loads = withReadScope(
+        async () =>
+          await Promise.all([
+            store.sessions.loadSession(asSessionId('s1')).then((row) => row?.id),
+            store.transact(async () => (await store.sessions.loadSession(asSessionId('s2')))?.id),
+            store.transact(async () => (await store.sessions.loadSession(asSessionId('s1')))?.id),
+          ]),
+      )
       expect(await withinSeconds(loads, 5)).toEqual(['s1', 's2', 's1'])
     })
   })
@@ -346,7 +404,11 @@ describe('SessionsRepository.loadSession', () => {
 // phases of one frame.
 describe('UsersRepository.earliestAdmin for a whole operation', () => {
   const later = (id: string, createdAt: string, role: 'admin' | 'member' = 'admin') => ({
-    id, displayName: id, role, createdAt, disabledAt: null,
+    id,
+    displayName: id,
+    role,
+    createdAt,
+    disabledAt: null,
   })
 
   it('one statement before, inside and after its write span; none shared with the next operation', async () => {
@@ -372,12 +434,21 @@ describe('UsersRepository.earliestAdmin for a whole operation', () => {
   it('sees an earlier admin created and a disable made in the same operation', async () => {
     await withStore(async (store) => {
       const original = (await store.users.earliestAdmin())!.id
-      await store.users.create(later('mem_2BBBBBBBBBBBBBBBBBBBBBBBBBB', '2099-01-01T00:00:00.000Z'), 'scrypt:hash')
+      await store.users.create(
+        later('mem_2BBBBBBBBBBBBBBBBBBBBBBBBBB', '2099-01-01T00:00:00.000Z'),
+        'scrypt:hash',
+      )
       await withOperation(async () => {
         expect((await store.users.earliestAdmin())?.id).toBe(original)
-        await store.users.create(later('mem_0AAAAAAAAAAAAAAAAAAAAAAAAAA', '2000-01-01T00:00:00.000Z'), 'scrypt:hash')
+        await store.users.create(
+          later('mem_0AAAAAAAAAAAAAAAAAAAAAAAAAA', '2000-01-01T00:00:00.000Z'),
+          'scrypt:hash',
+        )
         expect((await store.users.earliestAdmin())?.id).toBe('mem_0AAAAAAAAAAAAAAAAAAAAAAAAAA')
-        await store.users.disable(asUserId('mem_0AAAAAAAAAAAAAAAAAAAAAAAAAA'), '2026-10-17T00:00:00.000Z')
+        await store.users.disable(
+          asUserId('mem_0AAAAAAAAAAAAAAAAAAAAAAAAAA'),
+          '2026-10-17T00:00:00.000Z',
+        )
         expect((await store.users.earliestAdmin())?.id).toBe(original)
         await store.transact(async () => {
           await store.users.disable(asUserId(original), '2026-10-17T00:00:01.000Z')
@@ -393,11 +464,16 @@ describe('UsersRepository.earliestAdmin for a whole operation', () => {
       const original = (await store.users.earliestAdmin())!.id
       await withOperation(async () => {
         expect((await store.users.earliestAdmin())?.id).toBe(original)
-        await expect(store.transact(async () => {
-          await store.users.create(later('mem_0AAAAAAAAAAAAAAAAAAAAAAAAAA', '2000-01-01T00:00:00.000Z'), 'scrypt:hash')
-          expect((await store.users.earliestAdmin())?.id).toBe('mem_0AAAAAAAAAAAAAAAAAAAAAAAAAA')
-          throw new Error('roll the span back')
-        })).rejects.toThrow('roll the span back')
+        await expect(
+          store.transact(async () => {
+            await store.users.create(
+              later('mem_0AAAAAAAAAAAAAAAAAAAAAAAAAA', '2000-01-01T00:00:00.000Z'),
+              'scrypt:hash',
+            )
+            expect((await store.users.earliestAdmin())?.id).toBe('mem_0AAAAAAAAAAAAAAAAAAAAAAAAAA')
+            throw new Error('roll the span back')
+          }),
+        ).rejects.toThrow('roll the span back')
         expect((await store.users.earliestAdmin())?.id).toBe(original)
       })
     })
@@ -416,7 +492,13 @@ describe('UsersRepository.earliestAdmin for a whole operation', () => {
 
 // POD-6218 / POD-6229: a delivery pass read the sender's account once per held row.
 describe('UsersRepository.get for a whole operation', () => {
-  const member = (id: string) => ({ id, displayName: id, role: 'member' as const, createdAt: '2026-01-01T00:00:00.000Z', disabledAt: null })
+  const member = (id: string) => ({
+    id,
+    displayName: id,
+    role: 'member' as const,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    disabledAt: null,
+  })
 
   it('one read before, inside and after its write span; ids of a tick in one read; none shared with the next operation', async () => {
     await withStore(async (store) => {
@@ -424,7 +506,11 @@ describe('UsersRepository.get for a whole operation', () => {
       await store.users.create(member('mem_1BBBBBBBBBBBBBBBBBBBBBBBBBB'), 'scrypt:hash')
       const other = asUserId('mem_1BBBBBBBBBBBBBBBBBBBBBBBBBB')
       const phases = async () => {
-        const first = await Promise.all([store.users.get(admin), store.users.get(other), store.users.get(asUserId('absent'))])
+        const first = await Promise.all([
+          store.users.get(admin),
+          store.users.get(other),
+          store.users.get(asUserId('absent')),
+        ])
         await store.transact(async () => {
           await store.users.roleOf(admin)
         })
@@ -456,12 +542,18 @@ describe('UsersRepository.get for a whole operation', () => {
     })
   })
 
-  it('the earliest admin\'s row answers the next read of that member by id', async () => {
+  it("the earliest admin's row answers the next read of that member by id", async () => {
     await withStore(async (store) => {
-      const counted = await countStatements(store, () => withOperation(async () => {
-        const admin = (await store.users.earliestAdmin())!
-        return [admin.id, (await store.users.get(asUserId(admin.id)))?.id, await store.users.roleOf(asUserId(admin.id))]
-      }))
+      const counted = await countStatements(store, () =>
+        withOperation(async () => {
+          const admin = (await store.users.earliestAdmin())!
+          return [
+            admin.id,
+            (await store.users.get(asUserId(admin.id)))?.id,
+            await store.users.roleOf(asUserId(admin.id)),
+          ]
+        }),
+      )
       expect(counted.statements).toBe(1)
       expect(counted.result[0]).toBe(counted.result[1])
       expect(counted.result[2]).toBe('admin')
@@ -473,11 +565,13 @@ describe('UsersRepository.get for a whole operation', () => {
       const other = asUserId('mem_1BBBBBBBBBBBBBBBBBBBBBBBBBB')
       await withOperation(async () => {
         expect(await store.users.get(other)).toBeUndefined()
-        await expect(store.transact(async () => {
-          await store.users.create(member(other), 'scrypt:hash')
-          expect((await store.users.get(other))?.id).toBe(other)
-          throw new Error('roll the span back')
-        })).rejects.toThrow('roll the span back')
+        await expect(
+          store.transact(async () => {
+            await store.users.create(member(other), 'scrypt:hash')
+            expect((await store.users.get(other))?.id).toBe(other)
+            throw new Error('roll the span back')
+          }),
+        ).rejects.toThrow('roll the span back')
         expect(await store.users.get(other)).toBeUndefined()
       })
     })
@@ -536,7 +630,10 @@ describe('SettingsRepository.getSettingsFor for a whole operation', () => {
 async function withinSeconds<T>(work: Promise<T>, seconds: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
   const hung = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`still waiting after ${seconds} s: deadlocked`)), seconds * 1000)
+    timer = setTimeout(
+      () => reject(new Error(`still waiting after ${seconds} s: deadlocked`)),
+      seconds * 1000,
+    )
   })
   try {
     return await Promise.race([work, hung])

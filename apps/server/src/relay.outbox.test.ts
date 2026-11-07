@@ -815,7 +815,7 @@ describe('queueText (durable outbox sends)', () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await attachHostDaemon(reg, () => {})
     const sessionId = await hibernatedSession(reg)
-    await reg.modules.sessions.setSnooze({
+    await reg.modules.sessions.setSnooze(reg.modules.sessions.serverWriter, {
       userId: firstAdminMemberId(),
       sessionId: asSessionId(sessionId),
       until: null,

@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import { asIssueId, asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import type { SessionStore } from '../store'
 import { RUNTIME_EVENT_LOG_KIND } from '../store/events'
 
@@ -29,14 +30,21 @@ export async function corpusSessions(): Promise<{ sessions: CorpusSession[]; rep
     new URL('../../../../scripts/server-data-bench/corpus-export.ts', import.meta.url),
   )
   const { exportCorpus } = (await import(module)) as {
-    exportCorpus(cell: string, seed: number): Promise<{ sessions: CorpusSession[]; repos: string[] }>
+    exportCorpus(
+      cell: string,
+      seed: number,
+    ): Promise<{ sessions: CorpusSession[]; repos: string[] }>
   }
   return await exportCorpus('h1a1', 4443)
 }
 
 const at = (minute: number) => `2026-09-01T00:${String(minute % 60).padStart(2, '0')}:00.000Z`
 
-export async function plantSatellites(store: SessionStore, ids: readonly string[], resumes: Map<string, string>) {
+export async function plantSatellites(
+  store: SessionStore,
+  ids: readonly string[],
+  resumes: Map<string, string>,
+) {
   let offers = 0
   let drafts = 0
   let transcripts = 0
@@ -46,7 +54,7 @@ export async function plantSatellites(store: SessionStore, ids: readonly string[
     if (index % 5 === 0) {
       // Every other offer predates the row's last input, which the boot install
       // clears and a record reads as absent.
-      await store.sessions.setOffer(id, {
+      await store.sessions.setOffer(fixtureWriteScope(), id, {
         message: `offer ${index}`,
         actions: [{ label: 'Go', prompt: 'go' }],
         ...(index % 10 === 0 ? { artifacts: ['shot.png'] } : {}),
@@ -76,7 +84,10 @@ export async function plantSatellites(store: SessionStore, ids: readonly string[
       })
     const complete = (n: number) => ({
       t: 'item',
-      item: { kind: 'complete', item: { id: `item-${index}-${n}`, role: 'assistant', text: 'hi', ts: at(index) } },
+      item: {
+        kind: 'complete',
+        item: { id: `item-${index}-${n}`, role: 'assistant', text: 'hi', ts: at(index) },
+      },
     })
     switch (index % 6) {
       case 1: // items, no reset
@@ -131,7 +142,7 @@ export async function seedCorpusSessions(store: SessionStore) {
   await store.transact(async () => {
     for (const [index, s] of corpus.sessions.entries()) {
       if (s.resumeValue) resumes.set(s.id, s.resumeValue)
-      await store.sessions.upsertSession({
+      await store.sessions.upsertSession(fixtureWriteScope(), {
         id: asSessionId(s.id),
         ownerUserId: index % 6 === 0 ? asUserId('user:other') : admin,
         agentKind: s.agentKind,

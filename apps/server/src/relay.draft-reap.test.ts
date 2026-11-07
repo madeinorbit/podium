@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { SessionId } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it, onTestFinished } from 'vitest'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
@@ -57,7 +58,9 @@ function draftFixture() {
     return store
   }
   const createRegistry = async () => {
-    const registry = await SessionRegistry.create(await openStore(), undefined, { instanceId: 'default' })
+    const registry = await SessionRegistry.create(await openStore(), undefined, {
+      instanceId: 'default',
+    })
     registries.add(registry)
     return registry
   }
@@ -68,7 +71,11 @@ async function draftWithSession(reg: SessionRegistry, repo = '/repo') {
   // Issues are placed on a machine that reported their repo (2b803efb5 refuses
   // implicit placement), so the host machine reports it first.
   await reg.sessionStore.repos.addRepo(repo, reg.sessionStore.hostMachineId)
-  const draft = await reg.issues.attention.createDraftFor(reg.issues.reports.store.serverWriter, repo, 'codex')
+  const draft = await reg.issues.attention.createDraftFor(
+    reg.issues.reports.store.serverWriter,
+    repo,
+    'codex',
+  )
   const { sessionId } = await reg.modules.sessions.createSession({
     agentKind: 'codex',
     cwd: repo,
@@ -82,7 +89,7 @@ describe('draft retention on session death', () => {
     const reg = await regWithDaemon()
     const { draft, sessionId } = await draftWithSession(reg)
     expect(await reg.issues.reports.get(draft.id)).not.toBeNull()
-    await reg.modules.sessions.killSession({ sessionId })
+    await reg.modules.sessions.killSession(reg.modules.sessions.serverWriter, { sessionId })
     expect(await reg.issues.reports.get(draft.id)).not.toBeNull()
     expect(await reg.modules.sessions.listSessions(undefined, 'rpc')).toHaveLength(0)
     expect((await reg.sessionStore.sessions.getSession(sessionId))?.issueId).toBe(draft.id)
@@ -91,7 +98,10 @@ describe('draft retention on session death', () => {
   it('archiving the last attached session keeps its draft attachment', async () => {
     const reg = await regWithDaemon()
     const { draft, sessionId } = await draftWithSession(reg)
-    await reg.modules.sessions.setArchived({ sessionId, archived: true })
+    await reg.modules.sessions.setArchived(reg.modules.sessions.serverWriter, {
+      sessionId,
+      archived: true,
+    })
     expect(await reg.issues.reports.get(draft.id)).not.toBeNull()
     expect(await reg.modules.sessions.readSessionIssueId(sessionId)).toBe(draft.id)
   })
@@ -150,35 +160,43 @@ describe('draft retention on session death', () => {
   it('draft with a second live session is kept when one dies', async () => {
     const reg = await regWithDaemon()
     const { draft, sessionId } = await draftWithSession(reg)
-    const second = (await reg.modules.sessions.createSession({
-      agentKind: 'claude-code',
-      cwd: '/repo',
-      issueId: draft.id,
-    })).sessionId
+    const second = (
+      await reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/repo',
+        issueId: draft.id,
+      })
+    ).sessionId
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(second))
-    await reg.modules.sessions.killSession({ sessionId })
+    await reg.modules.sessions.killSession(reg.modules.sessions.serverWriter, { sessionId })
     expect(await reg.issues.reports.get(draft.id)).not.toBeNull()
     expect(await reg.modules.sessions.readSessionIssueId(second)).toBe(draft.id)
   })
 
   it('non-draft issue is never reaped', async () => {
     const reg = await regWithDaemon()
-    const issue = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, { repoPath: '/repo', title: 'Real work', startNow: false })
+    const issue = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
+      repoPath: '/repo',
+      title: 'Real work',
+      startNow: false,
+    })
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/repo',
       issueId: issue.id,
     })
-    await reg.modules.sessions.killSession({ sessionId })
+    await reg.modules.sessions.killSession(reg.modules.sessions.serverWriter, { sessionId })
     expect(await reg.issues.reports.get(issue.id)).not.toBeNull()
   })
 
   it('draft with a worktree is kept', async () => {
     const reg = await regWithDaemon()
     const { draft, sessionId } = await draftWithSession(reg)
-    await reg.issues.crud.update(reg.issues.reports.store.serverWriter, draft.id, { worktreePath: '/repo/.claude/worktrees/wt' })
+    await reg.issues.crud.update(reg.issues.reports.store.serverWriter, draft.id, {
+      worktreePath: '/repo/.claude/worktrees/wt',
+    })
     expect((await reg.issues.reports.get(draft.id))?.draft).toBe(true) // worktree does not clear draft
-    await reg.modules.sessions.killSession({ sessionId })
+    await reg.modules.sessions.killSession(reg.modules.sessions.serverWriter, { sessionId })
     expect(await reg.issues.reports.get(draft.id)).not.toBeNull()
   })
 })
@@ -187,9 +205,16 @@ describe('explicit rehome draft cleanup', () => {
   it('purges a draft after its sole visible session is rehomed', async () => {
     const reg = await regWithDaemon()
     const { draft, sessionId } = await draftWithSession(reg)
-    const target = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, { repoPath: '/repo', title: 'Real work', startNow: false })
+    const target = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
+      repoPath: '/repo',
+      title: 'Real work',
+      startNow: false,
+    })
 
-    await reg.issues.attention.attachSession(reg.issues.reports.store.serverWriter, { sessionId, targetId: target.id })
+    await reg.issues.attention.attachSession(reg.issues.reports.store.serverWriter, {
+      sessionId,
+      targetId: target.id,
+    })
 
     expect(await reg.issues.reports.get(draft.id)).toBeNull()
     expect(await reg.modules.sessions.readSessionIssueId(sessionId)).toBe(target.id)
@@ -204,14 +229,23 @@ describe('explicit rehome draft cleanup', () => {
       sessionId: exited.sessionId,
       code: 0,
     })
-    const liveSessionId = (await reg.modules.sessions.createSession({
-      agentKind: 'codex',
-      cwd: '/repo',
-      issueId: exited.draft.id,
-    })).sessionId
-    const target = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, { repoPath: '/repo', title: 'Real work', startNow: false })
+    const liveSessionId = (
+      await reg.modules.sessions.createSession({
+        agentKind: 'codex',
+        cwd: '/repo',
+        issueId: exited.draft.id,
+      })
+    ).sessionId
+    const target = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
+      repoPath: '/repo',
+      title: 'Real work',
+      startNow: false,
+    })
 
-    await reg.issues.attention.attachSession(reg.issues.reports.store.serverWriter, { sessionId: liveSessionId, targetId: target.id })
+    await reg.issues.attention.attachSession(reg.issues.reports.store.serverWriter, {
+      sessionId: liveSessionId,
+      targetId: target.id,
+    })
 
     expect(await reg.issues.reports.get(exited.draft.id)).not.toBeNull()
     expect(await reg.modules.sessions.readSessionIssueId(exited.sessionId)).toBe(exited.draft.id)
@@ -238,7 +272,7 @@ describe('boot-time draft retention', () => {
     // A reboot relinquishes the old writer before opening the replacement.
     await fixture.stopRegistry(reg1)
     const orphanStore = await fixture.openStore()
-    await orphanStore.sessions.purgeSession(sessionId)
+    await orphanStore.sessions.purgeSession(fixtureWriteScope(), sessionId)
     await fixture.closeStore(orphanStore)
     const reg2 = await fixture.createRegistry()
     expect(await reg2.issues.reports.get(draft.id)).not.toBeNull()
@@ -253,11 +287,13 @@ describe('boot-time draft retention', () => {
     // Force-persist the row as exited behind the reaper's back (leaked state).
     const row = (await store.sessions.loadSessions()).find((r) => r.id === sessionId)
     if (!row) throw new Error('session row missing')
-    await store.sessions.upsertSession({ ...row, status: 'exited' })
+    await store.sessions.upsertSession(fixtureWriteScope(), { ...row, status: 'exited' })
     // A restart gives up the old writer before opening the replacement store.
     await reg1.dispose()
     await store.close()
-    const reg2 = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
+    const reg2 = await SessionRegistry.create(await openTestStore(file), undefined, {
+      instanceId: 'default',
+    })
     expect(await reg2.issues.reports.get(draft.id)).not.toBeNull()
     expect(await reg2.modules.sessions.readSessionIssueId(sessionId)).toBe(draft.id)
   })
@@ -277,7 +313,9 @@ describe('boot-time draft retention', () => {
       sessionId: hib.sessionId,
       resume: { kind: 'claude', value: 'conv-h' },
     })
-    expect((await reg1.modules.sessions.hibernateSession({ sessionId: hib.sessionId })).ok).toBe(true)
+    expect((await reg1.modules.sessions.hibernateSession({ sessionId: hib.sessionId })).ok).toBe(
+      true,
+    )
     await fixture.stopRegistry(reg1)
     const reg2 = await fixture.createRegistry()
     expect(await reg2.issues.reports.get(live.draft.id)).not.toBeNull()
@@ -303,14 +341,18 @@ describe('purge of an empty draft detaches tombstoned sessions (POD-1926)', () =
 
   it('a session tombstoned before explicit rehome does not outlive its draft pointer', async () => {
     const file = freshFile()
-    const reg1 = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
+    const reg1 = await SessionRegistry.create(await openTestStore(file), undefined, {
+      instanceId: 'default',
+    })
     await attachHostDaemon(reg1, () => {})
     const { draft, sessionId } = await draftWithSession(reg1)
-    const activeSessionId = (await reg1.modules.sessions.createSession({
-      agentKind: 'codex',
-      cwd: '/repo',
-      issueId: draft.id,
-    })).sessionId
+    const activeSessionId = (
+      await reg1.modules.sessions.createSession({
+        agentKind: 'codex',
+        cwd: '/repo',
+        issueId: draft.id,
+      })
+    ).sessionId
 
     // Tombstone it the way a standalone delete does. Explicit rehome cleanup
     // cannot see this row because `loadSessions()` is `deleted_at IS NULL`.
@@ -322,7 +364,12 @@ describe('purge of an empty draft detaches tombstoned sessions (POD-1926)', () =
     // test is about.
     const store = await openTestStore(file)
     const deletedAt = new Date().toISOString()
-    await store.sessions.softDeleteSessions([sessionId], deletedAt, 'standalone')
+    await store.sessions.softDeleteSessions(
+      fixtureWriteScope(),
+      [sessionId],
+      deletedAt,
+      'standalone',
+    )
     const tombstone = await store.sessions.getSession(sessionId)
     expect(tombstone?.archived).toBe(false)
     expect(tombstone).toMatchObject({
@@ -334,9 +381,18 @@ describe('purge of an empty draft detaches tombstoned sessions (POD-1926)', () =
     expect((await store.sessions.loadSessions()).map((r) => r.id)).not.toContain(sessionId)
 
     // Rehoming the remaining live session is the explicit cleanup point.
-    const reg2 = await SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
-    const target = await reg2.issues.crud.create(reg2.issues.reports.store.serverWriter, { repoPath: '/repo', title: 'Real work', startNow: false })
-    await reg2.issues.attention.attachSession(reg2.issues.reports.store.serverWriter, { sessionId: activeSessionId, targetId: target.id })
+    const reg2 = await SessionRegistry.create(await openTestStore(file), undefined, {
+      instanceId: 'default',
+    })
+    const target = await reg2.issues.crud.create(reg2.issues.reports.store.serverWriter, {
+      repoPath: '/repo',
+      title: 'Real work',
+      startNow: false,
+    })
+    await reg2.issues.attention.attachSession(reg2.issues.reports.store.serverWriter, {
+      sessionId: activeSessionId,
+      targetId: target.id,
+    })
     expect(await reg2.issues.reports.get(draft.id)).toBeNull()
 
     const after = await (await openTestStore(file)).sessions.getSession(sessionId)
@@ -360,7 +416,12 @@ describe('purge of an empty draft detaches tombstoned sessions (POD-1926)', () =
     // A reboot relinquishes the old writer before opening the replacement.
     await fixture.stopRegistry(reg1)
     const store = await fixture.openStore()
-    await store.sessions.softDeleteSessions([sessionId], new Date().toISOString(), 'standalone')
+    await store.sessions.softDeleteSessions(
+      fixtureWriteScope(),
+      [sessionId],
+      new Date().toISOString(),
+      'standalone',
+    )
     await store.issues.deleteIssue(draft.id)
     expect((await store.sessions.getSession(sessionId))?.issueId).toBe(draft.id)
 
@@ -383,7 +444,7 @@ describe('purge of an empty draft detaches tombstoned sessions (POD-1926)', () =
 
     // Scrubbing a live row behind the in-memory `Session` map's back would
     // desync it, so `detachTombstonesFromIssue` must leave it strictly alone.
-    await reg.sessionStore.sessions.detachTombstonesFromIssue(draft.id)
+    await reg.sessionStore.sessions.detachTombstonesFromIssue(fixtureWriteScope(), draft.id)
     expect((await reg.sessionStore.sessions.getSession(sessionId))?.issueId).toBe(draft.id)
   })
 

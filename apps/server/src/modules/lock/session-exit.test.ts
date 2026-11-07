@@ -79,13 +79,13 @@ describe('session.exited → lock auto-release wiring', () => {
     // dying also queues behind the survivor's lock
     const q = (await reg.modules.lockCommands.dispatch(
       {
-      capability: {
-        role: 'worker',
-        scope: { kind: 'none' },
-        actorSessionId: asSessionId(dying),
-        onBehalfOf: firstAdminMemberId(),
+        capability: {
+          role: 'worker',
+          scope: { kind: 'none' },
+          actorSessionId: asSessionId(dying),
+          onBehalfOf: firstAdminMemberId(),
+        },
       },
-    },
       'acquire',
       { repoPath: REPO, name: 'held-by-survivor' },
     )) as { granted: boolean }
@@ -107,7 +107,9 @@ describe('session.exited → lock auto-release wiring', () => {
     const reg = await regWithDaemon()
     const victim = await liveSession(reg)
     await acquireAs(reg, victim, 'merge:main')
-    await reg.modules.sessions.killSession({ sessionId: asSessionId(victim) })
+    await reg.modules.sessions.killSession(reg.modules.sessions.serverWriter, {
+      sessionId: asSessionId(victim),
+    })
     await vi.waitFor(async () => expect(await lockNames(reg)).toEqual([]))
     await reg.dispose()
   })
@@ -120,17 +122,19 @@ describe('session.exited → lock auto-release wiring', () => {
     await acquireAs(reg, victim, 'merge:main')
     await reg.modules.lockCommands.dispatch(
       {
-      capability: {
-        role: 'worker',
-        scope: { kind: 'none' },
-        actorSessionId: asSessionId(waiter),
-        onBehalfOf: firstAdminMemberId(),
+        capability: {
+          role: 'worker',
+          scope: { kind: 'none' },
+          actorSessionId: asSessionId(waiter),
+          onBehalfOf: firstAdminMemberId(),
+        },
       },
-    },
       'acquire',
       { repoPath: REPO, name: 'merge:main' },
     )
-    await reg.modules.sessions.killSession({ sessionId: asSessionId(victim) })
+    await reg.modules.sessions.killSession(reg.modules.sessions.serverWriter, {
+      sessionId: asSessionId(victim),
+    })
     await vi.waitFor(async () => {
       const after = await reg.modules.locks.status({ repoPath: REPO, name: 'merge:main' })
       expect(after[0]?.holder.sessionId).toBe(waiter)

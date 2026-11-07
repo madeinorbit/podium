@@ -3,10 +3,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asIssueId, asSessionId, firstAdminMemberId } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
+import { fixtureCommitWriter, fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { openTestStore } from '../../test-support/open-test-store'
 import { Session } from './session'
 import { SessionMetaOps, type SessionMetaOpsPorts } from './session-meta-ops'
+
+/** The writer the asking command would pass: a commit with a fixture scope. */
+const writer = { ...fixtureCommitWriter(), capture: async () => [] }
 
 const stamp = '2026-09-01T12:00:00.000Z'
 const offer = { message: 'Ready to review', actions: [], createdAt: stamp }
@@ -36,23 +40,34 @@ async function fixture(file = ':memory:') {
     toDaemon: () => {},
   })
   const repository = {
-    write: vi.fn<SessionMetaOpsPorts['repository']['write']>(async (live, mutate, write) => {
-      const draft = live.captureDurableState()
-      const extra = mutate(draft)
-      await (extra ?? write)?.()
-      live.installDurableState(draft)
-    }),
+    write: vi.fn<SessionMetaOpsPorts['repository']['write']>(
+      async (_writer, live, mutate, write) => {
+        const draft = live.captureDurableState()
+        const extra = mutate(draft)
+        await (extra ?? write)?.(fixtureWriteScope())
+        live.installDurableState(draft)
+      },
+    ),
     sessionFromStoredRow: vi.fn<SessionMetaOpsPorts['repository']['sessionFromStoredRow']>(
       async () => session,
     ),
-    prepareStoredSessionInstall: vi.fn<SessionMetaOpsPorts['repository']['prepareStoredSessionInstall']>(
-      async (restored, offers) => {
-        restored.offer = offers[restored.sessionId]
-        return { write: async () => {}, apply: () => { sessions.set(restored.sessionId, restored) } }
-      },
-    ),
-    draft: vi.fn(live => live.captureDurableState()),
-    persistDraft: vi.fn(async (live, draft, write) => { await write?.(); live.installDurableState(draft) }),
+    prepareStoredSessionInstall: vi.fn<
+      SessionMetaOpsPorts['repository']['prepareStoredSessionInstall']
+    >(async (restored, offers) => {
+      restored.offer = offers[restored.sessionId]
+      return {
+        writes: false,
+        write: async () => {},
+        apply: () => {
+          sessions.set(restored.sessionId, restored)
+        },
+      }
+    }),
+    draft: vi.fn((live) => live.captureDurableState()),
+    persistDraft: vi.fn(async (_writer, live, draft, write) => {
+      await write?.(fixtureWriteScope())
+      live.installDurableState(draft)
+    }),
     publishSessionProjection: vi.fn(),
   } satisfies SessionMetaOpsPorts['repository']
   const ports: SessionMetaOpsPorts = {
@@ -60,7 +75,7 @@ async function fixture(file = ':memory:') {
     repository,
     sessions,
     broadcastSessions: vi.fn(),
-    funnel: { run: async op => op.write() },
+    funnel: { run: async (op) => op.write() },
     now: () => Date.parse(stamp),
     prepareSessionRuntimeRemoval: vi.fn(async () => vi.fn()),
     failMessagesToRemovedSessions: vi.fn(async () => {}),
@@ -68,12 +83,24 @@ async function fixture(file = ':memory:') {
     sessionTeardown: { tryAutoArchiveStoppedObserved: vi.fn() },
     state: {
       prepareStoredDrafts: vi.fn(async () => vi.fn()),
-      setSnooze: vi.fn(), clearSnooze: vi.fn(), markRead: vi.fn(), markUnread: vi.fn(),
-      setWorkState: vi.fn(), setArchived: vi.fn(), clearAllSnoozes: vi.fn(), suppressNativeDraft: vi.fn(),
+      setSnooze: vi.fn(),
+      clearSnooze: vi.fn(),
+      markRead: vi.fn(),
+      markUnread: vi.fn(),
+      setWorkState: vi.fn(),
+      setArchived: vi.fn(),
+      clearAllSnoozes: vi.fn(),
+      suppressNativeDraft: vi.fn(),
     },
     toPtyInput: vi.fn(),
     sendContinue: vi.fn(async () => ({ ok: true as const })),
-    view: { buildProjectionPass: async () => ({} as never), principalForTrustedUser: vi.fn(), prepareRefAllocation: vi.fn(), overlay: vi.fn(), wire: vi.fn((s: Session) => s.toMeta()) },
+    view: {
+      buildProjectionPass: async () => ({}) as never,
+      principalForTrustedUser: vi.fn(),
+      prepareRefAllocation: vi.fn(),
+      overlay: vi.fn(),
+      wire: vi.fn((s: Session) => s.toMeta()),
+    },
   }
   return { store, session, sessions, repository, ports, ops: new SessionMetaOps(ports) }
 }
@@ -81,23 +108,23 @@ async function fixture(file = ':memory:') {
 describe('async offer persistence', () => {
   it('dismisses the named offer when the session has left memory, returning true', async () => {
     const { store, ops } = await fixture()
-    await store.sessions.setOffer(sessionId, offer)
-    expect(await ops.dismissOffer(sessionId, stamp)).toBe(true)
+    await store.sessions.setOffer(fixtureWriteScope(), sessionId, offer)
+    expect(await ops.dismissOffer(writer, sessionId, stamp)).toBe(true)
     expect(await store.sessions.offerCreatedAt(sessionId)).toBeUndefined()
-    expect(await ops.dismissOffer(sessionId, stamp)).toBe(false)
+    expect(await ops.dismissOffer(writer, sessionId, stamp)).toBe(false)
   })
 
   it('leaves a replacement offer intact when an old stamp is dismissed', async () => {
     const { store, ops } = await fixture()
-    await store.sessions.setOffer(sessionId, offer)
-    expect(await ops.dismissOffer(sessionId, 'old-stamp')).toBe(false)
+    await store.sessions.setOffer(fixtureWriteScope(), sessionId, offer)
+    expect(await ops.dismissOffer(writer, sessionId, 'old-stamp')).toBe(false)
     expect(await store.sessions.offerCreatedAt(sessionId)).toBe(stamp)
   })
 
   it('does not write or broadcast when neither memory nor storage has an offer', async () => {
     const { store, ops, ports } = await fixture()
     const clear = vi.spyOn(store.sessions, 'clearOffer')
-    await ops.clearOffer(sessionId)
+    await ops.clearOffer(writer, sessionId)
     expect(clear).not.toHaveBeenCalled()
     expect(ports.broadcastSessions).not.toHaveBeenCalled()
   })
@@ -107,7 +134,7 @@ describe('async offer persistence', () => {
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }))
     const file = join(dir, 'store.db')
     const { store, ops, sessions, session, repository } = await fixture(file)
-    await store.sessions.setOffer(sessionId, offer)
+    await store.sessions.setOffer(fixtureWriteScope(), sessionId, offer)
     const db = openDatabase(file)
     try {
       db.prepare('UPDATE offers SET actions = ? WHERE session_id = ?').run('{broken', sessionId)
@@ -116,20 +143,20 @@ describe('async offer persistence', () => {
     }
     expect(await store.sessions.listOffers()).toEqual({})
     sessions.set(sessionId, session)
-    await ops.clearOffer(sessionId)
+    await ops.clearOffer(writer, sessionId)
     expect(await store.sessions.offerCreatedAt(sessionId)).toBeUndefined()
     expect(repository.write).toHaveBeenCalledOnce()
   })
 
   it('waits for a durable clear and propagates its failure instead of reporting dismissal', async () => {
     const { store, ops } = await fixture()
-    await store.sessions.setOffer(sessionId, offer)
+    await store.sessions.setOffer(fixtureWriteScope(), sessionId, offer)
     let fail!: (error: Error) => void
     const pending = new Promise<void>((_resolve, reject) => {
       fail = reject
     })
     vi.spyOn(store.sessions, 'clearOffer').mockReturnValue(pending)
-    const dismissal = ops.dismissOffer(sessionId, stamp)
+    const dismissal = ops.dismissOffer(writer, sessionId, stamp)
     const assertion = expect(dismissal).rejects.toThrow('offer deletion refused')
     fail(new Error('offer deletion refused'))
     await assertion
@@ -146,7 +173,7 @@ describe('async offer persistence', () => {
           finish = resolve
         }),
     )
-    const setting = ops.setOffer({ sessionId, message: offer.message, actions: [] })
+    const setting = ops.setOffer(writer, { sessionId, message: offer.message, actions: [] })
     expect(ports.broadcastSessions).not.toHaveBeenCalled()
     finish()
     await setting
@@ -155,9 +182,9 @@ describe('async offer persistence', () => {
 
   it('restores materialized sessions and their settled offer map with a synchronous apply', async () => {
     const { store, ops, session, sessions, repository } = await fixture()
-    await store.sessions.upsertSession(session.toRow())
-    await store.sessions.setOffer(sessionId, offer)
-    await store.sessions.softDeleteForIssue([sessionId], issueId, stamp)
+    await store.sessions.upsertSession(fixtureWriteScope(), session.toRow())
+    await store.sessions.setOffer(fixtureWriteScope(), sessionId, offer)
+    await store.sessions.softDeleteForIssue(fixtureWriteScope(), [sessionId], issueId, stamp)
     // The offers of the restored sessions only (POD-6160), in one read.
     const listOffers = vi.spyOn(store.sessions, 'offersOf')
     const plan = await ops.prepareIssueSessionRestore(issueId)
@@ -165,27 +192,28 @@ describe('async offer persistence', () => {
     expect(plan.restoredSessions[0]?.sessionId).toBe(sessionId)
     expect(listOffers).toHaveBeenCalledOnce()
     expect(sessions.size).toBe(0)
-    await plan.write()
+    await plan.write(fixtureWriteScope())
     const changes = await plan.changes()
     expect(changes[0]?.value).toEqual(plan.restoredSessions[0])
     expect(plan.apply([], 0)).toBeUndefined()
     expect(listOffers).toHaveBeenCalledOnce()
-    expect(repository.prepareStoredSessionInstall).toHaveBeenCalledWith(session, { [sessionId]: offer })
+    expect(repository.prepareStoredSessionInstall).toHaveBeenCalledWith(session, {
+      [sessionId]: offer,
+    })
     expect(sessions.get(sessionId)?.offer).toEqual(offer)
     expect(await store.sessions.loadDeletedSessionsForIssue(issueId)).toEqual([])
   })
 
   it('waits for row materialization and excludes an invalid restored session', async () => {
     const { store, ops, session, repository } = await fixture()
-    await store.sessions.upsertSession(session.toRow())
-    await store.sessions.softDeleteForIssue([sessionId], issueId, stamp)
+    await store.sessions.upsertSession(fixtureWriteScope(), session.toRow())
+    await store.sessions.softDeleteForIssue(fixtureWriteScope(), [sessionId], issueId, stamp)
     repository.sessionFromStoredRow.mockResolvedValueOnce(null)
     const plan = await ops.prepareIssueSessionRestore(issueId)
     expect(plan.sessionIds).toEqual([])
     expect(plan.restoredSessions).toEqual([])
   })
 })
-
 
 describe('issue deletion runtime preparation', () => {
   it('awaits teardown preparation and applies removal synchronously before publishing', async () => {
@@ -194,17 +222,23 @@ describe('issue deletion runtime preparation', () => {
     sessions.set(sessionId, session)
     vi.mocked(ports.view.overlay).mockResolvedValue({ readAt: null, snoozedUntil: null })
     let finish!: (remove: () => void) => void
-    const pending = new Promise<() => void>(resolve => { finish = resolve })
+    const pending = new Promise<() => void>((resolve) => {
+      finish = resolve
+    })
     vi.mocked(ports.prepareSessionRuntimeRemoval).mockReturnValueOnce(pending)
     let prepared = false
-    const preparation = ops.prepareIssueSessionDelete(issueId, null).then(plan => {
+    const preparation = ops.prepareIssueSessionDelete(issueId, null).then((plan) => {
       prepared = true
       return plan
     })
-    await vi.waitFor(() => expect(ports.prepareSessionRuntimeRemoval).toHaveBeenCalledWith(sessionId))
+    await vi.waitFor(() =>
+      expect(ports.prepareSessionRuntimeRemoval).toHaveBeenCalledWith(sessionId),
+    )
     expect(prepared).toBe(false)
     expect(repository.publishSessionProjection).not.toHaveBeenCalled()
-    const remove = vi.fn(() => { sessions.delete(sessionId) })
+    const remove = vi.fn(() => {
+      sessions.delete(sessionId)
+    })
     finish(remove)
     const plan = await preparation
     expect(remove).not.toHaveBeenCalled()
@@ -292,9 +326,12 @@ describe('continueSession contract routing', () => {
     sessions.set(sessionId, session)
     expect(await ops.continueSession({ sessionId })).toEqual({ ok: true })
     expect(ports.sendContinue).not.toHaveBeenCalled()
-    expect(ports.toPtyInput).toHaveBeenCalledWith(store.hostMachineId, expect.objectContaining({
-      sessionId,
-      inputOrigin: 'auto_continue',
-    }))
+    expect(ports.toPtyInput).toHaveBeenCalledWith(
+      store.hostMachineId,
+      expect.objectContaining({
+        sessionId,
+        inputOrigin: 'auto_continue',
+      }),
+    )
   })
 })

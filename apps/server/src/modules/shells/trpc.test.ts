@@ -30,6 +30,9 @@ import {
   submit,
 } from '../sync-write/outbox-test-support'
 
+/** A command's writer, as the dock shell's archive needs it (commit and capture). */
+const fixtureSessionWriter = () => ({ ...fixtureCommitWriter(), capture: async () => [] })
+
 afterEach(() => disposeOracles())
 
 type Oracle = Awaited<ReturnType<typeof makeOracle>>
@@ -162,7 +165,7 @@ describe('shells.forWorktree on the sync write entry point (POD-6419)', () => {
       o.store.transact(async () => {
         claimed = (
           await o.reg.modules.dockShells.forWorktree(
-            fixtureCommitWriter(),
+            fixtureSessionWriter(),
             firstAdminMemberId(),
             '/r/.worktrees/rb',
           )
@@ -178,7 +181,7 @@ describe('shells.forWorktree on the sync write entry point (POD-6419)', () => {
     const { sessionId } = await o.store.transact(
       async () =>
         await o.reg.modules.dockShells.forWorktree(
-          fixtureCommitWriter(),
+          fixtureSessionWriter(),
           firstAdminMemberId(),
           '/r/.worktrees/rb',
         ),

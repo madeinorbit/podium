@@ -9,8 +9,15 @@
  * number of statements AND rows, and check that the refs, and the order they
  * are handed out in, are what the old read-everything backfill gives.
  */
+
+import {
+  asIssueId,
+  asMachineId,
+  asSessionId,
+  firstAdminMemberId,
+  type SessionId,
+} from '@podium/model'
 import { fixtureWriteScope } from '@podium/sync/testing'
-import { asIssueId, asMachineId, asSessionId, firstAdminMemberId, type SessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import type { SessionStore } from '../../store'
@@ -18,7 +25,12 @@ import { probeStatements } from '../../store/executor/statement-probe'
 import type { SessionRow } from '../../store/types'
 import { issueRowFixture } from '../../test-support/issue-row'
 import { openTestStore } from '../../test-support/open-test-store'
-import { expectConstantStatements, measureAtSizes, quietShipping, type StatementPin } from '../../test-support/statement-count'
+import {
+  expectConstantStatements,
+  measureAtSizes,
+  quietShipping,
+  type StatementPin,
+} from '../../test-support/statement-count'
 
 const ROOT = '/r/podium'
 const FAR_ROOT = '/r/far'
@@ -27,23 +39,42 @@ const ISSUE = asIssueId('iss_backfill')
 const MISSING_ISSUE = asIssueId('iss_never_filed')
 
 /** What the old backfill read: every ref-less row, sorted in memory. */
-const oldOrder = (a: SessionRow, b: SessionRow) => a.createdAt.localeCompare(b.createdAt) || (a.id < b.id ? -1 : 1)
+const oldOrder = (a: SessionRow, b: SessionRow) =>
+  a.createdAt.localeCompare(b.createdAt) || (a.id < b.id ? -1 : 1)
 
 /**
  * The kinds of ref-less session, by `i % 9`. Created out of id order and with
  * ties on created_at, so the allocation order is the backfill's to decide.
  */
-function sessionAt(i: number, host: string): { cwd: string; machineId: string; issueId: string | null; deleted?: boolean; refDraft?: number } {
+function sessionAt(
+  i: number,
+  host: string,
+): {
+  cwd: string
+  machineId: string
+  issueId: string | null
+  deleted?: boolean
+  refDraft?: number
+} {
   switch (i % 9) {
-    case 0: return { cwd: `/gone/issue-${i}`, machineId: host, issueId: ISSUE } // issue letter
-    case 1: return { cwd: ROOT, machineId: host, issueId: null } // draft in POD
-    case 2: return { cwd: `${ROOT}/packages/p${i}`, machineId: host, issueId: null } // draft in POD
-    case 3: return { cwd: `${ROOT}/.worktrees/w${i}`, machineId: host, issueId: MISSING_ISSUE } // no issue: draft in POD
-    case 4: return { cwd: `/gone/w${i}`, machineId: host, issueId: null } // never
-    case 5: return { cwd: `${FAR_ROOT}/x${i}`, machineId: host, issueId: null } // root is another machine's: never
-    case 6: return { cwd: `${FAR_ROOT}/y${i}`, machineId: FAR, issueId: null } // draft in the far repo
-    case 7: return { cwd: ROOT, machineId: host, issueId: null, deleted: true } // tombstone: never
-    default: return { cwd: ROOT, machineId: host, issueId: null, refDraft: 1000 + i } // already named
+    case 0:
+      return { cwd: `/gone/issue-${i}`, machineId: host, issueId: ISSUE } // issue letter
+    case 1:
+      return { cwd: ROOT, machineId: host, issueId: null } // draft in POD
+    case 2:
+      return { cwd: `${ROOT}/packages/p${i}`, machineId: host, issueId: null } // draft in POD
+    case 3:
+      return { cwd: `${ROOT}/.worktrees/w${i}`, machineId: host, issueId: MISSING_ISSUE } // no issue: draft in POD
+    case 4:
+      return { cwd: `/gone/w${i}`, machineId: host, issueId: null } // never
+    case 5:
+      return { cwd: `${FAR_ROOT}/x${i}`, machineId: host, issueId: null } // root is another machine's: never
+    case 6:
+      return { cwd: `${FAR_ROOT}/y${i}`, machineId: FAR, issueId: null } // draft in the far repo
+    case 7:
+      return { cwd: ROOT, machineId: host, issueId: null, deleted: true } // tombstone: never
+    default:
+      return { cwd: ROOT, machineId: host, issueId: null, refDraft: 1000 + i } // already named
   }
 }
 
@@ -53,7 +84,10 @@ interface World {
   ids: SessionId[]
 }
 
-async function world(size: number, extra: (store: SessionStore) => Promise<void> = async () => {}): Promise<World> {
+async function world(
+  size: number,
+  extra: (store: SessionStore) => Promise<void> = async () => {},
+): Promise<World> {
   const store = await openTestStore(':memory:')
   const host = store.hostMachineId
   await store.repos.addRepo(ROOT, host)
@@ -61,30 +95,33 @@ async function world(size: number, extra: (store: SessionStore) => Promise<void>
   await extra(store)
   const owner = await firstAdminMemberId(store)
   const repoId = (await store.repos.listRepos(host)).find((r) => r.path === ROOT)!.repoId
-  await store.issues.upsertIssue(fixtureWriteScope(), issueRowFixture({
-    id: ISSUE,
-    ownerUserId: owner,
-    createdByActor: owner,
-    createdByOnBehalfOf: owner,
-    repoPath: ROOT,
-    repoId: repoId!,
-    machineId: host,
-    parentId: null,
-    worktreePath: null,
-    branch: null,
-    blockedBy: [],
-    humanQuestionAskedBy: null,
-    linearId: null,
-    linearIdentifier: null,
-    linearUrl: null,
-  }))
+  await store.issues.upsertIssue(
+    fixtureWriteScope(),
+    issueRowFixture({
+      id: ISSUE,
+      ownerUserId: owner,
+      createdByActor: owner,
+      createdByOnBehalfOf: owner,
+      repoPath: ROOT,
+      repoId: repoId!,
+      machineId: host,
+      parentId: null,
+      worktreePath: null,
+      branch: null,
+      blockedBy: [],
+      humanQuestionAskedBy: null,
+      linearId: null,
+      linearIdentifier: null,
+      linearUrl: null,
+    }),
+  )
   const ids: SessionId[] = []
   await store.transact(async () => {
     for (let i = 0; i < size; i++) {
       const id = asSessionId(`s-${String(i).padStart(4, '0')}`)
       ids.push(id)
       const kind = sessionAt(i, host)
-      await store.sessions.upsertSession({
+      await store.sessions.upsertSession(fixtureWriteScope(), {
         id,
         ownerUserId: owner,
         agentKind: 'claude-code',
@@ -113,7 +150,13 @@ async function world(size: number, extra: (store: SessionStore) => Promise<void>
         spawnedBy: null,
         ...(kind.refDraft !== undefined ? { refDraft: kind.refDraft } : {}),
       } as never)
-      if (kind.deleted) await store.sessions.softDeleteSessions([id], '2026-09-03T00:00:00.000Z', 'standalone')
+      if (kind.deleted)
+        await store.sessions.softDeleteSessions(
+          fixtureWriteScope(),
+          [id],
+          '2026-09-03T00:00:00.000Z',
+          'standalone',
+        )
     }
   })
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
@@ -137,7 +180,9 @@ async function backfillTheOldWay(w: World) {
   const sessions = w.store.sessions
   const everyRow = sessions.sessionsWithoutRef.bind(sessions)
   vi.spyOn(w.store.repos, 'prefixedPlaces').mockResolvedValue('everywhere')
-  vi.spyOn(sessions, 'sessionsWithoutRef').mockImplementation(async () => [...(await everyRow())].sort(oldOrder))
+  vi.spyOn(sessions, 'sessionsWithoutRef').mockImplementation(async () =>
+    [...(await everyRow())].sort(oldOrder),
+  )
   await w.reg.modules.sessions.repository.backfillBirthRefs()
   vi.restoreAllMocks()
 }
@@ -226,7 +271,9 @@ describe('boot ref backfill (POD-6222)', () => {
   it('reads a constant number of statements and no rows on the second boot', async () => {
     const counts = await expectConstantStatements(
       {
-        ...secondBoot('backfillBirthRefs (second boot)', (w) => w.reg.modules.sessions.repository.backfillBirthRefs()),
+        ...secondBoot('backfillBirthRefs (second boot)', (w) =>
+          w.reg.modules.sessions.repository.backfillBirthRefs(),
+        ),
         check: (rows) => expect(rows, 'rows the second boot read').toBe(0),
       },
       1,
@@ -244,4 +291,3 @@ describe('boot ref backfill (POD-6222)', () => {
     expect(rows).toEqual([1, 44])
   })
 })
-

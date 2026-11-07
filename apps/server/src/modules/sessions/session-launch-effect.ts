@@ -72,6 +72,7 @@ import {
   type ResumeInput,
   resumeSessionNow,
 } from './command-plane'
+import type { SessionWriter } from './lifecycle'
 import { NO_LONGER_ALLOWED } from './lifecycle-controller'
 import type { SessionSpawnResult } from './session-start'
 
@@ -259,7 +260,15 @@ export function registerSessionLaunchEffect(deps: SessionLaunchEffectDeps): {
       }
     }
     const capability = userCommandPrincipal(asUserId(writer.id), writer.role).capability
-    const ctx = await sessionCommandCtx(deps.modules(), capability, false, 'trpc')
+    // The start is the server acting for the record's writer, after its
+    // commit: its issue writes (the draft, its files) are `sessions.lifecycle`.
+    const ctx = await sessionCommandCtx(
+      deps.modules(),
+      capability,
+      false,
+      'trpc',
+      deps.modules().sessions.serverWriter,
+    )
     const resumed = resumeInputOf(input)
     try {
       if (resumed !== undefined) {
@@ -643,13 +652,15 @@ export async function resumeThroughLaunchEffect(
  */
 export async function createSpawnLaunchInUnit(
   modules: RegistryModules,
+  /** The spawning write's own writer (ADR 12 D9, POD-6601). */
+  writer: SessionWriter,
   principal: CommandPrincipal,
   launch: { sessionId: SessionId; input: Record<string, unknown> },
 ): Promise<{ effectId: string }> {
   const effects = modules.effects
   if (effects === undefined) throw new Error('agent spawn: no effects module is composed')
   const effectId = mintDeviceId('eff_')
-  await effects.createForSession({
+  await effects.createInUnit(writer, {
     id: effectId,
     kind: SESSION_LAUNCH_KIND,
     target: { kind: 'session', id: launch.sessionId },

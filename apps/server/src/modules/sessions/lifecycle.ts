@@ -97,13 +97,18 @@ import type { SessionMachineReconciler } from './machine-reconciler'
 import type { SessionNaming } from './naming'
 import type { SessionBroadcastCoordinator } from './publication/broadcast'
 import type { SessionRecords } from './records'
-import type { SessionProjectionEvent, SessionRepository } from './repository'
+import type {
+  SessionAdditionalWrite,
+  SessionProjectionEvent,
+  SessionRepository,
+} from './repository'
 import type { SessionResidency } from './residency'
 import type { Session } from './session'
 import type { SessionAuthz } from './session-authz'
 import type { SessionBindingReceipts } from './session-binding'
 import type { SessionClientPlane } from './session-client-plane'
 import type { SessionKill } from './session-kill'
+import type { SessionWriter } from './session-lifecycle-types'
 import type { SessionMetaOps } from './session-meta-ops'
 import type { ExplicitWake, SessionRevival } from './session-revival'
 import type { SessionStart } from './session-start'
@@ -121,6 +126,8 @@ export type {
   SessionLedger,
   SessionLifecycleDeps,
   SessionRestorePlan,
+  SessionWriter,
+  SessionWriters,
 } from './session-lifecycle-types'
 
 import type { SessionLifecycleDeps, SessionRestorePlan } from './session-lifecycle-types'
@@ -239,11 +246,8 @@ export class SessionLifecycle {
     onReceipt?: (receipt: TurnReceipt) => void,
   ): Promise<{ ok: boolean; queued?: boolean; position?: number; reason?: string }> =>
     await this.leased(input.sessionId, 'receiptSend', () =>
-      this.receiptSender.send(
-        via,
-        input,
-        onReceipt ? (receipt) => onReceipt(receipt) : undefined,
-      ))
+      this.receiptSender.send(via, input, onReceipt ? (receipt) => onReceipt(receipt) : undefined),
+    )
   /**
    * THE PROTOCOL ASK SINK (POD-2023), assigned by the composition root once the
    * interactions aggregate exists.
@@ -307,6 +311,14 @@ export class SessionLifecycle {
       log.error('failed to flush session activity', { error })
     })
   }, 12_000)
+  /**
+   * The server's own account for a session write (`sessions.lifecycle`, ADR 12
+   * D9, POD-6601): for the server's own callers that act on a session outside
+   * any command, and for tests. A command writes with its own writer.
+   */
+  get serverWriter(): SessionWriter {
+    return this.deps.writers.lifecycle
+  }
   constructor(private readonly deps: SessionLifecycleDeps) {
     // ORDER UNCHANGED — body lives in session-wiring.ts as a verbatim move.
     // scripts/server-construction-order.ts walks that interior (POD-1411).
@@ -353,10 +365,11 @@ export class SessionLifecycle {
     return this.repository.onSessionProjection(listener)
   }
   async persist(
+    writer: SessionWriter,
     session: Session,
-    additionalWrite: () => void | Promise<void> = () => {},
+    additionalWrite: SessionAdditionalWrite = () => {},
   ): Promise<void> {
-    await this.repository.persist(session, additionalWrite)
+    await this.repository.persist(writer, session, additionalWrite)
   }
   registerSession(session: Session): void {
     this.repository.registerSession(session)
@@ -365,8 +378,11 @@ export class SessionLifecycle {
   async flushActivity(): Promise<void> {
     await this.repository.flushActivity()
   }
-  async captureReferenceChanges(issueIds: readonly IssueId[]): Promise<void> {
-    await this.repository.captureReferenceChanges(issueIds)
+  async captureReferenceChanges(
+    writer: SessionWriter,
+    issueIds: readonly IssueId[],
+  ): Promise<void> {
+    await this.repository.captureReferenceChanges(writer, issueIds)
   }
 
   async loadFromStore(): Promise<void> {
@@ -469,7 +485,10 @@ export class SessionLifecycle {
   }
 
   /** The member sessions of ONE issue, from the database (POD-6160). */
-  async readSessionFactsByIssue(worktreePath: string | null, issueId: IssueId | undefined): Promise<SessionFacts[]> {
+  async readSessionFactsByIssue(
+    worktreePath: string | null,
+    issueId: IssueId | undefined,
+  ): Promise<SessionFacts[]> {
     return await this.facts.readByIssue(worktreePath, issueId)
   }
 
@@ -483,7 +502,9 @@ export class SessionLifecycle {
   }
 
   /** Sessions in one of these statuses, from the database (POD-6160). */
-  async readSessionFactsWithStatuses(statuses: readonly SessionFacts['status'][]): Promise<SessionFacts[]> {
+  async readSessionFactsWithStatuses(
+    statuses: readonly SessionFacts['status'][],
+  ): Promise<SessionFacts[]> {
     return await this.facts.readWithStatuses(statuses)
   }
 
@@ -521,11 +542,18 @@ export class SessionLifecycle {
   // here: authority/feed identity (packages/sync/src/feed), the change envelope's
   // origin/causation/mutation identity (packages/model/src/provenance), and the
   // reserved node-peer capabilities (packages/protocol/src/handshake).
-  setSnooze(input: { userId: UserId; sessionId: SessionId; until: string | null }): Promise<void> {
-    return this.leased(input.sessionId, 'setSnooze', () => this.sessionMetaOps.setSnooze(input))
+  setSnooze(
+    writer: SessionWriter,
+    input: { userId: UserId; sessionId: SessionId; until: string | null },
+  ): Promise<void> {
+    return this.leased(input.sessionId, 'setSnooze', () =>
+      this.sessionMetaOps.setSnooze(writer, input),
+    )
   }
-  clearSnooze(userId: UserId, sessionId: SessionId): Promise<void> {
-    return this.leased(sessionId, 'clearSnooze', () => this.sessionMetaOps.clearSnooze(userId, sessionId))
+  clearSnooze(writer: SessionWriter, userId: UserId, sessionId: SessionId): Promise<void> {
+    return this.leased(sessionId, 'clearSnooze', () =>
+      this.sessionMetaOps.clearSnooze(writer, userId, sessionId),
+    )
   }
   /**
    * SPELLED OUT, NOT `(...args: any[]): any` [POD-3507].
@@ -557,13 +585,21 @@ export class SessionLifecycle {
     return this.sessionAuthz.authorizeClientDrive(principal, sessionId)
   }
   setOffer(...args: Parameters<SessionMetaOps['setOffer']>): Promise<void> {
-    return this.leased(args[0].sessionId, 'setOffer', () => this.sessionMetaOps.setOffer(...args))
+    return this.leased(args[1].sessionId, 'setOffer', () => this.sessionMetaOps.setOffer(...args))
   }
-  clearOffer(sessionId: SessionId): Promise<void> {
-    return this.leased(sessionId, 'clearOffer', () => this.sessionMetaOps.clearOffer(sessionId))
+  clearOffer(writer: SessionWriter, sessionId: SessionId): Promise<void> {
+    return this.leased(sessionId, 'clearOffer', () =>
+      this.sessionMetaOps.clearOffer(writer, sessionId),
+    )
   }
-  dismissOffer(sessionId: SessionId, offerCreatedAt: string): Promise<boolean> {
-    return this.leased(sessionId, 'dismissOffer', () => this.sessionMetaOps.dismissOffer(sessionId, offerCreatedAt))
+  dismissOffer(
+    writer: SessionWriter,
+    sessionId: SessionId,
+    offerCreatedAt: string,
+  ): Promise<boolean> {
+    return this.leased(sessionId, 'dismissOffer', () =>
+      this.sessionMetaOps.dismissOffer(writer, sessionId, offerCreatedAt),
+    )
   }
   /**
    * Run `fn` with this session resident (POD-6160 D2f, `residency.ts`): a parked
@@ -629,11 +665,14 @@ export class SessionLifecycle {
   }
   private sessionStateRegistry: SessionStateRegistry | undefined
   private sessionStateEnvelope(): SessionStateRegistry {
-    this.sessionStateRegistry ??= new SessionStateRegistry({
-      sessions: this,
-      state: this.state,
-      mutations: this.mutations,
-    })
+    this.sessionStateRegistry ??= new SessionStateRegistry(
+      {
+        sessions: this,
+        state: this.state,
+        mutations: this.mutations,
+      },
+      this.deps.writers.live,
+    )
     return this.sessionStateRegistry
   }
   private readonly mutations!: MutationLedgerPort
@@ -642,23 +681,32 @@ export class SessionLifecycle {
   private mutateSessionMeta(
     ...args: Parameters<SessionMetaOps['mutateSessionMeta']>
   ): Promise<void> {
-    return this.leased(args[0], 'mutateSessionMeta', () => this.sessionMetaOps.mutateSessionMeta(...args))
+    return this.leased(args[1], 'mutateSessionMeta', () =>
+      this.sessionMetaOps.mutateSessionMeta(...args),
+    )
   }
-  renameSession(input: { sessionId: SessionId; name: string }): Promise<void> {
-    return this.leased(input.sessionId, 'rename', () => this.naming.rename(input))
+  renameSession(
+    writer: SessionWriter,
+    input: { sessionId: SessionId; name: string },
+  ): Promise<void> {
+    return this.leased(input.sessionId, 'rename', () => this.naming.rename(writer, input))
   }
   /** The AGENT names its own session; refused against a user-set name. */
-  setAgentName(input: {
-    sessionId: SessionId
-    name: string
-  }): ReturnType<SessionNaming['setAgentName']> {
-    return this.leased(input.sessionId, 'setAgentName', () => this.naming.setAgentName(input))
+  setAgentName(
+    writer: SessionWriter,
+    input: { sessionId: SessionId; name: string },
+  ): ReturnType<SessionNaming['setAgentName']> {
+    return this.leased(input.sessionId, 'setAgentName', () =>
+      this.naming.setAgentName(writer, input),
+    )
   }
   setArchived(...args: Parameters<SessionMetaOps['setArchived']>): Promise<void> {
-    return this.leased(args[0].sessionId, 'setArchived', () => this.sessionMetaOps.setArchived(...args))
+    return this.leased(args[1].sessionId, 'setArchived', () =>
+      this.sessionMetaOps.setArchived(...args),
+    )
   }
-  private parkArchivedSession(sessionId: SessionId): Promise<void> {
-    return this.sessionTeardown.parkArchivedSession(sessionId)
+  private parkArchivedSession(writer: SessionWriter, sessionId: SessionId): Promise<void> {
+    return this.sessionTeardown.parkArchivedSession(writer, sessionId)
   }
   private retireArchivedSurvivor(sessionId: SessionId): Promise<void> {
     return this.sessionTeardown.retireArchivedSurvivor(sessionId)
@@ -667,19 +715,26 @@ export class SessionLifecycle {
     ...args: Parameters<SessionMetaOps['tryAutoArchiveStoppedObserved']>
   ): ReturnType<SessionMetaOps['tryAutoArchiveStoppedObserved']> {
     return this.leased(args[0].sessionId, 'autoArchive', () =>
-      this.sessionMetaOps.tryAutoArchiveStoppedObserved(...args))
+      this.sessionMetaOps.tryAutoArchiveStoppedObserved(...args),
+    )
   }
-  markSessionRead(userId: UserId, sessionId: SessionId): Promise<void> {
-    return this.leased(sessionId, 'markRead', () => this.sessionMetaOps.markSessionRead(userId, sessionId))
+  markSessionRead(writer: SessionWriter, userId: UserId, sessionId: SessionId): Promise<void> {
+    return this.leased(sessionId, 'markRead', () =>
+      this.sessionMetaOps.markSessionRead(writer, userId, sessionId),
+    )
   }
-  markSessionUnread(userId: UserId, sessionId: SessionId): Promise<void> {
-    return this.leased(sessionId, 'markUnread', () => this.sessionMetaOps.markSessionUnread(userId, sessionId))
+  markSessionUnread(writer: SessionWriter, userId: UserId, sessionId: SessionId): Promise<void> {
+    return this.leased(sessionId, 'markUnread', () =>
+      this.sessionMetaOps.markSessionUnread(writer, userId, sessionId),
+    )
   }
-  private async rearmUnread(sessionId: SessionId): Promise<void> {
-    await this.state.rearmUnreadForAll(sessionId)
+  private async rearmUnread(writer: SessionWriter, sessionId: SessionId): Promise<void> {
+    await this.state.rearmUnreadForAll(writer, sessionId)
   }
   setSessionIssueId(...args: Parameters<SessionMetaOps['setSessionIssueId']>): Promise<void> {
-    return this.leased(args[0], 'setSessionIssueId', () => this.sessionMetaOps.setSessionIssueId(...args))
+    return this.leased(args[1], 'setSessionIssueId', () =>
+      this.sessionMetaOps.setSessionIssueId(...args),
+    )
   }
   /** A session's explicit issue, running or parked (POD-6160: from its row
    *  where it is not resident). */
@@ -687,10 +742,12 @@ export class SessionLifecycle {
     return (await this.records.ownershipOf(sessionId, 'sessionIssueId'))?.issueId ?? null
   }
   setSessionCwd(...args: Parameters<SessionMetaOps['setSessionCwd']>): Promise<void> {
-    return this.leased(args[0], 'setSessionCwd', () => this.sessionMetaOps.setSessionCwd(...args))
+    return this.leased(args[1], 'setSessionCwd', () => this.sessionMetaOps.setSessionCwd(...args))
   }
   setWorkState(...args: Parameters<SessionMetaOps['setWorkState']>): Promise<void> {
-    return this.leased(args[0].sessionId, 'setWorkState', () => this.sessionMetaOps.setWorkState(...args))
+    return this.leased(args[1].sessionId, 'setWorkState', () =>
+      this.sessionMetaOps.setWorkState(...args),
+    )
   }
   /** Whether any row, deleted ones included, holds this id (POD-6398). */
   async sessionRowExists(sessionId: SessionId): Promise<boolean> {
@@ -723,15 +780,16 @@ export class SessionLifecycle {
    * revision, or undefined when the session is gone.
    */
   editDesiredState(
+    writer: SessionWriter,
     sessionId: SessionId,
     desired: SessionDesired,
     force: boolean,
-    writer: { readonly user: UserId | null; readonly agent: SessionId | null },
+    by: { readonly user: UserId | null; readonly agent: SessionId | null },
   ): Promise<number | undefined> {
     return this.leased(sessionId, 'editDesiredState', async () => {
       if (!this.sessions.has(sessionId)) return undefined
       let revision: number | undefined
-      await this.sessionMetaOps.mutateSessionMeta(sessionId, (draft) => {
+      await this.sessionMetaOps.mutateSessionMeta(writer, sessionId, (draft) => {
         revision = draft.lifecycle.revision + 1
         draft.lifecycle = {
           desired,
@@ -739,8 +797,8 @@ export class SessionLifecycle {
           revision,
           observedRevision: draft.lifecycle.observedRevision,
           failure: null,
-          byUser: writer.user,
-          byAgent: writer.agent,
+          byUser: by.user,
+          byAgent: by.agent,
         }
       })
       return revision
@@ -752,14 +810,19 @@ export class SessionLifecycle {
    * `revision` (a newer edit is what the controller answers next) or already
    * says this.
    */
-  acknowledgeDesiredState(sessionId: SessionId, revision: number, failure?: string): Promise<void> {
+  acknowledgeDesiredState(
+    writer: SessionWriter,
+    sessionId: SessionId,
+    revision: number,
+    failure?: string,
+  ): Promise<void> {
     return this.leased(sessionId, 'acknowledgeDesiredState', async () => {
       const current = this.sessions.get(sessionId)?.lifecycle
       if (!current || current.revision !== revision) return
       const nextFailure = failure === undefined ? null : { revision, reason: failure }
       if (current.observedRevision === revision && current.failure?.reason === nextFailure?.reason)
         return
-      await this.sessionMetaOps.mutateSessionMeta(sessionId, (draft) => {
+      await this.sessionMetaOps.mutateSessionMeta(writer, sessionId, (draft) => {
         if (draft.lifecycle.revision !== revision) return
         draft.lifecycle = { ...draft.lifecycle, observedRevision: revision, failure: nextFailure }
       })
@@ -781,10 +844,14 @@ export class SessionLifecycle {
     worktreeFreed?: boolean
     deferredKill?: boolean
   }> {
-    return await this.leased(input.sessionId, 'stop', () => this.sessionTeardown.stopSession(input, issues))
+    return await this.leased(input.sessionId, 'stop', () =>
+      this.sessionTeardown.stopSession(input, issues),
+    )
   }
   finalizeDeferredStopKill(sessionId: SessionId): Promise<void> {
-    return this.leased(sessionId, 'deferredStopKill', () => this.sessionTeardown.finalizeDeferredStopKill(sessionId))
+    return this.leased(sessionId, 'deferredStopKill', () =>
+      this.sessionTeardown.finalizeDeferredStopKill(sessionId),
+    )
   }
   async stopIssue(
     input: {
@@ -823,7 +890,9 @@ export class SessionLifecycle {
     ok: boolean
     reason?: string
   }> {
-    return await this.leased(input.sessionId, 'hibernate', () => this.sessionTeardown.hibernateSession(input))
+    return await this.leased(input.sessionId, 'hibernate', () =>
+      this.sessionTeardown.hibernateSession(input),
+    )
   }
 
   /** Idle-shell policy park — process killed, row inspectable, no worktree free. */
@@ -886,7 +955,7 @@ export class SessionLifecycle {
     )
     if (decision.verdict !== 'kill') return
     log.info('tab release retired an untouched shell', { sessionId, reason: decision.reason })
-    await this.sessionKill.killSession({ sessionId })
+    await this.sessionKill.killSession(this.deps.writers.lifecycle, { sessionId })
   }
   /** Move one resumable worktree session to another machine ([spec:SP-3f7a]). */
   async handoffSession(
@@ -894,7 +963,9 @@ export class SessionLifecycle {
     caller: HandoffCaller,
     issues: SessionIssueWorkflowPort,
   ): Promise<{ ok: true; newCwd: string }> {
-    return await this.leased(input.sessionId, 'handoff', () => this.sessionRevival.handoffSession(input, caller, issues))
+    return await this.leased(input.sessionId, 'handoff', () =>
+      this.sessionRevival.handoffSession(input, caller, issues),
+    )
   }
   /** HOW A CALLER'S `use` RIGHTS ON A MACHINE ARE RESOLVED — the seam, deliberately */
   machineUseGate: (caller: HandoffCaller) => Promise<AssertMachineUse> = async (caller) =>
@@ -945,8 +1016,8 @@ export class SessionLifecycle {
   ): Promise<void> {
     await this.sessionKill.removeSessionRuntime(sessionId, terminalRetirement)
   }
-  async killSession(input: { sessionId: SessionId }): Promise<void> {
-    await this.leased(input.sessionId, 'kill', () => this.sessionKill.killSession(input))
+  async killSession(writer: SessionWriter, input: { sessionId: SessionId }): Promise<void> {
+    await this.leased(input.sessionId, 'kill', () => this.sessionKill.killSession(writer, input))
   }
   private async emitSessionExited(
     sessionId: SessionId,
@@ -996,10 +1067,13 @@ export class SessionLifecycle {
     // (POD-6160 D2f): a runtime event the gate admits for a stopped session, a
     // late exit, a reattach or kill result, a bind reviving it. A resident one
     // is held without an await, so a bind still reaches it before yielding.
-    const sessionId = DAEMON_FRAMES_FOR_PARKED.has(msg.type) ? (msg as { sessionId?: SessionId }).sessionId : undefined
+    const sessionId = DAEMON_FRAMES_FOR_PARKED.has(msg.type)
+      ? (msg as { sessionId?: SessionId }).sessionId
+      : undefined
     const held =
       sessionId !== undefined &&
-      (this.residency.hold(sessionId) || (await this.residency.acquire(sessionId, `daemon.${msg.type}`)) !== undefined)
+      (this.residency.hold(sessionId) ||
+        (await this.residency.acquire(sessionId, `daemon.${msg.type}`)) !== undefined)
     try {
       await this.daemonLifecycle.handle(principal, msg)
     } finally {

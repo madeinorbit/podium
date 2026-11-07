@@ -63,6 +63,7 @@ import {
   type SessionCommandCtx,
   type SessionCommandKey,
 } from './command-plane'
+import type { SessionWriter } from './lifecycle'
 import { applyRename, mayWrite, ownedTarget } from './rename-target-path'
 import {
   type SessionStateDeps,
@@ -130,6 +131,7 @@ function registerSessionState(
           input as Record<string, unknown>,
           sessionStatePrincipalFor(ctx.principal),
           sessionStateDeps(deps.modules()),
+          ctx.ledger,
         ),
     })
   }
@@ -150,6 +152,7 @@ function registerRename(registry: SyncWriteRegistry, deps: SessionSyncWriteDeps)
     handle: async (ctx, input) => {
       const outcome = await applyRename(
         { sessions: deps.modules().sessions },
+        ctx.ledger,
         input as SessionRenameInput,
         ctx.principal,
       )
@@ -169,9 +172,17 @@ async function planeCtx(
   deps: SessionSyncWriteDeps,
   principal: CommandPrincipal,
   overrideScope?: boolean,
+  /** The command's own writer, for the handler (absent for the target check). */
+  writer?: SessionWriter,
 ) {
   if (principal.kind === 'system') throw new Error('a system principal has no chat send')
-  return await sessionCommandCtx(deps.modules(), principal.capability, overrideScope)
+  return await sessionCommandCtx(
+    deps.modules(),
+    principal.capability,
+    overrideScope,
+    'relay',
+    writer,
+  )
 }
 
 /**
@@ -272,7 +283,7 @@ function registerPlaneCommand(
       }
       // The scope was decided at the target check (and confirmed, when it had
       // to be); the handler's own gate must not ask a second time.
-      const plane = await planeCtx(deps, ctx.principal, overrideFor(ctx.confirmed))
+      const plane = await planeCtx(deps, ctx.principal, overrideFor(ctx.confirmed), ctx.ledger)
       const residency = deps.modules().sessions.residency
       const run = async () => {
         try {

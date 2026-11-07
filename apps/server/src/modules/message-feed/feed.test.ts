@@ -28,7 +28,7 @@ import {
   messageRecordRowId,
 } from '@podium/model'
 import { Ledger } from '@podium/sync'
-import { testLedgerWriter } from '@podium/sync/testing'
+import { fixtureWriteScope, testLedgerWriter } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../store'
 import { afterCommit, applyAfterCommit, spanOpen } from '../../store/executor/executor'
@@ -69,7 +69,7 @@ async function harness(
   store.messages.setFeedCapture(feed.capture)
   // Each session is on the feed as it is in the server, so its removal is a change.
   for (const id of opts.sessions ?? [S1, S2]) {
-    await store.sessions.upsertSession(session(id))
+    await store.sessions.upsertSession(fixtureWriteScope(), session(id))
     await testLedgerWriter(ledger).capture([
       { entity: 'session', id, op: 'upsert', value: sessionValue(id, {}) },
     ])
@@ -106,9 +106,14 @@ async function harness(
     const sessionId = asSessionId(id)
     await testLedgerWriter(ledger).commit({
       write: async () => {
-        if (patch === 'purge') await store.sessions.purgeSession(sessionId)
-        else if (patch === null) await store.sessions.softDeleteSessions([id], 't', 'standalone')
-        else await store.sessions.upsertSession({ ...(await rowOf(store, sessionId)), ...patch })
+        if (patch === 'purge') await store.sessions.purgeSession(fixtureWriteScope(), sessionId)
+        else if (patch === null)
+          await store.sessions.softDeleteSessions(fixtureWriteScope(), [id], 't', 'standalone')
+        else
+          await store.sessions.upsertSession(fixtureWriteScope(), {
+            ...(await rowOf(store, sessionId)),
+            ...patch,
+          })
       },
       changes: async () => [
         patch === null || patch === 'purge'
@@ -450,7 +455,10 @@ describe('a session that ends takes its confirmed window off the feed (POD-4814)
     // The table says live again by the time the retire reads it.
     await store.transact(async () => {
       await move(S1, { status: 'exited' })
-      await store.sessions.upsertSession({ ...(await rowOf(store, S1)), status: 'live' })
+      await store.sessions.upsertSession(fixtureWriteScope(), {
+        ...(await rowOf(store, S1)),
+        status: 'live',
+      })
     })
     // Retires run in order: once a later one has, this one has too.
     await move(S2, { status: 'exited' })
@@ -496,7 +504,10 @@ describe('a session that ends takes its confirmed window off the feed (POD-4814)
     await store.messages.addMessage(chat('msg_open', { toId: S2 }))
     // The session is archived with no feed change the running feed could see
     // (a crash before its retire, a release before this one).
-    await store.sessions.upsertSession({ ...(await rowOf(store, S2)), archived: true })
+    await store.sessions.upsertSession(fixtureWriteScope(), {
+      ...(await rowOf(store, S2)),
+      archived: true,
+    })
     expect(await ids()).toEqual(['msg_gone', 'msg_live', 'msg_open'])
     await reboot()
     expect(await ids()).toEqual(['msg_live', 'msg_open'])

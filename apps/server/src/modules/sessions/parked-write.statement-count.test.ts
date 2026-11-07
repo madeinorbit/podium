@@ -32,6 +32,7 @@
  * change-log head for the receipt (1).
  */
 import { asSessionId, firstAdminMemberId, type SessionId } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
@@ -62,7 +63,7 @@ async function fixture(size: number): Promise<Fixture> {
     for (let i = 0; i < size; i++) {
       const id = asSessionId(`parked-${String(i).padStart(4, '0')}`)
       ids.push(id)
-      await store.sessions.upsertSession({
+      await store.sessions.upsertSession(fixtureWriteScope(), {
         id,
         ownerUserId: owner,
         agentKind: 'claude-code',
@@ -92,7 +93,11 @@ async function fixture(size: number): Promise<Fixture> {
     }
   })
   for (const [index, id] of ids.entries()) {
-    await store.sessions.setOffer(id, { message: 'next', actions: [{ label: 'Go', prompt: 'go' }], createdAt: at })
+    await store.sessions.setOffer(fixtureWriteScope(), id, {
+      message: 'next',
+      actions: [{ label: 'Go', prompt: 'go' }],
+      createdAt: at,
+    })
     await store.sessions.setDraft(id, 'draft')
     await store.events.appendEvent({
       ts: at,
@@ -100,7 +105,10 @@ async function fixture(size: number): Promise<Fixture> {
       subject: id,
       payload: {
         t: 'item',
-        item: { kind: 'complete', item: { id: `item-${index}`, role: 'assistant', text: 'hi', ts: at } },
+        item: {
+          kind: 'complete',
+          item: { id: `item-${index}`, role: 'assistant', text: 'hi', ts: at },
+        },
         at,
         provenance: 'live',
         observerGeneration: 1,

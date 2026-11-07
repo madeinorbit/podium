@@ -35,6 +35,7 @@
 
 import { asMachineId, asSessionId, asUserId } from '@podium/model'
 import type { openDatabase } from '@podium/runtime/sqlite'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { createBunStoreExecutor } from './executor'
@@ -105,8 +106,14 @@ describe('POD-1614 — findSessionByResumeValue answers exactly what the scan di
   it('picks the SAME row as the scan when two live sessions share a resume value', async () => {
     // Inserted newest-first so a query that just took "whatever sqlite returned"
     // would have a real chance of picking the wrong one.
-    await sessions.upsertSession(row('sess-new', BOB, '2026-08-03T10:00:00.000Z', SHARED))
-    await sessions.upsertSession(row('sess-old', ALICE, '2026-08-01T10:00:00.000Z', SHARED))
+    await sessions.upsertSession(
+      fixtureWriteScope(),
+      row('sess-new', BOB, '2026-08-03T10:00:00.000Z', SHARED),
+    )
+    await sessions.upsertSession(
+      fixtureWriteScope(),
+      row('sess-old', ALICE, '2026-08-01T10:00:00.000Z', SHARED),
+    )
 
     const scanned = await byScan(SHARED)
     // CONTROL: the fixture really is ambiguous and the oracle really resolves it.
@@ -121,7 +128,10 @@ describe('POD-1614 — findSessionByResumeValue answers exactly what the scan di
   })
 
   it('agrees with the scan on a unique value, and on a value nobody holds', async () => {
-    await sessions.upsertSession(row('sess-1', ALICE, '2026-08-01T10:00:00.000Z', 'resume-unique'))
+    await sessions.upsertSession(
+      fixtureWriteScope(),
+      row('sess-1', ALICE, '2026-08-01T10:00:00.000Z', 'resume-unique'),
+    )
 
     expect((await sessions.findSessionByResumeValue('resume-unique'))?.id).toBe(
       (await byScan('resume-unique'))?.id,
@@ -136,8 +146,16 @@ describe('POD-1614 — findSessionByResumeValue answers exactly what the scan di
     // `loadSessions()` filters `deleted_at IS NULL`, so the scan could never
     // resolve a conversation onto a tombstone. A query that dropped that filter
     // would re-admit deleted sessions as a visibility input.
-    await sessions.upsertSession(row('sess-gone', ALICE, '2026-08-01T10:00:00.000Z', 'resume-gone'))
-    await sessions.softDeleteSessions(['sess-gone'], '2026-08-03T12:00:00.000Z', 'standalone')
+    await sessions.upsertSession(
+      fixtureWriteScope(),
+      row('sess-gone', ALICE, '2026-08-01T10:00:00.000Z', 'resume-gone'),
+    )
+    await sessions.softDeleteSessions(
+      fixtureWriteScope(),
+      ['sess-gone'],
+      '2026-08-03T12:00:00.000Z',
+      'standalone',
+    )
 
     expect(await byScan('resume-gone')).toBeUndefined()
     expect(await sessions.findSessionByResumeValue('resume-gone')).toBeUndefined()

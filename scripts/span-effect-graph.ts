@@ -1153,6 +1153,19 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'opaque',
     why: 'the extra write a persist lands inside the same transaction — the shape `persist` already had. Supplied at the call site, analysed there.',
   },
+  'apps/server/src/modules/sessions/repository.ts#SessionAdditionalWrite.SessionAdditionalWrite': {
+    kind: 'opaque',
+    why: "the named type of `additionalWrite` above (POD-6601: it takes the commit's write scope). The same callback, supplied at the call site and analysed there.",
+  },
+  'apps/server/src/modules/sessions/repository.ts#SessionRepository.write': {
+    kind: 'opaque',
+    why: "a prepared stored-session install's write (`prepareStoredSessionInstall`): the one stale-offer clear it holds, which the boot runs inside its own commit (POD-6601). Its body is written down in that method and analysed there.",
+  },
+  'apps/server/src/modules/sessions/session-kill.ts#SessionKillPorts.failMessagesToRemovedSessions':
+    {
+      kind: 'contained',
+      why: "fails every message still waiting for the removed session, and writes each sender's notice, inside the removal's own transaction (POD-4816): database rows only, and a removal that cannot end its messages does not commit.",
+    },
   'apps/server/src/modules/sessions/repository.ts#SessionRepository.additionalChanges': {
     kind: 'opaque',
     why: 'The satellite-row declaration callback returns change specs inside the session commit, alongside additionalWrite; its body is supplied and analysed at the call site, and this port publishes nothing itself.',

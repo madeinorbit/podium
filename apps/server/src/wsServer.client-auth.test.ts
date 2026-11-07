@@ -1,21 +1,21 @@
-import { hashToken, requestUserId } from './auth-route'
 import { randomBytes } from 'node:crypto'
 import { request } from 'node:http'
 import { firstAdminMemberId } from '@podium/model'
 import {
+  CAP_SYNC_HTTP_V1,
+  CLIENT_WIRE_VERSION,
   decodeBinaryEnvelope,
   type ServerMessage,
-  CLIENT_WIRE_VERSION,
-  CAP_SYNC_HTTP_V1,
 } from '@podium/protocol'
 import { afterEach, describe, expect, test } from 'vitest'
 import { WebSocket } from 'ws'
+import { hashToken, requestUserId } from './auth-route'
 import {
   attachWebSockets,
   type NativeServer,
   serveNative,
-  type WsHandle,
   type WsAuthOptions,
+  type WsHandle,
 } from './gateway/ws-server'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
@@ -186,14 +186,24 @@ async function connectDeltaClient(url: string) {
 
 describe('/client WS auth gate', () => {
   test('a disabled member cannot hello with their old cookie, even after re-enable', async () => {
-    const url = await start(() => true, undefined, undefined, undefined, async request => {
-      const userId = await requestUserId(store!.auth, request.headers.get('cookie') ?? undefined)
-      const user = userId && await store!.users.get(userId)
-      return user && userId ? { userId, userRole: user.role } : undefined
-    })
+    const url = await start(
+      () => true,
+      undefined,
+      undefined,
+      undefined,
+      async (request) => {
+        const userId = await requestUserId(store!.auth, request.headers.get('cookie') ?? undefined)
+        const user = userId && (await store!.users.get(userId))
+        return user && userId ? { userId, userRole: user.role } : undefined
+      },
+    )
     const member = firstAdminMemberId()
     const cookie = { cookie: 'podium_session=disable-test-token' }
-    await store!.auth.createClientSession(hashToken('disable-test-token'), member, '2999-01-01T00:00:00Z')
+    await store!.auth.createClientSession(
+      hashToken('disable-test-token'),
+      member,
+      '2999-01-01T00:00:00Z',
+    )
     expect(await attempt(url, cookie)).toBe('open')
     await store!.users.disable(member, '2026-09-17T12:00:00Z')
     expect(await attempt(url, cookie)).toBe('rejected')
@@ -382,8 +392,18 @@ describe('/client WS auth gate', () => {
   test('serves session state only through the wire-v2 feed', async () => {
     const url = await start(() => true)
     if (!registry || !store) throw new Error('missing test registry')
-    await store.machines.upsertMachine({ id: store.hostMachineId, name: 'Host', hostname: 'test', tokenHash: 'token', ownerUserId: firstAdminMemberId(), assignment: { server: true, agentExecution: true } })
-    await store.machines.setServiceAssignment(store.hostMachineId, { server: true, agentExecution: true })
+    await store.machines.upsertMachine({
+      id: store.hostMachineId,
+      name: 'Host',
+      hostname: 'test',
+      tokenHash: 'token',
+      ownerUserId: firstAdminMemberId(),
+      assignment: { server: true, agentExecution: true },
+    })
+    await store.machines.setServiceAssignment(store.hostMachineId, {
+      server: true,
+      agentExecution: true,
+    })
     await registry.gateway.attachDaemon(store.hostMachineId, () => {})
     const sessionId = (
       await registry.modules.sessions.createSession({
@@ -395,14 +415,17 @@ describe('/client WS auth gate', () => {
 
     const client = await connectDeltaClient(url)
     await until(() => client.frames.some((raw) => JSON.parse(raw).type === 'feedResume'))
-    await registry.modules.sessions.renameSession({ sessionId, name: 'feed-only-renamed' })
+    await registry.modules.sessions.renameSession(registry.modules.sessions.serverWriter, {
+      sessionId,
+      name: 'feed-only-renamed',
+    })
     registry.modules.sessions.flushBroadcasts()
     await until(() => client.frames.some((raw) => JSON.parse(raw).type === 'feedDelta'))
 
     const entityFrames = client.frames.map((raw) => JSON.parse(raw) as ServerMessage)
-    expect(entityFrames.map(message => message.type)).not.toContain('feedBootstrap')
-    expect(entityFrames.map(message => message.type)).toContain('feedResume')
-    const delta = entityFrames.find(message => message.type === 'feedDelta')
+    expect(entityFrames.map((message) => message.type)).not.toContain('feedBootstrap')
+    expect(entityFrames.map((message) => message.type)).toContain('feedResume')
+    const delta = entityFrames.find((message) => message.type === 'feedDelta')
     expect(delta).toMatchObject({
       type: 'feedDelta',
       changes: [{ entity: 'session', entityId: sessionId, op: 'upsert' }],

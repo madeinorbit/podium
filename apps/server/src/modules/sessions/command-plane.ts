@@ -105,7 +105,6 @@ export type SessionCommandServices = Pick<
   SessionLifecycle,
   | 'createSession'
   | 'workspace'
-  | 'killSession'
   | 'hibernateSession'
   | 'interruptTurn'
   | 'configureSession'
@@ -117,8 +116,10 @@ export type SessionCommandServices = Pick<
   // no command handler ever read it, and leaving it exposed the projection to
   // every handler that takes this bundle.
   | 'sessionById'
-> &
-  Pick<IssueSessionLifecycle, 'resumeSession' | 'resurrectSession' | 'stopSession'> &
+> & {
+  /** The direct kill of a hand-built context, written as the composition gives it. */
+  killSession(input: { sessionId: SessionId }): Promise<void>
+} & Pick<IssueSessionLifecycle, 'resumeSession' | 'resurrectSession' | 'stopSession'> &
   // POD-6160 D2f: the command's session stays resident while it runs.
   Partial<Pick<SessionLifecycle, 'residency'>>
 

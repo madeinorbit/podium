@@ -179,7 +179,7 @@ export function registerOfferCommands(registry: SyncWriteRegistry, deps: OfferSy
             `NEW work, file that work as its own issue and offer from there.`,
         }
       }
-      await sessions.setOffer({ sessionId: actor, ...offer })
+      await sessions.setOffer(ctx.ledger, { sessionId: actor, ...offer })
       // Self-reference nudge (POD-389): advisory only, the offer is already set.
       const notice =
         ownRef && bareSelfRefCount(offer.message, ownRef) > 0
@@ -196,7 +196,7 @@ export function registerOfferCommands(registry: SyncWriteRegistry, deps: OfferSy
     handle: async (ctx) => {
       const actor = actorOf(ctx.principal)
       if (actor === undefined) throw new SyncWriteRefused(NO_ACTOR.syncWriteRefused)
-      await deps.modules().sessions.clearOffer(actor)
+      await deps.modules().sessions.clearOffer(ctx.ledger, actor)
       return { ok: true, cleared: true }
     },
   })

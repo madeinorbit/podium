@@ -9,9 +9,9 @@ import { attachTestClient } from '../../test-support/client-transport'
  */
 
 import {
-  asMachineId,
   type Attribution,
   actorUser,
+  asMachineId,
   asSessionId,
   asUserId,
   firstAdminMemberId,
@@ -23,6 +23,7 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AgentCommandPrincipal } from '../../command-principal'
 import { OPERATOR } from '../../test-support/capabilities'
+import { attachHostDaemon } from '../../test-support/host-daemon'
 import { mailHarness } from '../messages/characterization-support'
 import {
   disposeOracles,
@@ -32,7 +33,6 @@ import {
   provisional,
 } from './oracle-support'
 import { type SessionStatePrincipal, SessionStateRegistry } from './session-state/registry'
-import { attachHostDaemon } from '../../test-support/host-daemon'
 
 afterEach(() => disposeOracles())
 
@@ -95,12 +95,15 @@ async function twoUserOracle() {
     alice: delegatedAgent(alice.sessionId, ALICE),
     bob: delegatedAgent(bob.sessionId, BOB),
   }
-  const sessionState = new SessionStateRegistry({
-    sessions: o.reg.modules.sessions,
-    state: o.reg.modules.sessions.state,
+  const sessionState = new SessionStateRegistry(
+    {
+      sessions: o.reg.modules.sessions,
+      state: o.reg.modules.sessions.state,
 
-    mutations: o.reg.modules.mutations,
-  })
+      mutations: o.reg.modules.mutations,
+    },
+    o.reg.modules.sessions.serverWriter,
+  )
   return { o, alice, bob, agents, sessionState }
 }
 
@@ -141,8 +144,7 @@ describe('oracle: two-user SessionService fixture', () => {
       capability: { role: 'worker', scope: { kind: 'self', userId: BOB } },
     }
     expect(
-      (await f.o.reg.modules.sessions
-        .listSessions(narrowBob, 'rpc'))
+      (await f.o.reg.modules.sessions.listSessions(narrowBob, 'rpc'))
         .map((session) => session.sessionId)
         .sort(),
     ).toEqual([f.bob.sessionId])
@@ -167,13 +169,21 @@ describe('oracle: durable per-user session state (not live co-presence)', () => 
       },
       alice,
     )
-    await f.sessionState.execute('snoozes.set', { sessionId: f.alice.sessionId, until: bobUntil }, bob)
+    await f.sessionState.execute(
+      'snoozes.set',
+      { sessionId: f.alice.sessionId, until: bobUntil },
+      bob,
+    )
     await f.sessionState.execute(
       'pins.set',
       { kind: 'panel', id: f.alice.sessionId, pinned: true },
       alice,
     )
-    await f.sessionState.execute('pins.set', { kind: 'panel', id: f.bob.sessionId, pinned: true }, bob)
+    await f.sessionState.execute(
+      'pins.set',
+      { kind: 'panel', id: f.bob.sessionId, pinned: true },
+      bob,
+    )
     await f.sessionState.execute(
       'tabs.setOrder',
       { worktree: '/work', sessionIds: [f.alice.sessionId, f.bob.sessionId] },
@@ -294,14 +304,18 @@ describe('oracle: priority pushes', () => {
 
   it(`${MUST_NOT_CHANGE}: focused is tier 0, visible is tier 1, unchanged view state sends no duplicate, and reconnect replays the map`, async () => {
     const o = await makeOracle()
-    const first = (await o.reg.modules.sessions.createSession({
-      agentKind: 'claude-code',
-      cwd: '/one',
-    })).sessionId
-    const second = (await o.reg.modules.sessions.createSession({
-      agentKind: 'claude-code',
-      cwd: '/two',
-    })).sessionId
+    const first = (
+      await o.reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/one',
+      })
+    ).sessionId
+    const second = (
+      await o.reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/two',
+      })
+    ).sessionId
     const clientId = attachTestClient(o.reg.clientGateway, () => {})
     o.daemon.length = 0
 
@@ -319,9 +333,7 @@ describe('oracle: priority pushes', () => {
 
     o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
     const reconnected: ControlMessage[] = []
-    await attachHostDaemon(o.reg, (message) =>
-      reconnected.push(message),
-    )
+    await attachHostDaemon(o.reg, (message) => reconnected.push(message))
     expect(priorities(reconnected)).toEqual(
       expect.arrayContaining([
         { type: 'sessionPriority', sessionId: first, priority: 1, nativeView: true },
@@ -355,8 +367,8 @@ describe('oracle: queued sends re-authorize at drain', () => {
       expect((await h.svc.message(sent.message.id))?.deliveryStatus).toBe('failed')
       expect(h.pushes.filter((push) => push.sessionId === 'target-agent')).toEqual([])
       expect(
-        (await h.svc.inbox([{ kind: 'session', id: 'sender-agent' }], { limit: 50 })).some((message) =>
-          message.body.includes('sender no longer has access'),
+        (await h.svc.inbox([{ kind: 'session', id: 'sender-agent' }], { limit: 50 })).some(
+          (message) => message.body.includes('sender no longer has access'),
         ),
       ).toBe(true)
     } finally {
@@ -414,8 +426,7 @@ describe('oracle: native identity receipts', () => {
     expect((await f.o.meta(f.alice.sessionId)).resume).toEqual(shared)
     expect((await f.o.meta(f.bob.sessionId)).resume).toBeUndefined()
     expect(
-      (await f.o.reg.modules.sessions
-        .listSessions(undefined, 'rpc'))
+      (await f.o.reg.modules.sessions.listSessions(undefined, 'rpc'))
         .map((session) => session.sessionId)
         .sort(),
     ).toEqual([f.alice.sessionId, f.bob.sessionId].sort())
@@ -517,7 +528,8 @@ describe('oracle: spawn placement fails closed', () => {
         { id: asMachineId('offline'), name: 'Offline' },
       ],
     })
-    const sessions = async () => (await o.reg.modules.sessions.listSessions(undefined, 'rpc')).length
+    const sessions = async () =>
+      (await o.reg.modules.sessions.listSessions(undefined, 'rpc')).length
 
     expect(
       await messageOf(() =>
@@ -544,12 +556,14 @@ describe('oracle: spawn placement fails closed', () => {
     expect(await sessions()).toBe(0)
 
     expect(
-      (await o.reg.modules.sessions.createSession({
-        agentKind: 'claude-code',
-        cwd: '/work',
-        machineId: asMachineId('online'),
-        use: () => 'granted',
-      })).sessionId,
+      (
+        await o.reg.modules.sessions.createSession({
+          agentKind: 'claude-code',
+          cwd: '/work',
+          machineId: asMachineId('online'),
+          use: () => 'granted',
+        })
+      ).sessionId,
     ).toEqual(expect.any(String))
     expect(await sessions()).toBe(1)
   })

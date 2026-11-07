@@ -33,6 +33,7 @@ import {
   type UserId,
 } from '@podium/model'
 import type { openDatabase } from '@podium/runtime/sqlite'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { createBunStoreExecutor } from './executor'
@@ -88,7 +89,7 @@ function row(input: Omit<Partial<SessionRow>, 'id'> & { id: string }): SessionRo
 }
 
 const put = async (input: Omit<Partial<SessionRow>, 'id'> & { id: string }): Promise<void> => {
-  await sessions.upsertSession(row(input))
+  await sessions.upsertSession(fixtureWriteScope(), row(input))
 }
 
 // ---------------------------------------------------------------------------
@@ -140,7 +141,7 @@ describe('getSessions — the batched form of getSession', () => {
   it('INCLUDES tombstones, because feed visibility needs the delete-audience answer', async () => {
     await put({ id: 'live-1' })
     await put({ id: 'dead-1' })
-    await sessions.softDeleteSessions(['dead-1'], 't5', 'standalone')
+    await sessions.softDeleteSessions(fixtureWriteScope(), ['dead-1'], 't5', 'standalone')
 
     const got = await sessions.getSessions(['live-1', 'dead-1', 'absent'])
 
@@ -182,7 +183,7 @@ describe('the three resume-value readers answer three different questions', () =
     // A tombstone on the same value: every one of the three readers restates
     // `deleted_at IS NULL`, so none of them may see it.
     await put({ id: 'buried', resumeValue: 'conv-1', createdAt: 't0' })
-    await sessions.softDeleteSessions(['buried'], 't5', 'standalone')
+    await sessions.softDeleteSessions(fixtureWriteScope(), ['buried'], 't5', 'standalone')
   }
 
   it('findSessionByResumeValue picks the FIRST live row in the scan order', async () => {
@@ -232,7 +233,7 @@ describe('findSessionsByIssueIds', () => {
     const issue = asIssueId('iss_a') as IssueId
     await put({ id: 'live-1', issueId: issue })
     await put({ id: 'dead-1', issueId: issue })
-    await sessions.softDeleteSessions(['dead-1'], 't5', 'standalone')
+    await sessions.softDeleteSessions(fixtureWriteScope(), ['dead-1'], 't5', 'standalone')
     await put({ id: 'elsewhere', issueId: asIssueId('iss_b') as IssueId })
 
     const got = await sessions.findSessionsByIssueIds([issue])
@@ -259,11 +260,11 @@ describe('clearAllReadAt — the one write here that legitimately crosses owners
   it('removes EVERY reader marker for one session and no other session', async () => {
     await put({ id: 'sess-1' })
     await put({ id: 'sess-2' })
-    await sessions.markSessionRead(ALICE, asSessionId('sess-1'), 't1')
-    await sessions.markSessionRead(BOB, asSessionId('sess-1'), 't1')
-    await sessions.markSessionRead(ALICE, asSessionId('sess-2'), 't1')
+    await sessions.markSessionRead(fixtureWriteScope(), ALICE, asSessionId('sess-1'), 't1')
+    await sessions.markSessionRead(fixtureWriteScope(), BOB, asSessionId('sess-1'), 't1')
+    await sessions.markSessionRead(fixtureWriteScope(), ALICE, asSessionId('sess-2'), 't1')
 
-    await sessions.clearAllReadAt(asSessionId('sess-1'))
+    await sessions.clearAllReadAt(fixtureWriteScope(), asSessionId('sess-1'))
 
     // The session became something new, which is true for everybody.
     expect(await sessions.getReadAt(ALICE, asSessionId('sess-1'))).toBeNull()
@@ -274,8 +275,8 @@ describe('clearAllReadAt — the one write here that legitimately crosses owners
 
   it('leaves ABSENCE as the only spelling of never-opened', async () => {
     await put({ id: 'sess-1' })
-    await sessions.markSessionRead(ALICE, asSessionId('sess-1'), 't1')
-    await sessions.clearAllReadAt(asSessionId('sess-1'))
+    await sessions.markSessionRead(fixtureWriteScope(), ALICE, asSessionId('sess-1'), 't1')
+    await sessions.clearAllReadAt(fixtureWriteScope(), asSessionId('sess-1'))
     // A table with two spellings of one fact acquires a second meaning nobody
     // documented, so the row must be GONE rather than holding a null.
     expect(await sessions.listReadAt(ALICE)).toEqual({})
@@ -286,21 +287,26 @@ describe('snoozes across readers', () => {
   it('hasAnySnooze sees any owner, and says no once all are cleared', async () => {
     await put({ id: 'sess-1' })
     expect(await sessions.hasAnySnooze(asSessionId('sess-1'))).toBe(false)
-    await sessions.setSnooze(BOB, asSessionId('sess-1'), null)
+    await sessions.setSnooze(fixtureWriteScope(), BOB, asSessionId('sess-1'), null)
     // ALICE has no snooze; the question is about the SESSION, not the reader.
     expect(await sessions.hasAnySnooze(asSessionId('sess-1'))).toBe(true)
-    await sessions.clearSnooze(BOB, asSessionId('sess-1'))
+    await sessions.clearSnooze(fixtureWriteScope(), BOB, asSessionId('sess-1'))
     expect(await sessions.hasAnySnooze(asSessionId('sess-1'))).toBe(false)
   })
 
   it('clearAllSnoozes drops every viewer independent snooze for one session only', async () => {
     await put({ id: 'sess-1' })
     await put({ id: 'sess-2' })
-    await sessions.setSnooze(ALICE, asSessionId('sess-1'), null)
-    await sessions.setSnooze(BOB, asSessionId('sess-1'), '2099-01-01T00:00:00.000Z')
-    await sessions.setSnooze(ALICE, asSessionId('sess-2'), null)
+    await sessions.setSnooze(fixtureWriteScope(), ALICE, asSessionId('sess-1'), null)
+    await sessions.setSnooze(
+      fixtureWriteScope(),
+      BOB,
+      asSessionId('sess-1'),
+      '2099-01-01T00:00:00.000Z',
+    )
+    await sessions.setSnooze(fixtureWriteScope(), ALICE, asSessionId('sess-2'), null)
 
-    await sessions.clearAllSnoozes(asSessionId('sess-1'))
+    await sessions.clearAllSnoozes(fixtureWriteScope(), asSessionId('sess-1'))
 
     expect(await sessions.hasAnySnooze(asSessionId('sess-1'))).toBe(false)
     expect(await sessions.hasAnySnooze(asSessionId('sess-2'))).toBe(true)
@@ -312,8 +318,8 @@ describe('snoozes across readers', () => {
     // asked for.
     await put({ id: 'sess-1' })
     const past = '2000-01-01T00:00:00.000Z'
-    await sessions.setSnooze(ALICE, asSessionId('sess-1'), past)
-    await sessions.setSnooze(BOB, asSessionId('sess-1'), past)
+    await sessions.setSnooze(fixtureWriteScope(), ALICE, asSessionId('sess-1'), past)
+    await sessions.setSnooze(fixtureWriteScope(), BOB, asSessionId('sess-1'), past)
 
     expect(await sessions.listSnoozes(ALICE)).toEqual({})
     // BOB's equally-expired row was not touched by ALICE's read.
@@ -322,7 +328,7 @@ describe('snoozes across readers', () => {
 
   it('listSnoozes never lapses an until-next-message snooze', async () => {
     await put({ id: 'sess-1' })
-    await sessions.setSnooze(ALICE, asSessionId('sess-1'), null)
+    await sessions.setSnooze(fixtureWriteScope(), ALICE, asSessionId('sess-1'), null)
     // `null` means until-next-message and has no deadline to pass.
     expect(await sessions.listSnoozes(ALICE)).toEqual({ 'sess-1': null })
   })
@@ -437,13 +443,13 @@ describe('offers and tab order keep their quarantines', () => {
   it('a corrupt actions column drops the OFFER; a corrupt artifacts column drops only the artifacts', async () => {
     await put({ id: 'sess-1' })
     await put({ id: 'sess-2' })
-    await sessions.setOffer(asSessionId('sess-1'), {
+    await sessions.setOffer(fixtureWriteScope(), asSessionId('sess-1'), {
       message: 'm1',
       actions: [{ label: 'a', prompt: 'b' }],
       artifacts: ['x'],
       createdAt: 't1',
     })
-    await sessions.setOffer(asSessionId('sess-2'), {
+    await sessions.setOffer(fixtureWriteScope(), asSessionId('sess-2'), {
       message: 'm2',
       actions: [{ label: 'a', prompt: 'b' }],
       createdAt: 't1',
@@ -462,7 +468,7 @@ describe('offers and tab order keep their quarantines', () => {
 
   it('a non-array actions value drops the offer even though the JSON parses', async () => {
     await put({ id: 'sess-1' })
-    await sessions.setOffer(asSessionId('sess-1'), {
+    await sessions.setOffer(fixtureWriteScope(), asSessionId('sess-1'), {
       message: 'm1',
       actions: [{ label: 'a', prompt: 'b' }],
       createdAt: 't1',

@@ -27,6 +27,7 @@ import type { SessionRecordReads } from './records'
 import type { SessionRepository } from './repository'
 import type { Session, SessionDurableState } from './session'
 import type { SessionKill, SessionKillPorts } from './session-kill'
+import type { SessionWriter } from './session-lifecycle-types'
 import type { SessionStateRegistry } from './session-state/registry'
 import type { SessionStateService } from './session-state/service'
 import type { SessionTeardown } from './session-teardown'
@@ -88,18 +89,21 @@ export class SessionMetaOps {
   /** Set (replace) a session's agent action offer [spec:SP-c7f1]. A subsequent
    *  offer replaces the previous one. Persisted in the `offers` table (off-row,
    *  like snooze) and broadcast so every client's chat bar updates. */
-  async setOffer({
-    sessionId,
-    message,
-    actions,
-    artifacts,
-  }: {
-    sessionId: SessionId
-    message: string
-    actions: { label: string; prompt: string; input?: boolean }[]
-    /** Issue-artifact paths named as evidence [POD-120]; resolved client-side. */
-    artifacts?: string[]
-  }): Promise<void> {
+  async setOffer(
+    writer: SessionWriter,
+    {
+      sessionId,
+      message,
+      actions,
+      artifacts,
+    }: {
+      sessionId: SessionId
+      message: string
+      actions: { label: string; prompt: string; input?: boolean }[]
+      /** Issue-artifact paths named as evidence [POD-120]; resolved client-side. */
+      artifacts?: string[]
+    },
+  ): Promise<void> {
     const offer = {
       message,
       actions,
@@ -117,22 +121,26 @@ export class SessionMetaOps {
       // session from the change baseline (kill and issue-delete publish removes;
       // a never-persisted session was never in it; a boot-skipped row is removed
       // by the boot reconcile) — but the call read as if clients were told.
-      await this.ports.store.sessions.setOffer(sessionId, offer)
+      await writer.commit({
+        write: async (scope) => await this.ports.store.sessions.setOffer(scope, sessionId, offer),
+        changes: () => [],
+      })
       return
     }
     await this.ports.repository.write(
+      writer,
       session,
       (draft: SessionDurableState) => {
         draft.offer = offer
       },
-      () => this.ports.store.sessions.setOffer(sessionId, offer),
+      (scope) => this.ports.store.sessions.setOffer(scope, sessionId, offer),
     )
     this.ports.broadcastSessions()
   }
 
   /** Clear a session's agent action offer [spec:SP-c7f1] (explicit `offer clear`
    *  or auto-clear on the next user turn). Skips work when nothing changes. */
-  async clearOffer(sessionId: SessionId): Promise<void> {
+  async clearOffer(writer: SessionWriter, sessionId: SessionId): Promise<void> {
     const session = this.ports.sessions.get(sessionId)
     // ASKED, NOT DONE [POD-3330]. This used to CLEAR the live offer and read the
     // answer out of the mutation, which put the clear on the shared object
@@ -161,7 +169,10 @@ export class SessionMetaOps {
     )
       return
     if (!session) {
-      await this.ports.store.sessions.clearOffer(sessionId)
+      await writer.commit({
+        write: async (scope) => await this.ports.store.sessions.clearOffer(scope, sessionId),
+        changes: () => [],
+      })
       return
     }
     // ONE transaction for the DELETE and the change that announces it. Clients
@@ -172,11 +183,12 @@ export class SessionMetaOps {
     // disagree: a rolled-back commit cannot leave the row deleted, and the
     // session's captured durable state is refreshed in the same breath.
     await this.ports.repository.write(
+      writer,
       session,
       (draft: SessionDurableState) => {
         draft.offer = undefined
       },
-      () => this.ports.store.sessions.clearOffer(sessionId),
+      (scope) => this.ports.store.sessions.clearOffer(scope, sessionId),
     )
     this.ports.broadcastSessions()
   }
@@ -193,14 +205,18 @@ export class SessionMetaOps {
    * Returns whether anything was dismissed, so a stale click is a no-op the caller
    * can see rather than an indistinguishable success.
    */
-  async dismissOffer(sessionId: SessionId, offerCreatedAt: string): Promise<boolean> {
+  async dismissOffer(
+    writer: SessionWriter,
+    sessionId: SessionId,
+    offerCreatedAt: string,
+  ): Promise<boolean> {
     const session = this.ports.sessions.get(sessionId)
     // The in-memory session is the live truth; the row behind it is what a
     // session that has left memory still has (`setOffer` writes it either way).
     const stamp =
       session?.offer?.createdAt ?? (await this.ports.store.sessions.offerCreatedAt(sessionId))
     if (stamp !== offerCreatedAt) return false
-    await this.clearOffer(sessionId)
+    await this.clearOffer(writer, sessionId)
     return true
   }
 
@@ -221,23 +237,35 @@ export class SessionMetaOps {
    * projection is still unscoped (ADR 2 D2) and therefore still serves one named
    * viewer, but that choice now lives in ONE method instead of on every session.
    */
-  async setSnooze({
-    userId,
-    sessionId,
-    until,
-  }: {
-    userId: UserId
-    sessionId: SessionId
-    until: string | null
-  }): Promise<void> {
+  async setSnooze(
+    writer: SessionWriter,
+    {
+      userId,
+      sessionId,
+      until,
+    }: {
+      userId: UserId
+      sessionId: SessionId
+      until: string | null
+    },
+  ): Promise<void> {
     return this.ports.state
-      .setSnooze(await this.ports.view.principalForTrustedUser(asUserId(userId)), sessionId, until)
+      .setSnooze(
+        writer,
+        await this.ports.view.principalForTrustedUser(asUserId(userId)),
+        sessionId,
+        until,
+      )
       .then(() => undefined)
   }
 
-  async clearSnooze(userId: UserId, sessionId: SessionId): Promise<void> {
+  async clearSnooze(writer: SessionWriter, userId: UserId, sessionId: SessionId): Promise<void> {
     return this.ports.state
-      .clearSnooze(await this.ports.view.principalForTrustedUser(asUserId(userId)), sessionId)
+      .clearSnooze(
+        writer,
+        await this.ports.view.principalForTrustedUser(asUserId(userId)),
+        sessionId,
+      )
       .then(() => undefined)
   }
 
@@ -253,9 +281,13 @@ export class SessionMetaOps {
    * in eleven handlers.
    */
 
-  async markSessionRead(userId: UserId, sessionId: SessionId): Promise<void> {
+  async markSessionRead(
+    writer: SessionWriter,
+    userId: UserId,
+    sessionId: SessionId,
+  ): Promise<void> {
     return this.ports.state
-      .markRead(await this.ports.view.principalForTrustedUser(asUserId(userId)), sessionId)
+      .markRead(writer, await this.ports.view.principalForTrustedUser(asUserId(userId)), sessionId)
       .then(() => undefined)
   }
 
@@ -263,9 +295,17 @@ export class SessionMetaOps {
    *  markSessionRead): DELETE the actor's marker so the derived `unread` (readAt
    *  null ⇒ unread) flips back to true, then broadcast. Marking MY copy unread
    *  never touches yours. No-op for an unknown session. */
-  async markSessionUnread(userId: UserId, sessionId: SessionId): Promise<void> {
+  async markSessionUnread(
+    writer: SessionWriter,
+    userId: UserId,
+    sessionId: SessionId,
+  ): Promise<void> {
     return this.ports.state
-      .markUnread(await this.ports.view.principalForTrustedUser(asUserId(userId)), sessionId)
+      .markUnread(
+        writer,
+        await this.ports.view.principalForTrustedUser(asUserId(userId)),
+        sessionId,
+      )
       .then(() => undefined)
   }
 
@@ -280,7 +320,11 @@ export class SessionMetaOps {
    */
 
   /** Set (or clear with null) a session's explicit issue attachment. */
-  async setSessionIssueId(sessionId: SessionId, issueId: IssueId | null): Promise<void> {
+  async setSessionIssueId(
+    writer: SessionWriter,
+    sessionId: SessionId,
+    issueId: IssueId | null,
+  ): Promise<void> {
     const session = this.ports.sessions.get(sessionId)
     if (!session) return
     const draft = this.ports.repository.draft(session)
@@ -292,34 +336,40 @@ export class SessionMetaOps {
     // THE DRAFT, not the session: the attachment this decides on is the one
     // assigned one line above, and it exists nowhere else until the commit.
     const additionalWrite = issueId ? await this.ports.view.prepareRefAllocation(draft) : undefined
-    await this.ports.repository.persistDraft(session, draft, additionalWrite)
+    await this.ports.repository.persistDraft(writer, session, draft, additionalWrite)
     this.ports.broadcastSessions()
   }
 
   /** Restamp the session's cwd after a hopscotch start minted a new checkout. */
-  setSessionCwd(sessionId: SessionId, cwd: string): Promise<void> {
+  setSessionCwd(writer: SessionWriter, sessionId: SessionId, cwd: string): Promise<void> {
     if (!cwd) return Promise.resolve()
-    return this.mutateSessionMeta(sessionId, (draft) => {
+    return this.mutateSessionMeta(writer, sessionId, (draft) => {
       draft.cwd = cwd
     })
   }
 
-  setWorkState({
-    sessionId,
-    workState,
-  }: {
-    sessionId: SessionId
-    workState: WorkState | null
-  }): Promise<void> {
-    return this.ports.state.setWorkState(sessionId, workState)
+  setWorkState(
+    writer: SessionWriter,
+    {
+      sessionId,
+      workState,
+    }: {
+      sessionId: SessionId
+      workState: WorkState | null
+    },
+  ): Promise<void> {
+    return this.ports.state.setWorkState(writer, sessionId, workState)
   }
 
   /**
    * Cleanly end a session [spec:SP-9904]. Survival table lives on SessionTeardown.
    */
 
-  setArchived({ sessionId, archived }: { sessionId: SessionId; archived: boolean }): Promise<void> {
-    return this.ports.state.setArchived(sessionId, archived)
+  setArchived(
+    writer: SessionWriter,
+    { sessionId, archived }: { sessionId: SessionId; archived: boolean },
+  ): Promise<void> {
+    return this.ports.state.setArchived(writer, sessionId, archived)
   }
 
   /** Archive parks a running process (POD-108). See SessionTeardown survival table. */
@@ -409,8 +459,9 @@ export class SessionMetaOps {
    * here instead of hand-rolling persist+broadcast.
    */
   async mutateSessionMeta(
+    writer: SessionWriter,
     sessionId: SessionId,
-    write: Parameters<SessionRepository['write']>[1],
+    write: Parameters<SessionRepository['write']>[2],
   ): Promise<void> {
     const session = this.ports.sessions.get(sessionId)
     if (!session) return
@@ -421,7 +472,7 @@ export class SessionMetaOps {
     // fields off the shared object and make somebody else's half-finished
     // change durable.
     await this.ports.funnel.run({
-      write: () => this.ports.repository.write(session, write),
+      write: () => this.ports.repository.write(writer, session, write),
     })
     this.ports.broadcastSessions()
   }
@@ -452,6 +503,7 @@ export class SessionMetaOps {
    */
 
   async prepareInboxSend(
+    writer: SessionWriter,
     sessionId: SessionId,
     attribution: Attribution,
     kind: 'text' | 'answer',
@@ -461,14 +513,14 @@ export class SessionMetaOps {
     if (!session) return
     const state: Pick<SessionStateService, 'clearAllSnoozes' | 'suppressNativeDraft'> =
       this.ports.state
-    await state.clearAllSnoozes(sessionId)
+    await state.clearAllSnoozes(writer, sessionId)
     state.suppressNativeDraft(sessionId)
     // A PERSON sending into the session moves the conversation past the offer.
     // Mail delivery, a cron/automation wake or an auto-continue is not a person
     // — it must leave a standing offer for the human who has not seen it yet
     // [spec:SP-c7f1, POD-118], the same rule the turn path applies.
     const userSend = origin === 'human' || origin === 'controller'
-    if (userSend && session.offer !== undefined) await this.clearOffer(sessionId)
+    if (userSend && session.offer !== undefined) await this.clearOffer(writer, sessionId)
     await this.ports.store.events.appendEvent({
       ts: new Date(this.ports.now()).toISOString(),
       kind: kind === 'answer' ? 'session.inbox.answer' : 'session.inbox.send',
@@ -497,11 +549,11 @@ export class SessionMetaOps {
       removals.push(await this.ports.prepareSessionRuntimeRemoval(sessionId))
     return {
       sessionIds,
-      write: async () => {
+      write: async (scope) => {
         // The messages still waiting for these sessions end with them, and
         // their senders are told, in this same write (POD-4816).
         await this.ports.failMessagesToRemovedSessions(sessionIds, { endedIssueId: issueId })
-        await this.ports.store.sessions.softDeleteForIssue(sessionIds, issueId, deletedAt)
+        await this.ports.store.sessions.softDeleteForIssue(scope, sessionIds, issueId, deletedAt)
         for (const sessionId of sessionIds)
           await this.ports.store.sync.deleteQueuedMessagesForSession(sessionId)
       },
@@ -542,9 +594,9 @@ export class SessionMetaOps {
     return {
       sessionIds: restored.map(({ session }) => session.sessionId),
       restoredSessions,
-      write: async () => {
-        await this.ports.store.sessions.restoreDeletedForIssue(issueId)
-        for (const install of installs) await install.write()
+      write: async (scope) => {
+        await this.ports.store.sessions.restoreDeletedForIssue(scope, issueId)
+        for (const install of installs) await install.write(scope)
       },
       changes: () =>
         restoredSessions.map((session) => ({

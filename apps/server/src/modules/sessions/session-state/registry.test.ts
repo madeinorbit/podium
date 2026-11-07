@@ -40,12 +40,15 @@ async function fixture() {
   const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   await attachHostDaemon(reg, () => {})
-  const sessionState = new SessionStateRegistry({
-    sessions: reg.modules.sessions,
-    state: reg.modules.sessions.state,
+  const sessionState = new SessionStateRegistry(
+    {
+      sessions: reg.modules.sessions,
+      state: reg.modules.sessions.state,
 
-    mutations: reg.modules.mutations,
-  })
+      mutations: reg.modules.mutations,
+    },
+    reg.modules.sessions.serverWriter,
+  )
   /**
    * A principal for an arbitrary user. `capability.scope` is `owned`/`self` for
    * that user — NOT `OPERATOR`. Using OPERATOR here would make every assertion
@@ -501,12 +504,15 @@ describe('the composer draft rejects a stale revision instead of overwriting', (
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reg)
     await attachHostDaemon(reg, () => {})
-    const sessionState = new SessionStateRegistry({
-      sessions: reg.modules.sessions,
-      state: reg.modules.sessions.state,
+    const sessionState = new SessionStateRegistry(
+      {
+        sessions: reg.modules.sessions,
+        state: reg.modules.sessions.state,
 
-      mutations: reg.modules.mutations,
-    })
+        mutations: reg.modules.mutations,
+      },
+      reg.modules.sessions.serverWriter,
+    )
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/p',

@@ -605,7 +605,10 @@ describe('search_all tool', () => {
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    await registry.modules.sessions.renameSession({ sessionId, name: 'capacitor refactor' })
+    await registry.modules.sessions.renameSession(registry.modules.sessions.serverWriter, {
+      sessionId,
+      name: 'capacitor refactor',
+    })
     registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
       type: 'sessionResumeRef',
       sessionId,
@@ -647,7 +650,10 @@ describe('search_all tool', () => {
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    await registry.modules.sessions.renameSession({ sessionId, name: 'capacitor session' })
+    await registry.modules.sessions.renameSession(registry.modules.sessions.serverWriter, {
+      sessionId,
+      name: 'capacitor session',
+    })
     const out = await sa.callMcpTool(
       'search_all',
       { query: 'capacitor', kinds: ['issue'] },
@@ -772,7 +778,7 @@ it.each([
   const session = await registry.modules.sessions.sessionById(created.sessionId)
   expect(session?.title).toBe('src')
   expect(session?.cwd).toBe(cwd + '/src')
-  await registry.modules.sessions.renameSession({
+  await registry.modules.sessions.renameSession(registry.modules.sessions.serverWriter, {
     sessionId: created.sessionId,
     name: 'path regression worker',
   })

@@ -179,6 +179,7 @@ async function spawnThroughRecord(
 ): Promise<unknown> {
   const record = ctx.deps.spawnRecord
   if (record === undefined) throw new Error('agent spawn is not wired on this server')
+  if (ctx.writer === undefined) throw new Error('agent spawn: its launch is created in its write')
   const plan = await planSpawn(ctx, input)
   const { issue, issueId, cwd, spawnedBy, harness, model, effort, machineId, agentProfileId } = plan
   // No daemon to start on now is refused now, as the start always refused it.
@@ -188,7 +189,7 @@ async function spawnThroughRecord(
     ...(harness ? { agentKind: harness } : {}),
   })
   const sessionId = randomUUID() as SessionId
-  const { effectId } = await record.create(ctx.caller.principal, {
+  const { effectId } = await record.create(ctx.writer, ctx.caller.principal, {
     sessionId,
     input: {
       ...(harness ? { agentKind: harness } : {}),

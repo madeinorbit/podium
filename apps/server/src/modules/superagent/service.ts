@@ -588,7 +588,9 @@ export class SuperagentService {
       await afterCommitOrNow(async () => {
         // Best-effort: a stale/absent row must not block the reset the user asked for.
         try {
-          await this.modules.sessions.killSession({ sessionId: podiumSessionId })
+          await this.modules.sessions.killSession(this.modules.superagentToolsWriter, {
+            sessionId: podiumSessionId,
+          })
         } catch {
           // already gone
         }
@@ -1571,7 +1573,7 @@ export class SuperagentService {
     text: string
     focus?: SuperagentUserFocus
   }): Promise<{ threadId: ThreadId; podiumSessionId: SessionId; isNew: boolean }> {
-    if (!(await this.repos.list()).some(path => machinePathsEqual(path, repoPath))) {
+    if (!(await this.repos.list()).some((path) => machinePathsEqual(path, repoPath))) {
       throw new SuperagentRefusal(
         'invalid',
         `unknown repo: ${repoPath} — register it in Podium first`,
@@ -1653,7 +1655,12 @@ export class SuperagentService {
    *  filter on `archived`/`headless`/`cwd` and then report a label, a kind and a
    *  phase — nothing the reader-scoped projection adds. */
   private async notExitedSessionFacts() {
-    return await this.modules.sessions.readSessionFactsWithStatuses(['starting', 'live', 'reconnecting', 'hibernated'])
+    return await this.modules.sessions.readSessionFactsWithStatuses([
+      'starting',
+      'live',
+      'reconnecting',
+      'hibernated',
+    ])
   }
   /** ONE session, without wiring the other 1100 [POD-1646]. */
   private async sessionById(sessionId: SessionId) {
@@ -2079,7 +2086,9 @@ export class SuperagentService {
   ): Promise<Omit<Parameters<typeof buildConciergeSeed>[0], 'maxEventId'>> {
     const issues = this.modules.issues
     const all = await issues.reports.list(repoPath)
-    const byWorktree = new Map(all.filter((i) => i.worktreePath).map((i) => [machinePathKey(i.worktreePath!), i]))
+    const byWorktree = new Map(
+      all.filter((i) => i.worktreePath).map((i) => [machinePathKey(i.worktreePath!), i]),
+    )
     const sessions: ConciergeSessionInfo[] = (await this.notExitedSessionFacts())
       .filter(
         (s) =>

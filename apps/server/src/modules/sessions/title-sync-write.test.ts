@@ -98,7 +98,10 @@ describe('sessions.title on the entry point', () => {
   it("the user's name is refused in the result, and nothing is written", async () => {
     const o = await makeOracle()
     const sessionId = await agent(o)
-    await o.reg.modules.sessions.renameSession({ sessionId, name: 'Mine' })
+    await o.reg.modules.sessions.renameSession(o.reg.modules.sessions.serverWriter, {
+      sessionId,
+      name: 'Mine',
+    })
     const env = envelope('sessions.title', { name: 'Agent pick' }, 'mut_title_user')
     const refused = await relay(o, sessionId, 'r-user', 'sync', 'submit', env)
     expect(refused.result).toMatchObject({ outcome: 'applied', result: { ok: false } })

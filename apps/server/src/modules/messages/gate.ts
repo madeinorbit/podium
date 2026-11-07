@@ -183,6 +183,7 @@ export interface SpawnRecordPort {
   ): Promise<void>
   /** The record, created in the write's unit of work under `sessionId`. */
   create(
+    writer: NonNullable<MailHandlerContext['writer']>,
     principal: CommandPrincipal,
     launch: { sessionId: SessionId; input: Record<string, unknown> },
   ): Promise<{ effectId: string }>
@@ -406,6 +407,8 @@ export class MessageGate {
     principal: CommandPrincipal,
     overrideScope: boolean,
     inEntry = false,
+    /** The write's own writer, for what it creates in its unit (POD-6601). */
+    writer?: MailHandlerContext['writer'],
   ): Promise<MailHandlerContext> {
     if (principal.kind === 'system') throw new Error('mail: a system principal has no mailbox')
     const policy = await this.policyFor?.(principal)
@@ -419,6 +422,7 @@ export class MessageGate {
       deps: this.deps,
       access,
       ...(inEntry ? { inEntry: true } : {}),
+      ...(writer !== undefined ? { writer } : {}),
     }
   }
 

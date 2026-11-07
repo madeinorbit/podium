@@ -42,17 +42,16 @@ export class IssueSessionLifecycle {
       issues: IssueService
       sessions: SessionLifecycle
       ledger: Pick<LedgerWriter, 'commit'>
-      /** The `sessions` origin's writer, for a session path's issue write (POD-6601). */
-      sessionsWriter: Pick<LedgerWriter, 'commit' | 'capture'>
       /** The issue revision arbitration, applied to a command's own writer. */
       arbitrate: (writer: IssueLifecycleWriter) => IssueLifecycleWriter
     },
   ) {}
 
   /**
-   * The issue workflow as the session paths see it. A session's re-home writes
-   * the issue under the `sessions` origin until POD-6601 passes the session
-   * command's own writer (ADR 12 D9).
+   * The issue workflow as the session paths see it. A resume or a resurrect is
+   * the server acting after a commit (the launch run, the lifecycle
+   * controller), so a session's re-home writes the issue as `sessions.lifecycle`
+   * (ADR 12 D9, POD-6601).
    */
   private sessionWorkflow(): SessionIssueWorkflowPort {
     const workflow = this.deps.issues.gitWorkflow
@@ -60,7 +59,7 @@ export class IssueSessionLifecycle {
       ensureWorktree: async (...args) => await workflow.ensureWorktree(...args),
       freeWorktreeKeepBranch: async (...args) => await workflow.freeWorktreeKeepBranch(...args),
       rehome: async (issueId, where) =>
-        await workflow.rehome(this.deps.sessionsWriter, issueId, where),
+        await workflow.rehome(this.deps.sessions.serverWriter, issueId, where),
       recordSessionGitActivity: async (...args) => await workflow.recordSessionGitActivity(...args),
     }
   }
@@ -314,7 +313,7 @@ export class IssueSessionLifecycle {
 
     await this.deps.arbitrate(writer).commit({
       write: async (scope) => {
-        await sessionPlan.write()
+        await sessionPlan.write(scope)
         await issuePlan.write(scope)
       },
       changes: () => [...sessionPlan.changes(), ...issuePlan.changes()],
@@ -366,7 +365,7 @@ export class IssueSessionLifecycle {
 
     await this.deps.arbitrate(writer).commit({
       write: async (scope) => {
-        await sessionPlan.write()
+        await sessionPlan.write(scope)
         await issuePlan.write(scope)
       },
       changes: () => [...sessionPlan.changes(), ...issuePlan.changes()],

@@ -16,10 +16,25 @@ import {
   SessionDesired,
   type SessionId,
   SessionLifecycleFailure,
-  type UserId,
   type SessionUserStateWire,
+  type UserId,
 } from '@podium/model'
-import { and, asc, eq, getTableColumns, gte, inArray, isNotNull, isNull, lt, or, type Placeholder, type SQL, sql } from 'drizzle-orm'
+import type { WriteScope } from '@podium/sync'
+import {
+  and,
+  asc,
+  eq,
+  getTableColumns,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  or,
+  type Placeholder,
+  type SQL,
+  sql,
+} from 'drizzle-orm'
 import {
   issues as issuesTable,
   offers as offersTable,
@@ -33,7 +48,7 @@ import {
 } from '../migrations/schema'
 import { applyAfterCommit, spanOpen } from './executor/executor'
 import { operationLoader } from './executor/operation-loader'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
@@ -45,7 +60,6 @@ import {
   shapeOf,
 } from './executor/sync-drizzle'
 import { requireUserId } from './helpers'
-import { WrittenColumns } from './written-columns'
 import { prefixUpperBound } from './prefix-range'
 import type { RepoPlaces } from './repos'
 import type {
@@ -60,6 +74,7 @@ import type {
   SnoozeMap,
 } from './types'
 import { NO_LIFECYCLE } from './types'
+import { WrittenColumns } from './written-columns'
 
 const PIN_KINDS = new Set<PinKind>(['panel', 'worktree', 'repo'])
 
@@ -159,7 +174,10 @@ const sessionsOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
 
 /** The predicate the two plural resume readers share, so they cannot drift. */
 const liveSessionsOfResumeValues = preparedFamily((db: StoreDrizzle, size: number) =>
-  sessionsWhere(db, and(inListOf(sessionsTable.resumeValue, size), isNull(sessionsTable.deletedAt))),
+  sessionsWhere(
+    db,
+    and(inListOf(sessionsTable.resumeValue, size), isNull(sessionsTable.deletedAt)),
+  ),
 )
 
 const liveSessionsOfIssueIds = preparedFamily((db: StoreDrizzle, size: number) =>
@@ -232,7 +250,11 @@ const liveSessionsOfBirthLetter = preparedFamily((db: StoreDrizzle, size: number
 const liveSessionsReferencingIssues = preparedFamily((db: StoreDrizzle, size: number) =>
   sessionsMatching(
     db,
-    and(inListOf(sessionsTable.refIssueId, size), isNotNull(sessionsTable.refIssueId), isNull(sessionsTable.deletedAt)),
+    and(
+      inListOf(sessionsTable.refIssueId, size),
+      isNotNull(sessionsTable.refIssueId),
+      isNull(sessionsTable.deletedAt),
+    ),
   ),
 )
 
@@ -240,13 +262,19 @@ const liveSessionsReferencingIssues = preparedFamily((db: StoreDrizzle, size: nu
 const liveSessionsOfDraft = prepared((db: StoreDrizzle) =>
   sessionsMatching(
     db,
-    and(eq(sessionsTable.refDraft, param(sessionsTable.refDraft, 'draft')), isNull(sessionsTable.deletedAt)),
+    and(
+      eq(sessionsTable.refDraft, param(sessionsTable.refDraft, 'draft')),
+      isNull(sessionsTable.deletedAt),
+    ),
   ),
 )
 
 /** Live sessions spawned by one of these parents (`spawned_by` values) (POD-6160). */
 const liveSessionsSpawnedBy = preparedFamily((db: StoreDrizzle, size: number) =>
-  sessionsMatching(db, and(inListOf(sessionsTable.spawnedBy, size), isNull(sessionsTable.deletedAt))),
+  sessionsMatching(
+    db,
+    and(inListOf(sessionsTable.spawnedBy, size), isNull(sessionsTable.deletedAt)),
+  ),
 )
 
 /** The issues with this sequence number, in any repository: the issue half of
@@ -263,7 +291,10 @@ const issueIdsOfSeq = prepared((db: StoreDrizzle) =>
 const liveSessionsOnMachine = prepared((db: StoreDrizzle) =>
   sessionsMatching(
     db,
-    and(eq(sessionsTable.machineId, param(sessionsTable.machineId, 'machineId')), isNull(sessionsTable.deletedAt)),
+    and(
+      eq(sessionsTable.machineId, param(sessionsTable.machineId, 'machineId')),
+      isNull(sessionsTable.deletedAt),
+    ),
   ),
 )
 
@@ -297,7 +328,9 @@ const liveSessionsPage = prepared((db: StoreDrizzle) =>
   db
     .select()
     .from(sessionsTable)
-    .where(and(isNull(sessionsTable.deletedAt), sql`${sessionsTable.id} > ${sql.placeholder('after')}`))
+    .where(
+      and(isNull(sessionsTable.deletedAt), sql`${sessionsTable.id} > ${sql.placeholder('after')}`),
+    )
     .orderBy(asc(sessionsTable.id))
     .limit(sql.placeholder('limit'))
     .prepare(),
@@ -309,7 +342,13 @@ const liveSessionsWithoutRef = prepared((db: StoreDrizzle) =>
   db
     .select()
     .from(sessionsTable)
-    .where(and(isNull(sessionsTable.refIssueId), isNull(sessionsTable.refDraft), isNull(sessionsTable.deletedAt)))
+    .where(
+      and(
+        isNull(sessionsTable.refIssueId),
+        isNull(sessionsTable.refDraft),
+        isNull(sessionsTable.deletedAt),
+      ),
+    )
     .orderBy(asc(sessionsTable.createdAt), asc(sessionsTable.id))
     .prepare(),
 )
@@ -401,7 +440,9 @@ const INDEXED_GROUPS: readonly (readonly SessionColumnKey[])[] = [
   ],
 ]
 const INDEXED_COLUMNS = INDEXED_GROUPS.flat()
-const GROUP_BIT = new Map(INDEXED_GROUPS.flatMap((group, index) => group.map((key) => [key, 1 << index] as const)))
+const GROUP_BIT = new Map(
+  INDEXED_GROUPS.flatMap((group, index) => group.map((key) => [key, 1 << index] as const)),
+)
 const STATUS_GROUP = 1
 /** Every group set: the full write, for a row this store cannot vouch for. */
 const ALL_GROUPS = (1 << INDEXED_GROUPS.length) - 1
@@ -418,7 +459,10 @@ function indexedColumnsOf(values: object): IndexedColumns {
 }
 
 /** The groups whose values differ from what the row holds. */
-function changedGroups(stored: IndexedColumns | undefined, values: Record<string, unknown>): number {
+function changedGroups(
+  stored: IndexedColumns | undefined,
+  values: Record<string, unknown>,
+): number {
   if (stored === undefined) return ALL_GROUPS
   let groups = 0
   INDEXED_COLUMNS.forEach((key, index) => {
@@ -435,8 +479,12 @@ function changedGroups(stored: IndexedColumns | undefined, values: Record<string
  * are written on insert only. An indexed column outside `groups` is left out
  * (see {@link INDEXED_GROUPS}).
  */
-function sessionUpsertSet(value: (key: SessionColumnKey) => Placeholder | SQL | undefined, groups: number) {
-  const set: Partial<Record<SessionColumnKey, Placeholder | SQL | undefined>> = fullSessionUpsertSet(value)
+function sessionUpsertSet(
+  value: (key: SessionColumnKey) => Placeholder | SQL | undefined,
+  groups: number,
+) {
+  const set: Partial<Record<SessionColumnKey, Placeholder | SQL | undefined>> =
+    fullSessionUpsertSet(value)
   for (const key of INDEXED_COLUMNS) if ((groups & GROUP_BIT.get(key)!) === 0) delete set[key]
   return set
 }
@@ -531,7 +579,10 @@ const upsertSessionOfShape = preparedFamily((db: StoreDrizzle, key: string) => {
   return db
     .insert(sessionsTable)
     .values(p as unknown as SessionInsert)
-    .onConflictDoUpdate({ target: sessionsTable.id, set: sessionUpsertSet((name) => p[name], groups) })
+    .onConflictDoUpdate({
+      target: sessionsTable.id,
+      set: sessionUpsertSet((name) => p[name], groups),
+    })
     .prepare()
 })
 
@@ -571,7 +622,8 @@ const upsertSessionsOfShape = preparedFamily((db: StoreDrizzle, key: string) => 
     .onConflictDoUpdate({
       target: sessionsTable.id,
       set: sessionUpsertSet(
-        (name) => (present.has(name) ? sql`excluded.${sql.identifier(columns[name].name)}` : undefined),
+        (name) =>
+          present.has(name) ? sql`excluded.${sql.identifier(columns[name].name)}` : undefined,
         groups,
       ),
     })
@@ -769,7 +821,10 @@ const deleteCheckpointsOfSession = prepared((db: StoreDrizzle) =>
 )
 
 const deleteSessionRow = prepared((db: StoreDrizzle) =>
-  db.delete(sessionsTable).where(eq(sessionsTable.id, param(sessionsTable.id, 'id'))).prepare(),
+  db
+    .delete(sessionsTable)
+    .where(eq(sessionsTable.id, param(sessionsTable.id, 'id')))
+    .prepare(),
 )
 
 const deletePanelPinsOf = prepared((db: StoreDrizzle) =>
@@ -948,7 +1003,10 @@ const snoozesOfUserSessions = preparedFamily((db: StoreDrizzle, size: number) =>
     .select({ sessionId: snoozesTable.sessionId, snoozedUntil: snoozesTable.snoozedUntil })
     .from(snoozesTable)
     .where(
-      and(eq(snoozesTable.userId, param(snoozesTable.userId, 'userId')), inListOf(snoozesTable.sessionId, size)),
+      and(
+        eq(snoozesTable.userId, param(snoozesTable.userId, 'userId')),
+        inListOf(snoozesTable.sessionId, size),
+      ),
     )
     .prepare(),
 )
@@ -1221,7 +1279,9 @@ export class SessionsRepository {
     )
     if (ids.length === 0) return result
     const size = inListSize(ids.length)
-    const rows = await bindingFactsOfIds(this.db, size).all(inListValues(ids.map(asSessionId), size))
+    const rows = await bindingFactsOfIds(this.db, size).all(
+      inListValues(ids.map(asSessionId), size),
+    )
     for (const row of rows)
       result[row.id] = {
         owner: row.owner,
@@ -1424,12 +1484,18 @@ export class SessionsRepository {
   async sessionsUnderPath(root: string): Promise<SessionRow[]> {
     if (!root) return []
     const byId = new Map<string, SessionSelect>()
-    for (const row of await liveSessionsInCwdRange(this.db).all({ lo: root, hi: prefixUpperBound(root) })) {
+    for (const row of await liveSessionsInCwdRange(this.db).all({
+      lo: root,
+      hi: prefixUpperBound(root),
+    })) {
       byId.set(row.id, row)
     }
     if (machinePathSeparator(root) === '\\') {
       const folded = root.replace(/\//g, '\\').replace(/[A-Z]/g, (char) => char.toLowerCase())
-      for (const row of await liveSessionsInFoldedCwdRange(this.db).all({ lo: folded, hi: prefixUpperBound(folded) })) {
+      for (const row of await liveSessionsInFoldedCwdRange(this.db).all({
+        lo: folded,
+        hi: prefixUpperBound(folded),
+      })) {
         byId.set(row.id, row)
       }
     }
@@ -1440,7 +1506,9 @@ export class SessionsRepository {
    *  primary key (POD-6160). */
   async sessionsWithIdPrefix(prefix: string): Promise<SessionRow[]> {
     if (!prefix) return []
-    return (await liveSessionsInIdRange(this.db).all({ lo: prefix, hi: prefixUpperBound(prefix) })).map(mapSession)
+    return (
+      await liveSessionsInIdRange(this.db).all({ lo: prefix, hi: prefixUpperBound(prefix) })
+    ).map(mapSession)
   }
 
   /** Live sessions in one of these statuses, unordered (POD-6160). */
@@ -1448,7 +1516,9 @@ export class SessionsRepository {
     const unique = [...new Set(statuses)]
     if (unique.length === 0) return []
     const size = inListSize(unique.length)
-    return (await liveSessionsOfStatuses(this.db, size).all(inListValues(unique, size))).map(mapSession)
+    return (await liveSessionsOfStatuses(this.db, size).all(inListValues(unique, size))).map(
+      mapSession,
+    )
   }
 
   /** Live headless sessions, whatever their status (POD-6160: a boot restores
@@ -1478,7 +1548,10 @@ export class SessionsRepository {
     const out: SessionRow[] = []
     for (const chunk of chunked(issueIds)) {
       const size = inListSize(chunk.length)
-      const rows = await liveSessionsOfBirthLetter(this.db, size).all({ letter, ...inListValues(chunk, size) })
+      const rows = await liveSessionsOfBirthLetter(this.db, size).all({
+        letter,
+        ...inListValues(chunk, size),
+      })
       out.push(...rows.map(mapSession))
     }
     return out
@@ -1494,7 +1567,11 @@ export class SessionsRepository {
     const out: SessionRow[] = []
     for (const chunk of chunked([...new Set(spawnedBy)])) {
       const size = inListSize(chunk.length)
-      out.push(...(await liveSessionsSpawnedBy(this.db, size).all(inListValues(chunk, size))).map(mapSession))
+      out.push(
+        ...(await liveSessionsSpawnedBy(this.db, size).all(inListValues(chunk, size))).map(
+          mapSession,
+        ),
+      )
     }
     return out
   }
@@ -1523,7 +1600,7 @@ export class SessionsRepository {
     return (await deletedSessionsForIssue(this.db).all({ issueId })).map(mapSession)
   }
 
-  async upsertSession(row: SessionRow): Promise<void> {
+  async upsertSession(_scope: WriteScope, row: SessionRow): Promise<void> {
     const values = sessionUpsertValues(row)
     const groups = changedGroups(this.writtenColumns.get(values.id), values)
     try {
@@ -1546,7 +1623,7 @@ export class SessionsRepository {
    * session on one tick. Every row is checked before the first is written.
    * Rows are written in the order given; pass each session once.
    */
-  async upsertSessions(rows: readonly SessionRow[]): Promise<void> {
+  async upsertSessions(_scope: WriteScope, rows: readonly SessionRow[]): Promise<void> {
     if (rows.length === 0) return
     const byShape = new Map<string, ReturnType<typeof sessionUpsertValues>[]>()
     for (const row of rows) {
@@ -1562,14 +1639,17 @@ export class SessionsRepository {
         const chunk = group.slice(start, start + UPSERT_ROWS_PER_STATEMENT)
         const size = inListSize(chunk.length)
         let changed = 0
-        for (const values of chunk) changed |= changedGroups(this.writtenColumns.get(values.id), values)
+        for (const values of chunk)
+          changed |= changedGroups(this.writtenColumns.get(values.id), values)
         const params: Record<string, unknown> = {}
         for (let index = 0; index < size; index++) {
           const values = chunk[Math.min(index, chunk.length - 1)] as Record<string, unknown>
           for (const key of keys) params[rowParam(index, key)] = values[key]
         }
         try {
-          await upsertSessionsOfShape(this.db, `${size}|${manyRowGroups(changed)}|${shape}`).run(params)
+          await upsertSessionsOfShape(this.db, `${size}|${manyRowGroups(changed)}|${shape}`).run(
+            params,
+          )
         } catch (error) {
           for (const values of chunk) this.writtenColumns.forget(values.id)
           throw error
@@ -1588,6 +1668,7 @@ export class SessionsRepository {
    *  kept `status='live'` with no stop reason for as long as it existed. Only a
    *  RUNNING row changes; a hibernated or exited one already says how it stopped. */
   async softDeleteSessions(
+    _scope: WriteScope,
     ids: string[],
     deletedAt: string,
     source: SessionDeletionSource,
@@ -1603,12 +1684,17 @@ export class SessionsRepository {
   }
 
   /** Mark sessions as deleted by an issue so restoring that issue can recover them. */
-  async softDeleteForIssue(ids: string[], issueId: IssueId, deletedAt: string): Promise<void> {
-    await this.softDeleteSessions(ids, deletedAt, 'issue', issueId)
+  async softDeleteForIssue(
+    _scope: WriteScope,
+    ids: string[],
+    issueId: IssueId,
+    deletedAt: string,
+  ): Promise<void> {
+    await this.softDeleteSessions(_scope, ids, deletedAt, 'issue', issueId)
   }
 
   /** Re-expose an issue's tombstoned sessions as honestly exited runtime records. */
-  async restoreDeletedForIssue(issueId: IssueId): Promise<void> {
+  async restoreDeletedForIssue(_scope: WriteScope, issueId: IssueId): Promise<void> {
     await this.writtenColumns.aside('all', () => restoreSessionsOfIssue(this.db).run({ issueId }))
     this.rowsWritten()
   }
@@ -1638,7 +1724,7 @@ export class SessionsRepository {
    * `refIssueId` is set — leaving the session permanently unable to earn the draft
    * ref it should now get.
    */
-  async detachTombstonesFromIssue(issueId: IssueId): Promise<void> {
+  async detachTombstonesFromIssue(_scope: WriteScope, issueId: IssueId): Promise<void> {
     await this.writtenColumns.aside('all', () => detachTombstones(this.db).run({ issueId }))
     this.rowsWritten()
   }
@@ -1650,14 +1736,21 @@ export class SessionsRepository {
    * of every reader in the process, so no in-memory `Session` exists yet to
    * desync. Returns the number of rows healed.
    */
+  /**
+   * The boot heal (`store.ts`): runs as the store opens, before the Ledger is
+   * composed, so it has no write scope to take; the boot reconcile that follows
+   * reports what it changed (POD-6601).
+   */
   async detachDanglingIssueReferences(): Promise<number> {
-    const result = await this.writtenColumns.aside('all', () => detachDanglingReferences(this.db).run())
+    const result = await this.writtenColumns.aside('all', () =>
+      detachDanglingReferences(this.db).run(),
+    )
     this.rowsWritten()
     return Number(result.changes)
   }
 
   /** Irreversibly remove a session and its satellites. Internal maintenance only. */
-  async purgeSession(id: SessionId): Promise<void> {
+  async purgeSession(_scope: WriteScope, id: SessionId): Promise<void> {
     await deleteCheckpointsOfSession(this.db).run({ id })
     this.purgeObservationCheckpoint(id)
     await this.writtenColumns.aside([id], () => deleteSessionRow(this.db).run({ id }))
@@ -1712,7 +1805,12 @@ export class SessionsRepository {
       //               the `PIN_KINDS` membership throw, `id` by the empty-string
       //               throw on the trimmed value, and `pinned_at` is a freshly
       //               built ISO string.
-      await insertPin(this.db).run({ userId, kind, id: cleanId, pinnedAt: new Date().toISOString() })
+      await insertPin(this.db).run({
+        userId,
+        kind,
+        id: cleanId,
+        pinnedAt: new Date().toISOString(),
+      })
     } else {
       await deletePin(this.db).run({ userId, kind, id: cleanId })
     }
@@ -1826,7 +1924,12 @@ export class SessionsRepository {
     return row?.readAt ?? null
   }
 
-  async markSessionRead(userId: UserId, sessionId: SessionId, readAt: string): Promise<void> {
+  async markSessionRead(
+    _scope: WriteScope,
+    userId: UserId,
+    sessionId: SessionId,
+    readAt: string,
+  ): Promise<void> {
     requireUserId(userId)
     const id = sessionId.trim()
     if (!id) throw new Error('read-state session id is empty')
@@ -1836,7 +1939,7 @@ export class SessionsRepository {
   /** DELETES the row rather than writing a null. Absence and `read_at IS NULL`
    *  would be two spellings of "never opened", and a table with two spellings of
    *  one fact acquires a second meaning nobody documented. */
-  async markSessionUnread(userId: UserId, sessionId: SessionId): Promise<void> {
+  async markSessionUnread(_scope: WriteScope, userId: UserId, sessionId: SessionId): Promise<void> {
     requireUserId(userId)
     await deleteReadAt(this.db).run({ userId, sessionId: asSessionId(sessionId.trim()) })
   }
@@ -1850,7 +1953,7 @@ export class SessionsRepository {
    * is true for everybody. It is not a widening — it removes rows, so no reader
    * ever sees another reader's state.
    */
-  async clearAllReadAt(sessionId: SessionId): Promise<UserId[]> {
+  async clearAllReadAt(_scope: WriteScope, sessionId: SessionId): Promise<UserId[]> {
     const cleared = await deleteAllReadAtOf(this.db).all({
       sessionId: asSessionId(sessionId.trim()),
     })
@@ -1882,7 +1985,12 @@ export class SessionsRepository {
 
   /** Snooze a session for one user. `until` = null → until next message; ISO
    *  string → timed. PER-USER STATE (POD-380) — see the note on {@link listPins}. */
-  async setSnooze(userId: UserId, sessionId: SessionId, until: string | null): Promise<void> {
+  async setSnooze(
+    _scope: WriteScope,
+    userId: UserId,
+    sessionId: SessionId,
+    until: string | null,
+  ): Promise<void> {
     requireUserId(userId)
     const id = sessionId.trim()
     if (!id) throw new Error('snooze session id is empty')
@@ -1895,7 +2003,7 @@ export class SessionsRepository {
   }
 
   /** Un-snooze a session for one user (no-op if not snoozed). */
-  async clearSnooze(userId: UserId, sessionId: SessionId): Promise<void> {
+  async clearSnooze(_scope: WriteScope, userId: UserId, sessionId: SessionId): Promise<void> {
     await deleteUserSnooze(this.db).run({ userId, sessionId: asSessionId(sessionId.trim()) })
   }
 
@@ -1906,7 +2014,7 @@ export class SessionsRepository {
   }
 
   /** Clear every viewer's independent snooze after a shared session event. */
-  async clearAllSnoozes(sessionId: SessionId): Promise<UserId[]> {
+  async clearAllSnoozes(_scope: WriteScope, sessionId: SessionId): Promise<UserId[]> {
     const cleared = await deleteAllSnoozesOf(this.db).all({
       sessionId: asSessionId(sessionId.trim()),
     })
@@ -1940,7 +2048,7 @@ export class SessionsRepository {
   }
 
   /** Set (replace) the live offer for a session. */
-  async setOffer(sessionId: SessionId, offer: OfferRecord): Promise<void> {
+  async setOffer(_scope: WriteScope, sessionId: SessionId, offer: OfferRecord): Promise<void> {
     const id = sessionId.trim()
     if (!id) throw new Error('offer session id is empty')
     const values = {
@@ -1963,7 +2071,7 @@ export class SessionsRepository {
   }
 
   /** Remove a session's offer (no-op if none). */
-  async clearOffer(sessionId: SessionId): Promise<void> {
+  async clearOffer(_scope: WriteScope, sessionId: SessionId): Promise<void> {
     await deleteOfferOf(this.db).run({ id: asSessionId(sessionId.trim()) })
   }
 

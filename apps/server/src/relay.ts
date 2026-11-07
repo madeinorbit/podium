@@ -387,12 +387,6 @@ export interface EffectsModule {
    * unit: the record commits or rolls back with the write.
    */
   createInUnit(writer: Pick<LedgerWriter, 'commit'>, effect: NewEffectInUnit): Promise<EffectRow>
-  /**
-   * {@link createInUnit} for the session paths that cannot yet reach the writer
-   * of the command they run in (a chat send's wake, an agent spawn's launch):
-   * written under the `sessions` origin until POD-6601 passes it through.
-   */
-  createForSession(effect: NewEffectInUnit): Promise<EffectRow>
 }
 
 interface NewEffectInUnit {
@@ -405,12 +399,8 @@ interface NewEffectInUnit {
 }
 
 export interface RegistryModules {
-  /**
-   * The `sessions` origin's writer (ADR 12 D9): the issue writes a session
-   * command makes (a chat upload claim, a start's draft) until POD-6601 passes
-   * that command's own writer. Census-owned; no new caller.
-   */
-  sessionsWriter: Pick<LedgerWriter, 'commit' | 'capture'>
+  /** The superagent's own session writes (`superagent.tools`, POD-6601). */
+  superagentToolsWriter: Pick<LedgerWriter, 'commit' | 'capture'>
   bus: EventBus
   funnel: WriteFunnel
   sessions: SessionLifecycle
@@ -1825,10 +1815,17 @@ export class SessionRegistry {
       funnel,
       clients: clientRegistry,
       subscriptions,
-      // Session writes commit through the write-seam ledger at persist() (#256).
-      // The repository also reads the installed snapshot at boot (its prior
-      // personal rows), so the port carries the Authority's reads too.
-      ledger: { ...writes.system('sessions'), authority: ledger.authority },
+      // Session writes commit through the writer of whoever asked (ADR 12 D9,
+      // POD-6601): a command's own, or one of these named origins. The boot
+      // writer also reads the installed snapshot (its prior personal rows).
+      writers: {
+        daemon: writes.system('sessions.daemon'),
+        lifecycle: writes.system('sessions.lifecycle'),
+        live: writes.system('sessions.live'),
+        boot: { ...writes.system('boot.reconcile'), authority: ledger.authority },
+        inbox: writes.system('sessions.inbox'),
+        headless: writes.system('superagent.headless'),
+      },
       machines,
       rpc,
       onSpawnTargetLogin: async ({ machineId, agentKind, ownerUserId }) =>
@@ -1849,9 +1846,9 @@ export class SessionRegistry {
         (await this.store.repos.machineHasRootContaining(cwd, machineId))
           ? (
               await this.issues.attention.createDraftFor(
-                // A session start's draft: the sessions origin until POD-6601
-                // passes the start command's writer.
-                writes.system('sessions'),
+                // A session start's draft: a start is the server acting after
+                // its launch record commits (`sessions.lifecycle`, POD-6601).
+                writes.system('sessions.lifecycle'),
                 cwd,
                 agentKind,
                 undefined,
@@ -2077,7 +2074,8 @@ export class SessionRegistry {
         },
         hibernateSession: async (input) => await sessionsSvc.hibernateSession(input),
         parkShellSession: (input) => sessionsSvc.parkShellSession(input),
-        killShellSession: (input) => sessionsSvc.killSession(input),
+        // The host's pressure reaper: the server's own act (`sessions.lifecycle`).
+        killShellSession: (input) => sessionsSvc.killSession(sessionsSvc.serverWriter, input),
         hasScheduledWakeup: async (sessionId, now) => {
           const { lastSpawned, automations } = await scheduledWakeupsInScope()
           return automations.some((automation) => {
@@ -2098,7 +2096,10 @@ export class SessionRegistry {
     resumeHostPressureAfterTransferFence = () => hosts.resumeAfterTransferFence()
     const headless = sessionsSvc.headless
     this.bus.on('session.openUrl', (request) => sessionsSvc.onOpenUrl(request))
-    this.store.issues.setSessionRefPublisher((ids) => sessionsSvc.captureReferenceChanges(ids))
+    const sessionRefs = writes.system('sessions.refs')
+    this.store.issues.setSessionRefPublisher((ids) =>
+      sessionsSvc.captureReferenceChanges(sessionRefs, ids),
+    )
     // Session-bound lock auto-release [spec:SP-85d1]: a finished/exited session
     const notify = new NotifyService(
       {
@@ -2242,7 +2243,9 @@ export class SessionRegistry {
         isHeld: (sessionId) => sessionsSvc.state.isHeld(sessionId),
         isWatched: (sessionId) => sessionsSvc.state.isWatched(sessionId),
         park: async (sessionId) => await sessionsSvc.parkShellSession({ sessionId }),
-        kill: async (sessionId) => await sessionsSvc.killSession({ sessionId }),
+        // A freed worktree's dock shell, in the issue's cleanup (`sessions.lifecycle`).
+        kill: async (sessionId) =>
+          await sessionsSvc.killSession(sessionsSvc.serverWriter, { sessionId }),
       },
       // Resolved for the sole account (POD-1213): the issue service reads
       // `roles.coding` — a personal preference — beside instance-tier git
@@ -2312,12 +2315,15 @@ export class SessionRegistry {
       findRepoOnMachine: async (repoPath, machineId) =>
         await sessionsSvc.workspace.findRepoOnMachine(repoPath, machineId),
       readSessionIssueId: async (sessionId) => await sessionsSvc.readSessionIssueId(sessionId),
-      setSessionIssueId: (sessionId, issueId) => sessionsSvc.setSessionIssueId(sessionId, issueId),
-      setSessionCwd: (sessionId, cwd) => sessionsSvc.setSessionCwd(sessionId, cwd),
-      setSessionArchived: (sessionId, archived) => sessionsSvc.setArchived({ sessionId, archived }),
+      // The issue write that asked passes its own writer (ADR 12 D9, POD-6601).
+      setSessionIssueId: (writer, sessionId, issueId) =>
+        sessionsSvc.setSessionIssueId(writer, sessionId, issueId),
+      setSessionCwd: (writer, sessionId, cwd) => sessionsSvc.setSessionCwd(writer, sessionId, cwd),
+      setSessionArchived: (writer, sessionId, archived) =>
+        sessionsSvc.setArchived(writer, { sessionId, archived }),
       // Closing an issue retires standing session offers (POD-290) so finished
       // work cannot keep demanding a decision after the close flip.
-      clearSessionOffer: (sessionId) => sessionsSvc.clearOffer(sessionId),
+      clearSessionOffer: (writer, sessionId) => sessionsSvc.clearOffer(writer, sessionId),
       onWorktreesChanged: broadcastWorktreesChanged,
       // Every issue mutation commits through the write-seam ledger (#255) —
       // change rows land in the same transaction as the row write — and fans
@@ -2404,7 +2410,6 @@ export class SessionRegistry {
       issues,
       sessions: sessionsSvc,
       ledger: issueArbitration.ledger,
-      sessionsWriter: writes.system('sessions'),
       arbitrate: (writer) => issueArbitration.wrap(writer),
     })
     stopClosedIssue = async (input) =>
@@ -2429,7 +2434,12 @@ export class SessionRegistry {
       hibernate: async (sessionId) => await sessionsSvc.hibernateSession({ sessionId }),
       resurrect: async (sessionId) => await issueSessionLifecycle.resurrectSession({ sessionId }),
       acknowledge: async (sessionId, revision, failure) =>
-        await sessionsSvc.acknowledgeDesiredState(sessionId, revision, failure),
+        await sessionsSvc.acknowledgeDesiredState(
+          writes.system('sessions.lifecycle'),
+          sessionId,
+          revision,
+          failure,
+        ),
       // A start is re-authorized when it is acted on, as a queued mail's apply
       // is: the writer's human, with today's role and grants, must still hold
       // `use`, narrowed by the writing agent's delegation when an agent wrote it.
@@ -3023,8 +3033,8 @@ export class SessionRegistry {
               ...(input.agentKind !== undefined ? { agentKind: input.agentKind as AgentKind } : {}),
             })
           },
-          create: async (principal, launch) =>
-            await createSpawnLaunchInUnit(this.modules, principal, launch),
+          create: async (writer, principal, launch) =>
+            await createSpawnLaunchInUnit(this.modules, writer, principal, launch),
           settled: async (effectId) => await settledSpawnLaunch(this.modules, effectId),
         },
       },
@@ -3832,7 +3842,8 @@ export class SessionRegistry {
           })
           return { sessionId }
         },
-        archiveSession: (sessionId) => sessionsSvc.state.setArchived(sessionId, true),
+        archiveSession: (writer, sessionId) =>
+          sessionsSvc.state.setArchived(writer, sessionId, true),
       },
     })
 
@@ -4095,7 +4106,7 @@ export class SessionRegistry {
     })
     this.bus.on('session.exited', async (e) => await interactions.onSessionExited(e.sessionId))
     this.modules = {
-      sessionsWriter: this.writes.system('sessions'),
+      superagentToolsWriter: this.writes.system('superagent.tools'),
       effects: {
         executors: effectExecutors,
         runner: this.effectsRunner,
@@ -4110,8 +4121,6 @@ export class SessionRegistry {
             actor: attributionOf(systemPrincipal(effect.job)).actor,
           }),
         createInUnit: async (writer, effect) => await createEffectInUnit(writer, effect),
-        createForSession: async (effect) =>
-          await createEffectInUnit(writes.system('sessions'), effect),
       },
       bus: this.bus,
       funnel,

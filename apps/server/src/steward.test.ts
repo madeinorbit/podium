@@ -7,6 +7,7 @@ import {
   type SessionMetaInput,
 } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
 import { firstAdminMemberId, userCommandPrincipal } from './command-principal'
 import { type IssueDeps, IssueService } from './modules/issues/service'
@@ -1621,7 +1622,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
     })
     // A session subscriber anchors on the issue its STORED row is bound to:
     // the relationship read finds it through the sessions table.
-    await store.sessions.upsertSession({
+    await store.sessions.upsertSession(fixtureWriteScope(), {
       id: 'esess',
       ownerUserId: firstAdminMemberId(),
       agentKind: 'claude-code',

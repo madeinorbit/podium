@@ -11,20 +11,22 @@ import { createHash } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { firstAdminMemberId, asMachineId, asSessionId, asUserId } from '@podium/model'
+import { asMachineId, asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
 import {
   BINARY_ENVELOPE_MAX_MESSAGE_BYTES,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   CAP_TERMINAL_PICTURE_V1,
+  createHandshakeDialer,
+  DAEMON_WIRE_VERSION,
   DaemonPtyInputMetadata,
   type DaemonPtyOutputMetadata,
   decodeBinaryEnvelope,
   encodeBinaryEnvelope,
-  createHandshakeDialer,
   machineUseAllowed,
-  DAEMON_WIRE_VERSION,
 } from '@podium/protocol'
+import { CAP_DELIVERY_ACCEPTED } from '@podium/protocol/daemon'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { mintPairingToken, openEnrollmentLedger } from '../enrollment-ledger'
 import { PairingManager } from '../hub/pairing'
@@ -39,7 +41,6 @@ import {
   type ResolvedMachineAuthenticator,
 } from './machine-directory'
 import { createDaemonAcceptor, receiveDaemonFrame } from './peer-handshake'
-import { CAP_DELIVERY_ACCEPTED } from '@podium/protocol/daemon'
 
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex')
 
@@ -157,7 +158,8 @@ const enrollmentHandshakeWorld = async (options: EnrollmentHandshakeWorldOptions
   })
   const pairing = new PairingManager({ installationId: 'installation-test' })
   const machines = new MachinesService({
-    instanceId: 'verify-only-test', installationId: 'installation-test',
+    instanceId: 'verify-only-test',
+    installationId: 'installation-test',
     store,
     hostMachineId,
     pairing,
@@ -211,8 +213,12 @@ describe('the daemon socket speaks the permanent envelope', () => {
     const authenticateDaemon = vi.fn()
     const outcome = await receiveDaemonFrame(
       createDaemonAcceptor({ machines: { authenticateDaemon }, connectionId: 'retired-secret' }),
-      frame({ type: 'peerHello', v: DAEMON_WIRE_VERSION, caps: [],
-        credential: { kind: 'daemonSecret', secret: 'former-host-secret' } }),
+      frame({
+        type: 'peerHello',
+        v: DAEMON_WIRE_VERSION,
+        caps: [],
+        credential: { kind: 'daemonSecret', secret: 'former-host-secret' },
+      }),
     )
     expect(outcome).toMatchObject({ kind: 'rejected' })
     expect(authenticateDaemon).not.toHaveBeenCalled()
@@ -275,10 +281,16 @@ describe('the daemon socket speaks the permanent envelope', () => {
   })
 
   it.each([
-    { caps: ['terminal.picture.v1', CAP_TERMINAL_OUTPUT_BINARY_V1], accepted: ['terminal.picture.v1', CAP_TERMINAL_OUTPUT_BINARY_V1] },
+    {
+      caps: ['terminal.picture.v1', CAP_TERMINAL_OUTPUT_BINARY_V1],
+      accepted: ['terminal.picture.v1', CAP_TERMINAL_OUTPUT_BINARY_V1],
+    },
     { caps: ['terminal.picture.v1'], accepted: [] },
     { caps: [CAP_TERMINAL_OUTPUT_BINARY_V1], accepted: [CAP_TERMINAL_OUTPUT_BINARY_V1] },
-    { caps: ['terminal.picture.v1', CAP_TERMINAL_INPUT_BINARY_V1], accepted: [CAP_TERMINAL_INPUT_BINARY_V1] },
+    {
+      caps: ['terminal.picture.v1', CAP_TERMINAL_INPUT_BINARY_V1],
+      accepted: [CAP_TERMINAL_INPUT_BINARY_V1],
+    },
     { caps: [], accepted: [] },
   ])('negotiates pictures only with binary output: %j', async ({ caps, accepted }) => {
     const { reg, ws } = await authenticatedSocket(caps)
@@ -722,7 +734,17 @@ describe('recovery-only daemon handshake verification', () => {
 
   it('rejects pairing before consuming its code', async () => {
     const world = await enrollmentHandshakeWorld({ queryOnly: false })
-    if (!await world.store.users.get(firstAdminMemberId())) await world.store.users.create({ id: firstAdminMemberId(), displayName: 'Pairer', role: 'admin', createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
+    if (!(await world.store.users.get(firstAdminMemberId())))
+      await world.store.users.create(
+        {
+          id: firstAdminMemberId(),
+          displayName: 'Pairer',
+          role: 'admin',
+          createdAt: new Date().toISOString(),
+          disabledAt: null,
+        },
+        'hash',
+      )
     const code = world.machines.mintPairingCode({ ownerUserId: firstAdminMemberId() })
     const machineId = asMachineId('new-machine')
     try {
@@ -759,7 +781,9 @@ describe('recovery-only daemon handshake verification', () => {
         'established',
       )
       expect(touch).toHaveBeenCalledWith(world.machineId, 'observed.local')
-      expect((await world.machines.listMachines()).find((row) => row.id === world.machineId)?.hostname).toBe('observed.local')
+      expect(
+        (await world.machines.listMachines()).find((row) => row.id === world.machineId)?.hostname,
+      ).toBe('observed.local')
       expect((await world.store.machines.getMachine(world.machineId))?.hostname).toBe(
         'observed.local',
       )
@@ -794,12 +818,22 @@ describe('payload identity is inert at the real MachinesService', () => {
     const store = await openTestStore(':memory:')
     const pairing = new PairingManager({ installationId: 'installation-test' })
     const reg = await SessionRegistry.create(store, undefined, {
-      instanceId: 'default', installationId: 'installation-test',
+      instanceId: 'default',
+      installationId: 'installation-test',
       pairing,
       updatePubkey: () => 'server-key-1',
     })
     const owner = asUserId('keypair-owner')
-    await store.users.create({ id: owner, displayName: 'Pairer', role: 'member', createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
+    await store.users.create(
+      {
+        id: owner,
+        displayName: 'Pairer',
+        role: 'member',
+        createdAt: new Date().toISOString(),
+        disabledAt: null,
+      },
+      'hash',
+    )
     const code = pairing.mint({ ownerUserId: owner })
     const directory = createMachineDirectory(reg.modules.machines)
     const paired = await directory.redeemPairCode(code, {
@@ -809,7 +843,10 @@ describe('payload identity is inert at the real MachinesService', () => {
       hostname: 'new.local',
     })
     expect(paired).toMatchObject({ machine: 'm-new', name: 'New Box' })
-    expect(paired).toMatchObject({ enrolledPublicKey: expect.any(String), updatePubkey: 'server-key-1' })
+    expect(paired).toMatchObject({
+      enrolledPublicKey: expect.any(String),
+      updatePubkey: 'server-key-1',
+    })
     // Single use.
     expect(await directory.redeemPairCode(code, { machineId: asMachineId('m-new') })).toBeNull()
   })
@@ -843,10 +880,23 @@ describe('payload identity is inert at the real MachinesService', () => {
       ownerUserId: null,
     })
     const pairing = new PairingManager({ installationId: 'installation-test' })
-    const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default', installationId: 'installation-test', pairing })
+    const reg = await SessionRegistry.create(store, undefined, {
+      instanceId: 'default',
+      installationId: 'installation-test',
+      pairing,
+    })
     const machines = reg.modules.machines
     // Mint via the service so ownerUserId is stamped (hub PairingGrant is a narrower type).
-    await store.users.create({ id: 'user:attacker', displayName: 'Pairer', role: 'member', createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
+    await store.users.create(
+      {
+        id: 'user:attacker',
+        displayName: 'Pairer',
+        role: 'member',
+        createdAt: new Date().toISOString(),
+        disabledAt: null,
+      },
+      'hash',
+    )
     const code = machines.mintPairingCode({ ownerUserId: asUserId('user:attacker') })
 
     // SECOND machine (attacker) attempts rebind under admin-laptop's id.
@@ -910,7 +960,7 @@ describe('payload identity is inert at the real MachinesService', () => {
     })
     expect(paired).toMatchObject({ machine: 'attacker-fresh', name: 'Attacker Box' })
     expect(paired?.enrolledPublicKey).toBeTruthy()
-    expect((await store.machines.custodian('attacker-fresh'))).toBe('user:attacker')
+    expect(await store.machines.custodian('attacker-fresh')).toBe('user:attacker')
   })
 })
 
@@ -939,7 +989,7 @@ describe('legacy binding ownership handoff', () => {
         tokenHash: sha256('tok'),
         ownerUserId: owner,
       })
-      await store.sessions.upsertSession({
+      await store.sessions.upsertSession(fixtureWriteScope(), {
         id: asSessionId(`legacy-${machineId}`),
         ownerUserId: owner,
         agentKind: 'codex',
