@@ -412,7 +412,7 @@ export async function buildSuperagentTools(
       run: async (args) => {
         const sessionId = sessionIdArg(args.sessionId)
         if (!(await getSession(sessionId))) return 'unknown session'
-        const r = await sessions.continueSession({ sessionId })
+        const r = await sessions.continueSession(writer, { sessionId })
         return r.ok ? 'sent continue' : 'failed: session must be running and in the errored phase'
       },
     },
