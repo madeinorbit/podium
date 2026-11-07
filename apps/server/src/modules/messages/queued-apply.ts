@@ -9,6 +9,7 @@ import {
 import type { MessageFailedCause } from '@podium/protocol/daemon'
 import type { MessageRow } from '../../store'
 import type { MessageDeliveryDeps } from './service'
+import { commitMessages, type MessageWriter } from './writer'
 
 /** Statuses whose row the daemon already had: forwarding one again is a
  *  recovery it answers by id, never a second typing. */
@@ -22,6 +23,9 @@ export class QueuedMessageApply {
   constructor(
     private readonly deps: {
       messages: MessageDeliveryDeps['messages']
+      /** What a machine reports about its messages is the server's own write
+       *  (`messages.daemon`, POD-6602). */
+      writer: MessageWriter
       authorize(
         message: MessageRow,
       ):
@@ -67,13 +71,21 @@ export class QueuedMessageApply {
   /** The agent's machine named the entry in its history this message became
    *  (POD-4774): a first-writer-wins stamp, independent of the status. */
   async named(messageId: string, sessionId: SessionId, item: TranscriptItemRef): Promise<void> {
-    await this.deps.messages.nameTranscriptItem(messageId, sessionId, item)
+    await commitMessages(
+      this.deps.writer,
+      async (scope) =>
+        await this.deps.messages.nameTranscriptItem(scope, messageId, sessionId, item),
+    )
   }
 
   /** The agent's machine reported the program's own ids for this message
    *  (POD-4841): added to those already kept, independent of the status. */
   async harnessIds(messageId: string, sessionId: SessionId, harnessRef: HarnessRef): Promise<void> {
-    await this.deps.messages.recordHarnessRef(messageId, sessionId, harnessRef)
+    await commitMessages(
+      this.deps.writer,
+      async (scope) =>
+        await this.deps.messages.recordHarnessRef(scope, messageId, sessionId, harnessRef),
+    )
   }
 
   /** The push crossed into the CLI but the agent has not been seen to take it —

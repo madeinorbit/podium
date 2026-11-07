@@ -1,3 +1,4 @@
+import type { WriteScope } from '@podium/sync'
 import { CommittedRows } from './committed-rows'
 /**
  * Messages aggregate — owns the unified `messages` table (#237)
@@ -14,6 +15,8 @@ import {
   asIssueId,
   asSessionId,
   asUserId,
+  HarnessRef,
+  type HarnessRefEntry,
   type IssueId,
   MESSAGE_HANDED_ON,
   MESSAGE_PENDING,
@@ -21,10 +24,8 @@ import {
   type MessageDeliveryStatus,
   type MessageHeld,
   type MoveOutcome,
-  type SessionId,
-  HarnessRef,
-  type HarnessRefEntry,
   mergeHarnessRefs,
+  type SessionId,
   type TranscriptItemRef,
 } from '@podium/model'
 import {
@@ -61,7 +62,7 @@ import {
   messageWakeCooldowns,
   sessions as sessionsTable,
 } from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
@@ -127,7 +128,9 @@ const notOnItsWay = (handedToSession: boolean): SQL =>
   or(
     notInArray(messagesTable.deliveryStatus, [...HANDED_ON]),
     isNull(messagesTable.deliveredTo),
-    ...(handedToSession ? [ne(messagesTable.deliveredTo, param(messagesTable.deliveredTo, 'sessionId'))] : []),
+    ...(handedToSession
+      ? [ne(messagesTable.deliveredTo, param(messagesTable.deliveredTo, 'sessionId'))]
+      : []),
     isPointerRow(),
   ) as SQL
 
@@ -307,12 +310,16 @@ const addressShape = (to: MessagePrincipalRef): AddressShape =>
 function addressedTo(shape: AddressShape): SQL[] {
   return [
     eq(messagesTable.toKind, param(messagesTable.toKind, 'toKind')),
-    shape === 'no-id' ? isNull(messagesTable.toId) : eq(messagesTable.toId, param(messagesTable.toId, 'toId')),
+    shape === 'no-id'
+      ? isNull(messagesTable.toId)
+      : eq(messagesTable.toId, param(messagesTable.toId, 'toId')),
   ]
 }
 
 /** The placeholder values {@link addressedTo} reads. */
-const addressValues = (to: MessagePrincipalRef): { toKind: MessageToKind; toId: string | null } => ({
+const addressValues = (
+  to: MessagePrincipalRef,
+): { toKind: MessageToKind; toId: string | null } => ({
   toKind: to.kind,
   toId: to.id ?? null,
 })
@@ -323,7 +330,10 @@ const DELIVERY_ORDER = [asc(messagesTable.createdAt), asc(messagesTable.id)] as 
 const boundedLimit = (limit: number | undefined, fallback: number, ceiling: number): number =>
   Math.min(ceiling, Math.max(1, limit ?? fallback))
 
-export type MessageQueueFact = Pick<typeof messagesTable.$inferSelect, 'id' | 'toKind' | 'toId' | 'deliveryStatus'>
+export type MessageQueueFact = Pick<
+  typeof messagesTable.$inferSelect,
+  'id' | 'toKind' | 'toId' | 'deliveryStatus'
+>
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
@@ -338,12 +348,20 @@ const insertMessage = preparedFamily((db: StoreDrizzle, shape: string) =>
 )
 
 const messageById = prepared((db: StoreDrizzle) =>
-  db.select().from(messagesTable).where(eq(messagesTable.id, param(messagesTable.id, 'id'))).prepare(),
+  db
+    .select()
+    .from(messagesTable)
+    .where(eq(messagesTable.id, param(messagesTable.id, 'id')))
+    .prepare(),
 )
 
 /** Keyed by the IN list's prepared size ({@link inListSize}); the ids are `ids0`, `ids1`, ... */
 const messagesWithIds = preparedFamily((db: StoreDrizzle, size: number) =>
-  db.select().from(messagesTable).where(inListOf(messagesTable.id, size, 'ids')).prepare(),
+  db
+    .select()
+    .from(messagesTable)
+    .where(inListOf(messagesTable.id, size, 'ids'))
+    .prepare(),
 )
 
 /** Operator messages to one session carrying attachments, by transcript item;
@@ -352,13 +370,15 @@ const attachmentMessagesOfItems = preparedFamily((db: StoreDrizzle, size: number
   db
     .select()
     .from(messagesTable)
-    .where(and(
-      eq(messagesTable.fromKind, 'operator'),
-      eq(messagesTable.toKind, 'session'),
-      eq(messagesTable.toId, param(messagesTable.toId, 'sessionId')),
-      inListOf(messagesTable.transcriptItemId, size, 'items'),
-      isNotNull(messagesTable.attachmentsJson),
-    ))
+    .where(
+      and(
+        eq(messagesTable.fromKind, 'operator'),
+        eq(messagesTable.toKind, 'session'),
+        eq(messagesTable.toId, param(messagesTable.toId, 'sessionId')),
+        inListOf(messagesTable.transcriptItemId, size, 'items'),
+        isNotNull(messagesTable.attachmentsJson),
+      ),
+    )
     .prepare(),
 )
 
@@ -392,7 +412,10 @@ const pendingForSessionProof = prepared((db: StoreDrizzle) =>
           confirmedInto(),
           isNull(messagesTable.ackedBy),
           eq(messagesTable.expectsResponse, true),
-          or(isNull(messagesTable.expiresAt), gt(messagesTable.expiresAt, param(messagesTable.expiresAt, 'now'))),
+          or(
+            isNull(messagesTable.expiresAt),
+            gt(messagesTable.expiresAt, param(messagesTable.expiresAt, 'now')),
+          ),
         ),
       ),
     )
@@ -423,13 +446,19 @@ const ledger = preparedFamily((db: StoreDrizzle, shape: LedgerShape) => {
   if (shape !== 'session') {
     arms.push(
       eq(messagesTable.fromIssue, param(messagesTable.fromIssue, 'issueId')),
-      and(eq(messagesTable.toKind, 'issue'), eq(messagesTable.toId, param(messagesTable.toId, 'issueId'))) as SQL,
+      and(
+        eq(messagesTable.toKind, 'issue'),
+        eq(messagesTable.toId, param(messagesTable.toId, 'issueId')),
+      ) as SQL,
     )
   }
   if (shape !== 'issue') {
     arms.push(
       eq(messagesTable.fromSession, param(messagesTable.fromSession, 'sessionId')),
-      and(eq(messagesTable.toKind, 'session'), eq(messagesTable.toId, param(messagesTable.toId, 'sessionId'))) as SQL,
+      and(
+        eq(messagesTable.toKind, 'session'),
+        eq(messagesTable.toId, param(messagesTable.toId, 'sessionId')),
+      ) as SQL,
       eq(messagesTable.deliveredTo, param(messagesTable.deliveredTo, 'sessionId')),
     )
   }
@@ -448,7 +477,10 @@ const waitingForSession = (): SQL | undefined =>
   and(
     eq(messagesTable.deliveryStatus, 'stored'),
     or(
-      and(eq(messagesTable.toKind, 'session'), eq(messagesTable.toId, param(messagesTable.toId, 'sessionId'))),
+      and(
+        eq(messagesTable.toKind, 'session'),
+        eq(messagesTable.toId, param(messagesTable.toId, 'sessionId')),
+      ),
       eq(messagesTable.deliveredTo, param(messagesTable.deliveredTo, 'sessionId')),
     ),
   )
@@ -544,7 +576,10 @@ const pendingPages = preparedFamily((db: StoreDrizzle, size: number) => {
  */
 const pendingTargetsAmong = preparedFamily((db: StoreDrizzle, size: number) => {
   const rows = sql.join(
-    Array.from({ length: size }, (_, i) => sql`(${sql.placeholder(`toKind${i}`)}, ${sql.placeholder(`toId${i}`)})`),
+    Array.from(
+      { length: size },
+      (_, i) => sql`(${sql.placeholder(`toKind${i}`)}, ${sql.placeholder(`toId${i}`)})`,
+    ),
     sql`, `,
   )
   const toKind = sql<string>`"target"."column1"`
@@ -612,7 +647,10 @@ function pendingForSession(db: StoreDrizzle, handedToSession: boolean): SQL {
     eq(messagesTable.toKind, 'issue'),
     eq(messagesTable.toId, param(messagesTable.toId, 'issueId')),
     inArray(messagesTable.deliveryStatus, [...MESSAGE_PENDING, 'confirmed']),
-    or(isNull(messagesTable.fromSession), ne(messagesTable.fromSession, param(messagesTable.fromSession, 'sessionId'))),
+    or(
+      isNull(messagesTable.fromSession),
+      ne(messagesTable.fromSession, param(messagesTable.fromSession, 'sessionId')),
+    ),
     notExists(readBySession(db)),
     or(
       pending(),
@@ -652,7 +690,11 @@ const pendingSummaryOf = preparedFamily((db: StoreDrizzle, slice: PendingSlice) 
       n: count(),
     })
     .from(messagesTable)
-    .where(isSessionSlice(slice) ? pendingForSession(db, slice === 'session') : and(...addressedTo(slice), pending(), notOnItsWay(false)))
+    .where(
+      isSessionSlice(slice)
+        ? pendingForSession(db, slice === 'session')
+        : and(...addressedTo(slice), pending(), notOnItsWay(false)),
+    )
     .groupBy(messagesTable.fromKind, messagesTable.fromIssue, messagesTable.fromSession)
     .orderBy(
       asc(messagesTable.fromKind),
@@ -671,7 +713,11 @@ const pendingSendersOf = preparedFamily((db: StoreDrizzle, slice: PendingSlice) 
       fromSession: messagesTable.fromSession,
     })
     .from(messagesTable)
-    .where(isSessionSlice(slice) ? pendingForSession(db, slice === 'session') : and(...addressedTo(slice), pending()))
+    .where(
+      isSessionSlice(slice)
+        ? pendingForSession(db, slice === 'session')
+        : and(...addressedTo(slice), pending()),
+    )
     .orderBy(
       asc(messagesTable.fromKind),
       asc(messagesTable.fromIssue),
@@ -684,7 +730,11 @@ const pendingCountOf = preparedFamily((db: StoreDrizzle, slice: PendingSlice) =>
   db
     .select({ n: count() })
     .from(messagesTable)
-    .where(isSessionSlice(slice) ? pendingForSession(db, slice === 'session') : and(...addressedTo(slice), pending()))
+    .where(
+      isSessionSlice(slice)
+        ? pendingForSession(db, slice === 'session')
+        : and(...addressedTo(slice), pending()),
+    )
     .prepare(),
 )
 
@@ -706,7 +756,11 @@ const insertRead = prepared((db: StoreDrizzle) =>
 )
 
 const existingIdsAmong = preparedFamily((db: StoreDrizzle, size: number) =>
-  db.select({ id: messagesTable.id }).from(messagesTable).where(inListOf(messagesTable.id, size, 'ids')).prepare(),
+  db
+    .select({ id: messagesTable.id })
+    .from(messagesTable)
+    .where(inListOf(messagesTable.id, size, 'ids'))
+    .prepare(),
 )
 
 const receiptsAmong = preparedFamily((db: StoreDrizzle, size: number) =>
@@ -812,12 +866,17 @@ const MOVES = {
   },
   delivered: {
     to: 'confirmed',
-    set: () => ({ deliveredAt: sql.placeholder('deliveredAt'), deliveredTo: sql.placeholder('deliveredTo') }),
+    set: () => ({
+      deliveredAt: sql.placeholder('deliveredAt'),
+      deliveredTo: sql.placeholder('deliveredTo'),
+    }),
   },
   cancelled: { to: 'cancelled' },
   cancelledFrom: {
     to: 'cancelled',
-    where: () => [eq(messagesTable.deliveryStatus, param(messagesTable.deliveryStatus, 'onlyFrom'))],
+    where: () => [
+      eq(messagesTable.deliveryStatus, param(messagesTable.deliveryStatus, 'onlyFrom')),
+    ],
   },
   typing: { to: 'typing' },
   pulledByReader: {
@@ -897,12 +956,18 @@ const statusOf = prepared((db: StoreDrizzle) =>
 const nameTranscriptItemOnce = prepared((db: StoreDrizzle) =>
   db
     .update(messagesTable)
-    .set({ transcriptItemId: sql.placeholder('transcriptItemId'), transcriptItemCursor: sql.placeholder('transcriptItemCursor') })
+    .set({
+      transcriptItemId: sql.placeholder('transcriptItemId'),
+      transcriptItemCursor: sql.placeholder('transcriptItemCursor'),
+    })
     .where(
       and(
         eq(messagesTable.id, param(messagesTable.id, 'id')),
         isNull(messagesTable.transcriptItemId),
-        or(isNull(messagesTable.deliveredTo), eq(messagesTable.deliveredTo, param(messagesTable.deliveredTo, 'deliveredTo'))),
+        or(
+          isNull(messagesTable.deliveredTo),
+          eq(messagesTable.deliveredTo, param(messagesTable.deliveredTo, 'deliveredTo')),
+        ),
         notInArray(messagesTable.deliveryStatus, ['failed', 'cancelled', 'expired']),
       ),
     )
@@ -929,7 +994,10 @@ const swapHarnessRef = preparedFamily((db: StoreDrizzle, stored: 'null' | 'text'
         stored === 'null'
           ? isNull(messagesTable.harnessRefJson)
           : eq(messagesTable.harnessRefJson, param(messagesTable.harnessRefJson, 'stored')),
-        or(isNull(messagesTable.deliveredTo), eq(messagesTable.deliveredTo, param(messagesTable.deliveredTo, 'deliveredTo'))),
+        or(
+          isNull(messagesTable.deliveredTo),
+          eq(messagesTable.deliveredTo, param(messagesTable.deliveredTo, 'deliveredTo')),
+        ),
         notInArray(messagesTable.deliveryStatus, ['cancelled', 'expired']),
       ),
     )
@@ -940,7 +1008,9 @@ const swapHarnessRef = preparedFamily((db: StoreDrizzle, stored: 'null' | 'text'
 const stampRetractRequest = prepared((db: StoreDrizzle) =>
   db
     .update(messagesTable)
-    .set({ retractRequestedAt: sql`COALESCE(${messagesTable.retractRequestedAt}, ${sql.placeholder('at')})` })
+    .set({
+      retractRequestedAt: sql`COALESCE(${messagesTable.retractRequestedAt}, ${sql.placeholder('at')})`,
+    })
     .where(and(eq(messagesTable.id, param(messagesTable.id, 'id')), pending()))
     .returning()
     .prepare(),
@@ -975,7 +1045,12 @@ const openBoundTo = preparedFamily((db: StoreDrizzle, key: `${number}${'' | '|is
         ]),
     ...(ended === undefined
       ? []
-      : [and(eq(messagesTable.toKind, 'issue'), eq(messagesTable.toId, param(messagesTable.toId, 'endedIssueId')))]),
+      : [
+          and(
+            eq(messagesTable.toKind, 'issue'),
+            eq(messagesTable.toId, param(messagesTable.toId, 'endedIssueId')),
+          ),
+        ]),
   ]
   return db
     .select()
@@ -1056,7 +1131,10 @@ const upsertWakeCooldown = prepared((db: StoreDrizzle) =>
   db
     .insert(messageWakeCooldowns)
     .values({ key: sql.placeholder('key'), attemptedAt: sql.placeholder('attemptedAt') })
-    .onConflictDoUpdate({ target: messageWakeCooldowns.key, set: { attemptedAt: sql.placeholder('attemptedAt') } })
+    .onConflictDoUpdate({
+      target: messageWakeCooldowns.key,
+      set: { attemptedAt: sql.placeholder('attemptedAt') },
+    })
     .prepare(),
 )
 
@@ -1103,7 +1181,9 @@ const stampAckOnce = prepared((db: StoreDrizzle) =>
   db
     .update(messagesTable)
     .set({ ackedBy: sql.placeholder('ackedBy') })
-    .where(and(eq(messagesTable.id, param(messagesTable.id, 'id')), isNull(messagesTable.ackedBy))).returning().prepare(),
+    .where(and(eq(messagesTable.id, param(messagesTable.id, 'id')), isNull(messagesTable.ackedBy)))
+    .returning()
+    .prepare(),
 )
 
 /** The shared "still owes a reply" predicate of the two ack readers, over the
@@ -1113,7 +1193,10 @@ const unackedRequest = (): SQL =>
     confirmedInto(),
     isNull(messagesTable.ackedBy),
     eq(messagesTable.expectsResponse, true),
-    or(isNull(messagesTable.expiresAt), gt(messagesTable.expiresAt, param(messagesTable.expiresAt, 'now'))),
+    or(
+      isNull(messagesTable.expiresAt),
+      gt(messagesTable.expiresAt, param(messagesTable.expiresAt, 'now')),
+    ),
   ) as SQL
 
 const deliveredUnacked = prepared((db: StoreDrizzle) =>
@@ -1150,7 +1233,11 @@ const stampRemindedOnce = prepared((db: StoreDrizzle) =>
   db
     .update(messagesTable)
     .set({ remindedAt: sql.placeholder('at') })
-    .where(and(eq(messagesTable.id, param(messagesTable.id, 'id')), isNull(messagesTable.remindedAt))).returning().prepare(),
+    .where(
+      and(eq(messagesTable.id, param(messagesTable.id, 'id')), isNull(messagesTable.remindedAt)),
+    )
+    .returning()
+    .prepare(),
 )
 
 export class MessagesRepository {
@@ -1190,6 +1277,7 @@ export class MessagesRepository {
 
   /** The one write funnel: the committed-rows publication plus the feed capture. */
   private async write(
+    _scope: WriteScope,
     query: () => Promise<MessageSelect[]>,
     operation: 'upsert' | 'delete',
   ): Promise<{ changes: number }> {
@@ -1220,7 +1308,7 @@ export class MessagesRepository {
    *  error and not a second row: the insert does nothing and this answers
    *  `false`, in the same statement, so two attempts racing each other cannot
    *  both see "absent". The caller reads the stored row to answer the repeat. */
-  async addMessage(m: MessageRow): Promise<boolean> {
+  async addMessage(scope: WriteScope, m: MessageRow): Promise<boolean> {
     if (m.deliveryStatus !== 'stored') {
       throw new Error(`message ${m.id} must be stored before it moves (got ${m.deliveryStatus})`)
     }
@@ -1267,6 +1355,7 @@ export class MessagesRepository {
       factTarget: m.factTarget ?? null,
     }
     const { changes } = await this.write(
+      scope,
       async () => await insertMessage(this.db, shapeOf(values)).all(values),
       'upsert',
     )
@@ -1286,32 +1375,36 @@ export class MessagesRepository {
     if (ids.length === 0) return []
     const unique = [...new Set(ids)]
     const size = inListSize(unique.length)
-    return (await messagesWithIds(this.db, size).all(inListValues(unique, size, 'ids')))
-      .map(mapMessage)
+    return (await messagesWithIds(this.db, size).all(inListValues(unique, size, 'ids'))).map(
+      mapMessage,
+    )
   }
 
   /** Saved attachment messages for a bounded transcript window, including
    * sessions whose confirmation records have left the live feed. */
-  async getTranscriptAttachmentMessages(sessionId: SessionId, itemIds: readonly string[]): Promise<MessageRow[]> {
+  async getTranscriptAttachmentMessages(
+    sessionId: SessionId,
+    itemIds: readonly string[],
+  ): Promise<MessageRow[]> {
     if (itemIds.length === 0) return []
     const unique = [...new Set(itemIds)]
     const size = inListSize(unique.length)
-    return (await attachmentMessagesOfItems(this.db, size).all({
-      sessionId,
-      ...inListValues(unique, size, 'items'),
-    })).map(mapMessage)
+    return (
+      await attachmentMessagesOfItems(this.db, size).all({
+        sessionId,
+        ...inListValues(unique, size, 'items'),
+      })
+    ).map(mapMessage)
   }
 
   /** All messages addressed to a principal, oldest first. */
-  async listMessagesFor(
-    to: MessagePrincipalRef,
-    opts?: { limit?: number },
-  ): Promise<MessageRow[]> {
-    return (await messagesAddressedTo(this.db, addressShape(to)).all({
-      ...addressValues(to),
-      limit: boundedLimit(opts?.limit, 200, 500),
-    }))
-      .map(mapMessage)
+  async listMessagesFor(to: MessagePrincipalRef, opts?: { limit?: number }): Promise<MessageRow[]> {
+    return (
+      await messagesAddressedTo(this.db, addressShape(to)).all({
+        ...addressValues(to),
+        limit: boundedLimit(opts?.limit, 200, 500),
+      })
+    ).map(mapMessage)
   }
 
   /** Exact, unbounded safety projection of work still pending for one session. */
@@ -1322,17 +1415,26 @@ export class MessagesRepository {
   /** The delivery ledger for one issue or session (#237) [spec:SP-34d7 web]:
    *  every row the principal SENT or was ADDRESSED (issue box / session box /
    *  delivered-to), newest first — the "what happened to my message" view. */
-  async listLedger(q: { issueId?: IssueId; sessionId?: SessionId; limit?: number }): Promise<MessageRow[]> {
+  async listLedger(q: {
+    issueId?: IssueId
+    sessionId?: SessionId
+    limit?: number
+  }): Promise<MessageRow[]> {
     const shape: LedgerShape | undefined = q.issueId
-      ? q.sessionId ? 'both' : 'issue'
-      : q.sessionId ? 'session' : undefined
+      ? q.sessionId
+        ? 'both'
+        : 'issue'
+      : q.sessionId
+        ? 'session'
+        : undefined
     if (shape === undefined) return []
-    return (await ledger(this.db, shape).all({
-      issueId: q.issueId,
-      sessionId: q.sessionId,
-      limit: boundedLimit(q.limit, 200, 500),
-    }))
-      .map(mapMessage)
+    return (
+      await ledger(this.db, shape).all({
+        issueId: q.issueId,
+        sessionId: q.sessionId,
+        limit: boundedLimit(q.limit, 200, 500),
+      })
+    ).map(mapMessage)
   }
 
   /**
@@ -1346,10 +1448,17 @@ export class MessagesRepository {
    * The SQL ordering is the same `(created_at, id)` ordering used by the ledger
    * and its high-water cursors.
    */
-  async queuedPositionForSession(sessionId: SessionId, messageId: string): Promise<number | undefined> {
+  async queuedPositionForSession(
+    sessionId: SessionId,
+    messageId: string,
+  ): Promise<number | undefined> {
     const row = await queuedMessageKey(this.db).get({ sessionId, messageId })
     if (!row?.createdAt || !row.id) return undefined
-    const ahead = await queuedAheadOf(this.db).get({ sessionId, createdAt: row.createdAt, id: row.id })
+    const ahead = await queuedAheadOf(this.db).get({
+      sessionId,
+      createdAt: row.createdAt,
+      id: row.id,
+    })
     return Number(ahead?.n ?? 0)
   }
 
@@ -1359,7 +1468,9 @@ export class MessagesRepository {
    * `targets[i]`. The delivery flush asks it before reading pages, so a
    * target with nothing pending costs one covering-index seek.
    */
-  async pendingTargets(targets: readonly { kind: MessageToKind; id: string }[]): Promise<boolean[]> {
+  async pendingTargets(
+    targets: readonly { kind: MessageToKind; id: string }[],
+  ): Promise<boolean[]> {
     const hits = new Set<string>()
     const keyOf = (kind: string, id: string | null) => `${kind}\u0000${id ?? ''}`
     for (let start = 0; start < targets.length; start += PENDING_PAGES_MAX_TARGETS) {
@@ -1371,7 +1482,8 @@ export class MessagesRepository {
         values[`toKind${i}`] = chunk[i]?.kind ?? ''
         values[`toId${i}`] = chunk[i]?.id ?? ''
       }
-      for (const row of await pendingTargetsAmong(this.db, size).all(values)) hits.add(keyOf(row.toKind, row.toId))
+      for (const row of await pendingTargetsAmong(this.db, size).all(values))
+        hits.add(keyOf(row.toKind, row.toId))
     }
     return targets.map((to) => hits.has(keyOf(to.kind, to.id)))
   }
@@ -1488,7 +1600,9 @@ export class MessagesRepository {
   async readReceipts(sessionId: SessionId, messageIds: string[]): Promise<Set<string>> {
     if (messageIds.length === 0) return new Set()
     const size = inListSize(messageIds.length)
-    const rows = await receiptsAmong(this.db, size).all(inListValues(messageIds, size, 'ids', { sessionId }))
+    const rows = await receiptsAmong(this.db, size).all(
+      inListValues(messageIds, size, 'ids', { sessionId }),
+    )
     return new Set(rows.map((r) => r.messageId))
   }
 
@@ -1497,16 +1611,24 @@ export class MessagesRepository {
   async selfSentIds(sessionId: SessionId, messageIds: string[]): Promise<Set<string>> {
     if (messageIds.length === 0) return new Set()
     const size = inListSize(messageIds.length)
-    const rows = await sentAmong(this.db, size).all(inListValues(messageIds, size, 'ids', { sessionId }))
+    const rows = await sentAmong(this.db, size).all(
+      inListValues(messageIds, size, 'ids', { sessionId }),
+    )
     return new Set(rows.map((r) => r.id))
   }
 
   /** Count and group one reader-scoped pending slice in one statement. */
-  async pendingSummaryForSession(issueId: IssueId, sessionId: SessionId): Promise<PendingMessageSummary> {
+  async pendingSummaryForSession(
+    issueId: IssueId,
+    sessionId: SessionId,
+  ): Promise<PendingMessageSummary> {
     return await this.pendingSummaryOf(sessionSlice(sessionId), { issueId, sessionId })
   }
 
-  private async pendingSummaryOf(slice: PendingSlice, values: Record<string, unknown>): Promise<PendingMessageSummary> {
+  private async pendingSummaryOf(
+    slice: PendingSlice,
+    values: Record<string, unknown>,
+  ): Promise<PendingMessageSummary> {
     const rows = await pendingSummaryOf(this.db, slice).all(values)
     return {
       count: rows.reduce((total, row) => total + Number(row.n), 0),
@@ -1519,13 +1641,15 @@ export class MessagesRepository {
   }
 
   /** The DISTINCT sender projection both queued-sender readers share. */
-  private async distinctSenders(slice: PendingSlice, values: Record<string, unknown>): Promise<PendingMessageSender[]> {
-    return (await pendingSendersOf(this.db, slice).all(values))
-      .map((row) => ({
-        fromKind: row.fromKind as MessageRow['fromKind'],
-        fromIssue: row.fromIssue,
-        fromSession: row.fromSession,
-      }))
+  private async distinctSenders(
+    slice: PendingSlice,
+    values: Record<string, unknown>,
+  ): Promise<PendingMessageSender[]> {
+    return (await pendingSendersOf(this.db, slice).all(values)).map((row) => ({
+      fromKind: row.fromKind as MessageRow['fromKind'],
+      fromIssue: row.fromIssue,
+      fromSession: row.fromSession,
+    }))
   }
 
   async countPendingForSession(issueId: IssueId, sessionId: SessionId): Promise<number> {
@@ -1533,7 +1657,10 @@ export class MessagesRepository {
     return Number(row?.n ?? 0)
   }
 
-  async listPendingSendersForSession(issueId: IssueId, sessionId: SessionId): Promise<PendingMessageSender[]> {
+  async listPendingSendersForSession(
+    issueId: IssueId,
+    sessionId: SessionId,
+  ): Promise<PendingMessageSender[]> {
     return await this.distinctSenders(sessionSlice(sessionId), { issueId, sessionId })
   }
 
@@ -1543,7 +1670,11 @@ export class MessagesRepository {
    *  it directly? Existence-only (any status), since even a still-queued row
    *  proves the producer already acted — the steward's notice would just be a
    *  duplicate waiting to happen. */
-  async alreadyCommunicated(fromIssue: string, to: MessagePrincipalRef, sinceIso: string): Promise<boolean> {
+  async alreadyCommunicated(
+    fromIssue: string,
+    to: MessagePrincipalRef,
+    sinceIso: string,
+  ): Promise<boolean> {
     // EXTERNAL INPUT BRAND DECODE: the steward compatibility port supplies a
     // raw issue id; schema-branded from_issue makes this query narrow it here.
     const brandedFromIssue = asIssueId(fromIssue)
@@ -1569,6 +1700,7 @@ export class MessagesRepository {
    * the statement every later call with the same key would have built.
    */
   private async move(
+    scope: WriteScope,
     id: string,
     to: MessageDeliveryStatus,
     opts: { variant?: MoveVariant; values?: Record<string, unknown> } = {},
@@ -1586,14 +1718,26 @@ export class MessagesRepository {
             db
               .update(messagesTable)
               .set({ ...spec.set?.(), deliveryStatus: to })
-              .where(and(eq(messagesTable.id, param(messagesTable.id, 'id')), guard, ...(spec.where?.() ?? [])))
+              .where(
+                and(
+                  eq(messagesTable.id, param(messagesTable.id, 'id')),
+                  guard,
+                  ...(spec.where?.() ?? []),
+                ),
+              )
               .returning()
               .prepare(),
           )
           this.moveWrites.set(key, statement)
         }
         const write = statement
-        return (await this.write(async () => await write(this.db).all({ ...opts.values, id }), 'upsert')).changes
+        return (
+          await this.write(
+            scope,
+            async () => await write(this.db).all({ ...opts.values, id }),
+            'upsert',
+          )
+        ).changes
       },
       read: async () => (await statusOf(this.db).get({ id }))?.status ?? null,
     })
@@ -1601,10 +1745,11 @@ export class MessagesRepository {
 
   /** {@link move} by its {@link MOVES} entry, which names the target status. */
   private async moveBy(
+    scope: WriteScope,
     variant: MoveVariant,
     values: { id: string } & Record<string, unknown>,
   ): Promise<MoveOutcome<MessageDeliveryStatus>> {
-    return await this.move(values.id, MOVES[variant].to, { variant, values })
+    return await this.move(scope, values.id, MOVES[variant].to, { variant, values })
   }
 
   /** The prepared status writes, one per (variant, to); see {@link move}. */
@@ -1616,22 +1761,24 @@ export class MessagesRepository {
    *  settlement, a receipt, the transcript echo, a turn boundary or an inbox
    *  read moves it on. */
   async markDispatched(
+    scope: WriteScope,
     id: string,
     deliveredTo: SessionId | null,
     at: string,
   ): Promise<MoveOutcome<MessageDeliveryStatus>> {
-    return await this.moveBy('dispatched', { id, at, deliveredTo })
+    return await this.moveBy(scope, 'dispatched', { id, at, deliveredTo })
   }
 
   /** → typed: its bytes crossed into `deliveredTo`'s CLI, which may still park
    *  them until the running turn ends (POD-1242). Only for the session it was
    *  handed to, or an unaimed row. */
   async markTyped(
+    scope: WriteScope,
     id: string,
     deliveredTo: SessionId,
     at: string,
   ): Promise<MoveOutcome<MessageDeliveryStatus>> {
-    return await this.moveBy('typed', { id, deliveredTo, at })
+    return await this.moveBy(scope, 'typed', { id, deliveredTo, at })
   }
 
   /**
@@ -1641,12 +1788,13 @@ export class MessagesRepository {
    * A repeat finds the row there already and changes nothing, `held` included.
    */
   async markAccepted(
+    scope: WriteScope,
     id: string,
     deliveredTo: SessionId,
     held: MessageHeld,
     at: string,
   ): Promise<MoveOutcome<MessageDeliveryStatus>> {
-    return await this.moveBy('accepted', { id, deliveredTo, held, at })
+    return await this.moveBy(scope, 'accepted', { id, deliveredTo, held, at })
   }
 
   /**
@@ -1663,10 +1811,11 @@ export class MessagesRepository {
    * forget it.
    */
   async markUnknown(
+    scope: WriteScope,
     id: string,
     deliveredTo: SessionId,
   ): Promise<MoveOutcome<MessageDeliveryStatus>> {
-    return await this.moveBy('unknown', { id, deliveredTo })
+    return await this.moveBy(scope, 'unknown', { id, deliveredTo })
   }
 
   /**
@@ -1685,6 +1834,7 @@ export class MessagesRepository {
    * exactly one transition — and stores at most one `notice` — per turn.
    */
   async markDeliveryAbandoned(
+    scope: WriteScope,
     id: string,
     deliveredTo: SessionId,
     at: string,
@@ -1692,9 +1842,9 @@ export class MessagesRepository {
     notice?: MessageRow | null,
   ): Promise<MoveOutcome<MessageDeliveryStatus>> {
     return await this.failWith(
+      scope,
       notice,
-      async () =>
-        await this.moveBy('abandoned', { id, at, reason, deliveredTo }),
+      async () => await this.moveBy(scope, 'abandoned', { id, at, reason, deliveredTo }),
     )
   }
 
@@ -1707,12 +1857,13 @@ export class MessagesRepository {
    * the delivery path takes it from there, across restarts, once per id.
    */
   private async failWith(
+    scope: WriteScope,
     notice: MessageRow | null | undefined,
     fail: () => Promise<MoveOutcome<MessageDeliveryStatus>>,
   ): Promise<MoveOutcome<MessageDeliveryStatus>> {
     return await this.createOrJoinTransaction(async () => {
       const outcome = await fail()
-      if (notice && moved(outcome)) await this.addMessage(notice)
+      if (notice && moved(outcome)) await this.addMessage(scope, notice)
       return outcome
     })
   }
@@ -1721,6 +1872,7 @@ export class MessagesRepository {
    *  boundary, the driver's acceptance or settlement, an ack [POD-834]. A
    *  duplicate or late confirmation is "already there" and changes nothing. */
   async markDelivered(
+    scope: WriteScope,
     id: string,
     deliveredTo: string | null,
     deliveredAt: string,
@@ -1728,7 +1880,11 @@ export class MessagesRepository {
     // EXTERNAL INPUT BRAND DECODE: transcript echo compatibility callers still
     // supply strings, so narrow once before writing the branded column.
     const brandedDeliveredTo = deliveredTo ? asSessionId(deliveredTo) : null
-    const outcome = await this.moveBy('delivered', { id, deliveredAt, deliveredTo: brandedDeliveredTo })
+    const outcome = await this.moveBy(scope, 'delivered', {
+      id,
+      deliveredAt,
+      deliveredTo: brandedDeliveredTo,
+    })
     // The echo proves it is in THAT session's context [POD-1379] — receipt it,
     // or the per-reader nag keeps asking the session to read what it just saw.
     if (brandedDeliveredTo) await this.recordRead(id, brandedDeliveredTo, deliveredAt)
@@ -1747,11 +1903,13 @@ export class MessagesRepository {
    * became no entry at all (POD-4840). Answers whether THIS call wrote it.
    */
   async nameTranscriptItem(
+    scope: WriteScope,
     id: string,
     deliveredTo: SessionId,
     item: TranscriptItemRef,
   ): Promise<boolean> {
     const written = await this.write(
+      scope,
       async () =>
         await nameTranscriptItemOnce(this.db).all({
           id,
@@ -1777,6 +1935,7 @@ export class MessagesRepository {
    * other's ids. Answers whether THIS call changed the list.
    */
   async recordHarnessRef(
+    scope: WriteScope,
     id: string,
     deliveredTo: SessionId,
     harnessRef: HarnessRef,
@@ -1789,6 +1948,7 @@ export class MessagesRepository {
       if (!merged || merged.length === (known?.length ?? 0)) return false
       const stored = current.harnessRefJson ?? null
       const written = await this.write(
+        scope,
         async () =>
           await swapHarnessRef(this.db, stored === null ? 'null' : 'text').all({
             id,
@@ -1810,18 +1970,19 @@ export class MessagesRepository {
   /** → cancelled: withdrawn before it was typed — the daemon holding it said
    *  so, or nothing past the server ever held it (POD-4776). */
   async markCancelled(
+    scope: WriteScope,
     id: string,
     opts: { onlyFrom?: MessageDeliveryStatus } = {},
   ): Promise<MoveOutcome<MessageDeliveryStatus>> {
     return await (opts.onlyFrom
-      ? this.moveBy('cancelledFrom', { id, onlyFrom: opts.onlyFrom })
-      : this.moveBy('cancelled', { id }))
+      ? this.moveBy(scope, 'cancelledFrom', { id, onlyFrom: opts.onlyFrom })
+      : this.moveBy(scope, 'cancelled', { id }))
   }
 
   /** → typing: the agent's machine said it has started typing it — today only
    *  in its answer to a retract that came too late (POD-4776). */
-  async markTyping(id: string): Promise<MoveOutcome<MessageDeliveryStatus>> {
-    return await this.moveBy('typing', { id })
+  async markTyping(scope: WriteScope, id: string): Promise<MoveOutcome<MessageDeliveryStatus>> {
+    return await this.moveBy(scope, 'typing', { id })
   }
 
   /**
@@ -1830,8 +1991,12 @@ export class MessagesRepository {
    * `cancelled`. Stamped only while the message is still pending, and the first
    * request's time is kept. Answers whether the row carries a stamp now.
    */
-  async requestRetract(id: string, at: string): Promise<boolean> {
-    const r = await this.write(async () => await stampRetractRequest(this.db).all({ id, at }), 'upsert')
+  async requestRetract(scope: WriteScope, id: string, at: string): Promise<boolean> {
+    const r = await this.write(
+      scope,
+      async () => await stampRetractRequest(this.db).all({ id, at }),
+      'upsert',
+    )
     return r.changes === 1
   }
 
@@ -1844,14 +2009,15 @@ export class MessagesRepository {
    *  only the READER's receipt. Confirm ONLY the push this reader answers:
    *  unpushed (name the reader) or pushed to this reader. */
   async markDeliveredByPull(
+    scope: WriteScope,
     id: string,
     reader: string | null,
     deliveredAt: string,
   ): Promise<MoveOutcome<MessageDeliveryStatus>> {
     const brandedReader = reader ? asSessionId(reader) : null
     const outcome = await (brandedReader
-      ? this.moveBy('pulledByReader', { id, deliveredAt, reader, brandedReader })
-      : this.moveBy('pulledUnnamed', { id, deliveredAt, reader }))
+      ? this.moveBy(scope, 'pulledByReader', { id, deliveredAt, reader, brandedReader })
+      : this.moveBy(scope, 'pulledUnnamed', { id, deliveredAt, reader }))
     // The pull proves THIS reader has it, whoever the row was pushed to.
     // Recorded even when the guarded move declines (a peer's pull of a row
     // pushed to another session): the receipt is about THIS reader, not about
@@ -1866,15 +2032,20 @@ export class MessagesRepository {
    *  delivered message, not a state after it. `firstRead` says whether THIS call
    *  stamped the first read, which is what a caller announces. */
   async markRead(
+    scope: WriteScope,
     id: string,
     deliveredTo: string | null,
     readAt: string,
   ): Promise<{ outcome: MoveOutcome<MessageDeliveryStatus>; firstRead: boolean }> {
-    const outcome = await this.moveBy('read', { id, readAt, deliveredTo })
+    const outcome = await this.moveBy(scope, 'read', { id, readAt, deliveredTo })
     let firstRead = outcome.kind === 'applied'
     if (outcome.kind === 'already-there') {
       // A stamp, not a move: `delivery_status` is untouched. First read wins.
-      const stamped = await this.write(async () => await stampFirstRead(this.db).all({ id, readAt }), 'upsert')
+      const stamped = await this.write(
+        scope,
+        async () => await stampFirstRead(this.db).all({ id, readAt }),
+        'upsert',
+      )
       firstRead = stamped.changes === 1
     }
     // The PULL proves this reader has it [POD-1379]. Recorded even when the
@@ -1895,17 +2066,19 @@ export class MessagesRepository {
    *  {@link markDeliveryAbandoned} uses. Without one they are LEFT ALONE rather
    *  than cleared. */
   async markDeadLetter(
+    scope: WriteScope,
     id: string,
     at: string,
     cause?: MessageFailedCause,
     notice?: MessageRow | null,
   ): Promise<MoveOutcome<MessageDeliveryStatus>> {
     return await this.failWith(
+      scope,
       notice,
       async () =>
         await (cause
-          ? this.moveBy('deadLetterWithCause', { id, at, cause })
-          : this.moveBy('deadLetter', { id, at })),
+          ? this.moveBy(scope, 'deadLetterWithCause', { id, at, cause })
+          : this.moveBy(scope, 'deadLetter', { id, at })),
     )
   }
 
@@ -1925,9 +2098,10 @@ export class MessagesRepository {
   ): Promise<MessageRow[]> {
     if (sessionIds.length === 0 && endedIssueId === undefined) return []
     const size = inListSize(sessionIds.length)
-    const rows = await openBoundTo(this.db, endedIssueId === undefined ? `${size}` : `${size}|issue`).all(
-      inListValues(sessionIds, size, 'sessions', { endedIssueId }),
-    )
+    const rows = await openBoundTo(
+      this.db,
+      endedIssueId === undefined ? `${size}` : `${size}|issue`,
+    ).all(inListValues(sessionIds, size, 'sessions', { endedIssueId }))
     return rows.map(mapMessage)
   }
 
@@ -1939,8 +2113,12 @@ export class MessagesRepository {
    * a repeat changes nothing. Who may dismiss is the caller's question (the
    * sender only). Answers whether THIS call wrote it.
    */
-  async dismissNotice(id: string, at: string): Promise<boolean> {
-    const r = await this.write(async () => await dismissNoticeOnce(this.db).all({ id, at }), 'upsert')
+  async dismissNotice(scope: WriteScope, id: string, at: string): Promise<boolean> {
+    const r = await this.write(
+      scope,
+      async () => await dismissNoticeOnce(this.db).all({ id, at }),
+      'upsert',
+    )
     return r.changes === 1
   }
 
@@ -1951,7 +2129,9 @@ export class MessagesRepository {
    * touched. The feed's boot read.
    */
   async listOpenChat(limit = 2000): Promise<MessageRow[]> {
-    return (await openChat(this.db).all({ limit: boundedLimit(limit, 2000, 10_000) })).map(mapMessage)
+    return (await openChat(this.db).all({ limit: boundedLimit(limit, 2000, 10_000) })).map(
+      mapMessage,
+    )
   }
 
   /** Every pending row, oldest first — the slow sweep's retry set. */
@@ -1960,12 +2140,15 @@ export class MessagesRepository {
   }
 
   /** One bounded keyset page of the global pending delivery set. */
-  async listQueuedPage(opts: { after?: MessagePageCursor; limit?: number } = {}): Promise<MessageRow[]> {
-    return (await queuedPage(this.db, opts.after ? 'after' : 'start').all({
-      ...(opts.after ? afterCursorValues(opts.after) : {}),
-      limit: boundedLimit(opts.limit, 500, 2000),
-    }))
-      .map(mapMessage)
+  async listQueuedPage(
+    opts: { after?: MessagePageCursor; limit?: number } = {},
+  ): Promise<MessageRow[]> {
+    return (
+      await queuedPage(this.db, opts.after ? 'after' : 'start').all({
+        ...(opts.after ? afterCursorValues(opts.after) : {}),
+        limit: boundedLimit(opts.limit, 500, 2000),
+      })
+    ).map(mapMessage)
   }
 
   /** Persist a keyed wake attempt before its external side effect. */
@@ -1985,7 +2168,9 @@ export class MessagesRepository {
     if (keys.length === 0) return out
     const unique = [...new Set(keys)]
     const size = inListSize(unique.length)
-    for (const row of await wakeCooldownsOf(this.db, size).all(inListValues(unique, size, 'keys'))) {
+    for (const row of await wakeCooldownsOf(this.db, size).all(
+      inListValues(unique, size, 'keys'),
+    )) {
       out.set(row.key, row.attemptedAt)
     }
     return out
@@ -1997,35 +2182,52 @@ export class MessagesRepository {
     sessionId: SessionId,
     opts: { after?: MessagePageCursor; limit?: number } = {},
   ): Promise<MessageRow[]> {
-    return (await pendingDeliveredToPage(this.db, opts.after ? 'after' : 'start').all({
-      sessionId,
-      ...(opts.after ? afterCursorValues(opts.after) : {}),
-      limit: boundedLimit(opts.limit, 200, 500),
-    }))
-      .map(mapMessage)
+    return (
+      await pendingDeliveredToPage(this.db, opts.after ? 'after' : 'start').all({
+        sessionId,
+        ...(opts.after ? afterCursorValues(opts.after) : {}),
+        limit: boundedLimit(opts.limit, 200, 500),
+      })
+    ).map(mapMessage)
   }
 
   /** Apply one janitor-observed expiry only if every observed durable fact is
    * still current. Server time eligibility is checked by MaintenanceService
    * immediately before this conditional write in the same transaction. */
-  async expireObserved(input: {
-    id: string
-    createdAt: string
-    lifecycle: MessageRow['lifecycle']
-    expiresAt: string | null
-  }): Promise<MoveOutcome<MessageDeliveryStatus>> {
+  async expireObserved(
+    scope: WriteScope,
+    input: {
+      id: string
+      createdAt: string
+      lifecycle: MessageRow['lifecycle']
+      expiresAt: string | null
+    },
+  ): Promise<MoveOutcome<MessageDeliveryStatus>> {
     // Only a row the server still holds can expire: once handed on, the machine
     // may still type it, so a timer cannot say it will not arrive [POD-4765].
-    const values = { id: input.id, createdAt: input.createdAt, lifecycle: input.lifecycle, expiresAt: input.expiresAt }
+    const values = {
+      id: input.id,
+      createdAt: input.createdAt,
+      lifecycle: input.lifecycle,
+      expiresAt: input.expiresAt,
+    }
     // `IS`, NOT `=`. SQL `=` never matches null, and most rows have no
     // expiry — emitting `=` here would silently stop expiring them while
     // the non-null case kept working. `isNull` is the `IS ?` null arm.
-    return await this.moveBy(input.expiresAt === null ? 'expiredWithoutExpiry' : 'expired', values)
+    return await this.moveBy(
+      scope,
+      input.expiresAt === null ? 'expiredWithoutExpiry' : 'expired',
+      values,
+    )
   }
 
   /** Stamp the ack message id onto the original (first ack wins). */
-  async markAcked(id: string, ackedBy: string): Promise<boolean> {
-    const r = await this.write(async () => await stampAckOnce(this.db).all({ id, ackedBy }), 'upsert')
+  async markAcked(scope: WriteScope, id: string, ackedBy: string): Promise<boolean> {
+    const r = await this.write(
+      scope,
+      async () => await stampAckOnce(this.db).all({ id, ackedBy }),
+      'upsert',
+    )
     return r.changes === 1
   }
 
@@ -2055,8 +2257,12 @@ export class MessagesRepository {
   }
 
   /** Stamp the ONE stop-hook reminder (never repeats: guarded on NULL). */
-  async markReminded(id: string, at: string): Promise<boolean> {
-    const r = await this.write(async () => await stampRemindedOnce(this.db).all({ id, at }), 'upsert')
+  async markReminded(scope: WriteScope, id: string, at: string): Promise<boolean> {
+    const r = await this.write(
+      scope,
+      async () => await stampRemindedOnce(this.db).all({ id, at }),
+      'upsert',
+    )
     return r.changes === 1
   }
 }

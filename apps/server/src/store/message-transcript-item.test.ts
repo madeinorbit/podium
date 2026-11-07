@@ -11,6 +11,7 @@
 
 import { asSessionId, asThreadId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { createBunStoreExecutor } from './executor'
@@ -59,59 +60,74 @@ function row(id: string): MessageRow {
 
 describe('naming the entry a message became', () => {
   it('is read back on the record, beside a status it leaves alone', async () => {
-    await messages.addMessage(row('msg_a'))
-    await messages.markDelivered('msg_a', S1, 't1')
-    expect(await messages.nameTranscriptItem('msg_a', S1, { id: 'entry-1', cursor: 'cur-1' })).toBe(
-      true,
-    )
+    await messages.addMessage(fixtureWriteScope(), row('msg_a'))
+    await messages.markDelivered(fixtureWriteScope(), 'msg_a', S1, 't1')
+    expect(
+      await messages.nameTranscriptItem(fixtureWriteScope(), 'msg_a', S1, {
+        id: 'entry-1',
+        cursor: 'cur-1',
+      }),
+    ).toBe(true)
     const record = await messages.getMessage('msg_a')
     expect(record?.transcriptItem).toEqual({ id: 'entry-1', cursor: 'cur-1' })
     expect(record?.deliveryStatus).toBe('confirmed')
   })
 
   it('lands before the confirmation too: a stamp, not a move', async () => {
-    await messages.addMessage(row('msg_b'))
-    await messages.markDispatched('msg_b', S1, 't1')
-    expect(await messages.nameTranscriptItem('msg_b', S1, { id: 'entry-2' })).toBe(true)
+    await messages.addMessage(fixtureWriteScope(), row('msg_b'))
+    await messages.markDispatched(fixtureWriteScope(), 'msg_b', S1, 't1')
+    expect(
+      await messages.nameTranscriptItem(fixtureWriteScope(), 'msg_b', S1, { id: 'entry-2' }),
+    ).toBe(true)
     const record = await messages.getMessage('msg_b')
     expect(record?.transcriptItem).toEqual({ id: 'entry-2' })
     expect(record?.deliveryStatus).toBe('dispatched')
   })
 
   it('keeps the first naming; a repeat or a different entry changes nothing', async () => {
-    await messages.addMessage(row('msg_c'))
-    await messages.markDelivered('msg_c', S1, 't1')
-    await messages.nameTranscriptItem('msg_c', S1, { id: 'entry-3' })
-    expect(await messages.nameTranscriptItem('msg_c', S1, { id: 'entry-3' })).toBe(false)
-    expect(await messages.nameTranscriptItem('msg_c', S1, { id: 'entry-other' })).toBe(false)
+    await messages.addMessage(fixtureWriteScope(), row('msg_c'))
+    await messages.markDelivered(fixtureWriteScope(), 'msg_c', S1, 't1')
+    await messages.nameTranscriptItem(fixtureWriteScope(), 'msg_c', S1, { id: 'entry-3' })
+    expect(
+      await messages.nameTranscriptItem(fixtureWriteScope(), 'msg_c', S1, { id: 'entry-3' }),
+    ).toBe(false)
+    expect(
+      await messages.nameTranscriptItem(fixtureWriteScope(), 'msg_c', S1, { id: 'entry-other' }),
+    ).toBe(false)
     expect((await messages.getMessage('msg_c'))?.transcriptItem).toEqual({ id: 'entry-3' })
   })
 
   it('is refused for a session the row was not handed to', async () => {
-    await messages.addMessage(row('msg_d'))
-    await messages.markDelivered('msg_d', S1, 't1')
-    expect(await messages.nameTranscriptItem('msg_d', S2, { id: 'entry-4' })).toBe(false)
+    await messages.addMessage(fixtureWriteScope(), row('msg_d'))
+    await messages.markDelivered(fixtureWriteScope(), 'msg_d', S1, 't1')
+    expect(
+      await messages.nameTranscriptItem(fixtureWriteScope(), 'msg_d', S2, { id: 'entry-4' }),
+    ).toBe(false)
     expect((await messages.getMessage('msg_d'))?.transcriptItem).toBeUndefined()
   })
 
   it('is refused for a message that ended without being typed (POD-4840)', async () => {
-    await messages.addMessage(row('msg_failed'))
-    await messages.markDispatched('msg_failed', S1, 't1')
-    await messages.markDeadLetter('msg_failed', 't2', 'never-live')
-    await messages.addMessage(row('msg_cancelled'))
-    await messages.markCancelled('msg_cancelled')
+    await messages.addMessage(fixtureWriteScope(), row('msg_failed'))
+    await messages.markDispatched(fixtureWriteScope(), 'msg_failed', S1, 't1')
+    await messages.markDeadLetter(fixtureWriteScope(), 'msg_failed', 't2', 'never-live')
+    await messages.addMessage(fixtureWriteScope(), row('msg_cancelled'))
+    await messages.markCancelled(fixtureWriteScope(), 'msg_cancelled')
     for (const id of ['msg_failed', 'msg_cancelled']) {
-      expect(await messages.nameTranscriptItem(id, S1, { id: 'entry-stray' })).toBe(false)
+      expect(
+        await messages.nameTranscriptItem(fixtureWriteScope(), id, S1, { id: 'entry-stray' }),
+      ).toBe(false)
       expect((await messages.getMessage(id))?.transcriptItem).toBeUndefined()
     }
   })
 
   it('names nothing for an id no message has (a turn that was never a message)', async () => {
-    expect(await messages.nameTranscriptItem('turn_random', S1, { id: 'entry-5' })).toBe(false)
+    expect(
+      await messages.nameTranscriptItem(fixtureWriteScope(), 'turn_random', S1, { id: 'entry-5' }),
+    ).toBe(false)
   })
 
   it('reads as unnamed until named', async () => {
-    await messages.addMessage(row('msg_e'))
+    await messages.addMessage(fixtureWriteScope(), row('msg_e'))
     expect(await messages.getMessage('msg_e')).not.toHaveProperty('transcriptItem')
   })
 })
@@ -127,56 +143,64 @@ describe("keeping the agent program's own ids for a message", () => {
   const echo = { kind: 'codex-client-message', id: 'msg_h' }
 
   it('reads back the ids, beside a status they leave alone', async () => {
-    await messages.addMessage(row('msg_h'))
-    await messages.markDispatched('msg_h', S1, 't1')
-    expect(await messages.recordHarnessRef('msg_h', S1, [turn])).toBe(true)
+    await messages.addMessage(fixtureWriteScope(), row('msg_h'))
+    await messages.markDispatched(fixtureWriteScope(), 'msg_h', S1, 't1')
+    expect(await messages.recordHarnessRef(fixtureWriteScope(), 'msg_h', S1, [turn])).toBe(true)
     const record = await messages.getMessage('msg_h')
     expect(record?.harnessRef).toEqual([turn])
     expect(record?.deliveryStatus).toBe('dispatched')
   })
 
   it('adds ids learned later, each once, in the order learned', async () => {
-    await messages.addMessage(row('msg_h'))
-    await messages.markDelivered('msg_h', S1, 't1')
-    await messages.recordHarnessRef('msg_h', S1, [turn])
-    expect(await messages.recordHarnessRef('msg_h', S1, [turn, echo])).toBe(true)
-    expect(await messages.recordHarnessRef('msg_h', S1, [echo])).toBe(false)
+    await messages.addMessage(fixtureWriteScope(), row('msg_h'))
+    await messages.markDelivered(fixtureWriteScope(), 'msg_h', S1, 't1')
+    await messages.recordHarnessRef(fixtureWriteScope(), 'msg_h', S1, [turn])
+    expect(await messages.recordHarnessRef(fixtureWriteScope(), 'msg_h', S1, [turn, echo])).toBe(
+      true,
+    )
+    expect(await messages.recordHarnessRef(fixtureWriteScope(), 'msg_h', S1, [echo])).toBe(false)
     expect((await messages.getMessage('msg_h'))?.harnessRef).toEqual([turn, echo])
   })
 
   it('keeps the ids of an unconfirmed or failed message: a later look-up needs them most', async () => {
-    await messages.addMessage(row('msg_u'))
-    await messages.markDispatched('msg_u', S1, 't1')
-    await messages.markDeadLetter('msg_u', 't2', 'delivery-failed')
-    expect(await messages.recordHarnessRef('msg_u', S1, [turn])).toBe(true)
+    await messages.addMessage(fixtureWriteScope(), row('msg_u'))
+    await messages.markDispatched(fixtureWriteScope(), 'msg_u', S1, 't1')
+    await messages.markDeadLetter(fixtureWriteScope(), 'msg_u', 't2', 'delivery-failed')
+    expect(await messages.recordHarnessRef(fixtureWriteScope(), 'msg_u', S1, [turn])).toBe(true)
     expect((await messages.getMessage('msg_u'))?.harnessRef).toEqual([turn])
   })
 
   it('is refused for another session, and for a message that was never typed', async () => {
-    await messages.addMessage(row('msg_other'))
-    await messages.markDelivered('msg_other', S1, 't1')
-    expect(await messages.recordHarnessRef('msg_other', S2, [turn])).toBe(false)
-    await messages.addMessage(row('msg_cancelled'))
-    await messages.markCancelled('msg_cancelled')
-    expect(await messages.recordHarnessRef('msg_cancelled', S1, [turn])).toBe(false)
+    await messages.addMessage(fixtureWriteScope(), row('msg_other'))
+    await messages.markDelivered(fixtureWriteScope(), 'msg_other', S1, 't1')
+    expect(await messages.recordHarnessRef(fixtureWriteScope(), 'msg_other', S2, [turn])).toBe(
+      false,
+    )
+    await messages.addMessage(fixtureWriteScope(), row('msg_cancelled'))
+    await messages.markCancelled(fixtureWriteScope(), 'msg_cancelled')
+    expect(await messages.recordHarnessRef(fixtureWriteScope(), 'msg_cancelled', S1, [turn])).toBe(
+      false,
+    )
     for (const id of ['msg_other', 'msg_cancelled']) {
       expect(await messages.getMessage(id)).not.toHaveProperty('harnessRef')
     }
   })
 
   it('writes nothing for no ids or an unknown message, and reads as none until given', async () => {
-    await messages.addMessage(row('msg_e'))
-    expect(await messages.recordHarnessRef('msg_e', S1, [])).toBe(false)
-    expect(await messages.recordHarnessRef('turn_random', S1, [turn])).toBe(false)
+    await messages.addMessage(fixtureWriteScope(), row('msg_e'))
+    expect(await messages.recordHarnessRef(fixtureWriteScope(), 'msg_e', S1, [])).toBe(false)
+    expect(await messages.recordHarnessRef(fixtureWriteScope(), 'turn_random', S1, [turn])).toBe(
+      false,
+    )
     expect(await messages.getMessage('msg_e')).not.toHaveProperty('harnessRef')
   })
 
   it('reads a stored list it cannot parse as none, never as a failed read', async () => {
-    await messages.addMessage(row('msg_bad'))
+    await messages.addMessage(fixtureWriteScope(), row('msg_bad'))
     db.exec(`UPDATE messages SET harness_ref_json = 'not json' WHERE id = 'msg_bad'`)
     expect(await messages.getMessage('msg_bad')).not.toHaveProperty('harnessRef')
     // And a later id still lands, replacing what could not be read.
-    expect(await messages.recordHarnessRef('msg_bad', S1, [turn])).toBe(true)
+    expect(await messages.recordHarnessRef(fixtureWriteScope(), 'msg_bad', S1, [turn])).toBe(true)
     expect((await messages.getMessage('msg_bad'))?.harnessRef).toEqual([turn])
   })
 })

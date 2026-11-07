@@ -1,17 +1,19 @@
+import { messageTestWriter, messageTestWriters } from '../../test-support/message-writer'
+
 // Spawn-on-wake wiring (#237) [spec:SP-34d7 decision 4]: the makeSpawnOnWake
 // adapter over the real session-spawn machinery — issue resolution, cwd
 // choice, provenance stamping — plus the end-to-end wake→spawn→first-prompt
 // path through MessageDeliveryService and the parent clamp it unlocks.
 
-import { asIssueId, asSessionId, firstAdminMemberId, type SessionId } from '@podium/model'
 import type { SessionMeta } from '@podium/model'
+import { asIssueId, asSessionId, firstAdminMemberId, type SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import { isMemberCwd, sessionsForIssue } from '../../issue-util'
+import { openTestStore } from '../../test-support/open-test-store'
+import { metasAsFacts } from '../../test-support/session-facts'
 import type { IssueService } from '../issues/service'
 import { type MessageDeliveryDeps, MessageDeliveryService } from './service'
 import { makeSpawnOnWake, spawnedByForMessage } from './spawn'
-import { openTestStore } from '../../test-support/open-test-store'
-import { metasAsFacts } from '../../test-support/session-facts'
-import { isMemberCwd, sessionsForIssue } from '../../issue-util'
 
 const ISSUE = {
   id: 'iss_a',
@@ -139,6 +141,7 @@ describe('wake → spawn → first prompt (service integration)', () => {
     const queued: { sessionId: SessionId; text: string }[] = []
     const interrupted: { sessionId: SessionId; text: string }[] = []
     const deps: MessageDeliveryDeps = {
+      writers: messageTestWriters(store),
       firstAdminMemberId: () => firstAdminMemberId(store),
       messages: store.messages,
       notificationFacts: store.notificationFacts,
@@ -148,7 +151,9 @@ describe('wake → spawn → first prompt (service integration)', () => {
         readSessionFactsByIssue: async (worktreePath, issueId) =>
           sessionsForIssue(worktreePath, metasAsFacts(sessions), issueId),
         readSessionFactsByWorktree: async (worktreePath) =>
-          worktreePath ? metasAsFacts(sessions).filter((s) => isMemberCwd(worktreePath, s.cwd)) : [],
+          worktreePath
+            ? metasAsFacts(sessions).filter((s) => isMemberCwd(worktreePath, s.cwd))
+            : [],
         sessionById: async (sessionId) => sessions.find((s) => s.sessionId === sessionId),
         listSessionsForIssue: async (worktreePath, issueId) =>
           sessionsForIssue(worktreePath, sessions, issueId),
@@ -188,6 +193,7 @@ describe('wake → spawn → first prompt (service integration)', () => {
   it('a wake to an empty issue spawns a fresh agent and the message is its first prompt', async () => {
     const { svc, queued } = await harness()
     const r = await svc.send(
+      messageTestWriter(),
       { kind: 'agent', sessionId: asSessionId('sParent'), issueId: asIssueId('iss_b') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'get going', lifecycle: 'wake' },
     )
@@ -203,10 +209,12 @@ describe('wake → spawn → first prompt (service integration)', () => {
   it('the spawn unlocks parent-grade clamps: the waker may interrupt its child', async () => {
     const { svc, interrupted } = await harness()
     await svc.send(
+      messageTestWriter(),
       { kind: 'agent', sessionId: asSessionId('sParent'), issueId: asIssueId('iss_b') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'go', lifecycle: 'wake' },
     )
     const r = await svc.send(
+      messageTestWriter(),
       { kind: 'agent', sessionId: asSessionId('sParent'), issueId: asIssueId('iss_b') },
       { to: { kind: 'session', id: 'child1' }, body: 'stop!', urgency: 'interrupt' },
     )
@@ -215,6 +223,7 @@ describe('wake → spawn → first prompt (service integration)', () => {
     expect(interrupted).toHaveLength(1)
     // A PEER (not the parent) is still clamped.
     const peer = await svc.send(
+      messageTestWriter(),
       { kind: 'agent', sessionId: asSessionId('sOther'), issueId: asIssueId('iss_b') },
       { to: { kind: 'session', id: 'child1' }, body: 'hey', urgency: 'interrupt' },
     )

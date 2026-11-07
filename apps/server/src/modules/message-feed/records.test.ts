@@ -21,6 +21,7 @@ import {
   type Capability,
   type UserId,
 } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../../store'
 import type { MessageRow, SessionRow } from '../../store/types'
@@ -95,14 +96,29 @@ async function harness(owners: Record<string, UserId> = { [S1]: BOB }) {
 describe('a device’s own messages, by id', () => {
   it('answers a confirmed message the feed no longer carries, and one whose notice was dismissed', async () => {
     const { store, deps } = await harness()
-    await store.messages.addMessage(chat('msg_done'))
-    await store.messages.markDispatched('msg_done', S1, 't1')
-    await store.messages.markDelivered('msg_done', S1, 't2')
-    await store.messages.nameTranscriptItem('msg_done', S1, { id: 'entry-1', cursor: 'c1' })
-    await store.messages.addMessage(chat('msg_lost'))
-    await store.messages.markDispatched('msg_lost', S1, 't3')
-    await store.messages.markDeliveryAbandoned('msg_lost', S1, 't4', 'never-live')
-    expect(await store.messages.dismissNotice('msg_lost', '2026-09-29T01:00:00.000Z')).toBe(true)
+    await store.messages.addMessage(fixtureWriteScope(), chat('msg_done'))
+    await store.messages.markDispatched(fixtureWriteScope(), 'msg_done', S1, 't1')
+    await store.messages.markDelivered(fixtureWriteScope(), 'msg_done', S1, 't2')
+    await store.messages.nameTranscriptItem(fixtureWriteScope(), 'msg_done', S1, {
+      id: 'entry-1',
+      cursor: 'c1',
+    })
+    await store.messages.addMessage(fixtureWriteScope(), chat('msg_lost'))
+    await store.messages.markDispatched(fixtureWriteScope(), 'msg_lost', S1, 't3')
+    await store.messages.markDeliveryAbandoned(
+      fixtureWriteScope(),
+      'msg_lost',
+      S1,
+      't4',
+      'never-live',
+    )
+    expect(
+      await store.messages.dismissNotice(
+        fixtureWriteScope(),
+        'msg_lost',
+        '2026-09-29T01:00:00.000Z',
+      ),
+    ).toBe(true)
     const records = await readMessageRecords(deps, ALICE, ['msg_done', 'msg_lost'])
     expect(records.find((record) => record.id === 'msg_done')).toMatchObject({
       status: 'confirmed',
@@ -116,7 +132,7 @@ describe('a device’s own messages, by id', () => {
 
   it('answers the sender and the session’s owner, and nobody else', async () => {
     const { store, read } = await harness()
-    await store.messages.addMessage(chat('msg_a'))
+    await store.messages.addMessage(fixtureWriteScope(), chat('msg_a'))
     expect(await read(ALICE, ['msg_a'])).toEqual(['msg_a'])
     expect(await read(BOB, ['msg_a'])).toEqual(['msg_a'])
     expect(await read(CAROL, ['msg_a'])).toEqual([])
@@ -124,8 +140,9 @@ describe('a device’s own messages, by id', () => {
 
   it('leaves out an id with no row, and a row that is not a person’s chat message', async () => {
     const { store, read } = await harness()
-    await store.messages.addMessage(chat('msg_mine'))
+    await store.messages.addMessage(fixtureWriteScope(), chat('msg_mine'))
     await store.messages.addMessage(
+      fixtureWriteScope(),
       chat('msg_agent', {
         fromKind: 'agent',
         fromSession: asSessionId('ses_other'),
@@ -138,9 +155,9 @@ describe('a device’s own messages, by id', () => {
   it('asks for the owners of the sessions only for messages the reader did not send, all at once', async () => {
     const S2 = asSessionId('ses_two')
     const { store, read, reads } = await harness({ [S1]: BOB, [S2]: BOB })
-    await store.messages.addMessage(chat('msg_1'))
-    await store.messages.addMessage(chat('msg_2', { toId: S2 }))
-    await store.messages.addMessage(chat('msg_3', { toId: S2 }))
+    await store.messages.addMessage(fixtureWriteScope(), chat('msg_1'))
+    await store.messages.addMessage(fixtureWriteScope(), chat('msg_2', { toId: S2 }))
+    await store.messages.addMessage(fixtureWriteScope(), chat('msg_3', { toId: S2 }))
     expect(await read(ALICE, ['msg_1', 'msg_2'])).toEqual(['msg_1', 'msg_2'])
     expect(reads).toEqual([])
     expect(await read(BOB, ['msg_1', 'msg_2', 'msg_3'])).toEqual(['msg_1', 'msg_2', 'msg_3'])
@@ -158,8 +175,8 @@ describe('mail.records, through the gate the tRPC router reaches', () => {
 
   it('answers a person their own messages by id, in one request', async () => {
     const h = await mailHarness()
-    await h.store.messages.addMessage(chat('msg_g1'))
-    await h.store.messages.addMessage(chat('msg_g2'))
+    await h.store.messages.addMessage(fixtureWriteScope(), chat('msg_g1'))
+    await h.store.messages.addMessage(fixtureWriteScope(), chat('msg_g2'))
     const answer = (await h.gate.dispatch(
       person(ALICE),
       undefined,
@@ -184,7 +201,7 @@ describe('mail.records, through the gate the tRPC router reaches', () => {
 
   it('answers an agent nothing, even one acting for the sender', async () => {
     const h = await mailHarness()
-    await h.store.messages.addMessage(chat('msg_g3'))
+    await h.store.messages.addMessage(fixtureWriteScope(), chat('msg_g3'))
     const agent: Capability = { ...person(ALICE), actorSessionId: asSessionId('ses_agent') }
     const answer = (await h.gate.dispatch(
       agent,
@@ -201,8 +218,10 @@ describe('mail.records, through the gate the tRPC router reaches', () => {
   it('loads historical attachments by session and transcript identity with the same visibility', async () => {
     const h = await mailHarness()
     const attachment = {
-      id: '758cc885-68cc-44ec-83c3-531f071689a4', filename: 'image.png',
-      mediaType: 'image/png', kind: 'image' as const,
+      id: '758cc885-68cc-44ec-83c3-531f071689a4',
+      filename: 'image.png',
+      mediaType: 'image/png',
+      kind: 'image' as const,
       path: `/home/podium/.podium/uploads/${S1}/758cc885-68cc-44ec-83c3-531f071689a4.png`,
     }
     for (const row of [
@@ -210,21 +229,64 @@ describe('mail.records, through the gate the tRPC router reaches', () => {
       chat('msg_text'),
       chat('msg_other_session', { attachments: [attachment], toId: asSessionId('ses_other') }),
     ]) {
-      await h.store.messages.addMessage(row)
-      await h.store.messages.markDispatched(row.id, row.toId as typeof S1, 't1')
-      await h.store.messages.markDelivered(row.id, row.toId as typeof S1, 't2')
-      await h.store.messages.nameTranscriptItem(row.id, row.toId as typeof S1, { id: row.id === 'msg_text' ? 'text-item' : 'image-item' })
+      await h.store.messages.addMessage(fixtureWriteScope(), row)
+      await h.store.messages.markDispatched(
+        fixtureWriteScope(),
+        row.id,
+        row.toId as typeof S1,
+        't1',
+      )
+      await h.store.messages.markDelivered(fixtureWriteScope(), row.id, row.toId as typeof S1, 't2')
+      await h.store.messages.nameTranscriptItem(
+        fixtureWriteScope(),
+        row.id,
+        row.toId as typeof S1,
+        { id: row.id === 'msg_text' ? 'text-item' : 'image-item' },
+      )
     }
     const input = { sessionId: S1, transcriptItemIds: ['image-item', 'text-item', 'unknown'] }
-    const answer = await h.gate.dispatch(person(ALICE), undefined, 'records', input, 'trpc') as { records: unknown[] }
-    expect(answer.records).toEqual([expect.objectContaining({
-      id: 'msg_image', transcriptItem: { id: 'image-item' },
-      attachments: [{ id: attachment.id, filename: 'image.png', mediaType: 'image/png', kind: 'image' }],
-    })])
-    expect(await h.gate.dispatch(person(CAROL), undefined, 'records', input, 'trpc')).toEqual({ records: [] })
-    expect(await h.gate.dispatch({ ...person(ALICE), actorSessionId: asSessionId('ses_agent') }, undefined, 'records', input, 'trpc')).toEqual({ records: [] })
-    await expect(h.gate.dispatch(person(ALICE), undefined, 'records', { sessionId: S1, transcriptItemIds: [] }, 'trpc')).rejects.toThrow()
-    await expect(h.gate.dispatch(person(ALICE), undefined, 'records', { sessionId: S1, transcriptItemIds: Array.from({ length: 101 }, (_, i) => `item-${i}`) }, 'trpc')).rejects.toThrow()
+    const answer = (await h.gate.dispatch(person(ALICE), undefined, 'records', input, 'trpc')) as {
+      records: unknown[]
+    }
+    expect(answer.records).toEqual([
+      expect.objectContaining({
+        id: 'msg_image',
+        transcriptItem: { id: 'image-item' },
+        attachments: [
+          { id: attachment.id, filename: 'image.png', mediaType: 'image/png', kind: 'image' },
+        ],
+      }),
+    ])
+    expect(await h.gate.dispatch(person(CAROL), undefined, 'records', input, 'trpc')).toEqual({
+      records: [],
+    })
+    expect(
+      await h.gate.dispatch(
+        { ...person(ALICE), actorSessionId: asSessionId('ses_agent') },
+        undefined,
+        'records',
+        input,
+        'trpc',
+      ),
+    ).toEqual({ records: [] })
+    await expect(
+      h.gate.dispatch(
+        person(ALICE),
+        undefined,
+        'records',
+        { sessionId: S1, transcriptItemIds: [] },
+        'trpc',
+      ),
+    ).rejects.toThrow()
+    await expect(
+      h.gate.dispatch(
+        person(ALICE),
+        undefined,
+        'records',
+        { sessionId: S1, transcriptItemIds: Array.from({ length: 101 }, (_, i) => `item-${i}`) },
+        'trpc',
+      ),
+    ).rejects.toThrow()
   })
 
   it('refuses a read naming no id, or more than one request may', async () => {

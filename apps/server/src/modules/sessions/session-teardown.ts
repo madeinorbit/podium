@@ -36,6 +36,7 @@ import type { IssueId, MachineId, SessionId, SessionMeta, UserId } from '@podium
 import { isIssueClosed } from '@podium/model'
 import { AUTO_ARCHIVE_READ_WINDOW_MS } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
+import type { WriteScope } from '@podium/sync'
 import type { AutoContinueController } from '../../auto-continue'
 import { type CommandPrincipal, systemPrincipal } from '../../command-principal'
 import type { ClientRegistry } from '../../gateway/client-registry'
@@ -102,6 +103,7 @@ export interface SessionTeardownPorts {
    *  sessions keep their queue for resume. Absent in fixtures without a
    *  message ledger. */
   failMessagesToRemovedSessions?: (
+    scope: WriteScope,
     sessionIds: readonly SessionId[],
     opts?: { endedIssueId?: IssueId },
   ) => Promise<void>
@@ -130,7 +132,14 @@ export class SessionTeardown {
   private async failUnresumableMessages(sessionId: SessionId): Promise<void> {
     const parked = this.ports.sessions.get(sessionId)
     if (!parked || parked.status !== 'exited' || parked.agentKind === 'shell') return
-    await this.ports.failMessagesToRemovedSessions?.([sessionId])
+    const fail = this.ports.failMessagesToRemovedSessions
+    if (fail) {
+      // The server's own write (`sessions.lifecycle`): the park was its decision.
+      await this.ports.writer.commit({
+        write: async (scope) => await fail(scope, [sessionId]),
+        changes: () => [],
+      })
+    }
     await this.ports.store.sync.deleteQueuedMessagesForSession(sessionId)
   }
 

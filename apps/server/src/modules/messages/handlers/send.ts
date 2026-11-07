@@ -8,7 +8,7 @@ import { commandAccess } from '../../issues/command-ctx'
 import { type ContractInput, type mailSendContract, UNADDRESSABLE } from '@podium/commands'
 import { checkIssueAccess } from '../../../issue-authz'
 import { senderFromPrincipal } from '../service'
-import type { MailHandlerContext } from './context'
+import { type MailHandlerContext, mailWriter } from './context'
 
 export async function sendHandler(
   ctx: MailHandlerContext,
@@ -62,7 +62,7 @@ export async function sendHandler(
     ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
     ...(ctx.inEntry ? { terminalInUnit: true } : {}),
   }
-  const r = await svc.send(from, payload)
+  const r = await svc.send(mailWriter(ctx, 'mail.send'), from, payload)
   return {
     id: r.message.id,
     ok: r.ok,

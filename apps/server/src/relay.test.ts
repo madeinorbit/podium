@@ -18,6 +18,7 @@ import {
 import { asDelegationRef, CLIENT_WIRE_VERSION, type ServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterAll, describe, expect, it, vi } from 'vitest'
+import { messageTestWriter, messageTestWriters } from './test-support/message-writer'
 import { clientSessionViews } from './test-support/session-views'
 
 /** Every durable session row names a machine (POD-318) — there is no column default. */
@@ -7095,6 +7096,7 @@ describe('runtime queue abandonment composition [POD-2202]', () => {
       })
 
       const sent = await registry.modules.messages.send(
+        messageTestWriter(),
         {
           kind: 'superagent',
           attribution: {
@@ -7172,6 +7174,7 @@ describe('codex app-server first-prompt delivery [POD-2291]', () => {
 
   const sendFirstPrompt = async (registry: SessionRegistry, sessionId: SessionId) =>
     await registry.modules.messages.send(
+      messageTestWriter(),
       { kind: 'operator' },
       { to: { kind: 'session', id: sessionId }, body: 'first prompt', urgency: 'next-turn' },
     )
@@ -7500,6 +7503,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
 
   const sendPrompt = async (registry: SessionRegistry, sessionId: SessionId) =>
     await registry.modules.messages.send(
+      messageTestWriter(),
       { kind: 'operator' },
       { to: { kind: 'session', id: sessionId }, body: 'skewed prompt', urgency: 'next-turn' },
     )
@@ -7708,6 +7712,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
         issueId: issue.id,
       })
       const sent = await registry.modules.messages.send(
+        messageTestWriter(),
         {
           kind: 'superagent',
           attribution: {

@@ -25,8 +25,10 @@
  */
 
 import { asSessionId } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import { OPERATOR } from '../../test-support/capabilities'
+import { messageTestWriter } from '../../test-support/message-writer'
 import { mailHarness } from './characterization-support'
 
 /** The receipt payloads recorded on the ledger, in order. */
@@ -118,7 +120,13 @@ describe('flag-on delivery: an unconfirmed row is unknown, never a retry (R2)', 
       body: 'held by the program',
     })) as { id: string }
     expect(
-      await h.store.messages.markAccepted(r.id, target, held, '2026-09-29T00:00:00.000Z'),
+      await h.store.messages.markAccepted(
+        fixtureWriteScope(),
+        r.id,
+        target,
+        held,
+        '2026-09-29T00:00:00.000Z',
+      ),
     ).toEqual({
       kind: 'applied',
     })
@@ -226,6 +234,7 @@ describe('flag-on delivery: attachment refusals notify the sender (R5)', () => {
     h.put({ sessionId: sender, issueId: senderIssue.id, phase: 'idle' })
 
     const sent = await h.svc.send(
+      messageTestWriter(),
       { kind: 'agent', issueId: senderIssue.id, sessionId: sender },
       {
         to: { kind: 'session', id: target },

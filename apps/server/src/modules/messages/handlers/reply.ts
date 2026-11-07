@@ -9,7 +9,7 @@
 import type { ContractInput, mailReplyContract } from '@podium/commands'
 import { MailRefusal } from '../refusal'
 import { senderFromPrincipal } from '../service'
-import type { MailHandlerContext } from './context'
+import { type MailHandlerContext, mailWriter } from './context'
 
 export async function replyHandler(
   ctx: MailHandlerContext,
@@ -24,12 +24,16 @@ export async function replyHandler(
   if (caller.capability.scope.kind !== 'all' && !access.isRecipient(caller.capability, original)) {
     throw new MailRefusal('unauthorized', 'only the recipient of a message may reply to it')
   }
-  const r = await svc.sendReply(senderFromPrincipal(caller.principal), {
-    inReplyTo: original.id,
-    body: input.body,
-    kind: input.kind ?? 'ack',
-    ...(ctx.inEntry ? { terminalInUnit: true } : {}),
-  })
+  const r = await svc.sendReply(
+    mailWriter(ctx, 'mail.reply'),
+    senderFromPrincipal(caller.principal),
+    {
+      inReplyTo: original.id,
+      body: input.body,
+      kind: input.kind ?? 'ack',
+      ...(ctx.inEntry ? { terminalInUnit: true } : {}),
+    },
+  )
   return {
     id: r.message.id,
     ok: r.ok,

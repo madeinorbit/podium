@@ -475,3 +475,18 @@ export class MailAccess {
     }
   }
 }
+
+/**
+ * THE COMMAND'S WRITER, for a mail write (ADR 12 D9, POD-6602): every row a mail
+ * command stores or moves is written with it, in the command's unit, so its
+ * change rows carry the command's mutationId. A handler reached without one (a
+ * direct dispatch from outside every write) has nothing to write with.
+ */
+export function mailWriter(
+  ctx: Pick<MailHandlerContext, 'writer'>,
+  what: string,
+): Pick<LedgerWriter, 'commit' | 'capture'> {
+  if (ctx.writer === undefined)
+    throw new Error(`${what}: a mail write runs with its command's writer`)
+  return ctx.writer
+}

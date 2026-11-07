@@ -264,12 +264,6 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
     label: 'IssueAttachPorts.transact',
   },
   {
-    file: 'apps/server/src/modules/messages/service.ts',
-    symbol: 'transact',
-    body: 'arg0',
-    label: 'MessagesDeps.transact',
-  },
-  {
     // The sync adapter's port over the store's transaction [POD-3338 for the
     // port, POD-3416 for what it carries]. It IS an opener: the server fills it
     // with the nesting-safe runtime helper over the executor's connection, so a
@@ -1161,6 +1155,11 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'opaque',
     why: "a prepared stored-session install's write (`prepareStoredSessionInstall`): the one stale-offer clear it holds, which the boot runs inside its own commit (POD-6601). Its body is written down in that method and analysed there.",
   },
+  'apps/server/src/modules/sessions/session-teardown.ts#SessionTeardownPorts.failMessagesToRemovedSessions':
+    {
+      kind: 'contained',
+      why: "fails every message still waiting for an unresumable parked session, with each sender's notice, inside the park's own commit (POD-5284, POD-6602): database rows only; the notices' delivery waits for that commit.",
+    },
   'apps/server/src/modules/sessions/session-kill.ts#SessionKillPorts.failMessagesToRemovedSessions':
     {
       kind: 'contained',

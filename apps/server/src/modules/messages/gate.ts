@@ -132,17 +132,21 @@ export interface MessageGateDeps {
   } | null>
   /** An agent profile by name or id (POD-6107), for `agent spawn --profile`. */
   findAgentProfile?(ref: string): Promise<{ id: string; name: string } | null>
-  /** The DELIBERATE `--new` issue-create path (never automatic). */
-  createIssue?(input: {
-    ownerUserId: UserId
-    createdByActor: string
-    createdByOnBehalfOf: UserId
-    repoPath: string
-    title: string
-    description?: string
-    parentId?: IssueId
-    origin: 'human' | 'agent'
-  }): Promise<{ id: string }>
+  /** The DELIBERATE `--new` issue-create path (never automatic), written with
+   *  the spawn command's own writer (POD-6602). */
+  createIssue?(
+    writer: NonNullable<MailHandlerContext['writer']>,
+    input: {
+      ownerUserId: UserId
+      createdByActor: string
+      createdByOnBehalfOf: UserId
+      repoPath: string
+      title: string
+      description?: string
+      parentId?: IssueId
+      origin: 'human' | 'agent'
+    },
+  ): Promise<{ id: string }>
   /** The applied-mutation ledger, keyed here by a spawn's `requestId`
    *  (POD-4763): a rerun of `agent spawn` after a lost answer is answered with
    *  the child the first run started. Absent = no dedupe (bare fixtures). */
@@ -166,6 +170,13 @@ export interface MessageGateDeps {
    * adapter. Absent (bare fixtures) = every proc dispatches directly.
    */
   syncWrite?(): Pick<SyncWriteEntry, 'submitDetailed'> | undefined
+  /**
+   * THE WRITER OF A DIRECT DISPATCH WHOSE CALLER BRINGS NONE (POD-6602). The
+   * served gate has none: every mail write is a sync command (POD-6525), or
+   * runs inside another command's write and is handed that command's writer.
+   * Set only by a gate a test builds by hand, with no entry point.
+   */
+  directWriter?: MailHandlerContext['writer']
   /**
    * AN AGENT'S SPAWN AS A `session.launch` RECORD (POD-6525). The spawn's write
    * creates the record in its own unit of work; the adapter waits for it.
@@ -339,6 +350,12 @@ export class MessageGate {
     proc: string,
     input: unknown,
     transport: TransportTag = 'relay',
+    /**
+     * The writer of the write this dispatch runs inside (POD-6602): a chat
+     * send's `send` is part of the session command's write, so the row it
+     * stores is written with that command's writer.
+     */
+    writer?: MailHandlerContext['writer'],
   ): Promise<unknown | undefined> {
     if (!isMailProcExposedOn(proc, transport)) return undefined
     // A WRITE goes through the sync write entry point (POD-6525): the gate is
@@ -386,7 +403,8 @@ export class MessageGate {
       return answer
     }
     return await withReadScope(
-      async () => await this.dispatchInScope(capability, overrideScope, proc, input),
+      async () =>
+        await this.dispatchInScope(capability, overrideScope, proc, input, undefined, writer),
     )
   }
 
@@ -459,7 +477,9 @@ export class MessageGate {
     proc: string,
     input: unknown,
     observed?: (child: SessionId) => void,
+    given?: MailHandlerContext['writer'],
   ): Promise<unknown> {
+    const writer = given ?? this.deps.directWriter
     const principal = await this.principalOf(capability)
     const policy = await this.policyFor?.(principal)
     const access = policy ? new MailAccess(this.deps, policy.ceiling, policy.machines) : this.access
@@ -473,6 +493,7 @@ export class MessageGate {
       deps: this.deps,
       access,
       ...(observed ? { observed } : {}),
+      ...(writer !== undefined ? { writer } : {}),
     }
     // Invoked SYNCHRONOUSLY, with a sync throw converted to a rejection.
     //

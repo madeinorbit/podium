@@ -35,6 +35,7 @@ import { SESSION_LAUNCH_KIND } from '../sessions/session-launch-effect'
 import { FAMILY_COMMAND_NAMES } from '../sync-write/family-commands'
 import {
   appliedReply,
+  changeRows,
   envelope,
   expectAppliedOnPath,
   rowsOf,
@@ -56,9 +57,15 @@ interface Fixture {
 async function makeFixture(): Promise<Fixture> {
   const o = await makeBareOracle()
   await o.store.repos.addRepo('/r', o.store.hostMachineId)
-  const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'Mail', startNow: false })
+  const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
+    repoPath: '/r',
+    title: 'Mail',
+    startNow: false,
+  })
   const worktree = '/r/.worktrees/issue-1-mail'
-  await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, issue.id, { worktreePath: worktree })
+  await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, issue.id, {
+    worktreePath: worktree,
+  })
   const { sessionId } = await o.reg.modules.sessions.createSession({
     agentKind: 'shell',
     cwd: worktree,
@@ -130,6 +137,57 @@ describe('the mail writes are on the sync write entry point', () => {
     expect(result).toMatchObject({ id, ok: true })
     expect(rows.some((row) => row.entity === 'message')).toBe(true)
     expect(await messagesWithBody(f, body)).toHaveLength(1)
+  })
+
+  it("a mail command's message rows carry its mutationId; the hand-on after the commit is the server's own (POD-6602)", async () => {
+    const f = await makeFixture()
+    const id = newMessageId()
+    // The operator's chat message into the agent's session: on the feed.
+    appliedReply(
+      await submit(f.o, envelope('mail.send', { to: f.agent, body: 'mine', messageId: id }, id)),
+    )
+    await f.o.reg.modules.messages.handOnOf(id)
+    const rowsFor = async () =>
+      (await changeRows(f.o)).filter(
+        // The feed's row id names the session, the sender and the message.
+        (row) => row.entity === 'message' && row.entityId.includes(id),
+      )
+    const sent = await rowsFor()
+    // The store's row is the command's write; the hand-on that moved it on
+    // after the commit wrote under the delivery service's own account.
+    expect(sent[0]?.mutationId).toBe(id)
+    expect(sent.length).toBeGreaterThan(1)
+    expect(sent.slice(1).every((row) => row.mutationId === undefined)).toBe(true)
+
+    // A dead letter answered in the write is the send's own write, and the
+    // dismissal of its notice is the dismissing command's.
+    const { sessionId: retired } = await f.o.reg.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/r',
+    })
+    await f.o.reg.modules.sessions.setArchived(f.o.reg.modules.sessions.serverWriter, {
+      sessionId: retired,
+      archived: true,
+    })
+    const lost = newMessageId()
+    appliedReply(
+      await submit(
+        f.o,
+        envelope('mail.send', { to: retired, body: 'too late', messageId: lost }, lost),
+      ),
+    )
+    expect((await f.o.store.messages.getMessage(lost))?.deliveryStatus).toBe('failed')
+    const ofLost = (await rowsOf(f.o, asMutationId(lost))).filter(
+      (row) => row.entity === 'message' && row.entityId.includes(lost),
+    )
+    expect(ofLost.length).toBeGreaterThan(0)
+    expect(ofLost.at(-1)?.payload).toContain('failed')
+    const dismissal = randomUUID()
+    appliedReply(await submit(f.o, envelope('mail.dismissNotice', { id: lost }, dismissal)))
+    const dismissed = (await rowsOf(f.o, asMutationId(dismissal))).filter(
+      (row) => row.entity === 'message' && row.entityId.includes(lost),
+    )
+    expect(dismissed.length).toBeGreaterThan(0)
   })
 
   it('the tRPC route is an adapter: the messageId is the mutation id, and a repeat is a replay', async () => {

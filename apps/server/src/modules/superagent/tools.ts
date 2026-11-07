@@ -279,6 +279,7 @@ export async function buildSuperagentTools(
           // session's and a retried start stores it once.
           await superagentSender(
             modules.messages,
+            writer,
             ownerUserId,
           )({
             sessionId,
@@ -304,6 +305,7 @@ export async function buildSuperagentTools(
         // principal (never the operator) — the message is ledgered and lands
         // enveloped, so the receiver sees who is speaking.
         const r = await modules.messages.send(
+          writer,
           { kind: 'superagent' },
           {
             to: { kind: 'session', id: sessionIdArg(args.sessionId) },
@@ -384,6 +386,7 @@ export async function buildSuperagentTools(
         // status and an id.
         const r = await superagentSender(
           modules.messages,
+          writer,
           ownerUserId,
         )({
           sessionId: sessionIdArg(args.sessionId),
@@ -697,6 +700,7 @@ export async function buildSuperagentTools(
         // Same substrate as podium session ask: a question message through the
         // one send path (clamps/cooldown apply), then a bounded ack wait.
         const r = await modules.messages.send(
+          writer,
           { kind: 'superagent' },
           {
             to: { kind: 'session', id: sessionId },

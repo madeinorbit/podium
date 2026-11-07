@@ -75,6 +75,7 @@ import { harnessSupportsEffort, harnessSupportsInitialPrompt } from '../../harne
 import { type ResolvedLaunchSelection, resolveLaunchSelection } from '../../model-validation'
 import type { SessionStore } from '../../store'
 import type { MachineUseResolver } from '../machines/service'
+import type { MessageWriter } from '../messages/writer'
 import { authorSpawnBinding } from './binding-mint'
 import { createdByForBinding } from './command-plane'
 import { selectHarnessAccountId } from './harness-account'
@@ -204,21 +205,27 @@ export interface SessionStartPorts {
   /** Store the task prompt a session spawned another with as the spawner's
    *  message to it, already handed to it (POD-4778). Answers its id. Absent =
    *  no message ledger: the prompt is queued as plain input. */
-  recordSpawnPrompt?(input: {
-    parentSessionId: SessionId
-    sessionId: SessionId
-    text: string
-    attachments?: readonly RuntimeAttachmentRef[]
-  }): Promise<string>
+  recordSpawnPrompt?(
+    writer: MessageWriter,
+    input: {
+      parentSessionId: SessionId
+      sessionId: SessionId
+      text: string
+      attachments?: readonly RuntimeAttachmentRef[]
+    },
+  ): Promise<string>
   /** Store the task a person (or a job) started a session with as the owner's
    *  message, attributed to its creator, already handed to it (POD-4846).
    *  Answers its id. Absent = no message ledger. */
-  recordOwnerPrompt?(input: {
-    sessionId: SessionId
-    text: string
-    attribution: Attribution
-    attachments?: readonly RuntimeAttachmentRef[]
-  }): Promise<string>
+  recordOwnerPrompt?(
+    writer: MessageWriter,
+    input: {
+      sessionId: SessionId
+      text: string
+      attribution: Attribution
+      attachments?: readonly RuntimeAttachmentRef[]
+    },
+  ): Promise<string>
   emitSessionCreated(payload: {
     sessionId: SessionId
     agentKind: AgentKind
@@ -500,13 +507,13 @@ export class SessionStart {
     let promptMessageId: string | undefined
     if (taskPrompt !== undefined && !useArgv) {
       promptMessageId = parentSessionId
-        ? await this.ports.recordSpawnPrompt?.({
+        ? await this.ports.recordSpawnPrompt?.(this.ports.writer, {
             parentSessionId,
             sessionId: spawned.sessionId,
             text: taskPrompt,
             ...(initialAttachments ? { attachments: initialAttachments } : {}),
           })
-        : await this.ports.recordOwnerPrompt?.({
+        : await this.ports.recordOwnerPrompt?.(this.ports.writer, {
             sessionId: spawned.sessionId,
             text: taskPrompt,
             attribution: createdBy,

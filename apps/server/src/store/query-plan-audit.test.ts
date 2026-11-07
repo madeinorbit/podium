@@ -25,46 +25,46 @@
  * registered, so a query cannot be missed by not being reached.
  */
 
-import { fixtureWriteScope } from '@podium/sync/testing'
-import {
-  type PreparedDefinition,
-  preparedDefinitions,
-  PREPARED_DEFINITION_LIMIT,
-} from '@podium/sync/adapters/sqlite/prepared'
-import { eq } from 'drizzle-orm'
-import { messages } from '../migrations/schema'
-import { param, prepared, shapeOf, type StoreDrizzle } from './executor/sync-drizzle'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { asIssueId, asMachineId, asRepoId, firstAdminMemberId } from '@podium/model'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
+import {
+  PREPARED_DEFINITION_LIMIT,
+  type PreparedDefinition,
+  preparedDefinitions,
+} from '@podium/sync/adapters/sqlite/prepared'
+import { fixtureWriteScope } from '@podium/sync/testing'
+import { eq } from 'drizzle-orm'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
-import type { SessionStore } from '../store'
-import { LEGACY_WORKTREE_MIGRATION } from './issues'
-import { type IssueListingShape, listingKey } from './issue-listings'
-import { openTestStore } from '../test-support/open-test-store'
+import { messages } from '../migrations/schema'
 import { PLANNER_STATISTICS_ROW_FLOOR } from '../migrations/store-lifecycle'
+import type { SessionStore } from '../store'
+import { issueRowFixture } from '../test-support/issue-row'
+import { openTestStore } from '../test-support/open-test-store'
 import {
   censusScope,
-  queryDefinitionSites,
   type QueryDefinitionSite,
+  queryDefinitionSites,
+  type RawSqlSite,
   rawSqlScope,
   rawSqlSites,
-  type RawSqlSite,
 } from '../test-support/prepared-census'
-import { issueRowFixture } from '../test-support/issue-row'
 import {
   type BuiltStatement,
   definitionFrame,
   explain,
   matchSites,
-  planFindings,
   type PlanFinding,
+  planFindings,
   recordingDrizzle,
   statementsOf,
   tablesOf,
 } from '../test-support/query-plan-audit'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
-import { asIssueId, asMachineId, asRepoId, firstAdminMemberId } from '@podium/model'
+import { param, prepared, type StoreDrizzle, shapeOf } from './executor/sync-drizzle'
+import { type IssueListingShape, listingKey } from './issue-listings'
+import { LEGACY_WORKTREE_MIGRATION } from './issues'
 
 const REPO_ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../../..')
 
@@ -96,8 +96,16 @@ const LISTING_BASES: readonly Omit<IssueListingShape, 'repo' | 'readable'>[] = [
   { live: true, state: 'closed', hasWorktree: true, order: 'repo-seq' },
   { live: true, state: 'closed', ids: 1, order: 'repo-seq' },
   {
-    live: true, state: 'open', stage: true, priority: true, type: true, assignee: true, parent: true,
-    label: true, text: true, order: 'priority-seq',
+    live: true,
+    state: 'open',
+    stage: true,
+    priority: true,
+    type: true,
+    assignee: true,
+    parent: true,
+    label: true,
+    text: true,
+    order: 'priority-seq',
   },
   { live: true, deferred: true, order: 'priority-seq' },
   { live: true, unarchived: true, state: 'open', topLevel: true, order: 'seq' },
@@ -226,10 +234,7 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
     'apps/server/src/store/messages.ts:pendingSendersOf',
     ['no-id', 'id', 'session', 'session-blank'],
   ],
-  [
-    'apps/server/src/store/messages.ts:pendingCountOf',
-    ['no-id', 'id', 'session', 'session-blank'],
-  ],
+  ['apps/server/src/store/messages.ts:pendingCountOf', ['no-id', 'id', 'session', 'session-blank']],
   ['apps/server/src/store/messages.ts:existingIdsAmong', SIZES],
   ['apps/server/src/store/messages.ts:receiptsAmong', SIZES],
   ['apps/server/src/store/messages.ts:sentAmong', SIZES],
@@ -253,18 +258,18 @@ const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map
   ['apps/server/src/store/workflows.ts:insertRunSteps', SIZES],
   [
     'apps/server/src/store/conversations/index.ts:recentConversations',
-    ['dated|any', 'dated|posix', 'dated|windows', 'undated|any', 'undated|posix', 'undated|windows'],
+    [
+      'dated|any',
+      'dated|posix',
+      'dated|windows',
+      'undated|any',
+      'undated|posix',
+      'undated|windows',
+    ],
   ],
   [
     'apps/server/src/store/conversations/index.ts:searchConversations',
-    [
-      'fts|any',
-      'fts|posix',
-      'fts|windows',
-      'like|any',
-      'like|posix',
-      'like|windows',
-    ],
+    ['fts|any', 'fts|posix', 'fts|windows', 'like|any', 'like|posix', 'like|windows'],
   ],
   ['apps/server/src/store/conversations/mirror.ts:segmentsToMirror', ['all', 'dirty']],
 ])
@@ -478,7 +483,10 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
     'Reads only active orders, through the partial index idx_ship_orders_one_active_issue, and sorts them.',
   ],
   ['apps/server/src/store/shipping.ts:latestAttemptOfOrder', "Sorts one order's attempts: a few."],
-  ['apps/server/src/store/shipping.ts:attemptsOfOrder', "Sorts one order's attempts: a few (POD-6172)."],
+  [
+    'apps/server/src/store/shipping.ts:attemptsOfOrder',
+    "Sorts one order's attempts: a few (POD-6172).",
+  ],
   [
     'apps/server/src/store/shipping.ts:activeOrdersFifo',
     'Walks the partial index idx_ship_orders_one_active_issue (named with INDEXED BY) and sorts what it holds: the active orders only, never the shipped or cancelled history (POD-6172). The plan is asserted below.',
@@ -652,7 +660,7 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   ],
   [
     'apps/server/src/store/shipping.ts:allOrders',
-    "Whole-table read (POD-6172): every ship order, for the order-plane full truth at boot only (relay, ShippingService.reconcile, recoverDescendantInvalidations). The scheduler, its covered-prefix recovery (POD-6207) and train claims read active orders, open trains, lanes and ids; the unused queue listing that also read it is deleted (POD-6209).",
+    'Whole-table read (POD-6172): every ship order, for the order-plane full truth at boot only (relay, ShippingService.reconcile, recoverDescendantInvalidations). The scheduler, its covered-prefix recovery (POD-6207) and train claims read active orders, open trains, lanes and ids; the unused queue listing that also read it is deleted (POD-6209).',
   ],
   [
     'apps/server/src/store/shipping.ts:allStackEdgesOrdered',
@@ -812,16 +820,21 @@ interface AuditedStatement {
   readonly findings: readonly PlanFinding[]
 }
 
-
 /** Every raw SQL statement in the server's and the sync package's production source [POD-6227]. */
 function rawSqlCensus(): RawSqlSite[] {
   const paths: string[] = []
   for (const dir of ['apps/server/src', 'packages/sync/src']) {
     for (const entry of readdirSync(join(REPO_ROOT, dir), { recursive: true })) {
-      paths.push(relative(REPO_ROOT, join(REPO_ROOT, dir, String(entry))).split('\\').join('/'))
+      paths.push(
+        relative(REPO_ROOT, join(REPO_ROOT, dir, String(entry)))
+          .split('\\')
+          .join('/'),
+      )
     }
   }
-  return rawSqlScope(paths).flatMap((file) => rawSqlSites(file, readFileSync(join(REPO_ROOT, file), 'utf8')))
+  return rawSqlScope(paths).flatMap((file) =>
+    rawSqlSites(file, readFileSync(join(REPO_ROOT, file), 'utf8')),
+  )
 }
 
 const rawKey = (site: RawSqlSite): string => `${site.file}:${site.sql}`
@@ -842,7 +855,10 @@ function auditRawSql(sites: readonly RawSqlSite[]): AuditedStatement[] {
   return sites
     .filter((site) => RAW_SQL_PLANNED.has(rawKey(site)))
     .map((site) => {
-      const statement: BuiltStatement = { sql: site.sql, params: (site.sql.match(/\?/g) ?? []).length }
+      const statement: BuiltStatement = {
+        sql: site.sql,
+        params: (site.sql.match(/\?/g) ?? []).length,
+      }
       const plan = explain(database, statement)
       return {
         key: rawKey(site),
@@ -965,7 +981,7 @@ async function reachMethodDefinitions(target: SessionStore): Promise<void> {
   await attempt(() => target.repos.removeRepo('/audit/one', machineId))
 
   await attempt(() =>
-    target.messages.addMessage({
+    target.messages.addMessage(fixtureWriteScope(), {
       id: 'msg_audit',
       threadId: 'msg_audit',
       fromKind: 'operator',
@@ -975,9 +991,9 @@ async function reachMethodDefinitions(target: SessionStore): Promise<void> {
       body: 'audit',
       createdAt: issue.createdAt,
       deliveryStatus: 'stored',
-    } as unknown as Parameters<typeof target.messages.addMessage>[0]),
+    } as unknown as Parameters<typeof target.messages.addMessage>[1]),
   )
-  await attempt(() => target.messages.markCancelled('msg_audit'))
+  await attempt(() => target.messages.markCancelled(fixtureWriteScope(), 'msg_audit'))
 
   // Two `ReposRepository` methods each define the same statement into one slot
   // (`insertPrefixIfAbsent`, `deleteRow`), so whichever runs first makes it and
@@ -1034,7 +1050,10 @@ function writeStatistics(
     const columns = db.prepare(`PRAGMA index_info(${JSON.stringify(name)})`).all() as {
       name: string
     }[]
-    const stat = statOf(tableName, columns.map((column) => column.name))
+    const stat = statOf(
+      tableName,
+      columns.map((column) => column.name),
+    )
     if (stat !== undefined) insert.run(tableName, name, stat)
   }
   db.exec('ANALYZE sqlite_schema')
@@ -1285,7 +1304,9 @@ describe('POD-6148 — every repository query is served by an index', () => {
   it('reads the open chat through its partial index (POD-6173)', () => {
     const { keyed } = keyedDefinitions(trackedSources())
     const { audited } = auditDefinitions(keyed)
-    const openChat = audited.filter((entry) => entry.key === 'apps/server/src/store/messages.ts:openChat')
+    const openChat = audited.filter(
+      (entry) => entry.key === 'apps/server/src/store/messages.ts:openChat',
+    )
     expect(openChat.map((entry) => entry.plan)).toEqual([
       ['SCAN messages USING INDEX idx_messages_open_chat'],
     ])
@@ -1294,7 +1315,9 @@ describe('POD-6148 — every repository query is served by an index', () => {
   it('reads the boot ref backfill candidates by index ranges on the ref-less partial indexes (POD-6222)', () => {
     const { keyed } = keyedDefinitions(trackedSources())
     const { audited } = auditDefinitions(keyed)
-    const candidates = audited.filter((entry) => entry.key === 'apps/server/src/store/sessions.ts:refBackfillCandidates')
+    const candidates = audited.filter(
+      (entry) => entry.key === 'apps/server/src/store/sessions.ts:refBackfillCandidates',
+    )
     expect(candidates.map((entry) => entry.plan)).toEqual([
       [
         'SEARCH sessions USING INTEGER PRIMARY KEY (rowid=?)',
@@ -1317,9 +1340,14 @@ describe('POD-6148 — every repository query is served by an index', () => {
   it('reads the active ship orders through their partial index (POD-6172)', () => {
     const { keyed } = keyedDefinitions(trackedSources())
     const { audited } = auditDefinitions(keyed)
-    const active = audited.filter((entry) => entry.key === 'apps/server/src/store/shipping.ts:activeOrdersFifo')
+    const active = audited.filter(
+      (entry) => entry.key === 'apps/server/src/store/shipping.ts:activeOrdersFifo',
+    )
     expect(active.map((entry) => entry.plan)).toEqual([
-      ['SCAN ship_orders USING INDEX idx_ship_orders_one_active_issue', 'USE TEMP B-TREE FOR ORDER BY'],
+      [
+        'SCAN ship_orders USING INDEX idx_ship_orders_one_active_issue',
+        'USE TEMP B-TREE FOR ORDER BY',
+      ],
     ])
   })
 
@@ -1380,7 +1408,9 @@ describe('POD-6148 — every repository query is served by an index', () => {
     expect(recent).toHaveLength(6)
     for (const [, plan] of recent) {
       expect(plan).toEqual([
-        expect.stringMatching(/^SEARCH (conversations AS )?c USING INDEX idx_conversations_top_level_updated \(/),
+        expect.stringMatching(
+          /^SEARCH (conversations AS )?c USING INDEX idx_conversations_top_level_updated \(/,
+        ),
       ])
     }
   })
@@ -1418,8 +1448,11 @@ describe('POD-6148 — every repository query is served by an index', () => {
     )
     // A census that read nothing would pass.
     expect(sites.length).toBeGreaterThan(10)
-    const unlisted = sites.filter((site) => !RAW_SQL_PLANNED.has(rawKey(site)) && rawExemption(site) === undefined)
-    for (const site of unlisted) console.log(`UNLISTED RAW SQL ${site.file}:${site.line} ${site.sql}`)
+    const unlisted = sites.filter(
+      (site) => !RAW_SQL_PLANNED.has(rawKey(site)) && rawExemption(site) === undefined,
+    )
+    for (const site of unlisted)
+      console.log(`UNLISTED RAW SQL ${site.file}:${site.line} ${site.sql}`)
     expect(unlisted.map(rawKey)).toEqual([])
     // A planned statement is planned from its text.
     expect(planned.filter((site) => !site.literal).map(rawKey)).toEqual([])
@@ -1438,7 +1471,11 @@ describe('POD-6148 — every repository query is served by an index', () => {
       expect(reason.trim().length).toBeGreaterThan(20)
     }
     // Every planned statement was planned.
-    expect(auditRawSql(sites).map((entry) => entry.key).sort()).toEqual([...RAW_SQL_PLANNED.keys()].sort())
+    expect(
+      auditRawSql(sites)
+        .map((entry) => entry.key)
+        .sort(),
+    ).toEqual([...RAW_SQL_PLANNED.keys()].sort())
   })
 
   it('reads the issue-event subjects of a worker snapshot by the change_latest key (POD-6227)', () => {
@@ -1456,11 +1493,13 @@ describe('POD-6148 — every repository query is served by an index', () => {
     expect(site).toMatchObject({ sql: 'SELECT * FROM messages WHERE body = ?', literal: true })
     expect(RAW_SQL_PLANNED.has(rawKey(site!)) || rawExemption(site!) !== undefined).toBe(false)
     const plan = explain(database, { sql: site!.sql, params: 1 })
-    expect(planFindings(plan, site!.sql, tablesOf(database)).map((finding) => finding.kind)).toEqual(['scan'])
+    expect(
+      planFindings(plan, site!.sql, tablesOf(database)).map((finding) => finding.kind),
+    ).toEqual(['scan'])
     // A dynamic statement is censused by its expression, and a query call without SQL is not one.
-    expect(rawSqlSites('apps/server/src/planted.ts', 'db.prepare(text); router.query(handler)')).toMatchObject([
-      { sql: 'text', literal: false },
-    ])
+    expect(
+      rawSqlSites('apps/server/src/planted.ts', 'db.prepare(text); router.query(handler)'),
+    ).toMatchObject([{ sql: 'text', literal: false }])
   })
 
   it('is armed: a planted unindexed lookup fails it, and an indexed one passes', () => {
@@ -1493,7 +1532,6 @@ describe('POD-6148 — every repository query is served by an index', () => {
   })
 })
 
-
 /**
  * STATISTICS OF A TABLE ANALYSED WHILE TINY [POD-6223]. The audit above plans
  * every query on a large database's picture. A real database is analysed at
@@ -1512,7 +1550,11 @@ describe('POD-6223 — statistics of tables analysed while tiny', () => {
         String(rows),
         // A low-selectivity column holds a quarter of the rows per value, any
         // other leading column ten (SQLite's own guess), the rest one.
-        String(LOW_SELECTIVITY.has(`${table}.${columns[0]}`) ? Math.max(1, rows / 4) : Math.min(rows, 10)),
+        String(
+          LOW_SELECTIVITY.has(`${table}.${columns[0]}`)
+            ? Math.max(1, rows / 4)
+            : Math.min(rows, 10),
+        ),
         ...columns.slice(1).map(() => '1'),
       ].join(' ')
 
@@ -1585,10 +1627,15 @@ describe('POD-6223 — statistics of tables analysed while tiny', () => {
       const { keyed } = keyedDefinitions(trackedSources())
       const plans = new Map(
         auditDefinitions(keyed)
-          .audited.filter((entry) => /events\.ts:(recentRuntimeEventPayloads|runtimeTranscriptPayloads)$/.test(entry.key))
+          .audited.filter((entry) =>
+            /events\.ts:(recentRuntimeEventPayloads|runtimeTranscriptPayloads)$/.test(entry.key),
+          )
           .map((entry) => [entry.key.split(':')[1], entry.plan.join(' | ')]),
       )
-      expect([...plans.keys()].sort()).toEqual(['recentRuntimeEventPayloads', 'runtimeTranscriptPayloads'])
+      expect([...plans.keys()].sort()).toEqual([
+        'recentRuntimeEventPayloads',
+        'runtimeTranscriptPayloads',
+      ])
       return plans
     }
     const pictures: [string, () => void][] = [
@@ -1599,7 +1646,9 @@ describe('POD-6223 — statistics of tables analysed while tiny', () => {
     for (const [picture, apply] of pictures) {
       apply()
       const plans = runtimePlans()
-      expect(`${picture}: ${plans.get('recentRuntimeEventPayloads')}`).not.toMatch(/TEMP B-TREE|SCAN/)
+      expect(`${picture}: ${plans.get('recentRuntimeEventPayloads')}`).not.toMatch(
+        /TEMP B-TREE|SCAN/,
+      )
       const [inner, outer] = plans.get('runtimeTranscriptPayloads')!.split('SCAN recent')
       expect(`${picture}: ${inner}`).not.toMatch(/TEMP B-TREE|SCAN/)
       expect(`${picture}: ${outer}`).toMatch(/TEMP B-TREE FOR ORDER BY/)

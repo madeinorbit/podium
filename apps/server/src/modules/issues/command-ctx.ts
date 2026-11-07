@@ -167,6 +167,7 @@ export interface IssueCommandDeps {
    *  sent. Optional so bare test dispatchers that never send keep working;
    *  mailSend refuses when it is absent. */
   sendMessage?(
+    writer: IssueWriter,
     from: MessageSender,
     input: MessageSendInput,
   ): MessageSendResult | Promise<MessageSendResult>
@@ -178,6 +179,7 @@ export interface IssueCommandDeps {
    *  text fallback for sessions without a live menu. Injected by the relay;
    *  optional so existing test deps literals stay valid. */
   answerSessionQuestion?(
+    writer: IssueWriter,
     sessionId: SessionId,
     answer: string,
     caller: IssueCaller,
@@ -278,6 +280,8 @@ const HIERARCHY_WRITES = [
 const MAIL_WRITES = [
   'addComment',
   'addCallerComment',
+  'mailInbox',
+  'mailClaim',
 ] as const satisfies readonly (keyof IssueCommentsMailCapability)[]
 const ATTENTION_WRITES = [
   'attachSession',

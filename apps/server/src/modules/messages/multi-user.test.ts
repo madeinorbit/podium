@@ -24,6 +24,7 @@ import {
   readScopeSlot,
 } from '../../store/executor/read-scope'
 import { OPERATOR } from '../../test-support/capabilities'
+import { messageTestWriter } from '../../test-support/message-writer'
 import { mailHarness } from './characterization-support'
 import { applyAuthFromCeiling } from './handlers/context'
 import { INLINE_BODY_MAX } from './render'
@@ -146,6 +147,7 @@ describe('the human ceiling bounds addressing — not the agent’s own scope', 
     // would pass whether or not the ceiling was ever consulted (the read path
     // has no delivery step, so nothing else would catch it).
     await h.svc.send(
+      messageTestWriter(),
       { kind: 'agent', issueId: mine.id, sessionId: asSessionId('sMine') },
       { to: { kind: 'issue', id: theirs.id }, body: 'mine to see' },
     )
@@ -190,6 +192,7 @@ describe('a queued send is re-authorized at the drain, not at accept', () => {
     // No live session on the target, so the row is ACCEPTED and stays queued —
     // which is the state the whole re-authorization rule is about.
     const r = await h.svc.send(
+      messageTestWriter(),
       { kind: 'agent', issueId: sender.id, sessionId: asSessionId('sSender') },
       { to: { kind: 'issue', id: target.id }, body: 'work please' },
     )
@@ -231,6 +234,7 @@ describe('a queued send is re-authorized at the drain, not at accept', () => {
 
     // THE INSTRUMENT SAYS YES FIRST: allowed, the mirror row IS written.
     const ok = await h.svc.send(
+      messageTestWriter(),
       { kind: 'agent', issueId: sender.id, sessionId: asSessionId('sSender') },
       { to: { kind: 'issue', id: target.id }, body: 'legitimate' },
     )
@@ -238,6 +242,7 @@ describe('a queued send is re-authorized at the drain, not at accept', () => {
 
     allowed = false
     const denied = await h.svc.send(
+      messageTestWriter(),
       { kind: 'agent', issueId: sender.id, sessionId: asSessionId('sSender') },
       { to: { kind: 'issue', id: target.id }, body: 'injected' },
     )
@@ -253,6 +258,7 @@ describe('a queued send is re-authorized at the drain, not at accept', () => {
     const sender = await h.createIssue({ title: 'sender' })
     h.put({ sessionId: asSessionId('sSender'), issueId: sender.id, phase: 'idle' })
     const r = await h.svc.send(
+      messageTestWriter(),
       { kind: 'agent', issueId: sender.id, sessionId: asSessionId('sSender') },
       { to: { kind: 'issue', id: target.id }, body: 'work please' },
     )
@@ -299,6 +305,7 @@ describe('an ASYNC ceiling still refuses at apply — the promise is awaited, no
     h.put({ sessionId: asSessionId('sSender'), issueId: sender.id, phase: 'idle' })
     const send = async (body: string) =>
       await h.svc.send(
+        messageTestWriter(),
         { kind: 'agent', issueId: sender.id, sessionId: asSessionId('sSender') },
         { to: { kind: 'issue', id: target.id }, body },
       )
@@ -364,7 +371,9 @@ describe('spawnAgent places work on OWNED COMPUTE and fails closed', () => {
     h: Awaited<ReturnType<typeof mailHarness>>,
   ): Promise<{ id: string; seq: number }> => {
     const issue = await h.createIssue({ title: 'work' })
-    await h.issues.crud.update(h.issues.reports.store.serverWriter, issue.id, { machineId: asMachineId('mac_alices_laptop') })
+    await h.issues.crud.update(h.issues.reports.store.serverWriter, issue.id, {
+      machineId: asMachineId('mac_alices_laptop'),
+    })
     return issue
   }
 
@@ -578,7 +587,9 @@ describe('a wake refuses to start a process without `use` on the target machine 
   it('issue-addressed bare spawn-on-wake is gated on the ISSUE machine', async () => {
     const h = await mailHarness({ machines: machines({ use: false, reachable: true }) })
     const issue = await h.createIssue({ title: 'empty' })
-    await h.issues.crud.update(h.issues.reports.store.serverWriter, issue.id, { machineId: asMachineId('mac_alices_laptop') })
+    await h.issues.crud.update(h.issues.reports.store.serverWriter, issue.id, {
+      machineId: asMachineId('mac_alices_laptop'),
+    })
     // No sessions on the issue → wake tries trySpawn on the issue machine.
     const r = (await h.gate.dispatch(h.agentCap(issue.id, asSessionId('sMe')), true, 'send', {
       to: issue.id,
@@ -645,7 +656,9 @@ describe('a wake refuses to start a process without `use` on the target machine 
     const usable = new Set(['mac_alices_laptop'])
     const h = await mailHarness({ machines: machinesFor(usable) })
     const issue = await h.createIssue({ title: 'cross-machine' })
-    await h.issues.crud.update(h.issues.reports.store.serverWriter, issue.id, { machineId: asMachineId('mac_bobs_workstation') })
+    await h.issues.crud.update(h.issues.reports.store.serverWriter, issue.id, {
+      machineId: asMachineId('mac_bobs_workstation'),
+    })
     h.put({
       sessionId: asSessionId('sUnresumable'),
       issueId: issue.id,
@@ -694,6 +707,7 @@ describe('a wake refuses to start a process without `use` on the target machine 
     h.transport.failSessions = ['sUnresumable']
 
     const applied = await h.svc.send(
+      messageTestWriter(),
       { kind: 'operator' },
       {
         to: { kind: 'session', id: 'sUnresumable' },
@@ -707,6 +721,7 @@ describe('a wake refuses to start a process without `use` on the target machine 
     const next = await h.createIssue({ title: 'next apply' })
     await h.issues.crud.update(h.issues.reports.store.serverWriter, next.id, { machineId: bob })
     const denied = await h.svc.send(
+      messageTestWriter(),
       { kind: 'operator' },
       {
         to: { kind: 'issue', id: next.id },
@@ -765,6 +780,7 @@ describe('sender identity is stamped from the capability and cannot be influence
     const mine = await h.createIssue({ title: 'mine' })
     h.put({ sessionId: asSessionId('sMine'), issueId: mine.id, phase: 'idle' })
     const original = await h.svc.send(
+      messageTestWriter(),
       { kind: 'operator' },
       { to: { kind: 'issue', id: mine.id }, body: 'ping' },
     )
@@ -814,7 +830,11 @@ describe('mail.show admits the owner of the session the mail was delivered to', 
     const iss = await h.createIssue({ title: 'bob’s task' })
     h.put({ sessionId: asSessionId('sBob'), issueId: iss.id, phase: 'idle' })
     const body = 'x'.repeat(INLINE_BODY_MAX + 1)
-    const sent = await h.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: iss.id }, body })
+    const sent = await h.svc.send(
+      messageTestWriter(),
+      { kind: 'operator' },
+      { to: { kind: 'issue', id: iss.id }, body },
+    )
     await h.svc.onQueuedInputApplied(sent.message.id, asSessionId('sBob'))
     expect((await h.svc.message(sent.message.id))?.deliveredTo).toBe('sBob')
 
@@ -850,6 +870,7 @@ describe('mail.show admits a reader of the sending or the receiving session', ()
     h.put({ sessionId: asSessionId('sFrom'), issueId: from.id, phase: 'idle' })
     h.put({ sessionId: asSessionId('sTo'), issueId: to.id, phase: 'idle' })
     const sent = await h.svc.send(
+      messageTestWriter(),
       { kind: 'agent', issueId: from.id, sessionId: asSessionId('sFrom') },
       { to: { kind: 'issue', id: to.id }, body: 'handoff' },
     )

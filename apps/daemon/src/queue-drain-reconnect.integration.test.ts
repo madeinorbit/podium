@@ -24,6 +24,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RawData } from 'ws'
 import { SessionRegistry } from '../../server/src/relay'
 import { assignHostMachine } from '../../server/src/test-support/host-daemon'
+import { messageTestWriter } from '../../server/src/test-support/message-writer'
 import { buildReport } from './build-report'
 import { createDaemonConnection, type DaemonConnection } from './connection-state'
 import type { DaemonContext } from './control/context'
@@ -188,6 +189,7 @@ describe('queue-drain abandonment across a daemon disconnect', () => {
       )
       await settled()
       const sent = await registry.modules.messages.send(
+        messageTestWriter(),
         {
           kind: 'superagent',
           attribution: {

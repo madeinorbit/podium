@@ -20,6 +20,7 @@ import {
   stewardPollRunKey,
   worktreeGcRunKey,
 } from '@podium/protocol'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MessageRow, SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -72,7 +73,15 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
           return write()
         },
       },
-      { now: () => nowMs, leaseTtlMs: 90_000 },
+      {
+        now: () => nowMs,
+        leaseTtlMs: 90_000,
+        // The delivery service's own expiry write, over this store (POD-6602).
+        messages: {
+          expireObserved: async (input) =>
+            await store.messages.expireObserved(fixtureWriteScope(), input),
+        },
+      },
     )
   })
 
@@ -110,7 +119,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
       hop: 2,
       clampedFrom: 'interrupt',
     })
-    await store.messages.addMessage(message)
+    await store.messages.addMessage(fixtureWriteScope(), message)
     const lease = await handshake('gen_a')
     expect(lease.status).toBe('ready')
     if (lease.status !== 'ready') throw new Error('expected lease')
@@ -149,7 +158,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     // Not due yet, so only the observation check can answer `precondition`: the
     // guarded move (which also refuses a handed-on row) is never reached.
     const message = baseMessage({ expiresAt: '2026-07-19T00:00:00.000Z' })
-    await store.messages.addMessage(message)
+    await store.messages.addMessage(fixtureWriteScope(), message)
     const lease = await handshake('gen_a')
     if (lease.status !== 'ready') throw new Error('expected lease')
     const observed = {
@@ -169,14 +178,19 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     }
     // Handed on between the read and the command: the observation no longer
     // describes the row, so the command is stale rather than an expiry.
-    await store.messages.markDispatched(message.id, asSessionId('sess_next'), message.createdAt)
+    await store.messages.markDispatched(
+      fixtureWriteScope(),
+      message.id,
+      asSessionId('sess_next'),
+      message.createdAt,
+    )
     expect(await service.apply(command)).toMatchObject({ status: 'stale', reason: 'precondition' })
     expect((await store.messages.getMessage(message.id))?.deliveryStatus).toBe('dispatched')
   })
 
   it('returns stale for a superseded fence, changed facts, and not-yet-due work', async () => {
     const explicit = baseMessage({ expiresAt: '2026-07-19T00:00:00.000Z' })
-    await store.messages.addMessage(explicit)
+    await store.messages.addMessage(fixtureWriteScope(), explicit)
     const lease = await handshake('gen_a')
     if (lease.status !== 'ready') throw new Error('expected lease')
     const observed = {
@@ -385,27 +399,27 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
       const command = await withSessions(tryAutoArchiveStoppedObserved)
       expect(await service.apply(command)).toMatchObject({ status: 'applied' })
       expect(tryAutoArchiveStoppedObserved).toHaveBeenCalledWith(observed, nowMs)
-      expect(await store.maintenance.getCommand('session-auto-archive', command.runKey)).toBeDefined()
+      expect(
+        await store.maintenance.getCommand('session-auto-archive', command.runKey),
+      ).toBeDefined()
     })
 
     // POD-6206: the seam is async. Compared un-awaited, a Promise never equals
     // 'not-due' or 'precondition', so every refusal was recorded as applied.
-    it.each(['not-due', 'precondition'] as const)(
-      'a %s refusal is stale and records nothing',
-      async (reason) => {
-        const command = await withSessions(async () => reason)
-        expect(await service.apply(command)).toMatchObject({ status: 'stale', reason })
-        expect(
-          await store.maintenance.getCommand('session-auto-archive', command.runKey),
-        ).toBeUndefined()
-      },
-    )
+    it.each([
+      'not-due',
+      'precondition',
+    ] as const)('a %s refusal is stale and records nothing', async (reason) => {
+      const command = await withSessions(async () => reason)
+      expect(await service.apply(command)).toMatchObject({ status: 'stale', reason })
+      expect(
+        await store.maintenance.getCommand('session-auto-archive', command.runKey),
+      ).toBeUndefined()
+    })
 
     it('answers only once the archive has settled', async () => {
       let settle!: (outcome: 'applied') => void
-      const command = await withSessions(
-        () => new Promise((resolve) => (settle = resolve)),
-      )
+      const command = await withSessions(() => new Promise((resolve) => (settle = resolve)))
       let replied = false
       const reply = service.apply(command).then((r) => {
         replied = true

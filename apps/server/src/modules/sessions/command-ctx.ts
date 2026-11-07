@@ -68,7 +68,10 @@ export function sessionCommandServices(modules: RegistryModules): SessionCommand
     interruptTurn: sessions.interruptTurn,
     configureSession: sessions.configureSession,
     answerAskUserQuestion: sessions.answerAskUserQuestion,
-    continueSession: sessions.continueSession.bind(sessions),
+    // A hand-built context's continue is written as the composition gives it;
+    // a command's context binds its own writer (sessionCommandCtx).
+    continueSession: (input: { sessionId: SessionId }) =>
+      sessions.continueSession(sessions.serverWriter, input),
     explicitWakeSelection: sessions.explicitWakeSelection.bind(sessions),
     sessionById: sessions.sessionById.bind(sessions),
     resumeSession: issueSessions.resumeSession.bind(issueSessions),
@@ -112,7 +115,14 @@ export async function sessionCommandCtx(
   }
   const sessions = modules.sessions
   const issues = modules.issues
-  const commandSessions = sessionCommandServices(modules)
+  const commandSessions: SessionCommandServices = {
+    ...sessionCommandServices(modules),
+    // An agent's continue is a message (POD-4846), the command's own write (POD-6602).
+    // A context built by hand, outside any command, continues as the server's
+    // own, as its kill does.
+    continueSession: (input: { sessionId: SessionId }) =>
+      sessions.continueSession(writer ?? sessions.serverWriter, input),
+  }
   const principal = await resolvePrincipalAsync(capability, {
     // The ONE reader of the `session:<id>` tag, in `@podium/model` alongside
     // the one writer (POD-1133). It brands what it extracts, so `parentSessionOf`
@@ -144,7 +154,14 @@ export async function sessionCommandCtx(
     // `undefined` here would mean `mail.send` does not name this transport, and
     // both transports that build this context are in its exposure set.
     mailSend: async (input) =>
-      (await modules.messageGate.dispatch(capability, overrideScope, 'send', input, transport))!,
+      (await modules.messageGate.dispatch(
+        capability,
+        overrideScope,
+        'send',
+        input,
+        transport,
+        writerFor('mailSend'),
+      ))!,
     createDraftIssue: async (repoPath, agentKind, issueId, ownership) =>
       await issues.attention.createDraftFor(
         writerFor('createDraftIssue'),

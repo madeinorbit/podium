@@ -56,8 +56,8 @@ type QueuedMessageRow = Awaited<ReturnType<SyncRepository['listQueuedMessages']>
 function failMessagesToRemovedSessions(
   deps: SessionLifecycleDeps,
 ): SessionKillPorts['failMessagesToRemovedSessions'] {
-  return async (sessionIds, opts) => {
-    await deps.failMessagesToRemovedSessions?.(sessionIds, opts)
+  return async (scope, sessionIds, opts) => {
+    await deps.failMessagesToRemovedSessions?.(scope, sessionIds, opts)
   }
 }
 
@@ -835,8 +835,9 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     // user is spelled out rather than defaulted.
     isEnabled: async () =>
       (await store.settings.getSettingsFor(await bag.settingsViewer())).autoContinue.enabled,
+    // The controller's continue is the server's own (`sessions.lifecycle`).
     sendContinue: (sessionId) => {
-      void bag.continueSession({ sessionId })
+      void bag.continueSession(bag.deps.writers.lifecycle, { sessionId })
     },
     getSession: (sessionId) => {
       // The controller re-arms off fresh agentState events, so overnight recovery

@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { asThreadId } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import { type ServerHandle, startServer } from '../apps/server/src/server'
 import type { MessageRow } from '../apps/server/src/store'
@@ -29,9 +30,9 @@ function messageStatus(dbPath: string): string | undefined {
   const db = openDatabase(dbPath, { readOnly: true })
   try {
     return (
-      db.prepare("SELECT delivery_status AS status FROM messages WHERE id = 'msg_worker_due'").get() as
-        | { status: string }
-        | undefined
+      db
+        .prepare("SELECT delivery_status AS status FROM messages WHERE id = 'msg_worker_due'")
+        .get() as { status: string } | undefined
     )?.status
   } finally {
     db.close()
@@ -94,7 +95,7 @@ describe('server-owned janitor worker', () => {
         factTarget: null,
         expectsResponse: false,
       }
-      await seed.messages.addMessage(message)
+      await seed.messages.addMessage(fixtureWriteScope(), message)
       await seed.close()
 
       server = await startServer({

@@ -122,6 +122,7 @@ export class IssueCommentsMailModule {
    *  advances (it is what stops the push/retry sweep re-injecting a message the
    *  issue has now pulled) — it just no longer decides who gets nagged. */
   async mailInbox(
+    writer: IssueWriter,
     issueId: IssueId,
     opts?: { markRead?: boolean; sessionId?: SessionId },
   ): Promise<Array<IssueMessageRow & { wasUnread: boolean }>> {
@@ -150,8 +151,12 @@ export class IssueCommentsMailModule {
     // the write, and re-reading an inbox must stay free.
     const newReceipts = reader ? ids.filter((mid) => !seen.has(mid)) : []
     if (markRead && (unreadIds.length || newReceipts.length)) {
-      await this.store.deps.funnel.run({
-        write: async () => {
+      // On the reading command's writer (POD-6602): the pull moves the messages
+      // rows' delivery status, a synced write; their feed changes come from the
+      // messages table's capture, so the commit declares none.
+      await writer.commit({
+        changes: () => [],
+        write: async (scope) => {
           const at = this.store.now()
           if (unreadIds.length) {
             // PER-USER read markers (POD-1076): `status` is the mail's shared
@@ -173,7 +178,12 @@ export class IssueCommentsMailModule {
             // when it was overwhelmingly the pull path working. A readerless peek
             // (operator/UI) still has nobody to name and stays null.
             for (const mid of unreadIds)
-              await this.store.deps.store.messages.markDeliveredByPull(mid, reader ?? null, at)
+              await this.store.deps.store.messages.markDeliveredByPull(
+                scope,
+                mid,
+                reader ?? null,
+                at,
+              )
           }
           if (reader)
             for (const mid of newReceipts)
@@ -196,12 +206,14 @@ export class IssueCommentsMailModule {
    *  reaches every session on the issue exactly once. Claiming does prove the
    *  claimer has the message, so it records that reader's receipt [POD-1379]. */
   async mailClaim(
+    writer: IssueWriter,
     messageId: string,
     claimedBy: string,
     opts?: { sessionId?: SessionId },
   ): Promise<{ claimed: boolean; message: IssueMessageRow }> {
-    const claimed = await this.store.deps.funnel.run({
-      write: async () => {
+    const { result: claimed } = await writer.commit({
+      changes: () => [],
+      write: async (scope) => {
         const won = await this.store.deps.store.issues.claimIssueMessage(
           messageId,
           claimedBy,
@@ -212,6 +224,7 @@ export class IssueCommentsMailModule {
         // ledger names [POD-1420]; absent a session id there is nobody to name.
         if (won)
           await this.store.deps.store.messages.markDeliveredByPull(
+            scope,
             messageId,
             opts?.sessionId ?? null,
             this.store.now(),

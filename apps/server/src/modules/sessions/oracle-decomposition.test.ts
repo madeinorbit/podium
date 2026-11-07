@@ -1,4 +1,5 @@
 import { attachTestClient } from '../../test-support/client-transport'
+import { messageTestWriter, messageTestWriters } from '../../test-support/message-writer'
 /**
  * SessionService decomposition oracle (POD-392).
  *
@@ -355,6 +356,7 @@ describe('oracle: queued sends re-authorize at drain', () => {
       const sender = await h.createIssue({ title: 'sender' })
       h.put({ sessionId: asSessionId('sender-agent'), issueId: sender.id, phase: 'idle' })
       const sent = await h.svc.send(
+        messageTestWriter(),
         { kind: 'agent', issueId: sender.id, sessionId: asSessionId('sender-agent') },
         { to: { kind: 'issue', id: target.id }, body: 'queued before revoke' },
       )

@@ -1,6 +1,7 @@
 import { asSessionId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { failureNoticeId, spawnPromptMessageId } from '../../message-ids'
+import { messageTestWriter, messageTestWriters } from '../../test-support/message-writer'
 import { mailHarness } from '../messages/characterization-support'
 import { superagentSender } from './send'
 
@@ -21,7 +22,11 @@ describe('a superagent send', () => {
     const iss = await h.createIssue({ title: 'work' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
 
-    const r = await superagentSender(h.svc, owner)({
+    const r = await superagentSender(
+      h.svc,
+      messageTestWriter(),
+      owner,
+    )({
       sessionId: asSessionId('s1'),
       text: 'Rebase onto main and rerun the tests.',
     })
@@ -42,7 +47,9 @@ describe('a superagent send', () => {
     expect(more).toHaveLength(0)
     expect(push).toMatchObject({ fn: 'queueText', sessionId: 's1', inputOrigin: 'mail' })
     const text = push?.text ?? ''
-    expect(text.startsWith(`[podium message ${row?.id} · from superagent · to your session`)).toBe(true)
+    expect(text.startsWith(`[podium message ${row?.id} · from superagent · to your session`)).toBe(
+      true,
+    )
     expect(text).toContain('Rebase onto main and rerun the tests.')
   })
 
@@ -50,8 +57,12 @@ describe('a superagent send', () => {
     const h = await mailHarness()
     const iss = await h.createIssue({ title: 'work' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, status: 'starting' })
-    const send = superagentSender(h.svc, owner)
-    const first = { sessionId: asSessionId('s1'), text: 'Start on the parser.', messageId: spawnPromptMessageId(asSessionId('s1')) }
+    const send = superagentSender(h.svc, messageTestWriter(), owner)
+    const first = {
+      sessionId: asSessionId('s1'),
+      text: 'Start on the parser.',
+      messageId: spawnPromptMessageId(asSessionId('s1')),
+    }
 
     await send(first)
     await send(first)
@@ -68,7 +79,11 @@ describe('a superagent send', () => {
     const iss = await h.createIssue({ title: 'work' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, status: 'hibernated', resumable: true })
 
-    const r = await superagentSender(h.svc, owner)({ sessionId: asSessionId('s1'), text: 'wake up' })
+    const r = await superagentSender(
+      h.svc,
+      messageTestWriter(),
+      owner,
+    )({ sessionId: asSessionId('s1'), text: 'wake up' })
 
     expect(r.ok).toBe(true)
     expect(h.pushes.map((p) => [p.fn, p.sessionId])).toEqual([['queueText', 's1']])
@@ -77,7 +92,11 @@ describe('a superagent send', () => {
   it('a send to a session that is gone answers the tool that it failed', async () => {
     const h = await mailHarness()
 
-    const r = await superagentSender(h.svc, owner)({ sessionId: asSessionId('gone'), text: 'hello?' })
+    const r = await superagentSender(
+      h.svc,
+      messageTestWriter(),
+      owner,
+    )({ sessionId: asSessionId('gone'), text: 'hello?' })
 
     expect(r).toMatchObject({ ok: false })
     const [row] = await h.store.messages.listLedger({ sessionId: asSessionId('gone') })

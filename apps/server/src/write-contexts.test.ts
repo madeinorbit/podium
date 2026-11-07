@@ -189,3 +189,32 @@ describe('the superagent writes per command (POD-6606)', () => {
     expect(await ledger.cursor()).toBe(start)
   })
 })
+
+describe('the message writes have named origins (POD-6602)', () => {
+  it('the mail family passes its writer: its client origins are gone', () => {
+    expect(Object.keys(SYSTEM_WRITE_ORIGINS)).not.toContain('issues')
+    for (const origin of ['messages.daemon', 'messages.delivery', 'messages.server'] as const) {
+      expect(SYSTEM_WRITE_ORIGINS[origin].kind).toBe('server')
+    }
+    // The chat feed stays the one source of the message feed's changes.
+    expect(SYSTEM_WRITE_ORIGINS['feed.messages'].kind).toBe('mirror')
+  })
+
+  it("a delivery-status move on the server's own account is refused inside a client command", async () => {
+    const { ledger, writes } = await contexts()
+    const start = await ledger.cursor()
+    for (const origin of ['messages.daemon', 'messages.delivery', 'messages.server'] as const) {
+      const writer = writes.system(origin)
+      await expect(
+        inCommand(`mut_${origin}`, async () => await writer.capture([spec(origin)])),
+      ).rejects.toBeInstanceOf(SystemWriteInsideCommand)
+      await expect(
+        inCommand(
+          `mut_${origin}_commit`,
+          async () => await writer.commit({ write: async () => undefined, changes: () => [] }),
+        ),
+      ).rejects.toBeInstanceOf(SystemWriteInsideCommand)
+    }
+    expect(await ledger.cursor()).toBe(start)
+  })
+})

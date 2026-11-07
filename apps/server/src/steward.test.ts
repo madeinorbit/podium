@@ -124,7 +124,7 @@ async function seedTold(
   opts: { createdAt?: string; id?: string } = {},
 ) {
   const id = opts.id ?? `msg_${to.kind}_${to.id}`
-  await store.messages.addMessage({
+  await store.messages.addMessage(fixtureWriteScope(), {
     id,
     threadId: asThreadId(id),
     inReplyTo: null,

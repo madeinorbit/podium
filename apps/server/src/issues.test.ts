@@ -7429,11 +7429,11 @@ describe('IssueService agent mail (#103)', () => {
       startNow: false,
     })
     await seedMailboxRow(store, a.id, 'operator', 'one')
-    const first = await svc.commentsMail.mailInbox(a.id)
+    const first = await svc.commentsMail.mailInbox(svc.reports.store.serverWriter, a.id)
     expect(first).toHaveLength(1)
     expect(first[0]).toMatchObject({ wasUnread: true, status: 'read', body: 'one' })
     expect(await svc.commentsMail.mailPending(a.id)).toMatchObject({ unread: 0 })
-    const second = await svc.commentsMail.mailInbox(a.id)
+    const second = await svc.commentsMail.mailInbox(svc.reports.store.serverWriter, a.id)
     expect(second[0]).toMatchObject({ wasUnread: false, status: 'read' })
   })
 
@@ -7445,15 +7445,15 @@ describe('IssueService agent mail (#103)', () => {
       startNow: false,
     })
     const m = await seedMailboxRow(store, a.id, 'operator', 'act on this')
-    const r1 = await svc.commentsMail.mailClaim(m.id, 'issue:#5')
+    const r1 = await svc.commentsMail.mailClaim(svc.reports.store.serverWriter, m.id, 'issue:#5')
     expect(r1.claimed).toBe(true)
     expect(r1.message).toMatchObject({ status: 'claimed', claimedBy: 'issue:#5' })
-    const r2 = await svc.commentsMail.mailClaim(m.id, 'issue:#6')
+    const r2 = await svc.commentsMail.mailClaim(svc.reports.store.serverWriter, m.id, 'issue:#6')
     expect(r2.claimed).toBe(false)
     expect(r2.message.claimedBy).toBe('issue:#5')
-    await expect(svc.commentsMail.mailClaim('msg_nope', 'x')).rejects.toThrow(
-      /unknown mail message/,
-    )
+    await expect(
+      svc.commentsMail.mailClaim(svc.reports.store.serverWriter, 'msg_nope', 'x'),
+    ).rejects.toThrow(/unknown mail message/)
   })
 
   it('prime (bound) surfaces the unread mail count', async () => {
@@ -7633,7 +7633,7 @@ describe('IssueService agent mail (#103)', () => {
     await seedMessage(store.messages, substrateRow(a.id, id, 'queued'))
     expect((await svc.commentsMail.mailPending(a.id)).unread).toBe(1)
     // Slice 2 clear path: inbox pull consumes both surfaces.
-    await svc.commentsMail.mailInbox(a.id)
+    await svc.commentsMail.mailInbox(svc.reports.store.serverWriter, a.id)
     expect(await svc.commentsMail.mailPending(a.id)).toMatchObject({ unread: 0 })
   })
 
@@ -7697,7 +7697,9 @@ describe('IssueService agent mail (#103)', () => {
       (await svc.commentsMail.mailPending(a.id, { sessionId: asSessionId('sB') })).unread,
     ).toBe(1)
     // The MUTATING surface: session A opens the shared mailbox.
-    await svc.commentsMail.mailInbox(a.id, { sessionId: asSessionId('sA') })
+    await svc.commentsMail.mailInbox(svc.reports.store.serverWriter, a.id, {
+      sessionId: asSessionId('sA'),
+    })
     expect(
       (await svc.commentsMail.mailPending(a.id, { sessionId: asSessionId('sA') })).unread,
     ).toBe(0)
@@ -7719,12 +7721,16 @@ describe('IssueService agent mail (#103)', () => {
       (await svc.commentsMail.mailPending(a.id, { sessionId: asSessionId('sA') })).unread,
     ).toBe(0)
     // …and even when it opens the inbox anyway, B's handoff survives.
-    const seenByA = await svc.commentsMail.mailInbox(a.id, { sessionId: asSessionId('sA') })
+    const seenByA = await svc.commentsMail.mailInbox(svc.reports.store.serverWriter, a.id, {
+      sessionId: asSessionId('sA'),
+    })
     expect(seenByA.map((m) => m.body)).toEqual(['body-msg_handoff'])
     expect(
       (await svc.commentsMail.mailPending(a.id, { sessionId: asSessionId('sB') })).unread,
     ).toBe(1)
-    const seenByB = await svc.commentsMail.mailInbox(a.id, { sessionId: asSessionId('sB') })
+    const seenByB = await svc.commentsMail.mailInbox(svc.reports.store.serverWriter, a.id, {
+      sessionId: asSessionId('sB'),
+    })
     expect(seenByB[0]).toMatchObject({ wasUnread: true })
     expect(
       (await svc.commentsMail.mailPending(a.id, { sessionId: asSessionId('sB') })).unread,
@@ -7745,7 +7751,9 @@ describe('IssueService agent mail (#103)', () => {
       startNow: false,
     })
     await seedIssueMail(store, a.id, 'msg_pulled', { fromSession: asSessionId('sSender') })
-    await svc.commentsMail.mailInbox(a.id, { sessionId: asSessionId('sReader') })
+    await svc.commentsMail.mailInbox(svc.reports.store.serverWriter, a.id, {
+      sessionId: asSessionId('sReader'),
+    })
     expect(await store.messages.getMessage('msg_pulled')).toMatchObject({
       deliveryStatus: 'confirmed',
       deliveredTo: 'sReader',
@@ -7760,7 +7768,9 @@ describe('IssueService agent mail (#103)', () => {
       startNow: false,
     })
     await seedIssueMail(store, a.id, 'msg_claimed', { fromSession: asSessionId('sSender') })
-    await svc.commentsMail.mailClaim('msg_claimed', 'agent', { sessionId: asSessionId('sClaimer') })
+    await svc.commentsMail.mailClaim(svc.reports.store.serverWriter, 'msg_claimed', 'agent', {
+      sessionId: asSessionId('sClaimer'),
+    })
     expect(await store.messages.getMessage('msg_claimed')).toMatchObject({
       deliveredTo: 'sClaimer',
     })
@@ -7781,6 +7791,7 @@ describe('IssueService agent mail (#103)', () => {
     })
     await seedIssueMail(store, a.id, 'msg_pushed', { fromSession: asSessionId('sSender') })
     await store.messages.markDispatched(
+      fixtureWriteScope(),
       'msg_pushed',
       asSessionId('sPushed'),
       '2026-08-02T14:44:17.283Z',
@@ -7792,7 +7803,9 @@ describe('IssueService agent mail (#103)', () => {
     // A peer opens the shared mailbox 23 seconds later. A peer's pull never
     // advances a row handed to another session [POD-4680]: it stays on its way
     // to sPushed, and the push target is never erased.
-    await svc.commentsMail.mailInbox(a.id, { sessionId: asSessionId('sPeer') })
+    await svc.commentsMail.mailInbox(svc.reports.store.serverWriter, a.id, {
+      sessionId: asSessionId('sPeer'),
+    })
     expect(await store.messages.getMessage('msg_pushed')).toMatchObject({
       deliveryStatus: 'dispatched',
       deliveredTo: 'sPushed',
@@ -7817,7 +7830,7 @@ describe('IssueService agent mail (#103)', () => {
       startNow: false,
     })
     await seedIssueMail(store, a.id, 'msg_peek', { fromSession: asSessionId('sSender') })
-    await svc.commentsMail.mailInbox(a.id)
+    await svc.commentsMail.mailInbox(svc.reports.store.serverWriter, a.id)
     expect(await store.messages.getMessage('msg_peek')).toMatchObject({ deliveredTo: null })
   })
 
@@ -7830,12 +7843,20 @@ describe('IssueService agent mail (#103)', () => {
     })
     await seedIssueMail(store, a.id, 'msg_once', { fromSession: asSessionId('sSender') })
     expect(
-      (await svc.commentsMail.mailInbox(a.id, { sessionId: asSessionId('sB') }))[0],
+      (
+        await svc.commentsMail.mailInbox(svc.reports.store.serverWriter, a.id, {
+          sessionId: asSessionId('sB'),
+        })
+      )[0],
     ).toMatchObject({
       wasUnread: true,
     })
     expect(
-      (await svc.commentsMail.mailInbox(a.id, { sessionId: asSessionId('sB') }))[0],
+      (
+        await svc.commentsMail.mailInbox(svc.reports.store.serverWriter, a.id, {
+          sessionId: asSessionId('sB'),
+        })
+      )[0],
     ).toMatchObject({
       wasUnread: false,
     })
@@ -7856,9 +7877,14 @@ describe('IssueService agent mail (#103)', () => {
     // on it, so it retires the claimer's nag and nobody else's.
     expect(
       (
-        await svc.commentsMail.mailClaim('msg_claimed', 'issue:#1', {
-          sessionId: asSessionId('sA'),
-        })
+        await svc.commentsMail.mailClaim(
+          svc.reports.store.serverWriter,
+          'msg_claimed',
+          'issue:#1',
+          {
+            sessionId: asSessionId('sA'),
+          },
+        )
       ).claimed,
     ).toBe(true)
     expect(
@@ -7877,7 +7903,9 @@ describe('IssueService agent mail (#103)', () => {
       startNow: false,
     })
     await seedIssueMail(store, a.id, 'msg_history', { fromSession: asSessionId('sSender') })
-    await svc.commentsMail.mailInbox(a.id, { sessionId: asSessionId('sOld') })
+    await svc.commentsMail.mailInbox(svc.reports.store.serverWriter, a.id, {
+      sessionId: asSessionId('sOld'),
+    })
     await store.sessions.upsertSession(fixtureWriteScope(), {
       id: asSessionId('sNew'),
       ownerUserId: firstAdminMemberId(),

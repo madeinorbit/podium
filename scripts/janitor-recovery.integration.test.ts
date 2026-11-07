@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asThreadId } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import { noJanitorWorkerForTests } from '../apps/server/src/janitor-host'
 import { type ServerHandle, startServer } from '../apps/server/src/server'
@@ -76,7 +77,7 @@ describe('janitor process recovery [spec:SP-c29e]', () => {
         factTarget: null,
         expectsResponse: false,
       }
-      await seed.messages.addMessage(message)
+      await seed.messages.addMessage(fixtureWriteScope(), message)
       await seed.close()
 
       expect(messageStatus(dbPath)).toBe('queued')

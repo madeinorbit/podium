@@ -5,6 +5,7 @@ import { asIssueId, asSessionId, firstAdminMemberId } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { fixtureCommitWriter, fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { messageTestWriter, messageTestWriters } from '../../test-support/message-writer'
 import { openTestStore } from '../../test-support/open-test-store'
 import { Session } from './session'
 import { SessionMetaOps, type SessionMetaOpsPorts } from './session-meta-ops'
@@ -266,7 +267,7 @@ describe('continueSession contract routing', () => {
     session.hasBoundDriver = true
     session.driverId = 'opencode-server'
     sessions.set(sessionId, session)
-    await ops.continueSession({ sessionId })
+    await ops.continueSession(messageTestWriter(), { sessionId })
     expect(ports.toPtyInput).not.toHaveBeenCalled()
   })
 
@@ -283,9 +284,12 @@ describe('continueSession contract routing', () => {
       error: { class: 'server_error', retryable: true },
     }
     sessions.set(sessionId, session)
-    expect(await ops.continueSession({ sessionId })).toEqual({ ok: true })
+    expect(await ops.continueSession(messageTestWriter(), { sessionId })).toEqual({ ok: true })
     // With no runtime checkpoint, the errored turn is when the phase began.
-    expect(ports.sendContinue).toHaveBeenCalledWith({ sessionId, erroredTurn: `since:${stamp}` })
+    expect(ports.sendContinue).toHaveBeenCalledWith(expect.anything(), {
+      sessionId,
+      erroredTurn: `since:${stamp}`,
+    })
     expect(ports.toPtyInput).not.toHaveBeenCalled()
   })
 
@@ -309,8 +313,11 @@ describe('continueSession contract routing', () => {
       closedTurnEpoch: 7,
       updatedAt: stamp,
     })
-    expect(await ops.continueSession({ sessionId })).toEqual({ ok: true })
-    expect(ports.sendContinue).toHaveBeenCalledWith({ sessionId, erroredTurn: 'epoch:7' })
+    expect(await ops.continueSession(messageTestWriter(), { sessionId })).toEqual({ ok: true })
+    expect(ports.sendContinue).toHaveBeenCalledWith(expect.anything(), {
+      sessionId,
+      erroredTurn: 'epoch:7',
+    })
   })
 
   it('types a raw continue for a shell, which has no driver to call', async () => {
@@ -324,7 +331,7 @@ describe('continueSession contract routing', () => {
       error: { class: 'server_error', retryable: true },
     }
     sessions.set(sessionId, session)
-    expect(await ops.continueSession({ sessionId })).toEqual({ ok: true })
+    expect(await ops.continueSession(messageTestWriter(), { sessionId })).toEqual({ ok: true })
     expect(ports.sendContinue).not.toHaveBeenCalled()
     expect(ports.toPtyInput).toHaveBeenCalledWith(
       store.hostMachineId,

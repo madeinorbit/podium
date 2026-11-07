@@ -2,7 +2,9 @@
  * Message delivery reads run a fixed number of statements, whatever the
  * number of queued messages [POD-6149, server-data rule 8].
  */
+
 import { asThreadId } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import { DeliveryScheduler } from '../modules/messages/scheduler'
 import type { SessionStore } from '../store'
@@ -40,8 +42,8 @@ async function fixture(size: number): Promise<SessionStore> {
   const store = await openTestStore(':memory:')
   for (let i = 0; i < size; i++) {
     const at = `2026-10-15T00:00:${String(i % 60).padStart(2, '0')}.${String(i).padStart(3, '0')}Z`
-    await store.messages.addMessage(message(`busy-${i}`, 'iss_busy', at))
-    await store.messages.addMessage(message(`spread-${i}`, `iss_${i}`, at))
+    await store.messages.addMessage(fixtureWriteScope(), message(`busy-${i}`, 'iss_busy', at))
+    await store.messages.addMessage(fixtureWriteScope(), message(`spread-${i}`, `iss_${i}`, at))
   }
   return store
 }
@@ -66,8 +68,13 @@ describe('message delivery: pinned statement counts at 5 and 200 queued messages
         'pendingForPages',
         (store, size) =>
           store.messages.pendingForPages(
-            [{ kind: 'issue' as const, id: 'iss_busy' }, ...Array.from({ length: size }, (_, i) => ({ kind: 'issue' as const, id: `iss_${i}` }))]
-              .map((to) => ({ to })),
+            [
+              { kind: 'issue' as const, id: 'iss_busy' },
+              ...Array.from({ length: size }, (_, i) => ({
+                kind: 'issue' as const,
+                id: `iss_${i}`,
+              })),
+            ].map((to) => ({ to })),
             500,
           ),
         (pages, size) => {
@@ -90,7 +97,8 @@ describe('message delivery: pinned statement counts at 5 and 200 queued messages
             ...Array.from({ length: size }, (_, i) => ({ kind: 'issue' as const, id: `iss_${i}` })),
             { kind: 'session' as const, id: 'sess_nobody' },
           ]),
-        (hits, size) => expect(hits).toEqual([...Array.from({ length: size + 1 }, () => true), false]),
+        (hits, size) =>
+          expect(hits).toEqual([...Array.from({ length: size + 1 }, () => true), false]),
       ),
       1,
     )
@@ -109,7 +117,11 @@ describe('message delivery: pinned statement counts at 5 and 200 queued messages
 
   it('countQueued: one count', async () => {
     await expectConstantStatements(
-      pin('countQueued', (store) => store.messages.countQueued(), (n, size) => expect(n).toBe(size * 2)),
+      pin(
+        'countQueued',
+        (store) => store.messages.countQueued(),
+        (n, size) => expect(n).toBe(size * 2),
+      ),
       1,
     )
   })
@@ -118,7 +130,11 @@ describe('message delivery: pinned statement counts at 5 and 200 queued messages
   // POD-6219); the targets are queued in setup, so this counts the coalesced
   // flush alone: one check of which targets have mail, one read of their pages.
   it('delivery flush: one check and one read for every waiting target', async () => {
-    await expectConstantStatements<{ store: SessionStore; scheduler: DeliveryScheduler; attempted: string[] }>(
+    await expectConstantStatements<{
+      store: SessionStore
+      scheduler: DeliveryScheduler
+      attempted: string[]
+    }>(
       {
         name: 'flushDeliveryTriggers',
         setup: async (size) => {
@@ -134,7 +150,8 @@ describe('message delivery: pinned statement counts at 5 and 200 queued messages
             },
           })
           scheduler.queueDeliveryTarget({ kind: 'issue', id: 'iss_busy' })
-          for (let i = 0; i < size; i++) scheduler.queueDeliveryTarget({ kind: 'issue', id: `iss_${i}` })
+          for (let i = 0; i < size; i++)
+            scheduler.queueDeliveryTarget({ kind: 'issue', id: `iss_${i}` })
           return { store, scheduler, attempted }
         },
         target: ({ store }) => store,

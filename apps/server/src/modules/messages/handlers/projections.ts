@@ -28,7 +28,7 @@ import { MAIL_VIEW_REFUSED } from '@podium/commands/mail-pointer-nudge'
 import type { MessageRecordWire } from '@podium/model'
 import type { MessageWire } from '../gate'
 import { MailRefusal } from '../refusal'
-import type { MailHandlerContext } from './context'
+import { type MailHandlerContext, mailWriter } from './context'
 
 /** The shared read: resolve, gate on `mayView` (or on reading the session that
  *  sent it or that it was delivered to), project. */
@@ -72,7 +72,13 @@ export async function dismissHandler(
   if (caller.capability.scope.kind !== 'all' && !access.isRecipient(caller.capability, message)) {
     throw new MailRefusal('unauthorized', 'only the recipient of a message may dismiss it')
   }
-  return await access.wire(await svc.dismiss(message.id, caller.capability.actorSessionId ?? null))
+  return await access.wire(
+    await svc.dismiss(
+      mailWriter(ctx, 'mail.dismiss'),
+      message.id,
+      caller.capability.actorSessionId ?? null,
+    ),
+  )
 }
 
 export async function cancelHandler(
@@ -85,7 +91,7 @@ export async function cancelHandler(
   if (!access.isSender(caller, message)) {
     throw new MailRefusal('unauthorized', 'only the sender of a message may cancel it')
   }
-  return await access.wire(await deps.messages.cancel(message.id))
+  return await access.wire(await deps.messages.cancel(mailWriter(ctx, 'mail.cancel'), message.id))
 }
 
 /** The sender dismisses the notice of a message that did not arrive (POD-4764). */
@@ -99,7 +105,10 @@ export async function dismissNoticeHandler(
   if (!access.isSender(caller, message)) {
     throw new MailRefusal('unauthorized', 'only the sender of a message may dismiss its notice')
   }
-  return { ok: true, dismissed: await deps.messages.dismissNotice(message.id) }
+  return {
+    ok: true,
+    dismissed: await deps.messages.dismissNotice(mailWriter(ctx, 'mail.dismissNotice'), message.id),
+  }
 }
 
 /**

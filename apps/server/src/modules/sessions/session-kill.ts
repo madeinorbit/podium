@@ -22,7 +22,7 @@ import { createLogger } from '@podium/logger'
 import type { IssueId, MachineId, SessionId } from '@podium/model'
 import type { MetadataChange } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import type { EntityChangeSpec } from '@podium/sync'
+import type { EntityChangeSpec, WriteScope } from '@podium/sync'
 import type { AutoContinueController } from '../../auto-continue'
 import type { ClientRegistry } from '../../gateway/client-registry'
 import type { SessionStore } from '../../store'
@@ -53,6 +53,7 @@ export interface SessionKillPorts {
   /** Fail every message still waiting for the removed sessions, with each
    *  sender's notice, inside the removal's transaction (POD-4816). */
   failMessagesToRemovedSessions(
+    scope: WriteScope,
     sessionIds: readonly SessionId[],
     opts?: { endedIssueId?: IssueId },
   ): Promise<void>
@@ -180,7 +181,7 @@ export class SessionKill {
       write: async (scope) => {
         // Before the tombstone: each sender's notice names the session's issue
         // as the way on, read from the session while it still stands.
-        await this.ports.failMessagesToRemovedSessions([input.sessionId])
+        await this.ports.failMessagesToRemovedSessions(scope, [input.sessionId])
         await this.ports.store.sessions.softDeleteSessions(
           scope,
           [input.sessionId],

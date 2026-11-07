@@ -1,6 +1,7 @@
 import { actorAgent, asAgentIdentityId, type SessionId, type UserId } from '@podium/model'
 import type { MessageDeliveryService } from '../messages/service'
 import { SUPERAGENT_AGENT_IDENTITY } from '../messages/types'
+import type { MessageWriter } from '../messages/writer'
 
 /**
  * WHAT THE SUPERAGENT TYPES INTO A SESSION IS ITS MESSAGE (POD-4846).
@@ -15,6 +16,8 @@ import { SUPERAGENT_AGENT_IDENTITY } from '../messages/types'
  */
 export function superagentSender(
   messages: Pick<MessageDeliveryService, 'send'>,
+  /** The superagent's own writer (`superagent.tools`, POD-6602). */
+  writer: MessageWriter,
   ownerUserId: UserId | undefined,
 ): (input: {
   sessionId: SessionId
@@ -23,6 +26,7 @@ export function superagentSender(
 }) => Promise<{ ok: boolean; reason?: string }> {
   return async ({ sessionId, text, messageId }) => {
     const r = await messages.send(
+      writer,
       ownerUserId
         ? {
             kind: 'superagent',

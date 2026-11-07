@@ -38,6 +38,7 @@ import { normalizeSettings } from '@podium/runtime'
 import type { Capability } from '../../issue-authz'
 import { isMemberCwd, sessionsForIssue } from '../../issue-util'
 import type { SessionStore } from '../../store'
+import { messageTestWriter, messageTestWriters } from '../../test-support/message-writer'
 import { openTestStore } from '../../test-support/open-test-store'
 import { metaAsFacts, sessionReadPorts } from '../../test-support/session-facts'
 import { type IssueDeps, IssueService } from '../issues/service'
@@ -396,7 +397,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
             placementAtWake: (_message, machineId) => placementDecision(machineId, opts.machines!),
           }
         : {}),
-    transact: async (fn) => await store.transact(fn),
+    writers: messageTestWriters(store),
     ...(opts?.omitSpawnOnWake
       ? {}
       : {
@@ -423,6 +424,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
   const gate = new MessageGate(
     {
       messages: svc,
+      directWriter: messageTestWriter(),
       issues,
       sessionById: async (sessionId) => sessions.find((s) => s.sessionId === sessionId),
       messageRecords: async (userId, ids, transcriptSessionId) =>
@@ -451,8 +453,8 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
         ? { resolveWorkflowStepLaunch: opts.resolveWorkflowStepLaunch }
         : {}),
       ...(opts?.sessionOwner ? { sessionOwner: opts.sessionOwner } : {}),
-      createIssue: async (input) =>
-        await issues.crud.create(issues.reports.store.serverWriter, { ...input, startNow: false }),
+      createIssue: async (writer, input) =>
+        await issues.crud.create(writer, { ...input, startNow: false }),
       appendEvent: async (e) => {
         await store.events.appendEvent(e)
       },

@@ -116,6 +116,7 @@ describe('issues.answerQuestion (issue #53)', () => {
       deliveredVia: string
     }
     expect(deliver).toHaveBeenCalledWith(
+      expect.anything(),
       'sess_asker',
       'Yes',
       expect.objectContaining({ capability: OPERATOR }),

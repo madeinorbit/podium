@@ -22,10 +22,10 @@
  */
 
 import { asSessionId } from '@podium/model'
-import type { TurnReceipt } from '@podium/protocol/daemon'
-import { RefusalReason } from '@podium/protocol/daemon'
+import type { RefusalReason, TurnReceipt } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import { OPERATOR } from '../../test-support/capabilities'
+import { messageTestWriter } from '../../test-support/message-writer'
 import { mailHarness } from './characterization-support'
 
 const TARGET = asSessionId('sTarget')
@@ -66,16 +66,14 @@ const notices = async (h: Awaited<ReturnType<typeof mailHarness>>): Promise<stri
     .filter((m) => m.kind === 'notification' && m.fromKind === 'system')
     .map((m) => m.body)
 
-const transitions = async (
-  h: Awaited<ReturnType<typeof mailHarness>>,
-  kind: string,
-  id: string,
-) => (await h.events([kind])).filter((e) => e.subject === id)
+const transitions = async (h: Awaited<ReturnType<typeof mailHarness>>, kind: string, id: string) =>
+  (await h.events([kind])).filter((e) => e.subject === id)
 
 describe('an interrupt is the interrupt mode of one durable row (POD-4795)', () => {
   it('is handed on as queued, never delivered before the daemon says so', async () => {
     const h = await liveTarget()
     const r = await h.svc.send(
+      messageTestWriter(),
       { kind: 'operator' },
       { to: { kind: 'session', id: TARGET }, body: 'stop and read this', urgency: 'interrupt' },
     )

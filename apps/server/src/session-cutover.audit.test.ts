@@ -1,3 +1,4 @@
+import { messageTestWriter, messageTestWriters } from './test-support/message-writer'
 import { soleHumanSessionStatePrincipal } from './test-support/session-state-principal'
 /**
  * THE 3.2 CUTOVER AUDIT (POD-382) — the gate the session family passes or the
@@ -976,6 +977,7 @@ describe('AC7 · the command surface is not an existence oracle', () => {
     // silently diverging.
     const o = await makeOracle()
     const direct = await o.reg.modules.messages.send(
+      messageTestWriter(),
       { kind: 'operator' },
       {
         to: { kind: 'session', id: GHOST },

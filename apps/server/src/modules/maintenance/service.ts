@@ -1,5 +1,5 @@
-import type { MachineId } from '@podium/model'
 import { createLogger } from '@podium/logger'
+import type { MachineId } from '@podium/model'
 import {
   AUTO_ARCHIVE_READ_WINDOW_MS,
   automationFireRunKey,
@@ -40,6 +40,7 @@ import type { MessageRow } from '../../store/types'
 import type { AutomationsService } from '../automations/service'
 import type { WriteFunnel } from '../funnel'
 import type { IssueService } from '../issues/service'
+import type { MessageDeliveryService } from '../messages/service'
 
 const log = createLogger('server:maintenance')
 
@@ -60,6 +61,9 @@ export interface MaintenanceServiceOptions {
     ): Promise<'applied' | 'precondition' | 'not-due'>
   }
   automations?: Pick<AutomationsService, 'applyObservedOccurrence'>
+  /** A message's observed expiry, written on the delivery service's own
+   *  writer (POD-6602). Absent means message expiry is not wired here. */
+  messages?: Pick<MessageDeliveryService, 'expireObserved'>
   /** The worktree-GC policy as settings have it — read fresh on every handshake
    *  and again inside every apply, never cached on this service. Absent means
    *  the sweep is not wired here, which reads to the janitor as `off`. */
@@ -85,6 +89,7 @@ export class MaintenanceService {
   private readonly issues: MaintenanceServiceOptions['issues']
   private readonly sessions: MaintenanceServiceOptions['sessions']
   private readonly automations: MaintenanceServiceOptions['automations']
+  private readonly messages: MaintenanceServiceOptions['messages']
   private readonly worktreeGcPolicy: NonNullable<MaintenanceServiceOptions['worktreeGcPolicy']>
   private readonly liveSessionIds: NonNullable<MaintenanceServiceOptions['liveSessionIds']>
   private readonly stewardTick: MaintenanceServiceOptions['stewardTick']
@@ -101,6 +106,7 @@ export class MaintenanceService {
     this.issues = options.issues
     this.sessions = options.sessions
     this.automations = options.automations
+    this.messages = options.messages
     this.worktreeGcPolicy = options.worktreeGcPolicy ?? (() => ({ mode: 'off', afterDays: 14 }))
     this.liveSessionIds = options.liveSessionIds ?? (() => new Set())
     this.stewardTick = options.stewardTick
@@ -217,7 +223,9 @@ export class MaintenanceService {
   }
 
   /** Shared fence + already-applied check. Caller must be inside write() for pure jobs. */
-  private async gateCommand(command: MaintenanceCommand): Promise<MaintenanceCommandReply | undefined> {
+  private async gateCommand(
+    command: MaintenanceCommand,
+  ): Promise<MaintenanceCommandReply | undefined> {
     const nowMs = this.now()
     const lease = await this.store.maintenance.getLease(LEASE_NAME)
     if (!lease || lease.fencingToken !== command.fencingToken) {
@@ -260,13 +268,16 @@ export class MaintenanceService {
     if (!this.expiryDue(current, nowMs)) {
       return this.stale(command, 'not-due')
     }
+    if (!this.messages) throw new Error('message expiry is not wired on this server')
     if (
-      !moved(await this.store.messages.expireObserved({
-        id: current.id,
-        createdAt: current.createdAt,
-        lifecycle: current.lifecycle,
-        expiresAt: current.expiresAt,
-      }))
+      !moved(
+        await this.messages.expireObserved({
+          id: current.id,
+          createdAt: current.createdAt,
+          lifecycle: current.lifecycle,
+          expiresAt: current.expiresAt,
+        }),
+      )
     ) {
       return this.stale(command, 'precondition')
     }
@@ -361,7 +372,10 @@ export class MaintenanceService {
       return this.stale(command, 'precondition')
     }
     // Authoritative delete uses the server-derived cutoff (never the client's future).
-    const deleted = await this.store.maintenance.pruneCommandsBatch(serverCutoff, observed.batchSize)
+    const deleted = await this.store.maintenance.pruneCommandsBatch(
+      serverCutoff,
+      observed.batchSize,
+    )
     return await this.recordPrune(command, deleted)
   }
 
@@ -376,7 +390,11 @@ export class MaintenanceService {
     if (!this.issues) {
       return this.stale(command, 'precondition')
     }
-    const result = await this.issues.attention.tryAutoArchiveObserved(observed, nowMs, systemPrincipal('expiry'))
+    const result = await this.issues.attention.tryAutoArchiveObserved(
+      observed,
+      nowMs,
+      systemPrincipal('expiry'),
+    )
     if (result === 'not-due') return this.stale(command, 'not-due')
     if (result === 'precondition') return this.stale(command, 'precondition')
     const applied: MaintenanceCommandReply = {
@@ -581,7 +599,10 @@ export class MaintenanceService {
     })
   }
 
-  private async recordPrune(command: MaintenanceCommand, deleted: number): Promise<MaintenanceCommandReply> {
+  private async recordPrune(
+    command: MaintenanceCommand,
+    deleted: number,
+  ): Promise<MaintenanceCommandReply> {
     const applied: MaintenanceCommandReply = {
       status: 'applied',
       jobKind: command.jobKind,

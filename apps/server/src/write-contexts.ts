@@ -107,11 +107,6 @@ export const SYSTEM_WRITE_ORIGINS = {
     what: 'pending agent questions, from session state changes and exits',
     kind: 'mirror',
   },
-  issues: {
-    what: "the issue `mail.spawnAgent --new` files inside the mail command, until the mail family passes the command's writer (the issue commands left this origin in POD-6603)",
-    kind: 'client',
-    legacy: { removeAfter: '2027-03', owner: 'POD-6602' },
-  },
   'issues.server': {
     what: "the issues service's own work: worktree moves, landing, cleanup, git state, auto-archive, integration runs, boot reconciles, and an issue effect record's run after its commit (start, sessions, stop, cleanup, ship, the assistant, an answer)",
     kind: 'server',
@@ -133,7 +128,19 @@ export const SYSTEM_WRITE_ORIGINS = {
     kind: 'server',
   },
   'superagent.tools': {
-    what: "the superagent's own session writes: its tool calls on its human's sessions (a name, a snooze, a work state, a kill), made from its own turn, and the kill a reset makes after it commits",
+    what: "the superagent's own session writes: its tool calls on its human's sessions (a name, a snooze, a work state, a kill, a message it sends), made from its own turn, and the kill a reset makes after it commits",
+    kind: 'server',
+  },
+  'messages.daemon': {
+    what: "a machine's reports about the messages it was handed: a queue row typed, taken, settled, withdrawn, lost track of or refused, a drain that gave up, a transcript echo, the history entry and program ids a message became",
+    kind: 'server',
+  },
+  'messages.delivery': {
+    what: "the server's own delivery work: a send's hand-on after its commit, the eligibility retries, the boot walk and the slow sweep, a retract's request to the machine after its commit, a failure notice's delivery, the janitor's observed expiry",
+    kind: 'server',
+  },
+  'messages.server': {
+    what: "a message a server job sends on its own account: lock grants and steals, the approval broker's and machine diagnostics' notices, the workflow engine's coordinator notice, and an answer an effect run types as text",
     kind: 'server',
   },
   'sessions.refs': {
@@ -145,7 +152,7 @@ export const SYSTEM_WRITE_ORIGINS = {
     kind: 'mirror',
   },
   'sessions.inbox': {
-    what: "a session's row written as a message is delivered to it (a send's offer and snooze clears, the queued input): the mail write that delivers it does not pass its writer through the messages service yet",
+    what: "a session's row written as a message is delivered to it (a send's offer and snooze clears, the queued input): the delivery service holds the delivering write's writer (POD-6602), but the session inbox's send ports take none yet",
     kind: 'client',
     legacy: { removeAfter: '2027-03', owner: 'POD-6602' },
   },

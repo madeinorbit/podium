@@ -9,7 +9,7 @@
 import type { ContractInput, mailInboxConsumeContract } from '@podium/commands'
 import type { MessageWire } from '../gate'
 import { MailRefusal } from '../refusal'
-import type { MailHandlerContext } from './context'
+import { type MailHandlerContext, mailWriter } from './context'
 
 export async function inboxConsumeHandler(
   ctx: MailHandlerContext,
@@ -42,6 +42,7 @@ export async function inboxConsumeHandler(
         (await deps.issues.hierarchy.ancestorIds(id)).includes(scope.rootId))
     const consume = own ? (caller.capability.actorSessionId ?? null) : undefined
     const rows = await svc.readInbox(
+      mailWriter(ctx, 'mail.inboxConsume'),
       [{ kind: 'issue', id }],
       consume !== undefined ? { consume } : {},
     )
@@ -54,8 +55,10 @@ export async function inboxConsumeHandler(
   const principals = access.callerPrincipals(caller.capability)
   if (principals.length === 0) throw new MailRefusal('invalid', 'no mailbox bound to this caller')
   return await Promise.all(
-    (await svc.readInbox(principals, { consume: caller.capability.actorSessionId ?? null })).map(
-      async (m) => await access.wire(m),
-    ),
+    (
+      await svc.readInbox(mailWriter(ctx, 'mail.inboxConsume'), principals, {
+        consume: caller.capability.actorSessionId ?? null,
+      })
+    ).map(async (m) => await access.wire(m)),
   )
 }

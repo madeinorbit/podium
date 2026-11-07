@@ -1,6 +1,7 @@
 import { actorSystem, actorUser, asSessionId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { failureNoticeId, spawnPromptMessageId } from '../../message-ids'
+import { messageTestWriter } from '../../test-support/message-writer'
 import { messageRecordOf } from '../message-feed/feed'
 import { mailHarness } from './characterization-support'
 
@@ -23,7 +24,7 @@ describe("a person's initial prompt", () => {
     const iss = await h.createIssue({ title: 'work' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, status: 'starting' })
 
-    const id = await h.svc.recordOwnerPrompt({
+    const id = await h.svc.recordOwnerPrompt(messageTestWriter(), {
       sessionId: asSessionId('s1'),
       text: 'Fix the flaky login test.',
       attribution: person,
@@ -53,15 +54,15 @@ describe("a person's initial prompt", () => {
     h.put({ sessionId: asSessionId('s1'), status: 'starting' })
     const input = { sessionId: asSessionId('s1'), text: 'go', attribution: person }
 
-    const first = await h.svc.recordOwnerPrompt(input)
-    expect(await h.svc.recordOwnerPrompt(input)).toBe(first)
+    const first = await h.svc.recordOwnerPrompt(messageTestWriter(), input)
+    expect(await h.svc.recordOwnerPrompt(messageTestWriter(), input)).toBe(first)
     expect(await h.store.messages.listLedger({ sessionId: asSessionId('s1') })).toHaveLength(1)
   })
 
   it('a prompt that fails is the inbox attention’s to report: no failure notice', async () => {
     const h = await mailHarness()
     h.put({ sessionId: asSessionId('s1'), status: 'starting' })
-    const id = await h.svc.recordOwnerPrompt({
+    const id = await h.svc.recordOwnerPrompt(messageTestWriter(), {
       sessionId: asSessionId('s1'),
       text: 'go',
       attribution: person,
@@ -78,7 +79,11 @@ describe("a person's initial prompt", () => {
     h.put({ sessionId: asSessionId('s1'), status: 'starting' })
     const job = { actor: actorSystem('issue-start'), onBehalfOf: null }
 
-    const id = await h.svc.recordOwnerPrompt({ sessionId: asSessionId('s1'), text: 'go', attribution: job })
+    const id = await h.svc.recordOwnerPrompt(messageTestWriter(), {
+      sessionId: asSessionId('s1'),
+      text: 'go',
+      attribution: job,
+    })
 
     const row = await h.svc.message(id)
     expect(row).toMatchObject({ fromKind: 'operator', attribution: job })

@@ -1235,6 +1235,7 @@ const defs = {
         })
       }
       const r = await ctx.deps.answerSessionQuestion(
+        ctx.writer,
         issue.humanQuestionAskedBy,
         input.answer,
         ctx.caller,
@@ -1427,7 +1428,7 @@ const defs = {
       // The one send path (POD-4846): there is no second, direct mailbox write.
       const send = ctx.deps.sendMessage
       if (!send) throw new Error('mail sending is not wired on this server')
-      const r = await send(ctx.messageSender(), {
+      const r = await send(ctx.writer, ctx.messageSender(), {
         to: { kind: 'issue', id: input.id },
         body: input.body,
         ...(input.messageId ? { messageId: input.messageId } : {}),

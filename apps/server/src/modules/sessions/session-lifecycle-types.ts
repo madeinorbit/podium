@@ -37,6 +37,7 @@ import type { DurableIssueAccessIndex } from '../issues/access-index'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService } from '../machines/service'
 import type { MemoryService } from '../memory/service'
+import type { MessageWriter } from '../messages/writer'
 import type { PreparedSessionInstructions } from './instructions'
 import type { Session } from './session'
 import type { SessionStartPorts } from './session-start'
@@ -126,25 +127,33 @@ export interface SessionLifecycleDeps {
    *  notice, inside the caller's transaction (POD-4816). `endedIssueId`: the
    *  issue is being deleted with them. */
   failMessagesToRemovedSessions?(
+    /** The removal's own commit scope (POD-6602): the failures are its write. */
+    scope: WriteScope,
     sessionIds: readonly SessionId[],
     opts?: { endedIssueId?: IssueId },
   ): Promise<void>
   /** Store a spawn's task prompt as the parent session's message to the child
    *  (POD-4778); answers its id. */
-  recordSpawnPrompt?(input: {
-    parentSessionId: SessionId
-    sessionId: SessionId
-    text: string
-    attachments?: readonly RuntimeAttachmentRef[]
-  }): Promise<string>
+  recordSpawnPrompt?(
+    writer: MessageWriter,
+    input: {
+      parentSessionId: SessionId
+      sessionId: SessionId
+      text: string
+      attachments?: readonly RuntimeAttachmentRef[]
+    },
+  ): Promise<string>
   /** Store the task a person (or a job) started a session with as the owner's
    *  message, attributed to its creator (POD-4846); answers its id. */
-  recordOwnerPrompt?(input: {
-    sessionId: SessionId
-    text: string
-    attribution: Attribution
-    attachments?: readonly RuntimeAttachmentRef[]
-  }): Promise<string>
+  recordOwnerPrompt?(
+    writer: MessageWriter,
+    input: {
+      sessionId: SessionId
+      text: string
+      attribution: Attribution
+      attachments?: readonly RuntimeAttachmentRef[]
+    },
+  ): Promise<string>
   /** Chat uploads claimed into an issue (POD-2148): the inbox stages one on
    *  the agent's machine when it forwards the row that carries it, and the
    *  send seam checks a ref names one on the session's issue. Absent = a
@@ -157,10 +166,13 @@ export interface SessionLifecycleDeps {
   }
   /** Send an agent's continue as a message from `system:auto-continue`, one
    *  per errored turn (POD-4846). */
-  sendContinue?(input: {
-    sessionId: SessionId
-    erroredTurn: string
-  }): Promise<{ ok: boolean; reason?: string }>
+  sendContinue?(
+    writer: MessageWriter,
+    input: {
+      sessionId: SessionId
+      erroredTurn: string
+    },
+  ): Promise<{ ok: boolean; reason?: string }>
   /** The message is about to become this session's input: record the hand-off
    *  and answer whether it may still be handed on (POD-4776). */
   handOffQueuedMessage?(messageId: string, sessionId: SessionId): Promise<boolean>

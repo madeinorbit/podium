@@ -58,9 +58,12 @@ export function noticeMessageId(factKey: string, sessionId: SessionId, eventId: 
  */
 export function stewardNoticeSender(
   messages: Pick<MessageDeliveryService, 'send'>,
+  /** The steward's own writer (`steward`): its notices are its own writes. */
+  writer: Pick<LedgerWriter, 'commit'>,
 ): StewardDeps['sendNotice'] {
   return async (sessionId, text, messageId, lifecycle) => {
     await messages.send(
+      writer,
       { kind: 'system', name: 'steward' },
       {
         messageId,

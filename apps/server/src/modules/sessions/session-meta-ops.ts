@@ -22,6 +22,7 @@ import type { SessionRow, SessionStore } from '../../store'
 import { afterCommit } from '../../store/executor/executor'
 import type { WriteFunnel } from '../funnel'
 import type { MachinesService } from '../machines/service'
+import type { MessageWriter } from '../messages/writer'
 import type { SessionDeletePlan, SessionRestorePlan } from './lifecycle'
 import type { SessionRecordReads } from './records'
 import type { SessionRepository } from './repository'
@@ -73,10 +74,13 @@ export interface SessionMetaOpsPorts {
    * missing case REFUSES rather than confirming: a continue that cannot be
    * delivered must say so.
    */
-  sendContinue?: (input: {
-    sessionId: SessionId
-    erroredTurn: string
-  }) => Promise<{ ok: boolean; reason?: string }>
+  sendContinue?: (
+    writer: MessageWriter,
+    input: {
+      sessionId: SessionId
+      erroredTurn: string
+    },
+  ) => Promise<{ ok: boolean; reason?: string }>
   view: Pick<
     SessionView,
     'principalForTrustedUser' | 'prepareRefAllocation' | 'overlay' | 'wire' | 'buildProjectionPass'
@@ -387,11 +391,16 @@ export class SessionMetaOps {
     return this.ports.sessionTeardown.tryAutoArchiveStoppedObserved(observed, nowMs)
   }
 
-  async continueSession({
-    sessionId,
-  }: {
-    sessionId: SessionId
-  }): Promise<{ ok: boolean; reason?: string }> {
+  /** `writer` is whoever asked: the `sessions.continue` command's own, or the
+   *  auto-continue controller's (POD-6602). The continue is a message. */
+  async continueSession(
+    writer: MessageWriter,
+    {
+      sessionId,
+    }: {
+      sessionId: SessionId
+    },
+  ): Promise<{ ok: boolean; reason?: string }> {
     const session = this.ports.sessions.get(sessionId)
     if (!session) return { ok: false }
     // Status gate as well as phase: a session can read 'errored' while its
@@ -414,7 +423,7 @@ export class SessionMetaOps {
       const erroredTurn = checkpoint
         ? `epoch:${checkpoint.turnEpoch}`
         : `since:${session.agentState.since}`
-      const result = await send({ sessionId, erroredTurn })
+      const result = await send(writer, { sessionId, erroredTurn })
       if (result.ok) return { ok: true }
       return { ok: false, ...(result.reason !== undefined ? { reason: result.reason } : {}) }
     }
@@ -552,7 +561,7 @@ export class SessionMetaOps {
       write: async (scope) => {
         // The messages still waiting for these sessions end with them, and
         // their senders are told, in this same write (POD-4816).
-        await this.ports.failMessagesToRemovedSessions(sessionIds, { endedIssueId: issueId })
+        await this.ports.failMessagesToRemovedSessions(scope, sessionIds, { endedIssueId: issueId })
         await this.ports.store.sessions.softDeleteForIssue(scope, sessionIds, issueId, deletedAt)
         for (const sessionId of sessionIds)
           await this.ports.store.sync.deleteQueuedMessagesForSession(sessionId)

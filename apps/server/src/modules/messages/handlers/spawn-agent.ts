@@ -27,7 +27,7 @@ import { checkIssueAccess } from '../../../issue-authz'
 import type { IssueRow } from '../../../store'
 import { SPAWN_BUDGET_PER_DAY } from '../brakes'
 import { MailRefusal } from '../refusal'
-import type { MailHandlerContext } from './context'
+import { type MailHandlerContext, mailWriter } from './context'
 
 /**
  * THE SPAWN BUDGET REFUSED A SPAWN (brake 2). A refusal; its event is the
@@ -315,7 +315,7 @@ async function planSpawn(
       ? ((await issues.reports.ownedTarget(scopeIssue.id, 'read'))?.owner ?? callerOwner)
       : callerOwner
     issueId = (
-      await deps.createIssue({
+      await deps.createIssue(mailWriter(ctx, 'mail.spawnAgent'), {
         ownerUserId: inheritedOwner,
         createdByActor: attribution.actor,
         createdByOnBehalfOf: callerOwner,

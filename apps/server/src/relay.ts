@@ -167,6 +167,7 @@ import { QueuedMessageApply } from './modules/messages/queued-apply'
 import { DELIVERY_RETRY_BACKSTOP_MS } from './modules/messages/scheduler'
 import { MessageDeliveryService } from './modules/messages/service'
 import { makeSpawnOnWake } from './modules/messages/spawn'
+import type { MessageWriter } from './modules/messages/writer'
 import {
   DEFAULT_NOTIFICATION_PUSHERS,
   type NotificationPushers,
@@ -1635,22 +1636,31 @@ export class SessionRegistry {
     // ever invoked after construction completes.
     const queuedApplyHooks: {
       handingOn?: (messageId: string, sessionId: SessionId) => Promise<boolean>
-      spawnPrompt?: (input: {
-        parentSessionId: SessionId
-        sessionId: SessionId
-        text: string
-        attachments?: readonly RuntimeAttachmentRef[]
-      }) => Promise<string>
-      ownerPrompt?: (input: {
-        sessionId: SessionId
-        text: string
-        attribution: Attribution
-        attachments?: readonly RuntimeAttachmentRef[]
-      }) => Promise<string>
-      continueSession?: (input: {
-        sessionId: SessionId
-        erroredTurn: string
-      }) => Promise<{ ok: boolean; reason?: string }>
+      spawnPrompt?: (
+        writer: MessageWriter,
+        input: {
+          parentSessionId: SessionId
+          sessionId: SessionId
+          text: string
+          attachments?: readonly RuntimeAttachmentRef[]
+        },
+      ) => Promise<string>
+      ownerPrompt?: (
+        writer: MessageWriter,
+        input: {
+          sessionId: SessionId
+          text: string
+          attribution: Attribution
+          attachments?: readonly RuntimeAttachmentRef[]
+        },
+      ) => Promise<string>
+      continueSession?: (
+        writer: MessageWriter,
+        input: {
+          sessionId: SessionId
+          erroredTurn: string
+        },
+      ) => Promise<{ ok: boolean; reason?: string }>
       applied?: (messageId: string, sessionId: SessionId) => Promise<void>
       provenLate?: (messageId: string, sessionId: SessionId) => Promise<void>
       idMatched?: (
@@ -1680,12 +1690,14 @@ export class SessionRegistry {
       typing?: (messageId: string, sessionId: SessionId) => Promise<void>
       interruptedPending?: (sessionId: SessionId, messageId?: string) => Promise<void>
       sessionsRemoved?: (
+        scope: WriteScope,
         sessionIds: readonly SessionId[],
         opts?: { endedIssueId?: IssueId },
       ) => Promise<void>
     } = {}
     const queuedMessageApply = new QueuedMessageApply({
       messages: this.store.messages,
+      writer: writes.system('messages.daemon'),
       authorize: mail.authorizeAtApply,
       applied: async (messageId, sessionId) => {
         const completion: Promise<void> | undefined = queuedApplyHooks.applied?.(
@@ -1727,13 +1739,13 @@ export class SessionRegistry {
       authorizeQueuedMessage: (messageId) => queuedMessageApply.authorize(messageId),
       handOffQueuedMessage: async (messageId, sessionId) =>
         (await queuedApplyHooks.handingOn?.(messageId, sessionId)) ?? true,
-      recordSpawnPrompt: async (input) => {
+      recordSpawnPrompt: async (writer, input) => {
         if (!queuedApplyHooks.spawnPrompt) throw new Error('the message ledger is not wired yet')
-        return await queuedApplyHooks.spawnPrompt(input)
+        return await queuedApplyHooks.spawnPrompt(writer, input)
       },
-      recordOwnerPrompt: async (input) => {
+      recordOwnerPrompt: async (writer, input) => {
         if (!queuedApplyHooks.ownerPrompt) throw new Error('the message ledger is not wired yet')
-        return await queuedApplyHooks.ownerPrompt(input)
+        return await queuedApplyHooks.ownerPrompt(writer, input)
       },
       // Claimed chat uploads, staged at delivery (POD-2148). Lazy: `issues` is
       // composed below and only read once a row is forwarded.
@@ -1742,17 +1754,17 @@ export class SessionRegistry {
         owner: async (issueId, uploadId) => await issues.crud.chatUploadOwner(issueId, uploadId),
       },
       // Auto-continue is a message (POD-4846).
-      sendContinue: async (input) => {
+      sendContinue: async (writer, input) => {
         if (!queuedApplyHooks.continueSession)
           throw new Error('the message ledger is not wired yet')
-        return await queuedApplyHooks.continueSession(input)
+        return await queuedApplyHooks.continueSession(writer, input)
       },
       // Refuses rather than stranding: a removal that cannot end its messages
       // must not commit (POD-4816).
-      failMessagesToRemovedSessions: async (sessionIds, opts) => {
+      failMessagesToRemovedSessions: async (scope, sessionIds, opts) => {
         if (!queuedApplyHooks.sessionsRemoved)
           throw new Error('the message ledger is not wired yet')
-        await queuedApplyHooks.sessionsRemoved(sessionIds, opts)
+        await queuedApplyHooks.sessionsRemoved(scope, sessionIds, opts)
       },
       rejectQueuedMessage: async (messageId, reason, cause) =>
         await queuedMessageApply.reject(messageId, reason, cause),
@@ -2574,7 +2586,14 @@ export class SessionRegistry {
       // whose scope refuses synced writes; the notice it triggers is not one.
       sendMail: async (issueId, from, body) => {
         try {
-          await asSystemWrite(async () => await systemIssueNotice(messagesSvc, from)(issueId, body))
+          await asSystemWrite(
+            async () =>
+              await systemIssueNotice(
+                messagesSvc,
+                writes.system('messages.server'),
+                from,
+              )(issueId, body),
+          )
         } catch {}
       },
       appendEvent: async (e) => {
@@ -2622,7 +2641,12 @@ export class SessionRegistry {
               new Date().toISOString(),
             ),
         }),
-      transact: async (fn) => await this.store.transact(fn),
+      // The service's own accounts (POD-6602); every other messages write
+      // takes the writer of whoever asked.
+      writers: {
+        daemon: writes.system('messages.daemon'),
+        delivery: writes.system('messages.delivery'),
+      },
       // Spawn-on-wake (#237) [spec:SP-34d7 decision 4]: an unresumable wake
       // spawns a fresh agent on the target issue through the SAME machinery
       // issue_start rides (createSession); the service then queues the message
@@ -2645,11 +2669,13 @@ export class SessionRegistry {
       },
       now: () => new Date(this.now()).toISOString(),
     })
-    queuedApplyHooks.spawnPrompt = async (input) => await messagesSvc.recordSpawnPrompt(input)
+    queuedApplyHooks.spawnPrompt = async (writer, input) =>
+      await messagesSvc.recordSpawnPrompt(writer, input)
     queuedApplyHooks.continueSession = autoContinueSender(messagesSvc)
-    queuedApplyHooks.ownerPrompt = async (input) => await messagesSvc.recordOwnerPrompt(input)
-    queuedApplyHooks.sessionsRemoved = async (sessionIds, opts) =>
-      await messagesSvc.failMessagesToRemovedSessions(sessionIds, opts)
+    queuedApplyHooks.ownerPrompt = async (writer, input) =>
+      await messagesSvc.recordOwnerPrompt(writer, input)
+    queuedApplyHooks.sessionsRemoved = async (scope, sessionIds, opts) =>
+      await messagesSvc.failMessagesToRemovedSessions(scope, sessionIds, opts)
     queuedApplyHooks.handingOn = async (messageId, sessionId) =>
       await messagesSvc.onQueuedInputHandingOn(messageId, sessionId)
     queuedApplyHooks.applied = async (messageId, sessionId) =>
@@ -2680,7 +2706,11 @@ export class SessionRegistry {
       await messagesSvc.onQueuedInputTyping(messageId, sessionId)
     queuedApplyHooks.interruptedPending = async (sessionId, messageId) => {
       try {
-        await messagesSvc.cancelPendingOperatorMessage(sessionId, messageId)
+        await messagesSvc.cancelPendingOperatorMessage(
+          writes.system('messages.delivery'),
+          sessionId,
+          messageId,
+        )
       } catch (error) {
         // A concurrent boundary delivery or retraction can win the guarded
         // cancellation. Storage and notification failures must reach the caller.
@@ -2770,6 +2800,7 @@ export class SessionRegistry {
         agentProfile: async (ref) => await agentProfiles.find(ref),
         notifyCoordinator: async (sessionId, text) => {
           await messagesSvc.send(
+            writes.system('messages.server'),
             { kind: 'system', name: 'workflow' },
             {
               to: { kind: 'session', id: sessionId },
@@ -2997,10 +3028,9 @@ export class SessionRegistry {
             machineId: launch.machineId,
           }
         },
-        // mail.spawnAgent --new: inside the mail command, under the issues
-        // origin until POD-6602 passes the command's writer.
-        createIssue: async (o) =>
-          await issues.crud.create(writes.system('issues'), { ...o, startNow: false }),
+        // mail.spawnAgent --new: inside the mail command, with its writer.
+        createIssue: async (writer, o) =>
+          await issues.crud.create(writer, { ...o, startNow: false }),
         appendEvent: async (e) => {
           await this.store.events.appendEvent(e)
         },
@@ -3092,6 +3122,7 @@ export class SessionRegistry {
       // frame, attributed to the automation, followed by its delivery status.
       deliverPrompt: automationPromptSender({
         messages: messagesSvc,
+        writer: writes.system('automations.schedule'),
         sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
       }),
       createIssue: async (o) => {
@@ -3149,7 +3180,11 @@ export class SessionRegistry {
       // whatever span the decision was running inside and died orphaned when the
       // span closed. Same shape as the lock bug (POD-3802).
       notifyIssue: async (issueId, body) => {
-        await systemIssueNotice(messagesSvc, 'approval-broker')(issueId, body)
+        await systemIssueNotice(
+          messagesSvc,
+          writes.system('messages.server'),
+          'approval-broker',
+        )(issueId, body)
       },
       executeServerOp: async (op, sessionId) => {
         const caller = await workflowCallerForCapability(
@@ -3298,18 +3333,19 @@ export class SessionRegistry {
       inferRepoFromPath: async (path) =>
         inferRepoFromRoots(await this.store.repos.listRepoPaths(), path),
       // mailSend rides the unified substrate (#237) [spec:SP-34d7].
-      sendMessage: async (from, input) => await messagesSvc.send(from, input),
+      sendMessage: async (writer, from, input) => await messagesSvc.send(writer, from, input),
       // mailSend's old doors answer with the hand-on after its commit (POD-6525).
       mailHandOnOf: async (messageId) => await messagesSvc.handOnOf(messageId),
       // Tray answer delivery (issue #53): the shared answer_question matching
       // path, with text fallback — no live menu means the answer arrives as the
       // answerer's own message, which wakes a parked session (POD-4846).
-      answerSessionQuestion: async (sessionId, answer, caller) => {
+      answerSessionQuestion: async (writer, sessionId, answer, caller) => {
         const r = await deliverAnswerToSession(
           {
             getSession: async (id) => await sessionsSvc.sessionById(id),
             sessions: sessionsSvc,
             messages: messagesSvc,
+            writer,
             rpc: {
               readTranscript: async (input) =>
                 await rpc.readTranscript(input, {
@@ -3349,7 +3385,11 @@ export class SessionRegistry {
         createIssue: async (input) =>
           await issues.crud.create(writes.system('issues.server'), input),
         sendMail: async (issueId, body) =>
-          await systemIssueNotice(messagesSvc, 'machine-diagnostic')(issueId, body),
+          await systemIssueNotice(
+            messagesSvc,
+            writes.system('messages.server'),
+            'machine-diagnostic',
+          )(issueId, body),
         notify: (ownerUserId, notice) => notify.notifyExternal(notice, ownerUserId),
         warn: (message) => log.warn(message),
       })
@@ -3974,6 +4014,7 @@ export class SessionRegistry {
             getSession: async (id) => await sessionsSvc.sessionById(id),
             sessions: sessionsSvc,
             messages: messagesSvc,
+            writer: writes.system('messages.server'),
             rpc: {
               readTranscript: async (readInput) =>
                 await rpc.readTranscript(readInput, { kind: 'system', id: 'interaction-answer' }),
@@ -4238,6 +4279,7 @@ export class SessionRegistry {
             getSession: async (id) => await sessionsSvc.sessionById(id),
             sessions: sessionsSvc,
             messages: messagesSvc,
+            writer: this.writes.system('messages.server'),
             rpc: {
               readTranscript: async (input) =>
                 await rpc.readTranscript(input, { kind: 'system', id: 'superagent-answer' }),
@@ -4388,7 +4430,7 @@ export class SessionRegistry {
       // The steward's notices are messages from `system:steward` (POD-4846):
       // stored under their derived id, enveloped, delivered and followed like
       // mail. Wake notices resurrect a parked session through the mail wake path.
-      sendNotice: stewardNoticeSender(messagesSvc),
+      sendNotice: stewardNoticeSender(messagesSvc, this.writes.system('steward')),
       // The `notify` switch's external push (#470) [spec:SP-17db] — injected, not
       // imported, so the steward's unit tests never touch ntfy/Telegram.
       notify: (ownerUserId, notice) => notify.notifyExternal(notice, ownerUserId),
@@ -4411,7 +4453,7 @@ export class SessionRegistry {
                 if (r.ok) lastCommit = r.output.split('\n')[0]
               } catch {}
             }
-            await messagesSvc.systemAckFallback(sessionId, {
+            await messagesSvc.systemAckFallback(this.writes.system('steward'), sessionId, {
               outcome,
               notificationFact,
               ...(issue ? { issueSeq: issue.seq, issueStage: issue.stage } : {}),
