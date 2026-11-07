@@ -43,6 +43,10 @@ describe('the issue contract table', () => {
     expect(ISSUE_CONTRACT_LIST).toHaveLength(81)
     expect(ISSUE_COMMAND_NAMES).toHaveLength(81)
     expect([...ISSUE_COMMAND_NAMES]).toEqual([...ISSUE_COMMAND_NAMES].sort())
+    // The name list IS the table's keys: a restated list is a second place a command
+    // name can live (moved from `scripts/audit-issue-commands.ts`'s
+    // `derived-name-list`, POD-6595).
+    expect([...ISSUE_COMMAND_NAMES]).toEqual(Object.keys(ISSUE_CONTRACTS).sort())
     for (const key of ISSUE_COMMAND_NAMES) {
       expect(ISSUE_CONTRACTS[key].name, key).toBe(`issues.${key}`)
       expect(ISSUE_CONTRACTS[key].version, key).toBe(1)

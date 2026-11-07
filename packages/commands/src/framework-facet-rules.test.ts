@@ -166,3 +166,24 @@ describe('the facets that are meaningless when absent', () => {
     }
   })
 })
+
+/**
+ * `CommandDef`'s `visibility`, `exposure` and `policy` are OPTIONAL in the type,
+ * and an omission resolves silently: visibility to `personal` (ADR 9 D4),
+ * exposure to served nowhere (ADR 3 D3). So every def in every table must WRITE
+ * all three. Read off the running objects, so a spread from a sibling def
+ * counts and a cast cannot hide an omission. Moved here from
+ * `scripts/audit-session-commands.ts` (`visibility-totality`,
+ * `exposure-totality`, `policy-totality`; POD-6595).
+ */
+describe('every def declares the facets an omission would answer silently', () => {
+  it('visibility, exposure and policy are written on every def of every table', () => {
+    const missing = ALL_CONTRACTS.flatMap(({ name, def }) =>
+      (['visibility', 'exposure', 'policy'] as const)
+        .filter((facet) => def[facet] === undefined)
+        .map((facet) => `${name}: ${facet}`),
+    )
+    // The population is the scan's, which the first describe pins as non-empty.
+    expect(missing).toEqual([])
+  })
+})

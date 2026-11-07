@@ -5,8 +5,9 @@
  * executed; each `@ts-expect-error` fails the build if the call compiles.
  */
 
-import type { SessionId } from '@podium/model'
+import type { SessionId, UserId } from '@podium/model'
 import type { SessionStore } from '../../store'
+import type { SessionsRepository } from '../../store/sessions'
 import type { SessionRow } from '../../store/types'
 import type { SessionLifecycle } from './lifecycle'
 import type { Session } from './session'
@@ -31,3 +32,22 @@ export async function sessionWritesNeedAWriter(
   // @ts-expect-error and the repository underneath
   await sessions.repository.persist(session)
 }
+
+/**
+ * PER-USER STATE IS KEYED BY USER (POD-1076), in the repository's own
+ * signatures: each pin, snooze and tab-order accessor takes the user whose
+ * state it is. A signature that dropped the parameter would make every caller
+ * pass one instance-wide account and re-create the singleton. Moved here from
+ * `scripts/audit-session-commands.ts` (`per-user-keying`, POD-6595).
+ */
+type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
+type Holds<T extends true> = T
+export type PerUserStateIsKeyedByUser = [
+  Holds<Same<Parameters<SessionsRepository['listPins']>[0], UserId>>,
+  Holds<Same<Parameters<SessionsRepository['setPin']>[0], UserId>>,
+  Holds<Same<Parameters<SessionsRepository['listSnoozes']>[0], UserId>>,
+  Holds<Same<Parameters<SessionsRepository['setSnooze']>[1], UserId>>,
+  Holds<Same<Parameters<SessionsRepository['clearSnooze']>[1], UserId>>,
+  Holds<Same<Parameters<SessionsRepository['listTabOrders']>[0], UserId>>,
+  Holds<Same<Parameters<SessionsRepository['setTabOrder']>[0], UserId>>,
+]

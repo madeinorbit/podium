@@ -1,5 +1,6 @@
 
-import { ISSUE_COMMAND_NAMES, type IssueContractName } from '@podium/commands'
+import { readFileSync } from 'node:fs'
+import { ISSUE_COMMAND_NAMES, ISSUE_CONTRACTS, type IssueContractName } from '@podium/commands'
 import { describe, expect, expectTypeOf, it, vi } from 'vitest'
 import type { IssueTrpc } from './client.js'
 import { ISSUE_COMMANDS } from './commands.js'
@@ -122,5 +123,36 @@ describe('CLI table ↔ protocol command-name drift', () => {
       expect.objectContaining({ repoPath: '/r', title: 'Tinted', color: 'violet' }),
     )
     expect(updateMutate).toHaveBeenCalledWith({ id: '1', patch: { color: null } })
+  })
+})
+
+/**
+ * ADR 3 D3: a transport is served because a contract NAMES it. The CLI and the
+ * MCP tools are one table (`issue-mcp.ts` derives its tools from
+ * `ISSUE_COMMANDS`), so its reach must equal the contracts that declare `cli`,
+ * in both directions: a proc the table calls without the declaration is a
+ * surface served undeclared, and a declaration no verb reaches opens nothing.
+ * The reach is read from this table's SOURCE, so a branch no run happens to take
+ * still counts. Moved here from `scripts/audit-issue-commands.ts`
+ * (`exposure-matches-reach`, POD-6595).
+ */
+describe('declared CLI/MCP exposure equals the table\'s reach', () => {
+  const source = readFileSync(new URL('./commands.ts', import.meta.url), 'utf8')
+  const reached = new Set([...source.matchAll(/\.issues\.(\w+)\b/g)].map((m) => m[1] as string))
+  const declared = new Set<string>(
+    ISSUE_COMMAND_NAMES.filter((name) => ISSUE_CONTRACTS[name].exposure.includes('cli')),
+  )
+
+  it('both sides are populated, so the equality says something', () => {
+    expect(reached.size).toBeGreaterThan(50)
+    expect(declared.size).toBeGreaterThan(50)
+  })
+
+  it('every proc the table calls declares cli exposure', () => {
+    expect([...reached].filter((proc) => !declared.has(proc)).sort()).toEqual([])
+  })
+
+  it('every cli-exposed contract is reached by a verb', () => {
+    expect([...declared].filter((proc) => !reached.has(proc)).sort()).toEqual([])
   })
 })
