@@ -1,4 +1,5 @@
 import { asMachineId } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
@@ -48,16 +49,16 @@ const row = (over: Record<string, unknown> = {}) => ({
 describe('idle re-discovery writes', () => {
   it('re-upserting an identical conversation row does not rewrite it', async () => {
     const store = await openTestStore(':memory:')
-    await store.conversations.index.upsert([row()])
+    await store.conversations.index.upsert(fixtureWriteScope(), [row()])
     const writes = writeProbe(store, 'conversations')
     expect(writes()).toBe(0)
 
-    await store.conversations.index.upsert([row()])
-    await store.conversations.index.upsert([row()])
+    await store.conversations.index.upsert(fixtureWriteScope(), [row()])
+    await store.conversations.index.upsert(fixtureWriteScope(), [row()])
     expect(writes()).toBe(0)
 
     // A real change still lands — the guard elides no-ops, not updates.
-    await store.conversations.index.upsert([row({ title: 'Renamed' })])
+    await store.conversations.index.upsert(fixtureWriteScope(), [row({ title: 'Renamed' })])
     expect(writes()).toBe(1)
     const found = await store.conversations.index.search({})
     expect(found.find((c) => c.id === 'native-a')?.title).toBe('Renamed')
@@ -65,11 +66,11 @@ describe('idle re-discovery writes', () => {
 
   it('an omitted field is not a change — COALESCE keeps the stored value', async () => {
     const store = await openTestStore(':memory:')
-    await store.conversations.index.upsert([row()])
+    await store.conversations.index.upsert(fixtureWriteScope(), [row()])
     const writes = writeProbe(store, 'conversations')
 
     const { title: _title, projectPath: _projectPath, ...withoutOptionals } = row()
-    await store.conversations.index.upsert([withoutOptionals])
+    await store.conversations.index.upsert(fixtureWriteScope(), [withoutOptionals])
     expect(writes()).toBe(0)
     const found = await store.conversations.index.search({})
     expect(found.find((c) => c.id === 'native-a')?.title).toBe('A conversation')
@@ -94,6 +95,8 @@ describe('idle re-discovery writes', () => {
     // A grown transcript is a real change and still lands.
     expect(await store.conversations.registry.ensure({ ...opts, sizeBytes: 8192 })).toBe(podiumId)
     expect(writes()).toBe(1)
-    expect(await store.conversations.registry.segmentPath(asMachineId('m1'), 'native-a')).toBe(opts.path)
+    expect(await store.conversations.registry.segmentPath(asMachineId('m1'), 'native-a')).toBe(
+      opts.path,
+    )
   })
 })

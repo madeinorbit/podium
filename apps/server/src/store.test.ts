@@ -11,6 +11,7 @@ import {
   firstAdminMemberId,
 } from '@podium/model'
 import { PodiumSettings } from '@podium/runtime'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterAll, describe, expect, it } from 'vitest'
 import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
 import { deriveRepoId } from './repo-id'
@@ -203,7 +204,11 @@ describe('SessionStore sessions', () => {
     // Control: the one-row upsert, row by row. Three rows pad to a four-row
     // statement, and the existing row checks the rules the set keeps on update:
     // created_at stays, a bound conversation stays bound, login harness stays.
-    const existing = row({ id: asSessionId('b'), conversationBinding: 'bound', loginHarness: 'claude-code' })
+    const existing = row({
+      id: asSessionId('b'),
+      conversationBinding: 'bound',
+      loginHarness: 'claude-code',
+    })
     const batch = [
       row({ id: asSessionId('a'), title: 'first', outputCount: 3 }),
       row({
@@ -234,7 +239,10 @@ describe('SessionStore sessions', () => {
 
     // Every row is checked before the first is written.
     await expect(
-      candidate.sessions.upsertSessions([row({ id: asSessionId('d') }), row({ id: asSessionId('e'), agentKind: 'auto' })]),
+      candidate.sessions.upsertSessions([
+        row({ id: asSessionId('d') }),
+        row({ id: asSessionId('e'), agentKind: 'auto' }),
+      ]),
     ).rejects.toThrow(/agentKind/i)
     expect((await candidate.sessions.loadSessions()).map((r) => r.id)).not.toContain('d')
     await control.close()
@@ -371,21 +379,58 @@ describe('SessionStore sessions', () => {
     const parkedAt = '2026-07-13T09:00:00.000Z'
     const running = ['starting', 'live', 'reconnecting'] as const
     for (const [i, status] of running.entries())
-      await store.sessions.upsertSession(row({ id: asSessionId(`run-${i}`), durableLabel: `podium-run-${i}`, status }))
-    await store.sessions.upsertSession(row({
-      id: asSessionId('parked'), durableLabel: 'podium-parked', status: 'hibernated', stoppedAt: parkedAt, stopReason: 'self',
-    }))
-    await store.sessions.upsertSession(row({
-      id: asSessionId('dead'), durableLabel: 'podium-dead', status: 'exited', exitCode: 3, stoppedAt: parkedAt, stopReason: 'exited',
-    }))
+      await store.sessions.upsertSession(
+        row({ id: asSessionId(`run-${i}`), durableLabel: `podium-run-${i}`, status }),
+      )
+    await store.sessions.upsertSession(
+      row({
+        id: asSessionId('parked'),
+        durableLabel: 'podium-parked',
+        status: 'hibernated',
+        stoppedAt: parkedAt,
+        stopReason: 'self',
+      }),
+    )
+    await store.sessions.upsertSession(
+      row({
+        id: asSessionId('dead'),
+        durableLabel: 'podium-dead',
+        status: 'exited',
+        exitCode: 3,
+        stoppedAt: parkedAt,
+        stopReason: 'exited',
+      }),
+    )
 
-    await store.sessions.softDeleteSessions(['run-0', 'run-1', 'run-2', 'parked', 'dead'], deletedAt, 'standalone')
+    await store.sessions.softDeleteSessions(
+      ['run-0', 'run-1', 'run-2', 'parked', 'dead'],
+      deletedAt,
+      'standalone',
+    )
 
-    const byId = new Map((await store.sessions.loadDeletedSessions()).map((r) => [r.id as string, r]))
+    const byId = new Map(
+      (await store.sessions.loadDeletedSessions()).map((r) => [r.id as string, r]),
+    )
     for (const i of running.keys())
-      expect(byId.get(`run-${i}`)).toMatchObject({ status: 'exited', stoppedAt: deletedAt, stopReason: 'forced', deletedAt })
-    expect(byId.get('parked')).toMatchObject({ status: 'hibernated', stoppedAt: parkedAt, stopReason: 'self', deletedAt })
-    expect(byId.get('dead')).toMatchObject({ status: 'exited', exitCode: 3, stoppedAt: parkedAt, stopReason: 'exited', deletedAt })
+      expect(byId.get(`run-${i}`)).toMatchObject({
+        status: 'exited',
+        stoppedAt: deletedAt,
+        stopReason: 'forced',
+        deletedAt,
+      })
+    expect(byId.get('parked')).toMatchObject({
+      status: 'hibernated',
+      stoppedAt: parkedAt,
+      stopReason: 'self',
+      deletedAt,
+    })
+    expect(byId.get('dead')).toMatchObject({
+      status: 'exited',
+      exitCode: 3,
+      stoppedAt: parkedAt,
+      stopReason: 'exited',
+      deletedAt,
+    })
     await store.close()
   })
 
@@ -577,9 +622,7 @@ describe('SessionStore sessions', () => {
     expect(await store.sessions.getReadAt(firstAdminMemberId(), asSessionId('s_read'))).toBe(
       '2026-07-07T00:00:00.000Z',
     )
-    expect(
-      await store.sessions.getReadAt(firstAdminMemberId(), asSessionId('s_unread')),
-    ).toBeNull()
+    expect(await store.sessions.getReadAt(firstAdminMemberId(), asSessionId('s_unread'))).toBeNull()
     expect(await store.sessions.listReadAt(firstAdminMemberId())).toEqual({
       s_read: '2026-07-07T00:00:00.000Z',
     })
@@ -595,9 +638,9 @@ describe('SessionStore sessions', () => {
 
     // A per-user WRITE with no identity fails CLOSED — it never falls back to an
     // operator. Reads tolerate an unknown user (an empty slice is the truth).
-    await expect(store.sessions.markSessionRead(asUserId(''), asSessionId('s_read'), 't')).rejects.toThrow(
-      /no user id/,
-    )
+    await expect(
+      store.sessions.markSessionRead(asUserId(''), asSessionId('s_read'), 't'),
+    ).rejects.toThrow(/no user id/)
     await store.close()
   })
 })
@@ -935,7 +978,7 @@ describe('conversation index', () => {
 
   it('indexes discovered conversations and finds them by keyword', async () => {
     const store = await openTestStore(':memory:')
-    await store.conversations.index.upsert([
+    await store.conversations.index.upsert(fixtureWriteScope(), [
       conv('a', { title: 'fix the soft keyboard profiles' }),
       conv('b', { title: 'memory chip breakdown' }),
     ])
@@ -946,14 +989,18 @@ describe('conversation index', () => {
 
   it('prefix-matches partial words', async () => {
     const store = await openTestStore(':memory:')
-    await store.conversations.index.upsert([conv('a', { title: 'podium relay endpoint' })])
-    expect((await store.conversations.index.search({ query: 'rela' })).map((h) => h.id)).toEqual(['a'])
+    await store.conversations.index.upsert(fixtureWriteScope(), [
+      conv('a', { title: 'podium relay endpoint' }),
+    ])
+    expect((await store.conversations.index.search({ query: 'rela' })).map((h) => h.id)).toEqual([
+      'a',
+    ])
     await store.close()
   })
 
   it('filters by projectPath subtree and browses by recency on empty query', async () => {
     const store = await openTestStore(':memory:')
-    await store.conversations.index.upsert([
+    await store.conversations.index.upsert(fixtureWriteScope(), [
       conv('old', { updatedAt: '2026-06-01T00:00:00.000Z' }),
       conv('new', { updatedAt: '2026-06-12T00:00:00.000Z' }),
       conv('other', { projectPath: '/src/zzz' }),
@@ -965,36 +1012,38 @@ describe('conversation index', () => {
 
   it('excludes subagent (sidechain) conversations from the resume picker', async () => {
     const store = await openTestStore(':memory:')
-    await store.conversations.index.upsert([
+    await store.conversations.index.upsert(fixtureWriteScope(), [
       conv('top', { title: 'fix the parser' }),
       conv('sub', { title: 'fix the parser subagent', parentConversationId: 'top' }),
     ])
     // Empty-query browse: only the top-level session.
     expect((await store.conversations.index.search({})).map((h) => h.id)).toEqual(['top'])
     // Keyword search: the subagent matches the term but is still filtered out.
-    expect((await store.conversations.index.search({ query: 'parser' })).map((h) => h.id)).toEqual(['top'])
+    expect((await store.conversations.index.search({ query: 'parser' })).map((h) => h.id)).toEqual([
+      'top',
+    ])
     await store.close()
   })
 
   it('orders search results by recency, not relevance (matches claude --resume)', async () => {
     const store = await openTestStore(':memory:')
-    await store.conversations.index.upsert([
+    await store.conversations.index.upsert(fixtureWriteScope(), [
       conv('older', { title: 'relay endpoint fix', updatedAt: '2026-06-01T00:00:00.000Z' }),
       conv('newer', { title: 'relay endpoint retry', updatedAt: '2026-06-12T00:00:00.000Z' }),
     ])
     // Both match "relay endpoint"; the more recently-active one comes first.
-    expect((await store.conversations.index.search({ query: 'relay endpoint' })).map((h) => h.id)).toEqual([
-      'newer',
-      'older',
-    ])
+    expect(
+      (await store.conversations.index.search({ query: 'relay endpoint' })).map((h) => h.id),
+    ).toEqual(['newer', 'older'])
     await store.close()
   })
 
   it('refuses metadata for an undiscovered conversation without creating a row', async () => {
     const store = await openTestStore(':memory:')
     try {
-      await expect(store.conversations.index.setMeta('undiscovered', { name: 'Name' }))
-        .rejects.toThrow('has not been reported by a daemon')
+      await expect(
+        store.conversations.index.setMeta(fixtureWriteScope(), 'undiscovered', { name: 'Name' }),
+      ).rejects.toThrow('has not been reported by a daemon')
       expect(await store.conversations.index.search({})).toEqual([])
     } finally {
       await store.close()
@@ -1003,12 +1052,14 @@ describe('conversation index', () => {
 
   it('curation (name/summary) survives re-discovery and is searchable', async () => {
     const store = await openTestStore(':memory:')
-    await store.conversations.index.upsert([conv('a')])
-    await store.conversations.index.setMeta('a', {
+    await store.conversations.index.upsert(fixtureWriteScope(), [conv('a')])
+    await store.conversations.index.setMeta(fixtureWriteScope(), 'a', {
       name: 'Soft keyboard epic',
       summary: 'shipped; awaiting review',
     })
-    await store.conversations.index.upsert([conv('a', { title: 'renamed by discovery' })])
+    await store.conversations.index.upsert(fixtureWriteScope(), [
+      conv('a', { title: 'renamed by discovery' }),
+    ])
     const [hit] = await store.conversations.index.search({ query: 'epic' })
     expect(hit?.id).toBe('a')
     expect(hit?.name).toBe('Soft keyboard epic')
@@ -1018,41 +1069,53 @@ describe('conversation index', () => {
 
   it('deleteConversations removes the rows and keeps the FTS index consistent', async () => {
     const store = await openTestStore(':memory:')
-    await store.conversations.index.upsert([
+    await store.conversations.index.upsert(fixtureWriteScope(), [
       conv('a', { title: 'keep this keyboard one' }),
       conv('b', { title: 'remove this keyboard one' }),
     ])
     // Both match before the delete.
     expect(
-      (await store.conversations.index
-        .search({ query: 'keyboard' }))
-        .map((h) => h.id)
-        .sort(),
+      (await store.conversations.index.search({ query: 'keyboard' })).map((h) => h.id).sort(),
     ).toEqual(['a', 'b'])
 
-    expect(await store.conversations.index.delete(TEST_MACHINE, ['b'])).toEqual(['b'])
+    expect(
+      await store.conversations.index.delete(fixtureWriteScope(), TEST_MACHINE, ['b']),
+    ).toEqual(['b'])
 
     // Browse (empty query, table read) no longer lists the deleted row...
     expect((await store.conversations.index.search({})).map((h) => h.id)).toEqual(['a'])
     // ...and the FTS index dropped it too (the DELETE trigger keeps it in sync),
     // so a keyword search returns only the survivor — no stale match for 'b'.
-    expect((await store.conversations.index.search({ query: 'keyboard' })).map((h) => h.id)).toEqual(['a'])
+    expect(
+      (await store.conversations.index.search({ query: 'keyboard' })).map((h) => h.id),
+    ).toEqual(['a'])
     await store.close()
   })
 
   it('deleteConversations reaches only rows indexed under the reporting machine (POD-4628)', async () => {
     const store = await openTestStore(':memory:')
     const other = asMachineId('other-machine')
-    await store.conversations.index.upsert([conv('mine'), conv('theirs', { machineId: other })])
-    expect(await store.conversations.index.delete(TEST_MACHINE, ['mine', 'theirs', 'unknown'])).toEqual(['mine'])
+    await store.conversations.index.upsert(fixtureWriteScope(), [
+      conv('mine'),
+      conv('theirs', { machineId: other }),
+    ])
+    expect(
+      await store.conversations.index.delete(fixtureWriteScope(), TEST_MACHINE, [
+        'mine',
+        'theirs',
+        'unknown',
+      ]),
+    ).toEqual(['mine'])
     expect((await store.conversations.index.search({})).map((h) => h.id)).toEqual(['theirs'])
     await store.close()
   })
 
   it('deleteConversations is a no-op on an empty id list', async () => {
     const store = await openTestStore(':memory:')
-    await store.conversations.index.upsert([conv('a')])
-    expect(await store.conversations.index.delete(TEST_MACHINE, [])).toEqual([])
+    await store.conversations.index.upsert(fixtureWriteScope(), [conv('a')])
+    expect(await store.conversations.index.delete(fixtureWriteScope(), TEST_MACHINE, [])).toEqual(
+      [],
+    )
     expect((await store.conversations.index.search({})).map((h) => h.id)).toEqual(['a'])
     await store.close()
   })

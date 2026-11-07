@@ -1,8 +1,17 @@
 import { asMachineId, type MachineId, machinePathKey, machinePathSeparator } from '@podium/model'
+import type { WriteScope } from '@podium/sync'
 import { and, eq, isNotNull, or, type SQL, sql } from 'drizzle-orm'
 import { conversations } from '../../migrations/schema'
 import type { StoreDrizzle, StoreQueries, TransactionRunner } from '../executor/sync-drizzle'
-import { executeRaw, inListOf, inListSize, inListValues, param, prepared, preparedFamily } from '../executor/sync-drizzle'
+import {
+  executeRaw,
+  inListOf,
+  inListSize,
+  inListValues,
+  param,
+  prepared,
+  preparedFamily,
+} from '../executor/sync-drizzle'
 import type { ConversationIndexRow } from '../types'
 
 // Every query this repository runs, prepared once per store [POD-6147].
@@ -97,9 +106,15 @@ const createFtsUpdateTrigger = prepared((db: StoreDrizzle) =>
 const rebuildFts = prepared((db: StoreDrizzle) =>
   db.run(sql`INSERT INTO conversations_fts(conversations_fts) VALUES('rebuild')`),
 )
-const dropFtsInsertTrigger = prepared((db: StoreDrizzle) => db.run(sql`DROP TRIGGER IF EXISTS conversations_ai`))
-const dropFtsDeleteTrigger = prepared((db: StoreDrizzle) => db.run(sql`DROP TRIGGER IF EXISTS conversations_ad`))
-const dropFtsUpdateTrigger = prepared((db: StoreDrizzle) => db.run(sql`DROP TRIGGER IF EXISTS conversations_au`))
+const dropFtsInsertTrigger = prepared((db: StoreDrizzle) =>
+  db.run(sql`DROP TRIGGER IF EXISTS conversations_ai`),
+)
+const dropFtsDeleteTrigger = prepared((db: StoreDrizzle) =>
+  db.run(sql`DROP TRIGGER IF EXISTS conversations_ad`),
+)
+const dropFtsUpdateTrigger = prepared((db: StoreDrizzle) =>
+  db.run(sql`DROP TRIGGER IF EXISTS conversations_au`),
+)
 
 /** The ids are ONE bound json_each parameter, `ids`, so the statement has one shape. */
 const deleteMachineConversations = prepared((db: StoreDrizzle) =>
@@ -120,7 +135,12 @@ const curatedConversationsOf = preparedFamily((db: StoreDrizzle, size: number) =
   db
     .select({ id: conversations.id, name: conversations.name, summary: conversations.summary })
     .from(conversations)
-    .where(and(inListOf(conversations.id, size), or(isNotNull(conversations.name), isNotNull(conversations.summary))))
+    .where(
+      and(
+        inListOf(conversations.id, size),
+        or(isNotNull(conversations.name), isNotNull(conversations.summary)),
+      ),
+    )
     .prepare(),
 )
 
@@ -169,7 +189,10 @@ const machinePathFilter = (path: string): SQL => {
 }
 
 /** The bound values of {@link machinePathFilter} for a requested project path. */
-function pathFilterOf(projectPath: string | undefined): { path: PathShape; values: Record<string, unknown> } {
+function pathFilterOf(projectPath: string | undefined): {
+  path: PathShape
+  values: Record<string, unknown>
+} {
   const machineKey = projectPath ? machinePathKey(projectPath) : undefined
   if (machineKey && machinePathSeparator(machineKey) === '\\') {
     const prefix = machineKey + (machineKey.endsWith('\\') ? '' : '\\')
@@ -240,9 +263,7 @@ export class ConversationIndexRepository {
   private ftsAvailable = false
   private readonly rootDb: StoreDrizzle
   protected readonly createOrJoinTransaction: TransactionRunner
-  constructor(
-    queries: StoreQueries,
-  ) {
+  constructor(queries: StoreQueries) {
     this.rootDb = queries.rootDb
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
@@ -313,7 +334,10 @@ export class ConversationIndexRepository {
    * like any other value. A row that would change still changes; only a write
    * with nothing to say is skipped.
    */
-  async upsert(rows: (ConversationIndexRow & { machineId: MachineId })[]): Promise<void> {
+  async upsert(
+    _scope: WriteScope,
+    rows: (ConversationIndexRow & { machineId: MachineId })[],
+  ): Promise<void> {
     if (rows.length === 0) return
     // One statement for the whole report, in its order: a conversation offered
     // twice is inserted, then updated by its later offer, as one upsert per row did.
@@ -346,7 +370,7 @@ export class ConversationIndexRepository {
    * parameter; returns the ids actually deleted, which is what the change log
    * may remove.
    */
-  async delete(machineId: MachineId, ids: string[]): Promise<string[]> {
+  async delete(_scope: WriteScope, machineId: MachineId, ids: string[]): Promise<string[]> {
     if (ids.length === 0) return []
     const rows = await deleteMachineConversations(this.db).all({
       machineId,
@@ -356,7 +380,9 @@ export class ConversationIndexRepository {
   }
 
   /** The curated name and summary of each of these conversations that has one. */
-  async curatedMetaOf(ids: readonly string[]): Promise<Map<string, { name?: string; summary?: string }>> {
+  async curatedMetaOf(
+    ids: readonly string[],
+  ): Promise<Map<string, { name?: string; summary?: string }>> {
     const unique = [...new Set(ids)]
     const rows: { id: string; name: string | null; summary: string | null }[] = []
     for (let i = 0; i < unique.length; i += 500) {
@@ -375,13 +401,20 @@ export class ConversationIndexRepository {
     )
   }
 
-  async setMeta(id: string, meta: { name?: string; summary?: string }): Promise<void> {
+  async setMeta(
+    _scope: WriteScope,
+    id: string,
+    meta: { name?: string; summary?: string },
+  ): Promise<void> {
     const present = await conversationPresent(this.db).get({ id })
     if (!present) {
-      throw new Error(`conversation ${id} has not been reported by a daemon; metadata cannot be set before discovery`)
+      throw new Error(
+        `conversation ${id} has not been reported by a daemon; metadata cannot be set before discovery`,
+      )
     }
     if (meta.name !== undefined) await setConversationName(this.db).run({ id, name: meta.name })
-    if (meta.summary !== undefined) await setConversationSummary(this.db).run({ id, summary: meta.summary })
+    if (meta.summary !== undefined)
+      await setConversationSummary(this.db).run({ id, summary: meta.summary })
   }
 
   /**
@@ -395,7 +428,10 @@ export class ConversationIndexRepository {
    * through the query layer now, and every value is still a bound parameter, so
    * the projectPath filter is a fragment rather than string concatenation.
    */
-  async searchCandidates(opts: { query: string; projectPath?: string }): Promise<ConversationIndexRow[]> {
+  async searchCandidates(opts: {
+    query: string
+    projectPath?: string
+  }): Promise<ConversationIndexRow[]> {
     const { path, values } = pathFilterOf(opts.projectPath)
     const query = opts.query.trim()
     let rows: Record<string, unknown>[]
@@ -407,7 +443,10 @@ export class ConversationIndexRepository {
         .join(' ')
       rows = await executeRaw(searchConversations(this.db, `fts|${path}`), { ...values, fts })
     } else {
-      rows = await executeRaw(searchConversations(this.db, `like|${path}`), { ...values, like: `%${query}%` })
+      rows = await executeRaw(searchConversations(this.db, `like|${path}`), {
+        ...values,
+        like: `%${query}%`,
+      })
     }
     return rows.map(toIndexRow)
   }
@@ -447,10 +486,18 @@ export class ConversationIndexRepository {
     return rows.map(toIndexRow)
   }
 
-  async search(opts: { query?: string; projectPath?: string; limit?: number }): Promise<ConversationIndexRow[]> {
+  async search(opts: {
+    query?: string
+    projectPath?: string
+    limit?: number
+  }): Promise<ConversationIndexRow[]> {
     const limit = Math.min(200, Math.max(1, opts.limit ?? 50))
     const query = opts.query?.trim() ?? ''
-    if (!query) return await this.recentPage({ ...(opts.projectPath ? { projectPath: opts.projectPath } : {}), limit })
+    if (!query)
+      return await this.recentPage({
+        ...(opts.projectPath ? { projectPath: opts.projectPath } : {}),
+        limit,
+      })
     return (await this.searchCandidates({ ...opts, query })).slice(0, limit)
   }
 }

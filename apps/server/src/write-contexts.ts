@@ -69,6 +69,10 @@ export const SYSTEM_WRITE_ORIGINS = {
     what: 'an approved server op (a one-off automation), run by the approval.execute effect after its decision commits',
     kind: 'server',
   },
+  'conversations.discovery': {
+    what: "a daemon's conversation discovery report and the list reconcile that follows (the memory service)",
+    kind: 'server',
+  },
   'machines.projection': {
     what: "a machine's display projection, republished whenever its row changes",
     kind: 'mirror',
@@ -96,11 +100,6 @@ export const SYSTEM_WRITE_ORIGINS = {
   },
   sessions: {
     what: 'session writes: sync commands and daemon reports, at persist',
-    kind: 'client',
-    legacy: UNTIL_CONTEXT_PER_CALL,
-  },
-  conversations: {
-    what: 'conversation discovery, meta and list reconciles (the memory service), and conversation commands',
     kind: 'client',
     legacy: UNTIL_CONTEXT_PER_CALL,
   },

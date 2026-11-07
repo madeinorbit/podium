@@ -1,4 +1,3 @@
-import { asSessionId } from '@podium/model'
 import type {
   ConversationDiagnosticWire,
   ConversationId,
@@ -6,18 +5,20 @@ import type {
   MachineId,
   SessionId,
 } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import type { MetadataChange } from '@podium/protocol'
 import {
   type BaselineFoldPort,
   type EntityChangeSpec,
   type LedgerCommitOp,
   type LedgerCommitResult,
+  type LedgerWriter,
   StagedProjection,
 } from '@podium/sync'
+import { transcriptRecordMapperFor } from '../../harness-manifest'
 import type { SessionStore } from '../../store'
 import type { ConversationPageCursor } from '../../store/conversations/index'
 import type { DaemonRequestPort } from '../daemon-request'
-import { transcriptRecordMapperFor } from '../../harness-manifest'
 import { type LakeReadSession, TranscriptLake } from './lake'
 import { MemorySearchService } from './search'
 import type { MemoryReader } from './types'
@@ -35,6 +36,13 @@ export class ConversationNotFound extends Error {
   }
 }
 
+/** What a conversation command writes through: the command's own writer. */
+export type ConversationCommandWriter = Pick<LedgerWriter, 'commit'>
+
+/**
+ * The memory service's own writer, a `server` origin (`conversations.discovery`):
+ * a daemon's discovery report, its list reconcile. Never a command's.
+ */
 export interface MemoryLedger {
   commit<T>(operation: LedgerCommitOp<T>): LedgerCommitResult<T> | Promise<LedgerCommitResult<T>>
   reconcile(
@@ -110,7 +118,9 @@ export class MemoryService {
         // here at the composition root; the lake parses only through the Store.
         parseForAgentKind: (agentKind) => transcriptRecordMapperFor(agentKind),
         findSessionByNativeId: async (_machineId, nativeId) => {
-          const row = (await deps.store.sessions.findSessionsByResumeValues([nativeId])).get(nativeId)
+          const row = (await deps.store.sessions.findSessionsByResumeValues([nativeId])).get(
+            nativeId,
+          )
           return row ? { agentKind: row.agentKind as LakeReadSession['agentKind'] } : undefined
         },
       },
@@ -141,6 +151,12 @@ export class MemoryService {
     return new MemoryReaderView(this, reader)
   }
 
+  /** A reader's view that may also write, through the writer of the command
+   *  that asked (ADR 12 D9, POD-6594). */
+  forCommand(reader: MemoryReader, writer: ConversationCommandWriter): MemoryCommandView {
+    return new MemoryCommandView(this, reader, writer)
+  }
+
   allConversations(): ConversationSummaryWire[] {
     return this.latestConversations.read()
   }
@@ -159,7 +175,9 @@ export class MemoryService {
       this.machineByConversation.set(conversation.id, machineId)
     for (const id of removed)
       if (this.machineByConversation.get(id) === machineId) this.machineByConversation.delete(id)
-    this.latestConversations.install(await this.indexConversations(conversations, machineId, removed))
+    this.latestConversations.install(
+      await this.indexConversations(conversations, machineId, removed),
+    )
     this.latestDiagnostics = diagnostics
     this.broadcastDiagnostics()
   }
@@ -182,9 +200,15 @@ export class MemoryService {
     const children = conversations.filter((conversation) => conversation.parentConversationId)
     const podiumIds = await registry.ensureMany(
       machineId,
-      roots.map((conversation) => ({ nativeId: conversation.id, providerId: conversation.providerId, ...fileOf(conversation) })),
+      roots.map((conversation) => ({
+        nativeId: conversation.id,
+        providerId: conversation.providerId,
+        ...fileOf(conversation),
+      })),
     )
-    const unreported = children.filter((conversation) => !podiumIds.has(conversation.parentConversationId!))
+    const unreported = children.filter(
+      (conversation) => !podiumIds.has(conversation.parentConversationId!),
+    )
     if (unreported.length > 0) {
       const parents = await registry.ensureMany(
         machineId,
@@ -208,7 +232,9 @@ export class MemoryService {
       for (const conversation of children) podiumIds.set(conversation.id, ids.get(conversation.id)!)
     }
 
-    const curated = await this.deps.store.conversations.index.curatedMetaOf(conversations.map((conversation) => conversation.id))
+    const curated = await this.deps.store.conversations.index.curatedMetaOf(
+      conversations.map((conversation) => conversation.id),
+    )
     const enriched = conversations.map((conversation) => ({
       ...conversation,
       ...(podiumIds.get(conversation.id)
@@ -217,8 +243,9 @@ export class MemoryService {
       ...(curated.get(conversation.id) ?? {}),
     }))
     await this.deps.ledger.commit({
-      write: async () => {
+      write: async (scope) => {
         await this.deps.store.conversations.index.upsert(
+          scope,
           conversations.map((conversation) => ({
             id: conversation.id,
             agentKind: conversation.agentKind,
@@ -241,7 +268,7 @@ export class MemoryService {
               : {}),
           })),
         )
-        return await this.deps.store.conversations.index.delete(machineId, removed)
+        return await this.deps.store.conversations.index.delete(scope, machineId, removed)
       },
       changes: (deleted) => [
         ...enriched.map(
@@ -295,6 +322,7 @@ export class MemoryService {
   }
 
   async setConversationMeta(
+    writer: ConversationCommandWriter,
     reader: MemoryReader,
     input: { id: string; name?: string; summary?: string },
   ): Promise<void> {
@@ -308,11 +336,11 @@ export class MemoryService {
     if (
       !current ||
       !machineId ||
-      !await this.visibility.mayRead(reader, {
+      !(await this.visibility.mayRead(reader, {
         class: 'conversation',
         machineId,
         nativeId: input.id,
-      })
+      }))
     ) {
       // Invisible and nonexistent are deliberately identical.
       throw new ConversationNotFound()
@@ -322,8 +350,9 @@ export class MemoryService {
       ...(input.name !== undefined ? { name: input.name } : {}),
       ...(input.summary !== undefined ? { summary: input.summary } : {}),
     }
-    await this.deps.ledger.commit({
-      write: async () => await this.deps.store.conversations.index.setMeta(input.id, input),
+    await writer.commit({
+      write: async (scope) =>
+        await this.deps.store.conversations.index.setMeta(scope, input.id, input),
       changes: () => [
         {
           entity: 'conversation',
@@ -358,7 +387,7 @@ export class MemoryService {
     machineId: MachineId,
     nativeId: string,
   ): Promise<ConversationId | undefined> {
-    if (!await this.visibility.mayRead(reader, { class: 'conversation', machineId, nativeId })) {
+    if (!(await this.visibility.mayRead(reader, { class: 'conversation', machineId, nativeId }))) {
       return undefined
     }
     return await this.deps.store.conversations.registry.podiumId(machineId, nativeId)
@@ -372,7 +401,7 @@ export class MemoryService {
     reader: MemoryReader,
     session: { id: string; machineId: MachineId; resume?: { value: string } },
   ): Promise<{ pathHint: string } | undefined> {
-    if (!await this.canReadSession(reader, asSessionId(session.id))) return undefined
+    if (!(await this.canReadSession(reader, asSessionId(session.id)))) return undefined
     const nativeId = session.resume?.value
     return nativeId ? await this.lake.pathHint(session.machineId, nativeId) : undefined
   }
@@ -454,8 +483,20 @@ export class MemoryReaderView {
   async search(opts: { text: string; limit?: number; now?: () => number }) {
     return await this.memory.search(this.reader, opts)
   }
+}
+
+/** A reader's view with the writer of one command: the only way a conversation
+ *  command writes (ADR 12 D9, POD-6594). */
+export class MemoryCommandView extends MemoryReaderView {
+  constructor(
+    private readonly service: MemoryService,
+    reader: MemoryReader,
+    private readonly writer: ConversationCommandWriter,
+  ) {
+    super(service, reader)
+  }
 
   async setConversationMeta(input: { id: string; name?: string; summary?: string }): Promise<void> {
-    await this.memory.setConversationMeta(this.reader, input)
+    await this.service.setConversationMeta(this.writer, this.reader, input)
   }
 }

@@ -1,5 +1,6 @@
 import { asIssueId, asMachineId, asThreadId, asUserId, firstAdminMemberId } from '@podium/model'
 import { SearchResultWire } from '@podium/protocol'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { resolvePrincipal, userCommandPrincipal } from './command-principal'
@@ -41,7 +42,10 @@ async function attachFixtureDaemon(registry: SessionRegistry): Promise<void> {
     assignment: { server: false, agentExecution: true },
   })
   for (const path of ['/repo', '/private']) await store.repos.addRepo(path, asMachineId('m1'))
-  await registry.gateway.attachDaemon('m1', confirmingRetirement(registry, 'm1', () => {}))
+  await registry.gateway.attachDaemon(
+    'm1',
+    confirmingRetirement(registry, 'm1', () => {}),
+  )
 }
 
 /** The statements of `tally` that read `table`, and the queries for a failure message. */
@@ -65,7 +69,10 @@ async function settle(registry: SessionRegistry): Promise<void> {
   await quietShipping(registry)
   registry.modules.funnel.flushDeltas()
   for (let attempt = 0; attempt < 40; attempt++) {
-    const window = await countStatements(registry.sessionStore, () => new Promise((resolve) => setTimeout(resolve, 25)))
+    const window = await countStatements(
+      registry.sessionStore,
+      () => new Promise((resolve) => setTimeout(resolve, 25)),
+    )
     if (window.statements === 0) return
   }
   throw new Error('the fixture kept running statements')
@@ -131,7 +138,7 @@ describe('MemoryService omni-search', () => {
       sessionId: conversationSessionId,
       resume: { kind: 'claude-session', value: 'native-conv' },
     })
-    await store.conversations.index.upsert([
+    await store.conversations.index.upsert(fixtureWriteScope(), [
       {
         id: 'native-conv',
         agentKind: 'claude-code',
@@ -202,9 +209,9 @@ describe('MemoryService omni-search', () => {
 
   it('transcript hits carry an FTS snippet with match markers and registry refs', async () => {
     const { store, registry } = await seed()
-    const hit = (await registry.modules.memory
-      .search(READER, { text: 'capacitor' }))
-      .find((r) => r.kind === 'transcript')
+    const hit = (await registry.modules.memory.search(READER, { text: 'capacitor' })).find(
+      (r) => r.kind === 'transcript',
+    )
     expect(hit?.snippet).toContain('**capacitor**')
     expect(hit?.machineId).toBe('m1')
     expect(hit?.podiumId).toMatch(/^conv_/)
@@ -212,9 +219,9 @@ describe('MemoryService omni-search', () => {
 
   it('resolves a live sessionId on a transcript hit when a session resumes that native id', async () => {
     const { registry, sessionId } = await seed()
-    const hit = (await registry.modules.memory
-      .search(READER, { text: 'engine.ts' }))
-      .find((r) => r.kind === 'transcript')
+    const hit = (await registry.modules.memory.search(READER, { text: 'engine.ts' })).find(
+      (r) => r.kind === 'transcript',
+    )
     expect(hit?.sessionId).toBe(sessionId)
   })
 
@@ -262,7 +269,9 @@ describe('MemoryService omni-search', () => {
 
     let counted: StatementTally
     try {
-      counted = await countStatements(store, () => registry.modules.memory.search(READER, { text: 'capacitor' }))
+      counted = await countStatements(store, () =>
+        registry.modules.memory.search(READER, { text: 'capacitor' }),
+      )
     } finally {
       store.sessions.loadSessions = loadSessions
     }
@@ -335,7 +344,7 @@ describe('MemoryService omni-search', () => {
         sessionId,
         resume: { kind: 'claude-session', value: nativeId },
       })
-      await store.conversations.index.upsert([
+      await store.conversations.index.upsert(fixtureWriteScope(), [
         {
           id: nativeId,
           agentKind: 'claude-code',
@@ -378,11 +387,15 @@ describe('MemoryService omni-search', () => {
     // CONTROL ARM: the same checks asked one row at a time, with no batch read
     // first, run the two reads per row the pin above would show if the pass
     // stopped batching, and allow the same rows.
-    const perRow = await new MemoryVisibilityPolicy(store).forRequest(await store.sessions.loadSessions())
+    const perRow = await new MemoryVisibilityPolicy(store).forRequest(
+      await store.sessions.loadSessions(),
+    )
     const unbatched = await countStatements(store, () =>
-      Promise.all(conversationIds.map((nativeId) =>
-        perRow.mayRead(READER, { class: 'conversation', machineId: asMachineId('m1'), nativeId }),
-      )),
+      Promise.all(
+        conversationIds.map((nativeId) =>
+          perRow.mayRead(READER, { class: 'conversation', machineId: asMachineId('m1'), nativeId }),
+        ),
+      ),
     )
     expect(unbatched.result).toEqual([true, true, true, true])
     const perRowSegments = readsOf(unbatched, 'conversation_segments')
@@ -418,7 +431,7 @@ describe('search.query tRPC', () => {
       sessionId,
       resume: { kind: 'claude-session', value: 'classified-native' },
     })
-    await store.conversations.index.upsert([
+    await store.conversations.index.upsert(fixtureWriteScope(), [
       {
         id: 'classified-native',
         agentKind: 'claude-code',
@@ -506,9 +519,9 @@ describe('search.query tRPC', () => {
       ],
       100,
     )
-    const before = (await registry.modules.memory
-      .search(READER, { text: 'rankneedle' }))
-      .find((hit) => hit.kind === 'transcript')
+    const before = (await registry.modules.memory.search(READER, { text: 'rankneedle' })).find(
+      (hit) => hit.kind === 'transcript',
+    )
     expect(before?.id).toBe('visible-rank-message')
     await bind(bob, 'hidden-rank', '/hidden')
     await store.conversations.transcriptIndex.append(
@@ -522,16 +535,18 @@ describe('search.query tRPC', () => {
       ],
       100,
     )
-    const after = (await registry.modules.memory
-      .search(READER, { text: 'rankneedle' }))
-      .find((hit) => hit.kind === 'transcript')
+    const after = (await registry.modules.memory.search(READER, { text: 'rankneedle' })).find(
+      (hit) => hit.kind === 'transcript',
+    )
     expect(after?.id).toBe(before?.id)
     expect(after?.score).toBe(before?.score)
   })
 
   it('defaults unknown memory classes closed and counts to the visible slice', async () => {
     const store = await openTestStore(':memory:')
-    expect(await new MemoryVisibilityPolicy(store).mayRead(READER, { class: 'future-kind' })).toBe(false)
+    expect(await new MemoryVisibilityPolicy(store).mayRead(READER, { class: 'future-kind' })).toBe(
+      false,
+    )
     expect(MEMORY_EXISTENCE_POLICY).toEqual({ counts: 'visible-slice', facets: 'visible-slice' })
     await store.close()
   })
@@ -541,7 +556,11 @@ describe('search.query tRPC', () => {
     registries.push(registry)
     await attachHostDaemon(registry, () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
-    const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
+    const superagent = await SuperagentService.create(
+      registry.modules,
+      repos,
+      registry.sessionStore,
+    )
     return {
       registry,
       trpc: appRouter.createCaller({

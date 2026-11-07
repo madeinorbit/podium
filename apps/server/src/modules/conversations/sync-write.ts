@@ -11,7 +11,11 @@
  */
 
 import { asUserId } from '@podium/model'
-import { ConversationNotFound, type MemoryReaderView } from '../memory/service'
+import {
+  ConversationNotFound,
+  type MemoryCommandView,
+  type MemoryReaderView,
+} from '../memory/service'
 import { humanWithRoleFloor, type SyncFamily, type SyncFamilyState } from '../sync-write/family'
 import { CONVERSATION_COMMANDS_TRPC } from './registry'
 
@@ -21,12 +25,18 @@ export const selectConversationReader = (
 ): MemoryReaderView =>
   state.modules.memory.forReader({ kind: 'user', id: asUserId(state.caller.userId) })
 
+/** The command side: the caller's view, with the command's own writer. */
+export const selectConversationCommands = (
+  state: Pick<SyncFamilyState, 'modules' | 'caller' | 'writer'>,
+): MemoryCommandView =>
+  state.modules.memory.forCommand({ kind: 'user', id: asUserId(state.caller.userId) }, state.writer)
+
 export const CONVERSATION_SYNC_FAMILY: SyncFamily<
-  MemoryReaderView,
+  MemoryCommandView,
   typeof CONVERSATION_COMMANDS_TRPC
 > = {
   family: 'conversations',
-  service: selectConversationReader,
+  service: selectConversationCommands,
   commands: CONVERSATION_COMMANDS_TRPC,
   target: async (contract, _input, ctx) => await humanWithRoleFloor(contract, ctx),
   refusalOf: (error) =>

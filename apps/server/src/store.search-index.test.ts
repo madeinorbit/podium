@@ -2,6 +2,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from './store'
 import { forceFeature } from './test-support/features'
@@ -75,8 +76,10 @@ describe('search index gate', () => {
     // The whole point of dropping the triggers first: `conversations` stays
     // writable. A trigger pointing at a table that is not there fails EVERY
     // insert, update and delete on the row it hangs off.
-    await store.conversations.index.upsert([conversation(store)])
-    await store.conversations.index.upsert([conversation(store, { title: 'renamed' })])
+    await store.conversations.index.upsert(fixtureWriteScope(), [conversation(store)])
+    await store.conversations.index.upsert(fixtureWriteScope(), [
+      conversation(store, { title: 'renamed' }),
+    ])
 
     // And search still answers — through the LIKE fallback that has always
     // covered builds without FTS5.
@@ -99,7 +102,7 @@ describe('search index gate', () => {
       'conversations_au',
     ])
 
-    await store.conversations.index.upsert([conversation(store)])
+    await store.conversations.index.upsert(fixtureWriteScope(), [conversation(store)])
     expect(
       (await store.conversations.index.searchCandidates({ query: 'capacitor' })).map((r) => r.id),
     ).toEqual(['native-a'])
@@ -110,7 +113,7 @@ describe('search index gate', () => {
 
     forceFeature('command-palette', true)
     const first = await open(path)
-    await first.conversations.index.upsert([conversation(first)])
+    await first.conversations.index.upsert(fixtureWriteScope(), [conversation(first)])
     const machineId = first.hostMachineId
     await first.close()
     stores.pop()
@@ -124,7 +127,7 @@ describe('search index gate', () => {
     expect(hasTable(off, 'conversations_fts')).toBe(true)
     expect(hasTable(off, 'transcript_fts')).toBe(true)
     // A row written while search is off is invisible to fts5 — nothing feeds it.
-    await off.conversations.index.upsert([
+    await off.conversations.index.upsert(fixtureWriteScope(), [
       conversation(off, { id: 'native-b', title: 'written while search was off', machineId }),
     ])
     await off.close()
@@ -179,16 +182,19 @@ describe('search index gate', () => {
   })
 })
 
-
 it.each([
   ['/repo', '/repo/wt', '/repository'],
   ['C:\\repo', 'c:/REPO/wt', 'C:\\repository'],
 ])('machine paths: conversation repo search for %s', async (root, child, sibling) => {
   const store = await open(':memory:')
-  await store.conversations.index.upsert([
+  await store.conversations.index.upsert(fixtureWriteScope(), [
     conversation(store, { id: 'root', projectPath: root }),
     conversation(store, { id: 'child', projectPath: child }),
     conversation(store, { id: 'sibling', projectPath: sibling }),
   ])
-  expect((await store.conversations.index.recentPage({ projectPath: root, limit: 10 })).map(r => r.id).sort()).toEqual(['child', 'root'])
+  expect(
+    (await store.conversations.index.recentPage({ projectPath: root, limit: 10 }))
+      .map((r) => r.id)
+      .sort(),
+  ).toEqual(['child', 'root'])
 })

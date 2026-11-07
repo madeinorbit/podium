@@ -78,7 +78,7 @@ async function seedConversations(reg: SessionRegistry, count: number): Promise<n
     op: 'upsert',
     value: { id: `conv-${i}`, machineId: 'm1', nativeId: `conv-${i}` },
   }))
-  return (await internals(reg).writes.system('conversations').capture(specs)).length
+  return (await internals(reg).writes.system('conversations.discovery').capture(specs)).length
 }
 
 /** How many times a bootstrap loads the WHOLE sessions table. */
@@ -352,7 +352,7 @@ async function seedGrantedIssues(reg: SessionRegistry, count: number): Promise<n
   }
   return (
     await internals(reg)
-      .writes.system('conversations')
+      .writes.system('conversations.discovery')
       .capture(
         ids.map(
           (id) =>
@@ -487,7 +487,7 @@ describe('POD-6155 — feed passes read grants in one grouped query', () => {
       const publish = () =>
         grantReadsDuring(reg, async () => {
           await internals(reg)
-            .writes.system('conversations')
+            .writes.system('conversations.discovery')
             .capture(
               Array.from({ length: 50 }, (_, i) => ({
                 entity: 'session',

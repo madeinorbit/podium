@@ -1,6 +1,6 @@
 import { type MatrixRow, OWNERSHIP_MATRIX } from '@podium/model'
 import { Ledger } from '@podium/sync'
-import { testLedgerWriter } from '@podium/sync/testing'
+import { fixtureWriteScope, testLedgerWriter } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import type { SessionStore } from './store'
 import { applyAfterCommit, spanOpen } from './store/executor/executor'
@@ -90,7 +90,7 @@ describe("Ledger.commit's apply arm runs on the outermost commit (POD-3366)", ()
       store.transact(async () => {
         await testLedgerWriter(ledger).commit({
           write: async () => {
-            await store.conversations.index.upsert([
+            await store.conversations.index.upsert(fixtureWriteScope(), [
               { ...conversationRow('c-rolled-back'), machineId: store.hostMachineId },
             ])
           },

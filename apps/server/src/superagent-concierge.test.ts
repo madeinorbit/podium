@@ -8,6 +8,7 @@ import {
   type UnbrandIds,
 } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { Hono } from 'hono'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { IssueToolProvider } from './issue-mcp'
@@ -494,7 +495,11 @@ describe('concierge threads (issue #64)', () => {
 
     it('attaches the confirmed-gate for a concierge thread token', async () => {
       const { registry, sa, call } = await httpHarness()
-      const issue = await registry.issues.crud.create({ repoPath: '/r', title: 'X', startNow: false })
+      const issue = await registry.issues.crud.create({
+        repoPath: '/r',
+        title: 'X',
+        startNow: false,
+      })
       const tok = sa.mcpThreadToken(conciergeThreadId('/r'))
       // Start-capable tools without confirmed → refused over HTTP, nothing spawned.
       expect(await call('issue_start', { id: issue.id }, tok)).toBe(NOT_CONFIRMED_MSG)
@@ -586,7 +591,7 @@ describe('search_all tool', () => {
       sessionId,
       resume: { kind: 'claude-session', value: 'native-conv' },
     })
-    await registry.sessionStore.conversations.index.upsert([
+    await registry.sessionStore.conversations.index.upsert(fixtureWriteScope(), [
       {
         id: 'native-conv',
         agentKind: 'claude-code',
@@ -642,7 +647,9 @@ describe('list_sessions boundIssue', () => {
       { repoPath: '/r', title: 'Worktree work', start: true, confirmed: true },
       conciergeThreadId('/r'),
     )
-    const issue = (await registry.issues.reports.list('/r')).find((i) => i.title === 'Worktree work')
+    const issue = (await registry.issues.reports.list('/r')).find(
+      (i) => i.title === 'Worktree work',
+    )
     expect(issue?.worktreePath).toBeTruthy()
     // A second session inside the issue worktree, one outside.
     await registry.modules.sessions.createSession({
@@ -701,15 +708,25 @@ describe('thread ownership after administrator removal', () => {
   })
 })
 
-
-it.each(['/src/podium', 'C:\\src\\podium'])('machine paths: global digest and concierge titles for %s', async repoPath => {
-  const text = buildGlobalSeed({ repos: [{ repoPath, worktrees: 1, issues: 1, ready: 1, inProgress: 0, needsHuman: 1 }], sessions: [], questions: [{ repoPath, seq: 1 }], events: [], maxEventId: 0 })
+it.each([
+  '/src/podium',
+  'C:\\src\\podium',
+])('machine paths: global digest and concierge titles for %s', async (repoPath) => {
+  const text = buildGlobalSeed({
+    repos: [{ repoPath, worktrees: 1, issues: 1, ready: 1, inProgress: 0, needsHuman: 1 }],
+    sessions: [],
+    questions: [{ repoPath, seq: 1 }],
+    events: [],
+    maxEventId: 0,
+  })
   expect(text).toContain('- podium (')
   expect(text).toContain('- podium #1')
   const { registry, sa } = await harness()
   await registry.sessionStore.repos.addRepo(repoPath, registry.sessionStore.hostMachineId)
   const thread = await sa.ensureConciergeThread({ ownerUserId: firstAdminMemberId(), repoPath })
-  expect((await sa.listThreads(firstAdminMemberId())).find(t => t.id === thread.threadId)?.title).toBe('concierge · podium')
+  expect(
+    (await sa.listThreads(firstAdminMemberId())).find((t) => t.id === thread.threadId)?.title,
+  ).toBe('concierge · podium')
 })
 
 it('machine paths: Windows concierge identity folds separators and drive case', () => {
@@ -717,20 +734,28 @@ it('machine paths: Windows concierge identity folds separators and drive case', 
   expect(conciergeRepoPath(conciergeThreadId('C:\\src\\podium'))).toBe('c:\\src\\podium')
 })
 
-it.each(['/src/podium', String.raw`C:\Src\Podium`])('machine paths: session title and concierge repo usage under %s', async cwd => {
+it.each([
+  '/src/podium',
+  String.raw`C:\Src\Podium`,
+])('machine paths: session title and concierge repo usage under %s', async (cwd) => {
   const { registry, sa, turnReqs, settle } = await harness()
   await registry.sessionStore.repos.addRepo(cwd, registry.sessionStore.hostMachineId)
   expect(await registry.sessionStore.repos.listRepoPaths()).toContain(cwd)
-  const created = await registry.modules.sessions.createSession({ agentKind: 'claude-code', cwd: cwd + '/src' })
+  const created = await registry.modules.sessions.createSession({
+    agentKind: 'claude-code',
+    cwd: cwd + '/src',
+  })
   const session = await registry.modules.sessions.sessionById(created.sessionId)
   expect(session?.title).toBe('src')
   expect(session?.cwd).toBe(cwd + '/src')
-  await registry.modules.sessions.renameSession({ sessionId: created.sessionId, name: 'path regression worker' })
+  await registry.modules.sessions.renameSession({
+    sessionId: created.sessionId,
+    name: 'path regression worker',
+  })
   await sa.conciergeTurn({ ownerUserId: firstAdminMemberId(), repoPath: cwd, text: 'status?' })
   await settle()
   expect(turnReqs.at(-1)?.contextPrompt).toContain('path regression worker · claude-code')
 })
-
 
 it('keeps malformed Windows identity/display paths non-throwing without Unicode key aliases', () => {
   const path = String.raw`C:\repo\...`

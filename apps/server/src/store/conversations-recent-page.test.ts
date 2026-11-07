@@ -1,4 +1,5 @@
 import { asMachineId } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
@@ -53,7 +54,7 @@ describe('ConversationIndexRepository.recentPage', () => {
   }
 
   beforeEach(async () => {
-    await store.conversations.index.upsert([
+    await store.conversations.index.upsert(fixtureWriteScope(), [
       conversation('old', { updatedAt: '2026-10-01T00:00:00.000Z' }),
       conversation('tie-a', { updatedAt: '2026-10-02T00:00:00.000Z' }),
       conversation('tie-b', { updatedAt: '2026-10-02T00:00:00.000Z' }),
@@ -68,14 +69,9 @@ describe('ConversationIndexRepository.recentPage', () => {
   })
 
   it('reads newest first, ties by id, rows with no updated_at last, and skips subagents', async () => {
-    expect((await store.conversations.index.recentPage({ limit: 10 })).map((row) => row.id)).toEqual([
-      'new',
-      'tie-b',
-      'tie-a',
-      'old',
-      'undated-b',
-      'undated-a',
-    ])
+    expect(
+      (await store.conversations.index.recentPage({ limit: 10 })).map((row) => row.id),
+    ).toEqual(['new', 'tie-b', 'tie-a', 'old', 'undated-b', 'undated-a'])
   })
 
   it('walks every page by the last row, across the dated and undated rows, without a repeat or a gap', async () => {
@@ -88,7 +84,14 @@ describe('ConversationIndexRepository.recentPage', () => {
       ['new', 'tie-b', 'tie-a'],
       ['old', 'undated-b', 'undated-a'],
     ])
-    expect((await walk(1)).flat()).toEqual(['new', 'tie-b', 'tie-a', 'old', 'undated-b', 'undated-a'])
+    expect((await walk(1)).flat()).toEqual([
+      'new',
+      'tie-b',
+      'tie-a',
+      'old',
+      'undated-b',
+      'undated-a',
+    ])
   })
 
   it('keeps the project path filter on every page', async () => {

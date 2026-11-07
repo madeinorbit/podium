@@ -1,5 +1,5 @@
 import { Ledger } from '@podium/sync'
-import { testLedgerWriter } from '@podium/sync/testing'
+import { fixtureWriteScope, testLedgerWriter } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import type { SessionStore } from './store'
 import { applyAfterCommit, spanOpen } from './store/executor/executor'
@@ -54,7 +54,7 @@ describe('dedup follows the outermost commit (POD-3328)', () => {
         // and RELEASES when this callback returns.
         await testLedgerWriter(ledger).commit({
           write: async () => {
-            await store.conversations.index.upsert([
+            await store.conversations.index.upsert(fixtureWriteScope(), [
               { ...conversationRow('c-rolled-back'), machineId: store.hostMachineId },
             ])
           },
@@ -130,7 +130,7 @@ describe('dedup follows the outermost commit (POD-3328)', () => {
     await store.transact(async () => {
       await testLedgerWriter(ledger).commit({
         write: async () => {
-          await store.conversations.index.upsert([
+          await store.conversations.index.upsert(fixtureWriteScope(), [
             { ...conversationRow('c-kept'), machineId: store.hostMachineId },
           ])
         },

@@ -1,8 +1,9 @@
-import { asMachineId } from '@podium/model'
 import type { ConversationSummaryWire } from '@podium/model'
+import { asMachineId, asMutationId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import { openTestStore } from '../../test-support/open-test-store'
+import type { WriteContexts } from '../../write-contexts'
 
 /**
  * THE CONVERSATION LIST WAITS FOR THE OUTERMOST COMMIT [POD-3366, sites 9 and
@@ -23,6 +24,14 @@ import { openTestStore } from '../../test-support/open-test-store'
  * the fold port is COMPOSITION: a service constructed without it installs
  * immediately and every assertion below would be vacuous.
  */
+
+/** A device's command writer, as `sync.submit` mints one (ADR 12 D9). */
+let commandN = 0
+const commandWriter = (registry: SessionRegistry) =>
+  (registry as unknown as { writes: WriteContexts }).writes.sync(
+    asMutationId(`m-conversation-${++commandN}`),
+  )
+
 describe('the memory conversation list waits for the outermost commit (POD-3366)', () => {
   const registries: SessionRegistry[] = []
   afterEach(async () => {
@@ -33,7 +42,12 @@ describe('the memory conversation list waits for the outermost commit (POD-3366)
     const store = await openTestStore(':memory:')
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
-    return { store, registry, memory: registry.modules.memory }
+    return {
+      store,
+      registry,
+      memory: registry.modules.memory,
+      writer: () => commandWriter(registry),
+    }
   }
 
   const machine = asMachineId('m1')
@@ -52,7 +66,8 @@ describe('the memory conversation list waits for the outermost commit (POD-3366)
   it('does not serve a discovery the enclosing span rolled back (site 9)', async () => {
     const { store, memory } = await build()
 
-    await expect(store.transact(async () => {
+    await expect(
+      store.transact(async () => {
         await memory.onDiscovery(machine, [conversation('c-rolled-back', 'draft')], [])
         // The savepoint has been released and the list is already installed
         // today. Read it here, inside the window the bug lived in: the staged
@@ -80,11 +95,12 @@ describe('the memory conversation list waits for the outermost commit (POD-3366)
   })
 
   it('does not serve a meta edit the enclosing span rolled back (site 10)', async () => {
-    const { store, memory } = await build()
+    const { store, memory, writer } = await build()
     await memory.onDiscovery(machine, [conversation('c-meta', 'original')], [])
 
-    await expect(store.transact(async () => {
-        await memory.setConversationMeta(SYSTEM_READER, { id: 'c-meta', name: 'renamed' })
+    await expect(
+      store.transact(async () => {
+        await memory.setConversationMeta(writer(), SYSTEM_READER, { id: 'c-meta', name: 'renamed' })
         throw new Error('enclosing span failed')
       }),
     ).rejects.toThrow('enclosing span failed')
@@ -100,12 +116,15 @@ describe('the memory conversation list waits for the outermost commit (POD-3366)
     // deferral the second edit would spread the PRE-span entry, and the name
     // the first edit set would be silently dropped from the value that finally
     // commits. The read-through staged layer is what keeps that honest.
-    const { store, memory } = await build()
+    const { store, memory, writer } = await build()
     await memory.onDiscovery(machine, [conversation('c-two', 'original')], [])
 
     await store.transact(async () => {
-      await memory.setConversationMeta(SYSTEM_READER, { id: 'c-two', name: 'renamed' })
-      await memory.setConversationMeta(SYSTEM_READER, { id: 'c-two', summary: 'a summary' })
+      await memory.setConversationMeta(writer(), SYSTEM_READER, { id: 'c-two', name: 'renamed' })
+      await memory.setConversationMeta(writer(), SYSTEM_READER, {
+        id: 'c-two',
+        summary: 'a summary',
+      })
     })
 
     const served = memory.allConversations().find((row) => row.id === 'c-two')

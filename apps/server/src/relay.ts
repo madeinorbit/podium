@@ -1307,7 +1307,7 @@ export class SessionRegistry {
         // Conversation writes commit through the write-seam ledger (#257):
         // discovery/meta commits + list reconciles append durably at
         // the write; the feed serves them (POD-1203 deleted the snapshot tail).
-        ledger: writes.system('conversations'),
+        ledger: writes.system('conversations.discovery'),
         // Scan diagnostics are not feed content and the v1 wire carried them
         // inside `conversationsChanged`; the edge re-serves them to the wire
         // versions that still need them (POD-1203).

@@ -1,4 +1,5 @@
 import type { MachineId } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { sql } from 'drizzle-orm'
 import type { SQLiteSession } from 'drizzle-orm/sqlite-core'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
@@ -50,7 +51,7 @@ const countPreparedQueryWork = (repository: object, targetSql: string): Counts =
 const conversationRows = (
   n: number,
   machineId: MachineId,
-): Parameters<SessionStore['conversations']['index']['upsert']>[0] =>
+): Parameters<SessionStore['conversations']['index']['upsert']>[1] =>
   Array.from({ length: n }, (_, i) => ({
     id: `conversation-${i}`,
     agentKind: 'claude-code',
@@ -71,7 +72,10 @@ const loops: MeasuredLoop[] = [
     targetSql: 'insert into "conversations"',
     repository: (store) => store.conversations.index,
     run: async (store, n) =>
-      await store.conversations.index.upsert(conversationRows(n, store.hostMachineId)),
+      await store.conversations.index.upsert(
+        fixtureWriteScope(),
+        conversationRows(n, store.hostMachineId),
+      ),
   },
   {
     name: 'SyncRepository.applyLatestChangeStates',
