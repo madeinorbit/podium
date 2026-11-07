@@ -68,6 +68,21 @@ import {
 import { AGENT_MANIFESTS, registerTestManifest, sectionStatusesOf } from './registry.js'
 import { transcriptSourceFromGrammar } from './store/store.js'
 
+// THE DAEMON'S OWN HOME IS A DECOY TOO. `os.homedir()` does not follow a
+// changed `process.env.HOME` under every runtime (Bun reads it once), so the
+// poisoned machine answers it explicitly: whatever HOME the process holds,
+// which below is the decoy home.
+vi.mock('node:os', async (importOriginal) => {
+  const real = await importOriginal<typeof import('node:os')>()
+  const homedir = (): string => process.env.HOME ?? real.homedir()
+  return { ...real, homedir, default: { ...real, homedir } }
+})
+vi.mock('os', async (importOriginal) => {
+  const real = await importOriginal<typeof import('node:os')>()
+  const homedir = (): string => process.env.HOME ?? real.homedir()
+  return { ...real, homedir, default: { ...real, homedir } }
+})
+
 // ---------------------------------------------------------------------------
 // The machine
 // ---------------------------------------------------------------------------
@@ -701,6 +716,14 @@ afterAll(() => {
 })
 
 describe('the poisoned machine (POD-6536)', () => {
+  it('every ambient answer is a decoy: HOME, homedir(), PATH and the selectors', async () => {
+    const os = await import('node:os')
+    expect(os.homedir()).toBe(world.decoyHome)
+    expect(process.env.HOME).toBe(world.decoyHome)
+    expect(process.env.PATH?.split(delimiter)[0]).toBe(world.decoyBin)
+    for (const name of SELECTORS) expect(process.env[name]).toBe(world.decoySelectors[name])
+  })
+
   it('the sentinels can see a read on this filesystem', () => {
     const probe = join(world.root, 'atime-probe')
     writeFileSync(probe, 'x')
