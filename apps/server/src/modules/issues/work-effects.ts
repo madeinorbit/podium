@@ -52,10 +52,12 @@
  * THE OLD COMMANDS ARE ADAPTERS. `IssueCommandDispatcher.run` sends these
  * commands here (every transport reaches it: the tRPC routes, the relay, MCP):
  * it creates the record through `sync.submit` as its caller, waits for it to
- * settle, and answers the command's old shape, or throws its old error. With no
- * daemon to run it now it creates nothing, and the old route answers as it always
- * did (session.launch's rule), its own refusals first. A stop always takes the
- * record path.
+ * settle, and answers the command's old shape, or throws its old error. The old
+ * command never does the work itself (POD-6603): with no daemon to run it now it
+ * creates nothing and answers at once, as `sessions.create` does
+ * (`refuseUnplaceable`, POD-6416): its own refusals and no-ops first, then the
+ * machine refusal; these are reads. A stop, the assistant and an answer need
+ * no daemon and always take the record path.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -65,6 +67,7 @@ import {
   type IssueId,
   type MachineId,
   type MutationId,
+  machineRejectionMessage,
   mintDeviceId,
   NewSessionId,
   type SessionId,
@@ -85,8 +88,13 @@ import {
   writingAgentOf,
 } from '../effects/writer'
 import { refusalAsTrpcError } from '../sync-write/route-adapter'
-import type { IssueCaller } from './command-ctx'
-import { type AnyIssueCommandDef, issueRegistry } from './registry'
+import { commandAccess, type IssueCaller } from './command-ctx'
+import {
+  type AnyIssueCommandDef,
+  assertStartable,
+  guardIssueCommand,
+  issueRegistry,
+} from './registry'
 import { isIssueNotFound } from './service/not-found'
 import { IssueRefusal, isIssueRefusal } from './service/refusal'
 import { issueTarget } from './sync-write'
@@ -110,6 +118,20 @@ export type IssueWorkKind = (typeof ISSUE_WORK_EFFECT_KIND)[IssueWorkCommand]
 
 export const isIssueWorkCommand = (name: string): name is IssueWorkCommand =>
   Object.hasOwn(ISSUE_WORK_EFFECT_KIND, name)
+
+/**
+ * Every issue command whose write is an effect record: the work above and the
+ * git actions (`git-effects.ts`: `action`, `integrate`). Its tRPC route is an
+ * adapter onto `effects.create` (POD-6603), as `files.write`'s is.
+ */
+export const ISSUE_EFFECT_RECORD_COMMANDS: readonly string[] = [
+  ...Object.keys(ISSUE_WORK_EFFECT_KIND),
+  'action',
+  'integrate',
+]
+
+export const runsAsEffectRecord = (name: string): boolean =>
+  ISSUE_EFFECT_RECORD_COMMANDS.includes(name)
 
 /** How long a record may wait to start: a machine that has not attached by then
  *  will not, for work a person is waiting on. */
@@ -271,7 +293,7 @@ export function registerIssueWorkEffects(deps: IssueWorkEffectDeps): void {
       const parsed: unknown = def.input.parse({ ...input, id: record.target.id })
       const result = await deps
         .modules()
-        .issueCommands.withoutEffects()
+        .issueCommands.forEffectRun()
         .run(caller, name, def, parsed)
       return { status: 'succeeded', result: result ?? null }
     } catch (error) {
@@ -587,13 +609,83 @@ export async function finishSelfStop(
 // The old commands as adapters
 // ---------------------------------------------------------------------------
 
-/** The port's answer when no record was made: the dispatcher runs the old route. */
-export const RUN_INLINE: unique symbol = Symbol('issue work: run inline')
-
 export interface IssueWorkEffectPort {
-  /** Run one command as an effect record, as this caller; answer as it always did,
-   *  or {@link RUN_INLINE} when no daemon can run it now and nothing was created. */
+  /** Run one command as an effect record, as this caller, and answer as it always
+   *  did; refused at once, with no record, when no daemon can run it now. */
   run(caller: IssueCaller, name: IssueWorkCommand, input: unknown): Promise<unknown>
+}
+
+/** The kinds that need a daemon to run: the rest write desired state, call an
+ *  LLM or deliver an answer, and wait for nothing. */
+const NEEDS_DAEMON: ReadonlySet<IssueWorkKind> = new Set([
+  ISSUE_WORK_EFFECT_KIND.start,
+  ISSUE_WORK_EFFECT_KIND.addSession,
+  ISSUE_WORK_EFFECT_KIND.cleanup,
+  ISSUE_WORK_EFFECT_KIND.ship,
+])
+
+/**
+ * A command with no daemon to run it NOW creates no record (it would sit
+ * pending while its caller waits for minutes). It answers what it answers
+ * without a machine today: the caller's check as the route makes it, then the
+ * command's own refusals and its no-ops (a start of an already-started issue
+ * answers its projection; a cleanup of an open issue, or of one with nothing
+ * recorded, its `ok: false`), read by `GitWorkflow.answerWithoutMachine`.
+ * Only a command with work for a machine is refused for the machine. The old
+ * command did the work inline here, through the issue family's
+ * composition-time writer; nothing writes here now (POD-6603).
+ */
+async function answerUnready(
+  modules: RegistryModules,
+  caller: IssueCaller,
+  name: IssueWorkCommand,
+  issueId: IssueId,
+  rest: Record<string, unknown>,
+): Promise<unknown> {
+  await guardIssueCommand(caller, commandAccess(modules.issues), name, defOf(name), {
+    id: issueId,
+  })
+  const workflow = modules.issues.gitWorkflow
+  if (name === 'start') {
+    await assertStartable(
+      { reports: modules.issues.reports, hierarchy: modules.issues.hierarchy, caller },
+      issueId,
+    )
+    const opts = {
+      ...(typeof rest.defaultModel === 'string' ? { model: rest.defaultModel } : {}),
+      ...(typeof rest.defaultEffort === 'string' ? { effort: rest.defaultEffort } : {}),
+      ...(typeof rest.agentProfile === 'string' ? { agentProfile: rest.agentProfile } : {}),
+    }
+    const answer = await workflow.answerWithoutMachine('start', issueId, opts)
+    if (answer !== undefined) return answer
+  } else if (name === 'addSession' || name === 'addShell' || name === 'cleanup') {
+    const answer = await workflow.answerWithoutMachine(name, issueId)
+    if (answer !== undefined) return answer
+  }
+  const machineId = (await modules.issues.reports.getMeta(issueId))?.machineId ?? null
+  if (machineId !== null) {
+    const machine = await modules.machines.machineName(machineId)
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: machineRejectionMessage(machine, 'offline', VERB[name]),
+    })
+  }
+  throw new TRPCError({
+    code: 'PRECONDITION_FAILED',
+    message: `no machine is online to ${VERB[name]}`,
+  })
+}
+
+/** What each command needs a machine for, in the refusal's words. */
+const VERB: Readonly<Record<IssueWorkCommand, string>> = {
+  start: "start this issue's work",
+  addSession: 'add a session to this issue',
+  addShell: 'add a shell to this issue',
+  cleanup: "clean up this issue's worktree",
+  ship: 'ship this issue',
+  stop: "stop this issue's sessions",
+  refreshAssistant: "refresh this issue's assistant",
+  answerQuestion: "answer this issue's question",
 }
 
 /** The issue a command names, resolved as its handler resolves it (`shipIssue`):
@@ -656,16 +748,9 @@ export function issueWorkEffectPort(
       } = (input ?? {}) as { id?: string; mutationId?: MutationId } & Record<string, unknown>
       const issueId = await issueOf(modules, caller, name, ref)
       const kind = ISSUE_WORK_EFFECT_KIND[name]
-      // Nothing can run it now: the old route answers, as it always did, with
-      // its own refusal or the daemon's (session.launch's rule). A record would
-      // sit pending while the caller waits for minutes.
-      if (
-        kind !== ISSUE_WORK_EFFECT_KIND.refreshAssistant &&
-        kind !== ISSUE_WORK_EFFECT_KIND.stop &&
-        kind !== ISSUE_WORK_EFFECT_KIND.answerQuestion &&
-        !(await machineReady(modules, issueId))
-      ) {
-        return RUN_INLINE
+      // Nothing can run it now: no record, its machine-free answer (answerUnready).
+      if (NEEDS_DAEMON.has(kind) && !(await machineReady(modules, issueId))) {
+        return await answerUnready(modules, caller, name, issueId, rest)
       }
       // A retry of the same command (its mutationId) writes the same record,
       // when that id can be one (a device id is its kind's prefix and a UUID).

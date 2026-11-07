@@ -156,7 +156,11 @@ export function registerIssueStartEffect(deps: IssueStartEffectDeps): void {
     })
     if (!parsed.success) return failed('invalid', parsed.error.message)
     try {
-      await deps.modules().issueCommands.withoutDedup().run(caller, 'create', def, parsed.data)
+      await deps
+        .modules()
+        .issueCommands.withoutDedup()
+        .forEffectRun()
+        .run(caller, 'create', def, parsed.data)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       // Filed, then its agent could not start: the task stays (it is the
@@ -190,7 +194,11 @@ export function registerIssueStartEffect(deps: IssueStartEffectDeps): void {
     const parsed = def.input.safeParse({ id: issueId, patch: { stage } })
     if (!parsed.success) return parsed.error.message
     try {
-      await deps.modules().issueCommands.withoutDedup().run(caller, 'update', def, parsed.data)
+      await deps
+        .modules()
+        .issueCommands.withoutDedup()
+        .forEffectRun()
+        .run(caller, 'update', def, parsed.data)
       return undefined
     } catch (error) {
       return error instanceof Error ? error.message : String(error)

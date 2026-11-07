@@ -166,7 +166,7 @@ export const RELAY_ARMS: Readonly<Record<string, RelayArm>> = {
  */
 export const RELAY_FAMILY_ROUTERS: Readonly<Record<string, string>> = {
   issues:
-    "the issue dispatcher: a synced command submits its `issues.<proc>` registration; the rest are the tRPC direct-write census's (POD-6603)",
+    'the issue dispatcher: a synced command submits its `issues.<proc>` registration; a command that acts on machines or git creates its effect record through `effects.create` (`issues/work-effects.ts`, `issues/git-effects.ts`)',
   specs: 'writes are plain registrations (`relayPlainWrite`); reads are the service’s own',
   workflows: 'writes submit their `workflows.<proc>` registration on the entry point',
   lock: 'writes are plain registrations (`relayPlainWrite`); `status` is a read',

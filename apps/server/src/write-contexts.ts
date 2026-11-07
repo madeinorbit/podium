@@ -106,12 +106,17 @@ export const SYSTEM_WRITE_ORIGINS = {
     kind: 'mirror',
   },
   issues: {
-    what: 'issue commands still run outside sync.submit (POD-6593 DIRECT_WRITES: start, action, cleanup, stop, integrate, ship, addSession, addShell, refreshAssistant, answerQuestion)',
+    what: "the issue `mail.spawnAgent --new` files inside the mail command, until the mail family passes the command's writer (the issue commands left this origin in POD-6603)",
     kind: 'client',
-    legacy: { removeAfter: '2027-03', owner: 'POD-6603' },
+    legacy: { removeAfter: '2027-03', owner: 'POD-6602' },
+  },
+  'issues.artifacts': {
+    what: "a panelApply artifact op that made no effect record (an upload's byte packets, an add with no daemon to read from), on its old inline path",
+    kind: 'client',
+    legacy: { removeAfter: '2027-03', owner: 'POD-6605' },
   },
   'issues.server': {
-    what: "the issues service's own work: worktree moves, landing, cleanup, git state, auto-archive, integration runs, boot reconciles",
+    what: "the issues service's own work: worktree moves, landing, cleanup, git state, auto-archive, integration runs, boot reconciles, and an issue effect record's run after its commit (start, sessions, stop, cleanup, ship, the assistant, an answer)",
     kind: 'server',
   },
   sessions: {

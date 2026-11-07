@@ -38,7 +38,7 @@ import {
 } from './command-ctx'
 import { type AnyIssueCommandDef, guardIssueCommand, issueRegistry } from './registry'
 import { answerMailSendAsBefore, startAfterCreate, submitIssueWrite } from './sync-write'
-import { isIssueWorkCommand, RUN_INLINE } from './work-effects'
+import { isIssueWorkCommand } from './work-effects'
 
 /** A ledger that runs the body every time and records nothing: see `withoutDedup`. */
 const RUN_EVERY_TIME: MutationLedgerPort = {
@@ -86,20 +86,35 @@ export class IssueCommandDispatcher {
     return new IssueCommandDispatcher(deps)
   }
 
+  /**
+   * This dispatcher for an effect record's run (POD-6603): the commands that
+   * act on machines inline ({@link withoutEffects}), writing as the issue
+   * service's own work after the record committed (`effectRunWriter`, the
+   * `issues.server` origin) when the caller brings no writer.
+   */
+  forEffectRun(): IssueCommandDispatcher {
+    const { workEffects: _workEffects, ...deps } = this.deps
+    const writer = this.deps.effectRunWriter
+    if (writer === undefined) return new IssueCommandDispatcher(deps)
+    return new IssueCommandDispatcher({ ...deps, directWriter: writer })
+  }
+
   /** Execute one ALREADY-guarded, ALREADY-parsed command (the tRPC path: the
    *  derived middleware guarded, tRPC parsed `def.input`). */
   async run<D extends AnyIssueCommandDef>(
-    caller: IssueCaller,
+    asked: IssueCaller,
     name: string,
     def: D,
     input: z.infer<D['input']>,
   ): Promise<Awaited<ReturnType<D['handler']>>> {
     // A command that acts on machines runs as an effect record (POD-6414): on
-    // every transport its old answer comes from the record once it settles.
+    // every transport its old answer comes from the record once it settles, and
+    // it never runs here (POD-6603). Only the record's own executor, through
+    // `forEffectRun`, runs the handler below.
+    let caller = asked
     const work = this.deps.workEffects
     if (work !== undefined && isIssueWorkCommand(name)) {
-      const answer = await work.run(caller, name, input)
-      if (answer !== RUN_INLINE) return answer as Awaited<ReturnType<D['handler']>>
+      return (await work.run(caller, name, input)) as Awaited<ReturnType<D['handler']>>
     }
     // A panelApply artifact op moves files in an effect record (POD-6420). Ahead
     // of the revision arbitration: the record's commit is a panelApply of its
@@ -108,6 +123,11 @@ export class IssueCommandDispatcher {
     if (artifacts !== undefined && runsAsArtifactEffect(name, input)) {
       const answer = await artifacts.run(caller, input as ArtifactCall)
       if (answer !== ARTIFACT_INLINE) return answer as Awaited<ReturnType<D['handler']>>
+      // The op's old inline path (an upload's byte packets; an add with no
+      // daemon to read from) writes under its own named origin until it is a
+      // record too (`artifactInlineWriter`).
+      const inline = caller.writer ?? this.deps.artifactInlineWriter
+      if (inline !== undefined) caller = { ...caller, writer: inline }
     }
     const execute = async (): Promise<Awaited<ReturnType<D['handler']>>> =>
       (await def.handler(

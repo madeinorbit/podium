@@ -103,6 +103,7 @@ export type IssueGitWorkflowCapability = Pick<
   IssueGitWorkflowModule,
   | 'rehome'
   | 'start'
+  | 'answerWithoutMachine'
   | 'createAndMaybeStart'
   | 'action'
   | 'finishLanding'

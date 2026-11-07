@@ -14,12 +14,13 @@ import { isExposedOn } from '@podium/commands'
 import { afterEach, describe, expect, it } from 'vitest'
 import { issueRegistry } from '../issues/registry'
 import { RELAY_ALLOWED } from '../issues/relay-gate'
+import { runsAsEffectRecord } from '../issues/work-effects'
 import { lockRegistry } from '../lock/registry'
 import { plainCommands } from '../plain-command/commands'
 import { disposeOracles, makeOracle } from '../sessions/oracle-support'
 import { SPEC_COMMANDS_TRPC } from '../specs/registry'
 import { WORKFLOW_COMMANDS } from '../workflows/registry'
-import { DIRECT_WRITE_OWNERS, isDirectWrite } from './direct'
+import { DIRECT_WRITE_OWNERS } from './direct'
 import { RELAY_ARMS, RELAY_FAMILY_ROUTERS } from './relay'
 
 afterEach(() => disposeOracles())
@@ -74,14 +75,15 @@ describe('the relay census', () => {
 })
 
 describe('the routers the relay opens whole', () => {
-  it('every issue write is a sync registration or a direct write', async () => {
+  it('every issue write is a sync registration or an effect record', async () => {
     const o = await makeOracle()
     const sync = o.reg.modules.syncWrite.registry
     const unregistered = Object.entries(issueRegistry.defs)
       .filter(([, def]) => def.kind === 'mutation')
-      .map(([proc]) => `issues.${proc}`)
-      .filter((name) => sync.lookup(name) === undefined && !isDirectWrite(name))
+      .map(([proc]) => proc)
+      .filter((proc) => sync.lookup(`issues.${proc}`) === undefined && !runsAsEffectRecord(proc))
     expect(unregistered).toEqual([])
+    expect(sync.lookup('effects.create')).toBeDefined()
   })
 
   // The spec and workflow command tables hold writes only; their reads are queries.

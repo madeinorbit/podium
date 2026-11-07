@@ -383,6 +383,77 @@ export class IssueGitWorkflowModule {
     }
   }
 
+  /**
+   * Starting a started issue (a worktree and any session, live or not) is a
+   * deliberate no-op: its projection. But a caller who passed an explicit
+   * --model/--effort asked for something this no-op will not do, and accepting
+   * it in silence is the same failure one level up: the operator sees `started
+   * #n` and believes the choice landed. Refuse, and name what does work.
+   * Undefined when the start has work to do. Reads only.
+   */
+  private async startedNoOp(
+    row: IssueRow,
+    opts?: IssueStartOptions,
+  ): Promise<IssueStartResult | undefined> {
+    if (!row.worktreePath || (await this.store.factsFor(row)).length === 0) return undefined
+    if (opts?.model || opts?.effort || opts?.agentProfile) {
+      throw new IssueRefusal(
+        `#${row.seq} is already started — --model/--effort/--profile apply only to the session start spawns. ` +
+          `Use \`podium issue update --id ${row.seq} --model/--effort\` to change the issue's profile, ` +
+          `then \`podium issue add-session ${row.seq}\` to spawn a session that runs it.`,
+      )
+    }
+    return await this.store.projection(row)
+  }
+
+  /**
+   * What a command answers with no machine to act on, when that is its whole
+   * answer today (POD-6603): its own refusals and its no-ops, before any
+   * machine is asked. The old command answers this when no daemon can run its
+   * effect record now, rather than a machine refusal. Undefined when the
+   * command has work for a machine. Reads only: nothing is written.
+   */
+  async answerWithoutMachine(
+    command: 'start' | 'addSession' | 'addShell' | 'cleanup',
+    id: string,
+    opts?: IssueStartOptions,
+  ): Promise<unknown> {
+    const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
+    switch (command) {
+      case 'start':
+        this.refuseSystemOwned(row, 'start issue work')
+        return await this.startedNoOp(row, opts)
+      case 'addSession':
+      case 'addShell':
+        this.refuseSystemOwned(row, 'add a session')
+        if (!row.worktreePath && !row.branch) throw new IssueRefusal('issue not started')
+        return undefined
+      case 'cleanup': {
+        const refusal = this.cleanupRefusal(row)
+        if (refusal === undefined) return undefined
+        return { ok: false, output: refusal, issue: await this.store.projection(row) }
+      }
+    }
+  }
+
+  private refuseSystemOwned(row: IssueRow, what: string): void {
+    if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
+      throw new IssueRefusal(`shipping stage is system-owned and cannot ${what}`)
+    }
+  }
+
+  /** Cleanup's own refusals, before any machine: (a) only a closed issue is
+   *  cleanable; (b) nothing recorded is nothing to do. */
+  private cleanupRefusal(at: IssueRow): string | undefined {
+    if (!this.store.isClosed(at)) {
+      return `refusing cleanup: issue #${at.seq} is still open (close it first)`
+    }
+    if (!at.worktreePath && !at.branch) {
+      return 'nothing to clean up: no worktree/branch recorded on this issue'
+    }
+    return undefined
+  }
+
   private async startOnce(
     id: string,
     agentKind?: string,
@@ -391,9 +462,7 @@ export class IssueGitWorkflowModule {
     // `let`, because this draft does NOT survive the worktree phase below — see the
     // re-draft after it (POD-3373).
     let row = await this.store.draftOrThrow(id)
-    if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
-      throw new IssueRefusal('shipping stage is system-owned and cannot start issue work')
-    }
+    this.refuseSystemOwned(row, 'start issue work')
     /**
      * A WORKTREE AND NO SESSION AT ALL is a start that cut the worktree and then
      * failed to spawn (POD-6119). Reporting that as "already started" told a retry
@@ -401,22 +470,9 @@ export class IssueGitWorkflowModule {
      * the worktree phase is skipped and the spawn below runs. Any session on the
      * issue, live or not, keeps the deliberate no-op.
      */
-    const resumePath =
-      row.worktreePath && (await this.store.factsFor(row)).length === 0 ? row.worktreePath : null
-    if (row.worktreePath && !resumePath) {
-      // Starting a started issue is a deliberate no-op. But a caller who passed an
-      // explicit --model/--effort asked for something this no-op will not do, and
-      // accepting it in silence is the same failure one level up: the operator sees
-      // `started #n` and believes the choice landed. Refuse, and name what does work.
-      if (opts?.model || opts?.effort || opts?.agentProfile) {
-        throw new IssueRefusal(
-          `#${row.seq} is already started — --model/--effort/--profile apply only to the session start spawns. ` +
-            `Use \`podium issue update --id ${row.seq} --model/--effort\` to change the issue's profile, ` +
-            `then \`podium issue add-session ${row.seq}\` to spawn a session that runs it.`,
-        )
-      }
-      return await this.store.projection(row)
-    }
+    const started = await this.startedNoOp(row, opts)
+    if (started !== undefined) return started
+    const resumePath = row.worktreePath ?? null
     // A --profile named here persists like --model, and (as in update) hands the
     // profile the agent pick: stored fields not named in this call become `auto`.
     // Resolved before any mutation, so an unknown name changes nothing.
@@ -1547,16 +1603,12 @@ export class IssueGitWorkflowModule {
       output,
       issue: await this.store.projection(await this.store.rowOrThrow(id)),
     })
-    // (a) only closed issues are cleanable.
-    if (!this.store.isClosed(at)) {
-      return await refuse(`refusing cleanup: issue #${seq} is still open (close it first)`)
-    }
-    // (b) nothing recorded → nothing to do. Branch-only state (worktree already
-    //     removed, branch delete previously refused — the partial-failure retry)
-    //     is VALID: fall through to the worktree-less delete path below.
-    if (!at.worktreePath && !at.branch) {
-      return await refuse('nothing to clean up: no worktree/branch recorded on this issue')
-    }
+    // (a) only closed issues are cleanable; (b) nothing recorded → nothing to
+    //     do. Branch-only state (worktree already removed, branch delete
+    //     previously refused — the partial-failure retry) is VALID: fall through
+    //     to the worktree-less delete path below.
+    const refusal = this.cleanupRefusal(at)
+    if (refusal !== undefined) return await refuse(refusal)
     if (!at.worktreePath && at.branch) {
       // Retry path after a partial cleanup: re-verify ancestry, then delete.
       const branch = at.branch

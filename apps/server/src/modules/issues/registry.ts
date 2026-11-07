@@ -101,6 +101,28 @@ import { becameCoordinatorText, seatRefusal, seatText } from './service/seat'
  *  rejected too, so a bad ref (or a hub mirror the local get() can't see) can
  *  never dodge the lane. Operator callers (scope 'all') pass through untouched.
  *  `verb` completes "only an operator may <verb> a proposed issue". */
+/**
+ * M5 [spec:SP-6144]: who may start this issue. The whole proposal SUBTREE is
+ * inert: a sub-issue filed under a proposed parent cannot be started to run
+ * work under an unapproved proposal, so the ancestor chain is checked, not
+ * just the row. The `start` handler, and its answer with no machine
+ * (`work-effects.ts`, POD-6603).
+ */
+export async function assertStartable(
+  ctx: {
+    reports: { get(id: string): Promise<{ stage: string } | null> }
+    hierarchy: { ancestorIds(id: string): Promise<readonly string[]> }
+    caller: IssueCaller
+  },
+  id: string,
+): Promise<void> {
+  await assertNotProposedForAgent(ctx, id, 'start')
+  if (ctx.caller.capability.scope.kind === 'all') return
+  for (const anc of await ctx.hierarchy.ancestorIds(id)) {
+    await assertNotProposedForAgent(ctx, anc, 'start work under')
+  }
+}
+
 async function assertNotProposedForAgent(
   ctx: {
     reports: { get(id: string): Promise<{ stage: string } | null> }
@@ -286,6 +308,16 @@ type ContractDeclaresConflict<C> = C extends { readonly conflict: 'cmd' }
   : C extends { readonly conflict: ConflictClass }
     ? unknown
     : { readonly __mutationContractMustDeclareARealConflictClassNotNA: never }
+
+/** The git actions' effect port (`git-effects.ts`); the composed server always
+ *  wires it, and a context without it has no git action to run. */
+function gitEffectsOf(ctx: IssueCommandCtx): NonNullable<IssueCommandCtx['deps']['gitEffects']> {
+  const port = ctx.deps.gitEffects
+  if (port === undefined) {
+    throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'the git effects are not wired' })
+  }
+  return port
+}
 
 function def<N extends IssueContractName, K extends IssueCommandKind, Out>(
   name: N,
@@ -746,12 +778,7 @@ const defs = {
       // M5 [spec:SP-6144]: the whole proposal SUBTREE is inert — a sub-issue
       // filed under a proposed parent cannot be started to run work under an
       // unapproved proposal, so the ancestor chain is checked, not just the row.
-      await assertNotProposedForAgent(ctx, input.id, 'start')
-      if (ctx.caller.capability.scope.kind !== 'all') {
-        for (const anc of await ctx.hierarchy.ancestorIds(input.id)) {
-          await assertNotProposedForAgent(ctx, anc, 'start work under')
-        }
-      }
+      await assertStartable(ctx, input.id)
       return await ctx.withMutation(
         input.mutationId,
         async () =>
@@ -880,11 +907,9 @@ const defs = {
   action: def('action', {
     kind: 'mutation',
     target: targetId,
-    // An effect record (POD-6394): every device sees it run; the reply is as before.
-    handler: async (ctx, input) =>
-      ctx.deps.gitEffects !== undefined
-        ? await ctx.deps.gitEffects.run(ctx.caller, input.kind, input.id)
-        : await ctx.gitWorkflow.action(input.id, input.kind),
+    // An effect record (POD-6394): every device sees it run; the reply is as
+    // before. The command never runs the git work itself (POD-6603).
+    handler: async (ctx, input) => await gitEffectsOf(ctx).run(ctx.caller, input.kind, input.id),
   }),
   // Write, not manage: heavily guarded (closed + merged + clean only), so a
   // closing agent may clean up after itself. Acts on LOCAL git state — it removes a
@@ -931,10 +956,8 @@ const defs = {
   integrate: def('integrate', {
     kind: 'mutation',
     target: targetId,
-    handler: async (ctx, input) =>
-      ctx.deps.gitEffects !== undefined
-        ? await ctx.deps.gitEffects.run(ctx.caller, 'integrate', input.id)
-        : await ctx.gitWorkflow.integrate(input.id, ctx.requirePrincipal()),
+    // An effect record (POD-6394), like `action`.
+    handler: async (ctx, input) => await gitEffectsOf(ctx).run(ctx.caller, 'integrate', input.id),
   }),
   ship: def('ship', {
     kind: 'mutation',

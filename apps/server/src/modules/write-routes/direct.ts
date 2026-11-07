@@ -32,35 +32,15 @@ export interface DirectWriteSpec {
   readonly owner: string
 }
 
-const ISSUE_DIRECT = 'POD-6603'
-
 /** The issues that move the census onto registrations; it reaches zero before
- *  the write audits are deleted (POD-6595). */
-export const DIRECT_WRITE_OWNERS = [ISSUE_DIRECT] as const
+ *  the write audits are deleted (POD-6595). It is zero: the issue commands
+ *  left it in POD-6603, each a sync registration or an effect record. */
+export const DIRECT_WRITE_OWNERS: readonly string[] = []
 
-export const DIRECT_WRITES = {
-  'issues.start': {
-    what: "starts an issue's work: worktree, branch and agent session",
-    owner: ISSUE_DIRECT,
-  },
-  'issues.action': {
-    what: "runs an issue's workflow action (merge, rebase, …)",
-    owner: ISSUE_DIRECT,
-  },
-  'issues.cleanup': { what: "frees an issue's worktree", owner: ISSUE_DIRECT },
-  'issues.stop': { what: "stops an issue's sessions", owner: ISSUE_DIRECT },
-  'issues.integrate': { what: "integrates an issue's branch onto its parent", owner: ISSUE_DIRECT },
-  'issues.ship': { what: 'enqueues the current issue on its ship lane', owner: ISSUE_DIRECT },
-  'issues.addSession': { what: 'adds an agent session to an issue', owner: ISSUE_DIRECT },
-  'issues.addShell': { what: "adds a shell to an issue's worktree", owner: ISSUE_DIRECT },
-  'issues.refreshAssistant': { what: "refreshes an issue's assistant state", owner: ISSUE_DIRECT },
-  'issues.answerQuestion': {
-    what: "answers an issue's pending agent question and clears its needs-human flag",
-    owner: ISSUE_DIRECT,
-  },
-} as const satisfies Record<string, DirectWriteSpec>
+/** Empty. A new exception is a line here, with what it writes and its owner. */
+export const DIRECT_WRITES: Readonly<Record<string, DirectWriteSpec>> = {}
 
-export type DirectWriteName = keyof typeof DIRECT_WRITES
+export type DirectWriteName = string
 
 export const isDirectWrite = (name: string): name is DirectWriteName =>
   Object.hasOwn(DIRECT_WRITES, name)

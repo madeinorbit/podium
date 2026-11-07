@@ -265,7 +265,7 @@ export function registerSessionAnswerEffect(deps: SessionAnswerEffectDeps): void
         if (caller === undefined) return failed('unauthorized', WRITER_NO_LONGER_ALLOWED)
         try {
           const result = await modules.issueCommands
-            .withoutEffects()
+            .forEffectRun()
             .run(caller, 'answerQuestion', issueRegistry.defs.answerQuestion, {
               id: asIssueId(record.target.id),
               answer: input.text,

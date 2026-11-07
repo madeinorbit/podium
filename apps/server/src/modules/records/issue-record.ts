@@ -43,8 +43,10 @@ function defOf(name: FamilyCommand): AnyIssueCommandDef {
 export function registerIssueRecord(registry: SyncWriteRegistry, deps: IssueRecordDeps): void {
   /** One family command, without its own dedup (the entry point has deduplicated). */
   const run = async (ctx: SyncWriteContext, name: FamilyCommand, input: unknown) => {
-    const caller = callerOf(ctx.principal)
-    if (caller === undefined) throw new Error('issue record write reached its handler as system')
+    const principal = callerOf(ctx.principal)
+    if (principal === undefined) throw new Error('issue record write reached its handler as system')
+    // The write commits on this command's own writer, as every sync handler's.
+    const caller: IssueCaller = { ...principal, writer: ctx.ledger }
     const def = defOf(name)
     // `run` takes ALREADY-parsed input, as the tRPC path hands it: parse with the
     // family's own schema so its defaults and transforms apply.

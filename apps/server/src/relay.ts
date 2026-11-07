@@ -3062,7 +3062,6 @@ export class SessionRegistry {
     const issueAttach = new IssueAttachOrchestrator({
       transact: async (work) => await this.store.transact(work),
       attention: issues.attention,
-      directWriter: writes.system('issues'),
     })
 
     // Scheduled automations (#470) [spec:SP-17db]. The spawn goes straight to
@@ -3250,8 +3249,11 @@ export class SessionRegistry {
       return service
     }
     const issueCommands = new IssueCommandDispatcher({
-      // The writer of an issue command not yet on sync.submit (POD-6603).
-      directWriter: writes.system('issues'),
+      // An effect record's run writes as the issue service's own work, after its
+      // record committed (POD-6603); no served command runs without its own.
+      effectRunWriter: writes.system('issues.server'),
+      // A panelApply artifact op's inline path, until it is a record too.
+      artifactInlineWriter: writes.system('issues.artifacts'),
       // Git actions as effect records (POD-6394), read per call: the modules
       // and the entry point are composed after this dispatcher.
       gitEffects: issueGitEffectPort({ modules: () => this.modules }),

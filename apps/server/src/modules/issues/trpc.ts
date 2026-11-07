@@ -9,13 +9,13 @@ import type { z } from 'zod'
 import { type Context, issueCaller, t } from '../../trpc'
 import { familyState } from '../derived-family'
 import { refusalAsTrpcError } from '../sync-write/route-adapter'
-import { directRoute } from '../write-routes/direct'
 import { syncRoute } from '../write-routes/sync'
 import { commandAccess } from './command-ctx'
 import { type AnyIssueCommandDef, guardIssueCommand } from './registry'
 import { isIssueNotFound } from './service/not-found'
 import { isIssueRefusal } from './service/refusal'
 import { answerMailSendAsBefore, startAfterCreate, submitIssueWrite } from './sync-write'
+import { runsAsEffectRecord } from './work-effects'
 
 /**
  * Derive the `issues:` tRPC sub-router from the command registry (#248
@@ -161,11 +161,26 @@ export function routerFromCommands<T extends Record<string, AnyIssueCommandDef>>
     }
     const contract = ISSUE_CONTRACTS[name as IssueContractName]
     // A synced command's route is its sync registration's (a `panelApply` that
-    // adds an artifact reaches it as an effect record); any other write is in
-    // the direct-write census until POD-6603 moves it onto the entry point.
-    record[name] = isSyncedIssueCommand(name)
-      ? syncRoute({ command: contract, input: def.input, use: [guard], run: resolve })
-      : directRoute(contract.name, { input: def.input, use: [guard], run: resolve })
+    // adds an artifact reaches it as an effect record). A command that acts on
+    // machines or on git is an effect record (`work-effects.ts`,
+    // `git-effects.ts`): its route creates it through `effects.create` as its
+    // caller and answers the old shape once it settles (POD-6603). No issue
+    // write is anything else.
+    if (isSyncedIssueCommand(name)) {
+      record[name] = syncRoute({ command: contract, input: def.input, use: [guard], run: resolve })
+    } else if (runsAsEffectRecord(name)) {
+      record[name] = syncRoute({
+        command: contract,
+        registration: 'effects.create',
+        input: def.input,
+        use: [guard],
+        run: resolve,
+      })
+    } else {
+      throw new Error(
+        `issues.${name}: an issue write is a sync registration or an effect record, never direct`,
+      )
+    }
   }
   return t.router(record as ProceduresFor<T>)
 }

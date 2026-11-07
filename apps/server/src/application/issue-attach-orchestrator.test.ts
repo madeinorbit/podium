@@ -11,6 +11,7 @@ const RESULT = {
 
 describe('IssueAttachOrchestrator', () => {
   it('carries one transport principal through one transaction', async () => {
+    const writer = { ...fixtureCommitWriter(), capture: async () => [] }
     const principal = userCommandPrincipal(asUserId('user:alice'), 'admin')
     const attachSession = vi.fn(async (_writer: unknown, _input: IssueAttachInput) => RESULT)
     const transactionCall = vi.fn()
@@ -21,19 +22,17 @@ describe('IssueAttachOrchestrator', () => {
     const orchestrator = new IssueAttachOrchestrator({
       transact,
       attention: { attachSession },
-      directWriter: { ...fixtureCommitWriter(), capture: async () => [] },
     })
 
     expect(
       await orchestrator.execute(
-        { capability: OPERATOR, principal },
+        { capability: OPERATOR, principal, writer },
         { sessionId: asSessionId('session-1'), targetId: 'iss_target' },
       ),
     ).toBe(RESULT)
     expect(transactionCall).toHaveBeenCalledOnce()
-    // A caller with no command writer (a direct write, POD-6603) attaches under
-    // the orchestrator's direct writer.
-    expect(attachSession).toHaveBeenCalledWith(expect.anything(), {
+    // The attach commits on the command's own writer.
+    expect(attachSession).toHaveBeenCalledWith(writer, {
       sessionId: asSessionId('session-1'),
       targetId: 'iss_target',
       principal,
@@ -50,7 +49,6 @@ describe('IssueAttachOrchestrator', () => {
     const orchestrator = new IssueAttachOrchestrator({
       transact,
       attention: { attachSession: vi.fn(async () => RESULT) },
-      directWriter: { ...fixtureCommitWriter(), capture: async () => [] },
     })
 
     await expect(
@@ -60,5 +58,20 @@ describe('IssueAttachOrchestrator', () => {
       ),
     ).rejects.toThrow('transport-derived')
     expect(transactionCall).not.toHaveBeenCalled()
+  })
+
+  it('refuses a caller with no command writer: an attach is never a direct write', async () => {
+    const attachSession = vi.fn(async () => RESULT)
+    const orchestrator = new IssueAttachOrchestrator({
+      transact: async (work) => await work(),
+      attention: { attachSession },
+    })
+    await expect(
+      orchestrator.execute(
+        { capability: OPERATOR, principal: userCommandPrincipal(asUserId('user:alice'), 'admin') },
+        { sessionId: asSessionId('session-1'), targetId: 'iss_target' },
+      ),
+    ).rejects.toThrow('no writer outside a command')
+    expect(attachSession).not.toHaveBeenCalled()
   })
 })

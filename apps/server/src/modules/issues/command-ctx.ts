@@ -54,8 +54,8 @@ export interface IssueCaller {
   /**
    * The writer of the command this call is (ADR 12 D9, POD-6594): the sync write
    * entry point's `SyncWriteContext.ledger`. Absent for an issue command that
-   * still runs outside `sync.submit` (POD-6593's DIRECT_WRITES); those write
-   * under the `issues` origin until POD-6603 moves them onto the entry point.
+   * runs as an effect record's run (`forEffectRun`, the `issues.server`
+   * origin); no served command runs a handler without one (POD-6603).
    */
   writer?: IssueWriter
   /** Authenticated transport principal; production dispatchers always provide it. */
@@ -80,11 +80,26 @@ export type MailHandOn = Pick<
 
 export interface IssueCommandDeps {
   /**
-   * The writer of an issue command that still runs outside `sync.submit`
-   * (POD-6593's DIRECT_WRITES): the `issues` origin, owned by POD-6603, which
-   * moves each onto the entry point. A command on the entry point never uses it.
+   * The writer of a handler run whose caller brings none. The served dispatcher
+   * has none: every issue write is a sync command, which brings its own, or an
+   * effect record, which never runs a handler in the request (POD-6603). Set
+   * only by {@link IssueCommandDispatcher.forEffectRun} (an effect record's
+   * run, after its commit) and by a dispatcher a test builds by hand.
    */
   directWriter?: IssueWriter
+  /**
+   * The writer of an effect record's run (`issues.server`): the issue
+   * service's own work for a record that already committed, outside any
+   * client command. {@link IssueCommandDispatcher.forEffectRun} uses it.
+   */
+  effectRunWriter?: IssueWriter
+  /**
+   * The writer of a `panelApply` artifact op that made no effect record (an
+   * upload's byte packets; an add with no daemon to read from; POD-6420): the
+   * `issues.artifacts` origin, the one issue write still outside a command's
+   * own writer, listed in `write-contexts.ts` with the issue that removes it.
+   */
+  artifactInlineWriter?: IssueWriter
   /**
    * Merge, rebase, PR and integrate as effect records (POD-6394): the command
    * creates the record and answers once it settles. Absent only in a dispatcher
@@ -219,15 +234,20 @@ type DropWriter<F> = F extends (writer: IssueWriter, ...rest: infer A) => infer 
  */
 export type Bound<T, K extends keyof T> = Omit<T, K> & { readonly [P in K]: DropWriter<T[P]> }
 
+/**
+ * The writer is resolved when a WRITE method is called, never when the view is
+ * taken: a read (a query handler, the reads before a write) reaches the same
+ * capability view and has no writer to give (POD-6603).
+ */
 function bindWriter<T extends object, K extends keyof T>(
   target: T,
-  writer: IssueWriter,
+  writer: () => IssueWriter,
   keys: readonly K[],
 ): Bound<T, K> {
   const view = Object.create(target) as Record<PropertyKey, unknown>
   for (const key of keys) {
     const method = target[key] as unknown as (...args: unknown[]) => unknown
-    view[key as PropertyKey] = (...args: unknown[]) => method.call(target, writer, ...args)
+    view[key as PropertyKey] = (...args: unknown[]) => method.call(target, writer(), ...args)
   }
   return view as unknown as Bound<T, K>
 }
@@ -298,8 +318,8 @@ export class IssueCommandCtx {
   ) {}
 
   /**
-   * The writer this command's writes commit on: its own, or the `issues` origin
-   * for a command not yet on the entry point (see {@link IssueCaller.writer}).
+   * The writer this command's writes commit on: its own, or an effect record
+   * run's (see {@link IssueCommandDeps.directWriter}).
    */
   get writer(): IssueWriter {
     const own = this.caller.writer
@@ -314,19 +334,19 @@ export class IssueCommandCtx {
   /** The capabilities, with their write methods bound to {@link writer}: a
    *  handler calls `ctx.crud.update(id, patch)` and the write is the command's. */
   get crud(): Bound<IssueCrudCapability, (typeof CRUD_WRITES)[number]> {
-    return bindWriter(this.deps.issues.crud, this.writer, CRUD_WRITES)
+    return bindWriter(this.deps.issues.crud, () => this.writer, CRUD_WRITES)
   }
   get hierarchy(): Bound<IssueHierarchyCapability, (typeof HIERARCHY_WRITES)[number]> {
-    return bindWriter(this.deps.issues.hierarchy, this.writer, HIERARCHY_WRITES)
+    return bindWriter(this.deps.issues.hierarchy, () => this.writer, HIERARCHY_WRITES)
   }
   get commentsMail(): Bound<IssueCommentsMailCapability, (typeof MAIL_WRITES)[number]> {
-    return bindWriter(this.deps.issues.commentsMail, this.writer, MAIL_WRITES)
+    return bindWriter(this.deps.issues.commentsMail, () => this.writer, MAIL_WRITES)
   }
   get attention(): Bound<IssueAttentionCapability, (typeof ATTENTION_WRITES)[number]> {
-    return bindWriter(this.deps.issues.attention, this.writer, ATTENTION_WRITES)
+    return bindWriter(this.deps.issues.attention, () => this.writer, ATTENTION_WRITES)
   }
   get gitWorkflow(): Bound<IssueGitWorkflowCapability, (typeof WORKFLOW_WRITES)[number]> {
-    return bindWriter(this.deps.issues.gitWorkflow, this.writer, WORKFLOW_WRITES)
+    return bindWriter(this.deps.issues.gitWorkflow, () => this.writer, WORKFLOW_WRITES)
   }
   get reports(): IssueReportsCapability {
     return this.deps.issues.reports
