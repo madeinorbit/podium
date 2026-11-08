@@ -41,8 +41,8 @@ import {
   resolveProfileStallMs,
   resolvePublicUrl,
   resolveTranscriptLake,
-  resolveUpdateFeedPolling,
   resolveUpdateScope,
+  resolveUpdateFeedPolling,
 } from '@podium/runtime/config'
 import { PODIUM_CONNECT_PROBE_KEYS } from '@podium/runtime/connect-keys'
 import { installationPublicKeyWire } from '@podium/runtime/installation-identity'
@@ -186,6 +186,7 @@ import {
 } from './readiness-boundary'
 import { registerReadinessRoute } from './readiness-route'
 import { SessionRegistry } from './relay'
+import { connectScanThroughEffect } from './modules/fleet/discovery-effects'
 import { RepoRegistry } from './repo-registry'
 import { compressHttpResponse } from './response-compression'
 import { resolveServerRole, type ServerRoleConfig } from './roles'
@@ -800,9 +801,7 @@ export async function startServer(
     // root) so core (relay/machines) never imports hub/pairing — see roles.ts.
     // Node role = no manager = `pair` handshakes rejected, minting throws; the
     // local daemon's `hello` path is untouched.
-    ...(role.hub
-      ? { pairing: new PairingManager({ installationId: installation.installationId }) }
-      : {}),
+    ...(role.hub ? { pairing: new PairingManager({ installationId: installation.installationId }) } : {}),
     // The fleet's hub-only writes on `sync.submit` follow the role too (POD-6417).
     servesHub: role.hub,
     installationId: installation.installationId,
