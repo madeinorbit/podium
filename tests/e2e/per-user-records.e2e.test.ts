@@ -65,13 +65,14 @@ const FEED_TYPES = new Set(['feedDelta', 'feedBootstrap', 'feedRescope', 'feedRe
 const PER_USER_KINDS = new Set(['pin', 'tabOrder', 'userPreferences', 'userReadPosition'])
 const priorStateDir = process.env.PODIUM_STATE_DIR
 
-const ME = firstAdminMemberId()
 const MEMBER = asUserId('usr_member_6673_e2e')
 
 describe('POD-6673 · my per-user records on my other device (live server)', () => {
   let stateDir: string
   let server: Awaited<ReturnType<typeof startServer>>
   let factory: IdbFactoryLike
+  /** The instance's first admin: me, the person with two devices. */
+  let ME: UserId
   const sockets: WebSocket[] = []
 
   beforeAll(async () => {
@@ -79,6 +80,7 @@ describe('POD-6673 · my per-user records on my other device (live server)', () 
     process.env.PODIUM_STATE_DIR = stateDir
     server = await startServer({ port: 0 })
     factory = new IDBFactory() as unknown as IdbFactoryLike
+    ME = await firstAdminMemberId(server.registry.sessionStore)
     await server.registry.sessionStore.users.createUnclaimed({
       id: MEMBER,
       displayName: 'Member',
