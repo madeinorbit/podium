@@ -137,13 +137,21 @@ a request answer when only one open screen needs it.
 | Machine online or offline, with since when | on connect or disconnect | spawn picker, session rows, everywhere | LiveStore, subscribed all the time; unknown until the first reading |
 | Machine CPU and memory | every second | the machine panel's gauge | LiveStore |
 | A checkout's branch, head commit, ahead or behind, dirty flag | per commit or checkout | every worktree row, merge readiness | synced status (a checkout record, like `issueGitState`) |
-| Changed-file list, diff, file contents | constantly while an agent edits | the diff screen | request answer, refreshed while open |
+| Changed-file list, diff, file contents | constantly while an agent edits | the diff screen | request answer, refetched on `checkout.changed` while open |
 | Quota, including "used up until 15:00" | per agent request | the header, always | LiveStore, subscribed all the time |
 | A session's "reconnecting" | when its machine's connection drops | the session row | derived on the device from the machine's LiveStore connection; moves out of the synced `status` |
 
 Podium never keeps a machine's process list in sync. The only processes it records are its own
 (agent sessions, shells), as one status field on records it already has. For git it keeps a
 handful of facts per checkout, never file lists, diffs or history.
+
+**Refreshing an open request answer** (POD-6645; ADR 7 Amendment 2 D19/D26): its
+view model declares the signal that makes it refetch. Checkout answers subscribe to
+`checkout.changed`, a value with an empty payload whose shared `(epoch, seq)` is the
+version. Cost answers follow related session turn ends and issue-stage changes in the
+pool. Where no producer can signal, the declared fallback is focus or visibility.
+Request answers never poll. Memory breakdown and reclaim readings use the demand-bound
+`machine.processes` value topic instead of repeated requests.
 
 **Placement order** (the first yes decides):
 

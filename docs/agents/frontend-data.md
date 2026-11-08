@@ -67,6 +67,7 @@ A **view** is a feature the user sees: the worklist, mission, issue detail, laun
     - The current time comes from the shared clock, which ticks only while something watches it, at the reader's precision (seconds under an hour, minutes above). Only small label and timer components read it. No `Date.now()` in derived fields, and no intervals in components.
     - A change due at a known moment (a record leaving a list, evidence expiring, a snooze ending) is a deadline: one timer for the next due one, re-checked when the app wakes, becomes visible or regains focus.
     - Polling runs only while its view is visible; a server push replaces it wherever possible.
+    - Request answers never poll: the owning view model declares its topic signal or related pool change, or a focus/visibility fallback when no trigger exists. It unsubscribes and drops the answer on close. Source sampling belongs to a demand-bound topic producer (ADR 7 Amendment 2).
 
 ## How to
 

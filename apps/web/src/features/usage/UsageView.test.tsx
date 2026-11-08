@@ -144,7 +144,13 @@ describe('UsageView loading', () => {
     await act(async () => {})
 
     expect(body().dataset.cold).toBeUndefined()
-    expect(body().querySelectorAll('.usage-unfilled')).toHaveLength(0)
+    // Usage telemetry keeps its own cache. Task costs are an opening-owned
+    // request answer and take a fresh reading after reopening.
+    expect(
+      [...body().querySelectorAll('.usage-unfilled')].filter(
+        (slot) => !slot.closest('.usage-tasks'),
+      ),
+    ).toHaveLength(0)
     expect(body().querySelectorAll('.usage-hour')).toHaveLength(7 * 24)
     // The single bucket is one measured hour; the other 167 slots stay empty,
     // because a gap in the trace is a reading and not a missing value.

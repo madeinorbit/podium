@@ -21,7 +21,8 @@ export class LiveRequest<T> {
       const generation = this.generation
       if (!this.opened) return
       runInAction(() => {
-        this.snapshot = { ...this.snapshot, pending: true }
+        if (this.snapshot.data === null && !this.snapshot.pending)
+          this.snapshot = { ...this.snapshot, error: null, pending: true }
       })
       try {
         const data = await read()
