@@ -136,9 +136,11 @@ export function startTargetRefresh(deps: TargetRefreshDeps): TargetRefreshHandle
     if (result === false) {
       const count = (failures.get(channel) ?? 0) + 1
       failures.set(channel, count)
-      return REFRESH_FAILURE_INTERVALS_MS[
-        Math.min(count - 1, REFRESH_FAILURE_INTERVALS_MS.length - 1)
-      ]!
+      return (
+        REFRESH_FAILURE_INTERVALS_MS[
+          Math.min(count - 1, REFRESH_FAILURE_INTERVALS_MS.length - 1)
+        ] ?? 60 * 60_000
+      )
     }
     failures.delete(channel)
     return result === 'incomplete' ? retryIntervalMs : intervalMs
@@ -146,7 +148,7 @@ export function startTargetRefresh(deps: TargetRefreshDeps): TargetRefreshHandle
   const startedAt = now()
   for (const channel of channels) {
     const hasBootResult = deps.initialResults && channel in deps.initialResults
-    const delay = hasBootResult ? delayFor(channel, deps.initialResults![channel]) : firstDelayMs
+    const delay = hasBootResult ? delayFor(channel, deps.initialResults?.[channel]) : firstDelayMs
     due.set(
       channel,
       startedAt + (hasBootResult && delay < intervalMs ? Math.max(delay, firstDelayMs) : delay),

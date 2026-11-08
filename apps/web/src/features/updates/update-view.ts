@@ -570,6 +570,10 @@ const MACHINE_FAILURE_COPY: Record<
       'Ask the server operator to re-publish the release before applying it again — what ' +
       'arrived was not what was signed.',
   }),
+  'artifact-not-published': () => ({
+    message: 'The update package is not published yet.',
+    nextAction: 'Wait a few minutes, then retry the update.',
+  }),
   'artifact-unreachable': (subject) => ({
     message: `${subject ?? 'This machine'} cannot reach the artifact address published for this update.`,
     nextAction:

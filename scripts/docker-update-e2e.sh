@@ -727,6 +727,7 @@ container_exec() {
     --env HOME=/home/podium \
     --env "XDG_RUNTIME_DIR=/run/user/$HOST_UID" \
     --env "PODIUM_INSTANCE=$INSTANCE" \
+    --env PODIUM_UPDATE_FEED_POLLING=off \
     --env PODIUM_PORT=18787 \
     "$container" "$@"
 }
@@ -900,6 +901,7 @@ fresh_install() {
   unit="$(unit_name)"
   docker exec -d --user podium --env HOME=/home/podium \
     --env "XDG_RUNTIME_DIR=/run/user/$HOST_UID" --env "PODIUM_INSTANCE=$INSTANCE" \
+    --env PODIUM_UPDATE_FEED_POLLING=off \
     --env PODIUM_PORT=18787 --env PODIUM_HOST=0.0.0.0 \
     "$container" bash -lc "exec '$command' setup >>/tmp/podium-source.log 2>&1"
   wait_for 60 "fresh setup server" \
@@ -943,6 +945,7 @@ diagnostic_version() {
   if output="$(docker exec --user podium \
       --env HOME=/home/podium \
       --env "PODIUM_INSTANCE=$INSTANCE" \
+    --env PODIUM_UPDATE_FEED_POLLING=off \
       --env "PODIUM_STATE_DIR=$foreign" \
       "$FLEET_A" "$(command_path)" --version \
       2>"$WORK/logs/diagnostic-version.stderr")" &&
@@ -1228,6 +1231,7 @@ coordinator_version_is() {
 launch_coordinator_setup() {
   docker exec -d --user podium --env HOME=/home/podium \
     --env "XDG_RUNTIME_DIR=/run/user/$HOST_UID" --env "PODIUM_INSTANCE=$INSTANCE" \
+    --env PODIUM_UPDATE_FEED_POLLING=off \
     --env PODIUM_PORT=18787 --env PODIUM_HOST=0.0.0.0 \
     --env PODIUM_DEV_SOURCE_ROOT=/work/source \
     --env PODIUM_NO_RELAY=1 --env PODIUM_NO_SCOPE=1 \
@@ -1244,6 +1248,7 @@ launch_coordinator_parent() {
   fi
   docker exec -d --user podium --env HOME=/home/podium \
     --env "XDG_RUNTIME_DIR=/run/user/$HOST_UID" --env "PODIUM_INSTANCE=$INSTANCE" \
+    --env PODIUM_UPDATE_FEED_POLLING=off \
     --env PODIUM_PORT=18787 --env PODIUM_HOST=0.0.0.0 \
     --env PODIUM_DEV_SOURCE_ROOT=/work/source \
     --env PODIUM_DEV_ARTIFACT_BASE_URL="$ADVERTISED_URL" \

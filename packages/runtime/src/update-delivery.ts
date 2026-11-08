@@ -352,6 +352,9 @@ export async function fetchArtifact(
             'stored bytes changed after publication',
         )
       }
+      if (res.status === 404) {
+        throw new Error('artifact download returned 404 — not published yet; retry later')
+      }
       throw new Error(`artifact download returned ${res.status}`)
     }
     bytes = await readArtifact(res, deps, armStall)

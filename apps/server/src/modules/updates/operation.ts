@@ -204,6 +204,7 @@ export const UPDATE_ERROR_CODES = [
   'machine-delivery-unavailable',
   'machine-artifact-rejected',
   'artifact-unreachable',
+  'artifact-not-published',
   'machine-update-not-confirmed',
   /**
    * The server retracted the target while a machine was still applying it —
@@ -310,7 +311,7 @@ export type UpdateFailure =
       detail?: string
     }
   | {
-      code: 'artifact-unreachable'
+      code: 'artifact-unreachable' | 'artifact-not-published'
       places?: string[]
       names?: string[]
       detail?: string
@@ -530,6 +531,13 @@ export function describeUpdateOperationFailure(failure: UpdateFailure): Operatio
           'install it and nothing was changed there. Ask the server operator to re-publish the ' +
           'release before applying it again — what arrived was not what was signed.',
         places: failure.places,
+        ...(failure.detail ? { detail: failure.detail } : {}),
+      }
+    case 'artifact-not-published':
+      return {
+        code: failure.code,
+        message: 'The update package is not published yet. Wait a few minutes, then retry the update.',
+        ...(failure.places ? { places: failure.places } : {}),
         ...(failure.detail ? { detail: failure.detail } : {}),
       }
     case 'artifact-unreachable':
@@ -2465,7 +2473,7 @@ async function runCoordinatorReplacement(
         error: describeUpdateOperationFailure({
           code: (error instanceof Error ? error.message : String(error)) === 'supervisor control endpoint missing'
             ? 'supervisor-control-endpoint-missing'
-            : classified === 'artifact-unreachable' ? classified : 'download-failed',
+            : classified === 'artifact-unreachable' || classified === 'artifact-not-published' ? classified : 'download-failed',
           detail: describeError(error),
         }),
       }

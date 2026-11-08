@@ -100,6 +100,25 @@ describe('focused package selection', () => {
   })
 })
 
+describe('validation instance release feeds', () => {
+  it.each([
+    undefined,
+    'on',
+    'off',
+  ])('sets an explicit polling policy for child processes (%s)', async (setting) => {
+    const { env } = fakePodium()
+    const output = join(temporaryDirectory('podium-polling-policy-'), 'policy')
+    env.PODIUM_UPDATE_FEED_POLLING = setting
+    const code = await runWithValidationAdmission(
+      'focused',
+      ['bash', '-c', 'printf %s "$PODIUM_UPDATE_FEED_POLLING" > "$POLICY_OUTPUT"'],
+      { env: { ...env, POLICY_OUTPUT: output } },
+    )
+    expect(code).toBe(0)
+    expect(readFileSync(output, 'utf8')).toBe(setting ?? 'off')
+  })
+})
+
 describe('minimal validation locks', () => {
   it.each([
     'focused',

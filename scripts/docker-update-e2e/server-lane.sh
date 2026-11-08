@@ -145,7 +145,7 @@ configure_server_edge_feed() {
   docker exec "$SERVER_CONSUMER" sh -c "printf '%s github.com\n' '$source_ip' >>/etc/hosts"
   dropin="/home/podium/.config/systemd/user/$(unit_name).d"
   container_exec "$SERVER_CONSUMER" mkdir -p "$dropin"
-  container_exec "$SERVER_CONSUMER" bash -lc "printf '[Service]\nEnvironment=NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/update-e2e.crt\nEnvironment=PODIUM_HOST=0.0.0.0\n' >'$dropin/edge-feed.conf'"
+  container_exec "$SERVER_CONSUMER" bash -lc "printf '[Service]\nEnvironment=PODIUM_UPDATE_FEED_POLLING=on\nEnvironment=NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/update-e2e.crt\nEnvironment=PODIUM_HOST=0.0.0.0\n' >'$dropin/edge-feed.conf'"
   container_exec "$SERVER_CONSUMER" systemctl --user daemon-reload
   container_exec "$SERVER_CONSUMER" systemctl --user restart "$(unit_name)"
   wait_for 120 "packaged server restart on edge" server_healthy

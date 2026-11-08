@@ -152,7 +152,8 @@ describe('startTargetRefresh', () => {
 
     incomplete = false
     await fire()
-    expect(armed.at(-1)?.ms).toBe(REFRESH_INTERVAL_MS)
+    // Other healthy channels retain their earlier daily deadline.
+    expect(armed.at(-1)?.ms).toBe(REFRESH_INTERVAL_MS - REFRESH_RETRY_INTERVAL_MS)
   })
 
   /**

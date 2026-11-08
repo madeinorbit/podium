@@ -59,7 +59,12 @@ import { validateReferencedDesktopManifest } from './desktop-release'
 import { timeReleaseBuildSync } from './release-build-timing'
 import { verifyCandidateSnapshot } from './release-candidate-snapshot'
 import { buildManifest } from './release-manifest'
+<<<<<<< HEAD
 import { publishReleaseMirror } from './release-mirror'
+||||||| parent of 698f40af1b (WIP: publish manifests last and classify missing artifacts for retry)
+=======
+import { publishReleaseAssets } from './release-upload'
+>>>>>>> 698f40af1b (WIP: publish manifests last and classify missing artifacts for retry)
 
 /** Every platform a release publishes a headless bundle for. */
 export const RELEASE_PLATFORMS: readonly HeadlessPlatform[] = HEADLESS_PLATFORMS
@@ -652,6 +657,16 @@ export function publishPreparedHeadless(p: {
   if (p.channel === 'stable' && !p.tag) throw new Error('stable release needs --tag vX.Y.Z')
   const { version, prepared } = loadPreparedHeadless(p.dir, p.requiredTargets)
   const manifestName = 'podium-update.json'
+  // Standing releases keep the last manifest's files available throughout publication.
+  // Fixed names remain installer aliases, replaced only after the manifest switches.
+  const published = prepared.map((item) => {
+    if (!isRollingChannel(p.channel)) return item
+    const digest = createHash('sha256').update(readFileSync(join(p.dir, item.asset))).digest('hex')
+    const asset = item.asset.replace(/\.tar\.gz$/, `-${version}-${digest}.tar.gz`)
+    cpSync(join(p.dir, item.asset), join(p.dir, asset))
+    cpSync(join(p.dir, `${item.asset}.sig`), join(p.dir, `${asset}.sig`))
+    return { ...item, asset }
+  })
   const notes = releaseNotesWithPage(
     releaseNotesFor(readFileSync(p.changelogPath ?? 'CHANGELOG.md', 'utf8'), version),
     p.channel,
@@ -662,7 +677,7 @@ export function publishPreparedHeadless(p: {
     `${JSON.stringify(
       buildManifest({
         version,
-        platforms: prepared.map((item) => ({
+        platforms: published.map((item) => ({
           target: item.target,
           url: releaseUrl(p.channel, p.tag, item.asset),
           signature: item.signature,
@@ -695,7 +710,7 @@ export function publishPreparedHeadless(p: {
   }
   const releaseFiles = [
     ...desktopFiles,
-    ...prepared.flatMap((item) => [item.asset, `${item.asset}.sig`]),
+    ...new Set([...prepared, ...published].flatMap((item) => [item.asset, `${item.asset}.sig`])),
     manifestName,
     'VERSION',
     CLIENT_ROOT_DIGEST_FILE,
@@ -732,7 +747,14 @@ export function publishPreparedHeadless(p: {
   })
   if (notice) console.log(notice)
 
-  const assets = [...releaseFiles.map((file) => join(p.dir, file)), checksums, 'install.sh']
+  const aliases = isRollingChannel(p.channel)
+    ? prepared.flatMap((item) => [item.asset, `${item.asset}.sig`])
+    : []
+  const assets = [
+    ...releaseFiles.filter((file) => file !== manifestName && !aliases.includes(file)).map((file) => join(p.dir, file)),
+    checksums,
+    'install.sh',
+  ]
   // The page body names the build and carries the same notes the update prompt shows.
   const rollingBody = `Rolling ${p.channel} build ${version}${notes ? `\n\n${notes.summary}` : ''}`
   if (isRollingChannel(p.channel)) {
@@ -766,7 +788,7 @@ export function publishPreparedHeadless(p: {
         '--notes',
         rollingBody,
       ])
-      execFileSync('gh', ['release', 'upload', rollingTag, ...assets, '--clobber'])
+
     } else {
       execFileSync('gh', [
         'release',
@@ -779,7 +801,6 @@ export function publishPreparedHeadless(p: {
         `${rollingTag} (${version})`,
         '--notes',
         rollingBody,
-        ...assets,
       ])
     }
   } else {
@@ -794,10 +815,19 @@ export function publishPreparedHeadless(p: {
       p.tag,
       '--latest',
       ...stableReleasePageNotesArgs(notes ? notesFile : undefined),
-      ...assets,
     ])
   }
+<<<<<<< HEAD
   publishReleaseMirror({ channel: p.channel, tag: p.tag, files: assets })
+||||||| parent of 698f40af1b (WIP: publish manifests last and classify missing artifacts for retry)
+=======
+  publishReleaseAssets({
+    tag: p.tag,
+    artifacts: assets,
+    manifest: join(p.dir, manifestName),
+    aliases: aliases.map((file) => join(p.dir, file)),
+  })
+>>>>>>> 698f40af1b (WIP: publish manifests last and classify missing artifacts for retry)
   console.log(`[release] published ${version} → ${p.channel}`)
 }
 

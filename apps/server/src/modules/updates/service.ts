@@ -963,7 +963,7 @@ export class UpdatesService {
     // lines below — which is the point of the convergence: the resolve path
     // production uses is exercised many times a day rather than at release.
     this.incompleteFeeds.delete(channel)
-    if (this.deps.feedPollingEnabled?.() === false) {
+    if (this.deps.feedPollingEnabled?.() === false && !this.deps.locallyPublished?.(channel)) {
       const reason = 'Release feed polling is disabled for this instance.'
       if (!this.target(channel)) this.unavailableReasons.set(channel, reason)
       this.recordCheck(channel, { status: 'unavailable', reason })

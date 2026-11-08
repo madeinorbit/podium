@@ -58,3 +58,8 @@ systemctl mask apt-daily-upgrade.service apt-daily-upgrade.timer \
 # Every child container gets a distinct machine id on its first systemd boot.
 rm -f /var/lib/dbus/machine-id
 : >/etc/machine-id
+
+# Explicit policy for every newly created sandbox, including systemd services.
+install -d -o podium -g podium /home/podium/.config/environment.d
+printf 'PODIUM_UPDATE_FEED_POLLING=off\n' >/home/podium/.config/environment.d/80-podium-update-feed.conf
+chown podium:podium /home/podium/.config/environment.d/80-podium-update-feed.conf

@@ -181,6 +181,7 @@ function instanceEnv(
     delete env[key]
   Object.assign(env, {
     PODIUM_INSTANCE: spec.id,
+    PODIUM_UPDATE_FEED_POLLING: 'off',
     PODIUM_STATE_DIR: spec.stateDir,
     PODIUM_AGENT_HOME: spec.agentHome,
     PODIUM_WEB_DIR: spec.webDir,
