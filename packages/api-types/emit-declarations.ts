@@ -5,7 +5,7 @@ export function emitCodeDeclarations(program: ts.Program): void {
   for (const source of program.getSourceFiles()) {
     if (
       source.isDeclarationFile ||
-      ts.isJsonSourceFile(source) ||
+      (source.flags & ts.NodeFlags.JsonFile) !== 0 ||
       program.isSourceFileFromExternalLibrary(source)
     )
       continue
