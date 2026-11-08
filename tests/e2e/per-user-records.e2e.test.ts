@@ -36,6 +36,7 @@ import { FeedSink } from '@podium/client-core/replica/feed'
 import { HttpBootstrapSource, HttpDeltaSource } from '@podium/client-core/sync-stream'
 import {
   asMutationId,
+  asSessionId,
   asUserId,
   firstAdminMemberId,
   pinRowId,
@@ -53,6 +54,7 @@ import {
 } from '@podium/protocol'
 import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import { Replica } from '@podium/sync/replica'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import type { FeedServerFrame } from '@podium/terminal-client'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { IDBFactory } from 'fake-indexeddb'
@@ -266,8 +268,38 @@ describe('POD-6673 · my per-user records on my other device (live server)', () 
     const b = await openDevice('me-b', ME)
     const member = await openDevice('member', MEMBER)
 
-    // A session I can read, for the tab order to name.
-    const { sessionId } = await a.trpc.sessions.create.mutate({ agentKind: 'shell', cwd: '/p' })
+    // A session of mine, for the tab order to name. Stored, not spawned: this
+    // server has no machine to start one on, and the order only needs to name
+    // a session I may read.
+    const sessionId = asSessionId('00000000-0000-4000-8000-0000000066a3')
+    const store = server.registry.sessionStore
+    const at = new Date().toISOString()
+    await store.sessions.upsertSession(fixtureWriteScope(), {
+      id: sessionId,
+      ownerUserId: ME,
+      agentKind: 'shell',
+      cwd: '/repo/mine',
+      title: 'shell',
+      name: null,
+      originKind: 'spawn',
+      conversationId: null,
+      resumeKind: null,
+      resumeValue: null,
+      status: 'exited',
+      exitCode: 0,
+      durableLabel: 'podium-e2e-6673',
+      createdAt: at,
+      lastActiveAt: at,
+      lastOutputAt: null,
+      lastInputAt: null,
+      lastResumedAt: null,
+      archived: false,
+      workState: null,
+      machineId: store.hostMachineId,
+      headless: false,
+      issueId: null,
+      stoppedAt: null,
+    } as never)
 
     const pin = pinRowId(ME, 'repo', '/repo/mine')
     const order = tabOrderRowId(ME, '/repo/mine')
