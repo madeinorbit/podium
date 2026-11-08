@@ -154,7 +154,7 @@ export async function fetchFromReleaseOrigin(
 export function createReleaseFetcher() {
   let lastSuccessfulOrigin: ReleaseOrigin | undefined
   // Only the unpublished mirror is cooled down. This does not alter update polling/backoff.
-  let mirrorRetryAt = 0
+  const mirrorRetryAt = new WeakMap<typeof fetch, number>()
   return {
     getLastSuccessfulOrigin: () => lastSuccessfulOrigin,
     async fetchRelease<T = Response>(
@@ -167,9 +167,15 @@ export function createReleaseFetcher() {
       url: string
     }> {
       const origins = options.origin ? [options.origin] : RELEASE_ORIGINS
+      const fetchImpl = options.fetch ?? fetch
       const failures: string[] = []
       for (const origin of origins) {
-        if (!options.origin && origin.id === 'mirror' && Date.now() < mirrorRetryAt) continue
+        if (
+          !options.origin &&
+          origin.id === 'mirror' &&
+          Date.now() < (mirrorRetryAt.get(fetchImpl) ?? 0)
+        )
+          continue
         options.signal?.throwIfAborted()
         const controller = new AbortController()
         const signal = options.signal
@@ -202,14 +208,14 @@ export function createReleaseFetcher() {
             timedOut,
           ])
           lastSuccessfulOrigin = origin
-          if (origin.id === 'mirror') mirrorRetryAt = 0
+          if (origin.id === 'mirror') mirrorRetryAt.delete(fetchImpl)
           return result
         } catch (error) {
           options.signal?.throwIfAborted()
           // A served but malformed document is a broken publication, not an outage.
           if (error instanceof SyntaxError) throw error
           failures.push(`${origin.id}: ${error instanceof Error ? error.message : String(error)}`)
-          if (origin.id === 'mirror') mirrorRetryAt = Date.now() + 60_000
+          if (origin.id === 'mirror') mirrorRetryAt.set(fetchImpl, Date.now() + 60_000)
         } finally {
           clearTimeout(timer)
         }

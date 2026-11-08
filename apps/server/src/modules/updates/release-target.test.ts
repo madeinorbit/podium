@@ -1,3 +1,9 @@
+import {
+  MIRROR_RELEASE_ORIGIN,
+  RELEASE_ORIGINS,
+  releaseChannelPath,
+  releaseUrl,
+} from '@podium/runtime/release-origins'
 import { describe, expect, it, vi } from 'vitest'
 import {
   type ChannelFeed,
@@ -23,6 +29,71 @@ const DEV_FEED: ChannelFeed = {
   trust: 'instance',
   headers: { authorization: 'Bearer machine-token' },
 }
+
+describe('release origin failover', () => {
+  it('binds a mirror product manifest, companion and HEAD probes to the mirror', async () => {
+    const artifact = releaseUrl(releaseChannelPath('edge') + 'headless.tgz', MIRROR_RELEASE_ORIGIN)
+    const release = { ...releaseManifest('1.0.0', artifact), minRequired: { desktop: '1.0.0' } }
+    const mirrorManifest = releaseUrl(
+      releaseChannelPath('edge') + 'podium-update.json',
+      MIRROR_RELEASE_ORIGIN,
+    )
+    const mirrorDesktop = releaseUrl(
+      releaseChannelPath('edge') + 'latest.json',
+      MIRROR_RELEASE_ORIGIN,
+    )
+    const fetchImpl = vi.fn<typeof fetch>(async (url, init) => {
+      if (String(url) === releaseManifestUrl('edge')) return new Response(null, { status: 504 })
+      if (String(url) === mirrorManifest) return json(release)
+      if (String(url) === mirrorDesktop) return json(desktopManifest('1.0.0'))
+      if (String(url) === artifact && init?.method === 'HEAD') return new Response(null)
+      throw new Error(`unexpected URL ${url}`)
+    })
+    const target = await resolveReleaseTarget('edge', { fetch: fetchImpl })
+    expect(target.artifacts.headless?.platforms['linux-x86_64']?.url).toBe(artifact)
+    expect(fetchImpl.mock.calls.map(([url]) => String(url))).toEqual([
+      releaseManifestUrl('edge'),
+      mirrorManifest,
+      mirrorDesktop,
+      artifact,
+    ])
+    expect(target.trust).toBe('release')
+  })
+
+  for (const serving of RELEASE_ORIGINS) {
+    for (const other of RELEASE_ORIGINS.filter((origin) => origin !== serving)) {
+      it(`${serving.id} cannot name ${other.id} artifacts`, async () => {
+        const foreign = releaseUrl(releaseChannelPath('edge') + 'headless.tgz', other)
+        const fetchImpl = vi.fn<typeof fetch>(async (url) =>
+          String(url) === releaseUrl(releaseChannelPath('edge') + 'podium-update.json', serving)
+            ? json(releaseManifest('1.0.0', foreign))
+            : new Response(null, { status: 504 }),
+        )
+        await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
+          'outside the edge feed',
+        )
+        expect(fetchImpl.mock.calls.every(([, init]) => init?.method !== 'HEAD')).toBe(true)
+      })
+    }
+  }
+
+  it('resolves relative artifact paths only against the serving origin', async () => {
+    const manifestUrl = releaseUrl(
+      releaseChannelPath('edge') + 'podium-update.json',
+      MIRROR_RELEASE_ORIGIN,
+    )
+    const fetchImpl = vi.fn<typeof fetch>(async (url) => {
+      if (String(url) === releaseManifestUrl('edge')) return new Response(null, { status: 504 })
+      if (String(url) === manifestUrl)
+        return json(releaseManifest('1.0.0', 'download/edge/headless.tgz'))
+      return new Response(null)
+    })
+    const result = await resolveReleaseTarget('edge', { fetch: fetchImpl })
+    expect(result.artifacts.headless?.platforms['linux-x86_64']?.url).toBe(
+      releaseUrl('download/edge/headless.tgz', MIRROR_RELEASE_ORIGIN),
+    )
+  })
+})
 
 function releaseManifest(version = '0.4.2', url = HEADLESS_URL) {
   return {

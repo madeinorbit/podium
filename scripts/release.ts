@@ -38,6 +38,11 @@ import {
   type MinRequired as MinRequiredShape,
 } from '../packages/protocol/src/update/target'
 import {
+  PRIMARY_RELEASE_ORIGIN,
+  releaseUrl as publicReleaseUrl,
+  releaseTagPath,
+} from '../packages/runtime/src/release-origins'
+import {
   BUN_TARGETS,
   beginFreshClientPackagingSession,
   bunTargetForPlatform,
@@ -278,7 +283,7 @@ export function isRollingChannel(channel: PublishChannel): boolean {
 }
 
 function releaseUrl(_channel: PublishChannel, tag: string, asset: string): string {
-  return `https://github.com/madeinorbit/podium/releases/download/${tag}/${asset}`
+  return publicReleaseUrl(releaseTagPath(tag) + asset)
 }
 
 function descriptorName(asset: string): string {
@@ -630,7 +635,7 @@ export function releaseNotesWithPage(
 ): { summary: string; url?: string } | null {
   if (!notes) return null
   if (channel !== 'stable' || !tag) return notes
-  return { ...notes, url: `https://github.com/madeinorbit/podium/releases/tag/${tag}` }
+  return { ...notes, url: `${PRIMARY_RELEASE_ORIGIN.baseUrl}tag/${tag}` }
 }
 
 export function publishPreparedHeadless(p: {

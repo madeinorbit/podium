@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process'
+import { installerUrls } from '@podium/runtime/installer'
 import { decodeJoin } from '@podium/runtime/join'
 import { describe, expect, it } from 'vitest'
 import { buildJoinCommand } from './machines-join'
@@ -11,7 +12,7 @@ describe('buildJoinCommand', () => {
       name: 'vps',
     })
     expect(line).toContain(
-      'https://podium.do/install.sh --channel stable --agents codex,claude-code,grok --managed --join ',
+      `"${installerUrls('stable').join(' ')}" --channel stable --agents codex,claude-code,grok --managed --join `,
     )
     expect(line).toContain('apt-get install -y --no-install-recommends ca-certificates curl')
     expect(line).toContain('apk add --no-cache ca-certificates curl')
@@ -49,7 +50,7 @@ describe('buildJoinCommand', () => {
       channel: 'edge',
     })
     expect(line).toContain(
-      'https://github.com/madeinorbit/podium/releases/download/edge/install.sh --channel edge --agents codex,claude-code,grok --managed --join ',
+      `"${installerUrls('edge').join(' ')}" --channel edge --agents codex,claude-code,grok --managed --join `,
     )
   })
 
@@ -63,7 +64,7 @@ describe('buildJoinCommand', () => {
       channel: 'dev',
     })
     expect(line).toContain(
-      'https://github.com/madeinorbit/podium/releases/download/dev/install.sh --channel dev --agents codex,claude-code,grok --managed --join ',
+      `"${installerUrls('dev').join(' ')}" --channel dev --agents codex,claude-code,grok --managed --join `,
     )
   })
 

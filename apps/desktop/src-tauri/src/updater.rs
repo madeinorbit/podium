@@ -25,10 +25,10 @@ impl UpdateOwnership {
     }
 }
 
-const STABLE_ENDPOINT: &str =
-    "https://github.com/madeinorbit/podium/releases/latest/download/latest.json";
-const EDGE_ENDPOINT: &str =
-    "https://github.com/madeinorbit/podium/releases/download/edge/latest.json";
+// The native adapter reads the runtime module's canonical JSON policy.
+#[path = "../../../../packages/runtime/src/release-origins.rs"]
+mod release_origins;
+
 const UPDATE_PROGRESS_EVENT: &str = "podium://update-progress";
 const PROGRESS_INTERVAL_MS: u64 = 2_000;
 const PROGRESS_PERCENT_STEP: u8 = 5;
@@ -284,8 +284,8 @@ pub fn endpoint_for_channel(
             .filter(|endpoint| !endpoint.is_empty())
             .map(str::to_string)
             .ok_or_else(UpdateError::updater_unavailable),
-        UpdateChannel::Stable => Ok(STABLE_ENDPOINT.to_string()),
-        UpdateChannel::Edge => Ok(EDGE_ENDPOINT.to_string()),
+        UpdateChannel::Stable | UpdateChannel::Edge => release_origins::endpoints(channel.as_str())
+            .into_iter().next().ok_or_else(UpdateError::updater_unavailable),
     }
 }
 
@@ -426,11 +426,17 @@ fn updater_for_channel(
     channel: UpdateChannel,
 ) -> Result<tauri_plugin_updater::Updater, UpdateError> {
     let config = read_config();
-    let endpoint = endpoint_for_channel(channel, config.update_feed_endpoint.as_deref())?;
-    let endpoint = parse_updater_endpoint(&endpoint)?;
+    let endpoints = if channel == UpdateChannel::Dev {
+        vec![endpoint_for_channel(channel, config.update_feed_endpoint.as_deref())?]
+    } else { release_origins::endpoints(channel.as_str()) };
+    let endpoints = endpoints.iter().map(|endpoint| parse_updater_endpoint(endpoint)).collect::<Result<Vec<_>, _>>()?;
     app.updater_builder()
         .version_comparator(native_version_is_newer)
-        .endpoints(vec![endpoint])
+        .timeout(Duration::from_secs(5))
+        .manifest_transform(|endpoint, raw| release_origins::bind_manifest(endpoint, raw)
+            .map_err(tauri_plugin_updater::Error::Network))
+        .configure_client(|client| client.redirect(release_origins::redirect_policy()))
+        .endpoints(endpoints)
         .and_then(|builder| builder.build())
         .map_err(|error| {
             log::error!("updater unavailable: {error}");
@@ -1691,11 +1697,11 @@ mod tests {
     fn every_configured_channel_has_a_usable_secure_manifest() {
         assert_eq!(
             endpoint_for_channel(UpdateChannel::Stable, None),
-            Ok(STABLE_ENDPOINT.to_string())
+            Ok(release_origins::endpoints("stable")[0].clone())
         );
         assert_eq!(
             endpoint_for_channel(UpdateChannel::Edge, None),
-            Ok(EDGE_ENDPOINT.to_string())
+            Ok(release_origins::endpoints("edge")[0].clone())
         );
         assert_eq!(
             endpoint_for_channel(
@@ -1705,11 +1711,11 @@ mod tests {
             Ok("https://podium.test/updates/feed/dev/latest.json".to_string())
         );
         for endpoint in [
-            STABLE_ENDPOINT,
-            EDGE_ENDPOINT,
-            "https://podium.test/updates/feed/dev/latest.json",
+            release_origins::endpoints("stable")[0].clone(),
+            release_origins::endpoints("edge")[0].clone(),
+            "https://podium.test/updates/feed/dev/latest.json".to_string(),
         ] {
-            let parsed = tauri::Url::parse(endpoint).expect("configured endpoint must be a URL");
+            let parsed = tauri::Url::parse(&endpoint).expect("configured endpoint must be a URL");
             assert_eq!(parsed.scheme(), "https");
         }
         assert_eq!(

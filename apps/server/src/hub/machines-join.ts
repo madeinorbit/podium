@@ -1,4 +1,4 @@
-import { type InstallerChannel, installerUrl } from '@podium/runtime/installer'
+import { type InstallerChannel, installerUrls } from '@podium/runtime/installer'
 import { encodeJoin } from '@podium/runtime/join'
 import { wssFrom } from '@podium/runtime/setup'
 
@@ -8,12 +8,12 @@ import { wssFrom } from '@podium/runtime/setup'
 // it so a failed fetch cannot become a successful empty `curl | sh` pipeline.
 const BARE_LINUX_FETCH = [
   'set -eu',
-  'url="$1"',
+  'urls="$1"',
   'shift',
   'if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then if [ "$(id -u)" = "0" ]; then elevate=""; elif command -v sudo >/dev/null 2>&1; then elevate="sudo -n"; else echo "podium: need root or passwordless sudo to install curl" >&2; exit 1; fi; if command -v apt-get >/dev/null 2>&1; then $elevate apt-get update >/dev/null; $elevate env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates curl >/dev/null; elif command -v apk >/dev/null 2>&1; then $elevate apk add --no-cache ca-certificates curl >/dev/null; elif command -v dnf >/dev/null 2>&1; then $elevate dnf install -y ca-certificates curl >/dev/null; elif command -v yum >/dev/null 2>&1; then $elevate yum install -y ca-certificates curl >/dev/null; elif command -v zypper >/dev/null 2>&1; then $elevate zypper --non-interactive refresh >/dev/null; $elevate zypper --non-interactive install ca-certificates curl >/dev/null; elif command -v pacman >/dev/null 2>&1; then $elevate pacman -Sy --noconfirm ca-certificates curl >/dev/null; else echo "podium: no downloader and no supported package manager" >&2; exit 1; fi; fi',
   'tmp="${TMPDIR:-/tmp}/podium-install.$$"',
   'trap "rm -f \\"$tmp\\"" EXIT HUP INT TERM',
-  'if command -v curl >/dev/null 2>&1; then curl -fsSL "$url" -o "$tmp"; else wget -qO "$tmp" "$url"; fi',
+  'fetched=; for url in $urls; do if command -v curl >/dev/null 2>&1; then if curl -fsSL --connect-timeout 5 --max-time 10 "$url" -o "$tmp"; then fetched=1; break; fi; else if wget -T 10 -qO "$tmp" "$url"; then fetched=1; break; fi; fi; done; [ -n "$fetched" ]',
   'sh "$tmp" "$@"',
 ].join('; ')
 
@@ -59,7 +59,9 @@ export function buildJoinCommand(p: {
     "sh -c '" +
     BARE_LINUX_FETCH +
     "' sh " +
-    installerUrl(channel) +
+    '"' +
+    installerUrls(channel).join(' ') +
+    '"' +
     ' --channel ' +
     channel +
     ' --agents codex,claude-code,grok ' +

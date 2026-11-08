@@ -12,7 +12,24 @@
 # into a shell. This is the shape rustup, determinate-nix and Claude's own installer use.
 set -eu
 
-REPO="madeinorbit/podium"
+# BEGIN GENERATED RELEASE ORIGINS — bun scripts/render-release-origins.ts
+release_bases() {
+  case "$CHANNEL" in
+    stable) printf '%s\n' 'https://github.com/madeinorbit/podium/releases/latest/download' 'https://releases.podium.do/latest' ;;
+    edge) printf '%s\n' 'https://github.com/madeinorbit/podium/releases/download/edge' 'https://releases.podium.do/download/edge' ;;
+    dev) printf '%s\n' 'https://github.com/madeinorbit/podium/releases/download/dev' 'https://releases.podium.do/download/dev' ;;
+  esac
+}
+release_hosts() {
+  case "$1" in
+    https://github.com/madeinorbit/podium/releases/*) printf '%s' 'github.com objects.githubusercontent.com release-assets.githubusercontent.com' ;;
+    https://releases.podium.do/*) printf '%s' 'releases.podium.do' ;;
+    *) printf '%s' '' ;;
+  esac
+}
+RELEASE_AUTH_HOST='github.com'
+RELEASE_REDIRECT_HOPS=3
+# END GENERATED RELEASE ORIGINS
 CHANNEL="stable"
 JOIN=""
 INSTALL_AGENTS=""
@@ -170,41 +187,56 @@ case "$CHANNEL" in
   stable|edge|dev) ;;
   *) echo "podium install: unknown channel '$CHANNEL' (use: stable | edge | dev)" >&2; exit 2 ;;
 esac
-if [ -n "${PODIUM_INSTALL_BASE:-}" ]; then
-  BASE="$PODIUM_INSTALL_BASE"                                   # tests / mirrors
-elif [ "$CHANNEL" = "stable" ]; then
-  BASE="https://github.com/$REPO/releases/latest/download"
-else
-  BASE="https://github.com/$REPO/releases/download/$CHANNEL"
-fi
-
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
-fetch() { # fetch <url> <out>
-  if command -v curl >/dev/null 2>&1; then
-    if [ -n "$GITHUB_AUTH_TOKEN" ]; then
-      CURL_AUTH_CONFIG="$TMP/curl-auth.conf"
-      if [ ! -f "$CURL_AUTH_CONFIG" ]; then
-        ( umask 077
-          printf 'header = "Authorization: Bearer %s"\n' "$GITHUB_AUTH_TOKEN"
-          printf 'header = "Accept: application/octet-stream"\n'
-        ) > "$CURL_AUTH_CONFIG"
+fetch() { # fetch <url> <out> <trusted-hosts>; redirects never change the origin's host set
+  address="$1"; output="$2"; hosts="$3"; hop=0
+  while :; do
+    headers="$TMP/headers"; : > "$headers"
+    host="${address#*://}"; host="${host%%/*}"
+    if command -v curl >/dev/null 2>&1; then
+      if [ -n "$GITHUB_AUTH_TOKEN" ] && { [ "$host" = "$RELEASE_AUTH_HOST" ] || [ -n "${PODIUM_INSTALL_BASE:-}" ]; }; then
+        CURL_AUTH_CONFIG="$TMP/curl-auth.conf"
+        if [ ! -f "$CURL_AUTH_CONFIG" ]; then
+          ( umask 077
+            printf 'header = "Authorization: Bearer %s"\n' "$GITHUB_AUTH_TOKEN"
+            printf 'header = "Accept: application/octet-stream"\n'
+          ) > "$CURL_AUTH_CONFIG"
+        fi
+        curl -fsS --connect-timeout 5 --max-time 300 -D "$headers" --config "$CURL_AUTH_CONFIG" "$address" -o "$output" || return 1
+      else
+        curl -fsS --connect-timeout 5 --max-time 300 -D "$headers" "$address" -o "$output" || return 1
       fi
-      curl -fsSL --config "$CURL_AUTH_CONFIG" "$1" -o "$2"
     else
-      curl -fsSL "$1" -o "$2"
+      if [ -n "$GITHUB_AUTH_TOKEN" ]; then echo "podium: authenticated downloads require curl" >&2; return 1; fi
+      wget --max-redirect=0 --server-response --timeout=300 -O "$output" "$address" 2> "$headers" || {
+        if ! sed -n '/[Ll]ocation:/p' "$headers" | head -1 | grep -q .; then return 1; fi
+      }
     fi
-  elif command -v wget >/dev/null 2>&1; then
-    if [ -n "$GITHUB_AUTH_TOKEN" ]; then
-      echo "podium: authenticated GitHub downloads require curl" >&2
-      exit 1
-    fi
-    wget -qO "$2" "$1"
-  else echo "podium: need curl or wget" >&2; exit 1; fi
+    location="$(sed -n 's/^[[:space:]]*[Ll]ocation:[[:space:]]*//p' "$headers" | head -1 | tr -d '\r')"
+    [ -n "$location" ] || return 0
+    [ "$hop" -lt "$RELEASE_REDIRECT_HOPS" ] || return 1
+    case "$location" in
+      https://*) ;;
+      /*) location="https://$host$location" ;;
+      *) return 1 ;;
+    esac
+    next_host="${location#https://}"; next_host="${next_host%%/*}"
+    case " $hosts " in *" $next_host "*) ;; *) return 1 ;; esac
+    address="$location"; hop=$((hop + 1))
+  done
 }
 
 step "Downloading $ASSET ($CHANNEL)"
-fetch "$BASE/$ASSET" "$TMP/$ASSET"
-fetch "$BASE/$ASSET.sig" "$TMP/$ASSET.sig"
+BASES="${PODIUM_INSTALL_BASE:-$(release_bases)}"
+DOWNLOADED=""
+for BASE in $BASES; do
+  HOSTS="$(release_hosts "$BASE")"
+  if fetch "$BASE/$ASSET" "$TMP/$ASSET" "$HOSTS" && fetch "$BASE/$ASSET.sig" "$TMP/$ASSET.sig" "$HOSTS"; then
+    DOWNLOADED=1; break
+  fi
+  echo "podium: release origin unavailable: $BASE" >&2
+done
+[ -n "$DOWNLOADED" ] || { echo "podium: all release origins unavailable" >&2; exit 1; }
 
 # --- verify Ed25519 signature (fail closed) ---
 echo "$PUBKEY" | base64 -d > "$TMP/pub.der"

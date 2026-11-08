@@ -198,6 +198,7 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     -o) out="$2"; shift 2 ;;
     --config) config="$2"; shift 2 ;;
+    -D|--connect-timeout|--max-time) shift 2 ;;
     -*) shift ;;
     *) url="$1"; shift ;;
   esac

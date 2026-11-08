@@ -1,5 +1,3 @@
-import { legacyRollbackRefusal } from '@podium/runtime/legacy-daemon-update'
-import { readPendingGrant, writePendingGrant } from '@podium/runtime/update-pending'
 /**
  * Explicit CLI consent resolves one exact signed target and submits it to the
  * machine supervisor. Legacy installations without a parent use the same executor
@@ -10,16 +8,23 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { compareVersions, isProvablyNewer, platformTargetFor } from '@podium/protocol'
-import { resolveInstallDir, resolveUpdateTarget } from '@podium/runtime/config'
+import { resolveInstallDir, resolveUpdateTarget, stateDir } from '@podium/runtime/config'
 import { instanceServiceName, resolveInstanceId } from '@podium/runtime/instance'
-import { PODIUM_UPDATE_PUBKEY } from '@podium/runtime/update-delivery'
+import { legacyRollbackRefusal } from '@podium/runtime/legacy-daemon-update'
 import { MachineUpdateExecutor } from '@podium/runtime/machine-update'
+import { requestMachineUpdate } from '@podium/runtime/machine-update-control'
 import {
   createHeadlessMachineUpdateAdapter,
   installedArtifactDigest,
 } from '@podium/runtime/machine-update-headless'
-import { requestMachineUpdate } from '@podium/runtime/machine-update-control'
-import { stateDir } from '@podium/runtime/config'
+import {
+  fetchRelease,
+  releaseChannelPath,
+  releaseUrl,
+  resolveReleaseArtifact,
+} from '@podium/runtime/release-origins'
+import { PODIUM_UPDATE_PUBKEY } from '@podium/runtime/update-delivery'
+import { readPendingGrant, writePendingGrant } from '@podium/runtime/update-pending'
 
 export type SystemctlExec = (command: string, args: string[]) => string
 
@@ -140,8 +145,6 @@ function currentVersion(dir: string): string {
   return existsSync(f) ? readFileSync(f, 'utf8').trim() : 'dev'
 }
 
-const RELEASE_BASE = 'https://github.com/madeinorbit/podium/releases'
-
 /**
  * Resolve the update manifest URL. With no `feedOverride`, this points at the channel's
  * static GitHub Releases asset (`stable` → the `latest` release, `edge` → the rolling
@@ -156,9 +159,7 @@ export function manifestUrlFor(
   if (ctx.feedOverride) {
     return `${ctx.feedOverride.replace(/\/$/, '')}/update/${ctx.target}/x86_64/${ctx.cur}`
   }
-  return channel === 'stable'
-    ? `${RELEASE_BASE}/latest/download/podium-update.json`
-    : `${RELEASE_BASE}/download/edge/podium-update.json`
+  return releaseUrl(releaseChannelPath(channel) + 'podium-update.json')
 }
 
 export async function runUpdate(
@@ -178,13 +179,20 @@ export async function runUpdate(
   // (config seam), else the running host's os/arch mapping.
   const target = resolveUpdateTarget(process.env, platformTarget())
   const manifestUrl = manifestUrlFor(channel, { target, cur, feedOverride })
-  const res = await fetch(manifestUrl)
+  const release = feedOverride
+    ? undefined
+    : await fetchRelease(releaseChannelPath(channel) + 'podium-update.json', {
+        read: (response) => response.text(),
+      })
+  const res = release?.response ?? (await fetch(manifestUrl))
   if (!res.ok) {
     console.error(`[podium update] feed returned ${res.status}`)
     process.exitCode = 1
     return
   }
-  const { version, url, signature } = parseManifest(await res.text(), target)
+  const parsed = parseManifest(release?.data ?? (await res.text()), target)
+  const { version, signature } = parsed
+  const url = release ? resolveReleaseArtifact(parsed.url, release.origin) : parsed.url
   if (!isNewer(version, cur)) {
     console.log(`[podium update] already up to date (${cur})`)
     return

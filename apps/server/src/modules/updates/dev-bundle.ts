@@ -28,6 +28,7 @@ import {
   releaseBuildTimingFileName,
   timeReleaseBuildTask,
 } from '@podium/runtime/release-build-timing'
+import { fetchRelease, releaseChannelPath } from '@podium/runtime/release-origins'
 import { buildSignal, buildTask, throwIfBuildAborted } from './build-attempt'
 import { runBuildCommand } from './build-process'
 import {
@@ -58,7 +59,6 @@ import {
   DEV_FEED_MANIFEST,
   DEV_FEED_ROUTE,
   type DesktopFeedChannel,
-  desktopReleaseManifestUrl,
   validateDesktopFeedManifest,
 } from './release-target'
 import { targetDaemonWireRefusal } from './wave'
@@ -1928,16 +1928,13 @@ export type DesktopManifestSource = {
 async function fetchStandingDesktopManifest(
   channel: DesktopFeedChannel,
 ): Promise<StandingDesktopManifest> {
-  const url = desktopReleaseManifestUrl(channel)
   try {
-    const response = await fetch(url, {
-      cache: 'no-store',
-      signal: buildSignal() ?? AbortSignal.timeout(5_000),
+    const result = await fetchRelease(releaseChannelPath(channel) + 'latest.json', {
+      signal: buildSignal(),
+      timeoutMs: 5_000,
+      read: (response) => response.json(),
     })
-    if (!response.ok) {
-      return { missing: `${channel} desktop manifest returned HTTP ${response.status}` }
-    }
-    return { raw: await response.json() }
+    return { raw: validateDesktopFeedManifest(channel, result.data, result.origin) }
   } catch (error) {
     // A fetch failure says almost nothing on its own — `fetch failed` with the
     // DNS or TLS refusal one `cause` down is the shape this surface kept losing.
