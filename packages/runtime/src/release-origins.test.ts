@@ -1,9 +1,9 @@
 import { createHash, generateKeyPairSync, sign } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
-import { installerOriginPolicy } from '../../../scripts/render-release-origins'
 import {
   createReleaseFetcher,
+  installerOriginPolicy,
   MIRROR_RELEASE_ORIGIN,
   PRIMARY_RELEASE_ORIGIN,
   RELEASE_ORIGINS,

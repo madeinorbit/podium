@@ -238,3 +238,29 @@ export function createReleaseFetcher() {
 const processFetcher = createReleaseFetcher()
 export const fetchRelease = processFetcher.fetchRelease
 export const lastSuccessfulReleaseOrigin = processFetcher.getLastSuccessfulOrigin
+
+/** Pure bootstrap adapter; the generator only writes these centrally owned policy bytes. */
+export function installerOriginPolicy(): string {
+  return [
+    '# BEGIN GENERATED RELEASE ORIGINS — bun scripts/render-release-origins.ts',
+    'release_bases() {',
+    '  case "$CHANNEL" in',
+    ...(['stable', 'edge', 'dev'] as const).map(
+      (channel) =>
+        `    ${channel}) printf '%s\\n' ${RELEASE_ORIGINS.map((origin) => `'${releaseUrl(releaseChannelPath(channel), origin).replace(/\/$/, '')}'`).join(' ')} ;;`,
+    ),
+    '  esac',
+    '}',
+    'release_hosts() {',
+    '  case "$1" in',
+    ...RELEASE_ORIGINS.map(
+      (origin) => `    ${origin.baseUrl}*) printf '%s' '${origin.redirectHosts.join(' ')}' ;;`,
+    ),
+    "    *) printf '%s' '' ;;",
+    '  esac',
+    '}',
+    `RELEASE_AUTH_HOST='${new URL(PRIMARY_RELEASE_ORIGIN.baseUrl).hostname}'`,
+    `RELEASE_REDIRECT_HOPS=${RELEASE_REDIRECT_HOPS}`,
+    '# END GENERATED RELEASE ORIGINS',
+  ].join('\n')
+}
