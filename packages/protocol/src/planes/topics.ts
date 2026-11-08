@@ -130,6 +130,8 @@ export const ReclaimInventoryPayload = z.object({
     z.object({ status: z.literal('ready'), recoverableBytes: z.number(), measuredAt: z.string() }),
   ]),
 })
+export const MachineProcessesWatchInput = z.object({ roots: z.array(z.string()) })
+
 export const MachineProcessesPayload = z.object({
   breakdown: HostProcessBreakdown,
   reclaim: ReclaimInventoryPayload.optional(),

@@ -1,9 +1,10 @@
-import { AnswerRefresh, type AnswerSignal, focusRefresh } from '@podium/client-graph/answer-refresh'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type AnswerSignal, focusRefresh } from '@podium/client-graph/answer-refresh'
+import { LiveRequest } from '@podium/client-graph/live-request'
+import { reaction } from 'mobx'
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 import { useTabVisible } from './use-polled-query'
 
-/** A request answer owned by this opening. Its refresh source is explicit;
- * focus/visibility covers reads whose originator cannot signal yet. No cache or timer. */
+/** React binds the request owner to this opening and visibility. No cache or timer. */
 export function useAnswerQuery<T>({
   key,
   read,
@@ -14,71 +15,20 @@ export function useAnswerQuery<T>({
   read: () => Promise<T>
   signal?: AnswerSignal
   enabled?: boolean
-}): {
-  data: T | null
-  error: string | null
-  pending: boolean
-  failed: boolean
-  fetchedAt: number | null
-  refresh: () => void
-} {
+}) {
   const readRef = useRef(read)
   readRef.current = read
-  const [answer, setAnswer] = useState<{
-    key: string
-    data: T | null
-    error: string | null
-    pending: boolean
-    fetchedAt: number | null
-  }>({ key, data: null, error: null, pending: true, fetchedAt: null })
-  if (answer.key !== key)
-    setAnswer({ key, data: null, error: null, pending: true, fetchedAt: null })
+  const view = useMemo(() => new LiveRequest(key, () => readRef.current(), signal), [key, signal])
   const visible = useTabVisible()
-  const owner = useMemo(
-    () => ({
-      key,
-      signal,
-      live: false,
-      generation: 0,
-      refreshes: undefined as AnswerRefresh | undefined,
-    }),
-    [key, signal],
-  )
   useEffect(() => {
-    if (!enabled || !visible) return
-    owner.live = true
-    const generation = ++owner.generation
-    const refreshes = new AnswerRefresh(async () => {
-      if (!owner.live || owner.generation !== generation) return
-      setAnswer((a) => ({ ...a, pending: true }))
-      try {
-        const data = await readRef.current()
-        if (owner.live && owner.generation === generation)
-          setAnswer({ key, data, error: null, pending: false, fetchedAt: Date.now() })
-      } catch (cause) {
-        if (owner.live && owner.generation === generation)
-          setAnswer((a) => ({
-            ...a,
-            pending: false,
-            error: cause instanceof Error ? cause.message : String(cause),
-          }))
-      }
-    }, signal)
-    owner.refreshes = refreshes
-    refreshes.open()
-    return () => {
-      owner.live = false
-      ++owner.generation
-      refreshes.close()
-    }
-  }, [owner, key, signal, enabled, visible])
-  const refresh = useCallback(() => owner.refreshes?.refresh(), [owner])
-  return {
-    data: answer.data,
-    error: answer.error,
-    pending: answer.pending,
-    failed: answer.error !== null,
-    fetchedAt: answer.fetchedAt,
-    refresh,
-  }
+    if (enabled && visible) view.open()
+    return () => view.close()
+  }, [view, enabled, visible])
+  const subscribe = useCallback(
+    (changed: () => void) => reaction(() => view.snapshot, changed),
+    [view],
+  )
+  const get = useCallback(() => view.snapshot, [view])
+  const snapshot = useSyncExternalStore(subscribe, get)
+  return { ...snapshot, failed: snapshot.error !== null, refresh: view.refresh }
 }

@@ -190,7 +190,7 @@ export function watchCheckout(
         watches.set(dir, watcher)
         await tree(join(dir, 'refs'), false)
       }
-      changed()
+      if (!fallback) changed()
     } catch (error) {
       fail(error)
     }

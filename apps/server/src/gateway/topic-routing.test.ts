@@ -175,7 +175,7 @@ describe('daemon topic ingress', () => {
       key: topicKey('machine.metrics', M1),
       payload: sample,
     })
-    expect(sink).toHaveBeenCalledWith(M1, sample)
+    expect(sink).toHaveBeenCalledWith(M1, sample, M1)
   })
 })
 

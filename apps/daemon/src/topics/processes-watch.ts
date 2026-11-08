@@ -1,7 +1,6 @@
 import type { MachineId } from '@podium/model'
 import type { DaemonMessage, HostMemoryBreakdown } from '@podium/protocol'
-import { topicKey } from '@podium/protocol'
-import { z } from 'zod'
+import { MachineProcessesWatchInput, topicKey } from '@podium/protocol'
 import type { TopicWatchRegistry } from './watch-registry'
 
 /** Only the server supplies roots, derived from this machine's registered repos.
@@ -15,7 +14,7 @@ export function registerProcessesWatch(deps: {
 }): void {
   deps.watches.register('machine.processes', (id, input) => {
     if (id !== deps.machineId) return () => {}
-    const { roots } = z.object({ roots: z.array(z.string()) }).parse(input)
+    const { roots } = MachineProcessesWatchInput.parse(input)
     let stopped = false
     let running = false
     const sample = async (): Promise<void> => {

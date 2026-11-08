@@ -12,6 +12,7 @@ it('refreshes related task and mission costs on turn end or stage change, withou
       value: {
         id,
         title: id,
+        repoPath: '/repo',
         stage: 'in_progress',
         parentId: id === 'child' ? 'root' : null,
         deps: [],
