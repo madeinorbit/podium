@@ -27,7 +27,6 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { PodiumClientApi } from '@podium/client-core/api'
-import { openKernelEngineOutbox } from '@podium/client-core/engine'
 import type { OutboxEntry, OutboxStorage } from '@podium/client-core/outbox'
 import { recordCreateEntry, recordEditEntry } from '@podium/client-core/records'
 import type { Replica as ClientReplica } from '@podium/client-core/replica'
@@ -58,6 +57,9 @@ import WebSocket from 'ws'
 import { hashToken } from '../../apps/server/src/auth-route'
 import type { AppRouter } from '../../apps/server/src/router'
 import { startServer } from '../../apps/server/src/server'
+// The kernel queue alone: the engine's index also loads the decorated client
+// models, which this node lane does not transform.
+import { openKernelEngineOutbox } from '../../packages/client-core/src/engine/kernel-outbox'
 
 const FEED_TYPES = new Set(['feedDelta', 'feedBootstrap', 'feedRescope', 'feedResyncRequired'])
 const PER_USER_KINDS = new Set(['pin', 'tabOrder', 'userPreferences', 'userReadPosition'])
