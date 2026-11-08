@@ -1,5 +1,6 @@
 import '@/test-support/model-catalog-mock'
 import '@/test-support/mock-core-store-handle'
+import { draftLaunchEffect } from '@podium/client-core'
 // @vitest-environment happy-dom
 /**
  * WHICH HARNESS THE BOX OPENS ON, AND WHAT REMEMBERS IT (POD-1469).
@@ -17,7 +18,6 @@ import '@/test-support/mock-core-store-handle'
  * can.
  */
 import { asIssueId, asMachineId, asSessionId } from '@podium/model'
-import { draftLaunchEffect } from '@podium/client-core'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ColdStartComposer } from './ColdStartComposer'
@@ -140,7 +140,8 @@ const store = {
   setView: vi.fn(),
   // My coding default is my synced settings record (POD-6673): written by
   // `setPreferences`, read through `useMyCodingHarness` (mocked below).
-  setPreferences: async (values: Record<string, unknown>) => await updatePersonal({ values: values as Record<string, string> }),
+  setPreferences: async (values: Record<string, unknown>) =>
+    await updatePersonal({ values: values as Record<string, string> }),
   trpc: {
     settings: {},
     issues: { create: { mutate: vi.fn() }, start: { mutate: vi.fn() } },
@@ -154,19 +155,17 @@ vi.mock('@/app/store', () => ({
 
 vi.mock('@/lib/my-preferences', async () => {
   const { resolveRole } = await import('@podium/runtime')
-  // The account exactly as stored; one that does not resolve reads as no
-  // setting yet, as the old settings read's failure did.
+  // What `UserPreferencesModel.codingHarness` answers: the role resolved from
+  // the account exactly as stored. My record is in the pool from the first
+  // publication with its defaults, so this is never undefined and never `auto`.
   return {
-    useMyCodingHarness: () => {
-      try {
-        return resolveRole(
-          { roles: { coding: { accountId: state.accountId, model: 'auto', effort: 'auto' } } } as never,
-          'coding',
-        ).harness
-      } catch {
-        return undefined
-      }
-    },
+    useMyCodingHarness: () =>
+      resolveRole(
+        {
+          roles: { coding: { accountId: state.accountId, model: 'auto', effort: 'auto' } },
+        } as never,
+        'coding',
+      ).harness,
   }
 })
 
@@ -178,8 +177,10 @@ const pickerFixture = vi.hoisted(() => ({ real: false }))
 vi.mock('@/lib/ModelEffortPicker', async (original) => {
   const actual = await original<typeof import('@/lib/ModelEffortPicker')>()
   return {
-    ModelPicker: (props: Parameters<typeof actual.ModelPicker>[0]) => pickerFixture.real ? <actual.ModelPicker {...props} /> : null,
-    EffortPicker: (props: Parameters<typeof actual.EffortPicker>[0]) => pickerFixture.real ? <actual.EffortPicker {...props} /> : null,
+    ModelPicker: (props: Parameters<typeof actual.ModelPicker>[0]) =>
+      pickerFixture.real ? <actual.ModelPicker {...props} /> : null,
+    EffortPicker: (props: Parameters<typeof actual.EffortPicker>[0]) =>
+      pickerFixture.real ? <actual.EffortPicker {...props} /> : null,
   }
 })
 
@@ -254,17 +255,22 @@ describe('the box opens on the harness the sidebar chip would have', () => {
     )
   })
 
-  it('reads a session scan only when the setting arrives unresolved', async () => {
-    // `auto` is what the resolver's session fallback exists for. It does not
-    // reach here from `roles.coding` today; the branch is asserted so the
-    // inherited resolver keeps behaving like the chip's if it ever does.
-    state.accountId = 'auto'
-    state.sessions = [
-      session('claude-code', '2026-08-01T09:00:00.000Z'),
-      session('codex', '2026-08-01T17:00:00.000Z'),
-    ]
-    render(<ColdStartComposer first={false} />)
-    await waitFor(() => expect(chip().textContent).toContain('Codex'))
+  it('opens on my settings record, never on a newer session of another harness', async () => {
+    // My `userPreferences` record exists at mount with its defaults resolved
+    // (POD-6673). An account left empty, or one that names no harness
+    // (`auto`), resolves to Claude Code; no session scan stands in for it.
+    for (const accountId of ['', 'auto']) {
+      state.accountId = accountId
+      state.sessions = [
+        session('claude-code', '2026-08-01T09:00:00.000Z'),
+        session('codex', '2026-08-01T17:00:00.000Z'),
+      ]
+      render(<ColdStartComposer first={false} />)
+      await waitFor(() => expect(chip().textContent).toContain('Claude Code'))
+      expect(chip().textContent).not.toContain('Codex')
+      cleanup()
+      uiValues.clear()
+    }
   })
 })
 
@@ -288,10 +294,14 @@ describe('cold-start runtime driver choice', () => {
     state.installed = ['opencode']
     state.runtimeDrivers = [{ harness: 'opencode', id: 'opencode-server', family: 'server' }]
     render(<ColdStartComposer first={false} />)
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Driver' }).textContent).toContain('Headed'))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Driver' }).textContent).toContain('Headed'),
+    )
     expect(screen.getByRole('button', { name: 'Driver' }).textContent).not.toContain('contract')
     fireEvent.click(screen.getByTestId('cold-start-launch'))
-    expect(store.spawnDraftAgent).toHaveBeenLastCalledWith(expect.not.objectContaining({ requestedDriverId: expect.anything() }))
+    expect(store.spawnDraftAgent).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ requestedDriverId: expect.anything() }),
+    )
     fireEvent.click(screen.getByRole('button', { name: 'Driver' }))
     fireEvent.click(await screen.findByRole('menuitem', { name: 'OpenCode 1 (headless)' }))
     fireEvent.click(screen.getByTestId('cold-start-launch'))
@@ -433,12 +443,13 @@ describe('the agent chip wears its harness', () => {
   })
 })
 
-
 it('offers no Use option in the new-task model menu', async () => {
   pickerFixture.real = true
   render(<ColdStartComposer first={false} />)
   await waitFor(() => expect(chip().textContent).toContain('Claude Code'))
   fireEvent.click(screen.getByRole('button', { name: 'Model' }))
-  fireEvent.change(await screen.findByPlaceholderText('Filter…'), { target: { value: 'my-custom-model' } })
+  fireEvent.change(await screen.findByPlaceholderText('Filter…'), {
+    target: { value: 'my-custom-model' },
+  })
   expect(screen.queryByRole('menuitem', { name: /Use / })).toBeNull()
 })

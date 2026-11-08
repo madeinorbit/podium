@@ -34,7 +34,6 @@ import {
   preferredMachineChoices,
 } from '@podium/model/browser'
 import { nativeAccountId } from '@podium/runtime'
-import { useMyCodingHarness } from '@/lib/my-preferences'
 import { ChevronDown, Folder, LoaderCircle, Monitor, Paperclip } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -64,6 +63,7 @@ import {
 } from '@/lib/issue-agents'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
 import { modChord } from '@/lib/mod-chord'
+import { useMyCodingHarness } from '@/lib/my-preferences'
 import { PropertyMenu } from '@/lib/PropertyMenu'
 import {
   headlessRuntimeDrivers,
@@ -263,7 +263,7 @@ export function ColdStartComposer({
     setPreferences,
   } = useSettingsClient()
   const { repos, machines } = useSettingsCatalog()
-  const { usage: repositoryUsage, defaultAgent: recentAgent } = useSettingsSetupSummary(repos)
+  const { usage: repositoryUsage } = useSettingsSetupSummary(repos)
   /**
    * THE PICKER OFFERS EXACTLY WHAT LAUNCH CAN RESOLVE (POD-1582).
    *
@@ -278,7 +278,10 @@ export function ColdStartComposer({
    * The pool maintains agent usage maxima by path as session keys change.
    * This picker asks only for its displayed repository/worktree roots.
    */
-  const { repoChoices, onOpenChange: onRepositoryPickerOpen } = useFirstTaskRepositoryPicker(repos, repositoryUsage)
+  const { repoChoices, onOpenChange: onRepositoryPickerOpen } = useFirstTaskRepositoryPicker(
+    repos,
+    repositoryUsage,
+  )
   /**
    * THE DRAFT IS SUBSCRIBED, NOT SEEDED (POD-1469).
    *
@@ -330,7 +333,6 @@ export function ColdStartComposer({
   // state is reserved for synchronous faults that never reached persistence.
   const [transientError, setError] = useState<string | null>(null)
   const error = draft.launchError || transientError
-
 
   /**
    * `use` IS A CODE-EXECUTION BOUNDARY, AND THIS IS NOW WHERE IT IS DRAWN
@@ -397,23 +399,21 @@ export function ColdStartComposer({
    * WHICH HARNESS THIS BOX OPENS ON — the sidebar chip's rule, inherited whole
    * (POD-1469).
    *
-   * `New <Agent> in <Repo>` answered this with `resolveDefaultAgent` over the
-   * `roles.coding` harness, so that is the call, unchanged. In practice the
-   * settings read always yields a concrete harness — a native account NAMES its
-   * CLI (`native:codex`) and the role's default account names Claude Code — so
-   * what actually carries "the last one you used" is the write in
-   * `persistDefaultAgent` below, exactly as it did for the chip. The resolver's
-   * session fallback stays because it is the same resolver, and it is the right
-   * answer for the one input that can still arrive unresolved (`auto`).
+   * `New <Agent> in <Repo>` answered this from the `roles.coding` harness, and
+   * so does this box. That harness is my synced `userPreferences` record
+   * (POD-6673), which is in the pool from the first publication with its
+   * defaults resolved: a native account NAMES its CLI (`native:codex`) and an
+   * empty or unknown account names Claude Code. It is therefore never `auto`,
+   * and the session scan that once stood in for an unresolved `auto` has no
+   * input left to answer. What carries "the last one you used" is the write in
+   * `persistDefaultAgent` below, exactly as it did for the chip.
    *
    * Then availability, and only then: a default that cannot start on the chosen
    * machine is not a default, so it steps aside for the first harness that can.
    * A pick made in THIS box outranks both — it is the most recent thing the
    * operator said about this specific task.
    */
-  const defaultAgent =
-    issueAgentKind(agentSetting && agentSetting !== 'auto' ? agentSetting : recentAgent) ??
-    DEFAULT_HARNESS_AGENT
+  const defaultAgent = issueAgentKind(agentSetting) ?? DEFAULT_HARNESS_AGENT
 
   /**
    * PICKING A HARNESS HERE IS A WRITE (POD-1469).
