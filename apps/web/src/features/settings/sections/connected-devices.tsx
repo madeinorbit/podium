@@ -1,8 +1,3 @@
-import { useAgeNow } from '@/lib/clock-hooks'
-import { observer } from 'mobx-react-lite'
-import { deviceKey, useSettingsRecords } from '../record-readers'
-import { useWorklistPool } from '@/app/store-worklist-pool'
-import { workspaceFetch } from '@/lib/workspace-request'
 import { relativeTime } from '@podium/client-core/focus'
 import {
   MobileClientSession as MobileClientSessionSchema,
@@ -25,12 +20,17 @@ import {
   Smartphone,
   TriangleAlert,
 } from 'lucide-react'
+import { observer } from 'mobx-react-lite'
 import { QRCodeSVG } from 'qrcode.react'
 import { type JSX, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useWorklistPool } from '@/app/store-worklist-pool'
 import { serverConfig, type Trpc } from '@/app/trpc'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { useAgeNow, useCountdown, useDeadlineNow } from '@/lib/clock-hooks'
 import { WorkingMark } from '@/lib/motion/WorkingMark'
+import { workspaceFetch } from '@/lib/workspace-request'
+import { deviceKey, useSettingsRecords } from '../record-readers'
 import { Section, Subsection } from './shared'
 
 /**
@@ -244,9 +244,13 @@ function formatActivity(value: string | null, now: number): string {
   return relativeTime(value, now)
 }
 
-function secondsRemaining(expiresAt: string, now: number): number {
-  const remaining = Date.parse(expiresAt) - now
-  return Number.isFinite(remaining) ? Math.max(0, Math.ceil(remaining / 1000)) : 0
+function PairingExpiry({ expiresAt }: { expiresAt: string }): JSX.Element {
+  const remaining = useCountdown(Date.parse(expiresAt))
+  return (
+    <p className="settings-micro mt-2 font-mono tabular-nums">
+      Expires in {Math.ceil(remaining / 1000)}s
+    </p>
+  )
 }
 
 function PairingCode({
@@ -264,14 +268,7 @@ function PairingCode({
   cancelError?: string | null
   onCancel?: () => void
 }): JSX.Element {
-  const [now, setNow] = useState(() => Date.now())
   const [feedback, setFeedback] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!expiresAt) return
-    const id = window.setInterval(() => setNow(Date.now()), 1000)
-    return () => window.clearInterval(id)
-  }, [expiresAt])
 
   const copy = async (): Promise<void> => {
     try {
@@ -323,11 +320,7 @@ function PairingCode({
             This temporary link is a secret. Share it only with the phone you are pairing.
           </p>
         )}
-        {expiresAt && (
-          <p className="settings-micro mt-2 font-mono tabular-nums">
-            Expires in {secondsRemaining(expiresAt, now)}s
-          </p>
-        )}
+        {expiresAt && <PairingExpiry expiresAt={expiresAt} />}
         <div className="mt-3 flex flex-wrap gap-2">
           <Button type="button" size="sm" variant="outline" onClick={() => void copy()}>
             <Copy aria-hidden="true" />
@@ -567,29 +560,39 @@ const MobileSessions = observer(function MobileSessions({
   const confirmationRef = useRef<HTMLDivElement>(null)
   const sessionsRegionRef = useRef<HTMLDivElement>(null)
 
-  const load = useCallback(() => { void reload() }, [reload])
-  useEffect(() => { if (refreshKey > 0) load() }, [load, refreshKey])
+  const load = useCallback(() => {
+    void reload()
+  }, [reload])
+  useEffect(() => {
+    if (refreshKey > 0) load()
+  }, [load, refreshKey])
   useEffect(() => {
     if (confirming) confirmationRef.current?.focus()
   }, [confirming])
 
-  const confirm = useCallback((id: string | null) => { setConfirming(id); setRevokeError(null) }, [])
-  const revoke = useCallback(async (session: MobileSessionView): Promise<void> => {
-    const id = session.sessionId
-    setRevoking(id)
+  const confirm = useCallback((id: string | null) => {
+    setConfirming(id)
     setRevokeError(null)
-    try {
-      await api.auth.revokeMobileSession.mutate({ sessionId: id })
-      request?.cancel()
-      if (pool) pool.apply({ type: 'update', rows: [{ kind: 'device', id, value: undefined }] })
-      setConfirming(null)
-      window.setTimeout(() => sessionsRegionRef.current?.focus(), 0)
-    } catch {
-      setRevokeError(SAFE_REVOKE_ERROR)
-    } finally {
-      setRevoking(null)
-    }
-  }, [api, request, pool])
+  }, [])
+  const revoke = useCallback(
+    async (session: MobileSessionView): Promise<void> => {
+      const id = session.sessionId
+      setRevoking(id)
+      setRevokeError(null)
+      try {
+        await api.auth.revokeMobileSession.mutate({ sessionId: id })
+        request?.cancel()
+        if (pool) pool.apply({ type: 'update', rows: [{ kind: 'device', id, value: undefined }] })
+        setConfirming(null)
+        window.setTimeout(() => sessionsRegionRef.current?.focus(), 0)
+      } catch {
+        setRevokeError(SAFE_REVOKE_ERROR)
+      } finally {
+        setRevoking(null)
+      }
+    },
+    [api, request, pool],
+  )
 
   return (
     <Subsection
@@ -620,9 +623,18 @@ const MobileSessions = observer(function MobileSessions({
         )}
         {sessions && sessions.length > 0 && (
           <div className="divide-y divide-hairline-soft/70 border-y border-hairline-soft/70">
-            {sessions.map(session => <MobileDeviceRow key={session.sessionId} session={session}
-              confirming={confirming} revoking={revoking} revokeError={revokeError}
-              confirmationRef={confirmationRef} confirm={confirm} revoke={revoke} />)}
+            {sessions.map((session) => (
+              <MobileDeviceRow
+                key={session.sessionId}
+                session={session}
+                confirming={confirming}
+                revoking={revoking}
+                revokeError={revokeError}
+                confirmationRef={confirmationRef}
+                confirm={confirm}
+                revoke={revoke}
+              />
+            ))}
           </div>
         )}
       </div>
@@ -630,11 +642,23 @@ const MobileSessions = observer(function MobileSessions({
   )
 })
 
-const MobileDeviceActivity = observer(function MobileDeviceActivity({ session }: { session: MobileSessionView }) {
+const MobileDeviceActivity = observer(function MobileDeviceActivity({
+  session,
+}: {
+  session: MobileSessionView
+}) {
   const now = useAgeNow(session.lastSeenAt ?? session.createdAt, 0, session.lastSeenAt !== null)
   return <>{formatActivity(session.lastSeenAt, now)}</>
 })
-const MobileDeviceRow = observer(function MobileDeviceRow({ session, confirming, revoking, revokeError, confirmationRef, confirm, revoke }: {
+const MobileDeviceRow = observer(function MobileDeviceRow({
+  session,
+  confirming,
+  revoking,
+  revokeError,
+  confirmationRef,
+  confirm,
+  revoke,
+}: {
   session: MobileSessionView
   confirming: string | null
   revoking: string | null
@@ -654,9 +678,7 @@ const MobileDeviceRow = observer(function MobileDeviceRow({ session, confirming,
           />
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <p className="settings-label truncate text-foreground">
-                {session.deviceName}
-              </p>
+              <p className="settings-label truncate text-foreground">{session.deviceName}</p>
               {session.current && (
                 <Badge variant="outline" className="h-4 px-1.5 text-[11px]">
                   This device
@@ -755,6 +777,20 @@ export function ConnectedDevicesSection({
   const activePairingRef = useRef<string | null>(null)
   const flowRegionRef = useRef<HTMLDivElement>(null)
   const previousFocusState = useRef('idle')
+  const pairingDeadline =
+    flow.kind === 'pair' && (flow.stage.kind === 'waiting' || flow.stage.kind === 'claimed')
+      ? Date.parse(flow.start.expiresAt)
+      : undefined
+  const pairingDeadlineNow = useDeadlineNow(pairingDeadline)
+
+  useEffect(() => {
+    if (pairingDeadline !== undefined && pairingDeadlineNow >= pairingDeadline) {
+      activePairingRef.current = null
+      setFlow((current) =>
+        current.kind === 'pair' ? { ...current, url: '', stage: { kind: 'expired' } } : current,
+      )
+    }
+  }, [pairingDeadline, pairingDeadlineNow])
 
   useEffect(() => {
     return () => {

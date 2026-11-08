@@ -5,12 +5,13 @@ import {
   parseAskQuestions,
 } from '@podium/client-core/values'
 import type { TranscriptItem } from '@podium/model'
-import { Pencil } from './icons'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
+import { useClock } from '../lib/clock-hooks'
 import { alpha } from '../theme/mix'
 import { color, font, leading, mono, monoLabel, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
+import { Pencil } from './icons'
 import { PressableScale } from './PressableScale'
 
 /**
@@ -19,7 +20,10 @@ import { PressableScale } from './PressableScale'
  * Other entry, or skip. Who answered is never on the payload; the authority
  * stamps it.
  */
-export type AskQuestionAnswer = ({ skip: true } | { choices: AskAnswerChoice[] }) & { interactionId?: string; question?: string }
+export type AskQuestionAnswer = ({ skip: true } | { choices: AskAnswerChoice[] }) & {
+  interactionId?: string
+  question?: string
+}
 
 /**
  * The agent asking the human — options rendered as big tap targets. Live cards
@@ -101,7 +105,10 @@ export function AskQuestionCard({
     if (!choices) return
     setState('sending')
     try {
-      await onAnswer({ choices, ...(interactionId ? { interactionId, question: item.toolInputJson } : {}) })
+      await onAnswer({
+        choices,
+        ...(interactionId ? { interactionId, question: item.toolInputJson } : {}),
+      })
       setState('sent')
     } catch {
       setState('failed')
@@ -112,7 +119,10 @@ export function AskQuestionCard({
     if (!onAnswer || locked) return
     setState('sending')
     try {
-      await onAnswer({ skip: true, ...(interactionId ? { interactionId, question: item.toolInputJson } : {}) })
+      await onAnswer({
+        skip: true,
+        ...(interactionId ? { interactionId, question: item.toolInputJson } : {}),
+      })
       setState('sent')
     } catch {
       setState('failed')
@@ -291,14 +301,8 @@ export function AskQuestionCard({
 }
 
 function AskedAge({ at }: { at: string | undefined }) {
-  const [now, setNow] = useState(Date.now())
-  useEffect(() => {
-    if (!at) return
-    const timer = setInterval(() => setNow(Date.now()), 20_000)
-    return () => clearInterval(timer)
-  }, [at])
-  if (!at) return null
-  const start = Date.parse(at)
+  const start = at ? Date.parse(at) : Number.NaN
+  const now = useClock(20_000, Number.isFinite(start))
   if (!Number.isFinite(start)) return null
   const minutes = Math.max(0, Math.floor((now - start) / 60_000))
   const age =

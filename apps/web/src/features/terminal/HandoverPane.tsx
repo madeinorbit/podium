@@ -1,6 +1,7 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
+import { useClock } from '@/lib/clock-hooks'
 import { cn } from '@/lib/utils'
 
 /** Enough cells to overflow any pane width; the wire clips and masks its ends,
@@ -110,14 +111,8 @@ export function HandoverPane({
   background: string
 }): JSX.Element {
   const arrived = view.phase === 'arrived'
-  const [seconds, setSeconds] = useState(0)
+  const [startedAt] = useState(Date.now)
   const [out, setOut] = useState(false)
-
-  useEffect(() => {
-    if (arrived) return
-    const tick = setInterval(() => setSeconds((s) => s + 1), 1000)
-    return () => clearInterval(tick)
-  }, [arrived])
 
   // The arrival beat holds, then the veil dissolves into the live terminal.
   useEffect(() => {
@@ -190,9 +185,20 @@ export function HandoverPane({
       <span className="mt-[19px] flex items-baseline gap-[8px]">
         <span className="label-mono text-(--handover-label)">Elapsed</span>
         <span className="mono-timer text-[10px] text-(--handover-dim)">
-          {formatHandoverElapsed(seconds)}
+          <HandoverElapsed startedAt={startedAt} running={!arrived} />
         </span>
       </span>
     </div>
   )
+}
+
+function HandoverElapsed({
+  startedAt,
+  running,
+}: {
+  startedAt: number
+  running: boolean
+}): JSX.Element {
+  const now = useClock(1_000, running)
+  return <>{formatHandoverElapsed((now - startedAt) / 1_000)}</>
 }

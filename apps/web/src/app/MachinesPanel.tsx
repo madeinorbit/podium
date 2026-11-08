@@ -46,6 +46,7 @@ import { useSettingsClient } from '@/features/settings/stable-access'
 import { NetworkStep } from '@/features/setup/network-step'
 import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
 import { errorMessage } from '@/features/updates/operations-client'
+import { useClock } from '@/lib/clock-hooks'
 import { formatDisplayedVersion, machineVersionSkew } from '@/lib/machine-version-skew'
 import { WorkingMark } from '@/lib/motion/WorkingMark'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
@@ -178,7 +179,6 @@ function MachinesPanelView({
   showOwnershipTransfer?: boolean
 }): JSX.Element {
   const { trpc, setSettingsTab } = useSettingsClient()
-  const [now, setNow] = useState(() => Date.now())
   const [addOpen, setAddOpen] = useState(false)
   const [recommendServer, setRecommendServer] = useState(false)
   const [makeServerAfterPair, setMakeServerAfterPair] = useState(false)
@@ -235,12 +235,6 @@ function MachinesPanelView({
     pairing.watchForNewMachine()
     void pairing.mint({ podiumManaged: pairing.podiumManaged })
   }
-
-  // Tick so relative times stay fresh.
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 30_000)
-    return () => clearInterval(id)
-  }, [])
 
   const openAddMachine = (): void => {
     const shouldRecommendServer = offerServerMoveWhenPairing(machines.length)
@@ -384,7 +378,6 @@ function MachinesPanelView({
                   key={m.id}
                   machine={m}
                   replacementMachines={machines}
-                  now={now}
                   trpc={trpc}
                   isThisMachine={m.id === thisMachineId}
                   onMoveServer={
@@ -541,7 +534,11 @@ function useEnableHosting(trpc: Store['trpc']): EnableHosting | null {
     setBusy(true)
     setError(null)
     try {
-      await pairNativeDesktop(trpc, enableHosting, 'Hosting enabled — quit and reopen the app to finish pairing.')
+      await pairNativeDesktop(
+        trpc,
+        enableHosting,
+        'Hosting enabled — quit and reopen the app to finish pairing.',
+      )
     } catch (e) {
       setBusy(false)
       setError(e instanceof Error ? e.message : String(e))
@@ -973,10 +970,46 @@ const ServerMoveDialog = observer(function ServerMoveDialog({
   )
 })
 
+function MachineFleetStatus({
+  label,
+  tone,
+  lastSeenAt,
+  detail,
+  dot = false,
+}: {
+  label: string
+  tone: 'online' | 'offline' | 'degraded' | 'off'
+  lastSeenAt?: MachineWire['lastSeenAt']
+  detail?: string
+  dot?: boolean
+}): JSX.Element {
+  const now = useClock(30_000, lastSeenAt !== undefined)
+  const text =
+    lastSeenAt === undefined ? label : `${label} · Last seen ${relativeTime(lastSeenAt, now)}`
+  return dot ? (
+    <span
+      role="img"
+      className={cn(
+        'mt-[7px] size-1.5 flex-none rounded-full',
+        tone === 'degraded'
+          ? 'bg-warning'
+          : tone === 'offline'
+            ? 'bg-muted-foreground/40'
+            : 'bg-success',
+      )}
+      title={text}
+      aria-label={text}
+    />
+  ) : (
+    <span className={cn('tabular-nums', tone === 'degraded' && 'text-warning')} title={detail}>
+      {text}
+    </span>
+  )
+}
+
 const MachineRow = observer(function MachineRow({
   machine,
   replacementMachines = [],
-  now,
   trpc,
   isThisMachine = false,
   hosting = null,
@@ -990,7 +1023,6 @@ const MachineRow = observer(function MachineRow({
 }: {
   machine: MachineWire
   replacementMachines?: readonly MachineWire[]
-  now: number
   trpc: Store['trpc']
   /** [spec:SP-3701] True when this row is the device the app is running on. */
   isThisMachine?: boolean
@@ -1141,7 +1173,7 @@ const MachineRow = observer(function MachineRow({
     ? { label: 'Revoked', tone: 'offline' as const }
     : !machine.online
       ? {
-          label: `Offline · Last seen ${relativeTime(machine.lastSeenAt, now)}`,
+          label: 'Offline',
           tone: 'offline' as const,
         }
       : machine.daemonReadiness && machine.daemonReadiness.state !== 'ready'
@@ -1243,18 +1275,11 @@ const MachineRow = observer(function MachineRow({
       <div className="flex flex-col gap-2.5 sm:flex-row sm:items-start sm:justify-between sm:gap-5">
         <div className="flex min-w-0 flex-1 items-start gap-2.5">
           {/* Online/offline dot */}
-          <span
-            role="img"
-            className={cn(
-              'mt-[7px] size-1.5 flex-none rounded-full',
-              fleetState.tone === 'degraded'
-                ? 'bg-warning'
-                : fleetState.tone === 'offline'
-                  ? 'bg-muted-foreground/40'
-                  : 'bg-success',
-            )}
-            title={fleetState.label}
-            aria-label={fleetState.label}
+          <MachineFleetStatus
+            label={fleetState.label}
+            tone={fleetState.tone}
+            lastSeenAt={!machine.online && !machine.revokedAt ? machine.lastSeenAt : undefined}
+            dot
           />
 
           <div className="min-w-0 flex-1">
@@ -1374,12 +1399,12 @@ const MachineRow = observer(function MachineRow({
                 </>
               )}
               <span aria-hidden="true">·</span>
-              <span
-                className={cn('tabular-nums', fleetState.tone === 'degraded' && 'text-warning')}
-                title={'detail' in fleetState ? fleetState.detail : undefined}
-              >
-                {fleetState.label}
-              </span>
+              <MachineFleetStatus
+                label={fleetState.label}
+                tone={fleetState.tone}
+                lastSeenAt={!machine.online && !machine.revokedAt ? machine.lastSeenAt : undefined}
+                detail={'detail' in fleetState ? fleetState.detail : undefined}
+              />
               {'detail' in fleetState && fleetState.detail && (
                 <>
                   <span aria-hidden="true">·</span>

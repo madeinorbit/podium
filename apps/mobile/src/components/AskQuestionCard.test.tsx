@@ -4,7 +4,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 // This lane does not run testing-library's auto-cleanup, so an earlier render
 // would otherwise still be in the document when the next test queries it.
-afterEach(() => { cleanup(); vi.useRealTimers() })
+afterEach(() => {
+  cleanup()
+  vi.useRealTimers()
+})
 
 vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
@@ -25,9 +28,35 @@ const single = ask([
 ])
 
 describe('AskQuestionCard', () => {
+  it('shares the asked-age timer and drops invalid or missing timestamps', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(100_000)
+    const stamp = new Date(50_000).toISOString()
+    const view = render(
+      <>
+        <AskQuestionCard item={single} live presentation="band" askedAt={stamp} />
+        <AskQuestionCard item={single} live presentation="band" askedAt={stamp} />
+      </>,
+    )
+    expect(vi.getTimerCount()).toBe(1)
+    view.rerender(<AskQuestionCard item={single} live presentation="band" askedAt="invalid" />)
+    expect(vi.getTimerCount()).toBe(0)
+    expect(screen.queryByText(/asked /)).toBeNull()
+    view.rerender(<AskQuestionCard item={single} live presentation="band" />)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it('keeps the asked-age answer at twenty-second precision', () => {
-    vi.useFakeTimers(); vi.setSystemTime(100_000)
-    const view = render(<AskQuestionCard item={single} live presentation="band" askedAt={new Date(50_000).toISOString()} />)
+    vi.useFakeTimers()
+    vi.setSystemTime(100_000)
+    const view = render(
+      <AskQuestionCard
+        item={single}
+        live
+        presentation="band"
+        askedAt={new Date(50_000).toISOString()}
+      />,
+    )
     expect(screen.getByText('asked now')).toBeTruthy()
     act(() => vi.advanceTimersByTime(19_999))
     expect(screen.getByText('asked now')).toBeTruthy()
@@ -141,13 +170,15 @@ describe('AskQuestionCard', () => {
   })
 })
 
-
 it('submits the identity and content captured by the rendered card', async () => {
   const onAnswer = vi.fn(async () => {})
   render(<AskQuestionCard item={single} live interactionId="ask:rendered" onAnswer={onAnswer} />)
   fireEvent.click(screen.getByLabelText('SQLite'))
-  await waitFor(() => expect(onAnswer).toHaveBeenCalledWith({
-    interactionId: 'ask:rendered', question: single.toolInputJson,
-    choices: [{ optionIndices: [2] }],
-  }))
+  await waitFor(() =>
+    expect(onAnswer).toHaveBeenCalledWith({
+      interactionId: 'ask:rendered',
+      question: single.toolInputJson,
+      choices: [{ optionIndices: [2] }],
+    }),
+  )
 })

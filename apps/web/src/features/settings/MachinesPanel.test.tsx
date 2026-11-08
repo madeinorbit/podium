@@ -1,7 +1,7 @@
 import '@/test-support/mock-pool-store-handle'
+import { relativeTime } from '@podium/client-core/focus'
 import type { MachineWire } from '@podium/model'
 import { asMachineId } from '@podium/model'
-import { relativeTime } from '@podium/client-core/focus'
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { renderSettingsPool } from '@/test-support/mock-settings-pool-fixture'
@@ -90,7 +90,8 @@ function setTrpc(mutate: () => Promise<{ code: string; joinCommand: string | nul
 
 describe('MachinesPanel supervisor fleet states', () => {
   it('keeps offline last-seen answers at thirty-second precision', async () => {
-    vi.useFakeTimers(); vi.setSystemTime(100_000)
+    vi.useFakeTimers()
+    vi.setSystemTime(100_000)
     const lastSeenAt = 30_000
     storeState.machines = [machine({ lastSeenAt })]
     setTrpc(vi.fn())

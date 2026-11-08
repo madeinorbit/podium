@@ -10,9 +10,9 @@ import type { ServedWebIdentity, UpdateTarget } from '@podium/protocol'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { useEffect } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { UpdatePanel } from './UpdatePanel'
 import { ServerUnavailableError } from '@/app/trpc'
 import { resetPolledQueryCache } from '@/lib/use-polled-query'
+import { UpdatePanel } from './UpdatePanel'
 import {
   desktopChannelOf,
   surfaceFromDesktopBridge,
@@ -43,6 +43,64 @@ vi.mock('@/app/trpc', async (importOriginal) => ({
 const target: UpdateTarget = { version: '0.4.2', critical: false, artifacts: {} }
 
 const reloadAction = vi.fn()
+
+it('keeps update liveness ticking at one second while a server read is stuck', async () => {
+  vi.useFakeTimers()
+  vi.setSystemTime(100_000)
+  setupTransport()
+  const pendingRead = deferred<unknown>()
+  mocks.active
+    .mockResolvedValueOnce({
+      id: 'op-clock',
+      kind: 'update',
+      state: 'running',
+      startedAt: 95_000,
+      updatedAt: 100_000,
+      steps: [],
+    })
+    .mockReturnValue(pendingRead.promise)
+  const results: UpdateStateResult[] = []
+  const view = render(<Probe onResult={(result) => results.push(result)} />)
+  await act(async () => {})
+  expect(results.at(-1)?.view.liveness).toBe('Running for 5 s')
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(999)
+  })
+  expect(results.at(-1)?.view.liveness).toBe('Running for 5 s')
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1)
+  })
+  expect(results.at(-1)?.view.liveness).toBe('Running for 6 s')
+  view.unmount()
+  expect(vi.getTimerCount()).toBe(0)
+})
+
+it('retires a recent failure at its deadline without a clock interval or another poll', async () => {
+  vi.useFakeTimers()
+  vi.setSystemTime(100_000)
+  setupTransport()
+  mocks.active.mockResolvedValue(null)
+  mocks.history.mockResolvedValue([
+    {
+      id: 'op-failed-clock',
+      kind: 'update',
+      state: 'failed',
+      finishedAt: 102_250 - 15 * 60_000,
+      steps: [],
+    },
+  ])
+  const results: UpdateStateResult[] = []
+  await act(async () => {
+    render(<Probe onResult={(result) => results.push(result)} />)
+  })
+  expect(results.at(-1)?.operation?.id).toBe('op-failed-clock')
+  const reads = mocks.history.mock.calls.length
+  act(() => vi.advanceTimersByTime(2_250))
+  expect(results.at(-1)?.operation?.id).toBe('op-failed-clock')
+  act(() => vi.advanceTimersByTime(1))
+  expect(results.at(-1)?.operation).toBeNull()
+  expect(mocks.history).toHaveBeenCalledTimes(reads)
+})
 
 function Probe({
   onResult,

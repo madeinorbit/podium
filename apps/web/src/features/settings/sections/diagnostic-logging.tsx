@@ -36,6 +36,7 @@ import { applyServerLogLevel, logLevelStatus } from '@podium/client-core/logging
 import { LEVELS, type LogLevel } from '@podium/logger'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
+import { usePanelVisible } from '@/app/panel-visible'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -44,6 +45,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { useCountdown } from '@/lib/clock-hooks'
 import { Row, Subsection } from './shared'
 
 /** How long a raise made from here lasts. The same half hour the server-pushed
@@ -72,23 +74,23 @@ const LEVEL_HINT: Record<LogLevel, string> = {
   trace: 'every message in and out',
 }
 
-function remainingLabel(expiresAt: number | null, now: number): string {
-  if (expiresAt === null) return ''
-  const minutes = Math.max(0, Math.ceil((expiresAt - now) / 60_000))
+function remainingLabel(remainingMs: number): string {
+  const minutes = Math.ceil(remainingMs / 60_000)
   return minutes <= 1 ? 'less than a minute left' : `${minutes} minutes left`
 }
 
 export function DiagnosticLoggingSubsection(): JSX.Element | null {
   const [status, setStatus] = useState(() => logLevelStatus())
-  const [now, setNow] = useState(() => Date.now())
+  const visible = usePanelVisible()
 
   useEffect(() => {
+    if (!visible) return
+    setStatus(logLevelStatus())
     const timer = setInterval(() => {
       setStatus(logLevelStatus())
-      setNow(Date.now())
     }, POLL_MS)
     return () => clearInterval(timer)
-  }, [])
+  }, [visible])
 
   // Logging is installed at boot on every real client. Rendering nothing when it
   // is not is the honest answer — a control that would raise nothing is worse
@@ -107,7 +109,6 @@ export function DiagnosticLoggingSubsection(): JSX.Element | null {
         : { level, ttlMs: AFFORDANCE_TTL_MS },
     )
     setStatus(logLevelStatus())
-    setNow(Date.now())
   }
 
   /** The trigger says only what is in force — the settings control column is one
@@ -151,21 +152,40 @@ export function DiagnosticLoggingSubsection(): JSX.Element | null {
         </Select>
       </Row>
       {raised && (
-        <Row
-          label="Temporary change"
-          description={`Back to ${status.boot} by itself — ${remainingLabel(status.expiresAt, now)}. Nothing is saved, so reloading this page returns to ${status.boot} too.`}
-        >
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            data-testid="log-level-reset"
-            onClick={() => apply(null)}
-          >
-            Back to normal
-          </Button>
-        </Row>
+        <TemporaryLogLevel
+          expiresAt={status.expiresAt}
+          boot={status.boot}
+          onReset={() => apply(null)}
+        />
       )}
     </Subsection>
+  )
+}
+
+function TemporaryLogLevel({
+  expiresAt,
+  boot,
+  onReset,
+}: {
+  expiresAt: number | null
+  boot: LogLevel
+  onReset: () => void
+}): JSX.Element {
+  const remaining = useCountdown(expiresAt ?? undefined, POLL_MS)
+  return (
+    <Row
+      label="Temporary change"
+      description={`Back to ${boot} by itself — ${remainingLabel(remaining)}. Nothing is saved, so reloading this page returns to ${boot} too.`}
+    >
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        data-testid="log-level-reset"
+        onClick={onReset}
+      >
+        Back to normal
+      </Button>
+    </Row>
   )
 }

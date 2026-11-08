@@ -1,11 +1,7 @@
-import { omitGone } from '@podium/client-graph/lookup'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
-import {
-  formatMemBytes,
-  hostMemoryView,
-  reclaimSpaceLabel,
-} from '@podium/client-core/values'
+import { formatMemBytes, hostMemoryView, reclaimSpaceLabel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
+import { omitGone } from '@podium/client-graph/lookup'
 import { asIssueId } from '@podium/model'
 import type {
   AgentMemoryWire,
@@ -18,7 +14,7 @@ import { machinePathBasename } from '@podium/model/browser'
 import type { PodiumSettings } from '@podium/runtime'
 import { Loader2 } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useHostMetrics, useRuntimeSelector } from '@/app/store'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { Button } from '@/components/ui/button'
@@ -26,11 +22,12 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useIssueActionOutcome } from '@/features/issues/issue-action-ending'
+import { useClock } from '@/lib/clock-hooks'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { usePolledQuery } from '@/lib/use-polled-query'
 import { cn } from '@/lib/utils'
-import { HeaderSessionLabel } from './HeaderSessionLabel'
 import { describeHealth, useConnectionHealth } from './ConnectionIndicator'
+import { HeaderSessionLabel } from './HeaderSessionLabel'
 import { useHibernationSetting, useHostLifecycleSettings } from './host-lifecycle-settings'
 import { ReclaimConfirmDialog } from './reclaim-lifecycle'
 
@@ -126,13 +123,8 @@ export function HostInfoView({
 function ConnectionPanel(): JSX.Element {
   const hostMetrics = useHostMetrics()
   const health = useConnectionHealth()
-  const [, setTick] = useState(0)
-  useEffect(() => {
-    if (health.status === 'ok') return
-    const t = setInterval(() => setTick((n) => n + 1), 1000)
-    return () => clearInterval(t)
-  }, [health.status])
-  const { headline, detail } = describeHealth(health, Date.now())
+  const now = useClock(1_000, health.status !== 'ok')
+  const { headline, detail } = describeHealth(health, now)
   const ping = health.rttMs !== null ? `${Math.max(1, Math.round(health.rttMs))} ms` : '—'
   return (
     <div className="flex flex-col gap-2.5 p-3.5">

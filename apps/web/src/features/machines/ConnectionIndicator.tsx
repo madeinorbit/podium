@@ -4,6 +4,7 @@ import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { usePoolHeaderConnection } from '@/app/header-data'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useClock } from '@/lib/clock-hooks'
 import { cn } from '@/lib/utils'
 
 const WAITING_CONNECTION: ConnectionHealth = { status: 'ok', rttMs: null, since: 0 }
@@ -123,15 +124,8 @@ export function ConnectionIndicator({
   health: ConnectionHealth
   onOpen?: () => void
 }): JSX.Element {
-  // Re-render each second while unhealthy so "no contact for Ns" ticks.
-  const [, setTick] = useState(0)
-  useEffect(() => {
-    if (health.status === 'ok') return
-    const t = setInterval(() => setTick((n) => n + 1), 1000)
-    return () => clearInterval(t)
-  }, [health.status])
-
-  const { headline, detail } = describeHealth(health, Date.now())
+  const now = useClock(1_000, health.status !== 'ok')
+  const { headline, detail } = describeHealth(health, now)
   const Icon = health.status === 'down' ? WifiOff : Wifi
   // A button so the tooltip is reachable by keyboard focus and by tap on touch
   // devices, where hover doesn't exist. Tapping opens the host info panel.

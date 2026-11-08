@@ -30,6 +30,7 @@ const demand = vi.hoisted(() => ({
   metrics: vi.fn(() => []),
   idleCap: vi.fn(() => 3),
 }))
+let notificationsEnabled = false
 
 vi.mock('@/app/store', () => ({
   useHostMetrics: demand.metrics,
@@ -44,7 +45,7 @@ vi.mock('./readers', async (importOriginal) => ({
   useSettingsTab: () => storeState.settingsTab,
 }))
 vi.mock('@/lib/use-feature', () => ({
-  useFeature: () => false,
+  useFeature: (name: string) => name === 'notifications' && notificationsEnabled,
   invalidateFeatures: vi.fn(),
 }))
 vi.mock('@/lib/use-model-catalog', () => ({
@@ -60,6 +61,7 @@ import { SettingsView } from './SettingsView'
 const onClose = vi.fn()
 
 beforeEach(() => {
+  notificationsEnabled = false
   demand.metrics.mockClear()
   demand.idleCap.mockClear()
   onClose.mockClear()
@@ -121,6 +123,7 @@ afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 /** Make the blob dirty the way a user does: flip the first toggle on the tab. */
@@ -135,6 +138,45 @@ async function makeDirty(): Promise<void> {
 }
 
 describe('Settings sheet — closing with unsaved edits', () => {
+  it('counts Telegram seconds in its label and expires the setup at its exact deadline', async () => {
+    notificationsEnabled = true
+    storeState.settingsTab = 'notifications'
+    vi.useFakeTimers()
+    vi.setSystemTime(100_000)
+    const poll = vi.fn().mockResolvedValue({ status: 'pending' })
+    Object.assign(storeState.trpc.settings, {
+      secretPresence: {
+        query: vi
+          .fn()
+          .mockResolvedValue([{ key: 'notifications.telegramBotToken', present: true }]),
+      },
+      telegramSetupStart: {
+        mutate: vi.fn().mockResolvedValue({
+          setupId: 'setup-one',
+          code: 'test-code',
+          botUsername: 'test_bot',
+          telegramUrl: 'https://t.me/test_bot',
+          expiresAt: new Date(102_250).toISOString(),
+        }),
+      },
+      telegramSetupPoll: { mutate: poll },
+    })
+    await act(async () => {
+      render(<SettingsView onClose={onClose} />)
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Connect Telegram' }))
+    })
+    expect(screen.getByText('0:03 left')).toBeTruthy()
+    act(() => vi.advanceTimersByTime(999))
+    expect(screen.getByText('0:03 left')).toBeTruthy()
+    act(() => vi.advanceTimersByTime(1))
+    expect(screen.getByText('0:02 left')).toBeTruthy()
+    act(() => vi.advanceTimersByTime(1_250))
+    expect(screen.getByText('Setup expired. Start again.')).toBeTruthy()
+    expect(poll).toHaveBeenCalledTimes(1)
+  })
+
   it('shows remote untouched preferences, discards to live and saves only the changed leaf', async () => {
     storeState.settingsTab = 'hibernation'
     const remote = normalizeSettings({

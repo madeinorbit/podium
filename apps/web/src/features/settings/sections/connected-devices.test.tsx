@@ -21,6 +21,7 @@ afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
+  vi.useRealTimers()
 })
 
 const HTTPS_TRANSPORT = {
@@ -114,6 +115,29 @@ function jsonResponse(value: unknown, status = 200): Response {
     headers: { 'content-type': 'application/json' },
   })
 }
+
+it('counts pairing seconds and expires between polling ticks', async () => {
+  vi.useFakeTimers()
+  vi.setSystemTime(100_000)
+  const api = pairingApi(pairStart({ expiresAt: new Date(102_250).toISOString() }))
+  const view = render(<ConnectedDevicesSection api={api} />)
+  await act(async () => {})
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Pair a phone' }))
+  })
+  expect(screen.getByText('Expires in 3s')).toBeTruthy()
+  act(() => vi.advanceTimersByTime(999))
+  expect(screen.getByText('Expires in 3s')).toBeTruthy()
+  act(() => vi.advanceTimersByTime(1))
+  expect(screen.getByText('Expires in 2s')).toBeTruthy()
+  await act(async () => {
+    vi.advanceTimersByTime(1_250)
+  })
+  expect(screen.getByText('Pairing code expired')).toBeTruthy()
+  expect(screen.queryByTestId('pairing-qr')).toBeNull()
+  view.unmount()
+  expect(vi.getTimerCount()).toBe(0)
+})
 
 describe('mobile pairing REST adapter', () => {
   it('parses the current start contract and binds the reviewed REST paths', async () => {

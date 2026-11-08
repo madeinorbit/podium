@@ -1,5 +1,6 @@
 import type { JSX } from 'react'
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useSyncExternalStore } from 'react'
+import { useClock } from '@/lib/clock-hooks'
 import logoUrl from '@/lib/icons/podium-logo.svg'
 import type { SyncProgressSnapshot, SyncProgressStore } from '@/lib/sync-progress'
 
@@ -163,14 +164,6 @@ export function SyncLoader({
   worktreeCount,
 }: SyncLoaderProps): JSX.Element {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot)
-  const [elapsedSeconds, setElapsedSeconds] = useState(0)
-  useEffect(() => {
-    const tick = (): void =>
-      setElapsedSeconds(Math.max(0, Math.floor((Date.now() - snapshot.startedAt) / 1000)))
-    tick()
-    const id = setInterval(tick, 1_000)
-    return () => clearInterval(id)
-  }, [snapshot.startedAt])
 
   const pct =
     snapshot.totalRows !== null && snapshot.totalRows > 0
@@ -185,7 +178,6 @@ export function SyncLoader({
   const metaRight = snapshot.phase === 'saving' ? 'saving…' : pct === null ? '' : `${pct}% received`
   const barDone = snapshot.phase === 'ready'
   const indeterminate = pct === null && snapshot.phase !== 'error'
-  const clock = `${Math.floor(elapsedSeconds / 60)}:${String(elapsedSeconds % 60).padStart(2, '0')}`
 
   return (
     <div className="sync-loading" role="status" aria-live="polite">
@@ -238,13 +230,23 @@ export function SyncLoader({
         </div>
 
         <div className="sync-loader-foot">
-          <span className="sync-loader-foot-clock">{clock}</span>
+          <SyncElapsed startedAt={snapshot.startedAt} />
           <span>·</span>
           <span>first sync on this machine — later launches read the local cache</span>
         </div>
       </div>
       <span className="sr-only">Syncing your workspace for the first time…</span>
     </div>
+  )
+}
+
+function SyncElapsed({ startedAt }: { startedAt: number }): JSX.Element {
+  const now = useClock(1_000)
+  const seconds = Math.max(0, Math.floor((now - startedAt) / 1_000))
+  return (
+    <span className="sync-loader-foot-clock">
+      {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}
+    </span>
   )
 }
 

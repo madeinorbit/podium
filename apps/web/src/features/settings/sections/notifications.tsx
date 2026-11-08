@@ -1,13 +1,14 @@
-import { observer } from 'mobx-react-lite'
 import { CUE_SOUNDS, play, SOUNDS_ENABLED_KEY } from '@podium/client-core/sound'
 import type { PodiumSettings } from '@podium/runtime'
 import { CheckCircle2, ExternalLink, Loader2 } from 'lucide-react'
+import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import { useState } from 'react'
-import { useSettingsDraft } from '../readers'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
+import { useCountdown } from '@/lib/clock-hooks'
+import { useSettingsDraft } from '../readers'
 import { Row, Section } from './shared'
 
 /**
@@ -36,14 +37,12 @@ export const NotificationsSection = observer(function NotificationsSection({
   settings,
   patch,
   telegramSetup,
-  telegramSetupNow,
   onStartTelegramSetup,
   onResetTelegramSetup,
 }: {
   settings: PodiumSettings
   patch: (p: Partial<PodiumSettings>) => void
   telegramSetup: TelegramSetupState
-  telegramSetupNow: number
   onStartTelegramSetup: () => void
   onResetTelegramSetup: () => void
 }): JSX.Element {
@@ -129,7 +128,7 @@ export const NotificationsSection = observer(function NotificationsSection({
               ? 'Reconnect Telegram'
               : 'Connect Telegram'}
           </Button>
-          <TelegramSetupStatus setup={telegramSetup} now={telegramSetupNow} />
+          <TelegramSetupStatus setup={telegramSetup} />
         </div>
       </Row>
       {/* The heading this block used to carry said "Telegram setup" — the same
@@ -161,20 +160,19 @@ export const NotificationsSection = observer(function NotificationsSection({
   )
 })
 
-function formatTelegramSetupRemaining(expiresAt: string, now: number): string {
-  const seconds = Math.max(0, Math.ceil((Date.parse(expiresAt) - now) / 1000))
+function TelegramSetupRemaining({ expiresAt }: { expiresAt: string }): JSX.Element {
+  const remaining = useCountdown(Date.parse(expiresAt))
+  const seconds = Math.ceil(remaining / 1000)
   const minutes = Math.floor(seconds / 60)
   const rest = seconds % 60
-  return `${minutes}:${rest.toString().padStart(2, '0')}`
+  return (
+    <>
+      {minutes}:{rest.toString().padStart(2, '0')} left
+    </>
+  )
 }
 
-function TelegramSetupStatus({
-  setup,
-  now,
-}: {
-  setup: TelegramSetupState
-  now: number
-}): JSX.Element | null {
+function TelegramSetupStatus({ setup }: { setup: TelegramSetupState }): JSX.Element | null {
   if (setup.status === 'idle' || setup.status === 'starting') return null
   if (setup.status === 'failed') {
     return <p className="settings-prose text-destructive">{setup.message}</p>
@@ -199,7 +197,7 @@ function TelegramSetupStatus({
           {setup.code}
         </code>
         <span className="text-muted-foreground">
-          {formatTelegramSetupRemaining(setup.expiresAt, now)} left
+          <TelegramSetupRemaining expiresAt={setup.expiresAt} />
         </span>
       </div>
       <a

@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button'
 import { WaitingForServer } from '@/components/WaitingForServer'
 import type { NetworkSaveController } from '@/features/setup/network-step'
 import { throughRestarts } from '@/lib/chunk-recovery'
+import { useDeadlineNow } from '@/lib/clock-hooks'
 import { invalidateFeatures, useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { useAdminSections } from './admin-viewer'
@@ -210,7 +211,6 @@ interface SectionContext {
   patch: (p: Partial<PodiumSettings>) => void
   trpc: Trpc
   telegramSetup: TelegramSetupState
-  telegramSetupNow: number
   startTelegramSetup: () => void
   resetTelegramSetup: () => void
   openNetworkSettings: () => void
@@ -251,7 +251,6 @@ const SECTION_VIEWS: Record<SettingsTab, (ctx: SectionContext) => JSX.Element> =
       settings={ctx.settings}
       patch={ctx.patch}
       telegramSetup={ctx.telegramSetup}
-      telegramSetupNow={ctx.telegramSetupNow}
       onStartTelegramSetup={ctx.startTelegramSetup}
       onResetTelegramSetup={ctx.resetTelegramSetup}
     />
@@ -398,7 +397,6 @@ const SettingsViewBody = observer(function SettingsViewBody({
    */
   const [permitted, setPermitted] = useState<Record<string, boolean>>({})
   const [telegramSetup, setTelegramSetup] = useState<TelegramSetupState>({ status: 'idle' })
-  const [telegramSetupNow, setTelegramSetupNow] = useState(() => Date.now())
   // The tab is the URL (/settings/:tab, issue #15 Phase 4): deep links (global
   // search, the Machines panel's "Change URL") land directly on their tab, tab
   // clicks push history entries (setSettingsTab), and back/forward moves
@@ -433,16 +431,19 @@ const SettingsViewBody = observer(function SettingsViewBody({
     }
   }, [trpc, loadSecretPresence])
 
-  useEffect(() => {
-    if (telegramSetup.status !== 'polling') return
-    setTelegramSetupNow(Date.now())
-    const id = window.setInterval(() => setTelegramSetupNow(Date.now()), 1000)
-    return () => window.clearInterval(id)
-  }, [telegramSetup.status])
-
   const activeTelegramSetup = telegramSetup.status === 'polling' ? telegramSetup : null
   const activeTelegramSetupId = activeTelegramSetup?.setupId
   const activeTelegramSetupExpiresAt = activeTelegramSetup?.expiresAt
+  const telegramDeadline = activeTelegramSetupExpiresAt
+    ? Date.parse(activeTelegramSetupExpiresAt)
+    : undefined
+  const telegramDeadlineNow = useDeadlineNow(telegramDeadline)
+
+  useEffect(() => {
+    if (telegramDeadline !== undefined && telegramDeadlineNow >= telegramDeadline) {
+      setTelegramSetup({ status: 'expired' })
+    }
+  }, [telegramDeadline, telegramDeadlineNow])
 
   useEffect(() => {
     if (!activeTelegramSetupId || !activeTelegramSetupExpiresAt) return
@@ -497,7 +498,7 @@ const SettingsViewBody = observer(function SettingsViewBody({
       cancelled = true
       window.clearInterval(id)
     }
-  }, [activeTelegramSetupId, activeTelegramSetupExpiresAt, trpc])
+  }, [activeTelegramSetupId, activeTelegramSetupExpiresAt, trpc, pool])
 
   /**
    * A SECRET WRITE IS ITS OWN COMMAND, issued here and NOT through the save bar.
@@ -572,7 +573,6 @@ const SettingsViewBody = observer(function SettingsViewBody({
       // ceremony through a preference save is now neither necessary nor honest.
       const setup = await trpc.settings.telegramSetupStart.mutate()
       setTelegramSetup({ status: 'polling', ...setup })
-      setTelegramSetupNow(Date.now())
     } catch (e) {
       setTelegramSetup({ status: 'failed', message: e instanceof Error ? e.message : String(e) })
     }
@@ -836,7 +836,6 @@ const SettingsViewBody = observer(function SettingsViewBody({
                     patch,
                     trpc,
                     telegramSetup,
-                    telegramSetupNow,
                     startTelegramSetup: () => void startTelegramSetup(),
                     resetTelegramSetup: () => setTelegramSetup({ status: 'idle' }),
                     openNetworkSettings: () => setSettingsTab('network'),

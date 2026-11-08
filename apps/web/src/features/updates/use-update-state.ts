@@ -1,4 +1,3 @@
-import { workspaceFetch } from '@/lib/workspace-request'
 /**
  * THE PANEL'S INPUTS (POD-2102, spec §6).
  *
@@ -25,6 +24,7 @@ import { workspaceFetch } from '@/lib/workspace-request'
  */
 import {
   buildsDiffer,
+  CLIENT_WIRE_VERSION,
   classifyAssets,
   classifySkew,
   isDevChannelVersion,
@@ -34,12 +34,12 @@ import {
   type ReleaseProposal,
   ReleaseProposal as ReleaseProposalSchema,
   type ServerVersion,
-  CLIENT_WIRE_VERSION,
   wireSchemaDigest,
 } from '@podium/protocol'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isServerUnavailable, makeTrpc } from '@/app/trpc'
 import { noteActiveUpdate } from '@/lib/active-update'
+import { useClock, useDeadlineNow } from '@/lib/clock-hooks'
 import { pageBuildDigest, pageBuildVersion, pageBundleVersion } from '@/lib/logging/build-version'
 import { updatesLog } from '@/lib/logging/update-logs'
 import {
@@ -54,6 +54,7 @@ import { pageSurface } from '@/lib/page-surface'
 import { RELOAD_BUDGET_SENTENCE, reloadBudgetSpent } from '@/lib/reload-budget'
 import { servedWebsiteForPage } from '@/lib/served-website'
 import { usePolledQuery } from '@/lib/use-polled-query'
+import { workspaceFetch } from '@/lib/workspace-request'
 import {
   type ActionError,
   cancelRefusalSentence,
@@ -74,8 +75,8 @@ import {
   readActiveOperation,
   readLatestOperation,
   retryUpdate,
-  startUpdate,
   type StartUpdateOutcome,
+  startUpdate,
 } from './operations-client'
 import { computeTouched } from './touched'
 import {
@@ -491,7 +492,6 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   const [checkedAt, setCheckedAt] = useState<number | undefined>()
 
   const clock = options.now ?? Date.now
-  const [now, setNow] = useState<number>(() => clock())
   /** Change gates. Refs, so they survive a re-render and belong to this hook. */
   const reportInputs = useRef(changeReporter())
   const reportServer = useRef(changeReporter())
@@ -553,7 +553,6 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     }
     noteActiveUpdate(isOperationActive(op), at)
     setOperation(op)
-    setNow(at)
   }, [])
 
   useEffect(() => {
@@ -568,6 +567,15 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   }, [observationWait])
 
   const active = isOperationActive(live) || proposal?.state === 'building' || observationWait
+  const tickingNow = useClock(CLOCK_MS, active || pending !== null)
+  const failureFinishedAt =
+    latest?.state === 'failed' ? (latest.finishedAt ?? latest.updatedAt) : undefined
+  const failureDeadline =
+    failureFinishedAt !== undefined && latest?.id !== acknowledged
+      ? failureFinishedAt + FAILURE_VISIBLE_MS + 1
+      : undefined
+  const deadlineNow = useDeadlineNow(failureDeadline)
+  const now = options.now?.() ?? Math.max(tickingNow, deadlineNow)
 
   const query = usePolledQuery<{
     generation: number
@@ -717,7 +725,6 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
       if (buildRaw !== undefined) setLocalBuild(localBuildFrom(buildRaw))
       if (fleet !== undefined) setFleetState(fleet)
       if (proposal !== undefined) setProposal(proposal)
-      setNow(at)
     },
   })
 
@@ -743,15 +750,6 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     },
     [active, clock, foldObservedOperation, refresh],
   )
-
-  // THE RENDER CLOCK. Only while something is moving: a panel showing an offer
-  // has nothing that ages, and a timer running against a still surface is the
-  // thing `usePolledQuery` exists to have removed.
-  useEffect(() => {
-    if (!active && pending === null) return
-    const timer = window.setInterval(() => setNow(clock()), CLOCK_MS)
-    return () => window.clearInterval(timer)
-  }, [active, pending, clock])
 
   // What the panel is about right now: the running operation if there is one,
   // otherwise the outcome of the last one while it is still the user's business.
@@ -939,7 +937,8 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
    * lives inside the app, so only installing the app moves that machine, and the
    * page has claimed the update from the shell's own native prompt.
    */
-  const appBehind = surface.startsWith('desktop') && canInstallDesktop && desktopUpdate !== undefined
+  const appBehind =
+    surface.startsWith('desktop') && canInstallDesktop && desktopUpdate !== undefined
   const minimumDesktopBridge = target?.minRequired?.desktopBridge
   const shellBridgeVersion = nativeDesktopBridge()?.bridgeVersion ?? 0
   const bridgeIncompatibility =
@@ -972,7 +971,11 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   const view = operationView({
     operation,
     offer,
-    local: { behind: behind || appBehind, canReload: options.reload !== undefined, canInstallDesktop },
+    local: {
+      behind: behind || appBehind,
+      canReload: options.reload !== undefined,
+      canInstallDesktop,
+    },
     surface,
     now,
     ...(desktopProgress && pending === 'install-desktop' ? { desktopProgress } : {}),

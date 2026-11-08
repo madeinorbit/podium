@@ -2,6 +2,7 @@ import type { ConnectionHealth } from '@podium/client-core/socket-transport'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
+import { PanelVisible } from '@/app/panel-visible'
 import { SyncLoader } from '@/app/SyncLoader'
 import { ConnectionIndicator, describeHealth } from '@/features/machines/ConnectionIndicator'
 import { HostInfoView } from '@/features/machines/HostMemoryView'
@@ -25,15 +26,21 @@ vi.mock('@/components/ui/tabs', () => ({
   TabsList: () => null,
   TabsTrigger: () => null,
   TabsContent: ({ value, children }: { value: string; children: ReactNode }) =>
-    value === 'connection' ? <>{children}</> : null,
+    value === 'connection' ? children : null,
 }))
 
-afterEach(() => { cleanup(); vi.useRealTimers() })
+afterEach(() => {
+  cleanup()
+  vi.useRealTimers()
+})
 
 it('keeps the sync elapsed answer at one-second precision', () => {
-  vi.useFakeTimers(); vi.setSystemTime(100_000)
+  vi.useFakeTimers()
+  vi.setSystemTime(100_000)
   const store = new SyncProgressStore()
-  const view = render(<SyncLoader store={store} reposLoaded={false} repoCount={0} worktreeCount={0} />)
+  const view = render(
+    <SyncLoader store={store} reposLoaded={false} repoCount={0} worktreeCount={0} />,
+  )
   const clock = () => view.container.querySelector('.sync-loader-foot-clock')?.textContent
   expect(clock()).toBe('0:00')
   act(() => vi.advanceTimersByTime(999))
@@ -47,8 +54,11 @@ it('keeps the sync elapsed answer at one-second precision', () => {
 })
 
 it('keeps the handover elapsed answer at one-second precision', () => {
-  vi.useFakeTimers(); vi.setSystemTime(100_000)
-  const view = render(<HandoverPane view={{ from: 'home', to: 'remote', phase: 'transit' }} background="black" />)
+  vi.useFakeTimers()
+  vi.setSystemTime(100_000)
+  const view = render(
+    <HandoverPane view={{ from: 'home', to: 'remote', phase: 'transit' }} background="black" />,
+  )
   expect(screen.getByText(formatHandoverElapsed(0))).toBeTruthy()
   act(() => vi.advanceTimersByTime(999))
   expect(screen.getByText(formatHandoverElapsed(0))).toBeTruthy()
@@ -59,18 +69,61 @@ it('keeps the handover elapsed answer at one-second precision', () => {
 })
 
 it('keeps both unhealthy connection descriptions in step with their old answers', () => {
-  vi.useFakeTimers(); vi.setSystemTime(100_000)
-  const view = render(<><ConnectionIndicator health={health} /><HostInfoView initialTab="connection" onClose={() => {}} /></>)
+  vi.useFakeTimers()
+  vi.setSystemTime(100_000)
+  const view = render(
+    <>
+      <ConnectionIndicator health={health} />
+      <HostInfoView initialTab="connection" onClose={() => {}} />
+    </>,
+  )
   const label = (at: number) => {
     const { headline, detail } = describeHealth(health, at)
     expect(screen.getByRole('button', { name: `${headline}. ${detail}` })).toBeTruthy()
     expect(screen.getByText(detail)).toBeTruthy()
   }
   label(100_000)
+  expect(vi.getTimerCount()).toBe(1)
   act(() => vi.advanceTimersByTime(999))
   label(100_000)
   act(() => vi.advanceTimersByTime(1))
   label(101_000)
   view.unmount()
   expect(vi.getTimerCount()).toBe(0)
+})
+
+it('shares one second clock across screens and drops it while their panel is hidden', () => {
+  vi.useFakeTimers()
+  vi.setSystemTime(100_000)
+  const store = new SyncProgressStore()
+  const readProgress = vi.spyOn(store, 'getSnapshot')
+  const surfaces = (
+    <>
+      <SyncLoader store={store} reposLoaded={false} repoCount={0} worktreeCount={0} />
+      <HandoverPane view={{ from: 'home', to: 'remote', phase: 'transit' }} background="black" />
+      <ConnectionIndicator health={health} />
+      <HostInfoView initialTab="connection" onClose={() => {}} />
+    </>
+  )
+  const view = render(<PanelVisible visible>{surfaces}</PanelVisible>)
+  const progressReads = readProgress.mock.calls.length
+  expect(vi.getTimerCount()).toBe(1)
+  act(() => vi.advanceTimersByTime(1_000))
+  expect(readProgress).toHaveBeenCalledTimes(progressReads)
+  view.rerender(<PanelVisible visible={false}>{surfaces}</PanelVisible>)
+  expect(vi.getTimerCount()).toBe(0)
+  act(() => vi.advanceTimersByTime(60_000))
+  view.rerender(<PanelVisible visible>{surfaces}</PanelVisible>)
+  expect(view.container.querySelector('.sync-loader-foot-clock')?.textContent).toBe('1:01')
+  expect(vi.getTimerCount()).toBe(1)
+  view.unmount()
+  expect(vi.getTimerCount()).toBe(0)
+})
+
+it('does not tick for healthy connection labels', () => {
+  vi.useFakeTimers()
+  vi.setSystemTime(100_000)
+  const view = render(<ConnectionIndicator health={{ status: 'ok', rttMs: 20, since: 90_000 }} />)
+  expect(vi.getTimerCount()).toBe(0)
+  view.unmount()
 })
