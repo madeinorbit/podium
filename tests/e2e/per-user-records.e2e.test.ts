@@ -3,10 +3,11 @@
  *
  * Pins, tab orders, personal settings and read positions are synced records of
  * their owner. This file checks the product claim end to end on the real stack:
- * a booted server, real WebSockets announcing wire v2, the shipped feed consumer
- * (`FeedSink` → kernel `Replica` over IndexedDB) on each client, and on the
- * writing device the shipped kernel outbox, draining into `sync.submit` with the
- * entries the app builds (`recordCreateEntry` / `recordEditEntry`).
+ * a booted server; on each device the parts `openReplicaAssembly` composes —
+ * the HTTP bootstrap and delta sources, a real WebSocket announcing wire v2 into
+ * `FeedSink`, the kernel `Replica` over IndexedDB, and the kernel outbox whose
+ * overlay the replica retires through — and on the writing device the entries
+ * the app builds (`recordCreateEntry` / `recordEditEntry`) on that outbox.
  *
  *  - Two devices of the same person (two session tokens of one account): a pin,
  *    a tab order, a setting and a read position made on device A while it is
@@ -17,9 +18,10 @@
  *    positive control is the member's own pin, which does reach the member: an
  *    empty slice from a socket that was never the member would prove nothing.
  *
- * What is wired by hand is what the engine wires (the outbox's online probe,
- * and retiring through the replica's cursor); everything that carries a byte is
- * the shipped code.
+ * Composed here rather than through `openReplicaAssembly` only because the
+ * assembly's import of the engine index loads the decorated client models,
+ * which this lane does not transform. The wiring below is the assembly's, part
+ * for part; the outbox's online probe is the one switch the test holds.
  */
 
 import { randomBytes } from 'node:crypto'
@@ -30,11 +32,8 @@ import type { PodiumClientApi } from '@podium/client-core/api'
 import type { OutboxEntry, OutboxStorage } from '@podium/client-core/outbox'
 import { recordCreateEntry, recordEditEntry } from '@podium/client-core/records'
 import type { Replica as ClientReplica } from '@podium/client-core/replica'
-import {
-  FeedAuthorityClient,
-  FeedSink,
-  PushedBootstrapSource,
-} from '@podium/client-core/replica/feed'
+import { FeedSink } from '@podium/client-core/replica/feed'
+import { HttpBootstrapSource, HttpDeltaSource } from '@podium/client-core/sync-stream'
 import {
   asMutationId,
   asUserId,
@@ -47,7 +46,6 @@ import {
 } from '@podium/model'
 import { CLIENT_WIRE_VERSION, type ServerMessage } from '@podium/protocol'
 import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
-import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import { Replica } from '@podium/sync/replica'
 import type { FeedServerFrame } from '@podium/terminal-client'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
@@ -61,7 +59,7 @@ import { startServer } from '../../apps/server/src/server'
 // models, which this node lane does not transform.
 import { openKernelEngineOutbox } from '../../packages/client-core/src/engine/kernel-outbox'
 
-const FEED_TYPES = new Set(['feedDelta', 'feedBootstrap', 'feedRescope', 'feedResyncRequired'])
+const FEED_TYPES = new Set(['feedDelta', 'feedRescope', 'feedResyncRequired'])
 const PER_USER_KINDS = new Set(['pin', 'tabOrder', 'userPreferences', 'userReadPosition'])
 const priorStateDir = process.env.PODIUM_STATE_DIR
 
@@ -70,7 +68,6 @@ const MEMBER = asUserId('usr_member_6673_e2e')
 describe('POD-6673 · my per-user records on my other device (live server)', () => {
   let stateDir: string
   let server: Awaited<ReturnType<typeof startServer>>
-  let factory: IdbFactoryLike
   /** The instance's first admin: me, the person with two devices. */
   let ME: UserId
   const sockets: WebSocket[] = []
@@ -79,7 +76,6 @@ describe('POD-6673 · my per-user records on my other device (live server)', () 
     stateDir = mkdtempSync(join(tmpdir(), 'podium-per-user-e2e-'))
     process.env.PODIUM_STATE_DIR = stateDir
     server = await startServer({ port: 0 })
-    factory = new IDBFactory() as unknown as IdbFactoryLike
     ME = await firstAdminMemberId(server.registry.sessionStore)
     await server.registry.sessionStore.users.createUnclaimed({
       id: MEMBER,
@@ -125,87 +121,6 @@ describe('POD-6673 · my per-user records on my other device (live server)', () 
       ],
     })
 
-  interface Device {
-    readonly replica: Replica
-    readonly trpc: ReturnType<typeof trpcFor>
-    /** `(entity, entityId)` of the per-user rows this device holds. */
-    perUser(): string[]
-    framesSeen: string[]
-  }
-
-  /** One device: a real socket announcing wire v2, the shipped consumer, IndexedDB. */
-  async function openDevice(name: string, user: UserId): Promise<Device> {
-    const token = await signIn(user)
-    const trpc = trpcFor(token)
-    const store = await IndexedDbSyncStore.open({
-      factory,
-      databaseName: `per-user-e2e-${name}`,
-      onDegraded: (d) => {
-        throw new Error(`storage degraded during the e2e: ${JSON.stringify(d)}`)
-      },
-    })
-    const framesSeen: string[] = []
-    let socket: WebSocket | undefined
-    const bootstraps = new PushedBootstrapSource({
-      requestFreshWorld: () => {
-        socket?.close()
-        void openSocket()
-      },
-    })
-    const replica = new Replica({
-      store: store.viewFor('default').cache,
-      authority: new FeedAuthorityClient({
-        fetchChangesSince: async (cursor) =>
-          (await trpc.sync.feedChangesSince.query({ cursor })) as never,
-        bootstraps,
-      }),
-    })
-    const sink = new FeedSink({ replica, bootstraps, onFrame: (kind) => framesSeen.push(kind) })
-
-    async function openSocket(): Promise<void> {
-      const ws = new WebSocket(`ws://127.0.0.1:${server.port}/client?v=${CLIENT_WIRE_VERSION}`, {
-        headers: { authorization: `Bearer ${token}` },
-      })
-      sockets.push(ws)
-      socket = ws
-      ws.on('message', (data) => {
-        const message = JSON.parse(String(data)) as ServerMessage
-        if (!FEED_TYPES.has(message.type)) return
-        sink.frame(message as FeedServerFrame)
-      })
-      await new Promise<void>((resolve, reject) => {
-        ws.on('error', reject)
-        ws.on('open', () => {
-          ws.send(
-            JSON.stringify({
-              type: 'hello',
-              clientId: '',
-              viewport: { cols: 80, rows: 24, dpr: 1 },
-              wireVersion: CLIENT_WIRE_VERSION,
-            }),
-          )
-          resolve()
-        })
-      })
-      sink.connected()
-    }
-
-    await openSocket()
-    await until(() => framesSeen.includes('feedBootstrap'))
-    await replica.settled()
-    return {
-      replica,
-      trpc,
-      framesSeen,
-      perUser: () =>
-        replica
-          .entities()
-          .filter((row) => PER_USER_KINDS.has(row.entity))
-          .map((row) => `${row.entity}:${row.entityId}`)
-          .sort(),
-    }
-  }
-
   const memoryStorage = (): OutboxStorage => {
     let entries: OutboxEntry[] = []
     return {
@@ -216,21 +131,64 @@ describe('POD-6673 · my per-user records on my other device (live server)', () 
     }
   }
 
-  /** The writing device's queue: the shipped kernel outbox over its own api. */
-  async function openOutbox(device: Device, principal: UserId) {
-    let online = false
-    const api = device.trpc as unknown as PodiumClientApi
-    const create = await openKernelEngineOutbox({
-      store: new InMemoryOutboxStore([]),
-      principal,
+  interface Device {
+    readonly replica: Replica
+    readonly trpc: ReturnType<typeof trpcFor>
+    readonly framesSeen: string[]
+    /** This device's queue, as the engine holds it. */
+    readonly outbox: ReturnType<Awaited<ReturnType<typeof openKernelEngineOutbox>>>
+    readonly dropped: OutboxEntry[]
+    goOnline(): void
+    /** `(entity, entityId)` of the per-user rows this device holds. */
+    perUser(): string[]
+  }
+
+  /** One signed-in device, composed as `openReplicaAssembly` composes it. */
+  async function openDevice(name: string, user: UserId): Promise<Device> {
+    const token = await signIn(user)
+    const trpc = trpcFor(token)
+    const api = trpc as unknown as PodiumClientApi
+    const store = await IndexedDbSyncStore.open({
+      factory: new IDBFactory() as unknown as IdbFactoryLike,
+      databaseName: `per-user-e2e-${name}`,
+      onDegraded: (d) => {
+        throw new Error(`storage degraded during the e2e: ${JSON.stringify(d)}`)
+      },
+    })
+    const view = store.viewFor(user)
+    let replica: Replica | undefined
+    const queue = await openKernelEngineOutbox({
+      store: view.outbox,
+      principal: user,
       api,
       onDegraded: (detail) => {
         throw new Error(`outbox degraded: ${JSON.stringify(detail)}`)
       },
-      confirmedThrough: () => device.replica.cursor,
+      confirmedThrough: () => replica?.cursor ?? null,
     })
+    const sourceDeps = {
+      origin: `http://127.0.0.1:${server.port}`,
+      streamingFetch: { fetch, headers: () => ({ authorization: `Bearer ${token}` }) },
+    }
+    const bootstraps = new HttpBootstrapSource(sourceDeps)
+    const deltas = new HttpDeltaSource(sourceDeps)
+    const kernel = new Replica({
+      store: view.cache,
+      authority: {
+        bootstrap: (signal) => bootstraps.bootstrap(signal),
+        changesRange: (cursor, signal, onTarget) => deltas.changesRange(cursor, signal, onTarget),
+      },
+      // Write confirmation: a commit that reaches an entry's receipt retires it.
+      overlay: queue.overlay,
+      unitOfWork: store.unitOfWork,
+    })
+    replica = kernel
+    const framesSeen: string[] = []
+    const sink = new FeedSink({ replica: kernel, onFrame: (kind) => framesSeen.push(kind) })
+
+    let online = false
     const dropped: OutboxEntry[] = []
-    const outbox = create({
+    const outbox = queue({
       api,
       replica: {
         outboxStorage: memoryStorage,
@@ -241,17 +199,49 @@ describe('POD-6673 · my per-user records on my other device (live server)', () 
       isOnline: () => online,
       onDropped: (entry) => dropped.push(entry),
     })
+
+    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/client?v=${CLIENT_WIRE_VERSION}`, {
+      headers: { authorization: `Bearer ${token}` },
+    })
+    sockets.push(ws)
+    ws.on('message', (data) => {
+      const message = JSON.parse(String(data)) as ServerMessage
+      if (!FEED_TYPES.has(message.type)) return
+      sink.frame(message as FeedServerFrame)
+    })
+    await new Promise<void>((resolve, reject) => {
+      ws.on('error', reject)
+      ws.on('open', () => {
+        ws.send(
+          JSON.stringify({
+            type: 'hello',
+            clientId: '',
+            viewport: { cols: 80, rows: 24, dpr: 1 },
+            wireVersion: CLIENT_WIRE_VERSION,
+            ...(sink.helloFields() ?? {}),
+          }),
+        )
+        resolve()
+      })
+    })
+    sink.connected(false)
+    await until(() => kernel.cursor !== null)
+    await kernel.settled()
     return {
+      replica: kernel,
+      trpc,
+      framesSeen,
       outbox,
       dropped,
       goOnline: () => {
         online = true
       },
-      /** What the engine does as its replica advances: retire through its cursor. */
-      retireThroughReplica: async () => {
-        const through = device.replica.cursor
-        if (through !== null) await create.overlay.retire({ matches: [], through, install: false })
-      },
+      perUser: () =>
+        kernel
+          .entities()
+          .filter((row) => PER_USER_KINDS.has(row.entity))
+          .map((row) => `${row.entity}:${row.entityId}`)
+          .sort(),
     }
   }
 
@@ -275,7 +265,7 @@ describe('POD-6673 · my per-user records on my other device (live server)', () 
     ].sort()
 
     // A IS OFFLINE: each write is queued and nothing is sent.
-    const queue = await openOutbox(a, ME)
+    const queue = a
     await queue.outbox.enqueue(
       'recordCreate',
       recordCreateEntry('pin', pin, { userId: ME, kind: 'repo', entityId: '/repo/mine' }),
@@ -323,6 +313,7 @@ describe('POD-6673 · my per-user records on my other device (live server)', () 
     await until(() => written.every((id) => b.perUser().includes(id)))
     await b.replica.settled()
     expect(queue.dropped).toEqual([])
+    // Pushed to B on its socket: B made no request for them.
     expect(b.framesSeen).toContain('feedDelta')
 
     // The values B holds are the ones A wrote.
@@ -336,8 +327,6 @@ describe('POD-6673 · my per-user records on my other device (live server)', () 
 
     // A's entries retire by their receipts, once A's own replica reaches them.
     await until(() => written.every((id) => a.perUser().includes(id)))
-    await a.replica.settled()
-    await queue.retireThroughReplica()
     await until(() => queue.outbox.pending().length === 0 && queue.outbox.awaiting().length === 0)
 
     // ANOTHER MEMBER NEVER RECEIVES THEM. Positive control first: the member's
