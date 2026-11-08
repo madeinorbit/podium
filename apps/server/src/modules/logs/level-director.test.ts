@@ -18,7 +18,7 @@ function connections(conns: FakeConn[]): ClientConnectionsPort & {
   return {
     sent,
     values: () => conns.values(),
-    deliver: (conn, msg) => void sent.push({ id: conn.id, msg }),
+    deliverAccountEvent: (conn, msg) => void sent.push({ id: conn.id, msg }),
   }
 }
 

@@ -1,7 +1,6 @@
 import { createLogger, getProcessContext } from '@podium/logger'
 import type {
   Geometry,
-  HostMetricsWire,
   IssueDepProjection,
   IssueEventWire,
   IssueProjection,
@@ -31,6 +30,7 @@ import {
   CAP_SYNC_HTTP_V1,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
+  CAP_TOPICS_V1,
   CLIENT_WIRE_VERSION,
   ClientOutputBinaryMetadata,
   type ClientPtyInputMetadata,
@@ -56,6 +56,13 @@ import {
   type ServerMessageLenient,
   type SessionOpenUrlMessage,
   type SessionOpenUrlResultMessage,
+  type TopicClientMessage,
+  type TopicKind,
+  type TopicPayload,
+  type TopicServerMessage,
+  isTopicKind,
+  parseTopicKey,
+  parseTopicPayload,
   type TurnPreviewMessage,
 } from '@podium/protocol'
 import { applyServerLogLevel } from '../logging/level-command'
@@ -63,7 +70,13 @@ import { type EchoLatencyStats, EchoLatencyTracker } from './echo-latency'
 import type { FeedHelloFields } from './feed-hello'
 import { createFeedTaskScheduler, type FeedTaskScheduler } from './feed-scheduler'
 import type { LegacyFeedSinkPort, LegacyMetadataProjection } from './legacy-feed-port'
-import { type ClientSubscription, ClientSubscriptionRegistry } from './subscriptions'
+import {
+  type ClientSubscription,
+  ClientSubscriptionRegistry,
+  type TopicEntry,
+  type TopicListener,
+  type TopicState,
+} from './subscriptions'
 
 const log = createLogger('client-core:socket-hub')
 
@@ -480,7 +493,6 @@ export interface WireSkew {
  * `on*`/`subscribe*` methods below are thin wrappers over it.
  */
 export interface HubEvents {
-  hostMetrics: [hosts: HostMetricsWire[]]
   machines: [machines: MachineWire[]]
   /** A repo's worktrees changed on the daemon side (POD-665). No cached list —
    *  this is a one-shot invalidation; the subscriber re-fetches through the same
@@ -620,7 +632,6 @@ export class SocketHub {
   private readonly invalidSockets = new WeakSet<WebSocketLike>()
   private connectedFlag = false
   private clientIdValue = ''
-  private hostMetricsList: HostMetricsWire[] = []
   private machinesList: MachineWire[] = []
   private approvalsList: ApprovalWire[] = []
   /** The normalized issue list [POD-796]. Separate from `issueList` rather than
@@ -870,22 +881,20 @@ export class SocketHub {
         // CAP_ISSUES_NORMALIZED is opt-in on top (see `issuesNormalized`): it
         // what licenses the server to skip the O(issues x sessions) rebuild on
         // session churn [POD-796].
-        ...(this.opts.feed?.syncHttp || this.legacyFeed || acceptsBinaryOutput || acceptsBinaryInput
-          ? {
-              caps: [
-                ...(this.opts.feed?.syncHttp ? [CAP_SYNC_HTTP_V1] : []),
-                ...(this.legacyFeed
-                  ? [
-                      CAP_METADATA_DELTA,
-                      CAP_SYNC_FEED_IDENTITY,
-                      ...(this.opts.issuesNormalized ? [CAP_ISSUES_NORMALIZED] : []),
-                    ]
-                  : []),
-                ...(acceptsBinaryOutput ? [CAP_TERMINAL_OUTPUT_BINARY_V1] : []),
-                ...(acceptsBinaryInput ? [CAP_TERMINAL_INPUT_BINARY_V1] : []),
-              ],
-            }
-          : {}),
+        // TOPICS (ADR 7 Amendment 2): every hub speaks them, so `caps` is always sent.
+        caps: [
+          CAP_TOPICS_V1,
+          ...(this.opts.feed?.syncHttp ? [CAP_SYNC_HTTP_V1] : []),
+          ...(this.legacyFeed
+            ? [
+                CAP_METADATA_DELTA,
+                CAP_SYNC_FEED_IDENTITY,
+                ...(this.opts.issuesNormalized ? [CAP_ISSUES_NORMALIZED] : []),
+              ]
+            : []),
+          ...(acceptsBinaryOutput ? [CAP_TERMINAL_OUTPUT_BINARY_V1] : []),
+          ...(acceptsBinaryInput ? [CAP_TERMINAL_INPUT_BINARY_V1] : []),
+        ],
         // WIRE v2 (POD-376). Sent only in feed mode: an absent `wireVersion` IS
         // the v1 advertisement (`wire-feed-edge.ts` — "a pre-cutover client
         // cannot be made to send a field it was never built with"), so a hub
@@ -934,6 +943,12 @@ export class SocketHub {
       // Updates are full-state and never enter the control queue.
       for (const frame of this.subscriptionRegistry.reconnectFrames()) {
         this.sendPresenceFrame(frame)
+      }
+      // Topics after the feed and rooms (the reconnect order the plan defines):
+      // every key that still has a holder is asked again and answers with a
+      // fresh snapshot, a log from its last good position (D20).
+      for (const frame of this.subscriptionRegistry.topicReconnectFrames()) {
+        this.sendTopicFrame(frame)
       }
       // Re-assert per-session view state the same way: the server starts each new
       // client with empty view state, so a reconnecting client must re-declare which
@@ -1266,15 +1281,68 @@ export class SocketHub {
     }
   }
 
-  hostMetrics(): HostMetricsWire[] {
-    return this.hostMetricsList
+  /**
+   * HOLD ONE TOPIC KEY (ADR 7 Amendment 2 D20). Reference-counted per key per
+   * hub: the first holder sends `topicSubscribe`, the last release sends
+   * `topicUnsubscribe`, and every key still held is re-asked after a reconnect.
+   * The listener hears the CURRENT state at once (`pending` until the first
+   * snapshot), then every change. Consumers are services and stores; a React
+   * component reads them, never this.
+   */
+  subscribeTopic<K extends TopicKind>(
+    kind: K,
+    id: string,
+    listener: TopicListener<TopicPayload<K>>,
+  ): () => void {
+    const held = listener as TopicListener
+    const { fresh, entry } = this.subscriptionRegistry.acquireTopic(kind, id, held)
+    if (fresh) this.sendTopicFrame({ type: 'topicSubscribe', key: entry.key })
+    held.onState?.(entry.state)
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      if (this.subscriptionRegistry.releaseTopic(kind, id, held)) {
+        this.sendTopicFrame({ type: 'topicUnsubscribe', key: entry.key })
+      }
+    }
   }
 
-  /** @deprecated Use `on('hostMetrics', cb)` (no replay — read `hostMetrics()`). */
-  onHostMetrics(cb: (h: HostMetricsWire[]) => void): () => void {
-    const off = this.on('hostMetrics', cb)
-    cb(this.hostMetricsList)
-    return off
+  /**
+   * Make `listener` hold EXACTLY these ids of one kind: new ids are acquired,
+   * ids no longer listed are released. For a consumer whose key set follows a
+   * list (host metrics follow the machine list); what it holds is read back
+   * from the registry, so the consumer keeps no subscription table of its own.
+   */
+  holdTopics<K extends TopicKind>(
+    kind: K,
+    ids: readonly string[],
+    listener: TopicListener<TopicPayload<K>>,
+  ): void {
+    const held = listener as TopicListener
+    const wanted = new Set(ids)
+    for (const id of this.subscriptionRegistry.topicIdsHeldBy(kind, held)) {
+      if (wanted.has(id)) {
+        wanted.delete(id)
+        continue
+      }
+      const entry = this.subscriptionRegistry.topic(kind, id)
+      if (entry && this.subscriptionRegistry.releaseTopic(kind, id, held)) {
+        this.sendTopicFrame({ type: 'topicUnsubscribe', key: entry.key })
+      }
+    }
+    for (const id of wanted) {
+      const { fresh, entry } = this.subscriptionRegistry.acquireTopic(kind, id, held)
+      if (fresh) this.sendTopicFrame({ type: 'topicSubscribe', key: entry.key })
+      held.onState?.(entry.state)
+    }
+  }
+
+  /** The current state of a held key, or undefined when nobody holds it. */
+  topicState<K extends TopicKind>(kind: K, id: string): TopicState<TopicPayload<K>> | undefined {
+    return this.subscriptionRegistry.topic(kind, id)?.state as
+      | TopicState<TopicPayload<K>>
+      | undefined
   }
 
   machines(): MachineWire[] {
@@ -1635,7 +1703,16 @@ export class SocketHub {
       return
     // A status that merely re-confirms keeps its start time — `since` marks the
     // transition, not the latest re-evaluation.
+    const wentDown = next.status === 'down' && this.health.status !== 'down'
     this.health = next.status === this.health.status ? { ...next, since: this.health.since } : next
+    // THE CONNECTION WAS DECLARED LOST (D20): by the health rule, not by every
+    // socket blip a reconnect hides. Every held value goes unknown, keeping its
+    // last value for "last seen"; the resubscribe after reconnect refreshes it.
+    if (wentDown) {
+      for (const entry of this.subscriptionRegistry.markTopicsUnknown(this.health.since)) {
+        this.notifyTopic(entry)
+      }
+    }
     this.emit('connectionHealth', this.health)
   }
 
@@ -1925,6 +2002,9 @@ export class SocketHub {
       this.clientIdValue = msg.clientId
       this.inputBinaryAcknowledged =
         this.inputBinaryTransport && msg.caps?.includes(CAP_TERMINAL_INPUT_BINARY_V1) === true
+      if (msg.caps?.includes(CAP_TOPICS_V1) === true && msg.accountUser !== undefined) {
+        this.holdAccountEvents(msg.accountUser)
+      }
       this.notifyConnections()
       this.emit('link', 'welcomed')
     },
@@ -1981,10 +2061,14 @@ export class SocketHub {
     presenceRoomClosed: (msg) => {
       this.emit('presenceRoomClosed', msg)
     },
-    hostMetricsChanged: (msg) => {
-      this.hostMetricsList = msg.hosts
-      this.emit('hostMetrics', this.hostMetricsList)
-    },
+    // PRE-TOPICS FRAME (POD-6680 removes it). The server sends it to a client
+    // with topics.v1 only as the pre-hello bootstrap; host metrics arrive on
+    // `machine.metrics:<id>` topics, so there is nothing to keep from it.
+    hostMetricsChanged: () => {},
+    topicSnapshot: (msg) => this.applyTopicFrame(msg),
+    topicUpdate: (msg) => this.applyTopicFrame(msg),
+    topicEvent: (msg) => this.applyTopicFrame(msg),
+    topicClosed: (msg) => this.applyTopicFrame(msg),
     attentionEvent: (msg) => {
       this.emit('attention', { sessionId: msg.sessionId, title: msg.title, body: msg.body })
     },
@@ -2229,6 +2313,93 @@ export class SocketHub {
     if (touched.has('shipLane')) this.emit('shipLanes', this.shipLaneList)
     if (touched.has('userLayout')) this.emit('userLayouts', this.userLayoutList)
     if (touched.has('userReadPosition')) this.emit('userReadPositions', this.userReadPositionList)
+  }
+
+  /**
+   * Topic subscribe and unsubscribe go out only on an open socket and are never
+   * queued: `onopen` re-asks every key that is held at that moment, which is
+   * the whole truth, while a queued frame could only repeat or contradict it.
+   */
+  private sendTopicFrame(frame: TopicClientMessage): void {
+    const socket = this.socket
+    if (!this.connectedFlag || socket === undefined || this.invalidSockets.has(socket)) return
+    socket.send(JSON.stringify(frame))
+  }
+
+  /**
+   * Topic frames are applied HERE, synchronously, on the control path: they
+   * never wait behind the feed's yielding task queue (D20).
+   */
+  private applyTopicFrame(msg: TopicServerMessage): void {
+    const ref = parseTopicKey(msg.key)
+    if (!ref || !isTopicKind(ref.kind)) return
+    const entry = this.subscriptionRegistry.topic(ref.kind, ref.id)
+    // A frame for a key nobody holds any more: the release is already on its way.
+    if (!entry) return
+    switch (msg.type) {
+      case 'topicSnapshot': {
+        const payload = this.topicPayload(entry, msg.payload)
+        this.subscriptionRegistry.applyTopicSnapshot(entry, msg.position, payload)
+        this.notifyTopic(entry)
+        return
+      }
+      case 'topicUpdate': {
+        const payload = this.topicPayload(entry, msg.payload)
+        if (this.subscriptionRegistry.applyTopicUpdate(entry, msg.position, payload)) {
+          this.notifyTopic(entry)
+        }
+        return
+      }
+      case 'topicEvent': {
+        const payload = this.topicPayload(entry, msg.payload)
+        if (payload === undefined) return
+        for (const listener of [...entry.listeners]) listener.onEvent?.(payload)
+        return
+      }
+      case 'topicClosed':
+        if (msg.reason === 'overflow') {
+          // The server shed this key under pressure; ask again from where we are.
+          this.sendTopicFrame({
+            type: 'topicSubscribe',
+            key: entry.key,
+            ...(entry.position ? { from: entry.position } : {}),
+          })
+          return
+        }
+        this.subscriptionRegistry.closeTopic(entry, msg.reason)
+        this.notifyTopic(entry)
+        return
+      default:
+        msg satisfies never
+    }
+  }
+
+  /** A payload that does not match its kind is treated as unknown, never applied. */
+  private topicPayload(entry: TopicEntry, payload: unknown): unknown {
+    if (payload === undefined) return undefined
+    const parsed = parseTopicPayload(entry.kind, payload)
+    if (parsed === undefined)
+      log.warn('dropped a topic payload that does not match its kind', { key: entry.key })
+    return parsed
+  }
+
+  private notifyTopic(entry: TopicEntry): void {
+    for (const listener of [...entry.listeners]) listener.onState?.(entry.state)
+  }
+
+  /**
+   * `account.events:<self>` for this hub's lifetime (D26). Each notice is the
+   * pre-topics frame it replaces, so it goes through the same handler.
+   */
+  private accountEventsHeld = false
+  private holdAccountEvents(user: string): void {
+    if (this.accountEventsHeld) return
+    this.accountEventsHeld = true
+    this.subscribeTopic('account.events', user, {
+      onEvent: (event) => {
+        this.dispatchServerMessage(event, { dropped: 0 })
+      },
+    })
   }
 
   private sendPresenceFrame(frame: PresenceRoomClientMessage): boolean {

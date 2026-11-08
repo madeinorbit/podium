@@ -1527,4 +1527,128 @@ export const WIRE_FIXTURES: WireFixture[] = [
       ],
     },
   },
+  // TOPICS ON THE STREAM PLANE (ADR 7 Amendment 2 D23, POD-5800): every topic
+  // frame, in both directions and on the daemon link.
+  {
+    name: 'frame.topicSubscribe',
+    schema: ClientMessage,
+    value: {
+      type: 'topicSubscribe',
+      key: 'machine.metrics:machine-1',
+    },
+  },
+  {
+    name: 'frame.topicSubscribe.from',
+    schema: ClientMessage,
+    value: {
+      type: 'topicSubscribe',
+      key: 'machine.metrics:machine-1',
+      from: {
+        epoch: 'boot-1.3',
+        seq: 12,
+      },
+    },
+  },
+  {
+    name: 'frame.topicUnsubscribe',
+    schema: ClientMessage,
+    value: {
+      type: 'topicUnsubscribe',
+      key: 'machine.metrics:machine-1',
+    },
+  },
+  {
+    name: 'frame.topicSnapshot',
+    schema: ServerMessage,
+    value: {
+      type: 'topicSnapshot',
+      key: 'machine.condition:machine-1',
+      position: {
+        epoch: 'boot-1.1',
+        seq: 0,
+      },
+      payload: {
+        online: true,
+        since: '2026-11-08T10:00:00.000Z',
+      },
+    },
+  },
+  {
+    name: 'frame.topicSnapshot.unknown',
+    schema: ServerMessage,
+    value: {
+      type: 'topicSnapshot',
+      key: 'machine.metrics:machine-1',
+      position: {
+        epoch: 'boot-1.2',
+        seq: 0,
+      },
+    },
+  },
+  {
+    name: 'frame.topicUpdate',
+    schema: ServerMessage,
+    value: {
+      type: 'topicUpdate',
+      key: 'machine.condition:machine-1',
+      position: {
+        epoch: 'boot-1.1',
+        seq: 1,
+      },
+      payload: {
+        online: false,
+        since: '2026-11-08T10:05:00.000Z',
+      },
+    },
+  },
+  {
+    name: 'frame.topicEvent',
+    schema: ServerMessage,
+    value: {
+      type: 'topicEvent',
+      key: 'account.events:user-1',
+      payload: {
+        type: 'attentionEvent',
+        sessionId: 'session-1',
+        title: 'Needs you',
+        body: 'Waiting for approval',
+      },
+    },
+  },
+  {
+    name: 'frame.topicClosed',
+    schema: ServerMessage,
+    value: {
+      type: 'topicClosed',
+      key: 'machine.metrics:machine-2',
+      reason: 'refused',
+    },
+  },
+  {
+    name: 'frame.topicWatch',
+    schema: ControlMessage,
+    value: {
+      type: 'topicWatch',
+      key: 'machine.metrics:machine-1',
+      on: true,
+    },
+  },
+  {
+    name: 'frame.topicPublish',
+    schema: DaemonMessage,
+    value: {
+      type: 'topicPublish',
+      key: 'machine.metrics:machine-1',
+      payload: {
+        hostname: 'host-1',
+        sampledAt: '2026-11-08T10:00:05.000Z',
+        memory: {
+          totalBytes: 32,
+          availableBytes: 16,
+          swapTotalBytes: 0,
+          swapFreeBytes: 0,
+        },
+      },
+    },
+  },
 ]

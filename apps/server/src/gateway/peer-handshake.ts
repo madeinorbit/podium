@@ -22,6 +22,7 @@ import {
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   CAP_TERMINAL_PICTURE_V1,
+  CAP_TOPICS_V1,
   type CapabilityRef,
   createDefaultAuthRegistry,
   createHandshakeAcceptor,
@@ -128,6 +129,9 @@ const createResolvedDaemonAcceptor = (deps: ResolvedDaemonAcceptorDeps): Handsha
       // POD-4887: this server reads a proven "not delivered" cause
       // (`dropped-by-agent`, `not-recorded`, `agent-exited`) on `failed`.
       CAP_DELIVERY_NOT_IN_CONVERSATION,
+      // ADR 7 Amendment 2 (POD-5800): this server sends topicWatch demand and
+      // reads topicPublish; a daemon that accepts it samples only on demand.
+      CAP_TOPICS_V1,
     ],
     transport: {
       endpoint: '/daemon',

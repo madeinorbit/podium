@@ -45,9 +45,11 @@ import {
   CAP_METADATA_DELTA,
   CAP_SYNC_HTTP_V1,
   CAP_TERMINAL_INPUT_BINARY_V1,
+  CAP_TOPICS_V1,
   type ClientMessage,
   type FeedCursorField,
   type PresenceRoomClientMessage,
+  type TopicClientMessage,
 } from '@podium/protocol'
 import {
   type ClientPortId,
@@ -62,6 +64,7 @@ import type { ClientConn, ClientRegistry } from './client-registry'
 import { traceFeedPeer } from './feed-peer-trace'
 import type { FeedServing } from './feed-serving'
 import type { PresenceRouting } from './presence-routing'
+import type { TopicRouting } from './topic-routing'
 import type { MemberAccessChange } from '../store/users'
 
 const log = createLogger('server:gateway')
@@ -91,6 +94,12 @@ const toPresence = (mux: ClientMux, conn: ClientConn, msg: PresenceRoomClientMes
     if (joined) mux.ports.sessions.onRoomJoined(conn, joined)
   })
 
+/** Topics are subscription bookkeeping, like rooms: ordered per connection, never session work. */
+const toTopics = (mux: ClientMux, conn: ClientConn, msg: TopicClientMessage): Promise<void> =>
+  mux.enqueueSessionWork(conn, async () => {
+    await mux.topics.route(conn, msg)
+  })
+
 const DISPATCH: Dispatcher = {
   // ---- sessions ----
   hello: toSessions,
@@ -115,6 +124,10 @@ const DISPATCH: Dispatcher = {
   presenceSubscribe: toPresence,
   presenceUnsubscribe: toPresence,
   presenceUpdate: toPresence,
+
+  // ---- stream topics (ADR 7 Amendment 2) ----
+  topicSubscribe: toTopics,
+  topicUnsubscribe: toTopics,
 
   // ---- transport: the gateway answers its own liveness echo ----
   ping: (mux, conn) => mux.registry.deliver(conn, { type: 'pong' }),
@@ -166,6 +179,7 @@ export interface ClientMuxDeps {
    */
   readonly feed: FeedServing
   readonly presence: PresenceRouting
+  readonly topics: TopicRouting
   /** Non-session bootstrap assembled after every contributing feature exists. */
   readonly bootstrap: (conn: ClientConn) => Promise<void>
 }
@@ -185,6 +199,10 @@ export class ClientMux {
 
   get presence(): PresenceRouting {
     return this.deps.presence
+  }
+
+  get topics(): TopicRouting {
+    return this.deps.topics
   }
 
   /**
@@ -289,6 +307,10 @@ export class ClientMux {
     const conn = this.deps.registry.get(id)
     if (!conn) return
     this.deps.mobileVersions?.disconnected(id)
+    // TOPICS FIRST. Presence forgets EVERY registry key this subscriber holds,
+    // topic keys included, without running the topic producer rule; releasing
+    // the topic keys first is what stops a daemon sampler nobody watches.
+    this.deps.topics.disconnect(conn)
     this.deps.presence.disconnect(conn)
     this.deps.registry.delete(id)
     const attachedAt = this.attachedAtByPeer.get(id)
@@ -399,7 +421,12 @@ export class ClientMux {
         type: 'welcome',
         wireVersion: conn.wireVersion,
         clientId: conn.id,
-        caps: conn.caps.has(CAP_TERMINAL_INPUT_BINARY_V1) ? [CAP_TERMINAL_INPUT_BINARY_V1] : [],
+        caps: [
+          ...(conn.caps.has(CAP_TERMINAL_INPUT_BINARY_V1) ? [CAP_TERMINAL_INPUT_BINARY_V1] : []),
+          ...(conn.caps.has(CAP_TOPICS_V1) ? [CAP_TOPICS_V1] : []),
+        ],
+        // Topics: the account whose `account.events` this client may hold (D26).
+        ...(conn.caps.has(CAP_TOPICS_V1) ? { accountUser: conn.principal.user } : {}),
       })
     }
     return Promise.resolve(completion)

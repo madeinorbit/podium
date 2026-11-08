@@ -16,6 +16,7 @@ import { logHandlers } from './logs'
 import { serverEndpointHandlers } from './server-endpoint'
 import { sessionHandlers } from './session'
 import { shippingHandlers } from './shipping'
+import { topicHandlers } from './topics'
 import { transcriptHandlers } from './transcripts'
 import { updateHandlers } from './update'
 import { workspaceHandlers } from './workspace'
@@ -142,6 +143,7 @@ export const CONTROL_HANDLERS: ControlHandlers = {
   ...credentialHandlers,
   ...inventoryHandlers,
   ...logHandlers,
+  ...topicHandlers,
   ...updateHandlers,
   ...serverTransferHandlers,
   ...serverEndpointHandlers,

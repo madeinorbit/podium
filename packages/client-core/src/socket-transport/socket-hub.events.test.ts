@@ -92,6 +92,10 @@ describe('SocketHub dispatch exhaustiveness (type-level)', () => {
     presenceRoomClosed: noop,
     serverRelocation: noop,
     setLogLevel: noop,
+    topicSnapshot: noop,
+    topicUpdate: noop,
+    topicEvent: noop,
+    topicClosed: noop,
   }
 
   it('a mock future ServerMessage member without a handler fails compilation', () => {

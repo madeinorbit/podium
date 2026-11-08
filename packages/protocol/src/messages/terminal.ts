@@ -284,6 +284,12 @@ export const WelcomeMessage = z.object({
   clientId: z.string(),
   /** Capabilities negotiated for this connection. Absent from older servers. */
   caps: z.array(z.string()).optional(),
+  /**
+   * The account this connection is signed in as, sent with `topics.v1` so the
+   * client can hold its own `account.events:<user>` topic (ADR 7 Amendment 2
+   * D26). Absent from older servers and without the capability.
+   */
+  accountUser: UserIdField.optional(),
 })
 export const AttachedMessage = z.object({
   type: z.literal('attached'),

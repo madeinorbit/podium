@@ -1,6 +1,7 @@
 import { NativeBindingReceipt } from './native-binding'
 import { ResumeRef, SessionIdField } from '@podium/model'
 import { z } from 'zod'
+import { TopicPublishMessage } from '../planes/topics'
 import { ApprovalExecResultMessage } from './approvals'
 import { SessionOpenUrlMessage, SessionOpenUrlResultMessage } from './browser-open'
 import { CodexCompleteResultMessage } from './codex'
@@ -277,5 +278,8 @@ export const DaemonMessage = z.discriminatedUnion('type', [
    *  (POD-4750), appended at the END so the golden corpus's index-sampled
    *  arms stay byte-identical. */
   CodexCompleteResultMessage,
+  /** A daemon-produced topic value (ADR 7 Amendment 2 D21), appended at the END
+   *  so the golden corpus's index-sampled arms stay byte-identical. */
+  TopicPublishMessage,
 ])
 export type DaemonMessage = z.infer<typeof DaemonMessage>

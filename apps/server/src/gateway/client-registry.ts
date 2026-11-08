@@ -32,10 +32,10 @@
  */
 
 import type { Geometry, SessionId } from '@podium/model'
-import type { ClientLogOrigin, ServerMessage } from '@podium/protocol'
+import type { AccountEventPayload, ClientLogOrigin, ServerMessage } from '@podium/protocol'
 import type { Send } from '../modules/sessions/session'
-import { SequenceBinary, type SendOutcome, type SendSequenceSource } from './ordered-client-send'
 import type { ClientPrincipal } from './client-principal'
+import { type SendOutcome, type SendSequenceSource, SequenceBinary } from './ordered-client-send'
 
 /**
  * ONE `/client` connection: its transport, its authenticated principal, and the
@@ -174,6 +174,27 @@ export class ClientRegistry {
    *  through, so a later scoped feed has exactly one place to gate. */
   deliver(conn: ClientConn, msg: ServerMessage): void {
     conn.send(msg)
+  }
+
+  private accountEventRoute?: (conn: ClientConn, msg: AccountEventPayload) => boolean
+
+  /**
+   * Bind the `account.events` topic (ADR 7 Amendment 2 D26). Set once by the
+   * composition root, after the topic routing exists; it answers whether it
+   * took the notice.
+   */
+  routeAccountEvents(route: (conn: ClientConn, msg: AccountEventPayload) => boolean): void {
+    this.accountEventRoute = route
+  }
+
+  /**
+   * One account notice (attention, browser open, relocation, log level) to ONE
+   * connection: on its `account.events` topic when it holds that key, else as
+   * the pre-topics frame. POD-6680 removes the fallback.
+   */
+  deliverAccountEvent(conn: ClientConn, msg: AccountEventPayload): void {
+    if (this.accountEventRoute?.(conn, msg) === true) return
+    this.deliver(conn, msg)
   }
 
   /**

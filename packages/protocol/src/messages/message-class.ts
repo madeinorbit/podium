@@ -113,6 +113,12 @@ export const SERVER_PLANE_CLASS = {
   presenceRoomState: 'stream.live',
   presenceRoomDelta: 'stream.live',
   presenceRoomClosed: 'stream.live',
+  // TOPICS (ADR 7 Amendment 2 D23): stream · live in both directions, like rooms.
+  // A topic subscription dies with the connection and is re-asked on reconnect.
+  topicSnapshot: 'stream.live',
+  topicUpdate: 'stream.live',
+  topicEvent: 'stream.live',
+  topicClosed: 'stream.live',
   // Operator log-level control (POD-1920). LIVE, and the classification is the
   // feature's safety property rather than a formality: a raise is scoped to the
   // connection it lands on and must NEVER be queued or replayed. Delivered to a
@@ -164,6 +170,8 @@ export const CLIENT_PLANE_CLASS = {
   presenceSubscribe: 'stream.live',
   presenceUnsubscribe: 'stream.live',
   presenceUpdate: 'stream.live',
+  topicSubscribe: 'stream.live',
+  topicUnsubscribe: 'stream.live',
 } as const satisfies Record<ClientMessage['type'], PlaneClass>
 
 /**
@@ -296,6 +304,9 @@ export const CONTROL_PLANE_CLASS = {
   // request/reply like every other daemon verb: a lost one is a failed RPC
   // the caller already handles.
   codexCompleteRequest: 'control.command',
+  // Topic demand (ADR 7 Amendment 2 D21): a desired state the daemon ACTS on,
+  // so control · command for the same reason as runtimeWatch above.
+  topicWatch: 'control.command',
 } as const satisfies Record<ControlMessage['type'], PlaneClass>
 
 /**
@@ -428,6 +439,9 @@ export const DAEMON_PLANE_CLASS = {
   // reply to a codexCompleteRequest — the same class for the same reason as
   // every other verb's reply.
   codexCompleteResult: 'control.command',
+  // A daemon-produced topic value (ADR 7 Amendment 2 D21): live like hostMetrics,
+  // which it replaces on a topics.v1 link; a lost one is superseded by the next.
+  topicPublish: 'stream.live',
 } as const satisfies Record<DaemonMessage['type'], PlaneClass>
 
 // ---- Derived legacy vocabulary (ADR 7 D1 bridge; one migration window) ------

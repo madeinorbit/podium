@@ -183,6 +183,8 @@ import { createDaemonMachineRuntime, type DaemonMachineRuntime } from './runtime
 import type { ClientTerminalKind } from './runtime/opencode-attach'
 import { createClientTerminalsFor } from './runtime/opencode-attach'
 import { createScopeMonitor } from './runtime/scope-monitor'
+import { createHostMetricsSampling, hostMetricsFrame } from './topics/host-metrics-sampling'
+import { TopicWatchRegistry } from './topics/watch-registry'
 import { beginServerDriverReap, type ServerReapIo } from './runtime/server-reap'
 import { SERVER_GRACEFUL_EXIT_MS } from './runtime/server-teardown-budget'
 import {
@@ -351,6 +353,12 @@ export async function createDaemonHostRuntime(args: {
   isConnected: () => boolean
   /** The live link accepted terminal.picture.v1 (POD-4912). */
   picturesAccepted?: () => boolean
+  /**
+   * The live link accepted topics.v1 (ADR 7 Amendment 2): host metrics are then
+   * sampled only while the server demands `machine.metrics:<self>`, and go out
+   * as `topicPublish`. Absent or false keeps the pre-topics always-on sample.
+   */
+  topicsAccepted?: () => boolean
   retryHandshake?: () => void
 }): Promise<DaemonHostRuntime> {
   if (process.env.PODIUM_REHEARSAL === '1')
@@ -1048,8 +1056,11 @@ export async function createDaemonHostRuntime(args: {
     },
   })
 
+  // THE ONE WATCH REGISTRY (ADR 7 Amendment 2 D22). Producers register below.
+  const topicWatches = new TopicWatchRegistry()
   const ctx: DaemonContext = {
     send,
+    topicWatches,
     ...(args.picturesAccepted ? { picturesAccepted: args.picturesAccepted } : {}),
     acknowledgeQueueDrainReport: args.acknowledgeQueueDrainReport,
     acknowledgeRuntimeEvent: args.acknowledgeRuntimeEvent,
@@ -1641,7 +1652,6 @@ export async function createDaemonHostRuntime(args: {
 
   const metricsBackground = opts.metrics?.background ?? true
   const metricsIntervalMs = opts.metrics?.intervalMs ?? DEFAULT_HOST_METRICS_INTERVAL_MS
-  let metricsTimer: ReturnType<typeof setInterval> | undefined
   let uploadsGcTimer: ReturnType<typeof setInterval> | undefined
   let stopInventoryRefresh: (() => void) | undefined
   let kickedOff = false
@@ -1657,8 +1667,7 @@ export async function createDaemonHostRuntime(args: {
     // same minute goes out up to four times; that is the intended shape, and the
     // server dedupes by `at`. See the field's comment on `HostMetricsWire`.
     const loop = loopAccounting?.latestMinute()
-    send({
-      type: 'hostMetrics',
+    const sample = {
       daemonReadiness: readiness.snapshot(),
       quarantinedBindings: bindingStore.quarantinedCount,
       hostname: hostname(),
@@ -1676,8 +1685,21 @@ export async function createDaemonHostRuntime(args: {
       // the host-wide number, exactly as it did before this existed.
       ...(sessionsMemory ? { sessionsMemory } : {}),
       ...(loop ? { loop } : {}),
-    })
+    }
+    // ONE SAMPLE, TWO ENVELOPES. A topics.v1 link takes it as this machine's
+    // machine.metrics value; an older server keeps the pre-topics frame.
+    send(hostMetricsFrame(machineId, sample, args.topicsAccepted?.() === true))
   }
+
+  // Host-metrics SAMPLING (ADR 7 Amendment 2 D22): on demand on a topics.v1
+  // link, the pre-topics always-on timer otherwise. See host-metrics-sampling.ts.
+  const metricsSampling = createHostMetricsSampling({
+    machineId,
+    intervalMs: metricsIntervalMs,
+    background: metricsBackground,
+    watches: topicWatches,
+    push: pushHostMetrics,
+  })
 
   /**
    * Tell the server which durable labels this machine is actually running
@@ -1788,6 +1810,10 @@ export async function createDaemonHostRuntime(args: {
         })
     }
     if (facts === undefined) retryRecovery(recoveryEpoch)
+    // A NEW LINK STARTS WITH NO DEMAND (D21/D22): the server re-sends topicWatch
+    // for every key still held, so nothing keeps sampling for a viewer that left
+    // while the link was down.
+    metricsSampling.linkUp(args.topicsAccepted?.() === true)
     startConnectedServices()
     pushHostMetrics()
     const convergedVersion = reconcilePendingUpdate({
@@ -1806,11 +1832,6 @@ export async function createDaemonHostRuntime(args: {
       kickedOff = true
       discoveryLoop.start()
       scopeMonitor.start()
-      if (metricsBackground) {
-        pushHostMetrics()
-        metricsTimer = setInterval(pushHostMetrics, metricsIntervalMs)
-        metricsTimer.unref?.()
-      }
       uploadsGcTimer = setInterval(
         () => void sweepUploads(portableStateFence),
         UPLOADS_GC_INTERVAL_MS,
@@ -1848,7 +1869,7 @@ export async function createDaemonHostRuntime(args: {
     await agentRelay.close()
     discoveryLoop.stop()
     scopeMonitor.dispose()
-    if (metricsTimer) clearInterval(metricsTimer)
+    metricsSampling.close()
     if (uploadsGcTimer) clearInterval(uploadsGcTimer)
     // Stop the probe and sample timers and release the minute file's fd. The
     // records are already on disk (the sink writes synchronously), so this

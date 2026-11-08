@@ -259,6 +259,9 @@ const DISPATCH: Dispatcher = {
 
   // ---- THE AGENT COMMAND RELAY. Its own port; nothing else reaches it. ----
   agentRelayRequest: (ports, principal, msg) => ports.agentRelay.run(principal.machine, msg),
+
+  // ---- topics: a daemon-produced value, checked against THIS machine ----
+  topicPublish: (ports, principal, msg) => ports.topics.onTopicPublish(principal.machine, msg),
 }
 
 /** Bus emits the mux owns (machine reachability is a gateway fact, not a session one). */

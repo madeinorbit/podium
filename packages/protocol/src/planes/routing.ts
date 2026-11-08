@@ -203,6 +203,15 @@ export class SubscriptionRegistry {
   }
 
   /**
+   * Every key with at least one subscriber. Used where a rule must re-derive
+   * state FROM the registry rather than keep a second table of it: topic demand
+   * re-sent after a daemon reattaches (ADR 7 Amendment 2 D21).
+   */
+  keys(): readonly RoutingKey[] {
+    return [...this.byKey.keys()]
+  }
+
+  /**
    * Membership is per PRINCIPAL, not per connection (ADR 7 Amendment 1 D9.4):
    * two tabs are one member with two connections, and a member leaves when its
    * LAST subscribed connection leaves.
@@ -394,6 +403,20 @@ export class PlaneRouter<M> {
 
   clearDemotion(subscriberId: SubscriberId): void {
     this.needsResync.delete(subscriberId)
+  }
+
+  /**
+   * Drop one subscriber's queue and pressure state WITHOUT touching the
+   * registry. For a consumer sharing the registry with another router: its keys
+   * are released one by one by their owner, and {@link forget} would also drop
+   * the other consumer's keys (presence rooms) before that consumer saw them.
+   */
+  discard(subscriberId: SubscriberId): void {
+    this.queues.delete(subscriberId)
+    this.needsResync.delete(subscriberId)
+    for (const streak of [...this.dropStreak.keys()]) {
+      if (streak.startsWith(`${subscriberId}\n`)) this.dropStreak.delete(streak)
+    }
   }
 
   /** Connection closed: drop its subscriptions and its queue. */

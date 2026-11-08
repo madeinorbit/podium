@@ -52,6 +52,7 @@ import { bindStoreStatsOwner } from '../perf/store-stats'
 
 import { createLogger } from '@podium/logger'
 import type {
+  HostMetricsWire,
   IssueId,
   LayoutSnapshot,
   LayoutWire,
@@ -88,7 +89,7 @@ import { createEngineActions, type EngineActionRuntime, type EngineActions } fro
 import { BootFetches } from './boot'
 import { OutboxSettlements } from './chat-send'
 import { createHeaderPollingService, type HeaderInputs } from './header-polling'
-import { createHostMetricsStore } from './host-metrics'
+import { createHostMetricsService } from './host-metrics'
 import {
   createKeyedInputs,
   type KeyedInputStats,
@@ -313,10 +314,15 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 
   /** Where this client learns whether it is on screen (POD-2055 WP-C4). */
   private readonly visibility: VisibilitySource
-  private readonly hostMetricsStore = createHostMetricsStore()
-  readonly hostMetrics = {
-    subscribe: this.hostMetricsStore.subscribe,
-    getSnapshot: this.hostMetricsStore.getSnapshot,
+  private readonly hostMetricsService: ReturnType<typeof createHostMetricsService>
+  /**
+   * Host metrics, read by the header strip, the machine panels and mobile
+   * Pulse. Subscribing is what holds `machine.metrics:<id>` topics, so a daemon
+   * samples only while some reader is mounted (ADR 7 Amendment 2, POD-5800).
+   */
+  readonly hostMetrics: {
+    subscribe: (listener: () => void) => () => void
+    getSnapshot: () => HostMetricsWire[]
   }
   private readonly headerPolling: ReturnType<typeof createHeaderPollingService>
   readonly headerInputs: HeaderInputs
@@ -422,6 +428,11 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         ? { heartbeatIntervalMs: init.heartbeatIntervalMs }
         : {}),
     })
+    this.hostMetricsService = createHostMetricsService(this.hub)
+    this.hostMetrics = {
+      subscribe: this.hostMetricsService.subscribe,
+      getSnapshot: this.hostMetricsService.getSnapshot,
+    }
     this.headerPolling = createHeaderPollingService({ api: this.api, replica: this.replica })
     this.headerInputs = this.headerPolling.inputs
     this.outbox = (init.createOutboxFn ?? createEngineOutbox)({
@@ -617,8 +628,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     )
 
     // Hub events, via the P5a `on()` subscription seam. Only ephemeral state
-    // (host metrics, machines, drafts) follows hub events through keyed channels.
-    offs.push(this.hub.on('hostMetrics', (m) => this.hostMetricsStore.publish(m)))
+    // (machines, drafts) follows hub events through keyed channels; host
+    // metrics are topics, held by `hostMetricsService` while read.
     offs.push(this.hub.on('approvals', (a) => this.apply({ approvals: a })))
     // Apply the scoped machine snapshot immediately so a SEE revocation hides
     // its repositories, then reconcile repos and machines from one authorized
@@ -839,7 +850,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.poolWriter?.dispose?.()
     this.poolWriter = null
     this.inputs.dispose()
-    this.hostMetricsStore.destroy()
+    this.hostMetricsService.destroy()
     this.headerPolling.destroy()
   }
 

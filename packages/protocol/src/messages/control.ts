@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { TopicWatchMessage } from '../planes/topics'
 import { ApprovalExecRequestMessage } from './approvals'
 import { SessionOpenUrlCallbackMessage, SessionOpenUrlDismissMessage } from './browser-open'
 import { CodexCompleteRequestMessage } from './codex'
@@ -201,5 +202,8 @@ export const ControlMessage = z.discriminatedUnion('type', [
    *  END for the same index-stability reason — an older daemon that does not
    *  know this frame is answered by the frame-guard's payload-rejection arm. */
   CodexCompleteRequestMessage,
+  /** Topic demand, a desired state (ADR 7 Amendment 2 D21). Appended at the
+   *  END for index stability; sent only to a daemon that accepted topics.v1. */
+  TopicWatchMessage,
 ])
 export type ControlMessage = z.infer<typeof ControlMessage>

@@ -181,6 +181,15 @@ export interface AgentRelayDaemonPort {
   run(machineId: MachineId, msg: DaemonFrame<'agentRelayRequest'>): void
 }
 
+/**
+ * TOPICS (ADR 7 Amendment 2 D21). A daemon-produced value for one key. The
+ * machine comes from the transport: a daemon may publish only keys its own
+ * machine produces, and the port refuses any other.
+ */
+export interface TopicsDaemonPort {
+  onTopicPublish(machineId: MachineId, msg: DaemonFrame<'topicPublish'>): void
+}
+
 /** Everything the mux is given. */
 export interface DaemonFeaturePorts {
   sessions: SessionsDaemonPort
@@ -193,4 +202,5 @@ export interface DaemonFeaturePorts {
   agentRelay: AgentRelayDaemonPort
   updates: UpdatesDaemonPort
   logs: LogsDaemonPort
+  topics: TopicsDaemonPort
 }

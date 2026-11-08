@@ -114,10 +114,12 @@ describe('SocketHub', () => {
     const { sock, hub } = setup()
     hub.connect()
     sock.open()
+    // Every hub speaks topics (ADR 7 Amendment 2), so `caps` is always present.
     expect(sock.parsed()).toContainEqual({
       type: 'hello',
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
+      caps: ['topics.v1'],
     })
   })
 
@@ -1616,27 +1618,6 @@ describe('transcript delta forwarding', () => {
         items: [item('a', 'c1')],
       }),
     ).not.toThrow()
-  })
-})
-
-describe('host metrics', () => {
-  it('exposes hostMetricsChanged via hostMetrics() + onHostMetrics', () => {
-    const { hub, sock } = setup()
-    hub.connect()
-    sock.open()
-    const seen: number[] = []
-    hub.onHostMetrics((h) => seen.push(h.length))
-    const host = {
-      hostname: 'podium-host',
-      sampledAt: '2026-06-11T00:00:00.000Z',
-      memory: { totalBytes: 32, availableBytes: 16, swapTotalBytes: 0, swapFreeBytes: 0 },
-    }
-    sock.recv({ type: 'hostMetricsChanged', hosts: [host] })
-    expect(hub.hostMetrics()).toEqual([host])
-    expect(seen).toEqual([0, 1]) // immediate replay + the update
-    sock.recv({ type: 'hostMetricsChanged', hosts: [] })
-    expect(hub.hostMetrics()).toEqual([])
-    expect(seen).toEqual([0, 1, 0])
   })
 })
 

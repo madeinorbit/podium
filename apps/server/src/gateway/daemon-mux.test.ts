@@ -71,6 +71,7 @@ function fakePorts() {
     agentRelay: proxyFor('agentRelay'),
     updates: proxyFor('updates'),
     logs: proxyFor('logs'),
+    topics: proxyFor('topics'),
   } as unknown as DaemonFeaturePorts
   return { ports, calls }
 }

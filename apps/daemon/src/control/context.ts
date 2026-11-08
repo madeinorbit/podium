@@ -188,6 +188,12 @@ export interface DaemonContext {
    */
   logForwarding: import('@podium/runtime/log-forward').DaemonLogForwarding
 
+  /**
+   * TOPIC DEMAND (ADR 7 Amendment 2 D22): the one watch registry, kind → start
+   * and stop. The `topicWatch` handler is the only caller of `apply`.
+   */
+  topicWatches: import('../topics/watch-registry').TopicWatchRegistry
+
   /** Server-move endpoint handoff is owned by the reconnecting transport. */
   probeServerTransferCandidate(input: {
     transferId: string

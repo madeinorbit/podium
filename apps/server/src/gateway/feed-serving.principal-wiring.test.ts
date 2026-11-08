@@ -75,6 +75,7 @@ import { feedPrincipalOf } from './client-principal'
 import { type ClientConn, ClientRegistry } from './client-registry'
 import { feedTestPlumbing } from './feed-test-plumbing'
 import type { PresenceRouting } from './presence-routing'
+import type { TopicRouting } from './topic-routing'
 
 const ALICE = asUserId('user-alice')
 const BOB = asUserId('user-bob')
@@ -138,6 +139,7 @@ async function gateway(owners: Map<string, UserId>, grants: Map<string, UserId[]
       setVisible: vi.fn(),
       disconnect: vi.fn(),
     } as unknown as PresenceRouting,
+    topics: { route: vi.fn(), disconnect: vi.fn() } as unknown as TopicRouting,
     bootstrap: vi.fn(async () => {}),
   })
 

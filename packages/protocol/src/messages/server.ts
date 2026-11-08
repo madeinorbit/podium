@@ -5,6 +5,12 @@ import {
   PresenceRoomDeltaMessage,
   PresenceRoomStateMessage,
 } from '../planes/presence-rooms'
+import {
+  TopicClosedMessage,
+  TopicEventMessage,
+  TopicSnapshotMessage,
+  TopicUpdateMessage,
+} from '../planes/topics'
 import { ApprovalsChangedMessage } from './approvals'
 import { SessionOpenUrlMessage, SessionOpenUrlResultMessage } from './browser-open'
 import {
@@ -80,5 +86,9 @@ export const ServerMessage = z.discriminatedUnion('type', [
   PresenceRoomClosedMessage,
   SetLogLevelMessage,
   ServerRelocationMessage,
+  TopicSnapshotMessage,
+  TopicUpdateMessage,
+  TopicEventMessage,
+  TopicClosedMessage,
 ])
 export type ServerMessage = z.infer<typeof ServerMessage>

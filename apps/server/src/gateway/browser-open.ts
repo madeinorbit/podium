@@ -52,7 +52,9 @@ export class BrowserOpenGateway {
 
   replayPending(client: ClientConn): void {
     for (const request of this.pending.values()) {
-      if (this.clientInSessionRoom(client, request.sessionId)) client.send(request)
+      if (this.clientInSessionRoom(client, request.sessionId)) {
+        this.deps.clients.deliverAccountEvent(client, request)
+      }
     }
   }
 
@@ -69,7 +71,7 @@ export class BrowserOpenGateway {
     this.expiryTimers.set(requestKey, timer)
 
     for (const client of this.recipients(request.sessionId)) {
-      this.deps.clients.deliver(client, request)
+      this.deps.clients.deliverAccountEvent(client, request)
     }
   }
 
@@ -102,7 +104,7 @@ export class BrowserOpenGateway {
       !this.clientInSessionRoom(client, message.sessionId) ||
       !maySee
     ) {
-      this.deps.clients.deliver(client, {
+      this.deps.clients.deliverAccountEvent(client, {
         type: 'sessionOpenUrlResult',
         sessionId: message.sessionId,
         requestId: message.requestId,
@@ -218,7 +220,7 @@ export class BrowserOpenGateway {
 
   private deliverResult(message: SessionOpenUrlResultMessage): void {
     for (const client of this.recipients(message.sessionId)) {
-      this.deps.clients.deliver(client, message)
+      this.deps.clients.deliverAccountEvent(client, message)
     }
   }
 

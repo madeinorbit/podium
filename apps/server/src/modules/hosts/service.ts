@@ -7,7 +7,7 @@ import type {
   SessionId,
 } from '@podium/model'
 import type { DriverFamily } from '@podium/harness/metadata'
-import type { LiveServerMessage, ServerMessage } from '@podium/protocol'
+import { CAP_TOPICS_V1, type LiveServerMessage, type ServerMessage } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { PodiumSettings } from '@podium/runtime'
 import { withReadScope } from '../../store/executor/read-scope'
@@ -122,8 +122,17 @@ export interface HostsDeps {
   getSettings(): PodiumSettings | Promise<PodiumSettings>
   /** Physical SQLite transfer fence; live metrics continue, lifecycle writes wait. */
   transferFenceActive(): boolean
-  /** Connected client fan-out (hostMetricsChanged — live-only, message-class). */
-  clients(): Iterable<{ send(msg: LiveServerMessage): void }>
+  /**
+   * Connected client fan-out of the PRE-TOPICS frame (hostMetricsChanged). Only a
+   * client without `topics.v1` gets it; a capable client subscribes to
+   * `machine.metrics:<id>` instead (ADR 7 Amendment 2, POD-6680 removes this).
+   */
+  clients(): Iterable<{ send(msg: LiveServerMessage): void; readonly caps?: ReadonlySet<string> }>
+  /**
+   * The newest sample for one machine, to its `machine.metrics` topic. Undefined
+   * is `unknown`: the machine's socket went away and its numbers with it.
+   */
+  publishMetrics?(machineId: MachineId, sample: HostMetricsWire | undefined): void
   /** Display name for a machineId — stamps inbound samples. */
   machineName(id: string): string | Promise<string>
   /** Live sessions, projected — the auto-hibernate candidate pool. */
@@ -230,7 +239,10 @@ export class HostsService {
       // a loop nobody can still be watching, and leaving it in the snapshot
       // would report a fleet larger than the one reporting.
       this.latestLoopMinutes.delete(machineId)
-      if (this.latestHostMetrics.delete(machineId)) this.broadcastHostMetrics()
+      if (this.latestHostMetrics.delete(machineId)) {
+        this.deps.publishMetrics?.(machineId, undefined)
+        this.broadcastHostMetrics()
+      }
     })
   }
 
@@ -256,7 +268,7 @@ export class HostsService {
     }
     if (this.deps.transferFenceActive()) {
       this.deferredPressureMachines.add(machineId)
-      this.latestHostMetrics.set(machineId, tagged)
+      this.install(machineId, tagged)
       this.broadcastHostMetrics()
       return
     }
@@ -272,7 +284,7 @@ export class HostsService {
     // nothing to live in once these calls acquire awaits, and the scans return.
     await withReadScope(async () => {
       const idleCapUnmet = await this.maybeAutoHibernate(machineId, tagged)
-      this.latestHostMetrics.set(machineId, { ...tagged, idleCapUnmet })
+      this.install(machineId, { ...tagged, idleCapUnmet })
     })
     this.broadcastHostMetrics()
   }
@@ -286,7 +298,7 @@ export class HostsService {
       this.deferredPressureMachines.delete(machineId)
       if (!sample) continue
       const idleCapUnmet = await this.maybeAutoHibernate(machineId, sample)
-      this.latestHostMetrics.set(machineId, { ...sample, idleCapUnmet })
+      this.install(machineId, { ...sample, idleCapUnmet })
       changed = true
     }
     if (changed) this.broadcastHostMetrics()
@@ -327,6 +339,16 @@ export class HostsService {
     return Object.fromEntries(this.latestLoopMinutes) as Record<MachineId, LoopMinuteWire>
   }
 
+  /** The newest sample one machine reported, for a `machine.metrics` snapshot. */
+  latestFor(machineId: MachineId): HostMetricsWire | undefined {
+    return this.latestHostMetrics.get(machineId)
+  }
+
+  private install(machineId: MachineId, sample: HostMetricsWire): void {
+    this.latestHostMetrics.set(machineId, sample)
+    this.deps.publishMetrics?.(machineId, sample)
+  }
+
   hostMetricsMessage(): LiveServerMessage {
     return { type: 'hostMetricsChanged', hosts: [...this.latestHostMetrics.values()] }
   }
@@ -338,7 +360,9 @@ export class HostsService {
 
   private broadcastHostMetrics(): void {
     const msg = this.hostMetricsMessage()
-    for (const c of this.deps.clients()) c.send(msg)
+    for (const c of this.deps.clients()) {
+      if (c.caps?.has(CAP_TOPICS_V1) !== true) c.send(msg)
+    }
   }
 
   /** Apply memory, load, and idle-count pressure independently [spec:SP-c29e].

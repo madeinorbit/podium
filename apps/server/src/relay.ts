@@ -36,11 +36,13 @@ import {
 import type {
   LiveServerMessage,
   LocalPortableStateControl,
+  ServerMessage,
   UpdateKeyRotation,
   VisibilityResolver,
   WriteReceipt,
 } from '@podium/protocol'
 import {
+  CAP_TOPICS_V1,
   formatIssueRef,
   platformTargetFor,
   SERVER_MOVE_CAPABILITY,
@@ -89,6 +91,8 @@ import { DaemonMux } from './gateway/daemon-mux'
 import { FeedServing } from './gateway/feed-serving'
 import { MobileClientVersions } from './gateway/mobile-client-versions'
 import { PresenceRouting } from './gateway/presence-routing'
+import { createDaemonTopicIngress } from './gateway/topic-ingress'
+import { daemonTopicProducer, type TopicProducers, TopicRouting } from './gateway/topic-routing'
 import { driverFamilyForId } from './harness-manifest'
 import { checkIssueAccess, mayReachPrivate } from './issue-authz'
 import { type CodexTransport, llmClient } from './llm'
@@ -116,7 +120,9 @@ import { registerFolderEffects } from './modules/fleet/folder-effects'
 import { registerServerMoveEffect } from './modules/fleet/server-move-effect'
 import { registerMachineUpdateEffect } from './modules/fleet/update-effect'
 import { WriteFunnel } from './modules/funnel'
+import { HIBERNATION_HOLDER, HibernationMetricsDemand } from './modules/hosts/metrics-demand'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
+import { MachineConditionTopic } from './modules/machines/condition-topic'
 import { registerSessionAnswerEffect } from './modules/interactions/answer-effect'
 import { InteractionFeedPublisher } from './modules/interactions/feed'
 import { deliverToNativeMenu } from './modules/interactions/native-menu-delivery'
@@ -562,6 +568,8 @@ function noticeInfo(
  */
 export class SessionRegistry {
   private mobileVersions?: MobileClientVersions
+  /** Topics on the stream plane (ADR 7 Amendment 2), over the gateway's one registry. */
+  topics!: TopicRouting
 
   readonly recoveryOnly: boolean
   /** Typed in-process event bus — modules subscribe here (issue #13 Phase 2). */
@@ -1272,6 +1280,59 @@ export class SessionRegistry {
       prepareVisibility: prepareRoomVisibility,
       now: this.now,
     })
+    // TOPICS (ADR 7 Amendment 2, POD-5800): the SAME registry, a second router.
+    // The metrics producer's snapshot reads the hosts service, which is built
+    // further down; the box is filled before any socket can subscribe.
+    const topicLate: { hosts?: HostsService } = {}
+    const machineConditions = new MachineConditionTopic({
+      online: (machineId) => machines.hasDaemon(machineId),
+      now: () => this.now(),
+      publish: (machineId, value) => topics.publish('machine.condition', machineId, value),
+    })
+    const topicProducers: TopicProducers = {
+      'machine.condition': { snapshot: (id) => machineConditions.snapshot(asMachineId(id)) },
+      'machine.metrics': daemonTopicProducer({
+        kind: 'machine.metrics',
+        machineOf: (id) => asMachineId(id),
+        supportsTopics: (machineId) => machines.daemonSupports(machineId, CAP_TOPICS_V1),
+        send: (machineId, frame) => machines.toMachine(machineId, frame),
+        snapshot: (id) => topicLate.hosts?.latestFor(asMachineId(id)),
+      }),
+      'account.events': {},
+    }
+    const topics: TopicRouting = new TopicRouting({
+      subscriptions,
+      clients: clientRegistry,
+      prepareVisibility: async (entities) =>
+        kernelVisibilityResolver(
+          await visibility.forBatch(
+            entities.map((entity) => ({
+              entity: entity.kind as 'machine',
+              entityId: entity.id,
+            })),
+          ),
+        ),
+      producers: topicProducers,
+      now: this.now,
+    })
+    this.topics = topics
+    // Every account notice a connection holds the topic for goes on it (D26).
+    clientRegistry.routeAccountEvents((conn, msg) => {
+      const reached = topics.emit(
+        'account.events',
+        conn.principal.user,
+        msg,
+        (subscriberId) => String(subscriberId) === conn.id,
+      )
+      return reached.size > 0
+    })
+    this.bus.on('machine.connected', ({ machineId }) => {
+      machineConditions.changed(machineId)
+      // The generic resetWatchLevel: the new daemon process gets every key of
+      // its machine that is still held (D21).
+      topics.machineAttached(machineId)
+    })
+    this.bus.on('machine.disconnected', ({ machineId }) => machineConditions.changed(machineId))
     const feedServing = new FeedServing({
       onPublicationIdle: (listener) => this.store.onPublicationIdle(listener),
       authority: ledger.authority,
@@ -1289,7 +1350,11 @@ export class SessionRegistry {
       ),
       retention: { minAvailableSeq: async () => await this.store.sync.minChangeSeq() },
       subscriptions,
-      onVisibilityChanged: (subscriberIds) => presence.revalidateSubscribers(subscriberIds),
+      // Rooms and topics are re-checked on the same trigger as the feed (D24).
+      onVisibilityChanged: async (subscriberIds) => {
+        await presence.revalidateSubscribers(subscriberIds)
+        await topics.revalidateSubscribers(subscriberIds)
+      },
       diagnostics: () => [...conversationDiagnostics.current],
     })
     this.syncDelta = { authority: ledger.authority, serving: feedServing }
@@ -1537,7 +1602,7 @@ export class SessionRegistry {
         relocateClients: (input) => {
           const claims = clientRelocationClaims.get(input.operationId)
           for (const client of clientRegistry.values()) {
-            clientRegistry.deliver(client, {
+            clientRegistry.deliverAccountEvent(client, {
               type: 'serverRelocation',
               transferId: input.transferId,
               publicUrl: input.publicUrl,
@@ -2006,6 +2071,7 @@ export class SessionRegistry {
         getSettings: async () => await this.store.settings.getSettings(),
         transferFenceActive: () => this.store.transferFenceActive,
         clients: () => clientRegistry.values(),
+        publishMetrics: (machineId, sample) => topics.publish('machine.metrics', machineId, sample),
         machineName: async (id) => await machines.machineName(id),
         sessions: async () => {
           // ONE statement per projection, not one per session (POD-568): the
@@ -2141,6 +2207,28 @@ export class SessionRegistry {
       this.bus,
     )
     resumeHostPressureAfterTransferFence = () => hosts.resumeAfterTransferFence()
+    topicLate.hosts = hosts
+    // THE PRESSURE SWEEP IS A VIEWER: it holds machine.metrics:<id> for every
+    // connected machine while hibernation is on, so a topics.v1 daemon keeps
+    // sampling for it and stops when nobody, sweep included, is watching.
+    const metricsDemand = new HibernationMetricsDemand({
+      hold: (machineId) => topics.hold(HIBERNATION_HOLDER, 'machine.metrics', machineId),
+      release: (machineId) => topics.release(HIBERNATION_HOLDER, 'machine.metrics', machineId),
+      enabled: async () => (await this.store.settings.getSettings()).hibernation.enabled,
+      onlineMachineIds: () => machines.onlineMachineIds(),
+    })
+    this.bus.on('machine.connected', ({ machineId }) => {
+      void metricsDemand.connected(machineId).catch((err: unknown) => {
+        log.warn('could not decide host-metrics demand for a machine', { machineId, err })
+      })
+    })
+    this.bus.on('machine.disconnected', ({ machineId }) => metricsDemand.disconnected(machineId))
+    this.bus.on('settings.changed', ({ previous, next }) => {
+      if (previous.hibernation.enabled === next.hibernation.enabled) return
+      void metricsDemand.reevaluate().catch((err: unknown) => {
+        log.warn('could not re-decide host-metrics demand', { err })
+      })
+    })
     const headless = sessionsSvc.headless
     this.bus.on('session.openUrl', (request) => sessionsSvc.onOpenUrl(request))
     const sessionRefs = writes.system('sessions.refs')
@@ -2183,10 +2271,20 @@ export class SessionRegistry {
           await this.store.events.appendEventGrouped(e)
         },
         now: () => this.now(),
+        // Attention is an account notice: on the account.events topic when the
+        // connection holds it, else the pre-topics frame (ADR 7 Amendment 2 D26).
         clients: (ownerUserId) =>
-          [...clientRegistry.values()].filter(
-            (client) => ownerUserId === undefined || client.principal.user === ownerUserId,
-          ),
+          [...clientRegistry.values()]
+            .filter((client) => ownerUserId === undefined || client.principal.user === ownerUserId)
+            .map((client) => ({
+              send: (msg: ServerMessage) => {
+                if (msg.type === 'attentionEvent') clientRegistry.deliverAccountEvent(client, msg)
+                else clientRegistry.deliver(client, msg)
+              },
+              get visible() {
+                return client.visible
+              },
+            })),
         // A prompt-failed notice can name an exited session (POD-6160): its
         // facts are read from the database when it is not resident.
         sessionInfo: async (sessionId) => {
@@ -4727,6 +4825,7 @@ export class SessionRegistry {
       ports: { sessions: sessionsSvc },
       feed: feedServing,
       presence,
+      topics,
       // This task is independent of session replay and feed admission. Only
       // its own approvals -> host snapshot sequence is ordered (POD-3509).
       bootstrap: async (client): Promise<void> => {
@@ -4784,6 +4883,22 @@ export class SessionRegistry {
             updateFleetBridge.onFleetChanged()
           },
         },
+        // TOPICS (ADR 7 Amendment 2 D21). A topics.v1 daemon publishes its host
+        // sample on machine.metrics:<self>; on the server it means exactly what
+        // the pre-topics hostMetrics frame means (pressure sweep, readiness), and
+        // the hosts service hands it on to the topic.
+        topics: createDaemonTopicIngress({
+          producers: topicProducers,
+          sinks: {
+            'machine.metrics': (machineId, payload) => {
+              const sample = payload as import('@podium/model').HostMetricsWire
+              void Promise.resolve(hosts.onHostMetrics(machineId, sample)).catch((err: unknown) => {
+                log.warn('host metrics sample failed', { machineId, err })
+              })
+              machines.recordDaemonReadiness(machineId, sample.daemonReadiness)
+            },
+          },
+        }),
       },
     })
   }

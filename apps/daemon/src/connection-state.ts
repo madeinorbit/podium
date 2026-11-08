@@ -11,6 +11,7 @@ import {
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   CAP_TERMINAL_PICTURE_V1,
+  CAP_TOPICS_V1,
   createHandshakeDialer,
   DAEMON_WIRE_VERSION,
   MIN_DAEMON_WIRE_VERSION,
@@ -195,6 +196,8 @@ export interface DaemonConnection {
    * picture items and serves viewers from them. False while disconnected.
    */
   acceptsPictures(): boolean
+  /** The live link accepted topics.v1 (ADR 7 Amendment 2). False while disconnected. */
+  acceptsTopics(): boolean
   send(msg: DaemonMessage): void
   quiesceEndpoint(transferId: string): void
   resumeEndpoint(transferId: string): void
@@ -1021,6 +1024,9 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         // POD-4887: this daemon reports a proven "not delivered" cause. Sent
         // only once the server accepts it; otherwise as `unconfirmed`.
         CAP_DELIVERY_NOT_IN_CONVERSATION,
+        // ADR 7 Amendment 2 (POD-5800): this daemon samples host metrics only on
+        // demand (topicWatch) and publishes them as topicPublish.
+        CAP_TOPICS_V1,
       ],
       ...(reportUpdateIdentity ? { build: deps.build } : {}),
       claims: {
@@ -1293,6 +1299,9 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     },
     acceptsPictures() {
       return state === 'connected' && acceptedCaps.has(CAP_TERMINAL_PICTURE_V1)
+    },
+    acceptsTopics() {
+      return state === 'connected' && acceptedCaps.has(CAP_TOPICS_V1)
     },
     sendOutput(batch) {
       if (socket && invalidSockets.has(socket)) return

@@ -34,7 +34,7 @@ import {
   asUserId,
   type SessionId,
 } from '@podium/model'
-import { DAEMON_WIRE_VERSION, type PeerHelloReply } from '@podium/protocol'
+import { CAP_TOPICS_V1, DAEMON_WIRE_VERSION, type PeerHelloReply } from '@podium/protocol'
 import { hasLegacyAbduco, legacyAbducoBin } from '../../../packages/pty/src/legacy-abduco-fixture'
 
 /**
@@ -3096,6 +3096,73 @@ describe('daemon host metrics', () => {
     }
   })
 
+  it('on a topics.v1 link samples only while the server demands machine.metrics', async () => {
+    const received: DaemonMessage[] = []
+    const wss = new WebSocketServer({ port: 0 })
+    await new Promise<void>((r) => wss.once('listening', () => r()))
+    const port = (wss.address() as { port: number }).port
+    let server: WS | undefined
+    wss.on('connection', (ws) => {
+      server = ws
+      let authed = false
+      ws.on('message', (raw) => {
+        if (!authed) {
+          authed = true
+          const ok: PeerHelloReply = {
+            type: 'peerHelloOk',
+            v: DAEMON_WIRE_VERSION,
+            caps: [CAP_TOPICS_V1],
+            name: 'test',
+          }
+          ws.send(JSON.stringify(ok))
+          return
+        }
+        received.push(parseDaemonMessage(raw.toString()))
+      })
+    })
+    const daemon = await startDaemon({
+      serverUrl: `ws://localhost:${port}`,
+      machineToken: 'test',
+      hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
+      agentRelay: { port: 0 },
+      backend: 'none',
+      durable: directPtyDurableForTests(),
+      discovery: { background: false, cachePath: ':memory:' },
+      metrics: { intervalMs: 25 },
+    })
+    const published = () => received.filter((m) => m.type === 'topicPublish')
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+    try {
+      // The connect report (and any readiness change) goes out once, as topicPublish …
+      const start = Date.now()
+      while (published().length < 1) {
+        if (Date.now() - start > 5000) throw new Error('timed out waiting for the connect report')
+        await wait(10)
+      }
+      await wait(100)
+      // … and then nothing for many sampling intervals: nobody demands it.
+      const settled = published().length
+      await wait(200)
+      expect(published().length).toBe(settled)
+      expect(received.filter((m) => m.type === 'hostMetrics')).toEqual([])
+      // The daemon names its own key; demand exactly that one.
+      const key = (published()[0] as Extract<DaemonMessage, { type: 'topicPublish' }>).key
+      expect(key.startsWith('machine.metrics:')).toBe(true)
+      server?.send(JSON.stringify({ type: 'topicWatch', key, on: true }))
+      await wait(200)
+      const demanded = published().length
+      expect(demanded).toBeGreaterThan(settled + 3)
+      server?.send(JSON.stringify({ type: 'topicWatch', key, on: false }))
+      await wait(50)
+      const stopped = published().length
+      await wait(200)
+      expect(published().length).toBe(stopped)
+    } finally {
+      await daemon.close()
+      await new Promise<void>((r) => wss.close(() => r()))
+    }
+  })
+
   it('stays silent when metrics.background is false', async () => {
     const received: DaemonMessage[] = []
     const wss = new WebSocketServer({ port: 0 })
@@ -3115,8 +3182,15 @@ describe('daemon host metrics', () => {
       metrics: { background: false, intervalMs: 10 },
     })
     try {
-      await new Promise((r) => setTimeout(r, 80))
-      expect(received.filter((m) => m.type === 'hostMetrics')).toEqual([])
+      // The connect and readiness reports are change reports, not the sampler,
+      // and go out regardless (they already did before topics: this test used
+      // to assert none and failed on its base). What `background: false` turns
+      // off is the periodic sample, so the count must stop growing.
+      const metrics = () => received.filter((m) => m.type === 'hostMetrics').length
+      await new Promise((r) => setTimeout(r, 150))
+      const settled = metrics()
+      await new Promise((r) => setTimeout(r, 150))
+      expect(metrics()).toBe(settled)
     } finally {
       await daemon.close()
       await new Promise<void>((r) => wss.close(() => r()))

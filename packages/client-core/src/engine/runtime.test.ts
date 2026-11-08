@@ -17,7 +17,6 @@ import type { IssueViewModel } from '../values/issue-type'
 import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 import type {
   GitRepositoryWire,
-  HostMetricsWire,
   IssueProjection,
   IssueUserStateWire,
   SessionId,
@@ -795,17 +794,14 @@ describe('engine lifecycle', () => {
     const { engine, hub, fatals } = makeEngine()
     engine.start()
     engine.start() // double-start must not double-subscribe
-    expect(hub.onCalls.filter((k) => k === 'hostMetrics')).toHaveLength(1)
+    expect(hub.onCalls.filter((k) => k === 'approvals')).toHaveLength(1)
     await settle()
     engine.dispose()
     engine.dispose() // double-dispose must not throw
-    expect(hub.subscribed('hostMetrics')).toBe(0)
+    expect(hub.subscribed('approvals')).toBe(0)
     engine.start() // re-start after dispose re-arms everything
     await settle()
-    expect(hub.subscribed('hostMetrics')).toBe(1)
-    const metrics = [{ hostId: 'h1' }] as unknown as HostMetricsWire[]
-    hub.emit('hostMetrics', metrics)
-    expect(engine.hostMetrics.getSnapshot()).toBe(metrics)
+    expect(hub.subscribed('approvals')).toBe(1)
     engine.dispose()
     expect(fatals).toEqual([])
   })

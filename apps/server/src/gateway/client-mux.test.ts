@@ -28,6 +28,7 @@ import { CLIENT_PRINCIPAL_GRADE } from './client-principal'
 import { ClientRegistry } from './client-registry'
 import { feedTestPlumbing } from './feed-test-plumbing'
 import type { PresenceRouting } from './presence-routing'
+import type { TopicRouting } from './topic-routing'
 
 /** `Promise.withResolvers` needs lib es2024; this package targets lower (POD-3509). */
 function deferred<T = void>(): {
@@ -62,6 +63,8 @@ vi.mock('./client-frame-routing', async (importOriginal) => {
 
 const presenceStub = (): PresenceRouting =>
   ({ route: vi.fn(), setVisible: vi.fn(), disconnect: vi.fn() }) as unknown as PresenceRouting
+const topicsStub = (): TopicRouting =>
+  ({ route: vi.fn(), disconnect: vi.fn() }) as unknown as TopicRouting
 
 async function harness(mobileVersions?: ClientMuxDeps['mobileVersions']) {
   const registry = new ClientRegistry()
@@ -85,6 +88,7 @@ async function harness(mobileVersions?: ClientMuxDeps['mobileVersions']) {
     ports,
     feed,
     presence: presenceStub(),
+    topics: topicsStub(),
     bootstrap,
   })
   const sent: ServerMessage[] = []
@@ -496,6 +500,7 @@ describe('the fan-out mechanism — delivery SHAPE, preserved', () => {
       },
       feed: (await feedTestPlumbing()).serving,
       presence: presenceStub(),
+      topics: topicsStub(),
       bootstrap: vi.fn(async () => {}),
     })
     const inboxes = new Map<string, ServerMessage[]>()
