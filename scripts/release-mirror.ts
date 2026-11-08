@@ -47,6 +47,8 @@ export function publishReleaseMirror(
     channel: ReleaseChannel
     tag: string
     files: string[]
+    /** Installer aliases must not replace the previous manifest's files early. */
+    aliases?: string[]
   },
   env: NodeJS.ProcessEnv = process.env,
   exec: typeof execFileSync = execFileSync,
@@ -87,9 +89,9 @@ export function publishReleaseMirror(
     }
     for (const prefix of mirrorUploadPrefixes(input.channel, input.tag)) {
       // Payloads precede discovery documents. Never delete the other publisher's files.
-      const names = readdirSync(staging).sort(
-        (a, b) => Number(a.endsWith('.json')) - Number(b.endsWith('.json')),
-      )
+      const aliases = new Set(input.aliases?.map((file) => basename(file)))
+      const rank = (name: string) => (aliases.has(name) ? 2 : name.endsWith('.json') ? 1 : 0)
+      const names = readdirSync(staging).sort((a, b) => rank(a) - rank(b))
       for (const name of names)
         exec(
           'aws',

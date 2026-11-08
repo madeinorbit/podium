@@ -825,6 +825,7 @@ export function publishPreparedHeadless(p: {
   publishReleaseMirror({
     channel: p.channel,
     tag: p.tag,
+    aliases: aliases.map((file) => join(p.dir, file)),
     files: [...assets, join(p.dir, manifestName), ...aliases.map((file) => join(p.dir, file))],
   })
   console.log(`[release] published ${version} → ${p.channel}`)

@@ -495,7 +495,13 @@ jobs:
             sleep 30
           done
           gh release view "$target_tag" >/dev/null
-          gh release upload "$target_tag" dist-desktop/* --clobber
+          # gh can upload a batch concurrently. Keep discovery out of that batch.
+          payloads=()
+          for file in dist-desktop/*; do
+            [ "$file" = dist-desktop/latest.json ] || payloads+=("$file")
+          done
+          gh release upload "$target_tag" "${payloads[@]}" --clobber
+          gh release upload "$target_tag" dist-desktop/latest.json --clobber
           # Inert unless PODIUM_PUBLISH_RELEASE_MIRROR=1 is explicitly configured in CI.
           # No credentials or enabling switch are configured by this workflow.
           bun scripts/release-mirror.ts --channel "$CHANNEL" --tag "$target_tag" --dir dist-desktop

@@ -199,6 +199,9 @@ function runPublish(input: {
   const log = join(dir, 'log')
   const work = join(dir, 'work')
   for (const path of [bin, state, work]) mkdirSync(path, { recursive: true })
+  mkdirSync(join(work, 'dist-desktop'))
+  writeFileSync(join(work, 'dist-desktop/Podium.app.tar.gz'), 'signed payload')
+  writeFileSync(join(work, 'dist-desktop/latest.json'), '{}')
   writeFileSync(log, '')
   if (input.releaseAlreadyExists) writeFileSync(join(state, `exists.${input.targetTag}`), '')
 
@@ -248,6 +251,19 @@ exit 0
 }
 
 describe('desktop release publication', () => {
+  it.each([
+    'edge',
+    'dev',
+    'stable',
+  ])('uploads the %s manifest after its payload batch', (channel) => {
+    const commands = runPublish({ channel, targetTag: channel, releaseAlreadyExists: true })
+    const uploads = commands.filter((line) => line.startsWith('gh release upload'))
+    expect(uploads).toHaveLength(2)
+    expect(uploads[0]).toContain('Podium.app.tar.gz')
+    expect(uploads[0]).not.toContain('latest.json')
+    expect(uploads[1]).toContain('dist-desktop/latest.json')
+  })
+
   it('creates the standing dev release as a PRERELEASE on first promotion', () => {
     const commands = runPublish({ channel: 'dev', targetTag: 'dev' })
     const create = commands.find((line) => line.startsWith('gh release create'))
