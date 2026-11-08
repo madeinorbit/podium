@@ -4527,7 +4527,8 @@ export class SessionRegistry {
         workflowCallerForCapability,
         workflows,
       }),
-      capabilityForSession: (sessionId) => sessionsSvc.capabilityForSession(sessionId),
+      capabilityForSession: (sessionId, machineId) =>
+        sessionsSvc.capabilityForSession(sessionId, machineId),
       toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
       // Self-stop kill only after agentRelayResult is on the wire [spec:SP-9904].
       // POD-3989: graceful lifecycle(stop) first, kill frame as escalation.

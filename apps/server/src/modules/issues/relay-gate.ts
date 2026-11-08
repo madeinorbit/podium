@@ -206,7 +206,9 @@ export interface AgentRelayGateDeps {
     proc: string,
     input: unknown,
   ): Promise<unknown>
-  capabilityForSession(sessionId: SessionId): Capability | Promise<Capability>
+  /** Check this authenticated sender against the same session snapshot used
+   * to derive authority. Missing or foreign sessions must mint no capability. */
+  capabilityForSession(sessionId: SessionId, machineId: MachineId): Capability | Promise<Capability>
   toMachine(machineId: MachineId, msg: ControlMessage): void
   /**
    * After a successful agentRelayResult is on the wire. Used to arm self-stop
@@ -278,7 +280,7 @@ export class AgentRelayGate {
           ? bindEnvelopeContext(msg.input, msg.sessionId, machineId)
           : bindRelayContext(msg.router, msg.proc, msg.input, msg.sessionId, machineId)
       const result = this.deps.dispatch(
-        await this.deps.capabilityForSession(msg.sessionId),
+        await this.deps.capabilityForSession(msg.sessionId, machineId),
         msg.outsideScope,
         msg.router,
         msg.proc,
