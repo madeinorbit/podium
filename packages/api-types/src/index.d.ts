@@ -1,6 +1,6 @@
 // Generated from apps/server/src/router.ts. Run bun run api:types. Do not edit.
 import * as _podium_model from '@podium/model';
-import { MachineId, UserId, SessionId, IssueId, ArtifactId, UpdateChannel, MachinePresenceSource, GitRepositoryWire, GitDiscoveryDiagnosticWire, TranscriptItem, AgentPhase, AgentKind, AccountId } from '@podium/model';
+import { MachineId, IssueId, UserId, SessionId, IssueJoinVia, ArtifactId, UpdateChannel, MachinePresenceSource, GitRepositoryWire, GitDiscoveryDiagnosticWire, TranscriptItem, AgentPhase, AgentKind, AccountId } from '@podium/model';
 import { z } from 'zod';
 import * as Protocol from '@podium/protocol';
 import { ConvergenceState, ModelChoiceWire, MobileWebIdentity, FeatureState, FeatureVisibility } from '@podium/protocol';
@@ -48,6 +48,23 @@ interface PinState {
     panels: string[];
     worktrees: string[];
     repos: string[];
+}
+/** The two task texts that keep a revision history (POD-6289). */
+type IssueTextField = 'description' | 'brief';
+/** One recorded text of a task's description or brief (POD-6289). */
+interface IssueTextRevisionRow {
+    id: number;
+    issueId: IssueId;
+    field: IssueTextField;
+    body: string;
+    /** `baseline`: the text a task from before this history held when its
+     *  first edit was recorded; its author is unknown. */
+    source: 'create' | 'baseline' | 'edit' | 'restore';
+    restoredFrom: number | null;
+    issueRevision: number | null;
+    actor: string | null;
+    onBehalfOf: string | null;
+    createdAt: string;
 }
 /** A durable event subscription (event-subscriptions design, Phase B). The steward
  *  matches enabled rows against every polled event; a match resolves `source` to the
@@ -328,10 +345,10 @@ declare const PodiumSettings: z.ZodObject<{
             seedCliTheme: boolean;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }, {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             subagentModel?: string | undefined;
             startScreen?: "auto" | "native" | "chat" | undefined;
             seedCliTheme?: boolean | undefined;
@@ -347,10 +364,10 @@ declare const PodiumSettings: z.ZodObject<{
             accountId: string & z.BRAND<"AccountId">;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }, {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }>>;
         background: z.ZodDefault<z.ZodObject<{
             accountId: z.ZodDefault<z.ZodBranded<z.ZodString, "AccountId">>;
@@ -363,10 +380,10 @@ declare const PodiumSettings: z.ZodObject<{
             accountId: string & z.BRAND<"AccountId">;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }, {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }>>;
         shipwright: z.ZodDefault<z.ZodObject<{
             accountId: z.ZodDefault<z.ZodBranded<z.ZodString, "AccountId">>;
@@ -379,10 +396,10 @@ declare const PodiumSettings: z.ZodObject<{
             accountId: string & z.BRAND<"AccountId">;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }, {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }>>;
     }, "strip", z.ZodTypeAny, {
         superagent: {
@@ -414,31 +431,31 @@ declare const PodiumSettings: z.ZodObject<{
         };
     }, {
         superagent?: {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
         coding?: {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             subagentModel?: string | undefined;
             startScreen?: "auto" | "native" | "chat" | undefined;
             seedCliTheme?: boolean | undefined;
         } | undefined;
         background?: {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
         shipwright?: {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
     }>>;
     /** Provider API keys. Stored plaintext in the self-hosted SQLite — same trust
@@ -714,31 +731,31 @@ declare const PodiumSettings: z.ZodObject<{
     } | undefined;
     roles?: {
         superagent?: {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
         coding?: {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             subagentModel?: string | undefined;
             startScreen?: "auto" | "native" | "chat" | undefined;
             seedCliTheme?: boolean | undefined;
         } | undefined;
         background?: {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
         shipwright?: {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
     } | undefined;
     sidebar?: {
@@ -833,6 +850,13 @@ interface DepReportEntry {
     dependents: DepReportRef[];
 }
 
+/** One collaborator of a task (POD-6290): a member with a start or join record. */
+interface IssueCollaborator {
+    userId: UserId;
+    joinedAt: string;
+    via: IssueJoinVia | null;
+}
+
 /** One artifact's stored content, as `panelArtifactRead` answers it. */
 interface IssueArtifactContent {
     /** 1-based position in the issue's artifact list — what the CLI prints. */
@@ -870,6 +894,13 @@ interface IssueArtifactContent {
  * exists unarchived — so a coordinator that is gone never leaves a session blocked
  * with nobody to ask. The walk skips the session's OWN marker: a phase lead asks the
  * coordinator above it, and the top coordinator asks nobody.
+ *
+ * ONE HUMAN PER CHAIN (POD-6296, design §2.3). "The user" is the session's own
+ * human: the person it belongs to. A coordinator counts only while it acts for that
+ * same human, so Bob's worker under a task Alice's agent coordinates skips Alice's
+ * coordinator and asks the nearest of Bob's, or Bob. A top coordinator of Bob's on
+ * Alice's task asks Bob, never the task's assignee. On a one-member instance every
+ * session has the same human and nothing is skipped.
  */
 
 interface SeatCoordinator {
@@ -1366,14 +1397,14 @@ declare const TunnelHealthReport: z.ZodObject<{
     lastError: z.ZodNullable<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
     state: "starting" | "stopped" | "working" | "restarting" | "unhealthy";
-    url: string | null;
     lastError: string | null;
+    url: string | null;
     lastOkAt: number | null;
     failedSince: number | null;
 }, {
     state: "starting" | "stopped" | "working" | "restarting" | "unhealthy";
-    url: string | null;
     lastError: string | null;
+    url: string | null;
     lastOkAt: number | null;
     failedSince: number | null;
 }>;
@@ -3178,6 +3209,7 @@ type Output_issues_action = {
             };
             onBehalfOf: (string & z.BRAND<"UserId">) | null;
         };
+        legacyAssignee?: string | undefined;
         linearId?: string | undefined;
         linearIdentifier?: string | undefined;
         linearUrl?: string | undefined;
@@ -3318,6 +3350,7 @@ type Output_issues_action = {
             };
             onBehalfOf: (string & z.BRAND<"UserId">) | null;
         };
+        legacyAssignee?: string | undefined;
         linearId?: string | undefined;
         linearIdentifier?: string | undefined;
         linearUrl?: string | undefined;
@@ -3370,7 +3403,8 @@ type Output_issues_action = {
         updatedAt: string;
         visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
         worktreePath?: string | undefined;
-    }, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
+    }, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "legacyAssignee" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
+        assigneeName?: string;
         blocked: boolean;
         branch: null | string;
         childCount: number;
@@ -3484,6 +3518,7 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
         };
         onBehalfOf: (string & z.BRAND<"UserId">) | null;
     };
+    legacyAssignee?: string | undefined;
     linearId?: string | undefined;
     linearIdentifier?: string | undefined;
     linearUrl?: string | undefined;
@@ -3624,6 +3659,7 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
         };
         onBehalfOf: (string & z.BRAND<"UserId">) | null;
     };
+    legacyAssignee?: string | undefined;
     linearId?: string | undefined;
     linearIdentifier?: string | undefined;
     linearUrl?: string | undefined;
@@ -3676,7 +3712,8 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
-}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
+}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "legacyAssignee" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
+    assigneeName?: string;
     blocked: boolean;
     branch: null | string;
     childCount: number;
@@ -3789,6 +3826,7 @@ type Output_issues_answerQuestion = {
             };
             onBehalfOf: (string & z.BRAND<"UserId">) | null;
         };
+        legacyAssignee?: string | undefined;
         linearId?: string | undefined;
         linearIdentifier?: string | undefined;
         linearUrl?: string | undefined;
@@ -3929,6 +3967,7 @@ type Output_issues_answerQuestion = {
             };
             onBehalfOf: (string & z.BRAND<"UserId">) | null;
         };
+        legacyAssignee?: string | undefined;
         linearId?: string | undefined;
         linearIdentifier?: string | undefined;
         linearUrl?: string | undefined;
@@ -3981,7 +4020,8 @@ type Output_issues_answerQuestion = {
         updatedAt: string;
         visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
         worktreePath?: string | undefined;
-    }, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
+    }, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "legacyAssignee" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
+        assigneeName?: string;
         blocked: boolean;
         branch: null | string;
         childCount: number;
@@ -4065,6 +4105,16 @@ type Output_issues_cancelShip = {
     };
     validationProfileDigest?: string | undefined;
 };
+type Output_issues_comments = Array<{
+    author: string;
+    authorId?: string | undefined;
+    body: string;
+    createdAt: string;
+    editedAt?: string | undefined;
+    editedBy?: string | undefined;
+    id: string;
+    mayEdit: boolean;
+}>;
 type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
@@ -4154,6 +4204,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
         };
         onBehalfOf: (string & z.BRAND<"UserId">) | null;
     };
+    legacyAssignee?: string | undefined;
     linearId?: string | undefined;
     linearIdentifier?: string | undefined;
     linearUrl?: string | undefined;
@@ -4207,7 +4258,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     warning: string;
     worktreePath?: string | undefined;
-}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
+}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "legacyAssignee" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
     agentProfileId?: string | undefined;
@@ -4295,6 +4346,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
         };
         onBehalfOf: (string & z.BRAND<"UserId">) | null;
     };
+    legacyAssignee?: string | undefined;
     linearId?: string | undefined;
     linearIdentifier?: string | undefined;
     linearUrl?: string | undefined;
@@ -4348,6 +4400,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
 }, "asked" | "branch" | "createdBy" | "description" | "intentOrigin" | "isDraftVessel" | "lastLifecycleActor" | "owner" | "visibility" | "worktreePath"> & {
+    assigneeName?: string;
     blocked: boolean;
     branch: null | string;
     childCount: number;
@@ -4458,6 +4511,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
         };
         onBehalfOf: (string & z.BRAND<"UserId">) | null;
     };
+    legacyAssignee?: string | undefined;
     linearId?: string | undefined;
     linearIdentifier?: string | undefined;
     linearUrl?: string | undefined;
@@ -4510,7 +4564,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
-}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
+}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "legacyAssignee" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
     agentProfileId?: string | undefined;
@@ -4598,6 +4652,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
         };
         onBehalfOf: (string & z.BRAND<"UserId">) | null;
     };
+    legacyAssignee?: string | undefined;
     linearId?: string | undefined;
     linearIdentifier?: string | undefined;
     linearUrl?: string | undefined;
@@ -4651,6 +4706,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
 }, "asked" | "branch" | "createdBy" | "description" | "intentOrigin" | "isDraftVessel" | "lastLifecycleActor" | "owner" | "visibility" | "worktreePath"> & {
+    assigneeName?: string;
     blocked: boolean;
     branch: null | string;
     childCount: number;
@@ -4677,8 +4733,10 @@ type Output_issues_get = (null) | ({
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
     agentProfileId?: string | undefined;
+    allowed: _podium_model.IssueAllowedActions;
     archived: boolean;
     assignee?: (string & z.BRAND<"UserId">) | undefined;
+    assigneeName?: string;
     audience: "agent" | "human";
     blocked: boolean;
     blockedByNotes: string[];
@@ -4715,6 +4773,7 @@ type Output_issues_get = (null) | ({
     labels: string[];
     landedAt?: string | undefined;
     landedSha?: string | undefined;
+    legacyAssignee?: string | undefined;
     linearId?: string | undefined;
     linearIdentifier?: string | undefined;
     linearUrl?: string | undefined;
@@ -4761,6 +4820,7 @@ type Output_issues_get = (null) | ({
     repoPath: string;
     revision?: number | undefined;
     seq: number;
+    sessionSummaries: _podium_model.IssueSessionSummaryEntry[];
     sessions: {
         accountId?: (string & z.BRAND<"AccountId">) | undefined;
         agentColor?: string | undefined;
@@ -5221,6 +5281,7 @@ type Output_issues_searchNormalized = Array<{
         };
         onBehalfOf: (string & z.BRAND<"UserId">) | null;
     };
+    legacyAssignee?: string | undefined;
     linearId?: string | undefined;
     linearIdentifier?: string | undefined;
     linearUrl?: string | undefined;
@@ -5278,6 +5339,7 @@ type Output_issues_seat = ({
     askUserRefusal?: string | undefined;
     claimable?: string;
     coordinates: boolean;
+    human?: string;
     kind: "top";
     text: string;
 }) | ({
@@ -5480,6 +5542,7 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
         };
         onBehalfOf: (string & z.BRAND<"UserId">) | null;
     };
+    legacyAssignee?: string | undefined;
     linearId?: string | undefined;
     linearIdentifier?: string | undefined;
     linearUrl?: string | undefined;
@@ -5532,7 +5595,7 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
-}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
+}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "legacyAssignee" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
     agentProfileId?: string | undefined;
@@ -5620,6 +5683,7 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
         };
         onBehalfOf: (string & z.BRAND<"UserId">) | null;
     };
+    legacyAssignee?: string | undefined;
     linearId?: string | undefined;
     linearIdentifier?: string | undefined;
     linearUrl?: string | undefined;
@@ -5673,6 +5737,7 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
 }, "asked" | "branch" | "createdBy" | "description" | "intentOrigin" | "isDraftVessel" | "lastLifecycleActor" | "owner" | "visibility" | "worktreePath"> & {
+    assigneeName?: string;
     blocked: boolean;
     branch: null | string;
     childCount: number;
@@ -6600,6 +6665,23 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Output_accounts_login;
             meta: unknown;
         }>;
+        "send": TRPC.TRPCMutationProcedure<{
+            input: {
+                acknowledgeSharedMachine?: boolean | undefined;
+                id: string;
+                machineId: string;
+            };
+            output: ({
+                ok: true;
+                sent: false;
+                warning?: undefined;
+            }) | ({
+                ok: true;
+                sent: true;
+                warning: string;
+            });
+            meta: unknown;
+        }>;
         "share": TRPC.TRPCMutationProcedure<{
             input: {
                 everyone: boolean;
@@ -6608,6 +6690,18 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 users?: string[] | undefined;
             };
             output: {
+                ok: true;
+            };
+            meta: unknown;
+        }>;
+        "useOnMyMachines": TRPC.TRPCMutationProcedure<{
+            input: {
+                enabled: boolean;
+                fingerprint: string;
+                harness: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
+            };
+            output: {
+                enabled: boolean;
                 ok: true;
             };
             meta: unknown;
@@ -7146,7 +7240,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         }>;
         "claim": TRPC.TRPCMutationProcedure<{
             input: {
-                assignee: string;
+                assignee?: string | undefined;
                 expectedRevision?: number | undefined;
                 id: string;
             };
@@ -7180,11 +7274,18 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Array<_podium_model.IssueReport>;
             meta: unknown;
         }>;
+        "collaborators": TRPC.TRPCQueryProcedure<{
+            input: {
+                id: string;
+            };
+            output: Array<IssueCollaborator>;
+            meta: unknown;
+        }>;
         "comments": TRPC.TRPCQueryProcedure<{
             input: {
                 id: string;
             };
-            output: Array<_podium_model.IssueComment>;
+            output: Output_issues_comments;
             meta: unknown;
         }>;
         "count": TRPC.TRPCQueryProcedure<{
@@ -7201,6 +7302,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         }>;
         "deck": TRPC.TRPCQueryProcedure<{
             input: {
+                assignee?: string | undefined;
                 id: string;
             };
             output: _podium_model.IssueDeck;
@@ -7223,6 +7325,15 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 mutationId?: string | undefined;
             };
             output: unknown;
+            meta: unknown;
+        }>;
+        "deleteComment": TRPC.TRPCMutationProcedure<{
+            input: {
+                commentId: string;
+                id: string;
+                mutationId?: string | undefined;
+            };
+            output: Output_issues_addComment;
             meta: unknown;
         }>;
         "deliveryReceipt": TRPC.TRPCQueryProcedure<{
@@ -7255,6 +7366,16 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Array<DepReportEntry>;
             meta: unknown;
         }>;
+        "dismissAssignment": TRPC.TRPCMutationProcedure<{
+            input: {
+                id: string;
+                mutationId?: string | undefined;
+            };
+            output: {
+                dismissed: boolean;
+            };
+            meta: unknown;
+        }>;
         "dismissSuggestion": TRPC.TRPCMutationProcedure<{
             input: {
                 expectedRevision?: number | undefined;
@@ -7275,6 +7396,16 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 canonicalId: string;
                 expectedRevision?: number | undefined;
                 id: string;
+            };
+            output: Output_issues_addComment;
+            meta: unknown;
+        }>;
+        "editComment": TRPC.TRPCMutationProcedure<{
+            input: {
+                body: string;
+                commentId: string;
+                id: string;
+                mutationId?: string | undefined;
             };
             output: Output_issues_addComment;
             meta: unknown;
@@ -7320,6 +7451,18 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Output_issues_action;
             meta: unknown;
         }>;
+        "join": TRPC.TRPCMutationProcedure<{
+            input: {
+                id: string;
+                mutationId?: string | undefined;
+            };
+            output: Array<{
+                joinedAt: string;
+                userId: _podium_model.UserId;
+                via: _podium_model.IssueJoinVia | null;
+            }>;
+            meta: unknown;
+        }>;
         "labelList": TRPC.TRPCQueryProcedure<{
             input: {};
             output: Array<_podium_model.IssueLabelWire>;
@@ -7334,6 +7477,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         }>;
         "list": TRPC.TRPCQueryProcedure<{
             input: {
+                assignee?: string | undefined;
                 repoPath?: string | undefined;
             };
             output: Array<_podium_model.IssueReport>;
@@ -7423,6 +7567,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         }>;
         "prime": TRPC.TRPCQueryProcedure<{
             input: (undefined) | ({
+                assignee?: string | undefined;
                 repoPath?: string | undefined;
             });
             output: string;
@@ -7439,6 +7584,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         }>;
         "ready": TRPC.TRPCQueryProcedure<{
             input: {
+                assignee?: string | undefined;
                 repoPath?: string | undefined;
             };
             output: Array<_podium_model.IssueReport>;
@@ -7486,6 +7632,16 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 mutationId?: string | undefined;
             };
             output: unknown;
+            meta: unknown;
+        }>;
+        "restoreTextRevision": TRPC.TRPCMutationProcedure<{
+            input: {
+                expectedRevision?: number | undefined;
+                id: string;
+                mutationId?: string | undefined;
+                revisionId: number;
+            };
+            output: Output_issues_addComment;
             meta: unknown;
         }>;
         "search": TRPC.TRPCQueryProcedure<{
@@ -7547,7 +7703,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 id: string;
                 verb: "manage" | "read" | "write";
             };
-            output: Output_issues_addComment;
+            output: never;
             meta: unknown;
         }>;
         "ship": TRPC.TRPCMutationProcedure<{
@@ -7634,8 +7790,17 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Output_issues_addComment;
             meta: unknown;
         }>;
+        "textRevisions": TRPC.TRPCQueryProcedure<{
+            input: {
+                field: "brief" | "description";
+                id: string;
+            };
+            output: Array<IssueTextRevisionRow>;
+            meta: unknown;
+        }>;
         "tree": TRPC.TRPCQueryProcedure<{
             input: {
+                assignee?: string | undefined;
                 id: string;
                 maxDepth?: number | undefined;
                 maxNodes?: number | undefined;
@@ -7658,7 +7823,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 id: string;
                 verb: "manage" | "read" | "write";
             };
-            output: Output_issues_addComment;
+            output: never;
             meta: unknown;
         }>;
         "update": TRPC.TRPCMutationProcedure<{
@@ -7834,6 +7999,16 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Array<_podium_model.MachineWire>;
             meta: unknown;
         }>;
+        "share": TRPC.TRPCMutationProcedure<{
+            input: {
+                acknowledgeSharedMachine?: boolean | undefined;
+                grantee: string;
+                id: string;
+                verb: "manage" | "see" | "use";
+            };
+            output: Array<_podium_model.MachineWire>;
+            meta: unknown;
+        }>;
         "supersede": TRPC.TRPCMutationProcedure<{
             input: {
                 id: string;
@@ -7846,6 +8021,15 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             input: {
                 id: string;
                 newOwnerUserId: string;
+            };
+            output: Array<_podium_model.MachineWire>;
+            meta: unknown;
+        }>;
+        "unshare": TRPC.TRPCMutationProcedure<{
+            input: {
+                grantee: string;
+                id: string;
+                verb: "manage" | "see" | "use";
             };
             output: Array<_podium_model.MachineWire>;
             meta: unknown;

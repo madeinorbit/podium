@@ -205,7 +205,7 @@ async function sessionIssueTarget(
   const issueId = session.issueId ?? (await modules.issues.reports.issueForCwd(session.cwd))
   if (!issueId) return NO_TARGET
   const access = commandAccess(modules.issues)
-  if (scope.kind === 'owned') return (await access.ownedTarget?.(issueId, 'write')) ?? undefined
+  if (scope.kind === 'owned') return { id: issueId }
   return { id: issueId, ancestorIds: await access.ancestorIds(issueId) }
 }
 

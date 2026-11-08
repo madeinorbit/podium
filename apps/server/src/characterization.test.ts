@@ -288,7 +288,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
         description: 'characterize me',
         startNow: false,
       })
-      await regA.issues.crud.claim(regA.issues.reports.store.serverWriter, a.id, asUserId('agent:test'))
+      await regA.issues.crud.claim(regA.issues.reports.store.serverWriter, a.id, { owner: firstAdminMemberId(), caller: firstAdminMemberId() })
       await regA.issues.commentsMail.addCallerComment(regA.issues.reports.store.serverWriter, a.id, 'progress note', AS_OPERATOR)
       await regA.issues.crud.close(regA.issues.reports.store.serverWriter, a.id, 'done')
 

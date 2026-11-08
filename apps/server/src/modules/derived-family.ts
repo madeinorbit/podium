@@ -216,11 +216,6 @@ export interface FamilyState {
    * ask about one resource and still cannot see or widen the authority itself.
    */
   readonly privateAccess: PrivateResourceAccess
-  /** Tiered per-machine repo discovery (POD-787) [spec:SP-3701]. Optional, so
-   *  callers that do not exercise discovery need not construct one — which is
-   *  the shipped shape, and why `discovery.lastMachineScan` answers null rather
-   *  than throwing when it is absent. */
-  readonly discovery?: Context['discovery']
   /**
    * Who is asking, whole, for a family whose write is a record created AS the
    * caller through the entry point (`interactions.answer` creates a
@@ -487,7 +482,6 @@ export const familyState = (ctx: Context): FamilyState => ({
   },
   feedPrincipal: syncFeedPrincipal(ctx.principal),
   privateAccess: privateResourceAccessFor(ctx),
-  discovery: ctx.discovery,
   principal: ctx.principal,
   superagent: ctx.superagent,
 })

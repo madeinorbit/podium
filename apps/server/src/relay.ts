@@ -1898,8 +1898,8 @@ export class SessionRegistry {
               )
             ).id
           : undefined,
-      discardUnlaunchedDraft: async (writer, issueId) => {
-        await this.issues.attention.discardUnlaunchedDraft(writer, issueId)
+      discardUnlaunchedDraft: async (_writer, issueId) => {
+        await this.issues.attention.discardUnlaunchedDraft(issueId)
       },
       // A session landing on a task records its owner's start there (POD-6290).
       recordIssueParticipation: async (writer, issueId, userId, via) => {

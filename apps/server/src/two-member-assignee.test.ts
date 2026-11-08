@@ -1,3 +1,4 @@
+import { fixtureWriteScope } from '@podium/sync/testing'
 /**
  * ONE ACCOUNTABLE ASSIGNEE (POD-6287; docs/design/multi-user-instance.md §2.2,
  * §2.3, §4.3; acceptance MU-24, MU-17 claims half, MU-30).
@@ -349,6 +350,7 @@ describe('one-member behaviour and legacy labels', () => {
     if (!row) throw new Error('missing row')
     // What an earlier release left behind: an agent tag in the old column.
     await f.handle.registry.sessionStore.issues.upsertIssue(
+      fixtureWriteScope(),
       { ...row, assignee: 'agent:codex' },
       { expectedRevision: row.revision ?? null },
     )

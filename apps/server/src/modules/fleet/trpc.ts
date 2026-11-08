@@ -94,12 +94,9 @@ type FleetProcedure<N extends FleetCommandName> = TRPCMutationProcedure<{
   output: Awaited<ReturnType<(typeof FLEET_COMMANDS)[N]['handler']>>
 }>
 
-/** The fleet writes on the sync write entry point whose per-command route is
- *  deleted: no shipped client ever called it (POD-6417). `sync.submit` is their
- *  only door. */
+/** Fleet writes without a per-command client. Machine sharing keeps a thin
+ * sync adapter because the multi-user custody control calls that route. */
 export const FLEET_SUBMIT_ONLY = [
-  'machines.share',
-  'machines.unshare',
   'machines.setAssignment',
 ] as const satisfies readonly FleetSyncCommandName[]
 

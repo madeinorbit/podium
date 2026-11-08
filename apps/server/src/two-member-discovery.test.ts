@@ -301,7 +301,7 @@ describe('Q4: a task keeps one worktree on one machine', () => {
   /** A task of Alice's with its worktree on her machine, homed as the fixture homes hers. */
   async function aliceHomedTask(title: string): Promise<Wire> {
     const task = await taskOf('alice', title)
-    await f.handle.registry.issues.crud.update(task.id, {
+    await f.handle.registry.issues.crud.update(f.handle.registry.issues.reports.store.serverWriter, task.id, {
       worktreePath: `/wt/alice-${task.seq}`,
       machineId: f.machines.alice,
     })

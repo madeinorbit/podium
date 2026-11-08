@@ -1,3 +1,4 @@
+import { fixtureWriteScope } from '@podium/sync/testing'
 /**
  * ONE MEMBER'S ACT ON A SHARED TASK SPENDS NOTHING OF ANOTHER MEMBER'S
  * (POD-6368; design §2.3, MU-21 in §6). Sessions are private, and input into a
@@ -228,6 +229,7 @@ describe('archiving a shared task archives only the archiver’s own sessions', 
     await (await trpc('alice')).issues.close.mutate({ id: task.id } as never)
     // Alice read it after its last activity; ten days later it is due.
     await f.handle.registry.sessionStore.issues.setIssueUserState(
+      fixtureWriteScope(),
       MEMBERS.alice.id,
       asIssueId(task.id),
       {

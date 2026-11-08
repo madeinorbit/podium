@@ -113,7 +113,7 @@ describe('a member’s own read retires their session, not the first admin’s (
       ownerUserId: bob,
     })
     await reg.modules.issueSessionLifecycle.stopSession({ sessionId })
-    await reg.modules.sessions.markSessionRead(bob, sessionId)
+    await reg.modules.sessions.markSessionRead(reg.issues.reports.store.serverWriter, bob, sessionId)
     const stoppedAt = (await reg.sessionStore.sessions.getSession(sessionId))?.stoppedAt ?? ''
     const later = Date.parse(stoppedAt) + 8 * DAY_MS
     // The first admin cannot read Bob's session, so their read means nothing.

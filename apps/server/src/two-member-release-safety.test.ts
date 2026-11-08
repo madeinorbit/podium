@@ -1,3 +1,4 @@
+import { fixtureWriteScope } from '@podium/sync/testing'
 /** Release witnesses added after the owning tasks: actual caller/root resolution
  * for MU-08, disabled module callers, and MU-30 on a machine shared both ways. */
 import {
@@ -300,7 +301,7 @@ describe('MU-30: usage belongs to the run owner on a shared OS account', () => {
       if (!row) throw new Error('missing fixture session')
       const nativeId = `shared-accounting-${who}`
       const path = `/transcripts/${nativeId}.jsonl`
-      await registry().sessionStore.sessions.upsertSession({
+      await registry().sessionStore.sessions.upsertSession(fixtureWriteScope(), {
         ...row,
         machineId,
         issueId: asIssueId(task.id),
@@ -394,7 +395,7 @@ describe('MU-30: usage belongs to the run owner on a shared OS account', () => {
       if (!row) throw new Error('missing fixture session')
       const nativeId = `${host}-${who}-usage`
       const path = `/transcripts/${nativeId}.jsonl`
-      await registry().sessionStore.sessions.upsertSession({
+      await registry().sessionStore.sessions.upsertSession(fixtureWriteScope(), {
         ...row,
         machineId,
         resumeKind: 'claude-code',

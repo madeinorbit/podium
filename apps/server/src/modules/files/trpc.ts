@@ -25,7 +25,7 @@ import type { DetailedSubmit } from '../sync-write/entry'
 import { refusalAsTrpcError } from '../sync-write/route-adapter'
 import { syncRoute } from '../write-routes/sync'
 import { FILE_QUERIES } from './queries'
-import { assertAllowedRoot, FILE_COMMANDS_TRPC, type FileState } from './registry'
+import { assertOwnsSessionFiles, assertReadableRoot, FILE_COMMANDS_TRPC, type FileState } from './registry'
 import {
   FILE_WRITE_EFFECT_KIND,
   FILE_WRITE_WAIT_MS,
@@ -40,7 +40,7 @@ export type FileProcedures = FamilyProcedures<typeof FILE_COMMANDS_TRPC, typeof 
 
 const fileState = (ctx: Context): FileState => {
   const state = familyState(ctx)
-  return { rpc: state.modules.rpc, artifacts: state.modules.issueArtifacts, repos: state.repos }
+  return { rpc: state.modules.rpc, artifacts: state.modules.issueArtifacts, repos: state.repos, access: state.privateAccess }
 }
 
 /** `files.write` through an effect record, answering as the route always did. */
@@ -49,8 +49,13 @@ async function writeThroughEffect(
   input: FileWriteInput,
   submit: (envelopeInput: unknown) => Promise<DetailedSubmit>,
 ): Promise<FileWriteAnswer> {
-  // The shipped FORBIDDEN, with its message, before anything is recorded.
-  if ('root' in input) await assertAllowedRoot(fileState(ctx), input.root)
+  // Resolve and authorize the exact dispatch target before recording the effect.
+  if ('root' in input) {
+    const machineId = await assertReadableRoot(fileState(ctx), input.root, input.machineId)
+    input = { ...input, machineId }
+  } else {
+    await assertOwnsSessionFiles(fileState(ctx), input.sessionId)
+  }
   const state = familyState(ctx)
   const effects = state.modules.effects
   if (effects === undefined) throw new Error('files.write: the effect path is not wired')

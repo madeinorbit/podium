@@ -35,7 +35,7 @@ beforeAll(async () => {
   // worktree on her machine: every execution-private field is set.
   started = asIssueId(
     (
-      await crud.create({
+      await crud.create(f.handle.registry.issues.reports.store.serverWriter, {
         repoPath: REPO_PATH,
         title: 'alice started task',
         startNow: false,
@@ -44,7 +44,7 @@ beforeAll(async () => {
       })
     ).id,
   )
-  await crud.update(started, {
+  await crud.update(f.handle.registry.issues.reports.store.serverWriter, started, {
     worktreePath: '/wt/alice-started',
     machineId: f.machines.alice,
     coordinatorSessionId: f.sessions.alice,
@@ -279,7 +279,7 @@ describe('Self: per-user markers are each member’s own, on any task', () => {
         } as never)) as { id: string }
       ).id,
     )
-    await f.handle.registry.issues.crud.update(finished, { stage: 'done' })
+    await f.handle.registry.issues.crud.update(f.handle.registry.issues.reports.store.serverWriter, finished, { stage: 'done' })
     const aliceBefore = await store.getIssueUserState(MEMBERS.alice.id, finished)
     for (const id of [f.tasks.bob, finished]) {
       await bob.issues.markRead.mutate({ id } as never)

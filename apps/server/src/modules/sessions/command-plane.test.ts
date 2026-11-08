@@ -175,10 +175,7 @@ async function ctxFor(
         )
     },
     discardUnlaunchedDraft: async (issueId) =>
-      await modules.issues.attention.discardUnlaunchedDraft(
-        modules.issues.reports.store.serverWriter,
-        issueId,
-      ),
+      await modules.issues.attention.discardUnlaunchedDraft(issueId),
     access: {
       sessionById: async (sessionId) => await modules.sessions.sessionById(sessionId),
       ownerOf: async (sessionId) => (await modules.sessions.sessionOwner(sessionId))?.owner,

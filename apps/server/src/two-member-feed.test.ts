@@ -1,3 +1,4 @@
+import { fixtureWriteScope } from '@podium/sync/testing'
 /**
  * EACH MEMBER'S APPS RECEIVE ONLY WHAT THAT MEMBER MAY SEE (POD-6291;
  * docs/design/multi-user-instance.md §3.3 gaps 6 and 10, §4.5; acceptance MU-13).
@@ -55,7 +56,7 @@ const finishedTaskOf = async (owner: 'alice' | 'bob', title: string): Promise<Is
     title,
     startNow: false,
   } as never)) as { id: string }
-  await f.handle.registry.issues.crud.update(created.id, { stage: 'done' })
+  await f.handle.registry.issues.crud.update(f.handle.registry.issues.reports.store.serverWriter, created.id, { stage: 'done' })
   return asIssueId(created.id)
 }
 
@@ -132,12 +133,12 @@ describe('Bob’s feed and Bob’s view of a task never carry Alice’s per-user
     // Alice read it after its last activity, ten days before the sweep: on
     // her read alone the task is due. It is Bob's task, so her read decides nothing.
     const readAfterActivity = new Date(Date.now() + 1000).toISOString()
-    await store.setIssueUserState(MEMBERS.alice.id, id, { readAt: readAfterActivity })
+    await store.setIssueUserState(fixtureWriteScope(), MEMBERS.alice.id, id, { readAt: readAfterActivity })
     const later = Date.now() + 10 * 86_400_000
     expect((await issues.attention.sweepAutoArchive(later)).map((w) => w.id)).not.toContain(id)
     expect((await issues.reports.get(id))?.archived).toBe(false)
     // Bob's own read, the same moment, makes it due.
-    await store.setIssueUserState(MEMBERS.bob.id, id, { readAt: readAfterActivity })
+    await store.setIssueUserState(fixtureWriteScope(), MEMBERS.bob.id, id, { readAt: readAfterActivity })
     expect((await issues.attention.sweepAutoArchive(later)).map((w) => w.id)).toContain(id)
   })
 })
@@ -240,7 +241,7 @@ describe('MU-13: artifact entries and the rest of the event log, per member', ()
     })
     const bobFeed = await (await f.as('bob')).feed()
     try {
-      await store.persist(draft)
+      await store.persist(store.serverWriter, draft)
       const paths = (value: unknown) =>
         ((value as { panel?: { artifacts?: Array<{ path: string }> } }).panel?.artifacts ?? []).map(
           (artifact) => artifact.path,

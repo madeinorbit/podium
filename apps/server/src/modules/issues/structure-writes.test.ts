@@ -322,9 +322,10 @@ describe("an agent's relay through the entry point", () => {
 describe('a create that asked to start, after its commit', () => {
   const created = { id: 'iss_1', coordinator: 'you coordinate #1' }
   const issues = (opts: { proposedParent?: boolean; worktreePath?: string | null } = {}) => {
-    const start = vi.fn(async (id: string) => ({ id, started: true }))
+    const start = vi.fn(async (_caller: unknown, _family: string, _proc: string, input: { id: string }) => ({ id: input.id, started: true }))
     return {
       start,
+      commands: { dispatch: start } as never,
       issues: {
         gitWorkflow: {
           start,
@@ -349,43 +350,44 @@ describe('a create that asked to start, after its commit', () => {
   } as never
 
   it("an operator's start runs, and the create's notes ride along", async () => {
-    const { issues: deps, start } = issues()
-    const answer = await startAfterCreate(deps, operator, { startNow: true }, created)
-    expect(start).toHaveBeenCalledWith('iss_1', undefined, { spawnedBy: 'user' })
+    const { issues: deps, start, commands } = issues()
+    const answer = await startAfterCreate(deps, operator, { startNow: true }, created, commands)
+    expect(start).toHaveBeenCalledWith(operator, 'issues', 'start', { id: 'iss_1' })
     expect(answer).toEqual({ id: 'iss_1', started: true, coordinator: 'you coordinate #1' })
   })
 
   it("an agent's top-level task is a proposal and does not start", async () => {
-    const { issues: deps, start } = issues()
-    expect(await startAfterCreate(deps, agent, { startNow: true }, created)).toBe(created)
+    const { issues: deps, start, commands } = issues()
+    expect(await startAfterCreate(deps, agent, { startNow: true }, created, commands)).toBe(created)
     expect(start).not.toHaveBeenCalled()
   })
 
   it("an agent's task under a proposal is inert", async () => {
-    const { issues: deps, start } = issues({ proposedParent: true })
+    const { issues: deps, start, commands } = issues({ proposedParent: true })
     expect(
-      await startAfterCreate(deps, agent, { startNow: true, parentId: 'iss_p' }, created),
+      await startAfterCreate(deps, agent, { startNow: true, parentId: 'iss_p' }, created, commands),
     ).toBe(created)
     expect(start).not.toHaveBeenCalled()
   })
 
   it("an agent's sub-task starts, spawned by the agent's session", async () => {
-    const { issues: deps, start } = issues()
+    const { issues: deps, start, commands } = issues()
     await startAfterCreate(
       deps,
       agent,
       { startNow: true, parentId: 'iss_p', startSessionId: 'sess_new' },
       created,
+      commands,
     )
-    expect(start).toHaveBeenCalledWith('iss_1', undefined, {
-      spawnedBy: 'session:sess_a',
+    expect(start).toHaveBeenCalledWith(agent, 'issues', 'start', {
+      id: 'iss_1',
       sessionId: 'sess_new',
     })
   })
 
   it('a replayed create whose task already started is not started twice', async () => {
-    const { issues: deps, start } = issues({ worktreePath: '/r/.worktrees/issue-1' })
-    expect(await startAfterCreate(deps, operator, { startNow: true }, created)).toEqual({
+    const { issues: deps, start, commands } = issues({ worktreePath: '/r/.worktrees/issue-1' })
+    expect(await startAfterCreate(deps, operator, { startNow: true }, created, commands)).toEqual({
       id: 'iss_1',
       started: 'before',
       coordinator: 'you coordinate #1',
@@ -394,8 +396,8 @@ describe('a create that asked to start, after its commit', () => {
   })
 
   it('a create that did not ask to start answers as it is', async () => {
-    const { issues: deps, start } = issues()
-    expect(await startAfterCreate(deps, operator, { startNow: false }, created)).toBe(created)
+    const { issues: deps, start, commands } = issues()
+    expect(await startAfterCreate(deps, operator, { startNow: false }, created, commands)).toBe(created)
     expect(start).not.toHaveBeenCalled()
   })
 })

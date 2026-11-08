@@ -194,7 +194,7 @@ it("ending a delegation refuses its agent's calls and the work queued under it",
   })
 
   // Bob ends the session: its binding, and the delegation with it, retires.
-  await inst.handle.registry.modules.sessions.killSession({ sessionId }).catch(() => {})
+  await inst.handle.registry.modules.sessions.killSession(inst.handle.registry.issues.reports.store.serverWriter, { sessionId }).catch(() => {})
 
   await expect(edit('after the delegation ended')).rejects.toThrow()
   expect(await dispatch(inst, inst.sessions.bobOnAliceTask, agentQueued, Date.now())).toMatchObject(

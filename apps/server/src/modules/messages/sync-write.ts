@@ -198,7 +198,7 @@ async function spawnTarget(
   }
   const scope = principal.capability.scope
   if (scope.kind === 'all') return NO_TARGET
-  if (scope.kind === 'owned') return (await access.ownedTarget?.(resolved.id, 'write')) ?? undefined
+  if (scope.kind === 'owned') return { id: resolved.id }
   return { id: resolved.id, ancestorIds: await access.ancestorIds(resolved.id) }
 }
 

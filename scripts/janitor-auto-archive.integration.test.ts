@@ -231,8 +231,8 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
     // ...and the same read IS a candidate on a task that user is the assignee
     // of (POD-6291: the reader is each task's assignee), so the empty result
     // above is scoping, not an accidentally-empty query.
-    await store.issues.upsertIssue(issueRow('iss_assigned_to_them', { ownerUserId: OTHER_USER }))
-    await store.issues.setIssueUserState(OTHER_USER, asIssueId('iss_assigned_to_them'), { readAt: READ_OLD })
+    await store.issues.upsertIssue(fixtureWriteScope(), issueRow('iss_assigned_to_them', { ownerUserId: OTHER_USER }))
+    await store.issues.setIssueUserState(fixtureWriteScope(), OTHER_USER, asIssueId('iss_assigned_to_them'), { readAt: READ_OLD })
     const theirs = await new IssueAutoArchiveReader(db).read({
       cutoffReadAt: CUTOFF,
       limit: 100,

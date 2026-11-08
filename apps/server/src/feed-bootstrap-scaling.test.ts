@@ -1,3 +1,4 @@
+import { fixtureWriteScope } from '@podium/sync/testing'
 /**
  * THE BOOTSTRAP MUST NOT BE QUADRATIC IN THE CORPUS (POD-1614).
  *
@@ -213,7 +214,7 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
     await store.repos.addRepo('/r', store.hostMachineId)
     await store.transact(async () => {
       for (const [index, id] of ['i1', 'i2'].entries()) {
-        await store.issues.upsertIssue({
+        await store.issues.upsertIssue(fixtureWriteScope(), {
           ...issueRowFixture({ id, repoPath: '/r', seq: index + 1, ownerUserId: OWNER }),
           repoId: undefined,
           machineId: store.hostMachineId,

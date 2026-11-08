@@ -186,7 +186,7 @@ export async function sessionCommandCtx(
       }
     },
     discardUnlaunchedDraft: async (issueId) =>
-      await issues.attention.discardUnlaunchedDraft(writerFor('discardUnlaunchedDraft'), issueId),
+      await issues.attention.discardUnlaunchedDraft(issueId),
     access: {
       sessionById: async (sessionId) => await sessions.sessionById(sessionId),
       // Unambiguous prefix only (POD-4536) — ids by a range read on the primary

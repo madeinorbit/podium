@@ -368,6 +368,7 @@ describe('mail and inbox reads return only the caller’s own mail', () => {
   const bobsAgentAsksItsHuman = async (body: string) =>
     (
       await registry().modules.messages.send(
+        registry().issues.reports.store.serverWriter,
         {
           kind: 'agent',
           issueId: f.tasks.bob,
@@ -565,6 +566,7 @@ describe('admin Alice gets no reach over Bob’s mail or subscriptions', () => {
   const bobsAgentMails = async (to: { kind: 'operator' } | { kind: 'issue'; id: string }, body: string) =>
     (
       await registry().modules.messages.send(
+        registry().issues.reports.store.serverWriter,
         {
           kind: 'agent',
           issueId: f.tasks.bob,

@@ -325,6 +325,7 @@ describe("a member's harness sign-in touches only their own account (POD-6360)",
           ? undefined
           : 'you do not have access to start login on this machine',
       cwdForMachine: () => '/repo',
+      custodianOf: async (machineId) => machineId === MINE ? MEMBER : OTHER,
     })
     return { service, createSession }
   }

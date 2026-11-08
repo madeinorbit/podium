@@ -209,7 +209,6 @@ describe('SessionRegistry', () => {
       await reg.modules.issues.crud.claim(
         reg.modules.issues.reports.store.serverWriter,
         issue.id,
-        asUserId('agent:codex'),
         { actorSessionId: first },
       )
       expect((await reg.modules.issues.reports.get(issue.id))?.coordinatorSessionId).toBeUndefined()
