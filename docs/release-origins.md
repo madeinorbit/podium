@@ -51,3 +51,11 @@ fixtures: they emulate or validate published GitHub releases, including historic
 inventory, not a runtime download origin. Repository homepage/issue links, historical docs,
 release-note links and test fixtures are not release-file fetchers. Headless and desktop
 publication now obtain their artifact URLs and trust fence from the shared module as well.
+`scripts/verify-published-headless-update.sh` and the publishers retain GitHub repository
+identifiers for the `gh` CLI; those are publication inventory, not runtime origin policy.
+
+The API declaration builder skips JSON assets when emitting declarations, and the module's
+public `ReleaseOrigin` interface keeps client declarations independent of the JSON file.
+Both cases have focused regression coverage. On hosts with only BusyBox wget, the installer
+obtains curl through its existing prerequisite step so it can validate redirects before
+following them.

@@ -2,15 +2,20 @@
 import policy from './release-origins.json'
 
 export type ReleaseChannel = 'stable' | 'edge' | 'dev'
-export type ReleaseOrigin = (typeof policy.origins)[number]
+export interface ReleaseOrigin {
+  readonly id: string
+  readonly baseUrl: string
+  readonly latestPath: string
+  readonly redirectHosts: readonly string[]
+}
 export const RELEASE_PATHS = policy.paths
 export const RELEASE_REDIRECT_HOPS = policy.redirectHops
 export const STABLE_INSTALLER_URL = policy.stableInstallerUrl
 export const RELEASE_ORIGINS: readonly ReleaseOrigin[] = policy.origins.filter(
   (origin) => origin.id !== 'mirror' || policy.mirrorReadEnabled,
 )
-export const PRIMARY_RELEASE_ORIGIN = policy.origins[0]!
-export const MIRROR_RELEASE_ORIGIN = policy.origins[1]!
+export const PRIMARY_RELEASE_ORIGIN: ReleaseOrigin = policy.origins[0]!
+export const MIRROR_RELEASE_ORIGIN: ReleaseOrigin = policy.origins[1]!
 
 export function releaseChannelPath(channel: ReleaseChannel): string {
   return channel === 'stable' ? RELEASE_PATHS.latest : RELEASE_PATHS[channel]

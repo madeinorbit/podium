@@ -27,6 +27,20 @@ function fixture(body: (root: string, options: ts.CompilerOptions) => void) {
 }
 
 describe('API declaration emission with release policy JSON', () => {
+  it('keeps the public release-origin declarations independent of the JSON asset', () =>
+    fixture((root, options) => {
+      for (const name of ['release-origins.ts', 'release-origins.json']) {
+        writeFileSync(
+          join(root, name),
+          readFileSync(new URL(`../runtime/src/${name}`, import.meta.url)),
+        )
+      }
+      emitCodeDeclarations(ts.createProgram([join(root, 'release-origins.ts')], options))
+      const declarations = readFileSync(join(root, 'out/release-origins.d.ts'), 'utf8')
+      expect(declarations).toContain('interface ReleaseOrigin')
+      expect(declarations).not.toContain('release-origins.json')
+    }))
+
   it('emits code declarations when a JSON dependency has no declaration output', () =>
     fixture((root, options) => {
       writeFileSync(join(root, 'policy.json'), '{"origin":"https://releases.example/"}')
