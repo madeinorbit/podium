@@ -418,10 +418,12 @@ describe('effect refusals through the executor', () => {
     }
     const execute = outboxExecutors(api as never)
     const mutationId = asMutationId('m-effect')
+    const createInput = { ...SAMPLE.effectCreate, mutationId }
+    const dismissInput = { ...SAMPLE.effectDismiss, mutationId }
     const result =
       kind === 'effectCreate'
-        ? execute.effectCreate({ ...SAMPLE.effectCreate, mutationId })
-        : execute.effectDismiss({ ...SAMPLE.effectDismiss, mutationId })
+        ? execute.effectCreate(createInput)
+        : execute.effectDismiss(dismissInput)
     await expect(result).rejects.toMatchObject({
       message: refusal.message,
       refusal,
