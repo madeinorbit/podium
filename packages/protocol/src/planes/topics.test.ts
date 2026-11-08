@@ -11,7 +11,9 @@ import {
 import { ServerMessage } from '../messages/server'
 import { roomRoutingKey } from './routing'
 import {
+  checkoutTopicId,
   isNewerTopicPosition,
+  parseCheckoutTopicId,
   parseTopicKey,
   parseTopicPayload,
   TOPIC_KIND_NAMES,
@@ -90,6 +92,20 @@ describe('topic keys', () => {
     const colon = topicKey('machine.metrics', 'a:b')
     expect(parseTopicKey(colon)).toEqual({ kind: 'machine.metrics', id: 'a:b' })
     expect(colon).not.toBe(topicKey('machine.metrics', 'a'))
+  })
+
+  it('round-trips checkout addresses and refuses relative paths and forged machine sentinels', () => {
+    const id = checkoutTopicId(
+      'machine' as import('@podium/model').MachineId,
+      '/repo:with\\separators',
+    )
+    expect(parseCheckoutTopicId(id)).toEqual({
+      machineId: 'machine',
+      path: '/repo:with\\separators',
+    })
+    expect(parseCheckoutTopicId('machine:relative')).toBeUndefined()
+    expect(parseCheckoutTopicId('local:/repo')).toBeUndefined()
+    expect(TOPIC_KINDS['checkout.changed'].id.safeParse(id).success).toBe(true)
   })
 
   it('refuses malformed keys instead of guessing', () => {

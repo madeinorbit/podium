@@ -9693,14 +9693,14 @@
       "file": "apps/web/src/features/usage/UsageView.tsx",
       "holder": "UsageView/tasks",
       "rule": "reader-summary",
-      "tokens": "737a31836e70744a4dcec7195749c0ebcdcf4d1e38434cf006ae3b7b715fed2a",
+      "tokens": "41db849b6c21cd758a0c3e025a6cb343d810e453d58537d32bdb65e521ce0358",
       "gate": [],
       "origin": [
         "0a5bf871d80892762e0589fbbd1d2586eb37b2ff4924719d3e53a77405fc5538",
         "1fc425aa44655c503e5d3fcb3e80de7898f6767913ee80dec51f098743047765",
         "c398c53566d168764177ae7aa024cb47dbb9738463b587af0129f142a32a5652"
       ],
-      "fingerprint": "c19c756cde19f5d56965c358fe44aa5d7f5884b3d049368fddea22186d6c6bcc",
+      "fingerprint": "1c0783bc0a77dadf961afce63ed2e879b9f4d839ebd37893adc01931d4de578a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -11480,14 +11480,14 @@
       "file": "apps/web/src/test-support/mock-command-launch.ts",
       "holder": "useCommandFixture/fixture/useMemo:callback/update",
       "rule": "helper-consumer",
-      "tokens": "357378c0b6e84ebfc97c59a3fb18a0226c152d8cbdf9ed6cffe59747e22feb34",
+      "tokens": "15c2b1edcc17efe1bca12291484cab2e37a36ca584cd8dc027872dcfbf6bdfa6",
       "gate": [
         "then:eff1e4bdcf1cd7260f17e8ca3557da804e743d40432de0b2244318508856ffcd"
       ],
       "origin": [
         "cf44a3aa9ea523c1d5954e1cced32d2e05662a456e8b13721e575aedad13bd10"
       ],
-      "fingerprint": "c027947fa94b51ea68e8f9bad16642e7a48a5f19f501d54163db1367c54a5c9a",
+      "fingerprint": "3cc308606b3a44f346ee8c0c3338e19be659a90de8e417aac3bd0d171033b6ea",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -13935,7 +13935,7 @@
       "file": "apps/web/src/test-support/pool-fixture.ts",
       "holder": "syncPoolFixture",
       "rule": "helper-consumer",
-      "tokens": "0b5b7aca3c489dddb892044c67c7d4e8c151fcbabe183b8d85daf94d8333486e",
+      "tokens": "2af3400a25cfad4bc04fe2c747cad498a6c0e6dfd25b1e30834f5fc3bbf61e4c",
       "gate": [
         "then:06220bc81cd248fb56e99efd8bf9eecb82cdddeb1827556cfab84507c375e49f"
       ],
@@ -13943,7 +13943,7 @@
         "1fc626feccb53ee2b2b821f5e6e8279424c0631fe987ccda5bf4a1814b63214e",
         "c77b0b5df1a56c21e04e74a107655690b236422a60b5f219909ed19cf4e82dcd"
       ],
-      "fingerprint": "e8f34d3e8ea11789c15daf416e5cf5a81f6f221c6fe79c79137c45458cf8830a",
+      "fingerprint": "3915b7383d9343ae3748c52e56138d252239289a9efbd507bc0bfbf64392cdca",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -33530,7 +33530,7 @@
       "file": "packages/client-graph/src/pool.ts",
       "holder": "MobxPool/apply/runInAction:callback",
       "rule": "helper-consumer",
-      "tokens": "268e9aafa4aa79255f539f505665a59dd8a801bae3cc639f3b64e4e4e90f988b",
+      "tokens": "847849a2312dbcf51baca625be8e3a58e23485d9daf7e84274ce286837cd85fa",
       "gate": [
         "exit:then:710e5dcb43ddd346f8ec70a0b8535caaf905d83eb941188b77a28d35d5d651f3",
         "then:e50fe35f728bede0989d15da8b368643ed69caaeebaf56465528b4791dbb7492"
@@ -33539,7 +33539,7 @@
         "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
         "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
       ],
-      "fingerprint": "88ccf9dbec6c8c6968052ca55a016fd314d25e9697241562cf73555605c94504",
+      "fingerprint": "2a3722eb6e3af15574481c8ff39409d526cd381c4aaf43592fe29448d6040db0",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5868",
@@ -33552,7 +33552,7 @@
       "file": "packages/client-graph/src/pool.ts",
       "holder": "MobxPool/apply/runInAction:callback/reseedRows",
       "rule": "consume:flatMap",
-      "tokens": "7f68b4ef49c2de2e507fad328a658aa3d16e2393ec326656da339d4d459db525",
+      "tokens": "b29c2a987108b8bb70c08c9c57ca7b39aa6c9c8ea1e85d89ecb0ff0aeaf6ba9d",
       "gate": [
         "exit:then:710e5dcb43ddd346f8ec70a0b8535caaf905d83eb941188b77a28d35d5d651f3",
         "then:e50fe35f728bede0989d15da8b368643ed69caaeebaf56465528b4791dbb7492"
@@ -33561,7 +33561,7 @@
         "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
         "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
       ],
-      "fingerprint": "ffeadefca0f8e1bc32592c835a51f1ba9c70a64a7176fba9e706c86c58aa2cf2",
+      "fingerprint": "35a601d1902243c8c5839103464ab6b51f2dab9850d013bd4244d6ae8c5bd8c1",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5868",
@@ -33596,7 +33596,7 @@
       "file": "packages/client-graph/src/pool.ts",
       "holder": "MobxPool/apply/runInAction:callback/reseedRows",
       "rule": "spread",
-      "tokens": "44f4d5990eecf53d1a16b41573ebc7e4017a5a2fd98d9d285723fd3e28820aa6",
+      "tokens": "48a96a269e9e11e61e20b19584afec29108f12fbdebefbb27f43bbf9968d3686",
       "gate": [
         "exit:then:710e5dcb43ddd346f8ec70a0b8535caaf905d83eb941188b77a28d35d5d651f3",
         "then:e50fe35f728bede0989d15da8b368643ed69caaeebaf56465528b4791dbb7492"
@@ -33605,7 +33605,7 @@
         "142ce232e07c2ee207ed502d501148109468c5c6165df98d46c4c487fd44a9a3",
         "3e7d83c093f342f9c72adf3375f191a3f606ba8bdd1f64449e50715b9e25bda5"
       ],
-      "fingerprint": "ae55c62ddb58f987d647d2a73255fcc82a65b013109b7cfdd78717e5a32225e1",
+      "fingerprint": "005fb7a6b75e63ed21d6b5da9ac08530366cf04be8c900008cf2a07f127b806e",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5868",

@@ -1,6 +1,8 @@
 import { asMachineId, asUserId } from '@podium/model'
 import {
   asSubscriberId,
+  checkoutTopicId,
+  parseCheckoutTopicId,
   type ServerMessage,
   SubscriptionRegistry,
   TOPIC_KEYS_PER_CONNECTION_MAX,
@@ -16,7 +18,7 @@ import { daemonTopicProducer, type TopicProducers, TopicRouting } from './topic-
 const M1 = asMachineId('m-1')
 const M2 = asMachineId('m-2')
 
-function fixture() {
+function fixture(use = true) {
   const subscriptions = new SubscriptionRegistry()
   const clients = new ClientRegistry()
   const watches: Array<{ machineId: string; key: string; on: boolean }> = []
@@ -36,6 +38,7 @@ function fixture() {
     subscriptions,
     clients,
     prepareVisibility: async () => ({ canSee: () => true }),
+    prepareMachineUse: async () => ({ canSee: () => use }),
     producers,
     epoch: 'test',
   })
@@ -75,6 +78,22 @@ describe('TopicRouting', () => {
     expect(sent).toEqual([
       { type: 'topicClosed', key: topicKey('machine.metrics', 'local'), reason: 'refused' },
     ])
+  })
+
+  it('keeps operational checkout/process readings behind use even when metrics are visible', async () => {
+    const f = fixture(false)
+    const { conn, sent } = f.conn('see-only')
+    await f.topics.route(conn, { type: 'topicSubscribe', key: topicKey('machine.metrics', M1) })
+    for (const key of [
+      topicKey('checkout.changed', checkoutTopicId(M1, '/repo')),
+      topicKey('machine.processes', M1),
+    ]) {
+      await f.topics.route(conn, { type: 'topicSubscribe', key })
+      expect(sent).toContainEqual({ type: 'topicClosed', key, reason: 'refused' })
+    }
+    expect(sent).toContainEqual(
+      expect.objectContaining({ type: 'topicSnapshot', key: topicKey('machine.metrics', M1) }),
+    )
   })
 
   it(`holds at most ${TOPIC_KEYS_PER_CONNECTION_MAX} keys per connection`, async () => {
@@ -142,6 +161,31 @@ describe('TopicRouting', () => {
 })
 
 describe('daemon topic ingress', () => {
+  it('authenticates the machine embedded in a checkout key and preserves its complete address at the sink', () => {
+    const f = fixture()
+    const sink = vi.fn()
+    const ingress = createDaemonTopicIngress({
+      producers: {
+        ...f.producers,
+        'checkout.changed': { machineOf: (id) => parseCheckoutTopicId(id)?.machineId },
+      },
+      sinks: { 'machine.metrics': vi.fn(), 'machine.processes': vi.fn(), 'checkout.changed': sink },
+    })
+    const id = checkoutTopicId(M1, '/repo')
+    ingress.onTopicPublish(M2, {
+      type: 'topicPublish',
+      key: topicKey('checkout.changed', id),
+      payload: null,
+    })
+    expect(sink).not.toHaveBeenCalled()
+    ingress.onTopicPublish(M1, {
+      type: 'topicPublish',
+      key: topicKey('checkout.changed', id),
+      payload: null,
+    })
+    expect(sink).toHaveBeenCalledExactlyOnceWith(M1, null, id)
+  })
+
   it('refuses a key that belongs to another machine and a payload that does not match', () => {
     const f = fixture()
     const sink = vi.fn()
