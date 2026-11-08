@@ -420,6 +420,7 @@ describe('every refusal a daemon can produce is classified by the shared table',
           digest: 'd',
         } as never,
         {
+          pubkey: 'k',
           fetch: async () => {
             throw Object.assign(new Error('host lookup failed'), { code: 'ENOTFOUND' })
           },
