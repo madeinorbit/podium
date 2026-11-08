@@ -54,6 +54,7 @@ import { validateReferencedDesktopManifest } from './desktop-release'
 import { timeReleaseBuildSync } from './release-build-timing'
 import { verifyCandidateSnapshot } from './release-candidate-snapshot'
 import { buildManifest } from './release-manifest'
+import { publishReleaseMirror } from './release-mirror'
 
 /** Every platform a release publishes a headless bundle for. */
 export const RELEASE_PLATFORMS: readonly HeadlessPlatform[] = HEADLESS_PLATFORMS
@@ -791,6 +792,7 @@ export function publishPreparedHeadless(p: {
       ...assets,
     ])
   }
+  publishReleaseMirror({ channel: p.channel, tag: p.tag, files: assets })
   console.log(`[release] published ${version} → ${p.channel}`)
 }
 
