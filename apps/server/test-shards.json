@@ -2546,6 +2546,7 @@
       "id": "boundary",
       "title": "composition, router, gateway, server boundaries and source audits",
       "testFiles": [
+        "apps/server/src/app-effect-outbox.test.ts",
         "apps/server/src/application/issue-attach-orchestrator.test.ts",
         "apps/server/src/automation-cutover.audit.test.ts",
         "apps/server/src/automation-removal-scoping.test.ts",
@@ -2725,6 +2726,7 @@
         "scripts/**",
         "src/**",
         "src/accounts.ts",
+        "src/app-effect-outbox.test.ts",
         "src/application/issue-attach-orchestrator.test.ts",
         "src/application/issue-attach-orchestrator.ts",
         "src/auth-route.ts",

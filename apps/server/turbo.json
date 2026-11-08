@@ -2031,6 +2031,7 @@
         "scripts/**",
         "src/**",
         "src/accounts.ts",
+        "src/app-effect-outbox.test.ts",
         "src/application/issue-attach-orchestrator.test.ts",
         "src/application/issue-attach-orchestrator.ts",
         "src/auth-route.ts",
