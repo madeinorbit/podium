@@ -20,6 +20,11 @@
  *    with the error, until Dismiss takes the record off the feed
  *    (`effects.dismiss`). An `issue.start` that filed its task and then failed
  *    to start its agent keeps the task: the failed session shows on it.
+ *  - its create REFUSED: one parked for recovery (it carries typed text) leaves
+ *    the paint, and the recovery surface offers retry and discard. One the
+ *    queue discarded (POD-6622) is in no list the paint reads, which is how a
+ *    refused start used to stay "starting" for ever: it is painted ended with
+ *    the refusal instead, and Dismiss lets it go here (nothing was recorded).
  *
  * A session started on an EXISTING issue (POD-6526) is `issue.begin` (its
  * first session, with its worktree) or `issue.addSession` (one more agent, or
@@ -49,8 +54,8 @@ import {
   SESSION_LAUNCH_KIND,
   type SpawnDraftAgentArgs,
   type SpawnIssueAgentArgs,
-  type StartIssueSessionArgs,
   type SpawnTarget,
+  type StartIssueSessionArgs,
   sessionLaunchEffect,
   startEffectId,
   type TaskSpawnOutcome,
@@ -106,6 +111,38 @@ export type LaunchRecord = Readonly<
 const ENDED = new Set(['failed', 'expired', 'cancelled', 'unknown'])
 
 const PROPOSED_NOTICE = 'Filed as a proposal; an admin starts it.'
+
+/** Why the server refused a start's create, in the words a failed start shows.
+ *  The queue's durable reason (`OutboxRejectionReason`) carries a code only:
+ *  `unauthorized` covers a target the caller may not see too (no oracle). */
+export function refusedStartText(reason: unknown): string {
+  const code =
+    reason !== null && typeof reason === 'object' ? (reason as { code?: unknown }).code : undefined
+  switch (code) {
+    case 'unauthorized':
+      return 'the server refused it: you may not start it there'
+    case 'conflict':
+      return 'the server refused it: it was already started'
+    case 'invalid':
+      return 'the server refused it as invalid'
+    case 'confirmation-required':
+      return 'the server refused it until it is confirmed'
+    case 'max-age':
+      return 'it waited too long to be sent'
+    default:
+      return 'the server refused it'
+  }
+}
+
+/** What a refused start's rejection names: the queued kind and its input. */
+export interface RefusedStart {
+  readonly kind: string
+  readonly input: unknown
+  /** Parked for recovery (it carries typed text): the recovery surface holds
+   *  it, with retry and discard, and the paint goes (`refused()` port). */
+  readonly parked: boolean
+  readonly reason?: unknown
+}
 
 /** An `issue.start` the family filed as a proposal: no agent by design. */
 const isProposal = (launch: Launch): boolean =>
@@ -252,6 +289,10 @@ export class PoolLaunches {
    *  absence means it was dismissed. Before, it is on its way (the replica's
    *  commit that retires the entry is the one that brings the record). */
   private readonly recorded = new Set<SessionId>()
+  /** Starts whose create the server refused (POD-6622): no record will come.
+   *  Painted ended with the refusal until dismissed here, or until a retry of
+   *  the same create is queued again. */
+  private readonly refusedCreates = new Map<SessionId, Launch>()
 
   constructor(private readonly ports: PoolLaunchPorts) {}
 
@@ -472,8 +513,32 @@ export class PoolLaunches {
     if (painted === undefined || !painted.ended) return false
     this.hide(sessionId)
     this.local.delete(sessionId)
+    // A refused create made no record: there is nothing to take off the feed.
+    if (this.refusedCreates.delete(sessionId)) return true
     void this.ports.write('effectDismiss', { id: painted.effectId }).catch(() => {})
     return true
+  }
+
+  /**
+   * The server refused a start's create and the queue let it go (POD-6622):
+   * nothing was written, so no record will ever end it, and no list this reads
+   * holds it. It is painted ended with the refusal, here, where it was
+   * started, until dismissed. A parked refusal is the recovery surface's.
+   */
+  refused(rejection: RefusedStart): void {
+    if (this.disposed || rejection.parked || rejection.kind !== 'effectCreate') return
+    const create = rejection.input as EffectCreateInput
+    const launch = launchOf(create, (create.input ?? {}) as LaunchInput)
+    if (launch === undefined) return
+    if (!this.local.has(launch.sessionId) && !this.painted.has(launch.sessionId)) return
+    this.refusedCreates.set(launch.sessionId, {
+      ...launch,
+      createdAt: new Date().toISOString(),
+      status: 'failed',
+      error: refusedStartText(rejection.reason),
+      errorCode: 'refused',
+    })
+    this.reconcile()
   }
 
   /**
@@ -519,6 +584,12 @@ export class PoolLaunches {
           ? { startedNothing: true }
           : {}),
       })
+    }
+    for (const [sessionId, launch] of this.refusedCreates) {
+      // Queued again (a retry of the same create) or recorded after all: the
+      // queue and the record speak for it from here.
+      if (live.has(sessionId)) this.refusedCreates.delete(sessionId)
+      else live.set(sessionId, launch)
     }
     for (const [sessionId, launch] of live) {
       if (dismissing.has(launch.effectId)) live.delete(sessionId)
@@ -782,6 +853,7 @@ export class PoolLaunches {
     this.painted.delete(sessionId)
     this.local.delete(sessionId)
     this.recorded.delete(sessionId)
+    this.refusedCreates.delete(sessionId)
   }
 
   private answer(sessionId: SessionId, proposed: boolean): void {

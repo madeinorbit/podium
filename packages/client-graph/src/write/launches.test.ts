@@ -99,6 +99,7 @@ function pool(
   let effects: EffectRecordWire[] = boot.effects ?? []
   let dead: OutboxEntry[] = []
   let publish: (size: number) => void = () => {}
+  let outcome: (o: OutboxOutcome) => void = () => {}
   let addressed: (batch: ReplicaAddressedBatch) => void = () => {}
   const errors: string[] = []
   const infos: string[] = []
@@ -114,7 +115,10 @@ function pool(
         return () => {}
       },
     },
-    outcomes: (_listener: (o: OutboxOutcome) => void) => () => {},
+    outcomes: (listener: (o: OutboxOutcome) => void) => {
+      outcome = listener
+      return () => {}
+    },
     addressed: (listener) => {
       addressed = listener
       return () => {}
@@ -155,6 +159,21 @@ function pool(
     effect(status: EffectStatus, error?: string) {
       effects = [record(status, error)]
       changed()
+    },
+    /** The server refused the create, and the queue discarded it (no typed
+     *  text): it leaves the queue and is no dead letter (POD-6622). */
+    refusedAndDiscarded(code = 'invalid') {
+      const entry = queue[0]
+      if (entry === undefined) throw new Error('nothing queued')
+      queue = []
+      publish(0)
+      outcome({
+        type: 'rejected',
+        mutationId: entry.mutationId,
+        entry,
+        parked: false,
+        reason: { code } as never,
+      })
     },
     /** The entry left the queue with no record yet (retired, or refused). */
     entryGone(refused = false) {
@@ -316,6 +335,30 @@ describe('a draft-agent start as a launch effect (POD-6408)', () => {
     p.row('sessions', SESSION, { sessionId: SESSION, status: 'live' })
     expect(p.painted('sessions', SESSION)).toBe(0)
     await p.tx.waitForSpawnConfirmed(SESSION)
+    p.tx.dispose()
+  })
+
+  it('a refused create the queue discarded ends with the refusal, never left starting (POD-6622)', async () => {
+    const p = pool()
+    const { settled } = start(p)
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(await settled).toBe(true)
+    p.refusedAndDiscarded('invalid')
+    // No record will come: the start shows its failure where it was started,
+    // and its draft task is not painted (the server never made one).
+    expect(p.shown('sessions', SESSION)).toMatchObject({
+      status: 'exited',
+      spawnFailure: 'the server refused it as invalid',
+    })
+    expect(p.painted('issueProjections', ISSUE)).toBe(0)
+    expect(p.errors).toEqual(["Couldn't start the agent — the server refused it as invalid"])
+    // Dismissed here: nothing was recorded, so nothing is written for it.
+    const queued = p.queue().length
+    expect(p.tx.dismissLaunch(SESSION)).toBe(true)
+    expect(p.painted('sessions', SESSION)).toBe(0)
+    await Promise.resolve()
+    expect(p.queue().length).toBe(queued)
     p.tx.dispose()
   })
 
@@ -634,8 +677,17 @@ describe('a session on an existing issue as its effect record (POD-6526)', () =>
 
   it('begins an issue that was never started (no branch) without being told to', async () => {
     const p = pool({ record: onIssue(ISSUE_BEGIN_KIND, {}, { agentId: SESSION }) })
-    p.row('issueProjections', ISSUE, { id: ISSUE, repoPath: '/r', branch: null, worktreePath: null })
-    const started = p.tx.startIssueSession({ issueId: ISSUE, sessionId: SESSION, agentKind: 'grok' })
+    p.row('issueProjections', ISSUE, {
+      id: ISSUE,
+      repoPath: '/r',
+      branch: null,
+      worktreePath: null,
+    })
+    const started = p.tx.startIssueSession({
+      issueId: ISSUE,
+      sessionId: SESSION,
+      agentKind: 'grok',
+    })
     expect(started.mode).toBe('begin')
     await Promise.resolve()
     expect(p.queue()[0]?.input).toMatchObject({

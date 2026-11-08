@@ -53,7 +53,10 @@ const mySession = (id: SessionId, patch: object) => ({
 function harness(
   layout: { seed?: LayoutSnapshot; fetch?: () => Promise<LayoutSnapshot> } = {},
   hub?: { reportTabRelease: (sessionId: SessionId) => void },
-  extra: { sessionRevision?: (id: SessionId) => number | undefined } = {},
+  extra: {
+    sessionRevision?: (id: SessionId) => number | undefined
+    launchPainted?: (id: SessionId) => boolean
+  } = {},
 ) {
   const queued: { kind: keyof OutboxKinds; input: unknown }[] = []
   const pending: OutboxEntry[] = []
@@ -741,7 +744,10 @@ describe('pane scalars follow the layout', () => {
 
 describe('tucking the task on screen leaves it (POD-2293)', () => {
   const issue = (id: string, parentId?: string) =>
-    ({ id: asIssueId(id), ...(parentId ? { parentId: asIssueId(parentId) } : {}) }) as unknown as IssueProjection
+    ({
+      id: asIssueId(id),
+      ...(parentId ? { parentId: asIssueId(parentId) } : {}),
+    }) as unknown as IssueProjection
   const seeded = (selected = 'root') => {
     const h = harness()
     h.seed({
@@ -954,6 +960,20 @@ describe('navigation read command coalescing', () => {
       mine(sessionId, { readAt: '2026-10-29T12:00:00.000Z' }),
       mine(sessionId, { readAt: null }),
     ])
+  })
+
+  it('writes no read mark for a session that is only a start’s paint (POD-6622)', async () => {
+    // The server has no row under the painted id, so the mark would be refused
+    // ("Couldn't save session read status"); the paint already reads as read.
+    let painted = true
+    const h = harness({}, undefined, { launchPainted: (id) => painted && id === sessionId })
+    await h.actions.markSessionRead(sessionId)
+    await h.actions.markSessionRead(sessionId, '2026-11-08T09:06:00.000Z')
+    expect(h.queued).toEqual([])
+    // The row has landed: the same press marks it.
+    painted = false
+    await h.actions.markSessionRead(sessionId, '2026-11-08T09:07:00.000Z')
+    expect(h.queued).toEqual([mySession(sessionId, { readAt: '2026-11-08T09:07:00.000Z' })])
   })
 
   it('shares the reaction and click read until its optimistic overlay is published', async () => {

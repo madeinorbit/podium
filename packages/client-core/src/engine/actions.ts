@@ -303,6 +303,9 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
    * the session was one.
    */
   dismissLaunch?(sessionId: SessionId): boolean
+  /** Whether the session is only a start's paint: the server has no row for
+   *  it (yet), so its per-user row cannot be written (POD-6622). */
+  launchPainted?(sessionId: SessionId): boolean
   /** The person this store writes for: their per-user rows (read marks,
    *  snoozes, tucks) are generic edits of rows keyed by them (POD-6404). */
   readonly userId: UserId
@@ -601,6 +604,10 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     id: string,
     input: { readonly readAt?: string },
   ): Promise<void> => {
+    // A start still painted has no session on the server, so its read mark
+    // would be refused ("Couldn't save session read status", POD-6622). Its
+    // paint already reads as read; the real row's own visit marks it.
+    if (kind === 'session' && rt.launchPainted?.(id as SessionId) === true) return Promise.resolve()
     const key = `${kind}:${id}`
     const pending = pendingReads.get(key)
     const readAt = input.readAt

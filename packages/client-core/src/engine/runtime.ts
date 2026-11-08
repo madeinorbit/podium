@@ -186,6 +186,8 @@ export interface PoolWriter {
   waitForSpawnConfirmed?: (id: SessionId) => Promise<void>
   /** A failed draft start's Remove (POD-6408). */
   dismissLaunch?: (id: SessionId) => boolean
+  /** A start the pool paints, with no session row yet (POD-6622). */
+  launchPainted?: (id: SessionId) => boolean
   dispose?: () => void
   write<K extends keyof OutboxKinds & string>(kind: K, input: OutboxKinds[K]): Promise<void>
 }
@@ -1619,6 +1621,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       // and the outbox's own queued edits still raise it.
       sessionRevision: (sessionId) => this.replica.row?.('sessions', sessionId)?.revision,
       dismissLaunch: (sessionId) => this.poolWriter?.dismissLaunch?.(sessionId) ?? false,
+      launchPainted: (sessionId) => this.poolWriter?.launchPainted?.(sessionId) ?? false,
     })
   }
 

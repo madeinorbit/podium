@@ -119,6 +119,10 @@ export interface PoolTransactions {
   /** Take a failed or expired draft start off the feed (POD-6408): true when
    *  the session was one, so its Remove means Dismiss. */
   dismissLaunch(sessionId: SessionId): boolean
+  /** Whether the session is a start this log paints: no row under its id yet
+   *  (starting, or ended before one was made). A write to its row would be
+   *  refused, so the read marks hold off (POD-6622). */
+  launchPainted(sessionId: SessionId): boolean
   spawnIssueAgent: PoolLaunches['spawnIssueAgent']
   waitForSpawnConfirmed: PoolLaunches['waitForSpawnConfirmed']
   /** What the row source reads in `pooled` mode. */
@@ -643,7 +647,13 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
         // drops it, and its successor carries the value.
       })
       // After the rebase, never inside it (§4.8).
-      if (refusal !== null) announce(refusal)
+      if (refusal !== null) {
+        announce(refusal)
+        // A refused start's create made no record: its paint must end here,
+        // or it stays "starting" for ever (POD-6622).
+        const refused: PoolRejection = refusal
+        if (launchOwner !== null) runInAction(() => launchOwner.refused(refused))
+      }
     }),
     ports.addressed((batch) => {
       if (disposed) return
@@ -763,6 +773,7 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
       })
       return started
     },
+    launchPainted: (sessionId) => launchOwner?.owns(sessionId) ?? false,
     dismissLaunch: (sessionId) => {
       let dismissed = false
       runInAction(() => {
