@@ -444,8 +444,12 @@ fn updater_for_channel(
         .version_comparator(native_version_is_newer)
         .timeout(Duration::from_secs(5))
         .manifest_transform(|endpoint, raw| {
-            release_origins::bind_manifest(endpoint, raw)
-                .map_err(tauri_plugin_updater::Error::Network)
+            release_origins::bind_manifest(endpoint, raw).map_err(|message| {
+                tauri_plugin_updater::Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    message,
+                ))
+            })
         })
         .configure_client(|client| client.redirect(release_origins::redirect_policy()))
         .endpoints(endpoints)
@@ -1875,6 +1879,14 @@ mod tests {
 
     #[test]
     fn check_failures_map_to_distinct_codes_and_messages() {
+        let origin_refusal = tauri_plugin_updater::Error::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "artifact is served from outside the release feed",
+        ));
+        assert_eq!(
+            check_error(&origin_refusal, UpdateChannel::Stable).code,
+            UpdateErrorCode::UpdateCheckFailed
+        );
         assert_eq!(
             check_error(
                 &tauri_plugin_updater::Error::ReleaseNotFound,
