@@ -68,6 +68,7 @@ import { openKernelEngineOutbox } from '../../packages/client-core/src/engine/ke
 const FEED_TYPES = new Set(['feedDelta', 'feedRescope', 'feedResyncRequired'])
 const PER_USER_KINDS = new Set(['pin', 'tabOrder', 'userPreferences', 'userReadPosition'])
 const priorStateDir = process.env.PODIUM_STATE_DIR
+const priorMode = process.env.PODIUM_MODE
 
 const MEMBER = asUserId('usr_member_6673_e2e')
 
@@ -81,6 +82,8 @@ describe('POD-6673 · my per-user records on my other device (live server)', () 
   beforeAll(async () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-per-user-e2e-'))
     process.env.PODIUM_STATE_DIR = stateDir
+    // A configured server: an unconfigured one refuses clients until setup.
+    process.env.PODIUM_MODE = 'server'
     server = await startServer({ port: 0 })
     ME = await firstAdminMemberId(server.registry.sessionStore)
     await server.registry.sessionStore.users.createUnclaimed({
@@ -99,6 +102,8 @@ describe('POD-6673 · my per-user records on my other device (live server)', () 
     rmSync(stateDir, { recursive: true, force: true })
     if (priorStateDir === undefined) delete process.env.PODIUM_STATE_DIR
     else process.env.PODIUM_STATE_DIR = priorStateDir
+    if (priorMode === undefined) delete process.env.PODIUM_MODE
+    else process.env.PODIUM_MODE = priorMode
   })
 
   const until = async (pred: () => boolean, ms = 8000): Promise<void> => {
