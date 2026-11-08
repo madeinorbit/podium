@@ -1,5 +1,5 @@
 import type { FSWatcher, watch } from 'node:fs'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId } from '@podium/model'
@@ -32,7 +32,7 @@ async function fixture() {
     return { on: () => {}, close: () => closed.push(String(path)) } as unknown as FSWatcher
   }) as unknown as typeof watch
   const runGit = vi.fn(async (_root: string, args: string[]) => {
-    if (args[0] === 'check-ignore') return 'node_modules\n.meta\n'
+    if (args[0] === 'check-ignore') return 'node_modules\0.meta\0'
     if (args[1] === '--absolute-git-dir' || args[1] === '--git-common-dir') return metadata
     return ''
   })
@@ -111,4 +111,22 @@ it('the registry starts exactly one watcher per demanded checkout and stops on u
   expect(stop).toHaveBeenCalledTimes(2)
   watches.apply(topicKey('checkout.changed', checkoutTopicId(asMachineId('other'), '/repo')), true)
   expect(start).toHaveBeenCalledTimes(2)
+})
+
+it('a real spec file write signals an open listing without a client poll', async () => {
+  const f = await fixture()
+  let specs: string[] | undefined
+  const stop = watchCheckout(
+    f.root,
+    () => {
+      void readdir(f.root).then((names) => {
+        specs = names.filter((name) => name.endsWith('.html'))
+      })
+    },
+    { git: f.runGit },
+  )
+  stops.push(stop)
+  await vi.waitFor(() => expect(specs).toEqual([]))
+  await writeFile(join(f.root, 'SP-example.html'), '<h1>A spec</h1>')
+  await vi.waitFor(() => expect(specs).toEqual(['SP-example.html']), { timeout: 2500 })
 })

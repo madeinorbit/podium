@@ -193,7 +193,7 @@ export const WorktreeFileTree = observer(function WorktreeFileTree({
   useEffect(() => {
     const trimmed = query.trim()
     if (!trimmed) {
-      view.search.close()
+      view.clearSearch()
       setActiveSearchIndex(0)
       return
     }

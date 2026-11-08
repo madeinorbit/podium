@@ -39,6 +39,19 @@ export function topicRefresh<K extends TopicKind>(
   }
 }
 
+/** Prefer the server's explicit identity over compatibility component labels. */
+export function answerMachineId(
+  hub: Pick<SocketHub, 'machines'>,
+  requested?: MachineId,
+): MachineId | undefined {
+  if (requested) return requested
+  const machines = hub.machines()
+  return (
+    machines.find((machine) => machine.serverMoveEligibility?.reason === 'current-server') ??
+    machines.find((machine) => machine.components?.includes('server'))
+  )?.id
+}
+
 export function checkoutRefresh(
   hub: Pick<SocketHub, 'subscribeTopic' | 'machines' | 'on'>,
   machineId: MachineId | undefined,
@@ -49,15 +62,7 @@ export function checkoutRefresh(
     let release: (() => void) | undefined
     const bind = (): void => {
       // An omitted machine means the server host, never the first remote host.
-      const machine =
-        machineId ??
-        hub
-          .machines()
-          .find(
-            (m) =>
-              m.serverMoveEligibility?.reason === 'current-server' ||
-              m.components?.includes('server') === true,
-          )?.id
+      const machine = answerMachineId(hub, machineId)
       if (current === machine) return
       release?.()
       current = machine

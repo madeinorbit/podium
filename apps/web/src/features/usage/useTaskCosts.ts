@@ -7,8 +7,6 @@ import type { Trpc } from '@/app/trpc'
 import { useAnswerQuery } from '@/lib/use-answer-query'
 
 /** The open by-task answer follows turn ends and issue-stage changes in the pool. */
-export function resetTaskCostsCache(): void {} // Kept for existing test callers; answers have no cache.
-
 export interface TaskCostsFeed {
   /** Null only when this tab has never had an answer: the one cold state. */
   rows: TaskCostRowView[] | null

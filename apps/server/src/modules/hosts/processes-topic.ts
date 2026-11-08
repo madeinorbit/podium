@@ -8,7 +8,12 @@ import type { TopicProducer } from '../../gateway/topic-routing'
 export class MachineProcessesTopic implements TopicProducer {
   private readonly held = new Map<
     string,
-    { value?: TopicPayload<'machine.processes'>; reading: boolean; next?: HostMemoryBreakdown }
+    {
+      value?: TopicPayload<'machine.processes'>
+      reading: boolean
+      preparing?: boolean
+      next?: HostMemoryBreakdown
+    }
   >()
   constructor(
     private readonly deps: {
@@ -29,7 +34,7 @@ export class MachineProcessesTopic implements TopicProducer {
   }
   start(id: string): void {
     // Reattach resets demand, including an outstanding preparation from the old link.
-    const state = { reading: false }
+    const state = { reading: false, preparing: true }
     this.held.set(id, state)
     const machine = this.machineOf(id)
     void (async () => {
@@ -47,9 +52,13 @@ export class MachineProcessesTopic implements TopicProducer {
         const breakdown = await this.deps.fallback(machine)
         if (this.held.get(id) === state) this.receive(id, breakdown)
       }
-    })().catch((error) => {
-      if (this.held.get(id) === state) this.deps.onError?.(error)
-    })
+    })()
+      .catch((error) => {
+        if (this.held.get(id) === state) this.deps.onError?.(error)
+      })
+      .finally(() => {
+        state.preparing = false
+      })
   }
   unavailable(id: string): void {
     if (!this.held.has(id)) return
@@ -57,7 +66,9 @@ export class MachineProcessesTopic implements TopicProducer {
     this.deps.publish(id, undefined)
   }
   refresh(id: string): void {
-    if (!this.deps.supports(this.machineOf(id))) this.start(id)
+    const state = this.held.get(id)
+    if (state && !state.preparing && !state.reading && !this.deps.supports(this.machineOf(id)))
+      this.start(id)
   }
   stop(id: string): void {
     this.held.delete(id)

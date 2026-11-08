@@ -3,7 +3,7 @@ import { checkoutRefresh } from '@podium/client-graph/answer-refresh'
 import { GitView, type ReviewDiffAnswer } from '@podium/client-graph/git-view'
 import type { MachineId } from '@podium/model'
 import { memo, useEffect, useMemo, useState } from 'react'
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, AppState, StyleSheet, Text, View } from 'react-native'
 import { issueObserver as observer } from '../../client/issue-observer'
 import {
   type DiffRow,
@@ -32,7 +32,19 @@ export const GitReviewSection = observer(function GitReviewSection({
     hub,
     access: { gitStatus, readFileScoped, gitDiffFile },
   } = useStoreHandle()
-  const refreshSignal = useMemo(() => checkoutRefresh(hub, machineId, root), [hub, machineId, root])
+  const refreshSignal = useMemo(
+    () => (changed: () => void) => {
+      const stop = checkoutRefresh(hub, machineId, root)(changed)
+      const state = AppState.addEventListener('change', (next) => {
+        if (next === 'active') changed()
+      })
+      return () => {
+        stop()
+        state.remove()
+      }
+    },
+    [hub, machineId, root],
+  )
   const view = useMemo(
     () => new GitView(root, machineId, { gitStatus, readFileScoped, gitDiffFile, refreshSignal }),
     [root, machineId, gitStatus, readFileScoped, gitDiffFile, refreshSignal],

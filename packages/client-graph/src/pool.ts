@@ -1083,7 +1083,7 @@ export class MobxPool {
       if (event.type === 'update')
         for (const record of event.rows) {
           if (record.kind !== 'issue') continue
-          const previous = this.tables.issue.get(record.id)
+          const previous = this.tables.issue.get(record.id) as SliceIssue | undefined
           const current = record.value as SliceIssue | undefined
           if (previous && current && previous.stage !== current.stage) stages.push(record.id)
         }

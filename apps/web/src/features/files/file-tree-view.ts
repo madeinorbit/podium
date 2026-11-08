@@ -79,7 +79,7 @@ export class FileTreeView {
   @action toggleDir(dir: string): void {
     if (!this.expanded.delete(dir)) {
       this.expanded.add(dir)
-      if (this.children[dir] === undefined) void this.load(dir)
+      this.refreshes.refresh()
     }
   }
   @action refresh(): void {
@@ -88,7 +88,11 @@ export class FileTreeView {
     this.expanded.clear()
     this.loadingDirs.clear()
     this.error = null
-    void this.load(this.root)
+    this.refreshes.refresh()
+  }
+  @action clearSearch(): void {
+    this.query = ''
+    this.search.close()
   }
   searchFiles(query: string): Promise<void> {
     this.query = query

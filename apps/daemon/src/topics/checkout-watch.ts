@@ -29,6 +29,7 @@ export function watchCheckout(
   const watchDir = deps.watch ?? watch
   const watches = new Map<string, FSWatcher>()
   const scanning = new Set<string>()
+  const worktreeDirs = new Set<string>()
   let stopped = false
   let fallback: ReturnType<typeof setInterval> | undefined
   let pending: ReturnType<typeof setTimeout> | undefined
@@ -54,6 +55,7 @@ export function watchCheckout(
   const closeWatches = (): void => {
     for (const watcher of watches.values()) watcher.close()
     watches.clear()
+    worktreeDirs.clear()
   }
   const sample = async (): Promise<void> => {
     if (stopped || reading) return
@@ -119,6 +121,7 @@ export function watchCheckout(
           changed()
           // Renames can add/remove a subtree. A watched directory replaced by an
           // atomic rename must acquire a fresh inode watch as well.
+          if (dir === root && String(name) === '.gitignore') void tree(root, true)
           if (_event === 'rename') {
             if (name) {
               const child = join(dir, String(name))
@@ -126,6 +129,7 @@ export function watchCheckout(
                 if (path === child || path.startsWith(`${child}/`)) {
                   held.close()
                   watches.delete(path)
+                  worktreeDirs.delete(path)
                 }
             }
             void tree(dir, worktree)
@@ -133,9 +137,35 @@ export function watchCheckout(
         })
         watcher.on('error', fail)
         if (stopped || fallback) watcher.close()
-        else watches.set(dir, watcher)
+        else {
+          watches.set(dir, watcher)
+          if (worktree) worktreeDirs.add(dir)
+        }
       }
       const entries = await readdir(dir, { withFileTypes: true })
+      if (worktree && dir === root) {
+        const dirs = entries
+          .filter((entry) => entry.isDirectory() && entry.name !== '.git')
+          .map((entry) => entry.name)
+        try {
+          ignored = dirs.length
+            ? new Set(
+                (await runGit(root, ['check-ignore', '-z', '--', ...dirs]))
+                  .split('\0')
+                  .filter(Boolean),
+              )
+            : new Set()
+        } catch (error) {
+          if ((error as { code?: number }).code !== 1) throw error
+          ignored.clear()
+        }
+        for (const path of worktreeDirs)
+          if (excluded(path)) {
+            watches.get(path)?.close()
+            watches.delete(path)
+            worktreeDirs.delete(path)
+          }
+      }
       if (stopped || fallback) return
       for (const [path, watcher] of watches) {
         if (
@@ -162,18 +192,6 @@ export function watchCheckout(
   }
   const start = async (): Promise<void> => {
     try {
-      const dirs = (await readdir(root, { withFileTypes: true }))
-        .filter((e) => e.isDirectory() && e.name !== '.git')
-        .map((e) => e.name)
-      if (dirs.length) {
-        try {
-          ignored = new Set(
-            (await runGit(root, ['check-ignore', '--', ...dirs])).trim().split('\n'),
-          )
-        } catch (error) {
-          if ((error as { code?: number }).code !== 1) throw error
-        }
-      }
       const gitDir = (await runGit(root, ['rev-parse', '--absolute-git-dir'])).trim()
       const common = (await runGit(root, ['rev-parse', '--git-common-dir'])).trim()
       const commonDir = isAbsolute(common) ? common : resolve(root, common)

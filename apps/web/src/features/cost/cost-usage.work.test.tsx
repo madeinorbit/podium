@@ -4,13 +4,18 @@
  * Proxies count source array slots; no replacement pricing/projection logic. */
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider } from '@podium/client-core/react'
-import { createSubscriptionStore } from '@podium/client-core/test-support/local-store'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+import { createSubscriptionStore } from '@podium/client-core/test-support/local-store'
 import { taskCostRows } from '@podium/client-core/values'
 import {
-  asIssueId, asSessionId, asUserId,
-  type CostModelTotalWire, type SessionCostWire, type TaskCostRowWire,
-  type TaskCostWire, type UsageBucketWire,
+  asIssueId,
+  asSessionId,
+  asUserId,
+  type CostModelTotalWire,
+  type SessionCostWire,
+  type TaskCostRowWire,
+  type TaskCostWire,
+  type UsageBucketWire,
 } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
@@ -66,41 +71,77 @@ const NOW = Date.parse('2026-10-06T10:00:00Z')
 const ROOT = asIssueId('cost-work-root')
 function model(inputTokens = 1_000_000): CostModelTotalWire {
   return {
-    model: 'claude-opus-5', inputTokens, outputTokens: 0,
-    cacheReadTokens: 0, cacheCreationTokens: 0, cacheCreation1hTokens: 0, messages: 25,
+    model: 'claude-opus-5',
+    inputTokens,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+    cacheCreation1hTokens: 0,
+    messages: 25,
   }
 }
 function transcript(index: number): SessionCostWire {
   return {
-    sessionId: asSessionId(`cost-session-${index}`), title: `Session ${index}`,
-    harness: 'claude-code', running: false, models: [model()],
-    firstTsMs: NOW - 3_600_000, lastTsMs: NOW,
+    sessionId: asSessionId(`cost-session-${index}`),
+    title: `Session ${index}`,
+    harness: 'claude-code',
+    running: false,
+    models: [model()],
+    firstTsMs: NOW - 3_600_000,
+    lastTsMs: NOW,
   }
 }
 function wire(history: number): TaskCostWire {
   return {
-    issueId: ROOT, state: 'costed',
+    issueId: ROOT,
+    state: 'costed',
     own: { models: [model()], messages: 25, sessionCount: history },
     rollup: { models: [model(2_000_000)], messages: 50, sessionCount: history },
-    descendantCount: 4, provisional: false, floor: 'none',
-    harnesses: ['claude-code'], uncostedSessionCount: 0,
-    sessions: counted('hiddenTranscripts', Array.from({ length: history }, (_, i) => transcript(i))),
+    descendantCount: 4,
+    provisional: false,
+    floor: 'none',
+    harnesses: ['claude-code'],
+    uncostedSessionCount: 0,
+    sessions: counted(
+      'hiddenTranscripts',
+      Array.from({ length: history }, (_, i) => transcript(i)),
+    ),
   }
 }
 function taskRows(): TaskCostRowWire[] {
-  return counted('requestedTasks', Array.from({ length: 6 }, (_, i) => ({
-    issueId: asIssueId(`task-${i}`), seq: i + 1, title: `Task ${i}`, stage: 'closed',
-    models: [model()], windowModels: [model()], rollupModels: [model()],
-    messages: 25, windowMessages: 25, rollupMessages: 25, sessionCount: 1,
-    floor: 'none' as const, harnesses: ['claude-code' as const], uncostedSessionCount: 0,
-  })))
+  return counted(
+    'requestedTasks',
+    Array.from({ length: 6 }, (_, i) => ({
+      issueId: asIssueId(`task-${i}`),
+      seq: i + 1,
+      title: `Task ${i}`,
+      stage: 'closed',
+      models: [model()],
+      windowModels: [model()],
+      rollupModels: [model()],
+      messages: 25,
+      windowMessages: 25,
+      rollupMessages: 25,
+      sessionCount: 1,
+      floor: 'none' as const,
+      harnesses: ['claude-code' as const],
+      uncostedSessionCount: 0,
+    })),
+  )
 }
 function buckets(extra = 0): UsageBucketWire[] {
-  return counted('requestedBuckets', Array.from({ length: 24 + extra }, (_, i) => ({
-    hour: new Date(NOW - i * 3_600_000).toISOString(), model: 'claude-opus-5',
-    inputTokens: 1_000, outputTokens: 0, cacheReadTokens: 0,
-    cacheCreationTokens: 0, messages: 1,
-  })))
+  return counted(
+    'requestedBuckets',
+    Array.from({ length: 24 + extra }, (_, i) => ({
+      hour: new Date(NOW - i * 3_600_000).toISOString(),
+      model: 'claude-opus-5',
+      inputTokens: 1_000,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      messages: 1,
+    })),
+  )
 }
 function setup(history: number) {
   let cost = wire(history)
@@ -117,14 +158,25 @@ function setup(history: number) {
     quota: vi.fn(async () => []),
   }
   const trpc = {
-    cost: { task: { query: reads.task }, taskComparison: { query: reads.comparison }, tasks: { query: reads.tasks } },
-    usage: { summary: { query: reads.usage } }, quota: { history: { query: reads.quota } },
+    cost: {
+      task: { query: reads.task },
+      taskComparison: { query: reads.comparison },
+      tasks: { query: reads.tasks },
+    },
+    usage: { summary: { query: reads.usage } },
+    quota: { history: { query: reads.quota } },
   } as unknown as Trpc
   let snapshot = {
-    trpc, coarseNow: NOW,
-    sessions: counted('residentHistory', Array.from({ length: history }, (_, i) => ({
-      sessionId: asSessionId(`resident-${i}`), archived: true, lastActiveAt: '2026-01-01T00:00:00Z',
-    }))),
+    trpc,
+    coarseNow: NOW,
+    sessions: counted(
+      'residentHistory',
+      Array.from({ length: history }, (_, i) => ({
+        sessionId: asSessionId(`resident-${i}`),
+        archived: true,
+        lastActiveAt: '2026-01-01T00:00:00Z',
+      })),
+    ),
   }
   const owner = { start() {}, dispose() {}, destroy() {} }
   const store = createSubscriptionStore(snapshot, undefined, owner)
@@ -132,10 +184,16 @@ function setup(history: number) {
   fixture.handle = withKeyedInputs(Object.assign(owner, store, { subscribe }))
   function Wrapper({ children }: { children: ReactNode }) {
     return (
-      <StoreProvider principal={asClientPrincipal(asUserId('cost-work'))}
+      <StoreProvider
+        principal={asClientPrincipal(asUserId('cost-work'))}
         config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }}
-        api={trpc} networkEnabled={false} onFatalError={() => {}}
-        createReplicaFn={() => { throw new Error('fixture owns runtime') }}>
+        api={trpc}
+        networkEnabled={false}
+        onFatalError={() => {}}
+        createReplicaFn={() => {
+          throw new Error('fixture owns runtime')
+        }}
+      >
         {children}
       </StoreProvider>
     )
@@ -145,24 +203,38 @@ function setup(history: number) {
     store.publish(snapshot, new Set(['coarseNow']))
   }
   return {
-    trpc, reads, Wrapper, subscribe,
+    trpc,
+    reads,
+    Wrapper,
+    subscribe,
     heartbeat,
     sessionUpdate: () => {
       // Preparing the incoming snapshot is outside the reader measurement.
-      const next = { ...snapshot, sessions: counted('residentHistory', [...snapshot.sessions, {
-        sessionId: asSessionId('incoming-session'), archived: false,
-        lastActiveAt: new Date(NOW).toISOString(),
-      }]) }
+      const next = {
+        ...snapshot,
+        sessions: counted('residentHistory', [
+          ...snapshot.sessions,
+          {
+            sessionId: asSessionId('incoming-session'),
+            archived: false,
+            lastActiveAt: new Date(NOW).toISOString(),
+          },
+        ]),
+      }
       return () => {
         snapshot = next
         store.publish(snapshot, new Set(['sessions']))
       }
     },
     addTranscript: () => {
-      cost = { ...wire(history + 1),
-        rollup: { models: [model(3_000_000)], messages: 75, sessionCount: history + 1 } }
+      cost = {
+        ...wire(history + 1),
+        rollup: { models: [model(3_000_000)], messages: 75, sessionCount: history + 1 },
+      }
     },
-    addUsage: () => { usage = buckets(1) },
+    addUsage: () => {
+      usage = buckets(1)
+    },
   }
 }
 
@@ -172,7 +244,13 @@ for (const scale of [1, 4]) {
     vi.setSystemTime(NOW)
     const history = 80 * scale
     const report: Record<string, unknown> = { scale, history, visibleTasks: 6, visibleBuckets: 24 }
-    for (const surface of ['MissionCostChip', 'useMissionCost', 'useTaskCost', 'useTaskCosts', 'UsageView']) {
+    for (const surface of [
+      'MissionCostChip',
+      'useMissionCost',
+      'useTaskCost',
+      'useTaskCosts',
+      'UsageView',
+    ]) {
       resetUsageCache()
       resetPolledQueryCache()
       const ctx = setup(history)
@@ -183,19 +261,26 @@ for (const scale of [1, 4]) {
         } else if (surface === 'UsageView') {
           render(<UsageView onClose={() => {}} />, { wrapper: ctx.Wrapper })
         } else {
-          const hook = renderHook(() => surface === 'useMissionCost'
-            ? useMissionCost(ctx.trpc, ROOT, false)
-            : surface === 'useTaskCost'
-              ? useTaskCost(ctx.trpc, ROOT)
-              : useTaskCosts(ctx.trpc), { wrapper: ctx.Wrapper })
+          const hook =
+            surface === 'useMissionCost'
+              ? renderHook(() => useMissionCost(ctx.trpc, ROOT, false), { wrapper: ctx.Wrapper })
+              : surface === 'useTaskCost'
+                ? renderHook(() => useTaskCost(ctx.trpc, ROOT), { wrapper: ctx.Wrapper })
+                : renderHook(() => useTaskCosts(ctx.trpc), { wrapper: ctx.Wrapper })
           getValue = () => hook.result.current
         }
       })
       expect(mount.residentHistory ?? 0).toBe(0)
-      if (surface === 'MissionCostChip' || surface === 'useMissionCost' || surface === 'useTaskCost') {
+      if (
+        surface === 'MissionCostChip' ||
+        surface === 'useMissionCost' ||
+        surface === 'useTaskCost'
+      ) {
         // Task detail requests the sessions; the mission total and popover do not.
         expect(mount.hiddenTranscripts ?? 0).toBe(surface === 'useTaskCost' ? history : 0)
-        expect(surface === 'useTaskCost' ? ctx.reads.comparison : ctx.reads.task).toHaveBeenCalledTimes(1)
+        expect(
+          surface === 'useTaskCost' ? ctx.reads.comparison : ctx.reads.task,
+        ).toHaveBeenCalledTimes(1)
       }
       if (surface === 'MissionCostChip') {
         expect(screen.getByTestId('mission-cost-chip').textContent).toContain('$10')
@@ -208,9 +293,11 @@ for (const scale of [1, 4]) {
         expect(mount.requestedBuckets).toBe(24)
       }
       if (surface === 'useTaskCosts') {
-        expect(getValue()).toMatchObject({ rows: expect.arrayContaining([
-          expect.objectContaining({ estCostUsd: 5, rollupCostUsd: 5, windowCostUsd: 5 }),
-        ]) })
+        expect(getValue()).toMatchObject({
+          rows: expect.arrayContaining([
+            expect.objectContaining({ estCostUsd: 5, rollupCostUsd: 5, windowCostUsd: 5 }),
+          ]),
+        })
         expect(mount.requestedTasks).toBe(12)
       }
       expect(ctx.subscribe).not.toHaveBeenCalled()
@@ -225,14 +312,24 @@ for (const scale of [1, 4]) {
       expect(ctx.subscribe).not.toHaveBeenCalled()
       ctx.addTranscript()
       ctx.addUsage()
-      const refresh = await capture(() => { vi.advanceTimersByTime(90_000) })
-      if (surface === 'MissionCostChip' || surface === 'useMissionCost' || surface === 'useTaskCost')
+      const refresh = await capture(() => {
+        if (surface === 'UsageView') vi.advanceTimersByTime(90_000)
+        window.dispatchEvent(new Event('focus'))
+      })
+      if (
+        surface === 'MissionCostChip' ||
+        surface === 'useMissionCost' ||
+        surface === 'useTaskCost'
+      )
         expect(refresh.hiddenTranscripts ?? 0).toBe(surface === 'useTaskCost' ? history + 1 : 0)
       if (surface === 'useMissionCost' || surface === 'useTaskCost') {
-        expect(getValue()).toMatchObject({ view: {
-          own: { estCostUsd: 5 }, rollup: { estCostUsd: 15 },
-          ratePerReplyUsd: 0.2,
-        } })
+        expect(getValue()).toMatchObject({
+          view: {
+            own: { estCostUsd: 5 },
+            rollup: { estCostUsd: 15 },
+            ratePerReplyUsd: 0.2,
+          },
+        })
       }
       if (surface === 'UsageView') expect(refresh.requestedBuckets).toBe(25)
       if (surface === 'MissionCostChip') {
@@ -252,10 +349,19 @@ for (const scale of [1, 4]) {
     }
     // The standalone table is fed exactly the six rows it actually displays.
     const priced = taskCostRows(taskRows())
-    const feed = { rows: counted('requestedTaskViews', priced.rows), cohort: priced.cohort,
-      waiting: false, failed: false, retry: () => {} }
-    const tableMount = await capture(() => { render(<UsageTasks feed={feed} cold={false} />) })
-    const tableRanking = await capture(() => { fireEvent.click(screen.getByRole('button', { name: 'Rate' })) })
+    const feed = {
+      rows: counted('requestedTaskViews', priced.rows),
+      cohort: priced.cohort,
+      waiting: false,
+      failed: false,
+      retry: () => {},
+    }
+    const tableMount = await capture(() => {
+      render(<UsageTasks feed={feed} cold={false} />)
+    })
+    const tableRanking = await capture(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Rate' }))
+    })
     expect(document.querySelectorAll('.usage-tasks tbody tr')).toHaveLength(6)
     report.UsageTasks = { mount: tableMount, ranking: tableRanking }
     console.log('POD-5645 real-reader work', JSON.stringify(report))

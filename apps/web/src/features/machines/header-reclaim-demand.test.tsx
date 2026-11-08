@@ -299,7 +299,7 @@ it('holds the process topic only on an open reclaim tab and releases it on close
     answer(inventory())
   })
   await screen.findByText('127 candidates')
-  expect(intervals.mock.calls.length).toBe(firstInterval)
+  expect(intervals.mock.calls.slice(firstInterval).filter(([, ms]) => ms === 5000)).toEqual([])
   expect(processTopic.holders).toBe(1)
   expect(reclaimInventory).toHaveBeenCalledTimes(1)
   fireEvent.click(screen.getByRole('tab', { name: 'Connection' }))

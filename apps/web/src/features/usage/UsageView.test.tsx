@@ -3,7 +3,6 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { UsageView } from './UsageView'
 import { resetQuotaLedgerCache } from './useQuotaLedger'
-import { resetTaskCostsCache } from './useTaskCosts'
 import { PENDING_REVEAL_MS, resetUsageCache } from './useUsageFeed'
 
 /**
@@ -18,7 +17,7 @@ const summary = vi.hoisted(() => vi.fn())
 // a separate poll with its own cache, so it gets its own stub and its own reset.
 const history = vi.hoisted(() => vi.fn())
 // A THIRD source since POD-1861: the per-task cost rows behind "Where it went —
-// by task". Its own poll, its own cache, its own stub.
+// by task". This request answer refreshes on pool changes or focus.
 const tasks = vi.hoisted(() => vi.fn())
 // ONE runtime snapshot for the whole file. Handing the handle a fresh literal each
 // render would change `trpc`'s identity every pass and re-run the feed's effect
@@ -32,7 +31,11 @@ const store = vi.hoisted(() => ({
 }))
 
 vi.mock('@podium/client-core/react', () => ({
-  useStoreHandle: () => ({ get access() { return store } }),
+  useStoreHandle: () => ({
+    get access() {
+      return store
+    },
+  }),
 }))
 
 const bucket = (over: Partial<UsageBucketWire> = {}): UsageBucketWire => ({
@@ -61,7 +64,6 @@ const body = (): HTMLElement => screen.getByTestId('usage-sheet').querySelector(
 beforeEach(() => {
   resetUsageCache()
   resetQuotaLedgerCache()
-  resetTaskCostsCache()
   summary.mockReset()
   history.mockReset()
   tasks.mockReset()

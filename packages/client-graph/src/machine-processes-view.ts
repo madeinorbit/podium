@@ -2,7 +2,7 @@ import type { SocketHub, TopicState } from '@podium/client-core/socket-transport
 import type { MachineId } from '@podium/model'
 import type { TopicPayload } from '@podium/protocol'
 import { action, observableRef } from 'mobx'
-import { focusRefresh } from './answer-refresh'
+import { answerMachineId, focusRefresh } from './answer-refresh'
 
 export class MachineProcessesView {
   @observableRef accessor snapshot: {
@@ -26,15 +26,7 @@ export class MachineProcessesView {
     this.stopFocus = focusRefresh(() => this.refresh())
   }
   @action private bind(): void {
-    const id =
-      this.requested ??
-      this.hub
-        .machines()
-        .find(
-          (m) =>
-            m.serverMoveEligibility?.reason === 'current-server' ||
-            m.components?.includes('server'),
-        )?.id
+    const id = answerMachineId(this.hub, this.requested)
     if (this.machine === id && this.release) return
     this.release?.()
     this.machine = id
