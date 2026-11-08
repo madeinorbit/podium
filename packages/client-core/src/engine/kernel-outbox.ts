@@ -320,10 +320,9 @@ async function submitEnvelope(
 
 /**
  * What the Authority said to the attempt in flight, held until the kernel's
- * event for that attempt reports it (POD-4762). The kernel record deliberately
- * stores no Authority state, so the answer a chat bubble shows — "queued behind
- * this turn", or the server's own refusal wording — lives here, in memory, for
- * the few milliseconds between the reply and the commit that resolves it.
+ * event for that attempt reports it (POD-4762). The kernel stores only the
+ * normalized refusal reason; the raw cause and the answer a chat bubble shows
+ * ("queued behind this turn") live here until the commit resolves the attempt.
  */
 type Answers = Map<string, { readonly reply?: unknown; readonly cause?: unknown }>
 

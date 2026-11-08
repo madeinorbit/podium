@@ -1,5 +1,6 @@
 import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
+import { SyncSubmitRefusedError } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { deadLetterHandlingFor } from './engine/wiring'
 import {
@@ -7,6 +8,7 @@ import {
   type Outbox,
   type OutboxEntry,
   type OutboxStorage,
+  parseDeadLetterEntries,
   parseOutboxEntries,
   platformIsOnline,
   platformOnlineEvents,
@@ -461,6 +463,36 @@ describe('definitive refusals park for recovery instead of retrying forever', ()
   // definitive, so every other row here retried against a server guaranteed to
   // refuse it identically — a wedged partition, forever, with the user's work
   // invisible behind it.
+  it('persists the structured server message and paths through recovery serialization', async () => {
+    const message = 'Choose a machine before starting the task.'
+    const { ob, deadLetterRaw } = parkOn(
+      new SyncSubmitRefusedError('effects.create', {
+        kind: 'invalid',
+        message,
+        details: ['input.machineId'],
+      }),
+    )
+    ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'refused' })
+    await ob.drain()
+    expect(parseDeadLetterEntries(deadLetterRaw())[0]?.reason).toEqual({
+      code: 'invalid',
+      message,
+      details: ['input.machineId'],
+    })
+  })
+
+  it.each([
+    ['BAD_REQUEST', 'invalid'],
+    ['CONFLICT', 'conflict'],
+    ['PRECONDITION_FAILED', 'confirmation-required'],
+  ])('keeps an older route’s %s explanation in recovery', async (code, reason) => {
+    const message = 'Choose a machine before starting the task.'
+    const { ob, deadLetterRaw } = parkOn(Object.assign(new Error(message), { data: { code } }))
+    ob.enqueue('rename', { sessionId: asSessionId('s1'), name: 'refused' })
+    await ob.drain()
+    expect(parseDeadLetterEntries(deadLetterRaw())[0]?.reason).toEqual({ code: reason, message })
+  })
+
   it.each([
     [
       'UNAUTHORIZED (rights revoked while offline — D8/D16)',

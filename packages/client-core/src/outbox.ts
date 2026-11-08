@@ -235,6 +235,8 @@ export function classifyRefusal(err: unknown): AuthorityRefusal | undefined {
   // The kernel still blurs denied and missing targets in normalizeRefusal.
   if (err instanceof SyncSubmitRefusedError) return err.refusal
   const data = (err as { data?: { httpStatus?: number; code?: string } } | null)?.data
+  const message = (err as { message?: unknown } | null)?.message
+  const explanation = typeof message === 'string' && message.trim() ? { message } : {}
   const code = data?.code
   const status = data?.httpStatus
   if (code === 'UNAUTHORIZED' || code === 'FORBIDDEN' || status === 401 || status === 403) {
@@ -246,14 +248,14 @@ export function classifyRefusal(err: unknown): AuthorityRefusal | undefined {
     return { kind: 'unauthorized' }
   }
   if (code === 'NOT_FOUND' || status === 404) return { kind: 'target-not-found' }
-  if (code === 'CONFLICT' || status === 409) return { kind: 'conflict' }
+  if (code === 'CONFLICT' || status === 409) return { kind: 'conflict', ...explanation }
   if (code === 'PRECONDITION_FAILED' || status === 412) {
     // ADR 3 D2's out-of-scope path: `--outside-scope`/`overrideScope` failures
     // arrive as PRECONDITION_FAILED, and D8 outcome 3 names the recovery — a
     // durable confirmation on the envelope, not an edit and not a rebase.
-    return { kind: 'confirmation-required' }
+    return { kind: 'confirmation-required', ...explanation }
   }
-  if (isPoisonError(err)) return { kind: 'invalid' }
+  if (isPoisonError(err)) return { kind: 'invalid', ...explanation }
   return undefined
 }
 

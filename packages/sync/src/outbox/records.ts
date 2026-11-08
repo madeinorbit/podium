@@ -347,8 +347,9 @@ export interface OutboxRecord extends EnvelopeConfirmation {
  * Privacy (readiness §3.1.1, brief point 4): a dead-letter entry is personal
  * state belonging to the principal who authored it. It may be parked against an
  * entity its author can no longer see — the record still lets them recover their
- * own text, because everything in it is either their own input or a code, and
- * none of it is target content.
+ * own text, because it holds their input and a normalized reason. Handler
+ * explanations survive only after authorization; missing or hidden targets
+ * carry the same code without any target content.
  */
 export interface DeadLetterRecord {
   readonly mutationId: MutationId
