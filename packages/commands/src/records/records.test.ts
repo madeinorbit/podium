@@ -122,6 +122,7 @@ describe('the generated commands', () => {
       'records.userLayout.edit',
       'records.userLayout.remove',
       'records.userPreferences.edit',
+      'records.userReadPosition.edit',
     ])
   })
 

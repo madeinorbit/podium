@@ -105,15 +105,15 @@ const readPositionEdit = write('records.userReadPosition.edit', (_f, n) =>
 
 describe('statement counts of the per-user record writes', () => {
   it('a pin does not grow with the pins the table holds', async () => {
-    await expectConstantStatements(pinCreate, 9)
+    await expectConstantStatements(pinCreate, 10)
   })
 
   it('a tab order does not grow with the orders the table holds', async () => {
-    await expectConstantStatements(tabOrderEdit, 8)
+    await expectConstantStatements(tabOrderEdit, 9)
   })
 
   it('a preference edit does not grow with the preferences the table holds', async () => {
-    await expectConstantStatements(preferencesEdit, 14)
+    await expectConstantStatements(preferencesEdit, 15)
   })
 
   it('a read position edit does not grow with the positions the table holds', async () => {
@@ -121,7 +121,7 @@ describe('statement counts of the per-user record writes', () => {
   })
 
   it('is armed: a read per stored pin on the pin path fails it', async () => {
-    await expectArmed(pinCreate, 9, (f, size) => {
+    await expectArmed(pinCreate, 10, (f, size) => {
       const repo = f.o.store.sessions
       const original = repo.pinnedAt.bind(repo)
       repo.pinnedAt = async (user, kind, id) => {

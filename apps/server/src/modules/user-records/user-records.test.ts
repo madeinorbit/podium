@@ -211,7 +211,9 @@ describe('records.userPreferences', () => {
       ),
       { writes: true },
     )
-    expect(await o.store.settings.preferenceRecordFor(ME)).toEqual({
+    // The server may seed my superagent default meanwhile (its own leaves), so
+    // the leaves these edits wrote are matched, not the whole record.
+    expect(await o.store.settings.preferenceRecordFor(ME)).toMatchObject({
       userId: ME,
       'sidebar.repoSort': 'custom',
       'roles.coding.model': 'opus',
