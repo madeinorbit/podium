@@ -16,7 +16,9 @@ import {
   SessionDesired,
   type SessionId,
   SessionLifecycleFailure,
+  type PinWire,
   type SessionUserStateWire,
+  type TabOrderWire,
   type UserId,
 } from '@podium/model'
 import type { WriteScope } from '@podium/sync'
@@ -66,7 +68,6 @@ import type {
   OfferMap,
   OfferRecord,
   PinKind,
-  PinState,
   SessionDeletionSource,
   SessionLifecycleRow,
   SessionRow,
@@ -76,7 +77,17 @@ import type {
 import { NO_LIFECYCLE } from './types'
 import { WrittenColumns } from './written-columns'
 
-const PIN_KINDS = new Set<PinKind>(['panel', 'worktree', 'repo'])
+const PIN_KINDS = new Set<PinKind>(['panel', 'worktree', 'repo', 'issue'])
+
+/** A stored tab order's ids; a corrupt row reads as no saved order. */
+function parseTabIds(raw: string): string[] | undefined {
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : undefined
+  } catch {
+    return undefined
+  }
+}
 
 /** RETAINED EXTERNAL-INPUT BRAND CASTS: compatibility helpers accept and trim
  * raw session ids before queries or writes. Selected session ids flow from the
@@ -862,15 +873,6 @@ const deleteOfferOf = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const pinsOfUser = prepared((db: StoreDrizzle) =>
-  db
-    .select({ kind: pinsTable.kind, id: pinsTable.id })
-    .from(pinsTable)
-    .where(eq(pinsTable.userId, param(pinsTable.userId, 'userId')))
-    .orderBy(asc(sql`rowid`))
-    .prepare(),
-)
-
 const insertPin = prepared((db: StoreDrizzle) =>
   db
     .insert(pinsTable)
@@ -884,16 +886,31 @@ const insertPin = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
+const onePin = () =>
+  and(
+    eq(pinsTable.userId, param(pinsTable.userId, 'userId')),
+    eq(pinsTable.kind, param(pinsTable.kind, 'kind')),
+    eq(pinsTable.id, param(pinsTable.id, 'id')),
+  )
+
 const deletePin = prepared((db: StoreDrizzle) =>
+  db.delete(pinsTable).where(onePin()).prepare(),
+)
+
+const pinOf = prepared((db: StoreDrizzle) =>
+  db.select({ pinnedAt: pinsTable.pinnedAt }).from(pinsTable).where(onePin()).prepare(),
+)
+
+// Every person's pins: the `pin` kind's full truth for the boot reconcile.
+const allPins = prepared((db: StoreDrizzle) =>
   db
-    .delete(pinsTable)
-    .where(
-      and(
-        eq(pinsTable.userId, param(pinsTable.userId, 'userId')),
-        eq(pinsTable.kind, param(pinsTable.kind, 'kind')),
-        eq(pinsTable.id, param(pinsTable.id, 'id')),
-      ),
-    )
+    .select({
+      userId: pinsTable.userId,
+      kind: pinsTable.kind,
+      id: pinsTable.id,
+      pinnedAt: pinsTable.pinnedAt,
+    })
+    .from(pinsTable)
     .prepare(),
 )
 
@@ -1100,11 +1117,16 @@ const offerCreatedAtOf = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const tabOrdersOfUser = prepared((db: StoreDrizzle) =>
+const tabOrderOf = prepared((db: StoreDrizzle) =>
   db
-    .select({ worktree: tabOrder.worktree, ids: tabOrder.ids })
+    .select({ ids: tabOrder.ids })
     .from(tabOrder)
-    .where(eq(tabOrder.userId, param(tabOrder.userId, 'userId')))
+    .where(
+      and(
+        eq(tabOrder.userId, param(tabOrder.userId, 'userId')),
+        eq(tabOrder.worktree, param(tabOrder.worktree, 'worktree')),
+      ),
+    )
     .prepare(),
 )
 
@@ -1773,49 +1795,41 @@ export class SessionsRepository {
   // caller must say whose state it is touching. Server-internal paths that have no
   // principal pass SOLE_USER_ID explicitly, which makes them greppable for
   // POD-1077 (the scoped feed that finally makes the broadcast per-principal).
-  async listPins(userId: UserId): Promise<PinState> {
-    const rows = await pinsOfUser(this.db).all({ userId })
-    const pins: PinState = { panels: [], worktrees: [], repos: [] }
-    for (const row of rows) {
-      if (row.kind === 'panel') pins.panels.push(row.id)
-      else if (row.kind === 'worktree') pins.worktrees.push(row.id)
-      else if (row.kind === 'repo') pins.repos.push(row.id)
-    }
-    return pins
+  /** One pin's `pinnedAt`, or undefined when the thing is not pinned. */
+  async pinnedAt(userId: UserId, kind: PinKind, id: string): Promise<string | undefined> {
+    return (await pinOf(this.db).get({ userId, kind, id }))?.pinnedAt
   }
 
-  async setPin(userId: UserId, kind: PinKind, id: string, pinned: boolean): Promise<void> {
+  /**
+   * Pin one thing for one person; pinning what is pinned keeps the first pin.
+   * Answers the stored row, for the `pin` change it publishes (POD-6673).
+   */
+  async addPin(userId: UserId, kind: PinKind, id: string, at: string): Promise<PinWire> {
     if (!PIN_KINDS.has(kind)) throw new Error(`invalid pin kind: ${kind}`)
     requireUserId(userId)
-    const cleanId = id.trim()
-    if (!cleanId) throw new Error('pin id is empty')
-    if (pinned) {
-      // `INSERT OR IGNORE` CONVERTS HERE, and the enumeration is why (spec rule
-      // 31, POD-3403). The two forms differ in general: `OR IGNORE` suppresses
-      // UNIQUE, PRIMARY KEY, NOT NULL and CHECK, while `onConflictDoNothing`
-      // suppresses uniqueness conflicts only. (Neither suppresses FOREIGN KEY,
-      // so foreign keys are not part of this comparison.) They are therefore
-      // equivalent at a site exactly when no NOT NULL and no CHECK violation is
-      // reachable — and at this one, neither is:
-      //
-      //   CHECK       none. `PRAGMA index_list(pins)` on the SHIPPED table
-      //               returns one index, `sqlite_autoindex_pins_1`, unique,
-      //               origin `pk`; the table SQL carries no CHECK clause.
-      //   NOT NULL    all four columns are notnull=1 with no default, and every
-      //               one is refused above before this line is reached:
-      //               `user_id` by `requireUserId` (throws on blank), `kind` by
-      //               the `PIN_KINDS` membership throw, `id` by the empty-string
-      //               throw on the trimmed value, and `pinned_at` is a freshly
-      //               built ISO string.
-      await insertPin(this.db).run({
-        userId,
-        kind,
-        id: cleanId,
-        pinnedAt: new Date().toISOString(),
-      })
-    } else {
-      await deletePin(this.db).run({ userId, kind, id: cleanId })
-    }
+    if (!id.trim()) throw new Error('pin id is empty')
+    // `onConflictDoNothing` is `INSERT OR IGNORE` here: the four columns are
+    // NOT NULL and each is refused above when blank; the table has no CHECK
+    // (POD-3403, spec rule 31).
+    await insertPin(this.db).run({ userId, kind, id, pinnedAt: at })
+    const pinnedAt = (await this.pinnedAt(userId, kind, id)) ?? at
+    return { userId, kind, entityId: id, pinnedAt }
+  }
+
+  /** Unpin it. Answers whether there was a pin to remove. */
+  async removePin(userId: UserId, kind: PinKind, id: string): Promise<boolean> {
+    const result = await deletePin(this.db).run({ userId, kind, id })
+    return Number(result.changes) > 0
+  }
+
+  /** Every person's pins, as the `pin` kind's boot reconcile publishes them. */
+  async allPinsForBootReconcile(): Promise<PinWire[]> {
+    const rows = await allPins(this.db).all()
+    return rows.flatMap((row) =>
+      PIN_KINDS.has(row.kind as PinKind)
+        ? [{ userId: row.userId, kind: row.kind as PinKind, entityId: row.id, pinnedAt: row.pinnedAt }]
+        : [],
+    )
   }
 
   // ---- per-user session read state (POD-1076) ----
@@ -2078,19 +2092,23 @@ export class SessionsRepository {
   }
 
   // ---- tab order ----
-  /** Manual tab order per worktree path. Worktrees never reordered are absent. */
-  async listTabOrders(userId: UserId): Promise<Record<string, string[]>> {
-    const rows = await tabOrdersOfUser(this.db).all({ userId })
-    const out: Record<string, string[]> = {}
-    for (const row of rows) {
-      try {
-        const parsed = JSON.parse(row.ids)
-        if (Array.isArray(parsed)) out[row.worktree] = parsed.filter((x) => typeof x === 'string')
-      } catch {
-        // corrupt row -> treat as no saved order
-      }
-    }
-    return out
+  /** One worktree's manual order, or undefined when it was never reordered. */
+  async tabOrder(userId: UserId, worktree: string): Promise<string[] | undefined> {
+    const row = await tabOrderOf(this.db).get({ userId, worktree })
+    return row === undefined ? undefined : parseTabIds(row.ids)
+  }
+
+  /** Every person's tab orders, as the `tabOrder` kind's boot reconcile
+   *  publishes them. */
+  async allTabOrdersForBootReconcile(): Promise<TabOrderWire[]> {
+    // Three columns, named: see `allTabOrders`.
+    const rows = await allTabOrders(this.db).all()
+    return rows.flatMap((row) => {
+      const sessionIds = parseTabIds(row.ids)
+      return sessionIds === undefined || sessionIds.length === 0
+        ? []
+        : [{ userId: row.userId, entityId: row.worktree, sessionIds }]
+    })
   }
 
   async setTabOrder(userId: UserId, worktree: string, sessionIds: string[]): Promise<void> {
@@ -2117,15 +2135,8 @@ export class SessionsRepository {
     // Three columns, named: see `allTabOrders`.
     const rows = await allTabOrders(this.db).all()
     for (const row of rows) {
-      let ids: string[]
-      try {
-        const parsed = JSON.parse(row.ids)
-        if (!Array.isArray(parsed)) continue
-        ids = parsed.filter((x): x is string => typeof x === 'string')
-      } catch {
-        continue // corrupt row -> nothing to scrub
-      }
-      if (!ids.includes(sessionId)) continue
+      const ids = parseTabIds(row.ids)
+      if (ids === undefined || !ids.includes(sessionId)) continue
       await this.setTabOrder(
         row.userId,
         row.worktree,

@@ -488,11 +488,14 @@ export {
 export {
   ISSUE_RECORD,
   ISSUE_USER_STATE_RECORD,
+  PIN_RECORD,
   NOT_YET_GENERIC,
   SESSION_RECORD,
   SESSION_USER_STATE_RECORD,
   SYNCED_KINDS,
+  TAB_ORDER_RECORD,
   USER_LAYOUT_RECORD,
+  USER_PREFERENCES_RECORD,
 } from './records/kinds'
 export {
   applyRedaction,
@@ -542,8 +545,6 @@ export {
   settingsTelegramSetupStartInput,
   settingsUpdateInstanceContract,
   settingsUpdateInstanceInput,
-  settingsUpdatePersonalContract,
-  settingsUpdatePersonalInput,
   TIER_COMMAND,
   WRITABLE_PREFERENCE_PATHS,
 } from './settings/contracts'

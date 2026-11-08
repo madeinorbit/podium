@@ -18,6 +18,30 @@ import { deriveRepoId } from './repo-id'
 import type { SessionRow } from './store'
 import { openTestStore } from './test-support/open-test-store'
 
+/** One person's pins by kind, read the way the boot reconcile reads them. */
+async function pinsOf(
+  repo: { allPinsForBootReconcile(): Promise<{ userId: string; kind: string; entityId: string }[]> },
+  userId: string,
+): Promise<{ panels: string[]; worktrees: string[]; repos: string[] }> {
+  const pins = (await repo.allPinsForBootReconcile()).filter((p) => p.userId === userId)
+  const of = (kind: string) => pins.filter((p) => p.kind === kind).map((p) => p.entityId)
+  return { panels: of('panel'), worktrees: of('worktree'), repos: of('repo') }
+}
+
+/** One person's tab orders by worktree, read the way the boot reconcile reads them. */
+async function tabOrdersOf(
+  repo: {
+    allTabOrdersForBootReconcile(): Promise<{ userId: string; entityId: string; sessionIds: string[] }[]>
+  },
+  userId: string,
+): Promise<Record<string, string[]>> {
+  const out: Record<string, string[]> = {}
+  for (const o of await repo.allTabOrdersForBootReconcile()) {
+    if (o.userId === userId) out[o.entityId] = o.sessionIds
+  }
+  return out
+}
+
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
 // tests finish, so a suite run leaves nothing behind in tmp.
 const tmpDirs: string[] = []
@@ -462,7 +486,7 @@ describe('SessionStore sessions', () => {
       fixtureWriteScope(),
       row({ issueId: asIssueId('iss_1'), status: 'live' }),
     )
-    await store.sessions.setPin(firstAdminMemberId(), 'panel', 'id-1', true)
+    await store.sessions.addPin(firstAdminMemberId(), 'panel', 'id-1', '2026-11-08T00:00:00.000Z')
     await store.sessions.setDraft(asSessionId('id-1'), 'recoverable input')
     await store.sessions.setSnooze(
       fixtureWriteScope(),
@@ -486,10 +510,10 @@ describe('SessionStore sessions', () => {
       }),
     ])
     expect(await store.sessions.loadDeletedSessionsForIssue(asIssueId('iss_1'))).toEqual([])
-    expect((await store.sessions.listPins(firstAdminMemberId())).panels).toEqual(['id-1'])
+    expect((await pinsOf(store.sessions, firstAdminMemberId())).panels).toEqual(['id-1'])
     expect(await store.sessions.loadDrafts()).toEqual({ 'id-1': 'recoverable input' })
     expect(await store.sessions.listSnoozes(firstAdminMemberId())).toEqual({ 'id-1': null })
-    expect(await store.sessions.listTabOrders(firstAdminMemberId())).toEqual({
+    expect(await tabOrdersOf(store.sessions, firstAdminMemberId())).toEqual({
       '/proj': ['id-1'],
     })
 
@@ -745,26 +769,26 @@ describe('SessionStore drafts', () => {
 describe('SessionStore pins', () => {
   it('starts empty, adds, dedupes, lists by kind in insertion order, and removes', async () => {
     const store = await openTestStore(':memory:')
-    expect(await store.sessions.listPins(firstAdminMemberId())).toEqual({
+    expect(await pinsOf(store.sessions, firstAdminMemberId())).toEqual({
       panels: [],
       worktrees: [],
       repos: [],
     })
 
-    await store.sessions.setPin(firstAdminMemberId(), 'repo', '/repo/b', true)
-    await store.sessions.setPin(firstAdminMemberId(), 'worktree', '/repo/b-feature', true)
-    await store.sessions.setPin(firstAdminMemberId(), 'panel', 'session-2', true)
-    await store.sessions.setPin(firstAdminMemberId(), 'repo', '/repo/a', true)
-    await store.sessions.setPin(firstAdminMemberId(), 'repo', '/repo/b', true)
+    await store.sessions.addPin(firstAdminMemberId(), 'repo', '/repo/b', '2026-11-08T00:00:00.000Z')
+    await store.sessions.addPin(firstAdminMemberId(), 'worktree', '/repo/b-feature', '2026-11-08T00:00:00.000Z')
+    await store.sessions.addPin(firstAdminMemberId(), 'panel', 'session-2', '2026-11-08T00:00:00.000Z')
+    await store.sessions.addPin(firstAdminMemberId(), 'repo', '/repo/a', '2026-11-08T00:00:00.000Z')
+    await store.sessions.addPin(firstAdminMemberId(), 'repo', '/repo/b', '2026-11-08T00:00:00.000Z')
 
-    expect(await store.sessions.listPins(firstAdminMemberId())).toEqual({
+    expect(await pinsOf(store.sessions, firstAdminMemberId())).toEqual({
       panels: ['session-2'],
       worktrees: ['/repo/b-feature'],
       repos: ['/repo/b', '/repo/a'],
     })
 
-    await store.sessions.setPin(firstAdminMemberId(), 'repo', '/repo/b', false)
-    expect(await store.sessions.listPins(firstAdminMemberId())).toEqual({
+    await store.sessions.removePin(firstAdminMemberId(), 'repo', '/repo/b')
+    expect(await pinsOf(store.sessions, firstAdminMemberId())).toEqual({
       panels: ['session-2'],
       worktrees: ['/repo/b-feature'],
       repos: ['/repo/a'],
@@ -775,11 +799,11 @@ describe('SessionStore pins', () => {
   it('removes a panel pin when the session is deleted', async () => {
     const store = await openTestStore(':memory:')
     await store.sessions.upsertSession(fixtureWriteScope(), row({ id: asSessionId('session-1') }))
-    await store.sessions.setPin(firstAdminMemberId(), 'panel', 'session-1', true)
+    await store.sessions.addPin(firstAdminMemberId(), 'panel', 'session-1', '2026-11-08T00:00:00.000Z')
 
     await store.sessions.purgeSession(fixtureWriteScope(), asSessionId('session-1'))
 
-    expect(await store.sessions.listPins(firstAdminMemberId())).toEqual({
+    expect(await pinsOf(store.sessions, firstAdminMemberId())).toEqual({
       panels: [],
       worktrees: [],
       repos: [],
@@ -913,18 +937,18 @@ describe('SessionStore offers', () => {
 describe('SessionStore tab order', () => {
   it('starts empty, upserts per worktree, and clears on an empty list', async () => {
     const store = await openTestStore(':memory:')
-    expect(await store.sessions.listTabOrders(firstAdminMemberId())).toEqual({})
+    expect(await tabOrdersOf(store.sessions, firstAdminMemberId())).toEqual({})
 
     await store.sessions.setTabOrder(firstAdminMemberId(), '/repo/a', ['s1', 's2'])
     await store.sessions.setTabOrder(firstAdminMemberId(), '/repo/b', ['s9'])
     await store.sessions.setTabOrder(firstAdminMemberId(), '/repo/a', ['s2', 's1'])
-    expect(await store.sessions.listTabOrders(firstAdminMemberId())).toEqual({
+    expect(await tabOrdersOf(store.sessions, firstAdminMemberId())).toEqual({
       '/repo/a': ['s2', 's1'],
       '/repo/b': ['s9'],
     })
 
     await store.sessions.setTabOrder(firstAdminMemberId(), '/repo/b', [])
-    expect(await store.sessions.listTabOrders(firstAdminMemberId())).toEqual({
+    expect(await tabOrdersOf(store.sessions, firstAdminMemberId())).toEqual({
       '/repo/a': ['s2', 's1'],
     })
     await store.close()
@@ -944,7 +968,7 @@ describe('SessionStore tab order', () => {
     await a.sessions.setTabOrder(firstAdminMemberId(), '/repo/a', ['s2', 's1'])
     await a.close()
     const b = await openTestStore(file)
-    expect(await b.sessions.listTabOrders(firstAdminMemberId())).toEqual({
+    expect(await tabOrdersOf(b.sessions, firstAdminMemberId())).toEqual({
       '/repo/a': ['s2', 's1'],
     })
     await b.close()
@@ -958,7 +982,7 @@ describe('SessionStore tab order', () => {
 
     await store.sessions.purgeSession(fixtureWriteScope(), asSessionId('s1'))
 
-    expect(await store.sessions.listTabOrders(firstAdminMemberId())).toEqual({
+    expect(await tabOrdersOf(store.sessions, firstAdminMemberId())).toEqual({
       '/repo/a': ['s2'],
     })
     await store.close()

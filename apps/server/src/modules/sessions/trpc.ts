@@ -77,7 +77,7 @@ import {
 
 import { TRPCError, type TRPCMutationProcedure } from '@trpc/server'
 import type { z } from 'zod'
-import type { PinState, SnoozeMap } from '../../store/types'
+import type { SnoozeMap } from '../../store/types'
 import { familyState } from '../derived-family'
 import { plainRoute } from '../write-routes/plain'
 import { syncRoute } from '../write-routes/sync'
@@ -126,8 +126,6 @@ const TRPC_SESSION_STATE_NAMES = [
   'sessions.markUnread',
   'snoozes.set',
   'snoozes.clear',
-  'pins.set',
-  'tabs.setOrder',
 ] as const satisfies readonly SessionStateName[]
 
 type TrpcSessionStateName = (typeof TRPC_SESSION_STATE_NAMES)[number]
@@ -162,8 +160,6 @@ interface SessionStateOutputs extends Record<SessionStateName, unknown> {
   'sessions.setDraft': void
   'snoozes.set': SnoozeMap
   'snoozes.clear': SnoozeMap
-  'pins.set': PinState
-  'tabs.setOrder': Record<string, string[]>
 }
 
 type SessionStateProcedure<N extends SessionStateName> = TRPCMutationProcedure<{
@@ -424,7 +420,7 @@ export type SessionSurfaceSource =
 export interface SessionSurfaceEntry {
   /** Dotted wire name (`sessions.rename`). */
   name: string
-  /** tRPC router this procedure lives on (`sessions` · `pins` · `snoozes` · `tabs`). */
+  /** tRPC router this procedure lives on (`sessions` · `snoozes`). */
   router: string
   /** Procedure key within that router. */
   key: string
@@ -523,7 +519,7 @@ export function sessionSurfaceManifest(): SessionSurfaceEntry[] {
 /**
  * THE DERIVED PROCEDURES, grouped by the router they belong on.
  *
- * `router.ts` spreads these into its `sessions` / `pins` / `snoozes` / `tabs`
+ * `router.ts` spreads these into its `sessions` / `snoozes`
  * routers alongside the family's QUERIES. The reads are deliberately NOT derived
  * here: they have no contracts yet, that is POD-311's remaining work, and this
  * issue's claim is about mutations. What matters is that a read cannot hide a write
@@ -531,15 +527,11 @@ export function sessionSurfaceManifest(): SessionSurfaceEntry[] {
  */
 export function sessionFamilyProcedures(): {
   sessions: PlaneProcedures & SessionStateProceduresOn<'sessions'> & { handoff: HandoffProcedure }
-  pins: SessionStateProceduresOn<'pins'>
   snoozes: SessionStateProceduresOn<'snoozes'>
-  tabs: SessionStateProceduresOn<'tabs'>
 } {
   const grouped: Record<string, Record<string, unknown>> = {
     sessions: {},
-    pins: {},
     snoozes: {},
-    tabs: {},
   }
   for (const entry of sessionSurfaceManifest()) {
     // `mail` entries are built by the mail family's own derivation in router.ts —

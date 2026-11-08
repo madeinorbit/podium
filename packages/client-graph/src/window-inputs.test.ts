@@ -100,10 +100,8 @@ describe('declared window input readers', () => {
       paletteOpen: false,
       autoContinuePromptSessionId: null,
       fileTabs: [],
-      pins: ['one'] as never,
       openIssueId: 'other-issue' as never,
       recentFiles: [{ path: 'one' }] as never,
-      sidebarSettings: { showClosed: true } as never,
     }
     const sources = [
       {

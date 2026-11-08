@@ -11,8 +11,8 @@ const api = vi.hoisted(() => ({ issues: {
 } }))
 // The spawn is the task's effect record (POD-6526): begin or add, never the routes.
 const startIssueSession = vi.hoisted(() => vi.fn((_args: unknown) => ({ settled: Promise.resolve(true) })))
-const settings = vi.hoisted(() => ({ model: { codingHarness: 'codex' } }))
-vi.mock('../client/use-settings-record', () => ({ useSettingsRecord: () => settings }))
+// My coding default is my synced settings record (POD-6673).
+vi.mock('../client/my-preferences', () => ({ useMyCodingHarness: () => 'codex' }))
 vi.mock('../client/hooks', () => ({ useTrpc: () => api, useStoreActions: () => ({ startIssueSession }) }))
 vi.mock('./BottomSheet', () => ({ BottomSheet: ({ children, footer, visible }: { children: ReactNode; footer: ReactNode; visible: boolean }) =>
   visible ? createElement('div', null, children, footer) : null }))

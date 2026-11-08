@@ -45,14 +45,6 @@ describe('isInitialConnectivityError', () => {
 /** One representative input per queued kind, so the table below can be walked
  *  exhaustively rather than sampled. */
 const SAMPLE: { [K in keyof OutboxKinds]: OutboxKinds[K] } = {
-  pinSet: { kind: 'panel', id: 's-1', pinned: true } as OutboxKinds['pinSet'],
-  tabSetOrder: {
-    worktree: '/repo/wt-a',
-    sessionIds: [asSessionId('s-1')],
-  } as OutboxKinds['tabSetOrder'],
-  settingsUpdatePersonal: {
-    values: { theme: 'dark' },
-  } as OutboxKinds['settingsUpdatePersonal'],
   sendText: { sessionId: asSessionId('s-1'), text: 'hello' } as OutboxKinds['sendText'],
   resumeAndSend: { sessionId: asSessionId('s-1'), text: 'hello' } as OutboxKinds['resumeAndSend'],
   dismissOffer: {
@@ -190,21 +182,6 @@ describe('POD-785 — outbox routing keys every write by its target', () => {
     )
   })
 
-  it('keys per-worktree tab order by its worktree, not globally', () => {
-    // The input names ONE worktree's order. A global `tabs` partition would have
-    // serialised every worktree's tab writes against one another for no reason.
-    const a = route('tabSetOrder', {
-      worktree: '/repo/wt-a',
-      sessionIds: [asSessionId('s-1')],
-    } as OutboxKinds['tabSetOrder'])
-    const b = route('tabSetOrder', {
-      worktree: '/repo/wt-b',
-      sessionIds: [asSessionId('s-2')],
-    } as OutboxKinds['tabSetOrder'])
-    expect(a.partitionKey).not.toBe(b.partitionKey)
-    expect(a.collapseKey).not.toBe(b.collapseKey)
-  })
-
   it('keeps writes to the SAME row in one partition, preserving their order', () => {
     // This is what the legacy `chained` flag tracked: two edits of one row must
     // not be able to reorder.
@@ -235,9 +212,6 @@ describe('POD-785 — only writes a later one subsumes may collapse', () => {
     expect(route('resumeAndSend', SAMPLE.resumeAndSend).collapseKey).toBeUndefined()
     // Partial patches — a later one carries only the keys it touches, so it does
     // NOT subsume an earlier one. Collapsing these would drop fields silently.
-    expect(
-      route('settingsUpdatePersonal', SAMPLE.settingsUpdatePersonal).collapseKey,
-    ).toBeUndefined()
     // POD-781: `issues.update` is the same shape of partial patch — a rename and
     // a priority change on one issue are two different keys, and collapsing them on the
     // issue id would silently drop the rename.

@@ -10,6 +10,7 @@ import { attachHeaderSource } from '@podium/client-graph/header-source'
 import { attachIssuePageSource } from '@podium/client-graph/issue-page-source'
 import { omitGone } from '@podium/client-graph/lookup'
 import { createMobileSessionSource } from '@podium/client-graph/mobile-session-context'
+import { pinnedIds } from '@podium/client-graph/per-user-records'
 import { PreferenceSource } from '@podium/client-graph/preference-source'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
@@ -143,10 +144,8 @@ export async function inputMechanisms(scale: 1 | 4) {
     const row = omitGone(f.pool.row('commandWindow', 'window'))
     return row && row !== LOADING ? row.paneA : row
   })
-  watch('command.pins', () => {
-    const row = omitGone(f.pool.row('commandWindow', 'window'))
-    return row && row !== LOADING ? row.pins : row
-  })
+  // My pins are synced records since POD-6673, read off the pool's pin rows.
+  watch('command.pins', () => pinnedIds(f.pool, 'repo'))
   watch('mobile.cursor', () => {
     const row = omitGone(f.pool.row('mobileSessionWindow', 'window'))
     // Typed field access, never a quoted field check: the replica cursor's
@@ -188,7 +187,25 @@ export async function inputMechanisms(scale: 1 | 4) {
   const header = await capture('outbox enqueue', () =>
     f.pool.live?.setOutbox({ pending: 1, deadLetters: [] }),
   )
-  const commands = await capture('pin click', () => change({ pins: ['one'] as never }))
+  // A pin click lands as my pin record (POD-6673).
+  const commands = await capture('pin click', () =>
+    f.pool.apply({
+      type: 'update',
+      rows: [
+        {
+          kind: 'pin',
+          id: 'pin-one',
+          value: {
+            id: 'pin-one',
+            userId: 'operator',
+            kind: 'repo',
+            entityId: 'one',
+            pinnedAt: 't',
+          } as never,
+        },
+      ],
+    }),
+  )
   const sessions = await capture('cursor tick', () => fixture.cursor(1))
   const repo = await capture('lane branch change', () =>
     f.pool.apply({

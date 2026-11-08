@@ -213,18 +213,8 @@ export const SYNC_QUERIES = {
 
 const noInput = z.object({}).passthrough().optional()
 
-/** PER-USER STATE (POD-380): each list is the CALLER's, not the instance's. */
-export const PIN_QUERIES = {
-  list: q(noInput, async (s) => await s.modules.sessions.state.listPins(s.caller.sessionState)),
-} as const
-
+/** PER-USER STATE (POD-380): the CALLER's, not the instance's. Pins and tab
+ *  orders are synced records since POD-6673 and have no request. */
 export const SNOOZE_QUERIES = {
   list: q(noInput, async (s) => await s.modules.sessions.state.listSnoozes(s.caller.sessionState)),
-} as const
-
-export const TAB_QUERIES = {
-  listOrders: q(
-    noInput,
-    async (s) => await s.modules.sessions.state.listTabOrders(s.caller.sessionState),
-  ),
 } as const

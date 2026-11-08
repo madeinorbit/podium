@@ -21,7 +21,6 @@ import type {
   WorkState,
 } from '@podium/model'
 import type { ApprovalWire } from '@podium/protocol'
-import type { Sidebar as SidebarSettings } from '@podium/runtime'
 import type { RetrySatisfaction } from '@podium/sync/outbox'
 import type { PodiumClientApi } from '../api'
 import type { ReadPositionPort } from '../read-position'
@@ -44,7 +43,6 @@ import type {
   FileTab,
   PaneId,
   PinKind,
-  PinState,
   RecentFileEntry,
   SplitAxis,
   TabId,
@@ -150,10 +148,10 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   machines: MachineWire[]
   /** Approval broker [spec:SP-edbb]: pending management-op requests. */
   approvals: ApprovalWire[]
-  pins: PinState
+  /** Pin or unpin a session, issue, worktree or repo: my `pin` record
+   *  (POD-6673). Readers read the pool's pin models. */
   setPinned: (kind: PinKind, id: string, pinned: boolean) => Promise<void>
-  /** Manual tab order per worktree path (drag-to-reorder). Absent key = no manual order. */
-  tabOrders: Record<string, string[]>
+  /** My manual session order of one worktree: my `tabOrder` record (POD-6673). */
   setTabOrder: (worktree: string, sessionIds: SessionId[]) => Promise<void>
   /** Main-area surface: attention board, worktree workspace, superagent, or settings. */
   view: MainView
@@ -625,10 +623,10 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  The native PTY input line is opaque bytes we can't read back, so this is the
    *  one input state we *can* synchronize. */
   setSessionDraft: (sessionId: SessionId, text: string) => void
-  /** Sidebar layout preferences (repo sort mode + custom order). */
-  sidebarSettings: SidebarSettings
-  /** Persist a new sidebar sort/order — optimistic update + server round-trip. */
-  setSidebarSettings: (next: Partial<SidebarSettings>) => Promise<void>
+  /** Change my personal settings, by leaf path (`sidebar.repoOrder`,
+   *  `roles.coding.model`): an edit of my `userPreferences` record (POD-6673),
+   *  shown at once and on every device of mine. `undefined` resets a leaf. */
+  setPreferences: (values: Readonly<Record<string, unknown>>) => Promise<void>
   /** ONE UI persistence mechanism: the replica's versioned ui-state collection
    *  (see replica.uiState()) — components persist prefs through this, never
    *  through ad-hoc localStorage keys. */

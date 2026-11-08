@@ -33,7 +33,8 @@ import {
   machinePathKey,
   preferredMachineChoices,
 } from '@podium/model/browser'
-import { nativeAccountId, resolveRole } from '@podium/runtime'
+import { nativeAccountId } from '@podium/runtime'
+import { useMyCodingHarness } from '@/lib/my-preferences'
 import { ChevronDown, Folder, LoaderCircle, Monitor, Paperclip } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -259,6 +260,7 @@ export function ColdStartComposer({
     setPanelMode,
     setView,
     setOpenIssueId,
+    setPreferences,
   } = useSettingsClient()
   const { repos, machines } = useSettingsCatalog()
   const { usage: repositoryUsage, defaultAgent: recentAgent } = useSettingsSetupSummary(repos)
@@ -313,7 +315,11 @@ export function ColdStartComposer({
    * was there (POD-1469). It is written back from the agent menu below, which is
    * what makes "the last one you used" a fact rather than a hope.
    */
-  const [agentSetting, setAgentSetting] = useState<string | undefined>(undefined)
+  // My coding default is a synced setting of mine (POD-6673); a pick made here
+  // shows at once, ahead of the record's own paint.
+  const syncedAgentSetting = useMyCodingHarness()
+  const [pickedAgentSetting, setAgentSetting] = useState<string | undefined>(undefined)
+  const agentSetting = pickedAgentSetting ?? syncedAgentSetting
   const [busy, setBusy] = useState(false)
   const runtimeDriversEnabled = useFeature('runtime-drivers')
   const HEADED_DRIVER = 'headed'
@@ -325,18 +331,6 @@ export function ColdStartComposer({
   const [transientError, setError] = useState<string | null>(null)
   const error = draft.launchError || transientError
 
-  useEffect(() => {
-    let cancelled = false
-    void trpc.settings.get
-      .query()
-      .then((settings) => {
-        if (!cancelled) setAgentSetting(resolveRole(settings, 'coding').harness)
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [trpc])
 
   /**
    * `use` IS A CODE-EXECUTION BOUNDARY, AND THIS IS NOW WHERE IT IS DRAWN
@@ -449,10 +443,7 @@ export function ColdStartComposer({
   const persistDefaultAgent = async (kind: IssueAgentKind): Promise<void> => {
     setAgentSetting(kind)
     try {
-      const updated = await trpc.settings.updatePersonal.mutate({
-        values: { 'roles.coding.accountId': nativeAccountId(kind) },
-      })
-      setAgentSetting(resolveRole(updated, 'coding').harness)
+      await setPreferences({ 'roles.coding.accountId': nativeAccountId(kind) })
     } catch {
       // Kept optimistic — see above.
     }

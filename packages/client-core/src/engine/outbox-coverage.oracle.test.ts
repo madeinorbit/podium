@@ -262,8 +262,6 @@ const myIssue = (id: string, patch: object) => ({
 
 /** The covered set, as the engine enqueues it (engine.ts session/issue actions). */
 const COVERED: { kind: keyof OutboxKinds & string; input: object; path: string }[] = [
-  { kind: 'pinSet', input: { kind: 'panel', id: 's1', pinned: true }, path: 'pins.set' },
-  { kind: 'tabSetOrder', input: { worktree: '/w', sessionIds: ['s1'] }, path: 'tabs.setOrder' },
   // One layout key: a record edit or remove of my layout row (POD-6404).
   {
     kind: 'recordEdit',
@@ -274,11 +272,6 @@ const COVERED: { kind: keyof OutboxKinds & string; input: object; path: string }
     kind: 'recordRemove',
     input: { kind: 'userLayout', id: layoutRowId(READER, 'superOpen') },
     path: 'layout.clear',
-  },
-  {
-    kind: 'settingsUpdatePersonal',
-    input: { values: { 'sidebar.repoSort': 'name' } },
-    path: 'settings.updatePersonal',
   },
   { kind: 'recordEdit', input: mySession('s1', { readAt: AT }), path: 'sessions.markRead' },
   { kind: 'recordEdit', input: mySession('s1', { readAt: null }), path: 'sessions.markUnread' },
@@ -401,7 +394,7 @@ describe('oracle: the KERNEL queue delivers the same covered set', () => {
 })
 
 describe('oracle: the offline-queued write set', () => {
-  it(`${MUST_NOT_CHANGE}: ten session writes, twelve issue writes, and five replicated per-user writes drain to their tRPC procedures — offline queueing is not issue-only`, async () => {
+  it(`${MUST_NOT_CHANGE}: ten session writes, twelve issue writes, and the replicated layout writes drain to their tRPC procedures — offline queueing is not issue-only`, async () => {
     const { outbox, calls } = makeOutbox()
 
     for (const covered of COVERED) {

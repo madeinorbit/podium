@@ -321,16 +321,12 @@ export const SPEC_QUERIES = {
  *  it carries no contract. */
 export const SETTINGS_QUERIES = {
   /**
-   * THE SETTINGS AS THIS CALLER SEES THEM (POD-1213).
-   *
-   * `getSettingsFor(caller)`, never `getSettings()`. Until this issue the read
-   * served the whole instance blob — so one person's roles, sidebar order,
-   * autoContinue dismissal, ntfy topic and Telegram chat id were served to every
-   * other authenticated client, which is the cross-user leak POD-352's exit audit
-   * names. The caller's identity is already on `FamilyState` for exactly this
-   * class of read.
+   * THE INSTANCE SETTINGS (POD-6673). A caller's personal preferences are their
+   * synced `userPreferences` record, so this read answers the instance tier only:
+   * every personal leaf here is its default, never anybody's choice. POD-6677
+   * makes the instance tier a synced record too.
    */
-  get: q(noInput, async (s) => await s.modules.settings.getSettingsFor(asUserId(s.caller.userId))),
+  get: q(noInput, async (s) => await s.modules.settings.getSettings()),
 } as const
 
 /** POD-735 derived the four automation writes; these two reads stayed

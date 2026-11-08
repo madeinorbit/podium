@@ -13,6 +13,7 @@ import {
   type UserId,
 } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
+import type { LedgerWriter } from '@podium/sync'
 import { configPath, onConfigChanged } from '@podium/runtime/config'
 import type { CommandPrincipal } from '../../command-principal'
 import { ModelCatalog, type ModelCatalogSnapshot, type ModelProbe } from '../../model-catalog'
@@ -21,6 +22,7 @@ import type { SessionStore } from '../../store'
 import { afterCommit, spanOpen } from '../../store/executor/executor'
 import type { SettingsAuditOutcome } from '../../store/settings-audit'
 import type { EventBus } from '../bus'
+import { userPreferencesChange } from '../user-records/changes'
 import { recordSettingsCommand, type SettingsAuditPort } from './audit'
 import { secretPresence } from './secret-fingerprint'
 
@@ -197,6 +199,7 @@ type SettingsStore = Pick<
   | 'getSettingsFor'
   | 'setSettingsFor'
   | 'applyPreferencePatch'
+  | 'preferenceRecordFor'
   | 'getModelCatalog'
   | 'setModelCatalog'
 >
@@ -215,8 +218,19 @@ type SecretStore = Pick<
   'get' | 'getOrEmpty' | 'set' | 'clear' | 'presence' | 'apiKeyFor' | 'fingerprintKey'
 >
 
+/** What a preference write commits through: the command's own writer, or the
+ *  service's system writer for a server-originated one (POD-6673). */
+export type PreferenceWriter = Pick<LedgerWriter, 'commit'>
+
 export interface SettingsServiceOptions {
   telegramBindings: TelegramBindingWriter
+  /**
+   * The writer of server-originated preference writes (the Telegram setup, the
+   * superagent default seed): a system principal on the Authority, so the
+   * `userPreferences` record they change reaches the person's devices.
+   * Optional only for unit tests of the service; production always wires it.
+   */
+  preferenceWriter?: PreferenceWriter
   telegramSetup?: TelegramSetupClient
   generateTelegramSetupCode?: () => string
   now?: () => number
@@ -302,6 +316,7 @@ export class SettingsService {
   private readonly now: () => number
   private readonly fingerprintKey: () => Buffer | Promise<Buffer>
   private readonly audit: SettingsAuditPort
+  private readonly preferenceWriter: PreferenceWriter | undefined
   // SWR cache of live per-agent model lists (grok/cursor/opencode), keyed by
   // machineId. Query-driven: nothing probes until a client asks via
   // getModelCatalog(machineId).
@@ -315,6 +330,7 @@ export class SettingsService {
   ) {
     this.telegramBindings = options.telegramBindings
     this.audit = options.audit
+    this.preferenceWriter = options.preferenceWriter
     this.telegramSetup = options.telegramSetup ?? DEFAULT_TELEGRAM_SETUP_CLIENT
     this.generateTelegramSetupCode = options.generateTelegramSetupCode ?? defaultTelegramSetupCode
     this.now = options.now ?? Date.now
@@ -541,6 +557,7 @@ export class SettingsService {
   async updatePreferences(
     actor: UserId,
     values: Readonly<Record<string, unknown>>,
+    writer: PreferenceWriter | undefined = this.preferenceWriter,
   ): Promise<PodiumSettings> {
     // THE SECRET REFUSAL SURVIVES THE ROUTING CHANGE (POD-1213).
     //
@@ -562,11 +579,25 @@ export class SettingsService {
       )
     }
     const previous = await this.store.getSettingsFor(actor)
-    const next = await this.store.applyPreferencePatch(
-      actor,
-      decodeSettingsPreferencePatch(values),
-      new Date(this.now()).toISOString(),
+    const patch = decodeSettingsPreferencePatch(values)
+    const at = new Date(this.now()).toISOString()
+    const personal = Object.keys(patch).some(
+      (path) => classifySettingsPath(path)?.tier === 'personal-preference',
     )
+    // A personal leaf is a field of the person's `userPreferences` record: the
+    // rows and the record's change entry commit together (POD-6673).
+    const next =
+      personal && writer !== undefined
+        ? (
+            await writer.commit({
+              write: async () => {
+                const resolved = await this.store.applyPreferencePatch(actor, patch, at)
+                return { resolved, record: await this.store.preferenceRecordFor(actor) }
+              },
+              changes: ({ record }) => [userPreferencesChange(record)],
+            })
+          ).result.resolved
+        : await this.store.applyPreferencePatch(actor, patch, at)
     await this.emitSettingsChanged(previous, next, actor)
     return next
   }

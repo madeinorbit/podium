@@ -27,7 +27,7 @@ import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
-import { useSettingsRecord } from '@/features/settings/record-readers'
+import { useMyCodingHarness } from '@/lib/my-preferences'
 import { useConfirm } from '@/lib/hooks/use-confirm'
 import { issueAgentIcon, issueDefaultAgentKind } from '@/lib/issue-agents'
 import {
@@ -163,8 +163,7 @@ export const IssueContextMenu = observer(function IssueContextMenu({
     startIssueSession,
   } = useStoreHandle<Trpc>().access
   const handOff = useSessionHandoff()
-  const readSettings = useCallback(() => trpc.settings.get.query(), [trpc])
-  const settingsRequest = useSettingsRecord(readSettings)
+  const codingHarness = useMyCodingHarness()
   const { sessions, repos, machines } = poolInputs
   const handoffEnabled = useFeature('session-handoff')
   // The app-wide dialog, replacing two raw `window.confirm` calls (POD-1077).
@@ -404,7 +403,7 @@ export const IssueContextMenu = observer(function IssueContextMenu({
   }
 
   const menuData = createIssueMenuData({
-    codingHarness: settingsRequest?.model?.codingHarness,
+    codingHarness,
     issues,
     allIssues,
     choiceIssues: () => choices ?? [],
@@ -559,7 +558,7 @@ export const IssueContextMenu = observer(function IssueContextMenu({
     if (entry.id === 'agent')
       return issueAgentIcon(
         option.value ||
-          issueDefaultAgentKind(first.defaultAgent, settingsRequest?.model?.codingHarness),
+          issueDefaultAgentKind(first.defaultAgent, codingHarness),
       )
     return option.icon ? renderIcon(option.icon) : null
   }

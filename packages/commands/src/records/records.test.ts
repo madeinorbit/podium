@@ -111,12 +111,17 @@ describe('the generated commands', () => {
       'records.issueProjection.create',
       'records.issueProjection.edit',
       'records.issueUserState.edit',
+      'records.pin.create',
+      'records.pin.remove',
       'records.session.edit',
       'records.session.remove',
       'records.sessionUserState.edit',
       'records.sessionUserState.remove',
+      'records.tabOrder.edit',
+      'records.tabOrder.remove',
       'records.userLayout.edit',
       'records.userLayout.remove',
+      'records.userPreferences.edit',
     ])
   })
 

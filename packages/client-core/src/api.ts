@@ -53,7 +53,6 @@ import type {
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import type { PodiumSettings } from '@podium/runtime'
 import type { SuperThreadView } from './values/compose/superagent'
-import type { PinKind, PinState } from './values/types'
 
 export interface ApiQuery<I, O> {
   query(input: I): Promise<O>
@@ -311,22 +310,10 @@ export interface PodiumClientApi {
     >
     restore: ApiMutation<WithMutationId<{ id: string }>>
   }
-  pins: {
-    list: ApiQuery<void, PinState>
-    set: ApiMutation<WithMutationId<{ kind: PinKind; id: string; pinned: boolean }>, PinState>
-  }
-  tabs: {
-    listOrders: ApiQuery<void, Record<string, string[]>>
-    setOrder: ApiMutation<
-      WithMutationId<{ worktree: string; sessionIds: SessionId[] }>,
-      Record<string, string[]>
-    >
-  }
   /** Per-user event-stream read positions (POD-1380). `advance` is monotonic —
    *  the server clamps to max(stored, proposed) — and returns the caller's whole
    *  snapshot, never anyone else's. */
   readPosition: {
-    get: ApiQuery<void, ReadPositionSnapshot>
     advance: ApiMutation<
       WithMutationId<{ streamId: string; lastEventId: number; seenAt?: string | null }>,
       ReadPositionSnapshot
@@ -386,8 +373,9 @@ export interface PodiumClientApi {
     >
   }
   settings: {
+    /** The INSTANCE settings: every personal leaf is its default. My own are
+     *  my synced `userPreferences` record (POD-6673). */
     get: ApiQuery<void, PodiumSettings>
-    updatePersonal: ApiMutation<WithMutationId<{ values: Record<string, unknown> }>, PodiumSettings>
   }
   /** Hour×model token buckets for the last 7 days, harvested from harness
    *  transcripts. All window/cost math is client-side — see `viewmodels/usage`. */

@@ -11,6 +11,7 @@ import {
 import { type GitRepositoryWire, machinePathBasename, machinePathKey, machinePathsEqual } from '@podium/model/browser'
 import { action, computed, observable, observableRef, compareShallow } from 'mobx'
 import { headerEntities } from './header-entities'
+import { pinnedIds } from './per-user-records'
 import type { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
 
@@ -24,10 +25,8 @@ export function launchOptionViews(pool: MobxPool) {
       return launchRecords(pool).group(id)
     })
     const machines = computed(() => headerEntities(pool).orders.get('machine')?.flatMap(id => here(pool.model('machine', id)) ?? []) ?? [...pool.tables.machine.keys()].flatMap(id => here(pool.model('machine', id)) ?? []), { equals: compareShallow })
-    const pins = computed(() => {
-      const row = omitGone(pool.row('commandWindow', 'window'))
-      return row && row !== LOADING ? row.pins : EMPTY_PINS
-    })
+    // My pinned repos, from my synced pin records (POD-6673).
+    const pins = computed(() => ({ repos: pinnedIds(pool, 'repo') }))
     const projectForRepository = (repo: NonNullable<ReturnType<typeof repository>>) => launchRecords(pool).byId(repo.id, true)!
     const project = keyedComputed('launch.project', (id: string) => launchRecords(pool).group(id, true))
     const projectIsEligible = (repo: RepoNavView) =>
@@ -115,7 +114,6 @@ export function launchOptionViews(pool: MobxPool) {
   })
 }
 
-const EMPTY_PINS = { repos: [] as readonly string[], worktrees: [] as readonly string[] }
 
 /** New-task recency belongs to this opening; host and catalog edits stay live. */
 export class LaunchCatalogPicker {

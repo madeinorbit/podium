@@ -100,14 +100,15 @@ describe('web shell structure', () => {
   it('initial store load does not block on a conversation scan', () => {
     const src = readStore()
     // Conversations are read on demand from the durable server index, so the
-    // boot fan-out is repos + pins + tab orders — never a conversation rescan.
+    // boot fan-out is repos (pins and tab orders are synced records since
+    // POD-6673) — never a conversation rescan.
     const bootStart = src.indexOf('void Promise.all([')
     const boot = src.slice(bootStart, src.indexOf('.catch', bootStart))
     // The enrichments moved to `engine/boot.ts` with POD-404's split; the
     // invariant is the SHAPE of the fan-out, not which object owns the methods.
     expect(boot).toContain('refreshRepos()')
-    expect(boot).toContain('refreshPins()')
-    expect(boot).toContain('refreshTabOrders()')
+    expect(boot).not.toContain('refreshPins()')
+    expect(boot).not.toContain('refreshTabOrders()')
     expect(src).not.toContain('rescanConversations')
     expect(src).not.toContain('onConversations')
   })

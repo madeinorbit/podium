@@ -25,20 +25,27 @@ import {
   LayoutKeyField,
   LayoutWire,
   NewIssueId,
+  PinWire,
   parseLayoutRowId,
+  parsePinRowId,
+  parseTabOrderRowId,
   parseUserEntityKey,
+  parseUserPreferencesRowId,
   ROW,
   SessionDesired,
   SessionIdField,
   SessionLifecycleFailure,
   SessionMeta,
   SessionUserStateWire,
+  TabOrderWire,
+  USER_PREFERENCE_LEAVES,
   UserIdField,
+  UserPreferencesWire,
   WorkState,
 } from '@podium/model'
 import type { MetadataEntityKind } from '@podium/protocol'
 import { z } from 'zod'
-import type { CommandPolicy, DeliveryPolicy, TransportTag } from '../contract'
+import type { CommandPolicy, DeliveryPolicy, ErrorConsistency, TransportTag } from '../contract'
 import {
   ISSUE_ATTRIBUTION,
   ISSUE_REDACTION,
@@ -48,7 +55,15 @@ import {
   TARGETED_ERRORS,
 } from '../issues/cells'
 import { updateInput } from '../issues/contracts'
-import { defineSyncedKind, key, label, type SyncedKindDeclaration, spec, status } from './declare'
+import {
+  defineSyncedKind,
+  key,
+  label,
+  type RecordField,
+  type SyncedKindDeclaration,
+  spec,
+  status,
+} from './declare'
 import { ISSUE_FIELD_DEFAULTS as DEFAULT, ISSUE_FRESH } from './issue-fresh'
 
 /** The family's `issues.update` patch: a plain field parses as it does there. */
@@ -424,6 +439,169 @@ export const SESSION_RECORD = defineSyncedKind({
   },
 })
 
+// ---------------------------------------------------------------------------
+// per-user records: pin, tabOrder, userPreferences (POD-6673, ADR 12 D1)
+// ---------------------------------------------------------------------------
+
+/** A feed id a parser accepts, as a ref schema. */
+const rowRef = (parse: (id: string) => unknown, message: string) =>
+  z.string().refine(
+    (id) => {
+      try {
+        parse(id)
+        return true
+      } catch {
+        return false
+      }
+    },
+    { message },
+  )
+
+const OWN_ROW_WRITE: CommandPolicy = {
+  action: 'write',
+  roleFloor: 'member',
+  resource: 'none',
+  confirmation: 'none',
+  rationale:
+    'A member writes their OWN per-user row (ADR 9 D3 rule 4): the row id names its user, and only ' +
+    'that user may write it. No confirmation: every pin, order and preference is reversible.',
+}
+
+const OWN_ROW_ERRORS: ErrorConsistency = {
+  callerSuppliedTargetId: true,
+  invisibleFailsAs: 'nonexistent',
+  distinguishesUnauthorizedFromUnreachable: false,
+  note: 'Another user’s row fails as an unknown one; a pin of a session the caller may not read the same.',
+}
+
+const PinRowRef = rowRef(parsePinRowId, 'a pin row id')
+
+/**
+ * A PIN: the record's existence is the pin (design 1.1). Pin = create, unpin =
+ * remove; nothing to edit. Pinning what is already pinned keeps the first pin
+ * (`recreate: 'keep'`), so a create and a remove are idempotent by key.
+ */
+export const PIN_RECORD = defineSyncedKind({
+  kind: 'pin',
+  title: 'pin',
+  wire: PinWire,
+  ref: PinRowRef,
+  // The id is the key itself, `pinRowId(user, kind, entity)`: one pin per thing.
+  newId: PinRowRef,
+  recreate: 'keep',
+  conflict: 'single-writer',
+  fields: {
+    userId: key(UserIdField, ROW.pins, { required: true }),
+    kind: key(PinWire.shape.kind, ROW.pins, { required: true }),
+    entityId: key(z.string().min(1), ROW.pins, { required: true }),
+    pinnedAt: status(z.string(), ROW.pins),
+  },
+  ops: {
+    create: { policy: OWN_ROW_WRITE, note: 'Pin a session, an issue, a worktree or a repo.' },
+    remove: { policy: OWN_ROW_WRITE, note: 'Unpin it.' },
+  },
+  visibility: PER_USER_VISIBILITY,
+  exposure: SUBMIT_ONLY,
+  delivery: QUEUED,
+  redaction: {
+    reviewed: true,
+    inputPaths: [],
+    outputPaths: [],
+    note: 'A pin names a thing the caller can see; nothing on it is a credential.',
+  },
+  attribution: ISSUE_ATTRIBUTION,
+  errorConsistency: OWN_ROW_ERRORS,
+  creates: {
+    creates: ['pin'],
+    owner: 'on-behalf-of-human',
+    visibility: PER_USER_VISIBILITY,
+    inheritanceOnCreate: 'on-behalf-of-human',
+    note: 'The caller’s own pin; its id names them, so nobody pins for somebody else.',
+  },
+  fresh: {
+    cells: {},
+    // The server's clock; the device's queue time until then.
+    pending: { pinnedAt: (ctx) => ctx.at },
+  },
+})
+
+/**
+ * A WORKTREE'S TAB ORDER (design 1.2): whole-list last-writer-wins, since a
+ * merge of two orderings means nothing. An empty list removes the record.
+ */
+export const TAB_ORDER_RECORD = defineSyncedKind({
+  kind: 'tabOrder',
+  title: 'tab order',
+  wire: TabOrderWire,
+  ref: rowRef(parseTabOrderRowId, 'a tab order row id'),
+  conflict: 'single-writer',
+  fields: {
+    userId: key(UserIdField, ROW.tabOrder),
+    entityId: key(z.string().min(1), ROW.tabOrder),
+    // An empty list is no order: the server removes the record.
+    sessionIds: spec(z.array(z.string()), ROW.tabOrder),
+  },
+  ops: {
+    edit: { policy: OWN_ROW_WRITE, note: 'Set the manual session order of one worktree.' },
+    remove: { policy: OWN_ROW_WRITE, note: 'Forget it, so sessions show in their own order.' },
+  },
+  visibility: PER_USER_VISIBILITY,
+  exposure: SUBMIT_ONLY,
+  delivery: QUEUED,
+  redaction: {
+    reviewed: true,
+    inputPaths: [],
+    outputPaths: [],
+    note: 'A list of the caller’s session ids; nothing on it is a credential.',
+  },
+  attribution: ISSUE_ATTRIBUTION,
+  errorConsistency: OWN_ROW_ERRORS,
+})
+
+/** One personal preference leaf as a field: a plain field, its own leaf. */
+const preferenceLeafFields: Record<string, RecordField> = Object.fromEntries(
+  [...USER_PREFERENCE_LEAVES].map(([path, schema]) => [
+    path,
+    spec(schema, ROW.preferencesPersonal),
+  ]),
+)
+
+/**
+ * ONE PERSON'S PERSONAL PREFERENCES (design 1.3): one record per user whose
+ * fields are the `personal-preference` tier's leaf paths. Single-writer (the
+ * user is the key, as the matrix row says); a patch writes only the leaves it
+ * names, so two devices changing different settings never overwrite each
+ * other, and the last write of one leaf wins. A cleared leaf (`unset`) resets it
+ * to the default. Server secrets are not leaves of it.
+ */
+export const USER_PREFERENCES_RECORD = defineSyncedKind({
+  kind: 'userPreferences',
+  title: 'personal settings',
+  wire: UserPreferencesWire,
+  ref: rowRef(parseUserPreferencesRowId, 'a user preferences row id'),
+  conflict: 'single-writer',
+  fields: {
+    userId: key(UserIdField, ROW.preferencesPersonal),
+    ...preferenceLeafFields,
+  },
+  ops: {
+    edit: { policy: OWN_ROW_WRITE, note: 'Change or reset my personal settings, leaf by leaf.' },
+  },
+  visibility: PER_USER_VISIBILITY,
+  exposure: SUBMIT_ONLY,
+  delivery: QUEUED,
+  redaction: {
+    reviewed: true,
+    inputPaths: [],
+    outputPaths: [],
+    note:
+      'Personal preferences only: the classification keeps every server secret out of this tier, ' +
+      'and `telegramChatId` is routing config, not a secret (matrix row preferences-personal).',
+  },
+  attribution: ISSUE_ATTRIBUTION,
+  errorConsistency: OWN_ROW_ERRORS,
+})
+
 /** Every kind that takes generic edits. */
 export const SYNCED_KINDS: readonly SyncedKindDeclaration[] = [
   ISSUE_RECORD,
@@ -431,6 +609,9 @@ export const SYNCED_KINDS: readonly SyncedKindDeclaration[] = [
   ISSUE_USER_STATE_RECORD,
   USER_LAYOUT_RECORD,
   SESSION_RECORD,
+  PIN_RECORD,
+  TAB_ORDER_RECORD,
+  USER_PREFERENCES_RECORD,
 ]
 
 /**

@@ -1,5 +1,6 @@
 import { issueWrites } from '@podium/commands/issues-synced'
 import { useSettingsRecord } from '@/features/settings/record-readers'
+import { useMyCodingHarness } from '@/lib/my-preferences'
 import { observer } from 'mobx-react-lite'
 import type { RepoView } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph'
@@ -294,7 +295,7 @@ const NewIssueDialogBody = observer(function NewIssueDialogBody({
   // the named product default, never a literal (POD-4737).
   const readSettings = useCallback(() => trpc.settings.get.query(), [trpc])
   const settingsRequest = useSettingsRecord(readSettings)
-  const defaultAgent = settingsRequest?.model?.codingHarness ?? DEFAULT_HARNESS_AGENT
+  const defaultAgent = useMyCodingHarness() ?? DEFAULT_HARNESS_AGENT
   // '' = use the configured default agent (no flag).
   const [agent, setAgent] = useState('')
   // 'auto' = inherit the settings default model/effort (no per-issue override).

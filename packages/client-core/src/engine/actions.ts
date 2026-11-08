@@ -16,6 +16,7 @@ import type {
   IssueId,
   LayoutSnapshot,
   MutationId,
+  PersonalPreferences,
   SessionId,
   ThreadId,
   UserId,
@@ -25,9 +26,12 @@ import {
   asIssueId,
   asThreadId,
   issueUserStateRowId,
+  pinRowId,
   SESSION_INTERRUPT_KIND,
   sessionUserStateRowId,
+  tabOrderRowId,
   UNSNOOZE_BACKDATE_MS,
+  userPreferencesRowId,
 } from '@podium/model'
 import {
   isSessionIdPrefix,
@@ -35,7 +39,7 @@ import {
   type SessionIdentifierResolution,
   submitNow,
 } from '@podium/protocol'
-import { type Sidebar as SidebarSettings, shouldPromptAutoContinue } from '@podium/runtime'
+import { type PodiumSettings, shouldPromptAutoContinue } from '@podium/runtime'
 import type { PodiumClientApi } from '../api'
 import { randomUUID } from '../id'
 import {
@@ -65,7 +69,6 @@ import type {
   FileTab,
   PaneId,
   PinKind,
-  PinState,
   RecentFileEntry,
   TabId,
   WorkspaceLayout,
@@ -220,22 +223,14 @@ export const COMMAND_ACTIONS = [
   'setIssuePlacement',
   'restoreIssue',
   'setSessionDraft',
-  'setSidebarSettings',
+  'setPreferences',
 ] as const
 
 /** Command contracts reduced directly into non-entity action state. */
-export const ACTION_STATE_REDUCER_COMMANDS = [
-  'pins.set',
-  'tabs.setOrder',
-  'layout.set',
-  'layout.clear',
-  'settings.updatePersonal',
-] as const
+export const ACTION_STATE_REDUCER_COMMANDS = ['layout.set', 'layout.clear'] as const
 
 type ActionState = {
   navigation: NavigationProvider
-  pins: PinState
-  tabOrders: Record<string, string[]>
   repos: Store['repos']
   superThreadId: ThreadId
   superOpen: boolean
@@ -255,7 +250,6 @@ type ActionState = {
   dockShells: Record<string, SessionId>
   dockVisibleSession: string | null
   autoContinuePromptSessionId: SessionId | null
-  sidebarSettings: SidebarSettings
   fileTabs: FileTab[]
   recentFiles: RecentFileEntry[]
 }
@@ -309,6 +303,9 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
   /** The person this store writes for: their per-user rows (read marks,
    *  snoozes, tucks) are generic edits of rows keyed by them (POD-6404). */
   readonly userId: UserId
+  /** My personal settings as the replica holds them, resolved with defaults
+   *  (POD-6673). Absent: the defaults. */
+  preferences?(): PersonalPreferences
   /** Resolution waiters for queued entries, by id (POD-4762). */
   readonly outboxSettlements: OutboxSettlements
   readonly router: Router
@@ -375,12 +372,6 @@ export interface EngineActionRuntime<TApi extends PodiumClientApi> {
    */
   waitForSpawnConfirmed(sessionId: SessionId): Promise<void>
   setSessionDraft(sessionId: SessionId, text: string): void
-}
-
-function reducePin(state: PinState, kind: PinKind, id: string, pinned: boolean): PinState {
-  const key = kind === 'panel' ? 'panels' : kind === 'worktree' ? 'worktrees' : 'repos'
-  const values = state[key].filter((candidate) => candidate !== id)
-  return { ...state, [key]: pinned ? [...values, id] : values }
 }
 
 /** The slice of action state a workspace write reads. */
@@ -714,33 +705,21 @@ export function createEngineActions<TApi extends PodiumClientApi>(
     }
   }
 
-  // Runtime-owned writes (POD-5426 §5): pins, tab order and personal settings
-  // are deliberately non-optimistic for pool rows. Their local runtime paint
-  // stays here; enqueue failure restores it, and settlement refetches truth in
-  // refreshRuntimeOwnedTruth. These calls use the same durable outbox as rt.write,
-  // with no second queue or PoolTransactions reducer. Archive's pin cleanup
-  // below follows the same rule. Entity edits always use rt.write.
+  // Pins, tab orders and personal settings are synced records of mine
+  // (POD-6673): generic creates, edits and removes, shown at once from the
+  // record's own overlay and on every device of mine once they land.
   return {
     replicatedLayout,
     setPinned: async (kind: PinKind, id: string, pinned: boolean) => {
-      const previous = rt.state().pins
-      rt.apply({ pins: reducePin(previous, kind, id, pinned) })
-      try {
-        await rt.outbox.enqueue('pinSet', { kind, id, pinned })
-      } catch (error) {
-        rt.apply({ pins: previous })
-        throw error
-      }
+      const pin = pinRowId(rt.userId, kind, id)
+      if (pinned) await records.create('pin', pin, { userId: rt.userId, kind, entityId: id })
+      else await records.remove({ kind: 'pin', id: pin })
     },
     setTabOrder: async (worktree: string, sessionIds: SessionId[]) => {
-      const previous = rt.state().tabOrders
-      rt.apply({ tabOrders: { ...previous, [worktree]: sessionIds } })
-      try {
-        await rt.outbox.enqueue('tabSetOrder', { worktree, sessionIds })
-      } catch (error) {
-        rt.apply({ tabOrders: previous })
-        throw error
-      }
+      const ref: RecordRef<'tabOrder'> = { kind: 'tabOrder', id: tabOrderRowId(rt.userId, worktree) }
+      // An empty order is no record.
+      if (sessionIds.length === 0) await records.remove(ref)
+      else await records.edit(ref, { sessionIds })
     },
     navigateWorkspace: (intent) => rt.navigate({ ...intent, view: 'workspace' }),
     batchGesture: (fn) => rt.batch(fn),
@@ -1144,13 +1123,6 @@ export function createEngineActions<TApi extends PodiumClientApi>(
         fileTabs: state.fileTabs.filter(
           (tab) => !(tab.scope.kind === 'session' && tab.scope.sessionId === sessionId),
         ),
-        pins: { ...state.pins, panels: state.pins.panels.filter((id) => id !== sessionId) },
-        tabOrders: Object.fromEntries(
-          Object.entries(state.tabOrders).map(([worktree, ids]) => [
-            worktree,
-            ids.filter((id) => id !== sessionId),
-          ]),
-        ),
       })
     },
     continueSession: async (sessionId) => {
@@ -1164,10 +1136,11 @@ export function createEngineActions<TApi extends PodiumClientApi>(
           legacy: async () => await api.sessions.continue.mutate({ sessionId }),
         },
       ).catch(() => {})
-      try {
-        const settings = await api.settings.get.query()
-        if (shouldPromptAutoContinue(settings)) rt.apply({ autoContinuePromptSessionId: sessionId })
-      } catch {}
+      // My auto-continue choice is a synced record of mine (POD-6673).
+      const preferences = rt.preferences?.()
+      if (preferences !== undefined && shouldPromptAutoContinue(preferences as unknown as PodiumSettings)) {
+        rt.apply({ autoContinuePromptSessionId: sessionId })
+      }
     },
     closeAutoContinuePrompt: () => rt.apply({ autoContinuePromptSessionId: null }),
     hibernateSession: async (sessionId) => {
@@ -1269,12 +1242,8 @@ export function createEngineActions<TApi extends PodiumClientApi>(
         archived ? { archived, workState: 'done' } : { archived },
       )
       if (!archived) return await write
-      {
-        // Runtime-owned pin cleanup; see the write ownership block above.
-        const pins = rt.state().pins
-        rt.apply({ pins: { ...pins, panels: pins.panels.filter((id) => id !== sessionId) } })
-        await rt.outbox.enqueue('pinSet', { kind: 'panel', id: sessionId, pinned: false })
-      }
+      // An archived session is no longer pinned (POD-6673: a remove of my pin).
+      await records.remove({ kind: 'pin', id: pinRowId(rt.userId, 'panel', sessionId) })
       await write
     },
     // `write`, like its neighbours, since POD-1110. It used to be a
@@ -1391,19 +1360,16 @@ export function createEngineActions<TApi extends PodiumClientApi>(
       rt.write('issueSetPlacement', { id, placement, originId }),
     restoreIssue: async (id) => rt.write('issueRestore', { id }),
     setSessionDraft: (sessionId, text) => rt.setSessionDraft(sessionId, text),
-    setSidebarSettings: async (next) => {
-      // Runtime-owned personal settings; see the write ownership block above.
-      const previous = rt.state().sidebarSettings
-      rt.apply({ sidebarSettings: { ...previous, ...next } })
-      const values = Object.fromEntries(
-        Object.entries(next).map(([key, value]) => [`sidebar.${key}`, value]),
+    // My personal settings, leaf by leaf (POD-6673): an edit of my
+    // `userPreferences` record. `undefined` resets a leaf to its default.
+    setPreferences: async (values) => {
+      const patch: Record<string, unknown> = {}
+      for (const [path, value] of Object.entries(values)) patch[path] = value === undefined ? UNSET : value
+      if (Object.keys(patch).length === 0) return
+      await records.edit(
+        { kind: 'userPreferences', id: userPreferencesRowId(rt.userId) },
+        patch as RecordPatch<'userPreferences'>,
       )
-      try {
-        await rt.outbox.enqueue('settingsUpdatePersonal', { values })
-      } catch (error) {
-        rt.apply({ sidebarSettings: previous })
-        throw error
-      }
     },
   }
 }

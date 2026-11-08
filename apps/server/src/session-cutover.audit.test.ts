@@ -74,6 +74,30 @@ import { sessionSurfaceManifest } from './modules/sessions/trpc'
 import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
 
+/** One person's pins by kind, read the way the boot reconcile reads them. */
+async function pinsOf(
+  repo: { allPinsForBootReconcile(): Promise<{ userId: string; kind: string; entityId: string }[]> },
+  userId: string,
+): Promise<{ panels: string[]; worktrees: string[]; repos: string[] }> {
+  const pins = (await repo.allPinsForBootReconcile()).filter((p) => p.userId === userId)
+  const of = (kind: string) => pins.filter((p) => p.kind === kind).map((p) => p.entityId)
+  return { panels: of('panel'), worktrees: of('worktree'), repos: of('repo') }
+}
+
+/** One person's tab orders by worktree, read the way the boot reconcile reads them. */
+async function tabOrdersOf(
+  repo: {
+    allTabOrdersForBootReconcile(): Promise<{ userId: string; entityId: string; sessionIds: string[] }[]>
+  },
+  userId: string,
+): Promise<Record<string, string[]>> {
+  const out: Record<string, string[]> = {}
+  for (const o of await repo.allTabOrdersForBootReconcile()) {
+    if (o.userId === userId) out[o.entityId] = o.sessionIds
+  }
+  return out
+}
+
 afterEach(() => disposeOracles())
 
 // ---------------------------------------------------------------------------
@@ -84,7 +108,8 @@ const COLLEAGUE: UserId = asUserId('colleague')
 const GHOST = '00000000-0000-4000-8000-000000000000'
 
 /** The routers that make up the session family. */
-const FAMILY_ROUTERS = ['sessions', 'pins', 'snoozes', 'tabs'] as const
+/** (Pins and tab orders are synced records since POD-6673: no router.) */
+const FAMILY_ROUTERS = ['sessions', 'snoozes'] as const
 
 interface RouterProcedure {
   _def: { type: 'mutation' | 'query' | 'subscription' }
@@ -259,15 +284,13 @@ describe('AC1 · the session surface is derived, in both directions', () => {
     ])
   })
 
-  it('the walk does not mistake a QUERY for a write, and does see all four routers', () => {
+  it('the walk does not mistake a QUERY for a write, and does see both routers', () => {
     // Two false-negative modes at once: a check that only looked at `sessions.*`
-    // would miss a hand-written `pins.set`, and one that ignored procedure type
-    // would flag every read.
+    // would miss a hand-written `snoozes.clear`, and one that ignored procedure
+    // type would flag every read.
     const mutations = familyMutations()
     expect(mutations).toContain('sessions.create')
-    expect(mutations).toContain('pins.set')
     expect(mutations).toContain('snoozes.clear')
-    expect(mutations).toContain('tabs.setOrder')
     // The reads are present on the router and deliberately NOT in this list.
     expect(routerProcedures().get('sessions.list')?._def.type).toBe('query')
     expect(mutations).not.toContain('sessions.list')
@@ -539,18 +562,18 @@ describe('AC4 · the per-user split actually happened', () => {
     // `userId` parameter that the store ignored would pass any signature test.
     const o = await makeOracle()
     const store = o.store.sessions
-    await store.setPin(asUserId('user:alice'), 'panel', 's-1', true)
+    await store.addPin(asUserId('user:alice'), 'panel', 's-1', '2026-11-08T00:00:00.000Z')
     await store.setSnooze(fixtureWriteScope(), asUserId('user:alice'), asSessionId('s-1'), null)
     await store.setTabOrder(asUserId('user:alice'), '/w', ['s-1'])
 
     // Alice's rows exist; Bob's are EMPTY — asserted on the values, because a
     // `userId` parameter the store ignored would satisfy any signature check.
-    expect((await store.listPins(asUserId('user:alice'))).panels).toEqual(['s-1'])
-    expect((await store.listPins(asUserId('user:bob'))).panels).toEqual([])
+    expect((await pinsOf(store, asUserId('user:alice'))).panels).toEqual(['s-1'])
+    expect((await pinsOf(store, asUserId('user:bob'))).panels).toEqual([])
     expect(await store.listSnoozes(asUserId('user:alice'))).not.toEqual({})
     expect(await store.listSnoozes(asUserId('user:bob'))).toEqual({})
-    expect(await store.listTabOrders(asUserId('user:alice'))).toEqual({ '/w': ['s-1'] })
-    expect(await store.listTabOrders(asUserId('user:bob'))).toEqual({})
+    expect(await tabOrdersOf(store, asUserId('user:alice'))).toEqual({ '/w': ['s-1'] })
+    expect(await tabOrdersOf(store, asUserId('user:bob'))).toEqual({})
   })
 
   it('every per-user COMMAND is self-scoped, so another user’s row is not addressable', () => {
@@ -558,12 +581,10 @@ describe('AC4 · the per-user split actually happened', () => {
     // The set is non-empty — otherwise the filter below proves nothing (a typo'd
     // class name would make this a vacuous pass).
     expect(perUser.map((row) => row.name).sort()).toEqual([
-      'pins.set',
       'sessions.markRead',
       'sessions.markUnread',
       'snoozes.clear',
       'snoozes.set',
-      'tabs.setOrder',
     ])
     for (const { name, def } of perUser) {
       expect(def?.policy?.scope, name).toBe('self')

@@ -2,11 +2,11 @@ import type { IssueViewModel } from '@podium/client-core/replica'
 import { observer } from 'mobx-react-lite'
 
 import { issueDisplayRef } from '@podium/protocol'
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import type { IssueId } from '@podium/model'
 import { useStoreActions, useTrpc } from '../client/hooks'
-import { useSettingsRecord } from '../client/use-settings-record'
+import { useMyCodingHarness } from '../client/my-preferences'
 import { IssueLaunchForm } from '../lib/issue-launch-draft'
 import {
   type LaunchPlan,
@@ -32,8 +32,10 @@ const ConfiguredIssueLaunchSheetBody = observer(function ConfiguredIssueLaunchSh
 }) {
   const trpc = useTrpc()
   const { startIssueSession } = useStoreActions()
-  const settingsRequest = useSettingsRecord()
-  const form = useMemo(() => issue ? new IssueLaunchForm(issue, patch => trpc.issues.update.mutate({ id: issue.id, patch }), () => settingsRequest?.model?.codingHarness) : null, [issue, trpc, settingsRequest])
+  const codingHarness = useMyCodingHarness()
+  const harnessRef = useRef(codingHarness)
+  harnessRef.current = codingHarness
+  const form = useMemo(() => issue ? new IssueLaunchForm(issue, patch => trpc.issues.update.mutate({ id: issue.id, patch }), () => harnessRef.current) : null, [issue, trpc])
   const [plan, setPlan] = useState<LaunchPlan | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)

@@ -56,9 +56,11 @@ import type {
   LayoutSnapshot,
   LayoutWire,
   MutationId,
+  ReadPositionSnapshot,
   ReadPositionWire,
   SessionId,
 } from '@podium/model'
+import { resolveUserPreferences, userPreferencesRowId } from '@podium/model'
 import { isShortSessionIdentifier, type SessionIdentifierResolution } from '@podium/protocol'
 import type { OutboxRejectionReason } from '@podium/sync/outbox'
 import { runInAction } from 'mobx'
@@ -627,6 +629,13 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         this.replicatedLayout.replace(layoutSnapshotFromRows(this.replica.rows('userLayouts')))
       }),
     )
+    // My read positions are synced records the replica keeps (POD-6673): a
+    // position moved on my other device arrives here, and a reload paints the
+    // stored one before the network answers. No request reads them.
+    const installReadPositions = (): void =>
+      this.readPosition.replace(readPositionSnapshotFromRows(this.replica.rows('userReadPositions'), this.principal.userId))
+    installReadPositions()
+    offs.push(this.replica.subscribeRows('userReadPositions', installReadPositions))
 
     // Hub events, via the P5a `on()` subscription seam. Only ephemeral state
     // (machines, drafts) follows hub events through keyed channels; host
@@ -663,21 +672,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         }
       }),
     )
-    // A read position moved on this person's OTHER device (POD-1380). The feed
-    // is scoped per-user, so every row here is already this principal's — the
-    // filter is belt-and-braces against a widened feed, not the primary guard.
-    offs.push(
-      this.hub.on('userReadPositions', (rows: ReadPositionWire[]) => {
-        this.readPosition.replace(
-          Object.fromEntries(
-            rows
-              .filter((row) => row.userId === this.principal.userId)
-              .map((row) => [row.streamId, { lastEventId: row.lastEventId, seenAt: row.seenAt }]),
-          ),
-        )
-      }),
-    )
-
     // A daemon-created worktree is otherwise invisible in every repo menu until
     // reload (POD-665) — re-fetch through the same path used at boot.
     offs.push(this.hub.on('worktreesChanged', () => void this.boot.refreshRepos().catch(() => {})))
@@ -762,17 +756,12 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     if (!this.booted) {
       this.booted = true
       if (this.networkEnabled) {
-        void this.readPosition.hydrate().catch(() => {})
-        // Sidebar prefs load out of band so boot fans out only repos + pins + tab
-        // orders (never gated on settings or a conversation scan).
-        void this.boot.refreshPersonalSettings().catch(() => {})
+        this.readPosition.drainLegacy()
         // These enrichments are network-derived, not the source of truth for the
         // principal slice. A cold offline boot must keep serving the persisted
         // replica instead of replacing it with a fatal connection screen.
         void Promise.all([
           this.boot.refreshRepos(),
-          this.boot.refreshPins(),
-          this.boot.refreshTabOrders(),
           // The superagent column is the desktop shell's centre and its thread
           // list used to be fetched by the view itself. It is store state now, so
           // it loads with the rest of the boot fan-out.
@@ -1503,13 +1492,11 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
    */
   private onMutationApplied(entry: OutboxEntry): void {
     if (this.destroyed) return
-    this.refreshRuntimeOwnedTruth(entry)
     this.emitOutcome({ type: 'applied', mutationId: entry.mutationId, entry })
   }
 
   private onMutationDropped(entry: OutboxEntry, reason?: OutboxRejectionReason): void {
     if (this.destroyed) return
-    this.refreshRuntimeOwnedTruth(entry)
     this.emitOutcome({
       type: 'rejected',
       mutationId: entry.mutationId,
@@ -1537,18 +1524,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         log.warn('outbox outcome listener threw', { err, type: outcome.type })
       }
     }
-  }
-
-  /** Runtime-owned kinds are non-optimistic for pool rows (POD-5426 §5).
-   * Pins, tab orders and personal settings are not replicated, so settlement
-   * refetches their truth instead of retaining a pool transaction overlay.
-   * Layout needs nothing here: its entries paint from the outbox until the
-   * replica's covering commit retires them (POD-6278). */
-  private refreshRuntimeOwnedTruth(entry: OutboxEntry): void {
-    if (entry.kind === 'pinSet') void this.boot.refreshPins().catch(() => {})
-    else if (entry.kind === 'tabSetOrder') void this.boot.refreshTabOrders().catch(() => {})
-    else if (entry.kind === 'settingsUpdatePersonal')
-      void this.boot.refreshPersonalSettings().catch(() => {})
   }
 
   // ------------------------------------------------------------------- actions
@@ -1646,6 +1621,13 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       // One row by id; a replica without the by-id read answers "unknown" (1),
       // and the outbox's own queued edits still raise it.
       sessionRevision: (sessionId) => this.replica.row?.('sessions', sessionId)?.revision,
+      // My settings as the replica holds them (POD-6673): a record never
+      // written resolves to the defaults.
+      preferences: () =>
+        resolveUserPreferences(
+          this.replica.row?.('userPreferences', userPreferencesRowId(this.principal.userId)),
+          this.principal.userId,
+        ),
       dismissLaunch: (sessionId) => this.poolWriter?.dismissLaunch?.(sessionId) ?? false,
       launchPainted: (sessionId) => this.poolWriter?.launchPainted?.(sessionId) ?? false,
     })
@@ -1677,6 +1659,18 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
 /** Persisted layout ROWS → the controller's snapshot shape. The rows are already
  *  this principal's (the replica is principal-scoped and the feed is per-user),
  *  so the key/value pair is all the controller needs back. */
+/** The principal's read positions, by stream, from the replica's rows. */
+function readPositionSnapshotFromRows(
+  rows: readonly ReadPositionWire[],
+  userId: string,
+): ReadPositionSnapshot {
+  const out: Record<string, { lastEventId: number; seenAt: string | null }> = {}
+  for (const row of rows) {
+    if (row.userId === userId) out[row.streamId] = { lastEventId: row.lastEventId, seenAt: row.seenAt }
+  }
+  return out as ReadPositionSnapshot
+}
+
 function layoutSnapshotFromRows(rows: readonly LayoutWire[]): LayoutSnapshot {
   return Object.fromEntries(rows.map((row) => [row.key, row.value]))
 }

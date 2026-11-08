@@ -43,11 +43,11 @@ export async function sessionWritesNeedAWriter(
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
 type Holds<T extends true> = T
 export type PerUserStateIsKeyedByUser = [
-  Holds<Same<Parameters<SessionsRepository['listPins']>[0], UserId>>,
-  Holds<Same<Parameters<SessionsRepository['setPin']>[0], UserId>>,
+  Holds<Same<Parameters<SessionsRepository['addPin']>[0], UserId>>,
+  Holds<Same<Parameters<SessionsRepository['removePin']>[0], UserId>>,
   Holds<Same<Parameters<SessionsRepository['listSnoozes']>[0], UserId>>,
   Holds<Same<Parameters<SessionsRepository['setSnooze']>[1], UserId>>,
   Holds<Same<Parameters<SessionsRepository['clearSnooze']>[1], UserId>>,
-  Holds<Same<Parameters<SessionsRepository['listTabOrders']>[0], UserId>>,
+  Holds<Same<Parameters<SessionsRepository['tabOrder']>[0], UserId>>,
   Holds<Same<Parameters<SessionsRepository['setTabOrder']>[0], UserId>>,
 ]

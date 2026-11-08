@@ -1,13 +1,26 @@
 import { MobxPool } from '@podium/client-graph/pool'
+import { asUserId, resolveUserPreferences } from '@podium/model'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { useMemo, useSyncExternalStore } from 'react'
-import { afterEach, vi } from 'vitest'
+import { afterEach, beforeEach, vi } from 'vitest'
 import { useRuntimeSelector } from '@/app/store'
 
 type SessionsFixture = { sessions?: readonly import('@podium/client-core/session-values').SessionView[] }
 const selectFixture = useRuntimeSelector as unknown as <T>(read: (state: SessionsFixture) => T) => T
 let current: MobxPool | undefined
-function pool() { return current ??= new MobxPool({ selectedIssueId: null, coarseNow: 0 }) }
+/** The principal's settings record is always in the app's pool (the row source
+ *  publishes its defaults, POD-6673), so the stand-in holds it too. */
+function seeded(pool: MobxPool): MobxPool {
+  const id = 'operator'
+  pool.apply({
+    type: 'update',
+    rows: [{ kind: 'userPreferences', id, value: { ...resolveUserPreferences(undefined, asUserId(id)), id } as never }],
+  })
+  return pool
+}
+function pool() { return current ??= seeded(new MobxPool({ selectedIssueId: null, coarseNow: 0 })) }
+// Built before each test, so a test that fakes timers still finds it seeded.
+beforeEach(() => { pool() })
 afterEach(() => { current?.dispose(); current = undefined })
 
 /** Provider-free directory tests share one real pool, retired after each test. */

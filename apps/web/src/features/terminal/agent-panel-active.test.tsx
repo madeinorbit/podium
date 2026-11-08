@@ -65,6 +65,8 @@ vi.mock('@podium/client-core/react', async () =>
 )
 
 // Voice touches browser speech APIs that are flaky under happy-dom — stub it.
+// My startScreen is my synced settings record (POD-6673).
+vi.mock('@/lib/my-preferences', () => ({ useMyStartScreen: () => storeStartScreen }))
 vi.mock('@/lib/voice', () => ({
   useVoiceInput: () => ({ supported: false, listening: false, toggle: vi.fn() }),
 }))

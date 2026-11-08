@@ -31,7 +31,13 @@ import {
   parseIssueUserStateRowId,
   parseSessionUserStateRowId,
   repoNameFromOrigin,
+  type PinKind,
+  pinRowId,
+  readPositionRowId,
+  resolveUserPreferences,
   sessionUserStateRowId,
+  tabOrderRowId,
+  userPreferencesRowId,
 } from '@podium/model'
 import { FeedDiagnostics } from './feed-diagnostics'
 import { issueInput } from './issue-input'
@@ -118,6 +124,10 @@ export interface RowSourceHandle {
   dispose(): void
 }
 
+/** The pool rows the transaction log repaints: sessions, issues, and POD-6673's
+ *  standalone per-user records. */
+export type RepaintKind = 'session' | 'issue' | 'pin' | 'tabOrder' | 'userPreferences'
+
 /** What the pool's transaction log reaches through the feed (POD-5431). */
 export interface RowSourceRepaint {
   /**
@@ -127,9 +137,7 @@ export interface RowSourceRepaint {
    * log, so the change and the visible row land together. Visits exactly the
    * rows named.
    */
-  repaint(
-    rows: Iterable<{ readonly kind: 'session' | 'issue'; readonly id: string }>,
-  ): RowSourceEvent | null
+  repaint(rows: Iterable<{ readonly kind: RepaintKind; readonly id: string }>): RowSourceEvent | null
   /**
    * The server-truth row a pending overlay is judged against, by overlay
    * target and row id: the session view with this principal's truth markers
@@ -158,6 +166,11 @@ const SLICE_KINDS: ReadonlySet<ReplicaKind> = new Set([
   'issueProjections',
   'issueDeps',
   'repos',
+  // POD-6673's per-user records, and the read positions.
+  'pins',
+  'tabOrders',
+  'userPreferences',
+  'userReadPositions',
 ])
 
 const OVERLAID: readonly OverlayTarget[] = [
@@ -165,7 +178,27 @@ const OVERLAID: readonly OverlayTarget[] = [
   'sessionUserStates',
   'issueUserStates',
   'issueProjections',
+  'pins',
+  'tabOrders',
+  'userPreferences',
 ]
+
+/**
+ * POD-6673: each per-user record kind as the pool's entity. A record is a row
+ * of its own, keyed by its feed id; the pending log's overlays fold over it.
+ * Read positions take no generic edit, so they carry no overlay target.
+ */
+const PER_USER_KINDS = {
+  pin: { replica: 'pins', target: 'pins' },
+  tabOrder: { replica: 'tabOrders', target: 'tabOrders' },
+  userPreferences: { replica: 'userPreferences', target: 'userPreferences' },
+  userReadPosition: { replica: 'userReadPositions', target: undefined },
+} as const satisfies Record<string, { replica: ReplicaKind; target: OverlayTarget | undefined }>
+type PerUserKind = keyof typeof PER_USER_KINDS
+const PER_USER_BY_REPLICA = new Map<string, PerUserKind>(
+  (Object.keys(PER_USER_KINDS) as PerUserKind[]).map((kind) => [PER_USER_KINDS[kind].replica, kind]),
+)
+const isPerUserKind = (kind: string): kind is PerUserKind => Object.hasOwn(PER_USER_KINDS, kind)
 const NO_OVERLAYS: readonly PendingOverlay[] = []
 type PendingByRow = Record<OverlayTarget, PendingRows>
 
@@ -180,6 +213,21 @@ function sessionIdOf(row: AnyRow): string | null {
 
 function idOf(row: AnyRow): string | null {
   return typeof row.id === 'string' ? (row.id as string) : null
+}
+
+/** A per-user record's feed id, from its key fields (POD-6673). */
+function perUserIdOf(kind: string, row: AnyRow): string | undefined {
+  const user = typeof row.userId === 'string' ? asUserId(row.userId) : undefined
+  if (user === undefined) return undefined
+  try {
+    if (kind === 'pin') return pinRowId(user, row.kind as PinKind, String(row.entityId))
+    if (kind === 'tabOrder') return tabOrderRowId(user, String(row.entityId))
+    if (kind === 'userPreferences') return userPreferencesRowId(user)
+    if (kind === 'userReadPosition') return readPositionRowId(user, String(row.streamId))
+  } catch {
+    return undefined
+  }
+  return undefined
 }
 
 /**
@@ -395,6 +443,9 @@ export function createRowSource(
       sessionUserStates: pooled.byRow('sessionUserStates'),
       issueUserStates: pooled.byRow('issueUserStates'),
       issueProjections: pooled.byRow('issueProjections'),
+      pins: pooled.byRow('pins'),
+      tabOrders: pooled.byRow('tabOrders'),
+      userPreferences: pooled.byRow('userPreferences'),
     }
   }
 
@@ -686,6 +737,47 @@ export function createRowSource(
     return raw
   }
 
+  /**
+   * One per-user record as the pool holds it (POD-6673): the replica's row with
+   * this log's overlays folded over it, its feed id stamped as `id`. A
+   * preferences record arrives flat, one field per leaf path; the pool holds it
+   * resolved, each group whole with its defaults, so a reader reads
+   * `roles.coding.model` as it reads it everywhere else.
+   */
+  function perUserRow(kind: PerUserKind, id: string, pending: PendingByRow | null): AnyRow | undefined {
+    const { replica: replicaKind, target } = PER_USER_KINDS[kind]
+    const raw = authority(replicaKind, id)
+    const value =
+      target === undefined ? raw : foldRowOverlays(raw, pending?.[target].get(id) ?? NO_OVERLAYS)
+    if (kind === 'userPreferences') {
+      // The principal's settings are always there: a record never written is
+      // every default (an absent leaf is "never chosen").
+      if (value === undefined && id !== runtime.principal?.userId) return undefined
+      return { ...resolveUserPreferences(value, asUserId(id)), id }
+    }
+    if (value === undefined) return undefined
+    return { ...value, id }
+  }
+
+  function perUserRows(kind: PerUserKind, pending: PendingByRow | null): RowRecord[] {
+    const { replica: replicaKind, target } = PER_USER_KINDS[kind]
+    const ids = new Set<string>()
+    for (const raw of replica.rows(replicaKind)) {
+      const id = perUserIdOf(kind, raw)
+      if (id !== undefined) ids.add(id)
+    }
+    if (target !== undefined) for (const id of pending?.[target].keys() ?? []) ids.add(id)
+    const principal = runtime.principal?.userId
+    if (kind === 'userPreferences' && principal !== undefined) ids.add(userPreferencesRowId(asUserId(principal)))
+    const out: RowRecord[] = []
+    for (const id of ids) {
+      stats.rowsVisited += 1
+      const value = perUserRow(kind, id, pending)
+      if (value !== undefined) out.push({ kind, id, value })
+    }
+    return out
+  }
+
   function companions(kind: 'repo' | 'machine' | 'automation' | 'automationRun' | 'effect'): RowRecord[] {
     const replicaKind = { repo: 'repos', machine: 'machines', automation: 'automations', automationRun: 'automationRuns', effect: 'effects' } as const
     return replica.rows(replicaKind[kind]).flatMap(raw => {
@@ -819,6 +911,7 @@ export function createRowSource(
           ...companions('repo'),
           ...companions('machine'),
           ...companions('effect'),
+          ...(Object.keys(PER_USER_KINDS) as PerUserKind[]).flatMap((kind) => perUserRows(kind, pending)),
         ],
       }
       emit(event, recovering)
@@ -844,6 +937,12 @@ export function createRowSource(
       if (address.kind === 'machines') {
         stats.rowsVisited += 1
         byKey.set(`machine:${address.id}`, { kind: 'machine', id: address.id, value: authority('machines', address.id) })
+        continue
+      }
+      const perUser = PER_USER_BY_REPLICA.get(address.kind)
+      if (perUser !== undefined) {
+        stats.rowsVisited += 1
+        byKey.set(`${perUser}:${address.id}`, { kind: perUser, id: address.id, value: perUserRow(perUser, address.id, pending) })
         continue
       }
       if (address.kind === 'effects') {
@@ -974,7 +1073,8 @@ export function createRowSource(
     seededKinds.add(kind)
     // Message and interaction rows belong to NoticeSource; this source only
     // enumerates its own core records when the generic pool asks for a kind.
-    const rows = kind === 'repo' || kind === 'machine' || kind === 'automation' || kind === 'automationRun' || kind === 'effect' ? companions(kind)
+    const rows = isPerUserKind(kind) ? perUserRows(kind, readPending())
+      : kind === 'repo' || kind === 'machine' || kind === 'automation' || kind === 'automationRun' || kind === 'effect' ? companions(kind)
       : kind === 'worktree' ? allLanes()
       : kind === 'issue' || kind === 'session' ? enumerate(kind, readPending()) : []
     return rows.map(record => {
@@ -1081,7 +1181,7 @@ export function createRowSource(
   offs.push(runtime.onLocals(['repos'], onTruthPublication))
 
   function repaint(
-    rows: Iterable<{ readonly kind: 'session' | 'issue'; readonly id: string }>,
+    rows: Iterable<{ readonly kind: RepaintKind; readonly id: string }>,
   ): RowSourceEvent | null {
     if (disposed) return null
     if (diagnostics.resyncPending) return flush()
@@ -1091,6 +1191,12 @@ export function createRowSource(
       const key = `${kind}:${id}`
       if (byKey.has(key)) continue
       stats.rowsVisited += 1
+      if (isPerUserKind(kind)) {
+        const held = published.get(key)
+        const value = retain(key, perUserRow(kind, id, pending))
+        if (value !== held) byKey.set(key, { kind, id, value })
+        continue
+      }
       const held = published.has(key) ? published.get(key) : resolve(kind, id, null)
       const value = retain(key, resolve(kind, id, pending))
       if (value !== held) byKey.set(key, { kind, id, value })
@@ -1124,6 +1230,11 @@ export function createRowSource(
             : sessionUserStateRowId(asUserId(principal), asSessionId(id))
         return key === undefined ? undefined : authority('sessionUserStates', key)
       }
+      // A standalone per-user record is its replica row, by its own id.
+      case 'pins':
+      case 'tabOrders':
+      case 'userPreferences':
+        return authority(entity, id)
     }
   }
 

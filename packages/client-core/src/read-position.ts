@@ -55,9 +55,14 @@ export interface ReadPositionPort {
   get(streamId: ReadStreamId): ReadPositionValue
   /** Propose a position. A proposal at or behind the current one is a no-op. */
   advance(streamId: ReadStreamId, next: ReadPositionValue): void
-  /** Fetch this principal's authoritative snapshot and drain any legacy value. */
-  hydrate(): Promise<void>
-  /** Install same-principal truth delivered by the feed (a second device moved). */
+  /** Forward the legacy device-local value once, then forget it. */
+  drainLegacy(): void
+  /**
+   * Install this principal's positions as the replica holds them (POD-6673: the
+   * synced `userReadPosition` kind; a second device moved, or a reload). Merged
+   * monotonically, like the server, so a local advance still on its way is never
+   * moved back by an older row.
+   */
   replace(snapshot: ReadPositionSnapshot): void
   subscribe(listener: () => void): () => void
 }
@@ -103,13 +108,15 @@ export function createReadPositionClient(init: {
   }
 
   const install = (incoming: ReadPositionSnapshot): void => {
-    const next: Record<string, ReadPositionValue> = {}
+    let next = snapshot
     for (const [streamId, value] of Object.entries(incoming)) {
       // A row for a stream this build does not know is dropped rather than
       // rendered: an unknown feed has no surface to be a position in.
       if (!isReadStreamId(streamId)) continue
-      next[streamId] = { lastEventId: value.lastEventId, seenAt: value.seenAt }
+      if (value.lastEventId <= current(streamId).lastEventId) continue
+      next = { ...next, [streamId]: { lastEventId: value.lastEventId, seenAt: value.seenAt } }
     }
+    if (next === snapshot) return
     snapshot = next
     emit()
   }
@@ -140,8 +147,7 @@ export function createReadPositionClient(init: {
       if (!paint(streamId, next)) return
       send(streamId, next)
     },
-    hydrate: async () => {
-      install(await api.readPosition.get.query())
+    drainLegacy: () => {
       const legacy = readLegacyCursorBlob(local.get(READ_POSITION_UI_KEY))
       if (legacy !== null) {
         // Drain first: a failed forward must not leave the key to be re-consumed

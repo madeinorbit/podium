@@ -183,7 +183,7 @@ describe('oracle: two-user SessionService fixture', () => {
 })
 
 describe('oracle: durable per-user session state (not live co-presence)', () => {
-  it(`${MUST_NOT_CHANGE}: snooze, pins, and tab order are isolated for both users, and payload identity is inert`, async () => {
+  it(`${MUST_NOT_CHANGE}: snooze is isolated for both users, and payload identity is inert (pins and tab orders: user-records.test.ts)`, async () => {
     const f = await twoUserOracle()
     const alice = sessionStatePrincipal(f.agents.alice)
     const bob = sessionStatePrincipal(f.agents.bob)
@@ -207,38 +207,11 @@ describe('oracle: durable per-user session state (not live co-presence)', () => 
         .outcome,
     ).toBe('denied')
     await f.sessionState.execute('snoozes.set', { sessionId: f.bob.sessionId, until: bobUntil }, bob)
-    await f.sessionState.execute(
-      'pins.set',
-      { kind: 'panel', id: f.alice.sessionId, pinned: true },
-      alice,
-    )
-    await f.sessionState.execute('pins.set', { kind: 'panel', id: f.bob.sessionId, pinned: true }, bob)
-    // A tab order may name only sessions the caller can read, and a session is
-    // its owner's alone (design §2.3, POD-6283): naming the other's is refused.
-    expect(
-      (
-        await f.sessionState.execute(
-          'tabs.setOrder',
-          { worktree: '/work', sessionIds: [f.alice.sessionId, f.bob.sessionId] },
-          alice,
-        )
-      ).outcome,
-    ).toBe('denied')
-    await f.sessionState.execute('tabs.setOrder', { worktree: '/work', sessionIds: [f.alice.sessionId] }, alice)
-    await f.sessionState.execute('tabs.setOrder', { worktree: '/work', sessionIds: [f.bob.sessionId] }, bob)
     expect(await f.o.store.sessions.listSnoozes(ALICE)).toEqual({
       [f.alice.sessionId]: aliceUntil,
     })
     expect(await f.o.store.sessions.listSnoozes(BOB)).toEqual({
       [f.bob.sessionId]: bobUntil,
-    })
-    expect((await f.o.store.sessions.listPins(ALICE)).panels).toEqual([f.alice.sessionId])
-    expect((await f.o.store.sessions.listPins(BOB)).panels).toEqual([f.bob.sessionId])
-    expect(await f.o.store.sessions.listTabOrders(ALICE)).toEqual({
-      '/work': [f.alice.sessionId],
-    })
-    expect(await f.o.store.sessions.listTabOrders(BOB)).toEqual({
-      '/work': [f.bob.sessionId],
     })
   })
 

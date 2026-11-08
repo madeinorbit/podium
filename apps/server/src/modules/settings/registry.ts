@@ -12,7 +12,7 @@
  * WHAT THIS FAMILY ADDS THAT THE OTHERS DO NOT: TWO HANDLERS, FOUR COMMANDS
  * ---------------------------------------------------------------------------
  *
- * `updatePersonal` and `updateInstance` both forward to
+ * `updateInstance` forwards to
  * `SettingsService.updatePreferences`, because the TIER GATE IS THE INPUT
  * SCHEMA and not the handler. Each command's schema admits only the paths its
  * own tier classifies, so by the time a handler runs, "which tier is this" has
@@ -67,17 +67,6 @@ export interface SettingsCommand {
  * router both name.
  */
 export const SETTINGS_COMMANDS_TRPC = {
-  'settings.updatePersonal': {
-    contract: SETTINGS_CONTRACTS['settings.updatePersonal'],
-    // THE OWNING USER DECIDES WHERE THE VALUE LANDS (POD-1213). The contract's
-    // role floor already re-checks this user at drain; passing the actor is what
-    // makes the row it writes theirs rather than the instance's.
-    handler: (async (svc, input, actor) =>
-      await svc.updatePreferences(actor, input.values)) satisfies SettingsHandler<
-      z.infer<(typeof SETTINGS_CONTRACTS)['settings.updatePersonal']['input']>,
-      unknown
-    >,
-  },
   'settings.updateInstance': {
     contract: SETTINGS_CONTRACTS['settings.updateInstance'],
     // Same method, and the actor is carried rather than dropped: the store routes

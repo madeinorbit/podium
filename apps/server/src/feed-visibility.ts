@@ -41,7 +41,10 @@ import {
   parseIssueUserStateRowId,
   parseLayoutRowId,
   parseMessageRecordRowId,
+  parsePinRowId,
   parseReadPositionRowId,
+  parseTabOrderRowId,
+  parseUserPreferencesRowId,
   parseSessionUserStateRowId,
   type RepoId,
   shipLaneId,
@@ -269,6 +272,10 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         // avoid.
         if (entity === 'userReadPosition') return 'per-user-state'
         if (entity === 'issueUserState' || entity === 'sessionUserState') return 'per-user-state'
+        // Pins, tab orders and personal preferences (POD-6673): the owner's alone.
+        if (entity === 'pin' || entity === 'tabOrder' || entity === 'userPreferences') {
+          return 'per-user-state'
+        }
         if (
           entity === 'session' ||
           entity === 'issueProjection' ||
@@ -411,6 +418,15 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         if (ref.entity === 'userReadPosition') {
           try {
             return parseReadPositionRowId(ref.entityId).userId
+          } catch {
+            return null
+          }
+        }
+        if (ref.entity === 'pin' || ref.entity === 'tabOrder' || ref.entity === 'userPreferences') {
+          try {
+            if (ref.entity === 'pin') return parsePinRowId(ref.entityId).userId
+            if (ref.entity === 'tabOrder') return parseTabOrderRowId(ref.entityId).userId
+            return parseUserPreferencesRowId(ref.entityId).userId
           } catch {
             return null
           }

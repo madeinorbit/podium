@@ -5,12 +5,11 @@
  * than being served with an implicit default.
  */
 
-import { asSessionId, OP_STREAM_MEMBERS, PinKind, WorkState } from '@podium/model'
+import { asSessionId, OP_STREAM_MEMBERS, WorkState } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { type CommandDef, commandExposure, isExposedOn } from '../framework'
 import {
-  pinCommands,
   SESSION_STATE_COMMAND_TABLES,
   sessionStateCommand,
   sessionStateCommandNames,
@@ -25,10 +24,9 @@ const contracts = sessionStateCommandNames().map((name) => {
 })
 
 describe('the session-state inventory', () => {
-  it('covers the eleven writes POD-380 migrates, plus the offer dismissal', () => {
+  it('covers the writes POD-380 migrates that are not synced records, plus the offer dismissal', () => {
     expect(sessionStateCommandNames().sort()).toEqual(
       [
-        'pins.set',
         'sessions.dismissOffer',
         'sessions.markRead',
         'sessions.markUnread',
@@ -39,7 +37,6 @@ describe('the session-state inventory', () => {
         'sessions.setWorkState',
         'snoozes.clear',
         'snoozes.set',
-        'tabs.setOrder',
       ].sort(),
     )
   })
@@ -110,8 +107,6 @@ describe('the visibility-class split (§3.1.1 / §3.3)', () => {
     'sessions.markUnread',
     'snoozes.set',
     'snoozes.clear',
-    'pins.set',
-    'tabs.setOrder',
   ]
   const ownedSession = [
     'sessions.rename',
@@ -164,8 +159,6 @@ describe('offline classes match POD-379’s outbox oracle exactly', () => {
     'sessions.dismissOffer',
     'snoozes.set',
     'snoozes.clear',
-    'pins.set',
-    'tabs.setOrder',
   ]
 
   it('exactly the replicated per-user and session writes are offline-eligible', () => {
@@ -173,13 +166,6 @@ describe('offline classes match POD-379’s outbox oracle exactly', () => {
     expect(eligible.sort()).toEqual(OFFLINE_ELIGIBLE.sort())
   })
 
-  it('pins and tab order are replicated per-user commands exposed to the outbox', () => {
-    for (const name of ['pins.set', 'tabs.setOrder']) {
-      const def = sessionStateCommand(name)
-      expect(def?.offline).toBe('eligible')
-      expect(def?.exposure).toContain('trpc')
-    }
-  })
 })
 
 describe('redaction', () => {
@@ -300,17 +286,10 @@ describe('input schemas preserve the shipped router validation', () => {
     expect(unwrapNullable(workStateField())).toBe(WorkState)
   })
 
-  it('pins.set’s kind field IS @podium/model’s PinKind instance', () => {
-    const shape = (pinCommands.defs.set.input as z.ZodObject<z.ZodRawShape>).shape
-    expect(shape.kind).toBe(PinKind)
-  })
-
   it('every table namespace matches the tRPC router it replaces', () => {
     expect(SESSION_STATE_COMMAND_TABLES.map((t) => t.namespace)).toEqual([
       'sessions',
       'snoozes',
-      'pins',
-      'tabs',
     ])
   })
 })

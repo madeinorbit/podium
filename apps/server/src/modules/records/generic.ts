@@ -204,7 +204,11 @@ export function registerRecordKind(
         const { id, fields } = input as CreateInput
         // A create never overwrites (ADR 12 D4). The same envelope again never
         // reaches here: the entry point's dedup answers it as a replay.
-        if ((await read(id)) !== undefined) refuse('conflict')
+        if ((await read(id)) !== undefined) {
+          // An idempotent create (a pin) keeps the record it finds.
+          if (d.recreate === 'keep') return { ok: true }
+          refuse('conflict')
+        }
         // The declared defaults (POD-6400), the same ones the creating device
         // painted: a field the create left out is stored as declared.
         return await create(ctx, id, freshCreateFields(d, fields))
@@ -221,6 +225,9 @@ export function registerRecordKind(
       handle: async (ctx, input) => {
         const { id } = input as RemoveInput
         const expected = (input as RemoveInput).expectedRevision ?? ctx.expectedRevision
+        // A kind whose existence is the record (a pin) removes idempotently:
+        // removing what is not there is done, not unknown.
+        if (d.recreate === 'keep' && (await read(id)) === undefined) return { ok: true }
         if (needsRead) await arbitrate(id, expected, d.conflict === 'exp-rev')
         return replyOf(await remove(ctx, id, expected))
       },

@@ -127,6 +127,13 @@ export interface SyncedKindDeclaration<
   readonly ref: z.ZodTypeAny
   /** A NEW id, minted on the device (ADR 12 D4). Required iff the kind offers create. */
   readonly newId?: z.ZodTypeAny
+  /**
+   * What a create of an id that already exists does. `refuse` (the default,
+   * ADR 12 D4): `conflict`, never overwritten. `keep`: an idempotent create for
+   * a kind whose id IS its key and whose existence is the whole record (a pin):
+   * the record stays as it is and the create answers ok.
+   */
+  readonly recreate?: 'refuse' | 'keep'
   readonly conflict: RecordConflict
   /**
    * The kind's SPEC REVISION field, when it has one (POD-6399): a `status` field
@@ -208,6 +215,9 @@ export function declarationProblems(d: SyncedKindDeclaration): string[] {
   }
   if (d.ops.create !== undefined) {
     if (d.newId === undefined) out.push('offers create without a device id shape (ADR 12 D4)')
+    if (d.recreate === 'keep' && Object.values(d.fields).some((f) => f.role === 'spec')) {
+      out.push('keeps an existing record on create, so it may have no spec field to lose')
+    }
     if (d.creates === undefined || d.creates.creates.length === 0) {
       out.push('offers create without declaring what it creates')
     }

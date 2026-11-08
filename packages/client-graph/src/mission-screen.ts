@@ -26,8 +26,8 @@ import { omitGone } from './lookup'
 import { FullDeck } from './mission-full-deck'
 import { type MissionDeckIssueModel, MissionViewReader, missionView, requireLoaded, settled } from './mission-view'
 import type { IssueModel, SessionModel } from './models'
+import { myPreferences } from './per-user-records'
 import type { MobxPool } from './pool'
-import { SettingsRecordRequest } from './requested-records'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 export interface MissionScreenOptions {
@@ -75,7 +75,6 @@ class MissionSession {
  */
 export class MissionScreen {
   readonly reader: MissionViewReader
-  readonly settingsRequest: SettingsRecordRequest
   @observable accessor query = ''
   @observable accessor searchOpen = false
   @observable accessor archivedOpen = false
@@ -87,7 +86,6 @@ export class MissionScreen {
 
   constructor(readonly pool: MobxPool, readonly rootId: string, private readonly options: MissionScreenOptions = {}) {
     this.reader = new MissionViewReader(pool)
-    this.settingsRequest = new SettingsRecordRequest(pool)
   }
 
   get sessionName(): (session: SessionView) => string {
@@ -97,7 +95,6 @@ export class MissionScreen {
   // Lifetime
   close(): void {
     this.reader.dispose()
-    this.settingsRequest.close()
   }
 
   // Preferences: stored once, in the pool's preference rows
@@ -252,7 +249,7 @@ export class MissionScreen {
   @lazy get rootClosable(): boolean { return !this.rootFinished && !this.rootIssue.deletedAt }
   @lazy({ equals: compareShallow }) get rootAgentTarget() {
     const { defaultAgent, repoPath, machineId } = this.rootIssue
-    return { defaultAgent: issueDefaultAgentKind(defaultAgent, this.settingsRequest.model?.codingHarness), repoPath, machineId }
+    return { defaultAgent: issueDefaultAgentKind(defaultAgent, myPreferences(this.pool)?.codingHarness), repoPath, machineId }
   }
   @lazy({ equals: compareStructural }) get progress() {
     const progress = requireLoaded(this.deck.progress)

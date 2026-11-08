@@ -17,6 +17,7 @@ import {
   untracked,
 } from 'mobx'
 import { COMMAND_SUMMARIES, type CommandLaunchRows } from './command-launch-schema'
+import { pinnedIds } from './per-user-records'
 import type { MobxPool } from './pool'
 import { IssueModel } from './models'
 import { isFinished } from './shared/predicates'
@@ -186,15 +187,15 @@ function createCommandLaunchViews(pool: MobxPool) {
   const placement = computed(
     (): Loaded<SpawnTarget[]> => {
       const data = common.get(),
-        pins = windowField('pins'),
         selectedWorktree = windowField('selectedWorktree')
-      if (data === LOADING || pins === LOADING || selectedWorktree === LOADING) return LOADING
-      if (!data || !pins) return undefined
+      if (data === LOADING || selectedWorktree === LOADING) return LOADING
+      if (!data) return undefined
       const { repoViews } = data
       const trees = repoViews.flatMap((repo) => repo.worktrees)
       const current = selectedWorktree == null ? undefined : trees.find((tree) => machinePathsEqual(tree.path, selectedWorktree))
-      const pinPaths = pins.worktrees ?? [],
-        pinnedRepos = pins.repos ?? []
+      // My pins are synced records (POD-6673).
+      const pinPaths = pinnedIds(pool, 'worktree'),
+        pinnedRepos = pinnedIds(pool, 'repo')
       const navRepos = [
         ...pinnedRepos.flatMap((path) => repoViews.filter((repo) => machinePathsEqual(repo.path, path))),
         ...repoViews.filter(

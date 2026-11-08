@@ -26,6 +26,7 @@ const ACTIONS = [
   'uiState',
   'navigateToSession',
   'closeAutoContinuePrompt',
+  'setPreferences',
   'setSelectedIssueId',
   'setView',
   'setSuperOpen',

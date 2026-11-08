@@ -126,62 +126,6 @@ describe('per-user state is isolated between principals', () => {
     expect(await store.sessions.listSnoozes(BOB)).toEqual({ [theirs]: null })
   })
 
-  it('pins are per-principal, and an unpin only unpins the caller', async () => {
-    const { store, sessionState, asVisibleUser } = await fixture()
-    const pin = { kind: 'panel', id: 'sess-1', pinned: true }
-    await sessionState.execute('pins.set', pin, asVisibleUser(ALICE))
-    await sessionState.execute('pins.set', pin, asVisibleUser(BOB))
-
-    await sessionState.execute('pins.set', { ...pin, pinned: false }, asVisibleUser(ALICE))
-
-    expect((await store.sessions.listPins(ALICE)).panels).toEqual([])
-    expect((await store.sessions.listPins(BOB)).panels).toEqual(['sess-1'])
-  })
-
-  it('tab order is per-principal for the SAME worktree', async () => {
-    const { store, sessionState, asVisibleUser, session } = await fixture()
-    const a = (await session(ALICE)).sessionId
-    const b = (await session(ALICE)).sessionId
-    const c = (await session(BOB)).sessionId
-    const d = (await session(BOB)).sessionId
-
-    await sessionState.execute(
-      'tabs.setOrder',
-      { worktree: '/w', sessionIds: [a, b] },
-      asVisibleUser(ALICE),
-    )
-    await sessionState.execute(
-      'tabs.setOrder',
-      { worktree: '/w', sessionIds: [d, c] },
-      asVisibleUser(BOB),
-    )
-    // An order naming another person's session is refused whole.
-    await sessionState.execute(
-      'tabs.setOrder',
-      { worktree: '/w', sessionIds: [c, a] },
-      asVisibleUser(BOB),
-    )
-
-    expect(await store.sessions.listTabOrders(ALICE)).toEqual({ '/w': [a, b] })
-    expect(await store.sessions.listTabOrders(BOB)).toEqual({ '/w': [d, c] })
-  })
-
-  it('the empty-list DELETE stays scoped too — it removes the caller’s row only', async () => {
-    const { store, sessionState, asVisibleUser, session } = await fixture()
-    const a = (await session(ALICE)).sessionId
-    const b = (await session(BOB)).sessionId
-    await sessionState.execute('tabs.setOrder', { worktree: '/w', sessionIds: [a] }, asVisibleUser(ALICE))
-    await sessionState.execute('tabs.setOrder', { worktree: '/w', sessionIds: [b] }, asVisibleUser(BOB))
-
-    await sessionState.execute(
-      'tabs.setOrder',
-      { worktree: '/w', sessionIds: [] },
-      asVisibleUser(ALICE),
-    )
-
-    expect(await store.sessions.listTabOrders(ALICE)).toEqual({})
-    expect(await store.sessions.listTabOrders(BOB)).toEqual({ '/w': [b] })
-  })
 })
 
 // ---------------------------------------------------------------------------

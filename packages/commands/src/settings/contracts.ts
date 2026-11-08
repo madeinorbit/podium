@@ -116,6 +116,7 @@ import type {
 import {
   SETTINGS_WRITE_COMMAND_BY_TIER,
   SETTINGS_WRITE_DELIVERY_CLASS,
+  type SettingsWriteCommandName,
 } from './write-policy'
 
 // ---------------------------------------------------------------------------
@@ -208,13 +209,12 @@ function preferencePatch(tier: SettingsTier) {
  * and not `mcp`: there is no `podium settings` verb and no settings tool.
  */
 const SERVED_ON: readonly TransportTag[] = ['trpc']
-const PERSONAL_SERVED_ON: readonly TransportTag[] = ['trpc', 'outbox']
 
 /**
- * PREFERENCE WRITES ARE `offline-eligible`; personal preferences are now exposed on `outbox`.
- *
- * Personal preferences have a client executor and therefore name the Outbox transport.
- * Instance preferences remain tRPC-only until their owning client action is migrated.
+ * PREFERENCE WRITES ARE `offline-eligible`. Personal preferences are fields of
+ * the synced `userPreferences` record since POD-6673 (`records.userPreferences.edit`,
+ * queued through the outbox). Instance preferences remain tRPC-only until their
+ * owning client action is migrated (POD-6677).
  */
 const PREFERENCE_REAUTHORIZATION =
   'Re-authorized at every apply against the delegation resolved LIVE (ADR 9 D5 A1 / ADR 3 D8): the ' +
@@ -222,44 +222,6 @@ const PREFERENCE_REAUTHORIZATION =
   'a capability frozen at enqueue. A principal who lost the floor between enqueue and drain has the ' +
   'entry refused and is told so — the entry is dead-lettered rather than retried, because a rights ' +
   'change is not a transient failure (ADR 3 Amendment 1 D16).'
-
-/**
- * THE PERSONAL TIER'S offline-eligibility, argued rather than inherited.
- *
- * POD-735 is the precedent for NOT simply copying the row's `offline` column: it
- * argued `automations` online-only against ADR 1 §7's `offline-eligible`,
- * because ADR 3 Amendment 1 D18.3 as amended is hard and an ARMED automation is
- * not inert text. The test that reasoning suggests is *what does this write DO
- * while it sits in a queue, and what does it do when replayed late?*
- *
- * A personal preference is genuinely inert on both counts. It arms nothing,
- * spawns nothing and executes nowhere — `sidebar.repoSort`, `roles.*.model`,
- * `autoContinue.enabled` are read at the next decision point and have no effect
- * until something asks. Replayed late it is a stale opinion overwriting a newer
- * one, which is the ordinary last-writer cost every offline-eligible class
- * accepts, and the row is SINGLE-WRITER (keyed `(userId)`), so the only writer
- * it can race is the same person on another device.
- *
- * The one member that gave pause is `autoContinue.enabled`, which does gate an
- * automatic action. It is still inert as a WRITE: it is a boolean the
- * auto-continue loop reads when it next runs, not a command that starts one, and
- * queueing it can at most delay or advance an opinion by the length of a
- * partition. That is the D18.3 line — it forbids a command whose APPLY executes
- * on someone's hardware, not one whose value is later read by something that
- * does.
- */
-const PERSONAL_PREFERENCE_DELIVERY: DeliveryPolicy = {
-  class: SETTINGS_WRITE_DELIVERY_CLASS['settings.updatePersonal'],
-  outboxReconciliation:
-    'MAY be queued, and is not queued today. ARGUED, not inherited from the row (POD-735’s ' +
-    'precedent for departing from a written column): a personal preference is INERT — it arms ' +
-    'nothing and executes nowhere, so a queued write does nothing while it waits, and replayed late ' +
-    'it is at worst a stale opinion overwriting a newer one on a SINGLE-WRITER row keyed `(userId)`. ' +
-    '`autoContinue.enabled` is the member that gave pause and is still inert as a write: it is a ' +
-    'boolean the loop reads when it next runs, not a command that starts one, which is the D18.3 ' +
-    'line. The personal contract is exposed on `outbox` because the client actions dispatcher queues this replicated per-user row. Instance preferences remain direct until their owning action is migrated.',
-  applyTimeReauthorization: PREFERENCE_REAUTHORIZATION,
-}
 
 /**
  * THE INSTANCE TIER'S offline-eligibility, which is the harder of the two and is
@@ -466,68 +428,6 @@ const CLOSED_VOCABULARY_ERRORS: ErrorConsistency = {
     'design: a refusal must never differ by whether a secret is currently CONFIGURED, which is the ' +
     'presence bit and belongs to the projection, not to an error.',
 }
-
-// ---------------------------------------------------------------------------
-// settings.updatePersonal
-// ---------------------------------------------------------------------------
-
-/** The 24 personal-preference leaves, addressed by path. */
-export const settingsUpdatePersonalInput = z.object({
-  values: preferencePatch('personal-preference'),
-  mutationId: z.string().max(128).pipe(MutationIdField).optional(),
-})
-
-/**
- * A PER-USER write, and the classification POD-418 settled which this contract
- * must not re-open.
- *
- * `per-user-state` and NOT `personal`: these leaves differ per READER and are
- * keyed `(userId)`. `autoContinue.promptDismissed` is exactly the readAt/snooze
- * shape POD-351 and POD-731 warn about — a `personal` classification here would
- * key a per-user fact as a shared one, which is the trap that has now bitten
- * this run more than once.
- *
- * `roleFloor: 'member'` and `action: 'write'`: a member writes their OWN row and
- * nobody else's. There is no subtree gate because there is no shared row to
- * gate, and ADR 9 D3 rule 4 makes the class non-grantable — there is deliberately
- * no "share my sidebar order" verb to authorize.
- *
- * POD-1213 made the class physical: values are rows keyed `(userId, key)`, the
- * legacy shared blob no longer holds personal leaves, and every repository read
- * and write takes the user. The member floor therefore gates an actual owning
- * user's row rather than an intended key shape whose storage had not followed
- * its declaration.
- */
-export const settingsUpdatePersonalContract = {
-  name: 'settings.updatePersonal',
-  version: 1,
-  visibility: 'per-user-state',
-  input: settingsUpdatePersonalInput,
-  policy: {
-    action: 'write',
-    roleFloor: 'member',
-    resource: 'settings-domain',
-    confirmation: 'none',
-    rationale:
-      'A member writes their OWN preference row. `resource: "settings-domain"` names the row gate: the ' +
-      'settings surface, scoped by the key `(userId)` the matrix row declares — not `none`, because ' +
-      'there IS a target class, and not `global`, because a personal preference is nobody else’s. No ' +
-      'confirmation: every leaf is reversible by writing it again and ADR 1 records ' +
-      '`tombstone: "never-delete"`. No `machineVerb`: a preference write places no work on owned ' +
-      'compute — `hibernation` and `gitWorkflow`, the two leaves that DO describe machine behaviour, ' +
-      'are on the instance tier. POD-1213 stores personal values under `(userId, key)` and resolves ' +
-      'the caller live, so this member floor now gates the owning user’s row at apply time rather ' +
-      'than describing a future storage split.',
-  },
-  exposure: PERSONAL_SERVED_ON,
-  delivery: PERSONAL_PREFERENCE_DELIVERY,
-  redaction: PREFERENCE_REDACTION,
-  ownership: PREFERENCE_OWNERSHIP,
-  attribution: SETTINGS_ATTRIBUTION,
-  errorConsistency: CLOSED_VOCABULARY_ERRORS,
-  cli: { summary: 'Write personal preference leaves by classified path' },
-  conflict: 'single-writer',
-} as const satisfies CommandContract<typeof settingsUpdatePersonalInput>
 
 // ---------------------------------------------------------------------------
 // settings.updateInstance
@@ -1084,7 +984,6 @@ export const settingsTelegramSetupPollContract = {
  * of growing a second spelling beside it.
  */
 export const SETTINGS_CONTRACTS = {
-  'settings.updatePersonal': settingsUpdatePersonalContract,
   'settings.updateInstance': settingsUpdateInstanceContract,
   'settings.setSecret': settingsSetSecretContract,
   'settings.clearSecret': settingsClearSecretContract,
@@ -1114,7 +1013,7 @@ export const SETTINGS_COMMAND_NAMES = Object.keys(
  * no command, which is how a settings leaf could otherwise become unwritable
  * without anything noticing.
  */
-export const TIER_COMMAND: Readonly<Record<SettingsTier, SettingsContractName>> = {
+export const TIER_COMMAND: Readonly<Record<SettingsTier, SettingsWriteCommandName>> = {
   ...SETTINGS_WRITE_COMMAND_BY_TIER,
 }
 
@@ -1124,7 +1023,6 @@ export const TIER_COMMAND: Readonly<Record<SettingsTier, SettingsContractName>> 
  * — POD-305's rule, applied per contract rather than to arm 0.
  */
 export const CONTRACT_TIER: Readonly<Partial<Record<SettingsContractName, SettingsTier>>> = {
-  'settings.updatePersonal': 'personal-preference',
   'settings.updateInstance': 'instance-preference',
   'settings.setSecret': 'server-secret',
   'settings.clearSecret': 'server-secret',

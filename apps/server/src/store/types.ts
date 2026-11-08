@@ -34,11 +34,6 @@ import type { MessageFailedCause } from '@podium/protocol/daemon'
  *  copy gains a member. L0 owns it; this is the name the server reads it by. */
 export type PinKind = ModelPinKind
 
-export interface PinState {
-  panels: string[]
-  worktrees: string[]
-  repos: string[]
-}
 
 /** sessionId → snooze deadline. `null` = until next message; ISO = timed. */
 export type SnoozeMap = Record<string, string | null>

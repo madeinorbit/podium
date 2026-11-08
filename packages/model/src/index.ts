@@ -222,3 +222,4 @@ export * from './user-state/preference-state'
 // could not classify, because it had no server row to be per-user in.
 export * from './user-state/read-position-state'
 export * from './user-state/session-state'
+export * from './user-state/synced-records'

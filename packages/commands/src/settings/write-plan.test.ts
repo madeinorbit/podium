@@ -53,7 +53,7 @@ describe('role harness deletion survives JSON', () => {
         expect(plan.refusals).toEqual([])
         expect(JSON.parse(JSON.stringify(plan.intents))).toEqual([{
           kind: 'preference',
-          command: 'settings.updatePersonal',
+          command: 'records.userPreferences.edit',
           delivery: 'offline-eligible',
           values: { [`roles.${role}.harness`]: null },
         }])
@@ -204,7 +204,7 @@ describe('offline, a secret write is REFUSED — and a preference write is not',
     expect(plan.intents).toEqual([
       {
         kind: 'preference',
-        command: 'settings.updatePersonal',
+        command: 'records.userPreferences.edit',
         delivery: 'offline-eligible',
         values: { 'sidebar.repoSort': 'alphabetical' },
       },
@@ -221,7 +221,7 @@ describe('offline, a secret write is REFUSED — and a preference write is not',
       OFFLINE,
     )
     expect(plan.refusals.map((r) => r.path)).toEqual(['apiKeys.openai'])
-    expect(plan.intents.map((i) => i.command)).toEqual(['settings.updatePersonal'])
+    expect(plan.intents.map((i) => i.command)).toEqual(['records.userPreferences.edit'])
     // The refused material is nowhere in the plan — not in a payload, not in a
     // message. A refusal that echoed the value would be a leak dressed as an error.
     expect(JSON.stringify(plan)).not.toContain('sk-live-new')
@@ -284,10 +284,10 @@ describe('tiers are separated, and an unclassified change is refused', () => {
       ONLINE,
     )
     expect(plan.intents.map((i) => i.command).sort()).toEqual([
+      'records.userPreferences.edit',
       'settings.updateInstance',
-      'settings.updatePersonal',
     ])
-    const personal = plan.intents.find((i) => i.command === 'settings.updatePersonal')
+    const personal = plan.intents.find((i) => i.command === 'records.userPreferences.edit')
     expect(personal?.kind === 'preference' && personal.values).toEqual({
       'sidebar.repoSort': 'alphabetical',
     })
@@ -328,7 +328,7 @@ describe('tiers are separated, and an unclassified change is refused', () => {
       ONLINE,
     )
     expect(plan.refusals.map((r) => r.path)).toEqual(['telemetry.uploadToken'])
-    expect(plan.intents.map((i) => i.command)).toEqual(['settings.updatePersonal'])
+    expect(plan.intents.map((i) => i.command)).toEqual(['records.userPreferences.edit'])
   })
 
   it('an unchanged save plans nothing at all', () => {
@@ -363,7 +363,7 @@ describe('the online-only set is derived and non-empty', () => {
   it('EXCLUDES the offline-eligible arms — the filter can say no', () => {
     // Without this, a filter that returned every command would satisfy the
     // assertion above's "non-empty" purpose and its membership list.
-    expect(ONLINE_ONLY_SETTINGS_COMMANDS).not.toContain('settings.updatePersonal')
+    expect(ONLINE_ONLY_SETTINGS_COMMANDS).not.toContain('records.userPreferences.edit')
     expect(ONLINE_ONLY_SETTINGS_COMMANDS).not.toContain('settings.updateInstance')
   })
 })

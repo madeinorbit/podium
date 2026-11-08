@@ -52,6 +52,8 @@ const mountSessionMock = vi.fn((_el: unknown, _opts: { active?: boolean }) => ({
 
 // The presence seam [POD-1535]: the header's watcher strip reads the hub off
 // the client-core StoreProvider, which these focused renders don't mount.
+// My startScreen is my synced settings record (POD-6673).
+vi.mock('@/lib/my-preferences', () => ({ useMyStartScreen: () => 'native' }))
 vi.mock('@podium/client-core/react', async () =>
   (await import('./test-support/presence-mock')).presenceSeamStub(paneFixture.owner as never),
 )

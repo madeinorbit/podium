@@ -83,6 +83,10 @@ export const SYSTEM_WRITE_ORIGINS = {
     what: "the order plane's lane machine: train claims, attempts, transitions, effects, holds, repairs and the boot reconcile",
     kind: 'server',
   },
+  'settings.preferences': {
+    what: "a personal preference the server writes for a person, outside any command of theirs (the Telegram chat binding, the superagent default it picks): the person's userPreferences record",
+    kind: 'server',
+  },
   steward: {
     what: "the steward's issue notices: an unblocked dependent, a parent's nudge",
     kind: 'server',

@@ -73,8 +73,6 @@ import {
 
 /** The session-state commands the apps queue (client `OUTBOX_COMMANDS`). */
 export const QUEUED_SESSION_STATE_COMMANDS = [
-  'pins.set',
-  'tabs.setOrder',
   'sessions.setArchived',
   'sessions.setWorkState',
   'snoozes.set',

@@ -79,6 +79,10 @@ import type {
   EffectRecordWire,
   MachineProjection,
   MachineWire,
+  PersonalPreferences,
+  PinWire,
+  ReadPositionWire,
+  TabOrderWire,
 } from '@podium/model'
 import { NO_INTERACTIONS, type SeatInteractions } from '@podium/model/browser'
 import {
@@ -275,6 +279,11 @@ export interface PoolRows {
   effect: Readonly<EffectRecordWire> & { readonly sessionId?: string } & Readonly<
       Record<string, unknown>
     >
+  /** POD-6673's per-user records, each with its feed id stamped as `id`. */
+  pin: Readonly<PinWire> & { readonly id: string } & Readonly<Record<string, unknown>>
+  tabOrder: Readonly<TabOrderWire> & { readonly id: string } & Readonly<Record<string, unknown>>
+  userPreferences: Readonly<PersonalPreferences> & { readonly id: string } & Readonly<Record<string, unknown>>
+  userReadPosition: Readonly<ReadPositionWire> & { readonly id: string } & Readonly<Record<string, unknown>>
   issue: SliceIssue & Readonly<Record<string, unknown>>
   session: SliceSession & Readonly<Record<string, unknown>>
   worktree: SliceWorktree & Readonly<Record<string, unknown>>

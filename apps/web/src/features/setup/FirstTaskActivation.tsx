@@ -8,7 +8,6 @@ import {
 } from '@podium/client-core/values'
 import type { HarnessAgent, SessionId } from '@podium/model'
 import { HOST_REPOS, machinesFor } from '@podium/model'
-import { resolveRole } from '@podium/runtime'
 import {
   ArrowLeft,
   ArrowRight,
@@ -22,6 +21,7 @@ import type { JSX } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { SetupLoginTerminalDialog } from '@/app/SetupLoginTerminalDialog'
 import { useSettingsCatalog, useSettingsDraft } from '@/features/settings/readers'
+import { useMyCodingHarness } from '@/lib/my-preferences'
 import { useSettingsClient } from '@/features/settings/stable-access'
 import { useResolvedDescriptors } from '@/lib/harness-descriptors'
 import {
@@ -90,25 +90,12 @@ export function FirstTaskActivation({
   const [loginSessionId, setLoginSessionId] = useState<SessionId | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  // My coding default, from my synced settings (POD-6673).
+  const codingHarness = useMyCodingHarness()
   useEffect(() => {
-    let cancelled = false
-    void trpc.settings.get
-      .query()
-      .then((settings) => {
-        if (!cancelled) {
-          setConfiguredAgent(
-            issueAgentKind(resolveRole(settings, 'coding').harness) ??
-              issueDefaultAgentKind(undefined),
-          )
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setConfiguredAgent(issueDefaultAgentKind(undefined))
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [trpc])
+    if (codingHarness === undefined) return
+    setConfiguredAgent(issueAgentKind(codingHarness) ?? issueDefaultAgentKind(undefined))
+  }, [codingHarness])
 
   const selectedRepo = repoChoices.find((repo) => repo.path === draft.repoPath) ?? repoChoices[0]
   useEffect(() => {

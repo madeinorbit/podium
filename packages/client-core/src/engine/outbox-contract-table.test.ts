@@ -81,7 +81,7 @@ const lookup = (name: string): CommandContract | undefined => {
  * reddens this test and the row moves under the guard instead of staying
  * quietly unchecked.
  */
-const UNGUARDED = ['dismissOffer', 'pinSet', 'tabSetOrder', 'resumeAndSend', 'sendText'].sort()
+const UNGUARDED = ['dismissOffer', 'resumeAndSend', 'sendText'].sort()
 
 describe('the client outbox contract table matches the contracts', () => {
   const entries = Object.entries(OUTBOX_COMMANDS)

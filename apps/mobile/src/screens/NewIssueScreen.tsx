@@ -2,7 +2,7 @@ import { issueWrites } from '@podium/commands/issues-synced'
 import { observer } from 'mobx-react-lite'
 import { LOADING } from '@podium/client-graph/loading'
 import { isGone } from '@podium/client-graph/lookup'
-import { useSettingsRecord } from '../client/use-settings-record'
+import { useMyCodingHarness } from '../client/my-preferences'
 import { ISSUE_STAGE_LABELS } from '@podium/client-core/values'
 import { HUMAN_SETTABLE_ISSUE_STAGES, type IssueStage, machinePathBasename } from '@podium/model'
 import { useRouter } from 'expo-router'
@@ -50,7 +50,6 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
   const repositoriesLoading = repositoryPaths === LOADING
   const repositoriesGone = isGone(repositoryPaths)
   const repos = repositoryPaths === LOADING || isGone(repositoryPaths) ? [] : repositoryPaths
-  const settingsRequest = useSettingsRecord()
   const [repoPath, setRepoPath] = useState('')
   const [title, setTitle] = useState('')
   const [prompt, setPrompt] = useState('')
@@ -62,7 +61,7 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const configuredHarness = settingsRequest?.model?.codingHarness
+  const configuredHarness = useMyCodingHarness()
   const configuredAgent = configuredHarness ? issueAgentKind(configuredHarness) : undefined
   useEffect(() => {
     if (configuredAgent) setLaunch(current => current.inheritAgent ? { ...current, agentKind: configuredAgent } : current)

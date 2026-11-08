@@ -1,10 +1,10 @@
 /**
- * `settings.updatePersonal` AND `settings.updateInstance` ON THE SYNC WRITE ENTRY
- * POINT (POD-6350 and POD-6412, ADR 12 D2).
+ * `settings.updateInstance` ON THE SYNC WRITE ENTRY POINT (POD-6412, ADR 12 D2).
  *
- * The two synced settings writes: the one the apps queue, and the instance tier
- * the settings screen sends at once. Both are one service method (the store
- * routes each key by its classification). The entry point gives them the dedup
+ * The instance tier the settings screen sends at once. (Personal leaves are
+ * fields of the synced `userPreferences` record since POD-6673, written by
+ * `records.userPreferences.edit`.) One service method; the store routes each
+ * key by its classification. The entry point gives them the dedup
  * they never had; this registration keeps the family's two rules:
  *
  *  - THE LIVE GATE (`authz.ts`): the contract's role floor against the account's
@@ -33,7 +33,7 @@ import { settingsAuthzFailure } from './authz'
 import { SettingsPatchRefused, type SettingsService } from './service'
 
 /** The synced settings writes. The other settings commands are plain (POD-6360). */
-export type SyncedSettingsWrite = 'settings.updatePersonal' | 'settings.updateInstance'
+export type SyncedSettingsWrite = 'settings.updateInstance'
 
 export interface SettingsSyncWriteDeps {
   settings(): Pick<SettingsService, 'updatePreferences' | 'recordCommand'>
@@ -62,14 +62,6 @@ export async function settingsWriteRefusal(
 /** Whether the service refused the patch itself, rather than failing to write it. */
 const isDefinitive = (error: unknown): boolean =>
   error instanceof SettingsPatchRefused || error instanceof z.ZodError
-
-/** `settings.updatePersonal`, the queued one (POD-6350). */
-export function registerSettingsCommands(
-  registry: SyncWriteRegistry,
-  deps: SettingsSyncWriteDeps,
-): void {
-  registerSettingsWrite(registry, deps, 'settings.updatePersonal')
-}
 
 export function registerSettingsWrite(
   registry: SyncWriteRegistry,

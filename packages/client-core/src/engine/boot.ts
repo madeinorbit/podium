@@ -1,14 +1,14 @@
 /**
  * THE NETWORK ENRICHMENTS (POD-404, split out of the old `engine.ts`).
  *
- * Repos, pins, tab orders and personal settings are fetched over tRPC rather
- * than replicated. They are ENRICHMENTS, not the source
+ * Repos and superagent threads are fetched over tRPC rather than replicated
+ * (pins, tab orders and personal settings are synced records since POD-6673). They are ENRICHMENTS, not the source
  * of truth for the principal's slice: a cold offline boot must keep serving the
  * persisted replica rather than replacing it with a connection error, so every
  * caller runs these detached and swallows the failure.
  *
  * They are principal-scoped by the transport that carries them — the tRPC client
- * is authenticated, so `pins.list` answers for whoever the cookie says you are
+ * is authenticated, so each answers for whoever the cookie says you are
  * (ADR 3 D7). Nothing here passes an identity; nothing here may start one.
  */
 
@@ -92,23 +92,10 @@ export class BootFetches<TApi extends PodiumClientApi> {
     }
   }
 
-  async refreshPins(): Promise<void> {
-    this.ports.publish({ pins: await this.ports.api.pins.list.query() })
-  }
-
-  async refreshTabOrders(): Promise<void> {
-    this.ports.publish({ tabOrders: await this.ports.api.tabs.listOrders.query() })
-  }
-
   /** The signed-in user's superagent threads (POD-330, audit item zero). The
    *  authority scopes the query to the caller, so this is the ONLY thread list
    *  the client can obtain — there is no by-user variant to reach for. */
   async refreshSuperThreads(): Promise<void> {
     this.ports.publish({ superThreads: await this.ports.api.superagent.listThreads.query() })
-  }
-
-  async refreshPersonalSettings(): Promise<void> {
-    const settings = await this.ports.api.settings.get.query()
-    this.ports.publish({ sidebarSettings: settings.sidebar })
   }
 }

@@ -1,6 +1,7 @@
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { MobxPool } from '@podium/client-graph'
+import { asUserId, resolveUserPreferences } from '@podium/model'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { normalizeSettings } from '@podium/runtime'
@@ -111,6 +112,11 @@ it('measures the mounted settings sections at 1x and 4x', async () => {
     })
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() })
     seam.pool = pool
+    // My settings record, as the row source publishes it (POD-6673).
+    pool.apply({
+      type: 'update',
+      rows: [{ kind: 'userPreferences', id: 'me', value: { ...resolveUserPreferences(undefined, asUserId('me')), id: 'me' } as never }],
+    })
     // The logical repo records the replica carries beside those scans.
     pool.apply({
       type: 'update',

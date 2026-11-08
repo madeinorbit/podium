@@ -6,6 +6,9 @@ import {
   asUserId,
   issueUserStateRowId,
   layoutRowId,
+  pinRowId,
+  tabOrderRowId,
+  userPreferencesRowId,
   sessionUserStateRowId,
 } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
@@ -364,14 +367,39 @@ describe('engine action ownership boundary', () => {
     expect(h.navigated).toHaveLength(1)
   })
 
-  it('optimistically applies a representative replicated write while airplane-mode queues it', async () => {
+  it('queues pins, tab orders and personal settings as generic edits of my records (POD-6673)', async () => {
     const h = harness()
 
     await h.actions.setPinned('panel', sessionId, true)
+    await h.actions.setPinned('repo', '/repo', false)
+    await h.actions.setTabOrder('/w', [sessionId])
+    await h.actions.setTabOrder('/x', [])
+    await h.actions.setPreferences({ 'sidebar.repoSort': 'custom', 'roles.coding.harness': undefined })
 
-    expect(h.state().pins.panels).toEqual([sessionId])
     expect(h.queued).toEqual([
-      { kind: 'pinSet', input: { kind: 'panel', id: sessionId, pinned: true } },
+      {
+        kind: 'recordCreate',
+        input: {
+          kind: 'pin',
+          id: pinRowId(ME, 'panel', sessionId),
+          fields: { userId: ME, kind: 'panel', entityId: sessionId },
+        },
+      },
+      { kind: 'recordRemove', input: { kind: 'pin', id: pinRowId(ME, 'repo', '/repo') } },
+      {
+        kind: 'recordEdit',
+        input: { kind: 'tabOrder', id: tabOrderRowId(ME, '/w'), patch: { sessionIds: [sessionId] } },
+      },
+      { kind: 'recordRemove', input: { kind: 'tabOrder', id: tabOrderRowId(ME, '/x') } },
+      {
+        kind: 'recordEdit',
+        input: {
+          kind: 'userPreferences',
+          id: userPreferencesRowId(ME),
+          patch: { 'sidebar.repoSort': 'custom' },
+          unset: ['roles.coding.harness'],
+        },
+      },
     ])
   })
 
@@ -577,16 +605,6 @@ describe('engine action ownership boundary', () => {
       /not a replicated layout key/,
     )
     expect(h.queued).toEqual([])
-  })
-
-  it('rolls reducer optimism back when durable enqueue itself fails', async () => {
-    const h = harness()
-    h.enqueue.mockRejectedValueOnce(new Error('storage unavailable'))
-
-    await expect(h.actions.setPinned('panel', sessionId, true)).rejects.toThrow(
-      'storage unavailable',
-    )
-    expect(h.state().pins.panels).toEqual([])
   })
 
   it('never accepts client attribution fields in assembled command payloads', async () => {

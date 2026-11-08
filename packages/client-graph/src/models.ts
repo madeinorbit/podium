@@ -1,6 +1,7 @@
 import { type IssueNavigationModel, issuePendingDecision, missionTaskBucket, type MissionTaskBucket } from '@podium/client-core/values'
 import type { LiveStore } from '@podium/client-core/live'
-import type { EffectError, EffectRecordWire, EffectStatus, IssueGitState, IssuePanel, IssuePanelArtifact, IssueProjection } from '@podium/model'
+import type { EffectError, EffectRecordWire, EffectStatus, IssueGitState, IssuePanel, IssuePanelArtifact, IssueProjection, PersonalPreferences, PinWire, ReadPositionWire, TabOrderWire } from '@podium/model'
+import { type PodiumSettings, resolveRole } from '@podium/runtime'
 import { here, isGone, type Lookup, omitGone } from './lookup'
 import type { MessageModel, PendingInteractionModel } from './message-models'
 import { ReadObservation } from './read-observation'
@@ -1301,6 +1302,59 @@ export interface IssueModel extends Readonly<Pick<IssueProjection, 'priority' | 
   readonly gitState?: IssueGitState | null
 }
 
+/**
+ * MY PER-USER RECORDS (POD-6673): pins, tab orders, personal settings and read
+ * positions, synced to every device of mine and to nobody else. One shared model
+ * per record; screens read these, never a request.
+ */
+export class PinModel extends EntityModel {
+  constructor(id: string, host: ModelHost) {
+    super('pin', id, host)
+  }
+}
+export interface PinModel extends Readonly<PinWire> {}
+
+export class TabOrderModel extends EntityModel {
+  constructor(id: string, host: ModelHost) {
+    super('tabOrder', id, host)
+  }
+}
+export interface TabOrderModel extends Readonly<TabOrderWire> {}
+
+/**
+ * My personal settings, resolved: every leaf I never chose reads as its default
+ * (the row source resolves the record's flat leaves). The record is always
+ * present for the principal, so a reader never handles "no settings".
+ */
+export class UserPreferencesModel extends EntityModel {
+  constructor(id: string, host: ModelHost) {
+    super('userPreferences', id, host)
+  }
+  // Roles
+  /** The harness a coding session starts with when a task leaves its agent on Auto. */
+  @lazy get codingHarness(): string {
+    return resolveRole({ roles: this.roles } as PodiumSettings, 'coding').harness
+  }
+  /** Which panel a new session opens on. */
+  @lazy get startScreen(): 'native' | 'chat' | 'auto' {
+    return this.roles.coding.startScreen
+  }
+  // Sidebar
+  @lazy({ equals: compareShallow }) get repoOrder(): readonly string[] {
+    return this.sidebar.repoOrder
+  }
+}
+export interface UserPreferencesModel extends Readonly<Omit<PersonalPreferences, 'userId'>> {
+  readonly userId: string
+}
+
+export class UserReadPositionModel extends EntityModel {
+  constructor(id: string, host: ModelHost) {
+    super('userReadPosition', id, host)
+  }
+}
+export interface UserReadPositionModel extends Readonly<ReadPositionWire> {}
+
 export type ModelOf = {
   account: AccountModel
   member: MemberModel
@@ -1322,6 +1376,10 @@ export type ModelOf = {
     RelationGetters<'worktree'>
   repo: RepoModel & Readonly<RepoRow> & { readonly path?: string } & RelationGetters<'repo'>
   effect: EffectModel
+  pin: PinModel
+  tabOrder: TabOrderModel
+  userPreferences: UserPreferencesModel
+  userReadPosition: UserReadPositionModel
 }
 
 /** The installed class registry. Deferred kinds join it before their first model
@@ -1330,6 +1388,8 @@ export type ModelClass = (new (id: string, host: ModelHost) => EntityModel) & Pi
 export const MODEL_CLASSES: Readonly<Partial<Record<EntityName, ModelClass>>> = {
   issue: IssueModel, session: SessionModel, worktree: WorktreeModel, repo: RepoModel,
   effect: EffectModel,
+  pin: PinModel, tabOrder: TabOrderModel, userPreferences: UserPreferencesModel,
+  userReadPosition: UserReadPositionModel,
 }
 
 for (const [entity, Model] of Object.entries(MODEL_CLASSES) as [EntityName, ModelClass][]) {

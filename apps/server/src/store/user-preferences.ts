@@ -45,7 +45,12 @@
  * distinguish a stored default from a choice.
  */
 
-import { settingsPathsInTier, type UserId } from '@podium/model'
+import {
+  settingsPathsInTier,
+  USER_PREFERENCE_LEAVES,
+  type UserId,
+  type UserPreferencesWire,
+} from '@podium/model'
 import { and, asc, eq, sql } from 'drizzle-orm'
 import { userPreferences } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
@@ -113,6 +118,28 @@ const preferenceKeysOfUser = prepared((db: StoreDrizzle) =>
     .orderBy(asc(userPreferences.key))
     .prepare(),
 )
+
+// Every person's preference rows: the `userPreferences` kind's full truth for
+// the boot reconcile (POD-6673).
+const allPreferenceRows = prepared((db: StoreDrizzle) =>
+  db
+    .select({ userId: userPreferences.userId, key: userPreferences.key, value: userPreferences.value })
+    .from(userPreferences)
+    .prepare(),
+)
+
+/** A leaf's stored JSON as the record carries it; undefined when it is not a
+ *  record leaf or does not parse as one (treated as never set, as `getFor`). */
+function leafValue(key: string, raw: string): unknown {
+  const schema = USER_PREFERENCE_LEAVES.get(key)
+  if (schema === undefined) return undefined
+  try {
+    const parsed = schema.safeParse(JSON.parse(raw))
+    return parsed.success ? parsed.data : undefined
+  } catch {
+    return undefined
+  }
+}
 
 export class UserPreferencesRepository {
   private readonly rootDb: StoreDrizzle
@@ -206,6 +233,37 @@ export class UserPreferencesRepository {
   async clear(userId: UserId, key: string): Promise<void> {
     await deletePreference(this.db).run({ userId, key })
     this.written()
+  }
+
+  /**
+   * One person's `userPreferences` record (POD-6673): their chosen leaves,
+   * flat by path. A leaf never chosen is absent.
+   */
+  async recordFor(userId: UserId): Promise<UserPreferencesWire> {
+    const rows = await preferencesOfUser(this.db).all({ userId })
+    const record: Record<string, unknown> = { userId }
+    for (const row of rows) {
+      const value = leafValue(row.key, row.value)
+      if (value !== undefined) record[row.key] = value
+    }
+    return record as UserPreferencesWire
+  }
+
+  /** Every person's record that holds a choice, for the boot reconcile. The
+   *  one cross-user read here, and boot-only. */
+  async allRecordsForBootReconcile(): Promise<UserPreferencesWire[]> {
+    const byUser = new Map<UserId, Record<string, unknown>>()
+    for (const row of await allPreferenceRows(this.db).all()) {
+      const value = leafValue(row.key, row.value)
+      if (value === undefined) continue
+      let record = byUser.get(row.userId)
+      if (record === undefined) {
+        record = { userId: row.userId }
+        byUser.set(row.userId, record)
+      }
+      record[row.key] = value
+    }
+    return [...byUser.values()] as UserPreferencesWire[]
   }
 
   /** Every path this person has set. Scoped to one user like every other method

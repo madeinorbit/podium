@@ -545,6 +545,14 @@ export interface PortRule {
  * share a member name cannot collapse into one answer.
  */
 export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
+  'apps/server/src/store/user-preferences.ts#UserPreferencesRepository.written': {
+    kind: 'contained',
+    why: "The settings repository's per-operation memo invalidation after a preference row write [POD-6218]: it forgets an in-process resolution, performs no I/O and publishes nothing, so a rollback leaves nothing outside the process changed.",
+  },
+  'apps/server/src/modules/user-records/records.ts#UserRecordDeps.sessions': {
+    kind: 'contained',
+    why: "The sessions repository's pin and tab-order reads and writes [POD-6673]: composition binds it to SessionsRepository, whose statements join the entry point's transaction; the change entries go through Ledger.commit in the same unit, so a rollback takes them with it and nothing outside the process saw them.",
+  },
   'packages/runtime/src/settings.ts#<module>.<anonymous>': {
     kind: 'contained',
     why: 'The legacy harness-backend migration callback only maps one settings value to another; it performs no I/O or publication, so rollback leaves nothing outside the process changed.',

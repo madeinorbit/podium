@@ -90,7 +90,8 @@ it.each([1, 4])('matches the old pending sweep through addressed edits and retir
     issueProjections: new Map<string, readonly PendingOverlay[]>(),
     issueUserStates: new Map<string, readonly PendingOverlay[]>(),
   }
-  const f = fixture({ pending: { byRow: kind => maps[kind] } })
+  const none = new Map<string, readonly PendingOverlay[]>()
+  const f = fixture({ pending: { byRow: kind => (maps as Record<string, typeof none>)[kind] ?? none } })
   const held = new Map<string, unknown>()
   const stop = f.source.source.subscribe(event => {
     if (event.type === 'replace') held.clear()
@@ -105,7 +106,10 @@ it.each([1, 4])('matches the old pending sweep through addressed edits and retir
     for (const kind of ['session', 'issue'] as const)
       for (const row of f.source.source.snapshot(kind))
         if (row.value !== undefined) rebuilt.set(`${kind}:${row.id}`, row.value)
-    expect(held).toEqual(rebuilt)
+    // The oracle covers sessions and issues; the principal's settings row
+    // (POD-6673) is not part of the sweep it retains.
+    const sweep = new Map([...held].filter(([key]) => key.startsWith('session:') || key.startsWith('issue:')))
+    expect(sweep).toEqual(rebuilt)
   }
   const edit = (entity: keyof typeof maps, id: string, patch: Record<string, unknown>) => {
     maps[entity].set(id, [{ op: 'patch', key: `${entity}:${id}`, entity, id, patch }])
@@ -616,7 +620,11 @@ it('does not let later snapshots swallow pending updates or inserts and replaces
     expect(f.source.flush()!.rows).toHaveLength(2)
     f.tables.get('sessions')!.delete('one')
     f.replace()
-    expect(f.source.flush()).toMatchObject({ type: 'replace', rows: [{ kind: 'session', id: 'two' }] })
+    // The principal's settings row rides every replace too (POD-6673: a record
+    // never written is every default), so the scope is read for sessions.
+    const replaced = f.source.flush()!
+    expect(replaced.type).toBe('replace')
+    expect(replaced.rows.filter((row) => row.kind === 'session')).toMatchObject([{ kind: 'session', id: 'two' }])
     f.session('one', 'changed')
     f.update('one')
     expect(f.source.flush()!.rows[0]).toMatchObject({ kind: 'session', id: 'one', value: { title: 'changed' } })

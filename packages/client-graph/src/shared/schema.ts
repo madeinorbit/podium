@@ -94,6 +94,10 @@ export type ModelSchemaName =
   | 'EffectRecordWire'
   | 'EffectGroup'
   | 'EffectTarget'
+  | 'PinWire'
+  | 'TabOrderWire'
+  | 'PersonalPreferences'
+  | 'ReadPositionWire'
   | 'AccountView'
   | 'MemberView'
   | 'MobileClientSession'
@@ -126,6 +130,10 @@ export type RowArrival =
   | 'replica:messageRecords'
   | 'replica:pendingInteractions'
   | 'replica:effects'
+  | 'replica:pins'
+  | 'replica:tabOrders'
+  | 'replica:userPreferences'
+  | 'replica:userReadPositions'
   | 'request:messages.ledger'
   | 'request:accounts.list'
   | 'request:members.list'
@@ -185,7 +193,7 @@ export interface FieldSpec {
 // Relations
 // ---------------------------------------------------------------------------
 
-export type EntityName = 'account' | 'member' | 'device' | 'podiumSettings' | 'repository' | 'issue' | 'session' | 'worktree' | 'repo' | 'machine' | 'automation' | 'automationRun' | 'messageRecord' | 'pendingInteraction' | 'effect'
+export type EntityName = 'account' | 'member' | 'device' | 'podiumSettings' | 'repository' | 'issue' | 'session' | 'worktree' | 'repo' | 'machine' | 'automation' | 'automationRun' | 'messageRecord' | 'pendingInteraction' | 'effect' | 'pin' | 'tabOrder' | 'userPreferences' | 'userReadPosition'
 
 /**
  * Four kinds, and no more.
@@ -458,6 +466,36 @@ function syncedIdentity(schema: ModelSchemaName, arrivesOn: RowArrival) {
     fields: { id: { type: 'id' as const, source: { schema, arrivesOn } } },
     cold: { kind: 'never' as const, why: 'Synced records stay resident.' },
     why: 'Detailed fields and models register from the deferred synced-models module.',
+  }
+}
+/** One POD-6673 per-user record: keyed by its stamped feed id, always resident. */
+function perUser(
+  schema: ModelSchemaName,
+  arrivesOn: RowArrival,
+  why: string,
+  fields: Readonly<Record<string, { type: FieldType; note: string; nullable?: true }>>,
+) {
+  return {
+    key: 'id',
+    why,
+    // No component: the row source stamps the feed id, which no wire row
+    // carries, and hands the record over whole.
+    components: {},
+    fields: {
+      id: {
+        type: 'id' as const,
+        source: { schema: 'RequestRecordKey' as const, arrivesOn },
+        note: 'Its feed id, stamped by the row source (the wire row has none).',
+      },
+      ...Object.fromEntries(
+        Object.entries(fields).map(([name, f]) => [
+          name,
+          { type: f.type, ...(f.nullable ? { nullable: true } : {}), source: { schema, arrivesOn }, note: f.note },
+        ]),
+      ),
+    },
+    relations: {},
+    cold: { kind: 'never' as const, why: 'A person has few of these: always resident.' },
   }
 }
 const effectWire = (property?: string): FieldSource => ({
@@ -1101,6 +1139,40 @@ const DECLARED = defineSchema({
     },
     cold: { kind: 'never', why: 'Effects are few and pruned after the retention window: always resident.' },
   },
+  /**
+   * MY PINS, TAB ORDERS, PERSONAL SETTINGS AND READ POSITIONS (POD-6673): synced
+   * per-user records, the owner's alone. Each is one row keyed by its feed id,
+   * which the row source stamps as `id`.
+   */
+  pin: perUser('PinWire', 'replica:pins', 'The record IS the pin: a session, issue, worktree or repo I pinned.', {
+    userId: { type: 'id', note: 'Its owner: always the principal.' },
+    kind: { type: 'enum', note: '`panel` (a session), `issue`, `worktree` or `repo`.' },
+    entityId: { type: 'string', note: 'The pinned thing: a session or issue id, or a path.' },
+    pinnedAt: { type: 'isoDate', note: 'When; pinned things list in this order.' },
+  }),
+  tabOrder: perUser('TabOrderWire', 'replica:tabOrders', 'My manual session order of one worktree.', {
+    userId: { type: 'id', note: 'Its owner: always the principal.' },
+    entityId: { type: 'string', note: 'The worktree path.' },
+    sessionIds: { type: 'object', note: 'The order, whole: the last writer wins.' },
+  }),
+  userPreferences: perUser(
+    'PersonalPreferences',
+    'replica:userPreferences',
+    'My personal settings: one record, resolved with defaults by the row source from its flat leaf fields.',
+    {
+      userId: { type: 'id', note: 'Its owner: always the principal. Also the record id.' },
+      roles: { type: 'object', note: 'Agent and model choices per role (coding, superagent, background, shipwright).' },
+      sidebar: { type: 'object', note: 'Repo sort, manual repo order, grouping.' },
+      autoContinue: { type: 'object', note: 'Retry-on-error, and whether its prompt was answered.' },
+      notifications: { type: 'object', note: 'Where my notifications go (web, ntfy topic, Telegram chat).' },
+    },
+  ),
+  userReadPosition: perUser('ReadPositionWire', 'replica:userReadPositions', 'How far I have read one event stream.', {
+    userId: { type: 'id', note: 'Its owner: always the principal.' },
+    streamId: { type: 'enum', note: 'The stream (`issueEvents`).' },
+    lastEventId: { type: 'number', note: 'The last event read; only ever moves forward.' },
+    seenAt: { type: 'isoDate', nullable: true, note: 'When it was read.' },
+  }),
   messageRecord: syncedIdentity('MessageRecordWire', 'replica:messageRecords'),
   pendingInteraction: syncedIdentity('PendingInteractionWire', 'replica:pendingInteractions'),
   machine: syncedIdentity('MachineProjection', 'replica:machines'),

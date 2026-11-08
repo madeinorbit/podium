@@ -4,7 +4,8 @@ import type { SettingsTier } from '@podium/model/browser'
 import type { DeliveryClass } from '../contract'
 
 export const SETTINGS_WRITE_COMMAND_BY_TIER = {
-  'personal-preference': 'settings.updatePersonal',
+  // A personal leaf is a field of the person's `userPreferences` record (POD-6673).
+  'personal-preference': 'records.userPreferences.edit',
   'instance-preference': 'settings.updateInstance',
   'server-secret': 'settings.setSecret',
 } as const satisfies Record<SettingsTier, string>
@@ -14,7 +15,7 @@ export type SettingsWriteCommandName =
   | 'settings.clearSecret'
 
 export const SETTINGS_WRITE_DELIVERY_CLASS = {
-  'settings.updatePersonal': 'offline-eligible',
+  'records.userPreferences.edit': 'offline-eligible',
   'settings.updateInstance': 'offline-eligible',
   'settings.setSecret': 'online-sensitive',
   'settings.clearSecret': 'online-sensitive',

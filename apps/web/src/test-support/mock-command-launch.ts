@@ -30,8 +30,6 @@ const EMPTY_SESSIONS: Store['sessions'] = []
 const EMPTY_REPOS: Store['repos'] = []
 const EMPTY_MACHINES: Store['machines'] = []
 const EMPTY_FILES: Store['recentFiles'] = []
-const EMPTY_PINS = { issues: [], repos: [], worktrees: [], sessions: [] }
-const EMPTY_SETTINGS = { repoOrder: [] }
 
 /** Component-only fixtures feed the actual command source and projection.
  * Runtime attachment, LOADING and publication coverage uses the separate
@@ -56,9 +54,7 @@ function useCommandFixture<T>(read: (pool: MobxPool) => T): T {
           sessions: input.sessions ?? EMPTY_SESSIONS,
           repos: input.repos ?? EMPTY_REPOS,
           machines: input.machines ?? EMPTY_MACHINES,
-          pins: input.pins ?? EMPTY_PINS,
           recentFiles: input.recentFiles ?? EMPTY_FILES,
-          sidebarSettings: input.sidebarSettings ?? EMPTY_SETTINGS,
           selectedIssueId: input.selectedIssueId ?? null,
           openIssueId: input.openIssueId ?? null,
           selectedWorktree: input.selectedWorktree ?? null,

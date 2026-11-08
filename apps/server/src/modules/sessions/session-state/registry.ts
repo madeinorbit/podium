@@ -207,23 +207,6 @@ const ownPerUserSessionRow: TargetResolver = async (input, principal, deps) => {
   return { kind: 'per-user-row', userId: principal.userId }
 }
 
-const ownPerUserTabOrder: TargetResolver = async (input, principal, deps) => {
-  if (!Array.isArray(input.sessionIds)) return undefined
-  // `Array.prototype.some` over an async predicate is always false — the
-  // promise is truthy but `!promise` is not — so this is spelled as an explicit
-  // await of every verdict [POD-3507].
-  const readable = await Promise.all(
-    input.sessionIds.map(
-      async (id) =>
-        typeof id === 'string' && (await deps.state.canReadSession(principal, asSessionId(id))),
-    ),
-  )
-  if (readable.some((ok) => ok !== true)) {
-    return undefined
-  }
-  return { kind: 'per-user-row', userId: principal.userId }
-}
-
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
@@ -323,27 +306,6 @@ const REGISTRATIONS: Record<string, Registration> = {
     handler: async (input, principal, deps, writer) => {
       await deps.state.clearSnooze(writer, principal, sessionIdOf(input.sessionId))
       return await deps.state.listSnoozes(principal)
-    },
-  },
-  'pins.set': {
-    target: ownPerUserRow,
-    handler: async (input, principal, deps) => {
-      return await deps.state.setPin(
-        principal,
-        input.kind as never,
-        str(input.id),
-        input.pinned === true,
-      )
-    },
-  },
-  'tabs.setOrder': {
-    target: ownPerUserTabOrder,
-    handler: async (input, principal, deps) => {
-      return await deps.state.setTabOrder(
-        principal,
-        str(input.worktree),
-        (input.sessionIds ?? []) as string[],
-      )
     },
   },
   'sessions.setDraft': {

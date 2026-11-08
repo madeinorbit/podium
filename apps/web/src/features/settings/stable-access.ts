@@ -6,7 +6,8 @@ interface SettingsClient extends Pick<Store,
   'trpc' | 'uiState' | 'navigateToSession' | 'refreshRepos' | 'setSettingsTab' |
   'focusIssueSession' | 'spawnDraftAgent' | 'spawnIssueAgent' | 'startIssueSession' |
   'setSelectedIssueId' |
-  'setSelectedWorktree' | 'setPane' | 'setPanelMode' | 'setView' | 'setOpenIssueId'> {
+  'setSelectedWorktree' | 'setPane' | 'setPanelMode' | 'setView' | 'setOpenIssueId' |
+  'setPreferences'> {
   readonly owner: { readonly access: Store }
 }
 
@@ -32,6 +33,7 @@ export function useSettingsClient(): SettingsClient {
     setPanelMode: state.setPanelMode,
     setView: state.setView,
     setOpenIssueId: state.setOpenIssueId,
+    setPreferences: state.setPreferences,
   }
 }
 

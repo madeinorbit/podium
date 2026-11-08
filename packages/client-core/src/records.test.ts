@@ -63,7 +63,8 @@ describe('the record kinds the client knows', () => {
 
   it('mint new ids of the declared shape', () => {
     for (const d of SYNCED_KINDS) {
-      if (d.ops.create === undefined) continue
+      // A pin's id is its key (`recreate: 'keep'`), never minted (POD-6673).
+      if (d.ops.create === undefined || d.recreate === 'keep') continue
       const id = newRecordId(d.kind as RecordKind)
       expect(d.newId?.safeParse(id).success, id).toBe(true)
     }

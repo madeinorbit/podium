@@ -32,7 +32,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { applySettingsPatch, changedSettingsLeaves, readSettingsLeaf } from '@podium/commands'
-import { asUserId, type MachineId, type UserId } from '@podium/model'
+import { asUserId, type MachineId, type UserId, type UserPreferencesWire } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import { TIER_DEFAULTS } from '@podium/telemetry'
 import { applyAfterCommit, spanOpen } from './executor'
@@ -404,6 +404,16 @@ export class SettingsRepository {
       )
     }
     return await this.getSettingsFor(userId)
+  }
+
+  /** One person's `userPreferences` record: the leaves they chose (POD-6673). */
+  async preferenceRecordFor(userId: UserId): Promise<UserPreferencesWire> {
+    return await this.userPreferences.recordFor(userId)
+  }
+
+  /** Every person's record, for the boot reconcile. */
+  async allPreferenceRecordsForBootReconcile(): Promise<UserPreferencesWire[]> {
+    return await this.userPreferences.allRecordsForBootReconcile()
   }
 
   /** One person's value for one dotted path, resolved: their row, else the blob.

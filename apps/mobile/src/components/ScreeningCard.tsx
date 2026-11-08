@@ -17,7 +17,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated'
 import { scheduleOnRN } from 'react-native-worklets'
-import { useSettingsRecord } from '../client/use-settings-record'
+import { useMyCodingHarness } from '../client/my-preferences'
 import { useReduceMotion } from '../hooks/useReduceMotion'
 import { useAgeNow } from '../lib/clock-hooks'
 import {
@@ -73,7 +73,7 @@ export const ScreeningCard = observer(function ScreeningCard({
   onOpen: () => void
 }) {
   const { width } = useWindowDimensions()
-  const settingsRequest = useSettingsRecord()
+  const codingHarness = useMyCodingHarness()
   const reduceMotion = useReduceMotion()
   const translateX = useSharedValue(0)
   const translateY = useSharedValue(0)
@@ -220,7 +220,7 @@ export const ScreeningCard = observer(function ScreeningCard({
   const openChildren = Math.max(0, issue.childCount - issue.childDoneCount)
   const brief = issue.brief?.trim()
   const description = issue.description.trim()
-  const agentKind = issueDefaultAgentKind(issue.defaultAgent, settingsRequest?.model?.codingHarness)
+  const agentKind = issueDefaultAgentKind(issue.defaultAgent, codingHarness)
   const modelBits = [issueAgentLabel(agentKind), issue.defaultModel, issue.defaultEffort]
     .filter((bit) => bit && bit !== 'auto')
     .join(' · ')

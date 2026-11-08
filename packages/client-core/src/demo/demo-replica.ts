@@ -150,6 +150,10 @@ const DEMO_SLICE_KINDS = [
   'automationRuns',
   'effects',
   'userLayouts',
+  'pins',
+  'tabOrders',
+  'userPreferences',
+  'userReadPositions',
 ] as const
 
 /**

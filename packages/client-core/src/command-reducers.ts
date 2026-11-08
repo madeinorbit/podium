@@ -23,7 +23,14 @@
  * names a kind (`recordOverlays`).
  */
 
-import type { SessionMeta, SessionUserStateWire, WorkState } from '@podium/model'
+import type {
+  PinWire,
+  SessionMeta,
+  SessionUserStateWire,
+  TabOrderWire,
+  UserPreferencesWire,
+  WorkState,
+} from '@podium/model'
 import { IssueProjection, IssueUserStateWire } from '@podium/model'
 import type { OutboxKinds } from './engine/wiring'
 import type { OutboxEntry } from './outbox'
@@ -46,7 +53,20 @@ export type OverlayEntity = 'sessions' | 'issueProjections'
  * the per-user session state (POD-4974 S3): `readAt` and `snoozedUntil`, one
  * row per (user, session), joined into the session view by the reader.
  */
-export type OverlayTarget = OverlayEntity | 'issueUserStates' | 'sessionUserStates'
+export type OverlayTarget =
+  | OverlayEntity
+  | 'issueUserStates'
+  | 'sessionUserStates'
+  // POD-6673's standalone per-user rows, each keyed by its feed id.
+  | PerUserRecordTarget
+
+/** The per-user record kinds that are pool rows of their own (POD-6673). */
+export type PerUserRecordTarget = 'pins' | 'tabOrders' | 'userPreferences'
+export const PER_USER_RECORD_TARGETS: readonly PerUserRecordTarget[] = [
+  'pins',
+  'tabOrders',
+  'userPreferences',
+]
 
 /** Fields folded over a base row. Loose on purpose — the projection functions
  *  below are the typed constructors; folding is structural. */
@@ -81,7 +101,14 @@ export type PendingOverlay =
       entity: OverlayTarget
       id: string
       /** The whole placeholder row, shown until a base row (same id) lands. */
-      insert: SessionMeta | IssueProjection | IssueUserStateWire | SessionUserStateWire
+      insert:
+        | SessionMeta
+        | IssueProjection
+        | IssueUserStateWire
+        | SessionUserStateWire
+        | PinWire
+        | TabOrderWire
+        | UserPreferencesWire
     }
   | {
       /**

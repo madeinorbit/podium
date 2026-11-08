@@ -196,6 +196,7 @@ import { AccountQuotaTopic, AccountUsageTopic } from './modules/quota-history/qu
 import { QuotaSampler } from './modules/quota-history/service'
 import { ReadPositionService } from './modules/read-position/service'
 import { registerRecordCommands } from './modules/records/register'
+import { reconcileUserRecords } from './modules/user-records/reconcile'
 import {
   restartSourceAfterRecovery,
   retireSourceAfterTransfer,
@@ -699,6 +700,9 @@ export class SessionRegistry {
     stageStarted = performance.now()
     // Migration-seeded account state must be in the feed before the first bootstrap.
     await this.modules.layout.reconcileAllToLedger()
+    // The per-user records (POD-6673): every stored pin, tab order and
+    // preference onto the log, so a device's first bootstrap holds them.
+    await reconcileUserRecords(this.writes.system('boot.reconcile'), this.store)
     await this.writes
       .system('boot.reconcile')
       .reconcile('machine', await this.modules.machines.projectionRows())
@@ -1120,6 +1124,11 @@ export class SessionRegistry {
     this.configChangedBridge = bridgeConfigChanged(this.bus)
     const settings = new SettingsService(this.store.settings, this.store.secrets, this.bus, {
       telegramBindings: this.store.telegramBindings,
+      // Server-originated preference writes publish the person's record (POD-6673).
+      // Read per call: the write contexts are built after this service.
+      preferenceWriter: {
+        commit: async (op) => await this.writes.system('settings.preferences').commit(op),
+      },
       // The append-only settings trail (POD-421). Injected here so the transport
       // never reaches into the store for it.
       audit: {
@@ -4563,7 +4572,10 @@ export class SessionRegistry {
     })
     // The generic create, edit and remove of every declared synced kind (ADR 12
     // D3, POD-6391), beside the queued commands they replace one by one.
-    registerRecordCommands(syncWrite.registry, { modules: () => this.modules })
+    registerRecordCommands(syncWrite.registry, {
+      modules: () => this.modules,
+      store: () => this.store,
+    })
     registerEffectCommands(syncWrite.registry, {
       repo: this.store.effects,
       executors: effectExecutors,

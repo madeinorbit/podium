@@ -365,10 +365,11 @@ function asSettingsTrpcError(name: SettingsCommandName, input: unknown, e: unkno
 }
 
 /**
- * `settings.updatePersonal` and `settings.updateInstance` — THIN ADAPTERS ONTO
- * `sync.submit` (POD-6350, POD-6412). LEGACY(remove-after: 2027-03): older apps
- * queue `updatePersonal` on this route, and the desktop app's bundled web sends
- * `updateInstance` on it; removing either breaks that client's settings saves.
+ * `settings.updateInstance` — A THIN ADAPTER ONTO `sync.submit` (POD-6412).
+ * LEGACY(remove-after: 2027-03): the desktop app's bundled web sends
+ * `updateInstance` on it; removing it breaks that client's settings saves.
+ * (`settings.updatePersonal` went with POD-6673: personal leaves are fields of the
+ * synced `userPreferences` record.)
  * The gate, the write and the trail are the registration's (`sync-write.ts`), so a
  * write through either door is checked, deduplicated and recorded once. The route
  * keeps its wire: the redacted message on a refusal, and the gate's own error when
@@ -399,7 +400,7 @@ async function settingsWriteThroughEntry(
 }
 
 const isSyncedSettingsWrite = (name: SettingsCommandName): name is SyncedSettingsWrite =>
-  name === 'settings.updatePersonal' || name === 'settings.updateInstance'
+  name === 'settings.updateInstance'
 
 function buildProcedure(name: SettingsCommandName): unknown {
   const { contract } = SETTINGS_COMMANDS_TRPC[name]

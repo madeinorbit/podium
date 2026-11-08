@@ -21,7 +21,7 @@ import type { SessionView } from '@podium/client-core/session-values'
  *   native → chat    → nothing here: the terminal simply stops being `active`.
  *   pane shown/hidden→ nothing here either; `paneActive` flows into the gates.
  *
- * The startScreen fetch and the panelMode write both live here rather than in
+ * The startScreen read and the panelMode write both live here rather than in
  * `AgentPanel` so that the component holds no arbitration state at all.
  */
 import { shallowEqual } from '@podium/client-core/shallow-equal'
@@ -37,8 +37,9 @@ import {
 } from '@podium/client-core/values'
 import { createLogger } from '@podium/logger'
 import type { SessionId} from '@podium/model/browser'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { useRuntimeSelector } from '@/app/store'
+import { useMyStartScreen } from '@/lib/my-preferences'
 import { usePaneMachines, usePanePanelModes } from './use-session-pane-inputs'
 import {
   type PanelGates,
@@ -114,11 +115,10 @@ export function usePanelSurface(input: {
   /** Fired on a chat → native transition, never on mount-in-native. */
   onEnterNative?: () => void
 }): PanelArbitration {
-  const { setPanelMode, uiState, trpc } = useRuntimeSelector(
+  const { setPanelMode, uiState } = useRuntimeSelector(
     (s) => ({
       setPanelMode: s.setPanelMode,
       uiState: s.uiState,
-      trpc: s.trpc,
     }),
     shallowEqual,
   )
@@ -133,26 +133,12 @@ export function usePanelSurface(input: {
   const terminal = sessionTerminalOutlook(session)
   const terminalCapable = terminal !== 'none'
 
-  // Fetch the startScreen setting once; default to 'native' while loading. This
-  // drives the configurable default mode for sessions the user has never toggled.
-  const [startScreen, setStartScreen] = useState<'native' | 'chat' | 'auto'>('native')
-  const [startScreenSettled, setStartScreenSettled] = useState(false)
-  useEffect(() => {
-    let cancelled = false
-    trpc.settings.get
-      .query()
-      .then((s) => {
-        if (cancelled) return
-        setStartScreen(s.roles.coding.startScreen)
-        setStartScreenSettled(true)
-      })
-      .catch(() => {
-        if (!cancelled) setStartScreenSettled(true)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [trpc])
+  // My startScreen setting, from my synced settings (POD-6673); 'native'
+  // until my settings are in the pool. This drives the configurable default
+  // mode for sessions the user has never toggled.
+  const syncedStartScreen = useMyStartScreen()
+  const startScreen = syncedStartScreen ?? 'native'
+  const startScreenSettled = syncedStartScreen !== undefined
 
   // Per-session mode is restored from the store (persisted via ui-state) so a
   // reload returns this session to the view it was last left in (#35). A session

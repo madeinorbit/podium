@@ -14,7 +14,11 @@ import { type LaunchRecord, PoolLaunches, type PoolLaunchPorts } from './launche
  * waiters and row indexes on disposal.
  */
 
-import type { OverlayTarget, PendingOverlay } from '@podium/client-core/command-reducers'
+import type {
+  OverlayTarget,
+  PendingOverlay,
+  PerUserRecordTarget,
+} from '@podium/client-core/command-reducers'
 import { overlaysForOutboxEntry } from '@podium/client-core/command-reducers'
 import type {
   EngineOutbox,
@@ -24,14 +28,28 @@ import type {
 } from '@podium/client-core/engine'
 import type { OutboxDeadLetterEntry, OutboxEntry } from '@podium/client-core/outbox'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
-import { asMutationId, type MutationId, type SessionId } from '@podium/model'
+import { asMutationId, type MutationId, parseTabOrderRowId, type SessionId } from '@podium/model'
 import { compareStructural, type ObservableMap, observable, reaction, runInAction } from 'mobx'
 import { debugName } from '../debug-name'
 import type { PendingRows, PooledPending, RowSourceRepaint } from '../shared/row-source'
 
 type InsertOverlay = Extract<PendingOverlay, { op: 'insert' }>
 type AnyKind = keyof OutboxKinds & string
-type PoolRow = { readonly kind: 'session' | 'issue'; readonly id: string }
+/** A pool row a change lands on: a session or issue, or one of POD-6673's
+ *  standalone per-user records, keyed by its feed id. */
+export type PoolRowKind = 'session' | 'issue' | PerUserPoolKind
+type PoolRow = { readonly kind: PoolRowKind; readonly id: string }
+
+/** POD-6673: the overlay target of each standalone per-user record, and its
+ *  pool entity. */
+const PER_USER_POOL_KIND = {
+  pins: 'pin',
+  tabOrders: 'tabOrder',
+  userPreferences: 'userPreferences',
+} as const satisfies Record<PerUserRecordTarget, string>
+export type PerUserPoolKind = (typeof PER_USER_POOL_KIND)[PerUserRecordTarget]
+const isPerUserTarget = (entity: string): entity is PerUserRecordTarget =>
+  Object.hasOwn(PER_USER_POOL_KIND, entity)
 
 /** An applied change whose outbox entry still awaits confirmation. */
 interface Awaiting {
@@ -47,6 +65,9 @@ const TARGETS: readonly OverlayTarget[] = [
   'sessionUserStates',
   'issueProjections',
   'issueUserStates',
+  'pins',
+  'tabOrders',
+  'userPreferences',
 ]
 
 /** One transaction: an outbox record, or a change painted ahead of it. */
@@ -147,6 +168,7 @@ export interface PoolTransactions {
 }
 
 function poolRowOf(o: PendingOverlay): PoolRow {
+  if (isPerUserTarget(o.entity)) return { kind: PER_USER_POOL_KIND[o.entity], id: o.id }
   return {
     kind: o.entity === 'sessions' || o.entity === 'sessionUserStates' ? 'session' : 'issue',
     id: o.id,
@@ -172,6 +194,10 @@ function poolRowOfAddress(kind: string, id: string): string | undefined {
       return `session:${id.slice(id.lastIndexOf(':') + 1)}`
     case 'issueUserStates':
       return `issue:${id.slice(id.lastIndexOf(':') + 1)}`
+    case 'pins':
+    case 'tabOrders':
+    case 'userPreferences':
+      return `${PER_USER_POOL_KIND[kind]}:${id}`
     default:
       return undefined
   }
@@ -198,6 +224,9 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
     sessionUserStates: new Map(),
     issueProjections: new Map(),
     issueUserStates: new Map(),
+    pins: new Map(),
+    tabOrders: new Map(),
+    userPreferences: new Map(),
   }
   /** Applied, awaiting confirmation: a mirror of `outbox.awaiting()`, in its order. */
   let awaiting: Awaiting[] = []
@@ -319,6 +348,16 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
         spawns.some((o) => o.entity === 'sessions' && o.id === id)
       return known ? { userId: ports.userId, sessionId: id, readAt: null } : undefined
     }
+    // An absent tab order or preferences record is "nothing chosen": an edit
+    // paints over its key alone (POD-6673). A pin has no edit to paint.
+    if (entity === 'tabOrders' && ports.userId !== undefined) {
+      try {
+        return { userId: ports.userId, entityId: parseTabOrderRowId(id).worktree }
+      } catch {
+        return undefined
+      }
+    }
+    if (entity === 'userPreferences' && ports.userId !== undefined) return { userId: ports.userId }
     return undefined
   }
 

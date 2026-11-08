@@ -47,8 +47,8 @@ export function browserIsOnline(): boolean {
 /**
  * Issue the commands an edit requires, and report what was refused.
  *
- * PREFERENCES FIRST, then secrets: a preference command returns the whole
- * settings blob, so running them first gives a server-confirmed baseline that
+ * PREFERENCES FIRST, then secrets: the instance command returns the whole
+ * settings blob (my personal leaves are my synced record, and confirm locally), so running them first gives a server-confirmed baseline that
  * the applied secret values are then folded into. The other order would return
  * a baseline that predates the secret writes and leave the form permanently
  * dirty.
@@ -62,23 +62,38 @@ export async function saveSettingsAsCommands(
   trpc: Trpc,
   previous: PodiumSettings,
   next: PodiumSettings,
-  options: { online: boolean } = { online: browserIsOnline() },
+  options: {
+    online?: boolean
+    /** My personal leaves, as an edit of my `userPreferences` record
+     *  (POD-6673): queued, shown at once, on every device of mine. A leaf
+     *  set to `undefined` resets it. */
+    personal?: (values: Readonly<Record<string, unknown>>) => Promise<void>
+  } = {},
 ): Promise<SaveSettingsResult> {
-  const plan = planSettingsWrite(previous, next, { online: options.online })
+  const plan = planSettingsWrite(previous, next, { online: options.online ?? browserIsOnline() })
   let confirmed = previous
   const appliedSecrets: Record<string, unknown> = {}
 
   for (const intent of plan.intents) {
     if (intent.kind !== 'preference') continue
+    if (intent.command === 'records.userPreferences.edit') {
+      // A cleared leaf (`null` on the plan's wire) is a reset of the record's leaf.
+      const values = Object.fromEntries(
+        Object.entries(intent.values).map(([path, value]) => [path, value ?? undefined]),
+      )
+      if (options.personal === undefined) {
+        throw new Error('saving personal settings needs the userPreferences writer')
+      }
+      await options.personal(values)
+      confirmed = applySettingsPatch(confirmed, values)
+      continue
+    }
     // On the sync write entry point (POD-6412). LEGACY(remove-after: 2027-03):
     // an older server has no `sync.submit` and takes the command's own route.
     const input = { values: intent.values }
     confirmed = await submitNow<PodiumSettings>(trpc, intent.command, input, {
       action: 'save these settings',
-      legacy: async () =>
-        intent.command === 'settings.updatePersonal'
-          ? await trpc.settings.updatePersonal.mutate(input)
-          : await trpc.settings.updateInstance.mutate(input),
+      legacy: async () => await trpc.settings.updateInstance.mutate(input),
     })
   }
 

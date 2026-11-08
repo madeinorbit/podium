@@ -4,8 +4,8 @@ import { lazy, companion } from '@podium/mobx-helpers'
 import { machinePathsEqual, normalizeOriginUrl } from '@podium/model/browser'
 import { compareShallow } from 'mobx'
 import { headerEntities } from './header-entities'
-import { here, omitGone } from './lookup'
-import { LOADING } from './loading'
+import { here } from './lookup'
+import { pinnedIds } from './per-user-records'
 import type { MobxPool } from './pool'
 import type { RepositoryModel } from './requested-models'
 
@@ -42,8 +42,7 @@ export class LaunchRepository implements RepoNavView {
     return this.scans.filter((scan): scan is RepositoryModel & { machineId: NonNullable<RepositoryModel['machineId']> } => scan.machineId !== undefined)
   }
   @lazy({ equals: compareShallow }) get worktrees(): LaunchTree[] {
-    const pins = omitGone(this.pool.row('commandWindow', 'window'))
-    const pinned = this.projectOnly && pins && pins !== LOADING ? pins.pins.worktrees : []
+    const pinned = this.projectOnly ? pinnedIds(this.pool, 'worktree') : []
     return this.scans.flatMap(scan => [new LaunchTree(scan, scan.path, true, this.pool, this),
       ...scan.worktrees.map(tree => new LaunchTree(scan, tree.path, false, this.pool, this))])
       .filter(tree => !pinned.some(path => machinePathsEqual(path, tree.path)))

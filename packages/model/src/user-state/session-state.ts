@@ -93,9 +93,9 @@ export function parseSessionUserStateRowId(
   return { userId: key.user, sessionId: asSessionId(key.id) }
 }
 
-/** What a pin can point at. Structural here (the store's `PinKind` is the same
- *  three literals); the family needs the value, not the server's type. */
-export const PinKind = z.enum(['panel', 'worktree', 'repo'])
+/** What a pin can point at: a panel (session), a worktree or repo path, or an
+ *  issue (POD-6673: the old `issues.pinned`, one pin mechanism since). */
+export const PinKind = z.enum(['panel', 'worktree', 'repo', 'issue'])
 export type PinKind = z.infer<typeof PinKind>
 
 /**

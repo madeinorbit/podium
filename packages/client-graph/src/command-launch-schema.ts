@@ -5,7 +5,7 @@ import type { SliceIssue } from './shared/slice-types'
 
 /** Read-side declarations; the existing runtime still owns every write. */
 export interface CommandLaunchRows {
-  commandWindow: Pick<Store, 'paletteOpen' | 'pins' | 'selectedIssueId' | 'openIssueId' | 'selectedWorktree' | 'paneA' | 'recentFiles' | 'sidebarSettings'> & Partial<Pick<Store, 'reposLoaded'>>
+  commandWindow: Pick<Store, 'paletteOpen' | 'selectedIssueId' | 'openIssueId' | 'selectedWorktree' | 'paneA' | 'recentFiles'> & Partial<Pick<Store, 'reposLoaded'>>
   commandCatalog: { repositories: readonly string[]; repos: readonly string[]; worktrees: readonly string[]; machines: readonly string[]; issues: readonly string[]; sessions: readonly string[] }
   commandRepository: Pick<Store['repos'][number], 'path' | 'machineId'> & { groupId: string; linked: boolean }
   commandRepo: { id: string }
@@ -20,7 +20,7 @@ declare module './source-registry' {
 }
 
 export const COMMAND_LAUNCH_SCHEMA = {
-  commandWindow: { key: 'window', source: 'engine:locals', cold: 'never', fields: ['paletteOpen', 'pins', 'selectedIssueId', 'openIssueId', 'selectedWorktree', 'paneA', 'recentFiles', 'sidebarSettings', 'reposLoaded'] },
+  commandWindow: { key: 'window', source: 'engine:locals', cold: 'never', fields: ['paletteOpen', 'selectedIssueId', 'openIssueId', 'selectedWorktree', 'paneA', 'recentFiles', 'reposLoaded'] },
   commandCatalog: { key: 'catalog', source: 'pool:keys', cold: 'never' },
   commandRepository: { key: 'machineId,path', source: 'engine:repos', cold: 'never' },
   commandRepo: { key: 'repoId ?? origin ?? machineId,path', source: 'engine:repos', cold: 'never' },

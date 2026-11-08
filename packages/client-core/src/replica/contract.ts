@@ -13,11 +13,15 @@ import type {
   LayoutWire,
   MachineProjection,
   MessageRecordWire,
+  PinWire,
+  ReadPositionWire,
   RepoProjection,
   SessionMeta,
   SessionUserStateWire,
   ShipLaneProjection,
   ShipOrderProjection,
+  TabOrderWire,
+  UserPreferencesWire,
 } from '@podium/model'
 import type { PendingInteractionWire } from '@podium/protocol'
 import type { ExitKind } from '@podium/sync/replica'
@@ -106,6 +110,13 @@ export interface ReplicaRows {
    * it, so the rows arrived and were dropped.
    */
   userLayouts: LayoutWire
+  /** POD-6673's per-user records: the owner's pins, tab orders and personal
+   *  preferences, and the read positions (POD-1380), which the server always
+   *  sent and this table dropped until then. */
+  pins: PinWire
+  tabOrders: TabOrderWire
+  userPreferences: UserPreferencesWire
+  userReadPositions: ReadPositionWire
 }
 export type ReplicaKind = keyof ReplicaRows
 
@@ -134,6 +145,10 @@ export interface ReplicaHydrateResult {
    *  controller's base from these BEFORE any subscriber reads, so the shell's
    *  first frame paints the stored layout rather than the defaults. */
   userLayouts: LayoutWire[]
+  pins: PinWire[]
+  tabOrders: TabOrderWire[]
+  userPreferences: UserPreferencesWire[]
+  userReadPositions: ReadPositionWire[]
   /** Last persisted oplog cursor, or null when never synced (cold client). */
   cursor: number | null
   /** The same cursor as the ADR 2 D1 TRIPLE — `COLD_CURSOR` when never synced.

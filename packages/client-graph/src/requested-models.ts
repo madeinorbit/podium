@@ -1,5 +1,4 @@
 import type { PodiumClientApi } from '@podium/client-core/api'
-import { codingRoleHarness } from '@podium/client-core/values'
 import type { AccountView, GitRepositoryWire, MemberView } from '@podium/model'
 import { machinePathBasename, repoNameFromOrigin } from '@podium/model/browser'
 import type { MobileClientSession } from '@podium/protocol'
@@ -28,13 +27,11 @@ export class DeviceModel extends EntityModel {
   }
 }
 export interface DeviceModel extends Readonly<MobileClientSession> {}
+/** The INSTANCE settings `settings.get` answers. My personal leaves are not
+ *  here: they are my synced `userPreferences` record (POD-6673). */
 export class PodiumSettingsModel extends EntityModel {
   constructor(id: string, host: ModelHost) {
     super('podiumSettings', id, host)
-  }
-  // Role defaults are shared facts, read once while a launcher observes them.
-  @lazy get codingHarness(): string | undefined {
-    return this.roles?.coding ? codingRoleHarness(this) : undefined
   }
 }
 export interface PodiumSettingsModel extends Readonly<PodiumSettings> {}

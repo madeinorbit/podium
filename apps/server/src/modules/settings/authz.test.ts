@@ -30,7 +30,7 @@
  * permitted everything AND one that refused everything.
  */
 
-import { SETTINGS_COMMAND_NAMES, SETTINGS_CONTRACTS } from '@podium/commands'
+import { SETTINGS_COMMAND_NAMES, SETTINGS_CONTRACTS, USER_PREFERENCES_RECORD } from '@podium/commands'
 import { asSessionId, firstAdminMemberId, type UserRole } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { type CommandPrincipal, systemPrincipal } from '../../command-principal'
@@ -71,7 +71,7 @@ const ADMIN_FLOOR = SETTINGS_COMMAND_NAMES.filter(
   (n) => SETTINGS_CONTRACTS[n].policy.roleFloor === 'admin',
 )
 const MEMBER_FLOOR = SETTINGS_COMMAND_NAMES.filter(
-  (n) => SETTINGS_CONTRACTS[n].policy.roleFloor === 'member',
+  (n) => (SETTINGS_CONTRACTS[n].policy.roleFloor as string) === 'member',
 )
 
 describe('the shipped table actually splits — the claims below are not vacuous', () => {
@@ -81,10 +81,12 @@ describe('the shipped table actually splits — the claims below are not vacuous
     // preferences" by one where everything is member. Neither would be
     // enforcement; both would be green.
     expect(ADMIN_FLOOR.length).toBeGreaterThan(0)
-    expect(MEMBER_FLOOR.length).toBeGreaterThan(0)
+    // A member's own preferences are the `userPreferences` record since POD-6673:
+    // its edit carries the member floor, and no settings command does.
+    expect(USER_PREFERENCES_RECORD.ops.edit?.policy.roleFloor).toBe('member')
     expect(ADMIN_FLOOR).toContain('settings.setSecret')
     expect(ADMIN_FLOOR).toContain('settings.secretPresence')
-    expect(MEMBER_FLOOR).toEqual(['settings.updatePersonal'])
+    expect(MEMBER_FLOOR).toEqual([])
   })
 })
 
@@ -210,10 +212,10 @@ describe('settingsCommandsPermitted — the rendering hint, and what it is NOT',
     expect(Object.keys(asAdmin).sort()).toEqual([...SETTINGS_COMMAND_NAMES].sort())
     expect(asAdmin['settings.setSecret']).toBe(true)
     expect(asMember['settings.setSecret']).toBe(false)
-    // The control: a member is not simply refused everything, or a UI built on
-    // this would disable the preference form too and the hint would be useless
-    // rather than merely wrong.
-    expect(asMember['settings.updatePersonal']).toBe(true)
+    // The control: a member is not simply refused everything. (Their own
+    // preferences are the `userPreferences` record since POD-6673, written at a
+    // member floor; the settings commands left are all admin's or ceremonies.)
+    expect(USER_PREFERENCES_RECORD.ops.edit?.policy.roleFloor).toBe('member')
   })
 
   it('agrees with the GATE for every command and both roles — one rule, not two', () => {

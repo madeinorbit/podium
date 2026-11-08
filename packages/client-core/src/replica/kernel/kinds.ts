@@ -17,7 +17,15 @@
  * "not mine" — never "corrupt".
  */
 
-import { issueUserStateRowId, layoutRowId, sessionUserStateRowId } from '@podium/model'
+import {
+  issueUserStateRowId,
+  layoutRowId,
+  pinRowId,
+  readPositionRowId,
+  sessionUserStateRowId,
+  tabOrderRowId,
+  userPreferencesRowId,
+} from '@podium/model'
 import type { ReplicaKind, ReplicaRows } from '../contract'
 
 /** Kernel entity name → engine collection kind. */
@@ -58,6 +66,12 @@ const ENTITY_TO_KIND = {
   // what made the shell's layout network-only and gave every reload a default
   // frame before the stored one (POD-571).
   userLayout: 'userLayouts',
+  // POD-6673's per-user records, and the read positions the server has always
+  // sent and this table dropped until then.
+  pin: 'pins',
+  tabOrder: 'tabOrders',
+  userPreferences: 'userPreferences',
+  userReadPosition: 'userReadPositions',
 } as const satisfies Record<string, ReplicaKind>
 
 /** The entity names the engine's read model renders. */
@@ -107,6 +121,22 @@ export function rowKey<K extends ReplicaKind>(kind: K, row: ReplicaRows[K]): str
   if (kind === 'userLayouts') {
     const layout = row as ReplicaRows['userLayouts']
     return layoutRowId(layout.userId, layout.key)
+  }
+  // POD-6673: each per-user record's identity is its feed id, imported, as above.
+  if (kind === 'pins') {
+    const pin = row as ReplicaRows['pins']
+    return pinRowId(pin.userId, pin.kind, pin.entityId)
+  }
+  if (kind === 'tabOrders') {
+    const order = row as ReplicaRows['tabOrders']
+    return tabOrderRowId(order.userId, order.entityId)
+  }
+  if (kind === 'userPreferences') {
+    return userPreferencesRowId((row as ReplicaRows['userPreferences']).userId)
+  }
+  if (kind === 'userReadPositions') {
+    const position = row as ReplicaRows['userReadPositions']
+    return readPositionRowId(position.userId, position.streamId)
   }
   return (row as ReplicaRows['issueProjections']).id
 }

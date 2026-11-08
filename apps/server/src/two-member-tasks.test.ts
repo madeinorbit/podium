@@ -12,7 +12,7 @@
  * of Alice's that one of her sessions started and coordinates.
  */
 
-import { asIssueId, type IssueId } from '@podium/model'
+import { asIssueId, type IssueId, pinRowId } from '@podium/model'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { TASKS_VISIBLE_TO_ALL_MEMBERS } from './modules/issues/registry'
 import {
@@ -22,6 +22,30 @@ import {
   startTwoMemberInstance,
   type TwoMemberInstance,
 } from './test-support/two-member-instance'
+
+/** One person's pins by kind, read the way the boot reconcile reads them. */
+async function pinsOf(
+  repo: { allPinsForBootReconcile(): Promise<{ userId: string; kind: string; entityId: string }[]> },
+  userId: string,
+): Promise<{ panels: string[]; worktrees: string[]; repos: string[] }> {
+  const pins = (await repo.allPinsForBootReconcile()).filter((p) => p.userId === userId)
+  const of = (kind: string) => pins.filter((p) => p.kind === kind).map((p) => p.entityId)
+  return { panels: of('panel'), worktrees: of('worktree'), repos: of('repo') }
+}
+
+/** One person's tab orders by worktree, read the way the boot reconcile reads them. */
+async function tabOrdersOf(
+  repo: {
+    allTabOrdersForBootReconcile(): Promise<{ userId: string; entityId: string; sessionIds: string[] }[]>
+  },
+  userId: string,
+): Promise<Record<string, string[]>> {
+  const out: Record<string, string[]> = {}
+  for (const o of await repo.allTabOrdersForBootReconcile()) {
+    if (o.userId === userId) out[o.entityId] = o.sessionIds
+  }
+  return out
+}
 
 let f: TwoMemberInstance
 let started: IssueId
@@ -313,15 +337,25 @@ describe('Self: per-user markers are each member’s own, on any task', () => {
   it('Bob snoozes and pins his session over tRPC; the rows are his', async () => {
     const bob = (await f.as('bob')).trpc as unknown as {
       snoozes: { set: { mutate(input: unknown): Promise<unknown> } }
-      pins: { set: { mutate(input: unknown): Promise<unknown> } }
+      sync: { submit: { mutate(input: unknown): Promise<{ outcome: string }> } }
     }
     await bob.snoozes.set.mutate({ sessionId: f.sessions.bob, until: null })
-    await bob.pins.set.mutate({ kind: 'panel', id: f.sessions.bob, pinned: true })
+    // A pin is Bob's own synced record (POD-6673): a generic create.
+    const pinned = await bob.sync.submit.mutate({
+      mutationId: 'bob-pin',
+      command: 'records.pin.create',
+      version: 1,
+      input: {
+        id: pinRowId(MEMBERS.bob.id, 'panel', f.sessions.bob),
+        fields: { userId: MEMBERS.bob.id, kind: 'panel', entityId: f.sessions.bob },
+      },
+    })
+    expect(pinned.outcome).toBe('applied')
     const sessions = f.handle.registry.sessionStore.sessions
     expect(Object.keys(await sessions.listSnoozes(MEMBERS.bob.id))).toContain(f.sessions.bob)
-    expect((await sessions.listPins(MEMBERS.bob.id)).panels).toContain(f.sessions.bob)
+    expect((await pinsOf(sessions, MEMBERS.bob.id)).panels).toContain(f.sessions.bob)
     expect(Object.keys(await sessions.listSnoozes(MEMBERS.alice.id))).not.toContain(f.sessions.bob)
-    expect((await sessions.listPins(MEMBERS.alice.id)).panels).not.toContain(f.sessions.bob)
+    expect((await pinsOf(sessions, MEMBERS.alice.id)).panels).not.toContain(f.sessions.bob)
   })
 
   it('task defer is a shared edit: Bob defers Alice’s task and Alice sees it', async () => {

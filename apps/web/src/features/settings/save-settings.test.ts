@@ -16,9 +16,9 @@ import type { Trpc } from '@/app/trpc'
 import { refusalMessage, saveSettingsAsCommands } from './save-settings'
 
 function fakeTrpc() {
-  const updatePersonal = vi.fn(async ({ values }: { values: Record<string, unknown> }) =>
-    normalizeSettings({ sidebar: { repoSort: values['sidebar.repoSort'] ?? 'lastUsed' } }),
-  )
+  // My personal leaves are an edit of my `userPreferences` record (POD-6673),
+  // handed to the save as its `personal` writer.
+  const updatePersonal = vi.fn(async (_input: { values: Record<string, unknown> }) => {})
   const updateInstance = vi.fn(async () => normalizeSettings({}))
   const setSecret = vi.fn(async () => ({
     key: 'apiKeys.openai',
@@ -34,14 +34,23 @@ function fakeTrpc() {
   }))
   const trpc = {
     settings: {
-      updatePersonal: { mutate: updatePersonal },
       updateInstance: { mutate: updateInstance },
       setSecret: { mutate: setSecret },
       clearSecret: { mutate: clearSecret },
     },
   } as unknown as Trpc
+  PERSONAL.set(trpc, async (values) => await updatePersonal({ values: { ...values } }))
   return { trpc, updatePersonal, updateInstance, setSecret, clearSecret }
 }
+
+const PERSONAL = new WeakMap<Trpc, (values: Readonly<Record<string, unknown>>) => Promise<void>>()
+/** The save as the settings screen calls it: with my record's writer. */
+const save = (
+  trpc: Trpc,
+  previous: Parameters<typeof saveSettingsAsCommands>[1],
+  next: Parameters<typeof saveSettingsAsCommands>[2],
+  options: { online: boolean },
+) => saveSettingsAsCommands(trpc, previous, next, { ...options, personal: PERSONAL.get(trpc) })
 
 const base = normalizeSettings({})
 
@@ -56,7 +65,7 @@ describe('resetting absent-default instance settings', () => {
         telemetryInstallId: 'saved-install', telemetrySince: 0,
       },
     })
-    const result = await saveSettingsAsCommands(trpc, previous, DEFAULT_SETTINGS, { online: true })
+    const result = await save(trpc, previous, DEFAULT_SETTINGS, { online: true })
     expect(updateInstance).toHaveBeenCalledExactlyOnceWith({ values: {
       'transcripts.mirror': null,
       'deployment.authOpenMode': null,
@@ -79,7 +88,7 @@ describe('offline, a secret never leaves the machine', () => {
   it('does NOT call setSecret, and reports the refusal', async () => {
     const { trpc, setSecret, clearSecret } = fakeTrpc()
     const next = { ...base, apiKeys: { ...base.apiKeys, openai: 'sk-live-new' } }
-    const result = await saveSettingsAsCommands(trpc, base, next, { online: false })
+    const result = await save(trpc, base, next, { online: false })
     expect(setSecret).not.toHaveBeenCalled()
     expect(clearSecret).not.toHaveBeenCalled()
     expect(result.refusals.map((r) => r.path)).toEqual(['apiKeys.openai'])
@@ -97,7 +106,7 @@ describe('offline, a secret never leaves the machine', () => {
       sidebar: { ...base.sidebar, repoSort: 'alphabetical' as const },
       apiKeys: { ...base.apiKeys, openai: 'sk-live-new' },
     }
-    const result = await saveSettingsAsCommands(trpc, base, next, { online: false })
+    const result = await save(trpc, base, next, { online: false })
     expect(updatePersonal).toHaveBeenCalledWith({ values: { 'sidebar.repoSort': 'alphabetical' } })
     expect(setSecret).not.toHaveBeenCalled()
     expect(result.refusals).toHaveLength(1)
@@ -125,7 +134,7 @@ describe('online, the commands are issued — one per tier, one per secret', () 
   it('calls setSecret with the material and folds it into the baseline', async () => {
     const { trpc, setSecret } = fakeTrpc()
     const next = { ...base, apiKeys: { ...base.apiKeys, openai: 'sk-live-new' } }
-    const result = await saveSettingsAsCommands(trpc, base, next, { online: true })
+    const result = await save(trpc, base, next, { online: true })
     expect(setSecret).toHaveBeenCalledWith({ key: 'apiKeys.openai', value: 'sk-live-new' })
     expect(result.refusals).toEqual([])
     // The secret command answers with a PRESENCE projection and never the
@@ -137,7 +146,7 @@ describe('online, the commands are issued — one per tier, one per secret', () 
   it('an EMPTIED secret calls clearSecret, never setSecret with an empty value', async () => {
     const { trpc, setSecret, clearSecret } = fakeTrpc()
     const configured = { ...base, apiKeys: { ...base.apiKeys, openai: 'sk-old' } }
-    const result = await saveSettingsAsCommands(trpc, configured, base, { online: true })
+    const result = await save(trpc, configured, base, { online: true })
     expect(clearSecret).toHaveBeenCalledWith({ key: 'apiKeys.openai' })
     expect(setSecret).not.toHaveBeenCalled()
     expect(result.saved.apiKeys.openai).toBe('')
@@ -150,14 +159,14 @@ describe('online, the commands are issued — one per tier, one per secret', () 
       sidebar: { ...base.sidebar, repoSort: 'alphabetical' as const },
       gitWorkflow: { ...base.gitWorkflow, mergeStyle: 'pr' as const },
     }
-    await saveSettingsAsCommands(trpc, base, next, { online: true })
+    await save(trpc, base, next, { online: true })
     expect(updatePersonal).toHaveBeenCalledWith({ values: { 'sidebar.repoSort': 'alphabetical' } })
     expect(updateInstance).toHaveBeenCalledWith({ values: { 'gitWorkflow.mergeStyle': 'pr' } })
   })
 
   it('sends NOTHING when nothing changed', async () => {
     const { trpc, updatePersonal, updateInstance, setSecret, clearSecret } = fakeTrpc()
-    const result = await saveSettingsAsCommands(trpc, base, { ...base }, { online: true })
+    const result = await save(trpc, base, { ...base }, { online: true })
     for (const spy of [updatePersonal, updateInstance, setSecret, clearSecret]) {
       expect(spy).not.toHaveBeenCalled()
     }
@@ -174,7 +183,7 @@ describe('online, the commands are issued — one per tier, one per secret', () 
       apiKeys: { ...base.apiKeys, openai: 'sk-live-new' },
       integrations: { ...base.integrations, linearApiKey: 'lin_api_x' },
     }
-    await saveSettingsAsCommands(trpc, base, next, { online: true })
+    await save(trpc, base, next, { online: true })
     for (const spy of [updatePersonal, updateInstance]) {
       for (const call of spy.mock.calls) {
         expect(JSON.stringify(call)).not.toContain('sk-live-new')

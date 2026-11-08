@@ -519,19 +519,6 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
 })
 
 describe('oracle: the writes with NO replay protection', () => {
-  it(`${MUST_NOT_CHANGE}: pins and tab order take no mutationId, so a replayed toggle applies again`, async () => {
-    const o = await makeOracle()
-
-    // The input schema has no mutationId field; tRPC strips the unknown key, so
-    // nothing is recorded and the second call is a fresh apply.
-    await o.call.pins.set({ kind: 'panel', id: 'p1', pinned: true })
-    await o.call.pins.set({ kind: 'panel', id: 'p1', pinned: false })
-    const afterReplay = await o.call.pins.set({ kind: 'panel', id: 'p1', pinned: true })
-
-    expect(afterReplay.panels).toEqual(['p1'])
-    expect(await o.store.sync.getAppliedMutation(asMutationId('m-pin'))).toBeUndefined()
-  })
-
   it(`${MUST_NOT_CHANGE}: the lifecycle commands take no mutationId — kill, hibernate, resurrect and handoff each record NOTHING to replay against`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })

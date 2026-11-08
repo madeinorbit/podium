@@ -8,7 +8,6 @@ import type {
   MachineId,
   MachineWire,
   MessageRecordWire,
-  ReadPositionWire,
   RepoProjection,
   SessionId,
   ShipLaneProjection,
@@ -20,7 +19,6 @@ import {
   interactionRowId,
   layoutRowId,
   messageRecordRowId,
-  readPositionRowId,
 } from '@podium/model'
 import {
   type ApprovalWire,
@@ -533,13 +531,6 @@ export interface HubEvents {
    * event lets a second device see live layout deltas without a second store.
    */
   userLayouts: [rows: LayoutWire[]]
-  /**
-   * Per-user read-cursor rows after any change (POD-1380, entity kind
-   * `userReadPosition`). Feed demux only, same split as `userLayouts`: the feed is
-   * how a person's OTHER device learns the position moved, and the hydrate/write
-   * owner is the ui-state module.
-   */
-  userReadPositions: [rows: ReadPositionWire[]]
   /** Single-issue broadcast (fires alongside the full-list `issues` event). */
   connectionHealth: [health: ConnectionHealth]
   /** The server said something this build could not read. Fires on every drop,
@@ -670,8 +661,6 @@ export class SocketHub {
   private shipLaneList: ShipLaneProjection[] = []
   /** Per-user layout rows (POD-1350). Empty until the feed carries userLayout. */
   private userLayoutList: LayoutWire[] = []
-  /** Per-user read-cursor rows (POD-1380). Empty until the feed carries them. */
-  private userReadPositionList: ReadPositionWire[] = []
   private intentionalClose = false
   /**
    * THE CLOSE THAT IS NOT MEANT TO COME BACK.
@@ -2329,15 +2318,6 @@ export class SocketHub {
             (x) => layoutRowId(x.userId, x.key) === c.id,
           )
           break
-        case 'userReadPosition':
-          // Same demux for POD-1380's read positions, matched on readPositionRowId.
-          this.userReadPositionList = applyChange(
-            this.userReadPositionList,
-            c.op,
-            c.value,
-            (x) => readPositionRowId(x.userId, x.streamId) === c.id,
-          )
-          break
         case 'issueUserState':
         case 'session':
         case 'conversation':
@@ -2347,6 +2327,11 @@ export class SocketHub {
         case 'sessionUserState':
         case 'machine':
         case 'effect':
+        // POD-6673: my pins, tab orders, settings and read positions.
+        case 'pin':
+        case 'tabOrder':
+        case 'userPreferences':
+        case 'userReadPosition':
           // These rows belong to the Replica. Session, conversation and
           // automation consumers read synced data without a hub projection.
           break
@@ -2372,7 +2357,6 @@ export class SocketHub {
     if (touched.has('shipOrder')) this.emit('shipOrders', this.shipOrderList)
     if (touched.has('shipLane')) this.emit('shipLanes', this.shipLaneList)
     if (touched.has('userLayout')) this.emit('userLayouts', this.userLayoutList)
-    if (touched.has('userReadPosition')) this.emit('userReadPositions', this.userReadPositionList)
   }
 
   /**

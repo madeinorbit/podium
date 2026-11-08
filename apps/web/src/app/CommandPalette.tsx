@@ -44,7 +44,7 @@ import {
 } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { openAddProject } from '@/app/desktop-menu'
 import { IssueReference } from '@/components/IssueReference'
@@ -59,7 +59,7 @@ import { paletteIssueMenuData } from '@/features/issues/issue-menu-palette'
 import { issueMenuPaletteCommands } from '@/features/issues/issue-menu-palette-commands'
 import { NewIssueDialog } from '@/features/issues/NewIssueDialog'
 import { useAdminSections } from '@/features/settings/admin-viewer'
-import { useSettingsRecord } from '@/features/settings/record-readers'
+import { useMyCodingHarness } from '@/lib/my-preferences'
 import { SETTINGS_TABS } from '@/features/settings/SettingsView'
 import { adminSectionOf } from '@/features/settings/surfaces'
 import { agentIconFor } from '@/lib/agent-tone'
@@ -348,9 +348,7 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
   const scrollOnHighlight = useRef(false)
 
   // The user's persisted default agent — same source the sidebar button reads.
-  const readSettings = useCallback(() => trpc.settings.get.query(), [trpc])
-  const settingsRequest = useSettingsRecord(readSettings)
-  const agentSetting = settingsRequest?.model?.codingHarness
+  const agentSetting = useMyCodingHarness()
 
   const { hits: serverIssueHits, pending: searching } = useIssueSearch(query, true)
   const resting = isResting(query)

@@ -1,6 +1,8 @@
+import { here } from '@podium/client-graph/lookup'
+import { myPreferences } from '@podium/client-graph/per-user-records'
 import { ingestSettings } from '@podium/client-graph/requested-records'
 import type { SettingsWriteRefusal } from '@podium/commands/settings-write-plan'
-import type { ServerSecretKey } from '@podium/model/browser'
+import { type ServerSecretKey, SETTINGS_PATH_TIERS } from '@podium/model/browser'
 import { DEFAULT_SETTINGS, type PodiumSettings } from '@podium/runtime'
 import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
@@ -329,7 +331,7 @@ const SettingsViewBody = observer(function SettingsViewBody({
   onClose: () => void
   settingsTab: ReturnType<typeof useSettingsTab>
 }): JSX.Element {
-  const { trpc, setSettingsTab } = useSettingsClient()
+  const { trpc, setSettingsTab, setPreferences } = useSettingsClient()
   const notificationsEnabled = useFeature('notifications')
   // The nav filter is experimental (off by default) — Settings → Experimental.
   const searchEnabled = useFeature('settings-search')
@@ -342,17 +344,30 @@ const SettingsViewBody = observer(function SettingsViewBody({
   const pool = useWorklistPool()
   const readSettings = useCallback(() => trpc.settings.get.query(), [trpc])
   const settingsRequest = useSettingsRecord(readSettings)
-  const record = settingsRequest?.model
+  const instanceRecord = settingsRequest?.model
+  // My personal groups are my synced `userPreferences` record (POD-6673);
+  // `settings.get` answers the instance tier only. The draft reads each group
+  // from its home, live.
+  const myPreferencesId = pool ? myPreferences(pool)?.id : undefined
+  const record = useMemo(
+    () =>
+      instanceRecord && pool && myPreferencesId !== undefined
+        ? composedSettings(instanceRecord, () => here(pool.row('userPreferences', myPreferencesId)))
+        : undefined,
+    [instanceRecord, pool, myPreferencesId],
+  )
   const edits = useMemo(
     () =>
       record
         ? new SettingsEditDraft(record, async (previous, next) => {
-            const result = await saveSettingsAsCommands(trpc, previous, next)
+            const result = await saveSettingsAsCommands(trpc, previous, next, {
+              personal: setPreferences,
+            })
             if (pool) ingestSettings(pool, result.saved)
             return result
           })
         : null,
-    [record, trpc, pool],
+    [record, trpc, pool, setPreferences],
   )
   const settings = edits?.settings ?? null
   const readAccounts = useCallback(() => trpc.accounts.list.query(), [trpc])
@@ -942,3 +957,25 @@ const SettingsViewBody = observer(function SettingsViewBody({
     </AppSheet>
   )
 })
+
+/** The personal groups: my `userPreferences` record (POD-6673). */
+const PERSONAL_GROUPS = new Set(['roles', 'sidebar', 'autoContinue', 'notifications'])
+
+/** The settings the screen edits: every group read live from its home, the
+ *  personal ones from my synced record and the rest from the instance answer. */
+function composedSettings(
+  instance: PodiumSettings,
+  mine: () => Readonly<Record<string, unknown>> | undefined,
+): PodiumSettings {
+  const out: Record<string, unknown> = {}
+  for (const key of new Set(SETTINGS_PATH_TIERS.map((field) => field.path.split('.')[0]!))) {
+    Object.defineProperty(out, key, {
+      enumerable: true,
+      get: () =>
+        PERSONAL_GROUPS.has(key)
+          ? mine()?.[key]
+          : (instance as unknown as Record<string, unknown>)[key],
+    })
+  }
+  return out as PodiumSettings
+}

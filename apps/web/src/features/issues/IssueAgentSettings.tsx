@@ -4,8 +4,8 @@ import { agentSettingsDraft } from '@podium/client-graph/write/agent-settings-dr
 import { observer } from 'mobx-react-lite'
 import { asMachineId, HOST_REPOS } from '@podium/model/browser'
 import { Check, ChevronDown, LoaderCircle } from 'lucide-react'
-import { type JSX, useCallback, useEffect, useMemo, useState } from 'react'
-import { useSettingsRecord } from '@/features/settings/record-readers'
+import { type JSX, useEffect, useMemo, useState } from 'react'
+import { useMyCodingHarness } from '@/lib/my-preferences'
 import { useRuntimeSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { DropdownMenuOwner } from '@/components/ui/dropdown-menu'
@@ -51,9 +51,7 @@ export const IssueAgentSettings = observer(function IssueAgentSettings({
   onSavingChange?: (saving: boolean) => void
 }): JSX.Element {
   const updateIssue = useRuntimeSelector((s) => s.updateIssue)
-  const trpc = useRuntimeSelector((s) => s.trpc)
-  const readSettings = useCallback(() => trpc.settings.get.query(), [trpc])
-  const settingsRequest = useSettingsRecord(readSettings)
+  const codingHarness = useMyCodingHarness()
   const selected = useMemo(() => agentSettingsDraft(issue, patch => updateIssue(issue.id, patch)), [issue, updateIssue])
   const [state, setState] = useState<'idle' | 'saving' | 'saved'>('idle')
   const [error, setError] = useState('')
@@ -91,7 +89,7 @@ export const IssueAgentSettings = observer(function IssueAgentSettings({
     })()
   }
 
-  const agentKind = issueDefaultAgentKind(selected.defaultAgent, settingsRequest?.model?.codingHarness)
+  const agentKind = issueDefaultAgentKind(selected.defaultAgent, codingHarness)
   const AgentIcon = agentIconFor(agentKind)
   const agentOptions = useAgentFleetOptions(issue)
   const machine = machines.find((m) => m.id === selected.machineId)

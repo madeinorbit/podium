@@ -86,20 +86,6 @@ describe('oracle: not-found shape, per write', () => {
     await expect(o.call.snoozes.clear({ sessionId: GHOST })).resolves.toBeUndefined()
   })
 
-  it(`${SESSION_STATE_CLOSED_DEFAULT}: polymorphic panel pins remain valid, while tab order rejects an unknown session`, async () => {
-    const o = await makeOracle()
-
-    expect(await o.call.pins.set({ kind: 'panel', id: GHOST, pinned: true })).toEqual({
-      panels: [GHOST],
-      worktrees: [],
-      repos: [],
-    })
-    await expect(
-      o.call.tabs.setOrder({ worktree: '/nowhere', sessionIds: [GHOST] }),
-    ).resolves.toBeUndefined()
-    expect(await o.store.sessions.listTabOrders(firstAdminMemberId())).toEqual({})
-  })
-
   it(`${EXISTENCE_ORACLE}: the lifecycle primitives REPORT not-found as a returned reason`, async () => {
     const o = await makeOracle()
 

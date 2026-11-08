@@ -405,10 +405,6 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
     'apps/server/src/store/sessions.ts:refBackfillCandidates',
     "Sorts the boot ref backfill's candidates (POD-6222): the ref-less sessions that can still get a birth ref, read by index ranges; a few once the first boot named them.",
   ],
-  [
-    'apps/server/src/store/sessions.ts:pinsOfUser',
-    "Sorts one person's pins by when they were made.",
-  ],
   ['apps/server/src/store/grants.ts:grantsOfResource', 'Sorts the grants on one resource: a few.'],
   [
     'apps/server/src/store/grants.ts:grantsOfResources',
@@ -589,6 +585,14 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   [
     'apps/server/src/store/issues.ts:commentCountsByIssue',
     'Whole-table read (POD-6172): countIssueCommentsByIssue is a test oracle only; no production code calls it since the legacy report batch went with the issue map (POD-6158).',
+  ],
+  [
+    'apps/server/src/store/sessions.ts:allPins',
+    "Whole-table read (POD-6673): every person's pins for the `pin` kind's full-truth reconcile at boot (reconcileUserRecords), once per boot.",
+  ],
+  [
+    'apps/server/src/store/user-preferences.ts:allPreferenceRows',
+    "Whole-table read (POD-6673): every person's preference leaves for the `userPreferences` kind's full-truth reconcile at boot (reconcileUserRecords), once per boot.",
   ],
   [
     'apps/server/src/store/issues.ts:allIssueUserStateRows',

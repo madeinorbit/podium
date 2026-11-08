@@ -52,12 +52,12 @@ describe('reportingFetch', () => {
       .fn()
       .mockResolvedValue(new Response('[{"result":{"data":{}}}]', { status: 200 }))
     const trpc = makeTrpc('https://relay.test', { fetch: base as typeof fetch })
-    await trpc.settings.updatePersonal.mutate({
+    await trpc.settings.updateInstance.mutate({
       values: { 'roles.superagent.harness': undefined, 'roles.superagent.model': 'saved-model' },
     })
 
     expect(base).toHaveBeenCalledTimes(1)
-    expect(base.mock.calls[0]?.[0]).toContain('/trpc/settings.updatePersonal')
+    expect(base.mock.calls[0]?.[0]).toContain('/trpc/settings.updateInstance')
     const received = JSON.parse(base.mock.calls[0]?.[1]?.body as string)
     expect(received['0'].values).toEqual({ 'roles.superagent.model': 'saved-model' })
     expect(received['0'].values).not.toHaveProperty('roles.superagent.harness')
@@ -246,7 +246,7 @@ describe('the member fence (POD-6292, MU-12)', () => {
       fetch: base as typeof fetch,
       member: 'mem_alice',
     })
-    await trpc.settings.updatePersonal.mutate({ values: { 'sidebar.repoSort': 'custom' } })
+    await trpc.settings.updateInstance.mutate({ values: { 'sidebar.repoSort': 'custom' } })
     const init = base.mock.calls[0]?.[1] as RequestInit
     expect(new Headers(init.headers).get('x-podium-member')).toBe('mem_alice')
   })
@@ -256,7 +256,7 @@ describe('the member fence (POD-6292, MU-12)', () => {
       .fn()
       .mockResolvedValue(new Response('[{"result":{"data":{}}}]', { status: 200 }))
     const trpc = makeTrpc('https://relay.test', { fetch: base as typeof fetch })
-    await trpc.settings.updatePersonal.mutate({ values: { 'sidebar.repoSort': 'custom' } })
+    await trpc.settings.updateInstance.mutate({ values: { 'sidebar.repoSort': 'custom' } })
     const init = base.mock.calls[0]?.[1] as RequestInit
     expect(new Headers(init.headers).has('x-podium-member')).toBe(false)
   })
@@ -274,7 +274,7 @@ describe('the fence’s refusal ends the member’s runtime (POD-6292, MU-12)', 
       onMemberRefused,
       recoveryDelaysMs: [],
     })
-    await trpc.settings.updatePersonal.mutate({ values: {} }).catch(() => {})
+    await trpc.settings.updateInstance.mutate({ values: {} }).catch(() => {})
     await vi.waitFor(() => expect(onMemberRefused).toHaveBeenCalledTimes(1))
   })
 
@@ -286,7 +286,7 @@ describe('the fence’s refusal ends the member’s runtime (POD-6292, MU-12)', 
       onMemberRefused,
       recoveryDelaysMs: [],
     })
-    await trpc.settings.updatePersonal.mutate({ values: {} }).catch(() => {})
+    await trpc.settings.updateInstance.mutate({ values: {} }).catch(() => {})
     await new Promise((resolve) => setTimeout(resolve, 10))
     expect(onMemberRefused).not.toHaveBeenCalled()
   })

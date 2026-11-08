@@ -14,11 +14,14 @@ import {
   LayoutWire,
   MachineProjection,
   MessageRecordWire,
+  PinWire,
   ReadPositionWire,
   RepoProjection,
   type SessionId,
   SessionMeta,
   SessionUserStateWire,
+  TabOrderWire,
+  UserPreferencesWire,
 } from '@podium/model'
 import { ShipLaneProjection, ShipOrderProjection } from '@podium/model/shipping-projection'
 import { z } from 'zod'
@@ -253,6 +256,14 @@ export const MetadataChange = z.discriminatedUnion('entity', [
    *  whoever created it and by the readers of its target. Additive: an older
    *  build parses these rows as {@link UnknownMetadataChange} and advances. */
   metadataChangeArm(z.literal('effect'), EffectRecordWire),
+  /** Per-user records (POD-6673, ADR 12 D1): a pin (keyed `pinRowId`), a
+   *  worktree's tab order (`tabOrderRowId`) and one person's personal
+   *  preferences (`userPreferencesRowId`). Visibility class `per-user-state`:
+   *  the owner's principals only. Additive: an older build parses these rows as
+   *  {@link UnknownMetadataChange} and advances. */
+  metadataChangeArm(z.literal('pin'), PinWire),
+  metadataChangeArm(z.literal('tabOrder'), TabOrderWire),
+  metadataChangeArm(z.literal('userPreferences'), UserPreferencesWire),
 ])
 export type MetadataChange = z.infer<typeof MetadataChange>
 export const MetadataEntityKind = z.enum([
@@ -275,6 +286,9 @@ export const MetadataEntityKind = z.enum([
   'machine',
   'issueGitState',
   'effect',
+  'pin',
+  'tabOrder',
+  'userPreferences',
 ])
 export type MetadataEntityKind = z.infer<typeof MetadataEntityKind>
 

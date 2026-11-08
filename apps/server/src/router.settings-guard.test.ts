@@ -145,12 +145,11 @@ describe('the settings surface is EXACTLY its contracts plus its named exception
     }
   })
 
-  it('only personal preferences are exposed on the outbox', () => {
+  it('no settings command is exposed on the outbox: personal preferences are a synced record', () => {
     const exposed = SETTINGS_COMMAND_NAMES.filter((name) =>
       SETTINGS_CONTRACTS[name].exposure.includes('outbox'),
     )
-    expect(exposed).toEqual(['settings.updatePersonal'])
-    expect(SETTINGS_CONTRACTS['settings.updatePersonal'].delivery.class).toBe('offline-eligible')
+    expect(exposed).toEqual([])
   })
 })
 
@@ -171,7 +170,7 @@ describe('this guard can say NO', () => {
   it('the contract table is NOT empty — the derived half has content', () => {
     // Without this, "every contract declaring trpc is served" passes perfectly
     // against a table naming nothing, which is the emptiness POD-732 named.
-    expect(SETTINGS_COMMAND_NAMES.length).toBe(7)
+    expect(SETTINGS_COMMAND_NAMES.length).toBe(6)
     expect(Object.keys(DERIVED).sort()).toEqual([
       'settings.clearSecret',
       'settings.secretPresence',
@@ -179,7 +178,6 @@ describe('this guard can say NO', () => {
       'settings.telegramSetupPoll',
       'settings.telegramSetupStart',
       'settings.updateInstance',
-      'settings.updatePersonal',
     ])
   })
 

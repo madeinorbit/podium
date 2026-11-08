@@ -398,10 +398,10 @@ describe('the presence contracts and their optimistic reducers', () => {
     }
   })
 
-  it('routes per-user rows to action-state reducers and keeps direct-only commands absent', () => {
-    expect(ACTION_STATE_REDUCER_COMMANDS).toEqual(
-      expect.arrayContaining(['pins.set', 'tabs.setOrder']),
-    )
+  it('routes the layout rows to action-state reducers and keeps direct-only commands absent', () => {
+    // Pins and tab orders are synced records since POD-6673: their overlay is
+    // the record's own, not an action-state reducer.
+    expect(ACTION_STATE_REDUCER_COMMANDS).toEqual(['layout.set', 'layout.clear'])
     for (const name of ['sessions.setIssueId', 'sessions.setDraft']) {
       expect(sessionStateCommand(name)?.offline).not.toBe('eligible')
       expect(Object.hasOwn(PRESENCE_REDUCER_KINDS, name), name).toBe(false)

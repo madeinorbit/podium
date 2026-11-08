@@ -125,27 +125,6 @@ describe('the derived settings router CALLS the gate', () => {
     expect(await store.secrets.getOrEmpty('apiKeys.openai')).toBe('')
   })
 
-  it('a member MAY still write their own preferences — the member floor is real', async () => {
-    // The control that stops "members are refused" from being the whole gate.
-    // If this failed, the settings screen would be unusable for everyone but an
-    // admin and the split would be a pretence.
-    const { call } = await harness('member')
-    const saved = await call.settings.updatePersonal({
-      values: { 'notifications.telegramChatId': '4242' },
-    })
-    expect(saved.notifications.telegramChatId).toBe('4242')
-  })
-
-  it('an account with no readable row is refused even the member-floor command', async () => {
-    // A VALID patch, deliberately: an empty `values` is refused by the input
-    // SCHEMA before the procedure body runs, so using one here would have
-    // asserted zod's refusal and read as the gate's. The two are different
-    // mechanisms and the test must name which one it is exercising.
-    const { call } = await harness(undefined)
-    await expect(
-      call.settings.updatePersonal({ values: { 'notifications.telegramChatId': '4242' } }),
-    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
-  })
 })
 
 describe('the derived settings router WRITES the trail', () => {

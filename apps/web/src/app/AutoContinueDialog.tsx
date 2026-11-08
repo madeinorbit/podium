@@ -18,7 +18,7 @@ import { useShellActions, useShellWindow } from './shell-data'
  * "Enable" also flips the global `autoContinue.enabled` switch on.
  */
 export const AutoContinueDialog = observer(function AutoContinueDialog(): JSX.Element | null {
-  const { trpc, closeAutoContinuePrompt } = useShellActions()
+  const { setPreferences, closeAutoContinuePrompt } = useShellActions()
   const autoContinuePromptSessionId = useShellWindow()?.autoContinuePromptSessionId ?? null
   const [pendingAction, setPendingAction] = useState<'dismiss' | 'enable' | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -30,12 +30,11 @@ export const AutoContinueDialog = observer(function AutoContinueDialog(): JSX.El
     setPendingAction(enable ? 'enable' : 'dismiss')
     setError(null)
     try {
-      const current = await trpc.settings.get.query()
-      await trpc.settings.updatePersonal.mutate({
-        values: {
-          'autoContinue.enabled': enable ? true : current.autoContinue.enabled,
-          'autoContinue.promptDismissed': true,
-        },
+      // My settings record (POD-6673): queued, shown at once, on every device.
+      // A dismissal leaves `enabled` as it is.
+      await setPreferences({
+        ...(enable ? { 'autoContinue.enabled': true } : {}),
+        'autoContinue.promptDismissed': true,
       })
       closeAutoContinuePrompt()
     } catch (cause) {

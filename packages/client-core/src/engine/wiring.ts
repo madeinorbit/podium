@@ -81,12 +81,6 @@ import type { StoreNotices } from './types'
  *  send (POD-4762) — under a give-up window of minutes, not days
  *  (`OUTBOX_COMMAND_MAX_AGE_MS`). */
 export type OutboxKinds = {
-  pinSet: Omit<Parameters<PodiumClientApi['pins']['set']['mutate']>[0], 'mutationId'>
-  tabSetOrder: Omit<Parameters<PodiumClientApi['tabs']['setOrder']['mutate']>[0], 'mutationId'>
-  settingsUpdatePersonal: Omit<
-    Parameters<PodiumClientApi['settings']['updatePersonal']['mutate']>[0],
-    'mutationId'
-  >
   /**
    * THE CHAT SENDS (POD-4762). Every message the operator writes to a session —
    * live or parked, online or not — is one of these two, keyed by the message id
@@ -115,8 +109,7 @@ export type OutboxKinds = {
   /**
    * THE ISSUE CURATION WRITES (POD-781).
    *
-   * ONE GENERIC PATCH KIND rather than one kind per field, and the precedent is
-   * `settingsUpdatePersonal` directly above: the command is `issues.update` and
+   * ONE GENERIC PATCH KIND rather than one kind per field: the command is `issues.update` and
    * its input is a partial patch, so a `issueRename` / `issueSetPriority` /
    * `issueSetStage` family would be N kinds all naming ONE contract, N routing
    * rows and N overlay cases that differ only in which key they carry. The
@@ -297,16 +290,8 @@ export const OUTBOX_COMMANDS: Record<
   FixedOutboxKind,
   OutboxCommand & { confirmation: ConfirmationRule }
 > = {
-  pinSet: { name: 'pins.set', version: 1, delivery, confirmation: 'none' },
-  tabSetOrder: { name: 'tabs.setOrder', version: 1, delivery, confirmation: 'none' },
   effectCreate: { name: 'effects.create', version: 1, delivery, confirmation: 'none' },
   effectDismiss: { name: 'effects.dismiss', version: 1, delivery, confirmation: 'none' },
-  settingsUpdatePersonal: {
-    name: 'settings.updatePersonal',
-    version: 1,
-    delivery,
-    confirmation: 'none',
-  },
   sendText: { name: 'sessions.sendText', version: 1, delivery, confirmation: 'none' },
   resumeAndSend: { name: 'sessions.resumeAndSend', version: 1, delivery, confirmation: 'none' },
   dismissOffer: { name: 'sessions.dismissOffer', version: 1, delivery, confirmation: 'none' },
@@ -364,9 +349,6 @@ export const OUTBOX_COMMANDS: Record<
 export type OutboxDeadLetterHandling = 'recover' | 'discard-automatic'
 
 export const OUTBOX_DEAD_LETTER_HANDLING: Record<keyof OutboxKinds, OutboxDeadLetterHandling> = {
-  pinSet: 'recover',
-  tabSetOrder: 'recover',
-  settingsUpdatePersonal: 'recover',
   sendText: 'recover',
   resumeAndSend: 'recover',
   // `recover`, not `discard-automatic`: a dismissal is a decision the operator
@@ -457,7 +439,7 @@ export function shouldParkDeadLetter(kind: string, input: unknown): boolean {
  *   - CONTENT-BEARING writes. `resumeAndSend` puts text into a live PTY; two
  *     sends are two sends. ADR 3 D11 names exactly this as the reason
  *     "idempotent-ish" is not a property we may lean on.
- *   - PARTIAL patches. `layout.set`, `layout.clear` and `settings.updatePersonal`
+ *   - PARTIAL patches. `layout.set` and `layout.clear`
  *     carry only the keys they touch, so a later patch does NOT subsume an
  *     earlier one — collapsing them would silently drop the fields only the first
  *     one set.
@@ -478,22 +460,6 @@ export type OutboxRouting = {
 export const OUTBOX_ROUTING: {
   [K in keyof OutboxKinds]: (input: OutboxKinds[K]) => OutboxRouting
 } = {
-  // Per-user singletons: one partition each, so they no longer serialise behind
-  // one another or behind any session's writes.
-  pinSet: (i) => ({
-    partitionKey: `pin:${i.kind}:${i.id}`,
-    collapseKey: `pin:${i.kind}:${i.id}`,
-  }),
-  // Per WORKTREE, not global: the input names one worktree's tab order, so two
-  // worktrees have no reason to serialise against each other. It sets the WHOLE
-  // order for that worktree, which is what makes it collapsible.
-  tabSetOrder: (i) => ({
-    partitionKey: `tabs:${i.worktree}`,
-    collapseKey: `tabs-order:${i.worktree}`,
-  }),
-  // A partial patch of personal settings — no collapse.
-  settingsUpdatePersonal: () => ({ partitionKey: 'settings' }),
-
   // THE CHAT PARTITION (POD-4762): one per session, shared by both sends, so
   // the operator's messages reach the agent in the order they were written. It
   // is NOT the session's curation partition below: a parked rename (a share
@@ -524,8 +490,7 @@ export const OUTBOX_ROUTING: {
   // record edits (POD-6404), so a rename cannot overtake the delete that follows
   // it.
   //
-  // `issueUpdate` gets NO COLLAPSE, for the reason `layoutSet` and
-  // `settingsUpdatePersonal` get none: it is a PARTIAL patch. Two updates to one
+  // `issueUpdate` gets NO COLLAPSE, for the reason `layoutSet` gets none: it is a PARTIAL patch. Two updates to one
   // issue are usually two different fields — title then priority — and
   // collapsing them on the row id would drop the rename. There is no cell to key
   // on, because the kind does not name a cell; it names a patch.
@@ -618,6 +583,11 @@ function recordPartition(input: { kind: RecordKind; id: string }): string {
   const home = RECORD_HOMES[input.kind]
   if (home === null) return 'layout'
   const row = home.row(input.id)
+  // My pins, tab orders and preferences (POD-6673): one partition per record,
+  // so they never wait behind a session's or an issue's writes.
+  if (home.target === 'pins') return `pin:${row}`
+  if (home.target === 'tabOrders') return `tabs:${row}`
+  if (home.target === 'userPreferences') return 'preferences'
   // A session's own record and its per-user row order with the session's other
   // writes (an offer dismissal), as the per-command kinds did.
   return home.target === 'sessionUserStates' || home.target === 'sessions'
@@ -945,9 +915,6 @@ export function outboxExecutors(
   [K in keyof OutboxKinds]: (input: OutboxKinds[K]) => Promise<unknown>
 } & Record<LegacyOutboxKind, (input: Record<string, unknown>) => Promise<unknown>> {
   return {
-    pinSet: (i) => api.pins.set.mutate(i),
-    tabSetOrder: (i) => api.tabs.setOrder.mutate(i),
-    settingsUpdatePersonal: (i) => api.settings.updatePersonal.mutate(i),
     sendText: async (i) =>
       readOutboxReply('sendText', i, await api.sessions.sendText.mutate(i), hooks),
     resumeAndSend: async (i) =>

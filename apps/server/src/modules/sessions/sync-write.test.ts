@@ -60,16 +60,6 @@ const CASES: ReadonlyArray<{
     writes: false,
   },
   {
-    command: 'pins.set',
-    input: () => ({ kind: 'worktree', id: '/p', pinned: true }),
-    writes: false,
-  },
-  {
-    command: 'tabs.setOrder',
-    input: (sessionId) => ({ worktree: '/p', sessionIds: [sessionId] }),
-    writes: false,
-  },
-  {
     command: 'sessions.sendText',
     input: (sessionId) => ({ sessionId, text: 'hello over the path' }),
     writes: false,
@@ -196,11 +186,4 @@ describe('the old session routes are adapters onto sync.submit', () => {
     expect((await rowsOf(o, 'm-rename')).length).toBeGreaterThan(0)
   })
 
-  it('a pins route still answers the pin state it wrote', async () => {
-    const o = await makeOracle()
-
-    const pins = await o.call.pins.set({ kind: 'worktree', id: '/p', pinned: true })
-
-    expect(pins).toMatchObject({ worktrees: ['/p'] })
-  })
 })

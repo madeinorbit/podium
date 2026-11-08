@@ -22,7 +22,8 @@ const motion = vi.hoisted(() => ({
 
 vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => motion.reduceMotion }))
 const settings = vi.hoisted(() => ({ model: undefined as { codingHarness: string } | undefined }))
-vi.mock('../client/use-settings-record', () => ({ useSettingsRecord: () => settings }))
+// My coding default is my synced settings record (POD-6673).
+vi.mock('../client/my-preferences', () => ({ useMyCodingHarness: () => settings.model?.codingHarness }))
 vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Medium: 'medium' },
   impactAsync: vi.fn(async () => {}),

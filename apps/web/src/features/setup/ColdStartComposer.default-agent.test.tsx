@@ -138,11 +138,11 @@ const store = {
   setPane: vi.fn(),
   setPanelMode: vi.fn(),
   setView: vi.fn(),
+  // My coding default is my synced settings record (POD-6673): written by
+  // `setPreferences`, read through `useMyCodingHarness` (mocked below).
+  setPreferences: async (values: Record<string, unknown>) => await updatePersonal({ values: values as Record<string, string> }),
   trpc: {
-    settings: {
-      get: { query: vi.fn(async () => ({ roles: { coding: { accountId: state.accountId } } })) },
-      updatePersonal: { mutate: updatePersonal },
-    },
+    settings: {},
     issues: { create: { mutate: vi.fn() }, start: { mutate: vi.fn() } },
     sessions: { uploadImage: { mutate: vi.fn() } },
   },
@@ -151,6 +151,24 @@ const store = {
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: (selector: (value: typeof store) => unknown) => selector(store),
 }))
+
+vi.mock('@/lib/my-preferences', async () => {
+  const { resolveRole } = await import('@podium/runtime')
+  // The account exactly as stored; one that does not resolve reads as no
+  // setting yet, as the old settings read's failure did.
+  return {
+    useMyCodingHarness: () => {
+      try {
+        return resolveRole(
+          { roles: { coding: { accountId: state.accountId, model: 'auto', effort: 'auto' } } } as never,
+          'coding',
+        ).harness
+      } catch {
+        return undefined
+      }
+    },
+  }
+})
 
 vi.mock('@/lib/use-feature', () => ({
   useFeature: () => feature.enabled,

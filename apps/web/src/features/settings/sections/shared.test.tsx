@@ -443,15 +443,16 @@ describe.each(['coding', 'superagent'] as const)('%s default model warning', (ro
 
   it('writes the chosen model to personal settings while the warning is shown', async () => {
     const previous = normalizeSettings({ roles: { [role]: { accountId: nativeAccountId('codex'), model: 'auto', effort: 'auto' } } })
-    const updatePersonal = vi.fn(async () => previous)
-    const trpc = { settings: { updatePersonal: { mutate: updatePersonal } } } as unknown as Trpc
+    // My personal leaves are an edit of my `userPreferences` record (POD-6673).
+    const updatePersonal = vi.fn(async (_input: { values: Record<string, unknown> }) => {})
+    const trpc = { settings: {} } as unknown as Trpc
     function EditableDefault() {
       const [settings, setSettings] = useState(previous)
       return (
         <>
           {/* biome-ignore lint/a11y/useValidAriaRole: backend role, not an ARIA attribute */}
           <RoleBackendEditor role={role} backend={settings.roles[role]} accounts={[]} onChange={(backend) => setSettings({ ...settings, roles: { ...settings.roles, [role]: { ...settings.roles[role], ...backend } } })} />
-          <button type="button" onClick={() => saveSettingsAsCommands(trpc, previous, settings)}>Save</button>
+          <button type="button" onClick={() => saveSettingsAsCommands(trpc, previous, settings, { personal: async (values) => await updatePersonal({ values: { ...values } }) })}>Save</button>
         </>
       )
     }

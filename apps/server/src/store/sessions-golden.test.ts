@@ -40,6 +40,30 @@ import { createBunStoreExecutor } from './executor'
 import { SessionsRepository } from './sessions'
 import type { SessionRow } from './types'
 
+/** One person's pins by kind, read the way the boot reconcile reads them. */
+async function pinsOf(
+  repo: { allPinsForBootReconcile(): Promise<{ userId: string; kind: string; entityId: string }[]> },
+  userId: string,
+): Promise<{ panels: string[]; worktrees: string[]; repos: string[] }> {
+  const pins = (await repo.allPinsForBootReconcile()).filter((p) => p.userId === userId)
+  const of = (kind: string) => pins.filter((p) => p.kind === kind).map((p) => p.entityId)
+  return { panels: of('panel'), worktrees: of('worktree'), repos: of('repo') }
+}
+
+/** One person's tab orders by worktree, read the way the boot reconcile reads them. */
+async function tabOrdersOf(
+  repo: {
+    allTabOrdersForBootReconcile(): Promise<{ userId: string; entityId: string; sessionIds: string[] }[]>
+  },
+  userId: string,
+): Promise<Record<string, string[]>> {
+  const out: Record<string, string[]> = {}
+  for (const o of await repo.allTabOrdersForBootReconcile()) {
+    if (o.userId === userId) out[o.entityId] = o.sessionIds
+  }
+  return out
+}
+
 /** Stage A's synchronous drizzle seam, built the way `SessionStore` asserts it. */
 const stageQueries = (database: ReturnType<typeof openDatabase>) => {
   const stage = createBunStoreExecutor({ database }).queries
@@ -484,13 +508,13 @@ describe('offers and tab order keep their quarantines', () => {
     await sessions.setTabOrder(owner, '/w/two', ['c'])
     db.prepare('UPDATE tab_order SET ids = ? WHERE worktree = ?').run('{bad', '/w/one')
 
-    expect(await sessions.listTabOrders(owner)).toEqual({ '/w/two': ['c'] })
+    expect(await tabOrdersOf(sessions, owner)).toEqual({ '/w/two': ['c'] })
   })
 
   it('setTabOrder with an empty list deletes the row rather than storing []', async () => {
     await sessions.setTabOrder(owner, '/w/one', ['a'])
     await sessions.setTabOrder(owner, '/w/one', [])
-    expect(await sessions.listTabOrders(owner)).toEqual({})
+    expect(await tabOrdersOf(sessions, owner)).toEqual({})
   })
 })
 

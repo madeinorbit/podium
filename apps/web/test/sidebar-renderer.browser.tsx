@@ -98,7 +98,6 @@ const fixture = {
   state: () => ({
     selected: runtime?.access.selectedIssueId,
     pane: runtime?.access.paneA,
-    projectOrder: runtime?.access.sidebarSettings.repoOrder,
     coarseNow: deadlineClock.peekNow(),
   }),
   stats: (): {

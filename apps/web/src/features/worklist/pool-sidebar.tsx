@@ -1,8 +1,7 @@
-import type { Store } from '@podium/client-core/react'
-import { shallowEqual } from '@podium/client-core/shallow-equal'
 import { type IssueNavigationModel, planReorderKeys } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { LOADING } from '@podium/client-graph/loading'
+import { myPreferences, pinnedIds } from '@podium/client-graph/per-user-records'
 import {
   compareStructural,
   computed,
@@ -103,15 +102,20 @@ type Item = RowTransitionItem<Slot>
 const itemKey = (item: Item) => item.key
 const itemDragId = (item: Item) => (item.phase !== 'exiting' ? item.value.id : undefined)
 const NO_DRAG_ROWS: readonly string[] = []
-const selectLayout = (s: Store) => ({
-  projectOrder: s.sidebarSettings.repoOrder,
-  pinnedRepos: s.pins.repos,
-  pinnedWorktrees: s.pins.worktrees,
-})
+const NO_PATHS: readonly string[] = Object.freeze([])
 
+/** My project order and pins, from my synced records (POD-6673). Read inside
+ *  an observer: a pin or an order changed on my other device moves it. Each
+ *  list keeps its identity while it is equal, so the layout does too. */
 export function usePoolLayoutState(): SidebarState {
-  const layout = useRuntimeSelector(selectLayout, shallowEqual)
-  return useMemo(() => layout, [layout])
+  const pool = useWorklistPool()
+  const projectOrder = (pool ? myPreferences(pool)?.repoOrder : undefined) ?? NO_PATHS
+  const pinnedRepos = pool ? pinnedIds(pool, 'repo') : NO_PATHS
+  const pinnedWorktrees = pool ? pinnedIds(pool, 'worktree') : NO_PATHS
+  return useMemo(
+    () => ({ projectOrder, pinnedRepos, pinnedWorktrees }),
+    [projectOrder, pinnedRepos, pinnedWorktrees],
+  )
 }
 
 function slotsFor(

@@ -27,12 +27,15 @@ import type * as Declarations from '@podium/commands/records'
 import type {
   ISSUE_RECORD,
   ISSUE_USER_STATE_RECORD,
+  PIN_RECORD,
   RecordField,
   RecordOp,
   SESSION_RECORD,
   SESSION_USER_STATE_RECORD,
   SyncedKindDeclaration,
+  TAB_ORDER_RECORD,
   USER_LAYOUT_RECORD,
+  USER_PREFERENCES_RECORD,
 } from '@podium/commands/records'
 import {
   type DeviceIdPrefix,
@@ -107,6 +110,11 @@ interface RecordKindTable {
   // The lifecycle as desired state (POD-6356): an edit paints `desired` on the
   // session row until its entry retires.
   readonly session: typeof SESSION_RECORD
+  // My pins, tab orders and personal preferences (POD-6673): each its own row
+  // in the pool, keyed by its feed id.
+  readonly pin: typeof PIN_RECORD
+  readonly tabOrder: typeof TAB_ORDER_RECORD
+  readonly userPreferences: typeof USER_PREFERENCES_RECORD
 }
 
 let kinds: RecordKindTable | undefined
@@ -125,6 +133,9 @@ export function recordKinds(): RecordKindTable {
     issueUserState: d.ISSUE_USER_STATE_RECORD,
     userLayout: d.USER_LAYOUT_RECORD,
     session: d.SESSION_RECORD,
+    pin: d.PIN_RECORD,
+    tabOrder: d.TAB_ORDER_RECORD,
+    userPreferences: d.USER_PREFERENCES_RECORD,
   } satisfies Record<string, SyncedKindDeclaration>
   return kinds
 }
@@ -248,7 +259,14 @@ export function recordWireInput(input: object): Record<string, unknown> {
  */
 export const RECORD_HOMES: {
   readonly [K in RecordKind]: {
-    readonly target: 'issueProjections' | 'sessionUserStates' | 'issueUserStates' | 'sessions'
+    readonly target:
+      | 'issueProjections'
+      | 'sessionUserStates'
+      | 'issueUserStates'
+      | 'sessions'
+      | 'pins'
+      | 'tabOrders'
+      | 'userPreferences'
     readonly row: (id: string) => string
   } | null
 } = {
@@ -263,6 +281,10 @@ export const RECORD_HOMES: {
   },
   session: { target: 'sessions', row: (id) => id },
   userLayout: null,
+  // Standalone per-user rows (POD-6673): the pool keys each by its feed id.
+  pin: { target: 'pins', row: (id) => id },
+  tabOrder: { target: 'tabOrders', row: (id) => id },
+  userPreferences: { target: 'userPreferences', row: (id) => id },
 }
 
 /** A new id's prefix per kind that offers create. `records.test.ts` mints one

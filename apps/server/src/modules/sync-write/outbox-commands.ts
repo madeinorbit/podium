@@ -12,20 +12,16 @@ import type { RegistryModules } from '../../relay'
 import { registerIssueCommands } from '../issues/sync-write'
 import { registerLayoutCommands } from '../layout/sync-write'
 import { registerSessionCommands } from '../sessions/sync-write'
-import { registerSettingsCommands } from '../settings/sync-write'
 import type { SyncWriteRegistry } from './registry'
 
 /**
- * The 27 queued commands, by wire name. The client's table is the source; this
+ * The 24 queued commands, by wire name. The client's table is the source; this
  * copy exists because the server does not depend on client-core, and
  * `outbox-commands.test.ts` holds the registry equal to it.
  */
 export const OUTBOX_COMMAND_NAMES = [
-  'pins.set',
-  'tabs.setOrder',
   'layout.set',
   'layout.clear',
-  'settings.updatePersonal',
   'sessions.sendText',
   'sessions.resumeAndSend',
   'sessions.rename',
@@ -64,10 +60,6 @@ export function registerOutboxCommands(registry: SyncWriteRegistry, deps: Outbox
       set: async (...args) => await deps.modules().layout.set(...args),
       clear: async (...args) => await deps.modules().layout.clear(...args),
     },
-    roleOf: deps.roleOf,
-  })
-  registerSettingsCommands(registry, {
-    settings: () => deps.modules().settings,
     roleOf: deps.roleOf,
   })
   registerSessionCommands(registry, deps)

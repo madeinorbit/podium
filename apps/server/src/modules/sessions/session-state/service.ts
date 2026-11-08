@@ -53,7 +53,7 @@ import type {
 } from '@podium/protocol/daemon'
 import type { EntityChangeSpec } from '@podium/sync'
 import type { ClientConn } from '../../../gateway/client-registry'
-import type { PinState, SessionStore, SnoozeMap } from '../../../store'
+import type { SessionStore, SnoozeMap } from '../../../store'
 import { mayReachPrivate } from '../../../issue-authz'
 import type { Session, SessionDurableState } from '../session'
 
@@ -669,65 +669,6 @@ export class SessionStateService {
       if (await this.canReadSession(principal, sessionId)) visible[sessionId] = until
     }
     return visible
-  }
-
-  async listPins(principal: SessionStatePrincipal): Promise<PinState> {
-    const rows = await this.ports.store.sessions.listPins(principal.userId)
-    const panelVisible = await Promise.all(
-      rows.panels.map(async (id) => {
-        const sessionId = id as SessionId
-        // Not a session (another panel kind) or one that no longer exists: left
-        // alone. A session, running or parked, obeys visibility (POD-6160: a
-        // parked one is not in memory, so ask its owner, read from its row).
-        if (!(await this.ports.sessionOwner({ sessionId }))) return true
-        return await this.canReadSession(principal, sessionId)
-      }),
-    )
-    return {
-      ...rows,
-      // Panel ids that name sessions obey session visibility. Non-session panel
-      // ids are left alone; this module is not entitled to classify them.
-      // Verdicts awaited into an array first: `.filter` over an async predicate
-      // keeps EVERY element, because a pending promise is truthy [POD-3507].
-      panels: rows.panels.filter((_id, index) => panelVisible[index] === true),
-    }
-  }
-
-  async setPin(
-    principal: SessionStatePrincipal,
-    kind: Parameters<SessionStore['sessions']['setPin']>[1],
-    id: string,
-    pinned: boolean,
-  ): Promise<PinState> {
-    await this.ports.store.sessions.setPin(principal.userId, kind, id, pinned)
-    return await this.listPins(principal)
-  }
-
-  async listTabOrders(principal: SessionStatePrincipal): Promise<Record<string, string[]>> {
-    const rows = await this.ports.store.sessions.listTabOrders(principal.userId)
-    const visible: Record<string, string[]> = {}
-    for (const [worktree, ids] of Object.entries(rows)) {
-      const verdicts = await Promise.all(
-        ids.map(async (id) => await this.canReadSession(principal, id as SessionId)),
-      )
-      visible[worktree] = ids.filter((_id, index) => verdicts[index] === true)
-    }
-    return visible
-  }
-
-  async setTabOrder(
-    principal: SessionStatePrincipal,
-    worktree: string,
-    sessionIds: string[],
-  ): Promise<Record<string, string[]>> {
-    const readable = await Promise.all(
-      sessionIds.map(async (id) => await this.canReadSession(principal, id as SessionId)),
-    )
-    if (readable.some((ok) => ok !== true)) {
-      return await this.listTabOrders(principal)
-    }
-    await this.ports.store.sessions.setTabOrder(principal.userId, worktree, sessionIds)
-    return await this.listTabOrders(principal)
   }
 
   // -------------------------------------------------------------------------

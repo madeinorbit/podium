@@ -510,59 +510,6 @@ describe('oracle: snoozes', () => {
   })
 })
 
-describe('oracle: pins', () => {
-  // RESOLVED by POD-380 (was: will-change POD-1076 "pins become per-user state").
-  it(`${MUST_NOT_CHANGE}: a pin is keyed (userId, kind, id) — the writer sees it and another user's slice does not`, async () => {
-    const o = await makeOracle()
-
-    const after = await o.call.pins.set({ kind: 'panel', id: 'sess-1', pinned: true })
-
-    expect(after).toEqual({ panels: ['sess-1'], worktrees: [], repos: [] })
-    expect(await o.call.pins.list()).toEqual({ panels: ['sess-1'], worktrees: [], repos: [] })
-    expect(await o.store.sessions.listPins(asUserId('user:somebody-else'))).toEqual({
-      panels: [],
-      worktrees: [],
-      repos: [],
-    })
-  })
-
-  it(`${MUST_NOT_CHANGE}: pinning is insertion-ordered and idempotent; unpinning removes`, async () => {
-    const o = await makeOracle()
-    await o.call.pins.set({ kind: 'worktree', id: '/a', pinned: true })
-    await o.call.pins.set({ kind: 'worktree', id: '/b', pinned: true })
-    await o.call.pins.set({ kind: 'worktree', id: '/a', pinned: true })
-
-    expect((await o.call.pins.list()).worktrees).toEqual(['/a', '/b'])
-
-    expect(
-      (await o.call.pins.set({ kind: 'worktree', id: '/a', pinned: false })).worktrees,
-    ).toEqual(['/b'])
-  })
-})
-
-describe('oracle: tab order', () => {
-  // RESOLVED by POD-380 (was: will-change POD-1076 "tab order becomes per-user").
-  it(`${MUST_NOT_CHANGE}: tab order is keyed (userId, worktree) — the writer sees it and another user's slice does not`, async () => {
-    const o = await makeOracle()
-    const a = (await o.call.sessions.create({ agentKind: 'shell', cwd: '/a' })).sessionId
-    const b = (await o.call.sessions.create({ agentKind: 'shell', cwd: '/b' })).sessionId
-
-    const after = await o.call.tabs.setOrder({ worktree: '/w', sessionIds: [b, a] })
-
-    expect(after).toEqual({ '/w': [b, a] })
-    expect(await o.call.tabs.listOrders()).toEqual({ '/w': [b, a] })
-    expect(await o.store.sessions.listTabOrders(asUserId('user:somebody-else'))).toEqual({})
-  })
-
-  it(`${MUST_NOT_CHANGE}: an empty sessionIds array DELETES the saved order rather than storing an empty one`, async () => {
-    const o = await makeOracle()
-    const a = (await o.call.sessions.create({ agentKind: 'shell', cwd: '/a' })).sessionId
-    await o.call.tabs.setOrder({ worktree: '/w', sessionIds: [a] })
-
-    expect(await o.call.tabs.setOrder({ worktree: '/w', sessionIds: [] })).toEqual({})
-  })
-})
-
 describe('oracle: composer drafts', () => {
   // POD-2045 replaced the no-echo policy this used to record. The author is now
   // told which REV its edit became, because a client that holds unsent text has

@@ -83,11 +83,9 @@ import { operationProcedures } from './modules/operations/trpc'
 import { perfFamilyProcedures } from './modules/perf/trpc'
 import { readPositionFamilyProcedures } from './modules/read-position/trpc'
 import {
-  PIN_QUERIES,
   SESSION_QUERIES,
   SNOOZE_QUERIES,
   SYNC_QUERIES,
-  TAB_QUERIES,
 } from './modules/sessions/queries'
 import { settingsAuthzDeps, settingsCommandsPermitted } from './modules/settings/authz'
 import { settingsFamilyProcedures } from './modules/settings/trpc'
@@ -251,7 +249,7 @@ const specFamily = specFamilyProcedures()
  *  procedures the `settings` router also serves. */
 const settingsFamily = settingsFamilyProcedures()
 
-import type { PinState, SnoozeMap } from './store/types'
+import type { SnoozeMap } from './store/types'
 
 /**
  * THE DERIVED FLEET-FAMILY PROCEDURES (POD-384), built once at module load and
@@ -338,7 +336,6 @@ export const appRouter = t.router({
   // → shell session, so the same dock shell opens on every device. Tab shells
   // stay unmapped by design (SP-75b1) and go through sessions.create directly.
   shells: t.router(shellFamilyProcedures()),
-  pins: t.router({ ...queryProcedures('pins', PIN_QUERIES), ...sessionFamily.pins }),
   // set: until === null => "until next message"; ISO string => timed.
   snoozes: t.router({ ...queryProcedures('snoozes', SNOOZE_QUERIES), ...sessionFamily.snoozes }),
   /**
@@ -401,7 +398,6 @@ export const appRouter = t.router({
    */
   accounts: t.router(accountFamilyProcedures()),
   // PER-USER STATE (POD-380): the caller's saved orders.
-  tabs: t.router({ ...queryProcedures('tabs', TAB_QUERIES), ...sessionFamily.tabs }),
   // setPrefix · add · addMany · remove — DERIVED (POD-384). Store-level
   // validation (^[A-Z]{2,5}$, server-wide prefix uniqueness, absolute paths) is
   // unchanged and still surfaces as BAD_REQUEST with the store's message.

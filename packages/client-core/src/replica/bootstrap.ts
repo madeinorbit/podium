@@ -71,6 +71,10 @@ const KIND_BY_ENTITY: Record<string, ReplicaKind> = {
   automation: 'automations',
   automationRun: 'automationRuns',
   effect: 'effects',
+  pin: 'pins',
+  tabOrder: 'tabOrders',
+  userPreferences: 'userPreferences',
+  userReadPosition: 'userReadPositions',
 }
 
 type SnapshotKind = Extract<

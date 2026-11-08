@@ -37,17 +37,14 @@ import type {
 } from '@podium/model'
 import { asIssueId, asThreadId } from '@podium/model'
 import type { ApprovalWire } from '@podium/protocol'
-import type { Sidebar as SidebarSettings } from '@podium/runtime'
 import type { PodiumClientApi } from '../api'
 import type { MainView, WorkspaceUiSnapshot } from '../ui-state'
 import {
   allTabIds,
   type DockTab,
-  EMPTY_PINS,
   emptyWorkspace,
   type FileTab,
   leafPaneIds,
-  type PinState,
   type RecentFileEntry,
   type WorkspaceKey,
   type WorkspaceLayout,
@@ -69,8 +66,6 @@ export interface EngineState {
   machines: MachineWire[]
   /** Approval broker [spec:SP-edbb]: pending management-op requests (popup). */
   approvals: ApprovalWire[]
-  pins: PinState
-  tabOrders: Record<string, string[]>
   view: MainView
   settingsTab: string | null
   openIssueId: IssueId | null
@@ -113,7 +108,6 @@ export interface EngineState {
   dockShells: Record<string, SessionId>
   dockVisibleSession: string | null
   autoContinuePromptSessionId: SessionId | null
-  sidebarSettings: SidebarSettings
   fileTabs: FileTab[]
   recentFiles: RecentFileEntry[]
 }
@@ -629,8 +623,6 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     repoDiagnostics: [],
     machines: [],
     approvals: [],
-    pins: EMPTY_PINS,
-    tabOrders: {},
     view: seed.persisted.view,
     settingsTab: seed.route.settingsTab,
     openIssueId: asIssueIdOrNull(seed.route.issueId),
@@ -663,7 +655,6 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     dockShells: seed.persisted.dockShells,
     dockVisibleSession: null,
     autoContinuePromptSessionId: null,
-    sidebarSettings: { repoSort: 'lastUsed', repoOrder: [], groupByRepo: false },
     // Restored with the layouts that name them (POD-1247). These two are one
     // fact in two keys: a layout tab id whose record did not come back renders
     // nothing and is swept as a ghost, so they hydrate together or not at all.

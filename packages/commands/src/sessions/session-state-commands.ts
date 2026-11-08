@@ -2,8 +2,7 @@
  * DURABLE SESSION-STATE SESSION COMMAND CONTRACTS (POD-380, under POD-312).
  *
  * The pure-state session writes — rename · setArchived · markRead / markUnread ·
- * setWorkState · setIssueId · snoozes.set / snoozes.clear · pins.set ·
- * tabs.setOrder · drafts.set — as CONTRACTS: name, input schema, and the four
+ * setWorkState · setIssueId · snoozes.set / snoozes.clear · drafts.set — as CONTRACTS: name, input schema, and the four
  * ADR 3 facets (policy · exposure · offline · redaction) plus the ADR 1 conflict
  * class. No handler code and no service imports: contracts are L1, handlers are
  * L3, and the join is the composition root's (POD-311 finding 1).
@@ -14,8 +13,9 @@
  * cut does not follow today's tRPC routers:
  *
  *   PER-USER STATE (`policy.scope: 'self'`, keyed `(userId, entityId)`, NEVER
- *   shared, non-grantable): markRead · markUnread · snoozes.set · snoozes.clear ·
- *   pins.set · tabs.setOrder. Each principal writes its OWN row; the conflict
+ *   shared, non-grantable): markRead · markUnread · snoozes.set · snoozes.clear.
+ *   (Pins and tab orders are synced records since POD-6673: `records.pin`,
+ *   `records.tabOrder`.) Each principal writes its OWN row; the conflict
  *   class collapses to `single-writer` and ADR 1 D3's field-LWW carve-out shrinks.
  *
  *   SHARED SESSION STATE owned by the session's owner and governed by grants
@@ -39,7 +39,7 @@
  * comment, which is where that file says such a decision must be taken.
  */
 
-import { IssueIdField, PinKind, SessionIdField, WorkState } from '@podium/model'
+import { IssueIdField, SessionIdField, WorkState } from '@podium/model'
 import { z } from 'zod'
 import type { CommandDef } from '../framework'
 import { defineCommands } from '../framework'
@@ -63,7 +63,6 @@ const mutationId = z.string().max(128).optional()
 // composition real, and `session-commands.test.ts` asserts the identity with `toBe`
 // rather than comparing accepted values.
 const workState = WorkState
-const pinKind = PinKind
 
 /**
  * VISIBILITY CLASS, DECLARED PER CONTRACT (POD-382; ADR 9 D3/D4).
@@ -267,51 +266,6 @@ const snoozeClear: CommandDef = {
   conflict: 'single-writer',
 }
 
-const pinSetInput = z.object({
-  kind: pinKind,
-  /** UNBRANDED: POLYMORPHIC by design (Limit 2 / POD-362). `PinKind` is
-   *  `panel | worktree | repo`, so this id names whichever of those `kind` says
-   *  and is never a `SessionId` — branding it at the declaration would force a
-   *  false choice. The tenant directory is `sessions/`, so the audit's tenant
-   *  inference reaches this site and must be answered here rather than by a
-   *  structural rule, which could not tell this `kind` from `agentKind`. */
-  id: z.string(),
-  pinned: z.boolean(),
-  mutationId,
-})
-
-const pinSet: CommandDef = {
-  input: pinSetInput,
-  action: 'write',
-  policy: { resource: 'per-user-state', scope: 'self', action: 'write' },
-  visibility: PER_USER,
-  exposure: ['trpc'],
-  offline: 'eligible',
-  redaction: { fields: [] },
-  conflict: 'single-writer',
-  decision:
-    'offline-eligible: pins are replicated per-user rows; the owning user is the sole writer and replay is re-authorized at apply time.',
-}
-
-const tabsSetOrderInput = z.object({
-  worktree: z.string(),
-  sessionIds: z.array(SessionIdField),
-  mutationId,
-})
-
-const tabsSetOrder: CommandDef = {
-  input: tabsSetOrderInput,
-  action: 'write',
-  policy: { resource: 'per-user-state', scope: 'self', action: 'write' },
-  visibility: PER_USER,
-  exposure: ['trpc'],
-  offline: 'eligible',
-  redaction: { fields: [] },
-  conflict: 'single-writer',
-  decision:
-    'offline-eligible: tab order is a replicated per-user row. An empty sessionIds array still deletes the saved order in the handler.',
-}
-
 // ---------------------------------------------------------------------------
 // The composer draft — §3.3's deliberate exception
 // ---------------------------------------------------------------------------
@@ -416,12 +370,6 @@ export const snoozeCommands = defineCommands('snoozes', {
   clear: snoozeClear,
 })
 
-/** `pins.*` — replicated per-user state; offline-eligible. */
-export const pinCommands = defineCommands('pins', { set: pinSet })
-
-/** `tabs.*` — replicated per-user state; offline-eligible. */
-export const tabCommands = defineCommands('tabs', { setOrder: tabsSetOrder })
-
 /**
  * THE INPUT SCHEMAS AT THEIR PRECISE TYPES, keyed by dotted wire name.
  *
@@ -448,8 +396,6 @@ export const sessionStateInputs = {
   'sessions.setDraft': sessionDraftInput,
   'snoozes.set': snoozeSetInput,
   'snoozes.clear': snoozeClearInput,
-  'pins.set': pinSetInput,
-  'tabs.setOrder': tabsSetOrderInput,
 } as const
 
 /**
@@ -459,8 +405,6 @@ export const sessionStateInputs = {
 export const SESSION_STATE_COMMAND_TABLES = [
   sessionStateCommands,
   snoozeCommands,
-  pinCommands,
-  tabCommands,
 ] as const
 
 /** Every `namespace.key` in the session-state class. */
