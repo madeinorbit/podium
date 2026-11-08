@@ -340,18 +340,8 @@ export function parseDesktopManifest(
 const artifactUrlBelongsToFeed = urlBelongsToReleaseDirectory
 
 /**
- * HEAD the named URL without letting `fetch` walk us somewhere the channel
- * does not vouch for.
- *
- * Default redirect-following is how an in-feed URL becomes a request to
- * another origin: the fence passed on the name, then the transport followed
- * a 302. Containment is per channel, because the channels have different
- * trust shapes:
- *
- *  - DEV never redirects. It is this server serving its own artifacts.
- *  - EDGE and STABLE follow hops by hand, capped, https-only, and only onto
- *    hosts {@link ChannelFeed.redirectHosts} names — GitHub's object host,
- *    not the open internet.
+ * Validate a desktop advertisement against its serving origin without probing
+ * its artifacts. The shared release transport enforces redirect trust at download.
  */
 export function validateDesktopFeedManifest(
   channel: DesktopFeedChannel,

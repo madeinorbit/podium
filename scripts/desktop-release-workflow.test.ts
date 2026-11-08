@@ -501,7 +501,7 @@ describe('desktop release workflow', () => {
     expect(headlessWorkflow).toContain("contains(github.ref_name, '-edge.')")
     // Edge assets live under the fixed `edge` tag because shipped updaters have that URL baked in.
     expect(headlessWorkflow).toContain(
-      "PODIUM_RELEASE_TAG: ${{ (github.event_name == 'workflow_dispatch' || contains(github.ref_name, '-edge.')) && 'edge' || github.ref_name }}",
+      "PODIUM_RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.channel || (contains(github.ref_name, '-edge.') && 'edge' || github.ref_name) }}",
     )
     // A prerelease tag naming no channel is a typo, not a stable release.
     expect(desktopWorkflow).toContain('is a prerelease but names no channel')
@@ -756,19 +756,20 @@ describe('desktop release workflow', () => {
     expect(upload).toBeGreaterThan(prepare)
   })
 
-  it('publishes both channels from version tags, and edge from dispatch', () => {
+  it('publishes version tags and uses the explicitly selected dispatch channel', () => {
     expect(headlessWorkflow).toContain("tags: ['v*']")
     expect(headlessWorkflow).toContain('workflow_dispatch:')
     expect(headlessWorkflow).not.toContain('branches: [main]')
     expect(headlessWorkflow).toContain(
-      "PODIUM_RELEASE_CHANNEL: ${{ (github.event_name == 'workflow_dispatch' || contains(github.ref_name, '-edge.')) && 'edge' || 'stable' }}",
+      "PODIUM_RELEASE_CHANNEL: ${{ github.event_name == 'workflow_dispatch' && inputs.channel || (contains(github.ref_name, '-edge.') && 'edge' || 'stable') }}",
     )
     expect(headlessWorkflow).toContain('--channel "$PODIUM_RELEASE_CHANNEL"')
     expect(headlessWorkflow).toContain('published-smoke')
     expect(headlessWorkflow).not.toContain('TAURI_SIGNING_PRIVATE_KEY')
     expect(headlessWorkflow).not.toContain('apps/desktop')
     expect(releaseSource).not.toContain('release delete edge')
-    expect(releaseSource).toContain("['release', 'upload', 'edge', ...assets, '--clobber']")
+    expect(releaseSource).toContain('publishReleaseAssets({')
+    expect(releaseSource).toContain('tag: p.tag,')
     expect(publishedHeadlessSmoke).toContain('edge) CHANNEL="edge"')
     expect(publishedHeadlessSmoke).toContain('PODIUM_UPDATE_CHANNEL="$CHANNEL"')
   })
@@ -808,7 +809,7 @@ describe('desktop release workflow', () => {
     // could not re-attach the abduco sessions its older release left running.
     expect(headlessWorkflow).toContain('bash scripts/assert-headless-bundle.sh')
     expect(headlessWorkflow).toContain('--source-commit "$GITHUB_SHA"')
-    expect(headlessWorkflow).toContain(`--abduco "dist-bun/abduco-cache/\${platform}-\${HASH}"`)
+    expect(headlessWorkflow).not.toContain('--abduco')
     expect(headlessWorkflow).toContain('scripts/smoke-headless-bundle.sh')
     // No matrix: reintroducing one would mean an architecture decided where a bundle
     // was built again, which is exactly what cross-compilation removed.
