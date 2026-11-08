@@ -92,7 +92,7 @@ describe('MachinesPanel supervisor fleet states', () => {
   it('keeps offline last-seen answers at thirty-second precision', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(100_000)
-    const lastSeenAt = 30_000
+    const lastSeenAt = new Date(30_000).toISOString()
     storeState.machines = [machine({ lastSeenAt })]
     setTrpc(vi.fn())
     const view = render(<MachinesPanel />)
