@@ -165,7 +165,23 @@ export class SyncWriteEntry {
     principal: CommandPrincipal,
     transport: SyncWriteTransport,
   ): Promise<DetailedSubmit> {
-    const answer = (reply: SyncSubmitReply): DetailedSubmit => ({ reply })
+    const answer = (reply: SyncSubmitReply, cause?: unknown): DetailedSubmit => {
+      // A rejection is a successful RPC reply, so HTTP error logging never
+      // sees it. Record the outcome here, without content or refusal text.
+      const effectKind =
+        envelope.command === 'effects.create'
+          ? (envelope.input as { kind?: unknown } | null)?.kind
+          : undefined
+      log.info('sync.submit outcome', {
+        command: envelope.command,
+        ...(typeof effectKind === 'string' && effectKind.length <= 64 ? { kind: effectKind } : {}),
+        outcome: reply.outcome,
+        ...(reply.outcome === 'rejected'
+          ? { refusalKind: reply.refusal.kind }
+          : { replayed: reply.replayed }),
+      })
+      return cause === undefined ? { reply } : { reply, cause }
+    }
     // The receipt is the head after THIS call's commit. Inside a caller's open
     // unit our commit is only a savepoint, and a receipt read there could name
     // rows that the caller then rolls back.
@@ -217,7 +233,7 @@ export class SyncWriteEntry {
         })
       }
       if (error instanceof SyncWriteRefused) {
-        return { reply: rejected(error.refusal), cause: error.cause }
+        return answer(rejected(error.refusal), error.cause)
       }
       throw error
     }

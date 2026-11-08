@@ -10,6 +10,7 @@
  */
 
 import { type AnyCommandContract, defineCommands, layoutSetContract } from '@podium/commands'
+import { addSink, type LogRecord } from '@podium/logger'
 import {
   asMutationId,
   asUserId,
@@ -635,6 +636,99 @@ describe('sync write entry point: what an old route adapter needs (POD-6350)', (
     expect(heard[0]?.spanOpen).toBe(false)
     expect(await rows(h)).toHaveLength(0)
     expect(await h.store.layout.get(h.adminId, 'sidebar.section.trail')).toBe('kept')
+  })
+})
+
+describe('sync.submit outcome diagnostics', () => {
+  it.each([
+    'command',
+    'coarse',
+    'version',
+    'parse',
+    'target',
+    'handler',
+  ] as const)('logs a refusal at the %s step without input contents', async (step) => {
+    const h = await harness()
+    h.registry.register({
+      contract: { ...putContract, name: 'effects.create' },
+      target: () => (step === 'target' ? undefined : NO_TARGET),
+      handle: async () => {
+        throw new SyncWriteRefused({ kind: 'invalid', message: 'SECRET-HANDLER-MESSAGE' })
+      },
+    })
+    const records: LogRecord[] = []
+    const stop = addSink({
+      name: 'submit-outcome-test',
+      minLevel: 'info',
+      write: (record) => {
+        if (record.msg === 'sync.submit outcome') records.push(record)
+      },
+    })
+    try {
+      const reply = await h.entry.submit(
+        envelope(
+          'm-log',
+          {
+            id: 'SECRET-TARGET',
+            note: step === 'parse' ? 42 : 'SECRET-NOTE',
+            kind: 'issue.begin',
+            input: { text: 'SECRET-PAYLOAD' },
+          },
+          {
+            command: step === 'command' ? 'unknown.command' : 'effects.create',
+            version: step === 'version' ? 999 : 1,
+          },
+        ),
+        step === 'coarse'
+          ? {
+              kind: 'user',
+              user: h.adminId,
+              capability: { role: 'viewer', scope: { kind: 'all' } },
+            }
+          : h.admin,
+        'trpc',
+      )
+      expect(reply.outcome).toBe('rejected')
+      expect(records).toHaveLength(1)
+      expect(records[0]).toMatchObject({
+        level: 'info',
+        command: step === 'command' ? 'unknown.command' : 'effects.create',
+        outcome: 'rejected',
+        refusalKind: step === 'coarse' || step === 'target' ? 'unauthorized' : 'invalid',
+      })
+      if (step !== 'command') expect(records[0]?.kind).toBe('issue.begin')
+      expect(JSON.stringify(records)).not.toContain('SECRET')
+    } finally {
+      stop()
+    }
+  })
+
+  it('logs applied and replayed outcomes without the result or input', async () => {
+    const h = await harness()
+    registerPut(h)
+    const records: LogRecord[] = []
+    const stop = addSink({
+      name: 'submit-outcome-test',
+      minLevel: 'info',
+      write: (record) => {
+        if (record.msg === 'sync.submit outcome') records.push(record)
+      },
+    })
+    try {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        await h.entry.submit(
+          envelope('m-log', { id: 'SECRET-ID', note: 'SECRET-NOTE' }),
+          h.admin,
+          'trpc',
+        )
+      }
+      expect(records).toHaveLength(2)
+      expect(records[0]).toMatchObject({ command: 'test.put', outcome: 'applied', replayed: false })
+      expect(records[1]).toMatchObject({ command: 'test.put', outcome: 'applied', replayed: true })
+      expect(JSON.stringify(records)).not.toContain('SECRET')
+    } finally {
+      stop()
+    }
   })
 })
 
