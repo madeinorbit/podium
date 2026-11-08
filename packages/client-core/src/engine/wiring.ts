@@ -588,6 +588,7 @@ function recordPartition(input: { kind: RecordKind; id: string }): string {
   if (home.target === 'pins') return `pin:${row}`
   if (home.target === 'tabOrders') return `tabs:${row}`
   if (home.target === 'userPreferences') return 'preferences'
+  if (home.target === 'userReadPositions') return `read:${row}`
   // A session's own record and its per-user row order with the session's other
   // writes (an offer dismissal), as the per-command kinds did.
   return home.target === 'sessionUserStates' || home.target === 'sessions'

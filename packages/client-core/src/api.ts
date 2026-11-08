@@ -35,7 +35,6 @@ import type {
   MachineWire,
   MutationId,
   QuotaWindowHistoryWire,
-  ReadPositionSnapshot,
   SessionId,
   ThreadId,
   UsageBucketWire,
@@ -309,15 +308,6 @@ export interface PodiumClientApi {
       WithMutationId<{ id: string; placement: 'own' | 'mission'; originId: string }>
     >
     restore: ApiMutation<WithMutationId<{ id: string }>>
-  }
-  /** Per-user event-stream read positions (POD-1380). `advance` is monotonic —
-   *  the server clamps to max(stored, proposed) — and returns the caller's whole
-   *  snapshot, never anyone else's. */
-  readPosition: {
-    advance: ApiMutation<
-      WithMutationId<{ streamId: string; lastEventId: number; seenAt?: string | null }>,
-      ReadPositionSnapshot
-    >
   }
   layout: {
     get: ApiQuery<void, LayoutSnapshot>

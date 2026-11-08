@@ -9,12 +9,7 @@
  * carries no change is indistinguishable to them from one that does.
  */
 
-import {
-  type ReadPositionSnapshot,
-  type ReadPositionWire,
-  readPositionRowId,
-  type UserId,
-} from '@podium/model'
+import { type ReadPositionWire, readPositionRowId, type UserId } from '@podium/model'
 import type { EntityChangeSpec, LedgerWriter } from '@podium/sync'
 import type { StoredReadPosition, UserReadPositionRepository } from '../../store/user-read-position'
 
@@ -22,23 +17,17 @@ export interface ReadPositionServiceDeps {
   readonly cursors: UserReadPositionRepository
 }
 
-/** What a read mark is written through: the command's own writer (ADR 12 D9,
- *  POD-6594). Cursor rows ride entity kind `userReadPosition`, so bootstrap and
- *  delta share one log. */
+/** What a read mark is written through: the generic edit's own writer (ADR 12
+ *  D9; `records.userReadPosition.edit`, POD-6673). Cursor rows ride entity kind
+ *  `userReadPosition`, so bootstrap and delta share one log. */
 export type ReadPositionCommandWriter = Pick<LedgerWriter, 'commit'>
 
 export class ReadPositionService {
   constructor(private readonly deps: ReadPositionServiceDeps) {}
 
-  async getSnapshot(userId: UserId): Promise<ReadPositionSnapshot> {
-    return await this.deps.cursors.getSnapshot(userId)
-  }
-
   /**
-   * Advance one stream's position for one person and return their whole
-   * snapshot — the same response shape `layout.set` uses, so the client
-   * reconciles from one authoritative object rather than patching a delta it
-   * would have to merge itself.
+   * Advance one stream's position for one person. Nothing is answered: the
+   * person's devices learn the position from the `userReadPosition` row.
    */
   async advance(
     writer: ReadPositionCommandWriter,
@@ -46,7 +35,7 @@ export class ReadPositionService {
     streamId: string,
     proposed: StoredReadPosition,
     now: string,
-  ): Promise<ReadPositionSnapshot> {
+  ): Promise<void> {
     // One commit: the cursor row and its change entry. A proposal at or behind
     // the stored position moves nothing and appends nothing.
     await writer.commit({
@@ -54,22 +43,25 @@ export class ReadPositionService {
         await this.deps.cursors.advance(scope, userId, streamId, proposed, now),
       changes: (moved) => (moved === null ? [] : [changeSpec(userId, streamId, moved)]),
     })
-    return await this.deps.cursors.getSnapshot(userId)
   }
 }
 
-function changeSpec(userId: UserId, streamId: string, cursor: StoredReadPosition): EntityChangeSpec {
-    const value: ReadPositionWire = {
-      userId,
-      streamId,
-      lastEventId: cursor.lastEventId,
-      seenAt: cursor.seenAt,
-    }
-    const spec: EntityChangeSpec = {
-      entity: 'userReadPosition',
-      id: readPositionRowId(userId, streamId),
-      op: 'upsert',
-      value,
-    }
-    return spec
+function changeSpec(
+  userId: UserId,
+  streamId: string,
+  cursor: StoredReadPosition,
+): EntityChangeSpec {
+  const value: ReadPositionWire = {
+    userId,
+    streamId,
+    lastEventId: cursor.lastEventId,
+    seenAt: cursor.seenAt,
+  }
+  const spec: EntityChangeSpec = {
+    entity: 'userReadPosition',
+    id: readPositionRowId(userId, streamId),
+    op: 'upsert',
+    value,
+  }
+  return spec
 }

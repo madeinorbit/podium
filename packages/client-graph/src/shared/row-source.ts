@@ -186,13 +186,12 @@ const OVERLAID: readonly OverlayTarget[] = [
 /**
  * POD-6673: each per-user record kind as the pool's entity. A record is a row
  * of its own, keyed by its feed id; the pending log's overlays fold over it.
- * Read positions take no generic edit, so they carry no overlay target.
  */
 const PER_USER_KINDS = {
   pin: { replica: 'pins', target: 'pins' },
   tabOrder: { replica: 'tabOrders', target: 'tabOrders' },
   userPreferences: { replica: 'userPreferences', target: 'userPreferences' },
-  userReadPosition: { replica: 'userReadPositions', target: undefined },
+  userReadPosition: { replica: 'userReadPositions', target: 'userReadPositions' },
 } as const satisfies Record<string, { replica: ReplicaKind; target: OverlayTarget | undefined }>
 type PerUserKind = keyof typeof PER_USER_KINDS
 const PER_USER_BY_REPLICA = new Map<string, PerUserKind>(

@@ -15,18 +15,30 @@
  *  - `records.userPreferences.edit`: the leaves the patch names, through the
  *    settings service (its secret refusal, its value checks, `settings.changed`
  *    after commit); a cleared leaf resets to the default.
+ *  - `records.userReadPosition.edit`: a proposed position in one stream,
+ *    stored as max(stored, proposed); a proposal behind it changes nothing.
+ *    It replaced `readPosition.advance`, so a device queues it offline.
  */
 
-import { PIN_RECORD, TAB_ORDER_RECORD, USER_PREFERENCES_RECORD } from '@podium/commands'
 import {
+  PIN_RECORD,
+  TAB_ORDER_RECORD,
+  USER_PREFERENCES_RECORD,
+  USER_READ_POSITION_RECORD,
+} from '@podium/commands'
+import {
+  isReadStreamId,
   type PinKind,
   parsePinRowId,
+  parseReadPositionRowId,
   parseTabOrderRowId,
   parseUserPreferencesRowId,
   type UserId,
+  type UserRole,
 } from '@podium/model'
 import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import type { SessionsRepository } from '../../store/sessions'
+import type { ReadPositionService } from '../read-position/service'
 import { registerRecordKind } from '../records/generic'
 import { USER_PREFERENCES_EDIT } from '../settings/audit'
 import { SettingsPatchRefused, type SettingsService } from '../settings/service'
@@ -40,8 +52,11 @@ export interface UserRecordDeps {
     'pinnedAt' | 'addPin' | 'removePin' | 'tabOrder' | 'setTabOrder'
   >
   readonly settings: () => Pick<SettingsService, 'updatePreferences' | 'recordCommand'>
+  readonly readPositions: () => Pick<ReadPositionService, 'advance'>
   /** May this caller read this session? A panel pin names one. */
   readonly canReadSession: (principal: CommandPrincipal, sessionId: string) => Promise<boolean>
+  /** The account's live role, or undefined (disabled, or no account). */
+  readonly roleOf: (user: UserId) => Promise<UserRole | undefined>
   readonly now?: () => string
 }
 
@@ -64,10 +79,15 @@ const gone = (): never => {
   throw new SyncWriteRefused({ kind: 'target-not-found' })
 }
 
-const own = (userId: UserId): SyncWriteTarget => ({ kind: 'per-user-row', userId })
-
 export function registerUserRecords(registry: SyncWriteRegistry, deps: UserRecordDeps): void {
   const now = deps.now ?? (() => new Date().toISOString())
+  /**
+   * The caller's own row, while their account holds the kinds' role floor
+   * (member) NOW: a disabled account has no role and is refused whatever its
+   * capability says, as the per-command gates these writes replaced did.
+   */
+  const own = async (userId: UserId): Promise<SyncWriteTarget> =>
+    (await deps.roleOf(userId)) === undefined ? undefined : { kind: 'per-user-row', userId }
 
   // ---- pin ----------------------------------------------------------------
   const ownPin = (id: string, principal: CommandPrincipal) => {
@@ -85,7 +105,7 @@ export function registerUserRecords(registry: SyncWriteRegistry, deps: UserRecor
       if (key.kind === 'panel' && !(await deps.canReadSession(principal, key.entityId))) {
         return undefined
       }
-      return own(key.userId)
+      return await own(key.userId)
     },
     read: async (id) => {
       const key = parsed(parsePinRowId, id)
@@ -164,7 +184,7 @@ export function registerUserRecords(registry: SyncWriteRegistry, deps: UserRecor
         )
         if (readable.some((ok) => !ok)) return undefined
       }
-      return own(key.userId)
+      return await own(key.userId)
     },
     edit: async (ctx, id, patch) => {
       const key = ownOrder(id, ctx.principal) ?? gone()
@@ -205,7 +225,7 @@ export function registerUserRecords(registry: SyncWriteRegistry, deps: UserRecor
   registerRecordKind(registry, USER_PREFERENCES_RECORD, {
     target: async (_op, id, { principal }, edited) => {
       const key = ownPreferences(id, principal)
-      if (key !== undefined) return own(key.userId)
+      if (key !== undefined) return await own(key.userId)
       await audit(
         principal,
         { id, patch: edited?.patch ?? {}, unset: edited?.unset ?? [] },
@@ -233,6 +253,39 @@ export function registerUserRecords(registry: SyncWriteRegistry, deps: UserRecor
         throw error
       }
       await audit(ctx.principal, { id, patch, unset }, 'applied')
+      return { ok: true }
+    },
+  })
+
+  // ---- userReadPosition -------------------------------------------------------
+  const ownPosition = (id: string, principal: CommandPrincipal) => {
+    const key = parsed(parseReadPositionRowId, id)
+    const human = humanOf(principal)
+    return key !== undefined &&
+      human !== undefined &&
+      key.userId === human &&
+      isReadStreamId(key.streamId)
+      ? key
+      : undefined
+  }
+
+  registerRecordKind(registry, USER_READ_POSITION_RECORD, {
+    target: async (_op, id, { principal }) => {
+      const key = ownPosition(id, principal)
+      return key === undefined ? undefined : await own(key.userId)
+    },
+    edit: async (ctx, id, patch, _expected, unset) => {
+      const { userId, streamId } = ownPosition(id, ctx.principal) ?? gone()
+      const lastEventId = patch.lastEventId
+      // A position is the whole proposal: an edit that names no event id, or
+      // clears one, proposes nothing a max could keep.
+      if (typeof lastEventId !== 'number' || unset.includes('lastEventId')) {
+        throw new SyncWriteRefused({ kind: 'invalid', details: ['lastEventId'] })
+      }
+      const seenAt = typeof patch.seenAt === 'string' ? patch.seenAt : null
+      await deps
+        .readPositions()
+        .advance(ctx.ledger, userId, streamId, { lastEventId, seenAt }, now())
       return { ok: true }
     },
   })

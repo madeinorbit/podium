@@ -81,12 +81,7 @@ import {
 import { modelFamilyProcedures } from './modules/models/trpc'
 import { operationProcedures } from './modules/operations/trpc'
 import { perfFamilyProcedures } from './modules/perf/trpc'
-import { readPositionFamilyProcedures } from './modules/read-position/trpc'
-import {
-  SESSION_QUERIES,
-  SNOOZE_QUERIES,
-  SYNC_QUERIES,
-} from './modules/sessions/queries'
+import { SESSION_QUERIES, SNOOZE_QUERIES, SYNC_QUERIES } from './modules/sessions/queries'
 import { settingsAuthzDeps, settingsCommandsPermitted } from './modules/settings/authz'
 import { settingsFamilyProcedures } from './modules/settings/trpc'
 import { shellFamilyProcedures } from './modules/shells/trpc'
@@ -329,9 +324,6 @@ export const appRouter = t.router({
   // layout: sidebar/tab chrome that follows a person across devices (not device-local
   // route/selection/pane geometry — those stay in client ui-state, POD-403).
   layout: t.router(layoutFamilyProcedures()),
-  // readPosition: how far the CALLER has read an event stream (POD-1380). Monotonic;
-  // the input names a feed and a position, never a user.
-  readPosition: t.router(readPositionFamilyProcedures()),
   // shells: server-owned dock-shell mapping (POD-4436) — per user, per worktree
   // → shell session, so the same dock shell opens on every device. Tab shells
   // stay unmapped by design (SP-75b1) and go through sessions.create directly.

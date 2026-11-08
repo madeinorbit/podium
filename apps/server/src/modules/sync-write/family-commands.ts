@@ -19,7 +19,6 @@ import {
   MAIL_SYNC_FAMILY,
   registerMailAwaitObserved,
 } from '../messages/sync-write'
-import { READ_POSITION_SYNC_FAMILY } from '../read-position/sync-write'
 import { OFFER_SYNC_COMMANDS, registerOfferCommands } from '../sessions/offer-sync-write'
 import { registerSessionFamilyCommands } from '../sessions/sync-write'
 import { registerSessionTitle, SESSION_TITLE_COMMAND } from '../sessions/title-sync-write'
@@ -44,7 +43,6 @@ export const FAMILY_COMMAND_NAMES = [
   'automations.setEnabled',
   'automations.remove',
   'conversations.setMeta',
-  'readPosition.advance',
   'settings.updateInstance',
   // The session command plane's immediate writes (POD-6416).
   'sessions.setIssueId',
@@ -94,7 +92,6 @@ export function registerFamilyCommands(registry: SyncWriteRegistry, deps: Family
   registerSyncFamily(registry, AUTOMATION_SYNC_FAMILY, deps)
   registerSyncFamily(registry, WORKFLOW_SYNC_FAMILY, deps)
   registerSyncFamily(registry, CONVERSATION_SYNC_FAMILY, deps)
-  registerSyncFamily(registry, READ_POSITION_SYNC_FAMILY, deps)
   registerSyncFamily(registry, SUPERAGENT_SYNC_FAMILY, deps)
   registerSyncFamily(registry, MAIL_SYNC_FAMILY, deps)
   registerMailAwaitObserved(registry, deps)

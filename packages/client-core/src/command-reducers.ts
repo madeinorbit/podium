@@ -25,6 +25,7 @@
 
 import type {
   PinWire,
+  ReadPositionWire,
   SessionMeta,
   SessionUserStateWire,
   TabOrderWire,
@@ -61,11 +62,12 @@ export type OverlayTarget =
   | PerUserRecordTarget
 
 /** The per-user record kinds that are pool rows of their own (POD-6673). */
-export type PerUserRecordTarget = 'pins' | 'tabOrders' | 'userPreferences'
+export type PerUserRecordTarget = 'pins' | 'tabOrders' | 'userPreferences' | 'userReadPositions'
 export const PER_USER_RECORD_TARGETS: readonly PerUserRecordTarget[] = [
   'pins',
   'tabOrders',
   'userPreferences',
+  'userReadPositions',
 ]
 
 /** Fields folded over a base row. Loose on purpose — the projection functions
@@ -109,6 +111,7 @@ export type PendingOverlay =
         | PinWire
         | TabOrderWire
         | UserPreferencesWire
+        | ReadPositionWire
     }
   | {
       /**

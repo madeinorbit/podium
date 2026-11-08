@@ -36,6 +36,7 @@ import type {
   TAB_ORDER_RECORD,
   USER_LAYOUT_RECORD,
   USER_PREFERENCES_RECORD,
+  USER_READ_POSITION_RECORD,
 } from '@podium/commands/records'
 import {
   type DeviceIdPrefix,
@@ -115,6 +116,8 @@ interface RecordKindTable {
   readonly pin: typeof PIN_RECORD
   readonly tabOrder: typeof TAB_ORDER_RECORD
   readonly userPreferences: typeof USER_PREFERENCES_RECORD
+  // How far I have read one event stream: a queued edit, merged to the max.
+  readonly userReadPosition: typeof USER_READ_POSITION_RECORD
 }
 
 let kinds: RecordKindTable | undefined
@@ -136,6 +139,7 @@ export function recordKinds(): RecordKindTable {
     pin: d.PIN_RECORD,
     tabOrder: d.TAB_ORDER_RECORD,
     userPreferences: d.USER_PREFERENCES_RECORD,
+    userReadPosition: d.USER_READ_POSITION_RECORD,
   } satisfies Record<string, SyncedKindDeclaration>
   return kinds
 }
@@ -267,6 +271,7 @@ export const RECORD_HOMES: {
       | 'pins'
       | 'tabOrders'
       | 'userPreferences'
+      | 'userReadPositions'
     readonly row: (id: string) => string
   } | null
 } = {
@@ -285,6 +290,7 @@ export const RECORD_HOMES: {
   pin: { target: 'pins', row: (id) => id },
   tabOrder: { target: 'tabOrders', row: (id) => id },
   userPreferences: { target: 'userPreferences', row: (id) => id },
+  userReadPosition: { target: 'userReadPositions', row: (id) => id },
 }
 
 /** A new id's prefix per kind that offers create. `records.test.ts` mints one

@@ -28,7 +28,13 @@ import type {
 } from '@podium/client-core/engine'
 import type { OutboxDeadLetterEntry, OutboxEntry } from '@podium/client-core/outbox'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
-import { asMutationId, type MutationId, parseTabOrderRowId, type SessionId } from '@podium/model'
+import {
+  asMutationId,
+  type MutationId,
+  parseReadPositionRowId,
+  parseTabOrderRowId,
+  type SessionId,
+} from '@podium/model'
 import { compareStructural, type ObservableMap, observable, reaction, runInAction } from 'mobx'
 import { debugName } from '../debug-name'
 import type { PendingRows, PooledPending, RowSourceRepaint } from '../shared/row-source'
@@ -46,6 +52,7 @@ const PER_USER_POOL_KIND = {
   pins: 'pin',
   tabOrders: 'tabOrder',
   userPreferences: 'userPreferences',
+  userReadPositions: 'userReadPosition',
 } as const satisfies Record<PerUserRecordTarget, string>
 export type PerUserPoolKind = (typeof PER_USER_POOL_KIND)[PerUserRecordTarget]
 const isPerUserTarget = (entity: string): entity is PerUserRecordTarget =>
@@ -68,6 +75,7 @@ const TARGETS: readonly OverlayTarget[] = [
   'pins',
   'tabOrders',
   'userPreferences',
+  'userReadPositions',
 ]
 
 /** One transaction: an outbox record, or a change painted ahead of it. */
@@ -197,6 +205,7 @@ function poolRowOfAddress(kind: string, id: string): string | undefined {
     case 'pins':
     case 'tabOrders':
     case 'userPreferences':
+    case 'userReadPositions':
       return `${PER_USER_POOL_KIND[kind]}:${id}`
     default:
       return undefined
@@ -227,6 +236,7 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
     pins: new Map(),
     tabOrders: new Map(),
     userPreferences: new Map(),
+    userReadPositions: new Map(),
   }
   /** Applied, awaiting confirmation: a mirror of `outbox.awaiting()`, in its order. */
   let awaiting: Awaiting[] = []
@@ -358,6 +368,15 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
       }
     }
     if (entity === 'userPreferences' && ports.userId !== undefined) return { userId: ports.userId }
+    // A stream I have never read: the edit paints my first position over it.
+    if (entity === 'userReadPositions' && ports.userId !== undefined) {
+      try {
+        const { streamId } = parseReadPositionRowId(id)
+        return { userId: ports.userId, streamId, lastEventId: 0, seenAt: null }
+      } catch {
+        return undefined
+      }
+    }
     return undefined
   }
 

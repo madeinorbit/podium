@@ -28,9 +28,12 @@ import {
   PinWire,
   parseLayoutRowId,
   parsePinRowId,
+  parseReadPositionRowId,
   parseTabOrderRowId,
   parseUserEntityKey,
   parseUserPreferencesRowId,
+  ReadPositionWire,
+  ReadStreamIdField,
   ROW,
   SessionDesired,
   SessionIdField,
@@ -440,7 +443,7 @@ export const SESSION_RECORD = defineSyncedKind({
 })
 
 // ---------------------------------------------------------------------------
-// per-user records: pin, tabOrder, userPreferences (POD-6673, ADR 12 D1)
+// per-user records: pin, tabOrder, userPreferences, userReadPosition (POD-6673, ADR 12 D1)
 // ---------------------------------------------------------------------------
 
 /** A feed id a parser accepts, as a ref schema. */
@@ -602,6 +605,46 @@ export const USER_PREFERENCES_RECORD = defineSyncedKind({
   errorConsistency: OWN_ROW_ERRORS,
 })
 
+/**
+ * ONE PERSON'S POSITION IN ONE EVENT STREAM (design 1.4; the write became a
+ * queued generic edit, POD-6673). The row id names the user and the stream. An
+ * edit proposes a position; the server stores max(stored, proposed)
+ * (advanceReadPosition), so a stale proposal from a device that wrote before
+ * its replica caught up is a no-op and never moves the cursor back. The
+ * matrix row is per-user state, single-writer: the user is in the key, and the
+ * max is how that one writer's devices agree.
+ */
+export const USER_READ_POSITION_RECORD = defineSyncedKind({
+  kind: 'userReadPosition',
+  title: 'read position',
+  wire: ReadPositionWire,
+  ref: rowRef(parseReadPositionRowId, 'a read position row id'),
+  conflict: 'single-writer',
+  fields: {
+    userId: key(UserIdField, ROW.feedReadCursor),
+    streamId: key(ReadStreamIdField, ROW.feedReadCursor),
+    lastEventId: spec(z.number().int().nonnegative(), ROW.feedReadCursor),
+    seenAt: spec(z.string().nullable(), ROW.feedReadCursor),
+  },
+  ops: {
+    edit: {
+      policy: OWN_ROW_WRITE,
+      note: 'Move my read position in one stream forward; a position behind it changes nothing.',
+    },
+  },
+  visibility: PER_USER_VISIBILITY,
+  exposure: SUBMIT_ONLY,
+  delivery: QUEUED,
+  redaction: {
+    reviewed: true,
+    inputPaths: [],
+    outputPaths: [],
+    note: 'A stream name from a closed vocabulary, an event log id and a timestamp; nothing secret.',
+  },
+  attribution: ISSUE_ATTRIBUTION,
+  errorConsistency: OWN_ROW_ERRORS,
+})
+
 /** Every kind that takes generic edits. */
 export const SYNCED_KINDS: readonly SyncedKindDeclaration[] = [
   ISSUE_RECORD,
@@ -612,6 +655,7 @@ export const SYNCED_KINDS: readonly SyncedKindDeclaration[] = [
   PIN_RECORD,
   TAB_ORDER_RECORD,
   USER_PREFERENCES_RECORD,
+  USER_READ_POSITION_RECORD,
 ]
 
 /**
@@ -641,7 +685,6 @@ export const NOT_YET_GENERIC: Readonly<
       'All status: written by the scheduler, never client-written; read as an effect through `automationRunEffect` (POD-6418).',
     by: 'never (status)',
   },
-  userReadPosition: { reason: 'Read positions convert with their family.', by: 'POD-6359' },
   issueEvent: { reason: 'An append-only history; never edited.', by: 'never (append)' },
   pendingInteraction: { reason: 'Answers are one-off effects.', by: 'POD-6359' },
   message: { reason: 'Chat delivery is an effect on its own record.', by: 'POD-6357' },

@@ -23,7 +23,7 @@ export interface RecordCommandDeps {
   /** The composed modules, read per call (composed after the entry point). */
   modules(): RegistryModules
   /** The store, read per call: pins and tab orders are its rows (POD-6673). */
-  store(): Pick<SessionStore, 'sessions'>
+  store(): Pick<SessionStore, 'sessions' | 'users'>
 }
 
 export function registerRecordCommands(registry: SyncWriteRegistry, deps: RecordCommandDeps): void {
@@ -34,10 +34,15 @@ export function registerRecordCommands(registry: SyncWriteRegistry, deps: Record
   registerUserRecords(registry, {
     sessions: () => deps.store().sessions,
     settings: () => deps.modules().settings,
+    readPositions: () => deps.modules().readPosition,
+    roleOf: async (user) => await deps.store().users.roleOf(user),
     canReadSession: async (principal: CommandPrincipal, sessionId: string) =>
       principal.kind !== 'system' &&
       (await deps
         .modules()
-        .sessions.state.canReadSession(sessionStatePrincipalFor(principal), asSessionId(sessionId))),
+        .sessions.state.canReadSession(
+          sessionStatePrincipalFor(principal),
+          asSessionId(sessionId),
+        )),
   })
 }

@@ -426,7 +426,8 @@ export const LEGACY_OUTBOX_LS_KEY = 'podium.outbox.v1'
  * against POD-1380; POD-1380 gave it a home, and it is NOT this module's.
  *
  * It is per-user state (`docs/multi-user-readiness.md` §3.3 — read state follows
- * the person), stored in `user_read_position` and written by `readPosition.advance`.
+ * the person), stored in `user_read_position` and written by the generic edit
+ * `records.userReadPosition.edit` (POD-6673).
  * It stays in this table because the table is a TOTALITY over every key this
  * module has ever persisted: deleting the row would make a key that once lived
  * here indistinguishable from one that never did.
@@ -437,8 +438,8 @@ export const KNOWN_NON_UI_ROUTES = {
   [READ_POSITION_UI_KEY]: {
     home: 'per-user-command' as const,
     reason:
-      'The issue-event read position is per-user state with its own family and command ' +
-      '(readPosition.advance, POD-1380). Monotonic, so it cannot ride the last-writer-wins layout ' +
+      'The issue-event read position is per-user state, its own synced record ' +
+      '(userReadPosition, POD-1380/POD-6673). Monotonic, so it cannot ride the last-writer-wins layout ' +
       'port; not device-local, because read state follows the person (readiness §3.3).',
   },
   /** sessionStorage-only PWA wire-version reload guard; deliberately pre-store. */

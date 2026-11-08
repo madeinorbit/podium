@@ -2,7 +2,7 @@
  * The per-user record writes cost a constant number of statements (POD-6673,
  * rule 8 of docs/agents/server-data.md).
  *
- * A pin, a tab order and a preference edit each run on `sync.submit` against a
+ * A pin, a tab order, a preference edit and a read position each run on `sync.submit` against a
  * store that holds `size` other people's pins, orders and preference leaves, and
  * `size` of the caller's own: the write reads and writes its one row, and its
  * change entry is the record it changed, never a scan of the table.
@@ -12,9 +12,11 @@ import {
   asUserId,
   firstAdminMemberId,
   pinRowId,
+  readPositionRowId,
   tabOrderRowId,
   userPreferencesRowId,
 } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   expectArmed,
@@ -45,6 +47,13 @@ async function fixture(size: number): Promise<Fixture> {
     await o.store.sessions.setTabOrder(other, `/w/${i}`, ['s1'])
     await o.store.sessions.setTabOrder(ME, `/mine/${i}`, ['s1'])
     await o.store.settings.applyPreferencePatch(other, { 'sidebar.repoSort': 'custom' }, AT)
+    await o.store.readPositions.advance(
+      fixtureWriteScope(),
+      other,
+      'issueEvents',
+      { lastEventId: i + 1, seenAt: null },
+      AT,
+    )
   }
   return { o, session: sessionId }
 }
@@ -85,6 +94,15 @@ const preferencesEdit = write('records.userPreferences.edit', (_f, n) =>
   ),
 )
 
+// Each proposal is ahead of the last, so every run moves the cursor and writes.
+const readPositionEdit = write('records.userReadPosition.edit', (_f, n) =>
+  envelope(
+    'records.userReadPosition.edit',
+    { id: readPositionRowId(ME, 'issueEvents'), patch: { lastEventId: n, seenAt: AT } },
+    `read-${n}`,
+  ),
+)
+
 describe('statement counts of the per-user record writes', () => {
   it('a pin does not grow with the pins the table holds', async () => {
     await expectConstantStatements(pinCreate, 9)
@@ -96,6 +114,10 @@ describe('statement counts of the per-user record writes', () => {
 
   it('a preference edit does not grow with the preferences the table holds', async () => {
     await expectConstantStatements(preferencesEdit, 14)
+  })
+
+  it('a read position edit does not grow with the positions the table holds', async () => {
+    await expectConstantStatements(readPositionEdit, 9)
   })
 
   it('is armed: a read per stored pin on the pin path fails it', async () => {

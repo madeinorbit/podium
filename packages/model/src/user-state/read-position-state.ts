@@ -47,9 +47,9 @@
  * member today, so a free-form string cannot mint rows, and a future per-repo or
  * per-issue stream has a key shape waiting rather than a second table.
  *
- * The user half is never taken from a payload. ADR 3 D7: the writer is the
- * authenticated transport principal, and `readPosition.advance`'s input carries no
- * user field at all — there is nothing for a client to assert.
+ * The user half is never trusted from a payload. ADR 3 D7: the writer is the
+ * authenticated transport principal, and `records.userReadPosition.edit` refuses
+ * a row id that names anybody else (POD-6673).
  */
 
 import { z } from 'zod'
@@ -138,7 +138,10 @@ export type ReadPositionWire = z.infer<typeof ReadPositionWire>
  * every stream they have read, as a plain map. Absent key = never read.
  */
 export const ReadPositionSnapshot = z
-  .record(z.string(), z.object({ lastEventId: z.number().int().nonnegative(), seenAt: z.string().nullable() }))
+  .record(
+    z.string(),
+    z.object({ lastEventId: z.number().int().nonnegative(), seenAt: z.string().nullable() }),
+  )
   .superRefine((snap, ctx) => {
     for (const id of Object.keys(snap)) {
       if (!isReadStreamId(id)) {

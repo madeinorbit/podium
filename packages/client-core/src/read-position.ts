@@ -3,9 +3,11 @@
  *
  * The feature (the superagent chat's "you were here" divider and its unread dot)
  * used to read and write `podium:superfeed:cursor` in the device's ui-state
- * collection. It now reads and writes ONE PERSON'S row through
- * `readPosition.get` / `readPosition.advance`, so the position follows them to
- * another machine — `docs/multi-user-readiness.md` §3.3.
+ * collection. It now reads and writes ONE PERSON'S synced `userReadPosition`
+ * record, so the position follows them to another machine —
+ * `docs/multi-user-readiness.md` §3.3. The replica holds the rows; an advance is
+ * a queued generic edit (`records.userReadPosition.edit`, POD-6673), so one
+ * made offline is kept and sent on reconnect like every other write of mine.
  *
  * ---------------------------------------------------------------------------
  * WHY THIS IS NOT PART OF THE REPLICATED UI-STATE PORT
@@ -34,8 +36,6 @@
  */
 
 import { isReadStreamId, type ReadPositionSnapshot, type ReadStreamId } from '@podium/model'
-import { submitNow } from '@podium/protocol'
-import type { PodiumClientApi } from './api'
 import type { UiState } from './replica/contract'
 import { READ_POSITION_UI_KEY } from './ui-state'
 
@@ -83,13 +83,18 @@ export function readLegacyCursorBlob(raw: string | null): ReadPositionValue | nu
 }
 
 export function createReadPositionClient(init: {
-  api: PodiumClientApi
+  /**
+   * Queue one proposal: the generic edit of my `userReadPosition` record. It
+   * resolves once the write is durable in the outbox, and rejects only when it
+   * could not be queued.
+   */
+  write: (streamId: ReadStreamId, value: ReadPositionValue) => Promise<void>
   /** Device-local collection — read ONCE per stream, to drain the legacy key. */
   local: Pick<UiState, 'get' | 'set'>
   /** Reported rather than thrown: a cursor is never worth breaking a render for. */
   onError?: (message: string) => void
 }): ReadPositionPort {
-  const { api, local, onError } = init
+  const { write, local, onError } = init
   let snapshot: Record<string, ReadPositionValue> = {}
   const listeners = new Set<() => void>()
 
@@ -121,24 +126,16 @@ export function createReadPositionClient(init: {
     emit()
   }
 
-  const send = (streamId: string, value: ReadPositionValue): void => {
-    const input = { streamId, lastEventId: value.lastEventId, seenAt: value.seenAt }
-    // On the sync write entry point (POD-6412). LEGACY(remove-after: 2027-03): an
-    // older server has no `sync.submit` and takes the command's own route.
-    void submitNow<ReadPositionSnapshot>(api, 'readPosition.advance', input, {
-      action: 'save your read position',
-      legacy: async () => await api.readPosition.advance.mutate(input),
+  const send = (streamId: ReadStreamId, value: ReadPositionValue): void => {
+    // Queued, so offline is no failure: the outbox sends it on reconnect and
+    // the server keeps max(stored, proposed). The replica's row confirms it.
+    void write(streamId, value).catch((error: unknown) => {
+      onError?.(
+        `Couldn't save your read position — ${
+          error instanceof Error ? error.message : 'it could not be queued'
+        }`,
+      )
     })
-      .then(install)
-      .catch((error: unknown) => {
-        // The next visible tick re-proposes the same position, so a failed
-        // advance costs a round trip and not a read position.
-        onError?.(
-          `Couldn't save your read position — ${
-            error instanceof Error ? error.message : 'the server is unreachable'
-          }`,
-        )
-      })
   }
 
   return {

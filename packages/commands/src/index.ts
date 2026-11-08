@@ -37,10 +37,10 @@ export {
   accountsLoginInput,
   accountsSendContract,
   accountsSendInput,
-  accountsUseOnMyMachinesContract,
-  accountsUseOnMyMachinesInput,
   accountsShareContract,
   accountsShareInput,
+  accountsUseOnMyMachinesContract,
+  accountsUseOnMyMachinesInput,
 } from './accounts/contracts'
 export {
   AGENT_PROFILE_CONTRACT_NAMES,
@@ -433,14 +433,6 @@ export {
   perfResetInput,
 } from './perf/contracts'
 export {
-  READ_POSITION_CONTRACT_NAMES,
-  READ_POSITION_CONTRACTS,
-  type ReadPositionAdvanceInput,
-  type ReadPositionContractName,
-  readPositionAdvanceContract,
-  readPositionAdvanceInput,
-} from './read-position/contracts'
-export {
   RECORD_CONTRACTS,
   recordContracts,
   recordContractTable,
@@ -488,14 +480,15 @@ export {
 export {
   ISSUE_RECORD,
   ISSUE_USER_STATE_RECORD,
-  PIN_RECORD,
   NOT_YET_GENERIC,
+  PIN_RECORD,
   SESSION_RECORD,
   SESSION_USER_STATE_RECORD,
   SYNCED_KINDS,
   TAB_ORDER_RECORD,
   USER_LAYOUT_RECORD,
   USER_PREFERENCES_RECORD,
+  USER_READ_POSITION_RECORD,
 } from './records/kinds'
 export {
   applyRedaction,

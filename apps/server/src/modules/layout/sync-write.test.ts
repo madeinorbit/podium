@@ -6,7 +6,7 @@
  * `layout.set` nor `layout.clear` deduplicated a retry.
  */
 
-import { firstAdminMemberId, layoutRowId } from '@podium/model'
+import { firstAdminMemberId, layoutRowId, readPositionRowId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../store'
 import { disposeOracles, makeOracle } from '../sessions/oracle-support'
@@ -84,6 +84,9 @@ describe('layout on sync.submit', () => {
 })
 
 describe('layout and read marks are written only inside their commit (ADR 12 D9)', () => {
+  // A read mark is a generic edit of my `userReadPosition` record (POD-6673).
+  const readMark = readPositionRowId(ME, 'issueEvents')
+
   it('a store writer without the commit scope does not typecheck', () => {
     const typeOnly = async (store: SessionStore) => {
       // @ts-expect-error a layout row is written with its commit's scope
@@ -100,7 +103,11 @@ describe('layout and read marks are written only inside their commit (ADR 12 D9)
     const o = await makeOracle()
     const { rows } = await expectAppliedOnPath(
       o,
-      envelope('readPosition.advance', { streamId: 'issueEvents', lastEventId: 1 }, 'm-read'),
+      envelope(
+        'records.userReadPosition.edit',
+        { id: readMark, patch: { lastEventId: 1, seenAt: null } },
+        'm-read',
+      ),
       { writes: true },
     )
     expect(rows.map((row) => [row.entity, row.mutationId])).toEqual([
@@ -111,11 +118,25 @@ describe('layout and read marks are written only inside their commit (ADR 12 D9)
   it('a read mark at or behind the stored one appends nothing', async () => {
     const o = await makeOracle()
     appliedReply(
-      await submit(o, envelope('readPosition.advance', { streamId: 'issueEvents', lastEventId: 2 }, 'm-r1')),
+      await submit(
+        o,
+        envelope(
+          'records.userReadPosition.edit',
+          { id: readMark, patch: { lastEventId: 2, seenAt: null } },
+          'm-r1',
+        ),
+      ),
     )
     const before = (await changeRows(o)).length
     appliedReply(
-      await submit(o, envelope('readPosition.advance', { streamId: 'issueEvents', lastEventId: 1 }, 'm-r2')),
+      await submit(
+        o,
+        envelope(
+          'records.userReadPosition.edit',
+          { id: readMark, patch: { lastEventId: 1, seenAt: null } },
+          'm-r2',
+        ),
+      ),
     )
     expect((await changeRows(o)).length).toBe(before)
   })

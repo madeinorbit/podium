@@ -60,7 +60,7 @@ import type {
   ReadPositionWire,
   SessionId,
 } from '@podium/model'
-import { resolveUserPreferences, userPreferencesRowId } from '@podium/model'
+import { readPositionRowId, resolveUserPreferences, userPreferencesRowId } from '@podium/model'
 import { isShortSessionIdentifier, type SessionIdentifierResolution } from '@podium/protocol'
 import type { OutboxRejectionReason } from '@podium/sync/outbox'
 import { runInAction } from 'mobx'
@@ -74,6 +74,7 @@ import { bindSwitchTraceUi } from '../perf/switch-trace'
 import { hasDomWindow } from '../platform-globals'
 import { type ClientPrincipal, memberFencedSocketUrl } from '../principal'
 import { createReadPositionClient, type ReadPositionPort } from '../read-position'
+import { createRecordsApi } from '../records'
 import type { Replica } from '../replica/kernel/facade'
 import type { FeedSinkPort, SocketHub } from '../socket-transport'
 import { createNotificationSounds, type SessionPhaseChange } from '../sound/notification-sounds'
@@ -475,8 +476,19 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // shell mounts, which is the whole of POD-571.
     const actions = this.createActions()
     this.replicatedLayout = actions.replicatedLayout
+    // An advance is a queued edit of my `userReadPosition` record (POD-6673):
+    // painted at once, kept offline, retired by its receipt.
+    const readPositionRecords = createRecordsApi((kind, input) =>
+      this.poolWriter !== null
+        ? this.poolWriter.write(kind, input)
+        : Promise.reject(new Error('Pool transactions are not attached')),
+    )
     this.readPosition = createReadPositionClient({
-      api: this.api,
+      write: async (streamId, value) =>
+        await readPositionRecords.edit(
+          { kind: 'userReadPosition', id: readPositionRowId(this.principal.userId, streamId) },
+          { lastEventId: value.lastEventId, seenAt: value.seenAt },
+        ),
       local: localUi,
       onError: (message) => this.notices.error(message),
     })
@@ -633,7 +645,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // position moved on my other device arrives here, and a reload paints the
     // stored one before the network answers. No request reads them.
     const installReadPositions = (): void =>
-      this.readPosition.replace(readPositionSnapshotFromRows(this.replica.rows('userReadPositions'), this.principal.userId))
+      this.readPosition.replace(
+        readPositionSnapshotFromRows(this.replica.rows('userReadPositions'), this.principal.userId),
+      )
     installReadPositions()
     offs.push(this.replica.subscribeRows('userReadPositions', installReadPositions))
 
@@ -1666,7 +1680,8 @@ function readPositionSnapshotFromRows(
 ): ReadPositionSnapshot {
   const out: Record<string, { lastEventId: number; seenAt: string | null }> = {}
   for (const row of rows) {
-    if (row.userId === userId) out[row.streamId] = { lastEventId: row.lastEventId, seenAt: row.seenAt }
+    if (row.userId === userId)
+      out[row.streamId] = { lastEventId: row.lastEventId, seenAt: row.seenAt }
   }
   return out as ReadPositionSnapshot
 }

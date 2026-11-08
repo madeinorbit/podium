@@ -1838,7 +1838,7 @@ const REPO_ROWS: readonly MatrixRow[] = [
       'packages/model/src/user-state/read-position-state.ts — closed stream vocabulary + the monotonic rule',
     ],
     conflictNote:
-      "How far a person has read an ordered log, so it is theirs by definition (readiness §3.3). NOT the `readAt` rows above: those are per-ENTITY timestamps and merge last-writer-wins, while a cursor is a POSITION and merges MONOTONICALLY — `max(stored, proposed)`, executed by advanceReadPosition and declared as `readPosition.advance`'s `cmd` conflict rule. Under LWW a device writing before its hydration lands would move the marker backward and re-mark read events unread.",
+      'How far a person has read an ordered log, so it is theirs by definition (readiness §3.3). NOT the `readAt` rows above: those are per-ENTITY timestamps and merge last-writer-wins, while a cursor is a POSITION and merges MONOTONICALLY — `max(stored, proposed)`, executed by advanceReadPosition inside the `records.userReadPosition.edit` generic edit (POD-6673), so a stale proposal is a no-op. Under LWW a device writing before its hydration lands would move the marker backward and re-mark read events unread.',
     tombstoneNote: 'Cascades on user deletion. No entity lifecycle owns these rows.',
   }),
   perUserState({

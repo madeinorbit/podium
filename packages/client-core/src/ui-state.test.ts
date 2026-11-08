@@ -130,7 +130,7 @@ describe('workspace ui-state routing', () => {
     }
     expect(() => uiStateRoute('podium.unclassified')).toThrow(/Unclassified UI-state key/)
     // POD-1380 gave the last unrouted key a home, and it is not this module's:
-    // per-user state with its own family and command (`readPosition.advance`).
+    // per-user state, its own synced record (`userReadPosition`).
     expect(uiStateRoute('podium:superfeed:cursor').home).toBe('per-user-command')
   })
 

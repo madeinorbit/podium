@@ -12,12 +12,14 @@ import {
   asUserId,
   firstAdminMemberId,
   pinRowId,
+  readPositionRowId,
   tabOrderRowId,
   userPreferencesRowId,
 } from '@podium/model'
 import { asCapabilityRef, asDeviceId, type Principal } from '@podium/protocol'
 import { Authority, GrantEdgeVisibilityPolicy, NoDelegationsGranted } from '@podium/sync'
 import { afterEach, describe, expect, it } from 'vitest'
+import { userCommandPrincipal } from '../../command-principal'
 import { makeFeedVisibility } from '../../feed-visibility'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -314,10 +316,91 @@ async function feedFixture() {
 }
 
 const ALICE = asUserId('user:alice-6673')
-const KINDS = new Set(['pin', 'tabOrder', 'userPreferences'])
+const KINDS = new Set(['pin', 'tabOrder', 'userPreferences', 'userReadPosition'])
+
+describe('records.userReadPosition', () => {
+  const id = readPositionRowId(ME, 'issueEvents')
+  const edit = (lastEventId: number, mutationId: string) =>
+    envelope(
+      'records.userReadPosition.edit',
+      { id, patch: { lastEventId, seenAt: '2026-11-08T00:00:00.000Z' } },
+      mutationId,
+    )
+
+  it('an edit moves my position forward with its change row; one behind it changes nothing', async () => {
+    const o = await makeOracle()
+    const { rows } = await expectAppliedOnPath(o, edit(7, 'rp-7'), { writes: true })
+    expect(rows.map((r) => [r.entity, r.entityId])).toEqual([['userReadPosition', id]])
+    expect((await o.store.readPositions.getSnapshot(ME)).issueEvents?.lastEventId).toBe(7)
+
+    // A device that wrote before its replica caught up proposes an older
+    // position: it applies (the queue retires it) and moves nothing.
+    const stale = await submit(o, edit(3, 'rp-3'))
+    expect(stale.outcome).toBe('applied')
+    expect(await rowsOf(o, 'rp-3')).toEqual([])
+    expect((await o.store.readPositions.getSnapshot(ME)).issueEvents?.lastEventId).toBe(7)
+
+    const replay = await submit(o, edit(7, 'rp-7'))
+    expect(replay.outcome === 'applied' && replay.replayed).toBe(true)
+  })
+
+  it('refuses somebody else’s position, an unknown stream, and an edit with no event id', async () => {
+    const o = await makeOracle()
+    const theirs = await submit(
+      o,
+      envelope(
+        'records.userReadPosition.edit',
+        {
+          id: readPositionRowId(SOMEONE_ELSE, 'issueEvents'),
+          patch: { lastEventId: 1, seenAt: null },
+        },
+        'rp-theirs',
+      ),
+    )
+    expect(refusalOf(theirs)?.kind).toBe('unauthorized')
+    const unknown = await submit(
+      o,
+      envelope(
+        'records.userReadPosition.edit',
+        { id: readPositionRowId(ME, 'notAStream'), patch: { lastEventId: 1, seenAt: null } },
+        'rp-unknown',
+      ),
+    )
+    expect(refusalOf(unknown)).toBeDefined()
+    const empty = await submit(
+      o,
+      envelope('records.userReadPosition.edit', { id, patch: { seenAt: null } }, 'rp-empty'),
+    )
+    expect(refusalOf(empty)?.kind).toBe('invalid')
+  })
+
+  it('a disabled account is refused by its live role, whatever its capability says', async () => {
+    const o = await makeOracle()
+    const user = asUserId('usr_disabled_6673')
+    await o.store.users.createUnclaimed({
+      id: user,
+      displayName: 'Member',
+      email: null,
+      role: 'member',
+      createdAt: new Date().toISOString(),
+      disabledAt: null,
+    })
+    await o.store.users.disable(user, new Date().toISOString())
+    const reply = await o.reg.modules.syncWrite.submit(
+      envelope(
+        'records.userReadPosition.edit',
+        { id: readPositionRowId(user, 'issueEvents'), patch: { lastEventId: 1, seenAt: null } },
+        'rp-disabled',
+      ),
+      userCommandPrincipal(user, 'member'),
+      'trpc',
+    )
+    expect(reply).toEqual({ outcome: 'rejected', refusal: { kind: 'unauthorized' } })
+  })
+})
 
 describe('the per-user records reach their owner only', () => {
-  it('my pin, order and settings are on my bootstrap and my deltas, never on another member’s', async () => {
+  it('my pin, order, settings and read position are on my bootstrap and my deltas, never on another member’s', async () => {
     const o = await makeOracle()
     const authority = o.reg.changeLedger.authority
     const before = await authority.cursor()
@@ -338,6 +421,11 @@ describe('the per-user records reach their owner only', () => {
         { id: userPreferencesRowId(ME), patch: { 'sidebar.repoSort': 'custom' } },
         'v-pref',
       ),
+      envelope(
+        'records.userReadPosition.edit',
+        { id: readPositionRowId(ME, 'issueEvents'), patch: { lastEventId: 3, seenAt: null } },
+        'v-read',
+      ),
     ]) {
       expect((await submit(o, env)).outcome).toBe('applied')
     }
@@ -349,7 +437,12 @@ describe('the per-user records reach their owner only', () => {
 
     // Positive control first: without it, the other member's empty list proves nothing.
     expect(await mine(ME)).toEqual(
-      [pinRowId(ME, 'repo', '/r'), tabOrderRowId(ME, '/w'), userPreferencesRowId(ME)].sort(),
+      [
+        pinRowId(ME, 'repo', '/r'),
+        tabOrderRowId(ME, '/w'),
+        userPreferencesRowId(ME),
+        readPositionRowId(ME, 'issueEvents'),
+      ].sort(),
     )
     expect(await mine(SOMEONE_ELSE)).toEqual([])
 
@@ -362,7 +455,12 @@ describe('the per-user records reach their owner only', () => {
         ? new Set(myDelta.changes.filter((c) => KINDS.has(c.entity)).map((c) => c.entityId))
         : new Set<string>()
     expect([...deltaIds].sort()).toEqual(
-      [pinRowId(ME, 'repo', '/r'), tabOrderRowId(ME, '/w'), userPreferencesRowId(ME)].sort(),
+      [
+        pinRowId(ME, 'repo', '/r'),
+        tabOrderRowId(ME, '/w'),
+        userPreferencesRowId(ME),
+        readPositionRowId(ME, 'issueEvents'),
+      ].sort(),
     )
     expect(
       theirDelta?.kind === 'batch' && theirDelta.changes.filter((c) => KINDS.has(c.entity)),
