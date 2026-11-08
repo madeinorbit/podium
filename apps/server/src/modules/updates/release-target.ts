@@ -32,6 +32,7 @@ import {
   type ReleaseOrigin,
   releaseArtifactBase,
   releaseChannelPath,
+  releaseRedirectAllowed,
   releaseUrl,
   resolveReleaseArtifact,
   urlBelongsToReleaseDirectory,
@@ -492,7 +493,11 @@ async function assertArtifactsFetchable(
                 `${channel} feed (${next.href})`,
             )
           }
-          if (!allowedHosts.includes(next.hostname)) {
+          if (
+            feed.releaseOrigin
+              ? !releaseRedirectAllowed(next, feed.releaseOrigin)
+              : !allowedHosts.includes(next.hostname)
+          ) {
             throw new Error(
               `${channel} target unavailable: ${place} artifact redirected outside the ` +
                 `${channel} feed (${next.href})`,
@@ -573,6 +578,13 @@ export async function resolveReleaseTarget(
   const deliveries = [headless, ...(target.artifacts.headlessAlternatives ?? [])]
 
   const namedArtifacts: Array<{ place: string; url: string }> = []
+  // Embedded desktop references are not probed here, but they still cannot escape the
+  // publication that supplied them. Reachability remains the shell's responsibility.
+  if (feed.releaseOrigin && target.artifacts.desktop) {
+    for (const artifact of Object.values(target.artifacts.desktop.platforms)) {
+      artifact.url = resolveReleaseArtifact(artifact.url, feed.releaseOrigin)
+    }
+  }
   for (const delivery of deliveries) {
     for (const [platform, artifact] of Object.entries(delivery.platforms)) {
       if (feed.releaseOrigin) {
@@ -623,6 +635,12 @@ export async function resolveReleaseTarget(
       channel,
       await fetchFeedJson(channel, feed, 'desktop', feed.desktopManifestUrl, fetchImpl),
     )
+    if (feed.releaseOrigin) {
+      for (const artifact of Object.values(desktop.platforms)) {
+        artifact.url = resolveReleaseArtifact(artifact.url, feed.releaseOrigin)
+      }
+      for (const url of desktop.downloads ?? []) resolveReleaseArtifact(url, feed.releaseOrigin)
+    }
     if (minimumShell !== undefined) {
       const order = compareVersions(desktop.version, minimumShell)
       if (order === null || order < 0) {

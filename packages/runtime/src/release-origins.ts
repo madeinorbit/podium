@@ -137,6 +137,8 @@ export async function fetchFromReleaseOrigin(
   init: RequestInit = {},
   fetchImpl: typeof fetch = fetch,
 ): Promise<Response> {
+  if (!urlBelongsToReleaseDirectory(url, origin.baseUrl))
+    throw new Error('release URL is outside its origin')
   let current = url
   for (let hop = 0; ; hop++) {
     const response = await fetchImpl(current, { ...init, redirect: 'manual' })
@@ -181,14 +183,16 @@ export function createReleaseFetcher() {
         const signal = options.signal
           ? AbortSignal.any([options.signal, controller.signal])
           : controller.signal
+        const url = releaseUrl(path, origin)
+        let rejectOnAbort: (() => void) | undefined
         const timer = setTimeout(
           () => controller.abort(new Error('release origin timed out')),
           options.timeoutMs ?? 5_000,
         )
-        const url = releaseUrl(path, origin)
         try {
           const timedOut = new Promise<never>((_, reject) => {
-            signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+            rejectOnAbort = () => reject(signal.reason)
+            signal.addEventListener('abort', rejectOnAbort, { once: true })
           })
           const result = await Promise.race([
             (async () => {
@@ -218,6 +222,7 @@ export function createReleaseFetcher() {
           if (origin.id === 'mirror') mirrorRetryAt.set(fetchImpl, Date.now() + 60_000)
         } finally {
           clearTimeout(timer)
+          if (rejectOnAbort) signal.removeEventListener('abort', rejectOnAbort)
         }
       }
       throw new Error(`release unavailable (${failures.join('; ') || 'mirror cooling down'})`)

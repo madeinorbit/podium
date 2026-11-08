@@ -285,7 +285,9 @@ pub fn endpoint_for_channel(
             .map(str::to_string)
             .ok_or_else(UpdateError::updater_unavailable),
         UpdateChannel::Stable | UpdateChannel::Edge => release_origins::endpoints(channel.as_str())
-            .into_iter().next().ok_or_else(UpdateError::updater_unavailable),
+            .into_iter()
+            .next()
+            .ok_or_else(UpdateError::updater_unavailable),
     }
 }
 
@@ -427,14 +429,24 @@ fn updater_for_channel(
 ) -> Result<tauri_plugin_updater::Updater, UpdateError> {
     let config = read_config();
     let endpoints = if channel == UpdateChannel::Dev {
-        vec![endpoint_for_channel(channel, config.update_feed_endpoint.as_deref())?]
-    } else { release_origins::endpoints(channel.as_str()) };
-    let endpoints = endpoints.iter().map(|endpoint| parse_updater_endpoint(endpoint)).collect::<Result<Vec<_>, _>>()?;
+        vec![endpoint_for_channel(
+            channel,
+            config.update_feed_endpoint.as_deref(),
+        )?]
+    } else {
+        release_origins::endpoints(channel.as_str())
+    };
+    let endpoints = endpoints
+        .iter()
+        .map(|endpoint| parse_updater_endpoint(endpoint))
+        .collect::<Result<Vec<_>, _>>()?;
     app.updater_builder()
         .version_comparator(native_version_is_newer)
         .timeout(Duration::from_secs(5))
-        .manifest_transform(|endpoint, raw| release_origins::bind_manifest(endpoint, raw)
-            .map_err(tauri_plugin_updater::Error::Network))
+        .manifest_transform(|endpoint, raw| {
+            release_origins::bind_manifest(endpoint, raw)
+                .map_err(tauri_plugin_updater::Error::Network)
+        })
         .configure_client(|client| client.redirect(release_origins::redirect_policy()))
         .endpoints(endpoints)
         .and_then(|builder| builder.build())

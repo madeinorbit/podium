@@ -45,7 +45,16 @@ describe('release origin failover', () => {
     const fetchImpl = vi.fn<typeof fetch>(async (url, init) => {
       if (String(url) === releaseManifestUrl('edge')) return new Response(null, { status: 504 })
       if (String(url) === mirrorManifest) return json(release)
-      if (String(url) === mirrorDesktop) return json(desktopManifest('1.0.0'))
+      if (String(url) === mirrorDesktop)
+        return json({
+          ...desktopManifest('1.0.0'),
+          platforms: {
+            'darwin-aarch64': {
+              url: releaseUrl('download/edge/Podium.app.tar.gz', MIRROR_RELEASE_ORIGIN),
+              signature: 'DESKTOP-SIGNATURE',
+            },
+          },
+        })
       if (String(url) === artifact && init?.method === 'HEAD') return new Response(null)
       throw new Error(`unexpected URL ${url}`)
     })

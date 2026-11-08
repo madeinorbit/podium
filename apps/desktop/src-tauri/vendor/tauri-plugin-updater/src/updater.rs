@@ -128,7 +128,8 @@ impl RemoteRelease {
 
 pub type OnBeforeExit = Arc<dyn Fn() + Send + Sync + 'static>;
 pub type OnBeforeRequest = Arc<dyn Fn(ClientBuilder) -> ClientBuilder + Send + Sync + 'static>;
-pub type ManifestTransform = Arc<dyn Fn(&Url, serde_json::Value) -> Result<serde_json::Value> + Send + Sync>;
+pub type ManifestTransform =
+    Arc<dyn Fn(&Url, serde_json::Value) -> Result<serde_json::Value> + Send + Sync>;
 pub type VersionComparator = Arc<dyn Fn(Version, RemoteRelease) -> bool + Send + Sync>;
 type MainThreadClosure = Box<dyn FnOnce() + Send + Sync + 'static>;
 type RunOnMainThread =
@@ -200,7 +201,9 @@ impl UpdaterBuilder {
     /// Bind artifact references to the endpoint that served this document before parsing it.
     /// A trust refusal fails closed rather than trying a different publication.
     pub fn manifest_transform<F>(mut self, transform: F) -> Self
-    where F: Fn(&Url, serde_json::Value) -> Result<serde_json::Value> + Send + Sync + 'static {
+    where
+        F: Fn(&Url, serde_json::Value) -> Result<serde_json::Value> + Send + Sync + 'static,
+    {
         self.manifest_transform = Some(Arc::new(transform));
         self
     }

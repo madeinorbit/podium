@@ -31,3 +31,23 @@ detached signatures, digests and notes are preserved. The mirror checksum invent
 regenerated for those manifest copies. Discovery documents are uploaded after payloads.
 The two publishers never delete each other's files. Retained desktop references must exist
 on the mirror too before publishing a headless manifest that carries them forward.
+
+## Native and bootstrap adapters
+
+The desktop reads the canonical policy JSON directly through `release-origins.rs`, uses the
+ordered endpoints with a five-second timeout per endpoint, and validates each document before
+Tauri parses it. Its config has no endpoint literals; the runtime builder supplies them.
+Tauri still verifies minisign signatures. Artifact redirects use each origin's exact host set.
+
+Run `bun scripts/render-release-origins.ts` after changing policy. The marked block in
+`install.sh` is generated, not a second editable address list, and a focused test checks it.
+The bootstrap retries the payload/signature pair together, then verifies before extracting or
+running anything. Join and VPS commands fetch `install.sh` from the same ordered origin list.
+
+The remaining independent GitHub paths in `scripts/docker-update-e2e/{real-release-lane.sh,
+server-lane.sh,edge-feed.ts}` and `scripts/verify-stable-bridge-candidate.ts` are build/verification
+fixtures: they emulate or validate published GitHub releases, including historical clients.
+`scripts/carry-forward-desktop-manifest.ts` uses GitHub API release routes for publication
+inventory, not a runtime download origin. Repository homepage/issue links, historical docs,
+release-note links and test fixtures are not release-file fetchers. Headless and desktop
+publication now obtain their artifact URLs and trust fence from the shared module as well.
