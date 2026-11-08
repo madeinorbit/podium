@@ -277,7 +277,9 @@ describe('a refused task base branch (POD-2153)', () => {
     const { api } = authority(() => refused())
     const { outbox, errors } = await open(api)
     await outbox.enqueue('issueUpdate', { id: 'iss_2153', patch: { parentBranch: 'nope' } })
-    await vi.waitFor(() => expect(errors).toEqual(['Couldn’t save issue branch']))
+    await vi.waitFor(() =>
+      expect(errors).toEqual(['Couldn’t save issue branch — it was not accepted as written']),
+    )
     outbox.dispose()
   })
 })
