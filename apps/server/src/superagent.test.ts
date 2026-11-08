@@ -23,7 +23,6 @@ import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { attachDaemonWithInventory, fixtureInventory } from './test-support/daemon-inventory'
 import { assignHostMachine, attachHostDaemon } from './test-support/host-daemon'
-import { clientSessionViews } from './test-support/session-views'
 
 const item = (o: Partial<TranscriptItem>): TranscriptItem => ({
   id: 'i',
