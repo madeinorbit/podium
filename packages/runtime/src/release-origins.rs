@@ -130,7 +130,10 @@ pub fn bind_manifest(endpoint: &Url, mut raw: Value) -> Result<Value, String> {
     };
     if let Some(platforms) = raw.get_mut("platforms").and_then(Value::as_object_mut) {
         for artifact in platforms.values_mut() {
-            bind_url(&mut artifact["url"], origin)?;
+            let url = artifact
+                .get_mut("url")
+                .ok_or("invalid release artifact URL")?;
+            bind_url(url, origin)?;
         }
     }
     if let Some(downloads) = raw.get_mut("downloads").and_then(Value::as_array_mut) {
@@ -179,6 +182,9 @@ mod tests {
             let endpoint = base(origin)
                 .join(&format!("{}latest.json", origin.latest_path))
                 .unwrap();
+            assert!(
+                bind_manifest(&endpoint, serde_json::json!({"platforms":{"linux":null}})).is_err()
+            );
             for name in [
                 "download/../evil/a",
                 "download/%252e%252e/a",
